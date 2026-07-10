@@ -8,8 +8,8 @@ import {
   type CompanySortBy,
   type SortOrder,
 } from "../repositories/company.repository";
-import { findUserByIdInOrganization } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
+import { resolveOwnerId } from "./ownership.service";
 
 export interface ListCompaniesParams {
   page: number;
@@ -55,33 +55,6 @@ export async function getCompanyById(organizationId: string, id: string) {
     throw new AppError("Empresa no encontrada", 404);
   }
   return company;
-}
-
-// Si no se especifica ownerId, la empresa queda asignada a quien la crea.
-// Si se especifica, tiene que existir, ser de la misma organización y estar
-// activo — nunca se confía en un ownerId del cliente sin validarlo.
-async function resolveOwnerId(
-  organizationId: string,
-  actorUserId: string,
-  requestedOwnerId: string | undefined,
-): Promise<string> {
-  if (!requestedOwnerId) {
-    return actorUserId;
-  }
-
-  const owner = await findUserByIdInOrganization(
-    requestedOwnerId,
-    organizationId,
-  );
-
-  if (!owner) {
-    throw new AppError(
-      "El usuario indicado en ownerId no existe, no pertenece a tu organización, o está desactivado",
-      400,
-    );
-  }
-
-  return owner.id;
 }
 
 export interface CreateCompanyInput {

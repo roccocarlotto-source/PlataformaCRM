@@ -11,9 +11,9 @@ de autenticación y onboarding, ver
 > Estado actual: infraestructura base + autenticación (`authenticate`/`authorize`,
 > verificados contra logins reales de Supabase vía JWKS/ES256) + conexión real a
 > Supabase (migración inicial, `manual_constraints.sql` y RLS aplicados, catálogo
-> `Role` sembrado) + `POST /api/onboarding` + **módulo `Company` completo** (CRUD,
-> soft delete, paginación/búsqueda/filtro/orden), primer módulo de referencia del
-> CRM. Sin `Contact`/`Opportunity`/`Activity` ni invitaciones todavía — ver la
+> `Role` sembrado) + `POST /api/onboarding` + **módulos `Company` y `Contact`
+> completos** (CRUD, soft delete, paginación/búsqueda/filtro/orden), mismo patrón
+> en los dos. Sin `Opportunity`/`Activity` ni invitaciones todavía — ver la
 > sección "Estado de implementación" al inicio de
 > `docs/authentication-architecture.md`.
 
@@ -111,7 +111,8 @@ src/
   ni acceden a Prisma directamente. El schema de validación de Zod de cada endpoint
   vive acá (co-ubicado con quien lo usa, igual que `config/env.ts` usa Zod inline).
   Archivos reales: `onboarding.controller.ts`, `company.controller.ts` (módulo de
-  referencia — 5 endpoints, create/update tipados con `AuthenticatedRequest`).
+  referencia — 5 endpoints, create/update tipados con `AuthenticatedRequest`),
+  `contact.controller.ts` (mismo esqueleto que `company.controller.ts`).
 
 - **`src/services/`** — lógica de aplicación: orquestan reglas de negocio y llaman a
   `repositories` (o, para infraestructura como el health check, hablan directo con
@@ -120,8 +121,11 @@ src/
   reales: `auth.service.ts` (`resolveAuthContext`, usado por
   `middlewares/authenticate.ts`), `onboarding.service.ts` (`onboardOrganization` —
   coordina Supabase Auth + una transacción de Prisma, con compensación si la
-  transacción falla), y `company.service.ts` (CRUD + paginación + resolución de
-  `ownerId`, ver docstring de `resolveOwnerId`).
+  transacción falla), `ownership.service.ts` (`resolveOwnerId` — validación de
+  `ownerId` compartida entre `Company` y `Contact`, extraída para no duplicarla),
+  `company.service.ts` y `contact.service.ts` (CRUD + paginación; `contact.service.ts`
+  además valida `companyId` reutilizando `findCompanyById` de
+  `company.repository.ts`, y normaliza el email a minúsculas antes de guardar).
 
 - **`src/repositories/`** — capa de acceso a datos: cada entidad tiene acá sus
   funciones de consulta/escritura sobre Prisma. Todas aceptan un parámetro `db`
@@ -131,13 +135,15 @@ src/
   (`findOrganizationBySlug`, `createOrganization`), `role.repository.ts`
   (`findRoleByName`), `company.repository.ts` (CRUD + `findMany`/`count` con
   filtros de búsqueda/industria/owner y orden, siempre con `organizationId` +
-  `deletedAt: null`).
+  `deletedAt: null`), `contact.repository.ts` (mismo esqueleto; el filtro `search`
+  arma un `OR` entre firstName/lastName/email que convive con los filtros
+  específicos en el mismo `where` — Prisma los combina con AND implícito).
 
 - **`src/routes/`** — define las rutas HTTP y las conecta con su `controller`.
   `index.ts` agrega todos los routers de la aplicación en uno solo. `/health` sin
-  prefijo; `onboarding.routes.ts` (público) y `company.routes.ts` (protegido,
-  lectura con `authenticate`, escritura con `authenticate` + `authorize("ADMIN")`)
-  bajo `/api`.
+  prefijo; `onboarding.routes.ts` (público), `company.routes.ts` y
+  `contact.routes.ts` (protegidos, lectura con `authenticate`, escritura con
+  `authenticate` + `authorize("ADMIN")`) bajo `/api`.
 
 - **`src/app.ts`** — arma la instancia de Express: registra middlewares (seguridad,
   CORS, compresión, parseo de body, logging de requests), monta las rutas, y al

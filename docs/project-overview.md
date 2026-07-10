@@ -107,15 +107,20 @@ Plataforma CRM/
     │                                 #   (parseOrThrow), slug.ts.
     ├── middlewares/                 # notFound.ts, errorHandler.ts, authenticate.ts,
     │                                 #   authorize.ts.
-    ├── controllers/                 # onboarding.controller.ts, company.controller.ts.
+    ├── controllers/                 # onboarding.controller.ts, company.controller.ts,
+    │                                 #   contact.controller.ts.
     ├── services/                    # auth.service.ts, onboarding.service.ts,
-    │                                 #   company.service.ts.
+    │                                 #   ownership.service.ts (resolveOwnerId,
+    │                                 #   compartido entre Company y Contact),
+    │                                 #   company.service.ts, contact.service.ts.
     ├── repositories/                # user.repository.ts, organization.repository.ts,
-    │                                 #   role.repository.ts, company.repository.ts —
-    │                                 #   ver README.md para el patrón de tres capas.
+    │                                 #   role.repository.ts, company.repository.ts,
+    │                                 #   contact.repository.ts — ver README.md para
+    │                                 #   el patrón de tres capas.
     ├── routes/                      # health.routes.ts (sin prefijo), index.ts
-    │                                 #   agregador, onboarding.routes.ts y
-    │                                 #   company.routes.ts (bajo /api).
+    │                                 #   agregador, onboarding.routes.ts,
+    │                                 #   company.routes.ts y contact.routes.ts
+    │                                 #   (bajo /api).
     ├── app.ts                       # arma Express, no escucha puerto.
     └── server.ts                    # entry point + graceful shutdown.
 ```
@@ -409,16 +414,25 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   montada sobre rutas reales (`/api/companies`), verificada contra logins reales.
 - ✅ `POST /api/onboarding` — único registro público del sistema. Ver detalle en
   `docs/authentication-architecture.md` sección 1.
-- ✅ **Módulo `Company` completo** — primer módulo de negocio del CRM, pensado como
-  referencia para `Contact`/`Opportunity`/`Activity`. CRUD + soft delete + listado
-  paginado con búsqueda por nombre, filtro por industria y por `ownerId`, y
-  ordenamiento. `organizationId` siempre desde `req.auth`, nunca del cliente.
-  `ownerId` opcional (default: quien crea) validado contra la misma organización y
-  `isActive`. Lectura con `authenticate`, escritura con `authenticate` +
-  `authorize("ADMIN")`. Ver `src/services/company.service.ts`,
-  `src/repositories/company.repository.ts`,
-  `src/controllers/company.controller.ts`.
-- ❌ `Contact`, `Opportunity`, `Activity`, invitaciones — todavía no implementados.
+- ✅ **Módulo `Company` completo** — primer módulo de negocio del CRM, módulo de
+  referencia. CRUD + soft delete + listado paginado con búsqueda por nombre, filtro
+  por industria y por `ownerId`, y ordenamiento. `organizationId` siempre desde
+  `req.auth`, nunca del cliente. `ownerId` opcional (default: quien crea) validado
+  contra la misma organización y `isActive`. Lectura con `authenticate`, escritura
+  con `authenticate` + `authorize("ADMIN")`.
+- ✅ **Módulo `Contact` completo** — mismo patrón exacto que `Company` (mismo
+  esqueleto de repository/service/controller/routes). Además: `companyId` opcional
+  validado (existe, misma organización, no eliminada — reutiliza
+  `findCompanyById` de `company.repository.ts` sin duplicar lógica), `ownerId`
+  reutiliza `resolveOwnerId` ahora extraído a `src/services/ownership.service.ts`
+  (compartido con `Company`), búsqueda global (`search`, OR entre
+  firstName/lastName/email) combinable con filtros específicos
+  (`firstName`/`lastName`/`email`/`companyId`/`ownerId`/`lifecycleStage`/`source`)
+  en AND, y email normalizado a minúsculas antes de guardar para que la constraint
+  de unicidad `contacts_org_email_unique` (ya existente en la base) detecte
+  duplicados sin importar mayúsculas — violaciones de esa constraint se traducen a
+  `409`, no a un `500` crudo.
+- ❌ `Opportunity`, `Activity`, invitaciones — todavía no implementados.
 
 **Frontend**
 - ❌ No existe ningún código de frontend en este repositorio.
@@ -451,7 +465,8 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 **API**
 - ✅ `POST /api/onboarding` (público).
 - ✅ `Company`: `POST/GET/GET :id/PATCH/DELETE /api/companies` (protegidos).
-- ❌ `Contact`, `Opportunity`, `Activity` — todavía no implementados.
+- ✅ `Contact`: `POST/GET/GET :id/PATCH/DELETE /api/contacts` (protegidos).
+- ❌ `Opportunity`, `Activity` — todavía no implementados.
 
 **Seguridad**
 - ✅ `.env` correctamente excluido de git; `SUPABASE_SERVICE_ROLE_KEY` documentada
@@ -471,18 +486,22 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 
 Orden de dependencia real. Los pasos que ya se completaron (git, `npm install`,
 scaffold de Express, middleware de auth, provisionar Supabase, migración inicial,
-`manual_constraints.sql`, RLS, seed de roles, endpoint de onboarding, módulo
-`Company`, corrección JWT ES256) se sacaron de esta lista — quedan documentados en
-la sección 7.
+`manual_constraints.sql`, RLS, seed de roles, endpoint de onboarding, módulos
+`Company` y `Contact`, corrección JWT ES256) se sacaron de esta lista — quedan
+documentados en la sección 7.
 
-1. **Implementar `Contact` y `Opportunity` siguiendo el patrón de `Company`**
-   (`src/repositories/company.repository.ts`,
-   `src/services/company.service.ts`, `src/controllers/company.controller.ts` como
-   referencia directa) — mismo criterio de `organizationId` desde `req.auth`,
-   soft delete, paginación/búsqueda/filtro/orden, `authorize("ADMIN")` solo en
-   escritura. `Opportunity` va a necesitar además validar `pipelineId`/`stageId`
-   contra la organización, y el `CHECK` de company_id/contact_id ya existente en
-   la base.
+1. **Implementar `Opportunity` siguiendo el patrón de `Company`/`Contact`**
+   (`src/repositories/contact.repository.ts`, `src/services/contact.service.ts`,
+   `src/controllers/contact.controller.ts` como referencia más directa, por tener
+   también validación de relaciones opcionales) — mismo criterio de
+   `organizationId` desde `req.auth`, soft delete, paginación/búsqueda/filtro/
+   orden, `authorize("ADMIN")` solo en escritura, y reutilizar
+   `resolveOwnerId` de `src/services/ownership.service.ts` para `ownerId`. Además
+   va a necesitar validar `pipelineId`/`stageId` contra la organización (mismo
+   patrón que `findCompanyById` para `companyId` en `Contact`), y respetar el
+   `CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL)` ya existente en la
+   base — probablemente conviene exigir al menos uno de los dos en el schema de
+   Zod, para no depender de que Postgres rechace el insert.
 
 2. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
    `deletedAt` en `User` (sección 8, recomendación 2 de ese doc) y la entidad
