@@ -1,14 +1,19 @@
 # Arquitectura de Autenticación y Onboarding — Plataforma CRM
 
 > Última actualización: 2026-07-10.
-> Este documento es un diseño de arquitectura. **No hay código de aplicación escrito
-> todavía** — ni el trigger de creación de `public.users`, ni el endpoint de
-> aceptación de invitación, ni el middleware, ni la tabla `invitations`. Todo lo que
-> sigue es la especificación a implementar, revisada y aprobada antes de escribir el
-> primer endpoint. Complementa a [`project-overview.md`](./project-overview.md), que
-> describe el estado general del proyecto y el modelo de datos ya existente
-> (`Organization`, `Role`, `User`, `Company`, `Contact`, `Pipeline`, `Stage`,
-> `Opportunity`, `Activity`).
+> Este documento es un diseño de arquitectura. Complementa a
+> [`project-overview.md`](./project-overview.md), que describe el estado general del
+> proyecto y el modelo de datos ya existente (`Organization`, `Role`, `User`,
+> `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity`).
+>
+> **Estado de implementación**: la **sección 4** (middleware de autenticación y
+> autorización) ya está construida — ver `src/middlewares/authenticate.ts`,
+> `src/middlewares/authorize.ts`, `src/services/auth.service.ts`,
+> `src/repositories/user.repository.ts`, `src/lib/jwt.ts` y `src/types/auth.ts`. No
+> están montados sobre ninguna ruta todavía porque no hay rutas de negocio. **Todo lo
+> demás sigue siendo diseño, no código**: el trigger de creación de `public.users`
+> (sección 1), la tabla `Invitation` y su flujo (sección 2), y cualquier endpoint de
+> login/registro/invitación.
 
 ## Principio rector
 
@@ -254,8 +259,24 @@ Puntos a resaltar que no son obvios en el diagrama:
 
 ## 4. Middleware del backend
 
-Diseño conceptual (sin código) del middleware que se ejecuta antes de cualquier ruta
-de negocio protegida:
+> ✅ **Implementado.** Mapeo diseño → código:
+> - Pasos 1-3 (extraer token, verificar JWT, extraer `sub`/`email`) →
+>   `src/lib/jwt.ts` (`verifySupabaseJwt`).
+> - Paso 4 (resolver contra Postgres, con los tres resultados posibles) →
+>   `src/repositories/user.repository.ts` (`findUserForAuth`) +
+>   `src/services/auth.service.ts` (`resolveAuthContext`, que aplica las tres reglas).
+> - Paso 5 (inyectar el contexto en el request) →
+>   `src/middlewares/authenticate.ts` (adjunta `req.auth`, tipado en
+>   `src/types/auth.ts`).
+> - Paso 6 (autorización de grano fino, segundo middleware) →
+>   `src/middlewares/authorize.ts` (`authorize(...roles)`, hoy solo `ADMIN`/`USER`,
+>   sin permisos granulares).
+>
+> Ninguno de los dos middlewares está montado sobre una ruta real todavía — son
+> exports reutilizables a la espera del primer endpoint protegido.
+
+Diseño conceptual del middleware que se ejecuta antes de cualquier ruta de negocio
+protegida:
 
 1. **Extraer el token.** Leer el header `Authorization`, exigir formato
    `Bearer <token>`. Si falta o el formato es inválido → `401`.
