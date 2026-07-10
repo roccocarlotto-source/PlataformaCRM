@@ -90,9 +90,12 @@ Plataforma CRM/
 ├── prisma/
 │   ├── schema.prisma               # 7 modelos + 3 enums (ver sección 4).
 │   ├── seed.ts                     # Seed idempotente del catálogo Role (ADMIN/USER).
-│   ├── migrations/20260710203208_init/  # Migración inicial, aplicada a la base real.
+│   ├── migrations/                  # Inicial + la que agrega organizationId/deletedAt
+│   │                                 #   a Stage.
 │   └── sql/
-│       ├── manual_constraints.sql   # Triggers de sync de email, constraints manuales.
+│       ├── manual_constraints.sql   # Triggers de sync de email, constraints manuales,
+│       │                             #   índices únicos parciales (incluye los 4 de
+│       │                             #   Stage y el fix de pipelines_org_default_unique).
 │       └── rls_policies.sql         # Row Level Security — ver sección 7 y
 │                                     #   authentication-architecture.md sección 5.
 └── src/
@@ -108,18 +111,22 @@ Plataforma CRM/
     ├── middlewares/                 # notFound.ts, errorHandler.ts, authenticate.ts,
     │                                 #   authorize.ts.
     ├── controllers/                 # onboarding.controller.ts, company.controller.ts,
-    │                                 #   contact.controller.ts.
+    │                                 #   contact.controller.ts, pipeline.controller.ts,
+    │                                 #   stage.controller.ts.
     ├── services/                    # auth.service.ts, onboarding.service.ts,
     │                                 #   ownership.service.ts (resolveOwnerId,
     │                                 #   compartido entre Company y Contact),
-    │                                 #   company.service.ts, contact.service.ts.
+    │                                 #   company.service.ts, contact.service.ts,
+    │                                 #   pipeline.service.ts, stage.service.ts.
     ├── repositories/                # user.repository.ts, organization.repository.ts,
     │                                 #   role.repository.ts, company.repository.ts,
-    │                                 #   contact.repository.ts — ver README.md para
-    │                                 #   el patrón de tres capas.
+    │                                 #   contact.repository.ts, pipeline.repository.ts,
+    │                                 #   stage.repository.ts (reindexado de order) —
+    │                                 #   ver README.md para el patrón de tres capas.
     ├── routes/                      # health.routes.ts (sin prefijo), index.ts
     │                                 #   agregador, onboarding.routes.ts,
-    │                                 #   company.routes.ts y contact.routes.ts
+    │                                 #   company.routes.ts, contact.routes.ts,
+    │                                 #   pipeline.routes.ts y stage.routes.ts
     │                                 #   (bajo /api).
     ├── app.ts                       # arma Express, no escucha puerto.
     └── server.ts                    # entry point + graceful shutdown.
@@ -192,25 +199,58 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   soporta índices únicos parciales.
 
 ### `Pipeline`
-- **Propósito**: proceso de ventas de una organización.
+- **Propósito**: proceso de ventas de una organización. ✅ Módulo completo
+  (`POST/GET/GET :id/PATCH/DELETE /api/pipelines`).
 - **Relaciones**: pertenece a `Organization`. Tiene `Stage[]` y `Opportunity[]`.
 - **Decisiones importantes**: el comentario dice "MVP: uno por organización", pero **el
   modelo ya soporta múltiples pipelines por organización** (`@@unique([organizationId,
   name])`, no un único pipeline). `isDefault` con índice único parcial (`WHERE
-  is_default = true`) garantiza a lo sumo un pipeline default por organización — esto
-  es una decisión de modelo que anticipa multi-pipeline aunque el MVP no lo exponga
-  todavía.
+  is_default = true AND deleted_at IS NULL`) garantiza a lo sumo un pipeline default
+  por organización — **corregido** durante la implementación de `Pipeline`/`Stage`:
+  originalmente no excluía filas borradas, lo que dejaba a una organización sin poder
+  tener nunca más un default si el que tenía se borraba. Marcar un pipeline como
+  default desmarca automáticamente el anterior (mismo orden: desmarcar primero,
+  marcar después, para no violar el índice ni por un instante). No se permite
+  eliminar el último pipeline activo de una organización; si se elimina el pipeline
+  default (quedando otros), se promueve automáticamente el más antiguo restante.
 
 ### `Stage`
 - **Propósito**: etapa ordenada dentro de un `Pipeline` (ej. "Prospecto", "Negociación",
-  "Cerrado ganado").
-- **Relaciones**: pertenece a `Pipeline` (`onDelete: Cascade` — si se borra el pipeline,
-  se borran sus etapas). Tiene `Opportunity[]`.
-- **Decisiones importantes**: `probability` (probabilidad de cierre por etapa),
-  `isWon`/`isLost` con `CHECK` constraint que impide que ambos sean `true` a la vez
-  (`stages_won_lost_exclusive_check`, en `manual_constraints.sql`). Único
-  `(pipelineId, order)` y `(pipelineId, name)`. **No tiene `deletedAt`** (soft delete
-  no aplica aquí — ver riesgos).
+  "Cerrado ganado"). ✅ Módulo completo (`POST/GET/GET :id/PATCH/DELETE /api/stages`).
+- **Relaciones**: pertenece a `Organization` y a `Pipeline` (`onDelete: Cascade` — si
+  se borra el pipeline en la base, se borran sus etapas). Tiene `Opportunity[]`.
+- **Decisiones importantes**:
+  - `organizationId` **agregado** (denormalizado desde `pipeline.organizationId`)
+    durante la implementación de este módulo — antes era la única entidad de negocio
+    sin `organizationId` propio, lo que obligaba a resolver el aislamiento
+    multi-tenant vía join a `Pipeline` en cada query y en la política de RLS. Un stage
+    nunca cambia de organización (no se permite mover un stage a otro pipeline vía la
+    API), así que la denormalización no puede desincronizarse en la práctica.
+  - `deletedAt` **agregado** (antes no tenía soft delete) — necesario porque
+    `Opportunity.stageId` es obligatorio: un hard delete de un `Stage` referenciado
+    por una `Opportunity` violaría integridad referencial. Resuelve el riesgo que ya
+    estaba señalado en este documento.
+  - Único `(pipelineId, order)` y `(pipelineId, name)`, y **nuevo**: único
+    `(pipelineId) WHERE is_won = true` y `(pipelineId) WHERE is_lost = true` — a lo
+    sumo una etapa ganada y una perdida por pipeline. Los cuatro son índices únicos
+    parciales `WHERE deleted_at IS NULL` (`manual_constraints.sql`) — antes `(pipelineId,
+    order)` y `(pipelineId, name)` eran constraints nativas de Prisma; se convirtieron
+    a parciales para que una etapa borrada libere su `order`/`name`.
+  - `probability` (probabilidad de cierre por etapa), `isWon`/`isLost` con `CHECK`
+    que impide que ambos sean `true` a la vez (`stages_won_lost_exclusive_check`).
+  - **Reordenamiento automático**: crear, actualizar el `order`, o borrar una etapa
+    recalcula el `order` de sus hermanas para no dejar huecos ni duplicados — ver
+    `src/repositories/stage.repository.ts` (`shiftUpFrom`, `shiftDownAfter`,
+    `reindexStages`). El caso general (mover una etapa existente) usa un reindexado en
+    dos fases (offset negativo, después el valor final) dentro de una transacción,
+    porque la constraint única se evalúa por statement — un intercambio directo entre
+    dos filas chocaría contra ella a mitad de camino.
+  - **Nota para `Opportunity` (próximo módulo)**: un `Pipeline` debería tener al menos
+    un `Stage` antes de poder usarse para crear `Opportunity` (que requiere
+    `stageId`). Esa restricción **no está implementada** todavía — se dejó
+    deliberadamente fuera de este módulo para no complejizarlo; hay que resolverla al
+    construir `Opportunity` (ya sea validando ahí, o agregándola después a
+    `Pipeline`/`Stage` si hiciera falta).
 
 ### `Opportunity`
 - **Propósito**: una venta en curso (deal).
@@ -266,9 +306,12 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   documentado.
 
 - **Soft delete (`deletedAt`) en la mayoría de las entidades, pero no en todas.**
-  `Organization`, `Company`, `Contact`, `Pipeline`, `Opportunity`, `Activity` lo tienen;
-  `User`, `Role`, `Stage` no. No hay documentación en el repo de si esto es intencional
-  o un pendiente — está marcado como punto a vigilar en la sección 9.
+  `Organization`, `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity`
+  lo tienen; `User` y `Role` no. `Stage` lo agregó durante la implementación de
+  `Pipeline`/`Stage` — antes era la única excepción entre las entidades con
+  `organizationId` propio (ver sección 4), y quedaba señalado como riesgo en la
+  sección 9. La asimetría restante (`User`, `Role`) sigue siendo un pendiente, no
+  resuelto en esta tarea.
 
 - **Roles simples y globales, no permisos granulares.** `Role` es un catálogo sin scope
   por organización, explícitamente diseñado para poder agregar
@@ -396,15 +439,20 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   real.
 
 **Base de datos**
-- ✅ `schema.prisma` completo: 7 modelos, 3 enums, relaciones, índices.
-- ✅ Migración inicial generada y aplicada (`prisma/migrations/20260710203208_init`)
-  — el schema ya está sincronizado con la base real de Supabase.
+- ✅ `schema.prisma` completo: 7 modelos, 3 enums, relaciones, índices. `Stage` ganó
+  `organizationId` y `deletedAt` en la migración de este módulo (ver sección 4).
+- ✅ Dos migraciones aplicadas contra la base real (inicial + la de `Stage`) — el
+  schema está sincronizado con Supabase.
 - ✅ `manual_constraints.sql` aplicado y verificado contra la base (2 triggers de
-  sync de email, 4 `CHECK` constraints, 2 índices únicos parciales).
+  sync de email, 4 `CHECK` constraints, 6 índices únicos parciales — los 4 nuevos de
+  `Stage`, más el fix de `pipelines_org_default_unique` para que ignore filas
+  borradas).
 - ✅ `prisma/sql/rls_policies.sql` aplicado y verificado: Row Level Security
   habilitado en las 9 tablas de negocio, con políticas de aislamiento por
-  `organization_id` (ver sección 5 de `authentication-architecture.md` para la
-  justificación de por qué es una defensa secundaria, no la principal).
+  `organization_id` uniformes en todas (la de `stages` se simplificó al agregarle
+  `organizationId` propio — ya no necesita el join a `pipelines` que tenía antes) —
+  ver sección 5 de `authentication-architecture.md` para la justificación de por qué
+  es una defensa secundaria, no la principal.
 - ✅ Seed inicial del catálogo `Role` (`ADMIN`, `USER`) vía `prisma/seed.ts`
   (`npm run prisma:seed`), idempotente.
 
@@ -432,6 +480,18 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   de unicidad `contacts_org_email_unique` (ya existente en la base) detecte
   duplicados sin importar mayúsculas — violaciones de esa constraint se traducen a
   `409`, no a un `500` crudo.
+- ✅ **Módulos `Pipeline` y `Stage` completos** — dejan el terreno listo para que
+  `Opportunity` se construya sobre ellos. `Pipeline`: `isDefault` con auto-swap
+  (desmarca el anterior antes de marcar el nuevo, nunca al revés, para no violar el
+  índice único ni por un instante), no se puede borrar el último pipeline activo de
+  la organización, y al borrar el default se auto-promueve el más antiguo restante.
+  `Stage`: `organizationId` propio (agregado en este módulo), `pipelineId` validado
+  contra la organización (reutiliza `findPipelineById`), `probability` 0–100, a lo
+  sumo una etapa ganada y una perdida por pipeline (`409` si se repite), nombre único
+  por pipeline, y **reordenamiento automático** sin huecos ni duplicados al crear
+  (inserta y corre a los siguientes), actualizar `order` (reindexado en dos fases
+  dentro de una transacción), o borrar (cierra el hueco) — ver
+  `src/repositories/stage.repository.ts`.
 - ❌ `Opportunity`, `Activity`, invitaciones — todavía no implementados.
 
 **Frontend**
@@ -466,6 +526,8 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 - ✅ `POST /api/onboarding` (público).
 - ✅ `Company`: `POST/GET/GET :id/PATCH/DELETE /api/companies` (protegidos).
 - ✅ `Contact`: `POST/GET/GET :id/PATCH/DELETE /api/contacts` (protegidos).
+- ✅ `Pipeline`: `POST/GET/GET :id/PATCH/DELETE /api/pipelines` (protegidos).
+- ✅ `Stage`: `POST/GET/GET :id/PATCH/DELETE /api/stages` (protegidos).
 - ❌ `Opportunity`, `Activity` — todavía no implementados.
 
 **Seguridad**
@@ -487,21 +549,27 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 Orden de dependencia real. Los pasos que ya se completaron (git, `npm install`,
 scaffold de Express, middleware de auth, provisionar Supabase, migración inicial,
 `manual_constraints.sql`, RLS, seed de roles, endpoint de onboarding, módulos
-`Company` y `Contact`, corrección JWT ES256) se sacaron de esta lista — quedan
-documentados en la sección 7.
+`Company`, `Contact`, `Pipeline` y `Stage`, corrección JWT ES256) se sacaron de esta
+lista — quedan documentados en la sección 7.
 
-1. **Implementar `Opportunity` siguiendo el patrón de `Company`/`Contact`**
-   (`src/repositories/contact.repository.ts`, `src/services/contact.service.ts`,
-   `src/controllers/contact.controller.ts` como referencia más directa, por tener
-   también validación de relaciones opcionales) — mismo criterio de
-   `organizationId` desde `req.auth`, soft delete, paginación/búsqueda/filtro/
-   orden, `authorize("ADMIN")` solo en escritura, y reutilizar
-   `resolveOwnerId` de `src/services/ownership.service.ts` para `ownerId`. Además
-   va a necesitar validar `pipelineId`/`stageId` contra la organización (mismo
-   patrón que `findCompanyById` para `companyId` en `Contact`), y respetar el
-   `CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL)` ya existente en la
-   base — probablemente conviene exigir al menos uno de los dos en el schema de
-   Zod, para no depender de que Postgres rechace el insert.
+1. **Implementar `Opportunity`**, ahora que `Pipeline`/`Stage` están listos. Referencia
+   directa: `contact.repository.ts`/`contact.service.ts`/`contact.controller.ts`
+   (validación de relaciones opcionales) + `stage.repository.ts` (constraints de
+   unicidad con `Prisma.PrismaClientKnownRequestError`/P2002). Mismo criterio de
+   `organizationId` desde `req.auth`, soft delete, paginación/búsqueda/filtro/orden,
+   `authorize("ADMIN")` solo en escritura, `resolveOwnerId` de
+   `ownership.service.ts` para `ownerId`. Específico de `Opportunity`:
+   - Validar `pipelineId` y `stageId` contra la organización (mismo patrón que
+     `findCompanyById` para `companyId` en `Contact`), y que el `stageId` pertenezca
+     al `pipelineId` indicado (un stage es de un solo pipeline, pero nada impide
+     hoy mandar un `stageId` de un pipeline distinto al `pipelineId` del body).
+   - Respetar el `CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL)` ya
+     existente en la base — conviene exigir al menos uno de los dos en el schema de
+     Zod, para no depender de que Postgres rechace el insert.
+   - **Pendiente sin resolver, señalado en la sección 4**: no hay validación de que
+     el `Pipeline` elegido tenga al menos un `Stage` — hoy es posible crear un
+     `Opportunity` contra un pipeline vacío si `stageId` no se valida bien. Definir
+     al construir este módulo.
 
 2. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
    `deletedAt` en `User` (sección 8, recomendación 2 de ese doc) y la entidad
@@ -558,12 +626,14 @@ documentados en la sección 7.
   compartida, y ya está resuelto en el diseño (sección 2) con un orden de
   operaciones análogo.
 
-- **Asimetría en soft delete.** `Organization`, `Company`, `Contact`, `Pipeline`,
-  `Opportunity`, `Activity` tienen `deletedAt`; `User`, `Role`, `Stage` no. No hay
-  documentación de si es intencional. Si en algún momento hay que "desactivar" un
-  usuario o reordenar/eliminar una etapa de pipeline sin perder el historial de
-  oportunidades que la referencian, hoy no hay mecanismo — vale la pena decidirlo
-  explícitamente antes de que haya datos reales en producción.
+- **Asimetría en soft delete — parcialmente resuelta.** `Stage` ya tiene `deletedAt`
+  (agregado en el módulo `Pipeline`/`Stage`, ver sección 4) — el caso concreto que
+  motivaba este riesgo (borrar una etapa sin perder el historial de oportunidades que
+  la referencian) ya está resuelto. Queda pendiente `User`/`Role`, que siguen sin
+  `deletedAt`; para `User` sigue siendo relevante por la misma razón (`Opportunity`/
+  `Activity` referencian usuarios). No hay bloqueante técnico para agregarlo, es la
+  misma recomendación 2 de `authentication-architecture.md` sección 8, todavía sin
+  implementar.
 
 - **Las constraints SQL manuales y las políticas de RLS no están versionadas junto
   con las migraciones de Prisma.** Tanto `manual_constraints.sql` como

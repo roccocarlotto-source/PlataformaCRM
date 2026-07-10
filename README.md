@@ -10,11 +10,12 @@ de autenticación y onboarding, ver
 
 > Estado actual: infraestructura base + autenticación (`authenticate`/`authorize`,
 > verificados contra logins reales de Supabase vía JWKS/ES256) + conexión real a
-> Supabase (migración inicial, `manual_constraints.sql` y RLS aplicados, catálogo
-> `Role` sembrado) + `POST /api/onboarding` + **módulos `Company` y `Contact`
-> completos** (CRUD, soft delete, paginación/búsqueda/filtro/orden), mismo patrón
-> en los dos. Sin `Opportunity`/`Activity` ni invitaciones todavía — ver la
-> sección "Estado de implementación" al inicio de
+> Supabase (migraciones, `manual_constraints.sql` y RLS aplicados, catálogo `Role`
+> sembrado) + `POST /api/onboarding` + **módulos `Company`, `Contact`, `Pipeline` y
+> `Stage` completos** (CRUD, soft delete, paginación). `Pipeline`/`Stage` dejan el
+> terreno listo para `Opportunity`: `isDefault` con auto-swap, reordenamiento
+> automático de `Stage` sin huecos ni duplicados. Sin `Opportunity`/`Activity` ni
+> invitaciones todavía — ver la sección "Estado de implementación" al inicio de
 > `docs/authentication-architecture.md`.
 
 ## Quickstart
@@ -112,7 +113,8 @@ src/
   vive acá (co-ubicado con quien lo usa, igual que `config/env.ts` usa Zod inline).
   Archivos reales: `onboarding.controller.ts`, `company.controller.ts` (módulo de
   referencia — 5 endpoints, create/update tipados con `AuthenticatedRequest`),
-  `contact.controller.ts` (mismo esqueleto que `company.controller.ts`).
+  `contact.controller.ts`, `pipeline.controller.ts`, `stage.controller.ts` (mismo
+  esqueleto en los cuatro).
 
 - **`src/services/`** — lógica de aplicación: orquestan reglas de negocio y llaman a
   `repositories` (o, para infraestructura como el health check, hablan directo con
@@ -125,7 +127,10 @@ src/
   `ownerId` compartida entre `Company` y `Contact`, extraída para no duplicarla),
   `company.service.ts` y `contact.service.ts` (CRUD + paginación; `contact.service.ts`
   además valida `companyId` reutilizando `findCompanyById` de
-  `company.repository.ts`, y normaliza el email a minúsculas antes de guardar).
+  `company.repository.ts`, y normaliza el email a minúsculas antes de guardar),
+  `pipeline.service.ts` (maneja `isDefault`: desmarca el anterior antes de marcar el
+  nuevo, nunca al revés) y `stage.service.ts` (reordenamiento automático de `order`
+  — ver `stage.repository.ts` para el detalle del algoritmo).
 
 - **`src/repositories/`** — capa de acceso a datos: cada entidad tiene acá sus
   funciones de consulta/escritura sobre Prisma. Todas aceptan un parámetro `db`
@@ -137,13 +142,19 @@ src/
   filtros de búsqueda/industria/owner y orden, siempre con `organizationId` +
   `deletedAt: null`), `contact.repository.ts` (mismo esqueleto; el filtro `search`
   arma un `OR` entre firstName/lastName/email que convive con los filtros
-  específicos en el mismo `where` — Prisma los combina con AND implícito).
+  específicos en el mismo `where` — Prisma los combina con AND implícito),
+  `pipeline.repository.ts` (incluye `unsetDefaultPipeline`,
+  `findOldestActivePipeline` para la promoción automática de default) y
+  `stage.repository.ts` (`shiftUpFrom`/`shiftDownAfter`/`reindexStages` — sin
+  `db` por default a propósito, siempre corren dentro de una transacción del
+  service, nunca sueltas).
 
 - **`src/routes/`** — define las rutas HTTP y las conecta con su `controller`.
   `index.ts` agrega todos los routers de la aplicación en uno solo. `/health` sin
-  prefijo; `onboarding.routes.ts` (público), `company.routes.ts` y
-  `contact.routes.ts` (protegidos, lectura con `authenticate`, escritura con
-  `authenticate` + `authorize("ADMIN")`) bajo `/api`.
+  prefijo; `onboarding.routes.ts` (público), `company.routes.ts`,
+  `contact.routes.ts`, `pipeline.routes.ts` y `stage.routes.ts` (protegidos,
+  lectura con `authenticate`, escritura con `authenticate` + `authorize("ADMIN")`)
+  bajo `/api`.
 
 - **`src/app.ts`** — arma la instancia de Express: registra middlewares (seguridad,
   CORS, compresión, parseo de body, logging de requests), monta las rutas, y al

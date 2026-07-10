@@ -94,25 +94,12 @@ create policy activities_isolation on public.activities
   using (organization_id = public.current_organization_id())
   with check (organization_id = public.current_organization_id());
 
--- ---------------------------------------------------------------------------
--- stages — no tiene organization_id propio (cuelga de pipelines), se
--- resuelve la organización a través de un join a pipelines.
--- ---------------------------------------------------------------------------
+-- stages ahora tiene organization_id propio (denormalizado desde
+-- pipeline.organizationId, ver schema.prisma) — mismo patrón uniforme que
+-- el resto de las tablas, ya no hace falta el join a pipelines que tenía
+-- esta política antes.
 alter table public.stages enable row level security;
-
 create policy stages_isolation on public.stages
   for all
-  using (
-    exists (
-      select 1 from public.pipelines p
-      where p.id = stages.pipeline_id
-        and p.organization_id = public.current_organization_id()
-    )
-  )
-  with check (
-    exists (
-      select 1 from public.pipelines p
-      where p.id = stages.pipeline_id
-        and p.organization_id = public.current_organization_id()
-    )
-  );
+  using (organization_id = public.current_organization_id())
+  with check (organization_id = public.current_organization_id());

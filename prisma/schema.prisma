@@ -52,6 +52,7 @@ model Organization {
   contacts      Contact[]
   opportunities Opportunity[]
   pipelines     Pipeline[]
+  stages        Stage[]
   activities    Activity[]
 
   @@index([deletedAt])
@@ -200,25 +201,36 @@ model Pipeline {
 }
 
 // ---------------------------------------------------------------------------
-// Stage — etapa ordenada dentro de un Pipeline
+// Stage — etapa ordenada dentro de un Pipeline.
+// organizationId denormalizado desde pipeline.organizationId (un stage nunca
+// cambia de organización): evita depender de un join a Pipeline en cada
+// query y en la política de RLS, igual que el resto de las entidades.
+// deletedAt: soft delete, igual criterio que Company/Contact/Pipeline —
+// necesario para que Opportunity (stageId obligatorio) pueda referenciar
+// stages sin arriesgar una violación de integridad referencial al "borrar".
 // ---------------------------------------------------------------------------
 
 model Stage {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  pipelineId  String   @map("pipeline_id") @db.Uuid
-  name        String   @db.VarChar(100)
-  order       Int
-  probability Decimal  @default(0) @db.Decimal(5, 2)
-  isWon       Boolean  @default(false) @map("is_won")
-  isLost      Boolean  @default(false) @map("is_lost")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  pipelineId     String    @map("pipeline_id") @db.Uuid
+  name           String    @db.VarChar(100)
+  order          Int
+  probability    Decimal   @default(0) @db.Decimal(5, 2)
+  isWon          Boolean   @default(false) @map("is_won")
+  isLost         Boolean   @default(false) @map("is_lost")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
 
+  organization  Organization  @relation(fields: [organizationId], references: [id])
   pipeline      Pipeline      @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
   opportunities Opportunity[]
 
-  @@unique([pipelineId, order])
-  @@unique([pipelineId, name])
+  // Únicos (pipeline_id, order) y (pipeline_id, name) WHERE deleted_at IS NULL,
+  // y (pipeline_id) WHERE is_won/is_lost = true — índices únicos parciales,
+  // se crean manualmente en prisma/sql/manual_constraints.sql
+  @@index([organizationId])
   @@index([pipelineId])
   @@map("stages")
 }

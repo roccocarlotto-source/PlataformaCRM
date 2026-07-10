@@ -72,10 +72,35 @@ create unique index if not exists contacts_org_email_unique
   on public.contacts (organization_id, email)
   where email is not null and deleted_at is null;
 
--- A lo sumo un pipeline marcado como default por organización.
+-- A lo sumo un pipeline marcado como default por organización. Incluye
+-- "and deleted_at is null" — sin esto, borrar (soft delete) el pipeline
+-- default deja a la organización sin poder tener nunca más un default,
+-- porque el índice seguiría contando la fila borrada como ocupando el lugar.
 create unique index if not exists pipelines_org_default_unique
   on public.pipelines (organization_id)
-  where is_default = true;
+  where is_default = true and deleted_at is null;
+
+-- Un stage no puede repetir order ni name dentro del mismo pipeline, pero
+-- un stage borrado (soft delete) libera ambos para reuso — mismo criterio
+-- que contacts_org_email_unique.
+create unique index if not exists stages_pipeline_order_unique
+  on public.stages (pipeline_id, "order")
+  where deleted_at is null;
+
+create unique index if not exists stages_pipeline_name_unique
+  on public.stages (pipeline_id, name)
+  where deleted_at is null;
+
+-- A lo sumo un stage marcado como ganado, y a lo sumo uno marcado como
+-- perdido, por pipeline (distinto de stages_won_lost_exclusive_check más
+-- abajo, que impide que un mismo stage sea ambas cosas a la vez).
+create unique index if not exists stages_pipeline_won_unique
+  on public.stages (pipeline_id)
+  where is_won = true and deleted_at is null;
+
+create unique index if not exists stages_pipeline_lost_unique
+  on public.stages (pipeline_id)
+  where is_lost = true and deleted_at is null;
 
 -- ---------------------------------------------------------------------------
 -- 3. CHECK constraints
