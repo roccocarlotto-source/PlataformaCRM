@@ -258,8 +258,9 @@ Supabase Auth
    │  emite access token (JWT, corta duración) + refresh token
    ▼
 JWT
-   │  firmado por Supabase (hoy: secreto compartido SUPABASE_JWT_SECRET;
-   │  ver recomendación de migrar a claves asimétricas en sección 8)
+   │  firmado por Supabase con clave asimétrica (ES256) — el backend verifica
+   │  contra el JWKS público del proyecto, sin secreto compartido (ver
+   │  sección 4; era la recomendación 1 de la sección 8, ya implementada)
    │  claims: sub (= auth.users.id = public.users.id), email, exp
    ▼
 Frontend
@@ -298,7 +299,7 @@ Puntos a resaltar que no son obvios en el diagrama:
 
 ## 4. Middleware del backend
 
-> ✅ **Implementado.** Mapeo diseño → código:
+> ✅ **Implementado y verificado contra logins reales.** Mapeo diseño → código:
 > - Pasos 1-3 (extraer token, verificar JWT, extraer `sub`/`email`) →
 >   `src/lib/jwt.ts` (`verifySupabaseJwt`).
 > - Paso 4 (resolver contra Postgres, con los tres resultados posibles) →
@@ -309,10 +310,23 @@ Puntos a resaltar que no son obvios en el diagrama:
 >   `src/types/auth.ts`).
 > - Paso 6 (autorización de grano fino, segundo middleware) →
 >   `src/middlewares/authorize.ts` (`authorize(...roles)`, hoy solo `ADMIN`/`USER`,
->   sin permisos granulares).
+>   sin permisos granulares). Ya montado sobre rutas reales (`/api/companies`).
 >
-> Ninguno de los dos middlewares está montado sobre una ruta real todavía — son
-> exports reutilizables a la espera del primer endpoint protegido.
+> **Corrección importante, encontrada durante la implementación del módulo
+> `Company`**: la primera versión de `lib/jwt.ts` verificaba con `jsonwebtoken` +
+> `SUPABASE_JWT_SECRET` (HS256), tal como describía el paso 2 de abajo. Nunca se
+> había probado contra un JWT real de Supabase — las pruebas de la tarea de
+> autenticación usaban un token armado a mano con un secreto de prueba. Al probar
+> el primer login real (para verificar el módulo `Company`), Supabase devolvió un
+> JWT firmado con **ES256** (clave asimétrica) — este proyecto no usa el secreto
+> compartido legacy. Se reemplazó `jsonwebtoken` por `jose`
+> (`createRemoteJWKSet` + `jwtVerify` contra
+> `SUPABASE_URL/auth/v1/.well-known/jwks.json`), y `SUPABASE_JWT_SECRET` se sacó
+> de `env.ts`/`.env.example` por no usarse más. Esto implementa la recomendación
+> 1 de la sección 8 — dejó de ser una mejora opcional, era lo que este proyecto
+> necesitaba desde el principio. **Lección operativa**: verificar un flujo de auth
+> únicamente con tokens fabricados a mano no prueba que funcione contra el
+> proveedor real.
 
 Diseño conceptual del middleware que se ejecuta antes de cualquier ruta de negocio
 protegida:
@@ -320,11 +334,11 @@ protegida:
 1. **Extraer el token.** Leer el header `Authorization`, exigir formato
    `Bearer <token>`. Si falta o el formato es inválido → `401`.
 
-2. **Verificar el JWT.** Validar firma y expiración usando `SUPABASE_JWT_SECRET` (o,
-   si se adopta la recomendación de la sección 8, contra el JWKS público del
-   proyecto). Si la verificación falla (firma inválida, `exp` vencido) → `401`. Este
-   es el único punto del sistema que decide si una firma es válida — ninguna otra capa
-   vuelve a verificarla.
+2. **Verificar el JWT.** Validar firma y expiración contra el JWKS público del
+   proyecto de Supabase (`src/lib/jwt.ts`, sin secreto compartido). Si la
+   verificación falla (firma inválida, `exp` vencido) → `401`. Este es el único
+   punto del sistema que decide si una firma es válida — ninguna otra capa vuelve
+   a verificarla.
 
 3. **Extraer identidad cruda del JWT.** Únicamente `sub` (id) y `email` — nada más del
    JWT se usa para tomar decisiones de autorización.
@@ -512,14 +526,13 @@ el problema ahora.
 Puntos donde propongo un cambio o una decisión explícita sobre lo ya planteado en el
 pedido original:
 
-1. **Migrar la verificación de JWT de secreto compartido a claves asimétricas
-   (JWKS)**, si el proyecto de Supabase lo soporta. Hoy el diseño (y el
-   `.env.example` ya existente) usa `SUPABASE_JWT_SECRET`, un secreto simétrico que el
-   backend debe conocer y proteger. Supabase ofrece firmas asimétricas (ES256) donde
-   el backend solo necesita la clave pública (vía un endpoint JWKS), sin guardar
-   ningún secreto compartido — reduce superficie de exposición y permite rotar claves
-   sin coordinar un secreto entre Supabase y el backend. No es bloqueante para
-   arrancar, pero vale la pena evaluarlo antes de escribir el middleware definitivo.
+1. ✅ **Hecho — verificación de JWT contra JWKS (ES256), no secreto compartido.**
+   Dejó de ser una recomendación evaluable: al probar el middleware contra un
+   login real de este proyecto de Supabase, resultó que firma con ES256, no con
+   el secreto legacy `SUPABASE_JWT_SECRET` (que ya no existe en `env.ts`/
+   `.env.example`). `src/lib/jwt.ts` usa `jose` (`createRemoteJWKSet` +
+   `jwtVerify`) contra `SUPABASE_URL/auth/v1/.well-known/jwks.json`. Ver el
+   detalle completo en la sección 4.
 
 2. **Agregar `deletedAt` a `User`.** Ya justificado en la sección 6 ("usuario
    eliminado") — sin esto, no hay forma segura de eliminar un usuario que sea dueño de

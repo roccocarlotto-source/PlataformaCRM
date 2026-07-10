@@ -65,7 +65,8 @@ actividades.
 | **Express 4** | Framework HTTP del backend | `src/app.ts` — middlewares estándar (helmet, cors, compression), manejo de errores centralizado, health check. Ver `README.md` para el detalle de cada carpeta de `src/`. |
 | **pino** / **pino-http** | Logging estructurado | `src/lib/logger.ts` — JSON en producción, `pino-pretty` en desarrollo. |
 | **zod** | Validación de `process.env` al arrancar | `src/config/env.ts` — falla rápido y claro si falta una variable requerida. |
-| **jsonwebtoken** | Verificación del JWT emitido por Supabase Auth | `src/lib/jwt.ts` — valida firma (HS256, `SUPABASE_JWT_SECRET`) y expiración; no emite tokens propios. |
+| **jose** | Verificación del JWT emitido por Supabase Auth | `src/lib/jwt.ts` — valida firma contra el JWKS público del proyecto (`createRemoteJWKSet` + `jwtVerify`, ES256) y expiración; no emite tokens propios. Reemplazó a `jsonwebtoken`+`SUPABASE_JWT_SECRET` (HS256) cuando se descubrió, probando contra un login real, que este proyecto firma con clave asimétrica. |
+| **@supabase/supabase-js** | Cliente de Supabase para operaciones administrativas | `src/lib/supabaseAdmin.ts` — únicamente con `service_role`, nunca la `anon` key (crear/borrar usuarios de `auth.users`). |
 
 **Lo que todavía NO está en el stack**:
 - Ningún framework de frontend.
@@ -96,15 +97,25 @@ Plataforma CRM/
 │                                     #   authentication-architecture.md sección 5.
 └── src/
     ├── config/env.ts               # Validación de process.env con zod.
-    ├── lib/                        # prisma.ts (singleton), logger.ts (pino),
-    │                                #   jwt.ts (verifica JWT de Supabase).
+    ├── lib/                        # prisma.ts (singleton + tipo Db), logger.ts
+    │                                #   (pino), jwt.ts (JWT de Supabase vía JWKS,
+    │                                #   jose), supabaseAdmin.ts (cliente service_role).
     ├── types/auth.ts                # RoleName, JwtPayload, AuthContext,
     │                                 #   AuthenticatedRequest, ampliación de Express.Request.
-    ├── utils/                       # AppError.ts, asyncHandler.ts.
+    ├── utils/                       # AppError.ts, asyncHandler.ts (genérico sobre
+    │                                 #   el tipo de Request), validation.ts
+    │                                 #   (parseOrThrow), slug.ts.
     ├── middlewares/                 # notFound.ts, errorHandler.ts, authenticate.ts,
     │                                 #   authorize.ts.
-    ├── controllers/ services/ repositories/  # patrón de tres capas — ver README.md.
-    ├── routes/                      # health.routes.ts + index.ts agregador.
+    ├── controllers/                 # onboarding.controller.ts, company.controller.ts.
+    ├── services/                    # auth.service.ts, onboarding.service.ts,
+    │                                 #   company.service.ts.
+    ├── repositories/                # user.repository.ts, organization.repository.ts,
+    │                                 #   role.repository.ts, company.repository.ts —
+    │                                 #   ver README.md para el patrón de tres capas.
+    ├── routes/                      # health.routes.ts (sin prefijo), index.ts
+    │                                 #   agregador, onboarding.routes.ts y
+    │                                 #   company.routes.ts (bajo /api).
     ├── app.ts                       # arma Express, no escucha puerto.
     └── server.ts                    # entry point + graceful shutdown.
 ```
@@ -113,9 +124,10 @@ Detalle carpeta por carpeta (propósito, qué va en cada una) en `README.md` —
 duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
 
 **Lo que sigue faltando:**
-- `src/controllers/` y `src/services/` (más allá de `auth.service.ts`) siguen vacíos
-  — no hay ningún endpoint de negocio ni de auth todavía, solo la infraestructura
-  reutilizable (`authenticate`/`authorize`) y la conexión a la base ya funcionando.
+- `Contact`, `Opportunity`, `Activity` — mismo patrón que `Company`, todavía no
+  implementados.
+- Endpoints de login/invitación de usuarios (dependen de la entidad `Invitation`,
+  ver sección 8).
 
 ---
 
@@ -312,15 +324,15 @@ implementada** en `manual_constraints.sql`:
   usuario cambia su email desde Supabase Auth, propaga el cambio a `public.users`
   automáticamente.
 
-**4. Emisión del JWT.** Supabase Auth firma un JWT con el secreto configurado en
-`SUPABASE_JWT_SECRET` (documentado en `.env.example`, no completado todavía en `.env`).
+**4. Emisión del JWT.** Supabase Auth firma el JWT con clave asimétrica (ES256).
 El `sub` de ese JWT es el `id` de `auth.users`, que **es el mismo valor** que
 `public.users.id`.
 
-**5. Petición autenticada (✅ implementado).** El cliente (frontend, todavía
-inexistente) debe enviar el JWT en cada request, típicamente
+**5. Petición autenticada (✅ implementado y verificado contra logins reales).**
+El cliente debe enviar el JWT en cada request, típicamente
 `Authorization: Bearer <token>`. El middleware (`src/middlewares/authenticate.ts`):
-   a. Verifica la firma del JWT usando `SUPABASE_JWT_SECRET` (`src/lib/jwt.ts`). ✅
+   a. Verifica la firma del JWT contra el JWKS público de Supabase
+      (`src/lib/jwt.ts`, `jose`). ✅
    b. Extrae el `sub` (= `id` de `public.users`). ✅
    c. Usa Prisma para buscar la fila de `public.users` con ese `id`, trayendo
       `organizationId` y `role` en el mismo query
@@ -329,18 +341,17 @@ inexistente) debe enviar el JWT en cada request, típicamente
       (`req.auth`, tipado en `src/types/auth.ts`) para que el resto del handler lo
       use. ✅
 
-   No hay ningún endpoint todavía que use este middleware — está listo y verificado
-   (`401`/`403`/`500` según corresponda), a la espera del primer endpoint protegido.
-   También existe `src/middlewares/authorize.ts` (autorización por rol, `ADMIN`/
-   `USER`) para cuando haga falta restringir una ruta más allá de "estar
-   autenticado".
+   Ya está montado sobre rutas reales (`/api/companies`) — ver detalle del cambio
+   de HS256 a ES256/JWKS en `authentication-architecture.md` sección 4. También
+   existe `src/middlewares/authorize.ts` (autorización por rol, `ADMIN`/`USER`),
+   montado en las rutas de escritura de `Company`.
 
 **6. Scoping multi-tenant en cada query.** Con el `organizationId` del usuario
-autenticado disponible, cada consulta Prisma en el handler debe filtrar explícitamente
-por ese `organizationId` (`where: { organizationId }`) para respetar el aislamiento
-entre tenants. **Hoy no hay Row Level Security de Postgres** que haga cumplir esto a
-nivel de base — el aislamiento depende enteramente de que ese filtro se aplique bien en
-cada endpoint futuro. Ver riesgo en sección 9.
+autenticado disponible, cada consulta Prisma en el handler filtra explícitamente por
+ese `organizationId` (`where: { organizationId }`) — así lo hace
+`src/repositories/company.repository.ts`, primer ejemplo real del patrón. RLS
+(`prisma/sql/rls_policies.sql`) es una defensa secundaria, no reemplaza este filtro
+(ver sección 9).
 
 **Resumen de la relación entre piezas:**
 
@@ -353,13 +364,13 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 │ ...                         │  (email)    │ email  (solo lectura desde app)   │
 └─────────────────────────────┘            │ full_name, is_active, ...         │
          │                                 └──────────────────────────────────┘
-         │ JWT firmado con SUPABASE_JWT_SECRET
+         │ JWT firmado con clave asimétrica (ES256)
          ▼
    Authorization: Bearer <token>
          │
          ▼
    Express middleware (✅ implementado, src/middlewares/authenticate.ts)
-   → verifica JWT → obtiene sub → Prisma.user.findUnique({ id: sub })
+   → verifica JWT contra JWKS → obtiene sub → Prisma.user.findUnique({ id: sub })
    → adjunta { user, organizationId, role } al request
 ```
 
@@ -375,8 +386,9 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   health check (`GET /health`, chequea conectividad real a la base).
 - ✅ Proyecto de Supabase provisionado y conectado: `.env` completo con
   `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
-  `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET` reales. `GET /health`
-  confirma `database: "ok"` contra la base real.
+  `SUPABASE_SERVICE_ROLE_KEY` reales (`SUPABASE_JWT_SECRET` ya no se usa — ver
+  Autenticación abajo). `GET /health` confirma `database: "ok"` contra la base
+  real.
 
 **Base de datos**
 - ✅ `schema.prisma` completo: 7 modelos, 3 enums, relaciones, índices.
@@ -394,13 +406,19 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 **Backend**
 - ✅ Scaffold de Express + patrón de tres capas (controllers/services/repositories).
 - ✅ Infraestructura de autenticación (middleware `authenticate` + `authorize`) —
-  reutilizable, no montada sobre ninguna ruta propia todavía (el único endpoint,
-  onboarding, es público por diseño).
+  montada sobre rutas reales (`/api/companies`), verificada contra logins reales.
 - ✅ `POST /api/onboarding` — único registro público del sistema. Ver detalle en
   `docs/authentication-architecture.md` sección 1.
-- ❌ `src/controllers/` y `src/services/` más allá de `auth.service.ts` y
-  `onboarding.service.ts` siguen vacíos — sin endpoints de negocio del CRM
-  (Company/Contact/Opportunity/etc.) ni de login/invitación.
+- ✅ **Módulo `Company` completo** — primer módulo de negocio del CRM, pensado como
+  referencia para `Contact`/`Opportunity`/`Activity`. CRUD + soft delete + listado
+  paginado con búsqueda por nombre, filtro por industria y por `ownerId`, y
+  ordenamiento. `organizationId` siempre desde `req.auth`, nunca del cliente.
+  `ownerId` opcional (default: quien crea) validado contra la misma organización y
+  `isActive`. Lectura con `authenticate`, escritura con `authenticate` +
+  `authorize("ADMIN")`. Ver `src/services/company.service.ts`,
+  `src/repositories/company.repository.ts`,
+  `src/controllers/company.controller.ts`.
+- ❌ `Contact`, `Opportunity`, `Activity`, invitaciones — todavía no implementados.
 
 **Frontend**
 - ❌ No existe ningún código de frontend en este repositorio.
@@ -409,10 +427,14 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 - ✅ Diseño de sincronización de email (`auth.users` ↔ `public.users`) implementado en
   SQL.
 - ✅ Middleware de verificación de JWT (`src/middlewares/authenticate.ts`) — valida
-  firma/expiración, resuelve el usuario contra Postgres, rechaza usuario inexistente/
-  desactivado/organización eliminada. Ver detalle en
-  `docs/authentication-architecture.md` sección 4.
-- ✅ Middleware de autorización por rol (`src/middlewares/authorize.ts`).
+  firma/expiración contra el JWKS público de Supabase (`jose`, ES256; no
+  `SUPABASE_JWT_SECRET`/HS256 como en la implementación original — ver
+  `authentication-architecture.md` sección 4 para el detalle de la corrección),
+  resuelve el usuario contra Postgres, rechaza usuario inexistente/desactivado/
+  organización eliminada. **Verificado contra logins reales de Supabase**, no solo
+  contra tokens fabricados a mano.
+- ✅ Middleware de autorización por rol (`src/middlewares/authorize.ts`), montado en
+  las rutas de escritura de `Company`.
 - ✅ Onboarding inicial (`POST /api/onboarding`, `src/services/onboarding.service.ts`)
   — crea `Organization` + `User` ADMIN + identidad en Supabase Auth como una única
   operación lógica, verificado contra la base real (auth.users, public.users,
@@ -428,8 +450,8 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 
 **API**
 - ✅ `POST /api/onboarding` (público).
-- ❌ Cero endpoints de negocio del CRM — solo `GET /health` (infraestructura) y el
-  onboarding.
+- ✅ `Company`: `POST/GET/GET :id/PATCH/DELETE /api/companies` (protegidos).
+- ❌ `Contact`, `Opportunity`, `Activity` — todavía no implementados.
 
 **Seguridad**
 - ✅ `.env` correctamente excluido de git; `SUPABASE_SERVICE_ROLE_KEY` documentada
@@ -449,26 +471,31 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 
 Orden de dependencia real. Los pasos que ya se completaron (git, `npm install`,
 scaffold de Express, middleware de auth, provisionar Supabase, migración inicial,
-`manual_constraints.sql`, RLS, seed de roles, endpoint de onboarding) se sacaron de
-esta lista — quedan documentados en la sección 7.
+`manual_constraints.sql`, RLS, seed de roles, endpoint de onboarding, módulo
+`Company`, corrección JWT ES256) se sacaron de esta lista — quedan documentados en
+la sección 7.
 
-1. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
+1. **Implementar `Contact` y `Opportunity` siguiendo el patrón de `Company`**
+   (`src/repositories/company.repository.ts`,
+   `src/services/company.service.ts`, `src/controllers/company.controller.ts` como
+   referencia directa) — mismo criterio de `organizationId` desde `req.auth`,
+   soft delete, paginación/búsqueda/filtro/orden, `authorize("ADMIN")` solo en
+   escritura. `Opportunity` va a necesitar además validar `pipelineId`/`stageId`
+   contra la organización, y el `CHECK` de company_id/contact_id ya existente en
+   la base.
+
+2. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
    `deletedAt` en `User` (sección 8, recomendación 2 de ese doc) y la entidad
    `Invitation` (sección 2). Son cambios de schema chicos y ya diseñados — al ser una
    migración nueva sobre una base que ya tiene datos, conviene revisar que no rompa
    nada existente, pero no hay bloqueante técnico.
 
-2. **Implementar el flujo de invitación de usuarios** (sección 2 de
+3. **Implementar el flujo de invitación de usuarios** (sección 2 de
    `authentication-architecture.md`): endpoint para que un `ADMIN` invite
-   (`authenticate` + `authorize("ADMIN")`, ya construidos y verificados contra un
-   endpoint real), usando `supabaseAdmin.auth.admin.inviteUserByEmail`, y el
+   (`authenticate` + `authorize("ADMIN")`, ya construidos y verificados contra
+   endpoints reales), usando `supabaseAdmin.auth.admin.inviteUserByEmail`, y el
    endpoint de aceptación que crea `public.users` a partir de la `Invitation`.
-   Depende del paso 1 (la tabla `Invitation`).
-
-3. **Implementar el primer endpoint de negocio del CRM** (`Company`, `Contact`, u
-   `Opportunity`) protegido con `authenticate` — hoy el único endpoint real
-   (onboarding) es deliberadamente público; este sería el primero en ejercitar el
-   middleware de autenticación de punta a punta.
+   Depende del paso 2 (la tabla `Invitation`).
 
 4. **Automatizar la reaplicación de `manual_constraints.sql` y `rls_policies.sql`
    tras futuras migraciones.** Hoy ambos se aplicaron a mano una vez
@@ -492,6 +519,17 @@ esta lista — quedan documentados en la sección 7.
   frontend, SQL editor), no esta. Mitigación ya identificada: formalizar la capa de
   servicios como regla de arquitectura, no como convención (ver recomendación 4 de
   `authentication-architecture.md`).
+
+- **Verificar un flujo de autenticación solo con tokens fabricados a mano no prueba
+  que funcione contra el proveedor real.** El middleware `authenticate` se dio por
+  verificado en su propia tarea usando un JWT HS256 firmado con un secreto de
+  prueba — pasó todos los tests, pero era HS256 y este proyecto de Supabase firma
+  con ES256. El bug (imposible loguearse con un token real) recién se detectó al
+  implementar `Company` y hacer el primer login real de punta a punta, dos tareas
+  después. Ya corregido (`src/lib/jwt.ts` usa `jose` contra el JWKS de Supabase,
+  ver `authentication-architecture.md` sección 4) — queda como lección de proceso:
+  cualquier verificación de auth futura (invitaciones, cambio de contraseña) debe
+  probarse contra un login real de Supabase, no solo contra tokens armados a mano.
 
 - **Consistencia `auth.users`↔`public.users` sin transacción compartida.** Resuelto
   para el onboarding (ver `authentication-architecture.md` sección 1: creación

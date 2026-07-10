@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { companyRouter } from "./company.routes";
 import { healthRouter } from "./health.routes";
 import { onboardingRouter } from "./onboarding.routes";
 
@@ -9,3 +10,4 @@ export const routes = Router();
 
 routes.use(healthRouter);
 routes.use("/api", onboardingRouter);
+routes.use("/api", companyRouter);

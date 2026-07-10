@@ -23,7 +23,7 @@ export const authenticate = asyncHandler(
       throw new AppError("Falta el token de autenticación", 401);
     }
 
-    const payload = verifySupabaseJwt(token);
+    const payload = await verifySupabaseJwt(token);
     req.auth = await resolveAuthContext(payload);
 
     next();

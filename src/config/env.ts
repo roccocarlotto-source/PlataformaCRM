@@ -1,9 +1,10 @@
 import "dotenv/config";
 import { z } from "zod";
 
-// DATABASE_URL, DIRECT_URL y las variables SUPABASE_* son opcionales por ahora:
-// el proyecto de Supabase todavía no está provisionado (ver docs/project-overview.md).
-// Cuando exista, estos campos deben pasar a requeridos.
+// DATABASE_URL, DIRECT_URL y las variables SUPABASE_* quedaron opcionales acá
+// a propósito (ver src/lib/*.ts): cada consumidor valida su propia presencia
+// en el momento de uso (lib/jwt.ts, lib/supabaseAdmin.ts), así el servidor
+// sigue arrancando y /health sigue funcionando aunque falte alguna.
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "production", "test"])
@@ -20,7 +21,6 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
-  SUPABASE_JWT_SECRET: z.string().optional(),
 });
 
 function parseEnv() {

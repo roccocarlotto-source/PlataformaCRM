@@ -30,3 +30,17 @@ export function createUser(
 ) {
   return db.user.create({ data });
 }
+
+// Valida que un id de usuario sea asignable como owner de un registro:
+// tiene que existir, pertenecer a la misma organización, y estar activo.
+// Las tres condiciones colapsan a un mismo resultado (null) a propósito —
+// el llamador no necesita (ni debería) distinguir cuál falló.
+export function findUserByIdInOrganization(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.user.findFirst({
+    where: { id, organizationId, isActive: true },
+  });
+}
