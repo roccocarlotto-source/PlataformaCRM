@@ -10,13 +10,15 @@
 > autorización) ya está construida — ver `src/middlewares/authenticate.ts`,
 > `src/middlewares/authorize.ts`, `src/services/auth.service.ts`,
 > `src/repositories/user.repository.ts`, `src/lib/jwt.ts` y `src/types/auth.ts`. No
-> están montados sobre ninguna ruta todavía porque no hay rutas de negocio. La
+> están montados sobre ninguna ruta todavía porque no hay rutas de negocio propias
+> (el único endpoint que existe, `POST /api/onboarding`, es público por diseño). La
 > **sección 5** (RLS) también está aplicada contra un proyecto real de Supabase
 > (`prisma/sql/rls_policies.sql`), igual que el schema completo (migración inicial
-> aplicada) y el catálogo `Role` sembrado (`ADMIN`/`USER`). **Todo lo demás sigue
-> siendo diseño, no código**: el trigger de creación de `public.users` (sección 1),
-> la tabla `Invitation` y su flujo (sección 2), y cualquier endpoint de
-> login/registro/invitación.
+> aplicada) y el catálogo `Role` sembrado (`ADMIN`/`USER`). La **sección 1**
+> (onboarding) está implementada como endpoint de backend en vez de trigger de DB —
+> ver el detalle de qué cambió justo debajo del título de esa sección. **Todo lo
+> demás sigue siendo diseño, no código**: la tabla `Invitation` y su flujo (sección
+> 2), y cualquier endpoint de login/invitación.
 
 ## Principio rector
 
@@ -37,6 +39,40 @@ seguridad y simplicidad que da.
 ---
 
 ## 1. Onboarding inicial
+
+> ✅ **Implementado**, con tres cambios respecto al diseño original de esta sección
+> (decididos y aprobados explícitamente antes de escribir el código):
+>
+> - **Orquestación desde el backend, no trigger de Postgres.** `POST /api/onboarding`
+>   (`src/routes/onboarding.routes.ts` → `onboarding.controller.ts` →
+>   `onboarding.service.ts`) hace lo que acá abajo se describía como responsabilidad
+>   de un trigger `AFTER INSERT ON auth.users`. El trigger nunca se implementó — se
+>   prefirió mantener toda la lógica en TypeScript, testeable, y consistente con el
+>   patrón de capas del resto del backend. La consecuencia es que la atomicidad ya no
+>   es "gratis" (una sola transacción de Postgres): `auth.users` (Supabase) y
+>   `Organization`/`public.users` (Prisma) son ahora dos sistemas separados. La
+>   estrategia de consistencia: crear el usuario en Supabase Auth primero
+>   (`supabaseAdmin.auth.admin.createUser`, `service_role`), después
+>   `Organization` + lookup de `Role` + `public.users` en una única
+>   `prisma.$transaction` (atómica de nuestro lado), y si esa transacción falla,
+>   compensar borrando el usuario de Supabase Auth (`admin.deleteUser`). Si la
+>   compensación también falla (caso raro), se loguea como error crítico con el id
+>   huérfano — no hay forma de garantizar consistencia perfecta cross-sistema sin
+>   transacciones distribuidas, y se prefiere nombrar ese residual antes que
+>   esconderlo.
+> - **Colisión de nombre de organización → error, no sufijo.** El párrafo de abajo
+>   decía que una colisión de slug se resolvía agregando un sufijo corto. Se cambió a
+>   devolver `409` ("ya existe una organización con ese nombre") — más predecible
+>   para el usuario y necesario para que una segunda petición idéntica sea
+>   idempotente (no cree una organización distinta silenciosamente).
+> - **Email auto-confirmado, no requiere click de confirmación.** El paso 4 de abajo
+>   asumía que el usuario no tiene sesión válida hasta confirmar su email. El
+>   endpoint usa la Admin API (`email_confirm: true`), que no dispara el flujo de
+>   confirmación por email que sí tiene el `signUp` público — evita depender de
+>   infraestructura de envío de mails (SMTP) que todavía no existe en el proyecto.
+>   Es una reducción de seguridad consciente y documentada, revisable cuando se
+>   agregue el flujo de invitaciones (que sí va a necesitar envío de mails, vía
+>   `inviteUserByEmail`).
 
 Contexto de producto que resuelve una aparente contradicción con la sección 2: el CRM
 **no permite que alguien se una a una organización existente sin ser invitado**, pero

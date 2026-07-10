@@ -390,16 +390,17 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   justificación de por qué es una defensa secundaria, no la principal).
 - ✅ Seed inicial del catálogo `Role` (`ADMIN`, `USER`) vía `prisma/seed.ts`
   (`npm run prisma:seed`), idempotente.
-- ❌ Sin trigger/lógica que cree `public.users` al registrarse (ver sección 6) — es
-  el próximo paso, no se implementó en esta tarea (alcance: solo conexión/migración/
-  RLS/seed, sin onboarding).
 
 **Backend**
 - ✅ Scaffold de Express + patrón de tres capas (controllers/services/repositories).
-- ✅ Infraestructura de autenticación (middleware `authenticate` + `authorize`, ver
-  abajo) — reutilizable, no montada sobre ninguna ruta todavía.
-- ❌ `src/controllers/` y `src/services/` (más allá de `auth.service.ts`) vacíos — sin
-  endpoints de negocio.
+- ✅ Infraestructura de autenticación (middleware `authenticate` + `authorize`) —
+  reutilizable, no montada sobre ninguna ruta propia todavía (el único endpoint,
+  onboarding, es público por diseño).
+- ✅ `POST /api/onboarding` — único registro público del sistema. Ver detalle en
+  `docs/authentication-architecture.md` sección 1.
+- ❌ `src/controllers/` y `src/services/` más allá de `auth.service.ts` y
+  `onboarding.service.ts` siguen vacíos — sin endpoints de negocio del CRM
+  (Company/Contact/Opportunity/etc.) ni de login/invitación.
 
 **Frontend**
 - ❌ No existe ningún código de frontend en este repositorio.
@@ -412,15 +413,23 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   desactivado/organización eliminada. Ver detalle en
   `docs/authentication-architecture.md` sección 4.
 - ✅ Middleware de autorización por rol (`src/middlewares/authorize.ts`).
-- ❌ Sin flujo de creación de `public.users` tras signup (trigger de la sección 1 de
-  `authentication-architecture.md` — sigue siendo diseño, no código).
-- ❌ Sin endpoint de login, registro, ni invitación de usuarios.
-- ❌ Sin la entidad `Invitation` en el schema (propuesta en la sección 2 del doc de
-  arquitectura, todavía no agregada a `schema.prisma`).
+- ✅ Onboarding inicial (`POST /api/onboarding`, `src/services/onboarding.service.ts`)
+  — crea `Organization` + `User` ADMIN + identidad en Supabase Auth como una única
+  operación lógica, verificado contra la base real (auth.users, public.users,
+  Organization, Role consistentes; idempotente ante email/organización duplicados;
+  sin datos huérfanos ante fallos, con compensación automática). Implementado como
+  endpoint de backend, no como trigger de DB — ver el cambio de diseño documentado en
+  `authentication-architecture.md` sección 1.
+- ❌ Sin endpoint de login (el login en sí no pasa por Express — ver sección 3 de
+  `authentication-architecture.md` — pero no hay nada de frontend todavía que lo
+  ejercite).
+- ❌ Sin invitación de usuarios — depende de la entidad `Invitation`, todavía no
+  agregada a `schema.prisma` (propuesta en la sección 2 del doc de arquitectura).
 
 **API**
-- ❌ Cero endpoints de negocio — solo `GET /health` (infraestructura, no API de
-  negocio).
+- ✅ `POST /api/onboarding` (público).
+- ❌ Cero endpoints de negocio del CRM — solo `GET /health` (infraestructura) y el
+  onboarding.
 
 **Seguridad**
 - ✅ `.env` correctamente excluido de git; `SUPABASE_SERVICE_ROLE_KEY` documentada
@@ -440,26 +449,26 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 
 Orden de dependencia real. Los pasos que ya se completaron (git, `npm install`,
 scaffold de Express, middleware de auth, provisionar Supabase, migración inicial,
-`manual_constraints.sql`, RLS, seed de roles) se sacaron de esta lista — quedan
-documentados en la sección 7.
+`manual_constraints.sql`, RLS, seed de roles, endpoint de onboarding) se sacaron de
+esta lista — quedan documentados en la sección 7.
 
 1. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
    `deletedAt` en `User` (sección 8, recomendación 2 de ese doc) y la entidad
    `Invitation` (sección 2). Son cambios de schema chicos y ya diseñados — al ser una
-   migración nueva sobre una base que ya tiene datos (el catálogo `Role`), conviene
-   revisar que no rompa nada existente, pero no hay bloqueante técnico.
+   migración nueva sobre una base que ya tiene datos, conviene revisar que no rompa
+   nada existente, pero no hay bloqueante técnico.
 
-2. **Implementar el trigger `AFTER INSERT ON auth.users`** descripto en la sección 1
-   de `authentication-architecture.md` (crea `Organization` + `User` ADMIN en el
-   signup fundacional, rechaza cualquier otro insert sin invitación válida). Es lo
-   único que falta para poder probar el middleware de autenticación ya construido
-   contra un usuario real de punta a punta — hoy `/health` ya confirma conectividad,
-   pero no hay ningún `public.users` real todavía porque no hay forma de crear uno.
+2. **Implementar el flujo de invitación de usuarios** (sección 2 de
+   `authentication-architecture.md`): endpoint para que un `ADMIN` invite
+   (`authenticate` + `authorize("ADMIN")`, ya construidos y verificados contra un
+   endpoint real), usando `supabaseAdmin.auth.admin.inviteUserByEmail`, y el
+   endpoint de aceptación que crea `public.users` a partir de la `Invitation`.
+   Depende del paso 1 (la tabla `Invitation`).
 
-3. **Implementar el primer endpoint real usando `authenticate`/`authorize`** (por
-   ejemplo, "aceptar invitación" de la sección 2, o el endpoint de signup fundacional
-   de la sección 1) — el middleware ya está listo y verificado, falta la lógica de
-   negocio que lo use.
+3. **Implementar el primer endpoint de negocio del CRM** (`Company`, `Contact`, u
+   `Opportunity`) protegido con `authenticate` — hoy el único endpoint real
+   (onboarding) es deliberadamente público; este sería el primero en ejercitar el
+   middleware de autenticación de punta a punta.
 
 4. **Automatizar la reaplicación de `manual_constraints.sql` y `rls_policies.sql`
    tras futuras migraciones.** Hoy ambos se aplicaron a mano una vez
@@ -484,11 +493,13 @@ documentados en la sección 7.
   servicios como regla de arquitectura, no como convención (ver recomendación 4 de
   `authentication-architecture.md`).
 
-- **Falta el paso que crea `public.users` al registrarse.** Si se implementa mal (por
-  ejemplo, solo desde el frontend sin trigger de base), un usuario podría autenticarse
-  correctamente contra Supabase pero no tener fila en `public.users` — y cualquier
-  request que dependa de `organizationId`/`role` fallaría o requeriría manejo especial
-  de ese caso en cada endpoint.
+- **Consistencia `auth.users`↔`public.users` sin transacción compartida.** Resuelto
+  para el onboarding (ver `authentication-architecture.md` sección 1: creación
+  ordenada + compensación con `admin.deleteUser` si la transacción de Prisma falla),
+  pero sigue siendo un patrón a repetir con cuidado — el flujo de invitación
+  (próximo paso) va a tener el mismo problema de dos sistemas sin transacción
+  compartida, y ya está resuelto en el diseño (sección 2) con un orden de
+  operaciones análogo.
 
 - **Asimetría en soft delete.** `Organization`, `Company`, `Contact`, `Pipeline`,
   `Opportunity`, `Activity` tienen `deletedAt`; `User`, `Role`, `Stage` no. No hay
