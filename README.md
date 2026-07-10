@@ -9,21 +9,23 @@ de autenticación y onboarding, ver
 [`docs/authentication-architecture.md`](./docs/authentication-architecture.md).
 
 > Estado actual: infraestructura base + infraestructura de autenticación
-> (`authenticate`/`authorize`, reutilizables). Sin endpoints de negocio ni de login/
-> registro/invitación implementados todavía — ver la sección "Estado de
-> implementación" al inicio de `docs/authentication-architecture.md`.
+> (`authenticate`/`authorize`, reutilizables) + conexión real a Supabase (migración
+> inicial, `manual_constraints.sql` y RLS aplicados, catálogo `Role` sembrado). Sin
+> endpoints de negocio ni de login/registro/invitación implementados todavía — ver la
+> sección "Estado de implementación" al inicio de
+> `docs/authentication-architecture.md`.
 
 ## Quickstart
 
 ```bash
 npm install
 cp .env.example .env   # completar con las credenciales reales de Supabase
+npm run prisma:generate
 npm run dev             # levanta el servidor con recarga automática
 ```
 
-Con el servidor corriendo, `GET /health` responde `200` si la base de datos
-responde, o `503` si no (esperable mientras el proyecto de Supabase no esté
-provisionado — ver `.env`).
+Con el servidor corriendo, `GET /health` responde `200` con `database: "ok"` si el
+`.env` tiene credenciales válidas de un proyecto de Supabase real, o `503` si no.
 
 ### Scripts
 
@@ -35,6 +37,17 @@ provisionado — ver `.env`).
 | `npm run prisma:generate` | Regenera el cliente de Prisma a partir de `schema.prisma`. |
 | `npm run prisma:validate` | Valida que `schema.prisma` sea correcto. |
 | `npm run prisma:studio` | Abre Prisma Studio para explorar la base visualmente. |
+| `npm run prisma:seed` | Siembra el catálogo `Role` (`ADMIN`, `USER`) — idempotente, se puede correr de nuevo. |
+
+`prisma migrate dev` no reaplica automáticamente `prisma/sql/manual_constraints.sql`
+ni `prisma/sql/rls_policies.sql` — Prisma no soporta triggers, `CHECK` constraints,
+índices únicos parciales ni RLS en su DSL. Después de generar una migración nueva que
+toque las tablas afectadas, reaplicar ambos a mano:
+
+```bash
+npx prisma db execute --file prisma/sql/manual_constraints.sql --url "$DIRECT_URL"
+npx prisma db execute --file prisma/sql/rls_policies.sql --url "$DIRECT_URL"
+```
 
 ## Estructura de carpetas
 

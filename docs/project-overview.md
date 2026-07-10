@@ -58,7 +58,7 @@ actividades.
 | **tsx** | Runner de desarrollo TS | Dependencia de desarrollo (`devDependencies`), pensado para correr TS sin compilar en cada cambio. |
 | **Prisma ORM 5.20** (`@prisma/client`, `prisma`) | Acceso a datos type-safe + migraciones | Es la única capa de aplicación que existe hoy: `prisma/schema.prisma` define 7 modelos. Scripts en `package.json`: `prisma:generate`, `prisma:validate`, `prisma:studio`. |
 | **PostgreSQL** | Motor de base de datos | `datasource db { provider = "postgresql" }` en el schema. |
-| **Supabase** (Auth + Postgres hosting) | Autenticación gestionada + hosting de la DB | `.env.example` documenta `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`. El modelo `User` está diseñado para compartir `id` con `auth.users` (tabla gestionada por Supabase). |
+| **Supabase** (Auth + Postgres hosting) | Autenticación gestionada + hosting de la DB | Proyecto real provisionado y conectado (`.env` completo). El modelo `User` está diseñado para compartir `id` con `auth.users` (tabla gestionada por Supabase). |
 | **PgBouncer** | Pooling de conexiones para runtime | `.env.example` distingue `DATABASE_URL` (puerto 6543, `?pgbouncer=true`, la usa la app) de `DIRECT_URL` (puerto 5432, solo para `prisma migrate`) — patrón estándar de Supabase + Prisma, porque Prisma Migrate no funciona bien a través de PgBouncer en modo transacción. |
 | **dotenv** | Carga de variables de entorno | Dependencia declarada en `package.json`. |
 | **SQL manual** (`prisma/sql/manual_constraints.sql`) | Constraints/triggers que Prisma no soporta nativamente | Prisma no expresa índices únicos parciales (`WHERE`), `CHECK` constraints ni triggers en el DSL de `schema.prisma` — se completan a mano. |
@@ -71,8 +71,6 @@ actividades.
 - Ningún framework de frontend.
 - Ningún framework de testing.
 - Ningún linter/formatter (ESLint, Prettier).
-- Nada de Supabase en runtime real todavía — el proyecto de Supabase sigue sin
-  provisionar (ver sección 7).
 
 ---
 
@@ -80,15 +78,22 @@ actividades.
 
 ```
 Plataforma CRM/
-├── .env / .env.example           # Variables de entorno. LOG_LEVEL agregado; las de
-│                                  #   Supabase/DB siguen vacías (no provisionado).
+├── .env / .env.example           # Variables de entorno. Todas las de Supabase/DB
+│                                  #   completas y conectadas contra un proyecto real.
 ├── .gitignore
-├── package.json                  # Scripts dev/build/start + los tres de Prisma.
-├── tsconfig.json                 # strict, rootDir "src".
+├── package.json                  # Scripts dev/build/start + los de Prisma (incluye
+│                                  #   prisma:seed) + config "prisma.seed".
+├── tsconfig.json                 # strict, rootDir "src" — solo incluye src/**/*.ts
+│                                  #   (prisma/*.ts se ejecuta con tsx, no con tsc).
 ├── README.md                     # Quickstart + explicación de cada carpeta de src/.
 ├── prisma/
-│   ├── schema.prisma              # 7 modelos + 3 enums (ver sección 4).
-│   └── sql/manual_constraints.sql # Triggers de sync de email, constraints manuales.
+│   ├── schema.prisma               # 7 modelos + 3 enums (ver sección 4).
+│   ├── seed.ts                     # Seed idempotente del catálogo Role (ADMIN/USER).
+│   ├── migrations/20260710203208_init/  # Migración inicial, aplicada a la base real.
+│   └── sql/
+│       ├── manual_constraints.sql   # Triggers de sync de email, constraints manuales.
+│       └── rls_policies.sql         # Row Level Security — ver sección 7 y
+│                                     #   authentication-architecture.md sección 5.
 └── src/
     ├── config/env.ts               # Validación de process.env con zod.
     ├── lib/                        # prisma.ts (singleton), logger.ts (pino),
@@ -107,16 +112,10 @@ Plataforma CRM/
 Detalle carpeta por carpeta (propósito, qué va en cada una) en `README.md` — no se
 duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
 
-**Lo que ya no falta** (corrigiendo esta sección, desactualizada desde la tarea de
-scaffold): `src/` existe y compila, `git init` ya se corrió (primer commit hecho),
-`node_modules/` está instalado, `README.md` existe.
-
 **Lo que sigue faltando:**
-- No existe `prisma/migrations/` — el schema nunca se aplicó a una base de datos real
-  (bloqueado por falta de un proyecto de Supabase provisionado, ver sección 7).
 - `src/controllers/` y `src/services/` (más allá de `auth.service.ts`) siguen vacíos
   — no hay ningún endpoint de negocio ni de auth todavía, solo la infraestructura
-  reutilizable (`authenticate`/`authorize`).
+  reutilizable (`authenticate`/`authorize`) y la conexión a la base ya funcionando.
 
 ---
 
@@ -359,7 +358,7 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
    Authorization: Bearer <token>
          │
          ▼
-   Express middleware (🧭 no implementado)
+   Express middleware (✅ implementado, src/middlewares/authenticate.ts)
    → verifica JWT → obtiene sub → Prisma.user.findUnique({ id: sub })
    → adjunta { user, organizationId, role } al request
 ```
@@ -370,23 +369,30 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 
 **Infraestructura**
 - ✅ `.gitignore`, `.env.example` documentado, `tsconfig.json` en modo estricto.
-- ✅ Git inicializado, primer commit hecho.
+- ✅ Git inicializado, commits hechos.
 - ✅ Dependencias instaladas (`node_modules/`).
 - ✅ Servidor Express completo: middlewares estándar, manejo de errores, logging,
   health check (`GET /health`, chequea conectividad real a la base).
-- ❌ Proyecto de Supabase no provisionado: `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
-  `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, `DATABASE_URL`, `DIRECT_URL`
-  están todos vacíos en `.env` — sigue siendo el bloqueante real para probar nada de
-  esto contra datos de verdad.
+- ✅ Proyecto de Supabase provisionado y conectado: `.env` completo con
+  `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
+  `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET` reales. `GET /health`
+  confirma `database: "ok"` contra la base real.
 
 **Base de datos**
 - ✅ `schema.prisma` completo: 7 modelos, 3 enums, relaciones, índices.
-- ✅ `manual_constraints.sql` con triggers de sync de email y constraints de
-  integridad, listo para aplicar.
-- ❌ Ninguna migración generada ni aplicada (`prisma/migrations/` no existe) — el
-  schema nunca tocó una base de datos real.
-- ❌ Sin seed (no hay datos iniciales de `Role`, `Pipeline` default, etc.)
-- ❌ Sin trigger/lógica que cree `public.users` al registrarse (ver sección 6).
+- ✅ Migración inicial generada y aplicada (`prisma/migrations/20260710203208_init`)
+  — el schema ya está sincronizado con la base real de Supabase.
+- ✅ `manual_constraints.sql` aplicado y verificado contra la base (2 triggers de
+  sync de email, 4 `CHECK` constraints, 2 índices únicos parciales).
+- ✅ `prisma/sql/rls_policies.sql` aplicado y verificado: Row Level Security
+  habilitado en las 9 tablas de negocio, con políticas de aislamiento por
+  `organization_id` (ver sección 5 de `authentication-architecture.md` para la
+  justificación de por qué es una defensa secundaria, no la principal).
+- ✅ Seed inicial del catálogo `Role` (`ADMIN`, `USER`) vía `prisma/seed.ts`
+  (`npm run prisma:seed`), idempotente.
+- ❌ Sin trigger/lógica que cree `public.users` al registrarse (ver sección 6) — es
+  el próximo paso, no se implementó en esta tarea (alcance: solo conexión/migración/
+  RLS/seed, sin onboarding).
 
 **Backend**
 - ✅ Scaffold de Express + patrón de tres capas (controllers/services/repositories).
@@ -420,65 +426,63 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 - ✅ `.env` correctamente excluido de git; `SUPABASE_SERVICE_ROLE_KEY` documentada
   explícitamente como "solo backend, nunca exponer al cliente ni commitear".
 - ✅ Integridad de datos reforzada a nivel DB (`CHECK` constraints, índices únicos
-  parciales) — buena práctica defensiva ya presente aunque no haya ni una query
-  todavía.
-- ❌ Sin Row Level Security (RLS) de Postgres visible — el aislamiento multi-tenant
-  dependerá 100% del código de aplicación una vez exista.
+  parciales), verificada contra la base real.
+- ✅ Row Level Security habilitado en las 9 tablas de negocio
+  (`prisma/sql/rls_policies.sql`) — defensa **secundaria**, no reemplaza la
+  disciplina de filtrar por `organizationId` en Prisma (ver sección 5 de
+  `authentication-architecture.md`; Prisma se conecta con un rol equivalente a
+  `service_role`, que tiene `BYPASSRLS`, así que estas políticas no protegen el
+  path de Express).
 
 ---
 
 ## 8. Próximos pasos recomendados
 
-Orden de dependencia real (cada paso bloquea al siguiente). Los pasos que ya se
-completaron (git, `npm install`, scaffold de Express, middleware de auth) se sacaron
-de esta lista — quedan documentados en la sección 7.
+Orden de dependencia real. Los pasos que ya se completaron (git, `npm install`,
+scaffold de Express, middleware de auth, provisionar Supabase, migración inicial,
+`manual_constraints.sql`, RLS, seed de roles) se sacaron de esta lista — quedan
+documentados en la sección 7.
 
-1. **Provisionar el proyecto de Supabase real y completar `.env`.** Sigue siendo el
-   bloqueante de todo lo demás: sin esto no se puede correr `prisma migrate dev`, ni
-   probar el middleware de auth contra un usuario real, ni nada de lo que sigue.
-   Crear el proyecto en supabase.com, copiar `DATABASE_URL` (pooled), `DIRECT_URL`
-   (directa), `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
-   `SUPABASE_JWT_SECRET` desde el dashboard (`Settings > API`) al `.env` local.
-
-2. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
+1. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
    `deletedAt` en `User` (sección 8, recomendación 2 de ese doc) y la entidad
-   `Invitation` (sección 2). Son cambios de schema chicos y ya diseñados — conviene
-   hacerlos en la misma migración inicial en vez de migrar dos veces.
+   `Invitation` (sección 2). Son cambios de schema chicos y ya diseñados — al ser una
+   migración nueva sobre una base que ya tiene datos (el catálogo `Role`), conviene
+   revisar que no rompa nada existente, pero no hay bloqueante técnico.
 
-3. **Generar la primera migración real y sembrar el catálogo `Role`.**
-   `prisma migrate dev --name init` → aplicar `manual_constraints.sql` a
-   continuación → seed con `ADMIN`/`USER` (el flujo de onboarding de la sección 1 de
-   `authentication-architecture.md` depende de que esa fila exista antes del primer
-   signup). Recomendación concreta ya señalada: agregar un script npm que aplique
-   `manual_constraints.sql` automáticamente después de cada migración.
-
-4. **Implementar el trigger `AFTER INSERT ON auth.users`** descripto en la sección 1
+2. **Implementar el trigger `AFTER INSERT ON auth.users`** descripto en la sección 1
    de `authentication-architecture.md` (crea `Organization` + `User` ADMIN en el
    signup fundacional, rechaza cualquier otro insert sin invitación válida). Es lo
    único que falta para poder probar el middleware de autenticación ya construido
-   contra un usuario real de punta a punta.
+   contra un usuario real de punta a punta — hoy `/health` ya confirma conectividad,
+   pero no hay ningún `public.users` real todavía porque no hay forma de crear uno.
 
-5. **Decidir si se activa Row Level Security (RLS) en Postgres.** Ya hay una
-   recomendación concreta en `authentication-architecture.md` sección 5 (activarlo
-   como red de seguridad secundaria, no como reemplazo del scoping por
-   `organizationId` en Prisma). Definir antes de escribir el primer endpoint de
-   negocio.
-
-6. **Implementar el primer endpoint real usando `authenticate`/`authorize`** (por
+3. **Implementar el primer endpoint real usando `authenticate`/`authorize`** (por
    ejemplo, "aceptar invitación" de la sección 2, o el endpoint de signup fundacional
    de la sección 1) — el middleware ya está listo y verificado, falta la lógica de
    negocio que lo use.
+
+4. **Automatizar la reaplicación de `manual_constraints.sql` y `rls_policies.sql`
+   tras futuras migraciones.** Hoy ambos se aplicaron a mano una vez
+   (`prisma db execute --file ... --url "$DIRECT_URL"`) — si se genera una migración
+   nueva que altere estas tablas, hay que recordar reaplicarlos. Un script npm
+   (`db:post-migrate`, por ejemplo) que corra los dos archivos en orden evitaría que
+   alguien se olvide.
 
 ---
 
 ## 9. Riesgos o puntos a vigilar
 
-- **Aislamiento multi-tenant sin red de seguridad a nivel de base.** Todo el diseño
-  actual asume que cada query de Prisma va a filtrar correctamente por
-  `organizationId`. Sin RLS, un único endpoint futuro que se olvide de ese filtro
-  puede filtrar datos entre organizaciones — en un CRM esto es un riesgo de seguridad
-  crítico (fuga de datos de clientes entre empresas distintas). Recomendación: decidir
-  RLS antes de escribir el primer endpoint (ver paso 5 de sección 8).
+- **El aislamiento multi-tenant del path de Express sigue dependiendo 100% de que
+  Prisma filtre bien por `organizationId`.** RLS ya está habilitado
+  (`prisma/sql/rls_policies.sql`), pero es una defensa secundaria: el rol con el que
+  Prisma se conecta (`postgres.<project-ref>`, vía `DATABASE_URL`) es equivalente al
+  `service_role` de Supabase y tiene `BYPASSRLS`, así que esas políticas no se
+  evalúan para ninguna query de este backend. Un endpoint futuro que se olvide el
+  `where: { organizationId }` sigue siendo un riesgo real de fuga de datos entre
+  organizaciones — RLS protege otras superficies (Realtime, acceso directo desde el
+  frontend, SQL editor), no esta. Mitigación ya identificada: formalizar la capa de
+  servicios como regla de arquitectura, no como convención (ver recomendación 4 de
+  `authentication-architecture.md`).
 
 - **Falta el paso que crea `public.users` al registrarse.** Si se implementa mal (por
   ejemplo, solo desde el frontend sin trigger de base), un usuario podría autenticarse
@@ -493,12 +497,14 @@ de esta lista — quedan documentados en la sección 7.
   oportunidades que la referencian, hoy no hay mecanismo — vale la pena decidirlo
   explícitamente antes de que haya datos reales en producción.
 
-- **Las constraints SQL manuales no están versionadas junto con las migraciones de
-  Prisma.** `manual_constraints.sql` se debe reaplicar a mano después de cada
-  `prisma migrate dev`. Si alguien genera una migración nueva y se olvida de correr
-  el `.sql`, la base queda sin los `CHECK` constraints y los índices únicos parciales
-  — silenciosamente, porque Prisma no se queja de que falten. Automatizarlo (script
-  npm o hook post-migración) mitiga esto.
+- **Las constraints SQL manuales y las políticas de RLS no están versionadas junto
+  con las migraciones de Prisma.** Tanto `manual_constraints.sql` como
+  `prisma/sql/rls_policies.sql` se aplicaron a mano una vez
+  (`prisma db execute --file ... --url "$DIRECT_URL"`), verificado que existen en la
+  base real. Si alguien genera una migración nueva que toque estas tablas y se
+  olvida de reaplicar alguno de los dos `.sql`, la base queda sin esas protecciones
+  silenciosamente, porque Prisma no se queja de que falten. Automatizarlo (script
+  npm o hook post-migración, ver paso 4 de sección 8) mitiga esto.
 
 - **"MVP: un pipeline por organización" vs. el modelo ya permite múltiples.** El
   comentario en el schema y el modelo de datos no están alineados 1:1 — si la UI
@@ -509,10 +515,6 @@ de esta lista — quedan documentados en la sección 7.
 - **Cero tests, cero linter/formatter.** A medida que crezca el backend, introducir
   estas herramientas después es más caro (hay que adaptar código ya escrito) que
   configurarlas desde el arranque de `src/`.
-
-- **Repo sin `git init` y sin `README.md`.** Hasta que se resuelva el punto 2 de la
-  sección 8, no hay historial de cambios ni forma de que un colaborador nuevo entienda
-  el proyecto sin este documento.
 
 ---
 

@@ -10,9 +10,12 @@
 > autorización) ya está construida — ver `src/middlewares/authenticate.ts`,
 > `src/middlewares/authorize.ts`, `src/services/auth.service.ts`,
 > `src/repositories/user.repository.ts`, `src/lib/jwt.ts` y `src/types/auth.ts`. No
-> están montados sobre ninguna ruta todavía porque no hay rutas de negocio. **Todo lo
-> demás sigue siendo diseño, no código**: el trigger de creación de `public.users`
-> (sección 1), la tabla `Invitation` y su flujo (sección 2), y cualquier endpoint de
+> están montados sobre ninguna ruta todavía porque no hay rutas de negocio. La
+> **sección 5** (RLS) también está aplicada contra un proyecto real de Supabase
+> (`prisma/sql/rls_policies.sql`), igual que el schema completo (migración inicial
+> aplicada) y el catálogo `Role` sembrado (`ADMIN`/`USER`). **Todo lo demás sigue
+> siendo diseño, no código**: el trigger de creación de `public.users` (sección 1),
+> la tabla `Invitation` y su flujo (sección 2), y cualquier endpoint de
 > login/registro/invitación.
 
 ## Principio rector
@@ -319,6 +322,15 @@ protegida:
 ---
 
 ## 5. Row Level Security
+
+> ✅ **Implementado** en `prisma/sql/rls_policies.sql`, aplicado y verificado contra
+> el proyecto real de Supabase: RLS habilitado en las 9 tablas de negocio, con una
+> función `public.current_organization_id()` (`SECURITY DEFINER`, evita la recursión
+> de RLS al resolver la organización del propio usuario contra `public.users`) y una
+> política de aislamiento por `organization_id` en cada tabla (`stages` resuelve la
+> organización vía join a `pipelines`, porque no tiene la columna directa). Se aplica
+> con `prisma db execute --file prisma/sql/rls_policies.sql --url "$DIRECT_URL"`,
+> igual que `manual_constraints.sql` — Prisma tampoco soporta RLS en su DSL.
 
 La pregunta explícita del pedido es "no quiero duplicar responsabilidades" — la
 respuesta no es que las tres capas hagan lo mismo por las dudas, sino que **cada capa
