@@ -1,6 +1,6 @@
 # Plataforma CRM — Project Overview
 
-> Última actualización: 2026-07-10.
+> Última actualización: 2026-07-11.
 > Este documento es la fuente de verdad del estado del proyecto. Cualquier sesión nueva
 > (humana o de Claude) debería poder entender el proyecto completo leyendo solo este
 > archivo, sin depender del historial de chat.
@@ -91,7 +91,8 @@ Plataforma CRM/
 │   ├── schema.prisma               # 7 modelos + 3 enums (ver sección 4).
 │   ├── seed.ts                     # Seed idempotente del catálogo Role (ADMIN/USER).
 │   ├── migrations/                  # Inicial + la que agrega organizationId/deletedAt
-│   │                                 #   a Stage.
+│   │                                 #   a Stage + la que agrega el índice
+│   │                                 #   (organizationId, pipelineId) a Opportunity.
 │   └── sql/
 │       ├── manual_constraints.sql   # Triggers de sync de email, constraints manuales,
 │       │                             #   índices únicos parciales (incluye los 4 de
@@ -112,22 +113,24 @@ Plataforma CRM/
     │                                 #   authorize.ts.
     ├── controllers/                 # onboarding.controller.ts, company.controller.ts,
     │                                 #   contact.controller.ts, pipeline.controller.ts,
-    │                                 #   stage.controller.ts.
+    │                                 #   stage.controller.ts, opportunity.controller.ts.
     ├── services/                    # auth.service.ts, onboarding.service.ts,
     │                                 #   ownership.service.ts (resolveOwnerId,
-    │                                 #   compartido entre Company y Contact),
+    │                                 #   compartido entre Company, Contact y Opportunity),
     │                                 #   company.service.ts, contact.service.ts,
-    │                                 #   pipeline.service.ts, stage.service.ts.
+    │                                 #   pipeline.service.ts, stage.service.ts,
+    │                                 #   opportunity.service.ts.
     ├── repositories/                # user.repository.ts, organization.repository.ts,
     │                                 #   role.repository.ts, company.repository.ts,
     │                                 #   contact.repository.ts, pipeline.repository.ts,
-    │                                 #   stage.repository.ts (reindexado de order) —
+    │                                 #   stage.repository.ts (reindexado de order),
+    │                                 #   opportunity.repository.ts —
     │                                 #   ver README.md para el patrón de tres capas.
     ├── routes/                      # health.routes.ts (sin prefijo), index.ts
     │                                 #   agregador, onboarding.routes.ts,
     │                                 #   company.routes.ts, contact.routes.ts,
-    │                                 #   pipeline.routes.ts y stage.routes.ts
-    │                                 #   (bajo /api).
+    │                                 #   pipeline.routes.ts, stage.routes.ts y
+    │                                 #   opportunity.routes.ts (bajo /api).
     ├── app.ts                       # arma Express, no escucha puerto.
     └── server.ts                    # entry point + graceful shutdown.
 ```
@@ -136,8 +139,9 @@ Detalle carpeta por carpeta (propósito, qué va en cada una) en `README.md` —
 duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
 
 **Lo que sigue faltando:**
-- `Contact`, `Opportunity`, `Activity` — mismo patrón que `Company`, todavía no
-  implementados.
+- `Activity` — mismo patrón que `Company`/`Contact`/`Opportunity`, todavía no
+  implementado. (`Contact` y `Opportunity` ya están implementados — este bullet
+  quedó desactualizado en una revisión anterior de este documento.)
 - Endpoints de login/invitación de usuarios (dependen de la entidad `Invitation`,
   ver sección 8).
 
@@ -245,23 +249,44 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
     dos fases (offset negativo, después el valor final) dentro de una transacción,
     porque la constraint única se evalúa por statement — un intercambio directo entre
     dos filas chocaría contra ella a mitad de camino.
-  - **Nota para `Opportunity` (próximo módulo)**: un `Pipeline` debería tener al menos
-    un `Stage` antes de poder usarse para crear `Opportunity` (que requiere
-    `stageId`). Esa restricción **no está implementada** todavía — se dejó
-    deliberadamente fuera de este módulo para no complejizarlo; hay que resolverla al
-    construir `Opportunity` (ya sea validando ahí, o agregándola después a
-    `Pipeline`/`Stage` si hiciera falta).
+  - **Nota resuelta al construir `Opportunity`**: esta sección señalaba que un
+    `Pipeline` debería tener al menos un `Stage` antes de poder usarse para crear
+    una `Opportunity`. No hizo falta agregar una validación explícita: como
+    `stageId` es obligatorio en `Opportunity` y se valida que pertenezca al
+    `pipelineId` indicado, un pipeline sin stages simplemente no tiene ningún
+    `stageId` válido que enviar — la restricción queda garantizada por
+    construcción, sin código adicional en `Pipeline`/`Stage`.
 
 ### `Opportunity`
-- **Propósito**: una venta en curso (deal).
+- **Propósito**: una venta en curso (deal). ✅ Módulo completo
+  (`POST/GET/GET :id/PATCH/DELETE /api/opportunities`), verificado end-to-end
+  contra un proyecto real de Supabase.
 - **Relaciones**: pertenece a `Organization`, `Pipeline`, `Stage`, tiene un `owner`
   obligatorio (`User`), y opcionalmente una `Company` y/o `Contact`. Tiene
   `Activity[]`.
 - **Decisiones importantes**: `CHECK (company_id IS NOT NULL OR contact_id IS NOT
   NULL)` — una oportunidad necesita estar ligada a al menos una empresa o un contacto
-  (`opportunities_company_or_contact_check`). `CHECK (amount >= 0)`
+  (`opportunities_company_or_contact_check`), reforzado también en la capa de
+  aplicación (`refine` de Zod en `opportunity.controller.ts`) para no depender
+  únicamente de que Postgres rechace el insert. `CHECK (amount >= 0)`
   (`opportunities_amount_non_negative_check`). `status` enum `OPEN/WON/LOST` con
-  `lostReason` opcional. Soft delete.
+  `lostReason` opcional — `lostReason`, `expectedCloseDate` y `actualCloseDate` se
+  pueden limpiar explícitamente vía `PATCH` (`null`), pensado para reabrir una
+  oportunidad `WON`/`LOST` de vuelta a `OPEN`. Soft delete. `pipelineId` y
+  `stageId` son obligatorios y se validan contra la organización; además se valida
+  que el `stageId` pertenezca al `pipelineId` indicado (un stage es de un solo
+  pipeline, pero nada lo garantiza a nivel de base). Si un `PATCH` cambia
+  `pipelineId`, exige que también se envíe `stageId` en la misma operación — nunca
+  mueve una oportunidad de pipeline implícitamente. `currency` sigue siendo
+  `String` (sin enum en Prisma/Postgres — ISO 4217 tiene ~180 códigos), validado en
+  Zod como 3 letras mayúsculas y normalizado a mayúsculas antes de guardar.
+  `ownerId` reutiliza `resolveOwnerId` de `ownership.service.ts`, igual que
+  `Company`/`Contact`. Índice `(organizationId, pipelineId)` agregado para los
+  filtros de listado por pipeline. La validación pendiente que señalaba una
+  versión anterior de este documento ("un `Pipeline` debería tener al menos un
+  `Stage` antes de poder usarse") queda resuelta de hecho: como `stageId` es
+  obligatorio y debe pertenecer al `pipelineId`, un pipeline sin stages no tiene
+  ningún `stageId` válido que enviar.
 
 ### `Activity`
 - **Propósito**: registro unificado de cualquier interacción — llamada, reunión, email,
@@ -492,7 +517,21 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   (inserta y corre a los siguientes), actualizar `order` (reindexado en dos fases
   dentro de una transacción), o borrar (cierra el hueco) — ver
   `src/repositories/stage.repository.ts`.
-- ❌ `Opportunity`, `Activity`, invitaciones — todavía no implementados.
+- ✅ **Módulo `Opportunity` completo** — cierra el ciclo de ventas sobre
+  `Pipeline`/`Stage`. Valida `companyId`/`contactId`/`pipelineId`/`stageId`/
+  `ownerId` contra la organización reutilizando los repositories de esas
+  entidades (mismo criterio que `Contact` con `companyId`), exige `companyId` y/o
+  `contactId`, exige que el `stageId` pertenezca al `pipelineId`, y si el `PATCH`
+  cambia `pipelineId` exige que también se envíe `stageId`. `currency` validado
+  como ISO 4217 de 3 letras sin enum en Prisma. Soft delete, filtros por
+  `companyId`/`contactId`/`ownerId`/`pipelineId`/`stageId`/`status`/`currency`/
+  rango de `amount`, búsqueda por `title`, orden por `createdAt`/`updatedAt`/
+  `amount`/`title`. Lectura con `authenticate`, escritura con `authenticate` +
+  `authorize("ADMIN")`. Verificado con una batería de pruebas end-to-end contra un
+  proyecto real de Supabase (CRUD, relaciones cruzadas, aislamiento multi-tenant,
+  seguridad, filtros, regresión de los demás módulos) — datos de prueba limpiados
+  al finalizar, sin residuos en la base.
+- ❌ `Activity`, invitaciones — todavía no implementados.
 
 **Frontend**
 - ❌ No existe ningún código de frontend en este repositorio.
@@ -528,7 +567,8 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 - ✅ `Contact`: `POST/GET/GET :id/PATCH/DELETE /api/contacts` (protegidos).
 - ✅ `Pipeline`: `POST/GET/GET :id/PATCH/DELETE /api/pipelines` (protegidos).
 - ✅ `Stage`: `POST/GET/GET :id/PATCH/DELETE /api/stages` (protegidos).
-- ❌ `Opportunity`, `Activity` — todavía no implementados.
+- ✅ `Opportunity`: `POST/GET/GET :id/PATCH/DELETE /api/opportunities` (protegidos).
+- ❌ `Activity` — todavía no implementado.
 
 **Seguridad**
 - ✅ `.env` correctamente excluido de git; `SUPABASE_SERVICE_ROLE_KEY` documentada
@@ -549,27 +589,22 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 Orden de dependencia real. Los pasos que ya se completaron (git, `npm install`,
 scaffold de Express, middleware de auth, provisionar Supabase, migración inicial,
 `manual_constraints.sql`, RLS, seed de roles, endpoint de onboarding, módulos
-`Company`, `Contact`, `Pipeline` y `Stage`, corrección JWT ES256) se sacaron de esta
-lista — quedan documentados en la sección 7.
+`Company`, `Contact`, `Pipeline`, `Stage` y `Opportunity`, corrección JWT ES256) se
+sacaron de esta lista — quedan documentados en la sección 7.
 
-1. **Implementar `Opportunity`**, ahora que `Pipeline`/`Stage` están listos. Referencia
-   directa: `contact.repository.ts`/`contact.service.ts`/`contact.controller.ts`
-   (validación de relaciones opcionales) + `stage.repository.ts` (constraints de
-   unicidad con `Prisma.PrismaClientKnownRequestError`/P2002). Mismo criterio de
-   `organizationId` desde `req.auth`, soft delete, paginación/búsqueda/filtro/orden,
-   `authorize("ADMIN")` solo en escritura, `resolveOwnerId` de
-   `ownership.service.ts` para `ownerId`. Específico de `Opportunity`:
-   - Validar `pipelineId` y `stageId` contra la organización (mismo patrón que
-     `findCompanyById` para `companyId` en `Contact`), y que el `stageId` pertenezca
-     al `pipelineId` indicado (un stage es de un solo pipeline, pero nada impide
-     hoy mandar un `stageId` de un pipeline distinto al `pipelineId` del body).
-   - Respetar el `CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL)` ya
-     existente en la base — conviene exigir al menos uno de los dos en el schema de
-     Zod, para no depender de que Postgres rechace el insert.
-   - **Pendiente sin resolver, señalado en la sección 4**: no hay validación de que
-     el `Pipeline` elegido tenga al menos un `Stage` — hoy es posible crear un
-     `Opportunity` contra un pipeline vacío si `stageId` no se valida bien. Definir
-     al construir este módulo.
+1. **Implementar `Activity`**, ahora que `Opportunity` está cerrado. Referencia
+   directa: `opportunity.repository.ts`/`opportunity.service.ts`/
+   `opportunity.controller.ts` para el patrón de validar varias relaciones
+   opcionales contra la organización. Mismo criterio de `organizationId` desde
+   `req.auth`, soft delete, paginación/búsqueda/filtro/orden, `authorize("ADMIN")`
+   solo en escritura. Específico de `Activity`:
+   - Respetar el `CHECK` que exige que esté ligada a *al menos* una de
+     `Company`/`Contact`/`Opportunity` (`activities_related_entity_check`) —
+     igual que se hizo con `Opportunity` y `company_id`/`contact_id`, conviene
+     exigirlo también en el schema de Zod.
+   - `authorId` obligatorio (quien crea la actividad) y `assigneeId` opcional —
+     ambos deberían validarse contra la organización, mismo patrón que
+     `resolveOwnerId` mueve para `ownerId`.
 
 2. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
    `deletedAt` en `User` (sección 8, recomendación 2 de ese doc) y la entidad
@@ -589,7 +624,10 @@ lista — quedan documentados en la sección 7.
    (`prisma db execute --file ... --url "$DIRECT_URL"`) — si se genera una migración
    nueva que altere estas tablas, hay que recordar reaplicarlos. Un script npm
    (`db:post-migrate`, por ejemplo) que corra los dos archivos en orden evitaría que
-   alguien se olvide.
+   alguien se olvide. La migración de `Opportunity` de esta iteración (agrega un
+   índice simple, no parcial) no requirió reaplicar ninguno de los dos — sirve como
+   ejemplo real de cuándo sí hace falta (columnas/constraints nuevas) y cuándo no
+   (índices estándar que Prisma ya soporta nativamente).
 
 ---
 

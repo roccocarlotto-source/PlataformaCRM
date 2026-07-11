@@ -3,6 +3,7 @@ import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
 import { healthRouter } from "./health.routes";
 import { onboardingRouter } from "./onboarding.routes";
+import { opportunityRouter } from "./opportunity.routes";
 import { pipelineRouter } from "./pipeline.routes";
 import { stageRouter } from "./stage.routes";
 
@@ -17,3 +18,4 @@ routes.use("/api", companyRouter);
 routes.use("/api", contactRouter);
 routes.use("/api", pipelineRouter);
 routes.use("/api", stageRouter);
+routes.use("/api", opportunityRouter);

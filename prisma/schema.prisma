@@ -277,6 +277,7 @@ model Opportunity {
   @@index([stageId])
   @@index([organizationId, status])
   @@index([organizationId, stageId])
+  @@index([organizationId, pipelineId])
   @@map("opportunities")
 }
 
