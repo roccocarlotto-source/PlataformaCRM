@@ -313,6 +313,7 @@ model Activity {
   // opportunity_id IS NOT NULL) se agrega manualmente en
   // prisma/sql/manual_constraints.sql
   @@index([organizationId])
+  @@index([authorId])
   @@index([companyId])
   @@index([contactId])
   @@index([opportunityId])

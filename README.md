@@ -12,13 +12,19 @@ de autenticación y onboarding, ver
 > verificados contra logins reales de Supabase vía JWKS/ES256) + conexión real a
 > Supabase (migraciones, `manual_constraints.sql` y RLS aplicados, catálogo `Role`
 > sembrado) + `POST /api/onboarding` + **módulos `Company`, `Contact`, `Pipeline`,
-> `Stage` y `Opportunity` completos** (CRUD, soft delete, paginación). `Opportunity`
-> valida `pipelineId`/`stageId` contra la organización y entre sí (el stage debe
-> pertenecer al pipeline indicado), exige `companyId` y/o `contactId`, y reutiliza
-> `resolveOwnerId` — verificado end-to-end contra un proyecto real de Supabase
+> `Stage`, `Opportunity` y `Activity` completos** (CRUD, soft delete, paginación) —
+> cierra el conjunto de entidades de negocio del modelo de datos actual.
+> `Opportunity` valida `pipelineId`/`stageId` contra la organización y entre sí (el
+> stage debe pertenecer al pipeline indicado), exige `companyId` y/o `contactId`, y
+> reutiliza `resolveOwnerId`. `Activity` exige al menos una de `companyId`/
+> `contactId`/`opportunityId` (validado también contra el estado final en `PATCH`,
+> no solo contra el body aislado), `authorId` sale exclusivamente de
+> `req.auth.userId` (nunca del cliente, nunca editable), y `assigneeId` es opcional
+> sin default al creador — reutiliza la misma consulta que `resolveOwnerId` pero sin
+> su semántica de "owner". Verificado end-to-end contra un proyecto real de Supabase
 > (aislamiento multi-tenant, relaciones cruzadas, filtros/orden/paginación,
-> autorización por rol). Sin `Activity` ni invitaciones todavía — ver la sección
-> "Estado de implementación" al inicio de `docs/authentication-architecture.md`.
+> autorización por rol). Sin invitaciones todavía — ver la sección "Estado de
+> implementación" al inicio de `docs/authentication-architecture.md`.
 
 ## Quickstart
 
@@ -116,8 +122,11 @@ src/
   Archivos reales: `onboarding.controller.ts`, `company.controller.ts` (módulo de
   referencia — 5 endpoints, create/update tipados con `AuthenticatedRequest`),
   `contact.controller.ts`, `pipeline.controller.ts`, `stage.controller.ts`,
-  `opportunity.controller.ts` (mismo esqueleto en los cinco; `currency` se valida
-  como código ISO 4217 de 3 letras mayúsculas sin enum en Prisma).
+  `opportunity.controller.ts` y `activity.controller.ts` (mismo esqueleto en los
+  seis; `currency` en `Opportunity` se valida como código ISO 4217 de 3 letras
+  mayúsculas sin enum en Prisma; `type` en `Activity` usa
+  `z.nativeEnum(ActivityType)` sobre el enum real de Prisma en vez de duplicar sus
+  valores a mano).
 
 - **`src/services/`** — lógica de aplicación: orquestan reglas de negocio y llaman a
   `repositories` (o, para infraestructura como el health check, hablan directo con
@@ -133,12 +142,19 @@ src/
   `company.repository.ts`, y normaliza el email a minúsculas antes de guardar),
   `pipeline.service.ts` (maneja `isDefault`: desmarca el anterior antes de marcar el
   nuevo, nunca al revés), `stage.service.ts` (reordenamiento automático de `order`
-  — ver `stage.repository.ts` para el detalle del algoritmo) y `opportunity.service.ts`
+  — ver `stage.repository.ts` para el detalle del algoritmo), `opportunity.service.ts`
   (valida `companyId`/`contactId`/`pipelineId`/`stageId` contra la organización
   reutilizando los repositories de esas entidades, exige que el `stageId` pertenezca
   al `pipelineId`, y si el `PATCH` cambia `pipelineId` exige que también se envíe
   `stageId` en la misma operación — nunca mueve una oportunidad de pipeline
-  implícitamente).
+  implícitamente) y `activity.service.ts` (`authorId` nunca es un parámetro
+  aceptado desde el cliente — lo fija el controller a partir de `req.auth.userId`;
+  `assigneeId` valida con la misma consulta que `resolveOwnerId`
+  (`findUserByIdInOrganization`) pero sin su default "si no viene, asigna a quien
+  crea" — una `Activity` sin `assigneeId` queda `null`, nunca autoasignada; la
+  invariante "al menos `companyId`, `contactId` u `opportunityId`" se revalida en
+  cada `PATCH` contra el estado final combinando el registro actual con las claves
+  realmente presentes en el body, no solo contra el body aislado).
 
 - **`src/repositories/`** — capa de acceso a datos: cada entidad tiene acá sus
   funciones de consulta/escritura sobre Prisma. Todas aceptan un parámetro `db`
@@ -155,17 +171,21 @@ src/
   `findOldestActivePipeline` para la promoción automática de default),
   `stage.repository.ts` (`shiftUpFrom`/`shiftDownAfter`/`reindexStages` — sin
   `db` por default a propósito, siempre corren dentro de una transacción del
-  service, nunca sueltas) y `opportunity.repository.ts` (mismo esqueleto que
+  service, nunca sueltas), `opportunity.repository.ts` (mismo esqueleto que
   `company`/`contact`; filtros por `companyId`/`contactId`/`ownerId`/`pipelineId`/
   `stageId`/`status`/`currency`/rango de `amount`, orden por
-  `createdAt`/`updatedAt`/`amount`/`title`).
+  `createdAt`/`updatedAt`/`amount`/`title`) y `activity.repository.ts` (filtros por
+  `type`/`authorId`/`assigneeId`/`companyId`/`contactId`/`opportunityId`/rango de
+  `dueDate`/rango de `completedAt`, búsqueda `search` con `OR` entre
+  `subject`/`body`, orden por `createdAt`/`updatedAt`/`dueDate`/`completedAt`/
+  `subject`).
 
 - **`src/routes/`** — define las rutas HTTP y las conecta con su `controller`.
   `index.ts` agrega todos los routers de la aplicación en uno solo. `/health` sin
   prefijo; `onboarding.routes.ts` (público), `company.routes.ts`,
-  `contact.routes.ts`, `pipeline.routes.ts`, `stage.routes.ts` y
-  `opportunity.routes.ts` (protegidos, lectura con `authenticate`, escritura con
-  `authenticate` + `authorize("ADMIN")`) bajo `/api`.
+  `contact.routes.ts`, `pipeline.routes.ts`, `stage.routes.ts`,
+  `opportunity.routes.ts` y `activity.routes.ts` (protegidos, lectura con
+  `authenticate`, escritura con `authenticate` + `authorize("ADMIN")`) bajo `/api`.
 
 - **`src/app.ts`** — arma la instancia de Express: registra middlewares (seguridad,
   CORS, compresión, parseo de body, logging de requests), monta las rutas, y al

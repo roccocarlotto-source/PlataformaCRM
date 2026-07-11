@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { activityRouter } from "./activity.routes";
 import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
 import { healthRouter } from "./health.routes";
@@ -19,3 +20,4 @@ routes.use("/api", contactRouter);
 routes.use("/api", pipelineRouter);
 routes.use("/api", stageRouter);
 routes.use("/api", opportunityRouter);
+routes.use("/api", activityRouter);

@@ -113,24 +113,27 @@ Plataforma CRM/
     │                                 #   authorize.ts.
     ├── controllers/                 # onboarding.controller.ts, company.controller.ts,
     │                                 #   contact.controller.ts, pipeline.controller.ts,
-    │                                 #   stage.controller.ts, opportunity.controller.ts.
+    │                                 #   stage.controller.ts, opportunity.controller.ts,
+    │                                 #   activity.controller.ts.
     ├── services/                    # auth.service.ts, onboarding.service.ts,
     │                                 #   ownership.service.ts (resolveOwnerId,
-    │                                 #   compartido entre Company, Contact y Opportunity),
+    │                                 #   compartido entre Company, Contact y Opportunity —
+    │                                 #   Activity NO lo usa para assigneeId, ver sección 4),
     │                                 #   company.service.ts, contact.service.ts,
     │                                 #   pipeline.service.ts, stage.service.ts,
-    │                                 #   opportunity.service.ts.
+    │                                 #   opportunity.service.ts, activity.service.ts.
     ├── repositories/                # user.repository.ts, organization.repository.ts,
     │                                 #   role.repository.ts, company.repository.ts,
     │                                 #   contact.repository.ts, pipeline.repository.ts,
     │                                 #   stage.repository.ts (reindexado de order),
-    │                                 #   opportunity.repository.ts —
+    │                                 #   opportunity.repository.ts, activity.repository.ts —
     │                                 #   ver README.md para el patrón de tres capas.
     ├── routes/                      # health.routes.ts (sin prefijo), index.ts
     │                                 #   agregador, onboarding.routes.ts,
     │                                 #   company.routes.ts, contact.routes.ts,
-    │                                 #   pipeline.routes.ts, stage.routes.ts y
-    │                                 #   opportunity.routes.ts (bajo /api).
+    │                                 #   pipeline.routes.ts, stage.routes.ts,
+    │                                 #   opportunity.routes.ts y activity.routes.ts
+    │                                 #   (bajo /api).
     ├── app.ts                       # arma Express, no escucha puerto.
     └── server.ts                    # entry point + graceful shutdown.
 ```
@@ -139,11 +142,10 @@ Detalle carpeta por carpeta (propósito, qué va en cada una) en `README.md` —
 duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
 
 **Lo que sigue faltando:**
-- `Activity` — mismo patrón que `Company`/`Contact`/`Opportunity`, todavía no
-  implementado. (`Contact` y `Opportunity` ya están implementados — este bullet
-  quedó desactualizado en una revisión anterior de este documento.)
 - Endpoints de login/invitación de usuarios (dependen de la entidad `Invitation`,
-  ver sección 8).
+  ver sección 8). Es lo único que queda del modelo de datos actual sin exponer vía
+  API — `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity` y `Activity` ya
+  están todos implementados.
 
 ---
 
@@ -290,16 +292,44 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
 
 ### `Activity`
 - **Propósito**: registro unificado de cualquier interacción — llamada, reunión, email,
-  tarea o nota (`enum ActivityType`).
+  tarea o nota (`enum ActivityType`). ✅ Módulo completo
+  (`POST/GET/GET :id/PATCH/DELETE /api/activities`), verificado end-to-end contra un
+  proyecto real de Supabase. Cierra el conjunto de entidades de negocio del modelo
+  de datos actual — el único pendiente después de `Activity` es el flujo de
+  invitaciones (sección 8).
 - **Relaciones**: pertenece a `Organization`, tiene un `author` obligatorio (`User`) y
   un `assignee` opcional (`User`). Opcionalmente ligada a `Company`, `Contact` y/o
   `Opportunity`.
 - **Decisiones importantes**: **un solo modelo para 5 tipos de interacción** en vez de
   5 tablas separadas — trade-off consciente: menos duplicación de esquema, a costa de
   columnas que solo aplican a algunos tipos (`dueDate`/`completedAt` tienen sentido
-  para `TASK`, menos para `NOTE`). `CHECK` que exige que esté ligada a *al menos* una
-  de `Company`/`Contact`/`Opportunity` (`activities_related_entity_check`). Soft
-  delete.
+  para `TASK`, menos para `NOTE`) — no hay ninguna regla de negocio ni constraint que
+  ate esas columnas a un `ActivityType` específico, y el módulo no inventó ninguna al
+  implementarse. `CHECK` que exige que esté ligada a *al menos* una de
+  `Company`/`Contact`/`Opportunity` (`activities_related_entity_check`), reforzado
+  también en Zod (create) y revalidado contra el **estado final** en cada `PATCH`
+  (registro actual + claves realmente presentes en el body, distinguiendo "clave
+  ausente" de "`null` explícito") — un `PATCH` no puede dejar la actividad sin
+  ninguna de las tres relaciones, aunque el body en sí sea válido en aislamiento.
+  `authorId` sale exclusivamente de `req.auth.userId`: no existe como campo en
+  ningún schema de Zod (ni create ni update), así que un cliente no puede
+  establecerlo ni modificarlo, ni por error. `assigneeId` es opcional y **no**
+  reutiliza `resolveOwnerId` de `ownership.service.ts` — ese helper por diseño
+  asigna por default a quien crea el registro, semántica correcta para "owner" pero
+  incorrecta para "assignee" (una actividad sin asignar debe quedar `null`, nunca
+  autoasignada al autor); en cambio reutiliza la misma consulta que `resolveOwnerId`
+  usa internamente (`findUserByIdInOrganization` de `user.repository.ts`) con un
+  validador local (`validateAssigneeId`) sin comportamiento de default. `dueDate`,
+  `completedAt`, `body`, `companyId`, `contactId`, `assigneeId` y `opportunityId` se
+  pueden limpiar explícitamente con `null` vía `PATCH` — mismo criterio que
+  `Opportunity` con `lostReason`/`expectedCloseDate`/`actualCloseDate`, evitando el
+  mismo bug de `z.coerce.date()` convirtiendo un `null` explícito en `1970-01-01`.
+  Filtros de fecha (`dueDateFrom`/`dueDateTo`/`completedAtFrom`/`completedAtTo`) por
+  **rango**, no por igualdad exacta de timestamp — validado en Zod que el límite
+  inferior no sea posterior al superior. Búsqueda `search` con `OR` entre
+  `subject`/`body`. Índice `@@index([authorId])` agregado (antes solo `assigneeId`
+  tenía índice propio entre las dos FK a `User` — asimetría real corregida, mismo
+  criterio que `ownerId` en `Company`/`Contact`/`Opportunity`). Soft delete.
 
 ### Enums
 - `ActivityType`: `CALL | MEETING | EMAIL | TASK | NOTE`
@@ -531,7 +561,28 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   proyecto real de Supabase (CRUD, relaciones cruzadas, aislamiento multi-tenant,
   seguridad, filtros, regresión de los demás módulos) — datos de prueba limpiados
   al finalizar, sin residuos en la base.
-- ❌ `Activity`, invitaciones — todavía no implementados.
+- ✅ **Módulo `Activity` completo** — cierra el conjunto de entidades de negocio
+  del modelo de datos actual. `authorId` sale exclusivamente de `req.auth.userId`
+  (no existe en ningún schema de Zod, no se puede enviar ni modificar). `assigneeId`
+  opcional, validado con `findUserByIdInOrganization` (existe, misma organización,
+  activo) sin el default "asigna a quien crea" de `resolveOwnerId` — queda `null`
+  si no se especifica. Exige `companyId`/`contactId`/`opportunityId` (al menos
+  una), revalidado en cada `PATCH` contra el estado final (registro actual +
+  claves presentes en el body, distinguiendo ausente de `null` explícito) para que
+  nunca pueda quedar sin ninguna relación. `dueDate`/`completedAt`/`body` y las
+  tres relaciones se pueden limpiar con `null` explícito en `PATCH` sin caer en el
+  bug de `z.coerce.date()` → `1970-01-01` que se corrigió en `Opportunity`. `type`
+  usa `z.nativeEnum(ActivityType)` sobre el enum real de Prisma. Filtros por
+  `type`/`authorId`/`assigneeId`/`companyId`/`contactId`/`opportunityId`/rango de
+  `dueDate`/rango de `completedAt` (con validación de que el límite inferior no
+  sea posterior al superior), búsqueda `search` con `OR` entre `subject`/`body`,
+  orden por `createdAt`/`updatedAt`/`dueDate`/`completedAt`/`subject`. Soft
+  delete. `@@index([authorId])` agregado (única FK a `User` de la entidad que no
+  tenía índice propio). Lectura con `authenticate`, escritura con `authenticate` +
+  `authorize("ADMIN")`. Verificado con una batería de pruebas end-to-end contra un
+  proyecto real de Supabase — datos de prueba limpiados al finalizar, sin residuos
+  en la base.
+- ❌ Invitaciones — todavía no implementadas (ver sección 8).
 
 **Frontend**
 - ❌ No existe ningún código de frontend en este repositorio.
@@ -568,7 +619,7 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 - ✅ `Pipeline`: `POST/GET/GET :id/PATCH/DELETE /api/pipelines` (protegidos).
 - ✅ `Stage`: `POST/GET/GET :id/PATCH/DELETE /api/stages` (protegidos).
 - ✅ `Opportunity`: `POST/GET/GET :id/PATCH/DELETE /api/opportunities` (protegidos).
-- ❌ `Activity` — todavía no implementado.
+- ✅ `Activity`: `POST/GET/GET :id/PATCH/DELETE /api/activities` (protegidos).
 
 **Seguridad**
 - ✅ `.env` correctamente excluido de git; `SUPABASE_SERVICE_ROLE_KEY` documentada
@@ -589,45 +640,35 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 Orden de dependencia real. Los pasos que ya se completaron (git, `npm install`,
 scaffold de Express, middleware de auth, provisionar Supabase, migración inicial,
 `manual_constraints.sql`, RLS, seed de roles, endpoint de onboarding, módulos
-`Company`, `Contact`, `Pipeline`, `Stage` y `Opportunity`, corrección JWT ES256) se
-sacaron de esta lista — quedan documentados en la sección 7.
+`Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity` y `Activity`, corrección
+JWT ES256) se sacaron de esta lista — quedan documentados en la sección 7. Con
+`Activity` cerrado, ya no queda ningún módulo CRUD pendiente del modelo de datos
+actual — lo único que sigue faltando es el flujo de invitaciones (que además
+requiere agregar una entidad nueva al schema, ver paso 2).
 
-1. **Implementar `Activity`**, ahora que `Opportunity` está cerrado. Referencia
-   directa: `opportunity.repository.ts`/`opportunity.service.ts`/
-   `opportunity.controller.ts` para el patrón de validar varias relaciones
-   opcionales contra la organización. Mismo criterio de `organizationId` desde
-   `req.auth`, soft delete, paginación/búsqueda/filtro/orden, `authorize("ADMIN")`
-   solo en escritura. Específico de `Activity`:
-   - Respetar el `CHECK` que exige que esté ligada a *al menos* una de
-     `Company`/`Contact`/`Opportunity` (`activities_related_entity_check`) —
-     igual que se hizo con `Opportunity` y `company_id`/`contact_id`, conviene
-     exigirlo también en el schema de Zod.
-   - `authorId` obligatorio (quien crea la actividad) y `assigneeId` opcional —
-     ambos deberían validarse contra la organización, mismo patrón que
-     `resolveOwnerId` mueve para `ownerId`.
-
-2. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
+1. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
    `deletedAt` en `User` (sección 8, recomendación 2 de ese doc) y la entidad
    `Invitation` (sección 2). Son cambios de schema chicos y ya diseñados — al ser una
    migración nueva sobre una base que ya tiene datos, conviene revisar que no rompa
    nada existente, pero no hay bloqueante técnico.
 
-3. **Implementar el flujo de invitación de usuarios** (sección 2 de
+2. **Implementar el flujo de invitación de usuarios** (sección 2 de
    `authentication-architecture.md`): endpoint para que un `ADMIN` invite
    (`authenticate` + `authorize("ADMIN")`, ya construidos y verificados contra
    endpoints reales), usando `supabaseAdmin.auth.admin.inviteUserByEmail`, y el
    endpoint de aceptación que crea `public.users` a partir de la `Invitation`.
-   Depende del paso 2 (la tabla `Invitation`).
+   Depende del paso 1 (la tabla `Invitation`).
 
-4. **Automatizar la reaplicación de `manual_constraints.sql` y `rls_policies.sql`
+3. **Automatizar la reaplicación de `manual_constraints.sql` y `rls_policies.sql`
    tras futuras migraciones.** Hoy ambos se aplicaron a mano una vez
    (`prisma db execute --file ... --url "$DIRECT_URL"`) — si se genera una migración
    nueva que altere estas tablas, hay que recordar reaplicarlos. Un script npm
    (`db:post-migrate`, por ejemplo) que corra los dos archivos en orden evitaría que
-   alguien se olvide. La migración de `Opportunity` de esta iteración (agrega un
-   índice simple, no parcial) no requirió reaplicar ninguno de los dos — sirve como
-   ejemplo real de cuándo sí hace falta (columnas/constraints nuevas) y cuándo no
-   (índices estándar que Prisma ya soporta nativamente).
+   alguien se olvide. Las migraciones de `Opportunity` y `Activity` de las últimas
+   dos iteraciones (cada una agrega un índice simple, no parcial) no requirieron
+   reaplicar ninguno de los dos — sirven como ejemplo real de cuándo sí hace falta
+   (columnas/constraints nuevas) y cuándo no (índices estándar que Prisma ya
+   soporta nativamente).
 
 ---
 
