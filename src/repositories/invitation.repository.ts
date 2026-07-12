@@ -106,9 +106,18 @@ export function createInvitation(data: CreateInvitationData, db: Db = prisma) {
 // nunca asumir éxito por la ausencia de excepción. No usar `update` acá:
 // `update` no admite una condición adicional en el `where` más allá de la
 // clave única, por eso hace falta `updateMany` pese a afectar una sola fila.
-export function revokeInvitationConditional(id: string, db: Db = prisma) {
+// organizationId en el WHERE (M4): a diferencia de acceptInvitationRowConditional
+// (que corre antes de que exista ningún organizationId legítimo fuera de la
+// propia fila), acá el actor es un ADMIN autenticado con organizationId real
+// en req.auth — la escritura debe exigirlo igual que el resto de las
+// entidades, no solo confiar en el pre-check de revokeInvitation.
+export function revokeInvitationConditional(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
   return db.invitation.updateMany({
-    where: { id, status: "PENDING" },
+    where: { id, organizationId, status: "PENDING" },
     data: { status: "REVOKED" },
   });
 }

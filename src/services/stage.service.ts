@@ -255,10 +255,19 @@ export async function updateStage(
           ...withoutMoved.slice(targetOrder - 1).map((s) => s.id),
         ];
 
-        await reindexStages(finalOrderIds, tx);
+        await reindexStages(stage.pipelineId, finalOrderIds, tx);
       }
 
-      return updateStageRepo(id, rest, tx);
+      const result = await updateStageRepo(id, organizationId, rest, tx);
+      if (result.count === 0) {
+        throw new AppError("Etapa no encontrada", 404);
+      }
+
+      const updated = await findStageById(id, organizationId, tx);
+      if (!updated) {
+        throw new AppError("Etapa no encontrada", 404);
+      }
+      return updated;
     });
   } catch (err) {
     rethrowAsConflict(err);
@@ -269,7 +278,10 @@ export async function deleteStage(organizationId: string, id: string) {
   const stage = await getStageById(organizationId, id);
 
   await prisma.$transaction(async (tx) => {
-    await softDeleteStage(id, tx);
+    const result = await softDeleteStage(id, organizationId, tx);
+    if (result.count === 0) {
+      throw new AppError("Etapa no encontrada", 404);
+    }
     await shiftDownAfter(stage.pipelineId, stage.order, tx);
   });
 }

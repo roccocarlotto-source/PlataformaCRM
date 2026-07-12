@@ -119,10 +119,18 @@ export async function updateCompany(
     );
   }
 
-  return updateCompanyRepo(id, data);
+  const result = await updateCompanyRepo(id, organizationId, data);
+  if (result.count === 0) {
+    throw new AppError("Empresa no encontrada", 404);
+  }
+
+  return getCompanyById(organizationId, id);
 }
 
 export async function deleteCompany(organizationId: string, id: string) {
   await getCompanyById(organizationId, id);
-  await softDeleteCompany(id);
+  const result = await softDeleteCompany(id, organizationId);
+  if (result.count === 0) {
+    throw new AppError("Empresa no encontrada", 404);
+  }
 }

@@ -247,10 +247,18 @@ export async function updateOpportunity(
     await validateStageId(organizationId, input.stageId, effectivePipelineId);
   }
 
-  return updateOpportunityRepo(id, data);
+  const result = await updateOpportunityRepo(id, organizationId, data);
+  if (result.count === 0) {
+    throw new AppError("Oportunidad no encontrada", 404);
+  }
+
+  return getOpportunityById(organizationId, id);
 }
 
 export async function deleteOpportunity(organizationId: string, id: string) {
   await getOpportunityById(organizationId, id);
-  await softDeleteOpportunity(id);
+  const result = await softDeleteOpportunity(id, organizationId);
+  if (result.count === 0) {
+    throw new AppError("Oportunidad no encontrada", 404);
+  }
 }

@@ -199,13 +199,21 @@ export async function updateContact(
   }
 
   try {
-    return await updateContactRepo(id, data);
+    const result = await updateContactRepo(id, organizationId, data);
+    if (result.count === 0) {
+      throw new AppError("Contacto no encontrado", 404);
+    }
   } catch (err) {
     rethrowAsConflict(err);
   }
+
+  return getContactById(organizationId, id);
 }
 
 export async function deleteContact(organizationId: string, id: string) {
   await getContactById(organizationId, id);
-  await softDeleteContact(id);
+  const result = await softDeleteContact(id, organizationId);
+  if (result.count === 0) {
+    throw new AppError("Contacto no encontrado", 404);
+  }
 }

@@ -255,10 +255,18 @@ export async function updateActivity(
     );
   }
 
-  return updateActivityRepo(id, data);
+  const result = await updateActivityRepo(id, organizationId, data);
+  if (result.count === 0) {
+    throw new AppError("Actividad no encontrada", 404);
+  }
+
+  return getActivityById(organizationId, id);
 }
 
 export async function deleteActivity(organizationId: string, id: string) {
   await getActivityById(organizationId, id);
-  await softDeleteActivity(id);
+  const result = await softDeleteActivity(id, organizationId);
+  if (result.count === 0) {
+    throw new AppError("Actividad no encontrada", 404);
+  }
 }

@@ -130,17 +130,26 @@ export interface UpdateStageData {
   isLost?: boolean;
 }
 
+// updateMany en vez de update: el WHERE efectivo tiene que exigir
+// organizationId además de id (M4) — la escritura en sí es la garantía de
+// aislamiento, no solo el pre-check del service. count === 0 se traduce a
+// 404 en el service.
 export function updateStage(
   id: string,
+  organizationId: string,
   data: UpdateStageData,
   db: Db = prisma,
 ) {
-  return db.stage.update({ where: { id }, data });
+  return db.stage.updateMany({ where: { id, organizationId }, data });
 }
 
-export function softDeleteStage(id: string, db: Db = prisma) {
-  return db.stage.update({
-    where: { id },
+export function softDeleteStage(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.stage.updateMany({
+    where: { id, organizationId },
     data: { deletedAt: new Date() },
   });
 }
@@ -201,21 +210,46 @@ export async function shiftDownAfter(
 // constraint única (pipeline_id, order) se evalúa por statement, no al
 // final de la transacción — un solo UPDATE con el order "final" de otro
 // stage todavía ocupado la rechazaría.
+//
+// pipelineId en el WHERE de cada escritura (M4): a diferencia de
+// shiftUpFrom/shiftDownAfter, esta función no hace ninguna query propia
+// para derivar el set de filas a tocar — recibe orderedStageIds ya armado
+// por el caller y escribía directo por id. organizationId no es la
+// frontera correcta acá: Stage.organizationId está denormalizado desde
+// pipeline.organizationId y un stage nunca cambia de pipeline vía la API
+// (ver docs/project-overview.md sección 4), así que pipelineId ya es el
+// scope mínimo y suficiente — agregar organizationId además no angostaría
+// nada, sería estético. Si algún id de orderedStageIds no pertenece
+// realmente a pipelineId (bug del caller, condición de carrera, o un id
+// ajeno), la escritura de esa fila afecta 0 filas — count !== 1 aborta la
+// transacción con un error, en vez de reindexar en silencio el pipeline
+// (potencialmente de otra organización) al que ese id sí pertenece.
 export async function reindexStages(
+  pipelineId: string,
   orderedStageIds: string[],
   db: Db,
 ): Promise<void> {
   for (let i = 0; i < orderedStageIds.length; i++) {
-    await db.stage.update({
-      where: { id: orderedStageIds[i] },
+    const result = await db.stage.updateMany({
+      where: { id: orderedStageIds[i], pipelineId },
       data: { order: -(i + 1) },
     });
+    if (result.count !== 1) {
+      throw new Error(
+        `reindexStages: el stage ${orderedStageIds[i]} no pertenece al pipeline ${pipelineId}`,
+      );
+    }
   }
 
   for (let i = 0; i < orderedStageIds.length; i++) {
-    await db.stage.update({
-      where: { id: orderedStageIds[i] },
+    const result = await db.stage.updateMany({
+      where: { id: orderedStageIds[i], pipelineId },
       data: { order: i + 1 },
     });
+    if (result.count !== 1) {
+      throw new Error(
+        `reindexStages: el stage ${orderedStageIds[i]} no pertenece al pipeline ${pipelineId}`,
+      );
+    }
   }
 }

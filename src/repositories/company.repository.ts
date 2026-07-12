@@ -101,17 +101,27 @@ export interface UpdateCompanyData {
   country?: string | null;
 }
 
+// updateMany en vez de update: el WHERE efectivo tiene que exigir
+// organizationId además de id, para que la escritura en sí (no solo el
+// pre-check del service) sea la garantía real de aislamiento multi-tenant
+// (M4). count === 0 significa "no existe, no es de esta organización, o ya
+// no está donde el pre-check la vio" — el service lo traduce a 404.
 export function updateCompany(
   id: string,
+  organizationId: string,
   data: UpdateCompanyData,
   db: Db = prisma,
 ) {
-  return db.company.update({ where: { id }, data });
+  return db.company.updateMany({ where: { id, organizationId }, data });
 }
 
-export function softDeleteCompany(id: string, db: Db = prisma) {
-  return db.company.update({
-    where: { id },
+export function softDeleteCompany(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.company.updateMany({
+    where: { id, organizationId },
     data: { deletedAt: new Date() },
   });
 }

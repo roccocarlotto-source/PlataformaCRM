@@ -139,11 +139,28 @@ export async function updateUser(
         }
       }
 
-      return updateUserRepo(id, data, tx);
+      const result = await updateUserRepo(id, organizationId, data, tx);
+      if (result.count === 0) {
+        throw new AppError("Usuario no encontrado", 404);
+      }
+
+      // updateMany no admite `include` — reconstruye la respuesta (con rol)
+      // con una lectura dentro de la misma transacción, solo después de
+      // confirmar que la escritura realmente afectó una fila.
+      const updated = await findUserById(id, organizationId, tx);
+      if (!updated) {
+        throw new AppError("Usuario no encontrado", 404);
+      }
+      return updated;
     });
   }
 
-  return updateUserRepo(id, data);
+  const result = await updateUserRepo(id, organizationId, data);
+  if (result.count === 0) {
+    throw new AppError("Usuario no encontrado", 404);
+  }
+
+  return getUserById(organizationId, id);
 }
 
 // Remover de la organización (soft delete). No toca Supabase Auth: la
@@ -182,10 +199,16 @@ export async function deleteUser(
         }
       }
 
-      return softDeleteUser(id, tx);
+      const result = await softDeleteUser(id, organizationId, tx);
+      if (result.count === 0) {
+        throw new AppError("Usuario no encontrado", 404);
+      }
     });
     return;
   }
 
-  await softDeleteUser(id);
+  const result = await softDeleteUser(id, organizationId);
+  if (result.count === 0) {
+    throw new AppError("Usuario no encontrado", 404);
+  }
 }

@@ -116,17 +116,26 @@ export interface UpdatePipelineData {
   isDefault?: boolean;
 }
 
+// updateMany en vez de update: el WHERE efectivo tiene que exigir
+// organizationId además de id (M4) — la escritura en sí es la garantía de
+// aislamiento, no solo el pre-check del service. count === 0 se traduce a
+// 404 en el service.
 export function updatePipeline(
   id: string,
+  organizationId: string,
   data: UpdatePipelineData,
   db: Db = prisma,
 ) {
-  return db.pipeline.update({ where: { id }, data });
+  return db.pipeline.updateMany({ where: { id, organizationId }, data });
 }
 
-export function softDeletePipeline(id: string, db: Db = prisma) {
-  return db.pipeline.update({
-    where: { id },
+export function softDeletePipeline(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.pipeline.updateMany({
+    where: { id, organizationId },
     data: { deletedAt: new Date() },
   });
 }

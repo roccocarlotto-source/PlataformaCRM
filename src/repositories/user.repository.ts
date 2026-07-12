@@ -161,16 +161,32 @@ export interface UpdateUserData {
   roleId?: string;
 }
 
-export function updateUser(id: string, data: UpdateUserData, db: Db = prisma) {
-  return db.user.update({ where: { id }, data, include: { role: true } });
+// updateMany en vez de update: el WHERE efectivo tiene que exigir
+// organizationId además de id (M4) — la escritura en sí es la garantía de
+// aislamiento, no solo el pre-check del service. updateMany no admite
+// `include`, así que ya no devuelve la fila con el rol incluido — el
+// service reconstruye la respuesta con un findUserById posterior tras
+// confirmar count === 1 (ver user.service.ts).
+export function updateUser(
+  id: string,
+  organizationId: string,
+  data: UpdateUserData,
+  db: Db = prisma,
+) {
+  return db.user.updateMany({ where: { id, organizationId }, data });
 }
 
 // Remover de la organización: deletedAt + isActive: false en la misma
 // escritura (remover implica desactivar, nunca al revés) — sin undelete en
-// este bloque, ver docs/project-overview.md.
-export function softDeleteUser(id: string, db: Db = prisma) {
-  return db.user.update({
-    where: { id },
+// este bloque, ver docs/project-overview.md. organizationId en el WHERE por
+// el mismo motivo que updateUser (M4).
+export function softDeleteUser(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.user.updateMany({
+    where: { id, organizationId },
     data: { deletedAt: new Date(), isActive: false },
   });
 }

@@ -209,7 +209,7 @@ export async function revokeInvitation(organizationId: string, id: string) {
     throw new AppError("Solo se puede revocar una invitación pendiente", 400);
   }
 
-  const result = await revokeInvitationConditional(id);
+  const result = await revokeInvitationConditional(id, organizationId);
   if (result.count === 0) {
     // Perdió la carrera: otra transición (accept, u otro revoke) ganó
     // entre el SELECT de arriba y esta escritura. Nunca puede quedar

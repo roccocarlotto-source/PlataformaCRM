@@ -142,11 +142,26 @@ export async function updatePipeline(
     if (input.isDefault === true) {
       return await prisma.$transaction(async (tx) => {
         await unsetDefaultPipeline(organizationId, tx);
-        return updatePipelineRepo(id, input, tx);
+
+        const result = await updatePipelineRepo(id, organizationId, input, tx);
+        if (result.count === 0) {
+          throw new AppError("Pipeline no encontrado", 404);
+        }
+
+        const updated = await findPipelineById(id, organizationId, tx);
+        if (!updated) {
+          throw new AppError("Pipeline no encontrado", 404);
+        }
+        return updated;
       });
     }
 
-    return await updatePipelineRepo(id, input);
+    const result = await updatePipelineRepo(id, organizationId, input);
+    if (result.count === 0) {
+      throw new AppError("Pipeline no encontrado", 404);
+    }
+
+    return await getPipelineById(organizationId, id);
   } catch (err) {
     rethrowAsConflict(err);
   }
@@ -164,7 +179,10 @@ export async function deletePipeline(organizationId: string, id: string) {
   }
 
   if (!pipeline.isDefault) {
-    await softDeletePipeline(id);
+    const result = await softDeletePipeline(id, organizationId);
+    if (result.count === 0) {
+      throw new AppError("Pipeline no encontrado", 404);
+    }
     return;
   }
 
@@ -176,7 +194,10 @@ export async function deletePipeline(organizationId: string, id: string) {
   // default — si lo hiciéramos al revés, habría un instante con dos filas
   // `is_default = true` simultáneas y la constraint lo rechazaría.
   await prisma.$transaction(async (tx) => {
-    await softDeletePipeline(id, tx);
+    const result = await softDeletePipeline(id, organizationId, tx);
+    if (result.count === 0) {
+      throw new AppError("Pipeline no encontrado", 404);
+    }
 
     const nextDefault = await findOldestActivePipeline(
       organizationId,
@@ -184,7 +205,15 @@ export async function deletePipeline(organizationId: string, id: string) {
       tx,
     );
     if (nextDefault) {
-      await updatePipelineRepo(nextDefault.id, { isDefault: true }, tx);
+      const promoted = await updatePipelineRepo(
+        nextDefault.id,
+        organizationId,
+        { isDefault: true },
+        tx,
+      );
+      if (promoted.count === 0) {
+        throw new AppError("Pipeline no encontrado", 404);
+      }
     }
   });
 }

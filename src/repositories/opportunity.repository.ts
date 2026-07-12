@@ -137,17 +137,26 @@ export interface UpdateOpportunityData {
   lostReason?: string | null;
 }
 
+// updateMany en vez de update: el WHERE efectivo tiene que exigir
+// organizationId además de id (M4) — la escritura en sí es la garantía de
+// aislamiento, no solo el pre-check del service. count === 0 se traduce a
+// 404 en el service.
 export function updateOpportunity(
   id: string,
+  organizationId: string,
   data: UpdateOpportunityData,
   db: Db = prisma,
 ) {
-  return db.opportunity.update({ where: { id }, data });
+  return db.opportunity.updateMany({ where: { id, organizationId }, data });
 }
 
-export function softDeleteOpportunity(id: string, db: Db = prisma) {
-  return db.opportunity.update({
-    where: { id },
+export function softDeleteOpportunity(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.opportunity.updateMany({
+    where: { id, organizationId },
     data: { deletedAt: new Date() },
   });
 }

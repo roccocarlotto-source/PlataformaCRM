@@ -432,8 +432,15 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
 - **Multi-tenant por columna (`organizationId`), no schema-per-tenant ni
   DB-per-tenant.** Todas las tablas de negocio llevan `organization_id` y lo indexan.
   Es el enfoque más simple de operar (un solo schema, una sola migración para todos los
-  tenants) pero **hoy el aislamiento entre organizaciones depende 100% de que el código
-  de aplicación filtre correctamente por `organizationId` en cada query**. Row Level
+  tenants) pero **las lecturas (`findMany`/`findFirst`/`count`) dependen 100% de que el
+  código de aplicación filtre correctamente por `organizationId` en cada query** —
+  sin cambios. Las **escrituras tenant-scoped** (`update`/soft-delete de `Company`,
+  `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity`, `User`, y la revocación de
+  `Invitation`) ya no dependen únicamente de eso: desde la corrección de M4, el `WHERE`
+  efectivo de cada una de esas escrituras exige `organizationId` (o `pipelineId` en el
+  reindexado interno de `Stage`) en la propia escritura del repository, no solo en el
+  pre-check del service — ver `src/repositories/*.repository.ts` y el test de
+  integración `src/repositories/tenant-isolation.integration-test.ts`. Row Level
   Security de Postgres **sí está habilitado** (`prisma/sql/rls_policies.sql`, ver
   sección 7), pero es una defensa secundaria, no la principal — el rol con el que
   Prisma se conecta tiene `BYPASSRLS`, así que esas políticas no se evalúan para
@@ -813,16 +820,25 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
 
 ## 9. Riesgos o puntos a vigilar
 
-- **El aislamiento multi-tenant del path de Express sigue dependiendo 100% de que
-  Prisma filtre bien por `organizationId`.** RLS ya está habilitado
-  (`prisma/sql/rls_policies.sql`), pero es una defensa secundaria: el rol con el que
-  Prisma se conecta (`postgres.<project-ref>`, vía `DATABASE_URL`) es equivalente al
-  `service_role` de Supabase y tiene `BYPASSRLS`, así que esas políticas no se
-  evalúan para ninguna query de este backend. Un endpoint futuro que se olvide el
-  `where: { organizationId }` sigue siendo un riesgo real de fuga de datos entre
+- **El aislamiento multi-tenant de las lecturas (`findMany`/`findFirst`/`count`) del
+  path de Express sigue dependiendo 100% de que Prisma filtre bien por
+  `organizationId`.** RLS ya está habilitado (`prisma/sql/rls_policies.sql`), pero es
+  una defensa secundaria: el rol con el que Prisma se conecta
+  (`postgres.<project-ref>`, vía `DATABASE_URL`) es equivalente al `service_role` de
+  Supabase y tiene `BYPASSRLS`, así que esas políticas no se evalúan para ninguna
+  query de este backend. Un endpoint futuro que se olvide el `where: { organizationId }`
+  en una lectura, o una escritura tenant-scoped nueva que no reutilice los
+  repositories existentes, siguen siendo un riesgo real de fuga de datos entre
   organizaciones — RLS protege otras superficies (Realtime, acceso directo desde el
-  frontend, SQL editor), no esta. Mitigación ya identificada: formalizar la capa de
-  servicios como regla de arquitectura, no como convención (ver recomendación 4 de
+  frontend, SQL editor), no esta. **Corregido para las escrituras existentes (M4,
+  2026-07-12):** `update`/soft-delete de `Company`, `Contact`, `Pipeline`, `Stage`,
+  `Opportunity`, `Activity`, `User`, y la revocación de `Invitation` ya no dependen
+  solo del pre-check del service — el `WHERE` efectivo de la escritura en el
+  repository exige `organizationId` (`pipelineId` en el reindexado interno de
+  `Stage`), verificado con test de integración contra Postgres real
+  (`src/repositories/tenant-isolation.integration-test.ts`). Mitigación pendiente
+  para lecturas y para escrituras futuras: formalizar la capa de servicios/repository
+  como regla de arquitectura, no como convención (ver recomendación 4 de
   `authentication-architecture.md`).
 
 - **Verificar un flujo de autenticación solo con tokens fabricados a mano no prueba
