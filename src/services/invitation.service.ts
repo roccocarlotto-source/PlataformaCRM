@@ -9,9 +9,9 @@ import {
   expireDueInvitations,
   findInvitationById,
   findInvitationByIdUnscoped,
+  findInvitationsByEmail,
   findManyInvitations,
   findPendingInvitationByOrgAndEmail,
-  findPendingInvitationsByEmail,
   hardDeleteInvitation,
   revokeInvitationConditional,
   type InvitationSortBy,
@@ -191,6 +191,40 @@ export async function createInvitation(
   return invitation;
 }
 
+// Traduce un estado terminal (no PENDING) de Invitation al AppError
+// específico para el ADMIN que está revocando — wording distinto de
+// acceptConflictError (más abajo) porque la audiencia es distinta (el
+// propio ADMIN, no el invitado). Reutilizada tanto por el chequeo
+// determinístico como por la traducción post-CAS: misma semántica en los
+// dos casos, sin duplicar el mapeo. REVOKED da 409, no un no-op
+// idempotente — DELETE /invitations/:id representa la transición
+// PENDING -> REVOKED, y una transición ya consumada no se finge como una
+// operación nueva exitosa.
+function revokeConflictError(status: string): AppError {
+  switch (status) {
+    case "ACCEPTED":
+      return new AppError(
+        "Esta invitación ya fue aceptada, no se puede revocar",
+        409,
+      );
+    case "REVOKED":
+      return new AppError("Esta invitación ya fue revocada", 409);
+    case "EXPIRED":
+      return new AppError(
+        "Esta invitación ya venció, no se puede revocar",
+        410,
+      );
+    default:
+      // No debería poder pasar nunca (PENDING acá sería una contradicción
+      // real tras perder el CAS; cualquier otro valor está fuera del
+      // enum) — fallback seguro y genérico, nunca un 500 crudo.
+      return new AppError(
+        "Esta invitación ya no está disponible para revocar",
+        409,
+      );
+  }
+}
+
 export async function revokeInvitation(organizationId: string, id: string) {
   await expireDueInvitations({ organizationId, id });
 
@@ -205,19 +239,22 @@ export async function revokeInvitation(organizationId: string, id: string) {
   // status sigue siendo PENDING en el momento exacto del UPDATE, sin
   // importar lo que este SELECT haya visto un instante antes.
   if (invitation.status !== "PENDING") {
-    throw new AppError("Solo se puede revocar una invitación pendiente", 400);
+    throw revokeConflictError(invitation.status);
   }
 
   const result = await revokeInvitationConditional(id, organizationId);
   if (result.count === 0) {
-    // Perdió la carrera: otra transición (accept, u otro revoke) ganó
-    // entre el SELECT de arriba y esta escritura. Nunca puede quedar
-    // REVOKED con un User ya creado por un accept que ganó la carrera —
-    // si accept ganó, este UPDATE simplemente no afecta ninguna fila.
-    throw new AppError(
-      "Esta invitación ya no está disponible para revocar (fue aceptada o venció)",
-      409,
-    );
+    // El CAS ya decidió — count === 0 es la única fuente de verdad sobre
+    // si la operación tuvo éxito, este re-read NUNCA participa de esa
+    // decisión. Perdió la carrera real: otra transición (accept, u otro
+    // revoke) ganó entre el SELECT de arriba y esta escritura. El re-read
+    // es solo para reportar la razón específica en vez del mensaje
+    // genérico que había antes.
+    const current = await findInvitationById(id, organizationId);
+    if (!current) {
+      throw new AppError("Invitación no encontrada", 404);
+    }
+    throw revokeConflictError(current.status);
   }
 
   const updated = await findInvitationById(id, organizationId);
@@ -232,24 +269,36 @@ export interface AcceptInvitationInput {
   invitationId?: string;
 }
 
-function assertPending(status: string): void {
+// Traduce un estado terminal (no PENDING) de Invitation al AppError
+// específico para quien está aceptando. Reutilizada tanto por el chequeo
+// determinístico (assertPending) como por la traducción post-CAS cuando
+// una escritura condicional pierde una carrera real — misma semántica en
+// los dos casos, sin duplicar el mapeo.
+function acceptConflictError(status: string): AppError {
   switch (status) {
-    case "PENDING":
-      return;
     case "ACCEPTED":
-      throw new AppError("Esta invitación ya fue aceptada", 409);
+      return new AppError("Esta invitación ya fue aceptada", 409);
     case "REVOKED":
-      throw new AppError(
+      return new AppError(
         "Esta invitación fue revocada, pedile a tu administrador que te reinvite",
         410,
       );
     case "EXPIRED":
-      throw new AppError(
+      return new AppError(
         "Esta invitación venció, pedile a tu administrador que te reinvite",
         410,
       );
     default:
-      throw new AppError("Invitación inválida", 400);
+      // No debería poder pasar nunca (PENDING acá sería una contradicción
+      // real tras perder el CAS; cualquier otro valor está fuera del
+      // enum) — fallback seguro y genérico, nunca un 500 crudo.
+      return new AppError("Invitación inválida", 400);
+  }
+}
+
+function assertPending(status: string): void {
+  if (status !== "PENDING") {
+    throw acceptConflictError(status);
   }
 }
 
@@ -276,20 +325,29 @@ export async function acceptInvitation(
       throw new AppError("Invitación no encontrada", 404);
     }
   } else {
-    const pending = await findPendingInvitationsByEmail(email);
-    if (pending.length === 0) {
-      throw new AppError(
-        "No se encontró ninguna invitación pendiente para tu email",
-        404,
-      );
+    // Todas las invitaciones de este email, sin filtrar por status,
+    // ordenadas createdAt DESC por el repository (nunca se depende del
+    // orden implícito de Postgres) — a diferencia del filtro anterior
+    // (solo PENDING), esto permite reportar el estado real cuando ninguna
+    // está PENDING, en vez de tratarlas como si nunca hubieran existido.
+    const candidates = await findInvitationsByEmail(email);
+    if (candidates.length === 0) {
+      throw new AppError("No se encontró ninguna invitación para tu email", 404);
     }
+
+    const pending = candidates.filter((c) => c.status === "PENDING");
     if (pending.length > 1) {
       throw new AppError(
         "Hay más de una invitación pendiente para tu email — especificá invitationId",
         409,
       );
     }
-    invitation = pending[0];
+
+    // Exactamente una PENDING: esa es la que se acepta, sin importar si
+    // hay históricas más recientes o más antiguas. Ninguna PENDING:
+    // candidates[0] es la más reciente (createdAt DESC) — se reporta su
+    // estado real vía assertPending más abajo, no un 404 genérico.
+    invitation = pending.length === 1 ? pending[0] : candidates[0];
   }
 
   // Chequeos rápidos de UX (mensajes específicos en el caso común, no
@@ -323,10 +381,17 @@ export async function acceptInvitation(
         tx,
       );
       if (transition.count === 0) {
-        throw new AppError(
-          "Esta invitación ya no está disponible para aceptar (fue aceptada, revocada o venció)",
-          409,
-        );
+        // El CAS ya decidió — count === 0 es la única fuente de verdad
+        // sobre si la operación tuvo éxito, este re-read NUNCA participa
+        // de esa decisión. Perdió la carrera real: otra transición ganó
+        // entre el chequeo de arriba y esta escritura. El re-read es solo
+        // para reportar la razón específica en vez del mensaje genérico
+        // que había antes.
+        const current = await findInvitationByIdUnscoped(invitation.id, tx);
+        if (!current) {
+          throw new AppError("Invitación no encontrada", 404);
+        }
+        throw acceptConflictError(current.status);
       }
 
       return createUser(

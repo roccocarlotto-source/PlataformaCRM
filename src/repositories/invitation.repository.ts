@@ -71,8 +71,16 @@ export function findInvitationByIdUnscoped(id: string, db: Db = prisma) {
   return db.invitation.findUnique({ where: { id } });
 }
 
-export function findPendingInvitationsByEmail(email: string, db: Db = prisma) {
-  return db.invitation.findMany({ where: { email, status: "PENDING" } });
+// Todas las invitaciones de un email, sin filtrar por status, ordenadas
+// createdAt DESC de forma explícita (nunca depende del orden implícito de
+// Postgres) — usada por el camino sin invitationId de acceptInvitation
+// para poder reportar el estado real de la más reciente cuando ninguna
+// está PENDING, en vez de tratarlas como si nunca hubieran existido.
+export function findInvitationsByEmail(email: string, db: Db = prisma) {
+  return db.invitation.findMany({
+    where: { email },
+    orderBy: { createdAt: "desc" },
+  });
 }
 
 export function findPendingInvitationByOrgAndEmail(
