@@ -1,24 +1,35 @@
 # Arquitectura de Autenticación y Onboarding — Plataforma CRM
 
-> Última actualización: 2026-07-10.
+> Última actualización: 2026-07-11.
 > Este documento es un diseño de arquitectura. Complementa a
 > [`project-overview.md`](./project-overview.md), que describe el estado general del
 > proyecto y el modelo de datos ya existente (`Organization`, `Role`, `User`,
-> `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity`).
+> `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity`, `Invitation`).
 >
-> **Estado de implementación**: la **sección 4** (middleware de autenticación y
-> autorización) ya está construida — ver `src/middlewares/authenticate.ts`,
-> `src/middlewares/authorize.ts`, `src/services/auth.service.ts`,
-> `src/repositories/user.repository.ts`, `src/lib/jwt.ts` y `src/types/auth.ts`. No
-> están montados sobre ninguna ruta todavía porque no hay rutas de negocio propias
-> (el único endpoint que existe, `POST /api/onboarding`, es público por diseño). La
-> **sección 5** (RLS) también está aplicada contra un proyecto real de Supabase
-> (`prisma/sql/rls_policies.sql`), igual que el schema completo (migración inicial
-> aplicada) y el catálogo `Role` sembrado (`ADMIN`/`USER`). La **sección 1**
-> (onboarding) está implementada como endpoint de backend en vez de trigger de DB —
-> ver el detalle de qué cambió justo debajo del título de esa sección. **Todo lo
-> demás sigue siendo diseño, no código**: la tabla `Invitation` y su flujo (sección
-> 2), y cualquier endpoint de login/invitación.
+> **Estado de implementación**: **secciones 1, 2, 4 y 5 completamente implementadas
+> y verificadas contra un proyecto real de Supabase.**
+> - **Sección 4** (middleware de autenticación y autorización) — `src/middlewares/
+>   authenticate.ts`, `src/middlewares/authorize.ts`, `src/services/auth.service.ts`,
+>   `src/repositories/user.repository.ts`, `src/lib/jwt.ts`, `src/types/auth.ts`.
+>   Montada sobre todas las rutas de negocio protegidas.
+> - **Sección 5** (RLS) — `prisma/sql/rls_policies.sql`, aplicada y reverificada
+>   empíricamente con queries read-only contra la base real (rol de conexión de
+>   Prisma con `bypassrls = true` confirmado, no asumido).
+> - **Sección 1** (onboarding) — implementada como endpoint de backend en vez de
+>   trigger de DB, ver el detalle debajo del título de esa sección.
+> - **Sección 2** (invitación de usuarios) — implementada como endpoint de backend,
+>   **no** como el trigger `AFTER INSERT ON auth.users` que el diseño original de
+>   esta sección asumía (ese trigger nunca se construyó ni para onboarding ni para
+>   invitaciones — ver la corrección explícita al inicio de la sección 2). Módulo
+>   `Invitation` completo (`src/services/invitation.service.ts`,
+>   `src/repositories/invitation.repository.ts`, `src/controllers/
+>   invitation.controller.ts`), con transiciones de estado por compare-and-swap
+>   (`updateMany` condicionado a `status: "PENDING"`) verificadas con tres carreras
+>   concurrentes reales contra Supabase.
+>
+> Lo que sigue siendo diseño, no código: endpoint de login propio (el login en sí no
+> pasa por Express, ver sección 3 — esto es una decisión de diseño estable, no algo
+> pendiente de implementar).
 
 ## Principio rector
 
@@ -146,29 +157,40 @@ ambigüedad.
 
 ## 2. Invitación de usuarios
 
+> ✅ **Implementado**, con un cambio de diseño respecto a la versión original de esta
+> sección (decidido y aprobado explícitamente antes de escribir el código, mismo
+> criterio que la sección 1): el párrafo original asumía un trigger
+> `AFTER INSERT ON auth.users` (heredado del diseño original de la sección 1) que
+> "no crearía `public.users`" para el caso de invitación. **Ese trigger nunca se
+> construyó, ni para onboarding ni para invitaciones** — la sección 1 ya está
+> orquestada 100% desde el backend (`POST /api/onboarding`), y la invitación sigue
+> exactamente el mismo criterio: todo en TypeScript, nada en PL/pgSQL. La distinción
+> real entre "crear invitación" y "aceptar invitación" no es trigger-vs-no-trigger,
+> es **service.ts vs. service.ts con verificación de identidad distinta** — ver el
+> paso 6 corregido más abajo.
+
 Regla de producto: **fuera del flujo de la sección 1, nadie puede crear su propia
-cuenta.** Todo usuario adicional de una organización llega exclusively por invitación
+cuenta.** Todo usuario adicional de una organización llega exclusivamente por invitación
 de un `ADMIN` de esa misma organización.
 
 **Quién puede invitar**: únicamente usuarios con `role = ADMIN` dentro de su propia
-organización. La ruta de invitación toma el `organizationId` **del usuario
-autenticado que invita** (resuelto por el middleware, ver sección 4) — nunca de un
+organización (`authenticate` + `authorize("ADMIN")`, montados en
+`src/routes/invitation.routes.ts`). La ruta de invitación toma el `organizationId`
+**del usuario autenticado que invita** (`req.auth.organizationId`) — nunca de un
 campo enviado por el cliente. Esto cierra, por diseño, la posibilidad de que un admin
 de la Organización A invite a alguien a la Organización B.
 
-**Entidad nueva propuesta — `Invitation`** (no existe hoy en `schema.prisma`; se
-propone agregarla en la próxima iteración del modelo, antes de implementar este
-flujo):
+**Entidad `Invitation`** (`schema.prisma`, `src/repositories/invitation.repository.ts`):
 
 | Campo | Propósito |
 |---|---|
 | `id` | Identificador de la invitación. |
 | `organizationId` | Organización a la que se invita. |
-| `email` | Email de la persona invitada. |
-| `roleId` | Rol que tendrá al aceptar. |
+| `email` | Email de la persona invitada, normalizado a minúsculas. |
+| `roleId` | Rol que tendrá al aceptar — resuelto server-side desde `role: "ADMIN" \| "USER"`, nunca un `roleId` crudo del cliente. |
 | `invitedById` | `User` (ADMIN) que generó la invitación — trazabilidad. |
-| `status` | `PENDING \| ACCEPTED \| EXPIRED \| REVOKED`. |
-| `expiresAt` | Vencimiento de negocio (propuesto: 7 días desde la creación). |
+| `status` | `enum InvitationStatus`: `PENDING \| ACCEPTED \| REVOKED \| EXPIRED`. Fuente de verdad del ciclo de vida — sin `deletedAt` propio (ver `project-overview.md` sección 4). |
+| `expiresAt` | Vencimiento de negocio, 7 días desde la creación, calculado server-side. |
 | `acceptedAt` | Se completa cuando el usuario efectivamente entra al sistema. |
 
 *Por qué una tabla propia y no confiar solo en el mecanismo interno de Supabase*:
@@ -180,67 +202,107 @@ al ADMIN la lista de invitaciones pendientes, poder revocar una invitación ante
 que se acepte, y aplicar **nuestra propia** política de vencimiento (independiente del
 TTL interno del link de Supabase).
 
-**Flujo completo:**
+**Flujo completo (verificado end-to-end contra Supabase real, incluidas tres carreras
+concurrentes reales — ver `project-overview.md` sección 4 para el detalle del
+mecanismo de compare-and-swap):**
 
 1. **El ADMIN completa un formulario** (email + rol) en el frontend. El backend
    verifica, vía middleware, que quien hace el request es `ADMIN` de una organización
    activa.
 
-2. **Validaciones previas** en el backend (dentro de una transacción de Prisma):
-   - Que no exista ya un `public.users` con ese email en esa organización (no tiene
-     sentido invitar a alguien que ya es miembro).
+2. **Validaciones previas** en `invitation.service.ts` (`createInvitation`):
+   - Que no exista ya un `public.users` con ese email **en toda la plataforma**
+     (`User.email` es único globalmente, no por organización — no solo "en esa
+     organización" como decía la versión original de este documento).
    - Que no exista ya una `Invitation` con `status = PENDING` para ese mismo
-     `(organizationId, email)` — evita invitaciones duplicadas.
+     `(organizationId, email)` — evita invitaciones duplicadas. Este chequeo es un
+     pre-check de UX, no la defensa real contra una carrera: la defensa real es el
+     índice único parcial `invitations_org_email_pending_unique`
+     (`manual_constraints.sql`) — dos requests concurrentes para el mismo
+     `(organizationId, email)` insertan como mucho una fila; la que pierde recibe
+     `409` (`Prisma.PrismaClientKnownRequestError` con `code: "P2002"` capturado y
+     traducido, nunca un `500` crudo).
 
 3. **Se crea la fila `Invitation`** con `status = PENDING` **antes** de llamar a
-   Supabase. *Justificación del orden*: si el paso 4 (llamada a Supabase) falla, no
-   queda ninguna invitación fantasma — simplemente no se creó nada del lado de
-   Supabase tampoco, y el ADMIN puede reintentar. El orden inverso (invitar primero en
-   Supabase, guardar después) es peor: si el guardado en nuestra base fallara después
-   de que Supabase ya mandó el email, el usuario invitado recibiría un link que nunca
-   va a poder completarse (ver [riesgo en sección 7](#7-riesgos)).
+   Supabase. *Justificación del orden*: si el paso 4 (llamada a Supabase) falla, se
+   hace **hard delete** de la `Invitation` que acaba de crear esta misma operación
+   (deliberado, no una revocación — esa fila nunca llegó a existir funcionalmente) y
+   el ADMIN puede reintentar. Si el hard delete también falla, se loguea como error
+   crítico con el `invitationId` (mismo criterio de riesgo residual que
+   `onboarding.service.ts` documenta para su propia compensación). El orden inverso
+   (invitar primero en Supabase, guardar después) es peor: si el guardado en nuestra
+   base fallara después de que Supabase ya mandó el email, el usuario invitado
+   recibiría un link que nunca va a poder completarse (ver [riesgo en sección
+   7](#7-riesgos)).
 
 4. **El backend llama a la Admin API de Supabase**
    (`auth.admin.inviteUserByEmail`, que requiere la `SERVICE_ROLE_KEY` y por lo tanto
    **solo puede ejecutarse desde el backend**, nunca desde el frontend), pasando como
-   metadata el `id` de la `Invitation` recién creada, la `organizationId` y el
-   `roleId`. Supabase crea la fila en `auth.users` de inmediato (con la columna
-   propia `invited_at` seteada — es la señal que el trigger de la sección 1 usa para
-   *no* rechazar este insert) y envía el email con el link de invitación.
+   metadata el `id` de la `Invitation` recién creada. Supabase crea la fila en
+   `auth.users` de inmediato y envía el email con el link de invitación.
 
-   *Nota importante*: a diferencia del flujo de la sección 1, **el trigger de
-   `auth.users` NO crea `public.users` en este punto.** Ver el porqué en el paso 6.
+   *Límite real de la plataforma, no de este código*: el email de `auth.users` es
+   único en todo el proyecto de Supabase, no por organización — invitar un email que
+   ya es identidad de Supabase (miembro de otra organización, u otra invitación en
+   curso en cualquier organización) falla acá, traducido a `409`. Revocar o dejar
+   vencer una `Invitation` **no** libera esa identidad de Supabase (ver riesgos).
 
 5. **El usuario invitado abre el email y sigue el link.** El frontend usa el flujo de
    Supabase para que la persona establezca su contraseña — esto autentica al usuario
    y le da una sesión válida (JWT), pero **todavía no existe fila en `public.users`
    para él.**
 
-6. **El frontend, con esa sesión recién obtenida, llama a un endpoint del backend**
-   dedicado: *aceptar invitación*. Este endpoint:
-   - Verifica el JWT (igual que cualquier request autenticado).
-   - Busca la `Invitation` con `status = PENDING` que corresponda al email del token.
-   - Valida que **no** esté vencida (`expiresAt > now()`) y que no haya sido revocada.
-   - Si es válida: crea `public.users` (mismo `id` que `auth.users.id`,
-     `organizationId` y `roleId` **tomados de la `Invitation`, nunca del cliente**),
-     y marca la `Invitation` como `ACCEPTED`, todo en una única transacción de
-     Prisma.
-   - Si no es válida (vencida, revocada, o no existe): devuelve un error claro
-     ("esta invitación venció, pedile a tu administrador que te reinvite") — el
-     usuario queda con una identidad válida en Supabase pero sin poder usar el CRM
-     hasta que lo reinviten (ver [sección 6](#6-casos-especiales)).
+6. **El frontend, con esa sesión recién obtenida, llama a `POST /api/invitations/accept`**
+   (`invitation.controller.ts` → `invitation.service.ts`, `acceptInvitation`). Este
+   endpoint **no pasa por el middleware `authenticate` estándar**: ese middleware
+   exige `resolveAuthContext`, que requiere una fila en `public.users` que
+   precisamente todavía no existe para quien está aceptando — sería un `403` en el
+   caso exacto que este endpoint tiene que resolver. En cambio usa una verificación
+   liviana propia (`extractBearerToken` + `verifySupabaseJwt`, sin
+   `resolveAuthContext`): solo prueba identidad (firma + expiración del JWT),
+   `organizationId`/`roleId` salen exclusivamente de la `Invitation` encontrada,
+   nunca del cliente ni del JWT. El endpoint:
+   - Verifica el JWT.
+   - Busca la `Invitation` — por `invitationId` explícito si se envía (recomendado:
+     `findInvitationByIdUnscoped`, no filtra por status, así que da el error
+     específico correcto — `409` ya aceptada, `410` revocada/vencida); si no se
+     envía, busca entre las `PENDING` de ese email (`404` si no hay ninguna, `409`
+     si hay más de una — un mismo email invitado a más de una organización a la
+     vez, caso posible solo insertando filas directo en la base, no alcanzable hoy
+     vía el flujo real porque Supabase ya rechaza el segundo `inviteUserByEmail`
+     — ver riesgos).
+   - Si el email del JWT no coincide con el de la `Invitation`: `404` (defensa en
+     profundidad — nunca confía en que un `invitationId` ajeno no se cuele).
+   - **Transición de estado por compare-and-swap, no por lectura previa**: dentro de
+     una `prisma.$transaction`, el primer paso es `db.invitation.updateMany({
+     where: { id, status: "PENDING" }, data: { status: "ACCEPTED", acceptedAt: ... }
+     })` — si `count === 0`, alguien más ya transicionó esa `Invitation` (otra
+     aceptación concurrente, o una revocación concurrente) y se aborta con `409`
+     **antes** de intentar crear el `User` — cero riesgo de usuarios huérfanos. Si
+     `count === 1`, recién ahí se crea `public.users` (mismo `id` que
+     `auth.users.id`, `organizationId`/`roleId` de la `Invitation`) en la misma
+     transacción.
+   - Si la invitación no es válida (vencida, revocada, ya aceptada, o no existe):
+     error claro y específico según el estado — el usuario queda con una identidad
+     válida en Supabase pero sin poder usar el CRM hasta que lo reinviten (ver
+     [sección 6](#6-casos-especiales)).
 
-   *Por qué esto vive en un endpoint del backend y no en un trigger de DB* (a
-   diferencia de la sección 1): la validación de vencimiento debe evaluarse **en el
-   momento de la aceptación**, no en el momento en que se creó el `auth.users` (que es
-   cuando se manda la invitación, no cuando se acepta). Un trigger `AFTER INSERT ON
-   auth.users` se dispara demasiado temprano para esta validación — se dispara al
-   invitar, no al aceptar. Escribir esta lógica en TypeScript también la hace más
-   fácil de testear que replicarla en PL/pgSQL.
+   *Por qué la validación de vencimiento vive acá y no en un mecanismo de Supabase*:
+   debe evaluarse **en el momento de la aceptación**, no en el momento en que se
+   invitó — la expiración es perezosa (`expireDueInvitations`, corre antes de
+   cualquier operación que dependa del estado real de una `Invitation`), no un job
+   programado.
 
 7. **Asignación de rol**: queda resuelta por construcción — el `roleId` viene de la
    `Invitation`, elegido por el ADMIN en el paso 1, y nunca es negociable por la
    persona que acepta la invitación.
+
+**Revocación** (`DELETE /api/invitations/:id`, ADMIN-only): mismo mecanismo de
+compare-and-swap que la aceptación, en la dirección opuesta
+(`PENDING → REVOKED`). Verificado con una carrera real `accept` vs. `revoke` sobre
+la misma `Invitation`: exactamente una transición gana; si gana `revoke`, **nunca**
+se crea un `User`; si gana `accept`, `revoke` recibe un `400`/`409` claro, nunca un
+`500`.
 
 ---
 
@@ -427,18 +489,21 @@ el problema ahora.
   cada request (principio rector, arriba), así que el próximo request del usuario
   desactivado ya devuelve `403`, sin importar cuánto le quede de vigencia al token.
 
-- **Usuario eliminado.** El modelo actual de `User` **no tiene `deletedAt`** (a
-  diferencia de `Company`, `Contact`, `Opportunity`, etc. — ya señalado como
-  asimetría en `project-overview.md`). Esto importa especialmente acá porque
-  `Opportunity.ownerId` y `Activity.authorId` son **campos obligatorios** (no
+- **Usuario eliminado.** ✅ Implementado: `User.deletedAt` (agregado en el módulo
+  `Invitation`), con semántica distinta de `isActive` — `isActive: false` con
+  `deletedAt: null` es una suspensión reversible; `deletedAt` seteado es remoción de
+  la organización (`DELETE /api/users/:id`, soft delete: `deletedAt` + `isActive:
+  false` en la misma escritura, sin undelete implementado). Esto era necesario
+  porque `Opportunity.ownerId` y `Activity.authorId` son **campos obligatorios** (no
   nullable) — un hard delete de un `User` que sea dueño de oportunidades o autor de
-  actividades **rompería esas filas** (violación de integridad referencial) o las
-  dejaría huérfanas si se relajara la constraint. Conclusión de este diseño: "eliminar
-  un usuario" en este CRM debe significar siempre **soft delete**, nunca hard delete.
-  Se recomienda agregar `deletedAt` a `User` (ver [sección 8](#8-recomendaciones))
-  para modelar esto igual que el resto de las entidades, en vez de sobrecargar
-  `isActive` con dos significados distintos (desactivado temporalmente vs. eliminado
-  definitivamente).
+  actividades rompería esas filas (violación de integridad referencial); de hecho,
+  Postgres ya rechaza ese hard delete por sí solo (ninguna de las dos relaciones
+  declara `onDelete`). `resolveAuthContext` chequea `deletedAt` antes que `isActive`
+  (da el mensaje más específico, "removida" en vez de "desactivada", aunque
+  `deletedAt` implica `isActive = false` por construcción). No se toca la identidad
+  de Supabase Auth al remover un usuario — deliberado, para no perder la
+  reversibilidad del lado de Supabase (aunque de nuestro lado, en este bloque, no
+  hay forma de deshacer la remoción).
 
 - **Organización eliminada** (`Organization.deletedAt` ya existe en el schema). El
   middleware ya lo chequea (paso 4 de la sección 4) — efecto inmediato en el próximo
@@ -463,9 +528,12 @@ el problema ahora.
   adicional necesario para este diseño: `public.users.email` siempre refleja un email
   ya confirmado.
 
-- **Cambio de rol.** Solo un `ADMIN` puede cambiar el rol de otro usuario de su misma
-  organización — nunca el propio (bloquear explícitamente la auto-promoción, ver
-  sección 7). Al igual que la desactivación, tiene efecto inmediato en el siguiente
+- **Cambio de rol.** ✅ Implementado (`PATCH /api/users/:id`, `user.service.ts`).
+  Solo un `ADMIN` puede cambiar el rol de otro usuario de su misma organización —
+  nunca el propio (`targetUserId === req.auth.userId` bloqueado explícitamente, ver
+  sección 7). Además bloquea dejar a la organización sin ningún `ADMIN` activo
+  (`countActiveAdmins`, mismo patrón que la protección del último `Pipeline`
+  activo). Al igual que la desactivación, tiene efecto inmediato en el siguiente
   request gracias al principio rector: el rol nunca se cachea, se lee de Postgres en
   cada request.
 
@@ -481,11 +549,13 @@ el problema ahora.
   `organization_id` del metadata — siempre crea una fila `Organization` nueva. Es
   imposible, por diseño del trigger, unirse a una organización existente por esta vía.
 
-- **Escalación de privilegios vía autopromoción de rol.** Un `USER` intenta llamar al
-  endpoint de cambio de rol sobre su propio `id`. **Mitigación**: el endpoint de
-  cambio de rol debe rechazar explícitamente `targetUserId === req.auth.userId` — un
-  usuario nunca puede modificar su propio rol, sin excepción, ni siquiera un `ADMIN`
-  (para evitar que un ADMIN comprometido se otorgue permisos que no existen todavía).
+- **Escalación de privilegios vía autopromoción de rol.** ✅ Mitigado e implementado:
+  `PATCH /api/users/:id` (`user.service.ts`, `updateUser`) rechaza explícitamente
+  `targetUserId === req.auth.userId` con `400` — un usuario nunca puede modificar su
+  propio rol ni su propio `isActive`, sin excepción, ni siquiera un `ADMIN` (para
+  evitar que un ADMIN comprometido se otorgue permisos que no existen todavía, y
+  para que nunca pueda desactivarse/eliminarse a sí mismo dejando la organización
+  sin nadie que pueda revertirlo). Verificado end-to-end contra Supabase real.
 
 - **Fuga de datos entre tenants por una query de Prisma sin filtrar.** Es el riesgo
   más probable en la práctica (un desarrollador se olvida el `where: { organizationId
@@ -534,13 +604,14 @@ pedido original:
    `jwtVerify`) contra `SUPABASE_URL/auth/v1/.well-known/jwks.json`. Ver el
    detalle completo en la sección 4.
 
-2. **Agregar `deletedAt` a `User`.** Ya justificado en la sección 6 ("usuario
-   eliminado") — sin esto, no hay forma segura de eliminar un usuario que sea dueño de
-   oportunidades o autor de actividades, dado que esos campos son obligatorios.
+2. ✅ **Hecho — `deletedAt` agregado a `User`.** Ver sección 6 ("usuario
+   eliminado") y `project-overview.md` sección 4 para la semántica exacta
+   (distinta de `isActive`, no redundante).
 
-3. **Agregar la entidad `Invitation`** al schema (tabla propuesta en la sección 2) —
-   es un requisito para poder implementar el flujo de invitación tal como está
-   diseñado acá, no una mejora opcional.
+3. ✅ **Hecho — entidad `Invitation` agregada al schema** e implementada
+   completa (sección 2), con las correcciones de diseño documentadas ahí
+   (compare-and-swap en vez de lectura-luego-escritura, verificación liviana en
+   la aceptación en vez de `authenticate` estándar).
 
 4. **Formalizar la "capa de servicios" como regla de arquitectura, no como
    convención informal.** Dado que el mayor riesgo identificado (fuga de datos entre

@@ -56,7 +56,7 @@ actividades.
 | **TypeScript** (`strict: true`) | Lenguaje del backend | `tsconfig.json` fuerza modo estricto — tipado fuerte de punta a punta, incluso antes de que exista código de aplicación. |
 | **Node.js** | Runtime | Implícito por `package.json`/`tsconfig`. |
 | **tsx** | Runner de desarrollo TS | Dependencia de desarrollo (`devDependencies`), pensado para correr TS sin compilar en cada cambio. |
-| **Prisma ORM 5.20** (`@prisma/client`, `prisma`) | Acceso a datos type-safe + migraciones | Es la única capa de aplicación que existe hoy: `prisma/schema.prisma` define 7 modelos. Scripts en `package.json`: `prisma:generate`, `prisma:validate`, `prisma:studio`. |
+| **Prisma ORM 5.20** (`@prisma/client`, `prisma`) | Acceso a datos type-safe + migraciones | Es la única capa de aplicación que existe hoy: `prisma/schema.prisma` define 9 modelos. Scripts en `package.json`: `prisma:generate`, `prisma:validate`, `prisma:studio`. |
 | **PostgreSQL** | Motor de base de datos | `datasource db { provider = "postgresql" }` en el schema. |
 | **Supabase** (Auth + Postgres hosting) | Autenticación gestionada + hosting de la DB | Proyecto real provisionado y conectado (`.env` completo). El modelo `User` está diseñado para compartir `id` con `auth.users` (tabla gestionada por Supabase). |
 | **PgBouncer** | Pooling de conexiones para runtime | `.env.example` distingue `DATABASE_URL` (puerto 6543, `?pgbouncer=true`, la usa la app) de `DIRECT_URL` (puerto 5432, solo para `prisma migrate`) — patrón estándar de Supabase + Prisma, porque Prisma Migrate no funciona bien a través de PgBouncer en modo transacción. |
@@ -88,15 +88,18 @@ Plataforma CRM/
 │                                  #   (prisma/*.ts se ejecuta con tsx, no con tsc).
 ├── README.md                     # Quickstart + explicación de cada carpeta de src/.
 ├── prisma/
-│   ├── schema.prisma               # 7 modelos + 3 enums (ver sección 4).
+│   ├── schema.prisma               # 10 modelos + 4 enums (ver sección 4).
 │   ├── seed.ts                     # Seed idempotente del catálogo Role (ADMIN/USER).
 │   ├── migrations/                  # Inicial + la que agrega organizationId/deletedAt
 │   │                                 #   a Stage + la que agrega el índice
-│   │                                 #   (organizationId, pipelineId) a Opportunity.
+│   │                                 #   (organizationId, pipelineId) a Opportunity +
+│   │                                 #   la que agrega el índice (authorId) a Activity +
+│   │                                 #   la que agrega Invitation y User.deletedAt.
 │   └── sql/
 │       ├── manual_constraints.sql   # Triggers de sync de email, constraints manuales,
 │       │                             #   índices únicos parciales (incluye los 4 de
-│       │                             #   Stage y el fix de pipelines_org_default_unique).
+│       │                             #   Stage, el fix de pipelines_org_default_unique,
+│       │                             #   y el de invitations_org_email_pending_unique).
 │       └── rls_policies.sql         # Row Level Security — ver sección 7 y
 │                                     #   authentication-architecture.md sección 5.
 └── src/
@@ -108,31 +111,38 @@ Plataforma CRM/
     │                                 #   AuthenticatedRequest, ampliación de Express.Request.
     ├── utils/                       # AppError.ts, asyncHandler.ts (genérico sobre
     │                                 #   el tipo de Request), validation.ts
-    │                                 #   (parseOrThrow), slug.ts.
+    │                                 #   (parseOrThrow), slug.ts, bearerToken.ts
+    │                                 #   (extractBearerToken, usado por el flujo de
+    │                                 #   aceptación de invitaciones, ver sección 4).
     ├── middlewares/                 # notFound.ts, errorHandler.ts, authenticate.ts,
     │                                 #   authorize.ts.
     ├── controllers/                 # onboarding.controller.ts, company.controller.ts,
     │                                 #   contact.controller.ts, pipeline.controller.ts,
     │                                 #   stage.controller.ts, opportunity.controller.ts,
-    │                                 #   activity.controller.ts.
+    │                                 #   activity.controller.ts, invitation.controller.ts,
+    │                                 #   user.controller.ts.
     ├── services/                    # auth.service.ts, onboarding.service.ts,
     │                                 #   ownership.service.ts (resolveOwnerId,
     │                                 #   compartido entre Company, Contact y Opportunity —
-    │                                 #   Activity NO lo usa para assigneeId, ver sección 4),
+    │                                 #   Activity/Invitation NO lo usan para
+    │                                 #   assigneeId/reactivar, ver sección 4),
     │                                 #   company.service.ts, contact.service.ts,
     │                                 #   pipeline.service.ts, stage.service.ts,
-    │                                 #   opportunity.service.ts, activity.service.ts.
+    │                                 #   opportunity.service.ts, activity.service.ts,
+    │                                 #   invitation.service.ts, user.service.ts.
     ├── repositories/                # user.repository.ts, organization.repository.ts,
     │                                 #   role.repository.ts, company.repository.ts,
     │                                 #   contact.repository.ts, pipeline.repository.ts,
     │                                 #   stage.repository.ts (reindexado de order),
-    │                                 #   opportunity.repository.ts, activity.repository.ts —
+    │                                 #   opportunity.repository.ts, activity.repository.ts,
+    │                                 #   invitation.repository.ts (compare-and-swap) —
     │                                 #   ver README.md para el patrón de tres capas.
     ├── routes/                      # health.routes.ts (sin prefijo), index.ts
     │                                 #   agregador, onboarding.routes.ts,
     │                                 #   company.routes.ts, contact.routes.ts,
     │                                 #   pipeline.routes.ts, stage.routes.ts,
-    │                                 #   opportunity.routes.ts y activity.routes.ts
+    │                                 #   opportunity.routes.ts, activity.routes.ts,
+    │                                 #   invitation.routes.ts y user.routes.ts
     │                                 #   (bajo /api).
     ├── app.ts                       # arma Express, no escucha puerto.
     └── server.ts                    # entry point + graceful shutdown.
@@ -142,10 +152,12 @@ Detalle carpeta por carpeta (propósito, qué va en cada una) en `README.md` —
 duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
 
 **Lo que sigue faltando:**
-- Endpoints de login/invitación de usuarios (dependen de la entidad `Invitation`,
-  ver sección 8). Es lo único que queda del modelo de datos actual sin exponer vía
-  API — `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity` y `Activity` ya
-  están todos implementados.
+- Nada del modelo de datos actual queda sin exponer vía API — `Company`, `Contact`,
+  `Pipeline`, `Stage`, `Opportunity`, `Activity`, `Invitation` y la administración
+  acotada de `User` ya están todos implementados y verificados end-to-end contra
+  Supabase real. Lo que sigue pendiente es de otra naturaleza: endpoint de login
+  propio (el login en sí no pasa por Express, ver `authentication-architecture.md`
+  sección 3) y un frontend que ejercite todo esto — ver sección 8.
 
 ---
 
@@ -182,7 +194,13 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   Postgres, fuera del alcance de Prisma), sino una convención: el `id` de negocio *es*
   el `id` de auth. El campo `email` **nunca se escribe desde la aplicación** — se
   sincroniza automáticamente por trigger (ver [sección 6](#6-flujo-de-autenticación)).
-  No tiene `deletedAt` (asimetría respecto a otras entidades, ver [riesgos](#9-riesgos-o-puntos-a-vigilar)).
+  `isActive` y `deletedAt` tienen semánticas distintas, no redundantes: `isActive:
+  false` con `deletedAt: null` es una suspensión reversible (`PATCH /api/users/:id`
+  puede volver a activarlo); `deletedAt` seteado es remoción de la organización —
+  soft delete terminal, sin undelete implementado. Un hard delete real ya está
+  bloqueado de hecho por integridad referencial: `Opportunity.ownerId` y
+  `Activity.authorId` son obligatorios y no declaran `onDelete`, así que Postgres
+  rechazaría borrar un `User` referenciado por cualquiera de los dos.
 
 ### `Company`
 - **Propósito**: empresa cliente o prospecto.
@@ -294,9 +312,7 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
 - **Propósito**: registro unificado de cualquier interacción — llamada, reunión, email,
   tarea o nota (`enum ActivityType`). ✅ Módulo completo
   (`POST/GET/GET :id/PATCH/DELETE /api/activities`), verificado end-to-end contra un
-  proyecto real de Supabase. Cierra el conjunto de entidades de negocio del modelo
-  de datos actual — el único pendiente después de `Activity` es el flujo de
-  invitaciones (sección 8).
+  proyecto real de Supabase.
 - **Relaciones**: pertenece a `Organization`, tiene un `author` obligatorio (`User`) y
   un `assignee` opcional (`User`). Opcionalmente ligada a `Company`, `Contact` y/o
   `Opportunity`.
@@ -331,10 +347,79 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   tenía índice propio entre las dos FK a `User` — asimetría real corregida, mismo
   criterio que `ownerId` en `Company`/`Contact`/`Opportunity`). Soft delete.
 
+### `Invitation`
+- **Propósito**: invitación pendiente de un `ADMIN` a un nuevo miembro de su
+  organización. ✅ Módulo completo (`POST/GET /api/invitations`,
+  `DELETE /api/invitations/:id`, `POST /api/invitations/accept`), verificado
+  end-to-end contra un proyecto real de Supabase, incluidas tres carreras
+  concurrentes reales (ver más abajo).
+- **Relaciones**: pertenece a `Organization` y a `Role` (el rol que tendrá al
+  aceptar), `invitedBy` obligatorio (`User`, quien la creó).
+- **Decisiones importantes**: `status` (`enum InvitationStatus`:
+  `PENDING | ACCEPTED | REVOKED | EXPIRED`) es la fuente de verdad del ciclo de
+  vida — deliberadamente **sin** `deletedAt` propio: acá "removido" ya tiene
+  nombre propio (`REVOKED`/`EXPIRED`), agregar `deletedAt` encima obligaría a
+  explicar en qué se diferencia de esos dos estados, sin buena respuesta. La
+  transición `PENDING → EXPIRED` es perezosa (sin cron): se recalcula antes de
+  cualquier operación cuyo resultado dependa del estado real (crear, listar,
+  aceptar, revocar) — necesario porque el índice único parcial de abajo exige
+  que "pending" sea un valor de columna literal, no algo derivado de comparar
+  `expiresAt` contra `now()` (los predicados de índices parciales de Postgres
+  deben ser `IMMUTABLE`).
+  - Único `(organizationId, email) WHERE status = 'PENDING'` — índice único
+    parcial (`manual_constraints.sql`) — a lo sumo una invitación pendiente por
+    email y organización a la vez.
+  - **Ambas transiciones de estado (`accept`, `revoke`) son compare-and-swap**,
+    no un `UPDATE` ciego: `db.invitation.updateMany({ where: { id, status:
+    "PENDING" }, data: {...} })`, verificando `count`. Ninguna transición
+    depende de un `SELECT` previo como defensa real — el `SELECT` que hace cada
+    service antes es solo un mensaje de UX rápido para el caso común, no
+    concurrente. Esto resuelve tres carreras reales, verificadas con
+    `Promise.all` genuino contra Supabase real:
+    - **crear vs. crear** (mismo `organizationId`+`email`): el índice único
+      parcial permite un solo `INSERT`; el segundo choca con `P2002`, traducido
+      a `409` (antes: `500` crudo).
+    - **aceptar vs. aceptar** (misma invitación): la escritura condicional es
+      el primer paso dentro de la transacción, antes de crear el `User` — si
+      pierde, nunca llega a intentar crear el `User` (cero riesgo de huérfanos).
+    - **aceptar vs. revocar** (misma invitación, ganador no determinista):
+      exactamente una transición gana; si gana `accept`, `User` creado y
+      `Invitation` `ACCEPTED`; si gana `revoke`, `Invitation` `REVOKED` y
+      **ningún** `User` creado — nunca ambos efectos a la vez. Verificado
+      empíricamente en ambos sentidos (no solo el que "gana" más seguido en un
+      entorno de baja latencia — ver riesgos, sección 9).
+  - `email` normalizado a minúsculas. `roleId` se resuelve server-side desde
+    `role: "ADMIN" | "USER"` (nunca un `roleId` crudo del cliente). `expiresAt`
+    calculado server-side (7 días), nunca enviado por el cliente.
+  - Aceptación: no pasa por `authenticate` (exige `public.users` ya existente,
+    justo lo que todavía no existe para quien acepta) — usa una verificación
+    liviana propia (`extractBearerToken` + `verifySupabaseJwt`, sin
+    `resolveAuthContext`). `organizationId`/`roleId` del nuevo `User` salen
+    exclusivamente de la `Invitation` encontrada, nunca del cliente. Si no se
+    envía `invitationId`, se busca por email entre las `PENDING` — si hay más
+    de una (un mismo email invitado a más de una organización, caso posible
+    solo insertando filas directo, ver sección 9), `409` pidiendo
+    `invitationId` explícito.
+  - Límite real de la plataforma (no de este código): el email de
+    `auth.users` es único en todo el proyecto de Supabase, no por
+    organización — invitar un email que ya es identidad de Supabase en
+    cualquier organización falla al llamar a `inviteUserByEmail`, traducido a
+    `409`. Una vez invitado, ese email no se libera aunque la invitación se
+    revoque o venza (Supabase no borra la identidad en esos casos) — ver
+    riesgos.
+  - Estrategia de consistencia con Supabase (no "atómica" — dos sistemas sin
+    transacción compartida): se crea la `Invitation` en Prisma primero, se
+    llama a `inviteUserByEmail` después; si Supabase falla, se hace **hard
+    delete** de la `Invitation` (deliberado, no una revocación — esa fila
+    nunca llegó a existir funcionalmente), con el mismo criterio de riesgo
+    residual documentado que `onboarding.service.ts` para su propia
+    compensación.
+
 ### Enums
 - `ActivityType`: `CALL | MEETING | EMAIL | TASK | NOTE`
 - `LifecycleStage`: `LEAD | MQL | SQL | CUSTOMER | CHURNED`
 - `OpportunityStatus`: `OPEN | WON | LOST`
+- `InvitationStatus`: `PENDING | ACCEPTED | REVOKED | EXPIRED`
 
 ---
 
@@ -344,9 +429,12 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   DB-per-tenant.** Todas las tablas de negocio llevan `organization_id` y lo indexan.
   Es el enfoque más simple de operar (un solo schema, una sola migración para todos los
   tenants) pero **hoy el aislamiento entre organizaciones depende 100% de que el código
-  de aplicación filtre correctamente por `organizationId` en cada query** — no hay
-  Row Level Security (RLS) de Postgres visible en el repo todavía (ver
-  [riesgos](#9-riesgos-o-puntos-a-vigilar)).
+  de aplicación filtre correctamente por `organizationId` en cada query**. Row Level
+  Security de Postgres **sí está habilitado** (`prisma/sql/rls_policies.sql`, ver
+  sección 7), pero es una defensa secundaria, no la principal — el rol con el que
+  Prisma se conecta tiene `BYPASSRLS`, así que esas políticas no se evalúan para
+  ninguna query de este backend (ver [riesgos](#9-riesgos-o-puntos-a-vigilar) para el
+  detalle de qué superficies sí protege).
 
 - **Supabase Auth en vez de autenticación propia.** Delega passwords, tokens, reset de
   contraseña, y potencialmente OAuth, a un proveedor especializado. Reduce
@@ -494,20 +582,26 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   real.
 
 **Base de datos**
-- ✅ `schema.prisma` completo: 7 modelos, 3 enums, relaciones, índices. `Stage` ganó
-  `organizationId` y `deletedAt` en la migración de este módulo (ver sección 4).
-- ✅ Dos migraciones aplicadas contra la base real (inicial + la de `Stage`) — el
-  schema está sincronizado con Supabase.
+- ✅ `schema.prisma` completo: 10 modelos, 4 enums, relaciones, índices. `Stage`
+  ganó `organizationId` y `deletedAt` en la migración de ese módulo; `User` ganó
+  `deletedAt` en la migración de `Invitation` (ver sección 4).
+- ✅ Cinco migraciones aplicadas contra la base real (inicial, la de `Stage`, la
+  del índice `(organizationId, pipelineId)` en `Opportunity`, la del índice
+  `authorId` en `Activity`, y la de `Invitation` + `User.deletedAt`) — el schema
+  está sincronizado con Supabase (`prisma migrate status` verificado).
 - ✅ `manual_constraints.sql` aplicado y verificado contra la base (2 triggers de
-  sync de email, 4 `CHECK` constraints, 6 índices únicos parciales — los 4 nuevos de
-  `Stage`, más el fix de `pipelines_org_default_unique` para que ignore filas
-  borradas).
+  sync de email, 4 `CHECK` constraints, 7 índices únicos parciales — los 4 de
+  `Stage`, el fix de `pipelines_org_default_unique`, `contacts_org_email_unique`,
+  y `invitations_org_email_pending_unique`).
 - ✅ `prisma/sql/rls_policies.sql` aplicado y verificado: Row Level Security
-  habilitado en las 9 tablas de negocio, con políticas de aislamiento por
-  `organization_id` uniformes en todas (la de `stages` se simplificó al agregarle
-  `organizationId` propio — ya no necesita el join a `pipelines` que tenía antes) —
-  ver sección 5 de `authentication-architecture.md` para la justificación de por qué
-  es una defensa secundaria, no la principal.
+  habilitado en las 10 tablas de negocio (incluida `invitations`), con políticas de
+  aislamiento por `organization_id` uniformes en todas (la de `stages` se
+  simplificó al agregarle `organizationId` propio — ya no necesita el join a
+  `pipelines` que tenía antes) — ver sección 5 de `authentication-architecture.md`
+  para la justificación de por qué es una defensa secundaria, no la principal.
+  Reverificado empíricamente vía queries read-only directas contra la base (no
+  asumido): el rol de conexión de Prisma (`postgres`) efectivamente tiene
+  `bypassrls = true`.
 - ✅ Seed inicial del catálogo `Role` (`ADMIN`, `USER`) vía `prisma/seed.ts`
   (`npm run prisma:seed`), idempotente.
 
@@ -582,7 +676,25 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   `authorize("ADMIN")`. Verificado con una batería de pruebas end-to-end contra un
   proyecto real de Supabase — datos de prueba limpiados al finalizar, sin residuos
   en la base.
-- ❌ Invitaciones — todavía no implementadas (ver sección 8).
+- ✅ **Módulo `Invitation` completo** — ver sección 4 para el detalle del modelo
+  y el mecanismo de compare-and-swap. `POST/GET /api/invitations` y
+  `DELETE /api/invitations/:id` ADMIN-only (lectura incluida — a diferencia del
+  resto de los módulos, expone emails de gente que todavía no es miembro).
+  `POST /api/invitations/accept` no pasa por `authenticate` (ver sección 4).
+  Verificado end-to-end contra Supabase real, incluidas las tres carreras
+  concurrentes reales con `Promise.all` (crear vs. crear, aceptar vs. aceptar,
+  aceptar vs. revocar, esta última observada empíricamente en ambos sentidos).
+- ✅ **Administración acotada de `User`** — `GET /api/users` (roster, excluye
+  removidos por defecto), `PATCH /api/users/:id` (únicamente `isActive`/`role`,
+  no un editor genérico — `email`/`id`/`organizationId`/`deletedAt` no son
+  campos de ese schema), `DELETE /api/users/:id` (soft delete: `deletedAt` +
+  `isActive: false` en la misma escritura, sin tocar Supabase Auth — reversible
+  de ese lado, pero sin undelete de nuestro lado en este bloque). Bloquea
+  auto-modificación (`targetUserId === req.auth.userId`) y dejar a la
+  organización sin ningún `ADMIN` activo (`countActiveAdmins`, mismo patrón que
+  la protección del último `Pipeline` activo). `findUserByIdInOrganization`
+  (usada por `resolveOwnerId` y `validateAssigneeId`) excluye
+  `deletedAt != null` además de exigir `isActive`.
 
 **Frontend**
 - ❌ No existe ningún código de frontend en este repositorio.
@@ -609,8 +721,12 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 - ❌ Sin endpoint de login (el login en sí no pasa por Express — ver sección 3 de
   `authentication-architecture.md` — pero no hay nada de frontend todavía que lo
   ejercite).
-- ❌ Sin invitación de usuarios — depende de la entidad `Invitation`, todavía no
-  agregada a `schema.prisma` (propuesta en la sección 2 del doc de arquitectura).
+- ✅ Invitación de usuarios (`Invitation` en `schema.prisma`, módulo completo —
+  ver arriba). El diseño original de `authentication-architecture.md` sección 2
+  asumía un trigger `AFTER INSERT ON auth.users` para el flujo de onboarding
+  (sección 1) que **nunca se implementó** (onboarding quedó orquestado desde el
+  backend, no desde un trigger) — la sección 2 de ese documento fue corregida
+  para reflejar el diseño real de `Invitation` sobre esa base.
 
 **API**
 - ✅ `POST /api/onboarding` (público).
@@ -620,13 +736,18 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 - ✅ `Stage`: `POST/GET/GET :id/PATCH/DELETE /api/stages` (protegidos).
 - ✅ `Opportunity`: `POST/GET/GET :id/PATCH/DELETE /api/opportunities` (protegidos).
 - ✅ `Activity`: `POST/GET/GET :id/PATCH/DELETE /api/activities` (protegidos).
+- ✅ `Invitation`: `POST/GET /api/invitations`, `DELETE /api/invitations/:id`
+  (ADMIN-only), `POST /api/invitations/accept` (JWT de Supabase, sin `authenticate`
+  estándar — ver sección 4).
+- ✅ `User`: `GET /api/users`, `PATCH /api/users/:id`, `DELETE /api/users/:id`
+  (ADMIN-only, administración acotada — ver arriba).
 
 **Seguridad**
 - ✅ `.env` correctamente excluido de git; `SUPABASE_SERVICE_ROLE_KEY` documentada
   explícitamente como "solo backend, nunca exponer al cliente ni commitear".
 - ✅ Integridad de datos reforzada a nivel DB (`CHECK` constraints, índices únicos
   parciales), verificada contra la base real.
-- ✅ Row Level Security habilitado en las 9 tablas de negocio
+- ✅ Row Level Security habilitado en las 10 tablas de negocio
   (`prisma/sql/rls_policies.sql`) — defensa **secundaria**, no reemplaza la
   disciplina de filtrar por `organizationId` en Prisma (ver sección 5 de
   `authentication-architecture.md`; Prisma se conecta con un rol equivalente a
@@ -640,35 +761,58 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
 Orden de dependencia real. Los pasos que ya se completaron (git, `npm install`,
 scaffold de Express, middleware de auth, provisionar Supabase, migración inicial,
 `manual_constraints.sql`, RLS, seed de roles, endpoint de onboarding, módulos
-`Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity` y `Activity`, corrección
-JWT ES256) se sacaron de esta lista — quedan documentados en la sección 7. Con
-`Activity` cerrado, ya no queda ningún módulo CRUD pendiente del modelo de datos
-actual — lo único que sigue faltando es el flujo de invitaciones (que además
-requiere agregar una entidad nueva al schema, ver paso 2).
+`Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity`, `Invitation`
+y administración acotada de `User`, corrección JWT ES256) se sacaron de esta
+lista — quedan documentados en la sección 7. Con `Invitation`/`User` cerrado, no
+queda ningún módulo CRUD pendiente del modelo de datos actual.
 
-1. **Agregar al schema lo que `authentication-architecture.md` ya dejó pedido**:
-   `deletedAt` en `User` (sección 8, recomendación 2 de ese doc) y la entidad
-   `Invitation` (sección 2). Son cambios de schema chicos y ya diseñados — al ser una
-   migración nueva sobre una base que ya tiene datos, conviene revisar que no rompa
-   nada existente, pero no hay bloqueante técnico.
+1. **Configurar SMTP propio en el proyecto de Supabase** (Dashboard →
+   Authentication → Email/SMTP Settings, con un proveedor tipo Resend/Postmark/
+   SendGrid). El servicio de email por defecto de Supabase tiene un rate limit
+   muy bajo a nivel de todo el proyecto — se confirmó empíricamente durante la
+   verificación E2E de `Invitation` (`over_email_send_rate_limit`, `429`, tras
+   apenas un puñado de invitaciones reales en poco tiempo). No es un bug del
+   código: es una limitación de configuración externa que hay que resolver antes
+   de usar `Invitation` con usuarios reales en producción.
 
-2. **Implementar el flujo de invitación de usuarios** (sección 2 de
-   `authentication-architecture.md`): endpoint para que un `ADMIN` invite
-   (`authenticate` + `authorize("ADMIN")`, ya construidos y verificados contra
-   endpoints reales), usando `supabaseAdmin.auth.admin.inviteUserByEmail`, y el
-   endpoint de aceptación que crea `public.users` a partir de la `Invitation`.
-   Depende del paso 1 (la tabla `Invitation`).
+2. **Redactar headers sensibles en los logs (`pino-http`).** Se detectó durante
+   una auditoría de este mismo proyecto que el `Authorization: Bearer <JWT>`
+   completo queda en texto plano en los logs automáticos de request/response
+   (`src/lib/logger.ts` no tiene `redact` configurado) — en dev y en producción
+   por igual. Cualquiera con acceso a los logs puede extraer un token de sesión
+   válido. Cambio acotado (`redact: ["req.headers.authorization"]` o
+   equivalente), alta prioridad, no bloqueante de ningún módulo existente.
 
-3. **Automatizar la reaplicación de `manual_constraints.sql` y `rls_policies.sql`
-   tras futuras migraciones.** Hoy ambos se aplicaron a mano una vez
-   (`prisma db execute --file ... --url "$DIRECT_URL"`) — si se genera una migración
-   nueva que altere estas tablas, hay que recordar reaplicarlos. Un script npm
-   (`db:post-migrate`, por ejemplo) que corra los dos archivos en orden evitaría que
-   alguien se olvide. Las migraciones de `Opportunity` y `Activity` de las últimas
-   dos iteraciones (cada una agrega un índice simple, no parcial) no requirieron
-   reaplicar ninguno de los dos — sirven como ejemplo real de cuándo sí hace falta
-   (columnas/constraints nuevas) y cuándo no (índices estándar que Prisma ya
-   soporta nativamente).
+3. **Traducir la violación de unicidad de `Pipeline` (`P2002`) a `409`.**
+   `pipeline.service.ts` no captura la violación de
+   `@@unique([organizationId, name])` — crear dos pipelines con el mismo nombre
+   en la misma organización devuelve `500` en vez de `409`. Preexistente, mismo
+   patrón ya resuelto en `contact.service.ts`/`stage.service.ts`/
+   `invitation.service.ts`.
+
+4. **Rate limiting a nivel de Express.** No existe ningún middleware de rate
+   limiting en `src/app.ts` — `POST /api/onboarding` (público) y
+   `POST /api/invitations/accept` quedan sin protección de tasa propia (más allá
+   de lo que Supabase límite en su propio servicio de email).
+
+5. **Investigar la magnitud de latencia observada bajo escrituras condicionales
+   concurrentes.** Durante la verificación de las carreras de `Invitation` se
+   necesitó una ventaja de despacho de ~1000ms para que `revokeInvitation`
+   ganara una carrera contra `acceptInvitation` en este entorno — mucho mayor a
+   lo que un único round-trip adicional (`authenticate` completo vs. la
+   verificación liviana de `accept`) explicaría por sí solo. Sugiere contención
+   en el pool de conexiones de Prisma bajo concurrencia real, no investigado a
+   fondo — no bloquea la corrección de `Invitation` (las invariantes de datos se
+   verificaron correctas en ambos sentidos), pero vale la pena entenderlo antes
+   de asumir que el sistema escala bien bajo carga concurrente real.
+
+6. **Entidad `Invitation`: la remoción/revocación no libera el email en
+   Supabase.** Ver sección 9 — limitación real de la plataforma, no de este
+   código.
+
+7. **Frontend.** Sigue sin existir ningún código de frontend en este
+   repositorio — es la pieza que falta para que el backend sea un producto
+   entregable, no solo una API verificada.
 
 ---
 
@@ -699,20 +843,53 @@ requiere agregar una entidad nueva al schema, ver paso 2).
 
 - **Consistencia `auth.users`↔`public.users` sin transacción compartida.** Resuelto
   para el onboarding (ver `authentication-architecture.md` sección 1: creación
-  ordenada + compensación con `admin.deleteUser` si la transacción de Prisma falla),
-  pero sigue siendo un patrón a repetir con cuidado — el flujo de invitación
-  (próximo paso) va a tener el mismo problema de dos sistemas sin transacción
-  compartida, y ya está resuelto en el diseño (sección 2) con un orden de
-  operaciones análogo.
+  ordenada + compensación con `admin.deleteUser` si la transacción de Prisma falla)
+  y para `Invitation` (creación de la fila en Prisma antes de llamar a Supabase,
+  hard delete si `inviteUserByEmail` falla — ver sección 4). El residual conocido
+  y aceptado en ambos casos: si la llamada a Supabase tiene éxito pero la
+  respuesta se pierde en la red antes de llegar al backend, no hay compensación
+  posible — se resolvería con un mecanismo de reintento/reenvío explícito, fuera
+  de alcance hasta ahora.
 
-- **Asimetría en soft delete — parcialmente resuelta.** `Stage` ya tiene `deletedAt`
-  (agregado en el módulo `Pipeline`/`Stage`, ver sección 4) — el caso concreto que
-  motivaba este riesgo (borrar una etapa sin perder el historial de oportunidades que
-  la referencian) ya está resuelto. Queda pendiente `User`/`Role`, que siguen sin
-  `deletedAt`; para `User` sigue siendo relevante por la misma razón (`Opportunity`/
-  `Activity` referencian usuarios). No hay bloqueante técnico para agregarlo, es la
-  misma recomendación 2 de `authentication-architecture.md` sección 8, todavía sin
-  implementar.
+- **Asimetría en soft delete — resuelta para las entidades que la necesitaban.**
+  `Stage` y `User` ya tienen `deletedAt` (`User` agregado en el módulo
+  `Invitation`, con semántica distinta de `isActive` — ver sección 4). Queda
+  `Role`, que sigue sin `deletedAt` — es un catálogo global sin ciclo de vida
+  propio hoy, no motiva el mismo riesgo que `User`/`Stage` tenían.
+
+- **Email de Supabase Auth único a nivel de todo el proyecto, no por
+  organización — y no se libera al revocar/vencer una invitación.** Invitar un
+  email que ya es identidad de Supabase (miembro de otra organización, u otra
+  invitación en curso en cualquier organización) falla al llamar a
+  `inviteUserByEmail`, traducido a `409`. Más importante: revocar o dejar vencer
+  una `Invitation` **no** borra la identidad de `auth.users` que `inviteUserByEmail`
+  ya creó — así que reinvitar ese mismo email más adelante (incluso a la misma
+  organización) puede volver a fallar del lado de Supabase. No es un bug de este
+  código: es la misma decisión deliberada de "no tocar Supabase Auth en
+  operaciones reversibles de nuestro lado" aplicada consistentemente (mismo
+  criterio que remover un `User` no borra su identidad de Supabase) — pero el
+  efecto práctico (un email "quemado" tras una invitación revocada/vencida) no
+  está resuelto ni tiene mitigación implementada todavía.
+
+- **Rate limit de envío de email de Supabase — limitación externa confirmada
+  empíricamente.** Ver sección 8, paso 1. No es un bug del código.
+
+- **`accept`/`revoke` de `Invitation` sin `invitationId` explícito puede devolver
+  `404`/`400` en vez del `409`/`410` más específico, si la invitación ya no está
+  `PENDING` en el momento exacto de la lectura.** Descubierto durante la
+  verificación de las carreras concurrentes: el camino "sin `invitationId`" busca
+  únicamente entre invitaciones `PENDING` (`findPendingInvitationsByEmail` /
+  chequeo de estado antes del compare-and-swap) — cualquier invitación que ya
+  transicionó fuera de `PENDING` antes de esa lectura (por la propia carrera, o
+  simplemente porque ya se resolvió hace rato) se vuelve invisible para esa
+  búsqueda y da un error genérico en vez del específico. **No es una violación de
+  ninguna invariante de datos** (nunca hay dos ganadores, nunca un `500`, nunca un
+  `User` huérfano — verificado en 30+ carreras reales) — es una imprecisión de UX
+  acotada al camino de conveniencia. Con `invitationId` explícito (uso recomendado,
+  y el único camino real cuando el cliente ya sabe cuál invitación está
+  aceptando/revocando) el error siempre es el específico y correcto. No se corrigió
+  en este ciclo — requeriría decidir qué invitación histórica referenciar en el
+  caso ambiguo, una pregunta de diseño no discutida todavía.
 
 - **Las constraints SQL manuales y las políticas de RLS no están versionadas junto
   con las migraciones de Prisma.** Tanto `manual_constraints.sql` como

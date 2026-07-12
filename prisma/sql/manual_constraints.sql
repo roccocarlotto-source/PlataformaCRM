@@ -102,6 +102,17 @@ create unique index if not exists stages_pipeline_lost_unique
   on public.stages (pipeline_id)
   where is_lost = true and deleted_at is null;
 
+-- A lo sumo una invitación PENDING por (organization_id, email). Un email
+-- puede tener múltiples invitaciones a lo largo del tiempo (reinvitado tras
+-- vencer, revocada y reinvitado, etc.) mientras a lo sumo una esté PENDING a
+-- la vez. No se filtra por una fecha de expiración acá porque un índice
+-- parcial exige un predicado IMMUTABLE — now() no lo es — por eso el estado
+-- vencido se resuelve en la aplicación (expireDueInvitations, perezoso)
+-- ANTES de las operaciones que dependen de esta constraint, no en el índice.
+create unique index if not exists invitations_org_email_pending_unique
+  on public.invitations (organization_id, email)
+  where status = 'PENDING';
+
 -- ---------------------------------------------------------------------------
 -- 3. CHECK constraints
 -- ---------------------------------------------------------------------------

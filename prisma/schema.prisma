@@ -34,6 +34,18 @@ enum OpportunityStatus {
   LOST
 }
 
+// PENDING -> ACCEPTED (el invitado completó el flujo) | REVOKED (un ADMIN la
+// canceló) | EXPIRED (pasó expiresAt sin aceptarse). La transición a EXPIRED
+// es perezosa: no hay job programado, se recalcula en el momento en que
+// importa (crear una nueva invitación para el mismo email, listar, aceptar)
+// — ver invitation.repository.ts (expireDueInvitations).
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
 // ---------------------------------------------------------------------------
 // Organization — raíz del aislamiento multi-tenant
 // ---------------------------------------------------------------------------
@@ -54,6 +66,7 @@ model Organization {
   pipelines     Pipeline[]
   stages        Stage[]
   activities    Activity[]
+  invitations   Invitation[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -72,7 +85,8 @@ model Role {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  users User[]
+  users       User[]
+  invitations Invitation[]
 
   @@map("roles")
 }
@@ -81,6 +95,16 @@ model Role {
 // User — perfil de negocio del usuario autenticado por Supabase Auth.
 // id comparte valor con auth.users.id. email se sincroniza por trigger
 // (ver prisma/sql/manual_constraints.sql) y nunca se escribe desde la app.
+//
+// isActive vs. deletedAt — semánticas distintas, no redundantes:
+//   - isActive = false, deletedAt = null: usuario suspendido/desactivado,
+//     reversible (PATCH puede volver a poner isActive = true).
+//   - deletedAt != null: usuario removido de la organización — soft delete,
+//     terminal, sin undelete en este bloque. Implica isActive = false.
+// Un hard delete real está bloqueado de hecho por integridad referencial:
+// Opportunity.ownerId y Activity.authorId son obligatorios y no declaran
+// onDelete, así que Postgres ya rechaza borrar un User referenciado por
+// cualquiera de los dos.
 // ---------------------------------------------------------------------------
 
 model User {
@@ -93,6 +117,7 @@ model User {
   lastLoginAt    DateTime? @map("last_login_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   role         Role         @relation(fields: [roleId], references: [id])
@@ -102,9 +127,43 @@ model User {
   ownedOpportunities Opportunity[] @relation("OpportunityOwner")
   authoredActivities Activity[]    @relation("ActivityAuthor")
   assignedActivities Activity[]    @relation("ActivityAssignee")
+  invitationsSent    Invitation[]  @relation("InvitationInvitedBy")
 
   @@index([organizationId])
   @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Invitation — invitación pendiente de un ADMIN a un nuevo miembro de su
+// organización. status es la fuente de verdad del ciclo de vida (no
+// deletedAt: acá el "removido" ya tiene nombre propio — REVOKED/EXPIRED —
+// y agregar deletedAt encima obligaría a explicar en qué se diferencia de
+// esos dos estados, sin buena respuesta).
+// ---------------------------------------------------------------------------
+
+model Invitation {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  email          String           @db.VarChar(255)
+  roleId         String           @map("role_id") @db.Uuid
+  invitedById    String           @map("invited_by_id") @db.Uuid
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime         @map("expires_at")
+  acceptedAt     DateTime?        @map("accepted_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+  invitedBy    User         @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
+
+  // Único (organization_id, email) WHERE status = 'PENDING' — índice único
+  // parcial, se crea manualmente en prisma/sql/manual_constraints.sql
+  // (Prisma no soporta índices únicos parciales en su DSL).
+  @@index([organizationId])
+  @@index([email])
+  @@index([organizationId, status])
+  @@map("invitations")
 }
 
 // ---------------------------------------------------------------------------

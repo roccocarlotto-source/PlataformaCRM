@@ -1,0 +1,154 @@
+import {
+  countActiveAdmins,
+  countUsers,
+  findManyUsers,
+  findUserById,
+  softDeleteUser,
+  updateUser as updateUserRepo,
+  type SortOrder,
+  type UserSortBy,
+} from "../repositories/user.repository";
+import { findRoleByName } from "../repositories/role.repository";
+import type { RoleName } from "../types/auth";
+import { AppError } from "../utils/AppError";
+
+export interface ListUsersParams {
+  page: number;
+  pageSize: number;
+  role?: RoleName;
+  isActive?: boolean;
+  sortBy: UserSortBy;
+  sortOrder: SortOrder;
+}
+
+export async function listUsers(organizationId: string, params: ListUsersParams) {
+  const { page, pageSize, sortBy, sortOrder, ...filters } = params;
+  const skip = (page - 1) * pageSize;
+
+  const [data, total] = await Promise.all([
+    findManyUsers(
+      organizationId,
+      filters,
+      { skip, take: pageSize },
+      { sortBy, sortOrder },
+    ),
+    countUsers(organizationId, filters),
+  ]);
+
+  return {
+    data,
+    pagination: {
+      page,
+      pageSize,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
+    },
+  };
+}
+
+export async function getUserById(organizationId: string, id: string) {
+  // findUserById ya excluye deletedAt != null — un usuario removido no
+  // tiene forma de "aparecer" acá, mismo patrón que el resto de las
+  // entidades con soft delete. Sin undelete en este bloque.
+  const user = await findUserById(id, organizationId);
+  if (!user) {
+    throw new AppError("Usuario no encontrado", 404);
+  }
+  return user;
+}
+
+// true si, después de aplicar el cambio propuesto, el usuario seguiría
+// siendo un ADMIN activo — para decidir si hace falta proteger al último.
+function staysActiveAdmin(
+  current: { isActive: boolean; role: { name: string } },
+  nextIsActive: boolean | undefined,
+  nextRole: RoleName | undefined,
+): boolean {
+  const isActive = nextIsActive ?? current.isActive;
+  const roleName = nextRole ?? current.role.name;
+  return isActive && roleName === "ADMIN";
+}
+
+export interface UpdateUserInput {
+  isActive?: boolean;
+  role?: RoleName;
+}
+
+// No es un editor genérico: solo isActive (activar/desactivar, reversible)
+// y role (promover/degradar). email/id/organizationId nunca son campos de
+// este schema — ni siquiera llegan a esta función. deletedAt tampoco: no
+// hay undelete en este bloque, así que un usuario removido ya no aparece
+// (getUserById -> 404) y PATCH no tiene forma de revivirlo.
+export async function updateUser(
+  organizationId: string,
+  actorUserId: string,
+  id: string,
+  input: UpdateUserInput,
+) {
+  if (id === actorUserId) {
+    throw new AppError(
+      "No podés modificar tu propio usuario (rol o estado activo)",
+      400,
+    );
+  }
+
+  const user = await getUserById(organizationId, id);
+
+  const data: { isActive?: boolean; roleId?: string } = {};
+
+  if (input.isActive !== undefined) {
+    data.isActive = input.isActive;
+  }
+
+  if (input.role !== undefined) {
+    const role = await findRoleByName(input.role);
+    if (!role) {
+      throw new AppError("No se encontró el rol indicado", 500);
+    }
+    data.roleId = role.id;
+  }
+
+  const wasActiveAdmin = user.isActive && user.role.name === "ADMIN";
+  const willStayActiveAdmin = staysActiveAdmin(user, input.isActive, input.role);
+
+  if (wasActiveAdmin && !willStayActiveAdmin) {
+    const remainingAdmins = await countActiveAdmins(organizationId, id);
+    if (remainingAdmins === 0) {
+      throw new AppError(
+        "No se puede modificar al último ADMIN activo de la organización",
+        400,
+      );
+    }
+  }
+
+  return updateUserRepo(id, data);
+}
+
+// Remover de la organización (soft delete). No toca Supabase Auth: la
+// identidad queda intacta pero resolveAuthContext la va a rechazar por
+// deletedAt != null en el próximo request — reversible del lado de
+// Supabase (no lo tocamos), pero sin undelete de nuestro lado en este
+// bloque.
+export async function deleteUser(
+  organizationId: string,
+  actorUserId: string,
+  id: string,
+) {
+  if (id === actorUserId) {
+    throw new AppError("No podés eliminar tu propio usuario", 400);
+  }
+
+  const user = await getUserById(organizationId, id);
+
+  if (user.isActive && user.role.name === "ADMIN") {
+    const remainingAdmins = await countActiveAdmins(organizationId, id);
+    if (remainingAdmins === 0) {
+      throw new AppError(
+        "No se puede eliminar al último ADMIN activo de la organización",
+        400,
+      );
+    }
+  }
+
+  await softDeleteUser(id);
+}

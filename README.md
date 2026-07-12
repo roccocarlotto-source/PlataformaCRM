@@ -12,18 +12,23 @@ de autenticación y onboarding, ver
 > verificados contra logins reales de Supabase vía JWKS/ES256) + conexión real a
 > Supabase (migraciones, `manual_constraints.sql` y RLS aplicados, catálogo `Role`
 > sembrado) + `POST /api/onboarding` + **módulos `Company`, `Contact`, `Pipeline`,
-> `Stage`, `Opportunity` y `Activity` completos** (CRUD, soft delete, paginación) —
-> cierra el conjunto de entidades de negocio del modelo de datos actual.
-> `Opportunity` valida `pipelineId`/`stageId` contra la organización y entre sí (el
-> stage debe pertenecer al pipeline indicado), exige `companyId` y/o `contactId`, y
-> reutiliza `resolveOwnerId`. `Activity` exige al menos una de `companyId`/
-> `contactId`/`opportunityId` (validado también contra el estado final en `PATCH`,
-> no solo contra el body aislado), `authorId` sale exclusivamente de
-> `req.auth.userId` (nunca del cliente, nunca editable), y `assigneeId` es opcional
-> sin default al creador — reutiliza la misma consulta que `resolveOwnerId` pero sin
-> su semántica de "owner". Verificado end-to-end contra un proyecto real de Supabase
-> (aislamiento multi-tenant, relaciones cruzadas, filtros/orden/paginación,
-> autorización por rol). Sin invitaciones todavía — ver la sección "Estado de
+> `Stage`, `Opportunity`, `Activity` e `Invitation` completos** (CRUD, soft delete,
+> paginación) + **administración acotada de `User`** — cierra el conjunto de
+> entidades de negocio del modelo de datos actual. `Opportunity` valida
+> `pipelineId`/`stageId` contra la organización y entre sí (el stage debe
+> pertenecer al pipeline indicado), exige `companyId` y/o `contactId`, y reutiliza
+> `resolveOwnerId`. `Activity` exige al menos una de `companyId`/`contactId`/
+> `opportunityId` (validado también contra el estado final en `PATCH`, no solo
+> contra el body aislado), `authorId` sale exclusivamente de `req.auth.userId`
+> (nunca del cliente, nunca editable), y `assigneeId` es opcional sin default al
+> creador. `Invitation` transiciona de estado por **compare-and-swap**
+> (`updateMany` condicionado a `status: "PENDING"`, nunca un `UPDATE` ciego) —
+> verificado con tres carreras concurrentes reales (`Promise.all` genuino contra
+> Supabase real): crear vs. crear, aceptar vs. aceptar, y aceptar vs. revocar,
+> esta última confirmada en ambos sentidos posibles. Verificado end-to-end contra
+> un proyecto real de Supabase (aislamiento multi-tenant, relaciones cruzadas,
+> filtros/orden/paginación, autorización por rol). Sin endpoint de login propio
+> (decisión de diseño estable, no pendiente) — ver la sección "Estado de
 > implementación" al inicio de `docs/authentication-architecture.md`.
 
 ## Quickstart
@@ -103,9 +108,14 @@ src/
   tipo de `Request`, así un controller puede tipar su handler con
   `AuthenticatedRequest` en vez de `Request` y usar `req.auth` sin chequeos
   redundantes), `validation.ts` (`parseOrThrow` — parsea con un schema de Zod o
-  lanza `AppError(400)`, compartido por todos los controllers), y `slug.ts`
+  lanza `AppError(400)`, compartido por todos los controllers), `slug.ts`
   (`slugify` — normaliza un nombre a un slug, sin lógica de sufijo por colisión: una
-  colisión se resuelve como error, no generando una variante).
+  colisión se resuelve como error, no generando una variante), y `bearerToken.ts`
+  (`extractBearerToken` — extrae el token del header `Authorization`; usado
+  únicamente por el flujo de aceptación de invitaciones, que no puede pasar por
+  `authenticate.ts` porque exige una fila en `public.users` que todavía no existe
+  para quien está aceptando; no se reutilizó dentro de `authenticate.ts` para no
+  tocar código de auth ya verificado en producción).
 
 - **`src/middlewares/`** — middlewares de Express transversales a toda la app:
   `notFound.ts` (404 consistente para rutas no definidas), `errorHandler.ts`
@@ -122,11 +132,15 @@ src/
   Archivos reales: `onboarding.controller.ts`, `company.controller.ts` (módulo de
   referencia — 5 endpoints, create/update tipados con `AuthenticatedRequest`),
   `contact.controller.ts`, `pipeline.controller.ts`, `stage.controller.ts`,
-  `opportunity.controller.ts` y `activity.controller.ts` (mismo esqueleto en los
-  seis; `currency` en `Opportunity` se valida como código ISO 4217 de 3 letras
-  mayúsculas sin enum en Prisma; `type` en `Activity` usa
-  `z.nativeEnum(ActivityType)` sobre el enum real de Prisma en vez de duplicar sus
-  valores a mano).
+  `opportunity.controller.ts`, `activity.controller.ts`, `invitation.controller.ts`
+  y `user.controller.ts` (mismo esqueleto en la mayoría; `currency` en
+  `Opportunity` se valida como código ISO 4217 de 3 letras mayúsculas sin enum en
+  Prisma; `type` en `Activity` y `status` en `Invitation` usan `z.nativeEnum(...)`
+  sobre el enum real de Prisma en vez de duplicar sus valores a mano;
+  `invitation.controller.ts` es el único cuyo endpoint de aceptación no usa
+  `AuthenticatedRequest` — ver `src/utils/bearerToken.ts`; `user.controller.ts`
+  no es un CRUD genérico, solo expone las acciones acotadas del caso de uso real:
+  listar el roster, `PATCH` de `isActive`/`role`, remover).
 
 - **`src/services/`** — lógica de aplicación: orquestan reglas de negocio y llaman a
   `repositories` (o, para infraestructura como el health check, hablan directo con
@@ -147,20 +161,31 @@ src/
   reutilizando los repositories de esas entidades, exige que el `stageId` pertenezca
   al `pipelineId`, y si el `PATCH` cambia `pipelineId` exige que también se envíe
   `stageId` en la misma operación — nunca mueve una oportunidad de pipeline
-  implícitamente) y `activity.service.ts` (`authorId` nunca es un parámetro
+  implícitamente), `activity.service.ts` (`authorId` nunca es un parámetro
   aceptado desde el cliente — lo fija el controller a partir de `req.auth.userId`;
   `assigneeId` valida con la misma consulta que `resolveOwnerId`
   (`findUserByIdInOrganization`) pero sin su default "si no viene, asigna a quien
   crea" — una `Activity` sin `assigneeId` queda `null`, nunca autoasignada; la
   invariante "al menos `companyId`, `contactId` u `opportunityId`" se revalida en
   cada `PATCH` contra el estado final combinando el registro actual con las claves
-  realmente presentes en el body, no solo contra el body aislado).
+  realmente presentes en el body, no solo contra el body aislado), `invitation.service.ts`
+  (transiciones de estado por compare-and-swap — `updateMany` condicionado a
+  `status: "PENDING"`, verificando `count`, nunca un `UPDATE` ciego — para
+  `accept` y `revoke` por igual; `createInvitation` traduce la violación del
+  índice único parcial a `409` en vez de dejarla subir como `500`; la aceptación
+  usa una verificación de identidad propia, sin pasar por `authenticate.ts`) y
+  `user.service.ts` (`updateUser`/`deleteUser` bloquean auto-modificación y dejar
+  a la organización sin ningún `ADMIN` activo — `countActiveAdmins`, mismo patrón
+  que la protección del último `Pipeline` activo).
 
 - **`src/repositories/`** — capa de acceso a datos: cada entidad tiene acá sus
   funciones de consulta/escritura sobre Prisma. Todas aceptan un parámetro `db`
   opcional (tipo `Db` de `lib/prisma.ts`) para poder correr dentro de una
   transacción. Archivos reales: `user.repository.ts` (`findUserForAuth`,
-  `createUser`, `findUserByIdInOrganization`), `organization.repository.ts`
+  `createUser`, `findUserByIdInOrganization` — excluye `deletedAt != null` además
+  de exigir `isActive`, `findUserByEmail` para la unicidad global de email que usa
+  `Invitation`, `countActiveAdmins`, `findManyUsers`/`updateUser`/`softDeleteUser`
+  para la administración acotada), `organization.repository.ts`
   (`findOrganizationBySlug`, `createOrganization`), `role.repository.ts`
   (`findRoleByName`), `company.repository.ts` (CRUD + `findMany`/`count` con
   filtros de búsqueda/industria/owner y orden, siempre con `organizationId` +
@@ -174,18 +199,28 @@ src/
   service, nunca sueltas), `opportunity.repository.ts` (mismo esqueleto que
   `company`/`contact`; filtros por `companyId`/`contactId`/`ownerId`/`pipelineId`/
   `stageId`/`status`/`currency`/rango de `amount`, orden por
-  `createdAt`/`updatedAt`/`amount`/`title`) y `activity.repository.ts` (filtros por
+  `createdAt`/`updatedAt`/`amount`/`title`), `activity.repository.ts` (filtros por
   `type`/`authorId`/`assigneeId`/`companyId`/`contactId`/`opportunityId`/rango de
   `dueDate`/rango de `completedAt`, búsqueda `search` con `OR` entre
   `subject`/`body`, orden por `createdAt`/`updatedAt`/`dueDate`/`completedAt`/
-  `subject`).
+  `subject`) e `invitation.repository.ts` (`revokeInvitationConditional`/
+  `acceptInvitationRowConditional` — `updateMany` condicionado a
+  `status: "PENDING"`, la única forma de transicionar el estado de una
+  `Invitation`; `expireDueInvitations` centraliza la transición perezosa
+  `PENDING → EXPIRED`, usada por los cuatro puntos de entrada que dependen del
+  estado real de una invitación).
 
 - **`src/routes/`** — define las rutas HTTP y las conecta con su `controller`.
   `index.ts` agrega todos los routers de la aplicación en uno solo. `/health` sin
   prefijo; `onboarding.routes.ts` (público), `company.routes.ts`,
   `contact.routes.ts`, `pipeline.routes.ts`, `stage.routes.ts`,
   `opportunity.routes.ts` y `activity.routes.ts` (protegidos, lectura con
-  `authenticate`, escritura con `authenticate` + `authorize("ADMIN")`) bajo `/api`.
+  `authenticate`, escritura con `authenticate` + `authorize("ADMIN")`),
+  `invitation.routes.ts` (lectura **y** escritura ADMIN-only, a diferencia del
+  resto — expone emails de gente que todavía no es miembro; `POST
+  /invitations/accept` es la única ruta de todo el proyecto que no monta
+  `authenticate`) y `user.routes.ts` (las tres rutas ADMIN-only) — todo bajo
+  `/api`.
 
 - **`src/app.ts`** — arma la instancia de Express: registra middlewares (seguridad,
   CORS, compresión, parseo de body, logging de requests), monta las rutas, y al

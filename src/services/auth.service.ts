@@ -17,6 +17,14 @@ export async function resolveAuthContext(
     );
   }
 
+  // deletedAt implica isActive = false por construcción (softDeleteUser
+  // siempre setea los dos juntos, ver user.repository.ts) — se chequea
+  // primero para dar el mensaje más específico ("removida" en vez del
+  // genérico "desactivada") cuando ambos son ciertos.
+  if (user.deletedAt !== null) {
+    throw new AppError("Tu cuenta fue removida de la organización.", 403);
+  }
+
   if (!user.isActive) {
     throw new AppError("Tu cuenta fue desactivada.", 403);
   }

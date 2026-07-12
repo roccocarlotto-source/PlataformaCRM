@@ -103,3 +103,14 @@ create policy stages_isolation on public.stages
   for all
   using (organization_id = public.current_organization_id())
   with check (organization_id = public.current_organization_id());
+
+-- invitations — mismo patrón uniforme. Nota: un usuario invitado que todavía
+-- no aceptó (existe en auth.users, no en public.users) resuelve
+-- current_organization_id() como NULL, así que esta política no le deja ver
+-- ninguna fila — correcto: la aceptación pasa por el backend con
+-- service_role (BYPASSRLS), no por un cliente autenticado con RLS.
+alter table public.invitations enable row level security;
+create policy invitations_isolation on public.invitations
+  for all
+  using (organization_id = public.current_organization_id())
+  with check (organization_id = public.current_organization_id());
