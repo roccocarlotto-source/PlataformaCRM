@@ -59,7 +59,7 @@ actividades.
 | **Prisma ORM 5.20** (`@prisma/client`, `prisma`) | Acceso a datos type-safe + migraciones | Es la única capa de aplicación que existe hoy: `prisma/schema.prisma` define 9 modelos. Scripts en `package.json`: `prisma:generate`, `prisma:validate`, `prisma:studio`. |
 | **PostgreSQL** | Motor de base de datos | `datasource db { provider = "postgresql" }` en el schema. |
 | **Supabase** (Auth + Postgres hosting) | Autenticación gestionada + hosting de la DB | Proyecto real provisionado y conectado (`.env` completo). El modelo `User` está diseñado para compartir `id` con `auth.users` (tabla gestionada por Supabase). |
-| **PgBouncer** | Pooling de conexiones para runtime | `.env.example` distingue `DATABASE_URL` (puerto 6543, `?pgbouncer=true`, la usa la app) de `DIRECT_URL` (puerto 5432, solo para `prisma migrate`) — patrón estándar de Supabase + Prisma, porque Prisma Migrate no funciona bien a través de PgBouncer en modo transacción. |
+| **Supavisor** (pooler compartido de Supabase — no PgBouncer clásico; confirmado en LOW-2 contra la documentación oficial vigente de Supabase, sección 8) | Pooling de conexiones para runtime | `.env.example` distingue `DATABASE_URL` (mismo host `*.pooler.supabase.com`, puerto 6543, Supavisor en **modo transacción**, `?pgbouncer=true` — bandera correcta y soportada para ese modo, ver sección 8) de `DIRECT_URL` (mismo host, puerto 5432, Supavisor en **modo sesión** — no una conexión directa a Postgres, pese al nombre de la variable — solo para `prisma migrate`) — patrón estándar de Supabase + Prisma: Prisma Migrate no funciona bien a través del modo transacción. |
 | **dotenv** | Carga de variables de entorno | Dependencia declarada en `package.json`. |
 | **SQL manual** (`prisma/sql/manual_constraints.sql`) | Constraints/triggers que Prisma no soporta nativamente | Prisma no expresa índices únicos parciales (`WHERE`), `CHECK` constraints ni triggers en el DSL de `schema.prisma` — se completan a mano. |
 | **Express 4** | Framework HTTP del backend | `src/app.ts` — middlewares estándar (helmet, cors, compression), manejo de errores centralizado, health check. Ver `README.md` para el detalle de cada carpeta de `src/`. |
@@ -484,11 +484,16 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   kanban de ventas: cada oportunidad vive en una etapa de un pipeline, con
   `probability` de cierre y flags mutuamente excluyentes `isWon`/`isLost`.
 
-- **Separación `DATABASE_URL` (pooled vía PgBouncer, puerto 6543) vs. `DIRECT_URL`
-  (directo, puerto 5432).** Patrón requerido por Supabase + Prisma: las migraciones de
-  Prisma necesitan una conexión directa a Postgres porque PgBouncer en modo
-  transacción rompe algunas operaciones de `prisma migrate`; el runtime de la app usa
-  la conexión pooled para escalar mejor bajo concurrencia.
+- **Separación `DATABASE_URL` (Supavisor, modo transacción, puerto 6543) vs.
+  `DIRECT_URL` (Supavisor, modo sesión, puerto 5432 — mismo host
+  `*.pooler.supabase.com`; no es una conexión directa a Postgres pese al nombre
+  de la variable, confirmado en LOW-2, sección 8).** Patrón requerido por
+  Supabase + Prisma: las migraciones necesitan el modo sesión porque el modo
+  transacción rompe algunas operaciones de `prisma migrate`; el runtime de la
+  app usa el modo transacción para escalar a más conexiones concurrentes de
+  las que Postgres podría atender sin poolear — un beneficio de la
+  arquitectura de pooling en sí, distinto del costo por-operación que esa
+  misma configuración introduce (documentado en sección 8).
 
 ---
 
@@ -811,15 +816,51 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    store elegido.
 
 3. **Investigar la magnitud de latencia observada bajo escrituras condicionales
-   concurrentes.** Durante la verificación de las carreras de `Invitation` se
-   necesitó una ventaja de despacho de ~1000ms para que `revokeInvitation`
-   ganara una carrera contra `acceptInvitation` en este entorno — mucho mayor a
-   lo que un único round-trip adicional (`authenticate` completo vs. la
-   verificación liviana de `accept`) explicaría por sí solo. Sugiere contención
-   en el pool de conexiones de Prisma bajo concurrencia real, no investigado a
-   fondo — no bloquea la corrección de `Invitation` (las invariantes de datos se
-   verificaron correctas en ambos sentidos), pero vale la pena entenderlo antes
-   de asumir que el sistema escala bien bajo carga concurrente real.
+   concurrentes — ✅ investigado y entendido (LOW-2, 2026-07-12), sin
+   remediation de código.** La hipótesis original ("contención en el pool de
+   conexiones de Prisma bajo concurrencia real") quedó descartada por
+   evidencia directa: la misma latencia, estable, aparece igual en ejecución
+   100% secuencial sin ninguna concurrencia — no depende de que dos
+   operaciones compitan entre sí.
+
+   Causa raíz demostrada: `DATABASE_URL` usa el pooler compartido de Supabase
+   (**Supavisor**, no PgBouncer clásico — ver sección 2) en **modo
+   transacción, puerto 6543, con `pgbouncer=true`** — esta es la
+   configuración deliberada y soportada para Prisma contra Supavisor en modo
+   transacción (verificado contra la documentación oficial vigente de
+   Supabase y de Prisma: el modo transacción de Supavisor no soporta
+   prepared statements, y `pgbouncer=true` es exactamente la bandera
+   correcta para eso, no una configuración pendiente de corregir).
+
+   Bajo esa configuración soportada, las llamadas de repository trazadas
+   durante la investigación (`Role`, `Organization`, `User`, `Invitation` —
+   `findFirst`/`findMany`/`create`/`update`/`updateMany`, fuera de un
+   `prisma.$transaction` explícito) mostraron consistentemente cuatro
+   round-trips de red reales por llamada (`BEGIN` / `DEALLOCATE ALL` / la
+   query / `COMMIT`) en vez de uno — `DEALLOCATE ALL` es el mecanismo
+   esperado de esa configuración soportada, no un bug. Dentro de un
+   `prisma.$transaction` explícito, varias escrituras comparten un solo
+   envoltorio (confirmado en el mismo trazado: la escritura condicional y la
+   creación de `User` de `acceptInvitation` comparten un único
+   `BEGIN`/`COMMIT`). `acceptInvitation`/`revokeInvitation` encadenan varias
+   llamadas sin agruparlas, así que el costo observado en esos dos flujos
+   específicos se acumula linealmente con la cantidad de round-trips —
+   demostrado directamente, sin relación con locks ni con contención de
+   ningún tipo.
+
+   Esto **no se verificó exhaustivamente sobre cada repository del
+   proyecto** — es una muestra de un puñado de modelos y formas de query, no
+   una garantía universal confirmada. El mecanismo que lo causa es de
+   configuración de conexión (`pgbouncer=true`), no de contenido de query, lo
+   que da una razón estructural para esperar que se replique en otras
+   llamadas del mismo cliente Prisma fuera de una transacción explícita — se
+   documenta acá como un **patrón potencialmente transversal, no confirmado
+   en el resto del código**, y no abordado como tema general en este ciclo
+   (fuera de su alcance).
+
+   El RTT exacto medido (~37ms por hop) pertenece al entorno donde se
+   investigó y no debe leerse como la latencia esperada de producción —
+   depende de la distancia de red real hacia el proyecto de Supabase.
 
 4. **Entidad `Invitation`: la remoción/revocación no libera el email en
    Supabase.** Ver sección 9 — limitación real de la plataforma, no de este
