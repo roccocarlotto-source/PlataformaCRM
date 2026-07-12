@@ -7,6 +7,11 @@ import {
 } from "../controllers/invitation.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { authorize } from "../middlewares/authorize";
+import {
+  acceptInvitationRateLimiter,
+  acceptPreAuthRateLimiter,
+} from "../middlewares/rateLimit";
+import { verifyInvitationAcceptIdentity } from "../middlewares/verifyInvitationAcceptIdentity";
 
 export const invitationRouter = Router();
 
@@ -34,5 +39,16 @@ invitationRouter.delete(
 
 // Público en el sentido de no pasar por authenticate (exige public.users
 // ya existente) — pero no anónimo: exige un JWT de Supabase válido. Ver
-// invitation.controller.ts.
-invitationRouter.post("/invitations/accept", acceptInvitationHandler);
+// invitation.controller.ts. M1 — dos etapas de rate limiting (ver
+// rateLimit.ts para el porqué de cada una):
+//   1. acceptPreAuthRateLimiter: por IP, antes de verificar el JWT —
+//      protege el costo de intentar verificar, sin identidad todavía.
+//   2. verifyInvitationAcceptIdentity: verifica el JWT una sola vez.
+//   3. acceptInvitationRateLimiter: por identidad ya verificada (sub).
+invitationRouter.post(
+  "/invitations/accept",
+  acceptPreAuthRateLimiter,
+  verifyInvitationAcceptIdentity,
+  acceptInvitationRateLimiter,
+  acceptInvitationHandler,
+);

@@ -1,15 +1,15 @@
 import { InvitationStatus } from "@prisma/client";
-import type { Request, Response } from "express";
+import type { Response } from "express";
 import { z } from "zod";
+import { acceptInvitationSchema } from "../schemas/invitation.schema";
 import {
   acceptInvitation,
   createInvitation,
   listInvitations,
   revokeInvitation,
 } from "../services/invitation.service";
-import type { AuthenticatedRequest } from "../types/auth";
+import type { AuthenticatedRequest, InvitationAcceptRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
-import { extractBearerToken } from "../utils/bearerToken";
 import { parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
@@ -35,15 +35,6 @@ const listQuerySchema = z.object({
   status: statusSchema.optional(),
   sortBy: z.enum(["createdAt", "expiresAt"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
-});
-
-const acceptInvitationSchema = z.object({
-  fullName: z
-    .string()
-    .trim()
-    .min(1, "fullName es requerido")
-    .max(255, "fullName no puede superar los 255 caracteres"),
-  invitationId: z.string().uuid("invitationId inválido").optional(),
 });
 
 export const createInvitationHandler = asyncHandler<AuthenticatedRequest>(
@@ -76,14 +67,14 @@ export const revokeInvitationHandler = asyncHandler<AuthenticatedRequest>(
 
 // Sin authenticate: quien acepta todavía no tiene fila en public.users, así
 // que el middleware estándar (resolveAuthContext) fallaría con 403
-// exactamente en el caso que este endpoint necesita resolver. Solo se
-// exige un JWT de Supabase válido (extractBearerToken + verificación
-// dentro del service) — ver invitation.service.ts.
-export const acceptInvitationHandler = asyncHandler<Request>(
+// exactamente en el caso que este endpoint necesita resolver.
+// verifyInvitationAcceptIdentity (middleware, montado en invitation.routes.ts
+// antes de este handler) ya verificó el JWT de Supabase una sola vez y dejó
+// la identidad en req.invitationAcceptIdentity — no se vuelve a verificar acá.
+export const acceptInvitationHandler = asyncHandler<InvitationAcceptRequest>(
   async (req, res: Response) => {
-    const token = extractBearerToken(req);
     const input = parseOrThrow(acceptInvitationSchema, req.body);
-    const user = await acceptInvitation(token, input);
+    const user = await acceptInvitation(req.invitationAcceptIdentity, input);
     res.status(201).json(user);
   },
 );

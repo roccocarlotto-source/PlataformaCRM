@@ -19,9 +19,8 @@ import {
 } from "../repositories/invitation.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { createUser, findUserByEmail } from "../repositories/user.repository";
-import type { RoleName } from "../types/auth";
+import type { InvitationAcceptIdentity, RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
-import { verifySupabaseJwt } from "../lib/jwt";
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -233,22 +232,6 @@ export interface AcceptInvitationInput {
   invitationId?: string;
 }
 
-// Verificación liviana de identidad: el usuario que acepta todavía no tiene
-// fila en public.users, así que authenticate.ts (que exige
-// resolveAuthContext) fallaría acá con 403 exactamente en el caso que este
-// flujo necesita resolver. Solo se prueba identidad (firma + expiración del
-// JWT) — organizationId/roleId salen exclusivamente de la Invitation
-// encontrada más abajo, nunca del cliente ni del JWT.
-async function verifyAcceptIdentity(token: string) {
-  const payload = await verifySupabaseJwt(token);
-
-  if (!payload.email) {
-    throw new AppError("El token no contiene un email válido", 401);
-  }
-
-  return { userId: payload.sub, email: normalizeEmail(payload.email) };
-}
-
 function assertPending(status: string): void {
   switch (status) {
     case "PENDING":
@@ -270,11 +253,14 @@ function assertPending(status: string): void {
   }
 }
 
+// identity ya viene verificada (M1): verifyInvitationAcceptIdentity
+// (middleware) es ahora el único punto que verifica el JWT — este service
+// no vuelve a hacerlo, ni le hace falta el token crudo.
 export async function acceptInvitation(
-  token: string,
+  identity: InvitationAcceptIdentity,
   input: AcceptInvitationInput,
 ) {
-  const { userId, email } = await verifyAcceptIdentity(token);
+  const { userId, email } = identity;
 
   // Perezoso, sin scope de organización (todavía no la conocemos): expira
   // cualquier PENDING vencida de este email antes de decidir cuál aceptar.

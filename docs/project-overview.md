@@ -764,6 +764,18 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   `authentication-architecture.md`; Prisma se conecta con un rol equivalente a
   `service_role`, que tiene `BYPASSRLS`, así que estas políticas no protegen el
   path de Express).
+- ✅ Rate limiting a nivel de Express (M1, `src/middlewares/rateLimit.ts`) —
+  `POST /api/onboarding`: por IP, 5 intentos / 15 min (cuenta solo body
+  Zod-válido). `POST /api/invitations/accept`: dos etapas — por IP antes de
+  verificar el JWT (20/5min, cuenta todo request, mitiga el costo de intentar
+  verificar un token de cualquier actor anónimo) y por identidad Supabase ya
+  verificada después (10/10min, cuenta solo identidad+body válidos, mitiga
+  abuso de una sesión ya autenticada). `verifyInvitationAcceptIdentity`
+  (`src/middlewares/verifyInvitationAcceptIdentity.ts`) verifica el JWT una
+  sola vez y comparte la identidad entre el limiter y el controller/service.
+  Números baseline operacionales, ajustables según observabilidad real, no
+  umbrales definitivos. Store: `MemoryStore` (default de la librería) — ver
+  limitación operacional en sección 9.
 - ✅ Redacción de datos sensibles en logs (`src/lib/logger.ts`, `redact` de
   `pino`) — el `Authorization` y `Cookie` del request, y el `Set-Cookie` de la
   respuesta, nunca se escriben completos en los logs automáticos de
@@ -792,10 +804,11 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    código: es una limitación de configuración externa que hay que resolver antes
    de usar `Invitation` con usuarios reales en producción.
 
-2. **Rate limiting a nivel de Express.** No existe ningún middleware de rate
-   limiting en `src/app.ts` — `POST /api/onboarding` (público) y
-   `POST /api/invitations/accept` quedan sin protección de tasa propia (más allá
-   de lo que Supabase límite en su propio servicio de email).
+2. **Rate limiting a nivel de Express — ✅ resuelto (M1, 2026-07-12).**
+   `POST /api/onboarding` y `POST /api/invitations/accept` ya tienen protección de
+   tasa propia (`express-rate-limit`) — ver sección 7 (Seguridad) para el detalle
+   de la política de cada endpoint y sección 9 para la limitación operacional del
+   store elegido.
 
 3. **Investigar la magnitud de latencia observada bajo escrituras condicionales
    concurrentes.** Durante la verificación de las carreras de `Invitation` se
@@ -884,6 +897,20 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
 
 - **Rate limit de envío de email de Supabase — limitación externa confirmada
   empíricamente.** Ver sección 8, paso 1. No es un bug del código.
+
+- **El rate limiting de M1 (`POST /api/onboarding`, `POST /api/invitations/accept`)
+  usa `MemoryStore` — límite operacional deliberado, no un descuido.** Estado en
+  memoria del propio proceso Node: se resetea en cada restart/deploy, y **no se
+  comparte entre múltiples instancias/procesos** — si algún día la app corre con
+  más de una réplica, cada una aplicaría su propio cupo independiente,
+  multiplicando el límite real por la cantidad de instancias sin ningún error ni
+  aviso. Correcto hoy porque la topología demostrada de Plataforma CRM es un
+  proceso único (`node dist/server.js`, sin Dockerfile/orquestador/evidencia de
+  réplicas en este repo). **Antes de desplegar múltiples instancias, la política
+  de rate limiting debe migrar a un store compartido** (Postgres, reusando la
+  única infraestructura de estado compartido que el proyecto ya tiene, o un
+  proveedor externo tipo Redis) — no es automático, alguien tiene que hacerlo
+  explícitamente en ese momento.
 
 - **`accept`/`revoke` de `Invitation` sin `invitationId` explícito puede devolver
   `404`/`400` en vez del `409`/`410` más específico, si la invitación ya no está

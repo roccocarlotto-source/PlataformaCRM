@@ -36,10 +36,27 @@ export interface AuthenticatedRequest extends Request {
   auth: AuthContext;
 }
 
+// Identidad Supabase verificada para el flujo de aceptación de
+// invitaciones (M1) — no confundir con AuthContext: acá todavía no existe
+// fila en public.users, así que no hay organizationId/role que resolver.
+// Adjuntada por verifyInvitationAcceptIdentity, consumida tanto por
+// acceptInvitationRateLimiter (keying por userId) como por el controller/
+// service — verificación única, sin repetirla en ninguno de los dos.
+export interface InvitationAcceptIdentity {
+  userId: string;
+  email: string;
+}
+
+// Para controllers que corren después de `verifyInvitationAcceptIdentity`.
+export interface InvitationAcceptRequest extends Request {
+  invitationAcceptIdentity: InvitationAcceptIdentity;
+}
+
 declare global {
   namespace Express {
     interface Request {
       auth?: AuthContext;
+      invitationAcceptIdentity?: InvitationAcceptIdentity;
     }
   }
 }
