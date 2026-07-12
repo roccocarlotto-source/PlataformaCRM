@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import {
   countActivePipelines,
@@ -50,6 +51,40 @@ export async function listPipelines(
   };
 }
 
+// Dos índices únicos que Pipeline puede violar (ver manual_constraints.sql
+// y schema.prisma): el @@unique de schema.prisma en (organizationId, name)
+// reporta target ["organization_id","name"]; el índice parcial manual
+// pipelines_org_default_unique en (organizationId) WHERE is_default = true
+// reporta target ["organization_id"] a secas — sin "name" — porque no
+// incluye esa columna. Se distinguen por eso, mismo criterio que
+// stage.service.ts usa para desambiguar entre sus propias constraints.
+function rethrowAsConflict(err: unknown): never {
+  if (
+    err instanceof Prisma.PrismaClientKnownRequestError &&
+    err.code === "P2002"
+  ) {
+    const target = Array.isArray(err.meta?.target)
+      ? err.meta.target.join(",")
+      : String(err.meta?.target ?? "");
+
+    if (target.includes("name")) {
+      throw new AppError(
+        "Ya existe un pipeline con ese nombre en esta organización",
+        409,
+      );
+    }
+    if (target.includes("organization_id")) {
+      throw new AppError(
+        "Ya existe un pipeline marcado como default en esta organización",
+        409,
+      );
+    }
+    throw new AppError("El registro ya existe", 409);
+  }
+
+  throw err;
+}
+
 export async function getPipelineById(organizationId: string, id: string) {
   const pipeline = await findPipelineById(id, organizationId);
   if (!pipeline) {
@@ -67,23 +102,27 @@ export async function createPipeline(
   organizationId: string,
   input: CreatePipelineInput,
 ) {
-  if (input.isDefault) {
-    return prisma.$transaction(async (tx) => {
-      // Desmarcar el default anterior ANTES de crear el nuevo: nunca hay
-      // dos `is_default = true` simultáneos, sin necesitar dos fases.
-      await unsetDefaultPipeline(organizationId, tx);
-      return createPipelineRepo(
-        { organizationId, name: input.name, isDefault: true },
-        tx,
-      );
-    });
-  }
+  try {
+    if (input.isDefault) {
+      return await prisma.$transaction(async (tx) => {
+        // Desmarcar el default anterior ANTES de crear el nuevo: nunca hay
+        // dos `is_default = true` simultáneos, sin necesitar dos fases.
+        await unsetDefaultPipeline(organizationId, tx);
+        return createPipelineRepo(
+          { organizationId, name: input.name, isDefault: true },
+          tx,
+        );
+      });
+    }
 
-  return createPipelineRepo({
-    organizationId,
-    name: input.name,
-    isDefault: false,
-  });
+    return await createPipelineRepo({
+      organizationId,
+      name: input.name,
+      isDefault: false,
+    });
+  } catch (err) {
+    rethrowAsConflict(err);
+  }
 }
 
 export interface UpdatePipelineInput {
@@ -99,14 +138,18 @@ export async function updatePipeline(
   // 404 si no existe, no es de esta organización, o ya está borrado.
   await getPipelineById(organizationId, id);
 
-  if (input.isDefault === true) {
-    return prisma.$transaction(async (tx) => {
-      await unsetDefaultPipeline(organizationId, tx);
-      return updatePipelineRepo(id, input, tx);
-    });
-  }
+  try {
+    if (input.isDefault === true) {
+      return await prisma.$transaction(async (tx) => {
+        await unsetDefaultPipeline(organizationId, tx);
+        return updatePipelineRepo(id, input, tx);
+      });
+    }
 
-  return updatePipelineRepo(id, input);
+    return await updatePipelineRepo(id, input);
+  } catch (err) {
+    rethrowAsConflict(err);
+  }
 }
 
 export async function deletePipeline(organizationId: string, id: string) {

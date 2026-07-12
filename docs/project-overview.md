@@ -237,6 +237,10 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   marcar después, para no violar el índice ni por un instante). No se permite
   eliminar el último pipeline activo de una organización; si se elimina el pipeline
   default (quedando otros), se promueve automáticamente el más antiguo restante.
+  `pipeline.service.ts` traduce la violación de cualquiera de sus dos índices
+  únicos (`@@unique([organizationId, name])` o el parcial de `isDefault`) a
+  `409` en vez de dejarla subir como `500` crudo — mismo patrón ya usado en
+  `contact.service.ts`/`stage.service.ts`/`invitation.service.ts` (H2, cerrado).
 
 ### `Stage`
 - **Propósito**: etapa ordenada dentro de un `Pipeline` (ej. "Prospecto", "Negociación",
@@ -781,19 +785,12 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    código: es una limitación de configuración externa que hay que resolver antes
    de usar `Invitation` con usuarios reales en producción.
 
-2. **Traducir la violación de unicidad de `Pipeline` (`P2002`) a `409`.**
-   `pipeline.service.ts` no captura la violación de
-   `@@unique([organizationId, name])` — crear dos pipelines con el mismo nombre
-   en la misma organización devuelve `500` en vez de `409`. Preexistente, mismo
-   patrón ya resuelto en `contact.service.ts`/`stage.service.ts`/
-   `invitation.service.ts`.
-
-3. **Rate limiting a nivel de Express.** No existe ningún middleware de rate
+2. **Rate limiting a nivel de Express.** No existe ningún middleware de rate
    limiting en `src/app.ts` — `POST /api/onboarding` (público) y
    `POST /api/invitations/accept` quedan sin protección de tasa propia (más allá
    de lo que Supabase límite en su propio servicio de email).
 
-4. **Investigar la magnitud de latencia observada bajo escrituras condicionales
+3. **Investigar la magnitud de latencia observada bajo escrituras condicionales
    concurrentes.** Durante la verificación de las carreras de `Invitation` se
    necesitó una ventaja de despacho de ~1000ms para que `revokeInvitation`
    ganara una carrera contra `acceptInvitation` en este entorno — mucho mayor a
@@ -804,11 +801,11 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    verificaron correctas en ambos sentidos), pero vale la pena entenderlo antes
    de asumir que el sistema escala bien bajo carga concurrente real.
 
-5. **Entidad `Invitation`: la remoción/revocación no libera el email en
+4. **Entidad `Invitation`: la remoción/revocación no libera el email en
    Supabase.** Ver sección 9 — limitación real de la plataforma, no de este
    código.
 
-6. **Frontend.** Sigue sin existir ningún código de frontend en este
+5. **Frontend.** Sigue sin existir ningún código de frontend en este
    repositorio — es la pieza que falta para que el backend sea un producto
    entregable, no solo una API verificada.
 
