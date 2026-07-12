@@ -1,3 +1,5 @@
+import { prisma } from "../lib/prisma";
+import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import {
   countActiveAdmins,
   countUsers,
@@ -112,13 +114,33 @@ export async function updateUser(
   const willStayActiveAdmin = staysActiveAdmin(user, input.isActive, input.role);
 
   if (wasActiveAdmin && !willStayActiveAdmin) {
-    const remainingAdmins = await countActiveAdmins(organizationId, id);
-    if (remainingAdmins === 0) {
-      throw new AppError(
-        "No se puede modificar al último ADMIN activo de la organización",
-        400,
-      );
-    }
+    // Protección real contra la carrera de "último ADMIN": lockea la fila
+    // de la organización ANTES de contar, así una segunda transacción
+    // concurrente que dependa del mismo conteo queda bloqueada hasta que
+    // esta commitee — al desbloquearse, re-lee el estado ya actualizado y
+    // rechaza correctamente si ya no queda otro admin. Revalida al usuario
+    // dentro de la transacción por si su estado cambió entre el chequeo
+    // barato de arriba y la adquisición del lock.
+    return prisma.$transaction(async (tx) => {
+      await lockOrganizationForUpdate(organizationId, tx);
+
+      const freshUser = await findUserById(id, organizationId, tx);
+      if (!freshUser) {
+        throw new AppError("Usuario no encontrado", 404);
+      }
+
+      if (freshUser.isActive && freshUser.role.name === "ADMIN") {
+        const remainingAdmins = await countActiveAdmins(organizationId, id, tx);
+        if (remainingAdmins === 0) {
+          throw new AppError(
+            "No se puede modificar al último ADMIN activo de la organización",
+            400,
+          );
+        }
+      }
+
+      return updateUserRepo(id, data, tx);
+    });
   }
 
   return updateUserRepo(id, data);
@@ -141,13 +163,28 @@ export async function deleteUser(
   const user = await getUserById(organizationId, id);
 
   if (user.isActive && user.role.name === "ADMIN") {
-    const remainingAdmins = await countActiveAdmins(organizationId, id);
-    if (remainingAdmins === 0) {
-      throw new AppError(
-        "No se puede eliminar al último ADMIN activo de la organización",
-        400,
-      );
-    }
+    // Mismo mecanismo de locking que updateUser — ver comentario ahí.
+    await prisma.$transaction(async (tx) => {
+      await lockOrganizationForUpdate(organizationId, tx);
+
+      const freshUser = await findUserById(id, organizationId, tx);
+      if (!freshUser) {
+        throw new AppError("Usuario no encontrado", 404);
+      }
+
+      if (freshUser.isActive && freshUser.role.name === "ADMIN") {
+        const remainingAdmins = await countActiveAdmins(organizationId, id, tx);
+        if (remainingAdmins === 0) {
+          throw new AppError(
+            "No se puede eliminar al último ADMIN activo de la organización",
+            400,
+          );
+        }
+      }
+
+      return softDeleteUser(id, tx);
+    });
+    return;
   }
 
   await softDeleteUser(id);
