@@ -246,6 +246,30 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   únicos (`@@unique([organizationId, name])` o el parcial de `isDefault`) a
   `409` en vez de dejarla subir como `500` crudo — mismo patrón ya usado en
   `contact.service.ts`/`stage.service.ts`/`invitation.service.ts` (H2, cerrado).
+  La protección de "al menos un pipeline activo" es atómica de verdad, no
+  check-then-act: `deletePipeline` toma `lockOrganizationForUpdate` (mismo
+  mecanismo que M3, `SELECT ... FOR UPDATE` sobre la fila de `Organization`)
+  incondicionalmente, como primera operación dentro de una única transacción
+  que también revalida el `Pipeline` y recuenta los activos — corregido
+  (H-1, auditoría nueva, 2026-07-12) tras confirmarse empíricamente, con un
+  diagnóstico temporal (no persistido) corrido en loop dentro de un mismo
+  proceso, que sin el lock dos `deletePipeline` concurrentes sobre dos
+  pipelines distintos podían dejar la organización con cero activos (24/25,
+  y 19/20 en una segunda corrida). Cobertura persistente:
+  `src/services/pipeline.service.integration-test.ts`, dos escenarios de
+  carrera real con `Promise.allSettled` (no-default vs. no-default, y
+  default vs. no-default) — verificados antes del fix como corridas
+  aisladas de proceso nuevo (el modo real en que corren en este repo): el
+  segundo detectó el bug de forma confiable (4/4); el primero no lo
+  reprodujo en esas mismas condiciones (0/4) pese a ejercitar el mismo
+  código que el diagnóstico temporal — después del fix, ambos pasaron 5/5
+  corridas aisladas cada uno bajo el mismo protocolo (y ese mismo protocolo
+  de diagnóstico temporal, corrido post-fix, dio 0/25); el primero queda
+  como test de invariante/regresión del camino simple, no como reproductor
+  confiable del bug en un solo intento aislado. Ninguno de los dos usa una
+  barrera que fuerce un interleaving concreto (siguen siendo
+  `Promise.allSettled` sin más) — estos números son resultado observado
+  bajo el protocolo corrido, no una garantía de determinismo del test.
 
 ### `Stage`
 - **Propósito**: etapa ordenada dentro de un `Pipeline` (ej. "Prospecto", "Negociación",

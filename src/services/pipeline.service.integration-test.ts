@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../lib/prisma";
-import { createPipeline } from "./pipeline.service";
+import { createPipeline, deletePipeline } from "./pipeline.service";
 import { AppError } from "../utils/AppError";
 
 // Test de integración: ejercita pipeline.service + pipeline.repository +
@@ -72,3 +72,155 @@ test("createPipeline traduce la violación real del nombre duplicado a 409, no a
 // `err.meta.target` para esta constraint es `["organization_id"]` (ver
 // informe de la corrección). Riesgo residual documentado, no cubierto por
 // un test persistente en este ciclo.
+
+// ---------------------------------------------------------------------------
+// H-1 (auditoría nueva, no H2): deletePipeline hacía check-then-act sin
+// ningún lock — dos deletePipeline concurrentes sobre dos Pipelines
+// distintos de la misma organización podían leer el mismo
+// countActivePipelines antes de que cualquiera de las dos commiteara, y
+// ambas proceder, dejando la organización con 0 Pipelines activos. A
+// diferencia de la nota de arriba (H2, índice de unicidad de `isDefault`,
+// se autoserializa y no hace falta forzar nada), acá SÍ hace falta una
+// carrera real con Promise.allSettled: el invariante roto ("al menos 1
+// activo") no tiene backing de ninguna constraint de Postgres, así que sin
+// la carrera real no hay forma de que el bug se manifieste.
+//
+// Trazabilidad de la evidencia — separada a propósito, para no atribuirle
+// a estos dos tests una tasa que no midieron ellos mismos:
+//   - La tasa 24/25 (y, en una reverificación, 19/20) viene de un
+//     diagnóstico TEMPORAL, no persistido, corrido en loop dentro de un
+//     mismo proceso ya "tibio" (muchas iteraciones seguidas) — no de estos
+//     tests tal como quedan en el repo.
+//   - Capacidad de detección real de CADA test, verificada antes del fix,
+//     cada uno como una corrida aislada de proceso nuevo (`npx tsx --test`,
+//     el modo en que realmente corren vía `npm run test:integration`):
+//     "uno default, otro no" detectó el bug de forma confiable, 4/4
+//     corridas aisladas — su ventana de carrera es más ancha (el camino
+//     default usaba una transacción explícita de varios statements).
+//     "ambos no-default" NO detectó el bug en ninguna de 4 corridas
+//     aisladas (0/4) — ventana de carrera angosta (camino simple, sin
+//     transacción explícita en el código pre-fix), así que un único
+//     intento en un proceso recién arrancado tiene baja probabilidad real
+//     de mostrarlo, aunque el mismo código, en un proceso tibio con
+//     muchas iteraciones, sí lo reproducía la enorme mayoría de las veces
+//     (evidencia del diagnóstico temporal, arriba).
+//   - Se mantiene "ambos no-default" igual: ejercita el camino simple
+//     (distinto del de promoción de default) bajo contención real; post-fix
+//     pasó 5/5 corridas aisladas bajo el mismo protocolo — vale como test
+//     de invariante/regresión de ese camino, no se presenta como
+//     reproductor confiable del bug en un solo intento aislado. No hay
+//     ninguna barrera que fuerce un interleaving concreto (sigue siendo
+//     Promise.allSettled tal cual): 5/5 es el resultado observado bajo el
+//     protocolo corrido, no una garantía de determinismo del test.
+//
+// Corregido con el mismo mecanismo que M3 (lockOrganizationForUpdate +
+// prisma.$transaction), a diferencia de M3 tomado incondicionalmente en el
+// 100% de las llamadas — deletePipeline no tiene una sub-rama barata que
+// no pueda violar el invariante, así que no hay optimización válida de
+// "solo lockear a veces" acá (ver informe de la corrección).
+// ---------------------------------------------------------------------------
+
+test("deletePipeline vs deletePipeline (ambos no-default): nunca deja la organización sin ningún Pipeline activo", async () => {
+  const org = await createTestOrg();
+  try {
+    const p1 = await createPipeline(org.id, { name: "P1" });
+    const p2 = await createPipeline(org.id, { name: "P2" });
+    if (!p1 || !p2) throw new Error("setup failed");
+
+    const results = await Promise.allSettled([
+      deletePipeline(org.id, p1.id),
+      deletePipeline(org.id, p2.id),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+
+    assert.equal(
+      fulfilled.length,
+      1,
+      "exactamente una de las dos operaciones concurrentes debe ganar",
+    );
+    assert.equal(
+      rejected.length,
+      1,
+      "la otra debe perder, nunca ambas deben tener éxito",
+    );
+
+    const loserReason = (rejected[0] as PromiseRejectedResult).reason;
+    assert.ok(
+      loserReason instanceof AppError,
+      "la perdedora debe ser un AppError, no un error crudo",
+    );
+    assert.equal(loserReason.statusCode, 400);
+    assert.equal(
+      loserReason.message,
+      "No se puede eliminar el último pipeline de la organización",
+    );
+
+    const remaining = await prisma.pipeline.count({
+      where: { organizationId: org.id, deletedAt: null },
+    });
+    assert.equal(
+      remaining,
+      1,
+      "debe quedar exactamente un Pipeline activo — nunca cero",
+    );
+  } finally {
+    await deleteTestOrg(org.id);
+  }
+});
+
+test("deletePipeline vs deletePipeline (uno default, otro no): nunca deja la organización sin ningún Pipeline activo, y el remanente queda como default", async () => {
+  const org = await createTestOrg();
+  try {
+    const a = await createPipeline(org.id, { name: "A", isDefault: true });
+    const b = await createPipeline(org.id, { name: "B" });
+    if (!a || !b) throw new Error("setup failed");
+
+    const results = await Promise.allSettled([
+      deletePipeline(org.id, a.id),
+      deletePipeline(org.id, b.id),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+
+    assert.equal(
+      fulfilled.length,
+      1,
+      "exactamente una de las dos operaciones concurrentes debe ganar",
+    );
+    assert.equal(
+      rejected.length,
+      1,
+      "la otra debe perder, nunca ambas deben tener éxito",
+    );
+
+    const loserReason = (rejected[0] as PromiseRejectedResult).reason;
+    assert.ok(
+      loserReason instanceof AppError,
+      "la perdedora debe ser un AppError, no un error crudo",
+    );
+    assert.equal(loserReason.statusCode, 400);
+    assert.equal(
+      loserReason.message,
+      "No se puede eliminar el último pipeline de la organización",
+    );
+
+    const remaining = await prisma.pipeline.findMany({
+      where: { organizationId: org.id, deletedAt: null },
+    });
+    assert.equal(
+      remaining.length,
+      1,
+      "debe quedar exactamente un Pipeline activo — nunca cero",
+    );
+    assert.equal(
+      remaining[0].isDefault,
+      true,
+      "el único Pipeline activo remanente debe quedar marcado como default",
+    );
+  } finally {
+    await deleteTestOrg(org.id);
+  }
+});

@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import {
   countActivePipelines,
   countPipelines,
@@ -167,33 +168,61 @@ export async function updatePipeline(
   }
 }
 
+// H-1 (auditoría nueva, no H2): countActivePipelines corría fuera de
+// cualquier lock/transacción — dos deletePipeline concurrentes sobre dos
+// Pipelines distintos de la misma organización podían leer el mismo
+// conteo antes de que cualquiera de las dos commiteara, y ambas proceder,
+// dejando la organización con 0 Pipelines activos (reproducido
+// empíricamente 24/25 veces contra Postgres real durante la auditoría).
+// Mismo mecanismo que M3 (lockOrganizationForUpdate, SELECT ... FOR UPDATE
+// sobre la fila de Organization) — a diferencia de M3, tomado
+// incondicionalmente en el 100% de las llamadas: a diferencia de
+// updateUser/deleteUser (que tienen una sub-rama barata que nunca puede
+// violar el invariante y por eso no necesita lock), deletePipeline no
+// tiene un camino "inofensivo" — cualquier borrado es, por definición, un
+// intento de reducir el conteo de pipelines activos, así que el chequeo
+// (y por lo tanto el lock que lo protege) es siempre relevante.
 export async function deletePipeline(organizationId: string, id: string) {
-  const pipeline = await getPipelineById(organizationId, id);
+  // 404 rápido, sin abrir transacción — mismo criterio que el resto del
+  // código (getCompanyById, getUserById, etc.). No es la defensa real: se
+  // revalida dentro de la transacción, después del lock.
+  await getPipelineById(organizationId, id);
 
-  const activeCount = await countActivePipelines(organizationId);
-  if (activeCount <= 1) {
-    throw new AppError(
-      "No se puede eliminar el último pipeline de la organización",
-      400,
-    );
-  }
+  await prisma.$transaction(async (tx) => {
+    await lockOrganizationForUpdate(organizationId, tx);
 
-  if (!pipeline.isDefault) {
-    const result = await softDeletePipeline(id, organizationId);
-    if (result.count === 0) {
+    // Revalida dentro de la transacción, con el lock ya sostenido: el
+    // pre-check de arriba es solo UX rápida, esta lectura es la que
+    // realmente decide.
+    const pipeline = await findPipelineById(id, organizationId, tx);
+    if (!pipeline) {
       throw new AppError("Pipeline no encontrado", 404);
     }
-    return;
-  }
 
-  // Este pipeline era el default: promover el más antiguo de los que
-  // quedan, para que la organización nunca se quede sin uno, en la misma
-  // transacción que el borrado. Orden importa: primero el soft delete (que
-  // saca a este pipeline del alcance del índice único parcial, ya que
-  // excluye deleted_at IS NOT NULL), recién después marcar el nuevo
-  // default — si lo hiciéramos al revés, habría un instante con dos filas
-  // `is_default = true` simultáneas y la constraint lo rechazaría.
-  await prisma.$transaction(async (tx) => {
+    const activeCount = await countActivePipelines(organizationId, tx);
+    if (activeCount <= 1) {
+      throw new AppError(
+        "No se puede eliminar el último pipeline de la organización",
+        400,
+      );
+    }
+
+    if (!pipeline.isDefault) {
+      const result = await softDeletePipeline(id, organizationId, tx);
+      if (result.count === 0) {
+        throw new AppError("Pipeline no encontrado", 404);
+      }
+      return;
+    }
+
+    // Este pipeline era el default: promover el más antiguo de los que
+    // quedan, para que la organización nunca se quede sin uno, en la misma
+    // transacción que el borrado (y ahora también en el mismo lock). Orden
+    // importa: primero el soft delete (que saca a este pipeline del
+    // alcance del índice único parcial, ya que excluye deleted_at IS NOT
+    // NULL), recién después marcar el nuevo default — si lo hiciéramos al
+    // revés, habría un instante con dos filas `is_default = true`
+    // simultáneas y la constraint lo rechazaría.
     const result = await softDeletePipeline(id, organizationId, tx);
     if (result.count === 0) {
       throw new AppError("Pipeline no encontrado", 404);
