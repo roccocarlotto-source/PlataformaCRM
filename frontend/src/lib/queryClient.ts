@@ -1,8 +1,10 @@
 import { QueryClient } from "@tanstack/react-query";
 import { ApiError } from "./api";
 
-// Infraestructura global únicamente — sin query keys de módulos
-// funcionales todavía (eso empieza en M1).
+// QueryClient único y global. M1 agregó la primera query real (GET /api/me,
+// en auth/AuthContext.tsx); M2 agregó las de features/company/. La higiene
+// de cache entre identidades (login/logout/cambio de sesión) se resuelve
+// enteramente en la frontera de AuthContext (queryClient.clear()), no acá.
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

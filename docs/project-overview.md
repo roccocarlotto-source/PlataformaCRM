@@ -73,22 +73,19 @@ actividades.
   externa — ver sección 7).
 - Ningún linter/formatter (ESLint, Prettier).
 
-### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión)
+### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company)
 
 | Tecnología | Rol | Por qué (evidencia en el repo) |
 |---|---|---|
 | **React** 19 / **React DOM** | UI | `frontend/package.json` — única librería de vista, sin framework de estado global adicional. |
 | **TypeScript** (`strict: true`) | Lenguaje del frontend | `frontend/tsconfig.app.json` — mismo criterio de tipado estricto que el backend. |
 | **Vite** | Build tool + dev server | `frontend/vite.config.ts` — puerto de dev `5173` por default, coincide con `CORS_ORIGIN` por defecto del backend (`.env.example`). |
-| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1, real), `/` protegida por `ProtectedRoute` (todavía el placeholder de M0 — sin dashboard real, ver sección 7/8), `*` (placeholder de M0, sin cambios). |
-| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0 (`QueryClient` configurado); M1 agregó la primera query funcional (`GET /api/me`, dentro de `AuthContext.tsx`), con `queryKey` parametrizada por identidad — sin queries de módulos de negocio (Company/Contact/etc.) todavía. |
+| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2, todavía placeholder de M0 sin dashboard real), `/companies`, `/companies/new`, `/companies/:id/edit` (M2, reales), `*` (placeholder de M0). |
+| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad). |
 | **@supabase/supabase-js** | Cliente de Supabase para el browser | `frontend/src/lib/supabase.ts` — única instancia, únicamente con la `anon key` (nunca `service_role`, esa es exclusiva del backend — ver `src/lib/supabaseAdmin.ts` arriba). |
+| **Vitest** + **jsdom** + **@testing-library/react** + **user-event** + **jest-dom** + **MSW v2** | Testing frontend | `frontend/vite.config.ts` (bloque `test`, `defineConfig` de `vitest/config`), `frontend/src/test/`. Introducido en M2 para remediar `STD-SW-003` — ver detalle abajo. |
 
 **Lo que todavía NO está en el stack del frontend**:
-- Ningún framework de testing frontend — decisión explícita de M0 (scaffold, sin
-  lógica todavía) y confirmada como condición pendiente trackeada de M1
-  (`STD-SW-003`, ver sección 7 y sección 8) — no un olvido, y no bloqueante para
-  el cierre de M1, pero sí una cobertura real que falta agregar en M2.
 - Ningún linter/formatter (ESLint, Prettier).
 
 ---
@@ -174,8 +171,11 @@ Plataforma CRM/
 └── frontend/                      # M0: scaffold + infraestructura base (Vite +
                                      #   React + TypeScript, paquete npm
                                      #   independiente, sin workspaces). M1 (ver
-                                     #   abajo) agregó login/sesión — todavía sin
-                                     #   pantallas funcionales del CRM, ver
+                                     #   abajo) agregó login/sesión, M2 agregó
+                                     #   el primer módulo de negocio real
+                                     #   (Company) — Contact/Pipeline/Stage/
+                                     #   Opportunity/Activity/Users/Invitations
+                                     #   UI y Dashboard siguen pendientes, ver
                                      #   sección 7/8.
     ├── .env.example
     ├── package.json
@@ -188,22 +188,51 @@ Plataforma CRM/
         ├── app/                        # App.tsx (QueryClientProvider →
         │                                #   AuthProvider → RouterProvider, M1),
         │                                #   router.tsx (createBrowserRouter:
-        │                                #   /login real + / protegida + *).
+        │                                #   /login + / protegida (AppLayout,
+        │                                #   M2) + /companies* (M2) + *).
         ├── auth/                        # M1 — AuthContext.tsx (AuthProvider +
-        │                                  #   useAuth + máquina de estados),
+        │                                  #   useAuth + máquina de estados) +
+        │                                  #   AuthContext.test.tsx (M2, 12 de
+        │                                  #   los 14 escenarios de STD-SW-003),
         │                                  #   ProtectedRoute.tsx, getAccessToken.ts
-        │                                  #   (puente hacia api.ts).
+        │                                  #   (puente hacia api.ts), AdminRoute.tsx
+        │                                  #   + AdminRoute.test.tsx (M2 —
+        │                                  #   protección visual de las rutas de
+        │                                  #   escritura de Company, no un RBAC
+        │                                  #   genérico).
         ├── config/env.ts                # Validación en runtime de las VITE_*
         │                                  #   (fail-fast si falta alguna o si
         │                                  #   una URL no es absoluta/http(s)).
         ├── features/
-        │   └── auth/LoginPage.tsx        # M1 — login funcional mínimo, sin
-        │                                  #   signup.
+        │   ├── auth/                     # LoginPage.tsx (M1) +
+        │   │                              #   LoginPage.test.tsx (M2, 2
+        │   │                              #   escenarios de STD-SW-003 + el
+        │   │                              #   round-trip con ProtectedRoute).
+        │   └── company/                  # M2 — types.ts (incluye ownerId en
+        │       │                          #   CompanyListQuery/CreateCompanyInput),
+        │       │                          #   api.ts + api.test.ts (reutiliza
+        │       │                          #   request()/getAccessToken de M1),
+        │       │                          #   queries.ts (companyKeys,
+        │       │                          #   useCompanies/useCompany),
+        │       │                          #   mutations.ts + mutations.test.tsx
+        │       │                          #   (invalidación selectiva),
+        │       │                          #   CompanyListPage.tsx + .test.tsx,
+        │       └──                        #   CompanyFormPage.tsx + .test.tsx.
+        ├── layout/AppLayout.tsx          # M2 — nav mínima + logout
+        │                                  #   (isLoggingOut local, sin
+        │                                  #   duplicar estado de sesión) +
+        │                                  #   Outlet.
         ├── lib/                          # supabase.ts (cliente único), api.ts
         │                                  #   (wrapper de fetch + ApiError,
         │                                  #   signal opcional desde M1),
         │                                  #   queryClient.ts.
-        └── styles/global.css               # Reset base, sin design system.
+        ├── styles/global.css               # Reset base, sin design system.
+        └── test/                          # M2 — setup.ts (jest-dom + ciclo de
+                                             #   vida de MSW), msw/server.ts,
+                                             #   msw/handlers.ts (factories de
+                                             #   /api/me), companyFixtures.ts
+                                             #   (makeCompany(), compartida
+                                             #   entre los tests de Company).
 ```
 
 Detalle carpeta por carpeta (propósito, qué va en cada una) en `README.md` — no se
@@ -220,13 +249,14 @@ duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
   9 (LOW-3). El flujo/UI de login del frontend contra Supabase Auth (sin
   endpoint propio en Express — eso es una decisión de diseño estable, no un
   pendiente, ver `authentication-architecture.md` sección 3), `AuthContext`/
-  `AuthProvider` y `ProtectedRoute` **ya están implementados (M1, cierre
-  condicional — ver sección 7 para el detalle de los outcomes de review y la
-  condición pendiente `STD-SW-003`)**. Lo que sigue pendiente es de otra
-  naturaleza: las pantallas funcionales del CRM (dashboard, `Company`,
-  `Contact`, `Pipeline`/`Stage`, `Opportunity`, `Activity`, administración de
-  `User`/`Invitation`) — trabajo de M2 en adelante, todavía no implementado —
-  ver sección 8.
+  `AuthProvider` y `ProtectedRoute` **ya están implementados (M1)**, y
+  `Company` **ya está implementado (M2, primer módulo de negocio real del
+  CRM — ver sección 7)**. `STD-SW-003` quedó resuelto en M2, sin condición
+  pendiente. Lo que sigue pendiente es de otra naturaleza: el resto de las
+  pantallas funcionales del CRM (`Contact`, `Pipeline`/`Stage`,
+  `Opportunity`, `Activity`, administración de `User`/`Invitation`) y
+  Dashboard — trabajo de M3 en adelante, todavía no implementado — ver
+  sección 8.
 
 ---
 
@@ -913,29 +943,153 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   `SIGNED_OUT` previo, `SIGNED_OUT`, `signOut` fallido, `TOKEN_REFRESHED`,
   respuesta tardía de `/api/me`).
 
-  **Reviews obligatorios (Claude-Toolkit-V1) — outcomes reales, ningún
-  FAIL:** `RV-ENG`: **CONDITIONAL PASS**. `RV-SECURITY`: **PASS**.
-  `RV-STANDARDS`: **CONDITIONAL PASS**. El Gate de M1 quedó liberado
+  **Reviews obligatorios (Claude-Toolkit-V1) al cierre de M1 — outcomes
+  reales, ningún FAIL:** `RV-ENG`: CONDITIONAL PASS. `RV-SECURITY`: PASS.
+  `RV-STANDARDS`: CONDITIONAL PASS. El Gate de M1 quedó liberado
   condicionalmente (no incondicionalmente) según la semántica formal de
-  `reviews/README.md` del Toolkit — no afirmar que los tres reviews dieron
-  PASS.
+  `reviews/README.md` del Toolkit. La única condición pendiente
+  (`STD-SW-003`) quedó **resuelta en M2** — ver el bullet de M2 abajo para
+  el detalle y el nuevo outcome.
 
-  **Condición pendiente — `STD-SW-003` (Testing Standards), NOT MET, con
-  ruta de resolución acordada, no bloqueante:** M1 **no tiene cobertura de
-  tests automatizados** para los paths críticos de autenticación/sesión que
-  introduce — verificado únicamente de forma manual contra los ocho
-  escenarios de arriba, sin test persistente. No afirmar que M1 tiene
-  cobertura automatizada frontend. Resolución trackeada hacia **M2**:
-  introducir el framework de testing frontend (todavía sin elegir/instalar)
-  y cubrir como mínimo: (1) `INITIAL_SESSION` con sesión A, (2) estado sin
-  sesión, (3) login exitoso, (4) login fallido, (5) evento repetido de la
-  misma identidad, (6) transición A→B sin `SIGNED_OUT` previo, (7)
-  `SIGNED_OUT`, (8) `signOut` fallido sin falso logout local, (9)
-  `TOKEN_REFRESHED` sin limpieza de cache, (10) respuesta tardía de
-  `/api/me` de A después del cambio a B, (11) `ApiError` 403 →
-  `account-unavailable`, (12) 5xx/network error → `profile-error`, (13)
-  `retryProfile()`, (14) preservación y recuperación de la ruta privada
-  original en login.
+- ✅ **M2 (módulo Company + remediación de `STD-SW-003`) implementado.**
+  `frontend/src/layout/AppLayout.tsx` (navegación mínima, acceso a
+  `/companies`, logout con `isLoggingOut` local y error visual — sin
+  duplicar estado de sesión, sin navegación manual: `ProtectedRoute` ya
+  reacciona a `SIGNED_OUT`). `frontend/src/features/company/` completo:
+  `types.ts`, `api.ts` (reutiliza `request()`/`getAccessToken` de M1, cero
+  cliente Supabase nuevo), `queries.ts` (`companyKeys`, `useCompanies`,
+  `useCompany`), `mutations.ts` (`useCreateCompany`/`useUpdateCompany`/
+  `useDeleteCompany`, invalidación selectiva — nunca `queryClient.clear()`
+  global por una escritura de negocio normal), `CompanyListPage.tsx`
+  (paginación, `search`, filtro por `industry`, orden por
+  `name`/`createdAt`/`industry`, acciones de escritura ocultas para
+  no-ADMIN como cortesía de UX, no como autorización), `CompanyFormPage.tsx`
+  (un único componente para alta y edición). `organizationId` nunca viaja
+  desde el frontend en ninguna query/body de Company — verificado con un
+  test persistente (`api.test.ts`, A.2) sobre requests reales interceptadas,
+  no solo con un grep puntual — se resuelve exclusivamente server-side,
+  igual que en M1.
+
+  **`ownerId` — corrección de alcance dentro del propio ciclo de M2.** Una
+  primera pasada de M2 omitió `ownerId` incluso de la capa de tipos/API
+  (`CompanyListQuery`, `CreateCompanyInput`), tratándola como si cayera
+  bajo el mismo gap que el filtro visual — una sobre-generalización
+  detectada y corregida antes del cierre. Estado final, con la distinción
+  correcta entre tres capas:
+  - **Soporte API tipado (capa A) — ✅ implementado.** `CompanyListQuery.ownerId`,
+    serializado en `buildListQueryString()`; `CreateCompanyInput.ownerId`
+    (opcional, igual que en el backend). Sin nullability inventada: el
+    backend no soporta limpiar `ownerId` a `null` vía `PATCH`
+    (`company.service.ts` solo lo cambia con un chequeo truthy), y el tipo
+    frontend lo refleja (`ownerId?: string`, nunca `string | null`).
+  - **Filtro visual por nombre en `CompanyListPage` (capa B) — diferido.**
+  - **Selector de asignación/reasignación en `CompanyFormPage` (capa C) — diferido.**
+
+  B y C siguen diferidas porque mostrar un nombre real (no un UUID crudo,
+  que no es un control visual aceptable) requiere `GET /api/users` — **no
+  porque haga falta que exista antes una pantalla de administración de
+  Users**: ese endpoint puede consumirse de forma independiente apenas se
+  construya el selector, en cualquier ciclo futuro que lo necesite.
+
+  **`STD-SW-003` (Testing Standards) — ✅ resuelto para el deliverable
+  completo de M2**, no solo para auth/sesión. Dos frentes:
+
+  1. **Auth/sesión (heredado de M1)**: cobertura automatizada persistente
+     (`frontend/src/auth/AuthContext.test.tsx`,
+     `frontend/src/features/auth/LoginPage.test.tsx`) de los 14 escenarios:
+     (1) `INITIAL_SESSION` con sesión A, (2) estado sin sesión, (3) login
+     exitoso, (4) login fallido, (5) evento repetido de la misma identidad,
+     (6) transición A→B sin `SIGNED_OUT` previo, (7) `SIGNED_OUT`, (8)
+     `signOut` fallido sin falso logout local, (9) `TOKEN_REFRESHED` sin
+     limpieza de cache, (10) respuesta tardía de `/api/me` de A después del
+     cambio a B, (11) `ApiError` 403 → `account-unavailable`, (12)
+     5xx/network error → `profile-error`, (13) `retryProfile()`, (14)
+     preservación y recuperación de la ruta privada original en login. 16
+     tests. Poder de detección verificado con 4 mutaciones deliberadas
+     revertidas antes de continuar: deshabilitar el guard de identidad
+     repetida (detectado por el escenario 5), quitar el parametrizado de
+     `queryKey` por identidad (detectado únicamente forzando un commit de
+     React entre los dos eventos del escenario 10 — ver riesgos),
+     deshabilitar `queryClient.clear()` (detectado por el escenario 5,
+     confirma que el escenario 10 depende de la `queryKey`, no de
+     `clear()`), y reintroducir el falso logout local ante `signOut`
+     fallido (detectado por el escenario 8).
+
+  2. **Company — cobertura agregada en dos correcciones de alcance dentro
+     del mismo ciclo** (una primera pasada de M2 había dejado Company sin
+     ningún test, incorrectamente dado por aceptable; una revisión externa
+     posterior encontró que el wiring real de `delete` y la ausencia de
+     protección visual ADMIN en las rutas de escritura tampoco estaban
+     cubiertos). `api.test.ts` (A.1–A.5: serialización de filtros reales
+     incluido `ownerId`, ausencia persistente de `organizationId` en
+     list/create/update, payload de create/update/delete), `mutations.test.tsx`
+     (B.6–B.9: invalidación de `companyKeys.lists()`/`detail(id)` tras
+     create/update/delete con `QueryClient` real, ninguna invalidación ante
+     mutation fallida), `CompanyListPage.test.tsx` (C.10–C.14: ocultamiento
+     de acciones para USER, visibilidad para ADMIN, error de listado, empty
+     state, controles de búsqueda/filtro/orden/paginación; **C.15–C.17**:
+     cancelar `window.confirm` no envía `DELETE`, confirmar envía `DELETE`
+     al id correcto y termina sin error, `DELETE` fallido muestra un error
+     accesible reutilizando el estado de la propia mutation — sin duplicar
+     estado remoto en `useState`), `CompanyFormPage.test.tsx` (D.15–D.19:
+     create mode no pide detail, edit mode hidrata y actualiza el id
+     correcto, error de detail no se confunde con create vacío, error de
+     mutation no navega, campos opcionales vacíos viajan como ausentes),
+     y **`auth/AdminRoute.test.tsx`** (nuevo: `USER` entrando directamente
+     por URL a `/companies/new` o `/companies/:id/edit` no renderiza el
+     formulario — ni siquiera pide el detail — y es redirigido a
+     `/companies`; `ADMIN` sí accede a ambas; ejercitando la jerarquía real
+     `ProtectedRoute → AdminRoute → CompanyFormPage`, no una condición
+     aislada). 26 tests de Company, en 5 archivos `.test.*`
+     (`AdminRoute.test.tsx`, `api.test.ts`, `CompanyFormPage.test.tsx`,
+     `CompanyListPage.test.tsx`, `mutations.test.tsx`) — 7 archivos
+     `.test.*` en total con los 2 de auth (`AuthContext.test.tsx`,
+     `LoginPage.test.tsx`).
+
+     Protección ADMIN implementada: `frontend/src/auth/AdminRoute.tsx`,
+     componente mínimo (redirect a `/companies` si `me.role !== "ADMIN"`,
+     si no `<Outlet/>`), anidado en `router.tsx` únicamente alrededor de
+     `/companies/new` y `/companies/:id/edit` — no un sistema de
+     permisos/RBAC genérico. Es exclusivamente higiene de UX: la
+     autorización real de escritura sigue siendo `authorize("ADMIN")` en
+     el backend, sin cambios.
+
+     Poder de detección verificado con **6 mutaciones deliberadas en
+     total** sobre Company, todas revertidas antes de continuar: fuga de
+     `organizationId` en el body de create (detectada por A.2 y A.3),
+     quitar la invalidación de `detail(id)` en update (detectada por B.7),
+     romper el method de `deleteCompany` (detectado por A.5 y B.8),
+     deshabilitar el chequeo de rol en `CompanyListPage` (detectado por
+     C.10), quitar el render del error de `delete` (detectado por C.17), y
+     deshabilitar la restricción de rol en `AdminRoute` (detectado por los
+     dos tests de `USER` en `AdminRoute.test.tsx`).
+
+     Suite completa: **42 tests, verde** (16 auth + 26 Company). Stack:
+     Vitest + jsdom + React Testing Library + user-event + jest-dom +
+     MSW v2 — `supabase.auth`/`getAccessToken` mockeados como frontera
+     externa; `request()`, `ApiError`, `QueryClient` y React Router corren
+     sin mockear.
+
+  **Deuda técnica residual real, no minimizada**: `AppLayout.tsx` no tiene
+  test de componente propio (su contrato de logout ya está cubierto
+  indirectamente vía el contrato de `AuthContext`, pero su renderizado/nav
+  propios no) — gap Medio, no bloqueante. El objeto `router` exportado por
+  `app/router.tsx` (`createBrowserRouter`) nunca se renderiza literalmente
+  en un test — todas las pruebas de routing reconstruyen la misma forma de
+  árbol con `MemoryRouter` porque `createBrowserRouter` no admite
+  `initialEntries` — limitación estructural conocida, no un gap de
+  cobertura de comportamiento. Casos límite de paginación (botones
+  deshabilitados en la primera/última página) y validación exhaustiva
+  campo por campo de `CompanyFormPage` (más allá de `name`/`industry`) no
+  tienen test dedicado — gaps Bajos, delegados en la práctica a la
+  validación real del backend (Zod). Ninguno de estos gaps es Critical ni
+  High bajo `code-review-standards.md` — no cappean el outcome de los
+  reviews, pero quedan declarados explícitamente, no ocultos.
+
+  **Reviews obligatorios (Claude-Toolkit-V1), ejecutados desde cero contra
+  el deliverable final de M2 (no heredados de rondas anteriores):**
+  `RV-ENG`: **PASS**. `RV-SECURITY`: **PASS**. `RV-STANDARDS`: **PASS**. Sin
+  condiciones pendientes — el Gate de M2 queda liberado incondicionalmente.
 
 **Autenticación**
 - ✅ Diseño de sincronización de email (`auth.users` ↔ `public.users`) implementado en
@@ -1114,16 +1268,26 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    Supabase.** Ver sección 9 — limitación real de la plataforma, no de este
    código.
 
-5. **Frontend — M1 (autenticación y sesión) — ✅ implementado, cierre
-   condicional (ver sección 7).** `login`, `AuthContext`/`AuthProvider` y
-   `ProtectedRoute` ya existen. Reviews del Toolkit: `RV-ENG` y
-   `RV-STANDARDS` en `CONDITIONAL PASS` (condición pendiente `STD-SW-003` —
-   sin cobertura de tests automatizados, trackeada hacia M2), `RV-SECURITY`
-   en `PASS`. **Frontend — M2 en adelante.** Todavía faltan las pantallas
-   funcionales del CRM (Company, Contact, Pipeline/Stage, Opportunity,
-   Activity, administración de Users/Invitations) y la cobertura
-   automatizada de M1 (ver sección 7) — es la pieza que falta para que el
-   backend sea un producto entregable, no solo una API verificada.
+5. **Frontend — M1 (autenticación y sesión) — ✅ implementado.** `login`,
+   `AuthContext`/`AuthProvider` y `ProtectedRoute` existen. **M2 (Company +
+   remediación de `STD-SW-003`) — ✅ implementado (ver sección 7).**
+   `AppLayout`, módulo `Company` completo (list/create/edit/soft-delete
+   con confirmación y error de delete reales, protección visual `AdminRoute`
+   en las rutas de escritura, soporte de capa API para `ownerId`) y
+   cobertura automatizada persistente de los 14 escenarios de auth/sesión
+   de M1 **más** los critical paths de Company (42 tests en total, 16 +
+   26). Reviews del Toolkit, ejecutados desde cero contra el deliverable
+   final de M2: `RV-ENG`, `RV-SECURITY` y `RV-STANDARDS` en **PASS** pleno,
+   sin condiciones pendientes. **Frontend — M3 en adelante.** Todavía
+   faltan `Contact`,
+   `Pipeline`/`Stage`, `Opportunity`, `Activity`, administración de
+   `Users`/`Invitations`, Dashboard (sin endpoint de agregación backend
+   todavía) y el filtro visual/selector de `ownerId` por nombre en Company
+   (capa API ya soportada, ver sección 7 — el filtro visual depende de
+   consumir `GET /api/users`, no de que exista antes una pantalla de
+   administración de Users) — es lo que falta para que el backend sea un
+   producto entregable completo, no solo una API verificada con un primer
+   módulo de negocio funcional.
 
 ---
 
