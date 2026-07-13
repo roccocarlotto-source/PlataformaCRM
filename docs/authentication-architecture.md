@@ -11,7 +11,13 @@
 > - **Sección 4** (middleware de autenticación y autorización) — `src/middlewares/
 >   authenticate.ts`, `src/middlewares/authorize.ts`, `src/services/auth.service.ts`,
 >   `src/repositories/user.repository.ts`, `src/lib/jwt.ts`, `src/types/auth.ts`.
->   Montada sobre todas las rutas de negocio protegidas.
+>   Montada sobre todas las rutas de negocio protegidas. `GET /api/me`
+>   (`src/controllers/me.controller.ts`, `src/routes/me.routes.ts`) expone al
+>   cliente, sin ninguna query adicional, el `AuthContext` que este
+>   middleware ya resuelve en cada request — es la única forma que tiene el
+>   frontend de conocer su propio `organizationId`/`role` tras un login
+>   normal, dado que el JWT de Supabase nunca los lleva (ver principio
+>   rector, arriba).
 > - **Sección 5** (RLS) — `prisma/sql/rls_policies.sql`, aplicada y reverificada
 >   empíricamente con queries read-only contra la base real (rol de conexión de
 >   Prisma con `bypassrls = true` confirmado, no asumido).

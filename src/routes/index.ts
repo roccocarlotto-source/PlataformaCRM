@@ -4,6 +4,7 @@ import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
 import { healthRouter } from "./health.routes";
 import { invitationRouter } from "./invitation.routes";
+import { meRouter } from "./me.routes";
 import { onboardingRouter } from "./onboarding.routes";
 import { opportunityRouter } from "./opportunity.routes";
 import { pipelineRouter } from "./pipeline.routes";
@@ -17,6 +18,7 @@ export const routes = Router();
 
 routes.use(healthRouter);
 routes.use("/api", onboardingRouter);
+routes.use("/api", meRouter);
 routes.use("/api", companyRouter);
 routes.use("/api", contactRouter);
 routes.use("/api", pipelineRouter);

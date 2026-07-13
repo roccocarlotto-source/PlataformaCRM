@@ -135,8 +135,12 @@ src/
   Archivos reales: `onboarding.controller.ts`, `company.controller.ts` (módulo de
   referencia — 5 endpoints, create/update tipados con `AuthenticatedRequest`),
   `contact.controller.ts`, `pipeline.controller.ts`, `stage.controller.ts`,
-  `opportunity.controller.ts`, `activity.controller.ts`, `invitation.controller.ts`
-  y `user.controller.ts` (mismo esqueleto en la mayoría; `currency` en
+  `opportunity.controller.ts`, `activity.controller.ts`, `invitation.controller.ts`,
+  `user.controller.ts` y `me.controller.ts` (`GET /api/me` — el único sin
+  service ni repository propios: serializa `req.auth`, ya resuelto por
+  `authenticate`, al contrato `{id, email, fullName, organizationId, role}`;
+  no recibe input, así que tampoco tiene schema de Zod) (mismo esqueleto en
+  la mayoría de los demás; `currency` en
   `Opportunity` se valida como código ISO 4217 de 3 letras mayúsculas sin enum en
   Prisma; `type` en `Activity` y `status` en `Invitation` usan `z.nativeEnum(...)`
   sobre el enum real de Prisma en vez de duplicar sus valores a mano;
@@ -222,8 +226,10 @@ src/
   `invitation.routes.ts` (lectura **y** escritura ADMIN-only, a diferencia del
   resto — expone emails de gente que todavía no es miembro; `POST
   /invitations/accept` es la única ruta de todo el proyecto que no monta
-  `authenticate`) y `user.routes.ts` (las tres rutas ADMIN-only) — todo bajo
-  `/api`.
+  `authenticate`), `user.routes.ts` (las tres rutas ADMIN-only) y
+  `me.routes.ts` (`GET /me`, solo `authenticate` — sin `authorize`: cualquier
+  rol autenticado tiene una necesidad legítima de conocer su propia
+  identidad) — todo bajo `/api`.
 
 - **`src/app.ts`** — arma la instancia de Express: registra middlewares (seguridad,
   CORS, compresión, parseo de body, logging de requests), monta las rutas, y al

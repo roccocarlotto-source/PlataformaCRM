@@ -641,8 +641,10 @@ El cliente debe enviar el JWT en cada request, típicamente
 
    Ya está montado sobre las rutas reales de los 8 módulos de negocio
    (`Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity`,
-   `Invitation`, `User`) — ver detalle del cambio de HS256 a ES256/JWKS en
-   `authentication-architecture.md` sección 4. También existe
+   `Invitation`, `User`) y sobre `GET /api/me` (identidad de negocio del
+   propio usuario autenticado, ver sección 7) — ver detalle del cambio de
+   HS256 a ES256/JWKS en `authentication-architecture.md` sección 4. También
+   existe
    `src/middlewares/authorize.ts` (autorización por rol, `ADMIN`/`USER`),
    montado en las rutas de escritura de esos mismos 8 módulos.
 
@@ -863,6 +865,17 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   estándar — ver sección 4).
 - ✅ `User`: `GET /api/users`, `PATCH /api/users/:id`, `DELETE /api/users/:id`
   (ADMIN-only, administración acotada — ver arriba).
+- ✅ `GET /api/me` — identidad de negocio del usuario autenticado
+  (`{id, email, fullName, organizationId, role}`), cualquier rol. No hace
+  ninguna query propia: serializa `req.auth`, ya resuelto por `authenticate`
+  (`resolveAuthContext`) para ese mismo request. Sin esto, el frontend no
+  tenía ninguna forma de conocer su propio `role`/`organizationId` tras un
+  login normal (el JWT de Supabase solo prueba identidad, nunca lleva esos
+  datos — ver sección 6). `isActive`/`createdAt`/`updatedAt` se excluyen a
+  propósito: el primero es redundante (si la respuesta es `200`, ya implica
+  `isActive: true`, de lo contrario `resolveAuthContext` la habría
+  rechazado con `403`), y los otros dos no tienen ningún consumidor real en
+  el frontend hoy.
 
 **Seguridad**
 - ✅ `.env` correctamente excluido de git; `SUPABASE_SERVICE_ROLE_KEY` documentada
