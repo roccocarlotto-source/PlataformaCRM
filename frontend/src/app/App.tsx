@@ -1,15 +1,19 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router-dom";
+import { AuthProvider } from "../auth/AuthContext";
 import { queryClient } from "../lib/queryClient";
 import { router } from "./router";
 
-// QueryClientProvider envuelve al RouterProvider: cualquier pantalla que
-// el router renderice más adelante va a necesitar useQuery/useMutation.
-// Sin AuthProvider todavía — eso se agrega en M1, entre estos dos.
+// QueryClientProvider envuelve a AuthProvider: AuthProvider usa
+// useQueryClient/useQuery (la query de /api/me) y necesita ser descendiente
+// del Provider. AuthProvider envuelve a RouterProvider: ProtectedRoute y
+// LoginPage, renderizados por el router, necesitan useAuth().
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

@@ -16,6 +16,7 @@ interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
   getAccessToken?: GetAccessToken;
+  signal?: AbortSignal;
 }
 
 // env.apiUrl ya viene sin barra final (normalizado en config/env.ts) —
@@ -69,6 +70,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     method: options.method ?? "GET",
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    signal: options.signal,
   });
 
   if (!res.ok) {

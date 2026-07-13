@@ -73,20 +73,22 @@ actividades.
   externa — ver sección 7).
 - Ningún linter/formatter (ESLint, Prettier).
 
-### Frontend (`frontend/`, M0 — scaffold e infraestructura base)
+### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión)
 
 | Tecnología | Rol | Por qué (evidencia en el repo) |
 |---|---|---|
 | **React** 19 / **React DOM** | UI | `frontend/package.json` — única librería de vista, sin framework de estado global adicional. |
 | **TypeScript** (`strict: true`) | Lenguaje del frontend | `frontend/tsconfig.app.json` — mismo criterio de tipado estricto que el backend. |
 | **Vite** | Build tool + dev server | `frontend/vite.config.ts` — puerto de dev `5173` por default, coincide con `CORS_ORIGIN` por defecto del backend (`.env.example`). |
-| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`, hoy con 2 rutas placeholder (M0 no implementa pantallas todavía). |
-| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0 (`QueryClient` configurado), sin queries de módulos funcionales todavía. |
+| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1, real), `/` protegida por `ProtectedRoute` (todavía el placeholder de M0 — sin dashboard real, ver sección 7/8), `*` (placeholder de M0, sin cambios). |
+| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0 (`QueryClient` configurado); M1 agregó la primera query funcional (`GET /api/me`, dentro de `AuthContext.tsx`), con `queryKey` parametrizada por identidad — sin queries de módulos de negocio (Company/Contact/etc.) todavía. |
 | **@supabase/supabase-js** | Cliente de Supabase para el browser | `frontend/src/lib/supabase.ts` — única instancia, únicamente con la `anon key` (nunca `service_role`, esa es exclusiva del backend — ver `src/lib/supabaseAdmin.ts` arriba). |
 
 **Lo que todavía NO está en el stack del frontend**:
-- Ningún framework de testing frontend — decisión explícita de M0, no un olvido
-  (ver sección 7).
+- Ningún framework de testing frontend — decisión explícita de M0 (scaffold, sin
+  lógica todavía) y confirmada como condición pendiente trackeada de M1
+  (`STD-SW-003`, ver sección 7 y sección 8) — no un olvido, y no bloqueante para
+  el cierre de M1, pero sí una cobertura real que falta agregar en M2.
 - Ningún linter/formatter (ESLint, Prettier).
 
 ---
@@ -171,9 +173,10 @@ Plataforma CRM/
 │   └── server.ts                    # entry point + graceful shutdown.
 └── frontend/                      # M0: scaffold + infraestructura base (Vite +
                                      #   React + TypeScript, paquete npm
-                                     #   independiente, sin workspaces). Sin login
-                                     #   ni pantallas funcionales todavía — ver
-                                     #   sección 7.
+                                     #   independiente, sin workspaces). M1 (ver
+                                     #   abajo) agregó login/sesión — todavía sin
+                                     #   pantallas funcionales del CRM, ver
+                                     #   sección 7/8.
     ├── .env.example
     ├── package.json
     ├── tsconfig.json / tsconfig.app.json / tsconfig.node.json
@@ -183,14 +186,22 @@ Plataforma CRM/
         ├── main.tsx                  # bootstrap: StrictMode + createRoot + <App/>.
         ├── vite-env.d.ts              # tipado de las 3 variables VITE_* de env.ts.
         ├── app/                        # App.tsx (QueryClientProvider →
-        │                                #   RouterProvider), router.tsx
-        │                                #   (createBrowserRouter, 2 rutas
-        │                                #   placeholder).
+        │                                #   AuthProvider → RouterProvider, M1),
+        │                                #   router.tsx (createBrowserRouter:
+        │                                #   /login real + / protegida + *).
+        ├── auth/                        # M1 — AuthContext.tsx (AuthProvider +
+        │                                  #   useAuth + máquina de estados),
+        │                                  #   ProtectedRoute.tsx, getAccessToken.ts
+        │                                  #   (puente hacia api.ts).
         ├── config/env.ts                # Validación en runtime de las VITE_*
         │                                  #   (fail-fast si falta alguna o si
         │                                  #   una URL no es absoluta/http(s)).
+        ├── features/
+        │   └── auth/LoginPage.tsx        # M1 — login funcional mínimo, sin
+        │                                  #   signup.
         ├── lib/                          # supabase.ts (cliente único), api.ts
-        │                                  #   (wrapper de fetch + ApiError),
+        │                                  #   (wrapper de fetch + ApiError,
+        │                                  #   signal opcional desde M1),
         │                                  #   queryClient.ts.
         └── styles/global.css               # Reset base, sin design system.
 ```
@@ -206,13 +217,16 @@ duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
   uniforme para los ocho. En particular, `Invitation` no está "verificado
   end-to-end contra Supabase real" sin matices: ver el desglose por tramo
   (manual/histórico vs. persistente, HTTP vs. service) en las secciones 3, 7, 8 y
-  9 (LOW-3). Lo que sigue pendiente es de otra naturaleza: el flujo/UI de login
-  del frontend contra Supabase Auth (sin endpoint propio en Express — eso es una
-  decisión de diseño estable, no un pendiente, ver `authentication-architecture.md`
-  sección 3), `AuthContext`/`AuthProvider`, `ProtectedRoute` y las pantallas
-  funcionales del CRM — `frontend/` existe desde M0 (scaffold + infraestructura,
-  ver sección 7), pero todo eso es trabajo de M1 en adelante, todavía no
-  implementado — ver sección 8.
+  9 (LOW-3). El flujo/UI de login del frontend contra Supabase Auth (sin
+  endpoint propio en Express — eso es una decisión de diseño estable, no un
+  pendiente, ver `authentication-architecture.md` sección 3), `AuthContext`/
+  `AuthProvider` y `ProtectedRoute` **ya están implementados (M1, cierre
+  condicional — ver sección 7 para el detalle de los outcomes de review y la
+  condición pendiente `STD-SW-003`)**. Lo que sigue pendiente es de otra
+  naturaleza: las pantallas funcionales del CRM (dashboard, `Company`,
+  `Contact`, `Pipeline`/`Stage`, `Opportunity`, `Activity`, administración de
+  `User`/`Invitation`) — trabajo de M2 en adelante, todavía no implementado —
+  ver sección 8.
 
 ---
 
@@ -646,9 +660,11 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
 > solo un resumen con el estado real de implementación de cada paso.
 
 **1. Registro (`auth.users`).** El usuario se registra a través de Supabase Auth (por
-ejemplo `supabase.auth.signUp(...)` desde un frontend — `frontend/` existe desde M0
-como scaffold, pero todavía no implementa ningún flujo de registro, ver sección 7).
-Supabase crea la fila en `auth.users` — una tabla que Supabase gestiona en su
+ejemplo `supabase.auth.signUp(...)`) — **el frontend no implementa ningún flujo de
+registro/signup** (fuera de alcance de M1 por decisión explícita, ver sección 7). No
+confundir con el login: `frontend/` sí implementa `signInWithPassword` desde M1 (ver
+sección 7) — son dos flujos de Supabase Auth distintos, y solo el segundo existe hoy
+en el frontend. Supabase crea la fila en `auth.users` — una tabla que Supabase gestiona en su
 propio schema de Postgres, **fuera del `schema.prisma` de este proyecto** (Prisma no la
 modela ni la controla).
 
@@ -881,8 +897,45 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   TanStack Query (`src/lib/queryClient.ts`), router con dos rutas
   placeholder (`src/app/router.tsx`), validación de env en runtime
   (`src/config/env.ts`). ❌ Todavía sin login, sin `AuthContext`, sin
-  `ProtectedRoute` ni ninguna pantalla funcional del CRM — eso es M1 en
-  adelante.
+  `ProtectedRoute` ni ninguna pantalla funcional del CRM en este punto — eso
+  se resuelve (parcialmente) en M1, ver abajo.
+- ✅ **M1 (autenticación y sesión) implementado — cierre condicional.**
+  `AuthContext`/`AuthProvider` (`frontend/src/auth/AuthContext.tsx`),
+  `ProtectedRoute` (`frontend/src/auth/ProtectedRoute.tsx`), `LoginPage`
+  (`frontend/src/features/auth/LoginPage.tsx`), puente de token
+  (`frontend/src/auth/getAccessToken.ts`), y `signal` opcional agregado a
+  `request()` en `frontend/src/lib/api.ts` (reenviado al `fetch` nativo, para
+  cancelación automática de TanStack Query). Frontera de identidad/cache
+  (`identityRef`/`identityKey`, `queryClient.clear()` solo ante cambio real
+  de `session.user.id`, `queryKey` de `/api/me` parametrizada por identidad)
+  diseñada y verificada contra los ocho escenarios reales de
+  `onAuthStateChange` (`INITIAL_SESSION`, login, evento repetido, A→B sin
+  `SIGNED_OUT` previo, `SIGNED_OUT`, `signOut` fallido, `TOKEN_REFRESHED`,
+  respuesta tardía de `/api/me`).
+
+  **Reviews obligatorios (Claude-Toolkit-V1) — outcomes reales, ningún
+  FAIL:** `RV-ENG`: **CONDITIONAL PASS**. `RV-SECURITY`: **PASS**.
+  `RV-STANDARDS`: **CONDITIONAL PASS**. El Gate de M1 quedó liberado
+  condicionalmente (no incondicionalmente) según la semántica formal de
+  `reviews/README.md` del Toolkit — no afirmar que los tres reviews dieron
+  PASS.
+
+  **Condición pendiente — `STD-SW-003` (Testing Standards), NOT MET, con
+  ruta de resolución acordada, no bloqueante:** M1 **no tiene cobertura de
+  tests automatizados** para los paths críticos de autenticación/sesión que
+  introduce — verificado únicamente de forma manual contra los ocho
+  escenarios de arriba, sin test persistente. No afirmar que M1 tiene
+  cobertura automatizada frontend. Resolución trackeada hacia **M2**:
+  introducir el framework de testing frontend (todavía sin elegir/instalar)
+  y cubrir como mínimo: (1) `INITIAL_SESSION` con sesión A, (2) estado sin
+  sesión, (3) login exitoso, (4) login fallido, (5) evento repetido de la
+  misma identidad, (6) transición A→B sin `SIGNED_OUT` previo, (7)
+  `SIGNED_OUT`, (8) `signOut` fallido sin falso logout local, (9)
+  `TOKEN_REFRESHED` sin limpieza de cache, (10) respuesta tardía de
+  `/api/me` de A después del cambio a B, (11) `ApiError` 403 →
+  `account-unavailable`, (12) 5xx/network error → `profile-error`, (13)
+  `retryProfile()`, (14) preservación y recuperación de la ruta privada
+  original en login.
 
 **Autenticación**
 - ✅ Diseño de sincronización de email (`auth.users` ↔ `public.users`) implementado en
@@ -903,9 +956,14 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   sin datos huérfanos ante fallos, con compensación automática). Implementado como
   endpoint de backend, no como trigger de DB — ver el cambio de diseño documentado en
   `authentication-architecture.md` sección 1.
-- ❌ Sin endpoint de login (el login en sí no pasa por Express — ver sección 3 de
-  `authentication-architecture.md` — el frontend, M0, existe como scaffold pero
-  todavía no implementa ningún flujo de login que lo ejercite, ver arriba).
+- ✅ **Sin endpoint de login en Express, por diseño — no es un pendiente.** El login
+  no pasa por Express: el frontend habla directo con Supabase Auth
+  (`signInWithPassword`, ver sección 3 de `authentication-architecture.md`) — no
+  existe ni debe existir un endpoint propio de login en este backend bajo la
+  arquitectura aprobada. El login frontend **sí está implementado** (M1,
+  `frontend/src/features/auth/LoginPage.tsx` + `AuthContext.tsx`, ver arriba);
+  tras la sesión de Supabase, el frontend obtiene la identidad de negocio
+  (`organizationId`/`role`) llamando a `GET /api/me`, nunca del JWT.
 - ✅ Invitación de usuarios (`Invitation` en `schema.prisma`, módulo completo —
   ver arriba). El diseño original de `authentication-architecture.md` sección 2
   asumía un trigger `AFTER INSERT ON auth.users` para el flujo de onboarding
@@ -1056,14 +1114,16 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    Supabase.** Ver sección 9 — limitación real de la plataforma, no de este
    código.
 
-5. **Frontend — M1 en adelante.** `frontend/` existe desde M0 (scaffold +
-   infraestructura base: Vite + React + TypeScript, cliente único de
-   Supabase, wrapper propio de `fetch`, `QueryClient`, router con rutas
-   placeholder — ver sección 7). Todavía faltan login, `AuthContext`/
-   `AuthProvider`, `ProtectedRoute` y las pantallas funcionales del CRM
-   (Company, Contact, Pipeline/Stage, Opportunity, Activity, administración
-   de Users/Invitations) — es la pieza que falta para que el backend sea un
-   producto entregable, no solo una API verificada.
+5. **Frontend — M1 (autenticación y sesión) — ✅ implementado, cierre
+   condicional (ver sección 7).** `login`, `AuthContext`/`AuthProvider` y
+   `ProtectedRoute` ya existen. Reviews del Toolkit: `RV-ENG` y
+   `RV-STANDARDS` en `CONDITIONAL PASS` (condición pendiente `STD-SW-003` —
+   sin cobertura de tests automatizados, trackeada hacia M2), `RV-SECURITY`
+   en `PASS`. **Frontend — M2 en adelante.** Todavía faltan las pantallas
+   funcionales del CRM (Company, Contact, Pipeline/Stage, Opportunity,
+   Activity, administración de Users/Invitations) y la cobertura
+   automatizada de M1 (ver sección 7) — es la pieza que falta para que el
+   backend sea un producto entregable, no solo una API verificada.
 
 ---
 
