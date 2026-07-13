@@ -1,6 +1,6 @@
 # Plataforma CRM — Project Overview
 
-> Última actualización: 2026-07-11.
+> Última actualización: 2026-07-13.
 > Este documento es la fuente de verdad del estado del proyecto. Cualquier sesión nueva
 > (humana o de Claude) debería poder entender el proyecto completo leyendo solo este
 > archivo, sin depender del historial de chat.
@@ -270,6 +270,24 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   barrera que fuerce un interleaving concreto (siguen siendo
   `Promise.allSettled` sin más) — estos números son resultado observado
   bajo el protocolo corrido, no una garantía de determinismo del test.
+- **PIPE-DEFAULT-GHOST (auditoría nueva, cerrado 2026-07-13) — invariante
+  distinta de H-1, no una carrera: 100% secuencial, sin concurrencia**:
+  `softDeletePipeline` escribía únicamente `deletedAt`, nunca `isDefault` —
+  un pipeline default soft-deleted quedaba con `isDefault: true` para
+  siempre, porque `unsetDefaultPipeline` (la única función que apaga un
+  default existente) filtra `deletedAt: null` en su propio `WHERE` y nunca
+  vuelve a alcanzar esa fila. Sin impacto funcional observable hoy vía la
+  API (las queries activas filtran `deletedAt: null`, y el índice único
+  parcial de arriba excluye `deleted_at IS NOT NULL` por diseño), pero la
+  inconsistencia del dato raw era real y se acumulaba, una fila más por cada
+  default borrado — un futuro lector raw/histórico o un eventual
+  restore/undelete la interpretaría mal. Corregido escribiendo `isDefault:
+  false` en el mismo `UPDATE` de `softDeletePipeline`, sin locks ni
+  transacciones nuevas (ya corre dentro del `tx` que abre `deletePipeline`,
+  bajo el lock de H-1). Cobertura persistente:
+  `src/services/pipeline.service.integration-test.ts`, lee la fila afectada
+  de forma RAW (sin filtrar `deletedAt`) — el único punto donde el bug era
+  observable.
 
 ### `Stage`
 - **Propósito**: etapa ordenada dentro de un `Pipeline` (ej. "Prospecto", "Negociación",
@@ -1070,7 +1088,7 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
   `src/`. Sí existen suites de test persistentes desde H1: unitarias
   (`*.test.ts`, `npm test`, sin DB) y de integración (`*.integration-test.ts`,
   `npm run test:integration`, contra Postgres/Supabase real) — 6 archivos de
-  test en total a la fecha, cubriendo H1/H2/M3/M4/M1/LOW-1.
+  test en total a la fecha, cubriendo H1/H2/M3/M4/H-1/M1/LOW-1/LOW-3/PIPE-DEFAULT-GHOST.
 
 ---
 

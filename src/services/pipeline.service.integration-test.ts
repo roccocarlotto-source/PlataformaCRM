@@ -224,3 +224,51 @@ test("deletePipeline vs deletePipeline (uno default, otro no): nunca deja la org
     await deleteTestOrg(org.id);
   }
 });
+
+// ---------------------------------------------------------------------------
+// PIPE-DEFAULT-GHOST (auditoría nueva, surgida durante la investigación de
+// H-1, deliberadamente no plegada en su alcance): softDeletePipeline
+// escribía únicamente deletedAt — nunca isDefault. Si el pipeline borrado
+// era el default, la fila queda soft-deleted con isDefault: true para
+// siempre, porque ninguna escritura posterior puede volver a alcanzarla:
+// unsetDefaultPipeline filtra deletedAt: null en su propio WHERE, así que
+// nunca la toca. 100% determinístico, sin concurrencia — a diferencia de
+// H-1, no hace falta ninguna carrera para reproducirlo.
+//
+// Distinción de impacto (no confundir con "sin impacto" — ver informe de la
+// investigación): las queries activas (deletedAt: null) y el índice único
+// parcial pipelines_org_default_unique (que excluye deleted_at IS NOT NULL
+// por diseño) hacen que esto no tenga efecto funcional observable hoy vía
+// la API — pero la inconsistencia en el dato raw es real y se acumula, una
+// fila más por cada default borrado. Este test lee la fila RAW, sin filtrar
+// deletedAt, precisamente porque ese es el único punto donde el bug es
+// observable — las queries activas lo esconden por construcción.
+// ---------------------------------------------------------------------------
+
+test("deletePipeline (target era default): la fila soft-deleted queda con isDefault=false, no fantasma", async () => {
+  const org = await createTestOrg();
+  try {
+    const a = await createPipeline(org.id, { name: "A", isDefault: true });
+    const b = await createPipeline(org.id, { name: "B" });
+    if (!a || !b) throw new Error("setup failed");
+
+    await deletePipeline(org.id, a.id);
+
+    // Lectura RAW, sin filtrar deletedAt — el punto exacto que las queries
+    // activas ocultan y que dejó pasar el bug original sin detectarse.
+    const rawA = await prisma.pipeline.findUnique({ where: { id: a.id } });
+    assert.ok(rawA, "la fila debe seguir existiendo (soft delete, no hard delete)");
+    assert.notEqual(rawA.deletedAt, null, "debe quedar marcada como borrada");
+    assert.equal(
+      rawA.isDefault,
+      false,
+      "una fila soft-deleted nunca debe quedar marcada como default",
+    );
+
+    const rawB = await prisma.pipeline.findUnique({ where: { id: b.id } });
+    assert.equal(rawB?.deletedAt, null, "B debe seguir activo");
+    assert.equal(rawB?.isDefault, true, "B debe quedar promovido a default");
+  } finally {
+    await deleteTestOrg(org.id);
+  }
+});

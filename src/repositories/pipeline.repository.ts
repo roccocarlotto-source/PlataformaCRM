@@ -129,6 +129,12 @@ export function updatePipeline(
   return db.pipeline.updateMany({ where: { id, organizationId }, data });
 }
 
+// PIPE-DEFAULT-GHOST: deletedAt e isDefault: false van en el mismo UPDATE —
+// una fila soft-deleted nunca debe poder leerse como default de la
+// organización. Sin esto, una fila que era default queda con isDefault:
+// true para siempre, porque unsetDefaultPipeline (la única función que
+// apaga un default existente) filtra deletedAt: null en su propio WHERE y
+// nunca vuelve a alcanzarla.
 export function softDeletePipeline(
   id: string,
   organizationId: string,
@@ -136,6 +142,6 @@ export function softDeletePipeline(
 ) {
   return db.pipeline.updateMany({
     where: { id, organizationId },
-    data: { deletedAt: new Date() },
+    data: { deletedAt: new Date(), isDefault: false },
   });
 }
