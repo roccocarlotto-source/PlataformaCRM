@@ -23,11 +23,14 @@ de autenticación y onboarding, ver
 > (nunca del cliente, nunca editable), y `assigneeId` es opcional sin default al
 > creador. `Invitation` transiciona de estado por **compare-and-swap**
 > (`updateMany` condicionado a `status: "PENDING"`, nunca un `UPDATE` ciego) —
-> verificado con tres carreras concurrentes reales (`Promise.all` genuino contra
-> Supabase real): crear vs. crear, aceptar vs. aceptar, y aceptar vs. revocar,
-> esta última confirmada en ambos sentidos posibles. Verificado end-to-end contra
-> un proyecto real de Supabase (aislamiento multi-tenant, relaciones cruzadas,
-> filtros/orden/paginación, autorización por rol). Sin endpoint de login propio
+> verificado históricamente (sesión manual H3/H4, no test persistente) con tres
+> carreras concurrentes reales (`Promise.all` genuino contra Supabase real: crear
+> vs. crear, aceptar vs. aceptar, aceptar vs. revocar), no de manera uniforme
+> entre las tres — ver el desglose exacto por tramo y la cobertura persistente
+> actual en `docs/project-overview.md` sección 4. Verificado end-to-end contra un
+> proyecto real de Supabase (aislamiento multi-tenant, relaciones cruzadas,
+> filtros/orden/paginación, autorización por rol) para el resto de los módulos de
+> negocio. Sin endpoint de login propio
 > (decisión de diseño estable, no pendiente) — ver la sección "Estado de
 > implementación" al inicio de `docs/authentication-architecture.md`.
 

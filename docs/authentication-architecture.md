@@ -24,8 +24,11 @@
 >   `Invitation` completo (`src/services/invitation.service.ts`,
 >   `src/repositories/invitation.repository.ts`, `src/controllers/
 >   invitation.controller.ts`), con transiciones de estado por compare-and-swap
->   (`updateMany` condicionado a `status: "PENDING"`) verificadas con tres carreras
->   concurrentes reales contra Supabase.
+>   (`updateMany` condicionado a `status: "PENDING"`) verificadas históricamente
+>   (sesión manual H3/H4, no test persistente) con tres carreras concurrentes
+>   reales contra Supabase, no de manera uniforme entre las tres — ver el
+>   desglose exacto y la cobertura persistente actual en `project-overview.md`
+>   sección 4.
 >
 > Lo que sigue siendo diseño, no código: endpoint de login propio (el login en sí no
 > pasa por Express, ver sección 3 — esto es una decisión de diseño estable, no algo
@@ -202,9 +205,10 @@ al ADMIN la lista de invitaciones pendientes, poder revocar una invitación ante
 que se acepte, y aplicar **nuestra propia** política de vencimiento (independiente del
 TTL interno del link de Supabase).
 
-**Flujo completo (verificado end-to-end contra Supabase real, incluidas tres carreras
-concurrentes reales — ver `project-overview.md` sección 4 para el detalle del
-mecanismo de compare-and-swap):**
+**Flujo completo (con tres carreras concurrentes reales verificadas históricamente
+contra Supabase — sesión manual H3/H4, no de manera uniforme ni como test
+persistente: ver `project-overview.md` sección 4 para el desglose exacto por
+tramo, el mecanismo de compare-and-swap y la cobertura persistente actual):**
 
 1. **El ADMIN completa un formulario** (email + rol) en el frontend. El backend
    verifica, vía middleware, que quien hace el request es `ADMIN` de una organización
@@ -299,10 +303,12 @@ mecanismo de compare-and-swap):**
 
 **Revocación** (`DELETE /api/invitations/:id`, ADMIN-only): mismo mecanismo de
 compare-and-swap que la aceptación, en la dirección opuesta
-(`PENDING → REVOKED`). Verificado con una carrera real `accept` vs. `revoke` sobre
-la misma `Invitation`: exactamente una transición gana; si gana `revoke`, **nunca**
-se crea un `User`; si gana `accept`, `revoke` recibe un `400`/`409` claro, nunca un
-`500`.
+(`PENDING → REVOKED`). Verificado históricamente (sesión manual H3/H4, no test
+persistente) con una carrera real `accept` vs. `revoke` sobre la misma
+`Invitation`, HTTP real completo en ambos sentidos: exactamente una transición
+gana; si gana `revoke`, **nunca** se crea un `User`; si gana `accept`, `revoke`
+recibe un `400`/`409` claro, nunca un `500`. Cobertura persistente actual (lock
+determinístico de Postgres, no `Promise.all`): ver `project-overview.md` sección 4.
 
 ---
 
@@ -436,13 +442,15 @@ protegida:
 ## 5. Row Level Security
 
 > ✅ **Implementado** en `prisma/sql/rls_policies.sql`, aplicado y verificado contra
-> el proyecto real de Supabase: RLS habilitado en las 9 tablas de negocio, con una
-> función `public.current_organization_id()` (`SECURITY DEFINER`, evita la recursión
-> de RLS al resolver la organización del propio usuario contra `public.users`) y una
-> política de aislamiento por `organization_id` en cada tabla (`stages` resuelve la
-> organización vía join a `pipelines`, porque no tiene la columna directa). Se aplica
-> con `prisma db execute --file prisma/sql/rls_policies.sql --url "$DIRECT_URL"`,
-> igual que `manual_constraints.sql` — Prisma tampoco soporta RLS en su DSL.
+> el proyecto real de Supabase: RLS habilitado en 10 tablas, con una función
+> `public.current_organization_id()` (`SECURITY DEFINER`, evita la recursión de RLS
+> al resolver la organización del propio usuario contra `public.users`). De esas 10,
+> 8 son tenant-scoped y se aíslan con una política uniforme por `organization_id`
+> (`stages` tiene `organization_id` propio, denormalizado desde `pipelines` — ya no
+> requiere join); `organizations` y `roles` tienen políticas propias acordes a su
+> estructura (sin columna `organization_id`). Se aplica con `prisma db execute
+> --file prisma/sql/rls_policies.sql --url "$DIRECT_URL"`, igual que
+> `manual_constraints.sql` — Prisma tampoco soporta RLS en su DSL.
 
 La pregunta explícita del pedido es "no quiero duplicar responsabilidades" — la
 respuesta no es que las tres capas hagan lo mismo por las dudas, sino que **cada capa
@@ -470,15 +478,15 @@ el frontend para algo puntual, acceso desde el SQL editor de Supabase con el rol
 key en vez de la `service_role`. Ninguna de esas rutas existe hoy en el diseño actual
 (todo pasa por Express), pero es barato dejarlas protegidas desde ahora.
 
-**Recomendación concreta**: activar RLS en todas las tablas multi-tenant
-(`companies`, `contacts`, `opportunities`, `pipelines`, `stages`, `activities`, y
-`users`), con políticas basadas en `organization_id = (la organización del usuario
-autenticado, resuelta vía `auth.uid()` contra `public.users`)`. Documentar
-explícitamente en el código (comentario en la migración SQL) que estas políticas
-**no** son la defensa del path de Express — son la defensa de todo lo demás. No
-relajar la disciplina de scoping en Prisma asumiendo "total, RLS me cubre": es
-exactamente la falsa sensación de seguridad que este documento busca evitar nombrando
-el problema ahora.
+**Estado actual**: RLS está activo en las tablas multi-tenant (`companies`,
+`contacts`, `opportunities`, `pipelines`, `stages`, `activities`, `users` e
+`invitations`), con políticas basadas en `organization_id = (la organización del
+usuario autenticado, resuelta vía `auth.uid()` contra `public.users`)`.
+`prisma/sql/rls_policies.sql` ya documenta en su propio encabezado que estas
+políticas **no** son la defensa del path de Express — son la defensa de todo lo
+demás. No relajar la disciplina de scoping en Prisma asumiendo "total, RLS me
+cubre": es exactamente la falsa sensación de seguridad que este documento busca
+evitar nombrando el problema.
 
 ---
 
