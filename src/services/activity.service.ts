@@ -1,4 +1,4 @@
-import type { ActivityType } from "@prisma/client";
+import { Prisma, type ActivityType } from "@prisma/client";
 import { findCompanyById } from "../repositories/company.repository";
 import { findContactById } from "../repositories/contact.repository";
 import {
@@ -255,9 +255,43 @@ export async function updateActivity(
     );
   }
 
-  const result = await updateActivityRepo(id, organizationId, data);
-  if (result.count === 0) {
-    throw new AppError("Actividad no encontrada", 404);
+  // T-1 (auditoría nueva): el chequeo de arriba lee un snapshot (activity)
+  // tomado antes de esta escritura, sin lock ni transacción que lo abarque
+  // junto con el UPDATE — dos updateActivity concurrentes, cada uno
+  // limpiando una relación distinta, pueden pasar los dos ese chequeo
+  // contra un estado que el otro todavía no comiteó. La defensa real que
+  // nunca falla es activities_related_entity_check (CHECK de Postgres,
+  // manual_constraints.sql) — evita que el dato persistido termine sin
+  // ninguna relación. Lo único que faltaba era traducir esa violación
+  // concreta a un AppError en vez de dejarla subir cruda: un CHECK no
+  // expone `meta.target` como P2002, así que se reconoce por el nombre
+  // exacto de la constraint dentro de `err.message` (única superficie
+  // estable disponible para un PrismaClientUnknownRequestError en
+  // @prisma/client 5.22.0, verificado empíricamente — nunca por el texto
+  // humano completo del mensaje, para no absorber ningún otro error por
+  // accidente). El motor de queries de Prisma expone el mensaje crudo de
+  // Postgres re-serializado dentro del Debug de Rust de todo el error de
+  // conector — las comillas que Postgres pone alrededor del nombre de la
+  // constraint quedan escapadas con una barra invertida literal en el
+  // string resultante (`\"activities_related_entity_check\"`, no
+  // `"activities_related_entity_check"` a secas) — de ahí el patrón exacto
+  // de abajo.
+  try {
+    const result = await updateActivityRepo(id, organizationId, data);
+    if (result.count === 0) {
+      throw new AppError("Actividad no encontrada", 404);
+    }
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientUnknownRequestError &&
+      err.message.includes('\\"activities_related_entity_check\\"')
+    ) {
+      throw new AppError(
+        "La actividad debe estar relacionada a una Company, un Contact, o una Opportunity",
+        400,
+      );
+    }
+    throw err;
   }
 
   return getActivityById(organizationId, id);

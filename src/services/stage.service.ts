@@ -81,6 +81,24 @@ function clamp(value: number, min: number, max: number): number {
 // Único índice de unicidad que Stage puede violar en una carrera (nombre,
 // isWon, isLost — order nunca choca porque el reindexado lo maneja
 // siempre): traduce la violación a un 409 legible en vez de un 500 crudo.
+//
+// T-2 (auditoría nueva): además del índice único de arriba, Stage tiene un
+// CHECK (stages_won_lost_exclusive_check, manual_constraints.sql) que
+// findStageWithFlag no puede reemplazar — ese pre-check solo mira OTRAS
+// filas del pipeline, nunca el propio flag opuesto de la fila que se está
+// actualizando, así que dos escrituras (una marca isWon, otra marca
+// isLost, sobre la misma etapa) pueden pasar las dos su chequeo y chocar
+// recién en la escritura real. Un CHECK no expone `meta.target` como
+// P2002, así que se reconoce por el nombre exacto de la constraint dentro
+// de `err.message` (única superficie estable disponible para un
+// PrismaClientUnknownRequestError en @prisma/client 5.22.0, verificado
+// empíricamente) — nunca por el texto humano completo del mensaje, para
+// no absorber ningún otro error por accidente. Mismo detalle que en
+// activity.service.ts: las comillas que Postgres pone alrededor del
+// nombre de la constraint quedan escapadas con una barra invertida
+// literal en el string que expone Prisma
+// (`\"stages_won_lost_exclusive_check\"`, no `"..."` a secas). La
+// traducción de P2002 de arriba queda intacta.
 function rethrowAsConflict(err: unknown): never {
   if (
     err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -109,6 +127,16 @@ function rethrowAsConflict(err: unknown): never {
       );
     }
     throw new AppError("El registro ya existe", 409);
+  }
+
+  if (
+    err instanceof Prisma.PrismaClientUnknownRequestError &&
+    err.message.includes('\\"stages_won_lost_exclusive_check\\"')
+  ) {
+    throw new AppError(
+      "Esta etapa no puede quedar marcada como ganada y perdida a la vez",
+      409,
+    );
   }
 
   throw err;

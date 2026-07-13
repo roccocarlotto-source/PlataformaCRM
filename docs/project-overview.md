@@ -327,6 +327,21 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
     `pipelineId` indicado, un pipeline sin stages simplemente no tiene ningún
     `stageId` válido que enviar — la restricción queda garantizada por
     construcción, sin código adicional en `Pipeline`/`Stage`.
+  - **T-2 (auditoría nueva, cerrado 2026-07-13) — invariante protegida por
+    el `CHECK`, no por el pre-check de servicio**: `findStageWithFlag` (el
+    pre-check de `updateStage` para `isWon`/`isLost`) solo busca esa marca
+    en **otras** filas del pipeline — nunca revisa el flag opuesto de la
+    propia fila que se está actualizando. Dos `updateStage` sobre la misma
+    etapa, uno marcando `isWon: true` y otro `isLost: true`, podían pasar
+    los dos ese chequeo. El dato persistido **nunca** quedó corrompido:
+    `stages_won_lost_exclusive_check` (el `CHECK` de Postgres) rechazó
+    siempre la escritura perdedora. Corregido extendiendo la traducción de
+    conflictos ya existente en `updateStage` para reconocer también el
+    nombre exacto de esta constraint — la traducción de P2002 (nombre/
+    ganada/perdida duplicados) queda intacta, cualquier otro error se
+    sigue propagando igual. Cobertura persistente:
+    `src/services/stage.service.integration-test.ts`, mismo mecanismo de
+    lock real de Postgres que T-1.
 
 ### `Opportunity`
 - **Propósito**: una venta en curso (deal). ✅ Módulo completo
@@ -397,6 +412,24 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   `subject`/`body`. Índice `@@index([authorId])` agregado (antes solo `assigneeId`
   tenía índice propio entre las dos FK a `User` — asimetría real corregida, mismo
   criterio que `ownerId` en `Company`/`Contact`/`Opportunity`). Soft delete.
+- **T-1 (auditoría nueva, cerrado 2026-07-13) — invariante protegida por el
+  `CHECK`, no por el pre-check de servicio**: el chequeo síncrono de
+  `updateActivity` (arriba) lee un snapshot de la `Activity` antes de
+  escribir, sin lock ni transacción que abarque ambos pasos — dos
+  `updateActivity` concurrentes, cada uno limpiando una relación distinta,
+  podían pasar los dos ese chequeo contra un estado que el otro todavía no
+  había comiteado. El dato persistido **nunca** quedó corrompido en ningún
+  momento: `activities_related_entity_check` (el `CHECK` de Postgres)
+  rechazó siempre la escritura perdedora, exactamente como está diseñado
+  para hacerlo. Lo que faltaba era traducir esa violación concreta a
+  `AppError(400)` en vez de dejarla subir cruda como
+  `PrismaClientUnknownRequestError` hasta `errorHandler.ts` (500 genérico).
+  Corregido en `updateActivity` reconociendo el nombre exacto de la
+  constraint dentro de `err.message` — cualquier otro error se sigue
+  propagando intacto. Cobertura persistente:
+  `src/services/activity.service.integration-test.ts`, fuerza la carrera
+  real con un lock de fila de Postgres (mismo mecanismo que el CAS perdido
+  de LOW-1), no `Promise.allSettled` sin más.
 
 ### `Invitation`
 - **Propósito**: invitación pendiente de un `ADMIN` a un nuevo miembro de su
@@ -1087,8 +1120,8 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
   (hay que adaptar código ya escrito) que configurarlo desde el arranque de
   `src/`. Sí existen suites de test persistentes desde H1: unitarias
   (`*.test.ts`, `npm test`, sin DB) y de integración (`*.integration-test.ts`,
-  `npm run test:integration`, contra Postgres/Supabase real) — 6 archivos de
-  test en total a la fecha, cubriendo H1/H2/M3/M4/H-1/M1/LOW-1/LOW-3/PIPE-DEFAULT-GHOST.
+  `npm run test:integration`, contra Postgres/Supabase real) — 8 archivos de
+  test en total a la fecha, cubriendo H1/H2/M3/M4/H-1/M1/LOW-1/LOW-3/PIPE-DEFAULT-GHOST/T-1/T-2.
 
 ---
 
