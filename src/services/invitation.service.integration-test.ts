@@ -9,7 +9,7 @@ import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import type { InvitationAcceptIdentity } from "../types/auth";
 import { AppError } from "../utils/AppError";
-import { acceptInvitation, revokeInvitation } from "./invitation.service";
+import { acceptInvitation, createInvitation, revokeInvitation } from "./invitation.service";
 
 // Test de integración del LOW "accept/revoke de Invitation puede devolver
 // 404/400 en vez del 409/410 más específico". Contra Postgres real, sin
@@ -152,6 +152,100 @@ function assertAppError(
   assert.equal((err as AppError).message, message);
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// createInvitation — únicamente las dos ramas que resuelven ANTES de llamar
+// a Supabase (LOW-3). Esta suite no cubre el tramo
+// createInvitation → inviteUserByEmail en sí: ese tramo depende de un envío
+// real de email y Supabase limita ese envío a nivel de todo el proyecto
+// (confirmado empíricamente, `over_email_send_rate_limit` — ver
+// docs/project-overview.md secciones 8 y 9), así que no es seguro
+// ejercitarlo desde un test persistente que puede correrse repetidas veces.
+//
+// Las dos ramas de abajo sí son seguras: ambas lanzan su AppError antes de
+// que createInvitation llegue a insertar la fila de Invitation
+// (invitation.service.ts, antes de createInvitationRepo), es decir también
+// antes de getSupabaseAdmin()/inviteUserByEmail, que corren después en la
+// misma función de forma estrictamente secuencial (un await tras otro, sin
+// ramas paralelas ni reintentos). La prueba de que Supabase nunca fue
+// invocado no se obtiene preguntándole a Supabase (eso consumiría el mismo
+// cupo que se está evitando) sino observando el efecto real en Postgres:
+// si no aparece ninguna fila nueva de Invitation para ese
+// (organizationId, email), createInvitationRepo no corrió — y por lo tanto
+// tampoco pudo correr inviteUserByEmail, que está después en el código.
+// ---------------------------------------------------------------------------
+
+test("createInvitation: email ya pertenece a un User existente → 409 antes de crear la Invitation ni tocar Supabase", async () => {
+  const invitee = await createRealAuthUser("create-existing-user");
+  await prisma.user.create({
+    data: {
+      id: invitee.id,
+      organizationId: fx.orgId,
+      roleId: fx.roleId,
+      email: invitee.email,
+      fullName: "Existing User",
+    },
+  });
+
+  try {
+    const before = await prisma.invitation.count({
+      where: { organizationId: fx.orgId, email: invitee.email },
+    });
+    assert.equal(before, 0);
+
+    await assert.rejects(
+      () =>
+        createInvitation(fx.orgId, fx.inviterId, {
+          email: invitee.email,
+          role: "USER",
+        }),
+      (err) =>
+        assertAppError(err, 409, "Ese email ya pertenece a un usuario existente"),
+    );
+
+    const after = await prisma.invitation.count({
+      where: { organizationId: fx.orgId, email: invitee.email },
+    });
+    assert.equal(
+      after,
+      0,
+      "no debe haberse creado ninguna Invitation: la función lanzó antes de createInvitationRepo y, por lo tanto, antes de inviteUserByEmail",
+    );
+  } finally {
+    await prisma.user.deleteMany({ where: { id: invitee.id } });
+    await getSupabaseAdmin().auth.admin.deleteUser(invitee.id);
+  }
+});
+
+test("createInvitation: ya existe una Invitation PENDING para ese email → 409 antes de crear una segunda ni tocar Supabase", async () => {
+  const email = `low3-existing-pending-${randomUUID()}@example.test`;
+  const existing = await createInvitationRow(email, "PENDING");
+
+  const before = await prisma.invitation.count({
+    where: { organizationId: fx.orgId, email },
+  });
+  assert.equal(before, 1);
+
+  await assert.rejects(
+    () => createInvitation(fx.orgId, fx.inviterId, { email, role: "USER" }),
+    (err) =>
+      assertAppError(err, 409, "Ya existe una invitación pendiente para ese email"),
+  );
+
+  const after = await prisma.invitation.findMany({
+    where: { organizationId: fx.orgId, email },
+  });
+  assert.equal(
+    after.length,
+    1,
+    "no debe haberse creado una segunda Invitation: la función lanzó antes de createInvitationRepo y, por lo tanto, antes de inviteUserByEmail",
+  );
+  assert.equal(
+    after[0].id,
+    existing.id,
+    "la única fila debe seguir siendo la preexistente, sin modificar",
+  );
+});
 
 // ---------------------------------------------------------------------------
 // acceptInvitation sin invitationId

@@ -154,8 +154,12 @@ duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
 **Lo que sigue faltando:**
 - Nada del modelo de datos actual queda sin exponer vía API — `Company`, `Contact`,
   `Pipeline`, `Stage`, `Opportunity`, `Activity`, `Invitation` y la administración
-  acotada de `User` ya están todos implementados y verificados end-to-end contra
-  Supabase real. Lo que sigue pendiente es de otra naturaleza: endpoint de login
+  acotada de `User` ya están todos implementados — el nivel de verificación exacto
+  de cada módulo está detallado en su propia entrada de la sección 7, no es
+  uniforme para los ocho. En particular, `Invitation` no está "verificado
+  end-to-end contra Supabase real" sin matices: ver el desglose por tramo
+  (manual/histórico vs. persistente, HTTP vs. service) en las secciones 3, 7, 8 y
+  9 (LOW-3). Lo que sigue pendiente es de otra naturaleza: endpoint de login
   propio (el login en sí no pasa por Express, ver `authentication-architecture.md`
   sección 3) y un frontend que ejercite todo esto — ver sección 8.
 
@@ -355,9 +359,11 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
 ### `Invitation`
 - **Propósito**: invitación pendiente de un `ADMIN` a un nuevo miembro de su
   organización. ✅ Módulo completo (`POST/GET /api/invitations`,
-  `DELETE /api/invitations/:id`, `POST /api/invitations/accept`), verificado
-  end-to-end contra un proyecto real de Supabase, incluidas tres carreras
-  concurrentes reales (ver más abajo).
+  `DELETE /api/invitations/:id`, `POST /api/invitations/accept`) — verificado
+  manualmente una vez, de forma empírica (H3/H4, no como test persistente),
+  contra un proyecto real de Supabase, incluidas tres carreras concurrentes
+  reales (ver más abajo). Cobertura persistente actual, más acotada: ver
+  sección 8/9.
 - **Relaciones**: pertenece a `Organization` y a `Role` (el rol que tendrá al
   aceptar), `invitedBy` obligatorio (`User`, quien la creó).
 - **Decisiones importantes**: `status` (`enum InvitationStatus`:
@@ -379,11 +385,16 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
     "PENDING" }, data: {...} })`, verificando `count`. Ninguna transición
     depende de un `SELECT` previo como defensa real — el `SELECT` que hace cada
     service antes es solo un mensaje de UX rápido para el caso común, no
-    concurrente. Esto resuelve tres carreras reales, verificadas con
+    concurrente. Esto resuelve tres carreras reales, verificadas manualmente
+    una vez (H3/H4, sesión histórica — no un test persistente) con
     `Promise.all` genuino contra Supabase real:
     - **crear vs. crear** (mismo `organizationId`+`email`): el índice único
       parcial permite un solo `INSERT`; el segundo choca con `P2002`, traducido
-      a `409` (antes: `500` crudo).
+      a `409` (antes: `500` crudo). Verificado directamente contra
+      repository/service/Postgres real — a diferencia de las otras dos, no vía
+      HTTP completo: el round-trip de `POST /api/invitations` quedó bloqueado
+      por el rate limit de `inviteUserByEmail` durante esa misma sesión (ver
+      sección 8/9).
     - **aceptar vs. aceptar** (misma invitación): la escritura condicional es
       el primer paso dentro de la transacción, antes de crear el `User` — si
       pierde, nunca llega a intentar crear el `User` (cero riesgo de huérfanos).
@@ -712,9 +723,14 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   `DELETE /api/invitations/:id` ADMIN-only (lectura incluida — a diferencia del
   resto de los módulos, expone emails de gente que todavía no es miembro).
   `POST /api/invitations/accept` no pasa por `authenticate` (ver sección 4).
-  Verificado end-to-end contra Supabase real, incluidas las tres carreras
-  concurrentes reales con `Promise.all` (crear vs. crear, aceptar vs. aceptar,
-  aceptar vs. revocar, esta última observada empíricamente en ambos sentidos).
+  Verificado manualmente una vez, de forma end-to-end contra Supabase real
+  (H3/H4, sesión histórica — no persistido como test), incluidas las tres
+  carreras concurrentes reales con `Promise.all`: aceptar vs. aceptar y
+  aceptar vs. revocar vía HTTP real completo (esta última observada
+  empíricamente en ambos sentidos); crear vs. crear vía repository/service/
+  Postgres real, sin el tramo HTTP (bloqueado por el rate limit de
+  `inviteUserByEmail`, ver sección 8/9). Cobertura persistente actual, más
+  acotada: ver sección 8/9.
 - ✅ **Administración acotada de `User`** — `GET /api/users` (roster, excluye
   removidos por defecto), `PATCH /api/users/:id` (únicamente `isActive`/`role`,
   no un editor genérico — `email`/`id`/`organizationId`/`deletedAt` no son
@@ -820,9 +836,19 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    SendGrid). El servicio de email por defecto de Supabase tiene un rate limit
    muy bajo a nivel de todo el proyecto — se confirmó empíricamente durante la
    verificación E2E de `Invitation` (`over_email_send_rate_limit`, `429`, tras
-   apenas un puñado de invitaciones reales en poco tiempo). No es un bug del
-   código: es una limitación de configuración externa que hay que resolver antes
-   de usar `Invitation` con usuarios reales en producción.
+   apenas un puñado de invitaciones reales en poco tiempo) y sigue vigente,
+   verificado contra la documentación oficial de Supabase (2 emails/hora con
+   el SMTP por defecto, 30/hora con SMTP propio recién configurado). No es un
+   bug del código: es una limitación de configuración externa que hay que
+   resolver antes de usar `Invitation` con usuarios reales en producción.
+   **LOW-3 (2026-07-12)**: las dos ramas de `createInvitation` que resuelven
+   antes de esta llamada (email ya es un `User` existente, ya existe una
+   `Invitation` PENDING) ya tienen cobertura persistente contra Postgres real
+   (`src/services/invitation.service.integration-test.ts`). El tramo
+   `createInvitation` → `inviteUserByEmail` en sí —la llamada real a Supabase
+   y el round-trip HTTP completo de creación de una invitación— sigue sin
+   cobertura persistente, deliberadamente: no puede ejercitarse repetidamente
+   sin arriesgar el cupo de envío de email del proyecto.
 
 2. **Rate limiting a nivel de Express — ✅ resuelto (M1, 2026-07-12).**
    `POST /api/onboarding` y `POST /api/invitations/accept` ya tienen protección de
@@ -957,6 +983,16 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
 
 - **Rate limit de envío de email de Supabase — limitación externa confirmada
   empíricamente.** Ver sección 8, paso 1. No es un bug del código.
+  Trazabilidad de cobertura de `Invitation` por nivel de prueba (LOW-3,
+  revisado 2026-07-12): HTTP real contra un servidor Express real existe solo
+  para `POST /api/invitations/accept` (`src/middlewares/rateLimit.integration-test.ts`).
+  A nivel service/integración (Postgres real, sin pasar por HTTP) están
+  cubiertos `acceptInvitation`/`revokeInvitation` completos y, desde esta
+  revisión, las dos ramas de `createInvitation` previas a Supabase
+  (`src/services/invitation.service.integration-test.ts`). El tramo
+  `createInvitation` → `inviteUserByEmail` —ni a nivel service ni a nivel
+  HTTP— no tiene cobertura persistente: es el único tramo bloqueado por el
+  límite externo de esta sección, no el flujo de `Invitation` completo.
 
 - **El rate limiting de M1 (`POST /api/onboarding`, `POST /api/invitations/accept`)
   usa `MemoryStore` — límite operacional deliberado, no un descuido.** Estado en
@@ -979,12 +1015,15 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
   había transicionado fuera de `PENDING` (por una carrera real, o simplemente
   porque ya se había resuelto hace rato) quedaba invisible para esa búsqueda y
   daba un `404`/`400` genérico en vez del `409`/`410` específico — nunca una
-  violación de invariante de datos (verificado en 30+ carreras reales), sino
-  una imprecisión de respuesta. Corregido reemplazando esa búsqueda por
+  violación de invariante de datos (verificado manualmente en 30+ carreras
+  reales durante la sesión histórica de H3/H4, no como test persistente),
+  sino una imprecisión de respuesta. Corregido reemplazando esa búsqueda por
   `findInvitationsByEmail` (sin filtro de status, `createdAt DESC` explícito):
   hoy, exista o no una invitación `PENDING`, se reporta siempre el estado real
   y específico — `revokeInvitation` recibió el mismo tratamiento. Cobertura
-  persistente en `src/services/invitation.service.integration-test.ts`.
+  persistente en `src/services/invitation.service.integration-test.ts`
+  (mecanismo distinto: lock determinístico de Postgres para forzar el CAS
+  perdido, no las carreras `Promise.all` originales de H3/H4 — ver sección 3).
 
 - **Las constraints SQL manuales y las políticas de RLS no están versionadas junto
   con las migraciones de Prisma.** Tanto `manual_constraints.sql` como
