@@ -68,9 +68,25 @@ actividades.
 | **jose** | Verificación del JWT emitido por Supabase Auth | `src/lib/jwt.ts` — valida firma contra el JWKS público del proyecto (`createRemoteJWKSet` + `jwtVerify`, ES256) y expiración; no emite tokens propios. Reemplazó a `jsonwebtoken`+`SUPABASE_JWT_SECRET` (HS256) cuando se descubrió, probando contra un login real, que este proyecto firma con clave asimétrica. |
 | **@supabase/supabase-js** | Cliente de Supabase para operaciones administrativas | `src/lib/supabaseAdmin.ts` — únicamente con `service_role`, nunca la `anon` key (crear/borrar usuarios de `auth.users`). |
 
-**Lo que todavía NO está en el stack**:
-- Ningún framework de frontend.
-- Ningún framework de testing.
+**Lo que todavía NO está en el stack del backend**:
+- Ningún framework de testing (usa el runner nativo `node:test`, sin dependencia
+  externa — ver sección 7).
+- Ningún linter/formatter (ESLint, Prettier).
+
+### Frontend (`frontend/`, M0 — scaffold e infraestructura base)
+
+| Tecnología | Rol | Por qué (evidencia en el repo) |
+|---|---|---|
+| **React** 19 / **React DOM** | UI | `frontend/package.json` — única librería de vista, sin framework de estado global adicional. |
+| **TypeScript** (`strict: true`) | Lenguaje del frontend | `frontend/tsconfig.app.json` — mismo criterio de tipado estricto que el backend. |
+| **Vite** | Build tool + dev server | `frontend/vite.config.ts` — puerto de dev `5173` por default, coincide con `CORS_ORIGIN` por defecto del backend (`.env.example`). |
+| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`, hoy con 2 rutas placeholder (M0 no implementa pantallas todavía). |
+| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0 (`QueryClient` configurado), sin queries de módulos funcionales todavía. |
+| **@supabase/supabase-js** | Cliente de Supabase para el browser | `frontend/src/lib/supabase.ts` — única instancia, únicamente con la `anon key` (nunca `service_role`, esa es exclusiva del backend — ver `src/lib/supabaseAdmin.ts` arriba). |
+
+**Lo que todavía NO está en el stack del frontend**:
+- Ningún framework de testing frontend — decisión explícita de M0, no un olvido
+  (ver sección 7).
 - Ningún linter/formatter (ESLint, Prettier).
 
 ---
@@ -102,50 +118,81 @@ Plataforma CRM/
 │       │                             #   y el de invitations_org_email_pending_unique).
 │       └── rls_policies.sql         # Row Level Security — ver sección 7 y
 │                                     #   authentication-architecture.md sección 5.
-└── src/
-    ├── config/env.ts               # Validación de process.env con zod.
-    ├── lib/                        # prisma.ts (singleton + tipo Db), logger.ts
-    │                                #   (pino), jwt.ts (JWT de Supabase vía JWKS,
-    │                                #   jose), supabaseAdmin.ts (cliente service_role).
-    ├── types/auth.ts                # RoleName, JwtPayload, AuthContext,
-    │                                 #   AuthenticatedRequest, ampliación de Express.Request.
-    ├── utils/                       # AppError.ts, asyncHandler.ts (genérico sobre
-    │                                 #   el tipo de Request), validation.ts
-    │                                 #   (parseOrThrow), slug.ts, bearerToken.ts
-    │                                 #   (extractBearerToken, usado por el flujo de
-    │                                 #   aceptación de invitaciones, ver sección 4).
-    ├── middlewares/                 # notFound.ts, errorHandler.ts, authenticate.ts,
-    │                                 #   authorize.ts.
-    ├── controllers/                 # onboarding.controller.ts, company.controller.ts,
-    │                                 #   contact.controller.ts, pipeline.controller.ts,
-    │                                 #   stage.controller.ts, opportunity.controller.ts,
-    │                                 #   activity.controller.ts, invitation.controller.ts,
-    │                                 #   user.controller.ts.
-    ├── services/                    # auth.service.ts, onboarding.service.ts,
-    │                                 #   ownership.service.ts (resolveOwnerId,
-    │                                 #   compartido entre Company, Contact y Opportunity —
-    │                                 #   Activity/Invitation NO lo usan para
-    │                                 #   assigneeId/reactivar, ver sección 4),
-    │                                 #   company.service.ts, contact.service.ts,
-    │                                 #   pipeline.service.ts, stage.service.ts,
-    │                                 #   opportunity.service.ts, activity.service.ts,
-    │                                 #   invitation.service.ts, user.service.ts.
-    ├── repositories/                # user.repository.ts, organization.repository.ts,
-    │                                 #   role.repository.ts, company.repository.ts,
-    │                                 #   contact.repository.ts, pipeline.repository.ts,
-    │                                 #   stage.repository.ts (reindexado de order),
-    │                                 #   opportunity.repository.ts, activity.repository.ts,
-    │                                 #   invitation.repository.ts (compare-and-swap) —
-    │                                 #   ver README.md para el patrón de tres capas.
-    ├── routes/                      # health.routes.ts (sin prefijo), index.ts
-    │                                 #   agregador, onboarding.routes.ts,
-    │                                 #   company.routes.ts, contact.routes.ts,
-    │                                 #   pipeline.routes.ts, stage.routes.ts,
-    │                                 #   opportunity.routes.ts, activity.routes.ts,
-    │                                 #   invitation.routes.ts y user.routes.ts
-    │                                 #   (bajo /api).
-    ├── app.ts                       # arma Express, no escucha puerto.
-    └── server.ts                    # entry point + graceful shutdown.
+├── src/
+│   ├── config/env.ts               # Validación de process.env con zod.
+│   ├── lib/                        # prisma.ts (singleton + tipo Db), logger.ts
+│   │                                #   (pino), jwt.ts (JWT de Supabase vía JWKS,
+│   │                                #   jose), supabaseAdmin.ts (cliente service_role).
+│   ├── types/auth.ts                # RoleName, JwtPayload, AuthContext,
+│   │                                 #   AuthenticatedRequest, ampliación de Express.Request.
+│   ├── utils/                       # AppError.ts, asyncHandler.ts (genérico sobre
+│   │                                 #   el tipo de Request), validation.ts
+│   │                                 #   (parseOrThrow), slug.ts, bearerToken.ts
+│   │                                 #   (extractBearerToken, usado por el flujo de
+│   │                                 #   aceptación de invitaciones, ver sección 4).
+│   ├── schemas/                      # invitation.schema.ts, onboarding.schema.ts —
+│   │                                  #   extraídos de los controllers para
+│   │                                  #   compartirlos con los rate limiters de M1
+│   │                                  #   (ver sección 7).
+│   ├── middlewares/                 # notFound.ts, errorHandler.ts, authenticate.ts,
+│   │                                 #   authorize.ts, rateLimit.ts (M1),
+│   │                                 #   verifyInvitationAcceptIdentity.ts (M1).
+│   ├── controllers/                 # health.controller.ts, onboarding.controller.ts,
+│   │                                 #   company.controller.ts, contact.controller.ts,
+│   │                                 #   pipeline.controller.ts, stage.controller.ts,
+│   │                                 #   opportunity.controller.ts, activity.controller.ts,
+│   │                                 #   invitation.controller.ts, user.controller.ts,
+│   │                                 #   me.controller.ts.
+│   ├── services/                    # health.service.ts, auth.service.ts,
+│   │                                 #   onboarding.service.ts, ownership.service.ts
+│   │                                 #   (resolveOwnerId, compartido entre Company,
+│   │                                 #   Contact y Opportunity — Activity/Invitation
+│   │                                 #   NO lo usan para assigneeId/reactivar, ver
+│   │                                 #   sección 4), company.service.ts,
+│   │                                 #   contact.service.ts, pipeline.service.ts,
+│   │                                 #   stage.service.ts, opportunity.service.ts,
+│   │                                 #   activity.service.ts, invitation.service.ts,
+│   │                                 #   user.service.ts.
+│   ├── repositories/                # user.repository.ts, organization.repository.ts,
+│   │                                 #   role.repository.ts, company.repository.ts,
+│   │                                 #   contact.repository.ts, pipeline.repository.ts,
+│   │                                 #   stage.repository.ts (reindexado de order),
+│   │                                 #   opportunity.repository.ts, activity.repository.ts,
+│   │                                 #   invitation.repository.ts (compare-and-swap) —
+│   │                                 #   ver README.md para el patrón de tres capas.
+│   ├── routes/                      # health.routes.ts (sin prefijo), index.ts
+│   │                                 #   agregador, onboarding.routes.ts,
+│   │                                 #   company.routes.ts, contact.routes.ts,
+│   │                                 #   pipeline.routes.ts, stage.routes.ts,
+│   │                                 #   opportunity.routes.ts, activity.routes.ts,
+│   │                                 #   invitation.routes.ts, user.routes.ts y
+│   │                                 #   me.routes.ts (bajo /api).
+│   ├── app.ts                       # arma Express, no escucha puerto.
+│   └── server.ts                    # entry point + graceful shutdown.
+└── frontend/                      # M0: scaffold + infraestructura base (Vite +
+                                     #   React + TypeScript, paquete npm
+                                     #   independiente, sin workspaces). Sin login
+                                     #   ni pantallas funcionales todavía — ver
+                                     #   sección 7.
+    ├── .env.example
+    ├── package.json
+    ├── tsconfig.json / tsconfig.app.json / tsconfig.node.json
+    ├── vite.config.ts
+    ├── index.html
+    └── src/
+        ├── main.tsx                  # bootstrap: StrictMode + createRoot + <App/>.
+        ├── vite-env.d.ts              # tipado de las 3 variables VITE_* de env.ts.
+        ├── app/                        # App.tsx (QueryClientProvider →
+        │                                #   RouterProvider), router.tsx
+        │                                #   (createBrowserRouter, 2 rutas
+        │                                #   placeholder).
+        ├── config/env.ts                # Validación en runtime de las VITE_*
+        │                                  #   (fail-fast si falta alguna o si
+        │                                  #   una URL no es absoluta/http(s)).
+        ├── lib/                          # supabase.ts (cliente único), api.ts
+        │                                  #   (wrapper de fetch + ApiError),
+        │                                  #   queryClient.ts.
+        └── styles/global.css               # Reset base, sin design system.
 ```
 
 Detalle carpeta por carpeta (propósito, qué va en cada una) en `README.md` — no se
@@ -159,9 +206,13 @@ duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
   uniforme para los ocho. En particular, `Invitation` no está "verificado
   end-to-end contra Supabase real" sin matices: ver el desglose por tramo
   (manual/histórico vs. persistente, HTTP vs. service) en las secciones 3, 7, 8 y
-  9 (LOW-3). Lo que sigue pendiente es de otra naturaleza: endpoint de login
-  propio (el login en sí no pasa por Express, ver `authentication-architecture.md`
-  sección 3) y un frontend que ejercite todo esto — ver sección 8.
+  9 (LOW-3). Lo que sigue pendiente es de otra naturaleza: el flujo/UI de login
+  del frontend contra Supabase Auth (sin endpoint propio en Express — eso es una
+  decisión de diseño estable, no un pendiente, ver `authentication-architecture.md`
+  sección 3), `AuthContext`/`AuthProvider`, `ProtectedRoute` y las pantallas
+  funcionales del CRM — `frontend/` existe desde M0 (scaffold + infraestructura,
+  ver sección 7), pero todo eso es trabajo de M1 en adelante, todavía no
+  implementado — ver sección 8.
 
 ---
 
@@ -595,8 +646,9 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
 > solo un resumen con el estado real de implementación de cada paso.
 
 **1. Registro (`auth.users`).** El usuario se registra a través de Supabase Auth (por
-ejemplo `supabase.auth.signUp(...)` desde un frontend que todavía no existe en este
-repo). Supabase crea la fila en `auth.users` — una tabla que Supabase gestiona en su
+ejemplo `supabase.auth.signUp(...)` desde un frontend — `frontend/` existe desde M0
+como scaffold, pero todavía no implementa ningún flujo de registro, ver sección 7).
+Supabase crea la fila en `auth.users` — una tabla que Supabase gestiona en su
 propio schema de Postgres, **fuera del `schema.prisma` de este proyecto** (Prisma no la
 modela ni la controla).
 
@@ -821,7 +873,16 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   `deletedAt != null` además de exigir `isActive`.
 
 **Frontend**
-- ❌ No existe ningún código de frontend en este repositorio.
+- ✅ **M0 (scaffold) implementado** — `frontend/`, aplicación Vite + React +
+  TypeScript independiente (paquete npm propio, sin workspaces), sibling de
+  `src/` en la raíz. Infraestructura únicamente: cliente único de
+  `supabase-js` (`src/lib/supabase.ts`), wrapper propio sobre `fetch` con
+  manejo de errores tipado (`src/lib/api.ts`, `ApiError`), `QueryClient` de
+  TanStack Query (`src/lib/queryClient.ts`), router con dos rutas
+  placeholder (`src/app/router.tsx`), validación de env en runtime
+  (`src/config/env.ts`). ❌ Todavía sin login, sin `AuthContext`, sin
+  `ProtectedRoute` ni ninguna pantalla funcional del CRM — eso es M1 en
+  adelante.
 
 **Autenticación**
 - ✅ Diseño de sincronización de email (`auth.users` ↔ `public.users`) implementado en
@@ -843,8 +904,8 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   endpoint de backend, no como trigger de DB — ver el cambio de diseño documentado en
   `authentication-architecture.md` sección 1.
 - ❌ Sin endpoint de login (el login en sí no pasa por Express — ver sección 3 de
-  `authentication-architecture.md` — pero no hay nada de frontend todavía que lo
-  ejercite).
+  `authentication-architecture.md` — el frontend, M0, existe como scaffold pero
+  todavía no implementa ningún flujo de login que lo ejercite, ver arriba).
 - ✅ Invitación de usuarios (`Invitation` en `schema.prisma`, módulo completo —
   ver arriba). El diseño original de `authentication-architecture.md` sección 2
   asumía un trigger `AFTER INSERT ON auth.users` para el flujo de onboarding
@@ -995,9 +1056,14 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    Supabase.** Ver sección 9 — limitación real de la plataforma, no de este
    código.
 
-5. **Frontend.** Sigue sin existir ningún código de frontend en este
-   repositorio — es la pieza que falta para que el backend sea un producto
-   entregable, no solo una API verificada.
+5. **Frontend — M1 en adelante.** `frontend/` existe desde M0 (scaffold +
+   infraestructura base: Vite + React + TypeScript, cliente único de
+   Supabase, wrapper propio de `fetch`, `QueryClient`, router con rutas
+   placeholder — ver sección 7). Todavía faltan login, `AuthContext`/
+   `AuthProvider`, `ProtectedRoute` y las pantallas funcionales del CRM
+   (Company, Contact, Pipeline/Stage, Opportunity, Activity, administración
+   de Users/Invitations) — es la pieza que falta para que el backend sea un
+   producto entregable, no solo una API verificada.
 
 ---
 

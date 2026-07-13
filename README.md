@@ -68,6 +68,21 @@ npx prisma db execute --file prisma/sql/manual_constraints.sql --url "$DIRECT_UR
 npx prisma db execute --file prisma/sql/rls_policies.sql --url "$DIRECT_URL"
 ```
 
+## Frontend
+
+`frontend/` — aplicación Vite + React + TypeScript independiente (paquete
+npm propio, `node_modules`/`dist` propios, sin workspaces). M0 implementado:
+scaffold e infraestructura únicamente (cliente de Supabase, wrapper de
+`fetch`, `QueryClient`, router con rutas placeholder) — sin login ni
+pantallas funcionales todavía, ver `docs/project-overview.md` sección 7.
+
+```bash
+cd frontend
+npm install
+cp .env.example .env   # completar con las credenciales reales de Supabase y la URL de esta API
+npm run dev             # sirve en http://localhost:5173 — coincide con CORS_ORIGIN por defecto de abajo
+```
+
 ## Estructura de carpetas
 
 ```
