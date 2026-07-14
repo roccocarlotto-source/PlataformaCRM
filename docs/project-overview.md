@@ -73,15 +73,15 @@ actividades.
   externa — ver sección 7).
 - Ningún linter/formatter (ESLint, Prettier).
 
-### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company)
+### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact)
 
 | Tecnología | Rol | Por qué (evidencia en el repo) |
 |---|---|---|
 | **React** 19 / **React DOM** | UI | `frontend/package.json` — única librería de vista, sin framework de estado global adicional. |
 | **TypeScript** (`strict: true`) | Lenguaje del frontend | `frontend/tsconfig.app.json` — mismo criterio de tipado estricto que el backend. |
 | **Vite** | Build tool + dev server | `frontend/vite.config.ts` — puerto de dev `5173` por default, coincide con `CORS_ORIGIN` por defecto del backend (`.env.example`). |
-| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2, todavía placeholder de M0 sin dashboard real), `/companies`, `/companies/new`, `/companies/:id/edit` (M2, reales), `*` (placeholder de M0). |
-| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad). |
+| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2, todavía placeholder de M0 sin dashboard real), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3 — comparten el mismo `AdminRoute` que Company), `*` (placeholder de M0). |
+| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail` — ver sección 7. |
 | **@supabase/supabase-js** | Cliente de Supabase para el browser | `frontend/src/lib/supabase.ts` — única instancia, únicamente con la `anon key` (nunca `service_role`, esa es exclusiva del backend — ver `src/lib/supabaseAdmin.ts` arriba). |
 | **Vitest** + **jsdom** + **@testing-library/react** + **user-event** + **jest-dom** + **MSW v2** | Testing frontend | `frontend/vite.config.ts` (bloque `test`, `defineConfig` de `vitest/config`), `frontend/src/test/`. Introducido en M2 para remediar `STD-SW-003` — ver detalle abajo. |
 
@@ -173,10 +173,10 @@ Plataforma CRM/
                                      #   independiente, sin workspaces). M1 (ver
                                      #   abajo) agregó login/sesión, M2 agregó
                                      #   el primer módulo de negocio real
-                                     #   (Company) — Contact/Pipeline/Stage/
-                                     #   Opportunity/Activity/Users/Invitations
-                                     #   UI y Dashboard siguen pendientes, ver
-                                     #   sección 7/8.
+                                     #   (Company), M3 agregó Contact —
+                                     #   Pipeline/Stage/Opportunity/Activity/
+                                     #   Users/Invitations UI y Dashboard
+                                     #   siguen pendientes, ver sección 7/8.
     ├── .env.example
     ├── package.json
     ├── tsconfig.json / tsconfig.app.json / tsconfig.node.json
@@ -189,17 +189,18 @@ Plataforma CRM/
         │                                #   AuthProvider → RouterProvider, M1),
         │                                #   router.tsx (createBrowserRouter:
         │                                #   /login + / protegida (AppLayout,
-        │                                #   M2) + /companies* (M2) + *).
+        │                                #   M2) + /companies* (M2) +
+        │                                #   /contacts* (M3) + *).
         ├── auth/                        # M1 — AuthContext.tsx (AuthProvider +
         │                                  #   useAuth + máquina de estados) +
         │                                  #   AuthContext.test.tsx (M2, 12 de
         │                                  #   los 14 escenarios de STD-SW-003),
         │                                  #   ProtectedRoute.tsx, getAccessToken.ts
         │                                  #   (puente hacia api.ts), AdminRoute.tsx
-        │                                  #   + AdminRoute.test.tsx (M2 —
-        │                                  #   protección visual de las rutas de
-        │                                  #   escritura de Company, no un RBAC
-        │                                  #   genérico).
+        │                                  #   + AdminRoute.test.tsx (M2 — protección
+        │                                  #   visual de las rutas de escritura de
+        │                                  #   Company, extendido en M3 para las de
+        │                                  #   Contact; no un RBAC genérico).
         ├── config/env.ts                # Validación en runtime de las VITE_*
         │                                  #   (fail-fast si falta alguna o si
         │                                  #   una URL no es absoluta/http(s)).
@@ -208,20 +209,36 @@ Plataforma CRM/
         │   │                              #   LoginPage.test.tsx (M2, 2
         │   │                              #   escenarios de STD-SW-003 + el
         │   │                              #   round-trip con ProtectedRoute).
-        │   └── company/                  # M2 — types.ts (incluye ownerId en
-        │       │                          #   CompanyListQuery/CreateCompanyInput),
-        │       │                          #   api.ts + api.test.ts (reutiliza
-        │       │                          #   request()/getAccessToken de M1),
-        │       │                          #   queries.ts (companyKeys,
-        │       │                          #   useCompanies/useCompany),
-        │       │                          #   mutations.ts + mutations.test.tsx
-        │       │                          #   (invalidación selectiva),
-        │       │                          #   CompanyListPage.tsx + .test.tsx,
-        │       └──                        #   CompanyFormPage.tsx + .test.tsx.
+        │   ├── company/                  # M2 — types.ts (incluye ownerId en
+        │   │   │                          #   CompanyListQuery/CreateCompanyInput),
+        │   │   │                          #   api.ts + api.test.ts (reutiliza
+        │   │   │                          #   request()/getAccessToken de M1),
+        │   │   │                          #   queries.ts (companyKeys,
+        │   │   │                          #   useCompanies/useCompany),
+        │   │   │                          #   mutations.ts + mutations.test.tsx
+        │   │   │                          #   (invalidación selectiva),
+        │   │   │                          #   CompanyListPage.tsx + .test.tsx,
+        │   │   │                          #   CompanyFormPage.tsx + .test.tsx,
+        │   │   └──                        #   CompanySelect.tsx + .test.tsx (M3 —
+        │   │                              #   selector/filtro server-side de
+        │   │                              #   Company, consumido por Contact).
+        │   └── contact/                  # M3 — mismo esqueleto que company/:
+        │       │                          #   types.ts, api.ts + api.test.ts,
+        │       │                          #   queries.ts (contactKeys,
+        │       │                          #   useContacts/useContact),
+        │       │                          #   mutations.ts + mutations.test.tsx,
+        │       │                          #   ContactListPage.tsx + .test.tsx,
+        │       │                          #   ContactFormPage.tsx + .test.tsx.
+        │       └──                        #   companyResolution.ts
+        │                                  #   (useCompaniesByIds — resuelve
+        │                                  #   nombres de Company solo para los
+        │                                  #   companyId visibles en la página
+        │                                  #   actual de Contacts, ver sección 7).
         ├── layout/AppLayout.tsx          # M2 — nav mínima + logout
         │                                  #   (isLoggingOut local, sin
         │                                  #   duplicar estado de sesión) +
-        │                                  #   Outlet.
+        │                                  #   Outlet; M3 agregó el link a
+        │                                  #   /contacts.
         ├── lib/                          # supabase.ts (cliente único), api.ts
         │                                  #   (wrapper de fetch + ApiError,
         │                                  #   signal opcional desde M1),
@@ -232,7 +249,9 @@ Plataforma CRM/
                                              #   msw/handlers.ts (factories de
                                              #   /api/me), companyFixtures.ts
                                              #   (makeCompany(), compartida
-                                             #   entre los tests de Company).
+                                             #   entre los tests de Company);
+                                             #   M3 agregó contactFixtures.ts
+                                             #   (makeContact()).
 ```
 
 Detalle carpeta por carpeta (propósito, qué va en cada una) en `README.md` — no se
@@ -251,12 +270,13 @@ duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
   pendiente, ver `authentication-architecture.md` sección 3), `AuthContext`/
   `AuthProvider` y `ProtectedRoute` **ya están implementados (M1)**, y
   `Company` **ya está implementado (M2, primer módulo de negocio real del
-  CRM — ver sección 7)**. `STD-SW-003` quedó resuelto en M2, sin condición
-  pendiente. Lo que sigue pendiente es de otra naturaleza: el resto de las
-  pantallas funcionales del CRM (`Contact`, `Pipeline`/`Stage`,
-  `Opportunity`, `Activity`, administración de `User`/`Invitation`) y
-  Dashboard — trabajo de M3 en adelante, todavía no implementado — ver
-  sección 8.
+  CRM — ver sección 7)**, y `Contact` también **(M3, ver sección 7 —
+  cerrado, reviews en PASS)**. `STD-SW-003` quedó resuelto en
+  M2, sin condición pendiente. Lo que sigue pendiente es de otra
+  naturaleza: el resto de las pantallas funcionales del CRM
+  (`Pipeline`/`Stage`, `Opportunity`, `Activity`, administración de
+  `User`/`Invitation`) y Dashboard — trabajo de M4 en adelante, todavía no
+  implementado — ver sección 8.
 
 ---
 
@@ -1091,6 +1111,167 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   `RV-ENG`: **PASS**. `RV-SECURITY`: **PASS**. `RV-STANDARDS`: **PASS**. Sin
   condiciones pendientes — el Gate de M2 queda liberado incondicionalmente.
 
+- ✅ **M3 (módulo Contact + relación Contact→Company) implementado y
+  cerrado — reviews ejecutados desde cero contra el deliverable final
+  (posterior a la corrección de `CompanySelect`, ver abajo), sin
+  condiciones pendientes.** `frontend/src/features/contact/` completo: `types.ts` (el
+  contrato de escritura sigue fielmente el HTTP real, no el tipo interno
+  del backend: `email`/`phone`/`jobTitle`/`source`/`companyId`/`ownerId`
+  tipados `string` opcional, nunca `string | null` — la Zod schema real
+  en `contact.controller.ts` solo tiene `.optional()`, no `.nullable()`,
+  aunque `contact.service.ts` tipe internamente esos mismos campos como
+  `string | null`; ninguno de esos campos puede limpiarse a `null` vía
+  `PATCH` — limitación real del backend, documentada acá, no una omisión
+  del frontend), `api.ts`, `queries.ts` (`contactKeys`, `useContacts`,
+  `useContact`), `mutations.ts` (mismo patrón de invalidación selectiva
+  que Company), `companyResolution.ts`, `ContactListPage.tsx`,
+  `ContactFormPage.tsx` (un único componente para alta y edición, mismo
+  patrón que `CompanyFormPage`). Rutas `/contacts`, `/contacts/new`,
+  `/contacts/:id/edit` agregadas a `router.tsx`, reutilizando el mismo
+  `AdminRoute` ya usado por Company — no un sistema de permisos nuevo.
+  `AppLayout.tsx` agrega un link de navegación a `/contacts` (una línea,
+  sin rediseño). `organizationId` nunca viaja desde el frontend en
+  ninguna query/body de Contact — verificado con test persistente sobre
+  requests reales interceptadas, mismo criterio que Company.
+
+  **Relación Contact → Company.** El diseño inicial asumía que traer la
+  primera página de Companies alcanzaba para resolver nombres en el
+  listado de Contacts — se corrigió **antes** de implementar, en una
+  segunda ronda de investigación, porque no escala con más de una página
+  de Companies en la organización. Diseño final, dos mecanismos
+  independientes para dos problemas distintos:
+  1. **Selector/filtro (`frontend/src/features/company/CompanySelect.tsx`
+     — vive en el propio módulo Company, no es un selector genérico de
+     entidades)**: búsqueda server-side debounced (300ms, `setTimeout`/
+     `useEffect`, sin nueva dependencia) sobre `GET /api/companies?search=`
+     (ya existente, filtra solo por `name`, case-insensitive), `pageSize`
+     acotado (20), sin precarga (`enabled` solo con término no vacío) —
+     funciona igual con diez o con miles de Companies en la organización
+     porque nunca asume un tope ni trae más que lo que el usuario pidió.
+  2. **Resolución de nombres en el listado
+     (`frontend/src/features/contact/companyResolution.ts`,
+     `useCompaniesByIds`)**: resuelve exclusivamente los `companyId`
+     realmente visibles en la página actual de Contacts (vía
+     `useQueries`, deduplicados, `getCompany(id)` individual por cada
+     uno) — nunca la lista completa ni la primera página de Companies.
+     Verificado con un test dedicado donde la Company vinculada está
+     fuera de cualquier página razonable del listado de Companies (el
+     mock del endpoint de listado de Companies nunca se llama) y con un
+     test de deduplicación (dos Contacts con el mismo `companyId`
+     generan una sola resolución).
+
+  **Corrección técnica sobre caché de TanStack Query, resuelta antes de
+  implementar** (un análisis previo había asumido, incorrectamente, que
+  la Company resuelta por `CompanySelect` quedaba "gratis" disponible
+  para `useCompaniesByIds`): `companyKeys.list(query)` y
+  `companyKeys.detail(id)` son queryKeys independientes — TanStack Query
+  no normaliza entidades entre ellas automáticamente, confirmado contra
+  la documentación oficial y contra el código real de
+  `company/queries.ts`. Estrategia adoptada: `CompanySelect` siembra
+  explícitamente `companyKeys.detail(id)` vía
+  `queryClient.setQueryData()` con cada resultado de su propia búsqueda
+  — dentro del módulo Company, sin acoplar `useCompaniesByIds` a que eso
+  haya ocurrido: si `CompanySelect` nunca sembró esa Company,
+  `useCompaniesByIds` simplemente hace su propio fetch individual, sin
+  ninguna lógica especial de por medio. No se introdujo una capa de
+  normalización de entidades genérica.
+
+  `ownerId` queda sin selector visual en `ContactFormPage`, mismo motivo
+  ya documentado para Company en M2 (`GET /api/users` no consumido
+  todavía por ningún módulo).
+
+  **Tests**: `contact/api.test.ts` (5), `contact/mutations.test.tsx` (4),
+  `company/CompanySelect.test.tsx` (5, incluida la siembra de
+  `companyKeys.detail` desde los resultados de búsqueda),
+  `contact/ContactListPage.test.tsx` (13, incluidos los dos escenarios
+  críticos de la relación Contact→Company: resolución fuera de la
+  primera página, y deduplicación entre Contacts con el mismo
+  `companyId`), `contact/ContactFormPage.test.tsx` (6), y una extensión
+  de `auth/AdminRoute.test.tsx` (+4, mismo criterio que Company:
+  jerarquía real `ProtectedRoute → AdminRoute → ContactFormPage`, no una
+  condición aislada — `USER` termina redirigido a `/companies`, porque
+  `AdminRoute` sigue redirigiendo siempre ahí, hardcoded desde M2, sin
+  cambios para M3). 37 tests nuevos (5 + 4 + 5 + 13 + 6 + 4 — incluye el
+  fallback de `CompanySelect` ante una resolución fallida de la Company
+  ya seleccionada, corregido tras revisión externa antes del cierre —
+  ver más abajo); **79 tests en total** en la suite frontend completa
+  (16 auth + 26 Company + 37 Contact/CompanySelect/AdminRoute-Contact),
+  todos verdes.
+
+  Poder de detección verificado con mutaciones deliberadas, todas
+  revertidas antes de continuar: fuga de `organizationId` en el body de
+  `createContact` (detectada por `api.test.ts`), resolución de nombres
+  degradada a la primera página de Companies en vez de resolución
+  puntual por id (detectada por `ContactListPage.test.tsx`, tanto el
+  escenario de "fuera de la primera página" como el de deduplicación),
+  eliminación del filtro `companyId` en `buildListQueryString` (detectada
+  por `ContactListPage.test.tsx` y, como efecto secundario, por un
+  timeout en `api.test.ts`), y ocultamiento del error 409 en
+  `ContactFormPage` (detectada por `ContactFormPage.test.tsx`, tanto el
+  caso 409 como el de error genérico). **Un quinto intento — remover la
+  deduplicación de `Array.from(new Set(ids))` en `useCompaniesByIds` —
+  no hizo fallar ningún test**: verificado que TanStack Query dedupea
+  las requests de red por `queryKey` idéntica a nivel interno,
+  independientemente de que el array de queries pasado a `useQueries`
+  tenga entradas repetidas: `detailRequestCount` se mantuvo en 1 con o
+  sin el `Set`. Conclusión honesta, no forzada: el `Set` es una práctica
+  defensiva razonable (evita instanciar N observers de query en vez de
+  1 cuando hay ids repetidos), pero no es, hoy, el mecanismo del que
+  depende la corrección funcional — esa corrección la garantiza TanStack
+  Query internamente. Se mantiene el `Set` porque sigue siendo la forma
+  más simple y explícita de expresar la intención ("resolver ids
+  únicos"), no porque el test lo exija.
+
+  **Corrección post-revisión: `CompanySelect` no debe mostrar el
+  `companyId` crudo si falla la resolución de la Company ya
+  seleccionada.** Una revisión externa detectó que, aunque
+  `ContactListPage` ya tenía este fallback correcto (`"—"`, con test
+  dedicado), `CompanySelect` mostraba el UUID sin resolver
+  (`selectedCompanyQuery.data ? nombre : isLoading ? "Cargando…" :
+  value`) cuando `GET /companies/:id` fallaba para la Company
+  actualmente seleccionada — contradiciendo el mismo criterio ya
+  aplicado en el listado. Corregido: el tercer caso del mismo ternario
+  ahora muestra `"No pudimos cargar la empresa seleccionada."` en vez de
+  `value`; no se agregó botón de "quitar", no cambió la semántica de
+  `companyId` en ningún formulario, no se agregó estado remoto
+  duplicado — se reutiliza `selectedCompanyQuery` tal cual ya existía.
+  Sin `role="alert"` deliberadamente: a diferencia de un error de
+  mutation (que sí bloquea una acción y amerita anuncio inmediato), este
+  es un dato informativo degradado dentro de un selector que sigue
+  siendo funcional (el `companyId` seleccionado sigue siendo válido y
+  enviable) — mismo criterio, sin alerta, que el fallback `"—"` ya
+  aprobado en `ContactListPage`. Cubierto con un test persistente nuevo
+  en `CompanySelect.test.tsx` (monta `CompanySelect` real con
+  `value="co-rota"`, `QueryClient` y MSW reales, `GET
+  /companies/co-rota` responde 404, verifica el fallback visible y la
+  ausencia de `"co-rota"` en el documento) — poder de detección
+  verificado reintroduciendo temporalmente `: value` en el ternario
+  (el test falló exactamente por eso: aparecía el UUID crudo y
+  desaparecía el fallback esperado) y revertido por completo antes de
+  continuar.
+
+  **Deuda técnica / notas residuales, no minimizadas**: durante el test
+  "el filtro companyId... puede limpiarse" de `ContactListPage.test.tsx`,
+  MSW registra una advertencia de consola por una request de fondo a
+  `GET /companies/:id` sin handler explícito — es el refetch en segundo
+  plano que dispara `useCompany` dentro de `CompanySelect` por el
+  `staleTime` default de TanStack Query (0), sobre una entrada de caché
+  que ya fue sembrada y ya se está mostrando; no afecta ninguna
+  aserción del test (la UI ya muestra el dato cacheado) y no es un bug
+  de la aplicación, pero se deja declarado en vez de silenciado.
+  `AppLayout.tsx` sigue sin test de componente propio (gap heredado de
+  M2, sin agravarse en M3). Igual que en M2: casos límite de paginación
+  y validación exhaustiva campo por campo de `ContactFormPage` (más allá
+  de los campos requeridos) no tienen test dedicado — gaps Bajos,
+  delegados en la práctica a la validación real del backend (Zod).
+
+  **Reviews obligatorios (Claude-Toolkit-V1), ejecutados desde cero
+  contra el deliverable final de M3** (incluida la corrección de
+  `CompanySelect` — ninguna ejecución previa a esa corrección se heredó
+  como definitiva): `RV-ENG`: **PASS**. `RV-SECURITY`: **PASS**.
+  `RV-STANDARDS`: **PASS**. Sin condiciones pendientes — el Gate de M3
+  queda liberado incondicionalmente.
+
 **Autenticación**
 - ✅ Diseño de sincronización de email (`auth.users` ↔ `public.users`) implementado en
   SQL.
@@ -1278,16 +1459,25 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    de M1 **más** los critical paths de Company (42 tests en total, 16 +
    26). Reviews del Toolkit, ejecutados desde cero contra el deliverable
    final de M2: `RV-ENG`, `RV-SECURITY` y `RV-STANDARDS` en **PASS** pleno,
-   sin condiciones pendientes. **Frontend — M3 en adelante.** Todavía
-   faltan `Contact`,
+   sin condiciones pendientes. **M3 (Contact + relación Contact→Company) —
+   ✅ implementado y cerrado (ver sección 7)**: módulo `Contact`
+   completo (mismo patrón que Company), `CompanySelect` reutilizado desde
+   Company como selector/filtro server-side (con fallback humano, nunca
+   el UUID crudo, ante una resolución fallida de la Company
+   seleccionada), `useCompaniesByIds` para resolver nombres de Company en
+   el listado de Contacts sin asumir un máximo de Companies en la
+   organización, 37 tests nuevos (79 en total). Reviews del Toolkit,
+   ejecutados desde cero contra el deliverable final de M3: `RV-ENG`,
+   `RV-SECURITY` y `RV-STANDARDS` en **PASS** pleno, sin condiciones
+   pendientes. **Frontend — M4 en adelante.** Todavía faltan
    `Pipeline`/`Stage`, `Opportunity`, `Activity`, administración de
    `Users`/`Invitations`, Dashboard (sin endpoint de agregación backend
    todavía) y el filtro visual/selector de `ownerId` por nombre en Company
-   (capa API ya soportada, ver sección 7 — el filtro visual depende de
-   consumir `GET /api/users`, no de que exista antes una pantalla de
-   administración de Users) — es lo que falta para que el backend sea un
-   producto entregable completo, no solo una API verificada con un primer
-   módulo de negocio funcional.
+   y en Contact (capa API ya soportada, ver sección 7 — el filtro visual
+   depende de consumir `GET /api/users`, no de que exista antes una
+   pantalla de administración de Users) — es lo que falta para que el
+   backend sea un producto entregable completo, no solo una API
+   verificada con los primeros módulos de negocio funcionales.
 
 ---
 

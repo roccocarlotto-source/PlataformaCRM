@@ -5,6 +5,8 @@ import { LoginPage } from "../features/auth/LoginPage";
 import { AppLayout } from "../layout/AppLayout";
 import { CompanyFormPage } from "../features/company/CompanyFormPage";
 import { CompanyListPage } from "../features/company/CompanyListPage";
+import { ContactFormPage } from "../features/contact/ContactFormPage";
+import { ContactListPage } from "../features/contact/ContactListPage";
 
 // HomePlaceholder sigue siendo el placeholder de M0 (todavía no hay
 // dashboard real, ver M3+) — ahora vive detrás de ProtectedRoute + AppLayout.
@@ -28,14 +30,19 @@ export const router = createBrowserRouter([
         children: [
           { path: "/", element: <HomePlaceholder /> },
           { path: "/companies", element: <CompanyListPage /> },
+          { path: "/contacts", element: <ContactListPage /> },
           {
             // Restricción de UX/autorización visual — ver auth/AdminRoute.tsx.
             // La autorización real de escritura sigue siendo authorize("ADMIN")
-            // en el backend.
+            // en el backend. Un único AdminRoute cubre las rutas de escritura
+            // de Company y Contact — el componente no sabe ni le importa qué
+            // ruta envuelve.
             element: <AdminRoute />,
             children: [
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
+              { path: "/contacts/new", element: <ContactFormPage /> },
+              { path: "/contacts/:id/edit", element: <ContactFormPage /> },
             ],
           },
         ],

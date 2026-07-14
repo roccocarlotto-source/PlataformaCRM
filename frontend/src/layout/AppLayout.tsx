@@ -33,6 +33,7 @@ export function AppLayout() {
         <nav>
           <Link to="/">Plataforma CRM</Link>
           <Link to="/companies">Empresas</Link>
+          <Link to="/contacts">Contactos</Link>
         </nav>
         <div>
           {me ? <span>{me.fullName}</span> : null}
