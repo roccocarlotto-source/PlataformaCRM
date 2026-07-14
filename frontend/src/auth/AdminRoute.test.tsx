@@ -7,10 +7,14 @@ import { server } from "../test/msw/server";
 import { env } from "../config/env";
 import { makeCompany } from "../test/companyFixtures";
 import { makeContact } from "../test/contactFixtures";
+import { makePipeline } from "../test/pipelineFixtures";
+import { makeStage } from "../test/stageFixtures";
 import { AdminRoute } from "./AdminRoute";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { CompanyFormPage } from "../features/company/CompanyFormPage";
 import { ContactFormPage } from "../features/contact/ContactFormPage";
+import { PipelineFormPage } from "../features/pipeline/PipelineFormPage";
+import { StageFormPage } from "../features/stage/StageFormPage";
 import type { AuthContextValue } from "./AuthContext";
 
 // Ejercita la jerarquía real de routing (ProtectedRoute → AdminRoute →
@@ -176,5 +180,148 @@ describe("AdminRoute — protección visual de rutas de escritura de Contact", (
     renderContactRouteAt("/contacts/ct1/edit");
 
     await waitFor(() => expect(screen.getByText("Editar contacto")).toBeInTheDocument());
+  });
+});
+
+// Mismo árbitro de decisión (AdminRoute cubre también las rutas de
+// escritura de Pipeline en app/router.tsx real) — confirma el wiring
+// específico de Pipeline, no solo el mecanismo genérico.
+const pipelinesUrl = `${env.apiUrl}/pipelines`;
+
+function renderPipelineRouteAt(initialPath: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route path="/companies" element={<div>lista de empresas</div>} />
+            <Route path="/pipelines" element={<div>lista de pipelines</div>} />
+            <Route element={<AdminRoute />}>
+              <Route path="/pipelines/new" element={<PipelineFormPage />} />
+              <Route path="/pipelines/:id/edit" element={<PipelineFormPage />} />
+            </Route>
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("AdminRoute — protección visual de rutas de escritura de Pipeline", () => {
+  it("USER entrando directamente a /pipelines/new no renderiza el formulario", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+
+    renderPipelineRouteAt("/pipelines/new");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Nuevo pipeline")).not.toBeInTheDocument();
+  });
+
+  it("USER entrando directamente a /pipelines/:id/edit no renderiza el formulario ni pide el detail", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    let detailRequested = false;
+    server.use(
+      http.get(`${pipelinesUrl}/:id`, () => {
+        detailRequested = true;
+        return HttpResponse.json(makePipeline());
+      }),
+    );
+
+    renderPipelineRouteAt("/pipelines/pl1/edit");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Editar pipeline")).not.toBeInTheDocument();
+    expect(detailRequested).toBe(false);
+  });
+
+  it("ADMIN sí accede a /pipelines/new", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+
+    renderPipelineRouteAt("/pipelines/new");
+
+    await waitFor(() => expect(screen.getByText("Nuevo pipeline")).toBeInTheDocument());
+  });
+
+  it("ADMIN sí accede a /pipelines/:id/edit", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(http.get(`${pipelinesUrl}/:id`, () => HttpResponse.json(makePipeline())));
+
+    renderPipelineRouteAt("/pipelines/pl1/edit");
+
+    await waitFor(() => expect(screen.getByText("Editar pipeline")).toBeInTheDocument());
+  });
+});
+
+// Mismo árbitro de decisión, ahora para las rutas de escritura de Stage
+// (anidadas bajo /pipelines/:pipelineId/stages en app/router.tsx real).
+const stagesUrl = `${env.apiUrl}/stages`;
+
+function renderStageRouteAt(initialPath: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  server.use(http.get(`${pipelinesUrl}/:id`, () => HttpResponse.json(makePipeline())));
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route path="/companies" element={<div>lista de empresas</div>} />
+            <Route path="/pipelines/:pipelineId/stages" element={<div>lista de etapas</div>} />
+            <Route element={<AdminRoute />}>
+              <Route path="/pipelines/:pipelineId/stages/new" element={<StageFormPage />} />
+              <Route
+                path="/pipelines/:pipelineId/stages/:stageId/edit"
+                element={<StageFormPage />}
+              />
+            </Route>
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("AdminRoute — protección visual de rutas de escritura de Stage", () => {
+  it("USER entrando directamente a /pipelines/:pipelineId/stages/new no renderiza el formulario", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+
+    renderStageRouteAt("/pipelines/pl1/stages/new");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Nueva etapa")).not.toBeInTheDocument();
+  });
+
+  it("USER entrando directamente a /pipelines/:pipelineId/stages/:stageId/edit no renderiza el formulario ni pide el detail", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    let detailRequested = false;
+    server.use(
+      http.get(`${stagesUrl}/:id`, () => {
+        detailRequested = true;
+        return HttpResponse.json(makeStage());
+      }),
+    );
+
+    renderStageRouteAt("/pipelines/pl1/stages/st1/edit");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Editar etapa")).not.toBeInTheDocument();
+    expect(detailRequested).toBe(false);
+  });
+
+  it("ADMIN sí accede a /pipelines/:pipelineId/stages/new", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+
+    renderStageRouteAt("/pipelines/pl1/stages/new");
+
+    await waitFor(() => expect(screen.getByText("Nueva etapa")).toBeInTheDocument());
+  });
+
+  it("ADMIN sí accede a /pipelines/:pipelineId/stages/:stageId/edit", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(http.get(`${stagesUrl}/:id`, () => HttpResponse.json(makeStage())));
+
+    renderStageRouteAt("/pipelines/pl1/stages/st1/edit");
+
+    await waitFor(() => expect(screen.getByText("Editar etapa")).toBeInTheDocument());
   });
 });

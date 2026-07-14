@@ -7,6 +7,10 @@ import { CompanyFormPage } from "../features/company/CompanyFormPage";
 import { CompanyListPage } from "../features/company/CompanyListPage";
 import { ContactFormPage } from "../features/contact/ContactFormPage";
 import { ContactListPage } from "../features/contact/ContactListPage";
+import { PipelineFormPage } from "../features/pipeline/PipelineFormPage";
+import { PipelineListPage } from "../features/pipeline/PipelineListPage";
+import { StageFormPage } from "../features/stage/StageFormPage";
+import { StageListPage } from "../features/stage/StageListPage";
 
 // HomePlaceholder sigue siendo el placeholder de M0 (todavía no hay
 // dashboard real, ver M3+) — ahora vive detrás de ProtectedRoute + AppLayout.
@@ -31,18 +35,27 @@ export const router = createBrowserRouter([
           { path: "/", element: <HomePlaceholder /> },
           { path: "/companies", element: <CompanyListPage /> },
           { path: "/contacts", element: <ContactListPage /> },
+          { path: "/pipelines", element: <PipelineListPage /> },
+          { path: "/pipelines/:pipelineId/stages", element: <StageListPage /> },
           {
             // Restricción de UX/autorización visual — ver auth/AdminRoute.tsx.
             // La autorización real de escritura sigue siendo authorize("ADMIN")
             // en el backend. Un único AdminRoute cubre las rutas de escritura
-            // de Company y Contact — el componente no sabe ni le importa qué
-            // ruta envuelve.
+            // de Company, Contact, Pipeline y Stage — el componente no sabe ni
+            // le importa qué ruta envuelve.
             element: <AdminRoute />,
             children: [
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/contacts/new", element: <ContactFormPage /> },
               { path: "/contacts/:id/edit", element: <ContactFormPage /> },
+              { path: "/pipelines/new", element: <PipelineFormPage /> },
+              { path: "/pipelines/:id/edit", element: <PipelineFormPage /> },
+              { path: "/pipelines/:pipelineId/stages/new", element: <StageFormPage /> },
+              {
+                path: "/pipelines/:pipelineId/stages/:stageId/edit",
+                element: <StageFormPage />,
+              },
             ],
           },
         ],
