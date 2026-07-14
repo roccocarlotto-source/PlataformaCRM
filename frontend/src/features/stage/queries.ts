@@ -25,10 +25,21 @@ export const stageKeys = {
   detail: (pipelineId: string, id: string) => [...stageKeys.details(pipelineId), id] as const,
 };
 
-export function useStages(pipelineId: string, query: StageListQuery) {
+// options.enabled — agregado en M5 (StageSelect.tsx): sin esto, un
+// selector de Stage montado antes de que el usuario elija un Pipeline no
+// tiene forma de evitar disparar un GET /stages sin pipelineId (listaría
+// etapas de TODOS los pipelines) sin violar las Reglas de Hooks. Con
+// enabled:false por defecto ausente (undefined → true), no cambia el
+// comportamiento de ningún caller existente (StageListPage no lo pasa).
+export function useStages(
+  pipelineId: string,
+  query: StageListQuery,
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: stageKeys.list(pipelineId, query),
     queryFn: ({ signal }) => listStages(query, signal),
+    enabled: options?.enabled,
   });
 }
 

@@ -9,12 +9,15 @@ import { makeCompany } from "../test/companyFixtures";
 import { makeContact } from "../test/contactFixtures";
 import { makePipeline } from "../test/pipelineFixtures";
 import { makeStage } from "../test/stageFixtures";
+import { makeOpportunity } from "../test/opportunityFixtures";
+import { makeUser } from "../test/userFixtures";
 import { AdminRoute } from "./AdminRoute";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { CompanyFormPage } from "../features/company/CompanyFormPage";
 import { ContactFormPage } from "../features/contact/ContactFormPage";
 import { PipelineFormPage } from "../features/pipeline/PipelineFormPage";
 import { StageFormPage } from "../features/stage/StageFormPage";
+import { OpportunityFormPage } from "../features/opportunity/OpportunityFormPage";
 import type { AuthContextValue } from "./AuthContext";
 
 // Ejercita la jerarquía real de routing (ProtectedRoute → AdminRoute →
@@ -323,5 +326,112 @@ describe("AdminRoute — protección visual de rutas de escritura de Stage", () 
     renderStageRouteAt("/pipelines/pl1/stages/st1/edit");
 
     await waitFor(() => expect(screen.getByText("Editar etapa")).toBeInTheDocument());
+  });
+});
+
+// Mismo árbitro de decisión, ahora para las rutas de escritura de
+// Opportunity (M5) — un USER bloqueado en /opportunities/new NUNCA debe
+// disparar GET /pipelines ni GET /api/users (los dispararía OpportunityFormPage
+// si llegara a montarse): se verifica con onUnhandledRequest:"error" del
+// lado de MSW (test/setup.ts) — si el form se montara igual, la ausencia
+// deliberada de esos handlers haría fallar el test ruidosamente.
+const opportunitiesUrl = `${env.apiUrl}/opportunities`;
+
+function renderOpportunityRouteAt(initialPath: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route path="/companies" element={<div>lista de empresas</div>} />
+            <Route path="/opportunities" element={<div>lista de oportunidades</div>} />
+            <Route element={<AdminRoute />}>
+              <Route path="/opportunities/new" element={<OpportunityFormPage />} />
+              <Route path="/opportunities/:id/edit" element={<OpportunityFormPage />} />
+            </Route>
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("AdminRoute — protección visual de rutas de escritura de Opportunity", () => {
+  it("USER entrando directamente a /opportunities/new no renderiza el formulario ni dispara GET /pipelines ni GET /api/users", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+
+    renderOpportunityRouteAt("/opportunities/new");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Nueva oportunidad")).not.toBeInTheDocument();
+  });
+
+  it("USER entrando directamente a /opportunities/:id/edit no renderiza el formulario ni pide el detail", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    let detailRequested = false;
+    server.use(
+      http.get(`${opportunitiesUrl}/:id`, () => {
+        detailRequested = true;
+        return HttpResponse.json(makeOpportunity());
+      }),
+    );
+
+    renderOpportunityRouteAt("/opportunities/op1/edit");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Editar oportunidad")).not.toBeInTheDocument();
+    expect(detailRequested).toBe(false);
+  });
+
+  it("ADMIN sí accede a /opportunities/new", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(pipelinesUrl, () =>
+        HttpResponse.json({
+          data: [makePipeline()],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${env.apiUrl}/users`, () =>
+        HttpResponse.json({
+          data: [makeUser()],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderOpportunityRouteAt("/opportunities/new");
+
+    await waitFor(() => expect(screen.getByText("Nueva oportunidad")).toBeInTheDocument());
+  });
+
+  it("ADMIN sí accede a /opportunities/:id/edit", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(`${opportunitiesUrl}/:id`, () => HttpResponse.json(makeOpportunity())),
+      http.get(pipelinesUrl, () =>
+        HttpResponse.json({
+          data: [makePipeline()],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(stagesUrl, () =>
+        HttpResponse.json({
+          data: [makeStage()],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${env.apiUrl}/users`, () =>
+        HttpResponse.json({
+          data: [makeUser()],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderOpportunityRouteAt("/opportunities/op1/edit");
+
+    await waitFor(() => expect(screen.getByText("Editar oportunidad")).toBeInTheDocument());
   });
 });

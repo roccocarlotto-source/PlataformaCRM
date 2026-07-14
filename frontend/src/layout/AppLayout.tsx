@@ -35,6 +35,7 @@ export function AppLayout() {
           <Link to="/companies">Empresas</Link>
           <Link to="/contacts">Contactos</Link>
           <Link to="/pipelines">Pipelines</Link>
+          <Link to="/opportunities">Oportunidades</Link>
         </nav>
         <div>
           {me ? <span>{me.fullName}</span> : null}

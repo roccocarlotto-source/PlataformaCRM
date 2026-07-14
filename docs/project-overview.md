@@ -1,6 +1,6 @@
 # Plataforma CRM — Project Overview
 
-> Última actualización: 2026-07-13.
+> Última actualización: 2026-07-14.
 > Este documento es la fuente de verdad del estado del proyecto. Cualquier sesión nueva
 > (humana o de Claude) debería poder entender el proyecto completo leyendo solo este
 > archivo, sin depender del historial de chat.
@@ -73,15 +73,15 @@ actividades.
   externa — ver sección 7).
 - Ningún linter/formatter (ESLint, Prettier).
 
-### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage)
+### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage + M5 Opportunity)
 
 | Tecnología | Rol | Por qué (evidencia en el repo) |
 |---|---|---|
 | **React** 19 / **React DOM** | UI | `frontend/package.json` — única librería de vista, sin framework de estado global adicional. |
 | **TypeScript** (`strict: true`) | Lenguaje del frontend | `frontend/tsconfig.app.json` — mismo criterio de tipado estricto que el backend. |
 | **Vite** | Build tool + dev server | `frontend/vite.config.ts` — puerto de dev `5173` por default, coincide con `CORS_ORIGIN` por defecto del backend (`.env.example`). |
-| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2, todavía placeholder de M0 sin dashboard real), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3), `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit`, `/pipelines/:pipelineId/stages`, `/pipelines/:pipelineId/stages/new`, `/pipelines/:pipelineId/stages/:stageId/edit` (M4 — las 4 rutas de escritura comparten el mismo `AdminRoute` que Company/Contact), `*` (placeholder de M0). |
-| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail`; M4 agregó `pipelineKeys` (mismo shape que companyKeys, invalidación ampliada a `.all` solo cuando `isDefault: true` puede desmarcar otro pipeline) y `stageKeys` (jerárquica por `pipelineId` — `byPipeline(pipelineId)` como prefijo de array, verificado empíricamente contra `@tanstack/query-core` real) — ver sección 7. |
+| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2, todavía placeholder de M0 sin dashboard real), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3), `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit`, `/pipelines/:pipelineId/stages`, `/pipelines/:pipelineId/stages/new`, `/pipelines/:pipelineId/stages/:stageId/edit` (M4 — las 4 rutas de escritura comparten el mismo `AdminRoute` que Company/Contact), `/opportunities`, `/opportunities/new`, `/opportunities/:id/edit` (M5 — las 2 rutas de escritura reutilizan el mismo `AdminRoute`), `*` (placeholder de M0). |
+| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail`; M4 agregó `pipelineKeys` (mismo shape que companyKeys, invalidación ampliada a `.all` solo cuando `isDefault: true` puede desmarcar otro pipeline) y `stageKeys` (jerárquica por `pipelineId` — `byPipeline(pipelineId)` como prefijo de array, verificado empíricamente contra `@tanstack/query-core` real); M5 agregó `opportunityKeys` (plana, mismo shape que companyKeys/contactKeys/pipelineKeys — Opportunity no está scoped a un único padre por URL, a diferencia de Stage — invalidación selectiva pura, sin efecto lateral demostrado sobre otras entidades) y `userKeys` (solo `all`/`lists`/`list`, deliberadamente sin `detail`: no existe `GET /api/users/:id` en el backend) — ver sección 7. |
 | **@supabase/supabase-js** | Cliente de Supabase para el browser | `frontend/src/lib/supabase.ts` — única instancia, únicamente con la `anon key` (nunca `service_role`, esa es exclusiva del backend — ver `src/lib/supabaseAdmin.ts` arriba). |
 | **Vitest** + **jsdom** + **@testing-library/react** + **user-event** + **jest-dom** + **MSW v2** | Testing frontend | `frontend/vite.config.ts` (bloque `test`, `defineConfig` de `vitest/config`), `frontend/src/test/`. Introducido en M2 para remediar `STD-SW-003` — ver detalle abajo. |
 
@@ -174,9 +174,9 @@ Plataforma CRM/
                                      #   abajo) agregó login/sesión, M2 agregó
                                      #   el primer módulo de negocio real
                                      #   (Company), M3 agregó Contact, M4
-                                     #   agregó Pipeline/Stage — Opportunity/
-                                     #   Activity/Users/Invitations UI y
-                                     #   Dashboard siguen pendientes, ver
+                                     #   agregó Pipeline/Stage, M5 agregó
+                                     #   Opportunity — Activity/Users-Invitations
+                                     #   UI y Dashboard siguen pendientes, ver
                                      #   sección 7/8.
     ├── .env.example
     ├── package.json
@@ -193,7 +193,7 @@ Plataforma CRM/
         │                                #   M2) + /companies* (M2) +
         │                                #   /contacts* (M3) + /pipelines* +
         │                                #   /pipelines/:pipelineId/stages* (M4)
-        │                                #   + *).
+        │                                #   + /opportunities* (M5) + *).
         ├── auth/                        # M1 — AuthContext.tsx (AuthProvider +
         │                                  #   useAuth + máquina de estados) +
         │                                  #   AuthContext.test.tsx (M2, 12 de
@@ -203,8 +203,9 @@ Plataforma CRM/
         │                                  #   + AdminRoute.test.tsx (M2 — protección
         │                                  #   visual de las rutas de escritura de
         │                                  #   Company, extendido en M3 para las de
-        │                                  #   Contact y en M4 para las de
-        │                                  #   Pipeline/Stage; no un RBAC genérico).
+        │                                  #   Contact, en M4 para las de
+        │                                  #   Pipeline/Stage y en M5 para las de
+        │                                  #   Opportunity; no un RBAC genérico).
         ├── config/env.ts                # Validación en runtime de las VITE_*
         │                                  #   (fail-fast si falta alguna o si
         │                                  #   una URL no es absoluta/http(s)).
@@ -229,7 +230,11 @@ Plataforma CRM/
         │   ├── contact/                  # M3 — mismo esqueleto que company/:
         │   │   │                          #   types.ts, api.ts + api.test.ts,
         │   │   │                          #   queries.ts (contactKeys,
-        │   │   │                          #   useContacts/useContact),
+        │   │   │                          #   useContacts/useContact — M5
+        │   │   │                          #   agregó `options.enabled` a
+        │   │   │                          #   useContacts, sin cambiar el
+        │   │   │                          #   comportamiento de ningún caller
+        │   │   │                          #   existente),
         │   │   │                          #   mutations.ts + mutations.test.tsx,
         │   │   │                          #   ContactListPage.tsx + .test.tsx,
         │   │   │                          #   ContactFormPage.tsx + .test.tsx.
@@ -237,7 +242,11 @@ Plataforma CRM/
         │   │                              #   (useCompaniesByIds — resuelve
         │   │                              #   nombres de Company solo para los
         │   │                              #   companyId visibles en la página
-        │   │                              #   actual de Contacts, ver sección 7).
+        │   │                              #   actual de Contacts, ver sección 7;
+        │   │                              #   reutilizado tal cual por
+        │   │                              #   Opportunity en M5, sin modificar
+        │   │                              #   este archivo — decisión explícita
+        │   │                              #   de no generalizar todavía).
         │   ├── pipeline/                 # M4 — mismo esqueleto que company/:
         │   │   │                          #   types.ts, api.ts + api.test.ts,
         │   │   │                          #   queries.ts (pipelineKeys),
@@ -245,25 +254,69 @@ Plataforma CRM/
         │   │   │                          #   (invalidación ampliada a `.all`
         │   │   │                          #   solo cuando isDefault: true),
         │   │   │                          #   PipelineListPage.tsx + .test.tsx,
-        │   │   └──                        #   PipelineFormPage.tsx + .test.tsx.
-        │   └── stage/                    # M4 — types.ts (probability: string,
-        │       │                          #   ver sección 7), api.ts + api.test.ts,
-        │       │                          #   queries.ts (stageKeys jerárquica
-        │       │                          #   por pipelineId, + queries.test.ts
-        │       │                          #   dedicado a esa key factory),
-        │       │                          #   mutations.ts + mutations.test.tsx
-        │       │                          #   (siempre invalida
-        │       │                          #   stageKeys.byPipeline(pipelineId)
-        │       │                          #   completo), StageListPage.tsx +
-        │       │                          #   .test.tsx (gate del pipeline
-        │       │                          #   padre, reordenamiento arriba/
-        │       └──                        #   abajo), StageFormPage.tsx + .test.tsx.
+        │   │   │                          #   PipelineFormPage.tsx + .test.tsx;
+        │   │   └──                        #   M5 agregó PipelineSelect.tsx +
+        │   │                              #   .test.tsx (selector simple, sin
+        │   │                              #   búsqueda de texto, consumido por
+        │   │                              #   Opportunity).
+        │   ├── stage/                    # M4 — types.ts (probability: string,
+        │   │   │                          #   ver sección 7), api.ts + api.test.ts,
+        │   │   │                          #   queries.ts (stageKeys jerárquica
+        │   │   │                          #   por pipelineId, + queries.test.ts
+        │   │   │                          #   dedicado a esa key factory —
+        │   │   │                          #   M5 agregó `options.enabled` a
+        │   │   │                          #   useStages),
+        │   │   │                          #   mutations.ts + mutations.test.tsx
+        │   │   │                          #   (siempre invalida
+        │   │   │                          #   stageKeys.byPipeline(pipelineId)
+        │   │   │                          #   completo), StageListPage.tsx +
+        │   │   │                          #   .test.tsx (gate del pipeline
+        │   │   │                          #   padre, reordenamiento arriba/
+        │   │   │                          #   abajo), StageFormPage.tsx +
+        │   │   │                          #   .test.tsx; M5 agregó
+        │   │   └──                        #   StageSelect.tsx + .test.tsx
+        │   │                              #   (scoped a pipelineId, deshabilitado
+        │   │                              #   sin pipeline elegido).
+        │   ├── opportunity/              # M5 — mismo esqueleto que company/:
+        │   │   │                          #   types.ts, api.ts + api.test.ts,
+        │   │   │                          #   queries.ts (opportunityKeys,
+        │   │   │                          #   plana) + queries.test.ts,
+        │   │   │                          #   mutations.ts + mutations.test.tsx
+        │   │   │                          #   (invalidación selectiva pura, sin
+        │   │   │                          #   efecto lateral sobre otras
+        │   │   │                          #   entidades), relationResolution.ts
+        │   │   │                          #   + .test.tsx (resolución LOCAL —
+        │   │   │                          #   no generalizada — de Contact/
+        │   │   │                          #   Pipeline/Stage/Owner a nombre
+        │   │   │                          #   humano; reexporta
+        │   │   │                          #   useCompaniesByIds de contact/ sin
+        │   │   │                          #   modificarlo), ContactSelect.tsx +
+        │   │   │                          #   .test.tsx (independiente de
+        │   │   │                          #   Company, sin filtro cruzado),
+        │   │   │                          #   OpportunityListPage.tsx + .test.tsx
+        │   │   │                          #   (columna Owner solo para ADMIN,
+        │   │   │                          #   gateada de verdad — GET /api/users
+        │   │   │                          #   nunca se dispara para USER),
+        │   │   └──                        #   OpportunityFormPage.tsx + .test.tsx.
+        │   └── user/                      # M5 — slice mínimo de solo lectura
+        │       │                          #   (sin administración de Users,
+        │       │                          #   fuera de alcance): types.ts,
+        │       │                          #   api.ts + api.test.ts (listUsers,
+        │       │                          #   sin getUser(id) — no existe
+        │       │                          #   GET /api/users/:id en el backend),
+        │       │                          #   queries.ts (userKeys, sin
+        │       │                          #   detail/detail()),
+        │       └──                        #   UserSelect.tsx + .test.tsx
+        │                                  #   (selector de owner para
+        │                                  #   OpportunityFormPage, ADMIN-only,
+        │                                  #   sin búsqueda de texto).
         ├── layout/AppLayout.tsx          # M2 — nav mínima + logout
         │                                  #   (isLoggingOut local, sin
         │                                  #   duplicar estado de sesión) +
         │                                  #   Outlet; M3 agregó el link a
         │                                  #   /contacts, M4 agregó el link a
-        │                                  #   /pipelines.
+        │                                  #   /pipelines, M5 agregó el link a
+        │                                  #   /opportunities.
         ├── lib/                          # supabase.ts (cliente único), api.ts
         │                                  #   (wrapper de fetch + ApiError,
         │                                  #   signal opcional desde M1),
@@ -279,7 +332,10 @@ Plataforma CRM/
                                              #   (makeContact()); M4 agregó
                                              #   pipelineFixtures.ts
                                              #   (makePipeline()) y
-                                             #   stageFixtures.ts (makeStage()).
+                                             #   stageFixtures.ts (makeStage());
+                                             #   M5 agregó opportunityFixtures.ts
+                                             #   (makeOpportunity()) y
+                                             #   userFixtures.ts (makeUser()).
 ```
 
 Detalle carpeta por carpeta (propósito, qué va en cada una) en `README.md` — no se
@@ -299,12 +355,13 @@ duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
   `AuthProvider` y `ProtectedRoute` **ya están implementados (M1)**, y
   `Company` **ya está implementado (M2, primer módulo de negocio real del
   CRM — ver sección 7)**, `Contact` también **(M3, ver sección 7 —
-  cerrado, reviews en PASS)**, y `Pipeline`/`Stage` también **(M4, ver
-  sección 7 — cerrado, reviews en PASS)**. `STD-SW-003` quedó resuelto en
+  cerrado, reviews en PASS)**, `Pipeline`/`Stage` también **(M4, ver
+  sección 7 — cerrado, reviews en PASS)**, y `Opportunity` también **(M5,
+  ver sección 7 — cerrado, reviews en PASS)**. `STD-SW-003` quedó resuelto en
   M2, sin condición pendiente. Lo que sigue pendiente es de otra
   naturaleza: el resto de las pantallas funcionales del CRM
-  (`Opportunity`, `Activity`, administración de `User`/`Invitation`) y
-  Dashboard — trabajo de M5 en adelante, todavía no implementado — ver
+  (`Activity`, administración de `User`/`Invitation`) y
+  Dashboard — trabajo de M6 en adelante, todavía no implementado — ver
   sección 8.
 
 ---
@@ -1432,6 +1489,173 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   **PASS**. `RV-STANDARDS`: **PASS**. Sin condiciones pendientes — el
   Gate de M4 queda liberado incondicionalmente.
 
+- ✅ **M5 (módulo Opportunity) implementado y cerrado — reviews ejecutados
+  desde cero contra el deliverable final, sin condiciones pendientes.**
+  `frontend/src/features/opportunity/` completo, mismo esqueleto
+  `types/api/queries/mutations/pages` que Company/Contact/Pipeline/Stage,
+  más un slice mínimo de solo lectura `frontend/src/features/user/` (sin
+  administración de Users — fuera de alcance) y dos selectores nuevos
+  (`pipeline/PipelineSelect.tsx`, `stage/StageSelect.tsx`).
+
+  **Contrato reconstruido antes de implementar** (fase de diseño separada,
+  corregida una vez tras revisión antes de aprobarse): `amount` es
+  `Decimal(14,2)` en Prisma — mismo caso que `Stage.probability` (M4), se
+  tipa **`string` en lectura**, `number` en escritura, nunca `.toFixed()`
+  directo sobre el valor crudo. `expectedCloseDate`/`actualCloseDate` son
+  `@db.Date` pero se serializan como ISO datetime completo (`res.json()`
+  vía `Date.prototype.toJSON()`) — se hidratan con `slice(0, 10)`, nunca
+  con `new Date(iso)` + formateo local (evita corrimiento de día por
+  timezone), y se escriben como `"YYYY-MM-DD"` directo. `pipelineId`/
+  `stageId` son obligatorios en create; `opportunity.service.ts` exige que
+  `stageId` pertenezca al `pipelineId` indicado y que un `PATCH` que
+  cambia `pipelineId` incluya también `stageId` en la misma operación —
+  nunca mueve una oportunidad de pipeline implícitamente. `companyId`/
+  `contactId`: al menos uno es obligatorio en create (`CHECK` +
+  `refine` de Zod), pero **sin validación cruzada entre ambos** — el
+  backend no exige que el `Contact` pertenezca a la `Company` elegida.
+  `lostReason`/`expectedCloseDate`/`actualCloseDate` admiten `null`
+  explícito solo en update (limpiar el campo), nunca en create.
+
+  **Company y Contact — independientes, corregido durante el diseño**: la
+  primera versión del diseño proponía que `ContactSelect` aceptara
+  `companyId` como "bias" de búsqueda; se descartó al confirmar que
+  `GET /api/contacts?companyId=X` es un filtro **excluyente** real
+  (`contact.repository.ts`), no un ranking — filtrar así habría ocultado
+  combinaciones válidas (Company A + Contact de Company B, o sin
+  Company). `ContactSelect.tsx` (nuevo, mismo patrón que `CompanySelect`)
+  no acepta `companyId`; cambiar Company nunca modifica el Contact ya
+  elegido, y viceversa.
+
+  **Pipeline y Stage — dependientes, sí con reset real**: `PipelineSelect.tsx`
+  (nuevo, `<select>` simple sin búsqueda de texto — cardinalidad baja
+  esperada) y `StageSelect.tsx` (nuevo, scoped a `pipelineId`,
+  deshabilitado/vacío sin pipeline elegido). Cambiar `pipelineId` en
+  `OpportunityFormPage` limpia `stageId` — a diferencia de Company/Contact,
+  esto sí está justificado por una regla real del backend (un stage de
+  otro pipeline es rechazado). `useStages` (`stage/queries.ts`) y
+  `useContacts` (`contact/queries.ts`) recibieron un `options.enabled`
+  opcional (aditivo, sin romper ningún caller existente) — necesario para
+  que `StageSelect` nunca dispare `GET /stages` sin `pipelineId` y para
+  que `ContactSelect` nunca precargue un listado antes de que el usuario
+  busque; sin este cambio, alguno de los dos violaba las Reglas de Hooks o
+  perdía el aislamiento server-side por texto que ya tenía `CompanySelect`.
+
+  **Owner — corregido durante el diseño**: `GET /api/users` es
+  ADMIN-only (`user.routes.ts`) y no tiene `search` ni `GET /api/users/:id`
+  — a diferencia de Company/Contact/Pipeline/Stage. Como las 3 rutas de
+  escritura de Opportunity ya son ADMIN-only, `UserSelect.tsx` (nuevo,
+  `<select>` simple, `isActive:true` explícito, `pageSize:100`,
+  `sortBy:"fullName"`) puede usarse sin riesgo de 403 en
+  `OpportunityFormPage`. La primera versión del diseño proponía resolver
+  el nombre del owner en `OpportunityListPage` con el mismo `useUsers`
+  incondicional; se corrigió antes de implementar: `useOwnerNames(isAdmin)`
+  (`opportunity/relationResolution.ts`) gatea el fetch con `enabled`
+  real — para `USER` la request a `/api/users` **nunca se dispara**, la
+  columna "Owner" no se renderiza (ni vacía ni con el id crudo), y el
+  resto de la página funciona igual sin ese catálogo.
+
+  **`lostReason` — corregido durante el diseño**: la primera versión
+  proponía mostrarlo solo cuando `status === "LOST"`; se descartó porque
+  dejaba sin definir qué pasa al volver de `LOST` a `OPEN`/`WON`. Queda
+  **siempre visible y editable**, con un texto de ayuda estático (no
+  condicional). Cambiar `status` nunca lo toca; limpiarlo explícitamente
+  en edición envía `null` (vía la misma asimetría create/undefined vs.
+  update/null que ya usan `expectedCloseDate`/`actualCloseDate`); no
+  tocarlo reenvía el mismo valor hidratado, nunca `null`/`undefined` por
+  accidente.
+
+  **Resolución de relaciones — deliberadamente local, no generalizada**:
+  `opportunity/relationResolution.ts` reexporta `useCompaniesByIds` de
+  `contact/companyResolution.ts` **sin modificar ese archivo** (decisión
+  explícita: Stage y User no encajan en la misma abstracción — Stage
+  necesita la clave compuesta `(pipelineId, stageId)`, User no tiene
+  `GET /:id` — no hay evidencia suficiente todavía para una abstracción
+  compartida). `useContactNames`/`usePipelineNames` repiten el mismo
+  patrón estructural que `useCompaniesByIds` a propósito, sin forzarlo en
+  un helper genérico. Ningún fallback humano muestra UUID crudo — `"—"`
+  ante una relación que no resuelve (ej. Company borrada después de
+  vincularse).
+
+  **Query keys e invalidaciones**: `opportunityKeys` es **plana** (mismo
+  shape que `companyKeys`/`contactKeys`/`pipelineKeys`), no jerárquica
+  como `stageKeys` — Opportunity no está scoped a un único padre
+  obligatorio por URL. Invalidación selectiva pura en las 3 mutaciones
+  (`lists()` + `detail(id)` según corresponda): confirmado en
+  `opportunity.repository.ts` que ninguna escritura de Opportunity toca
+  otra tabla, así que no hay justificación real para invalidar
+  `companyKeys`/`contactKeys`/`pipelineKeys`/`stageKeys`/`userKeys` desde
+  acá — verificado con un test negativo dedicado.
+
+  **Routing y protección ADMIN**: `/opportunities` de lectura abierta a
+  cualquier autenticado; `/opportunities/new`, `/opportunities/:id/edit`
+  reutilizan el mismo `AdminRoute` ya usado por Company/Contact/Pipeline/
+  Stage.
+
+  **Tests**: `opportunity/api.test.ts` (8), `opportunity/queries.test.ts`
+  (2, key factory), `opportunity/mutations.test.tsx` (5, incluido el test
+  negativo de invalidaciones ajenas), `opportunity/relationResolution.test.tsx`
+  (7), `opportunity/ContactSelect.test.tsx` (6, incluida la independencia
+  real de Company), `opportunity/OpportunityListPage.test.tsx` (11,
+  incluidos ADMIN-ve-Owner / USER-no-llama-a-Users / USER-no-ve-Owner),
+  `opportunity/OpportunityFormPage.test.tsx` (14, incluidos
+  Pipeline→Stage reset, Company/Contact independientes, `lostReason`
+  siempre visible, semántica create/update de fechas), `pipeline/PipelineSelect.test.tsx`
+  (3), `stage/StageSelect.test.tsx` (5), `user/api.test.ts` (4),
+  `user/UserSelect.test.tsx` (4), y una extensión de `auth/AdminRoute.test.tsx`
+  (+4: Opportunity, mismo criterio que las extensiones de M3/M4). **73
+  tests nuevos; 217 tests en total** en la suite frontend completa (144
+  heredados de M4 + 73 de M5), todos verdes.
+
+  Poder de detección verificado con 12 mutaciones deliberadas, todas
+  revertidas antes de continuar (archivos confirmados de vuelta a su
+  estado exacto, sin residuos): inyección de `organizationId` en el
+  payload, `amount` enviado como string, fecha serializada como ISO
+  completo en vez de `"YYYY-MM-DD"`, remoción del reset de `stageId` al
+  cambiar `pipelineId`, filtrar `ContactSelect` por `companyId`, resetear
+  `contactId` al cambiar Company, invalidación ampliada a
+  `pipelineKeys.all` desde `useUpdateOpportunity`, fallback de UUID crudo
+  en vez de `"—"`, `useOwnerNames` disparado incondicionalmente para
+  `USER`, columna Owner/`ownerId` crudo visible para `USER`, borrado
+  automático de `lostReason` al cambiar `status`, y bypass de `AdminRoute`
+  (esta última detectada en 10 de los 20 tests de `AdminRoute.test.tsx` —
+  las 5 entidades que comparten el componente). **Dos hallazgos reales
+  del propio proceso de mutación, corregidos antes de cerrar el ciclo**:
+  (1) la serialización incorrecta de fecha en creación no tenía ningún
+  test que la cubriera — se agregó uno explícito; (2) el test de "USER no
+  llama a `/api/users`" dependía de que una request no manejada bajo
+  `onUnhandledRequest:"error"` hiciera fallar el test por sí sola, lo cual
+  resultó falso en la práctica (la query interna solo entra en estado de
+  error, sin lanzar una excepción que Vitest capture) — se reemplazó por
+  un contador de requests real. Ambos gaps se confirmaron primero (la
+  mutación pasaba desapercibida), se cerraron, y luego se re-verificó que
+  la mutación correspondiente sí fallara.
+
+  **Deuda técnica / notas residuales, no minimizadas**: `PipelineSelect` y
+  `UserSelect` usan `pageSize: 100` sin búsqueda de texto — límite real
+  del contrato backend (`GET /api/pipelines` si tiene `search` pero no se
+  usó por simplicidad dado el volumen esperado; `GET /api/users` no tiene
+  `search` en absoluto). La resolución de nombre de Owner en
+  `OpportunityListPage` depende de esa misma lista de hasta 100 usuarios
+  activos — si una organización superara ese número, algún owner visible
+  podría no resolver a nombre y caer al fallback `"—"` pese a ser un
+  usuario real y activo; no solucionable desde el frontend sin que el
+  backend agregue `GET /api/users/:id` o búsqueda por nombre. `status` y
+  `Stage.isWon`/`isLost` pueden quedar semánticamente inconsistentes (nada
+  los sincroniza a nivel backend) — no se inventó esa sincronización.
+  `actualCloseDate` no se autocompleta al marcar `status: WON/LOST` — el
+  backend tampoco lo hace. `opportunity/relationResolution.ts` importa un
+  hook desde `features/contact/companyResolution.ts` (cross-feature
+  import) — aceptado explícitamente para no generalizar ni tocar ese
+  archivo en este ciclo. `AppLayout.tsx` sigue sin test de componente
+  propio (gap heredado de M2, sin agravarse en M5).
+
+  **Reviews obligatorios (Claude-Toolkit-V1), ejecutados desde cero
+  contra el deliverable final de M5** (diseño y código final revisados
+  por separado — no se reutilizó el review de diseño como sustituto):
+  `RV-ENG`: **PASS**. `RV-SECURITY`: **PASS**. `RV-STANDARDS`: **PASS**.
+  Sin condiciones pendientes — el Gate de M5 queda liberado
+  incondicionalmente.
+
 **Autenticación**
 - ✅ Diseño de sincronización de email (`auth.users` ↔ `public.users`) implementado en
   SQL.
@@ -1640,15 +1864,28 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    real, 65 tests nuevos (144 en total). Reviews del Toolkit, ejecutados
    desde cero contra el deliverable final de M4: `RV-ENG`, `RV-SECURITY`
    y `RV-STANDARDS` en **PASS** pleno, sin condiciones pendientes.
-   **Frontend — M5 en adelante.** Todavía faltan
-   `Opportunity`, `Activity`, administración de
-   `Users`/`Invitations`, Dashboard (sin endpoint de agregación backend
-   todavía) y el filtro visual/selector de `ownerId` por nombre en
-   Company y en Contact (capa API ya soportada, ver sección 7 — el
-   filtro visual depende de consumir `GET /api/users`, no de que exista
-   antes una pantalla de administración de Users) — es lo que falta para
-   que el backend sea un producto entregable completo, no solo una API
-   verificada con los primeros módulos de negocio funcionales.
+   **M5 (Opportunity) — ✅ implementado y cerrado (ver sección 7)**:
+   módulo `Opportunity` completo (`amount` tratado como `string` en
+   lectura por el shape real de `Prisma.Decimal`, fechas hidratadas con
+   `slice(0, 10)` sin conversión local, Company/Contact independientes —
+   sin filtro cruzado, corregido durante el diseño —, Pipeline/Stage
+   dependientes con reset real de `stageId`), selector de owner
+   (`UserSelect`) nuevo y funcional para el formulario ADMIN de
+   Opportunity (`GET /api/users` consumido por primera vez), columna
+   Owner del listado gateada de verdad por rol (`useOwnerNames(isAdmin)`
+   — `USER` nunca dispara esa request), 73 tests nuevos (217 en total).
+   Reviews del Toolkit, ejecutados desde cero contra el deliverable final
+   de M5: `RV-ENG`, `RV-SECURITY` y `RV-STANDARDS` en **PASS** pleno, sin
+   condiciones pendientes. **Frontend — M6 en adelante.** Todavía faltan
+   `Activity`, administración de `Users`/`Invitations`, Dashboard (sin
+   endpoint de agregación backend todavía) y el filtro visual/selector de
+   `ownerId` por nombre en Company y en Contact específicamente (capa API
+   ya soportada desde M2/M3, ver sección 7 — M5 sí agregó el selector
+   para Opportunity porque ahí es un campo central del formulario, no
+   solo un filtro de listado; extenderlo a Company/Contact queda
+   pendiente, es la misma `GET /api/users` ya consumida) — es lo que
+   falta para que el backend sea un producto entregable completo, no solo
+   una API verificada con los primeros módulos de negocio funcionales.
 
 ---
 

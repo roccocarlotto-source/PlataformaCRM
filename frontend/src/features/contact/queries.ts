@@ -13,10 +13,17 @@ export const contactKeys = {
   detail: (id: string) => [...contactKeys.details(), id] as const,
 };
 
-export function useContacts(query: ContactListQuery) {
+// options.enabled — agregado en M5 (opportunity/ContactSelect.tsx): mismo
+// motivo que CompanySelect necesitó en useCompanies (M2) — un selector de
+// Contact con búsqueda server-side no debe precargar un listado por
+// default, solo buscar cuando hay término. undefined (sin pasar options)
+// se comporta como antes (enabled=true), así que no cambia ningún caller
+// existente (ContactListPage no lo pasa).
+export function useContacts(query: ContactListQuery, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: contactKeys.list(query),
     queryFn: ({ signal }) => listContacts(query, signal),
+    enabled: options?.enabled,
   });
 }
 
