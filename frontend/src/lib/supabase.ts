@@ -12,9 +12,9 @@ import { env } from "../config/env";
 // - autoRefreshToken: el SDK renueva el access token solo — Express nunca
 //   maneja refresh (ver docs/authentication-architecture.md sección 3).
 // - detectSessionInUrl: necesario para el link de invitación de Supabase
-//   (M8) — no se usa todavía en M0, pero el valor por defecto que
-//   necesitamos más adelante queda fijado desde ahora, no librado a que
-//   cambie el default de la librería.
+//   (usado desde M7, AcceptInvitationPage.tsx) — fijado explícitamente
+//   desde M0, antes de que existiera ese consumidor, para no depender de
+//   que el default de la librería no cambiara mientras tanto.
 export const supabase = createClient(env.supabaseUrl, env.supabaseAnonKey, {
   auth: {
     persistSession: true,

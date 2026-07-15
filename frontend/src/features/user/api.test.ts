@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeUser } from "../../test/userFixtures";
-import { listUsers } from "./api";
+import { deleteUser, listUsers, updateUser } from "./api";
 import type { UserListResponse } from "./types";
 
 vi.mock("../../auth/getAccessToken", () => ({
@@ -82,5 +82,102 @@ describe("user/api — contrato HTTP", () => {
 
     expect(captured[0].method).toBe("GET");
     expect(captured[0].url.pathname).toBe("/users");
+  });
+});
+
+describe("user/api — updateUser/deleteUser (M7)", () => {
+  it("B.1 updateUser(role) hace PATCH con el payload exacto, sin isActive", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    let capturedPath: string | undefined;
+    server.use(
+      http.patch(`${baseUrl}/:id`, async ({ request, params }) => {
+        capturedPath = new URL(request.url).pathname;
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeUser({ id: params.id as string, role: { id: "role-admin", name: "ADMIN", description: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" } }));
+      }),
+    );
+
+    const result = await updateUser("u1", { role: "ADMIN" });
+
+    expect(capturedPath).toBe("/users/u1");
+    expect(patchedBody).toEqual({ role: "ADMIN" });
+    expect(result.role.name).toBe("ADMIN");
+  });
+
+  it("B.2 updateUser(isActive) hace PATCH con el payload exacto, sin role", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeUser());
+      }),
+    );
+
+    await updateUser("u1", { isActive: false });
+
+    expect(patchedBody).toEqual({ isActive: false });
+  });
+
+  it("B.3 updateUser nunca envía email/fullName/id/organizationId (no son campos del tipo)", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeUser());
+      }),
+    );
+
+    await updateUser("u1", { role: "USER", isActive: true });
+
+    expect(patchedBody).not.toHaveProperty("email");
+    expect(patchedBody).not.toHaveProperty("fullName");
+    expect(patchedBody).not.toHaveProperty("id");
+    expect(patchedBody).not.toHaveProperty("organizationId");
+  });
+
+  it("B.4 deleteUser hace DELETE sobre el id correcto", async () => {
+    let capturedMethod: string | undefined;
+    let capturedPath: string | undefined;
+    server.use(
+      http.delete(`${baseUrl}/:id`, ({ request }) => {
+        capturedMethod = request.method;
+        capturedPath = new URL(request.url).pathname;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    const result = await deleteUser("u1");
+
+    expect(capturedMethod).toBe("DELETE");
+    expect(capturedPath).toBe("/users/u1");
+    expect(result).toBeUndefined();
+  });
+
+  it("B.5 updateUser propaga el error real del backend (400 último-admin)", async () => {
+    server.use(
+      http.patch(`${baseUrl}/:id`, () =>
+        HttpResponse.json(
+          { error: { message: "No se puede modificar al último ADMIN activo de la organización" } },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    await expect(updateUser("u1", { role: "USER" })).rejects.toThrow(
+      "No se puede modificar al último ADMIN activo de la organización",
+    );
+  });
+
+  it("B.6 deleteUser propaga el error real del backend (400 auto-eliminación)", async () => {
+    server.use(
+      http.delete(`${baseUrl}/:id`, () =>
+        HttpResponse.json(
+          { error: { message: "No podés eliminar tu propio usuario" } },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    await expect(deleteUser("u1")).rejects.toThrow("No podés eliminar tu propio usuario");
   });
 });

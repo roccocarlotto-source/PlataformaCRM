@@ -11,6 +11,12 @@ export function AppLayout() {
   const { me, logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  // Primera vez que el nav gatea un link por rol (M7): /users e
+  // /invitations son las primeras páginas TOTALMENTE inaccesibles para
+  // USER (a diferencia de /activities, de lectura abierta) — mostrar el
+  // link solo para que rebote siempre a un USER sería mala UX. No es un
+  // RBAC genérico, es un booleano ya expuesto por AuthContext.
+  const isAdmin = me?.role === "ADMIN";
 
   async function handleLogout() {
     setIsLoggingOut(true);
@@ -37,6 +43,12 @@ export function AppLayout() {
           <Link to="/pipelines">Pipelines</Link>
           <Link to="/opportunities">Oportunidades</Link>
           <Link to="/activities">Actividades</Link>
+          {isAdmin ? (
+            <>
+              <Link to="/users">Usuarios</Link>
+              <Link to="/invitations">Invitaciones</Link>
+            </>
+          ) : null}
         </nav>
         <div>
           {me ? <span>{me.fullName}</span> : null}

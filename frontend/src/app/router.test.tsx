@@ -62,3 +62,31 @@ describe("router.tsx — wiring real de Activity", () => {
     expect(findRoute(router.routes, "/activities/:id/edit")).toBeDefined();
   });
 });
+
+describe("router.tsx — wiring real de M7 (Users, Invitations, Accept)", () => {
+  it("/users, /invitations e /invitations/new están anidadas bajo AdminRoute — a diferencia de Activity, acá la LECTURA también es ADMIN-only", () => {
+    const usersParent = findParentElement(router.routes, "/users") as { type: unknown };
+    const invitationsParent = findParentElement(router.routes, "/invitations") as {
+      type: unknown;
+    };
+    const invitationsNewParent = findParentElement(router.routes, "/invitations/new") as {
+      type: unknown;
+    };
+
+    expect(usersParent?.type).toBe(AdminRoute);
+    expect(invitationsParent?.type).toBe(AdminRoute);
+    expect(invitationsNewParent?.type).toBe(AdminRoute);
+  });
+
+  it("/invite/accept no está anidada bajo ningún elemento (ni ProtectedRoute ni AdminRoute) — ruta pública de nivel superior, igual que /login", () => {
+    const parent = findParentElement(router.routes, "/invite/accept");
+    expect(parent).toBeUndefined();
+  });
+
+  it("las cuatro rutas de M7 existen en el árbol real", () => {
+    expect(findRoute(router.routes, "/users")).toBeDefined();
+    expect(findRoute(router.routes, "/invitations")).toBeDefined();
+    expect(findRoute(router.routes, "/invitations/new")).toBeDefined();
+    expect(findRoute(router.routes, "/invite/accept")).toBeDefined();
+  });
+});

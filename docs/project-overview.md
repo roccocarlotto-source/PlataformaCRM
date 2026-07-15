@@ -73,15 +73,15 @@ actividades.
   externa — ver sección 7).
 - Ningún linter/formatter (ESLint, Prettier).
 
-### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage + M5 Opportunity + M6 Activity)
+### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage + M5 Opportunity + M6 Activity + M7 Users/Invitations)
 
 | Tecnología | Rol | Por qué (evidencia en el repo) |
 |---|---|---|
 | **React** 19 / **React DOM** | UI | `frontend/package.json` — única librería de vista, sin framework de estado global adicional. |
 | **TypeScript** (`strict: true`) | Lenguaje del frontend | `frontend/tsconfig.app.json` — mismo criterio de tipado estricto que el backend. |
 | **Vite** | Build tool + dev server | `frontend/vite.config.ts` — puerto de dev `5173` por default, coincide con `CORS_ORIGIN` por defecto del backend (`.env.example`). |
-| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2, todavía placeholder de M0 sin dashboard real), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3), `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit`, `/pipelines/:pipelineId/stages`, `/pipelines/:pipelineId/stages/new`, `/pipelines/:pipelineId/stages/:stageId/edit` (M4 — las 4 rutas de escritura comparten el mismo `AdminRoute` que Company/Contact), `/opportunities`, `/opportunities/new`, `/opportunities/:id/edit` (M5 — las 2 rutas de escritura reutilizan el mismo `AdminRoute`), `/activities` (M6, lectura abierta a cualquier rol — a diferencia de todas las anteriores, `GET /api/activities` no es ADMIN-only), `/activities/new`, `/activities/:id/edit` (M6 — estas 2 sí reutilizan el mismo `AdminRoute`), `*` (placeholder de M0). |
-| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail`; M4 agregó `pipelineKeys` (mismo shape que companyKeys, invalidación ampliada a `.all` solo cuando `isDefault: true` puede desmarcar otro pipeline) y `stageKeys` (jerárquica por `pipelineId` — `byPipeline(pipelineId)` como prefijo de array, verificado empíricamente contra `@tanstack/query-core` real); M5 agregó `opportunityKeys` (plana, mismo shape que companyKeys/contactKeys/pipelineKeys — Opportunity no está scoped a un único padre por URL, a diferencia de Stage — invalidación selectiva pura, sin efecto lateral demostrado sobre otras entidades) y `userKeys` (solo `all`/`lists`/`list`, deliberadamente sin `detail`: no existe `GET /api/users/:id` en el backend); M6 agregó `activityKeys` (plana, mismo shape que `opportunityKeys`, con `detail(id)` real porque `GET /api/activities/:id` sí existe y se usa para hidratar la edición) — ver sección 7. |
+| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2, todavía placeholder de M0 sin dashboard real), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3), `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit`, `/pipelines/:pipelineId/stages`, `/pipelines/:pipelineId/stages/new`, `/pipelines/:pipelineId/stages/:stageId/edit` (M4 — las 4 rutas de escritura comparten el mismo `AdminRoute` que Company/Contact), `/opportunities`, `/opportunities/new`, `/opportunities/:id/edit` (M5 — las 2 rutas de escritura reutilizan el mismo `AdminRoute`), `/activities` (M6, lectura abierta a cualquier rol — a diferencia de todas las anteriores, `GET /api/activities` no es ADMIN-only), `/activities/new`, `/activities/:id/edit` (M6 — estas 2 sí reutilizan el mismo `AdminRoute`), `/users`, `/invitations`, `/invitations/new` (M7 — las 3 dentro del mismo `AdminRoute`: a diferencia de Activity, acá la LECTURA también es ADMIN-only, `GET /api/users` y `GET /api/invitations` lo exigen), `/invite/accept` (M7 — única ruta de negocio fuera de `ProtectedRoute`, ver sección de autenticación), `*` (placeholder de M0). |
+| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail`; M4 agregó `pipelineKeys` (mismo shape que companyKeys, invalidación ampliada a `.all` solo cuando `isDefault: true` puede desmarcar otro pipeline) y `stageKeys` (jerárquica por `pipelineId` — `byPipeline(pipelineId)` como prefijo de array, verificado empíricamente contra `@tanstack/query-core` real); M5 agregó `opportunityKeys` (plana, mismo shape que companyKeys/contactKeys/pipelineKeys — Opportunity no está scoped a un único padre por URL, a diferencia de Stage — invalidación selectiva pura, sin efecto lateral demostrado sobre otras entidades) y `userKeys` (solo `all`/`lists`/`list`, deliberadamente sin `detail`: no existe `GET /api/users/:id` en el backend); M6 agregó `activityKeys` (plana, mismo shape que `opportunityKeys`, con `detail(id)` real porque `GET /api/activities/:id` sí existe y se usa para hidratar la edición); M7 reutilizó `userKeys` sin cambios (no existe `GET /api/users/:id`, no había nada que extender) y agregó `invitationKeys` (plana, sin `detail`: tampoco existe `GET /api/invitations/:id`) — ver sección 7. |
 | **@supabase/supabase-js** | Cliente de Supabase para el browser | `frontend/src/lib/supabase.ts` — única instancia, únicamente con la `anon key` (nunca `service_role`, esa es exclusiva del backend — ver `src/lib/supabaseAdmin.ts` arriba). |
 | **Vitest** + **jsdom** + **@testing-library/react** + **user-event** + **jest-dom** + **MSW v2** | Testing frontend | `frontend/vite.config.ts` (bloque `test`, `defineConfig` de `vitest/config`), `frontend/src/test/`. Introducido en M2 para remediar `STD-SW-003` — ver detalle abajo. |
 
@@ -1800,6 +1800,156 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   incluido en esta actualización de documentación porque, al momento de
   escribirla, todavía no se habían corrido (ver informe de implementación
   entregado al operador).
+
+- ⏳ **M7 (Users + Invitations) implementado y verificado — cierre del
+  ciclo pendiente de decisión del operador, no declarado cerrado en este
+  punto.** `frontend/src/features/user/` extendido (no duplicado):
+  `UpdateUserInput`, `updateUser`, `deleteUser`, `mutations.ts` y
+  `UserListPage.tsx` nuevos; `User`, `Role`, `UserListQuery`, `userKeys`,
+  `listUsers`, `UserSelect.tsx` **sin cambios**. `frontend/src/features/invitation/`
+  nuevo, mismo esqueleto `types/api/queries/mutations/pages` que los
+  módulos anteriores. `frontend/src/features/auth/AcceptInvitationPage.tsx`
+  nuevo, fuera de `ProtectedRoute`.
+
+  **Users — sin ruta de edición propia, decisión central**: no existe
+  `GET /api/users/:id` (verificado, no asumido) — `/users/:id/edit` no se
+  construyó; `UserListPage` edita `role`/`isActive` en línea, directo sobre
+  la mutation, sin "Guardar" separado (los únicos dos campos editables
+  reales de `UpdateUserInput`). La fila del usuario autenticado oculta sus
+  propios controles de modificación — refleja visualmente el `400` real
+  que `user.service.ts` ya garantiza (`targetUserId === actorUserId`, y la
+  protección del último ADMIN activo con locking real) sin reproducir esa
+  regla como sustituto de la autorización server-side.
+
+  **Invitations — `roleId` sin resolución fiable, gap real documentado,
+  no tapado con frontend**: `GET /api/invitations` no incluye la relación
+  `role` (a diferencia de `user.repository.ts`, que sí incluye `role` en
+  sus lecturas) y no existe `GET /api/roles` — `InvitationListPage`
+  muestra `"—"` para el rol de cada invitación en vez de inventar un mapeo
+  `roleId → nombre` o mostrar el UUID crudo. `invitedById` sí se resuelve
+  (reutiliza `useOwnerNames` de `opportunity/relationResolution.ts` tal
+  cual, sin duplicarlo). `create` envía `role` (`"ADMIN"|"USER"`), nunca
+  `roleId` — el backend lo resuelve server-side. `revoke` solo se ofrece
+  sobre invitaciones `PENDING` (evita un `409`/`410` predecible del
+  backend). Sin resend (no existe ese endpoint), sin detalle (no existe
+  `GET /api/invitations/:id`).
+
+  **`AcceptInvitationPage` — secuencia corregida antes de implementar**:
+  el diseño original proponía `updateUser({password})` → `accept` →
+  `retryProfile()`; se corrigió a **`accept` primero, siempre** — setear
+  la contraseña antes de saber si la `Invitation` seguía siendo aceptable
+  arriesgaba modificar la identidad de Supabase sin necesidad. Máquina de
+  estados local explícita (sin librería): `form → accepting →
+  setting-password → resolving-profile → done`, con estados de fallo
+  parcial dedicados (`accept-failed`, `password-failed`,
+  `profile-failed`) que permiten reintentar únicamente el paso que
+  falló, nunca repetir un paso ya exitoso — verificado con 18 mutaciones
+  deliberadas, incluidas explícitamente las que intentaban saltear
+  `accept`, ejecutar `updateUser` pese a un `accept` fallido, o repetir
+  `accept` tras un fallo de `updateUser`/`retryProfile`.
+
+  **Bug real encontrado durante el testing, no solo un artefacto de
+  test**: el efecto que observa la resolución de `/api/me` tras
+  `retryProfile()` (que no expone una promesa útil, ver `AuthContext.tsx`)
+  leía el `status` todavía no actualizado apenas se entraba a
+  `resolving-profile`, y en un reintento manual (donde `status` ya
+  arrancaba en `"profile-error"` por definición) eso volvía a
+  `"profile-failed"` de inmediato, ignorando el éxito real que llegaba
+  después de forma asíncrona. Corregido con una referencia de línea base
+  (`resolvingBaselineStatusRef`) que solo reacciona a una transición real
+  de `status`, nunca al valor ya vigente al entrar al paso.
+
+  **Fallo parcial Postgres/Supabase Auth — contemplado, no tapado**: si
+  `accept` tiene éxito y `updateUser({password})` falla después, el
+  frontend nunca repite `accept` (mantiene un marcador local explícito de
+  que la aceptación backend ya ocurrió) y solo permite reintentar el
+  paso de contraseña.
+
+  **Cierre del navegador entre accept exitoso y password pendiente —
+  investigado a fondo tras el cierre inicial de M7, mitigado sin
+  heurística sobre el servidor**: tras un `accept` exitoso, `public.users`
+  ya existe, así que un F5 hace que `GET /api/me` resuelva `200` y
+  `AuthContext` pase directo a `"authenticated"` — no hay ninguna señal
+  fiable expuesta por el SDK de Supabase para distinguir "ya tiene
+  contraseña" de "todavía no", y esto no se resolvió con una heurística
+  sobre esa distinción. Investigación adicional confirmó, contra el código
+  fuente instalado de `@supabase/auth-js` (`GoTrueClient.ts`, sin
+  `storage` custom en `lib/supabase.ts`), que la sesión de Supabase se
+  persiste en **`localStorage`** — sobrevive no solo un F5 sino cerrar la
+  pestaña o el navegador completo, a diferencia del marcador de
+  `sessionStorage` (que sí se pierde en esos casos). Consecuencia real:
+  quien cierra el navegador con la contraseña pendiente **no queda
+  bloqueado de inmediato** — sigue usando el CRM con la sesión persistida
+  mientras el refresh token de Supabase siga vigente (vida útil real
+  gestionada por configuración externa del proyecto, no verificable desde
+  este código) — el riesgo es diferido, no inmediato. Mitigación agregada:
+  la pantalla de "ya iniciaste sesión" (mostrada cuando no hay marcador de
+  `sessionStorage` pero sí una sesión ya autenticada) ahora **también**
+  ofrece configurar/actualizar la contraseña ahí mismo, reutilizando
+  `supabase.auth.updateUser` sobre la propia sesión ya autenticada — sin
+  inventar detección de si ya tiene contraseña (la acción es segura e
+  idempotente en cualquier caso), sin nuevo endpoint, sin ampliar hacia un
+  sistema de recuperación de contraseña general. Sin recuperación
+  self-service si la sesión persistida deja de ser válida sin haber
+  completado este paso (no existe `resetPasswordForEmail` ni ningún
+  mecanismo de recuperación en el proyecto, confirmado) — riesgo residual
+  real, documentado, no resuelto ni ampliado en este ciclo.
+
+  **`AuthContext.tsx` — sin modificar**: `retryProfile()` (ya expuesto
+  desde M1) alcanza para forzar la re-resolución de `/api/me` tras
+  aceptar — el JWT nunca lleva `organizationId`/`role` (principio rector
+  de `authentication-architecture.md`), así que no hace falta ningún
+  refresco de claims.
+
+  **Tests**: `user/api.test.ts` (+6 sobre los 4 de M5: update role/
+  isActive, payload exacto, delete, errores reales), `user/mutations.test.tsx`
+  (4, nuevo), `user/UserListPage.test.tsx` (10, nuevo), `invitation/api.test.ts`
+  (8), `invitation/queries.test.tsx` (3), `invitation/mutations.test.tsx`
+  (4), `invitation/InvitationListPage.test.tsx` (11), `invitation/InvitationFormPage.test.tsx`
+  (5), `auth/AcceptInvitationPage.test.tsx` (23, cubre la máquina de
+  estados completa con `AuthProvider`/`QueryClient` reales y solo la
+  frontera externa de `supabase.auth` mockeada, mismo criterio que
+  `AuthContext.test.tsx` — incluye la remediación mínima post-informe
+  sobre el riesgo de cierre del navegador, ver más abajo), `layout/AppLayout.test.tsx`
+  (4, primer test de componente propio de `AppLayout`, gap heredado desde
+  M2), extensión de `app/router.test.tsx` (+3) y de `auth/AdminRoute.test.tsx`
+  (+6: Users e Invitations, mismo criterio que las extensiones de M3-M6).
+  **87 tests nuevos; 402 tests en total** en la suite frontend completa
+  (315 heredados de M6 + 87 de M7), todos verdes. `tsc -b` y `vite build`
+  verdes.
+
+  Poder de detección verificado con 18 mutaciones deliberadas (todas las
+  pedidas explícitamente para este ciclo), todas revertidas antes de
+  continuar: `organizationId` inyectado en `updateUser`, ruta `/users`
+  movida fuera del `AdminRoute` real, ruta `/invitations` movida fuera del
+  `AdminRoute` real, `roleId` mostrado crudo, `invitedById` mostrado crudo,
+  invalidación cruzada de `userKeys` desde una mutación de Invitation,
+  `roleId` enviado en vez de `role` en create, `email`/`fullName`
+  editables agregados al payload de `updateUser`, botón "Revocar" ofrecido
+  fuera de `PENDING`, `accept` salteado antes del password update,
+  `updateUser({password})` ejecutado pese a un `accept` fallido, `accept`
+  repetido tras un fallo de password, `accept` repetido tras un fallo de
+  `retryProfile`, `retryProfile()` omitido tras el flujo exitoso, gating
+  del nav roto (`isAdmin` forzado a `true`), regresión de `UserSelect`
+  (M5) rota, regresión del gating USER de Activity (M6) rota, `/invite/accept`
+  movida dentro de `ProtectedRoute`. Cada una detectada por al menos un
+  test real, sin ninguna sobreviviendo a la suite.
+
+  **Deuda técnica / notas residuales, no minimizadas**: `roleId` de
+  Invitation sin resolución fiable a nombre (gap de contrato, requeriría
+  tocar backend — `include: { role: true }` en `invitation.repository.ts`
+  o un `GET /api/roles`, ninguno de los dos implementado en este ciclo).
+  Cierre de sesión entre `accept` exitoso y password pendiente pierde el
+  marcador de recuperación (ver arriba). Configuración externa de
+  Supabase (`redirectTo`/Site URL/SMTP) necesaria para probar el envío de
+  email real — no verificable desde este ciclo, ver AI/AJ del informe de
+  implementación entregado al operador. `AppLayout.tsx` gana su primer
+  test de componente propio recién en M7 (gap heredado desde M2, cerrado
+  parcialmente acá, no en su totalidad).
+
+  **Reviews obligatorios (Claude-Toolkit-V1), ejecutados desde cero
+  contra el deliverable final de M7**: `RV-ENG`: **PASS**. `RV-SECURITY`:
+  **PASS**. `RV-STANDARDS`: **PASS**. Sin condiciones pendientes.
 
 **Autenticación**
 - ✅ Diseño de sincronización de email (`auth.users` ↔ `public.users`) implementado en

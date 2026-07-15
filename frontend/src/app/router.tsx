@@ -15,6 +15,10 @@ import { OpportunityFormPage } from "../features/opportunity/OpportunityFormPage
 import { OpportunityListPage } from "../features/opportunity/OpportunityListPage";
 import { ActivityFormPage } from "../features/activity/ActivityFormPage";
 import { ActivityListPage } from "../features/activity/ActivityListPage";
+import { UserListPage } from "../features/user/UserListPage";
+import { InvitationFormPage } from "../features/invitation/InvitationFormPage";
+import { InvitationListPage } from "../features/invitation/InvitationListPage";
+import { AcceptInvitationPage } from "../features/auth/AcceptInvitationPage";
 
 // HomePlaceholder sigue siendo el placeholder de M0 (todavía no hay
 // dashboard real, ver M3+) — ahora vive detrás de ProtectedRoute + AppLayout.
@@ -30,6 +34,16 @@ function NotFoundPlaceholder() {
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
+  // Fuera de ProtectedRoute a propósito: quien acepta todavía no tiene
+  // public.users (status "account-unavailable"), y ProtectedRoute
+  // redirigiría a /login o mostraría el mensaje bloqueante de
+  // "account-unavailable" sin dar forma de completar la aceptación — ver
+  // informe de diseño de M7, hallazgo central de AcceptInvitationPage. No
+  // usa :token porque no existe token propio de Invitation (ver
+  // docs/authentication-architecture.md sección 2) — el "token" real ya lo
+  // consumió supabase-js (detectSessionInUrl) antes de que esta ruta se
+  // renderice.
+  { path: "/invite/accept", element: <AcceptInvitationPage /> },
   {
     element: <ProtectedRoute />,
     children: [
@@ -51,9 +65,18 @@ export const router = createBrowserRouter([
             // La autorización real de escritura sigue siendo authorize("ADMIN")
             // en el backend. Un único AdminRoute cubre las rutas de escritura
             // de Company, Contact, Pipeline, Stage, Opportunity y Activity — el
-            // componente no sabe ni le importa qué ruta envuelve.
+            // componente no sabe ni le importa qué ruta envuelve. M7 (Users,
+            // Invitations) también entra acá, con una diferencia real: a
+            // diferencia de todos los módulos anteriores, GET /api/users y
+            // GET /api/invitations son TAMBIÉN ADMIN-only (verificado en
+            // user.routes.ts/invitation.routes.ts) — así que /users e
+            // /invitations van dentro de este bloque, no como rutas de
+            // lectura abiertas (a diferencia de /activities arriba).
             element: <AdminRoute />,
             children: [
+              { path: "/users", element: <UserListPage /> },
+              { path: "/invitations", element: <InvitationListPage /> },
+              { path: "/invitations/new", element: <InvitationFormPage /> },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/contacts/new", element: <ContactFormPage /> },

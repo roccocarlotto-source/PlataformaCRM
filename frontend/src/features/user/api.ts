@@ -1,6 +1,6 @@
 import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
-import type { UserListQuery, UserListResponse } from "./types";
+import type { UpdateUserInput, User, UserListQuery, UserListResponse } from "./types";
 
 // Reutiliza request()/getAccessToken tal cual. organizationId nunca viaja
 // acá: se resuelve exclusivamente server-side desde el JWT.
@@ -29,5 +29,22 @@ export function listUsers(
   return request<UserListResponse>(`/users${buildListQueryString(query)}`, {
     getAccessToken,
     signal,
+  });
+}
+
+// M7 — únicamente isActive/role (ver UpdateUserInput). Sin getUser(id): ver
+// nota de arriba, sigue sin existir GET /api/users/:id.
+export function updateUser(id: string, input: UpdateUserInput): Promise<User> {
+  return request<User>(`/users/${id}`, {
+    method: "PATCH",
+    body: input,
+    getAccessToken,
+  });
+}
+
+export function deleteUser(id: string): Promise<void> {
+  return request<void>(`/users/${id}`, {
+    method: "DELETE",
+    getAccessToken,
   });
 }

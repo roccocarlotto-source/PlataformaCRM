@@ -54,3 +54,11 @@ export interface UserListQuery {
   sortBy?: UserSortBy;
   sortOrder?: SortOrder;
 }
+
+// M7: PATCH /api/users/:id (user.controller.ts, updateUserSchema) — SOLO
+// isActive y role. email/fullName/id/organizationId no son campos de este
+// schema, ni siquiera llegan al service — no se agregan acá tampoco.
+export interface UpdateUserInput {
+  isActive?: boolean;
+  role?: "ADMIN" | "USER";
+}

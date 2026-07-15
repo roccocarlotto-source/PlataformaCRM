@@ -20,6 +20,10 @@ import { StageFormPage } from "../features/stage/StageFormPage";
 import { OpportunityFormPage } from "../features/opportunity/OpportunityFormPage";
 import { ActivityFormPage } from "../features/activity/ActivityFormPage";
 import { makeActivity } from "../test/activityFixtures";
+import { UserListPage } from "../features/user/UserListPage";
+import { InvitationListPage } from "../features/invitation/InvitationListPage";
+import { InvitationFormPage } from "../features/invitation/InvitationFormPage";
+import { makeInvitation } from "../test/invitationFixtures";
 import type { AuthContextValue } from "./AuthContext";
 
 // Ejercita la jerarquía real de routing (ProtectedRoute → AdminRoute →
@@ -524,5 +528,150 @@ describe("AdminRoute — protección visual de rutas de escritura de Activity", 
     renderActivityRouteAt("/activities/act1/edit");
 
     await waitFor(() => expect(screen.getByText("Editar actividad")).toBeInTheDocument());
+  });
+});
+
+// M7 — a diferencia de todos los bloques anteriores (incluido Activity),
+// /users es TAMBIÉN ADMIN-only para lectura (GET /api/users, ver
+// user.routes.ts) — no hay una lista abierta fuera del AdminRoute que
+// probar acá, la propia UserListPage va adentro.
+const usersUrl = `${env.apiUrl}/users`;
+
+function renderUserRouteAt(initialPath: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route path="/companies" element={<div>lista de empresas</div>} />
+            <Route element={<AdminRoute />}>
+              <Route path="/users" element={<UserListPage />} />
+            </Route>
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("AdminRoute — protección visual de /users (lectura también ADMIN-only)", () => {
+  it("USER entrando directamente a /users no renderiza la lista ni dispara GET /api/users", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    let usersRequested = false;
+    server.use(
+      http.get(usersUrl, () => {
+        usersRequested = true;
+        return HttpResponse.json({
+          data: [makeUser()],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        });
+      }),
+    );
+
+    renderUserRouteAt("/users");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Usuarios")).not.toBeInTheDocument();
+    expect(usersRequested).toBe(false);
+  });
+
+  it("ADMIN sí accede a /users", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(usersUrl, () =>
+        HttpResponse.json({
+          data: [makeUser({ fullName: "Ana Pérez" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderUserRouteAt("/users");
+
+    await waitFor(() => expect(screen.getByText("Ana Pérez")).toBeInTheDocument());
+  });
+});
+
+// M7 — mismo criterio: GET /api/invitations es ADMIN-only, sin lista
+// abierta fuera del AdminRoute.
+const invitationsUrl = `${env.apiUrl}/invitations`;
+
+function renderInvitationRouteAt(initialPath: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route path="/companies" element={<div>lista de empresas</div>} />
+            <Route element={<AdminRoute />}>
+              <Route path="/invitations" element={<InvitationListPage />} />
+              <Route path="/invitations/new" element={<InvitationFormPage />} />
+            </Route>
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("AdminRoute — protección visual de /invitations e /invitations/new (lectura también ADMIN-only)", () => {
+  it("USER entrando directamente a /invitations no renderiza la lista ni dispara GET /api/invitations", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    let invitationsRequested = false;
+    server.use(
+      http.get(invitationsUrl, () => {
+        invitationsRequested = true;
+        return HttpResponse.json({
+          data: [makeInvitation()],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        });
+      }),
+    );
+
+    renderInvitationRouteAt("/invitations");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(invitationsRequested).toBe(false);
+  });
+
+  it("USER entrando directamente a /invitations/new no renderiza el formulario", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+
+    renderInvitationRouteAt("/invitations/new");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Invitar")).not.toBeInTheDocument();
+  });
+
+  it("ADMIN sí accede a /invitations", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(invitationsUrl, () =>
+        HttpResponse.json({
+          data: [makeInvitation({ email: "invitado@example.com" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(usersUrl, () =>
+        HttpResponse.json({
+          data: [makeUser()],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderInvitationRouteAt("/invitations");
+
+    await waitFor(() => expect(screen.getByText("invitado@example.com")).toBeInTheDocument());
+  });
+
+  it("ADMIN sí accede a /invitations/new", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+
+    renderInvitationRouteAt("/invitations/new");
+
+    await waitFor(() => expect(screen.getByText("Invitar")).toBeInTheDocument());
   });
 });

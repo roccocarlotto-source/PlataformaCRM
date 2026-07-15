@@ -39,6 +39,26 @@
 > Lo que sigue siendo diseño, no código: endpoint de login propio (el login en sí no
 > pasa por Express, ver sección 3 — esto es una decisión de diseño estable, no algo
 > pendiente de implementar).
+>
+> **M7 (frontend, ⏳ implementado y verificado en este ciclo, cierre pendiente de
+> decisión del operador)**: los pasos 5-6 de la sección 2 (el frontend de
+> aceptación) ya están implementados — `frontend/src/features/auth/AcceptInvitationPage.tsx`,
+> ruta `/invite/accept`, fuera de `ProtectedRoute`. Un punto no cubierto
+> explícitamente por el diseño original de esta sección y confirmado durante
+> la implementación: `inviteUserByEmail` no fuerza a la persona invitada a
+> establecer una contraseña — como este frontend solo soporta login por
+> `email`+`password` (`signInWithPassword`, sección 3), `AcceptInvitationPage`
+> agrega un paso explícito de `supabase.auth.updateUser({ password })`
+> **después** de que `POST /api/invitations/accept` tenga éxito (nunca antes,
+> para no modificar la identidad de Supabase sin saber todavía si la
+> `Invitation` seguía siendo aceptable). `invitationId` se obtiene leyendo
+> `supabase.auth.getUser().data.user.user_metadata.invitationId` (el mismo
+> valor que `createInvitation` ya pasaba como `data` a `inviteUserByEmail`,
+> paso 4 de la sección 2) — se usa para desambiguar el caso de la sección 7
+> (mismo email invitado por más de una organización a la vez). El
+> `redirectTo` de `inviteUserByEmail` sigue sin configurarse explícitamente
+> en el código (usa el Site URL/Redirect URLs del proyecto de Supabase) —
+> configuración operativa externa, no resuelta en este ciclo.
 
 ## Principio rector
 
@@ -257,10 +277,17 @@ tramo, el mecanismo de compare-and-swap y la cobertura persistente actual):**
    curso en cualquier organización) falla acá, traducido a `409`. Revocar o dejar
    vencer una `Invitation` **no** libera esa identidad de Supabase (ver riesgos).
 
-5. **El usuario invitado abre el email y sigue el link.** El frontend usa el flujo de
-   Supabase para que la persona establezca su contraseña — esto autentica al usuario
-   y le da una sesión válida (JWT), pero **todavía no existe fila en `public.users`
-   para él.**
+5. **El usuario invitado abre el email y sigue el link.** `supabase-js`
+   (`detectSessionInUrl: true`, `frontend/src/lib/supabase.ts`) consume el link
+   automáticamente y establece una sesión válida (JWT) — pero **todavía no existe
+   fila en `public.users` para él.** *Corrección respecto a una versión anterior de
+   este párrafo (M7, implementación real)*: el frontend **no** hace que la persona
+   establezca su contraseña en este paso, antes de llamar a `accept` — `AcceptInvitationPage`
+   pide `POST /api/invitations/accept` primero (paso 6) y recién si esa
+   aceptación tiene éxito ejecuta `supabase.auth.updateUser({ password })`;
+   hacerlo en el orden inverso arriesgaría modificar la identidad de Supabase
+   sin saber todavía si la `Invitation` seguía siendo aceptable (vencida,
+   revocada, ya aceptada).
 
 6. **El frontend, con esa sesión recién obtenida, llama a `POST /api/invitations/accept`**
    (`invitation.controller.ts` → `invitation.service.ts`, `acceptInvitation`). Este
