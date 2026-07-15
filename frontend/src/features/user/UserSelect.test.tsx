@@ -98,4 +98,51 @@ describe("UserSelect", () => {
       expect(screen.getByText(/No pudimos cargar los usuarios/)).toBeInTheDocument(),
     );
   });
+
+  // Regresión M6: emptyOptionLabel es un prop nuevo (Activity lo necesita
+  // para assigneeId, que nunca se autoasigna — a diferencia de ownerId de
+  // Opportunity). Si se omite, OpportunityFormPage debe seguir viendo
+  // exactamente el mismo texto que antes de M6.
+  it("sin emptyOptionLabel, conserva el texto default anterior a M6 (regresión de Opportunity)", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+    );
+
+    renderSelect(undefined);
+
+    await waitFor(() =>
+      expect(screen.getByText("Asignado a quien crea (por defecto)")).toBeInTheDocument(),
+    );
+  });
+
+  it("con emptyOptionLabel custom, usa ese texto en vez del default", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <UserSelect
+          id="activity-assignee"
+          label="Asignado a"
+          value={undefined}
+          onChange={vi.fn()}
+          emptyOptionLabel="Sin asignar"
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Sin asignar")).toBeInTheDocument());
+    expect(screen.queryByText("Asignado a quien crea (por defecto)")).not.toBeInTheDocument();
+  });
 });

@@ -5,11 +5,21 @@ interface UserSelectProps {
   label: string;
   value: string | undefined;
   onChange: (ownerId: string) => void;
+  // Texto de la opción vacía del <select>. Default = el texto histórico de
+  // M5 ("Asignado a quien crea (por defecto)"), correcto para ownerId de
+  // Opportunity (resolveOwnerId autoasigna a quien crea si se omite) pero
+  // FALSO para assigneeId de Activity (nunca se autoasigna — ver
+  // activity.service.ts validateAssigneeId / docs/project-overview.md).
+  // Activity pasa "Sin asignar" explícitamente; Opportunity no pasa nada y
+  // conserva el comportamiento anterior sin cambios (ver
+  // UserSelect.test.tsx, test de regresión del default).
+  emptyOptionLabel?: string;
 }
 
-// Selector de owner para OpportunityFormPage — siempre montado detrás de
-// AdminRoute (ver opportunity/OpportunityFormPage.tsx), así que GET
-// /api/users (ADMIN-only) nunca resulta en 403 acá.
+// Selector de usuario reutilizado por OpportunityFormPage (owner) y
+// ActivityFormPage (assignee) — siempre montado detrás de AdminRoute en
+// ambos casos, así que GET /api/users (ADMIN-only) nunca resulta en 403
+// acá.
 //
 // <select> simple, sin búsqueda de texto: a diferencia de CompanySelect,
 // GET /api/users no tiene filtro `search` en el contrato real
@@ -21,7 +31,13 @@ interface UserSelectProps {
 // más de 100 usuarios activos no ve el resto en este picker (riesgo
 // residual documentado, no resuelto acá — requeriría búsqueda server-side
 // que el backend no expone).
-export function UserSelect({ id, label, value, onChange }: UserSelectProps) {
+export function UserSelect({
+  id,
+  label,
+  value,
+  onChange,
+  emptyOptionLabel = "Asignado a quien crea (por defecto)",
+}: UserSelectProps) {
   const usersQuery = useUsers({
     pageSize: 100,
     isActive: true,
@@ -41,7 +57,7 @@ export function UserSelect({ id, label, value, onChange }: UserSelectProps) {
       ) : null}
       {usersQuery.isSuccess ? (
         <select id={id} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
-          <option value="">Asignado a quien crea (por defecto)</option>
+          <option value="">{emptyOptionLabel}</option>
           {usersQuery.data.data.map((user) => (
             <option key={user.id} value={user.id}>
               {user.fullName}

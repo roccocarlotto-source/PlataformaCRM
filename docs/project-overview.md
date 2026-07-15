@@ -73,15 +73,15 @@ actividades.
   externa — ver sección 7).
 - Ningún linter/formatter (ESLint, Prettier).
 
-### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage + M5 Opportunity)
+### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage + M5 Opportunity + M6 Activity)
 
 | Tecnología | Rol | Por qué (evidencia en el repo) |
 |---|---|---|
 | **React** 19 / **React DOM** | UI | `frontend/package.json` — única librería de vista, sin framework de estado global adicional. |
 | **TypeScript** (`strict: true`) | Lenguaje del frontend | `frontend/tsconfig.app.json` — mismo criterio de tipado estricto que el backend. |
 | **Vite** | Build tool + dev server | `frontend/vite.config.ts` — puerto de dev `5173` por default, coincide con `CORS_ORIGIN` por defecto del backend (`.env.example`). |
-| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2, todavía placeholder de M0 sin dashboard real), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3), `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit`, `/pipelines/:pipelineId/stages`, `/pipelines/:pipelineId/stages/new`, `/pipelines/:pipelineId/stages/:stageId/edit` (M4 — las 4 rutas de escritura comparten el mismo `AdminRoute` que Company/Contact), `/opportunities`, `/opportunities/new`, `/opportunities/:id/edit` (M5 — las 2 rutas de escritura reutilizan el mismo `AdminRoute`), `*` (placeholder de M0). |
-| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail`; M4 agregó `pipelineKeys` (mismo shape que companyKeys, invalidación ampliada a `.all` solo cuando `isDefault: true` puede desmarcar otro pipeline) y `stageKeys` (jerárquica por `pipelineId` — `byPipeline(pipelineId)` como prefijo de array, verificado empíricamente contra `@tanstack/query-core` real); M5 agregó `opportunityKeys` (plana, mismo shape que companyKeys/contactKeys/pipelineKeys — Opportunity no está scoped a un único padre por URL, a diferencia de Stage — invalidación selectiva pura, sin efecto lateral demostrado sobre otras entidades) y `userKeys` (solo `all`/`lists`/`list`, deliberadamente sin `detail`: no existe `GET /api/users/:id` en el backend) — ver sección 7. |
+| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2, todavía placeholder de M0 sin dashboard real), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3), `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit`, `/pipelines/:pipelineId/stages`, `/pipelines/:pipelineId/stages/new`, `/pipelines/:pipelineId/stages/:stageId/edit` (M4 — las 4 rutas de escritura comparten el mismo `AdminRoute` que Company/Contact), `/opportunities`, `/opportunities/new`, `/opportunities/:id/edit` (M5 — las 2 rutas de escritura reutilizan el mismo `AdminRoute`), `/activities` (M6, lectura abierta a cualquier rol — a diferencia de todas las anteriores, `GET /api/activities` no es ADMIN-only), `/activities/new`, `/activities/:id/edit` (M6 — estas 2 sí reutilizan el mismo `AdminRoute`), `*` (placeholder de M0). |
+| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail`; M4 agregó `pipelineKeys` (mismo shape que companyKeys, invalidación ampliada a `.all` solo cuando `isDefault: true` puede desmarcar otro pipeline) y `stageKeys` (jerárquica por `pipelineId` — `byPipeline(pipelineId)` como prefijo de array, verificado empíricamente contra `@tanstack/query-core` real); M5 agregó `opportunityKeys` (plana, mismo shape que companyKeys/contactKeys/pipelineKeys — Opportunity no está scoped a un único padre por URL, a diferencia de Stage — invalidación selectiva pura, sin efecto lateral demostrado sobre otras entidades) y `userKeys` (solo `all`/`lists`/`list`, deliberadamente sin `detail`: no existe `GET /api/users/:id` en el backend); M6 agregó `activityKeys` (plana, mismo shape que `opportunityKeys`, con `detail(id)` real porque `GET /api/activities/:id` sí existe y se usa para hidratar la edición) — ver sección 7. |
 | **@supabase/supabase-js** | Cliente de Supabase para el browser | `frontend/src/lib/supabase.ts` — única instancia, únicamente con la `anon key` (nunca `service_role`, esa es exclusiva del backend — ver `src/lib/supabaseAdmin.ts` arriba). |
 | **Vitest** + **jsdom** + **@testing-library/react** + **user-event** + **jest-dom** + **MSW v2** | Testing frontend | `frontend/vite.config.ts` (bloque `test`, `defineConfig` de `vitest/config`), `frontend/src/test/`. Introducido en M2 para remediar `STD-SW-003` — ver detalle abajo. |
 
@@ -1655,6 +1655,151 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   `RV-ENG`: **PASS**. `RV-SECURITY`: **PASS**. `RV-STANDARDS`: **PASS**.
   Sin condiciones pendientes — el Gate de M5 queda liberado
   incondicionalmente.
+
+- ⏳ **M6 (módulo Activity) implementado y verificado — cierre del ciclo
+  pendiente de decisión del operador, no declarado cerrado en este
+  punto.** `frontend/src/features/activity/` completo: `types.ts`,
+  `api.ts`, `queries.ts`, `mutations.ts`, `ActivityListPage.tsx`,
+  `ActivityFormPage.tsx`, más tres archivos nuevos sin precedente directo
+  en M2-M5 (`relationPatch.ts`, `datetimeLocal.ts`, `OpportunitySelect.tsx`)
+  y un `relationResolution.ts` deliberadamente mínimo (una sola función
+  nueva, ver abajo). Precedido por una fase de diseño separada (contrato
+  reconstruido leyendo `activity.routes.ts`/`.controller.ts`/`.service.ts`/
+  `.repository.ts` + `manual_constraints.sql`, sin asumir nada de
+  Opportunity por analogía) y corregido con las decisiones explícitas del
+  operador antes de implementar.
+
+  **Invariante `activities_related_entity_check` — OR real, no XOR**: la
+  actividad debe estar ligada a `companyId` y/o `contactId` y/o
+  `opportunityId` (**al menos una**, verificado contra el `CHECK` real en
+  `manual_constraints.sql`) — las tres relaciones simultáneas son un
+  estado válido, no hay ninguna regla de exclusividad ni en Zod ni en el
+  service. `relationPatch.ts` (`hasAtLeastOneRelation`,
+  `buildRelationPatch`, `buildCreateRelationFields`) implementa esto sin
+  forzar exclusividad: `buildRelationPatch(original, current)` compara
+  campo por campo contra el estado hidratado por el `GET` y arma el PATCH
+  mínimo real — una clave viaja solo si el usuario la tocó de verdad
+  (agregar un Contact sin tocar la Company ya elegida nunca limpia esa
+  Company); `null` explícito limpia, clave ausente no toca. Bloqueo
+  client-side antes de la request si el estado final quedaría con las
+  tres vacías — UX, no seguridad: si una carrera real entre dos ediciones
+  concurrentes (T-1, ver sección 4) igual produce el 400 del `CHECK`, se
+  muestra el mensaje real del backend tal cual, sin traducirlo.
+
+  **`dueDate`/`completedAt` — `DateTime` real, no `@db.Date`, corregido
+  explícitamente para no copiar el patrón de fechas de Opportunity**:
+  `datetimeLocal.ts` (`toDatetimeLocalValue`/`fromDatetimeLocalValue`)
+  convierte ISO UTC ↔ valor de `<input type="datetime-local">` restando/
+  sumando el offset de timezone del navegador — nunca un `slice(0, 10)`
+  (perdería la hora) ni un `slice(0, 16)` directo del ISO UTC (mostraría
+  la hora en UTC, no en la hora local del usuario). Verificado con
+  `process.env.TZ` real (Argentina UTC-3, Kiritimati UTC+14, y un caso que
+  cruza el día calendario), no solo en UTC.
+
+  **`assigneeId` — nunca se autoasigna, a diferencia de `ownerId` de
+  Opportunity**: `UserSelect.tsx` (reutilizado, no reescrito) recibió un
+  prop nuevo `emptyOptionLabel?: string` con default idéntico al texto
+  histórico de Opportunity (`"Asignado a quien crea (por defecto)"`, sin
+  cambiar su comportamiento) — Activity pasa `"Sin asignar"`, reflejando
+  que `assigneeId` omitido queda `null`, nunca autoasignado al autor
+  (`activity.service.ts`: `validateAssigneeId`, sin el default de
+  `resolveOwnerId`). Test de regresión explícito en `UserSelect.test.tsx`
+  confirmando que Opportunity conserva el texto anterior sin tocar su
+  caller.
+
+  **`authorId`/`assigneeId` en el listado — USER sin `GET /api/users`,
+  con "Vos" para su propio id**: `useOwnerNames(isAdmin)`
+  (`opportunity/relationResolution.ts`, reutilizado sin modificar) resuelve
+  ambos campos con una sola llamada para ADMIN; para USER, ese fetch nunca
+  se dispara — en su lugar, `ActivityListPage.resolveUserLabel` compara
+  contra `me.id` (ya disponible por `useAuth`, sin request adicional) y
+  muestra `"Vos"` cuando coincide, `"—"` para cualquier otro id ajeno,
+  nunca el UUID crudo.
+
+  **`OpportunitySelect.tsx` — nuevo, sin resolución de Company por
+  resultado**: búsqueda server-side por `title` (`GET /api/opportunities?
+  search=...`), sin precarga por default (mismo patrón `enabled` que
+  `CompanySelect`/`ContactSelect`), cada opción muestra `título — status —
+  monto moneda` (datos que ya vienen en el propio resultado de la lista,
+  decisión explícita del operador para no introducir N+1 resolviendo
+  Company por fila). No existe `useOpportunities` con `options.enabled` en
+  `opportunity/queries.ts` (Opportunity nunca tuvo antes un selector de
+  búsqueda propio que lo necesitara) — no se modificó ese archivo para
+  esto; `OpportunitySelect` arma su propio `useQuery` con la misma
+  `opportunityKeys.list` para mantener el cache compatible con el resto de
+  la app.
+
+  **`relationResolution.ts` — deliberadamente mínimo, no simetría con
+  M5**: contiene únicamente `useOpportunityNames` (resolución nueva real,
+  mismo patrón estructural que `usePipelineNames`/`useContactNames` de
+  M5, aplicada a Opportunity porque no existía antes ningún resolvedor de
+  Opportunity por id). `useCompaniesByIds` (Company) y `useContactNames`/
+  `useOwnerNames` (Contact/User) se importan directamente desde su fuente
+  real (`contact/companyResolution.ts` y `opportunity/relationResolution.ts`)
+  en `ActivityListPage.tsx` — no se reexportan acá sin necesidad.
+
+  **Routing**: `/activities` (lectura) fuera del `AdminRoute` — a
+  diferencia de Company/Contact/Pipeline/Stage/Opportunity, `GET
+  /api/activities` es abierto a cualquier rol autenticado (verificado
+  contra `activity.routes.ts`, no asumido por analogía). `/activities/new`
+  y `/activities/:id/edit` sí reutilizan el mismo `AdminRoute` único.
+
+  **Tests**: `activity/api.test.ts` (10), `activity/queries.test.tsx` (6),
+  `activity/mutations.test.tsx` (5), `activity/relationPatch.test.ts` (16),
+  `activity/datetimeLocal.test.ts` (6, con timezones reales distintas de
+  UTC), `activity/relationResolution.test.tsx` (3),
+  `activity/OpportunitySelect.test.tsx` (9), `activity/ActivityListPage.test.tsx`
+  (14), `activity/ActivityFormPage.test.tsx` (20), una extensión de
+  `auth/AdminRoute.test.tsx` (+4: Activity, mismo criterio que las
+  extensiones de M3/M4/M5), una extensión de `user/UserSelect.test.tsx`
+  (+2: regresión del `emptyOptionLabel` default), y un archivo nuevo sin
+  precedente en M2-M5, `app/router.test.tsx` (3) — agregado durante las
+  mutaciones deliberadas al confirmar que ningún test existente ejercita
+  el árbol de rutas real exportado por `router.tsx` (`AdminRoute.test.tsx`
+  reconstruye el árbol a mano, no lo importa), verificado inspeccionando
+  estructuralmente `router.routes` sin renderizar. **98 tests nuevos; 315
+  tests en total** en la suite frontend completa (217 heredados de M5 +
+  98 de M6), todos verdes. `tsc -b` y `vite build` verdes.
+
+  Poder de detección verificado con 16 mutaciones deliberadas (todas las
+  pedidas explícitamente para este ciclo), todas revertidas antes de
+  continuar: submit permitido con cero relaciones, `buildRelationPatch`
+  sin enviar `null` al limpiar, exclusividad falsa forzada entre
+  relaciones, ruptura del caso "agregar Contact sin tocar Company",
+  `dueDate` serializado como fecha pura, hidratación de `datetime-local`
+  con `slice` directo del ISO UTC, UUID crudo mostrado a USER, `GET
+  /api/users` habilitado incondicionalmente para USER, invalidación de
+  `companyKeys` desde una mutación de Activity, ruta de escritura movida
+  fuera del `AdminRoute` en `router.tsx`, mensaje real del `CHECK` oculto
+  detrás de un fallback genérico, autoasignación de `assigneeId` al
+  autor, placeholder incorrecto de Opportunity reutilizado sin
+  `emptyOptionLabel`, precarga de `OpportunitySelect` sin búsqueda,
+  `organizationId` inyectado en el payload, `authorId` inyectado en el
+  payload. **Un hallazgo real del propio proceso de mutación, cerrado
+  antes de continuar**: la mutación de routing (mover `/activities/new`
+  fuera del `AdminRoute`) sobrevivió a la suite completa en su primer
+  intento — ningún test importaba el `router.tsx` real; se agregó
+  `app/router.test.tsx` (inspección estructural de `router.routes`), se
+  repitió la mutación, se confirmó que ahora sí fallaba, y se restauró.
+
+  **Deuda técnica / notas residuales, no minimizadas**: `OpportunitySelect`
+  no muestra el nombre de la Company de cada resultado (decisión explícita
+  para evitar N+1, ver arriba) — si en el futuro se necesita ese contexto,
+  requiere una decisión de producto nueva, no una corrección de bug. Un
+  USER nunca puede marcar como completada una actividad propia
+  (`completedAt` vía PATCH es ADMIN-only, mismo contrato real que crear/
+  editar/eliminar) — límite de producto real del backend, no resuelto ni
+  eludido desde el frontend. La resolución de autor/asignado para USER se
+  limita a "es mi propio id" — cualquier otro id ajeno queda en `"—"`,
+  mismo tipo de límite ya documentado para Owner en M5. `AppLayout.tsx`
+  sigue sin test de componente propio (gap heredado de M2, sin agravarse
+  en M6).
+
+  **Reviews obligatorios (Claude-Toolkit-V1)**: pendientes de ejecución
+  contra el deliverable final de M6 en este mismo ciclo — resultado no
+  incluido en esta actualización de documentación porque, al momento de
+  escribirla, todavía no se habían corrido (ver informe de implementación
+  entregado al operador).
 
 **Autenticación**
 - ✅ Diseño de sincronización de email (`auth.users` ↔ `public.users`) implementado en

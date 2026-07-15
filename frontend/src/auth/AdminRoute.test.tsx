@@ -18,6 +18,8 @@ import { ContactFormPage } from "../features/contact/ContactFormPage";
 import { PipelineFormPage } from "../features/pipeline/PipelineFormPage";
 import { StageFormPage } from "../features/stage/StageFormPage";
 import { OpportunityFormPage } from "../features/opportunity/OpportunityFormPage";
+import { ActivityFormPage } from "../features/activity/ActivityFormPage";
+import { makeActivity } from "../test/activityFixtures";
 import type { AuthContextValue } from "./AuthContext";
 
 // Ejercita la jerarquía real de routing (ProtectedRoute → AdminRoute →
@@ -433,5 +435,94 @@ describe("AdminRoute — protección visual de rutas de escritura de Opportunity
     renderOpportunityRouteAt("/opportunities/op1/edit");
 
     await waitFor(() => expect(screen.getByText("Editar oportunidad")).toBeInTheDocument());
+  });
+});
+
+// Mismo árbitro de decisión, ahora para las rutas de escritura de Activity
+// (M6) — a diferencia de todos los bloques anteriores, /activities (listado,
+// lectura) NO va detrás de AdminRoute en app/router.tsx real (GET
+// /api/activities es abierto a cualquier rol) — solo /activities/new y
+// /activities/:id/edit sí. Confirma el wiring específico de Activity, no
+// solo el mecanismo genérico.
+const activitiesUrl = `${env.apiUrl}/activities`;
+
+function renderActivityRouteAt(initialPath: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route path="/companies" element={<div>lista de empresas</div>} />
+            <Route path="/activities" element={<div>lista de actividades</div>} />
+            <Route element={<AdminRoute />}>
+              <Route path="/activities/new" element={<ActivityFormPage />} />
+              <Route path="/activities/:id/edit" element={<ActivityFormPage />} />
+            </Route>
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("AdminRoute — protección visual de rutas de escritura de Activity", () => {
+  it("USER entrando directamente a /activities/new no renderiza el formulario", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+
+    renderActivityRouteAt("/activities/new");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Nueva actividad")).not.toBeInTheDocument();
+  });
+
+  it("USER entrando directamente a /activities/:id/edit no renderiza el formulario ni pide el detail", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    let detailRequested = false;
+    server.use(
+      http.get(`${activitiesUrl}/:id`, () => {
+        detailRequested = true;
+        return HttpResponse.json(makeActivity());
+      }),
+    );
+
+    renderActivityRouteAt("/activities/act1/edit");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Editar actividad")).not.toBeInTheDocument();
+    expect(detailRequested).toBe(false);
+  });
+
+  it("ADMIN sí accede a /activities/new", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(`${env.apiUrl}/users`, () =>
+        HttpResponse.json({
+          data: [makeUser()],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderActivityRouteAt("/activities/new");
+
+    await waitFor(() => expect(screen.getByText("Nueva actividad")).toBeInTheDocument());
+  });
+
+  it("ADMIN sí accede a /activities/:id/edit", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(`${activitiesUrl}/:id`, () => HttpResponse.json(makeActivity())),
+      http.get(`${env.apiUrl}/users`, () =>
+        HttpResponse.json({
+          data: [makeUser()],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderActivityRouteAt("/activities/act1/edit");
+
+    await waitFor(() => expect(screen.getByText("Editar actividad")).toBeInTheDocument());
   });
 });
