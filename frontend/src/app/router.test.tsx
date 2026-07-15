@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { AdminRoute } from "../auth/AdminRoute";
+import { ProtectedRoute } from "../auth/ProtectedRoute";
+import { AppLayout } from "../layout/AppLayout";
+import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { router } from "./router";
 
 // Descubierto durante las mutaciones deliberadas de M6: AdminRoute.test.tsx
@@ -88,5 +91,52 @@ describe("router.tsx — wiring real de M7 (Users, Invitations, Accept)", () => 
     expect(findRoute(router.routes, "/invitations")).toBeDefined();
     expect(findRoute(router.routes, "/invitations/new")).toBeDefined();
     expect(findRoute(router.routes, "/invite/accept")).toBeDefined();
+  });
+});
+
+describe("router.tsx — wiring real de M8 (Dashboard en '/')", () => {
+  it("'/' renderiza DashboardPage, ya no HomePlaceholder", () => {
+    const route = findRoute(router.routes, "/") as { element: { type: unknown } } | undefined;
+    expect(route?.element.type).toBe(DashboardPage);
+  });
+
+  it("'/' sigue anidada bajo AppLayout, NO bajo AdminRoute", () => {
+    const parent = findParentElement(router.routes, "/") as { type: unknown } | undefined;
+    expect(parent?.type).toBe(AppLayout);
+    expect(parent?.type).not.toBe(AdminRoute);
+  });
+
+  it("AppLayout (y por lo tanto '/') sigue viviendo dentro de ProtectedRoute", () => {
+    const protectedRouteEntry = router.routes.find(
+      (route) => (route.element as { type?: unknown } | undefined)?.type === ProtectedRoute,
+    );
+    expect(protectedRouteEntry).toBeDefined();
+
+    const appLayoutEntry = protectedRouteEntry?.children?.find(
+      (route) => (route.element as { type?: unknown } | undefined)?.type === AppLayout,
+    );
+    expect(appLayoutEntry).toBeDefined();
+    expect(appLayoutEntry?.children?.some((route) => route.path === "/")).toBe(true);
+  });
+
+  it("/invite/accept sigue fuera de ProtectedRoute (ruta pública de nivel superior)", () => {
+    const parent = findParentElement(router.routes, "/invite/accept");
+    expect(parent).toBeUndefined();
+  });
+
+  it("las rutas de milestones anteriores permanecen intactas", () => {
+    for (const path of [
+      "/companies",
+      "/contacts",
+      "/pipelines",
+      "/pipelines/:pipelineId/stages",
+      "/opportunities",
+      "/activities",
+      "/users",
+      "/invitations",
+      "/login",
+    ]) {
+      expect(findRoute(router.routes, path)).toBeDefined();
+    }
   });
 });

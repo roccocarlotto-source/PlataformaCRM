@@ -73,15 +73,15 @@ actividades.
   externa — ver sección 7).
 - Ningún linter/formatter (ESLint, Prettier).
 
-### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage + M5 Opportunity + M6 Activity + M7 Users/Invitations)
+### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage + M5 Opportunity + M6 Activity + M7 Users/Invitations + M8 Dashboard)
 
 | Tecnología | Rol | Por qué (evidencia en el repo) |
 |---|---|---|
 | **React** 19 / **React DOM** | UI | `frontend/package.json` — única librería de vista, sin framework de estado global adicional. |
 | **TypeScript** (`strict: true`) | Lenguaje del frontend | `frontend/tsconfig.app.json` — mismo criterio de tipado estricto que el backend. |
 | **Vite** | Build tool + dev server | `frontend/vite.config.ts` — puerto de dev `5173` por default, coincide con `CORS_ORIGIN` por defecto del backend (`.env.example`). |
-| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2, todavía placeholder de M0 sin dashboard real), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3), `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit`, `/pipelines/:pipelineId/stages`, `/pipelines/:pipelineId/stages/new`, `/pipelines/:pipelineId/stages/:stageId/edit` (M4 — las 4 rutas de escritura comparten el mismo `AdminRoute` que Company/Contact), `/opportunities`, `/opportunities/new`, `/opportunities/:id/edit` (M5 — las 2 rutas de escritura reutilizan el mismo `AdminRoute`), `/activities` (M6, lectura abierta a cualquier rol — a diferencia de todas las anteriores, `GET /api/activities` no es ADMIN-only), `/activities/new`, `/activities/:id/edit` (M6 — estas 2 sí reutilizan el mismo `AdminRoute`), `/users`, `/invitations`, `/invitations/new` (M7 — las 3 dentro del mismo `AdminRoute`: a diferencia de Activity, acá la LECTURA también es ADMIN-only, `GET /api/users` y `GET /api/invitations` lo exigen), `/invite/accept` (M7 — única ruta de negocio fuera de `ProtectedRoute`, ver sección de autenticación), `*` (placeholder de M0). |
-| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail`; M4 agregó `pipelineKeys` (mismo shape que companyKeys, invalidación ampliada a `.all` solo cuando `isDefault: true` puede desmarcar otro pipeline) y `stageKeys` (jerárquica por `pipelineId` — `byPipeline(pipelineId)` como prefijo de array, verificado empíricamente contra `@tanstack/query-core` real); M5 agregó `opportunityKeys` (plana, mismo shape que companyKeys/contactKeys/pipelineKeys — Opportunity no está scoped a un único padre por URL, a diferencia de Stage — invalidación selectiva pura, sin efecto lateral demostrado sobre otras entidades) y `userKeys` (solo `all`/`lists`/`list`, deliberadamente sin `detail`: no existe `GET /api/users/:id` en el backend); M6 agregó `activityKeys` (plana, mismo shape que `opportunityKeys`, con `detail(id)` real porque `GET /api/activities/:id` sí existe y se usa para hidratar la edición); M7 reutilizó `userKeys` sin cambios (no existe `GET /api/users/:id`, no había nada que extender) y agregó `invitationKeys` (plana, sin `detail`: tampoco existe `GET /api/invitations/:id`) — ver sección 7. |
+| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2 — desde M8 renderiza `DashboardPage`; ya no es el placeholder de M0, ver sección 7), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3), `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit`, `/pipelines/:pipelineId/stages`, `/pipelines/:pipelineId/stages/new`, `/pipelines/:pipelineId/stages/:stageId/edit` (M4 — las 4 rutas de escritura comparten el mismo `AdminRoute` que Company/Contact), `/opportunities`, `/opportunities/new`, `/opportunities/:id/edit` (M5 — las 2 rutas de escritura reutilizan el mismo `AdminRoute`), `/activities` (M6, lectura abierta a cualquier rol — a diferencia de todas las anteriores, `GET /api/activities` no es ADMIN-only), `/activities/new`, `/activities/:id/edit` (M6 — estas 2 sí reutilizan el mismo `AdminRoute`), `/users`, `/invitations`, `/invitations/new` (M7 — las 3 dentro del mismo `AdminRoute`: a diferencia de Activity, acá la LECTURA también es ADMIN-only, `GET /api/users` y `GET /api/invitations` lo exigen), `/invite/accept` (M7 — única ruta de negocio fuera de `ProtectedRoute`, ver sección de autenticación), `*` (placeholder de M0). M8 no agregó ninguna ruta nueva — solo reemplazó el elemento de `/`. |
+| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail`; M4 agregó `pipelineKeys` (mismo shape que companyKeys, invalidación ampliada a `.all` solo cuando `isDefault: true` puede desmarcar otro pipeline) y `stageKeys` (jerárquica por `pipelineId` — `byPipeline(pipelineId)` como prefijo de array, verificado empíricamente contra `@tanstack/query-core` real); M5 agregó `opportunityKeys` (plana, mismo shape que companyKeys/contactKeys/pipelineKeys — Opportunity no está scoped a un único padre por URL, a diferencia de Stage — invalidación selectiva pura, sin efecto lateral demostrado sobre otras entidades) y `userKeys` (solo `all`/`lists`/`list`, deliberadamente sin `detail`: no existe `GET /api/users/:id` en el backend); M6 agregó `activityKeys` (plana, mismo shape que `opportunityKeys`, con `detail(id)` real porque `GET /api/activities/:id` sí existe y se usa para hidratar la edición); M7 reutilizó `userKeys` sin cambios (no existe `GET /api/users/:id`, no había nada que extender) y agregó `invitationKeys` (plana, sin `detail`: tampoco existe `GET /api/invitations/:id`); M8 no agregó ninguna key factory nueva — `features/dashboard/queries.ts` compone `opportunityKeys`/`pipelineKeys`/`stageKeys` ya existentes vía 3 hooks nuevos (`useOpportunitySummary`, `useMyRecentOpenOpportunities`, `useDefaultPipelineStageSummary`), sin cache paralela — ver sección 7. |
 | **@supabase/supabase-js** | Cliente de Supabase para el browser | `frontend/src/lib/supabase.ts` — única instancia, únicamente con la `anon key` (nunca `service_role`, esa es exclusiva del backend — ver `src/lib/supabaseAdmin.ts` arriba). |
 | **Vitest** + **jsdom** + **@testing-library/react** + **user-event** + **jest-dom** + **MSW v2** | Testing frontend | `frontend/vite.config.ts` (bloque `test`, `defineConfig` de `vitest/config`), `frontend/src/test/`. Introducido en M2 para remediar `STD-SW-003` — ver detalle abajo. |
 
@@ -175,9 +175,14 @@ Plataforma CRM/
                                      #   el primer módulo de negocio real
                                      #   (Company), M3 agregó Contact, M4
                                      #   agregó Pipeline/Stage, M5 agregó
-                                     #   Opportunity — Activity/Users-Invitations
-                                     #   UI y Dashboard siguen pendientes, ver
-                                     #   sección 7/8.
+                                     #   Opportunity, M6 agregó Activity, M7
+                                     #   agregó administración de Users/
+                                     #   Invitations, M8 agregó Dashboard en
+                                     #   "/" (ver sección 7/8 — el árbol de
+                                     #   carpetas de abajo no se actualizó
+                                     #   carpeta por carpeta para M6-M8, gap
+                                     #   documental preexistente fuera de
+                                     #   alcance de este ciclo).
     ├── .env.example
     ├── package.json
     ├── tsconfig.json / tsconfig.app.json / tsconfig.node.json
@@ -358,11 +363,14 @@ duplica acá para no tener dos fuentes de verdad que se puedan desincronizar.
   cerrado, reviews en PASS)**, `Pipeline`/`Stage` también **(M4, ver
   sección 7 — cerrado, reviews en PASS)**, y `Opportunity` también **(M5,
   ver sección 7 — cerrado, reviews en PASS)**. `STD-SW-003` quedó resuelto en
-  M2, sin condición pendiente. Lo que sigue pendiente es de otra
-  naturaleza: el resto de las pantallas funcionales del CRM
-  (`Activity`, administración de `User`/`Invitation`) y
-  Dashboard — trabajo de M6 en adelante, todavía no implementado — ver
-  sección 8.
+  M2, sin condición pendiente. Lo que quedaba pendiente de otra
+  naturaleza — el resto de las pantallas funcionales del CRM
+  (`Activity`, administración de `User`/`Invitation`) y Dashboard — ya
+  está implementado: `Activity` en M6, administración de
+  `User`/`Invitation` en M7, y Dashboard en M8 (con únicamente datos
+  exactos, ver sección 7 para el detalle y las limitaciones de backend
+  documentadas de cada uno). Sección 8 detalla lo que sigue pendiente,
+  que ya no incluye ninguno de estos tres.
 
 ---
 
@@ -1951,6 +1959,120 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   contra el deliverable final de M7**: `RV-ENG`: **PASS**. `RV-SECURITY`:
   **PASS**. `RV-STANDARDS`: **PASS**. Sin condiciones pendientes.
 
+- ⏳ **M8 (Dashboard) implementado y verificado — cierre del ciclo
+  pendiente de decisión del operador, no declarado cerrado en este
+  punto.** `frontend/src/features/dashboard/` nuevo: `queries.ts` (3
+  hooks — `useOpportunitySummary`, `useMyRecentOpenOpportunities`,
+  `useDefaultPipelineStageSummary` — todos componiendo `listOpportunities`/
+  `usePipelines`/`useStages` ya existentes, sin `dashboardKeys` propia ni
+  cache paralela), `DashboardPage.tsx`, `OpportunitySummaryCards.tsx`,
+  `RecentOpenOpportunities.tsx`, `PipelineStageSummary.tsx`,
+  `QuickActions.tsx`. `frontend/src/app/router.tsx`: `"/"` deja de
+  renderizar `HomePlaceholder` (placeholder de M0) y pasa a renderizar
+  `DashboardPage`, sin salir de `ProtectedRoute` → `AppLayout`.
+
+  **Diseño reducido a datos exactos — decisión explícita del operador
+  durante la fase de diseño, no un recorte de alcance no discutido**: la
+  propuesta inicial incluía listas de "actividades vencidas/próximas",
+  descartadas antes de implementar porque `Activity` no expone ningún
+  filtro server-side equivalente a `completed=false`/`completedAt IS
+  NULL` — una página obtenida por rango de `dueDate` puede estar ocupada
+  por actividades ya completadas y ocultar pendientes reales en páginas
+  posteriores, lo que habría hecho esas listas operacionalmente
+  engañosas. M8 **no implementa ninguna vista de `Activity`** en el
+  Dashboard (ver limitaciones de backend abajo).
+
+  **Resumen comercial**: 3 cards — Oportunidades abiertas/ganadas/
+  perdidas — cada una obtenida como `pagination.total` de
+  `GET /opportunities?status=OPEN|WON|LOST&pageSize=1`, nunca
+  `items.length`. Sin `amount` total, valor abierto, win rate,
+  conversion rate ni forecasting: el backend no expone ninguna
+  agregación `SUM` sobre `Opportunity.amount` (ver limitaciones abajo).
+
+  **Mis oportunidades abiertas recientes**:
+  `GET /opportunities?ownerId=me.id&status=OPEN&sortBy=createdAt&sortOrder=desc&pageSize=5`
+  — lista personal acotada a 5, no un conteo. `ownerId` sale de
+  `AuthContext` (`me.id`), así que esta sección nunca dispara
+  `GET /api/users` (mismo criterio conceptual que M6: `ActivityListPage`
+  para `USER` tampoco la dispara). Nombre de empresa resuelto vía
+  `useCompanyNames` (reexport ya existente de `useCompaniesByIds` de
+  `contact/companyResolution.ts`, sin duplicarlo).
+
+  **Pipeline Summary**: `GET /pipelines?pageSize=100` → filtro
+  client-side `isDefault === true` (el backend no expone ese filtro, ver
+  limitaciones abajo) → si hay default, sus `Stage` vía `useStages`
+  (`sortBy=order&sortOrder=asc`) → un conteo exacto por Stage en
+  paralelo (`pipelineId`+`stageId`+`pageSize=1` → `pagination.total`,
+  nunca `items.length`). Sin Pipeline default: empty state explícito
+  ("No hay un pipeline configurado como predeterminado."), nunca tratado
+  como error — no dispara `GET /stages` ni ningún conteo de
+  Opportunities. Pipeline default sin Stages: empty state igualmente
+  válido, no error. Sin `amount` por stage.
+
+  **Quick Actions**: 4 links de creación (Company/Contact/Opportunity/
+  Activity) solo para `ADMIN` — mismo booleano `me.role === "ADMIN"` ya
+  usado en `AppLayout.tsx`, sin RBAC nuevo y sin `GET /api/users`. Las
+  rutas de destino siguen protegidas por el mismo `AdminRoute` de
+  siempre — esto es una cortesía de UX, no una autorización nueva.
+
+  **Estrategia de errores y loading**: degradación por sección — cada
+  card/lista/fila de stage expone su propio `role="alert"`
+  independiente; el fallo de una sección nunca bloquea al resto del
+  Dashboard (verificado con mutación deliberada, ver abajo). Loading
+  independiente por sección, sin librería de skeleton.
+
+  **Tests**: `dashboard/queries.test.tsx` (18), `dashboard/DashboardPage.test.tsx`
+  (9), extensión de `app/router.test.tsx` (+5: `"/"` renderiza
+  `DashboardPage`, sigue bajo `AppLayout`/`ProtectedRoute`,
+  `/invite/accept` sigue público, rutas previas intactas). **32 tests
+  nuevos; 434 tests en total** en la suite frontend completa (402
+  heredados de M7 + 32 de M8), todos verdes. `tsc -b` y `vite build`
+  verdes.
+
+  Poder de detección verificado con 20 mutaciones deliberadas (todas
+  las pedidas explícitamente para este ciclo), todas revertidas antes de
+  continuar: card de resumen usando `items.length`, filtro `status`
+  removido del resumen, WON/LOST intercambiados, `ownerId` removido de
+  la lista reciente, `status=OPEN` removido de la lista reciente,
+  `sortBy`/`sortOrder` rotos en la lista reciente, Quick Action mostrada
+  a `USER`, `GET /api/users` ejecutado desde el Dashboard,
+  `organizationId` inyectado en una request, un Pipeline no-default
+  elegido como si fuera el default, `GET /stages` disparado sin Pipeline
+  default, conteo de Stage sin `pipelineId`, conteo de Stage sin
+  `stageId`, conteo de Stage usando `items.length`, orden de Stages
+  roto, ausencia de Pipeline default tratada como error fatal, un error
+  parcial ocultado, todo el Dashboard bloqueado por el error de una sola
+  sección, la ruta `"/"` movida a otro path, `HomePlaceholder`
+  reintroducido en `"/"`. Una de las 20 (`GET /api/users`) reveló una
+  debilidad real en el test original: dependía de que MSW hiciera fallar
+  la ejecución ante un request no contemplado, un mecanismo que no falla
+  la aserción del test — el test se reforzó con un handler contador
+  explícito y, recién con esa aserción reforzada, la mutación repetida
+  quedó correctamente detectada. Cada una de las 20 detectada por al
+  menos un test real, sin ninguna sobreviviendo a la suite, ninguna
+  quedó aplicada al finalizar.
+
+  **Limitaciones de backend documentadas, deliberadamente no
+  implementadas en este ciclo (no son bugs de M8)**:
+  1. No existe agregación `SUM` de `Opportunity.amount` — ningún
+     endpoint expone un total monetario, solo conteos.
+  2. No existe filtro ni orden server-side suficiente sobre
+     `expectedCloseDate` (`opportunity.controller.ts` no expone
+     `sortBy: expectedCloseDate` ni un rango de fechas) — no alcanza
+     para listas fiables de oportunidades próximas a vencer.
+  3. No existe en `Activity` un filtro equivalente a `completed=false`
+     o `completedAt IS NULL` — solo rangos sobre `completedAtFrom`/
+     `completedAtTo`, que no pueden expresar "todavía sin completar".
+  4. No existe filtro server-side `Pipeline.isDefault=true` — el
+     default se identifica client-side sobre la lista completa
+     (`findDefaultPipeline()` del repository sigue siendo código
+     muerto, sin conectar a ningún endpoint, ver M4).
+
+  **Reviews obligatorios (Claude-Toolkit-V1), ejecutados desde cero
+  contra el deliverable final de M8**: `RV-ENG`: **PASS**.
+  `RV-SECURITY`: **PASS**. `RV-STANDARDS`: **PASS**. Sin condiciones
+  pendientes.
+
 **Autenticación**
 - ✅ Diseño de sincronización de email (`auth.users` ↔ `public.users`) implementado en
   SQL.
@@ -2171,16 +2293,18 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    — `USER` nunca dispara esa request), 73 tests nuevos (217 en total).
    Reviews del Toolkit, ejecutados desde cero contra el deliverable final
    de M5: `RV-ENG`, `RV-SECURITY` y `RV-STANDARDS` en **PASS** pleno, sin
-   condiciones pendientes. **Frontend — M6 en adelante.** Todavía faltan
-   `Activity`, administración de `Users`/`Invitations`, Dashboard (sin
-   endpoint de agregación backend todavía) y el filtro visual/selector de
-   `ownerId` por nombre en Company y en Contact específicamente (capa API
-   ya soportada desde M2/M3, ver sección 7 — M5 sí agregó el selector
-   para Opportunity porque ahí es un campo central del formulario, no
-   solo un filtro de listado; extenderlo a Company/Contact queda
-   pendiente, es la misma `GET /api/users` ya consumida) — es lo que
-   falta para que el backend sea un producto entregable completo, no solo
-   una API verificada con los primeros módulos de negocio funcionales.
+   condiciones pendientes. **Frontend — M6, M7 y M8 ya implementados
+   técnicamente (ver sección 7).** `Activity` (M6), administración de
+   `Users`/`Invitations` (M7) y Dashboard (M8, con únicamente datos
+   exactos — sin agregación `SUM` de backend, ver limitaciones de
+   backend documentadas en la entrada de M8 de la sección 7) ya no están
+   pendientes. Lo único que sigue pendiente de esta lista original es el
+   filtro visual/selector de `ownerId` por nombre en Company y en
+   Contact específicamente (capa API ya soportada desde M2/M3, ver
+   sección 7 — M5 sí agregó el selector para Opportunity porque ahí es
+   un campo central del formulario, no solo un filtro de listado;
+   extenderlo a Company/Contact queda pendiente, es la misma
+   `GET /api/users` ya consumida).
 
 ---
 

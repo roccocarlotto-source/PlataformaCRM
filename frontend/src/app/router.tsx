@@ -19,15 +19,10 @@ import { UserListPage } from "../features/user/UserListPage";
 import { InvitationFormPage } from "../features/invitation/InvitationFormPage";
 import { InvitationListPage } from "../features/invitation/InvitationListPage";
 import { AcceptInvitationPage } from "../features/auth/AcceptInvitationPage";
+import { DashboardPage } from "../features/dashboard/DashboardPage";
 
-// HomePlaceholder sigue siendo el placeholder de M0 (todavía no hay
-// dashboard real, ver M3+) — ahora vive detrás de ProtectedRoute + AppLayout.
 // NotFoundPlaceholder queda público a propósito: un 404 no expone datos de
 // negocio, no hace falta resolver sesión antes de mostrarlo.
-function HomePlaceholder() {
-  return <div>Plataforma CRM</div>;
-}
-
 function NotFoundPlaceholder() {
   return <div>Página no encontrada</div>;
 }
@@ -50,7 +45,10 @@ export const router = createBrowserRouter([
       {
         element: <AppLayout />,
         children: [
-          { path: "/", element: <HomePlaceholder /> },
+          // M8: "/" deja de ser un placeholder — es el Dashboard real,
+          // primera pantalla útil tras login/aceptación de invitación (ambos
+          // ya redirigen acá, ver LoginPage/AcceptInvitationPage).
+          { path: "/", element: <DashboardPage /> },
           { path: "/companies", element: <CompanyListPage /> },
           { path: "/contacts", element: <ContactListPage /> },
           { path: "/pipelines", element: <PipelineListPage /> },
