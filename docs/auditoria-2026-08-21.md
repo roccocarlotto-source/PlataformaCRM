@@ -39,6 +39,39 @@ anclado a `archivo:línea` con la cita del código real.
 
 ---
 
+## 0.1. Estado de remediación — actualizado 2026-08-21
+
+Los tres hallazgos CRÍTICOS fueron corregidos y **verificados contra una base
+real** el mismo día de la auditoría, aprovechando que el proyecto de Supabase
+original se perdió y hubo que recrear la base desde cero (ver
+`docs/supabase-setup.md`).
+
+| # | Estado | Evidencia |
+|---|---|---|
+| **C-1** | ✅ Resuelto y verificado | Migración `20260821140100`. Diagnóstico filas 1 y 2: `anon`/`authenticated` sin permisos de lectura **ni** escritura sobre `public`. Se aplicó la opción A |
+| **C-2** | ✅ Resuelto y verificado | Migración `20260821140000`. Diagnóstico filas 7, 8, 9 y 10 en `ninguno faltante` sobre una base construida **solo con `migrate deploy`** — los 36 objetos se reconstruyen desde el historial |
+| **C-3** | ✅ Resuelto y verificado | Migración `20260821140200`. Las 15 FKs cruzadas son compuestas `(organization_id, x_id) → padre(organization_id, id)`, confirmadas con `pg_get_constraintdef` |
+
+**V-3 confirmado:** el rol de `DATABASE_URL` (`postgres`) tiene `BYPASSRLS`.
+La premisa de la sección 5 de `docs/authentication-architecture.md` es cierta:
+RLS no protege el camino Express → Prisma → Postgres, y el filtro por
+`organizationId` en cada query sigue siendo la defensa principal.
+
+**Decisión de diseño tomada durante la corrección:** las 9 FKs compuestas con
+columna nullable usan `ON DELETE NO ACTION` en lugar del `SET NULL` acotado
+por columna de Postgres 15+. El DSL de Prisma no puede expresar el acotado, y
+declarar `SetNull` en `schema.prisma` mientras el SQL hace `SET NULL (columna)`
+dejaría al schema y a la migración diciendo cosas distintas — reintroduciendo
+por la puerta de atrás el problema que C-2 vino a eliminar. Como el proyecto
+usa soft delete y nada se borra físicamente (ver ALTO-8), ambas acciones son
+indistinguibles en la práctica. `npx prisma validate` pasa sin warnings.
+
+Sin cambios de estado: ALTO-1 a ALTO-13 (salvo lo indicado), y todos los
+MEDIO y BAJO. Las filas 11 y 12 del diagnóstico confirman que **A-6** (falta
+`(organization_id, created_at)`) y **A-7** (sin `pg_trgm`) siguen abiertos.
+
+---
+
 ## 1. Estado general
 
 El código de aplicación está por encima del promedio para esta etapa, y eso
@@ -774,6 +807,8 @@ se justifica solo para un Kanban.
 | B-10 | `.claude/settings.local.json` versionado con `Bash(curl *)` y `Bash(npm run *)` pre-aprobados | `.claude/settings.local.json:11,43` |
 | B-11 | `noUncheckedIndexedAccess` y `exactOptionalPropertyTypes` desactivados — el segundo es relevante dado cuánto trabaja este código con la distinción `undefined` vs `null` | `tsconfig.json:9` |
 | B-12 | `Stage.order` sin CHECK de positividad: **es correcto** (el reindexado usa valores negativos como fase intermedia). Documentarlo para que nadie lo agregue "por prolijidad" | `stage.repository.ts:237-247` |
+| B-13 | `checkHealth` atrapa el error de la base con un `catch {}` vacío: `/health` informa que algo falla y **destruye la única pista para saber qué**. Encontrado en vivo diagnosticando la pérdida del proyecto de Supabase — el health check dijo `"database":"error"` y no hubo forma de distinguir credenciales inválidas de proyecto eliminado sin correr `prisma db execute` a mano. Fix: `catch (err) { logger.error({ err }, "health: fallo de conexión a la base") }` | `health.service.ts:15-20` |
+| B-14 | Las 8 políticas RLS siguen siendo `for all` después del REVOKE de C-1. Hoy son inertes —sin grants nadie llega a las tablas—, pero la defensa en profundidad queda dependiendo de una sola capa: si alguien vuelve a otorgar permisos a `authenticated` (habilitando Realtime, o probando desde el editor SQL), las políticas permiten escritura otra vez. Bajarlas a `for select` haría que REVOKE y políticas se refuercen mutuamente | `rls_policies.sql:64-127`; diagnóstico fila 6 |
 
 ---
 
@@ -942,9 +977,9 @@ presión de producto.
 
 | # | Sev. | Hallazgo | Ancla |
 |---|---|---|---|
-| C-1 | CRÍTICO | RLS `for all` sin `REVOKE`: escalada a ADMIN vía PostgREST | `rls_policies.sql:64-127` |
-| C-2 | CRÍTICO | 36 objetos de DDL fuera del historial de migraciones | `manual_constraints.sql:1-5` |
-| C-3 | CRÍTICO | Cero FKs compuestas con `organization_id` (15/15 relaciones) | `init:274` |
+| C-1 | ~~CRÍTICO~~ ✅ | RLS `for all` sin `REVOKE`: escalada a ADMIN vía PostgREST — **resuelto 2026-08-21**, ver §0.1 | `rls_policies.sql:64-127` |
+| C-2 | ~~CRÍTICO~~ ✅ | 36 objetos de DDL fuera del historial de migraciones — **resuelto 2026-08-21**, ver §0.1 | `manual_constraints.sql:1-5` |
+| C-3 | ~~CRÍTICO~~ ✅ | Cero FKs compuestas con `organization_id` (15/15 relaciones) — **resuelto 2026-08-21**, ver §0.1 | `init:274` |
 | A-1 | ALTO | CI no ejecuta los 56 tests de integración; tests fuera del typecheck | `ci.yml:33`, `tsconfig.json:17` |
 | A-2 | ALTO | Registro público con `email_confirm: true` → email squatting | `onboarding.service.ts:43-49` |
 | A-3 | ALTO | Aceptación de invitación sin chequear `email_verified` | `verifyInvitationAcceptIdentity.ts:22-29` |
