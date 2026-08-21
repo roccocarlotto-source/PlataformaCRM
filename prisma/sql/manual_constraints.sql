@@ -3,6 +3,11 @@
 -- cada `prisma migrate dev` (o se copia su contenido dentro de la migración
 -- SQL generada) para completar las restricciones que sí forman parte del
 -- diseño pero no del lenguaje de schema.prisma.
+--
+-- Este contenido ya forma parte del historial de migraciones desde
+-- prisma/migrations/20260821140000_incorporate_manual_ddl_into_migrations
+-- (C-2, docs/auditoria-2026-08-21.md). Se conserva acá como referencia
+-- legible y como red de seguridad idempotente para scripts/apply-manual-sql.ts.
 
 -- ---------------------------------------------------------------------------
 -- 1. Sincronización de email: auth.users -> public.users
@@ -117,21 +122,34 @@ create unique index if not exists invitations_org_email_pending_unique
 -- 3. CHECK constraints
 -- ---------------------------------------------------------------------------
 
+-- Postgres no soporta "ADD CONSTRAINT IF NOT EXISTS" (a diferencia de los
+-- índices de la sección anterior) — cada constraint se dropea primero para
+-- que este archivo completo sea seguro de reaplicar (idempotente), igual
+-- que ya lo son los triggers de la sección 1.
+
 -- Una oportunidad debe estar asociada a una Company, a un Contact, o a ambos.
+alter table public.opportunities
+  drop constraint if exists opportunities_company_or_contact_check;
 alter table public.opportunities
   add constraint opportunities_company_or_contact_check
   check (company_id is not null or contact_id is not null);
 
+alter table public.opportunities
+  drop constraint if exists opportunities_amount_non_negative_check;
 alter table public.opportunities
   add constraint opportunities_amount_non_negative_check
   check (amount >= 0);
 
 -- Un stage no puede ser simultáneamente ganado y perdido.
 alter table public.stages
+  drop constraint if exists stages_won_lost_exclusive_check;
+alter table public.stages
   add constraint stages_won_lost_exclusive_check
   check (not (is_won and is_lost));
 
 -- Una actividad debe estar asociada al menos a Company, Contact u Opportunity.
+alter table public.activities
+  drop constraint if exists activities_related_entity_check;
 alter table public.activities
   add constraint activities_related_entity_check
   check (

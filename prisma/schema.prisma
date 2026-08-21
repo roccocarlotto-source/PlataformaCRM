@@ -129,6 +129,7 @@ model User {
   assignedActivities Activity[]    @relation("ActivityAssignee")
   invitationsSent    Invitation[]  @relation("InvitationInvitedBy")
 
+  @@unique([organizationId, id])
   @@index([organizationId])
   @@map("users")
 }
@@ -155,7 +156,7 @@ model Invitation {
 
   organization Organization @relation(fields: [organizationId], references: [id])
   role         Role         @relation(fields: [roleId], references: [id])
-  invitedBy    User         @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
+  invitedBy    User         @relation("InvitationInvitedBy", fields: [organizationId, invitedById], references: [organizationId, id])
 
   // Único (organization_id, email) WHERE status = 'PENDING' — índice único
   // parcial, se crea manualmente en prisma/sql/manual_constraints.sql
@@ -185,12 +186,13 @@ model Company {
   deletedAt      DateTime? @map("deleted_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  owner        User?        @relation("CompanyOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  owner        User?        @relation("CompanyOwner", fields: [organizationId, ownerId], references: [organizationId, id], onDelete: NoAction)
 
   contacts      Contact[]
   opportunities Opportunity[]
   activities    Activity[]
 
+  @@unique([organizationId, id])
   @@index([organizationId])
   @@index([ownerId])
   @@index([domain])
@@ -219,12 +221,13 @@ model Contact {
   deletedAt      DateTime?      @map("deleted_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  company      Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  owner        User?        @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
+  owner        User?        @relation("ContactOwner", fields: [organizationId, ownerId], references: [organizationId, id], onDelete: NoAction)
 
   opportunities Opportunity[]
   activities    Activity[]
 
+  @@unique([organizationId, id])
   // Único (organization_id, email) WHERE email IS NOT NULL — índice parcial,
   // se crea manualmente en prisma/sql/manual_constraints.sql
   @@index([organizationId])
@@ -255,6 +258,7 @@ model Pipeline {
   // Único (organization_id) WHERE is_default = true — índice parcial,
   // se crea manualmente en prisma/sql/manual_constraints.sql
   @@unique([organizationId, name])
+  @@unique([organizationId, id])
   @@index([organizationId])
   @@map("pipelines")
 }
@@ -283,9 +287,10 @@ model Stage {
   deletedAt      DateTime? @map("deleted_at")
 
   organization  Organization  @relation(fields: [organizationId], references: [id])
-  pipeline      Pipeline      @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  pipeline      Pipeline      @relation(fields: [organizationId, pipelineId], references: [organizationId, id], onDelete: Cascade)
   opportunities Opportunity[]
 
+  @@unique([organizationId, id])
   // Únicos (pipeline_id, order) y (pipeline_id, name) WHERE deleted_at IS NULL,
   // y (pipeline_id) WHERE is_won/is_lost = true — índices únicos parciales,
   // se crean manualmente en prisma/sql/manual_constraints.sql
@@ -318,14 +323,15 @@ model Opportunity {
   deletedAt         DateTime?         @map("deleted_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  company      Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  owner        User         @relation("OpportunityOwner", fields: [ownerId], references: [id])
-  pipeline     Pipeline     @relation(fields: [pipelineId], references: [id])
-  stage        Stage        @relation(fields: [stageId], references: [id])
+  company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
+  contact      Contact?     @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)
+  owner        User         @relation("OpportunityOwner", fields: [organizationId, ownerId], references: [organizationId, id])
+  pipeline     Pipeline     @relation(fields: [organizationId, pipelineId], references: [organizationId, id])
+  stage        Stage        @relation(fields: [organizationId, stageId], references: [organizationId, id])
 
   activities Activity[]
 
+  @@unique([organizationId, id])
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL) y
   // CHECK (amount >= 0) se agregan manualmente en
   // prisma/sql/manual_constraints.sql
@@ -362,11 +368,11 @@ model Activity {
   deletedAt      DateTime?    @map("deleted_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  author       User         @relation("ActivityAuthor", fields: [authorId], references: [id])
-  assignee     User?        @relation("ActivityAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  company      Company?     @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  opportunity  Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  author       User         @relation("ActivityAuthor", fields: [organizationId, authorId], references: [organizationId, id])
+  assignee     User?        @relation("ActivityAssignee", fields: [organizationId, assigneeId], references: [organizationId, id], onDelete: NoAction)
+  company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
+  contact      Contact?     @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)
+  opportunity  Opportunity? @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
 
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL OR
   // opportunity_id IS NOT NULL) se agrega manualmente en

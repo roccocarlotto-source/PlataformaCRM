@@ -1,6 +1,11 @@
 -- -----------------------------------------------------------------------------
 -- Row Level Security — ver docs/authentication-architecture.md sección 5.
 --
+-- Este contenido ya forma parte del historial de migraciones desde
+-- prisma/migrations/20260821140000_incorporate_manual_ddl_into_migrations
+-- (C-2, docs/auditoria-2026-08-21.md). Se conserva acá como referencia
+-- legible y como red de seguridad idempotente para scripts/apply-manual-sql.ts.
+--
 -- IMPORTANTE: estas políticas son una defensa SECUNDARIA, no la principal.
 -- El backend (Express + Prisma) se conecta con DATABASE_URL, cuyo rol
 -- (postgres.<project-ref>, vía el pooler) es equivalente al `service_role`
@@ -15,8 +20,9 @@
 -- del doc de arquitectura). Prisma no soporta RLS nativamente en su DSL, por
 -- eso este archivo se aplica a mano, igual que manual_constraints.sql.
 --
--- Se aplica una única vez con:
---   npx prisma db execute --file prisma/sql/rls_policies.sql --url "$DIRECT_URL"
+-- Idempotente: cada política se dropea antes de recrearse (Postgres no
+-- soporta "CREATE POLICY IF NOT EXISTS"), así que este archivo es seguro de
+-- reaplicar en cada deploy — ver scripts/apply-manual-sql.ts.
 -- -----------------------------------------------------------------------------
 
 -- Resuelve la organización del usuario autenticado (auth.uid()) sin volver a
@@ -40,6 +46,7 @@ $$;
 -- ---------------------------------------------------------------------------
 alter table public.organizations enable row level security;
 
+drop policy if exists organizations_isolation on public.organizations;
 create policy organizations_isolation on public.organizations
   for select
   using (id = public.current_organization_id());
@@ -50,6 +57,7 @@ create policy organizations_isolation on public.organizations
 -- ---------------------------------------------------------------------------
 alter table public.roles enable row level security;
 
+drop policy if exists roles_read_all on public.roles;
 create policy roles_read_all on public.roles
   for select
   using (auth.role() = 'authenticated');
@@ -59,36 +67,42 @@ create policy roles_read_all on public.roles
 -- cuatro operaciones (select/insert/update/delete).
 -- ---------------------------------------------------------------------------
 alter table public.users enable row level security;
+drop policy if exists users_isolation on public.users;
 create policy users_isolation on public.users
   for all
   using (organization_id = public.current_organization_id())
   with check (organization_id = public.current_organization_id());
 
 alter table public.companies enable row level security;
+drop policy if exists companies_isolation on public.companies;
 create policy companies_isolation on public.companies
   for all
   using (organization_id = public.current_organization_id())
   with check (organization_id = public.current_organization_id());
 
 alter table public.contacts enable row level security;
+drop policy if exists contacts_isolation on public.contacts;
 create policy contacts_isolation on public.contacts
   for all
   using (organization_id = public.current_organization_id())
   with check (organization_id = public.current_organization_id());
 
 alter table public.opportunities enable row level security;
+drop policy if exists opportunities_isolation on public.opportunities;
 create policy opportunities_isolation on public.opportunities
   for all
   using (organization_id = public.current_organization_id())
   with check (organization_id = public.current_organization_id());
 
 alter table public.pipelines enable row level security;
+drop policy if exists pipelines_isolation on public.pipelines;
 create policy pipelines_isolation on public.pipelines
   for all
   using (organization_id = public.current_organization_id())
   with check (organization_id = public.current_organization_id());
 
 alter table public.activities enable row level security;
+drop policy if exists activities_isolation on public.activities;
 create policy activities_isolation on public.activities
   for all
   using (organization_id = public.current_organization_id())
@@ -99,6 +113,7 @@ create policy activities_isolation on public.activities
 -- el resto de las tablas, ya no hace falta el join a pipelines que tenía
 -- esta política antes.
 alter table public.stages enable row level security;
+drop policy if exists stages_isolation on public.stages;
 create policy stages_isolation on public.stages
   for all
   using (organization_id = public.current_organization_id())
@@ -110,6 +125,7 @@ create policy stages_isolation on public.stages
 -- ninguna fila — correcto: la aceptación pasa por el backend con
 -- service_role (BYPASSRLS), no por un cliente autenticado con RLS.
 alter table public.invitations enable row level security;
+drop policy if exists invitations_isolation on public.invitations;
 create policy invitations_isolation on public.invitations
   for all
   using (organization_id = public.current_organization_id())
