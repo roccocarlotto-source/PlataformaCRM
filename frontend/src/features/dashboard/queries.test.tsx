@@ -21,10 +21,10 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const opportunitiesUrl = `${env.apiUrl}/opportunities`;
-const pipelinesUrl = `${env.apiUrl}/pipelines`;
-const stagesUrl = `${env.apiUrl}/stages`;
-const usersUrl = `${env.apiUrl}/users`;
+const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
+const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
+const stagesUrl = `${env.apiUrl}/api/stages`;
+const usersUrl = `${env.apiUrl}/api/users`;
 
 function wrapperFor(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {

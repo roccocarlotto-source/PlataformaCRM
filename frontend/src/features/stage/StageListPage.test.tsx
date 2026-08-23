@@ -31,8 +31,8 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   };
 }
 
-const pipelinesUrl = `${env.apiUrl}/pipelines`;
-const stagesUrl = `${env.apiUrl}/stages`;
+const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
+const stagesUrl = `${env.apiUrl}/api/stages`;
 
 function renderPage(pipelineId = "pl1") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -268,6 +268,89 @@ describe("StageListPage", () => {
     // el fetch del pipeline termine primero), pero la UI nunca renderiza
     // esos datos bajo un header fantasma.
     void stagesCalled;
+  });
+
+  it("R1.10a escribir en el buscador pide el listado con search y vuelve a page 1", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    mockPipeline({ id: "pl1" });
+    let captured: URL | undefined;
+    server.use(
+      http.get(stagesUrl, ({ request }) => {
+        captured = new URL(request.url);
+        return HttpResponse.json({
+          data: [makeStage()],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
+    await user.type(screen.getByPlaceholderText("Buscar por nombre"), "Cierre");
+
+    await waitFor(() => expect(captured?.searchParams.get("search")).toBe("Cierre"));
+    expect(captured?.searchParams.get("page")).toBe("1");
+  });
+
+  it("R1.10b paginado: 'Siguiente' pide page 2 y 'Anterior' está deshabilitado en la primera página", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    mockPipeline({ id: "pl1" });
+    let capturedPage: string | null = null;
+    server.use(
+      http.get(stagesUrl, ({ request }) => {
+        capturedPage = new URL(request.url).searchParams.get("page");
+        return HttpResponse.json({
+          data: [makeStage()],
+          pagination: { page: Number(capturedPage ?? 1), pageSize: 20, total: 25, totalPages: 2 },
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Página 1 de 2")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Anterior" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Siguiente" }));
+
+    await waitFor(() => expect(capturedPage).toBe("2"));
+    await waitFor(() => expect(screen.getByText("Página 2 de 2")).toBeInTheDocument());
+  });
+
+  it("R1.10c 'Subir' se deshabilita solo en la primera fila de la primera página, no en la primera fila de una página intermedia", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    mockPipeline({ id: "pl1" });
+    server.use(
+      http.get(stagesUrl, ({ request }) => {
+        const page = new URL(request.url).searchParams.get("page");
+        if (page === "2") {
+          return HttpResponse.json({
+            data: [makeStage({ id: "st-page2-first", name: "PrimeraDePagina2", order: 21 })],
+            pagination: { page: 2, pageSize: 20, total: 25, totalPages: 2 },
+          });
+        }
+        return HttpResponse.json({
+          data: [makeStage({ id: "st-page1-first", name: "PrimeraDePagina1", order: 1 })],
+          pagination: { page: 1, pageSize: 20, total: 25, totalPages: 2 },
+        });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("PrimeraDePagina1")).toBeInTheDocument());
+    const page1Row = screen.getByText("PrimeraDePagina1").closest("tr");
+    expect(page1Row!.querySelector("button:nth-of-type(2)")).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Siguiente" }));
+
+    await waitFor(() => expect(screen.getByText("PrimeraDePagina2")).toBeInTheDocument());
+    const page2Row = screen.getByText("PrimeraDePagina2").closest("tr");
+    expect(page2Row!.querySelector("button:nth-of-type(2)")).not.toBeDisabled();
   });
 
   it("S19 eliminar etapa: cancelar no envía DELETE, confirmar sí, y un error se muestra visible", async () => {

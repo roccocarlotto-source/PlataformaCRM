@@ -12,7 +12,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/stages`;
+const baseUrl = `${env.apiUrl}/api/stages`;
 
 function renderSelect(pipelineId: string | undefined, value: string | undefined, onChange = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

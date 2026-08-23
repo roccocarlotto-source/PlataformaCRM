@@ -48,7 +48,7 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   };
 }
 
-const baseUrl = `${env.apiUrl}/companies`;
+const baseUrl = `${env.apiUrl}/api/companies`;
 
 // Misma forma de árbol que app/router.tsx bajo /companies — solo se
 // sustituye AppLayout/CompanyListPage por placeholders mínimos, ya que lo
@@ -121,7 +121,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Company", (
 // Mismo árbol de árbitro de decisión (un único AdminRoute cubre ambos
 // features en app/router.tsx real) — confirma el wiring específico de
 // Contact, no solo el mecanismo genérico ya probado arriba.
-const contactsUrl = `${env.apiUrl}/contacts`;
+const contactsUrl = `${env.apiUrl}/api/contacts`;
 
 function renderContactRouteAt(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -195,7 +195,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Contact", (
 // Mismo árbitro de decisión (AdminRoute cubre también las rutas de
 // escritura de Pipeline en app/router.tsx real) — confirma el wiring
 // específico de Pipeline, no solo el mecanismo genérico.
-const pipelinesUrl = `${env.apiUrl}/pipelines`;
+const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
 
 function renderPipelineRouteAt(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -264,7 +264,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Pipeline", 
 
 // Mismo árbitro de decisión, ahora para las rutas de escritura de Stage
 // (anidadas bajo /pipelines/:pipelineId/stages en app/router.tsx real).
-const stagesUrl = `${env.apiUrl}/stages`;
+const stagesUrl = `${env.apiUrl}/api/stages`;
 
 function renderStageRouteAt(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -341,7 +341,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Stage", () 
 // si llegara a montarse): se verifica con onUnhandledRequest:"error" del
 // lado de MSW (test/setup.ts) — si el form se montara igual, la ausencia
 // deliberada de esos handlers haría fallar el test ruidosamente.
-const opportunitiesUrl = `${env.apiUrl}/opportunities`;
+const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
 
 function renderOpportunityRouteAt(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -399,7 +399,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Opportunity
           pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
         }),
       ),
-      http.get(`${env.apiUrl}/users`, () =>
+      http.get(`${env.apiUrl}/api/users`, () =>
         HttpResponse.json({
           data: [makeUser()],
           pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
@@ -428,7 +428,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Opportunity
           pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
         }),
       ),
-      http.get(`${env.apiUrl}/users`, () =>
+      http.get(`${env.apiUrl}/api/users`, () =>
         HttpResponse.json({
           data: [makeUser()],
           pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
@@ -448,7 +448,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Opportunity
 // /api/activities es abierto a cualquier rol) — solo /activities/new y
 // /activities/:id/edit sí. Confirma el wiring específico de Activity, no
 // solo el mecanismo genérico.
-const activitiesUrl = `${env.apiUrl}/activities`;
+const activitiesUrl = `${env.apiUrl}/api/activities`;
 
 function renderActivityRouteAt(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -500,7 +500,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Activity", 
   it("ADMIN sí accede a /activities/new", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
-      http.get(`${env.apiUrl}/users`, () =>
+      http.get(`${env.apiUrl}/api/users`, () =>
         HttpResponse.json({
           data: [makeUser()],
           pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
@@ -517,7 +517,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Activity", 
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       http.get(`${activitiesUrl}/:id`, () => HttpResponse.json(makeActivity())),
-      http.get(`${env.apiUrl}/users`, () =>
+      http.get(`${env.apiUrl}/api/users`, () =>
         HttpResponse.json({
           data: [makeUser()],
           pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
@@ -535,7 +535,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Activity", 
 // /users es TAMBIÉN ADMIN-only para lectura (GET /api/users, ver
 // user.routes.ts) — no hay una lista abierta fuera del AdminRoute que
 // probar acá, la propia UserListPage va adentro.
-const usersUrl = `${env.apiUrl}/users`;
+const usersUrl = `${env.apiUrl}/api/users`;
 
 function renderUserRouteAt(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -595,7 +595,7 @@ describe("AdminRoute — protección visual de /users (lectura también ADMIN-on
 
 // M7 — mismo criterio: GET /api/invitations es ADMIN-only, sin lista
 // abierta fuera del AdminRoute.
-const invitationsUrl = `${env.apiUrl}/invitations`;
+const invitationsUrl = `${env.apiUrl}/api/invitations`;
 
 function renderInvitationRouteAt(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

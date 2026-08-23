@@ -46,6 +46,7 @@ export interface StageListQuery {
   page?: number;
   pageSize?: number;
   pipelineId?: string;
+  search?: string;
   sortBy?: StageSortBy;
   sortOrder?: SortOrder;
 }

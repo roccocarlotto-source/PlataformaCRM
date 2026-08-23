@@ -13,7 +13,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/opportunities`;
+const baseUrl = `${env.apiUrl}/api/opportunities`;
 
 function wrapperFor(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {

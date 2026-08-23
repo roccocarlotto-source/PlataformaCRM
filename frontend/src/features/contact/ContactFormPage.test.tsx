@@ -14,8 +14,8 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const contactsUrl = `${env.apiUrl}/contacts`;
-const companiesUrl = `${env.apiUrl}/companies`;
+const contactsUrl = `${env.apiUrl}/api/contacts`;
+const companiesUrl = `${env.apiUrl}/api/companies`;
 
 function renderForm(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

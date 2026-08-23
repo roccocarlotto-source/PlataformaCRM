@@ -10,7 +10,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/contacts`;
+const baseUrl = `${env.apiUrl}/api/contacts`;
 
 interface CapturedRequest {
   method: string;
@@ -107,7 +107,7 @@ describe("contact/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("POST");
-    expect(captured[0].url.pathname).toBe("/contacts");
+    expect(captured[0].url.pathname).toBe("/api/contacts");
     expect(captured[0].body).toEqual({
       firstName: "Juana",
       lastName: "Pérez",
@@ -123,7 +123,7 @@ describe("contact/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("PATCH");
-    expect(captured[0].url.pathname).toBe("/contacts/ct1");
+    expect(captured[0].url.pathname).toBe("/api/contacts/ct1");
     expect(captured[0].body).toEqual({ lifecycleStage: "CUSTOMER" });
     expect(captured[0].body).not.toHaveProperty("companyId");
     expect(captured[0].body).not.toHaveProperty("ownerId");
@@ -136,6 +136,6 @@ describe("contact/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("DELETE");
-    expect(captured[0].url.pathname).toBe("/contacts/ct1");
+    expect(captured[0].url.pathname).toBe("/api/contacts/ct1");
   });
 });

@@ -16,7 +16,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/opportunities`;
+const baseUrl = `${env.apiUrl}/api/opportunities`;
 
 interface CapturedRequest {
   method: string;
@@ -138,7 +138,7 @@ describe("opportunity/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("POST");
-    expect(captured[0].url.pathname).toBe("/opportunities");
+    expect(captured[0].url.pathname).toBe("/api/opportunities");
     expect(captured[0].body).toEqual({
       title: "Nueva",
       pipelineId: "pl1",
@@ -156,7 +156,7 @@ describe("opportunity/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("PATCH");
-    expect(captured[0].url.pathname).toBe("/opportunities/op1");
+    expect(captured[0].url.pathname).toBe("/api/opportunities/op1");
     expect(captured[0].body).toEqual({ status: "WON" });
   });
 
@@ -183,7 +183,7 @@ describe("opportunity/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("DELETE");
-    expect(captured[0].url.pathname).toBe("/opportunities/op1");
+    expect(captured[0].url.pathname).toBe("/api/opportunities/op1");
     expect(result).toBeUndefined();
   });
 

@@ -13,7 +13,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/companies`;
+const baseUrl = `${env.apiUrl}/api/companies`;
 
 // QueryClient real (no mockeado) — solo se espía invalidateQueries, mismo
 // criterio que auth/AuthContext.test.tsx con queryClient.clear().

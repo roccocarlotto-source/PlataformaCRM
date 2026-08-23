@@ -21,10 +21,10 @@ function wrapperFor(queryClient: QueryClient) {
 describe("activity/relationResolution — useOpportunityNames", () => {
   it("resuelve varios ids, deduplicados, a título", async () => {
     server.use(
-      http.get(`${env.apiUrl}/opportunities/op1`, () =>
+      http.get(`${env.apiUrl}/api/opportunities/op1`, () =>
         HttpResponse.json(makeOpportunity({ id: "op1", title: "Renovación anual" })),
       ),
-      http.get(`${env.apiUrl}/opportunities/op2`, () =>
+      http.get(`${env.apiUrl}/api/opportunities/op2`, () =>
         HttpResponse.json(makeOpportunity({ id: "op2", title: "Expansión" })),
       ),
     );
@@ -40,10 +40,10 @@ describe("activity/relationResolution — useOpportunityNames", () => {
 
   it("un id que falla en resolver no rompe el resto, ni aparece en byId", async () => {
     server.use(
-      http.get(`${env.apiUrl}/opportunities/op1`, () =>
+      http.get(`${env.apiUrl}/api/opportunities/op1`, () =>
         HttpResponse.json(makeOpportunity({ id: "op1", title: "Renovación anual" })),
       ),
-      http.get(`${env.apiUrl}/opportunities/op-borrada`, () =>
+      http.get(`${env.apiUrl}/api/opportunities/op-borrada`, () =>
         HttpResponse.json({ error: { message: "no encontrada" } }, { status: 404 }),
       ),
     );
@@ -60,7 +60,7 @@ describe("activity/relationResolution — useOpportunityNames", () => {
   it("lista vacía no dispara ningún request", async () => {
     let requestCount = 0;
     server.use(
-      http.get(`${env.apiUrl}/opportunities/:id`, () => {
+      http.get(`${env.apiUrl}/api/opportunities/:id`, () => {
         requestCount += 1;
         return HttpResponse.json(makeOpportunity());
       }),

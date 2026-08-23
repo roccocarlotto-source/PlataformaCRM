@@ -16,7 +16,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/activities`;
+const baseUrl = `${env.apiUrl}/api/activities`;
 
 interface CapturedRequest {
   method: string;
@@ -117,7 +117,7 @@ describe("activity/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("GET");
-    expect(captured[0].url.pathname).toBe("/activities/act1");
+    expect(captured[0].url.pathname).toBe("/api/activities/act1");
   });
 
   it("4. organizationId nunca viaja en list/get/create/update", async () => {
@@ -162,7 +162,7 @@ describe("activity/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("POST");
-    expect(captured[0].url.pathname).toBe("/activities");
+    expect(captured[0].url.pathname).toBe("/api/activities");
     expect(captured[0].body).toEqual({
       type: "TASK",
       subject: "Llamar",
@@ -178,7 +178,7 @@ describe("activity/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("PATCH");
-    expect(captured[0].url.pathname).toBe("/activities/act1");
+    expect(captured[0].url.pathname).toBe("/api/activities/act1");
     expect(captured[0].body).toEqual({ subject: "Editada" });
   });
 
@@ -213,7 +213,7 @@ describe("activity/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("DELETE");
-    expect(captured[0].url.pathname).toBe("/activities/act1");
+    expect(captured[0].url.pathname).toBe("/api/activities/act1");
     expect(result).toBeUndefined();
   });
 

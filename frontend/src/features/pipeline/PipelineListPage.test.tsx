@@ -32,7 +32,7 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   };
 }
 
-const baseUrl = `${env.apiUrl}/pipelines`;
+const baseUrl = `${env.apiUrl}/api/pipelines`;
 
 function wrapperFor(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {

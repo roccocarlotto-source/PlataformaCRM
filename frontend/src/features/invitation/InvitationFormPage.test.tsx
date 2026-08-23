@@ -13,7 +13,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const invitationsUrl = `${env.apiUrl}/invitations`;
+const invitationsUrl = `${env.apiUrl}/api/invitations`;
 
 function renderForm() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

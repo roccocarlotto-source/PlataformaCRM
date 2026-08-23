@@ -10,7 +10,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/users`;
+const baseUrl = `${env.apiUrl}/api/users`;
 
 interface CapturedRequest {
   method: string;
@@ -81,7 +81,7 @@ describe("user/api — contrato HTTP", () => {
     await listUsers({ pageSize: 10 });
 
     expect(captured[0].method).toBe("GET");
-    expect(captured[0].url.pathname).toBe("/users");
+    expect(captured[0].url.pathname).toBe("/api/users");
   });
 });
 
@@ -99,7 +99,7 @@ describe("user/api — updateUser/deleteUser (M7)", () => {
 
     const result = await updateUser("u1", { role: "ADMIN" });
 
-    expect(capturedPath).toBe("/users/u1");
+    expect(capturedPath).toBe("/api/users/u1");
     expect(patchedBody).toEqual({ role: "ADMIN" });
     expect(result.role.name).toBe("ADMIN");
   });
@@ -149,7 +149,7 @@ describe("user/api — updateUser/deleteUser (M7)", () => {
     const result = await deleteUser("u1");
 
     expect(capturedMethod).toBe("DELETE");
-    expect(capturedPath).toBe("/users/u1");
+    expect(capturedPath).toBe("/api/users/u1");
     expect(result).toBeUndefined();
   });
 

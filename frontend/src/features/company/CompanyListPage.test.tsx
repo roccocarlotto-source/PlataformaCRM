@@ -30,7 +30,7 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   };
 }
 
-const baseUrl = `${env.apiUrl}/companies`;
+const baseUrl = `${env.apiUrl}/api/companies`;
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

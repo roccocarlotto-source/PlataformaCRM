@@ -29,7 +29,7 @@ function mockAuth(meId = "self1"): AuthContextValue {
   };
 }
 
-const usersUrl = `${env.apiUrl}/users`;
+const usersUrl = `${env.apiUrl}/api/users`;
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

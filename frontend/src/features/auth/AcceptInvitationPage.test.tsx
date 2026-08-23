@@ -73,7 +73,7 @@ vi.mock("../../lib/supabase", () => ({
 }));
 
 const meUrl = `${env.apiUrl}/api/me`;
-const acceptUrl = `${env.apiUrl}/invitations/accept`;
+const acceptUrl = `${env.apiUrl}/api/invitations/accept`;
 
 function invitedSession(overrides: Partial<MockUser> = {}): MockSession {
   return {

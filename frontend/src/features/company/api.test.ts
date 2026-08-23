@@ -13,7 +13,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/companies`;
+const baseUrl = `${env.apiUrl}/api/companies`;
 
 interface CapturedRequest {
   method: string;
@@ -106,7 +106,7 @@ describe("company/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("POST");
-    expect(captured[0].url.pathname).toBe("/companies");
+    expect(captured[0].url.pathname).toBe("/api/companies");
     expect(captured[0].body).toEqual({ name: "Acme", ownerId: "user-7" });
   });
 
@@ -117,7 +117,7 @@ describe("company/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("PATCH");
-    expect(captured[0].url.pathname).toBe("/companies/c1");
+    expect(captured[0].url.pathname).toBe("/api/companies/c1");
     expect(captured[0].body).toEqual({ industry: "finance" });
     expect(captured[0].body).not.toHaveProperty("ownerId");
   });
@@ -129,6 +129,6 @@ describe("company/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("DELETE");
-    expect(captured[0].url.pathname).toBe("/companies/c1");
+    expect(captured[0].url.pathname).toBe("/api/companies/c1");
   });
 });

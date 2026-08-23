@@ -35,12 +35,12 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   };
 }
 
-const opportunitiesUrl = `${env.apiUrl}/opportunities`;
-const companiesUrl = `${env.apiUrl}/companies`;
-const contactsUrl = `${env.apiUrl}/contacts`;
-const pipelinesUrl = `${env.apiUrl}/pipelines`;
-const stagesUrl = `${env.apiUrl}/stages`;
-const usersUrl = `${env.apiUrl}/users`;
+const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
+const companiesUrl = `${env.apiUrl}/api/companies`;
+const contactsUrl = `${env.apiUrl}/api/contacts`;
+const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
+const stagesUrl = `${env.apiUrl}/api/stages`;
+const usersUrl = `${env.apiUrl}/api/users`;
 
 // OpportunityListPage siempre monta PipelineSelect como filtro (sin
 // `enabled` gating — a diferencia de CompanySelect/ContactSelect, no busca

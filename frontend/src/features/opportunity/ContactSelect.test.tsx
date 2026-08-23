@@ -13,7 +13,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/contacts`;
+const baseUrl = `${env.apiUrl}/api/contacts`;
 
 function renderSelect(queryClient: QueryClient, value: string | undefined, onChange = vi.fn()) {
   render(

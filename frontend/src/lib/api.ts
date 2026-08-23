@@ -19,10 +19,33 @@ interface RequestOptions {
   signal?: AbortSignal;
 }
 
+// R1.4 — reacción a una sesión inválida/vencida (401). Registrable una sola
+// vez en vez de inyectarse en cada llamada como getAccessToken: a
+// diferencia del token, que varía por request, la reacción a un 401 es
+// siempre la misma para toda la app. AuthContext la registra al montar,
+// apuntando a supabase.auth.signOut() — este archivo sigue sin importar
+// Supabase directamente, mismo desacoplamiento que ya tenía con el token.
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+export function registerUnauthorizedHandler(handler: UnauthorizedHandler): void {
+  unauthorizedHandler = handler;
+}
+
 // env.apiUrl ya viene sin barra final (normalizado en config/env.ts) —
 // path siempre debe empezar con "/" (convención interna de este wrapper).
+//
+// R1 — bug preexistente descubierto durante Product Readiness: todas las
+// rutas de negocio del backend están montadas bajo /api (ver
+// src/routes/index.ts — "las rutas de negocio van bajo /api"), pero hasta
+// ahora ningún módulo de frontend excepto /api/me lo incluía en su path
+// (ver AuthContext.tsx). Nunca se detectó porque cada test MSW construye
+// su URL mock con el mismo criterio (sin /api) que el código que prueba —
+// mock y código coincidían entre sí, nunca contra las rutas reales del
+// backend. Centralizado acá, único lugar donde se arma esta URL, en vez de
+// prefijar "/api" en cada uno de los ~40 call sites de request<T>(...).
 function buildUrl(path: string): string {
-  return `${env.apiUrl}${path}`;
+  return `${env.apiUrl}/api${path}`;
 }
 
 function isErrorBody(value: unknown): value is { error: { message: string } } {
@@ -74,6 +97,16 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   });
 
   if (!res.ok) {
+    // 401 = el propio token ya no es válido (vencido más allá de lo que el
+    // auto-refresh de Supabase pudo cubrir, revocado, etc.) — a diferencia
+    // de un 403 (identidad válida, cuenta/organización no disponible, ver
+    // AuthContext), acá no hay nada que reintentar: solo tiene sentido
+    // cerrar la sesión. 204/205/304 no llegan nunca a esta rama (!res.ok
+    // exige status >= 400), así que no hay riesgo de dispararlo fuera de un
+    // error real.
+    if (res.status === 401) {
+      unauthorizedHandler?.();
+    }
     throw new ApiError(res.status, await extractErrorMessage(res));
   }
 

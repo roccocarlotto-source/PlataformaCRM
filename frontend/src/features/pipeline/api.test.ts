@@ -10,7 +10,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/pipelines`;
+const baseUrl = `${env.apiUrl}/api/pipelines`;
 
 interface CapturedRequest {
   method: string;
@@ -96,7 +96,7 @@ describe("pipeline/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("POST");
-    expect(captured[0].url.pathname).toBe("/pipelines");
+    expect(captured[0].url.pathname).toBe("/api/pipelines");
     expect(captured[0].body).toEqual({ name: "Ventas", isDefault: true });
   });
 
@@ -107,7 +107,7 @@ describe("pipeline/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("PATCH");
-    expect(captured[0].url.pathname).toBe("/pipelines/pl1");
+    expect(captured[0].url.pathname).toBe("/api/pipelines/pl1");
     expect(captured[0].body).toEqual({ isDefault: false });
   });
 
@@ -118,6 +118,6 @@ describe("pipeline/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("DELETE");
-    expect(captured[0].url.pathname).toBe("/pipelines/pl1");
+    expect(captured[0].url.pathname).toBe("/api/pipelines/pl1");
   });
 });

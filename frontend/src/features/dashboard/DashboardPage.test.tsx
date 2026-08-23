@@ -31,11 +31,11 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   };
 }
 
-const opportunitiesUrl = `${env.apiUrl}/opportunities`;
-const companiesUrl = `${env.apiUrl}/companies`;
-const pipelinesUrl = `${env.apiUrl}/pipelines`;
-const stagesUrl = `${env.apiUrl}/stages`;
-const usersUrl = `${env.apiUrl}/users`;
+const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
+const companiesUrl = `${env.apiUrl}/api/companies`;
+const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
+const stagesUrl = `${env.apiUrl}/api/stages`;
+const usersUrl = `${env.apiUrl}/api/users`;
 
 // Un único handler para /opportunities: distingue la card de resumen
 // (pageSize=1, sin ownerId) de la lista personal reciente (ownerId+pageSize=5)

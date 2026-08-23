@@ -10,7 +10,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/stages`;
+const baseUrl = `${env.apiUrl}/api/stages`;
 
 interface CapturedRequest {
   method: string;
@@ -107,7 +107,7 @@ describe("stage/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("POST");
-    expect(captured[0].url.pathname).toBe("/stages");
+    expect(captured[0].url.pathname).toBe("/api/stages");
     expect(captured[0].body).toEqual({
       pipelineId: "pl1",
       name: "Negociación",
@@ -125,7 +125,7 @@ describe("stage/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("PATCH");
-    expect(captured[0].url.pathname).toBe("/stages/st1");
+    expect(captured[0].url.pathname).toBe("/api/stages/st1");
     expect(captured[0].body).toEqual({ name: "Editada", order: 3 });
     expect(captured[0].body).not.toHaveProperty("pipelineId");
   });
@@ -137,7 +137,7 @@ describe("stage/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("DELETE");
-    expect(captured[0].url.pathname).toBe("/stages/st1");
+    expect(captured[0].url.pathname).toBe("/api/stages/st1");
   });
 
   it("S6 round-trip de probability: la API la devuelve como string, nunca number", async () => {

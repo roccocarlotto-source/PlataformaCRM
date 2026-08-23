@@ -1,10 +1,18 @@
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { usePipeline } from "../pipeline/queries";
 import { useDeleteStage, useUpdateStage } from "./mutations";
 import { useStages } from "./queries";
 
-const PAGE_SIZE = 100;
+// R1.10 — mismo tamaño de página que el resto de los módulos (ver
+// CompanyListPage.tsx). Antes fijo en 100 (el máximo que acepta
+// listQuerySchema) sin paginar: un pipeline con más de 100 etapas
+// truncaba en silencio. Sort queda fijo en "order" a propósito — es el
+// único orden bajo el que "Subir"/"Bajar" (que operan sobre el vecino
+// visual inmediato) tienen sentido; agregar un selector de orden acá
+// rompería esa semántica, no es parte de este punto del Roadmap A.
+const PAGE_SIZE = 20;
 
 // probability siempre llega como string desde la API (Prisma.Decimal,
 // ver types.ts) — Number() antes de formatear, nunca .toFixed() directo
@@ -28,9 +36,14 @@ export function StageListPage() {
   // que no se puede corregir sin tocar backend (fuera de alcance de M4).
   const pipelineQuery = usePipeline(pipelineId);
 
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+
   const stagesQuery = useStages(pipelineId ?? "", {
     pipelineId,
+    page,
     pageSize: PAGE_SIZE,
+    search: search || undefined,
     sortBy: "order",
     sortOrder: "asc",
   });
@@ -70,6 +83,18 @@ export function StageListPage() {
     <div>
       <h1>Etapas de {pipeline.name}</h1>
       {isAdmin ? <Link to={`/pipelines/${pipelineId}/stages/new`}>Nueva etapa</Link> : null}
+
+      <div>
+        <input
+          type="search"
+          placeholder="Buscar por nombre"
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
+        />
+      </div>
 
       {stagesQuery.isLoading ? <p>Cargando…</p> : null}
 
@@ -115,39 +140,75 @@ export function StageListPage() {
             </tr>
           </thead>
           <tbody>
-            {stagesQuery.data.data.map((stage, index) => (
-              <tr key={stage.id}>
-                <td>{stage.order}</td>
-                <td>{stage.name}</td>
-                <td>{formatProbability(stage.probability)}</td>
-                <td>{stage.isWon ? "Sí" : ""}</td>
-                <td>{stage.isLost ? "Sí" : ""}</td>
-                {isAdmin ? (
-                  <td>
-                    <Link to={`/pipelines/${pipelineId}/stages/${stage.id}/edit`}>Editar</Link>
-                    <button type="button" onClick={() => handleDelete(stage.id)}>
-                      Eliminar
-                    </button>
-                    <button
-                      type="button"
-                      disabled={index === 0}
-                      onClick={() => handleMove(stage.id, stage.order - 1)}
-                    >
-                      Subir
-                    </button>
-                    <button
-                      type="button"
-                      disabled={index === stagesQuery.data.data.length - 1}
-                      onClick={() => handleMove(stage.id, stage.order + 1)}
-                    >
-                      Bajar
-                    </button>
-                  </td>
-                ) : null}
-              </tr>
-            ))}
+            {stagesQuery.data.data.map((stage, index) => {
+              // R1.10 — antes de paginar, index===0/length-1 SÍ era "primera/
+              // última etapa del pipeline". Con páginas de 20, el primer o
+              // último elemento de una página intermedia ya no lo es —
+              // "Subir"/"Bajar" deben deshabilitarse solo en el borde real
+              // (primera página / última página), no en el borde de la
+              // página actual.
+              const { page: currentPage, totalPages } = stagesQuery.data.pagination;
+              const isFirstOverall = currentPage === 1 && index === 0;
+              const isLastOverall =
+                currentPage === totalPages && index === stagesQuery.data.data.length - 1;
+
+              return (
+                <tr key={stage.id}>
+                  <td>{stage.order}</td>
+                  <td>{stage.name}</td>
+                  <td>{formatProbability(stage.probability)}</td>
+                  <td>{stage.isWon ? "Sí" : ""}</td>
+                  <td>{stage.isLost ? "Sí" : ""}</td>
+                  {isAdmin ? (
+                    <td>
+                      <Link to={`/pipelines/${pipelineId}/stages/${stage.id}/edit`}>Editar</Link>
+                      <button type="button" onClick={() => handleDelete(stage.id)}>
+                        Eliminar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isFirstOverall}
+                        onClick={() => handleMove(stage.id, stage.order - 1)}
+                      >
+                        Subir
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isLastOverall}
+                        onClick={() => handleMove(stage.id, stage.order + 1)}
+                      >
+                        Bajar
+                      </button>
+                    </td>
+                  ) : null}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+      ) : null}
+
+      {stagesQuery.isSuccess ? (
+        <div>
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((current) => current - 1)}
+          >
+            Anterior
+          </button>
+          <span>
+            Página {stagesQuery.data.pagination.page} de{" "}
+            {stagesQuery.data.pagination.totalPages || 1}
+          </span>
+          <button
+            type="button"
+            disabled={page >= stagesQuery.data.pagination.totalPages}
+            onClick={() => setPage((current) => current + 1)}
+          >
+            Siguiente
+          </button>
+        </div>
       ) : null}
     </div>
   );

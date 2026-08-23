@@ -337,6 +337,27 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     expect(screen.getByTestId("profile-error").textContent).not.toBe("");
   });
 
+  it("14. (R1.4) Un 401 en /api/me dispara signOut() y, tras el SIGNED_OUT resultante, termina unauthenticated", async () => {
+    server.use(meErrorHandler(401, "Token inválido o vencido"));
+    renderAuthProvider();
+    mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
+
+    // El 401 llega vía request() -> registerUnauthorizedHandler(), no vía
+    // ninguna acción del usuario — a diferencia del escenario 8 (logout
+    // manual), acá nadie clickea nada.
+    await waitFor(() => expect(mock.signOut).toHaveBeenCalledWith({ scope: "local" }));
+
+    // El mock de signOut, a diferencia del SDK real, no emite SIGNED_OUT
+    // por su cuenta — se simula acá el mismo evento que Supabase dispararía
+    // como efecto de un signOut exitoso (mismo patrón que el escenario 7).
+    mock.emit("SIGNED_OUT", null);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("status").textContent).toBe("unauthenticated"),
+    );
+    expect(screen.getByTestId("me-id").textContent).toBe("");
+  });
+
   it("13. retryProfile() re-dispara /api/me y puede llegar a authenticated", async () => {
     const user = userEvent.setup();
     server.use(meErrorHandler(500, "Error interno del servidor"));

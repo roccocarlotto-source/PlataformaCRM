@@ -16,10 +16,10 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const opportunitiesUrl = `${env.apiUrl}/opportunities`;
-const pipelinesUrl = `${env.apiUrl}/pipelines`;
-const stagesUrl = `${env.apiUrl}/stages`;
-const usersUrl = `${env.apiUrl}/users`;
+const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
+const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
+const stagesUrl = `${env.apiUrl}/api/stages`;
+const usersUrl = `${env.apiUrl}/api/users`;
 
 // PipelineSelect y UserSelect se montan SIEMPRE en este form (sin
 // `enabled` gating por texto, a diferencia de CompanySelect/ContactSelect)
@@ -78,7 +78,7 @@ describe("OpportunityFormPage", () => {
         postedBody = await request.json();
         return HttpResponse.json(makeOpportunity(), { status: 201 });
       }),
-      http.get(`${env.apiUrl}/companies`, () =>
+      http.get(`${env.apiUrl}/api/companies`, () =>
         HttpResponse.json({
           data: [
             {
@@ -361,7 +361,7 @@ describe("OpportunityFormPage", () => {
     const capturedContactRequests: URL[] = [];
     server.use(
       ...baseHandlers(),
-      http.get(`${env.apiUrl}/contacts`, ({ request }) => {
+      http.get(`${env.apiUrl}/api/contacts`, ({ request }) => {
         capturedContactRequests.push(new URL(request.url));
         return HttpResponse.json({
           data: [
@@ -385,7 +385,7 @@ describe("OpportunityFormPage", () => {
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         });
       }),
-      http.get(`${env.apiUrl}/companies`, () =>
+      http.get(`${env.apiUrl}/api/companies`, () =>
         HttpResponse.json({
           data: [
             {
@@ -411,7 +411,7 @@ describe("OpportunityFormPage", () => {
       // test — useCompany("co1") igual puede disparar un refetch de fondo
       // una vez que `value` queda seteado (comportamiento estándar de
       // TanStack Query ante datos "stale", no algo introducido en M5).
-      http.get(`${env.apiUrl}/companies/co1`, () =>
+      http.get(`${env.apiUrl}/api/companies/co1`, () =>
         HttpResponse.json({
           id: "co1",
           organizationId: "org-1",

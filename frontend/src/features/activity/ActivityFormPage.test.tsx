@@ -22,10 +22,10 @@ vi.mock("../../auth/getAccessToken", () => ({
 const nodeProcess = (globalThis as unknown as { process: { env: Record<string, string | undefined> } })
   .process;
 
-const activitiesUrl = `${env.apiUrl}/activities`;
-const companiesUrl = `${env.apiUrl}/companies`;
-const contactsUrl = `${env.apiUrl}/contacts`;
-const usersUrl = `${env.apiUrl}/users`;
+const activitiesUrl = `${env.apiUrl}/api/activities`;
+const companiesUrl = `${env.apiUrl}/api/companies`;
+const contactsUrl = `${env.apiUrl}/api/contacts`;
+const usersUrl = `${env.apiUrl}/api/users`;
 
 // UserSelect (assignee) se monta siempre en este form, sin `enabled`
 // gating por texto — todo test necesita este handler como mínimo.

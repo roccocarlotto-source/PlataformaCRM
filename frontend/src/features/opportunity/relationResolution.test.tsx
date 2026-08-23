@@ -35,10 +35,10 @@ describe("opportunity/relationResolution", () => {
 
   it("useContactNames resuelve varios ids, deduplicados, a 'firstName lastName'", async () => {
     server.use(
-      http.get(`${env.apiUrl}/contacts/ct1`, () =>
+      http.get(`${env.apiUrl}/api/contacts/ct1`, () =>
         HttpResponse.json(makeContact({ id: "ct1", firstName: "Ana", lastName: "Pérez" })),
       ),
-      http.get(`${env.apiUrl}/contacts/ct2`, () =>
+      http.get(`${env.apiUrl}/api/contacts/ct2`, () =>
         HttpResponse.json(makeContact({ id: "ct2", firstName: "Beto", lastName: "Gómez" })),
       ),
     );
@@ -54,10 +54,10 @@ describe("opportunity/relationResolution", () => {
 
   it("useContactNames: un id que falla en resolver no rompe el resto, ni aparece en byId", async () => {
     server.use(
-      http.get(`${env.apiUrl}/contacts/ct1`, () =>
+      http.get(`${env.apiUrl}/api/contacts/ct1`, () =>
         HttpResponse.json(makeContact({ id: "ct1", firstName: "Ana", lastName: "Pérez" })),
       ),
-      http.get(`${env.apiUrl}/contacts/ct-borrado`, () =>
+      http.get(`${env.apiUrl}/api/contacts/ct-borrado`, () =>
         HttpResponse.json({ error: { message: "no encontrado" } }, { status: 404 }),
       ),
     );
@@ -73,7 +73,7 @@ describe("opportunity/relationResolution", () => {
 
   it("usePipelineNames resuelve pipelineId → name", async () => {
     server.use(
-      http.get(`${env.apiUrl}/pipelines/pl1`, () =>
+      http.get(`${env.apiUrl}/api/pipelines/pl1`, () =>
         HttpResponse.json(makePipeline({ id: "pl1", name: "Ventas" })),
       ),
     );
@@ -88,7 +88,7 @@ describe("opportunity/relationResolution", () => {
 
   it("useStageNames resuelve pares (pipelineId, stageId) y distingue el mismo stageId bajo pipelines distintos", async () => {
     server.use(
-      http.get(`${env.apiUrl}/stages/st1`, () =>
+      http.get(`${env.apiUrl}/api/stages/st1`, () =>
         HttpResponse.json(makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto" })),
       ),
     );
@@ -105,7 +105,7 @@ describe("opportunity/relationResolution", () => {
   it("useOwnerNames(false) no dispara ningún fetch a /api/users", async () => {
     let requestCount = 0;
     server.use(
-      http.get(`${env.apiUrl}/users`, () => {
+      http.get(`${env.apiUrl}/api/users`, () => {
         requestCount += 1;
         return HttpResponse.json({
           data: [],
@@ -123,7 +123,7 @@ describe("opportunity/relationResolution", () => {
 
   it("useOwnerNames(true) resuelve ownerId → fullName desde la lista completa", async () => {
     server.use(
-      http.get(`${env.apiUrl}/users`, () =>
+      http.get(`${env.apiUrl}/api/users`, () =>
         HttpResponse.json({
           data: [makeUser({ id: "u1", fullName: "Ana Pérez" })],
           pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },

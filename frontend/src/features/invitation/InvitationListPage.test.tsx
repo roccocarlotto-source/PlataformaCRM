@@ -14,8 +14,8 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const invitationsUrl = `${env.apiUrl}/invitations`;
-const usersUrl = `${env.apiUrl}/users`;
+const invitationsUrl = `${env.apiUrl}/api/invitations`;
+const usersUrl = `${env.apiUrl}/api/users`;
 
 function usersHandler() {
   return http.get(usersUrl, () =>

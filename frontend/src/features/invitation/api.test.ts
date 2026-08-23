@@ -10,7 +10,7 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-const baseUrl = `${env.apiUrl}/invitations`;
+const baseUrl = `${env.apiUrl}/api/invitations`;
 
 interface CapturedRequest {
   method: string;
@@ -81,7 +81,7 @@ describe("invitation/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("POST");
-    expect(captured[0].url.pathname).toBe("/invitations");
+    expect(captured[0].url.pathname).toBe("/api/invitations");
     expect(captured[0].body).toEqual({ email: "nueva@example.com", role: "USER" });
     expect(Object.keys(captured[0].body as Record<string, unknown>)).not.toContain("roleId");
     expect(Object.keys(captured[0].body as Record<string, unknown>)).not.toContain("organizationId");
@@ -110,7 +110,7 @@ describe("invitation/api — contrato HTTP", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("DELETE");
-    expect(captured[0].url.pathname).toBe("/invitations/inv1");
+    expect(captured[0].url.pathname).toBe("/api/invitations/inv1");
     expect(result.status).toBe("REVOKED");
   });
 

@@ -15,6 +15,7 @@ function buildListQueryString(query: StageListQuery): string {
   if (query.page !== undefined) params.set("page", String(query.page));
   if (query.pageSize !== undefined) params.set("pageSize", String(query.pageSize));
   if (query.pipelineId) params.set("pipelineId", query.pipelineId);
+  if (query.search) params.set("search", query.search);
   if (query.sortBy) params.set("sortBy", query.sortBy);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
   const queryString = params.toString();

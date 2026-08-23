@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../lib/supabase";
-import { ApiError, request } from "../lib/api";
+import { ApiError, registerUnauthorizedHandler, request } from "../lib/api";
 import { getAccessToken } from "./getAccessToken";
 
 // Contrato real de GET /api/me (src/controllers/me.controller.ts): serializa
@@ -82,6 +82,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient],
   );
 
+  // R1.4 — se registra una sola vez: cualquier 401 de request() (venga de
+  // cualquier módulo, en cualquier momento) termina acá. signOut() dispara
+  // SIGNED_OUT más abajo, que ya limpia identidad y cache — no hay estado
+  // nuevo que mantener, solo reutiliza el circuito de logout existente.
+  useEffect(() => {
+    registerUnauthorizedHandler(() => {
+      supabase.auth.signOut({ scope: "local" }).catch((error: unknown) => {
+        console.error("No se pudo cerrar la sesión tras un 401", error);
+      });
+    });
+  }, []);
+
   useEffect(() => {
     let active = true;
 
@@ -112,7 +124,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // esto es lo que aísla A de B, no el timing de queryClient.clear().
   const meQuery = useQuery({
     queryKey: ["me", identityKey ?? "none"] as const,
-    queryFn: ({ signal }) => request<MeResponse>("/api/me", { getAccessToken, signal }),
+    // "/me", no "/api/me": buildUrl() ya prefija "/api" (ver lib/api.ts) —
+    // mismo criterio que el resto de los módulos, ya no un caso especial.
+    queryFn: ({ signal }) => request<MeResponse>("/me", { getAccessToken, signal }),
     enabled: identityKey != null,
   });
 

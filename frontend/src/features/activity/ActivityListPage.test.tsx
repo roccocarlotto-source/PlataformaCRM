@@ -34,11 +34,11 @@ function mockAuth(role: "ADMIN" | "USER", meId = "u1"): AuthContextValue {
   };
 }
 
-const activitiesUrl = `${env.apiUrl}/activities`;
-const companiesUrl = `${env.apiUrl}/companies`;
-const contactsUrl = `${env.apiUrl}/contacts`;
-const opportunitiesUrl = `${env.apiUrl}/opportunities`;
-const usersUrl = `${env.apiUrl}/users`;
+const activitiesUrl = `${env.apiUrl}/api/activities`;
+const companiesUrl = `${env.apiUrl}/api/companies`;
+const contactsUrl = `${env.apiUrl}/api/contacts`;
+const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
+const usersUrl = `${env.apiUrl}/api/users`;
 
 // CompanySelect (filtro de la lista) no busca por default (enabled solo con
 // término) — no dispara GET /companies al montar. Los handlers de detail
