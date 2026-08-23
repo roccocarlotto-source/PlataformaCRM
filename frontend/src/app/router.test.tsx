@@ -3,6 +3,8 @@ import { AdminRoute } from "../auth/AdminRoute";
 import { ProtectedRoute } from "../auth/ProtectedRoute";
 import { AppLayout } from "../layout/AppLayout";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
 import { router } from "./router";
 
 // Descubierto durante las mutaciones deliberadas de M6: AdminRoute.test.tsx
@@ -91,6 +93,25 @@ describe("router.tsx — wiring real de M7 (Users, Invitations, Accept)", () => 
     expect(findRoute(router.routes, "/invitations")).toBeDefined();
     expect(findRoute(router.routes, "/invitations/new")).toBeDefined();
     expect(findRoute(router.routes, "/invite/accept")).toBeDefined();
+  });
+});
+
+describe("router.tsx — wiring real de R1.3 (Forgot/Reset Password)", () => {
+  it("/forgot-password y /reset-password existen y renderizan sus páginas", () => {
+    const forgot = findRoute(router.routes, "/forgot-password") as
+      | { element: { type: unknown } }
+      | undefined;
+    const reset = findRoute(router.routes, "/reset-password") as
+      | { element: { type: unknown } }
+      | undefined;
+
+    expect(forgot?.element.type).toBe(ForgotPasswordPage);
+    expect(reset?.element.type).toBe(ResetPasswordPage);
+  });
+
+  it("/forgot-password y /reset-password no están anidadas bajo ningún elemento — rutas públicas de nivel superior, igual que /login y /invite/accept", () => {
+    expect(findParentElement(router.routes, "/forgot-password")).toBeUndefined();
+    expect(findParentElement(router.routes, "/reset-password")).toBeUndefined();
   });
 });
 

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 
 interface LoginLocationState {
@@ -65,6 +65,9 @@ export function LoginPage() {
       <button type="submit" disabled={isSubmitting}>
         {isSubmitting ? "Ingresando…" : "Ingresar"}
       </button>
+      <p>
+        <Link to="/forgot-password">¿Olvidaste tu contraseña?</Link>
+      </p>
     </form>
   );
 }

@@ -19,6 +19,8 @@ import { UserListPage } from "../features/user/UserListPage";
 import { InvitationFormPage } from "../features/invitation/InvitationFormPage";
 import { InvitationListPage } from "../features/invitation/InvitationListPage";
 import { AcceptInvitationPage } from "../features/auth/AcceptInvitationPage";
+import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 
 // NotFoundPlaceholder queda público a propósito: un 404 no expone datos de
@@ -29,6 +31,14 @@ function NotFoundPlaceholder() {
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
+  // R1.3 — fuera de ProtectedRoute, mismo criterio que /invite/accept de
+  // abajo: ForgotPasswordPage no requiere sesión (es previo a tenerla), y
+  // ResetPasswordPage recibe una sesión de recuperación real vía el link de
+  // Supabase (detectSessionInUrl) antes de que este componente se monte —
+  // ProtectedRoute la redirigiría a /login sin dar forma de completar el
+  // cambio de contraseña, mismo problema que ya documentó AcceptInvitationPage.
+  { path: "/forgot-password", element: <ForgotPasswordPage /> },
+  { path: "/reset-password", element: <ResetPasswordPage /> },
   // Fuera de ProtectedRoute a propósito: quien acepta todavía no tiene
   // public.users (status "account-unavailable"), y ProtectedRoute
   // redirigiría a /login o mostraría el mensaje bloqueante de
