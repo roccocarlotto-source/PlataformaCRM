@@ -23,6 +23,7 @@ export interface ListStagesParams {
   page: number;
   pageSize: number;
   pipelineId?: string;
+  search?: string;
   sortBy: StageSortBy;
   sortOrder: SortOrder;
 }

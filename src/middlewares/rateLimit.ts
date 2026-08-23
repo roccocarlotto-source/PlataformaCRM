@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { rateLimit, type RateLimitInfo } from "express-rate-limit";
 import { acceptInvitationSchema } from "../schemas/invitation.schema";
 import { onboardingSchema } from "../schemas/onboarding.schema";
-import type { InvitationAcceptIdentity } from "../types/auth";
+import type { AuthContext, InvitationAcceptIdentity } from "../types/auth";
 import { AppError } from "../utils/AppError";
 
 // M1 — rate limiting a nivel Express (docs/project-overview.md §8/§9).
@@ -172,3 +172,62 @@ export function createAcceptInvitationRateLimiter() {
 }
 
 export const acceptInvitationRateLimiter = createAcceptInvitationRateLimiter();
+
+// ---------------------------------------------------------------------------
+// R1.9 — escrituras de negocio (POST/PATCH/DELETE de Company, Contact,
+// Pipeline, Stage, Opportunity, Activity, User, Invitation).
+//
+// Amenaza: una identidad ya autenticada (nunca anónima — authorize("ADMIN")
+// corre después de este limiter en cada ruta, así que la población está
+// acotada a cuentas ADMIN ya autenticadas de una organización) escribiendo
+// en bucle, por script o por una cuenta comprometida. A diferencia de los
+// limiters de arriba (acciones de baja frecuencia: registrarse, aceptar una
+// invitación), acá el uso legítimo normal es de alta frecuencia — un ADMIN
+// puede reordenar varias etapas seguidas, cargar contactos en lote, etc. —
+// por eso el umbral es deliberadamente generoso: frena un script, no un uso
+// intensivo real.
+//
+// keyGenerator por identidad verificada (req.auth.userId, resuelto por
+// `authenticate`, que corre antes en la cadena en cada ruta) — mismo
+// criterio que acceptInvitationRateLimiter, nunca req.ip.
+//
+// Baseline operacional, no un umbral definitivo — ajustable según
+// observabilidad/uso real, mismo criterio que el resto de este archivo.
+// ---------------------------------------------------------------------------
+export const BUSINESS_WRITE_WINDOW_MS = 60 * 1000;
+export const BUSINESS_WRITE_MAX = 100;
+
+function businessWriteKeyGenerator(req: Request): string {
+  const auth = (req as Request & { auth?: AuthContext }).auth;
+  if (!auth) {
+    // No debería poder pasar nunca: `authenticate` corre antes en la cadena
+    // y, si falla, ya cortó el request con su propio 401 sin llegar acá —
+    // mismo razonamiento que acceptInvitationKeyGenerator.
+    throw new Error(
+      "businessWriteRateLimiter: falta req.auth — verificá el orden de middlewares en el router correspondiente",
+    );
+  }
+  return auth.userId;
+}
+
+// overrides es solo para tests de integración: permite un `max` chico para
+// no tener que disparar 100+ requests reales para probar el bloqueo — ver
+// rateLimit.integration-test.ts. La instancia de producción (más abajo) no
+// pasa overrides, así que sigue usando los umbrales reales.
+export function createBusinessWriteRateLimiter(overrides?: {
+  windowMs?: number;
+  max?: number;
+}) {
+  return rateLimit({
+    windowMs: overrides?.windowMs ?? BUSINESS_WRITE_WINDOW_MS,
+    max: overrides?.max ?? BUSINESS_WRITE_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    keyGenerator: businessWriteKeyGenerator,
+    handler: buildRateLimitHandler(
+      "Demasiadas solicitudes. Probá de nuevo en un momento.",
+    ),
+  });
+}
+
+export const businessWriteRateLimiter = createBusinessWriteRateLimiter();

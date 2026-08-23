@@ -10,6 +10,7 @@ import { authorize } from "../middlewares/authorize";
 import {
   acceptInvitationRateLimiter,
   acceptPreAuthRateLimiter,
+  businessWriteRateLimiter,
 } from "../middlewares/rateLimit";
 import { verifyInvitationAcceptIdentity } from "../middlewares/verifyInvitationAcceptIdentity";
 
@@ -24,15 +25,19 @@ invitationRouter.get(
   authorize("ADMIN"),
   listInvitationsHandler,
 );
+// businessWriteRateLimiter (R1.9) solo en las escrituras — GET arriba
+// queda fuera, mismo criterio que el resto de los routers.
 invitationRouter.post(
   "/invitations",
   authenticate,
+  businessWriteRateLimiter,
   authorize("ADMIN"),
   createInvitationHandler,
 );
 invitationRouter.delete(
   "/invitations/:id",
   authenticate,
+  businessWriteRateLimiter,
   authorize("ADMIN"),
   revokeInvitationHandler,
 );

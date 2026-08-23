@@ -3,11 +3,13 @@ import { prisma, type Db } from "../lib/prisma";
 
 export interface StageFilters {
   pipelineId?: string;
+  search?: string;
 }
 
 export type StageSortBy = "order" | "name" | "createdAt";
 export type SortOrder = "asc" | "desc";
 
+// R1.10 — search sobre `name`, mismo patrón que company.repository.ts.
 function buildWhere(
   organizationId: string,
   filters: StageFilters,
@@ -16,6 +18,9 @@ function buildWhere(
     organizationId,
     deletedAt: null,
     ...(filters.pipelineId ? { pipelineId: filters.pipelineId } : {}),
+    ...(filters.search
+      ? { name: { contains: filters.search, mode: "insensitive" } }
+      : {}),
   };
 }
 

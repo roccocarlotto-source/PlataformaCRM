@@ -19,9 +19,11 @@ import {
   ONBOARDING_MAX,
   createAcceptInvitationRateLimiter,
   createAcceptPreAuthRateLimiter,
+  createBusinessWriteRateLimiter,
   createOnboardingRateLimiter,
 } from "./rateLimit";
 import { verifyInvitationAcceptIdentity } from "./verifyInvitationAcceptIdentity";
+import type { AuthContext } from "../types/auth";
 
 // Test de integración de M1 (rate limiting) — HTTP real contra apps
 // Express reales, montando los middlewares/controllers reales, contra
@@ -492,5 +494,88 @@ test("cadena completa: una aceptación real tiene éxito dentro de ambos cupos",
     await prisma.organization.delete({ where: { id: org.id } });
     await getSupabaseAdmin().auth.admin.deleteUser(inviterAuth.id);
     await getSupabaseAdmin().auth.admin.deleteUser(invitee.authUserId);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// R1.9 — businessWriteRateLimiter
+//
+// A diferencia de los limiters de arriba, este no depende de resolver una
+// identidad real contra Postgres/Supabase — su única lógica propia es
+// contar por req.auth.userId y bloquear con 429. Por eso acá se fabrica
+// req.auth directo (vía un header de test), sin pasar por `authenticate`
+// real: lo que está bajo prueba es el limiter en sí, no la resolución de
+// auth (ya cubierta en me.controller.integration-test.ts). Usa `max`
+// chico vía el override de createBusinessWriteRateLimiter — el umbral real
+// de producción (100/min) haría este test lento sin probar nada distinto.
+// ---------------------------------------------------------------------------
+
+function mountBusinessWrite(app: express.Express, max: number) {
+  app.post(
+    "/test/business-write",
+    (req, _res, next) => {
+      const userId = req.header("x-test-user-id") ?? "test-user-fixed";
+      req.auth = {
+        userId,
+        organizationId: "test-org-fixed",
+        role: "ADMIN",
+        email: `${userId}@example.test`,
+        fullName: "Test User",
+      } satisfies AuthContext;
+      next();
+    },
+    createBusinessWriteRateLimiter({ windowMs: 60_000, max }),
+    (_req, res) => res.status(200).json({ ok: true }),
+  );
+}
+
+test("businessWriteRateLimiter: cuenta requests de una identidad y bloquea el excedente con 429 + Retry-After", async () => {
+  const max = 3;
+  const { url, close } = await startTestApp((app) => mountBusinessWrite(app, max));
+  try {
+    for (let i = 0; i < max; i++) {
+      const res = await fetch(`${url}/test/business-write`, { method: "POST" });
+      assert.equal(res.status, 200, `intento ${i + 1}/${max} debería contar, no bloquearse`);
+    }
+
+    const blocked = await fetch(`${url}/test/business-write`, { method: "POST" });
+    assert.equal(blocked.status, 429);
+    assert.ok(
+      blocked.headers.get("retry-after"),
+      "una respuesta 429 debe incluir el header Retry-After",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("businessWriteRateLimiter: el cupo agotado de una identidad no afecta a otra", async () => {
+  const max = 2;
+  const { url, close } = await startTestApp((app) => mountBusinessWrite(app, max));
+  try {
+    for (let i = 0; i < max; i++) {
+      const res = await fetch(`${url}/test/business-write`, {
+        method: "POST",
+        headers: { "x-test-user-id": "user-a" },
+      });
+      assert.equal(res.status, 200);
+    }
+    const aBlocked = await fetch(`${url}/test/business-write`, {
+      method: "POST",
+      headers: { "x-test-user-id": "user-a" },
+    });
+    assert.equal(aBlocked.status, 429);
+
+    const bStillOk = await fetch(`${url}/test/business-write`, {
+      method: "POST",
+      headers: { "x-test-user-id": "user-b" },
+    });
+    assert.equal(
+      bStillOk.status,
+      200,
+      "el usuario B no debería verse afectado por el cupo agotado del usuario A",
+    );
+  } finally {
+    await close();
   }
 });
