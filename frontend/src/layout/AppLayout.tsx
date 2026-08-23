@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { Button } from "../design-system/Button";
+import { ErrorState } from "../design-system/ErrorState";
 
 // Vive dentro de ProtectedRoute (solo se monta con status === "authenticated").
 // No duplica ningún estado de sesión: `me` se lee de AuthContext tal cual,
@@ -35,9 +37,11 @@ export function AppLayout() {
 
   return (
     <div>
-      <header>
-        <nav>
-          <Link to="/">Plataforma CRM</Link>
+      <header className="ds-app-header">
+        <nav className="ds-app-nav">
+          <Link to="/" className="ds-app-brand">
+            Plataforma CRM
+          </Link>
           <Link to="/companies">Empresas</Link>
           <Link to="/contacts">Contactos</Link>
           <Link to="/pipelines">Pipelines</Link>
@@ -50,12 +54,12 @@ export function AppLayout() {
             </>
           ) : null}
         </nav>
-        <div>
+        <div className="ds-app-account">
           {me ? <span>{me.fullName}</span> : null}
-          <button type="button" onClick={handleLogout} disabled={isLoggingOut}>
+          <Button type="button" onClick={handleLogout} disabled={isLoggingOut}>
             {isLoggingOut ? "Cerrando sesión…" : "Cerrar sesión"}
-          </button>
-          {logoutError ? <p role="alert">{logoutError}</p> : null}
+          </Button>
+          {logoutError ? <ErrorState>{logoutError}</ErrorState> : null}
         </div>
       </header>
       <main>

@@ -1,0 +1,320 @@
+/* R1.1 — estilos de los componentes de design-system/ + estilos base de
+   elementos nativos (label, input, select, textarea, table, h1, a) que las
+   pantallas migradas siguen usando directo, sin wrapper propio, para no
+   tener que tocar cada línea de cada formulario solo para pintarlo. */
+
+/* ---------------------------------------------------------------------- */
+/* Elementos base                                                          */
+/* ---------------------------------------------------------------------- */
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+h1 {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: var(--space-4);
+}
+
+a {
+  color: var(--color-accent);
+}
+
+a:hover {
+  color: var(--color-accent-hover);
+}
+
+label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+}
+
+input,
+select,
+textarea {
+  display: block;
+  width: 100%;
+  max-width: 32rem;
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+/* Botones nativos sin envolver en <Button> (ver Button.tsx para las
+   variantes con clase explícita) heredan un estilo base neutro — evita que
+   cualquier <button> suelto quede sin migrar se vea sin estilo de golpe. */
+button {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Button.tsx                                                              */
+/* ---------------------------------------------------------------------- */
+
+.ds-button {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.ds-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ds-button--primary {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.ds-button--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.ds-button--secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.ds-button--secondary:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+}
+
+.ds-button--danger {
+  background: var(--color-surface);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.ds-button--danger:hover:not(:disabled) {
+  background: var(--color-danger-soft);
+}
+
+/* Aplicable directo sobre un <Link> (react-router) para las acciones
+   primarias que hoy son navegación, no un submit — "Nueva empresa", etc.
+   Mismos tokens visuales que .ds-button--primary, sin duplicar el <button>
+   real: es una navegación, no una acción de formulario. */
+.ds-link-button {
+  display: inline-block;
+  font-weight: 500;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  text-decoration: none;
+}
+
+.ds-link-button:hover {
+  background: var(--color-accent-hover);
+  color: var(--color-accent-contrast);
+}
+
+/* ---------------------------------------------------------------------- */
+/* FormField.tsx                                                           */
+/* ---------------------------------------------------------------------- */
+
+.ds-field {
+  margin-bottom: var(--space-4);
+}
+
+.ds-field-label {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Table.tsx                                                               */
+/* ---------------------------------------------------------------------- */
+
+.ds-table-wrap {
+  overflow-x: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin: var(--space-4) 0;
+}
+
+.ds-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-base);
+}
+
+.ds-table th,
+.ds-table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.ds-table th {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+}
+
+.ds-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ds-table tbody tr:hover {
+  background: var(--color-surface-muted);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Pagination.tsx                                                          */
+/* ---------------------------------------------------------------------- */
+
+.ds-pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------- */
+/* LoadingState / ErrorState / EmptyState                                  */
+/* ---------------------------------------------------------------------- */
+
+.ds-loading,
+.ds-empty {
+  color: var(--color-text-muted);
+  padding: var(--space-3) 0;
+}
+
+.ds-error {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-3) 0;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Filtros — la barra de search/select que encabeza cada ListPage.         */
+/* ---------------------------------------------------------------------- */
+
+.ds-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+
+.ds-filters label {
+  margin-bottom: 0;
+}
+
+.ds-filters input,
+.ds-filters select {
+  margin-top: var(--space-1);
+  max-width: 16rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Layout de página — header con título + acción primaria.                 */
+/* ---------------------------------------------------------------------- */
+
+.ds-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.ds-page-header h1 {
+  margin-bottom: 0;
+}
+
+/* ---------------------------------------------------------------------- */
+/* AppLayout — el shell que envuelve toda pantalla autenticada.            */
+/* ---------------------------------------------------------------------- */
+
+.ds-app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ds-app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.ds-app-nav a {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.ds-app-nav a:hover {
+  color: var(--color-text);
+}
+
+.ds-app-brand {
+  font-weight: 700;
+  font-size: var(--font-size-base);
+  color: var(--color-text) !important;
+}
+
+.ds-app-account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

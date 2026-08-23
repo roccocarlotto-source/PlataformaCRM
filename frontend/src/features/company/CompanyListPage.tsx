@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { Button } from "../../design-system/Button";
+import { EmptyState } from "../../design-system/EmptyState";
+import { ErrorState } from "../../design-system/ErrorState";
+import { LoadingState } from "../../design-system/LoadingState";
+import { Pagination } from "../../design-system/Pagination";
+import { Table } from "../../design-system/Table";
 import { useDeleteCompany } from "./mutations";
 import { useCompanies } from "./queries";
 import type { CompanySortBy, SortOrder } from "./types";
@@ -38,28 +44,40 @@ export function CompanyListPage() {
 
   return (
     <div>
-      <h1>Empresas</h1>
-      {isAdmin ? <Link to="/companies/new">Nueva empresa</Link> : null}
+      <div className="ds-page-header">
+        <h1>Empresas</h1>
+        {isAdmin ? (
+          <Link to="/companies/new" className="ds-link-button">
+            Nueva empresa
+          </Link>
+        ) : null}
+      </div>
 
-      <div>
-        <input
-          type="search"
-          placeholder="Buscar por nombre"
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setPage(1);
-          }}
-        />
-        <input
-          type="text"
-          placeholder="Filtrar por industria"
-          value={industry}
-          onChange={(event) => {
-            setIndustry(event.target.value);
-            setPage(1);
-          }}
-        />
+      <div className="ds-filters">
+        <label>
+          Buscar
+          <input
+            type="search"
+            placeholder="Buscar por nombre"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
+        <label>
+          Industria
+          <input
+            type="text"
+            placeholder="Filtrar por industria"
+            value={industry}
+            onChange={(event) => {
+              setIndustry(event.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
         <label>
           Ordenar por
           <select
@@ -71,41 +89,44 @@ export function CompanyListPage() {
             <option value="industry">Industria</option>
           </select>
         </label>
-        <select
-          value={sortOrder}
-          onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-        >
-          <option value="desc">Descendente</option>
-          <option value="asc">Ascendente</option>
-        </select>
+        <label>
+          Orden
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+          >
+            <option value="desc">Descendente</option>
+            <option value="asc">Ascendente</option>
+          </select>
+        </label>
       </div>
 
-      {companiesQuery.isLoading ? <p>Cargando…</p> : null}
+      {companiesQuery.isLoading ? <LoadingState /> : null}
 
       {companiesQuery.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos cargar las empresas
           {companiesQuery.error instanceof Error ? `: ${companiesQuery.error.message}` : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {/* Reutiliza el estado de la propia mutation (TanStack Query) — sin
           duplicar el error en un useState local. */}
       {deleteCompanyMutation.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos eliminar la empresa
           {deleteCompanyMutation.error instanceof Error
             ? `: ${deleteCompanyMutation.error.message}`
             : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {companiesQuery.isSuccess && companiesQuery.data.data.length === 0 ? (
-        <p>No hay empresas para mostrar.</p>
+        <EmptyState>No hay empresas para mostrar.</EmptyState>
       ) : null}
 
       {companiesQuery.isSuccess && companiesQuery.data.data.length > 0 ? (
-        <table>
+        <Table>
           <thead>
             <tr>
               <th>Nombre</th>
@@ -122,39 +143,25 @@ export function CompanyListPage() {
                 <td>{company.domain ?? ""}</td>
                 {isAdmin ? (
                   <td>
-                    <Link to={`/companies/${company.id}/edit`}>Editar</Link>
-                    <button type="button" onClick={() => handleDelete(company.id)}>
+                    <Link to={`/companies/${company.id}/edit`}>Editar</Link>{" "}
+                    <Button variant="danger" onClick={() => handleDelete(company.id)}>
                       Eliminar
-                    </button>
+                    </Button>
                   </td>
                 ) : null}
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       ) : null}
 
       {companiesQuery.isSuccess ? (
-        <div>
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((current) => current - 1)}
-          >
-            Anterior
-          </button>
-          <span>
-            Página {companiesQuery.data.pagination.page} de{" "}
-            {companiesQuery.data.pagination.totalPages || 1}
-          </span>
-          <button
-            type="button"
-            disabled={page >= companiesQuery.data.pagination.totalPages}
-            onClick={() => setPage((current) => current + 1)}
-          >
-            Siguiente
-          </button>
-        </div>
+        <Pagination
+          page={page}
+          totalPages={companiesQuery.data.pagination.totalPages}
+          onPrevious={() => setPage((current) => current - 1)}
+          onNext={() => setPage((current) => current + 1)}
+        />
       ) : null}
     </div>
   );

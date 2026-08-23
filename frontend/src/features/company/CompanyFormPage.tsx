@@ -1,5 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Button } from "../../design-system/Button";
+import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
+import { LoadingState } from "../../design-system/LoadingState";
 import { useCreateCompany, useUpdateCompany } from "./mutations";
 import { useCompany } from "./queries";
 import type { CreateCompanyInput } from "./types";
@@ -84,74 +88,68 @@ export function CompanyFormPage() {
   }
 
   if (isEditMode && companyQuery.isLoading) {
-    return <p>Cargando…</p>;
+    return <LoadingState />;
   }
 
   if (isEditMode && companyQuery.isError) {
     return (
-      <p role="alert">
+      <ErrorState>
         No pudimos cargar la empresa
         {companyQuery.error instanceof Error ? `: ${companyQuery.error.message}` : "."}
-      </p>
+      </ErrorState>
     );
   }
 
   return (
     <form onSubmit={handleSubmit}>
       <h1>{isEditMode ? "Editar empresa" : "Nueva empresa"}</h1>
-      <label>
-        Nombre
+      <FormField label="Nombre">
         <input
           type="text"
           value={values.name}
           onChange={(event) => setValues({ ...values, name: event.target.value })}
           required
         />
-      </label>
-      <label>
-        Dominio
+      </FormField>
+      <FormField label="Dominio">
         <input
           type="text"
           value={values.domain}
           onChange={(event) => setValues({ ...values, domain: event.target.value })}
         />
-      </label>
-      <label>
-        Industria
+      </FormField>
+      <FormField label="Industria">
         <input
           type="text"
           value={values.industry}
           onChange={(event) => setValues({ ...values, industry: event.target.value })}
         />
-      </label>
-      <label>
-        Teléfono
+      </FormField>
+      <FormField label="Teléfono">
         <input
           type="text"
           value={values.phone}
           onChange={(event) => setValues({ ...values, phone: event.target.value })}
         />
-      </label>
-      <label>
-        Ciudad
+      </FormField>
+      <FormField label="Ciudad">
         <input
           type="text"
           value={values.city}
           onChange={(event) => setValues({ ...values, city: event.target.value })}
         />
-      </label>
-      <label>
-        País
+      </FormField>
+      <FormField label="País">
         <input
           type="text"
           value={values.country}
           onChange={(event) => setValues({ ...values, country: event.target.value })}
         />
-      </label>
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={isSubmitting}>
+      </FormField>
+      {error ? <ErrorState>{error}</ErrorState> : null}
+      <Button type="submit" variant="primary" disabled={isSubmitting}>
         {isSubmitting ? "Guardando…" : "Guardar"}
-      </button>
+      </Button>
     </form>
   );
 }
