@@ -78,6 +78,35 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+// Reordenamiento: dada la lista de hermanos tal como está hoy en la base
+// (ordenada por `order` asc, sin borrados), devuelve la lista final de ids
+// en el orden en que deben quedar después de mover `movedId` a
+// `requestedOrder`. Es el cálculo puro del reordenamiento, sin base: quien
+// llama se ocupa de leer los hermanos y de persistir el resultado con
+// `reindexStages`.
+//
+// `requestedOrder` se acota a [1, siblings.length]: un orden fuera de rango
+// no es un error, se interpreta como "al principio" o "al final".
+//
+// Exportada para poder testearla sin base (stage.service.test.ts). Recibe
+// los hermanos en vez de leerlos adentro también porque el fix de ALTO-5
+// (reordenamiento sin lock) tiene que poder cambiar dónde y cómo se hace esa
+// lectura sin tocar el cálculo.
+export function computeFinalOrderIds(
+  siblings: readonly { id: string }[],
+  movedId: string,
+  requestedOrder: number,
+): string[] {
+  const targetOrder = clamp(requestedOrder, 1, siblings.length);
+
+  const withoutMoved = siblings.filter((s) => s.id !== movedId);
+  return [
+    ...withoutMoved.slice(0, targetOrder - 1).map((s) => s.id),
+    movedId,
+    ...withoutMoved.slice(targetOrder - 1).map((s) => s.id),
+  ];
+}
+
 // Único índice de unicidad que Stage puede violar en una carrera (nombre,
 // isWon, isLost — order nunca choca porque el reindexado lo maneja
 // siempre): traduce la violación a un 409 legible en vez de un 500 crudo.
@@ -99,7 +128,9 @@ function clamp(value: number, min: number, max: number): number {
 // literal en el string que expone Prisma
 // (`\"stages_won_lost_exclusive_check\"`, no `"..."` a secas). La
 // traducción de P2002 de arriba queda intacta.
-function rethrowAsConflict(err: unknown): never {
+//
+// Exportada para poder testear la traducción sin base (stage.service.test.ts).
+export function rethrowAsConflict(err: unknown): never {
   if (
     err instanceof Prisma.PrismaClientKnownRequestError &&
     err.code === "P2002"
@@ -274,14 +305,7 @@ export async function updateStage(
     return await prisma.$transaction(async (tx) => {
       if (requestedOrder !== undefined && requestedOrder !== stage.order) {
         const siblings = await findStagesByPipeline(stage.pipelineId, tx);
-        const targetOrder = clamp(requestedOrder, 1, siblings.length);
-
-        const withoutMoved = siblings.filter((s) => s.id !== id);
-        const finalOrderIds = [
-          ...withoutMoved.slice(0, targetOrder - 1).map((s) => s.id),
-          id,
-          ...withoutMoved.slice(targetOrder - 1).map((s) => s.id),
-        ];
+        const finalOrderIds = computeFinalOrderIds(siblings, id, requestedOrder);
 
         await reindexStages(stage.pipelineId, finalOrderIds, tx);
       }

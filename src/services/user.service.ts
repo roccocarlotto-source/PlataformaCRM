@@ -61,7 +61,9 @@ export async function getUserById(organizationId: string, id: string) {
 
 // true si, después de aplicar el cambio propuesto, el usuario seguiría
 // siendo un ADMIN activo — para decidir si hace falta proteger al último.
-function staysActiveAdmin(
+//
+// Exportada para poder testearla sin base (user.service.test.ts).
+export function staysActiveAdmin(
   current: { isActive: boolean; role: { name: string } },
   nextIsActive: boolean | undefined,
   nextRole: RoleName | undefined,

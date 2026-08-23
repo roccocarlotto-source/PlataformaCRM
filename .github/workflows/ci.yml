@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend — typecheck, build, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Genera el cliente de Prisma a partir de schema.prisma; no requiere
+      # conexión a una base de datos, así que corre sin infraestructura
+      # externa.
+      - run: npx prisma generate
+
+      # Incluye tsconfig.test.json: los *.test.ts y *.integration-test.ts
+      # también se typechequean, aunque los de integración no se ejecuten acá.
+      # El build (tsconfig.json) los sigue excluyendo, así que dist/ no cambia.
+      - run: npm run typecheck
+      - run: npm run build
+
+      # Solo *.test.ts (unitarios, sin DB). *.integration-test.ts requiere
+      # DATABASE_URL/DIRECT_URL apuntando al Postgres alojado por Supabase
+      # y queda fuera de CI — es la etapa 2 de ALTO-1, con su propio ciclo.
+      #
+      # CORS_ORIGIN es la única variable requerida por config/env.ts, y ese
+      # módulo se evalúa al importar cualquier service (vía lib/prisma). Sin
+      # esto, los tests fallan al importar, no al ejecutar. El valor es
+      # irrelevante para lo que se prueba: ningún test unitario lo lee.
+      - run: npm test
+        env:
+          CORS_ORIGIN: http://localhost:5173
+
+  frontend:
+    name: Frontend — typecheck, build, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test

@@ -59,7 +59,9 @@ export async function listPipelines(
 // reporta target ["organization_id"] a secas — sin "name" — porque no
 // incluye esa columna. Se distinguen por eso, mismo criterio que
 // stage.service.ts usa para desambiguar entre sus propias constraints.
-function rethrowAsConflict(err: unknown): never {
+//
+// Exportada para poder testear la traducción sin base (pipeline.service.test.ts).
+export function rethrowAsConflict(err: unknown): never {
   if (
     err instanceof Prisma.PrismaClientKnownRequestError &&
     err.code === "P2002"

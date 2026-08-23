@@ -1,0 +1,11 @@
+{
+  // Typechequea los archivos de test, que tsconfig.json excluye a propósito
+  // para que no entren en el build de producción (`npm run build` emite a
+  // dist/ usando tsconfig.json). Acá solo se verifican tipos: `noEmit`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

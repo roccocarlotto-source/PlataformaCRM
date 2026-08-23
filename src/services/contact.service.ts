@@ -91,7 +91,9 @@ async function resolveCompanyId(
 // Único índice de unicidad real que Contact tiene y Company no
 // (contacts_org_email_unique, ver manual_constraints.sql): traduce la
 // violación de esa constraint a un 409 legible en vez de un 500 crudo.
-function rethrowAsConflict(err: unknown): never {
+//
+// Exportada para poder testear la traducción sin base (contact.service.test.ts).
+export function rethrowAsConflict(err: unknown): never {
   if (
     err instanceof Prisma.PrismaClientKnownRequestError &&
     err.code === "P2002"
@@ -115,7 +117,9 @@ function rethrowAsConflict(err: unknown): never {
 // Normaliza el email para que la constraint de unicidad de la base
 // (case-sensitive tal como está definida) cumpla su propósito real: sin
 // esto, "john@acme.com" y "John@Acme.com" se tratarían como distintos.
-function normalizeEmail(email: string | undefined): string | undefined {
+//
+// Exportada para poder testearla sin base (contact.service.test.ts).
+export function normalizeEmail(email: string | undefined): string | undefined {
   return email?.trim().toLowerCase();
 }
 
