@@ -57,16 +57,16 @@ Con el servidor corriendo, `GET /health` responde `200` con `database: "ok"` si 
 | `npm run prisma:validate` | Valida que `schema.prisma` sea correcto. |
 | `npm run prisma:studio` | Abre Prisma Studio para explorar la base visualmente. |
 | `npm run prisma:seed` | Siembra el catálogo `Role` (`ADMIN`, `USER`) — idempotente, se puede correr de nuevo. |
+| `npm run migrate:deploy` | Aplica migraciones pendientes (`prisma migrate deploy`) y reaplica `manual_constraints.sql`/`rls_policies.sql`. Es el comando de deploy — ver más abajo. |
 
-`prisma migrate dev` no reaplica automáticamente `prisma/sql/manual_constraints.sql`
-ni `prisma/sql/rls_policies.sql` — Prisma no soporta triggers, `CHECK` constraints,
-índices únicos parciales ni RLS en su DSL. Después de generar una migración nueva que
-toque las tablas afectadas, reaplicar ambos a mano:
-
-```bash
-npx prisma db execute --file prisma/sql/manual_constraints.sql --url "$DIRECT_URL"
-npx prisma db execute --file prisma/sql/rls_policies.sql --url "$DIRECT_URL"
-```
+`prisma migrate dev` (uso local, en desarrollo) no reaplica automáticamente
+`prisma/sql/manual_constraints.sql` ni `prisma/sql/rls_policies.sql` — Prisma no
+soporta triggers, `CHECK` constraints, índices únicos parciales ni RLS en su DSL.
+En desarrollo, después de generar una migración nueva que toque las tablas
+afectadas, corré `npm run migrate:deploy` para reaplicar ambos (es idempotente:
+seguro de correr aunque nada haya cambiado). En CI/producción, `npm run
+migrate:deploy` es el único comando que hace falta — reemplaza por completo el
+paso manual que existía antes (ver `scripts/apply-manual-sql.ts`).
 
 ## Frontend
 
