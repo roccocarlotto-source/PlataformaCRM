@@ -46,6 +46,27 @@ enum InvitationStatus {
   EXPIRED
 }
 
+// Tipo de integración de una Source. WEBHOOK: la fuente empuja un payload por
+// HTTP (formulario de landing page). FILE_IMPORT: se sube un Excel/CSV.
+// EXTERNAL_DB: se lee de una base de datos ajena — pospuesto a propósito, ver
+// la sección 7 de docs/ingestion-architecture.md.
+enum SourceType {
+  WEBHOOK
+  FILE_IMPORT
+  EXTERNAL_DB
+}
+
+// Ciclo de vida de un IngestionEvent. PENDING (recién aterrizado, esperando al
+// worker) -> PROCESSED (promovido a Contact) | FAILED (la fila no era válida;
+// errorMessage dice por qué, y el resto del lote siguió) | DUPLICATE (ya había
+// sido ingerido antes).
+enum IngestionStatus {
+  PENDING
+  PROCESSED
+  FAILED
+  DUPLICATE
+}
+
 // ---------------------------------------------------------------------------
 // Organization — raíz del aislamiento multi-tenant
 // ---------------------------------------------------------------------------
@@ -67,6 +88,10 @@ model Organization {
   stages        Stage[]
   activities    Activity[]
   invitations   Invitation[]
+
+  sources         Source[]
+  apiKeys         ApiKey[]
+  ingestionEvents IngestionEvent[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -224,8 +249,9 @@ model Contact {
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
   owner        User?        @relation("ContactOwner", fields: [organizationId, ownerId], references: [organizationId, id], onDelete: NoAction)
 
-  opportunities Opportunity[]
-  activities    Activity[]
+  opportunities   Opportunity[]
+  activities      Activity[]
+  ingestionEvents IngestionEvent[]
 
   @@unique([organizationId, id])
   // Único (organization_id, email) WHERE email IS NOT NULL — índice parcial,
@@ -386,4 +412,153 @@ model Activity {
   @@index([organizationId, dueDate])
   @@index([assigneeId, completedAt])
   @@map("activities")
+}
+
+// ===========================================================================
+// Capa de ingesta — ver docs/ingestion-architecture.md
+//
+// Principio rector (sección 1): ningún dato externo se escribe directo en una
+// tabla de negocio. Todo aterriza primero en IngestionEvent con su payload
+// crudo intacto, y recién después de validar y mapear se promueve a Contact.
+//
+// Las tres tablas nacen con las FKs compuestas por organización que C-3
+// impuso al resto del schema, y con los índices que sirven a su patrón de
+// consulta real — el error que A-6 encontró en las 6 entidades existentes no
+// se repite acá.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Source — una instancia concreta de integración: "landing page de precios",
+// "Excel de la feria de marzo", "Postgres del cliente X".
+//
+// isActive vs. deletedAt — mismo criterio que en User, no son redundantes:
+//   - isActive = false: integración pausada. Reversible, sigue visible en la
+//     UI y su historial de eventos sigue consultable.
+//   - deletedAt != null: la fuente se removió de la organización. Terminal.
+// El borrado físico no es una alternativa: ingestion_events -> sources es
+// RESTRICT justamente para no perder la auditoría de origen, así que una
+// Source que ya ingestó algo no se puede borrar. Sin deletedAt, la lista de
+// fuentes de una organización solo podría crecer.
+//
+// El listado por defecto se apoya en un índice PARCIAL
+// (organization_id, created_at) WHERE deleted_at IS NULL — el DSL de Prisma no
+// expresa índices parciales, así que se crea en la migración, igual que los 8
+// únicos parciales del schema.
+// ---------------------------------------------------------------------------
+
+model Source {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String     @map("organization_id") @db.Uuid
+  name           String     @db.VarChar(255)
+  type           SourceType
+  fieldMapping   Json?      @map("field_mapping")
+  isActive       Boolean    @default(true) @map("is_active")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+  deletedAt      DateTime?  @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  apiKeys         ApiKey[]
+  ingestionEvents IngestionEvent[]
+
+  // Sin @@index([organizationId]) suelto: un btree sobre (organization_id,
+  // created_at) ya sirve cualquier WHERE organization_id = ?, así que el
+  // índice de una sola columna sería peso muerto. Las 6 entidades existentes
+  // lo tienen porque nacieron sin el compuesto (A-6); esta no.
+  @@unique([organizationId, id])
+  @@map("sources")
+}
+
+// ---------------------------------------------------------------------------
+// ApiKey — credencial de ingesta. Invariante de la sección 3: una API key
+// resuelve a exactamente una organización, siempre. Nunca a varias, nunca a
+// ninguna.
+//
+// keyHash: la clave se guarda hasheada, nunca en claro, y se muestra una sola
+// vez al crearla. El algoritmo lo decide el ítem 3 (gestión de API keys), por
+// eso la columna es text y no un VarChar dimensionado para uno en concreto.
+// El @unique no es cosmético: authenticateApiKey busca por hash SIN conocer
+// todavía la organización, así que la unicidad tiene que ser global.
+//
+// keyPrefix: los primeros caracteres, visibles, para identificar la clave en
+// la UI sin exponer el resto.
+//
+// Sin deletedAt, mismo criterio que Invitation: revokedAt YA es el estado
+// terminal y tiene nombre propio; un deletedAt encima obligaría a explicar en
+// qué se diferencia de él, sin buena respuesta.
+// ---------------------------------------------------------------------------
+
+model ApiKey {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  sourceId       String    @map("source_id") @db.Uuid
+  keyHash        String    @unique @map("key_hash")
+  keyPrefix      String    @map("key_prefix") @db.VarChar(16)
+  lastUsedAt     DateTime? @map("last_used_at")
+  revokedAt      DateTime? @map("revoked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  source       Source       @relation(fields: [organizationId, sourceId], references: [organizationId, id])
+
+  // (organization_id, source_id, created_at) cubre dos cosas con un solo
+  // índice: el lado REFERENCIANTE de la FK compuesta —que Postgres no indexa
+  // por su cuenta— y el listado "claves de esta fuente" ya ordenado. Sin
+  // sort: Desc a propósito: un btree se recorre hacia atrás al mismo costo, y
+  // el orden declarado solo importaría para un ORDER BY de direcciones mixtas.
+  //
+  // No hay (organization_id, created_at) aparte: el listado de claves de una
+  // organización son unas pocas filas, el prefijo (organization_id) de este
+  // índice ya las trae, y ordenarlas en memoria es gratis.
+  @@index([organizationId, sourceId, createdAt])
+  @@map("api_keys")
+}
+
+// ---------------------------------------------------------------------------
+// IngestionEvent — una fila por cada intento de ingesta, con el payload crudo
+// intacto. Es la tabla de staging de la sección 1 y la de mayor volumen del
+// schema.
+//
+// Sin deletedAt: es un registro de auditoría append-only. Borrarlo lógicamente
+// no significa nada —o está y vale, o se purga de verdad— y una columna que
+// nadie escribe pesa en millones de filas. La retención se resuelve con un
+// DELETE por created_at + status, sin ninguna columna nueva; ver la sección
+// 9.1 del documento de ingesta, que además explica por qué particionar esta
+// tabla por fecha es incompatible con la idempotencia de acá abajo.
+//
+// Dos índices viven en la migración porque son PARCIALES y el DSL de Prisma no
+// los expresa:
+//   - UNIQUE (source_id, external_id) WHERE external_id IS NOT NULL — la
+//     restricción crítica que hace idempotente la ingesta.
+//   - (created_at) WHERE status = 'PENDING' — la cola del worker.
+// ---------------------------------------------------------------------------
+
+model IngestionEvent {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String          @map("organization_id") @db.Uuid
+  sourceId          String          @map("source_id") @db.Uuid
+  externalId        String?         @map("external_id") @db.VarChar(255)
+  rawPayload        Json            @map("raw_payload")
+  status            IngestionStatus @default(PENDING)
+  errorMessage      String?         @map("error_message")
+  promotedContactId String?         @map("promoted_contact_id") @db.Uuid
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  source          Source       @relation(fields: [organizationId, sourceId], references: [organizationId, id])
+  promotedContact Contact?     @relation(fields: [organizationId, promotedContactId], references: [organizationId, id], onDelete: NoAction)
+
+  // Lado referenciante de la FK compuesta a sources, y la consulta de
+  // resultado de lote de la sección 5 (cuántos entraron / se promovieron /
+  // fallaron para una fuente), incluido su GROUP BY status.
+  //
+  // No hay índice sobre (organization_id, promoted_contact_id): Postgres solo
+  // lo necesitaría para abaratar un DELETE/UPDATE del padre, y contacts usa
+  // soft delete — su (organization_id, id) no cambia ni se borra nunca. Sin
+  // consulta que lo use, es peso muerto en la tabla de mayor volumen.
+  @@index([organizationId, sourceId, createdAt])
+  @@map("ingestion_events")
 }

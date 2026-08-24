@@ -7,7 +7,7 @@ import { PrismaClient } from "@prisma/client";
 // constraints, políticas RLS, la función current_organization_id) están
 // realmente ahí.
 //
-// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 13
+// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 14
 // chequeos y se escribió para correrse a mano en el SQL Editor de Supabase.
 // Acá se ejecuta igual —es una sola sentencia, de solo lectura— y además se
 // afirma sobre el subconjunto que tiene una respuesta mecánica: si algo
@@ -47,11 +47,18 @@ function extraerConsulta(texto: string): string {
 const ESPERADO_EXACTO = new Map<number, string>([
   [1, "ninguno"], // C-1: anon/authenticated sin escritura sobre public
   [2, "ninguno"], // C-1: anon/authenticated sin lectura sobre public
-  [5, "10"], // rls_policies.sql define 10 políticas
-  [7, "ninguno"], // índices únicos parciales faltantes
+  [5, "12"], // 10 de rls_policies.sql + 2 de la capa de ingesta (api_keys
+  //           es deny-all a propósito: RLS activa, sin políticas)
+  [7, "ninguno"], // los 8 índices únicos parciales, faltantes: ninguno
   [8, "ninguno"], // CHECK constraints faltantes
   [9, "ninguno"], // triggers de email faltantes
   [10, "presente"], // función current_organization_id()
+  // C-3: las FKs compuestas por organización son la garantía de aislamiento
+  // central del proyecto, y hasta ahora nada en CI comprobaba que existieran
+  // — la migración que las creó podía perderse en un rebase y los tests de
+  // aislamiento por repositorio habrían seguido pasando igual, porque prueban
+  // el WHERE de la escritura, no la constraint.
+  [14, "18"], // 15 de 20260821140200 + 3 de la capa de ingesta
 ]);
 
 async function main() {

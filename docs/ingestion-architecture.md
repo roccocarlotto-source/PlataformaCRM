@@ -263,3 +263,53 @@ Lista de cosas que salen mal por defecto si nadie las decide:
   derivado determinístico como fallback.
 - Olvidar `organizationId` en una tabla nueva y descubrirlo cuando ya
   hay datos productivos adentro.
+
+---
+
+## 9. Notas de implementación
+
+Añadidas después de la redacción original, a medida que la construcción
+descubre restricciones que el diseño no podía anticipar. **No modifican las
+decisiones de las secciones 1 a 8**: las anotan.
+
+### 9.1 Particionar `IngestionEvent` por fecha es incompatible con la idempotencia
+
+*(2026-08-24, al diseñar el ítem 2.)*
+
+La sección 4 apoya la idempotencia en el único parcial
+`(sourceId, externalId) WHERE externalId IS NOT NULL`. Si alguna vez se
+propone particionar `ingestion_events` por rango de fecha para manejar el
+volumen, hay que saber esto: **Postgres exige que toda constraint única de una
+tabla particionada incluya la clave de partición.** El único pasaría a ser
+`(sourceId, externalId, createdAt)`, que **no garantiza idempotencia** — el
+mismo `externalId` reingresado al día siguiente cae en otra partición y entra
+limpio.
+
+Es decir: particionado e idempotencia son mutuamente excluyentes tal como está
+especificada la restricción, salvo que la idempotencia se mude a una tabla
+aparte, sin particionar, que haga de libro de `externalId` vistos.
+
+La purga razonable, mientras tanto, no necesita ninguna columna nueva:
+`DELETE FROM ingestion_events WHERE created_at < ? AND status IN
+('PROCESSED','DUPLICATE')`. La ventana de idempotencia útil es corta por
+naturaleza —un reintento de webhook es cuestión de minutos u horas— así que
+purgar filas viejas no rompe la garantía en la práctica.
+
+### 9.2 Falta un identificador de lote
+
+*(2026-08-24, al diseñar el ítem 2.)*
+
+La sección 5 exige que el resultado de una importación sea consultable:
+*"cuántos entraron, cuántos se promovieron, cuántos fallaron y por qué"*. Pero
+el modelo de la sección 2 no tiene ningún identificador de lote: un
+`IngestionEvent` conoce su `Source`, no la importación concreta que lo trajo.
+**Dos archivos subidos en días distintos contra la misma `Source` son
+indistinguibles**, salvo por ventana de tiempo.
+
+No se agregó nada en el ítem 2 a propósito: diseñar el lote bien —con sus
+contadores y su estado— es trabajo del ítem 5, y una columna suelta ahora
+podría no coincidir con lo que ese ítem necesite. El costo de agregarla
+después es bajo: en Postgres moderno, `ALTER TABLE ADD COLUMN` de una columna
+nullable sin default no reescribe la tabla.
+
+Queda como requisito abierto del ítem 5, no como deuda del 2.
