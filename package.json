@@ -13,7 +13,9 @@
     "prisma:validate": "prisma validate",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
-    "migrate:deploy": "tsx scripts/apply-manual-sql.ts"
+    "migrate:deploy": "tsx scripts/apply-manual-sql.ts",
+    "verify:schema": "tsx scripts/verify-schema.ts",
+    "gen:signing-key": "tsx scripts/gen-signing-key.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
