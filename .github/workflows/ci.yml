@@ -1,8 +1,11 @@
 name: CI
 
+# push solo sobre master; las ramas las cubre pull_request. Con
+# branches: ["**"] cada PR corría dos veces (una por el push a la rama, otra
+# por el PR) sin agregar información.
 on:
   push:
-    branches: ["**"]
+    branches: [master]
   pull_request:
 
 jobs:
@@ -61,3 +64,106 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+
+  # ---------------------------------------------------------------------------
+  # Job aparte, no un paso más del job `backend`, por dos razones:
+  #   1. Perfil de ejecución distinto — este levanta Docker y tarda minutos;
+  #      `backend` da su veredicto en menos de un minuto. Separados corren en
+  #      paralelo y el feedback rápido no queda detrás del lento.
+  #   2. Un fallo acá se lee como "la base o la suite de integración", no como
+  #      "el backend está roto".
+  #
+  # Levanta el stack local de Supabase con la CLI (Postgres + GoTrue reales, en
+  # contenedores) en vez de un `postgres:16` pelado. Motivo: el esquema depende
+  # de objetos que solo existen en un Postgres de Supabase — el trigger sobre
+  # auth.users, auth.uid()/auth.role(), los roles anon/authenticated — y 6 de
+  # los 8 archivos de integración necesitan además la Admin API de GoTrue
+  # (admin.createUser, inviteUserByEmail, signInWithPassword), que ningún
+  # bootstrap de SQL puede proveer.
+  #
+  # No usa credenciales de ningún proyecto real: el stack es local y sus claves
+  # las emite la propia CLI en `supabase status`.
+  # ---------------------------------------------------------------------------
+  integration:
+    name: Backend — migraciones + suite de integración (Supabase local)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      # Versión fijada: es la misma con la que se generó supabase/config.toml.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.115.0
+
+      # Producción firma los JWT con ES256 y publica el JWKS; src/lib/jwt.ts
+      # verifica exactamente eso. Sin clave asimétrica el GoTrue local firmaría
+      # HS256 y todo request autenticado daría 401 por el entorno. La clave es
+      # efímera: se genera acá, vive lo que vive el runner y está en .gitignore.
+      - name: Generar la clave de firma ES256 del GoTrue local
+        run: npm run gen:signing-key
+
+      # Se excluye todo lo que la suite no toca. Quedan postgres, gotrue (la
+      # Admin API), kong (el gateway que gotrue expone en SUPABASE_URL) y
+      # mailpit (destino SMTP local, necesario para inviteUserByEmail).
+      - name: Levantar el stack local de Supabase
+        run: |
+          inicio=$(date +%s)
+          supabase start \
+            -x realtime,storage-api,imgproxy,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+          echo "::notice title=supabase start::tardó $(( $(date +%s) - inicio ))s"
+
+      # Los valores son locales (127.0.0.1) y no son secretos: se imprimen a
+      # propósito para que, si la CLI cambia los nombres de las variables, el
+      # log lo muestre en vez de fallar de forma opaca más abajo.
+      - name: Exportar la conexión al entorno
+        run: |
+          supabase status -o env > "$RUNNER_TEMP/supabase.env"
+          cat "$RUNNER_TEMP/supabase.env"
+          set -a; . "$RUNNER_TEMP/supabase.env"; set +a
+          : "${API_URL:?supabase status no expuso API_URL — ver el volcado de arriba}"
+          : "${DB_URL:?supabase status no expuso DB_URL — ver el volcado de arriba}"
+          : "${ANON_KEY:?supabase status no expuso ANON_KEY}"
+          : "${SERVICE_ROLE_KEY:?supabase status no expuso SERVICE_ROLE_KEY}"
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "DATABASE_URL=$DB_URL"
+            echo "DIRECT_URL=$DB_URL"
+          } >> "$GITHUB_ENV"
+
+      # Objetivo con nombre propio, no efecto colateral de correr los tests:
+      # que la base se reconstruya desde cero por el mismo camino que un
+      # entorno real (migraciones + reaplicación del SQL manual), y que el
+      # resultado se verifique objeto por objeto.
+      - name: Reconstruir la base desde cero (migraciones + SQL manual)
+        run: npm run migrate:deploy
+
+      - name: Sembrar el catálogo de roles
+        run: npm run prisma:seed
+        env:
+          CORS_ORIGIN: http://localhost:5173
+
+      - name: Verificar que el esquema quedó completo
+        run: npm run verify:schema
+
+      - name: Suite de integración
+        run: npm run test:integration
+        env:
+          CORS_ORIGIN: http://localhost:5173
+
+      - name: Diagnóstico (solo si algo falló)
+        if: failure()
+        run: |
+          supabase status || true
+          docker ps -a

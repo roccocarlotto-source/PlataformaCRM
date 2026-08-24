@@ -8,3 +8,8 @@ dist/
 *.log
 .DS_Store
 .gstack/
+
+# Clave privada ES256 del GoTrue local (supabase/config.toml → signing_keys_path).
+# Efímera: la genera `npm run gen:signing-key` en cada corrida del CI y en cada
+# entorno local. Una clave privada no se commitea aunque no proteja nada real.
+supabase/signing_keys.json

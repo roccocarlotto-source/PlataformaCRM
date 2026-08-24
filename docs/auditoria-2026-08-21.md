@@ -50,7 +50,7 @@ original se perdió y hubo que recrear la base desde cero (ver
 |---|---|---|
 | **C-1** | ✅ Resuelto y verificado | Migración `20260821140100`. Diagnóstico filas 1 y 2: `anon`/`authenticated` sin permisos de lectura **ni** escritura sobre `public`. Se aplicó la opción A |
 | **C-2** | ✅ Resuelto y verificado | Migración `20260821140000`. Diagnóstico filas 7, 8, 9 y 10 en `ninguno faltante` sobre una base construida **solo con `migrate deploy`** — los 36 objetos se reconstruyen desde el historial |
-| **C-3** | ✅ Resuelto y verificado | Migración `20260821140200`. Las 15 FKs cruzadas son compuestas `(organization_id, x_id) → padre(organization_id, id)`, confirmadas con `pg_get_constraintdef` |
+| **C-3** | ✅ Resuelto y verificado | Migración `20260821140200`. Las 15 FKs cruzadas son compuestas `(organization_id, x_id) → padre(organization_id, id)`, confirmadas con `pg_get_constraintdef`. **Evidencia adicional del 2026-08-24:** la primera corrida de la suite completa en CI encontró una referencia cross-tenant **real** que el modelo anterior permitía — `invitation.service.integration-test.ts:291` creaba una `Invitation` en una organización usando como `invitedById` un usuario de otra, y la FK compuesta la rechazó. El agujero no era teórico: había código construyéndolo sin que nadie lo supiera |
 
 **V-3 confirmado:** el rol de `DATABASE_URL` (`postgres`) tiene `BYPASSRLS`.
 La premisa de la sección 5 de `docs/authentication-architecture.md` es cierta:
@@ -359,11 +359,30 @@ de `sleep` (`activity.service.integration-test.ts:20-30`).
    constraints + seed, corriendo la parte de la suite que no necesita
    Supabase. *Trade-off:* los tests que llaman a `getSupabaseAdmin()` no
    funcionan sin un proyecto real; hay que separar la suite en
-   "solo-Postgres" vs "requiere-Supabase". Recupera ~40 de los 56 tests en
-   cada PR. **Requiere C-2 resuelto.**
+   "solo-Postgres" vs "requiere-Supabase". **Requiere C-2 resuelto.**
+
+   > **Corrección medida el 2026-08-23.** Esta opción decía "recupera ~40 de
+   > los 56 tests". **Es falso: son 5.** Medido, no estimado — 6 de los 8
+   > archivos usan `getSupabaseAdmin()` en sus fixtures, porque
+   > `public.users.id` tiene que coincidir con `auth.users.id` y el trigger
+   > de sincronización de email lee de ahí. Eso arrastra a
+   > `tenant-isolation.integration-test.ts` completo, que son los 16 tests
+   > que verifican la garantía de seguridad central del producto.
+   > Consecuencia: esta opción, sola, deja afuera justo lo que más importa.
+   > Además, un Postgres pelado **no puede** aplicar las migraciones: fallan
+   > en la sexta, por el trigger sobre `auth.users`, `auth.uid()`/`auth.role()`
+   > y los roles `anon`/`authenticated`/`service_role`.
+
 4. **Proyecto Supabase dedicado a CI** con credenciales en GitHub Secrets,
    como job nocturno y no bloqueante de PR. *Trade-off:* no corre en forks;
    requiere limpieza de datos entre corridas.
+5. **Stack local de Supabase en CI** (`supabase start`, la CLI oficial, sobre
+   el Docker del runner). Levanta Postgres **con el esquema `auth` y los roles
+   reales** más GoTrue, así que corre la suite completa —los 56— sin ningún
+   secreto y sin depender de un proyecto hosteado. *Trade-off:* arranque más
+   lento (varios minutos de pull inicial) y una pieza de infraestructura más
+   que mantener. Opción identificada el 2026-08-23; es la única que cubre los
+   16 tests de aislamiento.
 
 Además, arreglar el glob: `tsx --test "src/**/*.test.ts"` con comillas
 delega la expansión a la herramienta en vez de al shell.
@@ -812,6 +831,7 @@ se justifica solo para un Kanban.
 | B-11 | `noUncheckedIndexedAccess` y `exactOptionalPropertyTypes` desactivados — el segundo es relevante dado cuánto trabaja este código con la distinción `undefined` vs `null` | `tsconfig.json:9` |
 | B-12 | `Stage.order` sin CHECK de positividad: **es correcto** (el reindexado usa valores negativos como fase intermedia). Documentarlo para que nadie lo agregue "por prolijidad" | `stage.repository.ts:237-247` |
 | B-13 | `checkHealth` atrapa el error de la base con un `catch {}` vacío: `/health` informa que algo falla y **destruye la única pista para saber qué**. Encontrado en vivo diagnosticando la pérdida del proyecto de Supabase — el health check dijo `"database":"error"` y no hubo forma de distinguir credenciales inválidas de proyecto eliminado sin correr `prisma db execute` a mano. Fix: `catch (err) { logger.error({ err }, "health: fallo de conexión a la base") }` | `health.service.ts:15-20` |
+| B-16 | **La traducción del CHECK depende del idioma del servidor.** `stage.service.ts` (bloque T-2) reconoce la violación de `stages_won_lost_exclusive_check` buscando el nombre de la constraint **dentro del texto del mensaje de error de Postgres**. Con `lc_messages` en español el mensaje cambia y la traducción falla: el usuario recibe un error crudo de Prisma en vez del 409. Verificado empíricamente el 2026-08-23 contra un Postgres local en `Spanish_Uruguay.1252` — los 5 tests fallaron; con `lc_messages = C` pasan. Supabase corre en inglés, así que hoy no se manifiesta, pero el mecanismo se apoya en una superficie que Postgres no promete estable entre versiones ni locales | `stage.service.ts` (bloque T-2) |
 | B-15 | Los 6 componentes `*Select` reciben `id` como prop **opcional** y renderizan `<label htmlFor={id}>` como **hermano** del control, no envolviéndolo. Si el caller no pasa `id`, o mientras la query está en `isLoading`/`isError` y el `<select>` no llega a renderizarse, la etiqueta apunta a un elemento que no existe en el DOM. Chrome lo reporta como *"Incorrect use of `<label for=FORM_ELEMENT>`"*. Efecto: hacer clic en la etiqueta no enfoca el campo y los lectores de pantalla no lo asocian. Fix: hacer `id` requerido, o renderizar la etiqueta solo junto al control | `stage/StageSelect.tsx:29-33,39-41`; `company/CompanySelect.tsx:68`; y 4 más |
 | B-14 | Las 8 políticas RLS siguen siendo `for all` después del REVOKE de C-1. Hoy son inertes —sin grants nadie llega a las tablas—, pero la defensa en profundidad queda dependiendo de una sola capa: si alguien vuelve a otorgar permisos a `authenticated` (habilitando Realtime, o probando desde el editor SQL), las políticas permiten escritura otra vez. Bajarlas a `for select` haría que REVOKE y políticas se refuercen mutuamente | `rls_policies.sql:64-127`; diagnóstico fila 6 |
 
