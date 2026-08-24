@@ -283,7 +283,23 @@ test("acceptInvitation sin invitationId: múltiples PENDING (distintas organizac
   const org2 = await prisma.organization.create({
     data: { name: `LOW1 org2 ${randomUUID()}`, slug: `low1-org2-${Date.now()}` },
   });
+  // org2 necesita su propio inviter: `invitedBy` es quien envía la invitación
+  // desde esa organización, así que tiene que pertenecer a ella. La FK
+  // compuesta invitations_organization_id_invited_by_id_fkey (C-3, migración
+  // 20260821140200) lo hace explícito — reusar el inviter de fx acá sería una
+  // referencia cross-tenant, que es justo lo que esa FK vino a cerrar.
+  const inviter2Auth = await createRealAuthUser("org2-inviter");
   try {
+    const inviter2 = await prisma.user.create({
+      data: {
+        id: inviter2Auth.id,
+        organizationId: org2.id,
+        roleId: fx.roleId,
+        email: inviter2Auth.email,
+        fullName: "LOW1 Inviter org2",
+      },
+    });
+
     await createInvitationRow(email, "PENDING");
     // Índice único parcial es (organizationId, email) WHERE PENDING — dos
     // organizaciones distintas invitando el mismo email pueden estar
@@ -293,7 +309,7 @@ test("acceptInvitation sin invitationId: múltiples PENDING (distintas organizac
         organizationId: org2.id,
         email,
         roleId: fx.roleId,
-        invitedById: fx.inviterId,
+        invitedById: inviter2.id,
         status: "PENDING",
         expiresAt: futureExpiry(),
       },
@@ -311,7 +327,9 @@ test("acceptInvitation sin invitationId: múltiples PENDING (distintas organizac
     );
   } finally {
     await prisma.invitation.deleteMany({ where: { organizationId: org2.id } });
+    await prisma.user.deleteMany({ where: { organizationId: org2.id } });
     await prisma.organization.delete({ where: { id: org2.id } });
+    await getSupabaseAdmin().auth.admin.deleteUser(inviter2Auth.id);
   }
 });
 

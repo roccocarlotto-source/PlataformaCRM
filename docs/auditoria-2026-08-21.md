@@ -50,7 +50,7 @@ original se perdió y hubo que recrear la base desde cero (ver
 |---|---|---|
 | **C-1** | ✅ Resuelto y verificado | Migración `20260821140100`. Diagnóstico filas 1 y 2: `anon`/`authenticated` sin permisos de lectura **ni** escritura sobre `public`. Se aplicó la opción A |
 | **C-2** | ✅ Resuelto y verificado | Migración `20260821140000`. Diagnóstico filas 7, 8, 9 y 10 en `ninguno faltante` sobre una base construida **solo con `migrate deploy`** — los 36 objetos se reconstruyen desde el historial |
-| **C-3** | ✅ Resuelto y verificado | Migración `20260821140200`. Las 15 FKs cruzadas son compuestas `(organization_id, x_id) → padre(organization_id, id)`, confirmadas con `pg_get_constraintdef` |
+| **C-3** | ✅ Resuelto y verificado | Migración `20260821140200`. Las 15 FKs cruzadas son compuestas `(organization_id, x_id) → padre(organization_id, id)`, confirmadas con `pg_get_constraintdef`. **Evidencia adicional del 2026-08-24:** la primera corrida de la suite completa en CI encontró una referencia cross-tenant **real** que el modelo anterior permitía — `invitation.service.integration-test.ts:291` creaba una `Invitation` en una organización usando como `invitedById` un usuario de otra, y la FK compuesta la rechazó. El agujero no era teórico: había código construyéndolo sin que nadie lo supiera |
 
 **V-3 confirmado:** el rol de `DATABASE_URL` (`postgres`) tiene `BYPASSRLS`.
 La premisa de la sección 5 de `docs/authentication-architecture.md` es cierta:
