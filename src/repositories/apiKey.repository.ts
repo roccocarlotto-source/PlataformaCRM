@@ -165,3 +165,78 @@ export function revokeApiKeysBySource(
     data: { revokedAt: new Date() },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Ítem 4 — el camino de autenticación de ingesta. Estas dos funciones son las
+// únicas del repositorio que no sirven a la administración de claves.
+// ---------------------------------------------------------------------------
+
+// La proyección de autenticación. NO INCLUYE keyHash, a propósito y aunque la
+// búsqueda sea POR keyHash: quien llama ya lo tiene (lo acaba de calcular), así
+// que traerlo de vuelta solo agregaría una copia del material en memoria y un
+// campo más que podría filtrarse a una respuesta. La nota que dejó el ítem 3
+// pedía "seleccionar keyHash explícitamente"; resultó innecesario.
+//
+// Trae de la Source lo que authenticateApiKey necesita decidir —isActive y
+// deletedAt— en el mismo round-trip, vía la relación por FK compuesta. Sin
+// campos de negocio: el nombre de la fuente no interviene en ninguna decisión
+// de autenticación y no tiene por qué estar disponible para colarse a un log.
+const API_KEY_AUTH_SELECT = {
+  id: true,
+  organizationId: true,
+  sourceId: true,
+  revokedAt: true,
+  source: { select: { isActive: true, deletedAt: true } },
+} satisfies Prisma.ApiKeySelect;
+
+export type ApiKeyForAuth = Prisma.ApiKeyGetPayload<{
+  select: typeof API_KEY_AUTH_SELECT;
+}>;
+
+// Búsqueda por igualdad sobre key_hash, que es UNIQUE global — y tiene que ser
+// global porque en este punto todavía no se conoce la organización: es
+// justamente lo que esta consulta resuelve. Ver el @unique de ApiKey.keyHash en
+// schema.prisma.
+//
+// Sin comparación en tiempo constante y sin que haga falta: el índice resuelve
+// por igualdad de un hash de un secreto de 256 bits. Una diferencia de timing
+// no le dice a nadie nada aprovechable sobre una preimagen que no puede
+// construir. La defensa está en la entropía de la clave (ver utils/apiKey.ts),
+// no acá.
+export function findApiKeyByHash(keyHash: string, db: Db = prisma) {
+  return db.apiKey.findUnique({
+    where: { keyHash },
+    select: API_KEY_AUTH_SELECT,
+  });
+}
+
+// Registra el uso de la clave. `noUsadaDesde` es el corte de granularidad: la
+// fila se escribe SOLO si lastUsedAt es null o anterior a ese instante, así que
+// una clave que recibe mil requests por minuto produce una escritura por
+// ventana, no mil sobre la misma fila.
+//
+// Es un updateMany y no un update por dos razones que se suman: `update` no
+// admite condiciones extra en el where más allá de la clave única (mismo motivo
+// que revokeApiKeyConditional), y organizationId va en el WHERE por el
+// invariante de M4 — la escritura misma es la garantía de aislamiento, nunca un
+// pre-chequeo. revokedAt: null además evita revivir la actividad de una clave
+// que fue revocada entre el SELECT de autenticación y esta escritura.
+//
+// El caller SIEMPRE debe tolerar count === 0: significa "no hacía falta
+// escribir" (caso normal), no un error.
+export function touchApiKeyLastUsed(
+  id: string,
+  organizationId: string,
+  noUsadaDesde: Date,
+  db: Db = prisma,
+) {
+  return db.apiKey.updateMany({
+    where: {
+      id,
+      organizationId,
+      revokedAt: null,
+      OR: [{ lastUsedAt: null }, { lastUsedAt: { lt: noUsadaDesde } }],
+    },
+    data: { lastUsedAt: new Date() },
+  });
+}

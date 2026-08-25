@@ -21,6 +21,24 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+
+  // Ingesta (docs/ingestion-architecture.md §3) — el único límite de tasa del
+  // proyecto que es configurable por entorno, y a propósito: los otros cuatro
+  // (rateLimit.ts) acotan acciones cuyo volumen legítimo conocemos —
+  // registrarse, aceptar una invitación, escribir como ADMIN. Este lo tensa un
+  // emisor externo (una landing page de cara a internet) cuyo tráfico real no
+  // controlamos ni podemos estimar de antemano, así que ajustarlo no puede
+  // exigir un deploy.
+  //
+  // El default es explícito, no implícito: 60 eventos por minuto POR CLAVE.
+  // Baseline operacional para arrancar, no un umbral definitivo — mismo
+  // criterio que el resto de los umbrales del proyecto.
+  INGEST_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 1000),
+  INGEST_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
 });
 
 function parseEnv() {

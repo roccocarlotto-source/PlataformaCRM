@@ -1,8 +1,10 @@
 import type { NextFunction, Request, Response } from "express";
 import { rateLimit, type RateLimitInfo } from "express-rate-limit";
+import { env } from "../config/env";
 import { acceptInvitationSchema } from "../schemas/invitation.schema";
 import { onboardingSchema } from "../schemas/onboarding.schema";
 import type { AuthContext, InvitationAcceptIdentity } from "../types/auth";
+import type { IngestContext } from "../types/ingest";
 import { AppError } from "../utils/AppError";
 
 // M1 — rate limiting a nivel Express (docs/project-overview.md §8/§9).
@@ -231,3 +233,94 @@ export function createBusinessWriteRateLimiter(overrides?: {
 }
 
 export const businessWriteRateLimiter = createBusinessWriteRateLimiter();
+
+// ---------------------------------------------------------------------------
+// Ítem 4 — ingesta, POST /api/ingest. §3: "Rate limit propio y más estricto por
+// clave, independiente del existente. Un endpoint público es spameable por
+// definición."
+//
+// Amenaza: es el ÚNICO endpoint del sistema sin usuario detrás. Los limiters de
+// arriba acotan su población a "gente que se registra", "gente invitada" o
+// "ADMINs autenticados"; acá la población es cualquier proceso del mundo que
+// tenga una clave — típicamente una landing page de cara a internet, es decir
+// un emisor cuyo volumen no controlamos y que puede quedar en loop por un bug
+// ajeno, no por mala fe. Cada request cuesta un SELECT indexado + un INSERT en
+// la tabla de mayor volumen del esquema.
+//
+// keyGenerator POR CLAVE (req.ingest.apiKeyId), no por IP y no por
+// organización, y la diferencia importa en los dos sentidos:
+//   - Por IP sería inútil y dañino: una landing page detrás de un CDN presenta
+//     pocas IPs para muchos emisores legítimos, y un atacante rota IPs gratis.
+//     Además este proyecto no configura trust proxy a propósito (ver el
+//     encabezado de este archivo), así que req.ip no es confiable.
+//   - Por organización castigaría cruzado: una fuente rota le comería la cuota
+//     a las otras fuentes de la misma organización. La clave es la unidad que
+//     el ADMIN puede revocar cuando algo se desmadra, así que es la unidad
+//     correcta para contar.
+//
+// Estructuralmente corre SIEMPRE después de authenticateApiKey —necesita
+// apiKeyId, que no existe antes— así que NO protege del flood anónimo, con
+// clave inválida. Esa superficie queda expuesta a propósito y acotada: un
+// request sin clave válida cuesta un hash SHA-256 y una búsqueda por índice
+// único, y muere sin tocar ninguna tabla de negocio ni escribir nada.
+//
+// STORE: MemoryStore, el default de la librería, igual que los otros cuatro
+// limiters. ESTO NO ES UNA CUOTA DISTRIBUIDA:
+//
+//     Con N instancias del proceso, el límite EFECTIVO es N * INGEST_MAX, no
+//     INGEST_MAX. Cada instancia cuenta solo lo que le tocó a ella y ninguna ve
+//     lo que contaron las otras. Además el contador se resetea entero en cada
+//     restart o deploy.
+//
+// Aceptable en esta etapa —la topología demostrada hoy es un proceso Node
+// único, ver docs/project-overview.md— y escrito acá en el CÓDIGO en vez de
+// quedar implícito, porque el día que se agregue una réplica el límite se
+// duplica en silencio y nada en el sistema lo va a decir. Migrar a un store
+// compartido (Postgres o un proveedor externo) es un requisito de ese día, no
+// algo que ocurra solo.
+//
+// Umbral por variable de entorno, con default explícito en config/env.ts: a
+// diferencia de los otros cuatro, este límite lo tensa un emisor externo cuyo
+// volumen real no conocemos, así que ajustarlo tiene que poder hacerse sin un
+// deploy.
+// ---------------------------------------------------------------------------
+export const INGEST_WINDOW_MS = env.INGEST_RATE_LIMIT_WINDOW_MS;
+export const INGEST_MAX = env.INGEST_RATE_LIMIT_MAX;
+
+function ingestKeyGenerator(req: Request): string {
+  const ingest = (req as Request & { ingest?: IngestContext }).ingest;
+  if (!ingest) {
+    // No debería poder pasar nunca: authenticateApiKey corre antes en la cadena
+    // y, si falla, ya cortó el request con su 401 sin llegar acá — mismo
+    // razonamiento que los dos keyGenerator de arriba.
+    throw new Error(
+      "ingestRateLimiter: falta req.ingest — verificá el orden de middlewares en ingest.routes.ts",
+    );
+  }
+  return ingest.apiKeyId;
+}
+
+// overrides es solo para tests de integración, mismo criterio que
+// createBusinessWriteRateLimiter: permite un max chico para no tener que
+// disparar cientos de requests reales. La instancia de producción no los pasa.
+export function createIngestRateLimiter(overrides?: {
+  windowMs?: number;
+  max?: number;
+}) {
+  return rateLimit({
+    windowMs: overrides?.windowMs ?? INGEST_WINDOW_MS,
+    max: overrides?.max ?? INGEST_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    keyGenerator: ingestKeyGenerator,
+    // Retry-After lo pone buildRateLimitHandler a partir de resetTime. El
+    // mensaje no dice cuál es el límite ni cuánta cuota queda: eso ya viaja en
+    // los headers estándar, y repetirlo en el cuerpo de un endpoint público es
+    // regalar información de configuración.
+    handler: buildRateLimitHandler(
+      "Demasiadas solicitudes de ingesta. Probá de nuevo en un momento.",
+    ),
+  });
+}
+
+export const ingestRateLimiter = createIngestRateLimiter();
