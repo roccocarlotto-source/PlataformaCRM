@@ -433,3 +433,35 @@ un valor existente en el CRM".
   que hacer lo mismo; el CHECK `email = btrim(email)` es el respaldo que hace
   imposible saltearlo, no el mecanismo. Una fila que llegue con espacios se
   marca `FAILED` con su mensaje y el lote sigue (sección 5).
+
+### 9.7 La política CORS de `/api/ingest` es una decisión pendiente
+
+*(2026-08-25, al cerrar el ítem 4.)*
+
+El endpoint de ingesta hereda la política CORS global de `app.ts` —restrictiva,
+acotada a los orígenes de `CORS_ORIGIN`— y **se decidió explícitamente no
+tocarla en esta etapa**. Queda anotado porque una política heredada sin decidir
+y una política heredada a propósito se ven exactamente igual en el código, y la
+diferencia recién aparece cuando algo falla.
+
+Lo que falta para poder decidirla es un dato que todavía no existe: **quién es
+el llamador real**.
+
+- Si el webhook lo dispara **JavaScript de navegador** desde la landing page,
+  `CORS_ORIGIN` tiene que incluir ese dominio o el preflight lo bloquea. Pero
+  ese escenario arrastra un problema mayor que el CORS: la clave de ingesta
+  tendría que vivir en JavaScript de cara al público, o sea ser pública. Eso
+  contradice todo lo que §3 y §9.3 sostienen sobre la clave, y la respuesta
+  correcta probablemente no sea abrir el CORS sino un proxy del lado del
+  servidor de la landing.
+- Si es **server-to-server** —el backend de la landing, un Zapier, un CRM
+  ajeno— CORS no interviene: no hay navegador, no hay origen, no hay preflight.
+  La política actual ya es la correcta y no hay nada que cambiar.
+
+Es decir: **no es una decisión de CORS, es una decisión sobre dónde vive la
+clave**, y por eso no se resuelve eligiendo un valor de configuración. Relajar
+el origen "por las dudas" ahora sería tomar la peor de las dos ramas sin
+haberla elegido.
+
+Queda como requisito abierto, a resolver cuando haya una integración real
+enfrente.

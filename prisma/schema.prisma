@@ -544,6 +544,12 @@ model IngestionEvent {
   status            IngestionStatus @default(PENDING)
   errorMessage      String?         @map("error_message")
   promotedContactId String?         @map("promoted_contact_id") @db.Uuid
+  // Registro de lo que la promoción decidió sin fallar: campos donde el CRM y
+  // el dato entrante diferían y ganó el CRM (§4, "nunca sobrescribir en
+  // silencio"), y contactos sin email marcados para revisión manual. Es
+  // información de filas PROCESSED, por eso NO vive en errorMessage — que
+  // significa una sola cosa, por qué falló. Forma en src/types/promotion.ts.
+  promotionNotes    Json?           @map("promotion_notes")
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
 

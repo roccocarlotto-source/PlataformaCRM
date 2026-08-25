@@ -1,3 +1,5 @@
+import { IngestionStatus, Prisma } from "@prisma/client";
+import type { PromotionNote } from "../types/promotion";
 import { prisma, type Db } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
@@ -119,4 +121,148 @@ export async function insertPendingIngestionEvent(
   return "$transaction" in db
     ? db.$transaction((tx) => ejecutar(tx))
     : ejecutar(db);
+}
+
+// ---------------------------------------------------------------------------
+// La cola del worker (§5). El índice parcial `(created_at) WHERE status =
+// 'PENDING'` de la migración 20260824120000 existe exactamente para esta
+// consulta.
+// ---------------------------------------------------------------------------
+
+export interface EventoReclamado {
+  id: string;
+  organizationId: string;
+  sourceId: string;
+  sourceName: string;
+  rawPayload: unknown;
+}
+
+interface FilaReclamada {
+  id: string;
+  organization_id: string;
+  source_id: string;
+  source_name: string;
+  raw_payload: unknown;
+}
+
+// Reclama UN evento pendiente y lo deja bloqueado hasta el fin de la
+// transacción. Devuelve null si no queda ninguno.
+//
+// FOR UPDATE SKIP LOCKED ES EL MECANISMO DE EXCLUSIÓN, y evita tener que
+// inventar un estado PROCESSING. Un estado nuevo en el enum habría sido una
+// migración, un valor más que todo consumidor tiene que entender, y —peor— un
+// estado del que un worker que muere deja filas colgadas para siempre. Con el
+// lock, si el proceso se cae la transacción se aborta y la fila vuelve a estar
+// disponible sola. SKIP LOCKED hace que dos workers nunca se peleen por la
+// misma fila: el segundo la saltea en vez de esperarla.
+//
+// `excluir` es para el drenado de UNA pasada: si la promoción de una fila falla
+// por un error de sistema, la transacción se revierte y la fila vuelve a
+// PENDING — sin esta lista, el siguiente reclamo de la misma pasada elegiría la
+// misma fila (es la más vieja) y el drenado no avanzaría nunca. Es la mitad
+// estructural de "una fila mala no aborta el lote" (§5) para el caso de error
+// que no es de datos.
+//
+// `organizationId` acota el drenado a un tenant. En producción se llama sin
+// filtro; existe porque un drenado acotado es útil de por sí (reprocesar una
+// organización) y porque permite que un test drene de forma determinística sin
+// depender de que el resto de la tabla esté vacía.
+export async function claimNextPendingEvent(
+  db: Db,
+  opciones: { organizationId?: string; excluir?: string[] } = {},
+): Promise<EventoReclamado | null> {
+  const filtroOrg = opciones.organizationId
+    ? Prisma.sql`AND e.organization_id = ${opciones.organizationId}::uuid`
+    : Prisma.empty;
+
+  const filtroExcluidos =
+    opciones.excluir && opciones.excluir.length > 0
+      ? Prisma.sql`AND e.id <> ALL(${opciones.excluir}::uuid[])`
+      : Prisma.empty;
+
+  // El JOIN con sources trae el nombre de la fuente en el mismo round-trip:
+  // la promoción lo necesita para Contact.source (ver promotion.service.ts).
+  // FOR UPDATE OF e — solo la fila del evento; bloquear también la Source
+  // serializaría todos los eventos de una misma fuente contra un único lock,
+  // que es justo lo contrario de lo que SKIP LOCKED viene a dar.
+  const filas = await db.$queryRaw<FilaReclamada[]>`
+    SELECT e.id, e.organization_id, e.source_id, s.name AS source_name,
+           e.raw_payload
+    FROM ingestion_events e
+    JOIN sources s
+      ON s.organization_id = e.organization_id AND s.id = e.source_id
+    WHERE e.status = 'PENDING'::"IngestionStatus"
+    ${filtroOrg}
+    ${filtroExcluidos}
+    ORDER BY e.created_at
+    FOR UPDATE OF e SKIP LOCKED
+    LIMIT 1
+  `;
+
+  if (filas.length === 0) {
+    return null;
+  }
+
+  const fila = filas[0];
+  return {
+    id: fila.id,
+    organizationId: fila.organization_id,
+    sourceId: fila.source_id,
+    sourceName: fila.source_name,
+    rawPayload: fila.raw_payload,
+  };
+}
+
+// organizationId en el WHERE de las dos transiciones, por el invariante de M4:
+// la escritura misma es la garantía de aislamiento. `status: PENDING` además
+// convierte el UPDATE en un compare-and-swap — redundante mientras el lock de
+// claimNextPendingEvent se sostenga, pero es la clase de redundancia que
+// sobrevive a que alguien cambie el mecanismo de reclamo.
+export function markEventProcessed(
+  id: string,
+  organizationId: string,
+  promotedContactId: string,
+  notes: PromotionNote[],
+  db: Db = prisma,
+) {
+  return db.ingestionEvent.updateMany({
+    where: { id, organizationId, status: IngestionStatus.PENDING },
+    data: {
+      status: IngestionStatus.PROCESSED,
+      promotedContactId,
+      // Sin notas se escribe NULL, no un array vacío: "no hubo nada que
+      // registrar" y "hubo cero elementos" se ven distinto en una consulta, y
+      // el NULL es más barato en la tabla de mayor volumen del esquema.
+      //
+      // El cast es el precio de tener un tipo declarado para una columna JSONB.
+      // InputJsonValue de Prisma exige una firma de índice de string que una
+      // interfaz cerrada como PromotionNote deliberadamente no tiene — es la
+      // misma propiedad que hace que la forma esté definida y no sea "cualquier
+      // JSON". Se paga acá, en el único punto de persistencia, y no en los
+      // llamadores, que siguen tipados contra la unión discriminada.
+      promotionNotes:
+        notes.length > 0
+          ? (notes as unknown as Prisma.InputJsonValue)
+          : Prisma.DbNull,
+      // La fila se procesó con éxito: errorMessage tiene que quedar limpio
+      // incluso si un intento anterior lo había escrito.
+      errorMessage: null,
+    },
+  });
+}
+
+export function markEventFailed(
+  id: string,
+  organizationId: string,
+  errorMessage: string,
+  db: Db = prisma,
+) {
+  return db.ingestionEvent.updateMany({
+    where: { id, organizationId, status: IngestionStatus.PENDING },
+    data: {
+      status: IngestionStatus.FAILED,
+      errorMessage,
+      // promotedContactId queda en null: no hubo contacto.
+    },
+  });
 }

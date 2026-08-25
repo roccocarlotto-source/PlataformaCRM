@@ -39,6 +39,24 @@ const envSchema = z.object({
     .positive()
     .default(60 * 1000),
   INGEST_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+
+  // Worker de ingesta (§5) — in-process, con polling. Arranca en server.ts.
+  //
+  // No se usa z.coerce.boolean(): coacciona CUALQUIER string no vacío a true,
+  // así que INGEST_WORKER_ENABLED=false lo habilitaría. El enum explícito hace
+  // imposible ese error.
+  INGEST_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  // 5 segundos: la ingesta es asíncrona por diseño y nadie está esperando del
+  // otro lado (el emisor ya recibió su 202), así que la latencia de promoción
+  // no es un requisito. Bajarlo multiplica consultas vacías contra la cola sin
+  // ganar nada observable.
+  INGEST_WORKER_POLL_MS: z.coerce.number().int().positive().default(5000),
+  // Tope de eventos por pasada, para que una cola grande no monopolice el
+  // proceso: se drena un tramo, se cede el control, y el siguiente tick sigue.
+  INGEST_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(50),
 });
 
 function parseEnv() {

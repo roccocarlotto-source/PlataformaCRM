@@ -15,6 +15,20 @@ import { ingestRouter } from "./routes/ingest.routes";
 export const app = express();
 
 app.use(helmet());
+
+// LA POLÍTICA CORS DE /api/ingest ES UNA DECISIÓN PENDIENTE, NO UN OLVIDO.
+//
+// La ingesta hereda esta política global restrictiva —solo los orígenes de
+// CORS_ORIGIN— y eso queda así a propósito hasta saber quién es el llamador
+// real. Si el webhook lo dispara JavaScript de navegador desde la landing page,
+// esta lista tiene que incluir su dominio o el preflight lo va a bloquear; si
+// es server-to-server, CORS no interviene en absoluto y la política actual es
+// la correcta sin tocar nada.
+//
+// Abrir el origen antes de saberlo sería relajar una restricción por las dudas,
+// y encima expondría la clave de ingesta a vivir en JavaScript de cara al
+// público, que es un problema bastante peor que un preflight fallado.
+// Documentado en §9.7 de docs/ingestion-architecture.md.
 app.use(
   cors({
     origin: env.CORS_ORIGIN.split(",").map((origin) => origin.trim()),

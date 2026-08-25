@@ -1,0 +1,190 @@
+import { env } from "../config/env";
+import { logger } from "../lib/logger";
+import { prisma } from "../lib/prisma";
+import { claimNextPendingEvent } from "../repositories/ingestionEvent.repository";
+import { promoverEvento, type ResultadoPromocion } from "../services/promotion.service";
+
+// ---------------------------------------------------------------------------
+// Worker in-process con polling (§5 de docs/ingestion-architecture.md, "para R1
+// puede ser un proceso in-process con polling").
+//
+// POR QUÉ POLLING Y NO OTRA COSA: no hay librería de colas en package.json y
+// agregar una (BullMQ, pg-boss) traería Redis o un esquema propio para un
+// volumen que hoy no existe. LISTEN/NOTIFY de Postgres sería la alternativa sin
+// dependencias, pero pierde los avisos emitidos mientras el worker está caído —
+// habría que combinarlo IGUAL con un polling de respaldo, así que el polling
+// solo es la mitad simple del mismo resultado.
+//
+// EL PUNTO QUE §5 SUBRAYA Y ACÁ SE CUMPLE: "la promoción no vive en el ciclo del
+// request". El endpoint responde 202 y termina; esto corre aparte, en su propio
+// tiempo, y si tarda o falla no afecta a ningún emisor.
+//
+// DÓNDE ARRANCA: en server.ts, no en app.ts. La distinción importa —
+// app.ts arma la instancia de Express y lo importan los tests de integración,
+// que levantan sus propias apps. Si el worker arrancara ahí, cada test que
+// importa una ruta encendería un timer que drena la cola por debajo de sus
+// propias afirmaciones. Al vivir en server.ts, solo corre cuando corre el
+// servidor de verdad.
+//
+// LO QUE ESTE WORKER NO ES: no es distribuido, pero tampoco necesita serlo para
+// ser correcto con varias instancias. El reclamo usa FOR UPDATE SKIP LOCKED
+// (ver claimNextPendingEvent), así que dos procesos nunca toman el mismo
+// evento: se reparten la cola. Lo que NO tiene es coordinación de cadencia —
+// con N instancias hay N pollings, o sea N veces más consultas vacías cuando la
+// cola está vacía. Con el default de 5 segundos eso es despreciable; con una
+// cadencia agresiva y muchas réplicas, no.
+// ---------------------------------------------------------------------------
+
+export interface ResumenDrenado {
+  procesados: number;
+  fallidos: number;
+  // Eventos que no se pudieron procesar por un error de SISTEMA (no de datos):
+  // quedaron en PENDING y se reintentan en la próxima pasada.
+  pospuestos: number;
+}
+
+export interface OpcionesDrenado {
+  // Tope de eventos por pasada. Existe para que una cola enorme no monopolice
+  // el proceso: se drena un tramo, se cede el control, y el siguiente tick
+  // sigue donde quedó.
+  limite?: number;
+  // Acota el drenado a una organización. Producción no lo usa; ver
+  // claimNextPendingEvent.
+  organizationId?: string;
+}
+
+// Drena hasta `limite` eventos pendientes. Cada evento va en SU PROPIA
+// TRANSACCIÓN, y eso es lo que hace estructural el requisito de §5 de que una
+// fila mala no aborte el lote: no hay ninguna transacción compartida que una
+// fila pueda abortar.
+export async function drenarPendientes(
+  opciones: OpcionesDrenado = {},
+): Promise<ResumenDrenado> {
+  const limite = opciones.limite ?? env.INGEST_WORKER_BATCH_SIZE;
+  const resumen: ResumenDrenado = { procesados: 0, fallidos: 0, pospuestos: 0 };
+
+  // Ids que fallaron por error de sistema en ESTA pasada. Sin esta lista el
+  // siguiente reclamo volvería a elegir la misma fila —es la más vieja y sigue
+  // en PENDING— y el drenado se quedaría girando sobre ella sin llegar nunca a
+  // las siguientes. Es la mitad estructural de "una fila mala no aborta el
+  // lote" para el error que NO es de datos.
+  const pospuestos: string[] = [];
+
+  for (let i = 0; i < limite; i++) {
+    let resultado: ResultadoPromocion | null;
+    // Se captura FUERA de la transacción a propósito: si algo explota adentro,
+    // la transacción se revierte y el evento ya no es alcanzable desde el
+    // catch. Sin este id no habría a quién posponer y el bucle volvería a
+    // elegir la misma fila hasta agotar el límite de la pasada.
+    let idReclamado: string | undefined;
+
+    try {
+      resultado = await prisma.$transaction(async (tx) => {
+        const evento = await claimNextPendingEvent(tx, {
+          organizationId: opciones.organizationId,
+          excluir: pospuestos,
+        });
+
+        if (!evento) {
+          return null;
+        }
+
+        idReclamado = evento.id;
+        return await promoverEvento(evento, tx);
+      });
+    } catch (err) {
+      // Un error acá NO es una fila mala: los payloads inválidos ya se
+      // marcaron FAILED adentro, sin lanzar. Lo que llega hasta este catch es
+      // un problema de sistema —la base no responde, una constraint que la
+      // validación no anticipó— y la transacción ya se revirtió, así que el
+      // evento sigue en PENDING.
+      //
+      // Se pospone en vez de marcarse FAILED, y la diferencia importa: FAILED
+      // es terminal y nadie reintenta, así que marcar así un corte de red
+      // perdería el evento para siempre. Queda para la próxima pasada.
+      resumen.pospuestos++;
+      if (idReclamado) {
+        pospuestos.push(idReclamado);
+      } else {
+        // Falló antes de llegar a reclamar nada (la base no responde). No hay
+        // fila que posponer y seguir iterando solo repetiría el mismo fallo:
+        // se corta la pasada y se reintenta en el próximo tick.
+        logger.error({ err }, "No se pudo reclamar un evento de ingesta");
+        break;
+      }
+      logger.error(
+        { err, eventoId: idReclamado },
+        "Error de sistema al promover un evento de ingesta: queda en PENDING para reintentar",
+      );
+      continue;
+    }
+
+    if (resultado === null) {
+      break; // no queda nada pendiente
+    }
+
+    if (resultado.estado === "PROCESSED") {
+      resumen.procesados++;
+    } else {
+      resumen.fallidos++;
+    }
+  }
+
+  return resumen;
+}
+
+// Bucle de polling. setTimeout encadenado y NO setInterval: con setInterval un
+// drenado que tarde más que el intervalo se solaparía con el siguiente, y dos
+// pasadas concurrentes del mismo proceso competirían por los mismos locks.
+// Encadenando, el próximo tick se agenda recién cuando el anterior terminó.
+export function iniciarWorkerDeIngesta(): () => void {
+  if (!env.INGEST_WORKER_ENABLED) {
+    logger.info(
+      "Worker de ingesta deshabilitado por INGEST_WORKER_ENABLED: los eventos quedan en PENDING",
+    );
+    return () => undefined;
+  }
+
+  let detenido = false;
+  let timer: NodeJS.Timeout | undefined;
+
+  const tick = async () => {
+    if (detenido) {
+      return;
+    }
+
+    try {
+      const resumen = await drenarPendientes();
+      if (resumen.procesados + resumen.fallidos + resumen.pospuestos > 0) {
+        logger.info(resumen, "Drenado de ingesta");
+      }
+    } catch (err) {
+      // Red de seguridad del bucle: drenarPendientes ya atrapa por evento, así
+      // que llegar acá significa que falló algo fuera de ese alcance. El bucle
+      // NO puede morir por eso — si muere, la cola deja de drenarse en silencio
+      // y nada lo avisa hasta que alguien mira la tabla.
+      logger.error({ err }, "Fallo inesperado en el drenado de ingesta");
+    }
+
+    if (!detenido) {
+      timer = setTimeout(() => void tick(), env.INGEST_WORKER_POLL_MS);
+    }
+  };
+
+  logger.info(
+    {
+      pollMs: env.INGEST_WORKER_POLL_MS,
+      batchSize: env.INGEST_WORKER_BATCH_SIZE,
+    },
+    "Worker de ingesta iniciado",
+  );
+
+  timer = setTimeout(() => void tick(), env.INGEST_WORKER_POLL_MS);
+
+  return () => {
+    detenido = true;
+    if (timer) {
+      clearTimeout(timer);
+    }
+  };
+}
