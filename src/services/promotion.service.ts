@@ -1,3 +1,4 @@
+import { SourceType } from "@prisma/client";
 import {
   promoteContact,
   type PromotedContact,
@@ -8,6 +9,7 @@ import {
   type EventoReclamado,
 } from "../repositories/ingestionEvent.repository";
 import type { Db } from "../lib/prisma";
+import { fieldMappingSchema } from "../schemas/fieldMapping.schema";
 import {
   CAMPOS_IGNORADOS,
   ingestContactSchema,
@@ -135,14 +137,134 @@ function detectarIgnorados(rawPayload: unknown): PromotionNote[] {
   return notas;
 }
 
+// ---------------------------------------------------------------------------
+// TRADUCCIÓN POR fieldMapping (ítem 5) — OCURRE ACÁ, NO AL PARSEAR EL ARCHIVO.
+//
+// Es la mitad que hace válido el principio rector de §1. En staging la fila
+// quedó guardada con sus encabezados ORIGINALES ("Nombre", "Mail"), sin
+// traducir; la traducción se aplica recién al promover, contra el fieldMapping
+// que la Source tiene AHORA.
+//
+// Consecuencia buscada: si el mapeo estaba mal, se corrige el mapeo y se vuelve
+// a promover el mismo evento — que es literalmente lo que §1 promete, "corregir
+// un mapeo y volver a correrlo". Si la traducción hubiera ocurrido al parsear,
+// el dato original ya no existiría y habría que pedir el archivo de nuevo.
+//
+// El WEBHOOK no pasa por acá: su payload ya viene con los nombres del contrato
+// fijo, así que se valida directo, exactamente igual que antes del ítem 5.
+// ---------------------------------------------------------------------------
+
+type ResultadoTraduccion =
+  | { ok: true; datos: Record<string, unknown> }
+  | { ok: false; motivo: string };
+
+// Los valores de una planilla no son siempre texto: una columna de teléfonos
+// llega como number si Excel decidió que parecía un número, y una fecha como
+// ISO. ingestContactSchema espera strings, así que los primitivos se convierten.
+// null y undefined se dejan caer: el schema ya trata lo ausente como ausente,
+// que es la mitad de "un campo entrante vacío nunca pisa" (§4).
+function comoTextoDeCelda(valor: unknown): unknown {
+  if (valor === null || valor === undefined) return undefined;
+  if (typeof valor === "number" || typeof valor === "boolean") return String(valor);
+  return valor;
+}
+
+function traducirConMapeo(
+  rawPayload: unknown,
+  fieldMapping: unknown,
+): ResultadoTraduccion {
+  // EL MAPEO SE REVALIDA ACÁ AUNQUE EL PATCH YA LO HAYA VALIDADO, y no es
+  // paranoia: field_mapping es una columna JSONB, y cualquier escritura directa
+  // a la base —una migración de datos, un arreglo manual en producción— puede
+  // dejar ahí algo que el endpoint jamás habría aceptado. Sin esta
+  // revalidación, un destino no reconocido intentaría escribir una columna
+  // inexistente de Contact y el error saldría como un fallo de SQL sin relación
+  // aparente con la configuración que lo causó.
+  const mapeo = fieldMappingSchema.safeParse(fieldMapping);
+
+  if (!mapeo.success) {
+    const detalle = mapeo.error.issues.map((issue) => issue.message).join(", ");
+    return { ok: false, motivo: `el fieldMapping de la fuente es inválido: ${detalle}` };
+  }
+
+  if (typeof rawPayload !== "object" || rawPayload === null || Array.isArray(rawPayload)) {
+    return { ok: false, motivo: "la fila guardada no es un objeto" };
+  }
+
+  const fila = rawPayload as Record<string, unknown>;
+  const datos: Record<string, unknown> = {};
+  const columnasAusentes: string[] = [];
+
+  for (const [encabezado, destino] of Object.entries(mapeo.data)) {
+    if (!(encabezado in fila)) {
+      columnasAusentes.push(encabezado);
+      continue;
+    }
+    const valor = comoTextoDeCelda(fila[encabezado]);
+    if (valor !== undefined) {
+      datos[destino] = valor;
+    }
+  }
+
+  // Un mapeo cuyas columnas NO EXISTEN en el archivo es el error de
+  // configuración más probable de todo el ítem: una tilde, una mayúscula, un
+  // espacio invisible. Sin este mensaje se manifestaría como "firstName es
+  // requerido", que manda a mirar el archivo cuando el problema está en el
+  // mapeo. Solo se reporta si NINGUNA columna matcheó — que sobre una columna
+  // mapeada en un archivo que no la trae es normal y no es un error.
+  if (Object.keys(datos).length === 0 && columnasAusentes.length > 0) {
+    return {
+      ok: false,
+      motivo:
+        `ninguna columna del fieldMapping existe en esta fila (se buscaban: ` +
+        `${columnasAusentes.join(", ")}); revisá que los encabezados del archivo coincidan exactamente`,
+    };
+  }
+
+  return { ok: true, datos };
+}
+
+// Decide qué recibe ingestContactSchema para validar.
+//
+//   FILE_IMPORT CON mapeo  -> la fila traducida.
+//   FILE_IMPORT SIN mapeo  -> la fila tal cual. No es un caso de error: un
+//     archivo cuyos encabezados YA son firstName/lastName/email/... no necesita
+//     mapa, y exigir uno igual sería burocracia. Que funcione sin configurar
+//     nada es además el camino más corto para probar una importación.
+//   WEBHOOK / EXTERNAL_DB  -> la fila tal cual, sin ningún cambio de
+//     comportamiento respecto del ítem 4.
+function prepararCandidato(evento: EventoReclamado): ResultadoTraduccion {
+  const usaMapeo =
+    evento.sourceType === SourceType.FILE_IMPORT &&
+    evento.fieldMapping !== null &&
+    evento.fieldMapping !== undefined;
+
+  if (!usaMapeo) {
+    return { ok: true, datos: evento.rawPayload as Record<string, unknown> };
+  }
+
+  return traducirConMapeo(evento.rawPayload, evento.fieldMapping);
+}
+
 export async function promoverEvento(
   evento: EventoReclamado,
   db: Db,
 ): Promise<ResultadoPromocion> {
-  // Contrato fijo, sin fieldMapping — ver el encabezado de
-  // schemas/ingestContact.schema.ts para por qué, y para la contradicción del
-  // documento que hubo que resolver antes de escribir esto.
-  const parseado = ingestContactSchema.safeParse(evento.rawPayload);
+  // La traducción por fieldMapping ocurre ANTES de validar y DESPUÉS de
+  // staging — ver el bloque de arriba. Para el webhook es un paso transparente:
+  // devuelve el rawPayload tal cual, con el contrato fijo del ítem 4.
+  const preparado = prepararCandidato(evento);
+
+  if (!preparado.ok) {
+    // Un mapeo roto es una FILA MALA, no un error de sistema: se marca y el
+    // lote sigue (§5). Si se tratara como error de sistema, el evento quedaría
+    // en PENDING reintentándose contra una configuración que no se arregla
+    // sola.
+    await markEventFailed(evento.id, evento.organizationId, preparado.motivo, db);
+    return { estado: "FAILED", errorMessage: preparado.motivo };
+  }
+
+  const parseado = ingestContactSchema.safeParse(preparado.datos);
 
   if (!parseado.success) {
     // LA FILA MALA SE MARCA Y EL LOTE SIGUE (§5). No se lanza: un throw acá

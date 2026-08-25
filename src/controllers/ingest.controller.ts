@@ -7,8 +7,8 @@ import { EXTERNAL_ID_MAX_LENGTH } from "../utils/externalId";
 
 // El externalId provisto por la fuente viaja en su propio header, fuera del
 // payload: así el cuerpo queda crudo e intacto (§1) y ninguna de sus claves
-// significa nada para nosotros — eso es territorio de fieldMapping, que define
-// el ítem 4c/5.
+// significa nada para nosotros — eso es territorio de fieldMapping, que el ítem
+// 5 definió y que solo consumen las fuentes FILE_IMPORT.
 const EXTERNAL_ID_HEADER = "x-external-id";
 
 // Sin zod: no hay un objeto que parsear, es un header opcional con dos reglas.

@@ -465,3 +465,39 @@ haberla elegido.
 
 Queda como requisito abierto, a resolver cuando haya una integración real
 enfrente.
+
+### 9.8 Dónde terminó viviendo `fieldMapping`
+
+*(2026-08-25, al construir el ítem 5.)*
+
+La sección 2 declara `fieldMapping` como "JSONB" y nada más. Eso dejó abierto
+quién la define y quién la consume, y durante el ítem 4 el proyecto llegó a
+sostener las dos respuestas a la vez: §6.5 la ubicaba en el ítem 5 —"lo nuevo
+es parseo, **mapeo de columnas** y volumen"— mientras la bitácora del
+2026-08-24 §13 y tres comentarios del código decían que la escribía el ítem 4.
+
+Queda resuelto y construido así:
+
+- **La define y la consume el ítem 5.** Forma: un mapa plano
+  `{ "<encabezado del archivo>": "<campo de Contact>" }`, validado en
+  `src/schemas/fieldMapping.schema.ts`. Los destinos están restringidos a los
+  mismos cinco campos que reconoce `ingestContactSchema`: cambia **cómo se
+  llega** al contrato de contacto, nunca el contrato.
+- **Solo en fuentes `FILE_IMPORT`.** Configurarla sobre una `WEBHOOK` o una
+  `EXTERNAL_DB` se rechaza con 400. El motivo decisivo es que `type` es
+  inmutable: un mapeo guardado en una fuente webhook nunca podría volverse
+  útil, así que aceptarlo sería persistir configuración que demostrablemente no
+  se ejecuta jamás.
+- **El webhook no cambió.** Sigue con el contrato fijo del ítem 4.
+
+Y la parte que importa más que las tres anteriores:
+
+- **La traducción ocurre AL PROMOVER, no al parsear el archivo.** En staging
+  la fila se guarda con sus encabezados **originales**. Es lo que hace cierta
+  la promesa de la sección 1 —"corregir un mapeo y volver a correrlo"—: si la
+  traducción ocurriera al escribir a staging, un mapeo mal configurado sería
+  irreversible y habría que pedir el archivo de nuevo, que para un Excel de una
+  feria de hace tres meses significa que el dato se perdió.
+
+`Source.fieldMapping` pasa además a estar **expuesta** en la API de `Source`:
+quien la configura tiene que poder leer qué quedó guardado.

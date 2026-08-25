@@ -13,7 +13,7 @@ import { AppError } from "./AppError";
 //   - Provisto: header X-External-Id. Fuera del payload a propósito — el
 //     cuerpo queda crudo e intacto (§1) y ninguna de sus claves adquiere un
 //     significado especial para nosotros, que es territorio de `fieldMapping`
-//     (ítem 4c/5, todavía sin forma definida).
+//     (definido en el ítem 5, y consumido solo por las fuentes FILE_IMPORT).
 //   - Derivado: SHA-256 sobre el JSON CANÓNICO del payload (claves ordenadas
 //     recursivamente), no sobre los bytes crudos del request.
 //

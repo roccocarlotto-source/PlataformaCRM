@@ -1,11 +1,11 @@
-import { IngestionStatus, Prisma } from "@prisma/client";
+import { IngestionStatus, Prisma, type SourceType } from "@prisma/client";
 import type { PromotionNote } from "../types/promotion";
 import { prisma, type Db } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
 // Staging de la ingesta (docs/ingestion-architecture.md §1 y §5): una fila por
 // intento, con el payload crudo intacto y status PENDING. Nada de promoción
-// sincrónica — eso es el worker del ítem 4c.
+// sincrónica — eso es el worker (§5, workers/ingestionWorker.ts).
 //
 // ESTE ARCHIVO USA SQL CRUDO Y NO ES UNA PREFERENCIA DE ESTILO.
 //
@@ -134,6 +134,13 @@ export interface EventoReclamado {
   organizationId: string;
   sourceId: string;
   sourceName: string;
+  // El ítem 5 los necesita para decidir si la fila hay que TRADUCIR antes de
+  // validarla (FILE_IMPORT con fieldMapping) o validarla directo (WEBHOOK).
+  // Vienen del mismo JOIN que ya traía sourceName: la decisión de traducir se
+  // toma por evento, así que preguntarlo aparte sería una consulta extra por
+  // cada fila de cada lote.
+  sourceType: SourceType;
+  fieldMapping: unknown;
   rawPayload: unknown;
 }
 
@@ -142,6 +149,8 @@ interface FilaReclamada {
   organization_id: string;
   source_id: string;
   source_name: string;
+  source_type: SourceType;
+  field_mapping: unknown;
   raw_payload: unknown;
 }
 
@@ -186,7 +195,9 @@ export async function claimNextPendingEvent(
   // serializaría todos los eventos de una misma fuente contra un único lock,
   // que es justo lo contrario de lo que SKIP LOCKED viene a dar.
   const filas = await db.$queryRaw<FilaReclamada[]>`
-    SELECT e.id, e.organization_id, e.source_id, s.name AS source_name,
+    SELECT e.id, e.organization_id, e.source_id,
+           s.name AS source_name, s.type AS source_type,
+           s.field_mapping AS field_mapping,
            e.raw_payload
     FROM ingestion_events e
     JOIN sources s
@@ -209,6 +220,8 @@ export async function claimNextPendingEvent(
     organizationId: fila.organization_id,
     sourceId: fila.source_id,
     sourceName: fila.source_name,
+    sourceType: fila.source_type,
+    fieldMapping: fila.field_mapping,
     rawPayload: fila.raw_payload,
   };
 }
@@ -265,4 +278,177 @@ export function markEventFailed(
       // promotedContactId queda en null: no hubo contacto.
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Escritura en lote (ítem 5 — importación de archivo).
+//
+// POR QUÉ NO SE REUSA insertPendingIngestionEvent EN UN BUCLE: un archivo de
+// 5.000 filas serían 5.000 round-trips, cada uno con su propia transacción. El
+// parseo y la escritura a staging ocurren DENTRO del request (§5 solo prohíbe
+// que la PROMOCIÓN viva ahí), así que ese costo se lo come el ADMIN que sube el
+// archivo, esperando.
+//
+// Un solo INSERT multi-fila por tanda hace el mismo trabajo en un round-trip, y
+// conserva la misma garantía: ON CONFLICT DO NOTHING sobre el mismo índice
+// parcial, así que subir dos veces el mismo archivo sigue sin duplicar (§4,
+// "un Excel que se sube dos veces").
+//
+// SE TROCEA en tandas en vez de mandar todo en una sentencia. Postgres acepta
+// como máximo 65535 parámetros por sentencia y acá van 6 por fila, así que sin
+// trocear el techo real sería ~10.900 filas y el fallo aparecería como un error
+// de protocolo incomprensible al cruzarlo. La tanda también acota cuánta memoria
+// ocupa la sentencia armada.
+// ---------------------------------------------------------------------------
+
+const FILAS_POR_TANDA = 500;
+
+export interface FilaDeLote {
+  externalId: string;
+  rawPayload: unknown;
+}
+
+export interface InsertBatchResult {
+  // Filas que efectivamente crearon un IngestionEvent bajo este batchId.
+  insertados: number;
+  // Filas cuyo (sourceId, externalId) ya existía: no se escribió nada y NO
+  // quedan asociadas a este lote, porque pertenecen al lote anterior que las
+  // trajo. Es el número que hace visible "este archivo ya se había subido".
+  duplicados: number;
+}
+
+export async function insertPendingEventsBatch(
+  data: {
+    organizationId: string;
+    sourceId: string;
+    batchId: string;
+    filas: FilaDeLote[];
+  },
+  db: Db = prisma,
+): Promise<InsertBatchResult> {
+  let insertados = 0;
+
+  for (let i = 0; i < data.filas.length; i += FILAS_POR_TANDA) {
+    const tanda = data.filas.slice(i, i + FILAS_POR_TANDA);
+
+    const valores = tanda.map(
+      (fila) => Prisma.sql`(
+        ${data.organizationId}::uuid,
+        ${data.sourceId}::uuid,
+        ${data.batchId}::uuid,
+        ${fila.externalId},
+        ${JSON.stringify(fila.rawPayload)}::jsonb,
+        'PENDING'::"IngestionStatus",
+        now(), now()
+      )`,
+    );
+
+    // Dos filas del MISMO archivo nunca colisionan entre sí, y no por suerte:
+    // el externalId de una fila de archivo incluye su número de fila (ver
+    // utils/spreadsheet.ts), así que dos filas idénticas del mismo archivo
+    // producen externalId distintos. Sin eso, dos filas iguales colapsarían en
+    // una y se perdería un lead sin que nada lo dijera.
+    const insertadas = await db.$queryRaw<FilaId[]>`
+      INSERT INTO ingestion_events (
+        organization_id, source_id, batch_id, external_id, raw_payload, status,
+        created_at, updated_at
+      )
+      VALUES ${Prisma.join(valores)}
+      ON CONFLICT (source_id, external_id) WHERE external_id IS NOT NULL
+      DO NOTHING
+      RETURNING id
+    `;
+
+    insertados += insertadas.length;
+  }
+
+  return { insertados, duplicados: data.filas.length - insertados };
+}
+
+// ---------------------------------------------------------------------------
+// El resultado de un lote — §5, literal: "cuántos entraron, cuántos se
+// promovieron, cuántos fallaron y por qué. Sin esto la importación es una caja
+// negra y el usuario no puede corregir nada."
+//
+// Los contadores se DERIVAN con un GROUP BY, no se persisten. Ver el
+// razonamiento en la migración 20260825160000: un contador guardado es un
+// segundo lugar donde vive un número derivable, y puede desincronizarse; un
+// GROUP BY no.
+// ---------------------------------------------------------------------------
+
+export interface FallaDeLote {
+  id: string;
+  errorMessage: string | null;
+  // La fila del archivo tal como se guardó, con sus encabezados originales. Es
+  // lo que permite ver QUÉ fila falló sin volver a abrir el archivo.
+  rawPayload: unknown;
+}
+
+export interface ResumenDeLote {
+  batchId: string;
+  total: number;
+  pendientes: number;
+  promovidos: number;
+  fallidos: number;
+  fallas: FallaDeLote[];
+  fallasOmitidas: number;
+}
+
+// Tope de fallas devueltas. Un archivo mal mapeado puede fallar en sus 5.000
+// filas, y devolverlas todas convertiría una consulta de diagnóstico en una
+// descarga. Se devuelve una muestra y se dice explícitamente cuántas quedaron
+// afuera — nunca se trunca en silencio.
+export const MAX_FALLAS_DEVUELTAS = 100;
+
+export async function getResumenDeLote(
+  organizationId: string,
+  batchId: string,
+  db: Db = prisma,
+): Promise<ResumenDeLote | null> {
+  // organizationId en el WHERE de las dos consultas: es una LECTURA, pero el
+  // aislamiento se aplica igual — un batchId es un UUID y adivinarlo es
+  // impracticable, pero la garantía no puede depender de eso.
+  const porEstado = await db.ingestionEvent.groupBy({
+    by: ["status"],
+    where: { organizationId, batchId },
+    _count: { _all: true },
+  });
+
+  const total = porEstado.reduce((suma, fila) => suma + fila._count._all, 0);
+
+  if (total === 0) {
+    // Ningún evento con ese batchId en esta organización: o no existe, o es de
+    // otra. Las dos dan 404 y no se distinguen, mismo criterio que el resto del
+    // proyecto para no confirmar la existencia de recursos ajenos.
+    return null;
+  }
+
+  const contar = (estado: IngestionStatus) =>
+    porEstado.find((fila) => fila.status === estado)?._count._all ?? 0;
+
+  const fallidos = contar(IngestionStatus.FAILED);
+
+  const fallas =
+    fallidos > 0
+      ? await db.ingestionEvent.findMany({
+          where: {
+            organizationId,
+            batchId,
+            status: IngestionStatus.FAILED,
+          },
+          select: { id: true, errorMessage: true, rawPayload: true },
+          orderBy: { createdAt: "asc" },
+          take: MAX_FALLAS_DEVUELTAS,
+        })
+      : [];
+
+  return {
+    batchId,
+    total,
+    pendientes: contar(IngestionStatus.PENDING),
+    promovidos: contar(IngestionStatus.PROCESSED),
+    fallidos,
+    fallas,
+    fallasOmitidas: Math.max(0, fallidos - fallas.length),
+  };
 }

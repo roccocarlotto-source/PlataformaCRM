@@ -550,6 +550,11 @@ model IngestionEvent {
   // información de filas PROCESSED, por eso NO vive en errorMessage — que
   // significa una sola cosa, por qué falló. Forma en src/types/promotion.ts.
   promotionNotes    Json?           @map("promotion_notes")
+  // Agrupa las filas de UNA importación de archivo (ítem 5). NULL significa
+  // "no vino de un lote": los eventos del webhook llegan de a uno y quedan en
+  // null para siempre. Los contadores de §5 se derivan con un GROUP BY sobre
+  // esta columna, no se persisten aparte — ver la migración 20260825160000.
+  batchId           String?         @map("batch_id") @db.Uuid
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
 
@@ -566,5 +571,9 @@ model IngestionEvent {
   // soft delete — su (organization_id, id) no cambia ni se borra nunca. Sin
   // consulta que lo use, es peso muerto en la tabla de mayor volumen.
   @@index([organizationId, sourceId, createdAt])
+  // El resultado de un lote (§5): WHERE organization_id = ? AND batch_id = ?,
+  // con GROUP BY status encima. Sin esto sería un seq scan sobre la tabla de
+  // mayor volumen del esquema.
+  @@index([organizationId, batchId])
   @@map("ingestion_events")
 }

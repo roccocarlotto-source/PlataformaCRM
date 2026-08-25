@@ -1,0 +1,634 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import type { AddressInfo } from "node:net";
+import { after, before, test } from "node:test";
+import { createClient } from "@supabase/supabase-js";
+import ExcelJS from "exceljs";
+import express from "express";
+import { env } from "../config/env";
+import { prisma } from "../lib/prisma";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import { errorHandler } from "../middlewares/errorHandler";
+import { notFound } from "../middlewares/notFound";
+import { findRoleByName } from "../repositories/role.repository";
+import { importRouter } from "../routes/import.routes";
+import { sourceRouter } from "../routes/source.routes";
+import { drenarPendientes } from "../workers/ingestionWorker";
+
+// ---------------------------------------------------------------------------
+// Importación de Excel/CSV (ítem 5 de docs/ingestion-architecture.md §6),
+// end-to-end: HTTP real contra Postgres y Supabase Auth reales, con los routers
+// reales y su authenticate/authorize/rate limiter. Sin mocks.
+//
+// LO QUE MÁS SE VIGILA ACÁ es lo más fácil de romper sin darse cuenta: que la
+// fila guardada en staging conserve los ENCABEZADOS ORIGINALES del archivo. Si
+// alguna vez se "optimizara" traduciendo al parsear, todos los demás tests
+// seguirían pasando y solo este lo vería — junto con la promesa de §1 de poder
+// corregir un mapeo y volver a correrlo, que quedaría rota en silencio.
+// ---------------------------------------------------------------------------
+
+const PASSWORD = "Import-test-password-123!";
+
+interface FixtureUser {
+  accessToken: string;
+  authUserId: string;
+}
+
+let orgId: string;
+let admin: FixtureUser;
+let usuarioComun: FixtureUser;
+let sourceFile: string;
+let sourceWebhook: string;
+let baseUrl: string;
+let closeApp: () => Promise<void>;
+
+function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
+  const app = express();
+  app.use(express.json());
+  app.use("/api", sourceRouter);
+  app.use("/api", importRouter);
+  app.use(notFound);
+  app.use(errorHandler);
+
+  return new Promise((resolve) => {
+    const server = app.listen(0, () => {
+      const { port } = server.address() as AddressInfo;
+      resolve({
+        url: `http://127.0.0.1:${port}`,
+        close: () => new Promise((r) => server.close(() => r())),
+      });
+    });
+  });
+}
+
+async function crearUsuario(
+  label: string,
+  role: "ADMIN" | "USER",
+): Promise<FixtureUser> {
+  const email = `import-${label}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+
+  const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
+    email,
+    password: PASSWORD,
+    email_confirm: true,
+  });
+  if (error || !data.user) {
+    throw new Error(`No se pudo crear usuario real (${label}): ${error?.message}`);
+  }
+
+  const roleRow = await findRoleByName(role);
+  if (!roleRow) throw new Error(`No está sembrado el rol ${role}`);
+
+  await prisma.user.create({
+    data: {
+      id: data.user.id,
+      organizationId: orgId,
+      roleId: roleRow.id,
+      email,
+      fullName: `Import Test ${label}`,
+    },
+  });
+
+  const anon = createClient(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!);
+  const { data: signIn, error: signInError } = await anon.auth.signInWithPassword({
+    email,
+    password: PASSWORD,
+  });
+  if (signInError || !signIn.session) {
+    throw new Error(`No se pudo iniciar sesión (${label}): ${signInError?.message}`);
+  }
+
+  return { accessToken: signIn.session.access_token, authUserId: data.user.id };
+}
+
+// Sube un archivo por multipart real (FormData + Blob, nativos en Node 18+):
+// nada de simular el parseo, el objetivo es ejercitar multer de verdad.
+function subir(
+  token: string,
+  sourceId: string,
+  nombre: string,
+  contenido: Buffer | string,
+): Promise<Response> {
+  const form = new FormData();
+  form.append("sourceId", sourceId);
+  form.append("file", new Blob([contenido]), nombre);
+
+  return fetch(`${baseUrl}/api/imports`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  });
+}
+
+function api(method: string, path: string, token: string, body?: unknown) {
+  return fetch(`${baseUrl}${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+}
+
+async function crearSource(nombre: string, type: "FILE_IMPORT" | "WEBHOOK") {
+  const source = await prisma.source.create({
+    data: { organizationId: orgId, name: nombre, type },
+    select: { id: true },
+  });
+  return source.id;
+}
+
+before(async () => {
+  const started = await startTestApp();
+  baseUrl = started.url;
+  closeApp = started.close;
+
+  const org = await prisma.organization.create({
+    data: {
+      name: `Import test org ${randomUUID()}`,
+      slug: `import-test-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    },
+  });
+  orgId = org.id;
+
+  admin = await crearUsuario("admin", "ADMIN");
+  usuarioComun = await crearUsuario("user", "USER");
+
+  sourceFile = await crearSource("Feria de marzo", "FILE_IMPORT");
+  sourceWebhook = await crearSource("Landing de precios", "WEBHOOK");
+});
+
+after(async () => {
+  if (closeApp) await closeApp();
+  if (!orgId) return;
+
+  await prisma.ingestionEvent.deleteMany({ where: { organizationId: orgId } });
+  await prisma.contact.deleteMany({ where: { organizationId: orgId } });
+  await prisma.source.deleteMany({ where: { organizationId: orgId } });
+  await prisma.user.deleteMany({ where: { organizationId: orgId } });
+  await prisma.organization.deleteMany({ where: { id: orgId } });
+
+  for (const u of [admin, usuarioComun]) {
+    if (u) await getSupabaseAdmin().auth.admin.deleteUser(u.authUserId);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// fieldMapping por el PATCH existente
+// ---------------------------------------------------------------------------
+
+test("PATCH /api/sources/:id acepta fieldMapping y lo persiste", async () => {
+  const mapeo = { Nombre: "firstName", Apellido: "lastName", Mail: "email" };
+
+  const res = await api("PATCH", `/api/sources/${sourceFile}`, admin.accessToken, {
+    fieldMapping: mapeo,
+  });
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { fieldMapping: unknown };
+  assert.deepEqual(body.fieldMapping, mapeo, "la respuesta expone lo que quedó guardado");
+
+  // Y se lee de vuelta DE LA BASE, no de la respuesta.
+  const fila = await prisma.source.findUniqueOrThrow({
+    where: { id: sourceFile },
+    select: { fieldMapping: true },
+  });
+  assert.deepEqual(fila.fieldMapping, mapeo);
+});
+
+test("un destino que no es un campo reconocido de Contact se rechaza con 400", async () => {
+  // organizationId es una columna REAL de contacts: si el destino no estuviera
+  // restringido, una planilla podría reescribir a qué organización pertenece un
+  // contacto.
+  const res = await api("PATCH", `/api/sources/${sourceFile}`, admin.accessToken, {
+    fieldMapping: { Col: "organizationId" },
+  });
+
+  assert.equal(res.status, 400);
+});
+
+test("fieldMapping se RECHAZA en una fuente WEBHOOK — type es inmutable, nunca podría servir", async () => {
+  const res = await api("PATCH", `/api/sources/${sourceWebhook}`, admin.accessToken, {
+    fieldMapping: { Nombre: "firstName" },
+  });
+
+  assert.equal(res.status, 400);
+
+  const fila = await prisma.source.findUniqueOrThrow({
+    where: { id: sourceWebhook },
+    select: { fieldMapping: true },
+  });
+  assert.equal(fila.fieldMapping, null, "no puede haber quedado escrito nada");
+});
+
+test("mandar fieldMapping: null limpia el mapeo (y no escribe un JSON null)", async () => {
+  const temporal = await crearSource("Limpiable", "FILE_IMPORT");
+
+  await api("PATCH", `/api/sources/${temporal}`, admin.accessToken, {
+    fieldMapping: { Nombre: "firstName" },
+  });
+  await api("PATCH", `/api/sources/${temporal}`, admin.accessToken, {
+    fieldMapping: null,
+  });
+
+  // SQL NULL, no JSON null: un JSON null sería un valor presente y la promoción
+  // creería que hay un mapeo configurado y vacío.
+  const [fila] = await prisma.$queryRaw<{ es_sql_null: boolean }[]>`
+    SELECT field_mapping IS NULL AS es_sql_null
+    FROM sources WHERE id = ${temporal}::uuid
+  `;
+  assert.equal(fila.es_sql_null, true);
+});
+
+// ---------------------------------------------------------------------------
+// La subida
+// ---------------------------------------------------------------------------
+
+test("un CSV válido crea N eventos con el MISMO batchId y el payload SIN TRADUCIR", async () => {
+  const source = await crearSource("Sin traducir", "FILE_IMPORT");
+  const csv = [
+    "Nombre,Apellido,Mail",
+    "Ana,Gómez,ana@ejemplo.test",
+    "Beto,Pérez,beto@ejemplo.test",
+    "Caro,Díaz,caro@ejemplo.test",
+  ].join("\n");
+
+  const res = await subir(admin.accessToken, source, "leads.csv", csv);
+  assert.equal(res.status, 202);
+
+  const body = (await res.json()) as {
+    batchId: string;
+    encabezados: string[];
+    filasLeidas: number;
+    insertados: number;
+    duplicados: number;
+  };
+
+  assert.equal(body.filasLeidas, 3);
+  assert.equal(body.insertados, 3);
+  assert.equal(body.duplicados, 0);
+  assert.deepEqual(body.encabezados, ["Nombre", "Apellido", "Mail"]);
+
+  const eventos = await prisma.ingestionEvent.findMany({
+    where: { organizationId: orgId, batchId: body.batchId },
+    select: { rawPayload: true, status: true, sourceId: true, batchId: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  assert.equal(eventos.length, 3, "las 3 filas comparten un solo batchId");
+  for (const evento of eventos) {
+    assert.equal(evento.batchId, body.batchId);
+    assert.equal(evento.sourceId, source);
+    assert.equal(evento.status, "PENDING");
+  }
+
+  // ═══ LA AFIRMACIÓN QUE MÁS IMPORTA DE TODO EL ARCHIVO ═══
+  // El payload guardado tiene los encabezados ORIGINALES, no los campos de
+  // Contact. Traducir acá haría irreversible un mapeo mal configurado y
+  // rompería §1 en silencio.
+  assert.deepEqual(eventos[0].rawPayload, {
+    Nombre: "Ana",
+    Apellido: "Gómez",
+    Mail: "ana@ejemplo.test",
+  });
+  for (const evento of eventos) {
+    const claves = Object.keys(evento.rawPayload as object);
+    assert.deepEqual(claves.sort(), ["Apellido", "Mail", "Nombre"]);
+    for (const prohibida of ["firstName", "lastName", "email"]) {
+      assert.ok(
+        !claves.includes(prohibida),
+        `staging no puede tener la clave traducida "${prohibida}"`,
+      );
+    }
+  }
+});
+
+test("subir el MISMO archivo dos veces no duplica: la segunda vez todo es duplicado", async () => {
+  const source = await crearSource("Dos veces", "FILE_IMPORT");
+  const csv = "Nombre,Mail\nAna,ana-dosveces@ejemplo.test\nBeto,beto-dosveces@ejemplo.test";
+
+  const primera = (await (await subir(admin.accessToken, source, "l.csv", csv)).json()) as {
+    insertados: number;
+    batchId: string;
+  };
+  const segunda = (await (await subir(admin.accessToken, source, "l.csv", csv)).json()) as {
+    insertados: number;
+    duplicados: number;
+    batchId: string;
+  };
+
+  assert.equal(primera.insertados, 2);
+  assert.equal(segunda.insertados, 0);
+  assert.equal(segunda.duplicados, 2);
+
+  // §4: "un Excel que se sube dos veces" no puede duplicar. Se cuenta en la
+  // tabla, no en la respuesta.
+  assert.equal(
+    await prisma.ingestionEvent.count({ where: { organizationId: orgId, sourceId: source } }),
+    2,
+  );
+  // Y las filas duplicadas siguen perteneciendo al lote que las trajo.
+  assert.equal(
+    await prisma.ingestionEvent.count({
+      where: { organizationId: orgId, batchId: segunda.batchId },
+    }),
+    0,
+  );
+});
+
+test("un XLSX real se parsea igual que un CSV", async () => {
+  const source = await crearSource("Excel", "FILE_IMPORT");
+
+  const workbook = new ExcelJS.Workbook();
+  const hoja = workbook.addWorksheet("Leads");
+  hoja.addRow(["Nombre", "Apellido", "Mail"]);
+  hoja.addRow(["Ana", "Gómez", "ana-xlsx@ejemplo.test"]);
+  hoja.addRow(["Beto", "Pérez", "beto-xlsx@ejemplo.test"]);
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+  const res = await subir(admin.accessToken, source, "feria.xlsx", buffer);
+  assert.equal(res.status, 202);
+
+  const body = (await res.json()) as { batchId: string; insertados: number };
+  assert.equal(body.insertados, 2);
+
+  const eventos = await prisma.ingestionEvent.findMany({
+    where: { organizationId: orgId, batchId: body.batchId },
+    select: { rawPayload: true },
+    orderBy: { createdAt: "asc" },
+  });
+  assert.deepEqual(eventos[0].rawPayload, {
+    Nombre: "Ana",
+    Apellido: "Gómez",
+    Mail: "ana-xlsx@ejemplo.test",
+  });
+});
+
+test("no se puede importar contra una fuente WEBHOOK", async () => {
+  const res = await subir(admin.accessToken, sourceWebhook, "l.csv", "Nombre\nAna");
+  assert.equal(res.status, 400);
+});
+
+test("una extensión no soportada da 415", async () => {
+  const res = await subir(admin.accessToken, sourceFile, "leads.txt", "Nombre\nAna");
+  assert.equal(res.status, 415);
+});
+
+test("un USER no puede importar: es ADMIN-only, por el camino de auth existente", async () => {
+  const res = await subir(usuarioComun.accessToken, sourceFile, "l.csv", "Nombre\nAna");
+  assert.equal(res.status, 403);
+});
+
+test("sin token no se puede importar ni consultar un lote", async () => {
+  const sinToken = await fetch(`${baseUrl}/api/imports`, { method: "POST" });
+  assert.equal(sinToken.status, 401);
+
+  const consulta = await fetch(`${baseUrl}/api/imports/${randomUUID()}`);
+  assert.equal(consulta.status, 401);
+});
+
+// ---------------------------------------------------------------------------
+// Promoción vía fieldMapping
+// ---------------------------------------------------------------------------
+
+test("una fila con encabezados custom se traduce y promueve igual que el contrato fijo", async () => {
+  const source = await crearSource("Con mapeo", "FILE_IMPORT");
+  await api("PATCH", `/api/sources/${source}`, admin.accessToken, {
+    fieldMapping: {
+      "Nombre de pila": "firstName",
+      Apellido: "lastName",
+      "Correo electrónico": "email",
+      Teléfono: "phone",
+    },
+  });
+
+  const email = `mapeada-${randomUUID()}@ejemplo.test`;
+  const csv = [
+    "Nombre de pila,Apellido,Correo electrónico,Teléfono,Columna que nadie mapeó",
+    `Ana,Gómez,${email},+5411000000,basura`,
+  ].join("\n");
+
+  const { batchId } = (await (
+    await subir(admin.accessToken, source, "leads.csv", csv)
+  ).json()) as { batchId: string };
+
+  const resumen = await drenarPendientes({ organizationId: orgId });
+  assert.ok(resumen.procesados >= 1);
+
+  const evento = await prisma.ingestionEvent.findFirstOrThrow({
+    where: { organizationId: orgId, batchId },
+    select: { status: true, promotedContactId: true, rawPayload: true, errorMessage: true },
+  });
+
+  assert.equal(evento.status, "PROCESSED", `no se promovió: ${evento.errorMessage}`);
+
+  const contacto = await prisma.contact.findUniqueOrThrow({
+    where: { id: evento.promotedContactId! },
+  });
+  assert.equal(contacto.firstName, "Ana");
+  assert.equal(contacto.lastName, "Gómez");
+  assert.equal(contacto.email, email);
+  assert.equal(contacto.phone, "+5411000000");
+  // Contact.source sigue siendo el nombre de la Source, igual que en el webhook.
+  assert.equal(contacto.source, "Con mapeo");
+  // La ingesta sigue sin escribir lifecycleStage.
+  assert.equal(contacto.lifecycleStage, "LEAD");
+
+  // Y el staging SIGUE crudo después de promover: la traducción no lo reescribe.
+  assert.deepEqual(Object.keys(evento.rawPayload as object).sort(), [
+    "Apellido",
+    "Columna que nadie mapeó",
+    "Correo electrónico",
+    "Nombre de pila",
+    "Teléfono",
+  ]);
+});
+
+test("un mapeo cuyas columnas no existen en el archivo marca FAILED con un motivo útil", async () => {
+  const source = await crearSource("Mapeo que no matchea", "FILE_IMPORT");
+  await api("PATCH", `/api/sources/${source}`, admin.accessToken, {
+    fieldMapping: { "Nombre con tilde": "firstName", Apelido: "lastName" },
+  });
+
+  const { batchId } = (await (
+    await subir(admin.accessToken, source, "l.csv", "Nombre,Apellido\nAna,Gómez")
+  ).json()) as { batchId: string };
+
+  await drenarPendientes({ organizationId: orgId });
+
+  const evento = await prisma.ingestionEvent.findFirstOrThrow({
+    where: { organizationId: orgId, batchId },
+    select: { status: true, errorMessage: true, promotedContactId: true },
+  });
+
+  assert.equal(evento.status, "FAILED");
+  assert.equal(evento.promotedContactId, null);
+  // El mensaje tiene que apuntar al MAPEO, no a "firstName es requerido", que
+  // mandaría a revisar el archivo cuando el problema está en la configuración.
+  assert.match(evento.errorMessage ?? "", /fieldMapping/);
+});
+
+test("una fila que después de traducida no cumple el contrato falla, y el resto del lote sigue", async () => {
+  const source = await crearSource("Lote mixto", "FILE_IMPORT");
+  await api("PATCH", `/api/sources/${source}`, admin.accessToken, {
+    fieldMapping: { Nombre: "firstName", Apellido: "lastName", Mail: "email" },
+  });
+
+  const buena = `buena-${randomUUID()}@ejemplo.test`;
+  const csv = [
+    "Nombre,Apellido,Mail",
+    // Sin apellido: no alcanza para construir un Contact válido.
+    `Ana,,sin-apellido-${randomUUID()}@ejemplo.test`,
+    `Beto,Pérez,${buena}`,
+    // Email con formato inválido.
+    "Caro,Díaz,no-es-un-email",
+  ].join("\n");
+
+  const { batchId } = (await (
+    await subir(admin.accessToken, source, "l.csv", csv)
+  ).json()) as { batchId: string };
+
+  await drenarPendientes({ organizationId: orgId });
+
+  const porEstado = await prisma.ingestionEvent.groupBy({
+    by: ["status"],
+    where: { organizationId: orgId, batchId },
+    _count: { _all: true },
+  });
+  const contar = (estado: string) =>
+    porEstado.find((f) => f.status === estado)?._count._all ?? 0;
+
+  assert.equal(contar("FAILED"), 2, "las dos filas malas se marcan");
+  assert.equal(contar("PROCESSED"), 1, "la buena se promueve igual");
+  assert.equal(contar("PENDING"), 0, "el drenado no se quedó a mitad");
+
+  assert.equal(
+    await prisma.contact.count({ where: { organizationId: orgId, email: buena } }),
+    1,
+  );
+});
+
+test("una fuente FILE_IMPORT SIN mapeo valida el archivo contra el contrato fijo", async () => {
+  const source = await crearSource("Sin mapeo", "FILE_IMPORT");
+  const email = `directo-${randomUUID()}@ejemplo.test`;
+
+  const { batchId } = (await (
+    await subir(
+      admin.accessToken,
+      source,
+      "l.csv",
+      `firstName,lastName,email\nAna,Gómez,${email}`,
+    )
+  ).json()) as { batchId: string };
+
+  await drenarPendientes({ organizationId: orgId });
+
+  const evento = await prisma.ingestionEvent.findFirstOrThrow({
+    where: { organizationId: orgId, batchId },
+    select: { status: true, errorMessage: true },
+  });
+  assert.equal(evento.status, "PROCESSED", `${evento.errorMessage}`);
+});
+
+// ---------------------------------------------------------------------------
+// El resultado del lote (§5)
+// ---------------------------------------------------------------------------
+
+test("GET /api/imports/:batchId cuenta bien ANTES y DESPUÉS de drenar", async () => {
+  const source = await crearSource("Resumen", "FILE_IMPORT");
+  await api("PATCH", `/api/sources/${source}`, admin.accessToken, {
+    fieldMapping: { Nombre: "firstName", Apellido: "lastName", Mail: "email" },
+  });
+
+  const csv = [
+    "Nombre,Apellido,Mail",
+    `Ana,Gómez,r1-${randomUUID()}@ejemplo.test`,
+    `Beto,Pérez,r2-${randomUUID()}@ejemplo.test`,
+    "Sin,,apellido-invalido",
+  ].join("\n");
+
+  const { batchId } = (await (
+    await subir(admin.accessToken, source, "l.csv", csv)
+  ).json()) as { batchId: string };
+
+  // ANTES de drenar: todo pendiente.
+  const antes = (await (
+    await api("GET", `/api/imports/${batchId}`, admin.accessToken)
+  ).json()) as { total: number; pendientes: number; promovidos: number; fallidos: number };
+
+  assert.equal(antes.total, 3);
+  assert.equal(antes.pendientes, 3);
+  assert.equal(antes.promovidos, 0);
+  assert.equal(antes.fallidos, 0);
+
+  await drenarPendientes({ organizationId: orgId });
+
+  // DESPUÉS: "cuántos entraron, cuántos se promovieron, cuántos fallaron y por
+  // qué" — las cuatro cosas que §5 exige, literal.
+  const despues = (await (
+    await api("GET", `/api/imports/${batchId}`, admin.accessToken)
+  ).json()) as {
+    total: number;
+    pendientes: number;
+    promovidos: number;
+    fallidos: number;
+    fallas: { errorMessage: string; rawPayload: Record<string, unknown> }[];
+    fallasOmitidas: number;
+  };
+
+  assert.equal(despues.total, 3);
+  assert.equal(despues.pendientes, 0);
+  assert.equal(despues.promovidos, 2);
+  assert.equal(despues.fallidos, 1);
+
+  assert.equal(despues.fallas.length, 1);
+  assert.ok(despues.fallas[0].errorMessage, "el por qué no puede venir vacío");
+  assert.equal(despues.fallasOmitidas, 0);
+  // La fila que falló viene con sus encabezados originales: es lo que permite
+  // ver QUÉ fila era sin volver a abrir el archivo.
+  assert.equal(despues.fallas[0].rawPayload.Nombre, "Sin");
+});
+
+test("un batchId inexistente da 404, y el de otra organización también", async () => {
+  const res = await api("GET", `/api/imports/${randomUUID()}`, admin.accessToken);
+  assert.equal(res.status, 404);
+
+  const otraOrg = await prisma.organization.create({
+    data: {
+      name: `Import otra org ${randomUUID()}`,
+      slug: `import-otra-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    },
+  });
+
+  try {
+    const sourceAjena = await prisma.source.create({
+      data: { organizationId: otraOrg.id, name: "Ajena", type: "FILE_IMPORT" },
+      select: { id: true },
+    });
+    const batchAjeno = randomUUID();
+    await prisma.ingestionEvent.create({
+      data: {
+        organizationId: otraOrg.id,
+        sourceId: sourceAjena.id,
+        batchId: batchAjeno,
+        externalId: `ajeno-${randomUUID()}`,
+        rawPayload: { Nombre: "Ajeno" },
+      },
+    });
+
+    // El batch EXISTE, pero es de otra organización: 404, indistinguible del
+    // inexistente. No se confirma la existencia de recursos ajenos.
+    const ajeno = await api("GET", `/api/imports/${batchAjeno}`, admin.accessToken);
+    assert.equal(ajeno.status, 404);
+  } finally {
+    await prisma.ingestionEvent.deleteMany({ where: { organizationId: otraOrg.id } });
+    await prisma.source.deleteMany({ where: { organizationId: otraOrg.id } });
+    await prisma.organization.deleteMany({ where: { id: otraOrg.id } });
+  }
+});
+
+test("un USER no puede consultar el resultado de un lote", async () => {
+  const res = await api("GET", `/api/imports/${randomUUID()}`, usuarioComun.accessToken);
+  assert.equal(res.status, 403);
+});

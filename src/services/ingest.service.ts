@@ -10,7 +10,8 @@ import { deriveExternalId } from "../utils/externalId";
 // IngestionEvent con status PENDING y el payload crudo, y responde 202.
 //
 // LO QUE ESTE SERVICE NO HACE, Y NO ES UNA OMISIÓN:
-//   - No lee, no crea y no modifica ningún Contact. La promoción es el ítem 4c.
+//   - No lee, no crea y no modifica ningún Contact. La promoción vive en el
+//     worker (§5, services/promotion.service.ts), fuera del ciclo del request.
 //   - No valida la forma del payload más allá de que sea un objeto JSON. Una
 //     fila mala no debe rechazarse acá: se marca FAILED con su errorMessage
 //     cuando el worker la mire, y el resto del lote sigue (§5). Rechazar en el
@@ -18,7 +19,9 @@ import { deriveExternalId } from "../utils/externalId";
 //     tiene forma de arreglarlo.
 //   - No manda nada hacia afuera: ni mails, ni webhooks salientes, ni llamadas
 //     a terceros.
-//   - No aplica fieldMapping. Esa columna sigue sin forma definida a propósito.
+//   - No aplica fieldMapping, y sigue sin aplicarlo después del ítem 5: esa
+//     columna la consumen solo las fuentes FILE_IMPORT, y la traducción ocurre
+//     al promover, no al escribir a staging. El webhook tiene contrato fijo.
 // ---------------------------------------------------------------------------
 
 export interface IngestEventResult {

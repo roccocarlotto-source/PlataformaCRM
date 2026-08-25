@@ -4,6 +4,7 @@ import { apiKeyRouter } from "./apiKey.routes";
 import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
 import { healthRouter } from "./health.routes";
+import { importRouter } from "./import.routes";
 import { invitationRouter } from "./invitation.routes";
 import { meRouter } from "./me.routes";
 import { onboardingRouter } from "./onboarding.routes";

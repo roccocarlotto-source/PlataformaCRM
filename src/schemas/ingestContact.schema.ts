@@ -5,8 +5,10 @@ import { z } from "zod";
 // docs/ingestion-architecture.md §6).
 //
 // La forma es FIJA: las claves del payload son los nombres de campo de
-// `Contact`. No se consulta `Source.fieldMapping`, y esa columna sigue en null
-// y sin exponer.
+// `Contact`. El WEBHOOK no consulta `Source.fieldMapping` — eso quedó igual
+// después del ítem 5, que sí le dio forma y consumidor a esa columna pero solo
+// para las fuentes FILE_IMPORT (ver schemas/fieldMapping.schema.ts y la
+// traducción en promotion.service.ts).
 //
 // POR QUÉ, porque el documento y la bitácora decían cosas distintas y esto se
 // preguntó antes de implementar:
@@ -20,12 +22,16 @@ import { z } from "zod";
 //   §6.4, además, describe este ítem como "el caso más simple: un payload, un
 //   contacto".
 //
-// La bitácora del 2026-08-24 §13 dice en cambio que `fieldMapping` la escribe
+// La bitácora del 2026-08-24 §13 decía en cambio que `fieldMapping` la escribe
 // el ítem 4. Se resolvió a favor del documento, que es la autoridad declarada
-// (§0), y con un argumento práctico que no admite vuelta: el ítem 3 excluyó
-// `fieldMapping` del POST y del PATCH de /api/sources a propósito, así que hoy
-// NO HAY FORMA DE POBLARLA. Consumirla desde acá sería una rama que ningún test
-// puede ejercitar de punta a punta.
+// (§0), y con un argumento práctico: en ese momento el ítem 3 había excluido
+// `fieldMapping` del POST y del PATCH de /api/sources, así que no había forma de
+// poblarla y consumirla desde acá habría sido una rama que ningún test podía
+// ejercitar de punta a punta.
+//
+// El ítem 5 confirmó la resolución construyendo lo que el documento decía: le
+// dio forma a `fieldMapping`, la abrió en el PATCH y la consume SOLO en las
+// fuentes FILE_IMPORT. El webhook siguió sin cambios. Ver §9.8 del documento.
 //
 // CONSECUENCIA QUE HAY QUE TENER PRESENTE: una landing page tiene que emitir
 // `firstName` y `lastName`. Un formulario que mande un solo campo "nombre"
@@ -104,3 +110,21 @@ export type IngestContactPayload = z.infer<typeof ingestContactSchema>;
 // implementar eso haría falta un orden total entre los cinco estados que el
 // documento no define. No escribirlo cumple la regla sin inventar ese orden.
 export const CAMPOS_IGNORADOS = ["lifecycleStage"] as const;
+
+// Los campos de Contact que la ingesta sabe escribir. Es el conjunto que
+// `ingestContactSchema` define arriba, extraído para que el `fieldMapping` del
+// ítem 5 pueda restringir sus DESTINOS al mismo conjunto — no a uno paralelo
+// que pudiera divergir.
+//
+// Que sea la misma lista es la razón por la que un archivo de Excel no puede
+// escribir campos que un webhook no puede: cambia CÓMO se llega al contrato,
+// nunca el contrato.
+export const CAMPOS_DE_CONTACTO = [
+  "firstName",
+  "lastName",
+  "email",
+  "phone",
+  "jobTitle",
+] as const;
+
+export type CampoDeContacto = (typeof CAMPOS_DE_CONTACTO)[number];
