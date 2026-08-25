@@ -313,3 +313,79 @@ después es bajo: en Postgres moderno, `ALTER TABLE ADD COLUMN` de una columna
 nullable sin default no reescribe la tabla.
 
 Queda como requisito abierto del ítem 5, no como deuda del 2.
+
+### 9.3 Hasheo de la API key: SHA-256, y por qué la seguridad no vive ahí
+
+*(2026-08-24, decidido en el ítem 3.)*
+
+La sección 2 dice que la clave se guarda hasheada y no dice con qué. La
+decisión es **SHA-256 sobre la clave completa, hex, determinístico y sin sal**.
+
+Que sea determinístico no es una concesión: es un requisito. La sección 3
+define que `authenticateApiKey` "lee la clave, la hashea, busca la fila", y eso
+descarta bcrypt, scrypt y argon2 **por construcción, no por preferencia** —
+producen una sal distinta por fila, así que no hay valor que buscar por
+igualdad y habría que traer todas y verificar una por una, O(n) por request en
+el camino más caliente del sistema.
+
+Que sea rápido tampoco es una concesión, y acá está el punto que decide.
+Asociamos "hashear" con contraseñas, y esa analogía es la que está mal. bcrypt
+existe porque las contraseñas las elige un humano: el espacio real de búsqueda
+es chico, una tabla robada se puede recorrer offline, y lo único que lo frena
+es que cada intento cueste caro. Una API key no es una contraseña — la genera
+el servidor, nadie la memoriza, nadie la elige. Con suficiente entropía, el
+espacio de búsqueda es tan grande que el costo por intento deja de importar. Y
+una sal por fila no aporta nada, porque su función es impedir que una tabla
+precomputada sirva para varias filas, y dos claves aleatorias de 256 bits no
+se repiten ni se precomputan.
+
+**Por lo tanto la seguridad de este esquema no vive en el algoritmo: vive
+enteramente en la generación de la clave.** De ahí el requisito:
+
+> La clave se genera con `crypto.randomBytes(32)` — 256 bits de un CSPRNG del
+> sistema. **Nunca `Math.random()`, nunca un UUID**, nunca nada derivado de la
+> organización, del nombre de la fuente o de un timestamp. Si esta línea se
+> debilita, SHA-256 pasa de ser una elección correcta a ser un agujero, y nada
+> en el resto del sistema lo compensa.
+
+Un UUIDv4 es el error tentador: da 122 bits, que alcanzarían, pero viene de un
+generador cuyo contrato es **unicidad, no imprevisibilidad**. Es el primitivo
+equivocado aunque el número cierre.
+
+Forma concreta: `crm_` + 43 caracteres base64url = 47. El `keyPrefix` son los
+primeros 12 (`crm_` + 8), que exponen 48 bits y dejan el resto oculto; existe
+para que la UI pueda identificar cuál de varias claves se está por revocar. Se
+hashea la cadena completa, prefijo incluido.
+
+**Y el ítem 4 debe hashear los bytes exactos que llegan en el header** — sin
+`trim`, sin `toLowerCase`, sin normalización Unicode. Cualquier normalización
+haría que dos cadenas distintas resuelvan a la misma fila, que es lo contrario
+de lo que el hash está haciendo.
+
+### 9.4 Retirar una `Source` revoca sus claves en cascada
+
+*(2026-08-24, decidido en el ítem 3.)*
+
+`DELETE /api/sources/:id` hace el soft delete de la fuente **y revoca todas
+sus API keys activas, en la misma transacción.** No está en las secciones 1
+a 8; se agregó porque la alternativa deja una garantía en el aire.
+
+Sin la cascada, retirar una integración dejaría vivas sus credenciales, y lo
+único que impediría seguir ingestando sería que `authenticateApiKey` recordara
+mirar `source.deletedAt` — un invariante viviendo en un chequeo que alguien
+tiene que acordarse de escribir y de no borrar. Es el mismo razonamiento por
+el que C-3 puso las FKs compuestas en la base en vez de confiar en la
+validación de los services: **la garantía va en los datos, no en la memoria de
+quien mantiene el código.** Con la cascada, ese chequeo del ítem 4 pasa a ser
+defensa en profundidad, que es donde tiene que estar.
+
+Detalles que importan:
+
+- La revocación filtra `revokedAt: null`, así que **no pisa la fecha real** de
+  las claves que ya habían sido revocadas antes.
+- **No aplica a `isActive: false`.** Pausar es reversible y rotar credenciales
+  durante una pausa es legítimo; retirar es terminal.
+- El endpoint responde `204` como el resto de los DELETE del proyecto, así que
+  **el caller no ve cuántas claves murieron**. El conteo queda en el log a
+  nivel `info`, porque revocar credenciales es un evento de seguridad. Es un
+  efecto que la respuesta no comunica y por eso está documentado acá.
