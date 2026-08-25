@@ -7,7 +7,7 @@ import { PrismaClient } from "@prisma/client";
 // constraints, políticas RLS, la función current_organization_id) están
 // realmente ahí.
 //
-// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 14
+// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 15
 // chequeos y se escribió para correrse a mano en el SQL Editor de Supabase.
 // Acá se ejecuta igual —es una sola sentencia, de solo lectura— y además se
 // afirma sobre el subconjunto que tiene una respuesta mecánica: si algo
@@ -90,7 +90,7 @@ const ESPERADO_EXACTO = new Map<number, string>([
   [5, "12"], // 10 de rls_policies.sql + 2 de la capa de ingesta (api_keys
   //           es deny-all a propósito: RLS activa, sin políticas)
   [7, "ninguno"], // los 8 índices únicos parciales, faltantes: ninguno
-  [8, "ninguno"], // CHECK constraints faltantes
+  [8, "ninguno"], // los 5 CHECK constraints, faltantes: ninguno
   [9, "ninguno"], // triggers de email faltantes
   [10, "presente"], // función current_organization_id()
   // C-3: las FKs compuestas por organización son la garantía de aislamiento
@@ -99,6 +99,11 @@ const ESPERADO_EXACTO = new Map<number, string>([
   // aislamiento por repositorio habrían seguido pasando igual, porque prueban
   // el WHERE de la escritura, no la constraint.
   [14, "18"], // 15 de 20260821140200 + 3 de la capa de ingesta
+  // M-13: la fila 7 chequea el índice por nombre, y el nombre se conservó a
+  // propósito. Sin esta fila, una base reconstruida con la definición vieja
+  // —case-sensitive— pasaría los chequeos igual y la ingesta duplicaría
+  // contactos sin que nada avisara.
+  [15, "sobre lower(email)"],
 ]);
 
 async function main() {

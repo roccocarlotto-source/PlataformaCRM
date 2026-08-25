@@ -73,8 +73,15 @@ execute function public.propagate_auth_email_change();
 
 -- Un contacto no puede repetir email dentro de la misma organización,
 -- pero se permiten múltiples contactos sin email.
+--
+-- M-13: la unicidad se evalúa sobre lower(email), no sobre la columna cruda.
+-- Antes dependía de que normalizeEmail() bajara a minúsculas antes de escribir,
+-- y la promoción desde staging (ítem 4 de docs/ingestion-architecture.md) no
+-- pasa por contact.service. Ver la migración 20260825120000, que además explica
+-- por qué el NOMBRE del índice no se puede cambiar (rethrowAsConflict decide
+-- con target.includes("email")).
 create unique index if not exists contacts_org_email_unique
-  on public.contacts (organization_id, email)
+  on public.contacts (organization_id, lower(email))
   where email is not null and deleted_at is null;
 
 -- A lo sumo un pipeline marcado como default por organización. Incluye
@@ -146,6 +153,17 @@ alter table public.stages
 alter table public.stages
   add constraint stages_won_lost_exclusive_check
   check (not (is_won and is_lost));
+
+-- M-13 — el email de un contacto no puede tener espacios al borde.
+-- RESPALDO, NO MECANISMO: la aplicación sigue normalizando con .trim() (y la
+-- promoción del ítem 4 tiene que hacer lo mismo). Este CHECK existe para que
+-- sea imposible saltearlo. Hace falta porque lower(' x ') no es igual a
+-- lower('x'): el case lo resuelve el índice, los espacios no.
+alter table public.contacts
+  drop constraint if exists contacts_email_trimmed_check;
+alter table public.contacts
+  add constraint contacts_email_trimmed_check
+  check (email is null or email = btrim(email));
 
 -- Una actividad debe estar asociada al menos a Company, Contact u Opportunity.
 alter table public.activities

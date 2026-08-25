@@ -5,20 +5,30 @@ import { AppError } from "../utils/AppError";
 import { normalizeEmail, rethrowAsConflict } from "./contact.service";
 
 // --------------------------------------------------------------------------
-// normalizeEmail — lo que hace que contacts_org_email_unique (case-sensitive
-// en la base) cumpla su propósito.
+// normalizeEmail — después de M-13 recorta espacios y NADA MÁS.
+//
+// El case lo garantiza contacts_org_email_unique, que ahora es un índice sobre
+// lower(email): no depende de que la aplicación se acuerde de normalizar, que
+// era todo el problema de M-13. Los espacios sí siguen dependiendo de esto,
+// con el CHECK contacts_email_trimmed_check como respaldo.
 // --------------------------------------------------------------------------
 
-test("baja el email a minúsculas", () => {
-  assert.equal(normalizeEmail("John@Acme.com"), "john@acme.com");
+// El case se conserva a propósito: se guarda lo que la persona escribió, y la
+// unicidad la resuelve la base. Si esta aserción vuelve a "john@acme.com",
+// alguien reintrodujo el toLowerCase y con él la asimetría entre el service y
+// la promoción desde staging.
+test("conserva el case que escribió la persona", () => {
+  assert.equal(normalizeEmail("John@Acme.com"), "John@Acme.com");
 });
 
 test("recorta espacios en los extremos", () => {
   assert.equal(normalizeEmail("  john@acme.com  "), "john@acme.com");
 });
 
-test("dos escrituras del mismo email chocan después de normalizar", () => {
-  assert.equal(normalizeEmail("John@Acme.com"), normalizeEmail(" JOHN@ACME.COM "));
+test("el trim es lo único que queda, y sigue siendo necesario", () => {
+  // lower(' x ') !== lower('x'): sin esto, un espacio al borde crearía un
+  // duplicado que el índice no puede atrapar.
+  assert.equal(normalizeEmail(" john@acme.com "), normalizeEmail("john@acme.com"));
 });
 
 // El campo es opcional en el schema: undefined tiene que seguir siendo

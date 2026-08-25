@@ -108,7 +108,8 @@ from (
 
   union all
 
-  -- V-2 ─ Los 4 CHECK constraints.
+  -- V-2 ─ Los 5 CHECK constraints: los 4 de manual_constraints.sql más el de
+  -- espacios al borde del email de contacto (M-13).
   select 8,
     'V-2 · CHECK constraints FALTANTES',
     coalesce(string_agg(e.nombre, ', '), 'ninguno'),
@@ -117,7 +118,8 @@ from (
     ('opportunities_company_or_contact_check'),
     ('opportunities_amount_non_negative_check'),
     ('stages_won_lost_exclusive_check'),
-    ('activities_related_entity_check')
+    ('activities_related_entity_check'),
+    ('contacts_email_trimmed_check')
   ) as e(nombre)
   where not exists (
     select 1 from pg_constraint c
@@ -207,6 +209,24 @@ from (
       select a.attname from pg_attribute a
       where a.attrelid = c.confrelid and a.attnum = c.confkey[1]
     ) = 'organization_id'
+
+  union all
+
+  -- M-13 ─ La unicidad de email de contacto tiene que ser sobre lower(email),
+  -- no sobre la columna cruda. La fila 7 chequea por NOMBRE, y el nombre se
+  -- conservó a propósito —rethrowAsConflict decide con target.includes("email")
+  -- y renombrarlo degradaría el 409 específico al genérico en silencio— así que
+  -- una base reconstruida con la definición vieja pasaría la fila 7 igual. Esto
+  -- mira la definición.
+  select 15,
+    'M-13 · contacts_org_email_unique evalúa lower(email)',
+    case when exists (
+      select 1 from pg_indexes
+      where schemaname = 'public'
+        and indexname = 'contacts_org_email_unique'
+        and indexdef ilike '%lower%'
+    ) then 'sobre lower(email)' else 'FALTA — sobre la columna cruda' end,
+    'sobre lower(email)'
 
 ) as diagnostico
 order by n;

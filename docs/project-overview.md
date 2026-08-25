@@ -914,7 +914,8 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   está sincronizado con Supabase (`prisma migrate status` verificado).
 - ✅ `manual_constraints.sql` aplicado y verificado contra la base (2 triggers de
   sync de email, 4 `CHECK` constraints, 7 índices únicos parciales — los 4 de
-  `Stage`, el fix de `pipelines_org_default_unique`, `contacts_org_email_unique`,
+  `Stage`, el fix de `pipelines_org_default_unique`, `contacts_org_email_unique`
+  (redefinido sobre `lower(email)` por M-13),
   y `invitations_org_email_pending_unique`).
 - ✅ `prisma/sql/rls_policies.sql` aplicado y verificado: Row Level Security
   habilitado en las 10 tablas (incluida `invitations`), con políticas que **no
@@ -956,10 +957,13 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   (compartido con `Company`), búsqueda global (`search`, OR entre
   firstName/lastName/email) combinable con filtros específicos
   (`firstName`/`lastName`/`email`/`companyId`/`ownerId`/`lifecycleStage`/`source`)
-  en AND, y email normalizado a minúsculas antes de guardar para que la constraint
-  de unicidad `contacts_org_email_unique` (ya existente en la base) detecte
-  duplicados sin importar mayúsculas — violaciones de esa constraint se traducen a
-  `409`, no a un `500` crudo.
+  en AND, y unicidad de email por organización garantizada por la constraint
+  `contacts_org_email_unique`, que **desde el arreglo de M-13 es un índice sobre
+  `lower(email)`**: la insensibilidad a mayúsculas la impone la base, no la
+  aplicación. El service ya **no** baja a minúsculas —se guarda lo que la persona
+  escribió— y solo recorta espacios al borde, con el CHECK
+  `contacts_email_trimmed_check` como respaldo. Violaciones de la constraint se
+  traducen a `409`, no a un `500` crudo.
 - ✅ **Módulos `Pipeline` y `Stage` completos** — dejan el terreno listo para que
   `Opportunity` se construya sobre ellos. `Pipeline`: `isDefault` con auto-swap
   (desmarca el anterior antes de marcar el nuevo, nunca al revés, para no violar el
