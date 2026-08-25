@@ -92,6 +92,17 @@ async function resolveCompanyId(
 // (contacts_org_email_unique, ver manual_constraints.sql): traduce la
 // violación de esa constraint a un 409 legible en vez de un 500 crudo.
 //
+// DEPENDE DEL NOMBRE DEL ÍNDICE, y por eso M-13 lo conservó al redefinirlo.
+// El índice es parcial y sobre expresión, dos formas que el DSL de Prisma no
+// expresa, así que Prisma no puede mapearlo a nombres de campo y reporta el
+// nombre crudo en err.meta.target. Mientras contenga "email", la traducción al
+// 409 específico funciona con cualquiera de las dos formas que Prisma pueda
+// devolver (array de columnas o nombre del índice). Si alguien renombrara el
+// índice a algo sin "email" adentro, esto degradaría en silencio al 409
+// genérico y ningún test unitario lo vería — los unitarios le pasan el target
+// a mano. Por eso hay un test de integración que captura el error real de
+// Postgres y lo pasa por acá.
+//
 // Exportada para poder testear la traducción sin base (contact.service.test.ts).
 export function rethrowAsConflict(err: unknown): never {
   if (
@@ -114,13 +125,27 @@ export function rethrowAsConflict(err: unknown): never {
   throw err;
 }
 
-// Normaliza el email para que la constraint de unicidad de la base
-// (case-sensitive tal como está definida) cumpla su propósito real: sin
-// esto, "john@acme.com" y "John@Acme.com" se tratarían como distintos.
+// Recorta los espacios al borde del email antes de escribir. YA NO BAJA A
+// MINÚSCULAS, y la ausencia es deliberada (M-13):
+//
+// El case lo garantiza la base. contacts_org_email_unique es un índice sobre
+// lower(email), así que "John@Acme.com" y "john@acme.com" no pueden coexistir
+// sin que ningún código tenga que acordarse de nada. Bajar a minúsculas acá
+// sería conservar una línea cuya razón de existir se borró — y peor: la
+// promoción desde staging (ítem 4 de docs/ingestion-architecture.md) no la va a
+// ejecutar, así que el mismo contacto quedaría escrito distinto según por qué
+// puerta entró, que es exactamente el problema que M-13 vino a cerrar. Se
+// guarda lo que la persona escribió.
+//
+// El .trim() SÍ sigue siendo load-bearing, y no es simétrico con el case:
+// lower(' x ') no es igual a lower('x'), así que un espacio al borde sí crearía
+// un duplicado falso. El CHECK contacts_email_trimmed_check es el RESPALDO que
+// hace imposible saltearlo, no el mecanismo — la promoción tiene que normalizar
+// los espacios igual (ver §9.6 del documento de ingesta).
 //
 // Exportada para poder testearla sin base (contact.service.test.ts).
 export function normalizeEmail(email: string | undefined): string | undefined {
-  return email?.trim().toLowerCase();
+  return email?.trim();
 }
 
 export interface CreateContactInput {

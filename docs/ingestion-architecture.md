@@ -389,3 +389,47 @@ Detalles que importan:
   **el caller no ve cuántas claves murieron**. El conteo queda en el log a
   nivel `info`, porque revocar credenciales es un evento de seguridad. Es un
   efecto que la respuesta no comunica y por eso está documentado acá.
+
+### 9.5 El "upsert por email" de la sección 4 no puede ser `prisma.upsert()`
+
+*(2026-08-24, al resolver M-13.)*
+
+La sección 4 dice que toda promoción a `Contact` "debe ser un **upsert por
+email**, nunca un insert". Correcto — pero no se puede escribir con
+`prisma.contact.upsert()`, y conviene saberlo antes de empezar el ítem 4.
+
+`upsert` exige que el criterio de conflicto sea un único **declarado en el
+DSL**, y `contacts_org_email_unique` es un índice **parcial** —vive en la
+migración, invisible para Prisma— y a partir de M-13 es además un índice
+**sobre expresión**. Ninguna de las dos formas es expresable en el schema.
+
+La promoción va a ser SQL crudo:
+
+```sql
+INSERT INTO contacts (…) VALUES (…)
+ON CONFLICT (organization_id, lower(email)) WHERE email IS NOT NULL AND deleted_at IS NULL
+DO UPDATE SET …
+```
+
+Tiene una ventaja que no es menor: **la búsqueda ocurre dentro de la misma
+sentencia**, así que no hay un `lower()` que alguien pueda olvidar en un
+camino de lectura separado, y la política de merge de la sección 4 se expresa
+en el `DO UPDATE SET` — donde `COALESCE` sobre el valor existente hace
+literalmente lo que pide la regla "un campo entrante nulo o vacío nunca pisa
+un valor existente en el CRM".
+
+### 9.6 Normalización de email: dónde vive cada mitad, después de M-13
+
+*(2026-08-24.)*
+
+- **El case ya no se normaliza.** El índice es sobre `lower(email)`, así que
+  la insensibilidad la garantiza la base. Se guarda lo que la persona escribió.
+  `contact.service.ts` dejó de bajar a minúsculas: si el service lo hiciera y
+  la promoción no, el mismo contacto quedaría escrito distinto según por qué
+  puerta entró — que es exactamente el problema que M-13 vino a cerrar.
+- **Los espacios al borde sí se normalizan, y además hay un CHECK.**
+  `lower(' x ')` no es igual a `lower('x')`, así que un espacio sobrante sí
+  crearía un duplicado. El `.trim()` sigue en el service y la promoción tiene
+  que hacer lo mismo; el CHECK `email = btrim(email)` es el respaldo que hace
+  imposible saltearlo, no el mecanismo. Una fila que llegue con espacios se
+  marca `FAILED` con su mensaje y el lote sigue (sección 5).
