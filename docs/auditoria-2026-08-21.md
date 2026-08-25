@@ -974,6 +974,34 @@ las tres.
 | V-2 | Cuáles de los 36 objetos de `manual_constraints.sql` + `rls_policies.sql` existen realmente en la base | Confirma el alcance de **C-2** en el entorno actual |
 | V-3 | Si el rol de `DATABASE_URL` tiene `BYPASSRLS` | Es la premisa sobre la que se apoya toda la sección 5 de `authentication-architecture.md` |
 
+> **Corrección medida el 2026-08-25.** Las tres se corrieron contra el proyecto
+> real. **V-3 se sostiene:** el rol de `DATABASE_URL` es `postgres`, con
+> `rolbypassrls = true` (y `rolsuper = false`), presente en la lista de roles
+> con BYPASSRLS. **V-1 da "ninguno"** y **V-2 da los 36 objetos completos**.
+>
+> Pero el chequeo con el que V-1 se respondía era **vacío**, y eso importa más
+> que su resultado. Se apoyaba en `information_schema.role_table_grants`
+> filtrando por `grantee in ('anon','authenticated')`, y esa vista **omite por
+> definición los privilegios que llegan por un `GRANT ... TO PUBLIC`** — es la
+> diferencia documentada con `table_privileges`. Un `GRANT INSERT ... TO PUBLIC`
+> le da el privilegio a los dos roles igual y el chequeo habría seguido diciendo
+> "ninguno" con PostgREST abierto de par en par. Las filas 1 y 2 del diagnóstico
+> pasaron a `has_table_privilege`, que responde la pregunta semántica e incluye
+> PUBLIC, la herencia por membresía de rol y el `WITH GRANT OPTION`.
+>
+> Sobre el segundo límite que se le atribuyó a la vista —que solo muestra
+> privilegios donde el rol de la conexión es grantor, grantee o miembro de
+> alguno—: en este proyecto se cumple **por dos caminos independientes**, y
+> cualquiera alcanza. `postgres` es miembro directo de `anon` y de
+> `authenticated` (`pg_has_role(..., 'MEMBER')` da true en los dos), y además es
+> el dueño de todas las tablas de `public`, o sea el grantor de sus permisos.
+> Sigue siendo parcial: un grant cuyo grantor fuera `supabase_admin` seguiría
+> siendo invisible, y `postgres` **no** es miembro de ese rol (verificado,
+> false). Esa advertencia **no queda descartada sino obsoleta**: el chequeo ya
+> no usa esa vista.
+>
+> Detalle completo en `docs/bitacora-2026-08-25.md`, secciones 2 y 4.
+
 ---
 
 ## 9. Rutas de corrección
