@@ -76,3 +76,43 @@ test("no redacta ni oculta el resto del log (control negativo)", () => {
   assert.equal(logged.req.method, "GET");
   assert.equal(logged.req.url, "/api/companies");
 });
+
+// La clave de ingesta viaja en X-API-Key (docs/ingestion-architecture.md §3).
+// Se redacta desde el ítem 3, antes de que exista authenticateApiKey: es
+// defensa de logging, no autenticación, y el costo de agregarla recién con el
+// ítem 4 es que el primer request de ingesta deje una credencial viva en el log.
+test('redacta req.headers["x-api-key"] en logs', () => {
+  const { logger, lines } = createCapturingLogger();
+  const fakeApiKey = "crm_FAKE-API-KEY-FOR-LOGGER-TEST-DO-NOT-REUSE";
+
+  logger.info({ req: { headers: { "x-api-key": fakeApiKey } } }, "request completed");
+
+  const logged = JSON.parse(lines[0]);
+  assert.equal(logged.req.headers["x-api-key"], REDACT_CENSOR);
+  assert.ok(
+    !lines[0].includes(fakeApiKey),
+    "la clave cruda no debe aparecer en ningún lugar de la línea de log",
+  );
+});
+
+// Control negativo que documenta el límite real de `redact`: opera sobre el
+// objeto serializado, y los serializers de pino-std-serializers escriben
+// req.url/req.query/req.params. Una clave que viajara por querystring NO se
+// redactaría. Este test existe para que esa limitación sea visible en la suite
+// y no una nota al pie que nadie lee: es la razón por la que la clave va en un
+// header y el ítem 4 no puede aceptarla por URL.
+test("redact NO cubre la URL ni el query string — la clave nunca puede viajar por ahí", () => {
+  const { logger, lines } = createCapturingLogger();
+
+  logger.info(
+    { req: { url: "/api/ingest?apiKey=crm_SI-ESTO-PASARA-SERIA-UN-LEAK" } },
+    "request completed",
+  );
+
+  const logged = JSON.parse(lines[0]);
+  assert.equal(
+    logged.req.url,
+    "/api/ingest?apiKey=crm_SI-ESTO-PASARA-SERIA-UN-LEAK",
+    "queda sin redactar a propósito: por eso la clave va en un header, no en la URL",
+  );
+});
