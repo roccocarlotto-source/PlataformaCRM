@@ -36,15 +36,40 @@ import { prisma } from "./prisma";
 const DIAGNOSTICO = "docs/auditoria-2026-08-21-diagnostico.sql";
 
 // La cola del normalizador tal como aparece en el .sql. Se afirma más abajo que
-// este texto sigue estando en el archivo: si alguien afloja el normalizador
-// —agrega un tipo a la lista de casts, saca un paso— este test deja de estar
-// probando lo que el diagnóstico hace de verdad, y tiene que enterarse.
+// las 11 copias del archivo son idénticas a ésta y que no hay ninguna otra
+// variante: si alguien afloja el normalizador —agrega un tipo a la lista de
+// casts, saca un paso— este test deja de estar probando lo que el diagnóstico
+// hace de verdad, y tiene que enterarse.
+//
 // String.raw a propósito: así el texto entre backticks es byte por byte el
-// mismo que está en el .sql, y la aserción de más abajo —que este texto siga
-// apareciendo en el archivo— compara lo que parece que compara. Con un template
-// literal común habría que escribir `\\.` para obtener `\.`, y el texto fuente
-// dejaría de coincidir con el del .sql aunque el valor en runtime sí coincida.
+// mismo que está en el .sql, y la aserción compara lo que parece que compara.
+// Con un template literal común habría que escribir `\\.` para obtener `\.`, y
+// el texto fuente dejaría de coincidir con el del .sql aunque el valor en
+// runtime sí coincida.
 const COLA_NORMALIZADOR = String.raw`'::(character varying|text|numeric|bpchar|uuid|integer|bigint|boolean|date|jsonb|"[^"]+")', '', 'g'), 'public\.', '', 'gi'), '[\s()]', '', 'g')`;
+
+const CABEZA_NORMALIZADOR = "lower(regexp_replace(regexp_replace(regexp_replace(";
+
+// Cuántas veces aparece el normalizador completo en el .sql. Es un número
+// exacto a propósito: `includes()` devolvía true con UNA coincidencia, así que
+// la versión anterior de este test pasaba aunque 10 de las 11 copias hubieran
+// divergido — y de hecho una había divergido en el mismo commit que introdujo
+// el test. Contar es lo que convierte la aserción en una que no puede pasar sin
+// la propiedad.
+//
+// 11 = 5 comparaciones con dos lados (filas 5, 7, 8, 9 y 10) + la fila 15, que
+// compara un solo lado contra un literal ya normalizado.
+const COPIAS_ESPERADAS = 11;
+
+// Los únicos regexp_replace del archivo que NO son parte del normalizador: la
+// fila 14 saca la calificación de esquema de conrelid/confrelid para poder
+// comparar contra una firma escrita sin ella. Van en una lista blanca explícita
+// para que un regexp_replace nuevo en cualquier otro lado haga fallar el test
+// en vez de pasar por "no es del normalizador".
+const REGEXP_REPLACE_PERMITIDOS = [
+  String.raw`regexp_replace(c.conrelid::regclass::text, '^public\.', '')`,
+  String.raw`regexp_replace(c.confrelid::regclass::text, '^public\.', '')`,
+];
 
 // COLA_NORMALIZADOR termina cerrando el regexp_replace más externo; el `)` del
 // final cierra el lower().
@@ -92,11 +117,67 @@ async function assertDiscrimina(
   );
 }
 
-test("el normalizador del test es el mismo que usa el diagnóstico", () => {
-  const archivo = readFileSync(DIAGNOSTICO, "utf8");
-  assert.ok(
-    archivo.includes(COLA_NORMALIZADOR),
-    `${DIAGNOSTICO} ya no contiene el normalizador que este test replica: si se aflojó, estos tests dejaron de probar lo que el diagnóstico hace`,
+function escaparParaRegex(texto: string): string {
+  return texto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Las 11 copias del normalizador en el .sql son idénticas entre sí, idénticas a
+// la que usa este test, y no hay ninguna otra variante en el archivo.
+//
+// Las tres aserciones son distintas y hacen falta las tres:
+//   - contar las canónicas atrapa que se agregue o se saque una copia;
+//   - que no sobre ningún regexp_replace atrapa que se MODIFIQUE una (deja de
+//     matchear la forma canónica y queda como residuo) y que se invente una
+//     variante nueva;
+//   - la lista blanca atrapa que alguien meta un regexp_replace ajeno al
+//     normalizador sin declararlo.
+//
+// La versión anterior era `archivo.includes(COLA)`, que devuelve true con una
+// sola coincidencia: pasaba con 10 copias buenas y 1 divergente, que es
+// exactamente lo que había.
+test("las 11 copias del normalizador en el .sql son idénticas y no hay variantes", () => {
+  // Se sacan las líneas de comentario con el mismo criterio que extraerConsulta
+  // en scripts/verify-schema.ts: la propiedad es sobre el SQL que se le manda a
+  // Postgres, no sobre la prosa que lo explica. Sin esto, mencionar
+  // "regexp_replace" en un comentario del encabezado hace fallar el test — pasó
+  // al escribirlo.
+  const archivo = readFileSync(DIAGNOSTICO, "utf8")
+    .split("\n")
+    .filter((linea) => !/^\s*--/.test(linea))
+    .join("\n");
+
+  const canonico = new RegExp(
+    escaparParaRegex(CABEZA_NORMALIZADOR) + "[\\s\\S]*?" + escaparParaRegex(COLA_NORMALIZADOR),
+    "g",
+  );
+  const encontradas = archivo.match(canonico) ?? [];
+
+  assert.equal(
+    encontradas.length,
+    COPIAS_ESPERADAS,
+    `${DIAGNOSTICO}: se esperaban ${COPIAS_ESPERADAS} copias del normalizador canónico y hay ${encontradas.length}. ` +
+      `Si se agregó una comparación nueva, actualizá COPIAS_ESPERADAS; si una copia divergió, unificala — nunca al revés.`,
+  );
+
+  // Se sacan del texto las copias canónicas y los regexp_replace declarados.
+  // Lo que quede mencionando regexp_replace es una variante no declarada.
+  let residuo = archivo.replace(canonico, "");
+  for (const permitido of REGEXP_REPLACE_PERMITIDOS) {
+    const antes = residuo;
+    residuo = residuo.split(permitido).join("");
+    assert.notEqual(
+      residuo,
+      antes,
+      `${DIAGNOSTICO}: el regexp_replace declarado en la lista blanca ya no está en el archivo: ${permitido}`,
+    );
+  }
+
+  const sobrantes = residuo.split("regexp_replace").length - 1;
+  assert.equal(
+    sobrantes,
+    0,
+    `${DIAGNOSTICO}: quedaron ${sobrantes} usos de regexp_replace que no son el normalizador canónico ni están en la lista blanca. ` +
+      `Una copia modificada del normalizador aparece acá: unificala contra COLA_NORMALIZADOR en vez de aflojarla.`,
   );
 });
 

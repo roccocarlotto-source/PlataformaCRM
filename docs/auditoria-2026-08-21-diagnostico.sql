@@ -56,6 +56,25 @@
 -- Cuando una afirmación falla, el resultado incluye la definición REAL además
 -- del nombre del objeto: el mensaje tiene que alcanzar para arreglarlo sin
 -- volver a la base.
+--
+-- EL NORMALIZADOR ESTÁ COPIADO 11 VECES, y las 11 tienen que ser IDÉNTICAS.
+-- Postgres no deja declarar una función en una sentencia de solo lectura, y
+-- este archivo tiene que seguir siendo una sola sentencia pegable en el SQL
+-- Editor, así que la repetición es el precio. Una copia que diverja convierte
+-- esa fila en un chequeo distinto del que dice ser — y en la primera versión de
+-- este archivo eso ya pasó: la fila 15 tenía dos reemplazos en vez de tres.
+--
+-- src/lib/schema-diagnostic.integration-test.ts cuenta las apariciones, afirma
+-- el número EXACTO, y afirma además que no queda en el archivo ninguna otra
+-- secuencia de reemplazos anidados fuera de las dos calificaciones de regclass
+-- de la fila 14. Agregar una copia, modificar una, o inventar una variante,
+-- rompe ese test.
+--
+-- REGLA cuando una fila falla: la corrección es poner en `esperado` lo que la
+-- base devolvió de verdad. Nunca aflojar el normalizador, nunca agregar un tipo
+-- a la lista de casts para que pase, nunca tocar el esquema. Un `esperado` mal
+-- transcrito es un bug de una línea; un normalizador aflojado es exactamente
+-- cómo se llegó al `ilike` de una subcadena que esta revisión vino a sacar.
 -- ---------------------------------------------------------------------------
 
 select n, chequeo, resultado, esperado
@@ -467,7 +486,7 @@ from (
     'M-13 · contacts_org_email_unique evalúa lower(email) en su 2.ª columna',
     coalesce(
       (select case
-         when lower(regexp_replace(regexp_replace(pg_get_indexdef(i.oid, 2, true), '::(character varying|text|numeric|bpchar|uuid|integer|bigint|boolean|date|jsonb|"[^"]+")', '', 'g'), '[\s()]', '', 'g'))
+         when lower(regexp_replace(regexp_replace(regexp_replace(pg_get_indexdef(i.oid, 2, true), '::(character varying|text|numeric|bpchar|uuid|integer|bigint|boolean|date|jsonb|"[^"]+")', '', 'g'), 'public\.', '', 'gi'), '[\s()]', '', 'g'))
             = 'loweremail'
          then 'sobre lower(email)'
          else 'CAMBIÓ: ' || pg_get_indexdef(i.oid, 2, true)
