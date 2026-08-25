@@ -17,6 +17,11 @@ import { PrismaClient } from "@prisma/client";
 // Las filas que corresponden a hallazgos ABIERTOS de la auditoría (A-6, A-7)
 // se imprimen pero no se afirman: hoy fallan a propósito y no son un defecto
 // de la construcción de la base.
+//
+// Sobre qué hace útil a este script: afirmar que un objeto EXISTE es barato y
+// pasa casi siempre. Afirmar que hace lo que dice es lo que lo convierte en una
+// defensa. Ver el encabezado del .sql para el método y para el límite conocido
+// del normalizador de expresiones.
 
 const DIAGNOSTICO = "docs/auditoria-2026-08-21-diagnostico.sql";
 
@@ -84,26 +89,67 @@ function extraerConsulta(texto: string): string {
 }
 
 // Chequeos con respuesta mecánica: fila → valor exacto que debe devolver.
-const ESPERADO_EXACTO = new Map<number, string>([
-  [1, "ninguno"], // C-1: anon/authenticated sin escritura sobre public
-  [2, "ninguno"], // C-1: anon/authenticated sin lectura sobre public
-  [5, "12"], // 10 de rls_policies.sql + 2 de la capa de ingesta (api_keys
-  //           es deny-all a propósito: RLS activa, sin políticas)
-  [7, "ninguno"], // los 8 índices únicos parciales, faltantes: ninguno
-  [8, "ninguno"], // los 5 CHECK constraints, faltantes: ninguno
-  [9, "ninguno"], // triggers de email faltantes
-  [10, "presente"], // función current_organization_id()
+//
+// Revisión del 2026-08-25: las 9 afirmaciones comparan ahora la DEFINICIÓN de
+// cada objeto, no su existencia. Antes casi todas preguntaban "¿hay algo que se
+// llame así?", y esa pregunta la contesta que sí un índice recreado sin su
+// predicado parcial, un CHECK reescrito para no restringir nada, una política
+// de RLS con USING (true) o una FK apuntando al padre equivocado. El detalle de
+// qué compara cada fila, y contra qué, está en el encabezado del .sql.
+//
+// Un efecto buscado del cambio: varias filas pasaron de devolver un CONTEO a
+// devolver la LISTA DE DISCREPANCIAS. Un conteo correcto no implica un esquema
+// correcto —12 políticas pueden ser 11 buenas y una que abre la base— y cuando
+// falla no dice qué falló. Ahora el valor esperado es "ninguna"/"ninguno" y el
+// resultado, cuando no lo es, trae el objeto y su definición real.
+//
+// Cada entrada lleva su descripción además del valor esperado. No es
+// decoración: si una fila deja de volver del .sql, su `chequeo` tampoco vuelve,
+// y el único lugar de donde se puede sacar el nombre para reportarla como
+// ausente es este Map.
+interface ChequeoAfirmado {
+  descripcion: string;
+  esperado: string;
+}
+
+const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
+  // C-1: vía has_table_privilege, que incluye los GRANT a PUBLIC y la herencia
+  // por membresía de rol — los dos invisibles para la vista de
+  // information_schema que se consultaba antes.
+  [1, { descripcion: "C-1 · anon/authenticated sin escritura sobre public", esperado: "ninguno" }],
+  [2, { descripcion: "C-1 · anon/authenticated sin lectura sobre public", esperado: "ninguno" }],
+  // Las 12 políticas de RLS comparadas por definición (cmd, permissive, roles,
+  // USING y WITH CHECK), con FULL OUTER JOIN para atrapar tanto la que falta
+  // como la que sobra.
+  [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
+  [7, { descripcion: "Los 8 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
+  [8, { descripcion: "Los 5 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
+  [9, { descripcion: "Los 2 triggers de email, por pg_get_triggerdef", esperado: "ninguno" }],
+  [10, {
+    descripcion:
+      "current_organization_id(): security definer, search_path, tipo de retorno y cuerpo",
+    esperado: "conforme",
+  }],
   // C-3: las FKs compuestas por organización son la garantía de aislamiento
-  // central del proyecto, y hasta ahora nada en CI comprobaba que existieran
-  // — la migración que las creó podía perderse en un rebase y los tests de
-  // aislamiento por repositorio habrían seguido pasando igual, porque prueban
-  // el WHERE de la escritura, no la constraint.
-  [14, "18"], // 15 de 20260821140200 + 3 de la capa de ingesta
-  // M-13: la fila 7 chequea el índice por nombre, y el nombre se conservó a
-  // propósito. Sin esta fila, una base reconstruida con la definición vieja
-  // —case-sensitive— pasaría los chequeos igual y la ingesta duplicaría
-  // contactos sin que nada avisara.
-  [15, "sobre lower(email)"],
+  // central del proyecto, y hasta la capa de ingesta nada en CI comprobaba que
+  // existieran — la migración que las creó podía perderse en un rebase y los
+  // tests de aislamiento por repositorio habrían seguido pasando igual, porque
+  // prueban el WHERE de la escritura, no la constraint.
+  //
+  // Ya no es un conteo: las 18 se verifican una por una contra valores de
+  // catálogo (columnas resueltas a nombre, y los códigos de confupdtype /
+  // confdeltype / confmatchtype), así que quedan afirmadas también las acciones
+  // referenciales que la migración 20260821140200 discutió una por una.
+  [14, {
+    descripcion: "C-3 · las 18 FKs compuestas: que falten, sobren o hayan cambiado",
+    esperado: "ninguna",
+  }],
+  // M-13, deliberadamente redundante con la fila 7: guardarraíl con nombre
+  // propio para un hallazgo concreto, que falla diciendo M-13.
+  [15, {
+    descripcion: "M-13 · contacts_org_email_unique evalúa lower(email) en su 2.ª columna",
+    esperado: "sobre lower(email)",
+  }],
 ]);
 
 async function main() {
@@ -120,10 +166,12 @@ async function main() {
   console.log(`\nDiagnóstico de esquema (${DIAGNOSTICO}) — ${filas.length} chequeos\n`);
 
   const fallidos: Fila[] = [];
+  let evaluados = 0;
   for (const fila of filas) {
-    const esperado = ESPERADO_EXACTO.get(fila.n);
-    const afirmado = esperado !== undefined;
-    const ok = !afirmado || fila.resultado === esperado;
+    const chequeo = ESPERADO_EXACTO.get(fila.n);
+    const afirmado = chequeo !== undefined;
+    if (afirmado) evaluados++;
+    const ok = !afirmado || fila.resultado === chequeo.esperado;
     if (!ok) fallidos.push(fila);
 
     const marca = !afirmado ? "·" : ok ? "✔" : "✖";
@@ -136,13 +184,42 @@ async function main() {
     `\n(· = informativo, no se afirma: corresponde a hallazgos abiertos de la auditoría)\n`,
   );
 
+  // El camino inverso del bucle de arriba, y hace falta.
+  //
+  // Ese bucle recorre las filas que VOLVIERON y para cada una busca su
+  // expectativa. Una expectativa cuya fila dejó de volver —porque alguien borró
+  // un `union all` del .sql— nunca se consulta: no entra en `fallidos`, y el
+  // script terminaba anunciando "los 9 chequeos afirmados pasaron", donde 9 era
+  // el tamaño del Map y no la cantidad que se evaluó de verdad. Borrar una fila
+  // del .sql desactivaba su chequeo en silencio, que es la peor forma de
+  // desactivarlo.
+  const devueltas = new Set(filas.map((fila) => fila.n));
+  const ausentes = [...ESPERADO_EXACTO.keys()].filter((n) => !devueltas.has(n));
+
+  if (ausentes.length > 0) {
+    console.error(
+      `El diagnóstico NO devolvió ${ausentes.length} de los ${ESPERADO_EXACTO.size} chequeos afirmados. ` +
+        `No fallaron: no se evaluaron.\n`,
+    );
+    for (const n of ausentes) {
+      console.error(`  ⚠ fila ${n} — ${ESPERADO_EXACTO.get(n)?.descripcion}`);
+    }
+    console.error(
+      `\nRevisar ${DIAGNOSTICO}: probablemente se borró o se renumeró el ` +
+        `\`union all\` de esas filas. Si la fila se sacó a propósito, sacar ` +
+        `también su entrada de ESPERADO_EXACTO — dejarla huérfana hace que el ` +
+        `script cuente un chequeo que no existe.`,
+    );
+    process.exit(1);
+  }
+
   if (fallidos.length > 0) {
     console.error(
-      `La base NO quedó completa: fallaron ${fallidos.length} de los ${ESPERADO_EXACTO.size} chequeos afirmados.\n`,
+      `La base NO quedó completa: fallaron ${fallidos.length} de los ${evaluados} chequeos afirmados que se evaluaron.\n`,
     );
     for (const fila of fallidos) {
       console.error(
-        `  ✖ ${fila.chequeo}\n      obtuvo:   ${fila.resultado}\n      requería: ${ESPERADO_EXACTO.get(fila.n)}`,
+        `  ✖ ${fila.chequeo}\n      obtuvo:   ${fila.resultado}\n      requería: ${ESPERADO_EXACTO.get(fila.n)?.esperado}`,
       );
     }
     console.error(
@@ -152,8 +229,10 @@ async function main() {
     process.exit(1);
   }
 
+  // `evaluados`, no ESPERADO_EXACTO.size: el número que se reporta tiene que ser
+  // el de chequeos que efectivamente se compararon contra una fila real.
   console.log(
-    `Esquema completo: los ${ESPERADO_EXACTO.size} chequeos afirmados pasaron.`,
+    `Esquema completo: se evaluaron ${evaluados} chequeos afirmados y pasaron los ${evaluados}.`,
   );
 }
 
