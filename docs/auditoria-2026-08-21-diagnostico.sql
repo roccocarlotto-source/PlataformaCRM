@@ -70,6 +70,11 @@
 -- de la fila 14. Agregar una copia, modificar una, o inventar una variante,
 -- rompe ese test.
 --
+-- DEUDA OPCIONAL: reordenar el cuerpo como CTE para que el normalizador aparezca
+-- una sola vez. Ese test ya cerró el riesgo, así que lo que queda es estética, y
+-- la CTE tendría que abstraer sobre cuatro formas de comparación genuinamente
+-- distintas — no se hace hasta que haya con qué probarla.
+--
 -- REGLA cuando una fila falla: la corrección es poner en `esperado` lo que la
 -- base devolvió de verdad. Nunca aflojar el normalizador, nunca agregar un tipo
 -- a la lista de casts para que pase, nunca tocar el esquema. Un `esperado` mal
