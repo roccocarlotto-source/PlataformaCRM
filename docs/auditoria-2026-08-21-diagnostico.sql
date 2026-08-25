@@ -67,7 +67,7 @@ from (
   select 5,
     'V-2 · Políticas RLS presentes',
     count(*)::text,
-    '12 (10 de rls_policies.sql + 2 de la capa de ingesta; api_keys es
+    '12 (10 de rls_policies.sql + 2 de la capa de ingesta — api_keys es
      deny-all a propósito: RLS activa y sin políticas)'
   from pg_policies
   where schemaname = 'public'
@@ -157,7 +157,7 @@ from (
   select 11,
     'A-6 · Índices que empiezan por (organization_id, created_at)',
     coalesce(string_agg(indexname, ', '), 'ninguno'),
-    '6, uno por entidad listable (A-6 sigue abierto para las 6 viejas);
+    '6, uno por entidad listable (A-6 sigue abierto para las 6 viejas) —
      sources ya lo tiene, parcial, desde la capa de ingesta'
   from pg_indexes
   where schemaname = 'public'

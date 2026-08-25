@@ -27,18 +27,58 @@ interface Fila {
   esperado: string;
 }
 
+// Devuelve la posición del `;` que TERMINA la sentencia, ignorando los que
+// están dentro de una cadena entre comillas simples.
+//
+// La distinción no es teórica: el diagnóstico es un documento escrito para
+// humanos y sus textos de `esperado` son prosa entre comillas, donde un `;` es
+// un signo de puntuación como cualquier otro. Cortar en el primero partía la
+// consulta en medio de una cadena, y Postgres respondía "42601: unterminated
+// quoted string" — un error que no menciona ni el archivo ni el literal
+// culpable, así que el costo de encontrarlo es alto y no baja con la
+// experiencia.
+//
+// Alcanza con seguir un solo bit de estado: en SQL una comilla simple abre y
+// cierra la cadena, y `''` dentro de una cadena es una comilla literal que no
+// la cierra. Este archivo no usa dollar quoting ($$…$$) ni cadenas E'' con
+// backslash, las dos formas que este barrido no contempla.
+function encontrarFinDeSentencia(sql: string): number {
+  let enCadena = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const caracter = sql[i];
+
+    if (caracter === "'") {
+      if (enCadena && sql[i + 1] === "'") {
+        i++; // comilla escapada: se consume el par y se sigue dentro
+        continue;
+      }
+      enCadena = !enCadena;
+      continue;
+    }
+
+    if (caracter === ";" && !enCadena) return i;
+  }
+
+  return -1;
+}
+
 // El .sql es un documento para humanos: una sentencia seguida de comentarios
-// con instrucciones. Se sacan las líneas de comentario y se corta en el
-// primer `;` para quedarse exactamente con la consulta.
+// con instrucciones. Se sacan las líneas de comentario y se corta en el `;`
+// que cierra la consulta.
 function extraerConsulta(texto: string): string {
   const sinComentarios = texto
     .split("\n")
     .filter((linea) => !/^\s*--/.test(linea))
     .join("\n");
 
-  const fin = sinComentarios.indexOf(";");
+  const fin = encontrarFinDeSentencia(sinComentarios);
   if (fin === -1) {
-    throw new Error(`${DIAGNOSTICO}: no se encontró ninguna sentencia SQL.`);
+    throw new Error(
+      `${DIAGNOSTICO}: no se encontró el \`;\` que cierra la sentencia. Si el ` +
+        `archivo sí tiene uno, probablemente haya una comilla simple sin cerrar ` +
+        `antes: el barrido quedó "dentro de una cadena" hasta el final.`,
+    );
   }
   return sinComentarios.slice(0, fin);
 }
