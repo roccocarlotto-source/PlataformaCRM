@@ -7,7 +7,7 @@ import { PrismaClient } from "@prisma/client";
 // constraints, políticas RLS, la función current_organization_id) están
 // realmente ahí.
 //
-// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 13
+// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 14
 // chequeos y se escribió para correrse a mano en el SQL Editor de Supabase.
 // Acá se ejecuta igual —es una sola sentencia, de solo lectura— y además se
 // afirma sobre el subconjunto que tiene una respuesta mecánica: si algo
@@ -27,18 +27,58 @@ interface Fila {
   esperado: string;
 }
 
+// Devuelve la posición del `;` que TERMINA la sentencia, ignorando los que
+// están dentro de una cadena entre comillas simples.
+//
+// La distinción no es teórica: el diagnóstico es un documento escrito para
+// humanos y sus textos de `esperado` son prosa entre comillas, donde un `;` es
+// un signo de puntuación como cualquier otro. Cortar en el primero partía la
+// consulta en medio de una cadena, y Postgres respondía "42601: unterminated
+// quoted string" — un error que no menciona ni el archivo ni el literal
+// culpable, así que el costo de encontrarlo es alto y no baja con la
+// experiencia.
+//
+// Alcanza con seguir un solo bit de estado: en SQL una comilla simple abre y
+// cierra la cadena, y `''` dentro de una cadena es una comilla literal que no
+// la cierra. Este archivo no usa dollar quoting ($$…$$) ni cadenas E'' con
+// backslash, las dos formas que este barrido no contempla.
+function encontrarFinDeSentencia(sql: string): number {
+  let enCadena = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const caracter = sql[i];
+
+    if (caracter === "'") {
+      if (enCadena && sql[i + 1] === "'") {
+        i++; // comilla escapada: se consume el par y se sigue dentro
+        continue;
+      }
+      enCadena = !enCadena;
+      continue;
+    }
+
+    if (caracter === ";" && !enCadena) return i;
+  }
+
+  return -1;
+}
+
 // El .sql es un documento para humanos: una sentencia seguida de comentarios
-// con instrucciones. Se sacan las líneas de comentario y se corta en el
-// primer `;` para quedarse exactamente con la consulta.
+// con instrucciones. Se sacan las líneas de comentario y se corta en el `;`
+// que cierra la consulta.
 function extraerConsulta(texto: string): string {
   const sinComentarios = texto
     .split("\n")
     .filter((linea) => !/^\s*--/.test(linea))
     .join("\n");
 
-  const fin = sinComentarios.indexOf(";");
+  const fin = encontrarFinDeSentencia(sinComentarios);
   if (fin === -1) {
-    throw new Error(`${DIAGNOSTICO}: no se encontró ninguna sentencia SQL.`);
+    throw new Error(
+      `${DIAGNOSTICO}: no se encontró el \`;\` que cierra la sentencia. Si el ` +
+        `archivo sí tiene uno, probablemente haya una comilla simple sin cerrar ` +
+        `antes: el barrido quedó "dentro de una cadena" hasta el final.`,
+    );
   }
   return sinComentarios.slice(0, fin);
 }
@@ -47,11 +87,18 @@ function extraerConsulta(texto: string): string {
 const ESPERADO_EXACTO = new Map<number, string>([
   [1, "ninguno"], // C-1: anon/authenticated sin escritura sobre public
   [2, "ninguno"], // C-1: anon/authenticated sin lectura sobre public
-  [5, "10"], // rls_policies.sql define 10 políticas
-  [7, "ninguno"], // índices únicos parciales faltantes
+  [5, "12"], // 10 de rls_policies.sql + 2 de la capa de ingesta (api_keys
+  //           es deny-all a propósito: RLS activa, sin políticas)
+  [7, "ninguno"], // los 8 índices únicos parciales, faltantes: ninguno
   [8, "ninguno"], // CHECK constraints faltantes
   [9, "ninguno"], // triggers de email faltantes
   [10, "presente"], // función current_organization_id()
+  // C-3: las FKs compuestas por organización son la garantía de aislamiento
+  // central del proyecto, y hasta ahora nada en CI comprobaba que existieran
+  // — la migración que las creó podía perderse en un rebase y los tests de
+  // aislamiento por repositorio habrían seguido pasando igual, porque prueban
+  // el WHERE de la escritura, no la constraint.
+  [14, "18"], // 15 de 20260821140200 + 3 de la capa de ingesta
 ]);
 
 async function main() {

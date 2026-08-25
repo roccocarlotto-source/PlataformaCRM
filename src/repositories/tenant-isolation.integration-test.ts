@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test, before, after } from "node:test";
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { findRoleByName } from "./role.repository";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
@@ -40,8 +41,32 @@ import { revokeInvitationConditional } from "./invitation.repository";
 // cambian — la función debe abortar la transacción completa antes de tocar
 // nada, no solo "saltear" el id ajeno.
 //
+// SEGUNDA PROPIEDAD, agregada con la capa de ingesta: que la BASE rechace una
+// referencia cross-tenant. Antes de C-3 (migración 20260821140200) no tenía
+// sentido escribir estos tests, porque la base no las rechazaba: las FKs eran
+// de columna simple y Postgres solo verificaba que el UUID referenciado
+// existiera, no que perteneciera a la misma organización. El caso no es
+// hipotético — la primera corrida de la suite completa en CI encontró un
+// fixture que llevaba semanas creando una referencia cross-tenant real
+// (invitation.service.integration-test.ts:291).
+//
+// La diferencia con las 16 de arriba importa: allá la garantía es el WHERE de
+// la escritura, la prueba la ejecuta el repository y el éxito es count === 0.
+// Acá la garantía es la constraint, la escritura va directo por Prisma sin
+// pasar por ninguna capa nuestra, y el éxito es una EXCEPCIÓN. Es
+// deliberadamente un test del contrato de la base, no de nuestro código: la
+// promoción masiva staging -> Contact (ítem 4 del documento de ingesta) no
+// pasa por los services, así que las FKs compuestas van a ser su única
+// defensa.
+//
+// Los tests de escritura no-op de Source, ApiKey e IngestionEvent —los
+// equivalentes a los 16 de arriba— NO están acá: esos modelos todavía no
+// tienen repository, y crearlo es el ítem 3 del documento. Un
+// `prisma.source.updateMany({ where: { id, organizationId } })` escrito hoy no
+// probaría nada nuestro, solo que Prisma traduce un WHERE a SQL.
+//
 // Un solo fixture (Organization A + Organization B con un registro real por
-// entidad) se crea una vez en `before` y se reusa en las 16 pruebas: ninguna
+// entidad) se crea una vez en `before` y se reusa en las 24 pruebas: ninguna
 // debería lograr mutar el estado de B si el aislamiento funciona, así que
 // compartir el fixture es seguro y evita crear una identidad real de
 // Supabase Auth por caso.
@@ -58,8 +83,11 @@ interface Fixture {
   opportunityB: { id: string };
   activityB: { id: string };
   invitationB: { id: string };
+  sourceB: { id: string };
   pipelineA: { id: string };
   stageA1: { id: string };
+  contactA: { id: string };
+  sourceA: { id: string };
   authUserId: string;
 }
 
@@ -159,6 +187,14 @@ before(async () => {
     },
   });
 
+  const sourceB = await prisma.source.create({
+    data: {
+      organizationId: orgB.id,
+      name: "M4 Org B Source",
+      type: "WEBHOOK",
+    },
+  });
+
   // Pipeline/Stage de Organization A — usados solo por el test de
   // reindexStages, como el Stage "ajeno" que Pipeline B nunca debería poder
   // reindexar.
@@ -167,6 +203,26 @@ before(async () => {
   });
   const stageA1 = await prisma.stage.create({
     data: { organizationId: orgA.id, pipelineId: pipelineA.id, name: "A Stage 1", order: 1 },
+  });
+
+  // Contact y Source de Organization A — los referentes LEGÍTIMOS de los
+  // casos positivos de las pruebas de FK. Sin ellos, una escritura rechazada
+  // no distinguiría "la constraint funcionó" de "la fila estaba mal armada
+  // por otra razón".
+  const contactA = await prisma.contact.create({
+    data: {
+      organizationId: orgA.id,
+      firstName: "M4",
+      lastName: "Org A Contact",
+    },
+  });
+
+  const sourceA = await prisma.source.create({
+    data: {
+      organizationId: orgA.id,
+      name: "M4 Org A Source",
+      type: "WEBHOOK",
+    },
   });
 
   fx = {
@@ -181,18 +237,28 @@ before(async () => {
     opportunityB: { id: opportunityB.id },
     activityB: { id: activityB.id },
     invitationB: { id: invitationB.id },
+    sourceB: { id: sourceB.id },
     pipelineA: { id: pipelineA.id },
     stageA1: { id: stageA1.id },
+    contactA: { id: contactA.id },
+    sourceA: { id: sourceA.id },
     authUserId: authUserB.id,
   };
 });
 
 after(async () => {
   if (!fx) return;
+  const ambas = { in: [fx.orgA.id, fx.orgB.id] };
+
+  // ingestion_events y api_keys primero: sus FKs a sources son RESTRICT, así
+  // que Postgres rechaza borrar una Source que todavía tenga hijas.
+  await prisma.ingestionEvent.deleteMany({ where: { organizationId: ambas } });
+  await prisma.apiKey.deleteMany({ where: { organizationId: ambas } });
+  await prisma.source.deleteMany({ where: { organizationId: ambas } });
   await prisma.invitation.deleteMany({ where: { organizationId: fx.orgB.id } });
   await prisma.activity.deleteMany({ where: { organizationId: fx.orgB.id } });
   await prisma.opportunity.deleteMany({ where: { organizationId: fx.orgB.id } });
-  await prisma.contact.deleteMany({ where: { organizationId: fx.orgB.id } });
+  await prisma.contact.deleteMany({ where: { organizationId: ambas } });
   await prisma.company.deleteMany({ where: { organizationId: fx.orgB.id } });
   await prisma.stage.deleteMany({
     where: { organizationId: { in: [fx.orgA.id, fx.orgB.id] } },
@@ -381,4 +447,169 @@ test("reindexStages: no reindexa un Stage ajeno al pipeline (de otra organizaci�
     stageB2Before,
     "la transacción debe abortar completa: ni los Stages legítimos de Pipeline B cambian",
   );
+});
+
+// ---------------------------------------------------------------------------
+// Rechazo de referencias cross-tenant por la base — las FKs compuestas de C-3
+// aplicadas a la capa de ingesta.
+// ---------------------------------------------------------------------------
+
+// La escritura debe fallar con P2003 (violación de FK). Si fallara con
+// cualquier otro código —P2002, un NOT NULL, un enum inválido— el test estaría
+// pasando por la razón equivocada, así que el predicado es exacto.
+async function assertViolaFk(write: () => Promise<unknown>, label: string) {
+  await assert.rejects(
+    write,
+    (err: unknown) =>
+      err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003",
+    `${label}: la base debe rechazar la referencia cross-tenant con una violación de FK`,
+  );
+}
+
+test("ApiKey de Organization A apuntando a una Source de Organization B: la base la rechaza", async () => {
+  await assertViolaFk(
+    () =>
+      prisma.apiKey.create({
+        data: {
+          organizationId: fx.orgA.id,
+          sourceId: fx.sourceB.id,
+          keyHash: `cross-tenant-${randomUUID()}`,
+          keyPrefix: "crm_xxxx",
+        },
+      }),
+    "api_keys -> sources",
+  );
+});
+
+test("ApiKey de Organization A apuntando a una Source de Organization A: entra bien", async () => {
+  const apiKey = await prisma.apiKey.create({
+    data: {
+      organizationId: fx.orgA.id,
+      sourceId: fx.sourceA.id,
+      keyHash: `legitima-${randomUUID()}`,
+      keyPrefix: "crm_ok01",
+    },
+  });
+
+  assert.equal(apiKey.organizationId, fx.orgA.id);
+  assert.equal(apiKey.sourceId, fx.sourceA.id);
+});
+
+test("IngestionEvent de Organization A apuntando a una Source de Organization B: la base lo rechaza", async () => {
+  await assertViolaFk(
+    () =>
+      prisma.ingestionEvent.create({
+        data: {
+          organizationId: fx.orgA.id,
+          sourceId: fx.sourceB.id,
+          rawPayload: { email: "cross-tenant@example.test" },
+        },
+      }),
+    "ingestion_events -> sources",
+  );
+});
+
+test("IngestionEvent de Organization A con promotedContactId de Organization B: la base lo rechaza", async () => {
+  await assertViolaFk(
+    () =>
+      prisma.ingestionEvent.create({
+        data: {
+          organizationId: fx.orgA.id,
+          sourceId: fx.sourceA.id,
+          rawPayload: { email: "promocion-cruzada@example.test" },
+          status: "PROCESSED",
+          promotedContactId: fx.contactB.id,
+        },
+      }),
+    "ingestion_events -> contacts",
+  );
+});
+
+test("IngestionEvent de Organization A con promotedContactId de Organization A: entra bien", async () => {
+  const evento = await prisma.ingestionEvent.create({
+    data: {
+      organizationId: fx.orgA.id,
+      sourceId: fx.sourceA.id,
+      rawPayload: { email: "promocion-legitima@example.test" },
+      status: "PROCESSED",
+      promotedContactId: fx.contactA.id,
+    },
+  });
+
+  assert.equal(evento.promotedContactId, fx.contactA.id);
+});
+
+// MATCH SIMPLE, no MATCH FULL: con organization_id NOT NULL y
+// promoted_contact_id nullable, la FK no se valida mientras la columna
+// nullable sea NULL. Es el estado de todo evento todavía no promovido — el
+// caso normal, no el borde — así que conviene que esté probado y no supuesto.
+test("IngestionEvent sin promotedContactId: la FK compuesta no se evalúa y el evento entra", async () => {
+  const evento = await prisma.ingestionEvent.create({
+    data: {
+      organizationId: fx.orgA.id,
+      sourceId: fx.sourceA.id,
+      rawPayload: { email: "sin-promover@example.test" },
+    },
+  });
+
+  assert.equal(evento.promotedContactId, null);
+  assert.equal(evento.status, "PENDING");
+});
+
+// ---------------------------------------------------------------------------
+// Idempotencia — el único parcial (source_id, external_id) WHERE external_id
+// IS NOT NULL. No es aislamiento multi-tenant, pero es la otra garantía que
+// esta etapa delega en la base en vez de en el código, y se prueba igual: por
+// el contrato, no por la implementación.
+// ---------------------------------------------------------------------------
+
+test("dos IngestionEvent con el mismo (sourceId, externalId): la base rechaza el segundo", async () => {
+  const externalId = `evt-${randomUUID()}`;
+
+  await prisma.ingestionEvent.create({
+    data: {
+      organizationId: fx.orgA.id,
+      sourceId: fx.sourceA.id,
+      externalId,
+      rawPayload: { intento: 1 },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      prisma.ingestionEvent.create({
+        data: {
+          organizationId: fx.orgA.id,
+          sourceId: fx.sourceA.id,
+          externalId,
+          rawPayload: { intento: 2 },
+        },
+      }),
+    (err: unknown) =>
+      err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002",
+    "el reintento con el mismo externalId debe violar el único parcial",
+  );
+});
+
+test("dos IngestionEvent con externalId nulo sobre la misma Source: entran los dos", async () => {
+  const primero = await prisma.ingestionEvent.create({
+    data: {
+      organizationId: fx.orgA.id,
+      sourceId: fx.sourceA.id,
+      rawPayload: { fila: 1 },
+    },
+  });
+  const segundo = await prisma.ingestionEvent.create({
+    data: {
+      organizationId: fx.orgA.id,
+      sourceId: fx.sourceA.id,
+      rawPayload: { fila: 2 },
+    },
+  });
+
+  // El índice es PARCIAL a propósito: los contactos sin identificador externo
+  // no se deduplican entre sí (sección 4 del documento de ingesta), se
+  // promueven como nuevos y se marcan para revisión manual. Un único sin el
+  // WHERE dejaría pasar exactamente una fila sin externalId por Source.
+  assert.notEqual(primero.id, segundo.id);
 });

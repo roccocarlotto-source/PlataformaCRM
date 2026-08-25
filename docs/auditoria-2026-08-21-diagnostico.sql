@@ -67,7 +67,8 @@ from (
   select 5,
     'V-2 · Políticas RLS presentes',
     count(*)::text,
-    '10 (rls_policies.sql define 10)'
+    '12 (10 de rls_policies.sql + 2 de la capa de ingesta — api_keys es
+     deny-all a propósito: RLS activa y sin políticas)'
   from pg_policies
   where schemaname = 'public'
 
@@ -83,7 +84,9 @@ from (
 
   union all
 
-  -- V-2 ─ Los 7 índices únicos parciales de manual_constraints.sql.
+  -- V-2 ─ Los 8 índices únicos parciales: los 7 de manual_constraints.sql
+  -- más el de idempotencia de la ingesta, que vive en la migración
+  -- 20260824120000 (C-2: no hay DDL fuera de las migraciones).
   select 7,
     'V-2 · Índices únicos parciales FALTANTES',
     coalesce(string_agg(e.nombre, ', '), 'ninguno'),
@@ -95,7 +98,8 @@ from (
     ('stages_pipeline_name_unique'),
     ('stages_pipeline_won_unique'),
     ('stages_pipeline_lost_unique'),
-    ('invitations_org_email_pending_unique')
+    ('invitations_org_email_pending_unique'),
+    ('ingestion_events_source_external_unique')
   ) as e(nombre)
   where not exists (
     select 1 from pg_indexes i
@@ -153,7 +157,8 @@ from (
   select 11,
     'A-6 · Índices que empiezan por (organization_id, created_at)',
     coalesce(string_agg(indexname, ', '), 'ninguno'),
-    '6, uno por entidad listable'
+    '6, uno por entidad listable (A-6 sigue abierto para las 6 viejas) —
+     sources ya lo tiene, parcial, desde la capa de ingesta'
   from pg_indexes
   where schemaname = 'public'
     and indexdef like '%(organization_id, created_at%'
@@ -176,6 +181,32 @@ from (
     '0 — si es > 0, esos usuarios no se pueden actualizar ni remover'
   from public.users u
   where not exists (select 1 from auth.users a where a.id = u.id)
+
+  union all
+
+  -- C-3 ─ Las FKs compuestas por organización. Es la garantía de aislamiento
+  -- central del proyecto —Postgres rechazando a nivel de motor cualquier fila
+  -- cuya organización no coincida con la de la fila referenciada— y hasta la
+  -- capa de ingesta nada en CI comprobaba que existieran. Cuenta solo las FKs
+  -- de exactamente dos columnas cuya primera columna, de los dos lados, es
+  -- organization_id.
+  select 14,
+    'C-3 · FKs compuestas (organization_id, x_id) -> padre(organization_id, id)',
+    count(*)::text,
+    '18 — 15 de la migración 20260821140200 + 3 de la capa de ingesta'
+  from pg_constraint c
+  join pg_namespace ns on ns.oid = c.connamespace
+  where ns.nspname = 'public'
+    and c.contype = 'f'
+    and array_length(c.conkey, 1) = 2
+    and (
+      select a.attname from pg_attribute a
+      where a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+    ) = 'organization_id'
+    and (
+      select a.attname from pg_attribute a
+      where a.attrelid = c.confrelid and a.attnum = c.confkey[1]
+    ) = 'organization_id'
 
 ) as diagnostico
 order by n;
