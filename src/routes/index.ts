@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { activityRouter } from "./activity.routes";
+import { apiKeyRouter } from "./apiKey.routes";
 import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
 import { healthRouter } from "./health.routes";
@@ -8,6 +9,7 @@ import { meRouter } from "./me.routes";
 import { onboardingRouter } from "./onboarding.routes";
 import { opportunityRouter } from "./opportunity.routes";
 import { pipelineRouter } from "./pipeline.routes";
+import { sourceRouter } from "./source.routes";
 import { stageRouter } from "./stage.routes";
 import { userRouter } from "./user.routes";
 
@@ -27,3 +29,9 @@ routes.use("/api", opportunityRouter);
 routes.use("/api", activityRouter);
 routes.use("/api", invitationRouter);
 routes.use("/api", userRouter);
+
+// Capa de ingesta (docs/ingestion-architecture.md). Administración por el
+// camino de auth existente; las rutas de ingesta propiamente dichas son el
+// ítem 4 y van a montar su propio middleware.
+routes.use("/api", sourceRouter);
+routes.use("/api", apiKeyRouter);

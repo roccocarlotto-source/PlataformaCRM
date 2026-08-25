@@ -21,6 +21,11 @@ import {
 import { updateActivity, softDeleteActivity } from "./activity.repository";
 import { updateUser, softDeleteUser } from "./user.repository";
 import { revokeInvitationConditional } from "./invitation.repository";
+import { updateSource, softDeleteSource } from "./source.repository";
+import {
+  revokeApiKeyConditional,
+  revokeApiKeysBySource,
+} from "./apiKey.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -59,14 +64,20 @@ import { revokeInvitationConditional } from "./invitation.repository";
 // pasa por los services, así que las FKs compuestas van a ser su única
 // defensa.
 //
-// Los tests de escritura no-op de Source, ApiKey e IngestionEvent —los
-// equivalentes a los 16 de arriba— NO están acá: esos modelos todavía no
-// tienen repository, y crearlo es el ítem 3 del documento. Un
-// `prisma.source.updateMany({ where: { id, organizationId } })` escrito hoy no
-// probaría nada nuestro, solo que Prisma traduce un WHERE a SQL.
+// LOS TESTS DE ESCRITURA DIFERIDOS DEL ÍTEM 2, saldados en el ítem 3. Aquella
+// vez no se escribieron porque los modelos nuevos no tenían repository, y un
+// `prisma.source.updateMany({ where: { id, organizationId } })` no habría
+// probado nada nuestro, solo que Prisma traduce un WHERE a SQL. Ahora Source y
+// ApiKey sí tienen repository, así que sus 4 escrituras entran con el mismo
+// patrón que las 16 originales.
+//
+// IngestionEvent SIGUE SIN ELLOS, y esta vez la razón es distinta: nada en el
+// ítem 3 escribe eventos de ingesta, así que darle un repository ahora sería
+// crear código muerto para poder testearlo. Sus escrituras nacen con el ítem 4
+// —el worker y la promoción— y sus tests van con ellas.
 //
 // Un solo fixture (Organization A + Organization B con un registro real por
-// entidad) se crea una vez en `before` y se reusa en las 24 pruebas: ninguna
+// entidad) se crea una vez en `before` y se reusa en las 28 pruebas: ninguna
 // debería lograr mutar el estado de B si el aislamiento funciona, así que
 // compartir el fixture es seguro y evita crear una identidad real de
 // Supabase Auth por caso.
@@ -84,6 +95,7 @@ interface Fixture {
   activityB: { id: string };
   invitationB: { id: string };
   sourceB: { id: string };
+  apiKeyB: { id: string };
   pipelineA: { id: string };
   stageA1: { id: string };
   contactA: { id: string };
@@ -195,6 +207,15 @@ before(async () => {
     },
   });
 
+  const apiKeyB = await prisma.apiKey.create({
+    data: {
+      organizationId: orgB.id,
+      sourceId: sourceB.id,
+      keyHash: `m4-org-b-hash-${randomUUID()}`,
+      keyPrefix: "crm_orgb01",
+    },
+  });
+
   // Pipeline/Stage de Organization A — usados solo por el test de
   // reindexStages, como el Stage "ajeno" que Pipeline B nunca debería poder
   // reindexar.
@@ -238,6 +259,7 @@ before(async () => {
     activityB: { id: activityB.id },
     invitationB: { id: invitationB.id },
     sourceB: { id: sourceB.id },
+    apiKeyB: { id: apiKeyB.id },
     pipelineA: { id: pipelineA.id },
     stageA1: { id: stageA1.id },
     contactA: { id: contactA.id },
@@ -446,6 +468,46 @@ test("reindexStages: no reindexa un Stage ajeno al pipeline (de otra organizaci�
     stageB2After,
     stageB2Before,
     "la transacción debe abortar completa: ni los Stages legítimos de Pipeline B cambian",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Las escrituras de la capa de ingesta (ítem 3), mismo patrón que las 16 de
+// arriba: la garantía bajo prueba es el WHERE efectivo del repository.
+// ---------------------------------------------------------------------------
+
+test("updateSource: id de Organization B + organizationId de Organization A no modifica la Source", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.source.findUniqueOrThrow({ where: { id: fx.sourceB.id } }),
+    () => updateSource(fx.sourceB.id, fx.orgA.id, { name: "hijacked-source" }),
+    "updateSource",
+  );
+});
+
+test("softDeleteSource: id de Organization B + organizationId de Organization A no borra la Source", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.source.findUniqueOrThrow({ where: { id: fx.sourceB.id } }),
+    () => softDeleteSource(fx.sourceB.id, fx.orgA.id),
+    "softDeleteSource",
+  );
+});
+
+test("revokeApiKeyConditional: id de Organization B + organizationId de Organization A no revoca la ApiKey", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.apiKey.findUniqueOrThrow({ where: { id: fx.apiKeyB.id } }),
+    () => revokeApiKeyConditional(fx.apiKeyB.id, fx.orgA.id),
+    "revokeApiKeyConditional",
+  );
+});
+
+// La escritura MASIVA, que es la que más caro sale si el aislamiento falla:
+// una sola llamada podría matar todas las credenciales de una fuente ajena.
+// Recibe el sourceId de B con el organizationId de A y no debe tocar nada.
+test("revokeApiKeysBySource: sourceId de Organization B + organizationId de Organization A no revoca ninguna ApiKey", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.apiKey.findUniqueOrThrow({ where: { id: fx.apiKeyB.id } }),
+    () => revokeApiKeysBySource(fx.sourceB.id, fx.orgA.id),
+    "revokeApiKeysBySource",
   );
 });
 
