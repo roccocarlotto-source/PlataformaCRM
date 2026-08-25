@@ -17,6 +17,11 @@ import { PrismaClient } from "@prisma/client";
 // Las filas que corresponden a hallazgos ABIERTOS de la auditoría (A-6, A-7)
 // se imprimen pero no se afirman: hoy fallan a propósito y no son un defecto
 // de la construcción de la base.
+//
+// Sobre qué hace útil a este script: afirmar que un objeto EXISTE es barato y
+// pasa casi siempre. Afirmar que hace lo que dice es lo que lo convierte en una
+// defensa. Ver el encabezado del .sql para el método y para el límite conocido
+// del normalizador de expresiones.
 
 const DIAGNOSTICO = "docs/auditoria-2026-08-21-diagnostico.sql";
 
@@ -84,25 +89,47 @@ function extraerConsulta(texto: string): string {
 }
 
 // Chequeos con respuesta mecánica: fila → valor exacto que debe devolver.
+//
+// Revisión del 2026-08-25: las 9 afirmaciones comparan ahora la DEFINICIÓN de
+// cada objeto, no su existencia. Antes casi todas preguntaban "¿hay algo que se
+// llame así?", y esa pregunta la contesta que sí un índice recreado sin su
+// predicado parcial, un CHECK reescrito para no restringir nada, una política
+// de RLS con USING (true) o una FK apuntando al padre equivocado. El detalle de
+// qué compara cada fila, y contra qué, está en el encabezado del .sql.
+//
+// Un efecto buscado del cambio: varias filas pasaron de devolver un CONTEO a
+// devolver la LISTA DE DISCREPANCIAS. Un conteo correcto no implica un esquema
+// correcto —12 políticas pueden ser 11 buenas y una que abre la base— y cuando
+// falla no dice qué falló. Ahora el valor esperado es "ninguna"/"ninguno" y el
+// resultado, cuando no lo es, trae el objeto y su definición real.
 const ESPERADO_EXACTO = new Map<number, string>([
-  [1, "ninguno"], // C-1: anon/authenticated sin escritura sobre public
-  [2, "ninguno"], // C-1: anon/authenticated sin lectura sobre public
-  [5, "12"], // 10 de rls_policies.sql + 2 de la capa de ingesta (api_keys
-  //           es deny-all a propósito: RLS activa, sin políticas)
-  [7, "ninguno"], // los 8 índices únicos parciales, faltantes: ninguno
-  [8, "ninguno"], // los 5 CHECK constraints, faltantes: ninguno
-  [9, "ninguno"], // triggers de email faltantes
-  [10, "presente"], // función current_organization_id()
+  // C-1: vía has_table_privilege, que incluye los GRANT a PUBLIC y la herencia
+  // por membresía de rol — los dos invisibles para la vista de
+  // information_schema que se consultaba antes.
+  [1, "ninguno"], // anon/authenticated sin escritura sobre public
+  [2, "ninguno"], // anon/authenticated sin lectura sobre public
+  // Las 12 políticas de RLS comparadas por definición (cmd, permissive, roles,
+  // USING y WITH CHECK), con FULL OUTER JOIN para atrapar tanto la que falta
+  // como la que sobra.
+  [5, "ninguna"], // políticas que faltan, sobran o cambiaron
+  [7, "ninguno"], // los 8 índices únicos parciales, por pg_get_indexdef
+  [8, "ninguno"], // los 5 CHECK constraints, por pg_get_constraintdef
+  [9, "ninguno"], // los 2 triggers de email, por pg_get_triggerdef
+  [10, "conforme"], // current_organization_id(): security definer, search_path,
+  //                   tipo de retorno y cuerpo
   // C-3: las FKs compuestas por organización son la garantía de aislamiento
-  // central del proyecto, y hasta ahora nada en CI comprobaba que existieran
-  // — la migración que las creó podía perderse en un rebase y los tests de
-  // aislamiento por repositorio habrían seguido pasando igual, porque prueban
-  // el WHERE de la escritura, no la constraint.
-  [14, "18"], // 15 de 20260821140200 + 3 de la capa de ingesta
-  // M-13: la fila 7 chequea el índice por nombre, y el nombre se conservó a
-  // propósito. Sin esta fila, una base reconstruida con la definición vieja
-  // —case-sensitive— pasaría los chequeos igual y la ingesta duplicaría
-  // contactos sin que nada avisara.
+  // central del proyecto, y hasta la capa de ingesta nada en CI comprobaba que
+  // existieran — la migración que las creó podía perderse en un rebase y los
+  // tests de aislamiento por repositorio habrían seguido pasando igual, porque
+  // prueban el WHERE de la escritura, no la constraint.
+  //
+  // Ya no es un conteo: las 18 se verifican una por una contra valores de
+  // catálogo (columnas resueltas a nombre, y los códigos de confupdtype /
+  // confdeltype / confmatchtype), así que quedan afirmadas también las acciones
+  // referenciales que la migración 20260821140200 discutió una por una.
+  [14, "ninguna"], // FKs que faltan, sobran o cambiaron
+  // M-13, deliberadamente redundante con la fila 7: guardarraíl con nombre
+  // propio para un hallazgo concreto, que falla diciendo M-13.
   [15, "sobre lower(email)"],
 ]);
 
