@@ -36,6 +36,7 @@ test("LOS ENCABEZADOS NO SE TRADUCEN: las filas salen con las claves del archivo
 // ---------------------------------------------------------------------------
 
 test("el BOM de un CSV exportado por Excel no contamina el primer encabezado", async () => {
+  // eslint-disable-next-line no-irregular-whitespace -- el ejemplo de la línea siguiente lleva un BOM (U+FEFF) real embebido: es lo que el comentario está mostrando, no un typo. Escaparlo lo explicaría pero no lo exhibiría, y el punto es justamente que el carácter es invisible.
   // Sin bom: true el primer encabezado llegaría como "﻿Nombre" y NINGÚN
   // mapeo lo encontraría jamás — con el agravante de que el archivo se ve bien.
   const conBom = Buffer.concat([

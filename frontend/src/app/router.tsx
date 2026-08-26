@@ -22,12 +22,7 @@ import { AcceptInvitationPage } from "../features/auth/AcceptInvitationPage";
 import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
-
-// NotFoundPlaceholder queda público a propósito: un 404 no expone datos de
-// negocio, no hace falta resolver sesión antes de mostrarlo.
-function NotFoundPlaceholder() {
-  return <div>Página no encontrada</div>;
-}
+import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },

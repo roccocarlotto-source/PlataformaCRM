@@ -43,6 +43,24 @@ export interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// SE DEJA EL HOOK ACÁ Y SE SILENCIA EL AVISO, en vez de mudarlo a su propio
+// archivo como se hizo con NotFoundPlaceholder en app/router.tsx. La diferencia
+// no es de criterio, es de radio de impacto:
+//
+//   - NotFoundPlaceholder se usaba en UN solo lugar. Mudarlo costó un archivo
+//     nuevo y un import.
+//   - useAuth lo importan 31 archivos, y —esto es lo que decide— 12 tests hacen
+//     `vi.mock("../../auth/AuthContext")` POR RUTA DE MÓDULO. Si el hook se
+//     mudara, esos mocks seguirían interceptando un módulo que ya no lo exporta
+//     y los componentes bajo test pasarían a usar el useAuth REAL. No fallarían
+//     con un error de import: fallarían de a poco, o peor, seguirían en verde
+//     probando otra cosa.
+//
+// El costo de no mudarlo es acotado y conocido: al editar este archivo, Vite
+// hace un reload completo en vez de un hot-reload con estado preservado. Es una
+// molestia de desarrollo, no un defecto del producto — y este archivo casi no se
+// edita. Cambiar eso por 12 mocks silenciosamente rotos sería un mal negocio.
+// eslint-disable-next-line react-refresh/only-export-components -- ver arriba: mudar useAuth rompería 12 vi.mock por ruta sin que ningún test lo diga
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) {
