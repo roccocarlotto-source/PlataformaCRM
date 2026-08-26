@@ -13,6 +13,7 @@ import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
 import { importRouter } from "../routes/import.routes";
 import { sourceRouter } from "../routes/source.routes";
+import { IMPORT_MAX_FILE_BYTES } from "../utils/spreadsheet";
 import { drenarPendientes } from "../workers/ingestionWorker";
 
 // ---------------------------------------------------------------------------
@@ -337,6 +338,47 @@ test("subir el MISMO archivo dos veces no duplica: la segunda vez todo es duplic
   );
 });
 
+test("dos filas IDÉNTICAS del mismo archivo son dos eventos, no un duplicado", async () => {
+  const source = await crearSource("Filas repetidas", "FILE_IMPORT");
+  const csv = [
+    "Nombre,Mail",
+    "Ana,ana-repe@ejemplo.test",
+    "Ana,ana-repe@ejemplo.test",
+    "Beto,beto-repe@ejemplo.test",
+  ].join("\n");
+
+  const res = await subir(admin.accessToken, source, "repetidas.csv", csv);
+  assert.equal(res.status, 202);
+
+  const body = (await res.json()) as {
+    batchId: string;
+    filasLeidas: number;
+    insertados: number;
+    duplicados: number;
+  };
+
+  // Dos filas de contenido idéntico son DOS LEADS, no uno repetido: la misma
+  // persona anotada dos veces en la planilla de la feria sigue siendo un dato
+  // que el ADMIN puso ahí. El externalId incluye el número de fila justamente
+  // para que no colapsen — insertPendingEventsBatch afirma esto en un
+  // comentario, y sin este test la afirmación solo estaba probada sobre el hash
+  // (unit de spreadsheet), nunca contra el índice único real de la tabla.
+  assert.equal(body.filasLeidas, 3);
+  assert.equal(body.insertados, 3);
+  assert.equal(body.duplicados, 0);
+
+  const eventos = await prisma.ingestionEvent.findMany({
+    where: { organizationId: orgId, batchId: body.batchId },
+    select: { externalId: true },
+  });
+  assert.equal(eventos.length, 3);
+  assert.equal(
+    new Set(eventos.map((e) => e.externalId)).size,
+    3,
+    "los tres externalId tienen que ser distintos o el ON CONFLICT se come una fila",
+  );
+});
+
 test("un XLSX real se parsea igual que un CSV", async () => {
   const source = await crearSource("Excel", "FILE_IMPORT");
 
@@ -370,9 +412,134 @@ test("no se puede importar contra una fuente WEBHOOK", async () => {
   assert.equal(res.status, 400);
 });
 
+test("un sourceId inexistente da 404 — y el de otra organización, y el retirado, también", async () => {
+  const inexistente = await subir(
+    admin.accessToken,
+    randomUUID(),
+    "l.csv",
+    "Nombre\nAna",
+  );
+  assert.equal(inexistente.status, 404);
+
+  const otraOrg = await prisma.organization.create({
+    data: {
+      name: `Import otra org fuente ${randomUUID()}`,
+      slug: `import-otra-fuente-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    },
+  });
+
+  try {
+    const ajena = await prisma.source.create({
+      data: { organizationId: otraOrg.id, name: "Ajena", type: "FILE_IMPORT" },
+      select: { id: true },
+    });
+
+    // La fuente EXISTE y es del tipo correcto, pero es de otra organización:
+    // 404, indistinguible del inexistente. Si esto diera 400 ("no es
+    // FILE_IMPORT") o 403, confirmaría que el recurso existe — el aislamiento
+    // se rompe igual por lo que el error DEJA VER que por lo que deja hacer.
+    const res = await subir(admin.accessToken, ajena.id, "l.csv", "Nombre\nAna");
+    assert.equal(res.status, 404);
+
+    assert.equal(
+      await prisma.ingestionEvent.count({ where: { organizationId: otraOrg.id } }),
+      0,
+      "no se pudo haber escrito nada en la organización ajena",
+    );
+  } finally {
+    await prisma.ingestionEvent.deleteMany({ where: { organizationId: otraOrg.id } });
+    await prisma.source.deleteMany({ where: { organizationId: otraOrg.id } });
+    await prisma.organization.deleteMany({ where: { id: otraOrg.id } });
+  }
+
+  // findSourceById filtra `deletedAt: null`, así que una fuente retirada
+  // tampoco existe para la API. El comentario de import.service.ts afirma las
+  // dos cosas; acá se verifican las dos.
+  const retirada = await crearSource("Retirada", "FILE_IMPORT");
+  await prisma.source.update({
+    where: { id: retirada },
+    data: { deletedAt: new Date() },
+  });
+
+  const resRetirada = await subir(admin.accessToken, retirada, "l.csv", "Nombre\nAna");
+  assert.equal(resRetirada.status, 404);
+});
+
+test("una fuente PAUSADA (isActive: false) rechaza la importación con 400", async () => {
+  const source = await crearSource("Pausada", "FILE_IMPORT");
+  await prisma.source.update({ where: { id: source }, data: { isActive: false } });
+
+  // Pausar una integración tiene que pausar TODAS sus puertas de entrada, no
+  // solo la automática: si el archivo entrara igual, "pausada" significaría
+  // apenas "pausada para el webhook" y el ADMIN que la pausó no lo sabría.
+  const res = await subir(admin.accessToken, source, "l.csv", "Nombre,Mail\nAna,ana@ejemplo.test");
+  assert.equal(res.status, 400);
+
+  assert.equal(
+    await prisma.ingestionEvent.count({ where: { organizationId: orgId, sourceId: source } }),
+    0,
+    "una fuente pausada no puede dejar filas en staging",
+  );
+
+  // Y despausarla la vuelve a habilitar, sin ningún otro paso: el rechazo es
+  // por el estado actual, no por algo que quedó marcado en la fuente.
+  await prisma.source.update({ where: { id: source }, data: { isActive: true } });
+  const despues = await subir(
+    admin.accessToken,
+    source,
+    "l.csv",
+    "Nombre,Mail\nAna,ana-pausada@ejemplo.test",
+  );
+  assert.equal(despues.status, 202);
+});
+
 test("una extensión no soportada da 415", async () => {
   const res = await subir(admin.accessToken, sourceFile, "leads.txt", "Nombre\nAna");
   assert.equal(res.status, 415);
+});
+
+test("un archivo por encima de IMPORT_MAX_FILE_BYTES da 413, no el 500 que daría sin traducir", async () => {
+  // Mismo criterio que el 413 del webhook en ingest.controller.integration-test:
+  // el tope se ejercita mandando un cuerpo real que lo supera, no simulando el
+  // error de multer. Sin la traducción de importUpload, un MulterError no es un
+  // AppError y errorHandler lo mandaría a 500 — un error del servidor por algo
+  // que hizo el cliente.
+  const gigante = Buffer.alloc(IMPORT_MAX_FILE_BYTES + 1024, "x");
+
+  const res = await subir(admin.accessToken, sourceFile, "gigante.csv", gigante);
+
+  assert.equal(res.status, 413);
+});
+
+test('un multipart SIN el campo "file" da 400, no un 500 por req.file undefined', async () => {
+  // El handler hace `req.file!`. Ese non-null solo es honesto si el middleware
+  // garantiza que existe: si algún día se sacara el chequeo de importUpload,
+  // esto pasaría de 400 a un TypeError convertido en 500, y este test es lo
+  // único que lo vería.
+  const form = new FormData();
+  form.append("sourceId", sourceFile);
+
+  const res = await fetch(`${baseUrl}/api/imports`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${admin.accessToken}` },
+    body: form,
+  });
+
+  assert.equal(res.status, 400);
+});
+
+test("el archivo en un campo con OTRO nombre también da 400, no se acepta en silencio", async () => {
+  const form = new FormData();
+  form.append("sourceId", sourceFile);
+  form.append("archivo", new Blob(["Nombre\nAna"]), "l.csv");
+
+  const res = await fetch(`${baseUrl}/api/imports`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${admin.accessToken}` },
+    body: form,
+  });
+
+  assert.equal(res.status, 400);
 });
 
 test("un USER no puede importar: es ADMIN-only, por el camino de auth existente", async () => {

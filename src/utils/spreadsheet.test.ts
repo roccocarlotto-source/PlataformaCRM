@@ -95,6 +95,24 @@ test("un archivo sin filas de datos se rechaza", async () => {
   );
 });
 
+// DECISIÓN: SE GENERAN LAS 10.000 FILAS DE VERDAD, sin exponer el tope como
+// parámetro inyectable ni bajarlo para el test.
+//
+// La alternativa era darle a parsearArchivo un `maxFilas` opcional para poder
+// probar el rechazo con 3 filas. Se descartó por dos razones, y la segunda es
+// la que decide:
+//
+//   1. Cuesta nada. Armar y parsear 10.005 filas tarda ~15 ms — tres órdenes de
+//      magnitud menos que cualquier test de integración de este proyecto. El
+//      problema que ese parámetro resolvería no existe.
+//   2. Un `maxFilas` inyectable haría que el test NO PRUEBE la constante real.
+//      Pasaría igual si MAX_FILAS_POR_ARCHIVO se cambiara a 10 o a 10 millones,
+//      que es justamente el valor cuyo efecto se quiere fijar. Una costura que
+//      solo existe para los tests y que además afloja lo que el test afirma es
+//      peor que el costo que evita.
+//
+// El test importa la constante en vez de repetir el 10.000: si el tope cambia,
+// el test sigue siendo válido sin tocarlo.
 test("un archivo con más filas que el máximo se rechaza en vez de truncarse", async () => {
   const lineas = ["Nombre,Mail"];
   for (let i = 0; i < MAX_FILAS_POR_ARCHIVO + 5; i++) {
@@ -170,6 +188,100 @@ test("un .xlsx que en realidad no es un Excel da 400, no una excepción cruda", 
     () => parsearArchivo(csv("esto no es un zip"), "xlsx"),
     (err: unknown) => err instanceof AppError && err.statusCode === 400,
   );
+});
+
+// ---------------------------------------------------------------------------
+// XLSX: normalización de celdas que NO son primitivos
+//
+// Una celda de Excel puede llegar como objeto de exceljs —texto enriquecido,
+// hipervínculo, fórmula—. Guardar esos objetos crudos en el JSONB no conservaría
+// más información, solo la haría ilegible: `[object Object]` o un árbol de runs
+// de formato del que después nadie puede sacar el mail. Lo que se normaliza es
+// CÓMO SE REPRESENTA el valor; el NOMBRE de la columna sigue intacto, que es lo
+// único que el fieldMapping puede corregir más tarde.
+// ---------------------------------------------------------------------------
+
+test("una celda de TEXTO ENRIQUECIDO se aplana al texto que la persona ve", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const hoja = workbook.addWorksheet("Leads");
+  hoja.addRow(["Nombre", "Mail"]);
+  const fila = hoja.addRow([]);
+  // Media celda en negrita: es lo que produce pegar desde Word o resaltar a
+  // mano una parte del nombre, y no debería cambiar en nada el dato importado.
+  fila.getCell(1).value = {
+    richText: [
+      { font: { bold: true }, text: "Ana" },
+      { text: " Gómez" },
+    ],
+  };
+  fila.getCell(2).value = "ana@ejemplo.test";
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+  const parseado = await parsearArchivo(buffer, "xlsx");
+
+  assert.deepEqual(parseado.filas, [{ Nombre: "Ana Gómez", Mail: "ana@ejemplo.test" }]);
+});
+
+test("una celda de FÓRMULA guarda su RESULTADO, no la fórmula", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const hoja = workbook.addWorksheet("Leads");
+  hoja.addRow(["Nombre", "Mail"]);
+  const fila = hoja.addRow([]);
+  fila.getCell(1).value = "Ana";
+  // Concatenar usuario y dominio en una columna es de lo más común en una
+  // planilla armada a mano. Guardar 'CONCATENATE(...)' en vez del mail haría
+  // fallar la promoción con un motivo incomprensible.
+  fila.getCell(2).value = {
+    formula: 'CONCATENATE("ana","@ejemplo.test")',
+    result: "ana@ejemplo.test",
+  };
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+  const parseado = await parsearArchivo(buffer, "xlsx");
+
+  assert.deepEqual(parseado.filas, [{ Nombre: "Ana", Mail: "ana@ejemplo.test" }]);
+});
+
+test("una celda con HIPERVÍNCULO guarda el texto visible, no el objeto", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const hoja = workbook.addWorksheet("Leads");
+  hoja.addRow(["Nombre", "Mail"]);
+  const fila = hoja.addRow([]);
+  fila.getCell(1).value = "Ana";
+  // Excel convierte solo cualquier cosa que parezca un mail en un mailto:.
+  fila.getCell(2).value = {
+    text: "ana@ejemplo.test",
+    hyperlink: "mailto:ana@ejemplo.test",
+  };
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+  const parseado = await parsearArchivo(buffer, "xlsx");
+
+  assert.equal(parseado.filas[0].Mail, "ana@ejemplo.test");
+});
+
+test("SOLO SE LEE LA PRIMERA HOJA del libro, y las demás se ignoran enteras", async () => {
+  const workbook = new ExcelJS.Workbook();
+
+  const primera = workbook.addWorksheet("Leads");
+  primera.addRow(["Nombre", "Mail"]);
+  primera.addRow(["Ana", "ana@ejemplo.test"]);
+
+  // Otra hoja con OTROS encabezados: es el caso normal de un libro real (una
+  // hoja de leads y otra de notas o totales). Concatenarlas produciría filas
+  // con los encabezados de la hoja equivocada.
+  const segunda = workbook.addWorksheet("Notas");
+  segunda.addRow(["Comentario", "Autor"]);
+  segunda.addRow(["revisar", "Beto"]);
+
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+  const parseado = await parsearArchivo(buffer, "xlsx");
+
+  assert.deepEqual(parseado.encabezados, ["Nombre", "Mail"]);
+  assert.deepEqual(parseado.filas, [{ Nombre: "Ana", Mail: "ana@ejemplo.test" }]);
+  // Ni el encabezado ni el dato de la segunda hoja se filtran.
+  assert.equal(parseado.filas.length, 1);
+  assert.ok(!("Comentario" in parseado.filas[0]));
 });
 
 // ---------------------------------------------------------------------------
