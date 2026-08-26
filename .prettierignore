@@ -1,0 +1,36 @@
+# Dependencias y artefactos de build (los dos paquetes: raíz y frontend/).
+node_modules/
+dist/
+coverage/
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+
+# Lockfiles: los genera npm, no se editan a mano y reformatearlos solo produce
+# ruido en cada diff.
+package-lock.json
+frontend/package-lock.json
+
+# El cliente generado de Prisma NO está versionado en este repo (solo
+# prisma/schema.prisma lo está), así que no hay nada que ignorar hoy. Estas dos
+# líneas son por si alguna vez se decide commitearlo.
+prisma/generated/
+**/.prisma/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MARKDOWN: NADA de markdown se formatea, y no es exceso de precaución.
+#
+# El pedido original era excluir docs/**/*.md porque "se edita a mano con mucho
+# cuidado de redacción". Ese motivo no es una propiedad de la CARPETA, es una
+# propiedad del ARCHIVO: README.md y CLAUDE.md son exactamente el mismo tipo de
+# artefacto —prosa curada donde el corte de línea es una decisión— y pr-body*.md
+# también. Formatear README.md movería 12 líneas sin ganar nada.
+#
+# Si alguna vez se quiere formatear markdown, la línea correcta es acotar esto a
+# docs/**/*.md y aceptar el diff en los demás, no al revés.
+# ─────────────────────────────────────────────────────────────────────────────
+*.md
+
+# Cuerpos de PR: ya ignorados por git (.gitignore), pero pueden existir en el
+# working tree y no son parte del proyecto.
+pr-body*.md
