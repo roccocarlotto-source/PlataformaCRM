@@ -124,8 +124,6 @@ describe("LoginPage — escenarios STD-SW-003", () => {
     useAuthMock.mockReturnValue(mockAuth({ status: "authenticated" }));
     rerender(buildUi());
 
-    await waitFor(() =>
-      expect(screen.getByText("detalle de compañía")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("detalle de compañía")).toBeInTheDocument());
   });
 });

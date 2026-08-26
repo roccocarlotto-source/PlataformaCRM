@@ -57,9 +57,7 @@ export interface OpcionesDrenado {
 // TRANSACCIÓN, y eso es lo que hace estructural el requisito de §5 de que una
 // fila mala no aborte el lote: no hay ninguna transacción compartida que una
 // fila pueda abortar.
-export async function drenarPendientes(
-  opciones: OpcionesDrenado = {},
-): Promise<ResumenDrenado> {
+export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<ResumenDrenado> {
   const limite = opciones.limite ?? env.INGEST_WORKER_BATCH_SIZE;
   const resumen: ResumenDrenado = { procesados: 0, fallidos: 0, pospuestos: 0 };
 

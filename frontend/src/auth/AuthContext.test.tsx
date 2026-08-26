@@ -27,12 +27,10 @@ const mock = vi.hoisted(() => {
   let callback: ((event: string, session: MockSession | null) => void) | null = null;
   let currentSession: MockSession | null = null;
 
-  const onAuthStateChange = vi.fn(
-    (cb: (event: string, session: MockSession | null) => void) => {
-      callback = cb;
-      return { data: { subscription: { unsubscribe: vi.fn() } } };
-    },
-  );
+  const onAuthStateChange = vi.fn((cb: (event: string, session: MockSession | null) => void) => {
+    callback = cb;
+    return { data: { subscription: { unsubscribe: vi.fn() } } };
+  });
   const getSession = vi.fn(async () => ({ data: { session: currentSession } }));
   const signInWithPassword = vi.fn(async () => ({ error: null as Error | null }));
   const signOut = vi.fn(async () => ({ error: null as Error | null }));
@@ -105,9 +103,7 @@ function Probe() {
     <div>
       <span data-testid="status">{auth.status}</span>
       <span data-testid="me-id">{auth.me?.id ?? ""}</span>
-      <span data-testid="account-unavailable-reason">
-        {auth.accountUnavailableReason ?? ""}
-      </span>
+      <span data-testid="account-unavailable-reason">{auth.accountUnavailableReason ?? ""}</span>
       <span data-testid="profile-error">{auth.profileError?.message ?? ""}</span>
       <span data-testid="logout-error">{logoutError ?? ""}</span>
       <button onClick={handleLogout}>logout</button>
@@ -144,9 +140,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
 
     mock.emit("INITIAL_SESSION", sessionFor("user-a", "token-a"));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("authenticated"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("authenticated"));
     expect(screen.getByTestId("me-id").textContent).toBe("user-a");
   });
 
@@ -155,9 +149,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
 
     mock.emit("INITIAL_SESSION", null);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("unauthenticated"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("unauthenticated"));
     expect(mock.getSession).not.toHaveBeenCalled();
   });
 
@@ -167,9 +159,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     const clearSpy = vi.spyOn(queryClient, "clear");
 
     mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("authenticated"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("authenticated"));
     expect(clearSpy).toHaveBeenCalledTimes(1);
 
     mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
@@ -202,15 +192,11 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     server.use(meSuccessHandler(profileA, "token-a"));
     renderAuthProvider();
     mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("authenticated"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("authenticated"));
 
     mock.emit("SIGNED_OUT", null);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("unauthenticated"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("unauthenticated"));
     expect(screen.getByTestId("me-id").textContent).toBe("");
   });
 
@@ -220,9 +206,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     const queryClient = renderAuthProvider();
 
     mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("authenticated"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("authenticated"));
 
     const clearSpy = vi.spyOn(queryClient, "clear");
     mock.signOut.mockResolvedValueOnce({ error: new Error("network down") });
@@ -248,9 +232,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     try {
       const queryClient = renderAuthProvider();
       mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
-      await waitFor(() =>
-        expect(screen.getByTestId("status").textContent).toBe("authenticated"),
-      );
+      await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("authenticated"));
 
       const countAfterLogin = requestCount;
       const clearSpy = vi.spyOn(queryClient, "clear");
@@ -299,10 +281,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
 
   it("11. ApiError 403 en /api/me pasa a account-unavailable con el mensaje real", async () => {
     server.use(
-      meErrorHandler(
-        403,
-        "Tu cuenta todavía no está activada. Contactá a tu administrador.",
-      ),
+      meErrorHandler(403, "Tu cuenta todavía no está activada. Contactá a tu administrador."),
     );
     renderAuthProvider();
     mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
@@ -320,9 +299,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     renderAuthProvider();
     mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("profile-error"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("profile-error"));
     expect(screen.getByTestId("profile-error").textContent).not.toBe("");
   });
 
@@ -331,9 +308,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     renderAuthProvider();
     mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("profile-error"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("profile-error"));
     expect(screen.getByTestId("profile-error").textContent).not.toBe("");
   });
 
@@ -352,9 +327,7 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     // como efecto de un signOut exitoso (mismo patrón que el escenario 7).
     mock.emit("SIGNED_OUT", null);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("unauthenticated"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("unauthenticated"));
     expect(screen.getByTestId("me-id").textContent).toBe("");
   });
 
@@ -363,16 +336,12 @@ describe("AuthProvider — escenarios STD-SW-003", () => {
     server.use(meErrorHandler(500, "Error interno del servidor"));
     renderAuthProvider();
     mock.emit("SIGNED_IN", sessionFor("user-a", "token-a"));
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("profile-error"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("profile-error"));
 
     server.use(meSuccessHandler(profileA, "token-a"));
     await user.click(screen.getByText("retry"));
 
-    await waitFor(() =>
-      expect(screen.getByTestId("status").textContent).toBe("authenticated"),
-    );
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("authenticated"));
     expect(screen.getByTestId("me-id").textContent).toBe("user-a");
   });
 });

@@ -15,22 +15,14 @@ export interface ActivityFilters {
   completedAtTo?: Date;
 }
 
-export type ActivitySortBy =
-  | "createdAt"
-  | "updatedAt"
-  | "dueDate"
-  | "completedAt"
-  | "subject";
+export type ActivitySortBy = "createdAt" | "updatedAt" | "dueDate" | "completedAt" | "subject";
 export type SortOrder = "asc" | "desc";
 
 // organizationId siempre obligatorio y deletedAt: null siempre presente en
 // lecturas — mismo criterio que el resto de las entidades. `search` (OR
 // entre subject/body) convive con los filtros específicos en el mismo
 // `where` — Prisma los combina con AND implícito, igual que en Contact.
-function buildWhere(
-  organizationId: string,
-  filters: ActivityFilters,
-): Prisma.ActivityWhereInput {
+function buildWhere(organizationId: string, filters: ActivityFilters): Prisma.ActivityWhereInput {
   return {
     organizationId,
     deletedAt: null,
@@ -51,25 +43,16 @@ function buildWhere(
     ...(filters.dueDateFrom !== undefined || filters.dueDateTo !== undefined
       ? {
           dueDate: {
-            ...(filters.dueDateFrom !== undefined
-              ? { gte: filters.dueDateFrom }
-              : {}),
-            ...(filters.dueDateTo !== undefined
-              ? { lte: filters.dueDateTo }
-              : {}),
+            ...(filters.dueDateFrom !== undefined ? { gte: filters.dueDateFrom } : {}),
+            ...(filters.dueDateTo !== undefined ? { lte: filters.dueDateTo } : {}),
           },
         }
       : {}),
-    ...(filters.completedAtFrom !== undefined ||
-    filters.completedAtTo !== undefined
+    ...(filters.completedAtFrom !== undefined || filters.completedAtTo !== undefined
       ? {
           completedAt: {
-            ...(filters.completedAtFrom !== undefined
-              ? { gte: filters.completedAtFrom }
-              : {}),
-            ...(filters.completedAtTo !== undefined
-              ? { lte: filters.completedAtTo }
-              : {}),
+            ...(filters.completedAtFrom !== undefined ? { gte: filters.completedAtFrom } : {}),
+            ...(filters.completedAtTo !== undefined ? { lte: filters.completedAtTo } : {}),
           },
         }
       : {}),
@@ -110,19 +93,11 @@ export function findManyActivities(
   });
 }
 
-export function countActivities(
-  organizationId: string,
-  filters: ActivityFilters,
-  db: Db = prisma,
-) {
+export function countActivities(organizationId: string, filters: ActivityFilters, db: Db = prisma) {
   return db.activity.count({ where: buildWhere(organizationId, filters) });
 }
 
-export function findActivityById(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findActivityById(id: string, organizationId: string, db: Db = prisma) {
   return db.activity.findFirst({
     where: { id, organizationId, deletedAt: null },
   });
@@ -171,11 +146,7 @@ export function updateActivity(
   return db.activity.updateMany({ where: { id, organizationId }, data });
 }
 
-export function softDeleteActivity(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function softDeleteActivity(id: string, organizationId: string, db: Db = prisma) {
   return db.activity.updateMany({
     where: { id, organizationId },
     data: { deletedAt: new Date() },

@@ -125,11 +125,14 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   [7, { descripcion: "Los 8 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
   [8, { descripcion: "Los 5 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
   [9, { descripcion: "Los 2 triggers de email, por pg_get_triggerdef", esperado: "ninguno" }],
-  [10, {
-    descripcion:
-      "current_organization_id(): security definer, search_path, tipo de retorno y cuerpo",
-    esperado: "conforme",
-  }],
+  [
+    10,
+    {
+      descripcion:
+        "current_organization_id(): security definer, search_path, tipo de retorno y cuerpo",
+      esperado: "conforme",
+    },
+  ],
   // C-3: las FKs compuestas por organización son la garantía de aislamiento
   // central del proyecto, y hasta la capa de ingesta nada en CI comprobaba que
   // existieran — la migración que las creó podía perderse en un rebase y los
@@ -140,16 +143,22 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // catálogo (columnas resueltas a nombre, y los códigos de confupdtype /
   // confdeltype / confmatchtype), así que quedan afirmadas también las acciones
   // referenciales que la migración 20260821140200 discutió una por una.
-  [14, {
-    descripcion: "C-3 · las 18 FKs compuestas: que falten, sobren o hayan cambiado",
-    esperado: "ninguna",
-  }],
+  [
+    14,
+    {
+      descripcion: "C-3 · las 18 FKs compuestas: que falten, sobren o hayan cambiado",
+      esperado: "ninguna",
+    },
+  ],
   // M-13, deliberadamente redundante con la fila 7: guardarraíl con nombre
   // propio para un hallazgo concreto, que falla diciendo M-13.
-  [15, {
-    descripcion: "M-13 · contacts_org_email_unique evalúa lower(email) en su 2.ª columna",
-    esperado: "sobre lower(email)",
-  }],
+  [
+    15,
+    {
+      descripcion: "M-13 · contacts_org_email_unique evalúa lower(email) en su 2.ª columna",
+      esperado: "sobre lower(email)",
+    },
+  ],
 ]);
 
 async function main() {

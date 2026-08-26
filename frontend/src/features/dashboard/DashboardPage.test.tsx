@@ -40,7 +40,9 @@ const usersUrl = `${env.apiUrl}/api/users`;
 // Un único handler para /opportunities: distingue la card de resumen
 // (pageSize=1, sin ownerId) de la lista personal reciente (ownerId+pageSize=5)
 // por sus propios query params — igual que el backend real los diferenciaría.
-function opportunitiesHandler(totalsByStatus: Record<string, number> = { OPEN: 3, WON: 2, LOST: 1 }) {
+function opportunitiesHandler(
+  totalsByStatus: Record<string, number> = { OPEN: 3, WON: 2, LOST: 1 },
+) {
   return http.get(opportunitiesUrl, ({ request }) => {
     const url = new URL(request.url);
     const ownerId = url.searchParams.get("ownerId");
@@ -162,14 +164,19 @@ describe("DashboardPage — render general y estados", () => {
       ),
       http.get(stagesUrl, () => {
         stagesRequests += 1;
-        return HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 } });
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        });
       }),
     );
 
     renderDashboard();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay un pipeline configurado como predeterminado.")).toBeInTheDocument(),
+      expect(
+        screen.getByText("No hay un pipeline configurado como predeterminado."),
+      ).toBeInTheDocument(),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(stagesRequests).toBe(0);
@@ -181,9 +188,15 @@ describe("DashboardPage — render general y estados", () => {
       http.get(opportunitiesUrl, ({ request }) => {
         const url = new URL(request.url);
         if (url.searchParams.get("ownerId")) {
-          return HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 5, total: 0, totalPages: 0 } });
+          return HttpResponse.json({
+            data: [],
+            pagination: { page: 1, pageSize: 5, total: 0, totalPages: 0 },
+          });
         }
-        return HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 1, total: 0, totalPages: 0 } });
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 1, total: 0, totalPages: 0 },
+        });
       }),
       ...noDefaultPipelineHandlers(),
     );
@@ -217,9 +230,9 @@ describe("DashboardPage — render general y estados", () => {
 
     const pipeline = screen.getByLabelText("Pipeline");
     await waitFor(() => expect(within(pipeline).getByText(/Prospecto/)).toBeInTheDocument());
-    expect(within(pipeline).getByText("Prospecto:", { exact: false }).closest("li")?.textContent).toContain(
-      "0",
-    );
+    expect(
+      within(pipeline).getByText("Prospecto:", { exact: false }).closest("li")?.textContent,
+    ).toContain("0");
   });
 
   it("error parcial: si falla la card de WON, las demás secciones y cards siguen mostrando datos", async () => {
@@ -234,12 +247,17 @@ describe("DashboardPage — render general y estados", () => {
         }
         if (ownerId) {
           return HttpResponse.json({
-            data: [makeOpportunity({ id: "op-recent", title: "Renovación anual", companyId: "co1" })],
+            data: [
+              makeOpportunity({ id: "op-recent", title: "Renovación anual", companyId: "co1" }),
+            ],
             pagination: { page: 1, pageSize: 5, total: 1, totalPages: 1 },
           });
         }
         const total = status === "OPEN" ? 3 : 1;
-        return HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 1, total, totalPages: total } });
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 1, total, totalPages: total },
+        });
       }),
       companyHandler(),
       ...noDefaultPipelineHandlers(),
@@ -315,7 +333,10 @@ describe("DashboardPage — render general y estados", () => {
     server.use(
       http.get(opportunitiesUrl, ({ request }) => {
         capturedUrls.push(new URL(request.url));
-        return HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 1, total: 0, totalPages: 0 } });
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 1, total: 0, totalPages: 0 },
+        });
       }),
       http.get(pipelinesUrl, ({ request }) => {
         capturedUrls.push(new URL(request.url));
@@ -329,7 +350,9 @@ describe("DashboardPage — render general y estados", () => {
     renderDashboard();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay un pipeline configurado como predeterminado.")).toBeInTheDocument(),
+      expect(
+        screen.getByText("No hay un pipeline configurado como predeterminado."),
+      ).toBeInTheDocument(),
     );
     expect(capturedUrls.length).toBeGreaterThan(0);
     for (const url of capturedUrls) {

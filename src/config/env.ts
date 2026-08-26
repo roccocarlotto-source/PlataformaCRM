@@ -6,14 +6,10 @@ import { z } from "zod";
 // en el momento de uso (lib/jwt.ts, lib/supabaseAdmin.ts), así el servidor
 // sigue arrancando y /health sigue funcionando aunque falte alguna.
 const envSchema = z.object({
-  NODE_ENV: z
-    .enum(["development", "production", "test"])
-    .default("development"),
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
   CORS_ORIGIN: z.string().min(1, "CORS_ORIGIN es requerido"),
-  LOG_LEVEL: z
-    .enum(["fatal", "error", "warn", "info", "debug", "trace"])
-    .optional(),
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).optional(),
 
   DATABASE_URL: z.string().optional(),
   DIRECT_URL: z.string().optional(),
@@ -66,9 +62,7 @@ function parseEnv() {
     const issues = result.error.issues
       .map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`)
       .join("\n");
-    throw new Error(
-      `Variables de entorno inválidas o faltantes:\n${issues}`,
-    );
+    throw new Error(`Variables de entorno inválidas o faltantes:\n${issues}`);
   }
 
   return result.data;
@@ -78,8 +72,7 @@ const parsed = parseEnv();
 
 export const env = {
   ...parsed,
-  LOG_LEVEL:
-    parsed.LOG_LEVEL ?? (parsed.NODE_ENV === "production" ? "info" : "debug"),
+  LOG_LEVEL: parsed.LOG_LEVEL ?? (parsed.NODE_ENV === "production" ? "info" : "debug"),
   isProduction: parsed.NODE_ENV === "production",
   isDevelopment: parsed.NODE_ENV === "development",
 };

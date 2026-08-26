@@ -67,7 +67,10 @@ describe("ContactListPage", () => {
       data: [makeContact({ firstName: "Juana", lastName: "Pérez" })],
       pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
     };
-    server.use(usersHandler(), http.get(contactsUrl, () => HttpResponse.json(listResponse)));
+    server.use(
+      usersHandler(),
+      http.get(contactsUrl, () => HttpResponse.json(listResponse)),
+    );
 
     renderPage();
 
@@ -168,7 +171,9 @@ describe("ContactListPage", () => {
     await waitFor(() => expect(screen.getByText("Acme Corp")).toBeInTheDocument());
     await user.click(screen.getByText("Acme Corp"));
 
-    await waitFor(() => expect(capturedContacts.at(-1)?.searchParams.get("companyId")).toBe("co-1"));
+    await waitFor(() =>
+      expect(capturedContacts.at(-1)?.searchParams.get("companyId")).toBe("co-1"),
+    );
 
     await user.click(screen.getByText("Quitar filtro de empresa"));
     await waitFor(() => expect(capturedContacts.at(-1)?.searchParams.get("companyId")).toBeNull());
@@ -277,9 +282,8 @@ describe("ContactListPage", () => {
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
-      http.delete(
-        `${contactsUrl}/:id`,
-        () => HttpResponse.json({ error: { message: "no se pudo eliminar" } }, { status: 500 }),
+      http.delete(`${contactsUrl}/:id`, () =>
+        HttpResponse.json({ error: { message: "no se pudo eliminar" } }, { status: 500 }),
       ),
     );
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -289,9 +293,7 @@ describe("ContactListPage", () => {
     await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
     await user.click(screen.getByText("Eliminar"));
 
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"),
-    );
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"));
   });
 
   it("resuelve el nombre de una Company que NO está en la primera página de Companies (bug corregido)", async () => {
@@ -325,9 +327,7 @@ describe("ContactListPage", () => {
 
     renderPage();
 
-    await waitFor(() =>
-      expect(screen.getByText("Acme Fuera de Página")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("Acme Fuera de Página")).toBeInTheDocument());
     // La corrección depende de la resolución puntual, no de la lista paginada.
     expect(companiesListCalled).toBe(false);
   });

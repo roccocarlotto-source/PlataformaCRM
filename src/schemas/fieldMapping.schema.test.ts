@@ -84,8 +84,5 @@ test(`no se aceptan más de ${MAX_COLUMNAS_MAPEADAS} columnas`, () => {
 test("un valor que no es string se rechaza (control de tipos, no solo de nombres)", () => {
   assert.equal(fieldMappingSchema.safeParse({ Col: 42 }).success, false);
   assert.equal(fieldMappingSchema.safeParse({ Col: null }).success, false);
-  assert.equal(
-    fieldMappingSchema.safeParse({ Col: { destino: "firstName" } }).success,
-    false,
-  );
+  assert.equal(fieldMappingSchema.safeParse({ Col: { destino: "firstName" } }).success, false);
 });

@@ -11,9 +11,7 @@ import type { AuthContextValue, AuthStatus } from "../../auth/AuthContext";
 // se mockea aparte, como la otra frontera externa real que este componente
 // toca directamente.
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
-const updateUser = vi.hoisted(() =>
-  vi.fn<() => Promise<{ data: unknown; error: Error | null }>>(),
-);
+const updateUser = vi.hoisted(() => vi.fn<() => Promise<{ data: unknown; error: Error | null }>>());
 
 vi.mock("../../auth/AuthContext", () => ({
   useAuth: useAuthMock,
@@ -95,9 +93,7 @@ describe("ResetPasswordPage — R1.3", () => {
     await user.type(screen.getByLabelText("Confirmar contraseña"), "password123");
     await user.click(screen.getByRole("button", { name: /guardar contraseña/i }));
 
-    await waitFor(() =>
-      expect(updateUser).toHaveBeenCalledWith({ password: "password123" }),
-    );
+    await waitFor(() => expect(updateUser).toHaveBeenCalledWith({ password: "password123" }));
     await waitFor(() => expect(screen.getByText("home-ok")).toBeInTheDocument());
   });
 
@@ -111,9 +107,7 @@ describe("ResetPasswordPage — R1.3", () => {
     await user.type(screen.getByLabelText("Confirmar contraseña"), "password123");
     await user.click(screen.getByRole("button", { name: /guardar contraseña/i }));
 
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("token vencido"),
-    );
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("token vencido"));
     expect(screen.queryByText("home-ok")).not.toBeInTheDocument();
   });
 });

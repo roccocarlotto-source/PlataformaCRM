@@ -93,9 +93,7 @@ function normalizarCelda(valor: unknown): ValorDeCelda {
       return normalizarCelda(obj.result);
     }
     if (Array.isArray(obj.richText)) {
-      return obj.richText
-        .map((parte) => (parte as { text?: string }).text ?? "")
-        .join("");
+      return obj.richText.map((parte) => (parte as { text?: string }).text ?? "").join("");
     }
   }
   return String(valor);
@@ -195,10 +193,7 @@ function parsearCsv(buffer: Buffer): ArchivoParseado {
 
   for (const registro of registros.slice(1)) {
     if (filas.length >= MAX_FILAS_POR_ARCHIVO) {
-      throw new AppError(
-        `El archivo supera el máximo de ${MAX_FILAS_POR_ARCHIVO} filas`,
-        400,
-      );
+      throw new AppError(`El archivo supera el máximo de ${MAX_FILAS_POR_ARCHIVO} filas`, 400);
     }
     const fila = armarFila(encabezados, registro);
     if (!estaVacia(fila)) {
@@ -303,10 +298,7 @@ async function parsearXlsx(buffer: Buffer): Promise<ArchivoParseado> {
   // pero dejar la condición explícita acá hace evidente que se RECHAZA y no se
   // trunca — truncar en silencio es el modo de falla peligroso.
   if (excedido) {
-    throw new AppError(
-      `El archivo supera el máximo de ${MAX_FILAS_POR_ARCHIVO} filas`,
-      400,
-    );
+    throw new AppError(`El archivo supera el máximo de ${MAX_FILAS_POR_ARCHIVO} filas`, 400);
   }
 
   if (encabezados === undefined) {
@@ -333,10 +325,7 @@ export function formatoDesdeNombre(nombre: string): FormatoDeArchivo {
   if (minuscula.endsWith(".csv")) return "csv";
   if (minuscula.endsWith(".xlsx")) return "xlsx";
 
-  throw new AppError(
-    "Formato no soportado: solo se aceptan archivos .csv y .xlsx",
-    415,
-  );
+  throw new AppError("Formato no soportado: solo se aceptan archivos .csv y .xlsx", 415);
 }
 
 export async function parsearArchivo(

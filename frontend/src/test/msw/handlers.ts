@@ -61,7 +61,10 @@ export function meByTokenHandler(
     const token = bearerToken(request);
     const entry = token ? responses[token] : undefined;
     if (!entry) {
-      return HttpResponse.json({ error: { message: "token no registrado en el test" } }, { status: 401 });
+      return HttpResponse.json(
+        { error: { message: "token no registrado en el test" } },
+        { status: 401 },
+      );
     }
     if (entry.delayMs) await delay(entry.delayMs);
     return HttpResponse.json(entry.profile);

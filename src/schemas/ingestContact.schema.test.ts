@@ -7,7 +7,7 @@ import { ingestContactSchema } from "./ingestContact.schema";
 // ANTES de llegar al SQL, porque el `COALESCE` del upsert no puede distinguir
 // una cadena vacía de un valor real.
 
-test('un campo vacío se trata como AUSENTE, no como valor — si no, pisaría el dato del CRM', () => {
+test("un campo vacío se trata como AUSENTE, no como valor — si no, pisaría el dato del CRM", () => {
   const r = ingestContactSchema.parse({
     firstName: "Ana",
     lastName: "Gómez",

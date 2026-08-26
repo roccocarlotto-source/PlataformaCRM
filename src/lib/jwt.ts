@@ -18,9 +18,7 @@ function getJwks() {
     throw new AppError("SUPABASE_URL no está configurado en el servidor", 500);
   }
 
-  jwks = createRemoteJWKSet(
-    new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
-  );
+  jwks = createRemoteJWKSet(new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`));
 
   return jwks;
 }
@@ -44,10 +42,7 @@ export async function verifySupabaseJwt(token: string): Promise<JwtPayload> {
   }
 
   if (typeof payload.sub !== "string") {
-    throw new AppError(
-      "Token inválido: falta el identificador del usuario",
-      401,
-    );
+    throw new AppError("Token inválido: falta el identificador del usuario", 401);
   }
 
   return {

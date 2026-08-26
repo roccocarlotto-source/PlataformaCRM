@@ -94,10 +94,9 @@ describe("opportunity/relationResolution", () => {
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
-    const { result } = renderHook(
-      () => useStageNames([{ pipelineId: "pl1", stageId: "st1" }]),
-      { wrapper: wrapperFor(queryClient) },
-    );
+    const { result } = renderHook(() => useStageNames([{ pipelineId: "pl1", stageId: "st1" }]), {
+      wrapper: wrapperFor(queryClient),
+    });
 
     await waitFor(() => expect(result.current.byId.get("st1")).toBe("Prospecto"));
   });

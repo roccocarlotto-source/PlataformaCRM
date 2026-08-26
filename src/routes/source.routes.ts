@@ -17,18 +17,8 @@ export const sourceRouter = Router();
 // Source es configuración de integración, no un módulo de negocio de lectura
 // abierta. Deja toda la superficie de ingesta detrás de un solo rol en vez de
 // dos criterios distintos.
-sourceRouter.get(
-  "/sources",
-  authenticate,
-  authorize("ADMIN"),
-  listSourcesHandler,
-);
-sourceRouter.get(
-  "/sources/:id",
-  authenticate,
-  authorize("ADMIN"),
-  getSourceHandler,
-);
+sourceRouter.get("/sources", authenticate, authorize("ADMIN"), listSourcesHandler);
+sourceRouter.get("/sources/:id", authenticate, authorize("ADMIN"), getSourceHandler);
 
 // businessWriteRateLimiter (R1.9) va después de authenticate (necesita
 // req.auth.userId) y antes de authorize — ver rateLimit.ts. Solo en las

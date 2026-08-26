@@ -140,11 +140,7 @@ test("deletePipeline vs deletePipeline (ambos no-default): nunca deja la organiz
       1,
       "exactamente una de las dos operaciones concurrentes debe ganar",
     );
-    assert.equal(
-      rejected.length,
-      1,
-      "la otra debe perder, nunca ambas deben tener éxito",
-    );
+    assert.equal(rejected.length, 1, "la otra debe perder, nunca ambas deben tener éxito");
 
     const loserReason = (rejected[0] as PromiseRejectedResult).reason;
     assert.ok(
@@ -152,19 +148,12 @@ test("deletePipeline vs deletePipeline (ambos no-default): nunca deja la organiz
       "la perdedora debe ser un AppError, no un error crudo",
     );
     assert.equal(loserReason.statusCode, 400);
-    assert.equal(
-      loserReason.message,
-      "No se puede eliminar el último pipeline de la organización",
-    );
+    assert.equal(loserReason.message, "No se puede eliminar el último pipeline de la organización");
 
     const remaining = await prisma.pipeline.count({
       where: { organizationId: org.id, deletedAt: null },
     });
-    assert.equal(
-      remaining,
-      1,
-      "debe quedar exactamente un Pipeline activo — nunca cero",
-    );
+    assert.equal(remaining, 1, "debe quedar exactamente un Pipeline activo — nunca cero");
   } finally {
     await deleteTestOrg(org.id);
   }
@@ -190,11 +179,7 @@ test("deletePipeline vs deletePipeline (uno default, otro no): nunca deja la org
       1,
       "exactamente una de las dos operaciones concurrentes debe ganar",
     );
-    assert.equal(
-      rejected.length,
-      1,
-      "la otra debe perder, nunca ambas deben tener éxito",
-    );
+    assert.equal(rejected.length, 1, "la otra debe perder, nunca ambas deben tener éxito");
 
     const loserReason = (rejected[0] as PromiseRejectedResult).reason;
     assert.ok(
@@ -202,19 +187,12 @@ test("deletePipeline vs deletePipeline (uno default, otro no): nunca deja la org
       "la perdedora debe ser un AppError, no un error crudo",
     );
     assert.equal(loserReason.statusCode, 400);
-    assert.equal(
-      loserReason.message,
-      "No se puede eliminar el último pipeline de la organización",
-    );
+    assert.equal(loserReason.message, "No se puede eliminar el último pipeline de la organización");
 
     const remaining = await prisma.pipeline.findMany({
       where: { organizationId: org.id, deletedAt: null },
     });
-    assert.equal(
-      remaining.length,
-      1,
-      "debe quedar exactamente un Pipeline activo — nunca cero",
-    );
+    assert.equal(remaining.length, 1, "debe quedar exactamente un Pipeline activo — nunca cero");
     assert.equal(
       remaining[0].isDefault,
       true,

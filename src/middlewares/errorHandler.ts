@@ -25,9 +25,7 @@ export function errorHandler(
   res.status(statusCode).json({
     error: {
       message,
-      ...(env.isDevelopment && err instanceof Error && !isAppError
-        ? { stack: err.stack }
-        : {}),
+      ...(env.isDevelopment && err instanceof Error && !isAppError ? { stack: err.stack } : {}),
     },
   });
 }

@@ -28,20 +28,12 @@ export interface ListContactsParams {
   sortOrder: SortOrder;
 }
 
-export async function listContacts(
-  organizationId: string,
-  params: ListContactsParams,
-) {
+export async function listContacts(organizationId: string, params: ListContactsParams) {
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManyContacts(
-      organizationId,
-      filters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
+    findManyContacts(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countContacts(organizationId, filters),
   ]);
 
@@ -105,19 +97,13 @@ async function resolveCompanyId(
 //
 // Exportada para poder testear la traducción sin base (contact.service.test.ts).
 export function rethrowAsConflict(err: unknown): never {
-  if (
-    err instanceof Prisma.PrismaClientKnownRequestError &&
-    err.code === "P2002"
-  ) {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
     const target = Array.isArray(err.meta?.target)
       ? err.meta.target.join(",")
       : String(err.meta?.target ?? "");
 
     if (target.includes("email")) {
-      throw new AppError(
-        "Ya existe un contacto con ese email en esta organización",
-        409,
-      );
+      throw new AppError("Ya existe un contacto con ese email en esta organización", 409);
     }
     throw new AppError("El registro ya existe", 409);
   }
@@ -212,11 +198,7 @@ export async function updateContact(
   const data: UpdateContactInput = { ...input };
 
   if (input.ownerId) {
-    data.ownerId = await resolveOwnerId(
-      organizationId,
-      actorUserId,
-      input.ownerId,
-    );
+    data.ownerId = await resolveOwnerId(organizationId, actorUserId, input.ownerId);
   }
 
   if (input.companyId) {

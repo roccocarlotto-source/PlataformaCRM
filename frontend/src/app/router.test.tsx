@@ -54,9 +54,7 @@ describe("router.tsx — wiring real de Activity", () => {
   });
 
   it("/activities (listado) NO está anidada bajo AdminRoute", () => {
-    const parent = findParentElement(router.routes, "/activities") as
-      | { type: unknown }
-      | undefined;
+    const parent = findParentElement(router.routes, "/activities") as { type: unknown } | undefined;
 
     expect(parent?.type).not.toBe(AdminRoute);
   });
@@ -99,11 +97,9 @@ describe("router.tsx — wiring real de M7 (Users, Invitations, Accept)", () => 
 describe("router.tsx — wiring real de R1.3 (Forgot/Reset Password)", () => {
   it("/forgot-password y /reset-password existen y renderizan sus páginas", () => {
     const forgot = findRoute(router.routes, "/forgot-password") as
-      | { element: { type: unknown } }
-      | undefined;
+      { element: { type: unknown } } | undefined;
     const reset = findRoute(router.routes, "/reset-password") as
-      | { element: { type: unknown } }
-      | undefined;
+      { element: { type: unknown } } | undefined;
 
     expect(forgot?.element.type).toBe(ForgotPasswordPage);
     expect(reset?.element.type).toBe(ResetPasswordPage);

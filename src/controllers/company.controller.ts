@@ -21,31 +21,11 @@ const companyFields = {
     .trim()
     .min(1, "name es requerido")
     .max(255, "name no puede superar los 255 caracteres"),
-  domain: z
-    .string()
-    .trim()
-    .max(255, "domain no puede superar los 255 caracteres")
-    .optional(),
-  industry: z
-    .string()
-    .trim()
-    .max(100, "industry no puede superar los 100 caracteres")
-    .optional(),
-  phone: z
-    .string()
-    .trim()
-    .max(30, "phone no puede superar los 30 caracteres")
-    .optional(),
-  city: z
-    .string()
-    .trim()
-    .max(100, "city no puede superar los 100 caracteres")
-    .optional(),
-  country: z
-    .string()
-    .trim()
-    .max(100, "country no puede superar los 100 caracteres")
-    .optional(),
+  domain: z.string().trim().max(255, "domain no puede superar los 255 caracteres").optional(),
+  industry: z.string().trim().max(100, "industry no puede superar los 100 caracteres").optional(),
+  phone: z.string().trim().max(30, "phone no puede superar los 30 caracteres").optional(),
+  city: z.string().trim().max(100, "city no puede superar los 100 caracteres").optional(),
+  country: z.string().trim().max(100, "country no puede superar los 100 caracteres").optional(),
   ownerId: z.string().uuid("ownerId inválido").optional(),
 };
 
@@ -71,11 +51,7 @@ const listQuerySchema = z.object({
 export const createCompanyHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createCompanySchema, req.body);
-    const company = await createCompany(
-      req.auth.organizationId,
-      req.auth.userId,
-      input,
-    );
+    const company = await createCompany(req.auth.organizationId, req.auth.userId, input);
     res.status(201).json(company);
   },
 );
@@ -88,24 +64,17 @@ export const listCompaniesHandler = asyncHandler<AuthenticatedRequest>(
   },
 );
 
-export const getCompanyHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    const company = await getCompanyById(req.auth.organizationId, id);
-    res.status(200).json(company);
-  },
-);
+export const getCompanyHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  const company = await getCompanyById(req.auth.organizationId, id);
+  res.status(200).json(company);
+});
 
 export const updateCompanyHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const input = parseOrThrow(updateCompanySchema, req.body);
-    const company = await updateCompany(
-      req.auth.organizationId,
-      req.auth.userId,
-      id,
-      input,
-    );
+    const company = await updateCompany(req.auth.organizationId, req.auth.userId, id, input);
     res.status(200).json(company);
   },
 );

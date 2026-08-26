@@ -48,14 +48,14 @@ function clearPendingPasswordMarker() {
 // corrección de diseño pedida sobre la secuencia original (accept SIEMPRE
 // antes que updateUser({password}), nunca al revés).
 type Step =
-  | "form"              // fullName + password + confirm, primera vez — submit -> accept
-  | "accepting"          // POST /invitations/accept en curso
-  | "accept-failed"      // accept falló — reintentar es seguro, todavía no se creó nada
-  | "password-only"      // recuperado tras F5 (accept ya tuvo éxito antes) — solo password + confirm
-  | "setting-password"   // supabase.auth.updateUser en curso
-  | "password-failed"    // accept OK, password falló — reintentar SOLO password
-  | "resolving-profile"  // retryProfile() en curso — esperando que status pase a authenticated
-  | "profile-failed"     // accept + password OK, la resolución de /api/me falló — reintentar SOLO profile
+  | "form" // fullName + password + confirm, primera vez — submit -> accept
+  | "accepting" // POST /invitations/accept en curso
+  | "accept-failed" // accept falló — reintentar es seguro, todavía no se creó nada
+  | "password-only" // recuperado tras F5 (accept ya tuvo éxito antes) — solo password + confirm
+  | "setting-password" // supabase.auth.updateUser en curso
+  | "password-failed" // accept OK, password falló — reintentar SOLO password
+  | "resolving-profile" // retryProfile() en curso — esperando que status pase a authenticated
+  | "profile-failed" // accept + password OK, la resolución de /api/me falló — reintentar SOLO profile
   | "done";
 
 export function AcceptInvitationPage() {
@@ -205,7 +205,8 @@ export function AcceptInvitationPage() {
   // Calculado antes de los early-return: lo necesita también la rama
   // "alreadyLoggedInEmail" de abajo (recuperación sin marcador de
   // sessionStorage, ver esa rama).
-  const isBusy = step === "accepting" || step === "setting-password" || step === "resolving-profile";
+  const isBusy =
+    step === "accepting" || step === "setting-password" || step === "resolving-profile";
 
   if (status === "initializing" || status === "loading-profile") {
     return <p>Cargando…</p>;
@@ -246,12 +247,12 @@ export function AcceptInvitationPage() {
     return (
       <div>
         <p>
-          Ya iniciaste sesión como {alreadyLoggedInEmail}. Si esta invitación es para otra
-          cuenta, cerrá sesión primero.
+          Ya iniciaste sesión como {alreadyLoggedInEmail}. Si esta invitación es para otra cuenta,
+          cerrá sesión primero.
         </p>
         <p>
-          Si cerraste el navegador antes de terminar de configurar tu contraseña, podés
-          hacerlo ahora sin perder tu cuenta.
+          Si cerraste el navegador antes de terminar de configurar tu contraseña, podés hacerlo
+          ahora sin perder tu cuenta.
         </p>
         <form onSubmit={handlePasswordOnlySubmit}>
           <label>

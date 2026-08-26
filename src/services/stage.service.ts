@@ -28,20 +28,12 @@ export interface ListStagesParams {
   sortOrder: SortOrder;
 }
 
-export async function listStages(
-  organizationId: string,
-  params: ListStagesParams,
-) {
+export async function listStages(organizationId: string, params: ListStagesParams) {
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManyStages(
-      organizationId,
-      filters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
+    findManyStages(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countStages(organizationId, filters),
   ]);
 
@@ -67,10 +59,7 @@ export async function getStageById(organizationId: string, id: string) {
 async function validatePipelineId(organizationId: string, pipelineId: string) {
   const pipeline = await findPipelineById(pipelineId, organizationId);
   if (!pipeline) {
-    throw new AppError(
-      "El pipelineId indicado no existe o no pertenece a tu organización",
-      400,
-    );
+    throw new AppError("El pipelineId indicado no existe o no pertenece a tu organización", 400);
   }
   return pipeline;
 }
@@ -132,31 +121,19 @@ export function computeFinalOrderIds(
 //
 // Exportada para poder testear la traducción sin base (stage.service.test.ts).
 export function rethrowAsConflict(err: unknown): never {
-  if (
-    err instanceof Prisma.PrismaClientKnownRequestError &&
-    err.code === "P2002"
-  ) {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
     const target = Array.isArray(err.meta?.target)
       ? err.meta.target.join(",")
       : String(err.meta?.target ?? "");
 
     if (target.includes("name")) {
-      throw new AppError(
-        "Ya existe una etapa con ese nombre en este pipeline",
-        409,
-      );
+      throw new AppError("Ya existe una etapa con ese nombre en este pipeline", 409);
     }
     if (target.includes("won")) {
-      throw new AppError(
-        "Ya existe una etapa marcada como ganada en este pipeline",
-        409,
-      );
+      throw new AppError("Ya existe una etapa marcada como ganada en este pipeline", 409);
     }
     if (target.includes("lost")) {
-      throw new AppError(
-        "Ya existe una etapa marcada como perdida en este pipeline",
-        409,
-      );
+      throw new AppError("Ya existe una etapa marcada como perdida en este pipeline", 409);
     }
     throw new AppError("El registro ya existe", 409);
   }
@@ -165,10 +142,7 @@ export function rethrowAsConflict(err: unknown): never {
     err instanceof Prisma.PrismaClientUnknownRequestError &&
     err.message.includes('\\"stages_won_lost_exclusive_check\\"')
   ) {
-    throw new AppError(
-      "Esta etapa no puede quedar marcada como ganada y perdida a la vez",
-      409,
-    );
+    throw new AppError("Esta etapa no puede quedar marcada como ganada y perdida a la vez", 409);
   }
 
   throw err;
@@ -183,51 +157,32 @@ export interface CreateStageInput {
   isLost?: boolean;
 }
 
-export async function createStage(
-  organizationId: string,
-  input: CreateStageInput,
-) {
+export async function createStage(organizationId: string, input: CreateStageInput) {
   await validatePipelineId(organizationId, input.pipelineId);
 
-  const existingByName = await countStagesByName(
-    input.pipelineId,
-    input.name,
-  );
+  const existingByName = await countStagesByName(input.pipelineId, input.name);
   if (existingByName > 0) {
-    throw new AppError(
-      "Ya existe una etapa con ese nombre en este pipeline",
-      409,
-    );
+    throw new AppError("Ya existe una etapa con ese nombre en este pipeline", 409);
   }
 
   if (input.isWon) {
     const existing = await findStageWithFlag(input.pipelineId, "isWon");
     if (existing) {
-      throw new AppError(
-        "Ya existe una etapa marcada como ganada en este pipeline",
-        409,
-      );
+      throw new AppError("Ya existe una etapa marcada como ganada en este pipeline", 409);
     }
   }
 
   if (input.isLost) {
     const existing = await findStageWithFlag(input.pipelineId, "isLost");
     if (existing) {
-      throw new AppError(
-        "Ya existe una etapa marcada como perdida en este pipeline",
-        409,
-      );
+      throw new AppError("Ya existe una etapa marcada como perdida en este pipeline", 409);
     }
   }
 
   try {
     return await prisma.$transaction(async (tx) => {
       const siblings = await findStagesByPipeline(input.pipelineId, tx);
-      const targetOrder = clamp(
-        input.order ?? siblings.length + 1,
-        1,
-        siblings.length + 1,
-      );
+      const targetOrder = clamp(input.order ?? siblings.length + 1, 1, siblings.length + 1);
 
       // No-op si targetOrder es el siguiente libre (append al final) — solo
       // mueve hermanos cuando realmente hace falta abrir un lugar.
@@ -259,44 +214,27 @@ export interface UpdateStageInput {
   isLost?: boolean;
 }
 
-export async function updateStage(
-  organizationId: string,
-  id: string,
-  input: UpdateStageInput,
-) {
+export async function updateStage(organizationId: string, id: string, input: UpdateStageInput) {
   const stage = await getStageById(organizationId, id);
 
   if (input.name && input.name !== stage.name) {
-    const existingByName = await countStagesByName(
-      stage.pipelineId,
-      input.name,
-      id,
-    );
+    const existingByName = await countStagesByName(stage.pipelineId, input.name, id);
     if (existingByName > 0) {
-      throw new AppError(
-        "Ya existe una etapa con ese nombre en este pipeline",
-        409,
-      );
+      throw new AppError("Ya existe una etapa con ese nombre en este pipeline", 409);
     }
   }
 
   if (input.isWon) {
     const existing = await findStageWithFlag(stage.pipelineId, "isWon", id);
     if (existing) {
-      throw new AppError(
-        "Ya existe una etapa marcada como ganada en este pipeline",
-        409,
-      );
+      throw new AppError("Ya existe una etapa marcada como ganada en este pipeline", 409);
     }
   }
 
   if (input.isLost) {
     const existing = await findStageWithFlag(stage.pipelineId, "isLost", id);
     if (existing) {
-      throw new AppError(
-        "Ya existe una etapa marcada como perdida en este pipeline",
-        409,
-      );
+      throw new AppError("Ya existe una etapa marcada como perdida en este pipeline", 409);
     }
   }
 

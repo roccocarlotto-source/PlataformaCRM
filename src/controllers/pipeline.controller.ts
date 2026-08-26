@@ -55,23 +55,17 @@ export const listPipelinesHandler = asyncHandler<AuthenticatedRequest>(
   },
 );
 
-export const getPipelineHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    const pipeline = await getPipelineById(req.auth.organizationId, id);
-    res.status(200).json(pipeline);
-  },
-);
+export const getPipelineHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  const pipeline = await getPipelineById(req.auth.organizationId, id);
+  res.status(200).json(pipeline);
+});
 
 export const updatePipelineHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const input = parseOrThrow(updatePipelineSchema, req.body);
-    const pipeline = await updatePipeline(
-      req.auth.organizationId,
-      id,
-      input,
-    );
+    const pipeline = await updatePipeline(req.auth.organizationId, id, input);
     res.status(200).json(pipeline);
   },
 );

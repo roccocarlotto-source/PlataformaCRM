@@ -48,8 +48,7 @@ const createSourceSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["fieldMapping"],
-        message:
-          "fieldMapping solo se puede configurar en una fuente de tipo FILE_IMPORT",
+        message: "fieldMapping solo se puede configurar en una fuente de tipo FILE_IMPORT",
       });
     }
   });
@@ -86,21 +85,17 @@ const listQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
-export const listSourcesHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const query = parseOrThrow(listQuerySchema, req.query);
-    const result = await listSources(req.auth.organizationId, query);
-    res.status(200).json(result);
-  },
-);
+export const listSourcesHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const query = parseOrThrow(listQuerySchema, req.query);
+  const result = await listSources(req.auth.organizationId, query);
+  res.status(200).json(result);
+});
 
-export const getSourceHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    const source = await getSourceById(req.auth.organizationId, id);
-    res.status(200).json(source);
-  },
-);
+export const getSourceHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  const source = await getSourceById(req.auth.organizationId, id);
+  res.status(200).json(source);
+});
 
 export const createSourceHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {

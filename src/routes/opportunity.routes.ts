@@ -13,16 +13,8 @@ import { businessWriteRateLimiter } from "../middlewares/rateLimit";
 export const opportunityRouter = Router();
 
 // Lectura: cualquier usuario autenticado de la organización.
-opportunityRouter.get(
-  "/opportunities",
-  authenticate,
-  listOpportunitiesHandler,
-);
-opportunityRouter.get(
-  "/opportunities/:id",
-  authenticate,
-  getOpportunityHandler,
-);
+opportunityRouter.get("/opportunities", authenticate, listOpportunitiesHandler);
+opportunityRouter.get("/opportunities/:id", authenticate, getOpportunityHandler);
 
 // Escritura: solo ADMIN. businessWriteRateLimiter (R1.9) va después de
 // authenticate (necesita req.auth.userId) y antes de authorize — ver

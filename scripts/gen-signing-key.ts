@@ -31,9 +31,7 @@ const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
 const jwk = privateKey.export({ format: "jwk" }) as Record<string, unknown>;
 
 if (jwk.crv !== "P-256" || typeof jwk.d !== "string") {
-  throw new Error(
-    `La clave generada no tiene la forma esperada (crv=${String(jwk.crv)}).`,
-  );
+  throw new Error(`La clave generada no tiene la forma esperada (crv=${String(jwk.crv)}).`);
 }
 
 const clave = {

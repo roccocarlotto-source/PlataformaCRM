@@ -28,7 +28,10 @@ function baseHandlers() {
   return [
     http.get(pipelinesUrl, () =>
       HttpResponse.json({
-        data: [makePipeline({ id: "pl1", name: "Ventas" }), makePipeline({ id: "pl2", name: "Postventa" })],
+        data: [
+          makePipeline({ id: "pl1", name: "Ventas" }),
+          makePipeline({ id: "pl2", name: "Postventa" }),
+        ],
         pagination: { page: 1, pageSize: 100, total: 2, totalPages: 1 },
       }),
     ),
@@ -193,14 +196,21 @@ describe("OpportunityFormPage", () => {
       ...baseHandlers(),
       http.get(`${opportunitiesUrl}/:id`, () =>
         HttpResponse.json(
-          makeOpportunity({ status: "LOST", lostReason: "Precio muy alto", pipelineId: "pl1", stageId: "st1" }),
+          makeOpportunity({
+            status: "LOST",
+            lostReason: "Precio muy alto",
+            pipelineId: "pl1",
+            stageId: "st1",
+          }),
         ),
       ),
     );
     const user = userEvent.setup();
     renderForm("/opportunities/op1/edit");
 
-    await waitFor(() => expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio muy alto"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio muy alto"),
+    );
 
     await user.selectOptions(screen.getByLabelText("Estado"), "OPEN");
 
@@ -214,7 +224,13 @@ describe("OpportunityFormPage", () => {
       ...baseHandlers(),
       http.get(`${opportunitiesUrl}/:id`, () =>
         HttpResponse.json(
-          makeOpportunity({ id: "op1", status: "LOST", lostReason: "Precio", pipelineId: "pl1", stageId: "st1" }),
+          makeOpportunity({
+            id: "op1",
+            status: "LOST",
+            lostReason: "Precio",
+            pipelineId: "pl1",
+            stageId: "st1",
+          }),
         ),
       ),
       http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
@@ -437,7 +453,8 @@ describe("OpportunityFormPage", () => {
     // Testing Library ante ese caso), en vez de un string/regex simple.
     function selectedContactParagraph() {
       return screen.getByText(
-        (_, element) => element?.tagName.toLowerCase() === "p" &&
+        (_, element) =>
+          element?.tagName.toLowerCase() === "p" &&
           (element.textContent ?? "").replace(/\s+/g, " ").trim() === "Seleccionado: Ana Pérez",
       );
     }

@@ -198,9 +198,7 @@ export function ContactListPage() {
                     para quien lee la tabla, las dos cosas son "no hay nombre
                     que mostrar acá". */}
                 {isAdmin ? (
-                  <td>
-                    {contact.ownerId ? (ownerNames.byId.get(contact.ownerId) ?? "—") : "—"}
-                  </td>
+                  <td>{contact.ownerId ? (ownerNames.byId.get(contact.ownerId) ?? "—") : "—"}</td>
                 ) : null}
                 {isAdmin ? (
                   <td>

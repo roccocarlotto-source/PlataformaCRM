@@ -7,11 +7,7 @@ import {
 } from "../repositories/ingestionEvent.repository";
 import { findSourceById } from "../repositories/source.repository";
 import { AppError } from "../utils/AppError";
-import {
-  filasParaStaging,
-  formatoDesdeNombre,
-  parsearArchivo,
-} from "../utils/spreadsheet";
+import { filasParaStaging, formatoDesdeNombre, parsearArchivo } from "../utils/spreadsheet";
 
 // ---------------------------------------------------------------------------
 // Importación de Excel/CSV (ítem 5 de docs/ingestion-architecture.md §6).
@@ -66,10 +62,7 @@ export async function importarArchivo(
   // forma de saber cuál aplicar a cada evento: la decisión se toma por `type`,
   // que es de la Source, no del evento.
   if (source.type !== "FILE_IMPORT") {
-    throw new AppError(
-      "Solo se pueden importar archivos a una fuente de tipo FILE_IMPORT",
-      400,
-    );
+    throw new AppError("Solo se pueden importar archivos a una fuente de tipo FILE_IMPORT", 400);
   }
 
   // isActive SÍ se respeta acá, igual que en el webhook: pausar una integración

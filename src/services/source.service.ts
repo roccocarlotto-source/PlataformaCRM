@@ -25,20 +25,12 @@ export interface ListSourcesParams {
   sortOrder: SortOrder;
 }
 
-export async function listSources(
-  organizationId: string,
-  params: ListSourcesParams,
-) {
+export async function listSources(organizationId: string, params: ListSourcesParams) {
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManySources(
-      organizationId,
-      filters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
+    findManySources(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countSources(organizationId, filters),
   ]);
 
@@ -79,9 +71,7 @@ export function createSource(organizationId: string, input: CreateSourceInput) {
     name: input.name,
     type: input.type,
     ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-    ...(input.fieldMapping !== undefined
-      ? { fieldMapping: input.fieldMapping }
-      : {}),
+    ...(input.fieldMapping !== undefined ? { fieldMapping: input.fieldMapping } : {}),
   });
 }
 
@@ -93,11 +83,7 @@ export interface UpdateSourceInput {
   fieldMapping?: FieldMapping | null;
 }
 
-export async function updateSource(
-  organizationId: string,
-  id: string,
-  input: UpdateSourceInput,
-) {
+export async function updateSource(organizationId: string, id: string, input: UpdateSourceInput) {
   // 404 si no existe, no es de esta organización, o ya está borrada.
   const source = await getSourceById(organizationId, id);
 

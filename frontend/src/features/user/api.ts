@@ -22,10 +22,7 @@ function buildListQueryString(query: UserListQuery): string {
   return queryString ? `?${queryString}` : "";
 }
 
-export function listUsers(
-  query: UserListQuery,
-  signal?: AbortSignal,
-): Promise<UserListResponse> {
+export function listUsers(query: UserListQuery, signal?: AbortSignal): Promise<UserListResponse> {
   return request<UserListResponse>(`/users${buildListQueryString(query)}`, {
     getAccessToken,
     signal,

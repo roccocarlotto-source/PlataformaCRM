@@ -66,9 +66,7 @@ async function createRealAuthUser(label: string) {
     email_confirm: true,
   });
   if (error || !data.user) {
-    throw new Error(
-      `No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`,
-    );
+    throw new Error(`No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`);
   }
   return { id: data.user.id, email };
 }
@@ -87,18 +85,16 @@ async function createRealAuthUserWithJwt(label: string) {
     email_confirm: true,
   });
   if (error || !data.user) {
-    throw new Error(
-      `No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`,
-    );
+    throw new Error(`No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`);
   }
 
   const anonClient = createClient(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!);
-  const { data: signInData, error: signInError } =
-    await anonClient.auth.signInWithPassword({ email, password });
+  const { data: signInData, error: signInError } = await anonClient.auth.signInWithPassword({
+    email,
+    password,
+  });
   if (signInError || !signInData.session) {
-    throw new Error(
-      `No se pudo iniciar sesión real (${label}): ${signInError?.message}`,
-    );
+    throw new Error(`No se pudo iniciar sesión real (${label}): ${signInError?.message}`);
   }
 
   return {
@@ -151,10 +147,7 @@ test("onboardingRateLimiter: cuenta intentos con body válido y bloquea el exced
       body: JSON.stringify(body),
     });
     assert.equal(blocked.status, 429);
-    assert.ok(
-      blocked.headers.get("retry-after"),
-      "el 429 debe incluir Retry-After",
-    );
+    assert.ok(blocked.headers.get("retry-after"), "el 429 debe incluir Retry-After");
     const payload = (await blocked.json()) as { error?: { message?: string } };
     assert.ok(
       payload.error?.message,

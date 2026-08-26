@@ -9,23 +9,13 @@ import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { updateCompany, softDeleteCompany } from "./company.repository";
 import { updateContact, softDeleteContact } from "./contact.repository";
 import { updatePipeline, softDeletePipeline } from "./pipeline.repository";
-import {
-  updateStage,
-  softDeleteStage,
-  reindexStages,
-} from "./stage.repository";
-import {
-  updateOpportunity,
-  softDeleteOpportunity,
-} from "./opportunity.repository";
+import { updateStage, softDeleteStage, reindexStages } from "./stage.repository";
+import { updateOpportunity, softDeleteOpportunity } from "./opportunity.repository";
 import { updateActivity, softDeleteActivity } from "./activity.repository";
 import { updateUser, softDeleteUser } from "./user.repository";
 import { revokeInvitationConditional } from "./invitation.repository";
 import { updateSource, softDeleteSource } from "./source.repository";
-import {
-  revokeApiKeyConditional,
-  revokeApiKeysBySource,
-} from "./apiKey.repository";
+import { revokeApiKeyConditional, revokeApiKeysBySource } from "./apiKey.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -110,9 +100,7 @@ async function createRealAuthUser(label: string) {
     email_confirm: true,
   });
   if (error || !data.user) {
-    throw new Error(
-      `No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`,
-    );
+    throw new Error(`No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`);
   }
   return { id: data.user.id, email };
 }
@@ -306,7 +294,11 @@ async function assertCrossTenantWriteNoOp<T>(
   const result = await write();
   assert.equal(result.count, 0, `${label}: no debe afectar ninguna fila`);
   const after = await read();
-  assert.deepEqual(after, before, `${label}: el registro de Organization B debe permanecer intacto`);
+  assert.deepEqual(
+    after,
+    before,
+    `${label}: el registro de Organization B debe permanecer intacto`,
+  );
 }
 
 test("updateCompany: id de Organization B + organizationId de Organization A no modifica la Company", async () => {
@@ -441,11 +433,7 @@ test("reindexStages: no reindexa un Stage ajeno al pipeline (de otra organizaci�
   await assert.rejects(
     () =>
       prisma.$transaction((tx) =>
-        reindexStages(
-          fx.pipelineB.id,
-          [fx.stageB1.id, fx.stageA1.id, fx.stageB2.id],
-          tx,
-        ),
+        reindexStages(fx.pipelineB.id, [fx.stageB1.id, fx.stageA1.id, fx.stageB2.id], tx),
       ),
     /no pertenece al pipeline/,
   );
@@ -522,8 +510,7 @@ test("revokeApiKeysBySource: sourceId de Organization B + organizationId de Orga
 async function assertViolaFk(write: () => Promise<unknown>, label: string) {
   await assert.rejects(
     write,
-    (err: unknown) =>
-      err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003",
+    (err: unknown) => err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003",
     `${label}: la base debe rechazar la referencia cross-tenant con una violación de FK`,
   );
 }
@@ -647,8 +634,7 @@ test("dos IngestionEvent con el mismo (sourceId, externalId): la base rechaza el
           rawPayload: { intento: 2 },
         },
       }),
-    (err: unknown) =>
-      err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002",
+    (err: unknown) => err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002",
     "el reintento con el mismo externalId debe violar el único parcial",
   );
 });

@@ -55,7 +55,11 @@ function UserRow({ user, isSelf }: { user: User; isSelf: boolean }) {
             (targetUserId === actorUserId), mismo criterio que AdminRoute. */}
         {isSelf ? null : (
           <>
-            <button type="button" onClick={handleToggleActive} disabled={updateUserMutation.isPending}>
+            <button
+              type="button"
+              onClick={handleToggleActive}
+              disabled={updateUserMutation.isPending}
+            >
               {user.isActive ? "Desactivar" : "Activar"}
             </button>
             <button type="button" onClick={handleDelete} disabled={deleteUserMutation.isPending}>
@@ -142,7 +146,10 @@ export function UserListPage() {
             <option value="createdAt">Fecha de alta</option>
           </select>
         </label>
-        <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value as SortOrder)}>
+        <select
+          value={sortOrder}
+          onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+        >
           <option value="asc">Ascendente</option>
           <option value="desc">Descendente</option>
         </select>
@@ -180,7 +187,11 @@ export function UserListPage() {
 
       {usersQuery.isSuccess ? (
         <div>
-          <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((current) => current - 1)}
+          >
             Anterior
           </button>
           <span>

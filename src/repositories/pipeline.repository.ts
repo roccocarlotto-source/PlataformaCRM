@@ -8,16 +8,11 @@ export interface PipelineFilters {
 export type PipelineSortBy = "name" | "createdAt";
 export type SortOrder = "asc" | "desc";
 
-function buildWhere(
-  organizationId: string,
-  filters: PipelineFilters,
-): Prisma.PipelineWhereInput {
+function buildWhere(organizationId: string, filters: PipelineFilters): Prisma.PipelineWhereInput {
   return {
     organizationId,
     deletedAt: null,
-    ...(filters.search
-      ? { name: { contains: filters.search, mode: "insensitive" } }
-      : {}),
+    ...(filters.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
   };
 }
 
@@ -49,19 +44,11 @@ export function findManyPipelines(
   });
 }
 
-export function countPipelines(
-  organizationId: string,
-  filters: PipelineFilters,
-  db: Db = prisma,
-) {
+export function countPipelines(organizationId: string, filters: PipelineFilters, db: Db = prisma) {
   return db.pipeline.count({ where: buildWhere(organizationId, filters) });
 }
 
-export function findPipelineById(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findPipelineById(id: string, organizationId: string, db: Db = prisma) {
   return db.pipeline.findFirst({
     where: { id, organizationId, deletedAt: null },
   });
@@ -135,11 +122,7 @@ export function updatePipeline(
 // true para siempre, porque unsetDefaultPipeline (la única función que
 // apaga un default existente) filtra deletedAt: null en su propio WHERE y
 // nunca vuelve a alcanzarla.
-export function softDeletePipeline(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function softDeletePipeline(id: string, organizationId: string, db: Db = prisma) {
   return db.pipeline.updateMany({
     where: { id, organizationId },
     data: { deletedAt: new Date(), isDefault: false },

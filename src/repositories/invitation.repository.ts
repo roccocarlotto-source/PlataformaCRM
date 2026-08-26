@@ -56,11 +56,7 @@ export function countInvitations(
 
 // Scoped por organización — para revocar / listar detalle, siempre en
 // contexto de un ADMIN autenticado.
-export function findInvitationById(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findInvitationById(id: string, organizationId: string, db: Db = prisma) {
   return db.invitation.findFirst({ where: { id, organizationId } });
 }
 
@@ -119,11 +115,7 @@ export function createInvitation(data: CreateInvitationData, db: Db = prisma) {
 // propia fila), acá el actor es un ADMIN autenticado con organizationId real
 // en req.auth — la escritura debe exigirlo igual que el resto de las
 // entidades, no solo confiar en el pre-check de revokeInvitation.
-export function revokeInvitationConditional(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function revokeInvitationConditional(id: string, organizationId: string, db: Db = prisma) {
   return db.invitation.updateMany({
     where: { id, organizationId, status: "PENDING" },
     data: { status: "REVOKED" },
@@ -151,10 +143,7 @@ export function hardDeleteInvitation(id: string, db: Db = prisma) {
 // aceptar, revocar) — así el índice único parcial
 // (organization_id, email) WHERE status = 'PENDING' nunca queda bloqueado
 // eternamente por una invitación vieja que nadie marcó como vencida.
-export function expireDueInvitations(
-  where: Prisma.InvitationWhereInput,
-  db: Db = prisma,
-) {
+export function expireDueInvitations(where: Prisma.InvitationWhereInput, db: Db = prisma) {
   return db.invitation.updateMany({
     where: { ...where, status: "PENDING", expiresAt: { lte: new Date() } },
     data: { status: "EXPIRED" },

@@ -33,20 +33,12 @@ export interface ListActivitiesParams {
   sortOrder: SortOrder;
 }
 
-export async function listActivities(
-  organizationId: string,
-  params: ListActivitiesParams,
-) {
+export async function listActivities(organizationId: string, params: ListActivitiesParams) {
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManyActivities(
-      organizationId,
-      filters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
+    findManyActivities(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countActivities(organizationId, filters),
   ]);
 
@@ -230,10 +222,7 @@ export async function updateActivity(
   }
 
   if ("opportunityId" in input && input.opportunityId) {
-    data.opportunityId = await validateOpportunityId(
-      organizationId,
-      input.opportunityId,
-    );
+    data.opportunityId = await validateOpportunityId(organizationId, input.opportunityId);
   }
 
   // Estado final de las tres relaciones: combina lo que la Activity ya

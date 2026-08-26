@@ -155,7 +155,9 @@ describe("ActivityListPage", () => {
     await user.selectOptions(screen.getByLabelText("Tipo"), "CALL");
     await user.click(screen.getByText("Siguiente"));
 
-    await waitFor(() => expect(captured.some((u) => u.searchParams.get("page") === "2")).toBe(true));
+    await waitFor(() =>
+      expect(captured.some((u) => u.searchParams.get("page") === "2")).toBe(true),
+    );
     const withFilters = captured.find(
       (u) => u.searchParams.get("search") === "renov" && u.searchParams.get("type") === "CALL",
     );

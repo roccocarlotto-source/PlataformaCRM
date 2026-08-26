@@ -1,10 +1,7 @@
 import { Router } from "express";
 import { ingestHandler } from "../controllers/ingest.controller";
 import { authenticateApiKey } from "../middlewares/authenticateApiKey";
-import {
-  ingestJsonParser,
-  requireJsonContentType,
-} from "../middlewares/ingestBody";
+import { ingestJsonParser, requireJsonContentType } from "../middlewares/ingestBody";
 import { ingestRateLimiter } from "../middlewares/rateLimit";
 
 export const ingestRouter = Router();

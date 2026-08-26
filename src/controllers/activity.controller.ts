@@ -42,10 +42,7 @@ const createActivitySchema = z
     opportunityId: z.string().uuid("opportunityId inválido").optional(),
   })
   .refine(
-    (data) =>
-      Boolean(data.companyId) ||
-      Boolean(data.contactId) ||
-      Boolean(data.opportunityId),
+    (data) => Boolean(data.companyId) || Boolean(data.contactId) || Boolean(data.opportunityId),
     {
       message: "Debe indicar companyId, contactId, opportunityId, o una combinación de estos",
     },
@@ -95,19 +92,13 @@ const listQuerySchema = z
       .default("createdAt"),
     sortOrder: z.enum(["asc", "desc"]).default("desc"),
   })
+  .refine((data) => !data.dueDateFrom || !data.dueDateTo || data.dueDateFrom <= data.dueDateTo, {
+    message: "dueDateFrom no puede ser posterior a dueDateTo",
+    path: ["dueDateFrom"],
+  })
   .refine(
     (data) =>
-      !data.dueDateFrom || !data.dueDateTo || data.dueDateFrom <= data.dueDateTo,
-    {
-      message: "dueDateFrom no puede ser posterior a dueDateTo",
-      path: ["dueDateFrom"],
-    },
-  )
-  .refine(
-    (data) =>
-      !data.completedAtFrom ||
-      !data.completedAtTo ||
-      data.completedAtFrom <= data.completedAtTo,
+      !data.completedAtFrom || !data.completedAtTo || data.completedAtFrom <= data.completedAtTo,
     {
       message: "completedAtFrom no puede ser posterior a completedAtTo",
       path: ["completedAtFrom"],
@@ -117,11 +108,7 @@ const listQuerySchema = z
 export const createActivityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createActivitySchema, req.body);
-    const activity = await createActivity(
-      req.auth.organizationId,
-      req.auth.userId,
-      input,
-    );
+    const activity = await createActivity(req.auth.organizationId, req.auth.userId, input);
     res.status(201).json(activity);
   },
 );
@@ -134,13 +121,11 @@ export const listActivitiesHandler = asyncHandler<AuthenticatedRequest>(
   },
 );
 
-export const getActivityHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    const activity = await getActivityById(req.auth.organizationId, id);
-    res.status(200).json(activity);
-  },
-);
+export const getActivityHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  const activity = await getActivityById(req.auth.organizationId, id);
+  res.status(200).json(activity);
+});
 
 export const updateActivityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {

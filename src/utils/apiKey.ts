@@ -85,8 +85,7 @@ export interface GeneratedApiKey {
 // base64url en vez de hex: misma entropía en 43 caracteres en vez de 64, y sin
 // caracteres que necesiten escaparse en un header, una URL o un archivo .env.
 export function generateApiKey(): GeneratedApiKey {
-  const key =
-    API_KEY_PREFIX + randomBytes(API_KEY_SECRET_BYTES).toString("base64url");
+  const key = API_KEY_PREFIX + randomBytes(API_KEY_SECRET_BYTES).toString("base64url");
 
   return {
     key,

@@ -53,10 +53,7 @@ export function createOpportunity(input: CreateOpportunityInput): Promise<Opport
   });
 }
 
-export function updateOpportunity(
-  id: string,
-  input: UpdateOpportunityInput,
-): Promise<Opportunity> {
+export function updateOpportunity(id: string, input: UpdateOpportunityInput): Promise<Opportunity> {
   return request<Opportunity>(`/opportunities/${id}`, {
     method: "PATCH",
     body: input,

@@ -14,10 +14,7 @@ export async function resolveOwnerId(
     return actorUserId;
   }
 
-  const owner = await findUserByIdInOrganization(
-    requestedOwnerId,
-    organizationId,
-  );
+  const owner = await findUserByIdInOrganization(requestedOwnerId, organizationId);
 
   if (!owner) {
     throw new AppError(

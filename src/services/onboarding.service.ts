@@ -2,7 +2,10 @@ import { Prisma } from "@prisma/client";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
-import { createOrganization, findOrganizationBySlug } from "../repositories/organization.repository";
+import {
+  createOrganization,
+  findOrganizationBySlug,
+} from "../repositories/organization.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { createUser } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
@@ -24,9 +27,7 @@ export interface OnboardingResult {
 // primer usuario (ADMIN) y la identidad en Supabase Auth, como una única
 // operación lógica. Ver docs/authentication-architecture.md sección 1 para
 // la estrategia de consistencia entre auth.users y public.users.
-export async function onboardOrganization(
-  input: OnboardingInput,
-): Promise<OnboardingResult> {
+export async function onboardOrganization(input: OnboardingInput): Promise<OnboardingResult> {
   const { organizationName, fullName, email, password } = input;
   const slug = slugify(organizationName);
 
@@ -40,13 +41,12 @@ export async function onboardOrganization(
 
   const supabaseAdmin = getSupabaseAdmin();
 
-  const { data: authData, error: authError } =
-    await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name: fullName },
-    });
+  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: fullName },
+  });
 
   if (authError || !authData.user) {
     const isDuplicate =
@@ -75,10 +75,7 @@ export async function onboardOrganization(
         );
       }
 
-      const organization = await createOrganization(
-        { name: organizationName, slug },
-        tx,
-      );
+      const organization = await createOrganization({ name: organizationName, slug }, tx);
 
       const user = await createUser(
         {
@@ -124,10 +121,7 @@ export async function onboardOrganization(
       throw err;
     }
 
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       const target = Array.isArray(err.meta?.target)
         ? err.meta.target.join(",")
         : String(err.meta?.target ?? "");

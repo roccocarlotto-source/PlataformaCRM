@@ -119,12 +119,6 @@ export const CAMPOS_IGNORADOS = ["lifecycleStage"] as const;
 // Que sea la misma lista es la razón por la que un archivo de Excel no puede
 // escribir campos que un webhook no puede: cambia CÓMO se llega al contrato,
 // nunca el contrato.
-export const CAMPOS_DE_CONTACTO = [
-  "firstName",
-  "lastName",
-  "email",
-  "phone",
-  "jobTitle",
-] as const;
+export const CAMPOS_DE_CONTACTO = ["firstName", "lastName", "email", "phone", "jobTitle"] as const;
 
 export type CampoDeContacto = (typeof CAMPOS_DE_CONTACTO)[number];

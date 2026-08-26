@@ -33,20 +33,12 @@ export interface ListOpportunitiesParams {
   sortOrder: SortOrder;
 }
 
-export async function listOpportunities(
-  organizationId: string,
-  params: ListOpportunitiesParams,
-) {
+export async function listOpportunities(organizationId: string, params: ListOpportunitiesParams) {
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManyOpportunities(
-      organizationId,
-      filters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
+    findManyOpportunities(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countOpportunities(organizationId, filters),
   ]);
 
@@ -106,33 +98,20 @@ async function validateContactId(
 async function validatePipelineId(organizationId: string, pipelineId: string) {
   const pipeline = await findPipelineById(pipelineId, organizationId);
   if (!pipeline) {
-    throw new AppError(
-      "El pipelineId indicado no existe o no pertenece a tu organización",
-      400,
-    );
+    throw new AppError("El pipelineId indicado no existe o no pertenece a tu organización", 400);
   }
   return pipeline;
 }
 
 // El stage tiene que existir en la organización Y pertenecer al pipeline
 // indicado — evita la inconsistencia "pipeline A + stage de pipeline B".
-async function validateStageId(
-  organizationId: string,
-  stageId: string,
-  pipelineId: string,
-) {
+async function validateStageId(organizationId: string, stageId: string, pipelineId: string) {
   const stage = await findStageById(stageId, organizationId);
   if (!stage) {
-    throw new AppError(
-      "El stageId indicado no existe o no pertenece a tu organización",
-      400,
-    );
+    throw new AppError("El stageId indicado no existe o no pertenece a tu organización", 400);
   }
   if (stage.pipelineId !== pipelineId) {
-    throw new AppError(
-      "El stageId indicado no pertenece al pipeline especificado",
-      400,
-    );
+    throw new AppError("El stageId indicado no pertenece al pipeline especificado", 400);
   }
   return stage;
 }
@@ -210,21 +189,15 @@ export async function updateOpportunity(
   const data: UpdateOpportunityInput = { ...input };
 
   if (input.ownerId) {
-    data.ownerId = await resolveOwnerId(
-      organizationId,
-      actorUserId,
-      input.ownerId,
-    );
+    data.ownerId = await resolveOwnerId(organizationId, actorUserId, input.ownerId);
   }
 
   if (input.companyId) {
-    data.companyId =
-      (await validateCompanyId(organizationId, input.companyId)) ?? undefined;
+    data.companyId = (await validateCompanyId(organizationId, input.companyId)) ?? undefined;
   }
 
   if (input.contactId) {
-    data.contactId =
-      (await validateContactId(organizationId, input.contactId)) ?? undefined;
+    data.contactId = (await validateContactId(organizationId, input.contactId)) ?? undefined;
   }
 
   // Mover de stage: el nuevo stage tiene que pertenecer al pipeline actual

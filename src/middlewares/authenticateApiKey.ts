@@ -1,8 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import {
-  recordApiKeyUsage,
-  resolveIngestContext,
-} from "../services/ingestAuth.service";
+import { recordApiKeyUsage, resolveIngestContext } from "../services/ingestAuth.service";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
 

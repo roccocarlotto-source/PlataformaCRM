@@ -37,11 +37,7 @@ export function createUser(
 // activo, y no haber sido removido de la organización (deletedAt: null).
 // Las cuatro condiciones colapsan a un mismo resultado (null) a propósito —
 // el llamador no necesita (ni debería) distinguir cuál falló.
-export function findUserByIdInOrganization(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findUserByIdInOrganization(id: string, organizationId: string, db: Db = prisma) {
   return db.user.findFirst({
     where: { id, organizationId, isActive: true, deletedAt: null },
   });
@@ -69,10 +65,7 @@ export type SortOrder = "asc" | "desc";
 // (deletedAt != null) — mismo criterio de soft delete que el resto de las
 // entidades. No hay forma de listar removidos en este bloque (ver
 // docs/project-overview.md, no se implementó undelete).
-function buildWhere(
-  organizationId: string,
-  filters: UserFilters,
-): Prisma.UserWhereInput {
+function buildWhere(organizationId: string, filters: UserFilters): Prisma.UserWhereInput {
   return {
     organizationId,
     deletedAt: null,
@@ -110,11 +103,7 @@ export function findManyUsers(
   });
 }
 
-export function countUsers(
-  organizationId: string,
-  filters: UserFilters,
-  db: Db = prisma,
-) {
+export function countUsers(organizationId: string, filters: UserFilters, db: Db = prisma) {
   return db.user.count({ where: buildWhere(organizationId, filters) });
 }
 
@@ -123,11 +112,7 @@ export function countUsers(
 // removido queda invisible a esta consulta — es la única forma de "404" que
 // necesita PATCH/DELETE, sin caso especial: mismo patrón que
 // findCompanyById/findContactById/etc.).
-export function findUserById(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findUserById(id: string, organizationId: string, db: Db = prisma) {
   return db.user.findFirst({
     where: { id, organizationId, deletedAt: null },
     include: { role: true },
@@ -140,11 +125,7 @@ export function findUserById(
 // sistema para siempre, sin intervención manual en la base). excludeId
 // permite contar "los que quedan" al evaluar una acción sobre un usuario
 // puntual, mismo patrón que countActivePipelines/findOldestActivePipeline.
-export function countActiveAdmins(
-  organizationId: string,
-  excludeId?: string,
-  db: Db = prisma,
-) {
+export function countActiveAdmins(organizationId: string, excludeId?: string, db: Db = prisma) {
   return db.user.count({
     where: {
       organizationId,
@@ -180,11 +161,7 @@ export function updateUser(
 // escritura (remover implica desactivar, nunca al revés) — sin undelete en
 // este bloque, ver docs/project-overview.md. organizationId en el WHERE por
 // el mismo motivo que updateUser (M4).
-export function softDeleteUser(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function softDeleteUser(id: string, organizationId: string, db: Db = prisma) {
   return db.user.updateMany({
     where: { id, organizationId },
     data: { deletedAt: new Date(), isActive: false },

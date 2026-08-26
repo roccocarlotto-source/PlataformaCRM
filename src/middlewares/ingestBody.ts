@@ -34,18 +34,9 @@ export const INGEST_MAX_BODY_BYTES = 64 * 1024;
 // header, así que `application/json; charset=utf-8` —lo que manda cualquier
 // cliente HTTP real— se acepta, y `application/x-www-form-urlencoded` o
 // `text/plain` no.
-export function requireJsonContentType(
-  req: Request,
-  _res: Response,
-  next: NextFunction,
-): void {
+export function requireJsonContentType(req: Request, _res: Response, next: NextFunction): void {
   if (!req.is("application/json")) {
-    next(
-      new AppError(
-        "La ingesta solo acepta application/json",
-        415,
-      ),
-    );
+    next(new AppError("La ingesta solo acepta application/json", 415));
     return;
   }
   next();
@@ -69,11 +60,7 @@ interface ErrorDeBodyParser {
   type?: string;
 }
 
-export function ingestJsonParser(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
+export function ingestJsonParser(req: Request, res: Response, next: NextFunction): void {
   parser(req, res, (err: unknown) => {
     if (!err) {
       next();

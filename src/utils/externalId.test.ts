@@ -2,11 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { AppError } from "./AppError";
-import {
-  MAX_PAYLOAD_DEPTH,
-  canonicalStringify,
-  deriveExternalId,
-} from "./externalId";
+import { MAX_PAYLOAD_DEPTH, canonicalStringify, deriveExternalId } from "./externalId";
 
 // El contrato de deriveExternalId es exactamente uno: DOS PAYLOADS CON EL MISMO
 // CONTENIDO DAN EL MISMO externalId, Y DOS CON CONTENIDO DISTINTO NO. Todo lo
@@ -50,10 +46,7 @@ test("un contenido distinto da un externalId distinto (control negativo)", () =>
 // listas distintas. Si canonicalize los ordenara "para normalizar", dos eventos
 // realmente distintos colapsarían en uno y se perdería el segundo sin rastro.
 test("el orden de un array SÍ cambia el externalId — un array no es un objeto", () => {
-  assert.notEqual(
-    deriveExternalId({ tags: ["a", "b"] }),
-    deriveExternalId({ tags: ["b", "a"] }),
-  );
+  assert.notEqual(deriveExternalId({ tags: ["a", "b"] }), deriveExternalId({ tags: ["b", "a"] }));
 });
 
 test("canonicalStringify ordena claves y respeta arrays", () => {

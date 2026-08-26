@@ -338,9 +338,7 @@ test("fila 14 distingue una FK compuesta que apunta al padre equivocado", async 
       || ') upd=' || c.confupdtype::text || ' del=' || c.confdeltype::text || ' match=' || c.confmatchtype::text
     from pg_constraint c where c.conname = ${lit(nombre)})`;
 
-  const real = await norm(
-    firma("ingestion_events_organization_id_promoted_contact_id_fkey"),
-  );
+  const real = await norm(firma("ingestion_events_organization_id_promoted_contact_id_fkey"));
 
   assert.equal(
     real,

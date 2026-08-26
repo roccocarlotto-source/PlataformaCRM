@@ -64,20 +64,27 @@ describe("UserListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText(/No pudimos cargar los usuarios/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/No pudimos cargar los usuarios/)).toBeInTheDocument(),
+    );
   });
 
   it("empty state cuando data está vacía", async () => {
     useAuthMock.mockReturnValue(mockAuth());
     server.use(
       http.get(usersUrl, () =>
-        HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }),
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+        }),
       ),
     );
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("No hay usuarios para mostrar.")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("No hay usuarios para mostrar.")).toBeInTheDocument(),
+    );
   });
 
   it("filtros reales (role/isActive) producen la query esperada, y paginación avanza", async () => {
@@ -173,7 +180,10 @@ describe("UserListPage", () => {
         }),
       ),
       http.delete(`${usersUrl}/u2`, () =>
-        HttpResponse.json({ error: { message: "No se puede eliminar al último ADMIN activo de la organización" } }, { status: 400 }),
+        HttpResponse.json(
+          { error: { message: "No se puede eliminar al último ADMIN activo de la organización" } },
+          { status: 400 },
+        ),
       ),
     );
     const user = userEvent.setup();

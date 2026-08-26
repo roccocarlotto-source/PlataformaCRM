@@ -78,7 +78,9 @@ describe("activity/mutations — invalidación de cache", () => {
     create.result.current.mutate({ type: "CALL", subject: "Nueva", companyId: "co1" });
     await waitFor(() => expect(create.result.current.isSuccess).toBe(true));
 
-    const update = renderHook(() => useUpdateActivity("act1"), { wrapper: wrapperFor(queryClient) });
+    const update = renderHook(() => useUpdateActivity("act1"), {
+      wrapper: wrapperFor(queryClient),
+    });
     update.result.current.mutate({ subject: "Editada" });
     await waitFor(() => expect(update.result.current.isSuccess).toBe(true));
 
@@ -94,9 +96,7 @@ describe("activity/mutations — invalidación de cache", () => {
 
   it("una mutation fallida no ejecuta ninguna invalidación", async () => {
     server.use(
-      http.post(baseUrl, () =>
-        HttpResponse.json({ error: { message: "falló" } }, { status: 500 }),
-      ),
+      http.post(baseUrl, () => HttpResponse.json({ error: { message: "falló" } }, { status: 500 })),
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");

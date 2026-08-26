@@ -185,9 +185,7 @@ describe("ContactFormPage", () => {
     await user.type(screen.getByLabelText("Apellido"), "Persona");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("no se pudo crear"),
-    );
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("no se pudo crear"));
     expect(screen.queryByText("lista de contactos")).not.toBeInTheDocument();
   });
 

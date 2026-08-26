@@ -139,7 +139,10 @@ describe("OpportunityListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       http.get(opportunitiesUrl, () =>
-        HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }),
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+        }),
       ),
       usersHandler(),
       ...relationHandlers(),
@@ -190,7 +193,14 @@ describe("OpportunityListPage", () => {
     server.use(
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
-          data: [makeOpportunity({ companyId: "co1", contactId: "ct1", pipelineId: "pl1", stageId: "st1" })],
+          data: [
+            makeOpportunity({
+              companyId: "co1",
+              contactId: "ct1",
+              pipelineId: "pl1",
+              stageId: "st1",
+            }),
+          ],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),
@@ -315,7 +325,9 @@ describe("OpportunityListPage", () => {
     server.use(
       http.get(opportunitiesUrl, () =>
         HttpResponse.json({
-          data: [makeOpportunity({ companyId: "co1", pipelineId: "pl1", stageId: "st1", ownerId: "u1" })],
+          data: [
+            makeOpportunity({ companyId: "co1", pipelineId: "pl1", stageId: "st1", ownerId: "u1" }),
+          ],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),

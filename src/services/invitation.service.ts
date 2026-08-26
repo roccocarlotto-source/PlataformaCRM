@@ -36,10 +36,7 @@ export interface ListInvitationsParams {
   sortOrder: SortOrder;
 }
 
-export async function listInvitations(
-  organizationId: string,
-  params: ListInvitationsParams,
-) {
+export async function listInvitations(organizationId: string, params: ListInvitationsParams) {
   // Perezoso: antes de listar, cualquier PENDING vencida de esta
   // organización pasa a EXPIRED — así el listado siempre refleja el estado
   // real, no el estado al momento de crearse.
@@ -49,12 +46,7 @@ export async function listInvitations(
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManyInvitations(
-      organizationId,
-      filters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
+    findManyInvitations(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countInvitations(organizationId, filters),
   ]);
 
@@ -101,21 +93,12 @@ export async function createInvitation(
 
   const existingUser = await findUserByEmail(email);
   if (existingUser) {
-    throw new AppError(
-      "Ese email ya pertenece a un usuario existente",
-      409,
-    );
+    throw new AppError("Ese email ya pertenece a un usuario existente", 409);
   }
 
-  const existingPending = await findPendingInvitationByOrgAndEmail(
-    organizationId,
-    email,
-  );
+  const existingPending = await findPendingInvitationByOrgAndEmail(organizationId, email);
   if (existingPending) {
-    throw new AppError(
-      "Ya existe una invitación pendiente para ese email",
-      409,
-    );
+    throw new AppError("Ya existe una invitación pendiente para ese email", 409);
   }
 
   const role = await findRoleByName(input.role);
@@ -144,23 +127,19 @@ export async function createInvitation(
     // diferencia de Stage/Contact no hace falta inspeccionar err.meta.target
     // para desambiguar entre varias constraints posibles, cualquier P2002
     // en este insert solo puede ser ese índice.
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
-      throw new AppError(
-        "Ya existe una invitación pendiente para ese email",
-        409,
-      );
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      throw new AppError("Ya existe una invitación pendiente para ese email", 409);
     }
     throw err;
   }
 
   const supabaseAdmin = getSupabaseAdmin();
-  const { data: authData, error: authError } =
-    await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+    email,
+    {
       data: { invitationId: invitation.id },
-    });
+    },
+  );
 
   if (authError || !authData.user) {
     try {
@@ -203,25 +182,16 @@ export async function createInvitation(
 function revokeConflictError(status: string): AppError {
   switch (status) {
     case "ACCEPTED":
-      return new AppError(
-        "Esta invitación ya fue aceptada, no se puede revocar",
-        409,
-      );
+      return new AppError("Esta invitación ya fue aceptada, no se puede revocar", 409);
     case "REVOKED":
       return new AppError("Esta invitación ya fue revocada", 409);
     case "EXPIRED":
-      return new AppError(
-        "Esta invitación ya venció, no se puede revocar",
-        410,
-      );
+      return new AppError("Esta invitación ya venció, no se puede revocar", 410);
     default:
       // No debería poder pasar nunca (PENDING acá sería una contradicción
       // real tras perder el CAS; cualquier otro valor está fuera del
       // enum) — fallback seguro y genérico, nunca un 500 crudo.
-      return new AppError(
-        "Esta invitación ya no está disponible para revocar",
-        409,
-      );
+      return new AppError("Esta invitación ya no está disponible para revocar", 409);
   }
 }
 
@@ -284,10 +254,7 @@ function acceptConflictError(status: string): AppError {
         410,
       );
     case "EXPIRED":
-      return new AppError(
-        "Esta invitación venció, pedile a tu administrador que te reinvite",
-        410,
-      );
+      return new AppError("Esta invitación venció, pedile a tu administrador que te reinvite", 410);
     default:
       // No debería poder pasar nunca (PENDING acá sería una contradicción
       // real tras perder el CAS; cualquier otro valor está fuera del
@@ -357,10 +324,7 @@ export async function acceptInvitation(
 
   if (invitation.expiresAt.getTime() <= Date.now()) {
     await expireDueInvitations({ id: invitation.id });
-    throw new AppError(
-      "Esta invitación venció, pedile a tu administrador que te reinvite",
-      410,
-    );
+    throw new AppError("Esta invitación venció, pedile a tu administrador que te reinvite", 410);
   }
 
   const fullName = input.fullName.trim();
@@ -376,10 +340,7 @@ export async function acceptInvitation(
       // arbitre). Si count === 0, ni siquiera se intenta crear el User —
       // nunca puede quedar un User huérfano de una aceptación que perdió
       // la carrera.
-      const transition = await acceptInvitationRowConditional(
-        invitation.id,
-        tx,
-      );
+      const transition = await acceptInvitationRowConditional(invitation.id, tx);
       if (transition.count === 0) {
         // El CAS ya decidió — count === 0 es la única fuente de verdad
         // sobre si la operación tuvo éxito, este re-read NUNCA participa
@@ -413,10 +374,7 @@ export async function acceptInvitation(
     // transición de Invitation el create de User choca contra su propia
     // unicidad (id/email), no debería alcanzarse nunca dado el orden de
     // arriba, pero se traduce igual en vez de dejarlo subir como 500 crudo.
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       throw new AppError("Esta invitación ya fue aceptada", 409);
     }
     throw err;

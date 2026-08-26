@@ -84,7 +84,9 @@ describe("invitation/api — contrato HTTP", () => {
     expect(captured[0].url.pathname).toBe("/api/invitations");
     expect(captured[0].body).toEqual({ email: "nueva@example.com", role: "USER" });
     expect(Object.keys(captured[0].body as Record<string, unknown>)).not.toContain("roleId");
-    expect(Object.keys(captured[0].body as Record<string, unknown>)).not.toContain("organizationId");
+    expect(Object.keys(captured[0].body as Record<string, unknown>)).not.toContain(
+      "organizationId",
+    );
   });
 
   it("4. organizationId nunca viaja en list/create/revoke", async () => {

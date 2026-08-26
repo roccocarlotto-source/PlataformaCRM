@@ -43,16 +43,11 @@ const SOURCE_PUBLIC_SELECT = {
 // organizationId siempre obligatorio y deletedAt: null siempre presente en
 // lecturas — el único lugar donde se arma el filtro multi-tenant + soft delete
 // para esta entidad, para que findMany/count nunca puedan divergir.
-function buildWhere(
-  organizationId: string,
-  filters: SourceFilters,
-): Prisma.SourceWhereInput {
+function buildWhere(organizationId: string, filters: SourceFilters): Prisma.SourceWhereInput {
   return {
     organizationId,
     deletedAt: null,
-    ...(filters.search
-      ? { name: { contains: filters.search, mode: "insensitive" } }
-      : {}),
+    ...(filters.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
     ...(filters.type ? { type: filters.type } : {}),
     ...(filters.isActive !== undefined ? { isActive: filters.isActive } : {}),
   };
@@ -87,19 +82,11 @@ export function findManySources(
   });
 }
 
-export function countSources(
-  organizationId: string,
-  filters: SourceFilters,
-  db: Db = prisma,
-) {
+export function countSources(organizationId: string, filters: SourceFilters, db: Db = prisma) {
   return db.source.count({ where: buildWhere(organizationId, filters) });
 }
 
-export function findSourceById(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findSourceById(id: string, organizationId: string, db: Db = prisma) {
   return db.source.findFirst({
     where: { id, organizationId, deletedAt: null },
     select: SOURCE_PUBLIC_SELECT,
@@ -146,11 +133,7 @@ export function updateSource(
   });
 }
 
-export function softDeleteSource(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function softDeleteSource(id: string, organizationId: string, db: Db = prisma) {
   return db.source.updateMany({
     where: { id, organizationId, deletedAt: null },
     data: { deletedAt: new Date() },

@@ -41,11 +41,8 @@ export function PipelineStageSummary() {
             <ul>
               {summary.stages.map((stage) => (
                 <li key={stage.stageId}>
-                  {stage.name}:{" "}
-                  {stage.isLoading ? "Cargando…" : null}
-                  {stage.isError ? (
-                    <span role="alert">No pudimos cargar este dato.</span>
-                  ) : null}
+                  {stage.name}: {stage.isLoading ? "Cargando…" : null}
+                  {stage.isError ? <span role="alert">No pudimos cargar este dato.</span> : null}
                   {!stage.isLoading && !stage.isError ? stage.total : null}
                 </li>
               ))}

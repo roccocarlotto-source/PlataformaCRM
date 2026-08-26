@@ -113,7 +113,12 @@ describe("opportunity/api — contrato HTTP", () => {
 
     await listOpportunities({ page: 1, pageSize: 20 });
     await getOpportunity("op1");
-    await createOpportunity({ title: "Nueva", pipelineId: "pl1", stageId: "st1", companyId: "co1" });
+    await createOpportunity({
+      title: "Nueva",
+      pipelineId: "pl1",
+      stageId: "st1",
+      companyId: "co1",
+    });
     await updateOpportunity("op1", { title: "Editada" });
 
     expect(captured).toHaveLength(4);

@@ -40,11 +40,7 @@ const listQuerySchema = z.object({
 export const createInvitationHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createInvitationSchema, req.body);
-    const invitation = await createInvitation(
-      req.auth.organizationId,
-      req.auth.userId,
-      input,
-    );
+    const invitation = await createInvitation(req.auth.organizationId, req.auth.userId, input);
     res.status(201).json(invitation);
   },
 );

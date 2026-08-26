@@ -14,7 +14,11 @@ vi.mock("../../auth/getAccessToken", () => ({
 
 const baseUrl = `${env.apiUrl}/api/stages`;
 
-function renderSelect(pipelineId: string | undefined, value: string | undefined, onChange = vi.fn()) {
+function renderSelect(
+  pipelineId: string | undefined,
+  value: string | undefined,
+  onChange = vi.fn(),
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={queryClient}>
@@ -106,7 +110,13 @@ describe("StageSelect", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { rerender } = render(
       <QueryClientProvider client={queryClient}>
-        <StageSelect id="opp-stage" label="Etapa" pipelineId="pl1" value={undefined} onChange={vi.fn()} />
+        <StageSelect
+          id="opp-stage"
+          label="Etapa"
+          pipelineId="pl1"
+          value={undefined}
+          onChange={vi.fn()}
+        />
       </QueryClientProvider>,
     );
 
@@ -115,7 +125,13 @@ describe("StageSelect", () => {
 
     rerender(
       <QueryClientProvider client={queryClient}>
-        <StageSelect id="opp-stage" label="Etapa" pipelineId="pl2" value={undefined} onChange={vi.fn()} />
+        <StageSelect
+          id="opp-stage"
+          label="Etapa"
+          pipelineId="pl2"
+          value={undefined}
+          onChange={vi.fn()}
+        />
       </QueryClientProvider>,
     );
 

@@ -118,9 +118,7 @@ export async function insertPendingIngestionEvent(
 
   // Si ya viene una transacción (Db es PrismaClient | TransactionClient), se
   // usa esa: anidar $transaction sobre un TransactionClient no es válido.
-  return "$transaction" in db
-    ? db.$transaction((tx) => ejecutar(tx))
-    : ejecutar(db);
+  return "$transaction" in db ? db.$transaction((tx) => ejecutar(tx)) : ejecutar(db);
 }
 
 // ---------------------------------------------------------------------------
@@ -254,9 +252,7 @@ export function markEventProcessed(
       // JSON". Se paga acá, en el único punto de persistencia, y no en los
       // llamadores, que siguen tipados contra la unión discriminada.
       promotionNotes:
-        notes.length > 0
-          ? (notes as unknown as Prisma.InputJsonValue)
-          : Prisma.DbNull,
+        notes.length > 0 ? (notes as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
       // La fila se procesó con éxito: errorMessage tiene que quedar limpio
       // incluso si un intento anterior lo había escrito.
       errorMessage: null,

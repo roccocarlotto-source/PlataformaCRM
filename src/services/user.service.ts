@@ -28,12 +28,7 @@ export async function listUsers(organizationId: string, params: ListUsersParams)
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManyUsers(
-      organizationId,
-      filters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
+    findManyUsers(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countUsers(organizationId, filters),
   ]);
 
@@ -90,10 +85,7 @@ export async function updateUser(
   input: UpdateUserInput,
 ) {
   if (id === actorUserId) {
-    throw new AppError(
-      "No podés modificar tu propio usuario (rol o estado activo)",
-      400,
-    );
+    throw new AppError("No podés modificar tu propio usuario (rol o estado activo)", 400);
   }
 
   const user = await getUserById(organizationId, id);
@@ -170,11 +162,7 @@ export async function updateUser(
 // deletedAt != null en el próximo request — reversible del lado de
 // Supabase (no lo tocamos), pero sin undelete de nuestro lado en este
 // bloque.
-export async function deleteUser(
-  organizationId: string,
-  actorUserId: string,
-  id: string,
-) {
+export async function deleteUser(organizationId: string, actorUserId: string, id: string) {
   if (id === actorUserId) {
     throw new AppError("No podés eliminar tu propio usuario", 400);
   }
@@ -194,10 +182,7 @@ export async function deleteUser(
       if (freshUser.isActive && freshUser.role.name === "ADMIN") {
         const remainingAdmins = await countActiveAdmins(organizationId, id, tx);
         if (remainingAdmins === 0) {
-          throw new AppError(
-            "No se puede eliminar al último ADMIN activo de la organización",
-            400,
-          );
+          throw new AppError("No se puede eliminar al último ADMIN activo de la organización", 400);
         }
       }
 

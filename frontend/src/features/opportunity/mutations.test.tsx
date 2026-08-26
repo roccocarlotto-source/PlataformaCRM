@@ -79,10 +79,17 @@ describe("opportunity/mutations — invalidación de cache", () => {
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
     const create = renderHook(() => useCreateOpportunity(), { wrapper: wrapperFor(queryClient) });
-    create.result.current.mutate({ title: "Nueva", pipelineId: "pl1", stageId: "st1", companyId: "co1" });
+    create.result.current.mutate({
+      title: "Nueva",
+      pipelineId: "pl1",
+      stageId: "st1",
+      companyId: "co1",
+    });
     await waitFor(() => expect(create.result.current.isSuccess).toBe(true));
 
-    const update = renderHook(() => useUpdateOpportunity("op1"), { wrapper: wrapperFor(queryClient) });
+    const update = renderHook(() => useUpdateOpportunity("op1"), {
+      wrapper: wrapperFor(queryClient),
+    });
     update.result.current.mutate({ status: "WON" });
     await waitFor(() => expect(update.result.current.isSuccess).toBe(true));
 
@@ -98,9 +105,7 @@ describe("opportunity/mutations — invalidación de cache", () => {
 
   it("una mutation fallida no ejecuta ninguna invalidación", async () => {
     server.use(
-      http.post(baseUrl, () =>
-        HttpResponse.json({ error: { message: "falló" } }, { status: 500 }),
-      ),
+      http.post(baseUrl, () => HttpResponse.json({ error: { message: "falló" } }, { status: 500 })),
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");

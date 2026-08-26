@@ -24,7 +24,9 @@ function wrapperFor(queryClient: QueryClient) {
 describe("pipeline/mutations — invalidación de cache", () => {
   it("P6 create con isDefault:true invalida pipelineKeys.all (puede desmarcar otro pipeline)", async () => {
     server.use(
-      http.post(baseUrl, () => HttpResponse.json(makePipeline({ isDefault: true }), { status: 201 })),
+      http.post(baseUrl, () =>
+        HttpResponse.json(makePipeline({ isDefault: true }), { status: 201 }),
+      ),
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
@@ -50,11 +52,15 @@ describe("pipeline/mutations — invalidación de cache", () => {
   });
 
   it("P7a update con isDefault:true invalida pipelineKeys.all", async () => {
-    server.use(http.patch(`${baseUrl}/:id`, () => HttpResponse.json(makePipeline({ isDefault: true }))));
+    server.use(
+      http.patch(`${baseUrl}/:id`, () => HttpResponse.json(makePipeline({ isDefault: true }))),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useUpdatePipeline("pl1"), { wrapper: wrapperFor(queryClient) });
+    const { result } = renderHook(() => useUpdatePipeline("pl1"), {
+      wrapper: wrapperFor(queryClient),
+    });
     result.current.mutate({ isDefault: true });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -63,11 +69,15 @@ describe("pipeline/mutations — invalidación de cache", () => {
   });
 
   it("P7b update con isDefault:false explícito invalida solo lists()+detail(id), no pipelineKeys.all", async () => {
-    server.use(http.patch(`${baseUrl}/:id`, () => HttpResponse.json(makePipeline({ isDefault: false }))));
+    server.use(
+      http.patch(`${baseUrl}/:id`, () => HttpResponse.json(makePipeline({ isDefault: false }))),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useUpdatePipeline("pl1"), { wrapper: wrapperFor(queryClient) });
+    const { result } = renderHook(() => useUpdatePipeline("pl1"), {
+      wrapper: wrapperFor(queryClient),
+    });
     result.current.mutate({ isDefault: false });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -77,11 +87,15 @@ describe("pipeline/mutations — invalidación de cache", () => {
   });
 
   it("P7c update que no toca isDefault (solo name) invalida solo lists()+detail(id)", async () => {
-    server.use(http.patch(`${baseUrl}/:id`, () => HttpResponse.json(makePipeline({ name: "Renombrado" }))));
+    server.use(
+      http.patch(`${baseUrl}/:id`, () => HttpResponse.json(makePipeline({ name: "Renombrado" }))),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useUpdatePipeline("pl1"), { wrapper: wrapperFor(queryClient) });
+    const { result } = renderHook(() => useUpdatePipeline("pl1"), {
+      wrapper: wrapperFor(queryClient),
+    });
     result.current.mutate({ name: "Renombrado" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -104,9 +118,7 @@ describe("pipeline/mutations — invalidación de cache", () => {
 
   it("P9 una mutation fallida no ejecuta ninguna invalidación", async () => {
     server.use(
-      http.post(baseUrl, () =>
-        HttpResponse.json({ error: { message: "falló" } }, { status: 500 }),
-      ),
+      http.post(baseUrl, () => HttpResponse.json({ error: { message: "falló" } }, { status: 500 })),
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");

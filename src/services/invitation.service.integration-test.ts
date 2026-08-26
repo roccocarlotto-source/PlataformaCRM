@@ -36,9 +36,7 @@ async function createRealAuthUser(label: string) {
     email_confirm: true,
   });
   if (error || !data.user) {
-    throw new Error(
-      `No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`,
-    );
+    throw new Error(`No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`);
   }
   return { id: data.user.id, email };
 }
@@ -53,18 +51,16 @@ async function createRealAuthUserWithJwt(label: string) {
     email_confirm: true,
   });
   if (error || !data.user) {
-    throw new Error(
-      `No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`,
-    );
+    throw new Error(`No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`);
   }
 
   const anonClient = createClient(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!);
-  const { data: signInData, error: signInError } =
-    await anonClient.auth.signInWithPassword({ email, password });
+  const { data: signInData, error: signInError } = await anonClient.auth.signInWithPassword({
+    email,
+    password,
+  });
   if (signInError || !signInData.session) {
-    throw new Error(
-      `No se pudo iniciar sesión real (${label}): ${signInError?.message}`,
-    );
+    throw new Error(`No se pudo iniciar sesión real (${label}): ${signInError?.message}`);
   }
 
   return {
@@ -142,11 +138,7 @@ async function createInvitationRow(
   });
 }
 
-function assertAppError(
-  err: unknown,
-  statusCode: number,
-  message: string,
-): true {
+function assertAppError(err: unknown, statusCode: number, message: string): true {
   assert.ok(err instanceof AppError, "debe ser AppError, no un error crudo");
   assert.equal((err as AppError).statusCode, statusCode);
   assert.equal((err as AppError).message, message);
@@ -199,8 +191,7 @@ test("createInvitation: email ya pertenece a un User existente → 409 antes de 
           email: invitee.email,
           role: "USER",
         }),
-      (err) =>
-        assertAppError(err, 409, "Ese email ya pertenece a un usuario existente"),
+      (err) => assertAppError(err, 409, "Ese email ya pertenece a un usuario existente"),
     );
 
     const after = await prisma.invitation.count({
@@ -228,8 +219,7 @@ test("createInvitation: ya existe una Invitation PENDING para ese email → 409 
 
   await assert.rejects(
     () => createInvitation(fx.orgId, fx.inviterId, { email, role: "USER" }),
-    (err) =>
-      assertAppError(err, 409, "Ya existe una invitación pendiente para ese email"),
+    (err) => assertAppError(err, 409, "Ya existe una invitación pendiente para ese email"),
   );
 
   const after = await prisma.invitation.findMany({
@@ -405,11 +395,7 @@ test("acceptInvitation sin invitationId: ninguna PENDING, la más reciente es EX
   await assert.rejects(
     () => acceptInvitation(identity, { fullName: "X" }),
     (err) =>
-      assertAppError(
-        err,
-        410,
-        "Esta invitación venció, pedile a tu administrador que te reinvite",
-      ),
+      assertAppError(err, 410, "Esta invitación venció, pedile a tu administrador que te reinvite"),
   );
 });
 
@@ -449,12 +435,7 @@ test("revokeInvitation: ACCEPTED → 409 específico, no el 400 genérico anteri
 
   await assert.rejects(
     () => revokeInvitation(fx.orgId, invitation.id),
-    (err) =>
-      assertAppError(
-        err,
-        409,
-        "Esta invitación ya fue aceptada, no se puede revocar",
-      ),
+    (err) => assertAppError(err, 409, "Esta invitación ya fue aceptada, no se puede revocar"),
   );
 });
 
@@ -474,8 +455,7 @@ test("revokeInvitation: EXPIRED → 410 específico", async () => {
 
   await assert.rejects(
     () => revokeInvitation(fx.orgId, invitation.id),
-    (err) =>
-      assertAppError(err, 410, "Esta invitación ya venció, no se puede revocar"),
+    (err) => assertAppError(err, 410, "Esta invitación ya venció, no se puede revocar"),
   );
 });
 
@@ -543,12 +523,7 @@ test("revokeInvitation: pierde el CAS por una transición real concurrente → r
 
   await assert.rejects(
     () => revokeInvitation(fx.orgId, invitation.id),
-    (err) =>
-      assertAppError(
-        err,
-        409,
-        "Esta invitación ya fue aceptada, no se puede revocar",
-      ),
+    (err) => assertAppError(err, 409, "Esta invitación ya fue aceptada, no se puede revocar"),
   );
 
   await txAPromise;
