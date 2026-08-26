@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeCompany } from "../../test/companyFixtures";
+import { makeUser } from "../../test/userFixtures";
 import { CompanyListPage } from "./CompanyListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { CompanyListResponse } from "./types";
@@ -31,6 +32,20 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
 }
 
 const baseUrl = `${env.apiUrl}/api/companies`;
+const usersUrl = `${env.apiUrl}/api/users`;
+
+// Solo para tests con rol ADMIN: useOwnerNames(isAdmin) dispara GET /api/users
+// cuando isAdmin es true (ver relationResolution.ts). Los tests con rol USER
+// deliberadamente NO incluyen este handler — que la request no exista es parte
+// de lo que prueban. Mismo criterio que OpportunityListPage.test.tsx.
+function usersHandler() {
+  return http.get(usersUrl, () =>
+    HttpResponse.json({
+      data: [makeUser({ id: "u1", fullName: "Ana Pérez" })],
+      pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+    }),
+  );
+}
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -66,7 +81,7 @@ describe("CompanyListPage", () => {
       data: [makeCompany()],
       pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
     };
-    server.use(http.get(baseUrl, () => HttpResponse.json(listResponse)));
+    server.use(usersHandler(), http.get(baseUrl, () => HttpResponse.json(listResponse)));
 
     renderPage();
 
@@ -79,6 +94,7 @@ describe("CompanyListPage", () => {
   it("C.12 error de listado se muestra como estado de error real", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
+      usersHandler(),
       http.get(baseUrl, () =>
         HttpResponse.json({ error: { message: "boom" } }, { status: 500 }),
       ),
@@ -95,7 +111,7 @@ describe("CompanyListPage", () => {
       data: [],
       pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
     };
-    server.use(http.get(baseUrl, () => HttpResponse.json(listResponse)));
+    server.use(usersHandler(), http.get(baseUrl, () => HttpResponse.json(listResponse)));
 
     renderPage();
 
@@ -112,6 +128,7 @@ describe("CompanyListPage", () => {
       pagination: { page: 1, pageSize: 20, total: 100, totalPages: 5 },
     };
     server.use(
+      usersHandler(),
       http.get(baseUrl, ({ request }) => {
         captured.push(new URL(request.url));
         return HttpResponse.json(listResponse);
@@ -143,6 +160,7 @@ describe("CompanyListPage", () => {
     };
     let deleteCalled = false;
     server.use(
+      usersHandler(),
       http.get(baseUrl, () => HttpResponse.json(listResponse)),
       http.delete(`${baseUrl}/:id`, () => {
         deleteCalled = true;
@@ -169,6 +187,7 @@ describe("CompanyListPage", () => {
     };
     let deletedId: string | undefined;
     server.use(
+      usersHandler(),
       http.get(baseUrl, () => HttpResponse.json(listResponse)),
       http.delete(`${baseUrl}/:id`, ({ params }) => {
         deletedId = params.id as string;
@@ -195,6 +214,7 @@ describe("CompanyListPage", () => {
       pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
     };
     server.use(
+      usersHandler(),
       http.get(baseUrl, () => HttpResponse.json(listResponse)),
       http.delete(
         `${baseUrl}/:id`,
@@ -212,5 +232,105 @@ describe("CompanyListPage", () => {
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"),
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Columna Owner — el gap de M2 cerrado (ver CompanyListPage.tsx).
+  // -------------------------------------------------------------------------
+
+  it("ADMIN ve la columna Owner resuelta a fullName", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      usersHandler(),
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makeCompany({ ownerId: "u1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Owner")).toBeInTheDocument());
+    await waitFor(() => {
+      const fila = screen.getByText("Acme").closest("tr");
+      expect(fila).toHaveTextContent("Ana Pérez");
+    });
+  });
+
+  it("una empresa SIN propietario muestra el guion, no un ownerId crudo ni un nombre ajeno", async () => {
+    // Caso que Opportunity no tiene y por eso no esta cubierto alla:
+    // Company.ownerId es nullable. Sin el guard del render, esto entraria a
+    // byId.get(null) y, peor, un cambio futuro descuidado podria mostrar el
+    // primer nombre del mapa. Columnas: Nombre | Industria | Dominio | Owner |
+    // Acciones.
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      usersHandler(),
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makeCompany({ ownerId: null })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Owner")).toBeInTheDocument());
+    const fila = screen.getByText("Acme").closest("tr");
+    expect(fila?.querySelectorAll("td")[3]).toHaveTextContent("—");
+    expect(fila).not.toHaveTextContent("Ana Pérez");
+  });
+
+  it("USER: no ve la columna Owner ni el ownerId crudo", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makeCompany({ ownerId: "u1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+    expect(screen.queryByText("Owner")).not.toBeInTheDocument();
+    expect(screen.queryByText("u1")).not.toBeInTheDocument();
+  });
+
+  it("USER: montar la pagina NO dispara ningun request a /api/users", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    // Contador explicito, no solo ausencia de handler: con
+    // onUnhandledRequest:"error" una request no manejada deja la query en
+    // error en silencio, sin fallar el test por si sola. La unica forma
+    // confiable de probar "cero requests" es contarlas. Mismo criterio que
+    // OpportunityListPage.test.tsx.
+    let usersRequestCount = 0;
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makeCompany({ ownerId: "u1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(usersUrl, () => {
+        usersRequestCount += 1;
+        return HttpResponse.json({
+          data: [makeUser({ id: "u1" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        });
+      }),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+    // Margen para que un fetch indebido, si lo hubiera, alcance a dispararse.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(usersRequestCount).toBe(0);
   });
 });

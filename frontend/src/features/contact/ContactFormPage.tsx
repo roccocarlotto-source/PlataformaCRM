@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CompanySelect } from "../company/CompanySelect";
+import { UserSelect } from "../user/UserSelect";
 import { useCreateContact, useUpdateContact } from "./mutations";
 import { useContact } from "./queries";
 import type { CreateContactInput, LifecycleStage } from "./types";
@@ -14,6 +15,9 @@ interface ContactFormValues {
   lifecycleStage: LifecycleStage;
   source: string;
   companyId: string | undefined;
+  // Mismo criterio que companyId: undefined = "no elegido". Nunca null — el
+  // PATCH no puede limpiar ownerId (chequeo truthy en contact.service.ts).
+  ownerId: string | undefined;
 }
 
 const EMPTY_FORM: ContactFormValues = {
@@ -25,6 +29,7 @@ const EMPTY_FORM: ContactFormValues = {
   lifecycleStage: "LEAD",
   source: "",
   companyId: undefined,
+  ownerId: undefined,
 };
 
 // Los campos de texto vacíos se envían como undefined (no como ""),
@@ -41,13 +46,27 @@ function toInput(values: ContactFormValues): CreateContactInput {
     lifecycleStage: values.lifecycleStage,
     source: values.source || undefined,
     companyId: values.companyId,
+    ownerId: values.ownerId || undefined,
   };
 }
 
 // Un único componente para create y edit — el modo se distingue del propio
-// param de ruta (:id), mismo patrón que CompanyFormPage. ownerId queda
-// deliberadamente fuera de este formulario (mismo motivo que Company: sin
-// GET /api/users consumido todavía, no hay forma de mostrar nombres reales).
+// param de ruta (:id), mismo patrón que CompanyFormPage.
+//
+// ownerId YA ESTÁ en el formulario, por el mismo motivo que en Company: el gap
+// de M3 era que no había GET /api/users consumido y un UUID crudo no es un
+// control aceptable. M5 lo consumió y dejó UserSelect listo.
+//
+// Sin emptyOptionLabel: createContact llama al MISMO resolveOwnerId que
+// createCompany (ownership.service.ts), que devuelve actorUserId cuando no se
+// manda nada — así que el default del componente ("Asignado a quien crea (por
+// defecto)") es literal acá también. Verificado en el service, no asumido por
+// analogía: Activity comparte la forma del campo pero NO el comportamiento, y
+// por eso pasa un label propio.
+//
+// Este archivo NO usa el design system (ver CompanyFormPage, que sí) y eso se
+// mantiene tal cual: UserSelect trae su propio markup, así que encaja igual en
+// los dos sin arrastrar una unificación de estilos que nadie pidió.
 export function ContactFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
@@ -71,6 +90,9 @@ export function ContactFormPage() {
         lifecycleStage: contactQuery.data.lifecycleStage,
         source: contactQuery.data.source ?? "",
         companyId: contactQuery.data.companyId ?? undefined,
+        // ?? undefined por lo mismo que companyId justo arriba: el campo es
+        // nullable en la API y UserSelect espera string | undefined.
+        ownerId: contactQuery.data.ownerId ?? undefined,
       });
     }
   }, [isEditMode, contactQuery.data]);
@@ -178,6 +200,12 @@ export function ContactFormPage() {
         label="Empresa"
         value={values.companyId}
         onChange={(companyId) => setValues({ ...values, companyId })}
+      />
+      <UserSelect
+        id="contact-form-owner"
+        label="Propietario"
+        value={values.ownerId}
+        onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
       />
       {error ? <p role="alert">{error}</p> : null}
       <button type="submit" disabled={isSubmitting}>
