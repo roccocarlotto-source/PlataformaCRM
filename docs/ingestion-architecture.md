@@ -501,3 +501,55 @@ Y la parte que importa más que las tres anteriores:
 
 `Source.fieldMapping` pasa además a estar **expuesta** en la API de `Source`:
 quien la configura tiene que poder leer qué quedó guardado.
+
+### 9.9 Las filas duplicadas de una re-subida no aparecen en el lote nuevo
+
+*(2026-08-26, al cerrar el ítem 5.)*
+
+Subir dos veces el mismo archivo no duplica nada —§4 lo exige y así funciona—,
+pero **la forma concreta en que no duplica tiene una consecuencia visible que
+conviene tener escrita**, porque desde afuera se parece a datos perdidos sin
+serlo.
+
+El `INSERT ... ON CONFLICT DO NOTHING` de la segunda subida no inserta las
+filas que ya existían. Esas filas **siguen perteneciendo al lote que las trajo
+la primera vez**: no se reasignan al `batchId` nuevo ni se copian a él. Por lo
+tanto:
+
+- La respuesta del `POST /api/imports` de la segunda subida informa
+  `duplicados: N` — y **esa respuesta es la única superficie donde el número es
+  visible en el momento**.
+- Consultar más tarde `GET /api/imports/:batchId` con el `batchId` de esa
+  segunda subida **devuelve 404**, no un resumen en cero. `getResumenDeLote`
+  deriva todo de un `GROUP BY` y no distingue "lote sin eventos propios" de
+  "lote inexistente": las dos cosas dan total 0, y las dos contestan lo mismo.
+  Para la API, ese lote nunca existió.
+
+Es decir: el dato del re-envío es **efímero**. Si nadie miró la respuesta del
+POST, después no hay dónde recuperarlo.
+
+**Por qué se acepta así, y no es un descuido:**
+
+- **No hay pérdida de datos.** Las filas duplicadas están intactas y son
+  consultables — bajo el lote original, que es el que efectivamente las
+  ingirió. Lo que se pierde no es un contacto: es la anotación de que alguien
+  volvió a subir el mismo archivo.
+- **La alternativa rompe algo más grande.** Para que el lote nuevo mostrara
+  esas filas, un `IngestionEvent` tendría que poder pertenecer a dos lotes, o
+  bien duplicarse. Y toda la consultabilidad del lote se deriva hoy de un
+  `GROUP BY` sobre `batch_id` (§9.2): un evento con más de un dueño convierte
+  esa derivación en un conteo doble, y hace que cada total del resumen deje de
+  cerrar. Es cambiar una rareza acotada y sin consecuencias por una incorrección
+  sistemática en todos los lotes.
+
+Si algún día hace falta que el re-envío deje rastro consultable, el lugar
+correcto **no** es el evento sino una entidad de lote propia —con sus
+contadores materializados al momento de la subida—, que es exactamente lo que
+§9.2 dejó fuera del alcance del ítem 2. Hasta entonces:
+
+**Esto es deuda anotada, no un pendiente sin decidir.** Se evaluó, se eligió, y
+el comportamiento está fijado por tests: `subir el MISMO archivo dos veces no
+duplica` en `import.controller.integration-test.ts` afirma las tres cosas —el
+`duplicados: 2` de la respuesta del POST, el `0` de eventos bajo el segundo
+lote, y el 404 del GET sobre ese `batchId`—. Si alguna de las tres cambiara,
+esta nota queda desactualizada y el test lo dice antes que nadie.

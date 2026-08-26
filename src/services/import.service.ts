@@ -42,7 +42,9 @@ export interface ResultadoImportacion {
   // Filas cuyo (sourceId, externalId) ya existía: el archivo, o parte de él, ya
   // se había subido antes. NO quedan asociadas a este lote — pertenecen al que
   // las trajo — así que este número solo se ve acá, en la respuesta de la
-  // subida. Ver la duda abierta sobre esto en el reporte del ítem.
+  // subida: el GET del lote de una re-subida da 404, no un resumen en cero.
+  // Decidido y documentado en §9.9 de docs/ingestion-architecture.md — es deuda
+  // anotada, no una duda abierta.
   duplicados: number;
 }
 

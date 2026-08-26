@@ -336,6 +336,15 @@ test("subir el MISMO archivo dos veces no duplica: la segunda vez todo es duplic
     }),
     0,
   );
+
+  // CONSECUENCIA VISIBLE de lo anterior, fijada acá porque §9.9 la documenta y
+  // un documento que describe mal el comportamiento es peor que no tenerlo: el
+  // batchId de la segunda subida no tiene NINGÚN evento propio, y getResumenDeLote
+  // devuelve null cuando el total es 0. Así que el GET no contesta un resumen en
+  // cero — contesta 404, igual que un batchId inventado. El número `duplicados`
+  // de la respuesta del POST es la única superficie donde el re-envío se ve.
+  const resumen = await api("GET", `/api/imports/${segunda.batchId}`, admin.accessToken);
+  assert.equal(resumen.status, 404);
 });
 
 test("dos filas IDÉNTICAS del mismo archivo son dos eventos, no un duplicado", async () => {
