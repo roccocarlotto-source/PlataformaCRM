@@ -76,6 +76,31 @@ export function AcceptInvitationPage() {
   // a pedir password".
   const hasCheckedInitialSessionRef = useRef(false);
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // LOS DOS EFECTOS DE ESTE ARCHIVO SE QUEDAN COMO ESTÁN, Y LA REGLA SE APAGA
+  // ACOTADA. Es la decisión INVERSA a la de las seis páginas de formulario, que
+  // en este mismo cambio dejaron de sembrar estado con un efecto (ver
+  // lib/useFormDraft.ts). La diferencia no es de criterio, es de mecanismo:
+  //
+  //   - En un formulario, el efecto SEMBRABA un valor que después se edita. Eso
+  //     se puede derivar en render, y encima el efecto tenía un defecto real:
+  //     un refetch pisaba lo que el usuario venía escribiendo.
+  //   - Acá no hay nada que derivar. Estos efectos OBSERVAN dos sistemas
+  //     externos —la sesión de Supabase, que llega asincrónica vía la query de
+  //     /api/me, y un marcador en localStorage— y avanzan una máquina de
+  //     estados. Es literalmente el uso que el propio mensaje de la regla
+  //     nombra como válido ("subscribe for updates from some external system"),
+  //     solo que la fuente no expone un callback al que suscribirse: la única
+  //     señal es la transición de `status`.
+  //
+  // Tampoco aplica la otra alternativa que la regla sugiere para el caso
+  // clásico —remontar con `key`—: no hay ninguna prop sincrónica que cambie.
+  //
+  // Y hay una razón concreta para no reescribirlos: el ref de baseline del
+  // segundo efecto arregla un bug REAL encontrado en testing (ver su comentario
+  // más abajo). Reescribir la máquina de estados para esquivar un aviso de lint
+  // pondría en riesgo ese arreglo a cambio de nada.
+  /* eslint-disable react-hooks/set-state-in-effect -- ver el bloque de arriba: estos dos efectos observan sistemas externos asíncronos, no siembran estado derivable */
   useEffect(() => {
     if (hasCheckedInitialSessionRef.current) return;
     if (step !== "form") return;
@@ -120,6 +145,7 @@ export function AcceptInvitationPage() {
     // la misma Postgres que /api/me lee) — si ocurriera, profile-error lo
     // cubre igual en el siguiente ciclo de la query.
   }, [step, status]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function validatePasswords(): string | null {
     if (password !== confirmPassword) return "Las contraseñas no coinciden";

@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useCreatePipeline, useUpdatePipeline } from "./mutations";
 import { usePipeline } from "./queries";
-import type { CreatePipelineInput } from "./types";
+import type { CreatePipelineInput, Pipeline } from "./types";
+import { useFormDraft } from "../../lib/useFormDraft";
 
 interface PipelineFormValues {
   name: string;
@@ -21,6 +22,17 @@ function toInput(values: PipelineFormValues): CreatePipelineInput {
   };
 }
 
+// Valores del formulario derivados de un registro ya persistido. Antes esto
+// vivía adentro de un useEffect que hacía setValues; ahora es una función pura
+// y el estado local aparece recién cuando el usuario edita algo — ver
+// lib/useFormDraft.ts para por qué ese efecto perdía datos.
+function toFormValues(data: Pipeline): PipelineFormValues {
+  return {
+    name: data.name,
+    isDefault: data.isDefault,
+  };
+}
+
 // Un único componente para create y edit, mismo patrón que CompanyFormPage.
 // isDefault se puede marcar Y desmarcar libremente (Decisión A del informe
 // de diseño de M4): el backend garantiza a lo sumo un default, nunca
@@ -36,17 +48,11 @@ export function PipelineFormPage() {
   const createPipelineMutation = useCreatePipeline();
   const updatePipelineMutation = useUpdatePipeline(id ?? "");
 
-  const [values, setValues] = useState<PipelineFormValues>(EMPTY_FORM);
+  const [values, setValues] = useFormDraft<PipelineFormValues>(
+    pipelineQuery.data?.id,
+    pipelineQuery.data ? toFormValues(pipelineQuery.data) : EMPTY_FORM,
+  );
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isEditMode && pipelineQuery.data) {
-      setValues({
-        name: pipelineQuery.data.name,
-        isDefault: pipelineQuery.data.isDefault,
-      });
-    }
-  }, [isEditMode, pipelineQuery.data]);
 
   const isSubmitting = createPipelineMutation.isPending || updatePipelineMutation.isPending;
 

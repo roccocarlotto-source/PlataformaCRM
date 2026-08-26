@@ -1,13 +1,14 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { useFormDraft } from "../../lib/useFormDraft";
 import { UserSelect } from "../user/UserSelect";
 import { useCreateCompany, useUpdateCompany } from "./mutations";
 import { useCompany } from "./queries";
-import type { CreateCompanyInput } from "./types";
+import type { Company, CreateCompanyInput } from "./types";
 
 interface CompanyFormValues {
   name: string;
@@ -31,6 +32,24 @@ const EMPTY_FORM: CompanyFormValues = {
   country: "",
   ownerId: undefined,
 };
+
+// Los valores del formulario derivados de una Company ya persistida. Antes
+// esto vivía adentro de un useEffect que hacía setValues; ahora es una función
+// pura y el estado local aparece recién cuando el usuario edita algo — ver
+// lib/useFormDraft.ts para por qué el efecto perdía datos.
+function toFormValues(company: Company): CompanyFormValues {
+  return {
+    name: company.name,
+    domain: company.domain ?? "",
+    industry: company.industry ?? "",
+    phone: company.phone ?? "",
+    city: company.city ?? "",
+    country: company.country ?? "",
+    // ?? undefined, no ?? "": Company.ownerId es nullable y UserSelect espera
+    // string | undefined. Mismo patrón que companyId en ContactFormPage.
+    ownerId: company.ownerId ?? undefined,
+  };
+}
 
 // Los campos vacíos se envían como undefined (no como "") — el backend los
 // trata como "no enviado", consistente con create/update reales.
@@ -74,25 +93,11 @@ export function CompanyFormPage() {
   const createCompanyMutation = useCreateCompany();
   const updateCompanyMutation = useUpdateCompany(id ?? "");
 
-  const [values, setValues] = useState<CompanyFormValues>(EMPTY_FORM);
+  const [values, setValues] = useFormDraft<CompanyFormValues>(
+    companyQuery.data?.id,
+    companyQuery.data ? toFormValues(companyQuery.data) : EMPTY_FORM,
+  );
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isEditMode && companyQuery.data) {
-      setValues({
-        name: companyQuery.data.name,
-        domain: companyQuery.data.domain ?? "",
-        industry: companyQuery.data.industry ?? "",
-        phone: companyQuery.data.phone ?? "",
-        city: companyQuery.data.city ?? "",
-        country: companyQuery.data.country ?? "",
-        // ?? undefined, no ?? "": Company.ownerId es nullable y UserSelect
-        // espera string | undefined. Mismo patrón que companyId en
-        // ContactFormPage.
-        ownerId: companyQuery.data.ownerId ?? undefined,
-      });
-    }
-  }, [isEditMode, companyQuery.data]);
 
   const isSubmitting = createCompanyMutation.isPending || updateCompanyMutation.isPending;
 

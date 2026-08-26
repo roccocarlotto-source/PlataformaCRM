@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -262,6 +263,110 @@ describe("CompanyFormPage", () => {
     renderForm("/companies/c1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Acme"));
-    expect(screen.getByLabelText("Propietario")).toHaveValue("");
+    // waitFor también sobre Propietario, y no es un ajuste cosmético: desde que
+    // los valores se derivan en render (lib/useFormDraft.ts) en vez de sembrarse
+    // con un efecto, "Nombre" ya tiene su valor un ciclo ANTES — el efecto
+    // forzaba un render extra que este assert aprovechaba sin decirlo para que
+    // la query de usuarios llegara a resolver. UserSelect no renderiza el
+    // <select> hasta isSuccess, así que hay que esperarlo explícitamente.
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
+  });
+
+  // ---------------------------------------------------------------------------
+  // El efecto de hidratación perdía datos, y este test es lo que lo fija.
+  // ---------------------------------------------------------------------------
+
+  it("un refetch NO pisa lo que el usuario venía escribiendo", async () => {
+    // refetchOnWindowFocus:true + staleTime 30s (lib/queryClient.ts): alcanza
+    // con que alguien edite el mismo registro del otro lado mientras vos
+    // escribís. Al volver a la pestaña el refetch traía un objeto nuevo y el
+    // useEffect de hidratación pisaba todo lo tipeado, sin aviso.
+    let llamadas = 0;
+    server.use(
+      usersHandler(),
+      http.get(`${baseUrl}/:id`, ({ params }) => {
+        llamadas += 1;
+        return HttpResponse.json(
+          makeCompany({
+            id: params.id as string,
+            name: llamadas === 1 ? "Acme" : "Acme cambiada por otro",
+          }),
+        );
+      }),
+    );
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/companies/c1/edit"]}>
+          <Routes>
+            <Route path="/companies/:id/edit" element={<CompanyFormPage />} />
+            <Route path="/companies" element={<div>lista de empresas</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Acme"));
+
+    const user = userEvent.setup();
+    await user.clear(screen.getByLabelText("Nombre"));
+    await user.type(screen.getByLabelText("Nombre"), "Lo que el usuario escribio");
+
+    await queryClient.refetchQueries();
+    await waitFor(() => expect(llamadas).toBe(2));
+
+    // Con el efecto viejo esto devolvía "Acme cambiada por otro".
+    expect(screen.getByLabelText("Nombre")).toHaveValue("Lo que el usuario escribio");
+  });
+
+  it("cambiar de registro SIN desmontar vuelve a derivar, no arrastra el borrador", async () => {
+    // React Router no remonta al ir de /companies/c1/edit a /companies/c2/edit:
+    // es la misma ruta. El borrador va atado al id justamente por esto.
+    server.use(
+      usersHandler(),
+      http.get(`${baseUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeCompany({ id: params.id as string, name: params.id === "c1" ? "Uno" : "Dos" }),
+        ),
+      ),
+    );
+
+    function Cambiador() {
+      const [id, setId] = useState("c1");
+      return (
+        <MemoryRouter initialEntries={[`/companies/${id}/edit`]} key={id}>
+          <Routes>
+            <Route
+              path="/companies/:id/edit"
+              element={
+                <>
+                  <button type="button" onClick={() => setId("c2")}>
+                    ir a c2
+                  </button>
+                  <CompanyFormPage />
+                </>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      );
+    }
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Cambiador />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Uno"));
+    const user = userEvent.setup();
+    await user.clear(screen.getByLabelText("Nombre"));
+    await user.type(screen.getByLabelText("Nombre"), "Editando Uno");
+
+    await user.click(screen.getByRole("button", { name: "ir a c2" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Dos"));
   });
 });
