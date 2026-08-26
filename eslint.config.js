@@ -11,9 +11,14 @@ const eslintConfigPrettier = require("eslint-config-prettier");
 // ESM (`import`/`export default`). No es una inconsistencia que valga la pena
 // unificar: el package.json de la raíz no declara `type`, así que un `.js` acá
 // ES CommonJS, mientras que frontend/package.json sí declara `type: "module"`.
-// Cada archivo habla el dialecto de su propio paquete. La alternativa —renombrar
-// este a .mjs— evitaría el `require` pero escondería esa diferencia real entre
-// los dos paquetes.
+// Cada archivo habla el dialecto de su propio paquete.
+//
+// LAS REGLAS ESTÁN SEPARADAS POR EXTENSIÓN, Y NO ES CEREMONIA. Aplicar el
+// preset de TypeScript a TODO —que es lo que sale por default— hacía que esta
+// misma config se reportara con 9 errores: `@typescript-eslint/no-require-imports`
+// prohibiendo los require de acá arriba, y `no-undef` sin conocer `require` ni
+// `module` porque el default de flat config es sourceType "module". Una config
+// que no pasa su propio lint es una config rota, no una deuda del código.
 //
 // SIN eslint-plugin-prettier a propósito. Correr Prettier como regla de ESLint
 // es más lento (dos parseos por archivo) y confunde los dos roles: el formato
@@ -39,15 +44,29 @@ module.exports = tseslint.config(
       "frontend/",
     ],
   },
-  js.configs.recommended,
-  ...tseslint.configs.recommended,
+
+  // El código del backend: src/, scripts/, prisma/seed.ts.
   {
     files: ["**/*.ts"],
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
       globals: { ...globals.node },
     },
   },
+
+  // Los .js de la raíz son configuración de herramientas (este archivo), no
+  // código del producto: CommonJS y sin el preset de TypeScript.
+  {
+    files: ["**/*.js"],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "commonjs",
+      globals: { ...globals.node },
+    },
+  },
+
   eslintConfigPrettier,
 );
