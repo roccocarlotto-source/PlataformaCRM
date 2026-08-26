@@ -45,6 +45,7 @@ export interface IngestRequest extends Request {
 }
 
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace -- augmentar Express.Request EXIGE namespace: así lo declaran los propios @types/express y no hay equivalente con módulos ES.
   namespace Express {
     interface Request {
       // Separado de `auth` (types/auth.ts) a propósito: son dos propiedades

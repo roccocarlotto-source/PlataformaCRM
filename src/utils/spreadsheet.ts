@@ -165,6 +165,7 @@ function parsearCsv(buffer: Buffer): ArchivoParseado {
       // encabezados repetidos antes de que una columna se coma a la otra.
       columns: false,
       // bom: true no es cosmético: Excel exporta CSV con BOM UTF-8, y sin esto
+      // eslint-disable-next-line no-irregular-whitespace -- el ejemplo de la línea siguiente lleva un BOM (U+FEFF) real embebido: es lo que el comentario está mostrando, no un typo. Escaparlo lo explicaría pero no lo exhibiría, y el punto es justamente que el carácter es invisible.
       // el primer encabezado llegaría como "﻿Nombre" y ningún mapeo lo
       // encontraría jamás — con el agravante de que el archivo SE VE bien.
       bom: true,
