@@ -67,43 +67,33 @@ const listQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("asc"),
 });
 
-export const createStageHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const input = parseOrThrow(createStageSchema, req.body);
-    const stage = await createStage(req.auth.organizationId, input);
-    res.status(201).json(stage);
-  },
-);
+export const createStageHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const input = parseOrThrow(createStageSchema, req.body);
+  const stage = await createStage(req.auth.organizationId, input);
+  res.status(201).json(stage);
+});
 
-export const listStagesHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const query = parseOrThrow(listQuerySchema, req.query);
-    const result = await listStages(req.auth.organizationId, query);
-    res.status(200).json(result);
-  },
-);
+export const listStagesHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const query = parseOrThrow(listQuerySchema, req.query);
+  const result = await listStages(req.auth.organizationId, query);
+  res.status(200).json(result);
+});
 
-export const getStageHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    const stage = await getStageById(req.auth.organizationId, id);
-    res.status(200).json(stage);
-  },
-);
+export const getStageHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  const stage = await getStageById(req.auth.organizationId, id);
+  res.status(200).json(stage);
+});
 
-export const updateStageHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    const input = parseOrThrow(updateStageSchema, req.body);
-    const stage = await updateStage(req.auth.organizationId, id, input);
-    res.status(200).json(stage);
-  },
-);
+export const updateStageHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  const input = parseOrThrow(updateStageSchema, req.body);
+  const stage = await updateStage(req.auth.organizationId, id, input);
+  res.status(200).json(stage);
+});
 
-export const deleteStageHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    await deleteStage(req.auth.organizationId, id);
-    res.status(204).send();
-  },
-);
+export const deleteStageHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  await deleteStage(req.auth.organizationId, id);
+  res.status(204).send();
+});

@@ -55,11 +55,7 @@ test("con las dos claves presentes gana el mensaje de nombre", () => {
 });
 
 test("P2002 sin target reconocible: 409 genérico", () => {
-  assertAppError(
-    () => rethrowAsConflict(p2002(undefined)),
-    409,
-    "El registro ya existe",
-  );
+  assertAppError(() => rethrowAsConflict(p2002(undefined)), 409, "El registro ya existe");
 });
 
 test("un error que no es P2002 se relanza sin tocarlo", () => {

@@ -86,9 +86,7 @@ describe("stage/api — contrato HTTP", () => {
     for (const req of captured) {
       expect(req.url.search.toLowerCase()).not.toContain("organizationid");
       if (req.body && typeof req.body === "object") {
-        expect(Object.keys(req.body as Record<string, unknown>)).not.toContain(
-          "organizationId",
-        );
+        expect(Object.keys(req.body as Record<string, unknown>)).not.toContain("organizationId");
       }
     }
   });
@@ -141,7 +139,9 @@ describe("stage/api — contrato HTTP", () => {
   });
 
   it("S6 round-trip de probability: la API la devuelve como string, nunca number", async () => {
-    server.use(http.get(`${baseUrl}/:id`, () => HttpResponse.json(makeStage({ probability: "37.5" }))));
+    server.use(
+      http.get(`${baseUrl}/:id`, () => HttpResponse.json(makeStage({ probability: "37.5" }))),
+    );
 
     const stage = await getStage("st1");
 

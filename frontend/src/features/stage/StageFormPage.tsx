@@ -142,9 +142,7 @@ export function StageFormPage() {
         <input
           type="checkbox"
           checked={values.isWon}
-          onChange={(event) =>
-            setValues({ ...values, isWon: event.target.checked, isLost: false })
-          }
+          onChange={(event) => setValues({ ...values, isWon: event.target.checked, isLost: false })}
         />
       </label>
       <label>
@@ -152,9 +150,7 @@ export function StageFormPage() {
         <input
           type="checkbox"
           checked={values.isLost}
-          onChange={(event) =>
-            setValues({ ...values, isLost: event.target.checked, isWon: false })
-          }
+          onChange={(event) => setValues({ ...values, isLost: event.target.checked, isWon: false })}
         />
       </label>
       {error ? <p role="alert">{error}</p> : null}

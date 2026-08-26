@@ -15,8 +15,7 @@ const ROLES = [
   },
   {
     name: "USER",
-    description:
-      "Usuario estándar: gestiona sus propios registros dentro de la organización.",
+    description: "Usuario estándar: gestiona sus propios registros dentro de la organización.",
   },
 ] as const;
 

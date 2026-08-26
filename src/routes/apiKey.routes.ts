@@ -18,12 +18,7 @@ export const apiKeyRouter = Router();
 // Ninguna de estas rutas monta authenticateApiKey — una API key sirve para
 // ingestar, jamás para administrarse a sí misma. Eso es el ítem 4 y es un
 // camino aparte, no una modificación de este.
-apiKeyRouter.get(
-  "/api-keys",
-  authenticate,
-  authorize("ADMIN"),
-  listApiKeysHandler,
-);
+apiKeyRouter.get("/api-keys", authenticate, authorize("ADMIN"), listApiKeysHandler);
 apiKeyRouter.post(
   "/api-keys",
   authenticate,

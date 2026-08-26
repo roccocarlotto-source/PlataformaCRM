@@ -10,16 +10,11 @@ import { AppError } from "./AppError";
 // llegan como string, se coaccionan a number) — fijar T también en la
 // posición de Input rompía la inferencia y perdía la no-opcionalidad que
 // aportan los .default().
-export function parseOrThrow<T>(
-  schema: z.ZodType<T, z.ZodTypeDef, any>,
-  data: unknown,
-): T {
+export function parseOrThrow<T>(schema: z.ZodType<T, z.ZodTypeDef, any>, data: unknown): T {
   const parsed = schema.safeParse(data);
 
   if (!parsed.success) {
-    const message = parsed.error.issues
-      .map((issue) => issue.message)
-      .join(", ");
+    const message = parsed.error.issues.map((issue) => issue.message).join(", ");
     throw new AppError(message, 400);
   }
 

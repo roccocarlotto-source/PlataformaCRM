@@ -44,11 +44,7 @@ const upload = multer({
 // ingestBody.ts lo hace con los de body-parser: errorHandler manda a 500 todo
 // lo que no sea AppError, así que sin esto un archivo demasiado grande
 // respondería 500 — un error del servidor por algo que hizo el cliente.
-export function importUpload(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): void {
+export function importUpload(req: Request, res: Response, next: NextFunction): void {
   upload(req, res, (err: unknown) => {
     if (!err) {
       if (!req.file) {
@@ -67,20 +63,12 @@ export function importUpload(
     if (err instanceof multer.MulterError) {
       switch (err.code) {
         case "LIMIT_FILE_SIZE":
-          next(
-            new AppError(
-              `El archivo supera el máximo de ${IMPORT_MAX_FILE_BYTES} bytes`,
-              413,
-            ),
-          );
+          next(new AppError(`El archivo supera el máximo de ${IMPORT_MAX_FILE_BYTES} bytes`, 413));
           return;
         case "LIMIT_FILE_COUNT":
         case "LIMIT_UNEXPECTED_FILE":
           next(
-            new AppError(
-              `Se espera exactamente un archivo, en el campo "${CAMPO_ARCHIVO}"`,
-              400,
-            ),
+            new AppError(`Se espera exactamente un archivo, en el campo "${CAMPO_ARCHIVO}"`, 400),
           );
           return;
         default:

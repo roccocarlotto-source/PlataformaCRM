@@ -67,14 +67,12 @@ describe("useActivities / useActivity — aislamiento entre filtros", () => {
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
-    const callQuery = renderHook(
-      () => useActivities({ page: 1, pageSize: 20, type: "CALL" }),
-      { wrapper: wrapperFor(queryClient) },
-    );
-    const taskQuery = renderHook(
-      () => useActivities({ page: 1, pageSize: 20, type: "TASK" }),
-      { wrapper: wrapperFor(queryClient) },
-    );
+    const callQuery = renderHook(() => useActivities({ page: 1, pageSize: 20, type: "CALL" }), {
+      wrapper: wrapperFor(queryClient),
+    });
+    const taskQuery = renderHook(() => useActivities({ page: 1, pageSize: 20, type: "TASK" }), {
+      wrapper: wrapperFor(queryClient),
+    });
 
     await waitFor(() => expect(callQuery.result.current.isSuccess).toBe(true));
     await waitFor(() => expect(taskQuery.result.current.isSuccess).toBe(true));

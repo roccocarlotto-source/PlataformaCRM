@@ -37,25 +37,11 @@ const steps: Step[] = [
   { label: "prisma migrate deploy", args: ["migrate", "deploy"] },
   {
     label: "reaplicar manual_constraints.sql",
-    args: [
-      "db",
-      "execute",
-      "--file",
-      "prisma/sql/manual_constraints.sql",
-      "--url",
-      DIRECT_URL,
-    ],
+    args: ["db", "execute", "--file", "prisma/sql/manual_constraints.sql", "--url", DIRECT_URL],
   },
   {
     label: "reaplicar rls_policies.sql",
-    args: [
-      "db",
-      "execute",
-      "--file",
-      "prisma/sql/rls_policies.sql",
-      "--url",
-      DIRECT_URL,
-    ],
+    args: ["db", "execute", "--file", "prisma/sql/rls_policies.sql", "--url", DIRECT_URL],
   },
 ];
 

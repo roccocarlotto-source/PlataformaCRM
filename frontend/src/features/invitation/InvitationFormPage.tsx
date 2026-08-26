@@ -48,7 +48,9 @@ export function InvitationFormPage() {
         Rol
         <select
           value={values.role}
-          onChange={(event) => setValues({ ...values, role: event.target.value as "ADMIN" | "USER" })}
+          onChange={(event) =>
+            setValues({ ...values, role: event.target.value as "ADMIN" | "USER" })
+          }
         >
           <option value="USER">USER</option>
           <option value="ADMIN">ADMIN</option>

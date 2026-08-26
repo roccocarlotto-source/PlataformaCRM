@@ -8,8 +8,9 @@ import { fromDatetimeLocalValue, toDatetimeLocalValue } from "./datetimeLocal";
 // process.env.TZ en cada construcción de Date (verificado empíricamente en
 // este entorno, no asumido) — se restaura la timezone original después de
 // cada test para no filtrar estado entre archivos.
-const nodeProcess = (globalThis as unknown as { process: { env: Record<string, string | undefined> } })
-  .process;
+const nodeProcess = (
+  globalThis as unknown as { process: { env: Record<string, string | undefined> } }
+).process;
 const originalTz = nodeProcess.env.TZ;
 
 function withTz(tz: string, fn: () => void) {

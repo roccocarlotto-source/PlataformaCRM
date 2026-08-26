@@ -19,12 +19,7 @@ export const invitationRouter = Router();
 // A diferencia del resto de los módulos, lectura y escritura son ambas
 // ADMIN-only: listar invitaciones expone emails de gente que todavía no es
 // miembro, más sensible que ver Company/Contact.
-invitationRouter.get(
-  "/invitations",
-  authenticate,
-  authorize("ADMIN"),
-  listInvitationsHandler,
-);
+invitationRouter.get("/invitations", authenticate, authorize("ADMIN"), listInvitationsHandler);
 // businessWriteRateLimiter (R1.9) solo en las escrituras — GET arriba
 // queda fuera, mismo criterio que el resto de los routers.
 invitationRouter.post(

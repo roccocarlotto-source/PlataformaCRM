@@ -124,9 +124,7 @@ describe("ContactSelect", () => {
     renderSelect(queryClient, "ct-rota");
 
     await waitFor(() =>
-      expect(
-        screen.getByText(/No pudimos cargar el contacto seleccionado\./),
-      ).toBeInTheDocument(),
+      expect(screen.getByText(/No pudimos cargar el contacto seleccionado\./)).toBeInTheDocument(),
     );
     expect(screen.queryByText("ct-rota")).not.toBeInTheDocument();
   });
@@ -140,7 +138,9 @@ describe("ContactSelect", () => {
     server.use(
       http.get(baseUrl, () =>
         HttpResponse.json({
-          data: [makeContact({ id: "ct-2", firstName: "Carla", lastName: "Núñez", companyId: null })],
+          data: [
+            makeContact({ id: "ct-2", firstName: "Carla", lastName: "Núñez", companyId: null }),
+          ],
           pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
         }),
       ),

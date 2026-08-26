@@ -124,9 +124,7 @@ describe("CompanySelect", () => {
     renderSelect(queryClient, "co-rota");
 
     await waitFor(() =>
-      expect(
-        screen.getByText(/No pudimos cargar la empresa seleccionada\./),
-      ).toBeInTheDocument(),
+      expect(screen.getByText(/No pudimos cargar la empresa seleccionada\./)).toBeInTheDocument(),
     );
     expect(screen.queryByText("co-rota")).not.toBeInTheDocument();
   });

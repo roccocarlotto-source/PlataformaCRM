@@ -242,10 +242,11 @@ test("valores distintos en ambos lados: gana el CRM y queda REGISTRO — nunca e
   const notas = notasDe(segundo.evento.promotionNotes);
   const conflictos = notas.filter((n) => n.tipo === "conflicto");
 
-  assert.deepEqual(
-    conflictos.map((n) => (n.tipo === "conflicto" ? n.campo : "")).sort(),
-    ["firstName", "lastName", "phone"],
-  );
+  assert.deepEqual(conflictos.map((n) => (n.tipo === "conflicto" ? n.campo : "")).sort(), [
+    "firstName",
+    "lastName",
+    "phone",
+  ]);
 
   const phone = conflictos.find((n) => n.tipo === "conflicto" && n.campo === "phone");
   assert.deepEqual(phone, {
@@ -290,14 +291,9 @@ test("lifecycleStage no se degrada porque la ingesta no lo escribe nunca, y qued
     "un CUSTOMER no vuelve a LEAD porque alguien llenó un formulario",
   );
 
-  const ignorados = notasDe(segundo.evento.promotionNotes).filter(
-    (n) => n.tipo === "ignorado",
-  );
+  const ignorados = notasDe(segundo.evento.promotionNotes).filter((n) => n.tipo === "ignorado");
   assert.equal(ignorados.length, 1);
-  assert.equal(
-    ignorados[0].tipo === "ignorado" ? ignorados[0].campo : "",
-    "lifecycleStage",
-  );
+  assert.equal(ignorados[0].tipo === "ignorado" ? ignorados[0].campo : "", "lifecycleStage");
 });
 
 test("un contacto SIN email no se dedupea: se crea nuevo y queda marcado para revisión manual", async () => {
@@ -308,10 +304,7 @@ test("un contacto SIN email no se dedupea: se crea nuevo y queda marcado para re
   assert.equal(segundo.evento.status, "PROCESSED");
 
   // DOS contactos, no uno: sin email no hay criterio de deduplicación (§4).
-  assert.notEqual(
-    segundo.evento.promotedContactId,
-    primero.evento.promotedContactId,
-  );
+  assert.notEqual(segundo.evento.promotedContactId, primero.evento.promotedContactId);
   assert.equal(
     await prisma.contact.count({
       where: { organizationId: orgId, firstName: "Sin", lastName: "Email" },
@@ -321,9 +314,7 @@ test("un contacto SIN email no se dedupea: se crea nuevo y queda marcado para re
 
   // Y los dos quedan marcados, que es lo que hace recuperable el duplicado.
   for (const evento of [primero.evento, segundo.evento]) {
-    const marcas = notasDe(evento.promotionNotes).filter(
-      (n) => n.tipo === "revision_manual",
-    );
+    const marcas = notasDe(evento.promotionNotes).filter((n) => n.tipo === "revision_manual");
     assert.equal(marcas.length, 1, "tiene que quedar la marca de revisión manual");
   }
 });
@@ -363,11 +354,7 @@ test("una fila inválida se marca FAILED y NO aborta el drenado del resto", asyn
     eventoMalo.errorMessage?.includes("firstName"),
     `errorMessage tiene que decir qué faltó: ${eventoMalo.errorMessage}`,
   );
-  assert.equal(
-    eventoMalo.promotedContactId,
-    null,
-    "una fila fallida no promueve ningún contacto",
-  );
+  assert.equal(eventoMalo.promotedContactId, null, "una fila fallida no promueve ningún contacto");
   // El payload crudo sobrevive intacto al fallo: es lo que permite reprocesar
   // (§1) una vez corregido el mapeo o el emisor.
   assert.deepEqual(eventoMalo.rawPayload, { email: "solo-email@ejemplo.test" });
@@ -393,10 +380,7 @@ test("el drenado no vuelve a tocar lo que ya procesó", async () => {
 
   const evento = await leerEvento(id);
   assert.equal(evento.status, "PROCESSED");
-  assert.equal(
-    await prisma.contact.count({ where: { organizationId: orgId, email } }),
-    1,
-  );
+  assert.equal(await prisma.contact.count({ where: { organizationId: orgId, email } }), 1);
 });
 
 test("el límite por pasada se respeta y el resto queda para la siguiente", async () => {
@@ -486,10 +470,7 @@ test("el contacto promovido pertenece a la organización del evento", async () =
     assert.equal(contacto.organizationId, orgId);
 
     // Y la otra organización no ve nada de esto.
-    assert.equal(
-      await prisma.contact.count({ where: { organizationId: otraOrg.id } }),
-      0,
-    );
+    assert.equal(await prisma.contact.count({ where: { organizationId: otraOrg.id } }), 0);
 
     // El mismo email en OTRA organización es un contacto distinto y legítimo:
     // el único es por (organization_id, lower(email)), no global.

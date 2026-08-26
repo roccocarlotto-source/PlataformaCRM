@@ -93,7 +93,18 @@ describe("user/api — updateUser/deleteUser (M7)", () => {
       http.patch(`${baseUrl}/:id`, async ({ request, params }) => {
         capturedPath = new URL(request.url).pathname;
         patchedBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(makeUser({ id: params.id as string, role: { id: "role-admin", name: "ADMIN", description: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" } }));
+        return HttpResponse.json(
+          makeUser({
+            id: params.id as string,
+            role: {
+              id: "role-admin",
+              name: "ADMIN",
+              description: null,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
+          }),
+        );
       }),
     );
 

@@ -1,10 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
-import {
-  deleteUser,
-  listUsers,
-  updateUser,
-} from "../services/user.service";
+import { deleteUser, listUsers, updateUser } from "../services/user.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -40,32 +36,21 @@ const updateUserSchema = z
     message: "Debe enviar al menos un campo para actualizar",
   });
 
-export const listUsersHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const query = parseOrThrow(listQuerySchema, req.query);
-    const result = await listUsers(req.auth.organizationId, query);
-    res.status(200).json(result);
-  },
-);
+export const listUsersHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const query = parseOrThrow(listQuerySchema, req.query);
+  const result = await listUsers(req.auth.organizationId, query);
+  res.status(200).json(result);
+});
 
-export const updateUserHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    const input = parseOrThrow(updateUserSchema, req.body);
-    const user = await updateUser(
-      req.auth.organizationId,
-      req.auth.userId,
-      id,
-      input,
-    );
-    res.status(200).json(user);
-  },
-);
+export const updateUserHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  const input = parseOrThrow(updateUserSchema, req.body);
+  const user = await updateUser(req.auth.organizationId, req.auth.userId, id, input);
+  res.status(200).json(user);
+});
 
-export const deleteUserHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    await deleteUser(req.auth.organizationId, req.auth.userId, id);
-    res.status(204).send();
-  },
-);
+export const deleteUserHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  await deleteUser(req.auth.organizationId, req.auth.userId, id);
+  res.status(204).send();
+});

@@ -1,8 +1,5 @@
 import { logger } from "../lib/logger";
-import {
-  findApiKeyByHash,
-  touchApiKeyLastUsed,
-} from "../repositories/apiKey.repository";
+import { findApiKeyByHash, touchApiKeyLastUsed } from "../repositories/apiKey.repository";
 import type { IngestContext } from "../types/ingest";
 import { AppError } from "../utils/AppError";
 import { hashApiKey } from "../utils/apiKey";
@@ -49,9 +46,7 @@ const RECHAZO = "Credencial de ingesta inválida";
 // instancias del proceso: la condición la evalúa Postgres, que es uno solo.
 export const LAST_USED_AT_GRANULARITY_MS = 60 * 1000;
 
-export async function resolveIngestContext(
-  presentedKey: string,
-): Promise<IngestContext> {
+export async function resolveIngestContext(presentedKey: string): Promise<IngestContext> {
   // hashApiKey recibe LOS BYTES EXACTOS del header: sin trim, sin toLowerCase,
   // sin normalización Unicode. El hash guardado es sobre la cadena exacta que
   // generamos, así que cualquier transformación acá haría que dos cadenas

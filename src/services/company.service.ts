@@ -21,20 +21,12 @@ export interface ListCompaniesParams {
   sortOrder: SortOrder;
 }
 
-export async function listCompanies(
-  organizationId: string,
-  params: ListCompaniesParams,
-) {
+export async function listCompanies(organizationId: string, params: ListCompaniesParams) {
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManyCompanies(
-      organizationId,
-      filters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
+    findManyCompanies(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countCompanies(organizationId, filters),
   ]);
 
@@ -72,11 +64,7 @@ export async function createCompany(
   actorUserId: string,
   input: CreateCompanyInput,
 ) {
-  const ownerId = await resolveOwnerId(
-    organizationId,
-    actorUserId,
-    input.ownerId,
-  );
+  const ownerId = await resolveOwnerId(organizationId, actorUserId, input.ownerId);
 
   return createCompanyRepo({
     organizationId,
@@ -112,11 +100,7 @@ export async function updateCompany(
   const data: UpdateCompanyInput = { ...input };
 
   if (input.ownerId) {
-    data.ownerId = await resolveOwnerId(
-      organizationId,
-      actorUserId,
-      input.ownerId,
-    );
+    data.ownerId = await resolveOwnerId(organizationId, actorUserId, input.ownerId);
   }
 
   const result = await updateCompanyRepo(id, organizationId, data);

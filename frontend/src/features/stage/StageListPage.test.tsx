@@ -84,13 +84,18 @@ describe("StageListPage", () => {
     mockPipeline({ id: "pl1", name: "Ventas" });
     server.use(
       http.get(stagesUrl, () =>
-        HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 } }),
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
       ),
     );
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("No hay etapas para mostrar.")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("No hay etapas para mostrar.")).toBeInTheDocument(),
+    );
   });
 
   it("S12 pide el listado ordenado por order asc por default", async () => {
@@ -379,8 +384,6 @@ describe("StageListPage", () => {
     expect(deleteCalled).toBe(false);
 
     await user.click(screen.getByText("Eliminar"));
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"),
-    );
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"));
   });
 });

@@ -28,14 +28,15 @@ const mock = vi.hoisted(() => {
   let callback: ((event: string, session: MockSession | null) => void) | null = null;
   let currentSession: MockSession | null = null;
 
-  const onAuthStateChange = vi.fn(
-    (cb: (event: string, session: MockSession | null) => void) => {
-      callback = cb;
-      return { data: { subscription: { unsubscribe: vi.fn() } } };
-    },
-  );
+  const onAuthStateChange = vi.fn((cb: (event: string, session: MockSession | null) => void) => {
+    callback = cb;
+    return { data: { subscription: { unsubscribe: vi.fn() } } };
+  });
   const getSession = vi.fn(async () => ({ data: { session: currentSession } }));
-  const getUser = vi.fn(async () => ({ data: { user: currentSession?.user ?? null }, error: null }));
+  const getUser = vi.fn(async () => ({
+    data: { user: currentSession?.user ?? null },
+    error: null,
+  }));
   const updateUser = vi.fn(async (): Promise<{ data: unknown; error: Error | null }> => ({
     data: {},
     error: null,
@@ -129,7 +130,13 @@ function acceptSuccessHandler(onCalled?: () => void) {
     profileExists = true;
     onCalled?.();
     return HttpResponse.json(
-      { id: "invited-1", organizationId: "org-1", roleId: "role-user", email: "invitado@example.com", fullName: "Nueva Persona" },
+      {
+        id: "invited-1",
+        organizationId: "org-1",
+        roleId: "role-user",
+        email: "invitado@example.com",
+        fullName: "Nueva Persona",
+      },
       { status: 201 },
     );
   });
@@ -162,7 +169,9 @@ describe("AcceptInvitationPage", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("Este enlace no es válido o expiró. Pedile a tu administrador que te reinvite."),
+        screen.getByText(
+          "Este enlace no es válido o expiró. Pedile a tu administrador que te reinvite.",
+        ),
       ).toBeInTheDocument(),
     );
   });
@@ -191,7 +200,10 @@ describe("AcceptInvitationPage", () => {
   it("authenticated existente sin marca: además del mensaje, ofrece configurar contraseña — y funciona sin repetir accept", async () => {
     profileExists = true;
     let acceptCalls = 0;
-    server.use(meHandler(), acceptSuccessHandler(() => acceptCalls++));
+    server.use(
+      meHandler(),
+      acceptSuccessHandler(() => acceptCalls++),
+    );
     const user = userEvent.setup();
     renderPage();
 
@@ -226,7 +238,10 @@ describe("AcceptInvitationPage", () => {
 
   it("fullName requerido: submit sin nombre no dispara accept", async () => {
     let acceptCalls = 0;
-    server.use(meHandler(), acceptSuccessHandler(() => acceptCalls++));
+    server.use(
+      meHandler(),
+      acceptSuccessHandler(() => acceptCalls++),
+    );
     const user = userEvent.setup();
     renderPage();
     await act(async () => mock.emit("SIGNED_IN", invitedSession()));
@@ -241,7 +256,10 @@ describe("AcceptInvitationPage", () => {
 
   it("password: menor al mínimo real (8) bloquea el submit con mensaje explícito", async () => {
     let acceptCalls = 0;
-    server.use(meHandler(), acceptSuccessHandler(() => acceptCalls++));
+    server.use(
+      meHandler(),
+      acceptSuccessHandler(() => acceptCalls++),
+    );
     const user = userEvent.setup();
     renderPage();
     await act(async () => mock.emit("SIGNED_IN", invitedSession()));
@@ -262,7 +280,10 @@ describe("AcceptInvitationPage", () => {
 
   it("confirmación: passwords que no coinciden bloquean el submit", async () => {
     let acceptCalls = 0;
-    server.use(meHandler(), acceptSuccessHandler(() => acceptCalls++));
+    server.use(
+      meHandler(),
+      acceptSuccessHandler(() => acceptCalls++),
+    );
     const user = userEvent.setup();
     renderPage();
     await act(async () => mock.emit("SIGNED_IN", invitedSession()));
@@ -273,7 +294,9 @@ describe("AcceptInvitationPage", () => {
     await user.type(screen.getByLabelText("Confirmar contraseña"), "password456");
     await user.click(screen.getByRole("button", { name: /completar registro/i }));
 
-    await waitFor(() => expect(screen.getByText("Las contraseñas no coinciden")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Las contraseñas no coinciden")).toBeInTheDocument(),
+    );
     expect(acceptCalls).toBe(0);
   });
 
@@ -360,7 +383,9 @@ describe("AcceptInvitationPage", () => {
       meHandler(),
       http.post(acceptUrl, () =>
         HttpResponse.json(
-          { error: { message: "Esta invitación venció, pedile a tu administrador que te reinvite" } },
+          {
+            error: { message: "Esta invitación venció, pedile a tu administrador que te reinvite" },
+          },
           { status: 410 },
         ),
       ),
@@ -401,8 +426,14 @@ describe("AcceptInvitationPage", () => {
 
   it("password update falla tras accept exitoso: NO repite accept, muestra error específico con retry", async () => {
     let acceptCalls = 0;
-    mock.updateUser.mockResolvedValueOnce({ data: null, error: new Error("Password muy débil para Supabase") });
-    server.use(meHandler(), acceptSuccessHandler(() => acceptCalls++));
+    mock.updateUser.mockResolvedValueOnce({
+      data: null,
+      error: new Error("Password muy débil para Supabase"),
+    });
+    server.use(
+      meHandler(),
+      acceptSuccessHandler(() => acceptCalls++),
+    );
     const user = userEvent.setup();
     renderPage();
     await act(async () => mock.emit("SIGNED_IN", invitedSession()));
@@ -416,14 +447,19 @@ describe("AcceptInvitationPage", () => {
     await waitFor(() =>
       expect(screen.getByText("Password muy débil para Supabase")).toBeInTheDocument(),
     );
-    expect(screen.getByText("Tu cuenta ya fue creada. Solo falta configurar tu contraseña.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Tu cuenta ya fue creada. Solo falta configurar tu contraseña."),
+    ).toBeInTheDocument();
     expect(acceptCalls).toBe(1);
   });
 
   it("retry de password tras fallo ejecuta SOLO updateUser, no repite accept", async () => {
     let acceptCalls = 0;
     mock.updateUser.mockResolvedValueOnce({ data: null, error: new Error("boom") });
-    server.use(meHandler(), acceptSuccessHandler(() => acceptCalls++));
+    server.use(
+      meHandler(),
+      acceptSuccessHandler(() => acceptCalls++),
+    );
     const user = userEvent.setup();
     renderPage();
     await act(async () => mock.emit("SIGNED_IN", invitedSession()));
@@ -433,7 +469,9 @@ describe("AcceptInvitationPage", () => {
     await user.type(screen.getByLabelText("Contraseña"), "password123");
     await user.type(screen.getByLabelText("Confirmar contraseña"), "password123");
     await user.click(screen.getByRole("button", { name: /completar registro/i }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /reintentar/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /reintentar/i })).toBeInTheDocument(),
+    );
 
     await user.click(screen.getByRole("button", { name: /reintentar/i }));
 
@@ -458,7 +496,10 @@ describe("AcceptInvitationPage", () => {
 
   it("retryProfile falla (500) tras accept+password exitosos: NO repite accept ni password, permite reintentar solo el perfil", async () => {
     let acceptCalls = 0;
-    server.use(meHandler(500), acceptSuccessHandler(() => acceptCalls++));
+    server.use(
+      meHandler(500),
+      acceptSuccessHandler(() => acceptCalls++),
+    );
     const user = userEvent.setup();
     renderPage();
     await act(async () => mock.emit("SIGNED_IN", invitedSession()));
@@ -524,7 +565,10 @@ describe("AcceptInvitationPage", () => {
     server.use(
       meHandler(),
       http.post(acceptUrl, () =>
-        HttpResponse.json({ error: { message: "No se encontró ninguna invitación para tu email" } }, { status: 404 }),
+        HttpResponse.json(
+          { error: { message: "No se encontró ninguna invitación para tu email" } },
+          { status: 404 },
+        ),
       ),
     );
     const user = userEvent.setup();
@@ -537,7 +581,9 @@ describe("AcceptInvitationPage", () => {
     await user.click(screen.getByRole("button", { name: /completar registro/i }));
 
     await waitFor(() =>
-      expect(screen.getByText("No se encontró ninguna invitación para tu email")).toBeInTheDocument(),
+      expect(
+        screen.getByText("No se encontró ninguna invitación para tu email"),
+      ).toBeInTheDocument(),
     );
   });
 
@@ -545,7 +591,10 @@ describe("AcceptInvitationPage", () => {
     server.use(
       meHandler(),
       http.post(acceptUrl, () =>
-        HttpResponse.json({ error: { message: "Esta invitación ya fue aceptada" } }, { status: 409 }),
+        HttpResponse.json(
+          { error: { message: "Esta invitación ya fue aceptada" } },
+          { status: 409 },
+        ),
       ),
     );
     const user = userEvent.setup();
@@ -557,7 +606,9 @@ describe("AcceptInvitationPage", () => {
     await user.type(screen.getByLabelText("Confirmar contraseña"), "password123");
     await user.click(screen.getByRole("button", { name: /completar registro/i }));
 
-    await waitFor(() => expect(screen.getByText("Esta invitación ya fue aceptada")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Esta invitación ya fue aceptada")).toBeInTheDocument(),
+    );
   });
 
   it("410: revocada/vencida se muestra tal cual", async () => {
@@ -565,7 +616,11 @@ describe("AcceptInvitationPage", () => {
       meHandler(),
       http.post(acceptUrl, () =>
         HttpResponse.json(
-          { error: { message: "Esta invitación fue revocada, pedile a tu administrador que te reinvite" } },
+          {
+            error: {
+              message: "Esta invitación fue revocada, pedile a tu administrador que te reinvite",
+            },
+          },
           { status: 410 },
         ),
       ),
@@ -590,7 +645,10 @@ describe("AcceptInvitationPage", () => {
     server.use(
       meHandler(),
       http.post(acceptUrl, () =>
-        HttpResponse.json({ error: { message: "Demasiados intentos. Probá de nuevo más tarde." } }, { status: 429 }),
+        HttpResponse.json(
+          { error: { message: "Demasiados intentos. Probá de nuevo más tarde." } },
+          { status: 429 },
+        ),
       ),
     );
     const user = userEvent.setup();
@@ -603,7 +661,9 @@ describe("AcceptInvitationPage", () => {
     await user.click(screen.getByRole("button", { name: /completar registro/i }));
 
     await waitFor(() =>
-      expect(screen.getByText("Demasiados intentos. Probá de nuevo más tarde.")).toBeInTheDocument(),
+      expect(
+        screen.getByText("Demasiados intentos. Probá de nuevo más tarde."),
+      ).toBeInTheDocument(),
     );
   });
 
@@ -612,7 +672,10 @@ describe("AcceptInvitationPage", () => {
     // Simula que un ciclo previo (antes del F5) ya llamó a accept con éxito.
     profileExists = true;
     sessionStorage.setItem("m7-invite-accept-pending-password", "invitado@example.com");
-    server.use(meHandler(), acceptSuccessHandler(() => acceptCalls++));
+    server.use(
+      meHandler(),
+      acceptSuccessHandler(() => acceptCalls++),
+    );
 
     renderPage();
     await act(async () => mock.emit("SIGNED_IN", invitedSession()));

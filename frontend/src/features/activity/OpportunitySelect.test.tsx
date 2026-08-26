@@ -18,7 +18,12 @@ const baseUrl = `${env.apiUrl}/api/opportunities`;
 function renderSelect(queryClient: QueryClient, value: string | undefined, onChange = vi.fn()) {
   render(
     <QueryClientProvider client={queryClient}>
-      <OpportunitySelect id="activity-opportunity" label="Oportunidad" value={value} onChange={onChange} />
+      <OpportunitySelect
+        id="activity-opportunity"
+        label="Oportunidad"
+        value={value}
+        onChange={onChange}
+      />
     </QueryClientProvider>,
   );
   return onChange;
@@ -91,9 +96,7 @@ describe("OpportunitySelect", () => {
 
   it("error de búsqueda se muestra como alert", async () => {
     server.use(
-      http.get(baseUrl, () =>
-        HttpResponse.json({ error: { message: "boom" } }, { status: 500 }),
-      ),
+      http.get(baseUrl, () => HttpResponse.json({ error: { message: "boom" } }, { status: 500 })),
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const user = userEvent.setup();

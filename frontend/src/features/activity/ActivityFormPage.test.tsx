@@ -19,8 +19,9 @@ vi.mock("../../auth/getAccessToken", () => ({
 // Ver datetimeLocal.test.ts: sin @types/node en este paquete, se accede a
 // process vía globalThis con un cast puntual en vez de agregar una
 // dependencia nueva.
-const nodeProcess = (globalThis as unknown as { process: { env: Record<string, string | undefined> } })
-  .process;
+const nodeProcess = (
+  globalThis as unknown as { process: { env: Record<string, string | undefined> } }
+).process;
 
 const activitiesUrl = `${env.apiUrl}/api/activities`;
 const companiesUrl = `${env.apiUrl}/api/companies`;
@@ -242,10 +243,7 @@ describe("ActivityFormPage — create", () => {
     server.use(...baseHandlers());
     server.use(
       http.post(activitiesUrl, () =>
-        HttpResponse.json(
-          { error: { message: "subject es requerido" } },
-          { status: 400 },
-        ),
+        HttpResponse.json({ error: { message: "subject es requerido" } }, { status: 400 }),
       ),
     );
     const user = userEvent.setup();
@@ -255,7 +253,9 @@ describe("ActivityFormPage — create", () => {
     // real, pero jsdom no impide el submit programático — se fuerza el
     // envío para ejercitar el manejo de error real del backend.
     await selectCompany(user, "Acme Corp", "co1");
-    const form = screen.getByRole("button", { name: /guardar/i }).closest("form") as HTMLFormElement;
+    const form = screen
+      .getByRole("button", { name: /guardar/i })
+      .closest("form") as HTMLFormElement;
     fireEvent.submit(form);
 
     await waitFor(() => expect(screen.getByText("subject es requerido")).toBeInTheDocument());
@@ -277,7 +277,9 @@ describe("ActivityFormPage — edit", () => {
           }),
         ),
       ),
-      http.get(`${companiesUrl}/co1`, () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+      http.get(`${companiesUrl}/co1`, () =>
+        HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+      ),
     );
     renderForm("/activities/act1/edit");
 
@@ -303,13 +305,17 @@ describe("ActivityFormPage — edit", () => {
             }),
           ),
         ),
-        http.get(`${companiesUrl}/co1`, () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+        http.get(`${companiesUrl}/co1`, () =>
+          HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+        ),
       );
       renderForm("/activities/act1/edit");
 
       // 15:30 UTC - 3h = 12:30 local (Argentina) — nunca "15:30" (slice
       // directo del ISO UTC).
-      await waitFor(() => expect(screen.getByLabelText("Vencimiento")).toHaveValue("2026-03-01T12:30"));
+      await waitFor(() =>
+        expect(screen.getByLabelText("Vencimiento")).toHaveValue("2026-03-01T12:30"),
+      );
       expect(screen.getByLabelText("Completada")).toHaveValue("2026-03-02T15:00");
     } finally {
       nodeProcess.env.TZ = originalTz;
@@ -328,7 +334,9 @@ describe("ActivityFormPage — edit", () => {
             makeActivity({ id: "act1", companyId: "co1", dueDate: "2026-03-01T15:30:00.000Z" }),
           ),
         ),
-        http.get(`${companiesUrl}/co1`, () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+        http.get(`${companiesUrl}/co1`, () =>
+          HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+        ),
         http.patch(`${activitiesUrl}/act1`, async ({ request }) => {
           patchedBody = (await request.json()) as Record<string, unknown>;
           return HttpResponse.json(makeActivity());
@@ -365,7 +373,9 @@ describe("ActivityFormPage — edit", () => {
           }),
         ),
       ),
-      http.get(`${companiesUrl}/co1`, () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+      http.get(`${companiesUrl}/co1`, () =>
+        HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+      ),
       http.patch(`${activitiesUrl}/act1`, async ({ request }) => {
         patchedBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(makeActivity());
@@ -395,7 +405,9 @@ describe("ActivityFormPage — edit", () => {
       http.get(`${activitiesUrl}/act1`, () =>
         HttpResponse.json(makeActivity({ id: "act1", companyId: "co1", subject: "Original" })),
       ),
-      http.get(`${companiesUrl}/co1`, () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+      http.get(`${companiesUrl}/co1`, () =>
+        HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+      ),
       http.patch(`${activitiesUrl}/act1`, async ({ request }) => {
         patchedBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(makeActivity());
@@ -423,7 +435,9 @@ describe("ActivityFormPage — edit", () => {
       http.get(`${activitiesUrl}/act1`, () =>
         HttpResponse.json(makeActivity({ id: "act1", companyId: "co1" })),
       ),
-      http.get(`${companiesUrl}/co1`, () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+      http.get(`${companiesUrl}/co1`, () =>
+        HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+      ),
       http.patch(`${activitiesUrl}/act1`, async ({ request }) => {
         patchedBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(makeActivity());
@@ -437,9 +451,7 @@ describe("ActivityFormPage — edit", () => {
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(patchedBody).toBeDefined());
-    expect(patchedBody).toEqual(
-      expect.objectContaining({ contactId: "ct1" }),
-    );
+    expect(patchedBody).toEqual(expect.objectContaining({ contactId: "ct1" }));
     expect(patchedBody).not.toHaveProperty("companyId");
   });
 
@@ -450,7 +462,9 @@ describe("ActivityFormPage — edit", () => {
       http.get(`${activitiesUrl}/act1`, () =>
         HttpResponse.json(makeActivity({ id: "act1", companyId: "co1", contactId: "ct1" })),
       ),
-      http.get(`${companiesUrl}/co1`, () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+      http.get(`${companiesUrl}/co1`, () =>
+        HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+      ),
       http.get(`${contactsUrl}/ct1`, () => HttpResponse.json(makeContact({ id: "ct1" }))),
       http.patch(`${activitiesUrl}/act1`, async ({ request }) => {
         patchedBody = (await request.json()) as Record<string, unknown>;
@@ -476,7 +490,9 @@ describe("ActivityFormPage — edit", () => {
       http.get(`${activitiesUrl}/act1`, () =>
         HttpResponse.json(makeActivity({ id: "act1", companyId: "co1" })),
       ),
-      http.get(`${companiesUrl}/co1`, () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+      http.get(`${companiesUrl}/co1`, () =>
+        HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+      ),
       http.patch(`${activitiesUrl}/act1`, async ({ request }) => {
         patchedBody = (await request.json()) as Record<string, unknown>;
         return HttpResponse.json(makeActivity());
@@ -501,7 +517,9 @@ describe("ActivityFormPage — edit", () => {
       http.get(`${activitiesUrl}/act1`, () =>
         HttpResponse.json(makeActivity({ id: "act1", companyId: "co1" })),
       ),
-      http.get(`${companiesUrl}/co1`, () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+      http.get(`${companiesUrl}/co1`, () =>
+        HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+      ),
       http.patch(`${activitiesUrl}/act1`, () => {
         patchRequested = true;
         return HttpResponse.json(makeActivity());
@@ -528,12 +546,15 @@ describe("ActivityFormPage — edit", () => {
       http.get(`${activitiesUrl}/act1`, () =>
         HttpResponse.json(makeActivity({ id: "act1", companyId: "co1" })),
       ),
-      http.get(`${companiesUrl}/co1`, () => HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" }))),
+      http.get(`${companiesUrl}/co1`, () =>
+        HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+      ),
       http.patch(`${activitiesUrl}/act1`, () =>
         HttpResponse.json(
           {
             error: {
-              message: "La actividad debe estar relacionada a una Company, un Contact, o una Opportunity",
+              message:
+                "La actividad debe estar relacionada a una Company, un Contact, o una Opportunity",
             },
           },
           { status: 400 },

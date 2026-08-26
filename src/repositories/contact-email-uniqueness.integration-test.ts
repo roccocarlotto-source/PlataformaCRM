@@ -39,11 +39,7 @@ function email(local: string): string {
   return `${local}@${DOMINIO}`;
 }
 
-async function crearContacto(
-  organizationId: string,
-  emailValue: string | null,
-  label: string,
-) {
+async function crearContacto(organizationId: string, emailValue: string | null, label: string) {
   return prisma.contact.create({
     data: {
       organizationId,
@@ -88,8 +84,7 @@ test("dos emails que difieren solo en mayúsculas, misma organización: la base 
 
   await assert.rejects(
     () => crearContacto(fx.orgA, email(local), "Minuscula"),
-    (err: unknown) =>
-      err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002",
+    (err: unknown) => err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002",
     "Juan@… y juan@… no pueden coexistir: es la garantía que M-13 vino a poner en la base",
   );
 });
@@ -131,11 +126,7 @@ test("un contacto borrado libera su email para reuso, como antes", async () => {
 test("el índice sigue siendo parcial también para las variantes de case: si la que existe está borrada, la otra entra", async () => {
   const local = "parcial.case";
 
-  const borrado = await crearContacto(
-    fx.orgA,
-    email(local.toUpperCase()),
-    "Borrado",
-  );
+  const borrado = await crearContacto(fx.orgA, email(local.toUpperCase()), "Borrado");
   await prisma.contact.update({
     where: { id: borrado.id },
     data: { deletedAt: new Date() },
@@ -180,8 +171,7 @@ test("la violación real se traduce al 409 específico, no a un P2002 crudo ni a
 
   assert.ok(capturado, "la base tenía que rechazar la escritura");
   assert.ok(
-    capturado instanceof Prisma.PrismaClientKnownRequestError &&
-      capturado.code === "P2002",
+    capturado instanceof Prisma.PrismaClientKnownRequestError && capturado.code === "P2002",
     "debe llegar como P2002",
   );
 
@@ -221,9 +211,7 @@ test("un email con espacios al borde es rechazado por la base, no guardado tal c
   await assert.rejects(
     () => crearContacto(fx.orgA, conEspacios, "Espacios"),
     (err: unknown) =>
-      String(
-        err instanceof Error ? err.message : err,
-      ).includes("contacts_email_trimmed_check"),
+      String(err instanceof Error ? err.message : err).includes("contacts_email_trimmed_check"),
     "el CHECK existe para que sea imposible saltear el .trim() de la aplicación",
   );
 });

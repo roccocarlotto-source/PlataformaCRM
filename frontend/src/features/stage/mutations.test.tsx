@@ -27,7 +27,9 @@ describe("stage/mutations — invalidación de cache", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useCreateStage("pl1"), { wrapper: wrapperFor(queryClient) });
+    const { result } = renderHook(() => useCreateStage("pl1"), {
+      wrapper: wrapperFor(queryClient),
+    });
     result.current.mutate({ pipelineId: "pl1", name: "Nueva" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -40,7 +42,9 @@ describe("stage/mutations — invalidación de cache", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useUpdateStage("pl1"), { wrapper: wrapperFor(queryClient) });
+    const { result } = renderHook(() => useUpdateStage("pl1"), {
+      wrapper: wrapperFor(queryClient),
+    });
     result.current.mutate({ id: "st1", input: { name: "Editada" } });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -52,7 +56,9 @@ describe("stage/mutations — invalidación de cache", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useDeleteStage("pl1"), { wrapper: wrapperFor(queryClient) });
+    const { result } = renderHook(() => useDeleteStage("pl1"), {
+      wrapper: wrapperFor(queryClient),
+    });
     result.current.mutate("st1");
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -61,14 +67,14 @@ describe("stage/mutations — invalidación de cache", () => {
 
   it("S10 una mutation fallida no ejecuta ninguna invalidación", async () => {
     server.use(
-      http.post(baseUrl, () =>
-        HttpResponse.json({ error: { message: "falló" } }, { status: 500 }),
-      ),
+      http.post(baseUrl, () => HttpResponse.json({ error: { message: "falló" } }, { status: 500 })),
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useCreateStage("pl1"), { wrapper: wrapperFor(queryClient) });
+    const { result } = renderHook(() => useCreateStage("pl1"), {
+      wrapper: wrapperFor(queryClient),
+    });
     result.current.mutate({ pipelineId: "pl1", name: "Nueva" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));

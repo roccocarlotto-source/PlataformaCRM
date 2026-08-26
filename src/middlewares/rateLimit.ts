@@ -83,9 +83,7 @@ export function createOnboardingRateLimiter() {
     standardHeaders: "draft-7",
     legacyHeaders: false,
     skip: (req) => !onboardingSchema.safeParse(req.body).success,
-    handler: buildRateLimitHandler(
-      "Demasiados intentos de registro. Probá de nuevo más tarde.",
-    ),
+    handler: buildRateLimitHandler("Demasiados intentos de registro. Probá de nuevo más tarde."),
   });
 }
 
@@ -117,9 +115,7 @@ export function createAcceptPreAuthRateLimiter() {
     max: ACCEPT_PRE_AUTH_MAX,
     standardHeaders: "draft-7",
     legacyHeaders: false,
-    handler: buildRateLimitHandler(
-      "Demasiados intentos. Probá de nuevo más tarde.",
-    ),
+    handler: buildRateLimitHandler("Demasiados intentos. Probá de nuevo más tarde."),
   });
 }
 
@@ -145,9 +141,7 @@ export const ACCEPT_IDENTITY_WINDOW_MS = 10 * 60 * 1000;
 export const ACCEPT_IDENTITY_MAX = 10;
 
 function acceptInvitationKeyGenerator(req: Request): string {
-  const identity = req.invitationAcceptIdentity as
-    | InvitationAcceptIdentity
-    | undefined;
+  const identity = req.invitationAcceptIdentity as InvitationAcceptIdentity | undefined;
   if (!identity) {
     // No debería poder pasar nunca: verifyInvitationAcceptIdentity corre
     // antes en la cadena y, si falla, ya cortó el request con su propio
@@ -167,9 +161,7 @@ export function createAcceptInvitationRateLimiter() {
     legacyHeaders: false,
     keyGenerator: acceptInvitationKeyGenerator,
     skip: (req) => !acceptInvitationSchema.safeParse(req.body).success,
-    handler: buildRateLimitHandler(
-      "Demasiados intentos. Probá de nuevo más tarde.",
-    ),
+    handler: buildRateLimitHandler("Demasiados intentos. Probá de nuevo más tarde."),
   });
 }
 
@@ -216,19 +208,14 @@ function businessWriteKeyGenerator(req: Request): string {
 // no tener que disparar 100+ requests reales para probar el bloqueo — ver
 // rateLimit.integration-test.ts. La instancia de producción (más abajo) no
 // pasa overrides, así que sigue usando los umbrales reales.
-export function createBusinessWriteRateLimiter(overrides?: {
-  windowMs?: number;
-  max?: number;
-}) {
+export function createBusinessWriteRateLimiter(overrides?: { windowMs?: number; max?: number }) {
   return rateLimit({
     windowMs: overrides?.windowMs ?? BUSINESS_WRITE_WINDOW_MS,
     max: overrides?.max ?? BUSINESS_WRITE_MAX,
     standardHeaders: "draft-7",
     legacyHeaders: false,
     keyGenerator: businessWriteKeyGenerator,
-    handler: buildRateLimitHandler(
-      "Demasiadas solicitudes. Probá de nuevo en un momento.",
-    ),
+    handler: buildRateLimitHandler("Demasiadas solicitudes. Probá de nuevo en un momento."),
   });
 }
 
@@ -303,10 +290,7 @@ function ingestKeyGenerator(req: Request): string {
 // overrides es solo para tests de integración, mismo criterio que
 // createBusinessWriteRateLimiter: permite un max chico para no tener que
 // disparar cientos de requests reales. La instancia de producción no los pasa.
-export function createIngestRateLimiter(overrides?: {
-  windowMs?: number;
-  max?: number;
-}) {
+export function createIngestRateLimiter(overrides?: { windowMs?: number; max?: number }) {
   return rateLimit({
     windowMs: overrides?.windowMs ?? INGEST_WINDOW_MS,
     max: overrides?.max ?? INGEST_MAX,

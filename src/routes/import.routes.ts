@@ -1,8 +1,5 @@
 import { Router } from "express";
-import {
-  importarArchivoHandler,
-  resumenDeLoteHandler,
-} from "../controllers/import.controller";
+import { importarArchivoHandler, resumenDeLoteHandler } from "../controllers/import.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { authorize } from "../middlewares/authorize";
 import { importUpload } from "../middlewares/importUpload";
@@ -46,9 +43,4 @@ importRouter.post(
   importarArchivoHandler,
 );
 
-importRouter.get(
-  "/imports/:batchId",
-  authenticate,
-  authorize("ADMIN"),
-  resumenDeLoteHandler,
-);
+importRouter.get("/imports/:batchId", authenticate, authorize("ADMIN"), resumenDeLoteHandler);

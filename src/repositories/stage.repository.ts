@@ -10,17 +10,12 @@ export type StageSortBy = "order" | "name" | "createdAt";
 export type SortOrder = "asc" | "desc";
 
 // R1.10 — search sobre `name`, mismo patrón que company.repository.ts.
-function buildWhere(
-  organizationId: string,
-  filters: StageFilters,
-): Prisma.StageWhereInput {
+function buildWhere(organizationId: string, filters: StageFilters): Prisma.StageWhereInput {
   return {
     organizationId,
     deletedAt: null,
     ...(filters.pipelineId ? { pipelineId: filters.pipelineId } : {}),
-    ...(filters.search
-      ? { name: { contains: filters.search, mode: "insensitive" } }
-      : {}),
+    ...(filters.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
   };
 }
 
@@ -54,19 +49,11 @@ export function findManyStages(
   });
 }
 
-export function countStages(
-  organizationId: string,
-  filters: StageFilters,
-  db: Db = prisma,
-) {
+export function countStages(organizationId: string, filters: StageFilters, db: Db = prisma) {
   return db.stage.count({ where: buildWhere(organizationId, filters) });
 }
 
-export function findStageById(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findStageById(id: string, organizationId: string, db: Db = prisma) {
   return db.stage.findFirst({
     where: { id, organizationId, deletedAt: null },
   });
@@ -148,11 +135,7 @@ export function updateStage(
   return db.stage.updateMany({ where: { id, organizationId }, data });
 }
 
-export function softDeleteStage(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function softDeleteStage(id: string, organizationId: string, db: Db = prisma) {
   return db.stage.updateMany({
     where: { id, organizationId },
     data: { deletedAt: new Date() },
@@ -169,11 +152,7 @@ export function softDeleteStage(
 // el order de todos los que están en esa posición o después — procesando
 // del más alto al más bajo, cada casillero de destino ya quedó libre por el
 // paso anterior, nunca choca contra la constraint única.
-export async function shiftUpFrom(
-  pipelineId: string,
-  targetOrder: number,
-  db: Db,
-): Promise<void> {
+export async function shiftUpFrom(pipelineId: string, targetOrder: number, db: Db): Promise<void> {
   const siblings = await db.stage.findMany({
     where: { pipelineId, deletedAt: null, order: { gte: targetOrder } },
     orderBy: { order: "desc" },

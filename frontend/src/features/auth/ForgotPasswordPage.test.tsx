@@ -61,9 +61,7 @@ describe("ForgotPasswordPage — R1.3", () => {
     await user.click(screen.getByRole("button", { name: /enviar link/i }));
 
     await waitFor(() =>
-      expect(
-        screen.getByText(/si existe una cuenta con ese email/i),
-      ).toBeInTheDocument(),
+      expect(screen.getByText(/si existe una cuenta con ese email/i)).toBeInTheDocument(),
     );
   });
 

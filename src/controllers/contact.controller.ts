@@ -13,13 +13,7 @@ import { parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
 
-const lifecycleStageSchema = z.enum([
-  "LEAD",
-  "MQL",
-  "SQL",
-  "CUSTOMER",
-  "CHURNED",
-]);
+const lifecycleStageSchema = z.enum(["LEAD", "MQL", "SQL", "CUSTOMER", "CHURNED"]);
 
 // Campos compartidos entre create (firstName/lastName requeridos) y update
 // (todos opcionales vía .partial() más abajo).
@@ -40,22 +34,10 @@ const contactFields = {
     .email("email inválido")
     .max(255, "email no puede superar los 255 caracteres")
     .optional(),
-  phone: z
-    .string()
-    .trim()
-    .max(30, "phone no puede superar los 30 caracteres")
-    .optional(),
-  jobTitle: z
-    .string()
-    .trim()
-    .max(100, "jobTitle no puede superar los 100 caracteres")
-    .optional(),
+  phone: z.string().trim().max(30, "phone no puede superar los 30 caracteres").optional(),
+  jobTitle: z.string().trim().max(100, "jobTitle no puede superar los 100 caracteres").optional(),
   lifecycleStage: lifecycleStageSchema.optional(),
-  source: z
-    .string()
-    .trim()
-    .max(100, "source no puede superar los 100 caracteres")
-    .optional(),
+  source: z.string().trim().max(100, "source no puede superar los 100 caracteres").optional(),
   companyId: z.string().uuid("companyId inválido").optional(),
   ownerId: z.string().uuid("ownerId inválido").optional(),
 };
@@ -80,20 +62,14 @@ const listQuerySchema = z.object({
   ownerId: z.string().uuid("ownerId inválido").optional(),
   lifecycleStage: lifecycleStageSchema.optional(),
   source: z.string().trim().min(1).optional(),
-  sortBy: z
-    .enum(["firstName", "lastName", "createdAt", "lifecycleStage"])
-    .default("createdAt"),
+  sortBy: z.enum(["firstName", "lastName", "createdAt", "lifecycleStage"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
 export const createContactHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createContactSchema, req.body);
-    const contact = await createContact(
-      req.auth.organizationId,
-      req.auth.userId,
-      input,
-    );
+    const contact = await createContact(req.auth.organizationId, req.auth.userId, input);
     res.status(201).json(contact);
   },
 );
@@ -106,24 +82,17 @@ export const listContactsHandler = asyncHandler<AuthenticatedRequest>(
   },
 );
 
-export const getContactHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const id = parseOrThrow(idParamSchema, req.params.id);
-    const contact = await getContactById(req.auth.organizationId, id);
-    res.status(200).json(contact);
-  },
-);
+export const getContactHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  const contact = await getContactById(req.auth.organizationId, id);
+  res.status(200).json(contact);
+});
 
 export const updateContactHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const input = parseOrThrow(updateContactSchema, req.body);
-    const contact = await updateContact(
-      req.auth.organizationId,
-      req.auth.userId,
-      id,
-      input,
-    );
+    const contact = await updateContact(req.auth.organizationId, req.auth.userId, id, input);
     res.status(200).json(contact);
   },
 );

@@ -164,9 +164,7 @@ export function CompanyListPage() {
                     para quien lee la tabla, las dos cosas son "no hay nombre
                     que mostrar acá". */}
                 {isAdmin ? (
-                  <td>
-                    {company.ownerId ? (ownerNames.byId.get(company.ownerId) ?? "—") : "—"}
-                  </td>
+                  <td>{company.ownerId ? (ownerNames.byId.get(company.ownerId) ?? "—") : "—"}</td>
                 ) : null}
                 {isAdmin ? (
                   <td>

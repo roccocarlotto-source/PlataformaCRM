@@ -75,10 +75,22 @@ async function setupScenario(label: string): Promise<Scenario> {
   const authB = await createRealAuthUser(`${label}-b`);
 
   const adminA = await prisma.user.create({
-    data: { id: authA.id, organizationId: org.id, roleId: adminRole.id, email: authA.email, fullName: "Admin A" },
+    data: {
+      id: authA.id,
+      organizationId: org.id,
+      roleId: adminRole.id,
+      email: authA.email,
+      fullName: "Admin A",
+    },
   });
   const adminB = await prisma.user.create({
-    data: { id: authB.id, organizationId: org.id, roleId: adminRole.id, email: authB.email, fullName: "Admin B" },
+    data: {
+      id: authB.id,
+      organizationId: org.id,
+      roleId: adminRole.id,
+      email: authB.email,
+      fullName: "Admin B",
+    },
   });
 
   return {
@@ -104,11 +116,18 @@ function assertExactlyOneWinsOneLoses(
   const fulfilled = results.filter((r) => r.status === "fulfilled");
   const rejected = results.filter((r) => r.status === "rejected");
 
-  assert.equal(fulfilled.length, 1, "exactamente una de las dos operaciones concurrentes debe ganar");
+  assert.equal(
+    fulfilled.length,
+    1,
+    "exactamente una de las dos operaciones concurrentes debe ganar",
+  );
   assert.equal(rejected.length, 1, "la otra debe perder, nunca ambas deben tener éxito");
 
   const loserReason = (rejected[0] as PromiseRejectedResult).reason;
-  assert.ok(loserReason instanceof AppError, "la perdedora debe ser un AppError, no un error crudo");
+  assert.ok(
+    loserReason instanceof AppError,
+    "la perdedora debe ser un AppError, no un error crudo",
+  );
   assert.equal(loserReason.statusCode, 400);
   assert.equal(loserReason.message, expectedMessage);
 }
@@ -117,17 +136,17 @@ async function assertExactlyOneActiveAdminRemains(organizationId: string) {
   const remaining = await prisma.user.count({
     where: { organizationId, isActive: true, deletedAt: null, role: { name: "ADMIN" } },
   });
-  assert.equal(remaining, 1, "la organización debe conservar exactamente un ADMIN activo, nunca cero");
+  assert.equal(
+    remaining,
+    1,
+    "la organización debe conservar exactamente un ADMIN activo, nunca cero",
+  );
 }
 
 async function runRaceScenario(
   label: string,
   expectedMessage: string,
-  operation: (
-    orgId: string,
-    actorId: string,
-    targetId: string,
-  ) => Promise<unknown>,
+  operation: (orgId: string, actorId: string, targetId: string) => Promise<unknown>,
 ) {
   const scenario = await setupScenario(label);
   try {

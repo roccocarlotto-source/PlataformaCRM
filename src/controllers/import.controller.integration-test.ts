@@ -62,10 +62,7 @@ function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
   });
 }
 
-async function crearUsuario(
-  label: string,
-  role: "ADMIN" | "USER",
-): Promise<FixtureUser> {
+async function crearUsuario(label: string, role: "ADMIN" | "USER"): Promise<FixtureUser> {
   const email = `import-${label}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
 
   const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
@@ -422,12 +419,7 @@ test("no se puede importar contra una fuente WEBHOOK", async () => {
 });
 
 test("un sourceId inexistente da 404 — y el de otra organización, y el retirado, también", async () => {
-  const inexistente = await subir(
-    admin.accessToken,
-    randomUUID(),
-    "l.csv",
-    "Nombre\nAna",
-  );
+  const inexistente = await subir(admin.accessToken, randomUUID(), "l.csv", "Nombre\nAna");
   assert.equal(inexistente.status, 404);
 
   const otraOrg = await prisma.organization.create({
@@ -585,9 +577,9 @@ test("una fila con encabezados custom se traduce y promueve igual que el contrat
     `Ana,Gómez,${email},+5411000000,basura`,
   ].join("\n");
 
-  const { batchId } = (await (
-    await subir(admin.accessToken, source, "leads.csv", csv)
-  ).json()) as { batchId: string };
+  const { batchId } = (await (await subir(admin.accessToken, source, "leads.csv", csv)).json()) as {
+    batchId: string;
+  };
 
   const resumen = await drenarPendientes({ organizationId: orgId });
   assert.ok(resumen.procesados >= 1);
@@ -661,9 +653,9 @@ test("una fila que después de traducida no cumple el contrato falla, y el resto
     "Caro,Díaz,no-es-un-email",
   ].join("\n");
 
-  const { batchId } = (await (
-    await subir(admin.accessToken, source, "l.csv", csv)
-  ).json()) as { batchId: string };
+  const { batchId } = (await (await subir(admin.accessToken, source, "l.csv", csv)).json()) as {
+    batchId: string;
+  };
 
   await drenarPendientes({ organizationId: orgId });
 
@@ -672,17 +664,13 @@ test("una fila que después de traducida no cumple el contrato falla, y el resto
     where: { organizationId: orgId, batchId },
     _count: { _all: true },
   });
-  const contar = (estado: string) =>
-    porEstado.find((f) => f.status === estado)?._count._all ?? 0;
+  const contar = (estado: string) => porEstado.find((f) => f.status === estado)?._count._all ?? 0;
 
   assert.equal(contar("FAILED"), 2, "las dos filas malas se marcan");
   assert.equal(contar("PROCESSED"), 1, "la buena se promueve igual");
   assert.equal(contar("PENDING"), 0, "el drenado no se quedó a mitad");
 
-  assert.equal(
-    await prisma.contact.count({ where: { organizationId: orgId, email: buena } }),
-    1,
-  );
+  assert.equal(await prisma.contact.count({ where: { organizationId: orgId, email: buena } }), 1);
 });
 
 test("una fuente FILE_IMPORT SIN mapeo valida el archivo contra el contrato fijo", async () => {
@@ -690,12 +678,7 @@ test("una fuente FILE_IMPORT SIN mapeo valida el archivo contra el contrato fijo
   const email = `directo-${randomUUID()}@ejemplo.test`;
 
   const { batchId } = (await (
-    await subir(
-      admin.accessToken,
-      source,
-      "l.csv",
-      `firstName,lastName,email\nAna,Gómez,${email}`,
-    )
+    await subir(admin.accessToken, source, "l.csv", `firstName,lastName,email\nAna,Gómez,${email}`)
   ).json()) as { batchId: string };
 
   await drenarPendientes({ organizationId: orgId });
@@ -724,14 +707,17 @@ test("GET /api/imports/:batchId cuenta bien ANTES y DESPUÉS de drenar", async (
     "Sin,,apellido-invalido",
   ].join("\n");
 
-  const { batchId } = (await (
-    await subir(admin.accessToken, source, "l.csv", csv)
-  ).json()) as { batchId: string };
+  const { batchId } = (await (await subir(admin.accessToken, source, "l.csv", csv)).json()) as {
+    batchId: string;
+  };
 
   // ANTES de drenar: todo pendiente.
-  const antes = (await (
-    await api("GET", `/api/imports/${batchId}`, admin.accessToken)
-  ).json()) as { total: number; pendientes: number; promovidos: number; fallidos: number };
+  const antes = (await (await api("GET", `/api/imports/${batchId}`, admin.accessToken)).json()) as {
+    total: number;
+    pendientes: number;
+    promovidos: number;
+    fallidos: number;
+  };
 
   assert.equal(antes.total, 3);
   assert.equal(antes.pendientes, 3);

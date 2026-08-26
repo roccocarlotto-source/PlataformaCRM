@@ -24,9 +24,7 @@ function buildWhere(
   return {
     organizationId,
     deletedAt: null,
-    ...(filters.search
-      ? { title: { contains: filters.search, mode: "insensitive" } }
-      : {}),
+    ...(filters.search ? { title: { contains: filters.search, mode: "insensitive" } } : {}),
     ...(filters.companyId ? { companyId: filters.companyId } : {}),
     ...(filters.contactId ? { contactId: filters.contactId } : {}),
     ...(filters.ownerId ? { ownerId: filters.ownerId } : {}),
@@ -37,12 +35,8 @@ function buildWhere(
     ...(filters.minAmount !== undefined || filters.maxAmount !== undefined
       ? {
           amount: {
-            ...(filters.minAmount !== undefined
-              ? { gte: filters.minAmount }
-              : {}),
-            ...(filters.maxAmount !== undefined
-              ? { lte: filters.maxAmount }
-              : {}),
+            ...(filters.minAmount !== undefined ? { gte: filters.minAmount } : {}),
+            ...(filters.maxAmount !== undefined ? { lte: filters.maxAmount } : {}),
           },
         }
       : {}),
@@ -89,11 +83,7 @@ export function countOpportunities(
   return db.opportunity.count({ where: buildWhere(organizationId, filters) });
 }
 
-export function findOpportunityById(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findOpportunityById(id: string, organizationId: string, db: Db = prisma) {
   return db.opportunity.findFirst({
     where: { id, organizationId, deletedAt: null },
   });
@@ -115,10 +105,7 @@ export interface CreateOpportunityData {
   lostReason?: string;
 }
 
-export function createOpportunity(
-  data: CreateOpportunityData,
-  db: Db = prisma,
-) {
+export function createOpportunity(data: CreateOpportunityData, db: Db = prisma) {
   return db.opportunity.create({ data });
 }
 
@@ -150,11 +137,7 @@ export function updateOpportunity(
   return db.opportunity.updateMany({ where: { id, organizationId }, data });
 }
 
-export function softDeleteOpportunity(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function softDeleteOpportunity(id: string, organizationId: string, db: Db = prisma) {
   return db.opportunity.updateMany({
     where: { id, organizationId },
     data: { deletedAt: new Date() },

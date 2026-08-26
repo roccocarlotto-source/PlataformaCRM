@@ -44,7 +44,9 @@ function wrapperFor(queryClient: QueryClient) {
   };
 }
 
-function renderPage(queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderPage(
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
@@ -85,7 +87,10 @@ describe("PipelineListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       http.get(baseUrl, () =>
-        HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }),
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+        }),
       ),
     );
 

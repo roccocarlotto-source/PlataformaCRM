@@ -87,7 +87,5 @@ export function canonicalStringify(value: unknown): string {
 // propósito y sin ninguna propiedad de seguridad detrás: acá no hay secreto que
 // proteger, solo un identificador estable y de longitud fija para el contenido.
 export function deriveExternalId(payload: unknown): string {
-  return createHash("sha256")
-    .update(canonicalStringify(payload), "utf8")
-    .digest("hex");
+  return createHash("sha256").update(canonicalStringify(payload), "utf8").digest("hex");
 }

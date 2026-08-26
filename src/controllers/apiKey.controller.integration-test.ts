@@ -100,9 +100,7 @@ async function createFixtureUser(
     email_confirm: true,
   });
   if (error || !data.user) {
-    throw new Error(
-      `No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`,
-    );
+    throw new Error(`No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`);
   }
 
   const roleRow = await findRoleByName(role);
@@ -121,12 +119,12 @@ async function createFixtureUser(
   });
 
   const anonClient = createClient(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!);
-  const { data: signInData, error: signInError } =
-    await anonClient.auth.signInWithPassword({ email, password: PASSWORD });
+  const { data: signInData, error: signInError } = await anonClient.auth.signInWithPassword({
+    email,
+    password: PASSWORD,
+  });
   if (signInError || !signInData.session) {
-    throw new Error(
-      `No se pudo iniciar sesión real (${label}): ${signInError?.message}`,
-    );
+    throw new Error(`No se pudo iniciar sesión real (${label}): ${signInError?.message}`);
   }
 
   return {
@@ -136,12 +134,7 @@ async function createFixtureUser(
 }
 
 // Helper de request: siempre con token, siempre JSON.
-function call(
-  method: string,
-  path: string,
-  token: string,
-  body?: unknown,
-): Promise<Response> {
+function call(method: string, path: string, token: string, body?: unknown): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method,
     headers: {
@@ -235,11 +228,7 @@ test("POST /api/api-keys — 201 con la clave en claro exactamente una vez, y si
     "keyPrefix son los primeros 12 caracteres de la clave devuelta",
   );
   assert.equal(body.revokedAt, null);
-  assert.equal(
-    body.lastUsedAt,
-    null,
-    "lastUsedAt nace en null y nadie la escribe hasta el ítem 4",
-  );
+  assert.equal(body.lastUsedAt, null, "lastUsedAt nace en null y nadie la escribe hasta el ítem 4");
 });
 
 test("la clave en claro no reaparece en NINGUNA respuesta posterior a la creación", async () => {
@@ -253,16 +242,9 @@ test("la clave en claro no reaparece en NINGUNA respuesta posterior a la creaci�
   const listado = await call("GET", "/api/api-keys", fx.adminA.accessToken);
   const textoListado = await listado.text();
   assert.equal(listado.status, 200);
-  assert.ok(
-    !textoListado.includes(key),
-    "el listado no puede contener la clave en claro",
-  );
+  assert.ok(!textoListado.includes(key), "el listado no puede contener la clave en claro");
 
-  const revocada = await call(
-    "DELETE",
-    `/api/api-keys/${id}`,
-    fx.adminA.accessToken,
-  );
+  const revocada = await call("DELETE", `/api/api-keys/${id}`, fx.adminA.accessToken);
   const textoRevocada = await revocada.text();
   assert.equal(revocada.status, 200);
   assert.ok(
@@ -310,11 +292,7 @@ test("USER recibe 403 en las tres operaciones de API keys", async () => {
   });
   assert.equal(crear.status, 403);
 
-  const revocar = await call(
-    "DELETE",
-    `/api/api-keys/${randomUUID()}`,
-    fx.userA.accessToken,
-  );
+  const revocar = await call("DELETE", `/api/api-keys/${randomUUID()}`, fx.userA.accessToken);
   assert.equal(
     revocar.status,
     403,
@@ -355,11 +333,7 @@ test("el listado de la organización A no ve ninguna clave de la B", async () =>
   }
 
   // Y el filtro por sourceId ajeno tampoco es una puerta lateral.
-  const filtrado = await call(
-    "GET",
-    `/api/api-keys?sourceId=${fx.sourceB}`,
-    fx.adminA.accessToken,
-  );
+  const filtrado = await call("GET", `/api/api-keys?sourceId=${fx.sourceB}`, fx.adminA.accessToken);
   const bodyFiltrado = (await filtrado.json()) as { data: unknown[] };
   assert.equal(
     bodyFiltrado.data.length,
@@ -437,11 +411,7 @@ test("DELETE /api/sources/:id revoca en cascada las claves de la fuente", async 
     claves.push(((await creada.json()) as { id: string }).id);
   }
 
-  const borrada = await call(
-    "DELETE",
-    `/api/sources/${sourceId}`,
-    fx.adminA.accessToken,
-  );
+  const borrada = await call("DELETE", `/api/sources/${sourceId}`, fx.adminA.accessToken);
   assert.equal(borrada.status, 204);
 
   for (const id of claves) {
@@ -453,11 +423,7 @@ test("DELETE /api/sources/:id revoca en cascada las claves de la fuente", async 
   }
 
   // La fuente ya no existe para la API, y crear una clave contra ella falla.
-  const consulta = await call(
-    "GET",
-    `/api/sources/${sourceId}`,
-    fx.adminA.accessToken,
-  );
+  const consulta = await call("GET", `/api/sources/${sourceId}`, fx.adminA.accessToken);
   assert.equal(consulta.status, 404);
 
   const nuevaClave = await call("POST", "/api/api-keys", fx.adminA.accessToken, {
@@ -473,12 +439,9 @@ test("una Source pausada (isActive: false) sigue aceptando claves nuevas", async
   });
   const { id: sourceId } = (await fuente.json()) as { id: string };
 
-  const pausada = await call(
-    "PATCH",
-    `/api/sources/${sourceId}`,
-    fx.adminA.accessToken,
-    { isActive: false },
-  );
+  const pausada = await call("PATCH", `/api/sources/${sourceId}`, fx.adminA.accessToken, {
+    isActive: false,
+  });
   assert.equal(pausada.status, 200);
   assert.equal(((await pausada.json()) as { isActive: boolean }).isActive, false);
 
@@ -487,9 +450,5 @@ test("una Source pausada (isActive: false) sigue aceptando claves nuevas", async
   const creada = await call("POST", "/api/api-keys", fx.adminA.accessToken, {
     sourceId,
   });
-  assert.equal(
-    creada.status,
-    201,
-    "pausar la ingesta no debe impedir rotar credenciales",
-  );
+  assert.equal(creada.status, 201, "pausar la ingesta no debe impedir rotar credenciales");
 });

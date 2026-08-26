@@ -13,16 +13,11 @@ export type SortOrder = "asc" | "desc";
 // organizationId siempre obligatorio y deletedAt: null siempre presente en
 // lecturas — el único lugar donde se arma el filtro multi-tenant + soft
 // delete para esta entidad, para que findMany/count nunca puedan divergir.
-function buildWhere(
-  organizationId: string,
-  filters: CompanyFilters,
-): Prisma.CompanyWhereInput {
+function buildWhere(organizationId: string, filters: CompanyFilters): Prisma.CompanyWhereInput {
   return {
     organizationId,
     deletedAt: null,
-    ...(filters.search
-      ? { name: { contains: filters.search, mode: "insensitive" } }
-      : {}),
+    ...(filters.search ? { name: { contains: filters.search, mode: "insensitive" } } : {}),
     ...(filters.industry ? { industry: filters.industry } : {}),
     ...(filters.ownerId ? { ownerId: filters.ownerId } : {}),
   };
@@ -58,19 +53,11 @@ export function findManyCompanies(
   });
 }
 
-export function countCompanies(
-  organizationId: string,
-  filters: CompanyFilters,
-  db: Db = prisma,
-) {
+export function countCompanies(organizationId: string, filters: CompanyFilters, db: Db = prisma) {
   return db.company.count({ where: buildWhere(organizationId, filters) });
 }
 
-export function findCompanyById(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findCompanyById(id: string, organizationId: string, db: Db = prisma) {
   return db.company.findFirst({
     where: { id, organizationId, deletedAt: null },
   });
@@ -115,11 +102,7 @@ export function updateCompany(
   return db.company.updateMany({ where: { id, organizationId }, data });
 }
 
-export function softDeleteCompany(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function softDeleteCompany(id: string, organizationId: string, db: Db = prisma) {
   return db.company.updateMany({
     where: { id, organizationId },
     data: { deletedAt: new Date() },

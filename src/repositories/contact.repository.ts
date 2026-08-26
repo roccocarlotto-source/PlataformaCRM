@@ -23,10 +23,7 @@ export type SortOrder = "asc" | "desc";
 // conviven en el mismo objeto: Prisma combina con AND implícito los campos
 // de un mismo nivel, así que "search AND filtros adicionales" sale gratis
 // sin necesitar un `AND: [...]` explícito.
-function buildWhere(
-  organizationId: string,
-  filters: ContactFilters,
-): Prisma.ContactWhereInput {
+function buildWhere(organizationId: string, filters: ContactFilters): Prisma.ContactWhereInput {
   return {
     organizationId,
     deletedAt: null,
@@ -42,17 +39,11 @@ function buildWhere(
     ...(filters.firstName
       ? { firstName: { contains: filters.firstName, mode: "insensitive" } }
       : {}),
-    ...(filters.lastName
-      ? { lastName: { contains: filters.lastName, mode: "insensitive" } }
-      : {}),
-    ...(filters.email
-      ? { email: { contains: filters.email, mode: "insensitive" } }
-      : {}),
+    ...(filters.lastName ? { lastName: { contains: filters.lastName, mode: "insensitive" } } : {}),
+    ...(filters.email ? { email: { contains: filters.email, mode: "insensitive" } } : {}),
     ...(filters.companyId ? { companyId: filters.companyId } : {}),
     ...(filters.ownerId ? { ownerId: filters.ownerId } : {}),
-    ...(filters.lifecycleStage
-      ? { lifecycleStage: filters.lifecycleStage }
-      : {}),
+    ...(filters.lifecycleStage ? { lifecycleStage: filters.lifecycleStage } : {}),
     ...(filters.source ? { source: filters.source } : {}),
   };
 }
@@ -89,19 +80,11 @@ export function findManyContacts(
   });
 }
 
-export function countContacts(
-  organizationId: string,
-  filters: ContactFilters,
-  db: Db = prisma,
-) {
+export function countContacts(organizationId: string, filters: ContactFilters, db: Db = prisma) {
   return db.contact.count({ where: buildWhere(organizationId, filters) });
 }
 
-export function findContactById(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findContactById(id: string, organizationId: string, db: Db = prisma) {
   return db.contact.findFirst({
     where: { id, organizationId, deletedAt: null },
   });
@@ -149,11 +132,7 @@ export function updateContact(
   return db.contact.updateMany({ where: { id, organizationId }, data });
 }
 
-export function softDeleteContact(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function softDeleteContact(id: string, organizationId: string, db: Db = prisma) {
   return db.contact.updateMany({
     where: { id, organizationId },
     data: { deletedAt: new Date() },

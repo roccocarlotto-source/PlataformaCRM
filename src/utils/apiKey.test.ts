@@ -83,10 +83,7 @@ test("generateApiKey: la clave en claro no se puede derivar de lo que se persist
   // Comprobación de la promesa central: lo único que llega a la base es
   // keyHash + keyPrefix, y ninguno de los dos contiene la clave.
   assert.ok(!keyHash.includes(key));
-  assert.ok(
-    !key.startsWith(keyHash),
-    "el hash no puede ser un prefijo de la clave",
-  );
+  assert.ok(!key.startsWith(keyHash), "el hash no puede ser un prefijo de la clave");
   assert.ok(
     key.startsWith(keyPrefix),
     "keyPrefix sí es parte de la clave, y expone 8 de sus caracteres a propósito",

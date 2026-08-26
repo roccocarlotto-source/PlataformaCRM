@@ -24,20 +24,12 @@ export interface ListApiKeysParams {
   sortOrder: SortOrder;
 }
 
-export async function listApiKeys(
-  organizationId: string,
-  params: ListApiKeysParams,
-) {
+export async function listApiKeys(organizationId: string, params: ListApiKeysParams) {
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManyApiKeys(
-      organizationId,
-      filters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
+    findManyApiKeys(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countApiKeys(organizationId, filters),
   ]);
 
@@ -98,10 +90,7 @@ export async function createApiKey(
     // — probabilidad ~2^-128, o sea: si esto pasa, no hubo mala suerte, se
     // rompió randomBytes. Reintentar entraría en un loop contra un generador
     // averiado, así que se falla ruidoso y se deja el rastro.
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       logger.error(
         { organizationId, sourceId: input.sourceId },
         "Colisión de keyHash al crear una API key — revisar la generación de claves, no es mala suerte",

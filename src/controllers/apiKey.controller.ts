@@ -1,10 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
-import {
-  createApiKey,
-  listApiKeys,
-  revokeApiKey,
-} from "../services/apiKey.service";
+import { createApiKey, listApiKeys, revokeApiKey } from "../services/apiKey.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -26,13 +22,11 @@ const listQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
-export const listApiKeysHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const query = parseOrThrow(listQuerySchema, req.query);
-    const result = await listApiKeys(req.auth.organizationId, query);
-    res.status(200).json(result);
-  },
-);
+export const listApiKeysHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const query = parseOrThrow(listQuerySchema, req.query);
+  const result = await listApiKeys(req.auth.organizationId, query);
+  res.status(200).json(result);
+});
 
 // La ÚNICA respuesta de todo el sistema que contiene una clave en claro, en el
 // campo `key`. No se puede volver a obtener: no está persistida en ningún

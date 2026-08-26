@@ -200,7 +200,10 @@ describe("useMyRecentOpenOpportunities", () => {
   it("empty: data vacía", async () => {
     server.use(
       http.get(opportunitiesUrl, () =>
-        HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 5, total: 0, totalPages: 0 } }),
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 5, total: 0, totalPages: 0 },
+        }),
       ),
     );
 
@@ -214,7 +217,9 @@ describe("useMyRecentOpenOpportunities", () => {
 
   it("error: se refleja como isError, sin datos inventados", async () => {
     server.use(
-      http.get(opportunitiesUrl, () => HttpResponse.json({ error: { message: "caída" } }, { status: 500 })),
+      http.get(opportunitiesUrl, () =>
+        HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
+      ),
     );
 
     const { result } = renderHook(() => useMyRecentOpenOpportunities("u1"), {
@@ -229,7 +234,9 @@ describe("useMyRecentOpenOpportunities", () => {
     server.use(
       http.get(opportunitiesUrl, () =>
         HttpResponse.json(
-          opportunityListResponse({ data: [makeOpportunity({ id: "op-recent", title: "Renovación" })] }),
+          opportunityListResponse({
+            data: [makeOpportunity({ id: "op-recent", title: "Renovación" })],
+          }),
         ),
       ),
     );
@@ -244,12 +251,20 @@ describe("useMyRecentOpenOpportunities", () => {
 });
 
 describe("useDefaultPipelineStageSummary", () => {
-  function pipelinesResponse(pipelines = [makePipeline({ id: "pl1", isDefault: true })]): PipelineListResponse {
-    return { data: pipelines, pagination: { page: 1, pageSize: 100, total: pipelines.length, totalPages: 1 } };
+  function pipelinesResponse(
+    pipelines = [makePipeline({ id: "pl1", isDefault: true })],
+  ): PipelineListResponse {
+    return {
+      data: pipelines,
+      pagination: { page: 1, pageSize: 100, total: pipelines.length, totalPages: 1 },
+    };
   }
 
   function stagesResponse(stages: ReturnType<typeof makeStage>[]): StageListResponse {
-    return { data: stages, pagination: { page: 1, pageSize: 100, total: stages.length, totalPages: 1 } };
+    return {
+      data: stages,
+      pagination: { page: 1, pageSize: 100, total: stages.length, totalPages: 1 },
+    };
   }
 
   it("encuentra el Pipeline con isDefault=true aunque no sea el primero de la lista", async () => {
@@ -387,7 +402,9 @@ describe("useDefaultPipelineStageSummary", () => {
   it("error de pipelines: isErrorPipelines=true, sin default, sin request de stages", async () => {
     let stagesRequests = 0;
     server.use(
-      http.get(pipelinesUrl, () => HttpResponse.json({ error: { message: "caída" } }, { status: 500 })),
+      http.get(pipelinesUrl, () =>
+        HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
+      ),
       http.get(stagesUrl, () => {
         stagesRequests += 1;
         return HttpResponse.json(stagesResponse([]));
@@ -406,7 +423,9 @@ describe("useDefaultPipelineStageSummary", () => {
   it("error de stages: isErrorStages=true, stages queda vacío (sin conteos inventados)", async () => {
     server.use(
       http.get(pipelinesUrl, () => HttpResponse.json(pipelinesResponse())),
-      http.get(stagesUrl, () => HttpResponse.json({ error: { message: "caída" } }, { status: 500 })),
+      http.get(stagesUrl, () =>
+        HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
+      ),
     );
 
     const { result } = renderHook(() => useDefaultPipelineStageSummary(), {
@@ -434,7 +453,9 @@ describe("useDefaultPipelineStageSummary", () => {
           return HttpResponse.json({ error: { message: "caída" } }, { status: 500 });
         }
         return HttpResponse.json(
-          opportunityListResponse({ pagination: { page: 1, pageSize: 1, total: 9, totalPages: 9 } }),
+          opportunityListResponse({
+            pagination: { page: 1, pageSize: 1, total: 9, totalPages: 9 },
+          }),
         );
       }),
     );

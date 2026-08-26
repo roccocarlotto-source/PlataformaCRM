@@ -69,9 +69,7 @@ describe("company/mutations — invalidación de cache", () => {
 
   it("B.9 una mutation fallida no ejecuta ninguna invalidación", async () => {
     server.use(
-      http.post(baseUrl, () =>
-        HttpResponse.json({ error: { message: "falló" } }, { status: 500 }),
-      ),
+      http.post(baseUrl, () => HttpResponse.json({ error: { message: "falló" } }, { status: 500 })),
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");

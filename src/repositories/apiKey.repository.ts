@@ -49,10 +49,7 @@ export type PublicApiKey = Prisma.ApiKeyGetPayload<{
 // decisión de soft delete del ítem 2), así que el filtro base es solo
 // organizationId. Una clave revocada SIGUE listándose por default: es
 // información de auditoría que el ADMIN quiere ver.
-function buildWhere(
-  organizationId: string,
-  filters: ApiKeyFilters,
-): Prisma.ApiKeyWhereInput {
+function buildWhere(organizationId: string, filters: ApiKeyFilters): Prisma.ApiKeyWhereInput {
   return {
     organizationId,
     ...(filters.sourceId ? { sourceId: filters.sourceId } : {}),
@@ -90,19 +87,11 @@ export function findManyApiKeys(
   });
 }
 
-export function countApiKeys(
-  organizationId: string,
-  filters: ApiKeyFilters,
-  db: Db = prisma,
-) {
+export function countApiKeys(organizationId: string, filters: ApiKeyFilters, db: Db = prisma) {
   return db.apiKey.count({ where: buildWhere(organizationId, filters) });
 }
 
-export function findApiKeyById(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function findApiKeyById(id: string, organizationId: string, db: Db = prisma) {
   return db.apiKey.findFirst({
     where: { id, organizationId },
     select: API_KEY_PUBLIC_SELECT,
@@ -136,11 +125,7 @@ export function createApiKey(data: CreateApiKeyData, db: Db = prisma) {
 // organizationId en el WHERE por el mismo motivo que en el resto de las
 // entidades (M4): la escritura misma es la garantía de aislamiento, no el
 // pre-check del service.
-export function revokeApiKeyConditional(
-  id: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function revokeApiKeyConditional(id: string, organizationId: string, db: Db = prisma) {
   return db.apiKey.updateMany({
     where: { id, organizationId, revokedAt: null },
     data: { revokedAt: new Date() },
@@ -155,11 +140,7 @@ export function revokeApiKeyConditional(
 //
 // organizationId en el WHERE por el mismo motivo de siempre, aunque sourceId
 // ya la determine vía la FK compuesta: la escritura misma es la garantía.
-export function revokeApiKeysBySource(
-  sourceId: string,
-  organizationId: string,
-  db: Db = prisma,
-) {
+export function revokeApiKeysBySource(sourceId: string, organizationId: string, db: Db = prisma) {
   return db.apiKey.updateMany({
     where: { sourceId, organizationId, revokedAt: null },
     data: { revokedAt: new Date() },

@@ -12,7 +12,12 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 // No cambia ningún comportamiento: sigue siendo un <button> nativo, mismos
 // props/eventos, type="button" por defecto para no reabrir el bug real de
 // un botón dentro de un <form> disparando submit sin querer.
-export function Button({ variant = "secondary", type = "button", className, ...props }: ButtonProps) {
+export function Button({
+  variant = "secondary",
+  type = "button",
+  className,
+  ...props
+}: ButtonProps) {
   const classes = ["ds-button", `ds-button--${variant}`, className].filter(Boolean).join(" ");
   return <button type={type} className={classes} {...props} />;
 }

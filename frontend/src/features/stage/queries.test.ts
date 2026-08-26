@@ -12,42 +12,81 @@ describe("stageKeys — invalidación por pipeline (key factory)", () => {
     const queryClient = new QueryClient();
 
     queryClient.setQueryData(
-      stageKeys.list("pipeA", { pipelineId: "pipeA", page: 1, pageSize: 20, sortBy: "order", sortOrder: "asc" }),
+      stageKeys.list("pipeA", {
+        pipelineId: "pipeA",
+        page: 1,
+        pageSize: 20,
+        sortBy: "order",
+        sortOrder: "asc",
+      }),
       { data: ["A-p1"] },
     );
     queryClient.setQueryData(
-      stageKeys.list("pipeA", { pipelineId: "pipeA", page: 2, pageSize: 20, sortBy: "name", sortOrder: "desc" }),
+      stageKeys.list("pipeA", {
+        pipelineId: "pipeA",
+        page: 2,
+        pageSize: 20,
+        sortBy: "name",
+        sortOrder: "desc",
+      }),
       { data: ["A-p2"] },
     );
     queryClient.setQueryData(
-      stageKeys.list("pipeB", { pipelineId: "pipeB", page: 1, pageSize: 20, sortBy: "order", sortOrder: "asc" }),
+      stageKeys.list("pipeB", {
+        pipelineId: "pipeB",
+        page: 1,
+        pageSize: 20,
+        sortBy: "order",
+        sortOrder: "asc",
+      }),
       { data: ["B-p1"] },
     );
 
     await queryClient.invalidateQueries({ queryKey: stageKeys.byPipeline("pipeA") });
 
     const staleByKey = new Map(
-      queryClient.getQueryCache().getAll().map((q) => [JSON.stringify(q.queryKey), q.isStale()]),
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .map((q) => [JSON.stringify(q.queryKey), q.isStale()]),
     );
 
     expect(
       staleByKey.get(
         JSON.stringify(
-          stageKeys.list("pipeA", { pipelineId: "pipeA", page: 1, pageSize: 20, sortBy: "order", sortOrder: "asc" }),
+          stageKeys.list("pipeA", {
+            pipelineId: "pipeA",
+            page: 1,
+            pageSize: 20,
+            sortBy: "order",
+            sortOrder: "asc",
+          }),
         ),
       ),
     ).toBe(true);
     expect(
       staleByKey.get(
         JSON.stringify(
-          stageKeys.list("pipeA", { pipelineId: "pipeA", page: 2, pageSize: 20, sortBy: "name", sortOrder: "desc" }),
+          stageKeys.list("pipeA", {
+            pipelineId: "pipeA",
+            page: 2,
+            pageSize: 20,
+            sortBy: "name",
+            sortOrder: "desc",
+          }),
         ),
       ),
     ).toBe(true);
     expect(
       staleByKey.get(
         JSON.stringify(
-          stageKeys.list("pipeB", { pipelineId: "pipeB", page: 1, pageSize: 20, sortBy: "order", sortOrder: "asc" }),
+          stageKeys.list("pipeB", {
+            pipelineId: "pipeB",
+            page: 1,
+            pageSize: 20,
+            sortBy: "order",
+            sortOrder: "asc",
+          }),
         ),
       ),
     ).toBe(false);
@@ -62,7 +101,10 @@ describe("stageKeys — invalidación por pipeline (key factory)", () => {
     await queryClient.invalidateQueries({ queryKey: stageKeys.byPipeline("pipeA") });
 
     const staleByKey = new Map(
-      queryClient.getQueryCache().getAll().map((q) => [JSON.stringify(q.queryKey), q.isStale()]),
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .map((q) => [JSON.stringify(q.queryKey), q.isStale()]),
     );
     expect(staleByKey.get(JSON.stringify(stageKeys.detail("pipeA", "st1")))).toBe(true);
     expect(staleByKey.get(JSON.stringify(stageKeys.detail("pipeB", "st2")))).toBe(false);

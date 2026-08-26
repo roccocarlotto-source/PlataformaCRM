@@ -39,8 +39,7 @@ export function ForgotPasswordPage() {
       <div>
         <h1>Revisá tu email</h1>
         <p>
-          Si existe una cuenta con ese email, te enviamos un link para restablecer tu
-          contraseña.
+          Si existe una cuenta con ese email, te enviamos un link para restablecer tu contraseña.
         </p>
         <Link to="/login">Volver a iniciar sesión</Link>
       </div>

@@ -72,10 +72,7 @@ test("las filas totalmente vacías se descartan", async () => {
 
 test("las columnas sin encabezado se ignoran en vez de invalidar el archivo", async () => {
   // Una coma de más al final es lo que produce cualquier planilla real.
-  const parseado = await parsearArchivo(
-    csv("Nombre,Mail,\nAna,ana@ejemplo.test,\n"),
-    "csv",
-  );
+  const parseado = await parsearArchivo(csv("Nombre,Mail,\nAna,ana@ejemplo.test,\n"), "csv");
 
   assert.deepEqual(parseado.encabezados, ["Nombre", "Mail"]);
   assert.deepEqual(parseado.filas, [{ Nombre: "Ana", Mail: "ana@ejemplo.test" }]);
@@ -209,10 +206,7 @@ test("una celda de TEXTO ENRIQUECIDO se aplana al texto que la persona ve", asyn
   // Media celda en negrita: es lo que produce pegar desde Word o resaltar a
   // mano una parte del nombre, y no debería cambiar en nada el dato importado.
   fila.getCell(1).value = {
-    richText: [
-      { font: { bold: true }, text: "Ana" },
-      { text: " Gómez" },
-    ],
+    richText: [{ font: { bold: true }, text: "Ana" }, { text: " Gómez" }],
   };
   fila.getCell(2).value = "ana@ejemplo.test";
   const buffer = Buffer.from(await workbook.xlsx.writeBuffer());

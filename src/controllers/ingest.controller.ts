@@ -65,10 +65,8 @@ function parseExternalIdHeader(valor: string | string[] | undefined): string | u
 //
 // La respuesta NUNCA echoea la clave, ni entera ni en parte: son tres campos y
 // ninguno deriva de ella.
-export const ingestHandler = asyncHandler<IngestRequest>(
-  async (req, res: Response) => {
-    const externalId = parseExternalIdHeader(req.headers[EXTERNAL_ID_HEADER]);
-    const result = await ingestEvent(req.ingest, req.body, externalId);
-    res.status(202).json(result);
-  },
-);
+export const ingestHandler = asyncHandler<IngestRequest>(async (req, res: Response) => {
+  const externalId = parseExternalIdHeader(req.headers[EXTERNAL_ID_HEADER]);
+  const result = await ingestEvent(req.ingest, req.body, externalId);
+  res.status(202).json(result);
+});

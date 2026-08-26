@@ -1,8 +1,5 @@
 import { SourceType } from "@prisma/client";
-import {
-  promoteContact,
-  type PromotedContact,
-} from "../repositories/contact.repository";
+import { promoteContact, type PromotedContact } from "../repositories/contact.repository";
 import {
   markEventFailed,
   markEventProcessed,
@@ -155,8 +152,7 @@ function detectarIgnorados(rawPayload: unknown): PromotionNote[] {
 // ---------------------------------------------------------------------------
 
 type ResultadoTraduccion =
-  | { ok: true; datos: Record<string, unknown> }
-  | { ok: false; motivo: string };
+  { ok: true; datos: Record<string, unknown> } | { ok: false; motivo: string };
 
 // Los valores de una planilla no son siempre texto: una columna de teléfonos
 // llega como number si Excel decidió que parecía un número, y una fecha como
@@ -169,10 +165,7 @@ function comoTextoDeCelda(valor: unknown): unknown {
   return valor;
 }
 
-function traducirConMapeo(
-  rawPayload: unknown,
-  fieldMapping: unknown,
-): ResultadoTraduccion {
+function traducirConMapeo(rawPayload: unknown, fieldMapping: unknown): ResultadoTraduccion {
   // EL MAPEO SE REVALIDA ACÁ AUNQUE EL PATCH YA LO HAYA VALIDADO, y no es
   // paranoia: field_mapping es una columna JSONB, y cualquier escritura directa
   // a la base —una migración de datos, un arreglo manual en producción— puede
@@ -246,10 +239,7 @@ function prepararCandidato(evento: EventoReclamado): ResultadoTraduccion {
   return traducirConMapeo(evento.rawPayload, evento.fieldMapping);
 }
 
-export async function promoverEvento(
-  evento: EventoReclamado,
-  db: Db,
-): Promise<ResultadoPromocion> {
+export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<ResultadoPromocion> {
   // La traducción por fieldMapping ocurre ANTES de validar y DESPUÉS de
   // staging — ver el bloque de arriba. Para el webhook es un paso transparente:
   // devuelve el rawPayload tal cual, con el contrato fijo del ítem 4.
@@ -309,13 +299,7 @@ export async function promoverEvento(
     });
   }
 
-  await markEventProcessed(
-    evento.id,
-    evento.organizationId,
-    contacto.id,
-    notas,
-    db,
-  );
+  await markEventProcessed(evento.id, evento.organizationId, contacto.id, notas, db);
 
   return { estado: "PROCESSED", contactId: contacto.id, notas };
 }

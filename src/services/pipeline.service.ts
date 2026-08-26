@@ -24,20 +24,12 @@ export interface ListPipelinesParams {
   sortOrder: SortOrder;
 }
 
-export async function listPipelines(
-  organizationId: string,
-  params: ListPipelinesParams,
-) {
+export async function listPipelines(organizationId: string, params: ListPipelinesParams) {
   const { page, pageSize, sortBy, sortOrder, ...filters } = params;
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
-    findManyPipelines(
-      organizationId,
-      filters,
-      { skip, take: pageSize },
-      { sortBy, sortOrder },
-    ),
+    findManyPipelines(organizationId, filters, { skip, take: pageSize }, { sortBy, sortOrder }),
     countPipelines(organizationId, filters),
   ]);
 
@@ -62,25 +54,16 @@ export async function listPipelines(
 //
 // Exportada para poder testear la traducción sin base (pipeline.service.test.ts).
 export function rethrowAsConflict(err: unknown): never {
-  if (
-    err instanceof Prisma.PrismaClientKnownRequestError &&
-    err.code === "P2002"
-  ) {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
     const target = Array.isArray(err.meta?.target)
       ? err.meta.target.join(",")
       : String(err.meta?.target ?? "");
 
     if (target.includes("name")) {
-      throw new AppError(
-        "Ya existe un pipeline con ese nombre en esta organización",
-        409,
-      );
+      throw new AppError("Ya existe un pipeline con ese nombre en esta organización", 409);
     }
     if (target.includes("organization_id")) {
-      throw new AppError(
-        "Ya existe un pipeline marcado como default en esta organización",
-        409,
-      );
+      throw new AppError("Ya existe un pipeline marcado como default en esta organización", 409);
     }
     throw new AppError("El registro ya existe", 409);
   }
@@ -101,20 +84,14 @@ export interface CreatePipelineInput {
   isDefault?: boolean;
 }
 
-export async function createPipeline(
-  organizationId: string,
-  input: CreatePipelineInput,
-) {
+export async function createPipeline(organizationId: string, input: CreatePipelineInput) {
   try {
     if (input.isDefault) {
       return await prisma.$transaction(async (tx) => {
         // Desmarcar el default anterior ANTES de crear el nuevo: nunca hay
         // dos `is_default = true` simultáneos, sin necesitar dos fases.
         await unsetDefaultPipeline(organizationId, tx);
-        return createPipelineRepo(
-          { organizationId, name: input.name, isDefault: true },
-          tx,
-        );
+        return createPipelineRepo({ organizationId, name: input.name, isDefault: true }, tx);
       });
     }
 
@@ -203,10 +180,7 @@ export async function deletePipeline(organizationId: string, id: string) {
 
     const activeCount = await countActivePipelines(organizationId, tx);
     if (activeCount <= 1) {
-      throw new AppError(
-        "No se puede eliminar el último pipeline de la organización",
-        400,
-      );
+      throw new AppError("No se puede eliminar el último pipeline de la organización", 400);
     }
 
     if (!pipeline.isDefault) {
@@ -230,11 +204,7 @@ export async function deletePipeline(organizationId: string, id: string) {
       throw new AppError("Pipeline no encontrado", 404);
     }
 
-    const nextDefault = await findOldestActivePipeline(
-      organizationId,
-      id,
-      tx,
-    );
+    const nextDefault = await findOldestActivePipeline(organizationId, id, tx);
     if (nextDefault) {
       const promoted = await updatePipelineRepo(
         nextDefault.id,

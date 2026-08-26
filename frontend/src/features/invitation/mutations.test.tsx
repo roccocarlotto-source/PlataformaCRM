@@ -27,7 +27,9 @@ describe("invitation/mutations — invalidación de cache", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useCreateInvitation(), { wrapper: wrapperFor(queryClient) });
+    const { result } = renderHook(() => useCreateInvitation(), {
+      wrapper: wrapperFor(queryClient),
+    });
     result.current.mutate({ email: "x@example.com", role: "USER" });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -36,11 +38,15 @@ describe("invitation/mutations — invalidación de cache", () => {
   });
 
   it("revoke exitoso invalida SOLO invitationKeys.lists()", async () => {
-    server.use(http.delete(`${baseUrl}/:id`, () => HttpResponse.json(makeInvitation({ status: "REVOKED" }))));
+    server.use(
+      http.delete(`${baseUrl}/:id`, () => HttpResponse.json(makeInvitation({ status: "REVOKED" }))),
+    );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useRevokeInvitation(), { wrapper: wrapperFor(queryClient) });
+    const { result } = renderHook(() => useRevokeInvitation(), {
+      wrapper: wrapperFor(queryClient),
+    });
     result.current.mutate("inv1");
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -72,14 +78,14 @@ describe("invitation/mutations — invalidación de cache", () => {
 
   it("una mutation fallida no ejecuta ninguna invalidación", async () => {
     server.use(
-      http.post(baseUrl, () =>
-        HttpResponse.json({ error: { message: "falló" } }, { status: 500 }),
-      ),
+      http.post(baseUrl, () => HttpResponse.json({ error: { message: "falló" } }, { status: 500 })),
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useCreateInvitation(), { wrapper: wrapperFor(queryClient) });
+    const { result } = renderHook(() => useCreateInvitation(), {
+      wrapper: wrapperFor(queryClient),
+    });
     result.current.mutate({ email: "x@example.com", role: "USER" });
 
     await waitFor(() => expect(result.current.isError).toBe(true));

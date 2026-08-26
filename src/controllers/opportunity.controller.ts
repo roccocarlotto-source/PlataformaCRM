@@ -91,20 +91,14 @@ const listQuerySchema = z.object({
   currency: currencySchema.optional(),
   minAmount: z.coerce.number().min(0).optional(),
   maxAmount: z.coerce.number().min(0).optional(),
-  sortBy: z
-    .enum(["createdAt", "updatedAt", "amount", "title"])
-    .default("createdAt"),
+  sortBy: z.enum(["createdAt", "updatedAt", "amount", "title"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
 export const createOpportunityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createOpportunitySchema, req.body);
-    const opportunity = await createOpportunity(
-      req.auth.organizationId,
-      req.auth.userId,
-      input,
-    );
+    const opportunity = await createOpportunity(req.auth.organizationId, req.auth.userId, input);
     res.status(201).json(opportunity);
   },
 );

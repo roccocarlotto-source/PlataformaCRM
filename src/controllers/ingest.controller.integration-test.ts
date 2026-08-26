@@ -93,10 +93,7 @@ function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
   // producción— y solo `transport` pisado para poder capturar a un stream,
   // mismo criterio que logger.test.ts. Si el ensamblado real de `redact` se
   // rompiera, este test lo ve.
-  const logger = pino(
-    { ...loggerOptions, level: "info", transport: undefined },
-    sink,
-  );
+  const logger = pino({ ...loggerOptions, level: "info", transport: undefined }, sink);
 
   // pino-http escribe al terminar la respuesta, que puede ocurrir después de
   // que fetch ya resolvió. Sin esta espera el test miraría un array vacío y
@@ -154,11 +151,7 @@ async function crearOrganizacion(label: string) {
 // Usa el generador REAL y guarda solo el hash, igual que apiKey.service.ts.
 // Nada de claves inventadas a mano: si la generación y el hasheo divergieran,
 // este fixture lo sufriría antes que producción.
-async function crearClave(
-  organizationId: string,
-  sourceId: string,
-  revocada = false,
-) {
+async function crearClave(organizationId: string, sourceId: string, revocada = false) {
   const generada = generateApiKey();
   const fila = await prisma.apiKey.create({
     data: {
@@ -311,10 +304,7 @@ test("la BASE rechaza escribir un IngestionEvent de la organización A contra un
     error = err;
   }
 
-  assert.ok(
-    error,
-    "la base tiene que rechazar el INSERT: si esto pasa, la FK compuesta no está",
-  );
+  assert.ok(error, "la base tiene que rechazar el INSERT: si esto pasa, la FK compuesta no está");
 
   const detalle = `${(error as Error).message} ${JSON.stringify(
     (error as { meta?: unknown }).meta ?? {},
@@ -419,11 +409,7 @@ test("una clave válida alterada NO autentica — el hash es sobre los bytes exa
 
   for (const [caso, variante] of variantes) {
     const res = await ingest(variante, { email: "a@b.com" });
-    assert.equal(
-      res.status,
-      401,
-      `"${caso}" no puede autenticar: hashApiKey no normaliza nada`,
-    );
+    assert.equal(res.status, 401, `"${caso}" no puede autenticar: hashApiKey no normaliza nada`);
   }
 });
 
@@ -616,11 +602,7 @@ test("una clave rechazada NO registra actividad", async () => {
     where: { id: clave.apiKeyId },
     select: { lastUsedAt: true },
   });
-  assert.equal(
-    fila.lastUsedAt,
-    null,
-    "solo se registra el uso de una credencial ACEPTADA",
-  );
+  assert.equal(fila.lastUsedAt, null, "solo se registra el uso de una credencial ACEPTADA");
 });
 
 // ---------------------------------------------------------------------------
@@ -633,11 +615,7 @@ test("una clave rechazada NO registra actividad", async () => {
 
 test("el valor de la clave NO aparece en la línea de log serializada", async () => {
   lineas = [];
-  const res = await ingest(
-    fx.claveA,
-    { email: "a@b.com" },
-    { externalId: `log-${randomUUID()}` },
-  );
+  const res = await ingest(fx.claveA, { email: "a@b.com" }, { externalId: `log-${randomUUID()}` });
   assert.equal(res.status, 202);
 
   const linea = await esperarLinea();
@@ -700,10 +678,7 @@ test("un Content-Type que no sea application/json da 415, y no escribe nada", as
     assert.equal(res.status, 415, `${contentType} tiene que dar 415`);
   }
 
-  assert.equal(
-    await prisma.ingestionEvent.count({ where: { organizationId: fx.orgA } }),
-    antes,
-  );
+  assert.equal(await prisma.ingestionEvent.count({ where: { organizationId: fx.orgA } }), antes);
 });
 
 test("application/json con charset se acepta — es lo que manda cualquier cliente real", async () => {

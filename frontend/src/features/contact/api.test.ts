@@ -88,9 +88,7 @@ describe("contact/api — contrato HTTP", () => {
     for (const req of captured) {
       expect(req.url.search.toLowerCase()).not.toContain("organizationid");
       if (req.body && typeof req.body === "object") {
-        expect(Object.keys(req.body as Record<string, unknown>)).not.toContain(
-          "organizationId",
-        );
+        expect(Object.keys(req.body as Record<string, unknown>)).not.toContain("organizationId");
       }
     }
   });

@@ -57,7 +57,9 @@ describe("InvitationListPage", () => {
 
   it("error de listado se muestra como estado de error real", async () => {
     server.use(
-      http.get(invitationsUrl, () => HttpResponse.json({ error: { message: "boom" } }, { status: 500 })),
+      http.get(invitationsUrl, () =>
+        HttpResponse.json({ error: { message: "boom" } }, { status: 500 }),
+      ),
     );
 
     renderPage();
@@ -70,7 +72,10 @@ describe("InvitationListPage", () => {
   it("empty state cuando data está vacía", async () => {
     server.use(
       http.get(invitationsUrl, () =>
-        HttpResponse.json({ data: [], pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 } }),
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+        }),
       ),
     );
 
@@ -210,7 +215,10 @@ describe("InvitationListPage", () => {
         }),
       ),
       http.delete(`${invitationsUrl}/i1`, () =>
-        HttpResponse.json({ error: { message: "Esta invitación ya fue aceptada, no se puede revocar" } }, { status: 409 }),
+        HttpResponse.json(
+          { error: { message: "Esta invitación ya fue aceptada, no se puede revocar" } },
+          { status: 409 },
+        ),
       ),
       usersHandler(),
     );

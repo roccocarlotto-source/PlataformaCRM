@@ -147,9 +147,7 @@ describe("CompanyFormPage", () => {
     await user.type(screen.getByLabelText("Nombre"), "Acme");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("no se pudo crear"),
-    );
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("no se pudo crear"));
     expect(screen.queryByText("lista de empresas")).not.toBeInTheDocument();
   });
 

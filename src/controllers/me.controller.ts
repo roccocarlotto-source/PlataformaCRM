@@ -7,9 +7,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 // GET /api/me. No hace ninguna query propia, no valida input (el endpoint
 // no recibe ninguno) — la única responsabilidad de este controller es la
 // traducción AuthContext -> response body.
-export const getMeHandler = asyncHandler<AuthenticatedRequest>(
-  async (req, res: Response) => {
-    const { userId, email, fullName, organizationId, role } = req.auth;
-    res.status(200).json({ id: userId, email, fullName, organizationId, role });
-  },
-);
+export const getMeHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const { userId, email, fullName, organizationId, role } = req.auth;
+  res.status(200).json({ id: userId, email, fullName, organizationId, role });
+});

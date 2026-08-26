@@ -81,7 +81,10 @@ describe("CompanyListPage", () => {
       data: [makeCompany()],
       pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
     };
-    server.use(usersHandler(), http.get(baseUrl, () => HttpResponse.json(listResponse)));
+    server.use(
+      usersHandler(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse)),
+    );
 
     renderPage();
 
@@ -95,9 +98,7 @@ describe("CompanyListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       usersHandler(),
-      http.get(baseUrl, () =>
-        HttpResponse.json({ error: { message: "boom" } }, { status: 500 }),
-      ),
+      http.get(baseUrl, () => HttpResponse.json({ error: { message: "boom" } }, { status: 500 })),
     );
 
     renderPage();
@@ -111,7 +112,10 @@ describe("CompanyListPage", () => {
       data: [],
       pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
     };
-    server.use(usersHandler(), http.get(baseUrl, () => HttpResponse.json(listResponse)));
+    server.use(
+      usersHandler(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse)),
+    );
 
     renderPage();
 
@@ -216,9 +220,8 @@ describe("CompanyListPage", () => {
     server.use(
       usersHandler(),
       http.get(baseUrl, () => HttpResponse.json(listResponse)),
-      http.delete(
-        `${baseUrl}/:id`,
-        () => HttpResponse.json({ error: { message: "no se pudo eliminar" } }, { status: 500 }),
+      http.delete(`${baseUrl}/:id`, () =>
+        HttpResponse.json({ error: { message: "no se pudo eliminar" } }, { status: 500 }),
       ),
     );
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -229,9 +232,7 @@ describe("CompanyListPage", () => {
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
     await user.click(screen.getByText("Eliminar"));
 
-    await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"),
-    );
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"));
   });
 
   // -------------------------------------------------------------------------

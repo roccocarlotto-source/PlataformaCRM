@@ -112,11 +112,7 @@ test("P2002 con target string (no array) también se traduce", () => {
 });
 
 test("P2002 sin target reconocible: 409 genérico", () => {
-  assertAppError(
-    () => rethrowAsConflict(p2002(undefined)),
-    409,
-    "El registro ya existe",
-  );
+  assertAppError(() => rethrowAsConflict(p2002(undefined)), 409, "El registro ya existe");
 });
 
 // El CHECK stages_won_lost_exclusive_check no expone meta.target: se

@@ -5,16 +5,11 @@ import { isRoleName, type AuthContext, type JwtPayload } from "../types/auth";
 // Aplica las reglas de la sección 4 de docs/authentication-architecture.md:
 // el JWT solo prueba identidad, todo lo demás (organización, rol, isActive)
 // se resuelve siempre contra Postgres, nunca contra el propio token.
-export async function resolveAuthContext(
-  payload: JwtPayload,
-): Promise<AuthContext> {
+export async function resolveAuthContext(payload: JwtPayload): Promise<AuthContext> {
   const user = await findUserForAuth(payload.sub);
 
   if (!user) {
-    throw new AppError(
-      "Tu cuenta todavía no está activada. Contactá a tu administrador.",
-      403,
-    );
+    throw new AppError("Tu cuenta todavía no está activada. Contactá a tu administrador.", 403);
   }
 
   // deletedAt implica isActive = false por construcción (softDeleteUser
@@ -30,10 +25,7 @@ export async function resolveAuthContext(
   }
 
   if (user.organization.deletedAt !== null) {
-    throw new AppError(
-      "La organización asociada a tu cuenta ya no está disponible.",
-      403,
-    );
+    throw new AppError("La organización asociada a tu cuenta ya no está disponible.", 403);
   }
 
   if (!isRoleName(user.role.name)) {
