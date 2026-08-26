@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { CompanySelect } from "../company/CompanySelect";
+import { useOwnerNames } from "../opportunity/relationResolution";
 import { useCompaniesByIds } from "./companyResolution";
 import { useDeleteContact } from "./mutations";
 import { useContacts } from "./queries";
@@ -14,6 +15,9 @@ export function ContactListPage() {
   const { me } = useAuth();
   // Ocultar acciones de escritura para no-ADMIN es cortesía de UX: la
   // autorización real la sigue aplicando authorize("ADMIN") en el backend.
+  //
+  // La columna Owner usa este MISMO booleano, y ahí no es solo cortesía:
+  // resolver un ownerId a nombre necesita GET /api/users, que es ADMIN-only.
   const isAdmin = me?.role === "ADMIN";
 
   const [page, setPage] = useState(1);
@@ -43,6 +47,17 @@ export function ContactListPage() {
   }, [contactsQuery.data]);
 
   const companyResolution = useCompaniesByIds(visibleCompanyIds);
+
+  // useOwnerNames vive en features/opportunity/relationResolution.ts y se importa
+  // desde acá tal cual, sin relocalizarlo a un módulo "compartido": ya existe
+  // precedente de import cross-feature en ese mismo archivo, que re-exporta
+  // useCompaniesByIds desde features/contact/. Mover el hook sería una
+  // refactorización que este cambio no necesita.
+  //
+  // El booleano gatea el fetch por completo: GET /api/users es ADMIN-only
+  // (user.routes.ts), así que para un USER la request nunca se dispara y no hay
+  // un 403 que atrapar.
+  const ownerNames = useOwnerNames(isAdmin);
 
   const deleteContactMutation = useDeleteContact();
 
@@ -159,6 +174,7 @@ export function ContactListPage() {
               <th>Email</th>
               <th>Etapa</th>
               <th>Empresa</th>
+              {isAdmin ? <th>Owner</th> : null}
               {isAdmin ? <th>Acciones</th> : null}
             </tr>
           </thead>
@@ -175,6 +191,17 @@ export function ContactListPage() {
                     ? (companyResolution.byId.get(contact.companyId)?.name ?? "—")
                     : ""}
                 </td>
+                {/* ownerId es nullable acá (a diferencia de Opportunity), así
+                    que el guard no es defensivo de más: sin él, un owner sin
+                    asignar entraría a byId.get(null). Sin dueño y dueño que no
+                    se pudo resolver muestran lo mismo — "—" —, y es correcto:
+                    para quien lee la tabla, las dos cosas son "no hay nombre
+                    que mostrar acá". */}
+                {isAdmin ? (
+                  <td>
+                    {contact.ownerId ? (ownerNames.byId.get(contact.ownerId) ?? "—") : "—"}
+                  </td>
+                ) : null}
                 {isAdmin ? (
                   <td>
                     <Link to={`/contacts/${contact.id}/edit`}>Editar</Link>

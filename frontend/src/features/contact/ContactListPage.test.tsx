@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
+import { makeUser } from "../../test/userFixtures";
 import { ContactListPage } from "./ContactListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { ContactListResponse } from "./types";
@@ -33,6 +34,20 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
 
 const contactsUrl = `${env.apiUrl}/api/contacts`;
 const companiesUrl = `${env.apiUrl}/api/companies`;
+const usersUrl = `${env.apiUrl}/api/users`;
+
+// Solo para tests con rol ADMIN: useOwnerNames(isAdmin) dispara GET /api/users
+// cuando isAdmin es true (ver relationResolution.ts). Los tests con rol USER
+// deliberadamente NO incluyen este handler — que la request no exista es parte
+// de lo que prueban. Mismo criterio que OpportunityListPage.test.tsx.
+function usersHandler() {
+  return http.get(usersUrl, () =>
+    HttpResponse.json({
+      data: [makeUser({ id: "u1", fullName: "Ana Pérez" })],
+      pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+    }),
+  );
+}
 
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -52,7 +67,7 @@ describe("ContactListPage", () => {
       data: [makeContact({ firstName: "Juana", lastName: "Pérez" })],
       pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
     };
-    server.use(http.get(contactsUrl, () => HttpResponse.json(listResponse)));
+    server.use(usersHandler(), http.get(contactsUrl, () => HttpResponse.json(listResponse)));
 
     renderPage();
 
@@ -63,6 +78,7 @@ describe("ContactListPage", () => {
   it("error de listado se muestra como estado de error real", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
+      usersHandler(),
       http.get(contactsUrl, () =>
         HttpResponse.json({ error: { message: "boom" } }, { status: 500 }),
       ),
@@ -76,6 +92,7 @@ describe("ContactListPage", () => {
   it("empty state cuando data está vacía", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
+      usersHandler(),
       http.get(contactsUrl, () =>
         HttpResponse.json({
           data: [],
@@ -99,6 +116,7 @@ describe("ContactListPage", () => {
       pagination: { page: 1, pageSize: 20, total: 100, totalPages: 5 },
     };
     server.use(
+      usersHandler(),
       http.get(contactsUrl, ({ request }) => {
         captured.push(new URL(request.url));
         return HttpResponse.json(listResponse);
@@ -126,6 +144,7 @@ describe("ContactListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const capturedContacts: URL[] = [];
     server.use(
+      usersHandler(),
       http.get(contactsUrl, ({ request }) => {
         capturedContacts.push(new URL(request.url));
         return HttpResponse.json({
@@ -177,6 +196,7 @@ describe("ContactListPage", () => {
   it("ADMIN sí ve Nuevo contacto / Editar / Eliminar", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
+      usersHandler(),
       http.get(contactsUrl, () =>
         HttpResponse.json({
           data: [makeContact()],
@@ -197,6 +217,7 @@ describe("ContactListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     let deleteCalled = false;
     server.use(
+      usersHandler(),
       http.get(contactsUrl, () =>
         HttpResponse.json({
           data: [makeContact()],
@@ -223,6 +244,7 @@ describe("ContactListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     let deletedId: string | undefined;
     server.use(
+      usersHandler(),
       http.get(contactsUrl, () =>
         HttpResponse.json({
           data: [makeContact({ id: "ct-target" })],
@@ -248,6 +270,7 @@ describe("ContactListPage", () => {
   it("DELETE fallido muestra un error visible y accesible", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
+      usersHandler(),
       http.get(contactsUrl, () =>
         HttpResponse.json({
           data: [makeContact()],
@@ -275,6 +298,7 @@ describe("ContactListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     let companiesListCalled = false;
     server.use(
+      usersHandler(),
       http.get(contactsUrl, () =>
         HttpResponse.json({
           data: [makeContact({ companyId: "co-99" })],
@@ -312,6 +336,7 @@ describe("ContactListPage", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     let detailRequestCount = 0;
     server.use(
+      usersHandler(),
       http.get(contactsUrl, () =>
         HttpResponse.json({
           data: [
@@ -336,6 +361,7 @@ describe("ContactListPage", () => {
   it("un fallo de resolución puntual de una Company no rompe el resto del listado", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
+      usersHandler(),
       http.get(contactsUrl, () =>
         HttpResponse.json({
           data: [
@@ -356,6 +382,108 @@ describe("ContactListPage", () => {
     expect(screen.getByText("Sin Pérez")).toBeInTheDocument();
     // Fallback explícito, nunca el UUID crudo ("co-rota").
     expect(screen.queryByText("co-rota")).not.toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
+    // Se afirma sobre LA CELDA de Empresa, no con un getByText("—") suelto:
+    // desde que existe la columna Owner hay más de un "—" en la fila (estas
+    // fixtures traen ownerId null), así que el assert viejo pasó a ser
+    // ambiguo. Columnas: Nombre | Email | Etapa | Empresa | Owner | Acciones.
+    const filaRota = screen.getByText("Con Pérez").closest("tr");
+    expect(filaRota?.querySelectorAll("td")[3]).toHaveTextContent("—");
+  });
+
+  // -------------------------------------------------------------------------
+  // Columna Owner — el gap de M3 cerrado (ver ContactListPage.tsx).
+  // -------------------------------------------------------------------------
+
+  it("ADMIN ve la columna Owner resuelta a fullName", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      usersHandler(),
+      http.get(contactsUrl, () =>
+        HttpResponse.json({
+          data: [makeContact({ ownerId: "u1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Owner")).toBeInTheDocument());
+    await waitFor(() => {
+      const fila = screen.getByText("Juana Pérez").closest("tr");
+      expect(fila).toHaveTextContent("Ana Pérez");
+    });
+  });
+
+  it("un contacto SIN propietario muestra el guion, no un ownerId crudo ni un nombre ajeno", async () => {
+    // Caso que Opportunity no tiene y por eso no esta cubierto alla:
+    // Contact.ownerId es nullable. Columnas: Nombre | Email | Etapa | Empresa |
+    // Owner | Acciones.
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      usersHandler(),
+      http.get(contactsUrl, () =>
+        HttpResponse.json({
+          data: [makeContact({ ownerId: null })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Owner")).toBeInTheDocument());
+    const fila = screen.getByText("Juana Pérez").closest("tr");
+    expect(fila?.querySelectorAll("td")[4]).toHaveTextContent("—");
+    expect(fila).not.toHaveTextContent("Ana Pérez");
+  });
+
+  it("USER: no ve la columna Owner ni el ownerId crudo", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      http.get(contactsUrl, () =>
+        HttpResponse.json({
+          data: [makeContact({ ownerId: "u1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
+    expect(screen.queryByText("Owner")).not.toBeInTheDocument();
+    expect(screen.queryByText("u1")).not.toBeInTheDocument();
+  });
+
+  it("USER: montar la pagina NO dispara ningun request a /api/users", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    // Contador explicito, no solo ausencia de handler: con
+    // onUnhandledRequest:"error" una request no manejada deja la query en
+    // error en silencio, sin fallar el test por si sola. Mismo criterio que
+    // OpportunityListPage.test.tsx.
+    let usersRequestCount = 0;
+    server.use(
+      http.get(contactsUrl, () =>
+        HttpResponse.json({
+          data: [makeContact({ ownerId: "u1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(usersUrl, () => {
+        usersRequestCount += 1;
+        return HttpResponse.json({
+          data: [makeUser({ id: "u1" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        });
+      }),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
+    // Margen para que un fetch indebido, si lo hubiera, alcance a dispararse.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(usersRequestCount).toBe(0);
   });
 });

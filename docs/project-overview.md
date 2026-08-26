@@ -2490,17 +2490,42 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    `Users`/`Invitations` (M7) y Dashboard (M8, con únicamente datos
    exactos — sin agregación `SUM` de backend, ver limitaciones de
    backend documentadas en la entrada de M8 de la sección 7) ya no están
-   pendientes. Lo único que sigue pendiente de esta lista original es el
-   filtro visual/selector de `ownerId` por nombre en Company y en
-   Contact específicamente (capa API ya soportada desde M2/M3, ver
-   sección 7 — M5 sí agregó el selector para Opportunity porque ahí es
-   un campo central del formulario, no solo un filtro de listado;
-   extenderlo a Company/Contact queda pendiente, es la misma
-   `GET /api/users` ya consumida). **Reverificado el 2026-08-26 contra el código:
-   sigue pendiente** — `UserSelect` se importa únicamente desde
-   `OpportunityFormPage` y `ActivityFormPage`; ni `CompanyFormPage`/`CompanyListPage`
-   ni `ContactFormPage`/`ContactListPage` lo usan, y el soporte de `ownerId` en esos
-   dos módulos sigue siendo solo de capa API (tipos + serialización de query).
+   pendientes. El último punto abierto de esta lista original era el
+   selector de `ownerId` por nombre en Company y en Contact (capa API ya
+   soportada desde M2/M3, ver sección 7 — M5 lo agregó para Opportunity
+   porque ahí es un campo central del formulario, y dejó `UserSelect`
+   listo para reusar).
+
+   **✅ Resuelto el 2026-08-26, verificado contra el código.** Company y
+   Contact llegaron al mismo punto que Opportunity: campo `UserSelect`
+   en el formulario (crear y editar) y columna Owner en el listado,
+   gateada por `isAdmin` — `GET /api/users` es ADMIN-only, así que para
+   un `USER` esa request no se dispara nunca. Cuatro archivos de
+   producción: `CompanyFormPage.tsx`, `ContactFormPage.tsx`,
+   `CompanyListPage.tsx` y `ContactListPage.tsx`. `useOwnerNames` se
+   reusa tal cual desde `features/opportunity/relationResolution.ts`, sin
+   relocalizarlo a un módulo compartido. Cobertura: **464/464 tests del
+   frontend en verde, contra 448 antes** — 16 nuevos, incluido el caso que
+   Opportunity no tiene, `ownerId` en `null` (nullable en Company y
+   Contact, no en Opportunity) tanto en la columna como en la hidratación
+   del formulario.
+
+   **Lo que NO se hizo, por decisión de alcance explícita:** el **filtro**
+   por owner en los listados. `CompanyListQuery.ownerId` y
+   `ContactListQuery.ownerId` siguen tipados sin consumidor visual, igual
+   que en Opportunity, que tampoco lo tiene pese al mismo soporte de API.
+   Si alguna vez hace falta, se agrega en los tres módulos a la vez, no en
+   uno suelto.
+
+   **Deuda cosmética anotada, no pendiente:** `UserSelect` trae su propio
+   `<label>`, y `FormField` del design system **es** un `<label>` —
+   anidarlos daría HTML inválido y un `getByLabelText` ambiguo. Así que en
+   `CompanyFormPage` (el único de los cuatro que usa design system) el
+   campo Propietario se monta suelto y se ve algo distinto de sus
+   hermanos. Resolverlo bien exigiría un `className` opcional en
+   `UserSelect`, que es un componente compartido con Opportunity y
+   Activity: tocar los tres por un detalle visual de uno no se justifica
+   hoy.
 
 6. **Capa de ingesta — ítem 6: bases de datos externas (`SourceType.EXTERNAL_DB`).**
    Único ítem del orden de construcción de `docs/ingestion-architecture.md` §6 que

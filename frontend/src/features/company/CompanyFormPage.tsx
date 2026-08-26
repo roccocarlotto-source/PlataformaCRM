@@ -4,6 +4,7 @@ import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { UserSelect } from "../user/UserSelect";
 import { useCreateCompany, useUpdateCompany } from "./mutations";
 import { useCompany } from "./queries";
 import type { CreateCompanyInput } from "./types";
@@ -15,6 +16,10 @@ interface CompanyFormValues {
   phone: string;
   city: string;
   country: string;
+  // undefined = "no elegido", que es lo que el backend interpreta como
+  // "asignar a quien crea". Nunca null: el PATCH no puede limpiar ownerId
+  // (chequeo truthy en company.service.ts, ver types.ts).
+  ownerId: string | undefined;
 }
 
 const EMPTY_FORM: CompanyFormValues = {
@@ -24,6 +29,7 @@ const EMPTY_FORM: CompanyFormValues = {
   phone: "",
   city: "",
   country: "",
+  ownerId: undefined,
 };
 
 // Los campos vacíos se envían como undefined (no como "") — el backend los
@@ -36,15 +42,29 @@ function toInput(values: CompanyFormValues): CreateCompanyInput {
     phone: values.phone || undefined,
     city: values.city || undefined,
     country: values.country || undefined,
+    ownerId: values.ownerId || undefined,
   };
 }
 
 // Un único componente para create y edit — el modo se distingue del propio
-// param de ruta (:id), no de una prop separada. ownerId queda deliberadamente
-// fuera de este formulario: ver types.ts y el informe de M2 para el gap
-// (no hay forma de resolver nombres de usuario sin traer el módulo de Users,
-// fuera de alcance de este ciclo — el backend ya asigna el owner por default
-// a quien crea si no se envía nada).
+// param de ruta (:id), no de una prop separada.
+//
+// ownerId YA ESTÁ en el formulario. Quedó afuera en M2 por un motivo que dejó
+// de ser cierto: entonces no había forma de mostrar un nombre real en vez de un
+// UUID crudo, porque el frontend no consumía GET /api/users. M5 lo consumió
+// para Opportunity y dejó UserSelect listo, así que replicarlo acá es reusar,
+// no construir.
+//
+// UserSelect se monta suelto, sin envolverlo en FormField: trae su propio
+// <label htmlFor>, y FormField ES un <label>, así que anidarlos produciría HTML
+// inválido y un getByLabelText ambiguo. Es el mismo trato que le da
+// OpportunityFormPage. Mantener el resto del formulario en FormField no es
+// inconsistencia: es que este control ya viene resuelto.
+//
+// Sin emptyOptionLabel: el default del componente ("Asignado a quien crea (por
+// defecto)") describe exactamente lo que hace createCompany —resolveOwnerId
+// devuelve actorUserId si no se manda nada—, a diferencia de Activity, que
+// nunca autoasigna y por eso sí pasa un label propio.
 export function CompanyFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
@@ -66,6 +86,10 @@ export function CompanyFormPage() {
         phone: companyQuery.data.phone ?? "",
         city: companyQuery.data.city ?? "",
         country: companyQuery.data.country ?? "",
+        // ?? undefined, no ?? "": Company.ownerId es nullable y UserSelect
+        // espera string | undefined. Mismo patrón que companyId en
+        // ContactFormPage.
+        ownerId: companyQuery.data.ownerId ?? undefined,
       });
     }
   }, [isEditMode, companyQuery.data]);
@@ -146,6 +170,12 @@ export function CompanyFormPage() {
           onChange={(event) => setValues({ ...values, country: event.target.value })}
         />
       </FormField>
+      <UserSelect
+        id="company-form-owner"
+        label="Propietario"
+        value={values.ownerId}
+        onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+      />
       {error ? <ErrorState>{error}</ErrorState> : null}
       <Button type="submit" variant="primary" disabled={isSubmitting}>
         {isSubmitting ? "Guardando…" : "Guardar"}

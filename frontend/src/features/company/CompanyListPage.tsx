@@ -7,6 +7,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
+import { useOwnerNames } from "../opportunity/relationResolution";
 import { useDeleteCompany } from "./mutations";
 import { useCompanies } from "./queries";
 import type { CompanySortBy, SortOrder } from "./types";
@@ -18,6 +19,9 @@ export function CompanyListPage() {
   // Ocultar acciones de escritura para no-ADMIN es cortesía de UX: la
   // autorización real la sigue aplicando authorize("ADMIN") en el backend
   // (POST/PATCH/DELETE /companies). Este chequeo no reemplaza eso.
+  //
+  // La columna Owner usa este MISMO booleano, y ahí no es solo cortesía:
+  // resolver un ownerId a nombre necesita GET /api/users, que es ADMIN-only.
   const isAdmin = me?.role === "ADMIN";
 
   const [page, setPage] = useState(1);
@@ -34,6 +38,17 @@ export function CompanyListPage() {
     sortBy,
     sortOrder,
   });
+
+  // useOwnerNames vive en features/opportunity/relationResolution.ts y se importa
+  // desde acá tal cual, sin relocalizarlo a un módulo "compartido": ya existe
+  // precedente de import cross-feature en ese mismo archivo, que re-exporta
+  // useCompaniesByIds desde features/contact/. Mover el hook sería una
+  // refactorización que este cambio no necesita.
+  //
+  // El booleano gatea el fetch por completo: GET /api/users es ADMIN-only
+  // (user.routes.ts), así que para un USER la request nunca se dispara y no hay
+  // un 403 que atrapar.
+  const ownerNames = useOwnerNames(isAdmin);
 
   const deleteCompanyMutation = useDeleteCompany();
 
@@ -132,6 +147,7 @@ export function CompanyListPage() {
               <th>Nombre</th>
               <th>Industria</th>
               <th>Dominio</th>
+              {isAdmin ? <th>Owner</th> : null}
               {isAdmin ? <th>Acciones</th> : null}
             </tr>
           </thead>
@@ -141,6 +157,17 @@ export function CompanyListPage() {
                 <td>{company.name}</td>
                 <td>{company.industry ?? ""}</td>
                 <td>{company.domain ?? ""}</td>
+                {/* ownerId es nullable acá (a diferencia de Opportunity), así
+                    que el guard no es defensivo de más: sin él, un owner sin
+                    asignar entraría a byId.get(null). Sin dueño y dueño que no
+                    se pudo resolver muestran lo mismo — "—" —, y es correcto:
+                    para quien lee la tabla, las dos cosas son "no hay nombre
+                    que mostrar acá". */}
+                {isAdmin ? (
+                  <td>
+                    {company.ownerId ? (ownerNames.byId.get(company.ownerId) ?? "—") : "—"}
+                  </td>
+                ) : null}
                 {isAdmin ? (
                   <td>
                     <Link to={`/companies/${company.id}/edit`}>Editar</Link>{" "}

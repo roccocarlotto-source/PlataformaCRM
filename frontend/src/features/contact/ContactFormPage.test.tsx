@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
+import { makeUser } from "../../test/userFixtures";
 import { ContactFormPage } from "./ContactFormPage";
 
 vi.mock("../../auth/getAccessToken", () => ({
@@ -16,6 +17,26 @@ vi.mock("../../auth/getAccessToken", () => ({
 
 const contactsUrl = `${env.apiUrl}/api/contacts`;
 const companiesUrl = `${env.apiUrl}/api/companies`;
+const usersUrl = `${env.apiUrl}/api/users`;
+
+// UserSelect se monta SIEMPRE en este formulario (sin gating por texto, a
+// diferencia de CompanySelect), así que dispara GET /api/users en todo test —
+// y con onUnhandledRequest:"error" (test/setup.ts) un test sin este handler
+// no falla de forma obvia: la query interna entra en error y UserSelect
+// renderiza su propio <p role="alert">, que rompe cualquier getByRole("alert")
+// del formulario por ambigüedad. Mismo criterio que baseHandlers() en
+// OpportunityFormPage.test.tsx.
+function usersHandler() {
+  return http.get(usersUrl, () =>
+    HttpResponse.json({
+      data: [
+        makeUser({ id: "u1", fullName: "Ana Pérez" }),
+        makeUser({ id: "u2", fullName: "Beto Díaz" }),
+      ],
+      pagination: { page: 1, pageSize: 100, total: 2, totalPages: 1 },
+    }),
+  );
+}
 
 function renderForm(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -37,6 +58,7 @@ describe("ContactFormPage", () => {
     let getDetailCalled = false;
     let postedBody: unknown;
     server.use(
+      usersHandler(),
       http.get(`${contactsUrl}/:id`, () => {
         getDetailCalled = true;
         return HttpResponse.json(makeContact());
@@ -69,6 +91,7 @@ describe("ContactFormPage", () => {
     let patchedId: string | undefined;
     let patchedBody: unknown;
     server.use(
+      usersHandler(),
       http.get(`${contactsUrl}/:id`, ({ params }) =>
         HttpResponse.json(
           makeContact({
@@ -108,6 +131,7 @@ describe("ContactFormPage", () => {
 
   it("error de detail muestra error y no presenta el form como create vacío", async () => {
     server.use(
+      usersHandler(),
       http.get(`${contactsUrl}/:id`, () =>
         HttpResponse.json({ error: { message: "no existe" } }, { status: 404 }),
       ),
@@ -121,6 +145,7 @@ describe("ContactFormPage", () => {
 
   it("409 por email duplicado se muestra visible y no navega", async () => {
     server.use(
+      usersHandler(),
       http.post(contactsUrl, () =>
         HttpResponse.json(
           { error: { message: "Ya existe un contacto con ese email en esta organización" } },
@@ -147,6 +172,7 @@ describe("ContactFormPage", () => {
 
   it("error genérico de mutation se muestra visible y no navega", async () => {
     server.use(
+      usersHandler(),
       http.post(contactsUrl, () =>
         HttpResponse.json({ error: { message: "no se pudo crear" } }, { status: 500 }),
       ),
@@ -166,6 +192,13 @@ describe("ContactFormPage", () => {
   });
 
   it("firstName y lastName son requeridos (validación HTML5 mínima)", async () => {
+    // Este test no necesitaba NINGÚN handler antes de que el formulario
+    // tuviera UserSelect: CompanySelect no busca hasta que se escribe algo,
+    // así que montar la página no pegaba a la red. UserSelect sí lo hace de
+    // entrada, y sin handler esa request quedaba sin atender — con
+    // onUnhandledRequest:"error" no rompe este test, pero deja un unhandled
+    // rejection a nivel de corrida que puede ensuciar a los demás.
+    server.use(usersHandler());
     renderForm("/contacts/new");
 
     const firstName = screen.getByLabelText("Nombre") as HTMLInputElement;
@@ -173,5 +206,109 @@ describe("ContactFormPage", () => {
 
     expect(firstName).toBeRequired();
     expect(lastName).toBeRequired();
+
+    // Se espera a que la query de usuarios resuelva antes de terminar: si el
+    // test corta con la request en vuelo, el afterEach resetea los handlers y
+    // la respuesta aterriza sin nadie que la atienda.
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toBeInTheDocument());
+  });
+
+  // -------------------------------------------------------------------------
+  // ownerId — el gap de M3 cerrado (ver el comentario de ContactFormPage.tsx).
+  // -------------------------------------------------------------------------
+
+  it("create: elegir un propietario lo manda en el POST", async () => {
+    let postedBody: unknown;
+    server.use(
+      usersHandler(),
+      http.post(contactsUrl, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(makeContact(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/contacts/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Nueva");
+    await user.type(screen.getByLabelText("Apellido"), "Persona");
+    // El select recien existe cuando la query de usuarios resolvio: UserSelect
+    // no renderiza nada hasta isSuccess.
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Propietario"), "u2");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
+    expect(postedBody).toEqual({
+      firstName: "Nueva",
+      lastName: "Persona",
+      lifecycleStage: "LEAD",
+      ownerId: "u2",
+    });
+  });
+
+  it("create: NO elegir propietario omite ownerId del payload, lo asigna el backend", async () => {
+    let postedBody: unknown;
+    server.use(
+      usersHandler(),
+      http.post(contactsUrl, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(makeContact(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/contacts/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Sin");
+    await user.type(screen.getByLabelText("Apellido"), "Duenio");
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
+    // createContact llama al MISMO resolveOwnerId que createCompany, asi que
+    // el texto por defecto de UserSelect es literal tambien aca. Verificado en
+    // ownership.service.ts, no asumido por analogia: Activity comparte el
+    // componente pero NO el comportamiento, y por eso pasa un label propio.
+    expect(screen.getByLabelText("Propietario")).toHaveTextContent(
+      "Asignado a quien crea (por defecto)",
+    );
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
+    expect(postedBody).toEqual({
+      firstName: "Sin",
+      lastName: "Duenio",
+      lifecycleStage: "LEAD",
+    });
+  });
+
+  it("edit: hidrata el propietario existente en el selector", async () => {
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeContact({ id: params.id as string, ownerId: "u2" })),
+      ),
+    );
+
+    renderForm("/contacts/ct1/edit");
+
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u2"));
+  });
+
+  it("edit: un contacto SIN propietario deja el selector vacio, no en un valor inventado", async () => {
+    // Contact.ownerId es nullable, a diferencia de Opportunity.ownerId, y por
+    // eso la hidratacion hace ?? undefined. Sin eso, un null llegaria al
+    // select como value={null} y React lo pasaria a no controlado, con la
+    // primera opcion de la lista seleccionada de hecho: el formulario
+    // mostraria un dueno que el contacto no tiene.
+    server.use(
+      usersHandler(),
+      http.get(`${contactsUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeContact({ id: params.id as string, ownerId: null })),
+      ),
+    );
+
+    renderForm("/contacts/ct1/edit");
+
+    await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
+    expect(screen.getByLabelText("Propietario")).toHaveValue("");
   });
 });
