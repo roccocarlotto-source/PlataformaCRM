@@ -56,7 +56,7 @@ actividades.
 | **TypeScript** (`strict: true`) | Lenguaje del backend | `tsconfig.json` fuerza modo estricto — tipado fuerte de punta a punta, incluso antes de que exista código de aplicación. |
 | **Node.js** | Runtime | Implícito por `package.json`/`tsconfig`. |
 | **tsx** | Runner de desarrollo TS | Dependencia de desarrollo (`devDependencies`), pensado para correr TS sin compilar en cada cambio. |
-| **Prisma ORM 5.20** (`@prisma/client`, `prisma`) | Acceso a datos type-safe + migraciones | Es la única capa de aplicación que existe hoy: `prisma/schema.prisma` define 10 modelos. Scripts en `package.json`: `prisma:generate`, `prisma:validate`, `prisma:studio`. |
+| **Prisma ORM 5.20** (`@prisma/client`, `prisma`) | Acceso a datos type-safe + migraciones | Es la única capa de aplicación que existe hoy: `prisma/schema.prisma` define 13 modelos. Scripts en `package.json`: `prisma:generate`, `prisma:validate`, `prisma:studio`. |
 | **PostgreSQL** | Motor de base de datos | `datasource db { provider = "postgresql" }` en el schema. |
 | **Supabase** (Auth + Postgres hosting) | Autenticación gestionada + hosting de la DB | Proyecto real provisionado y conectado (`.env` completo). El modelo `User` está diseñado para compartir `id` con `auth.users` (tabla gestionada por Supabase). |
 | **Supavisor** (pooler compartido de Supabase — no PgBouncer clásico; confirmado en LOW-2 contra la documentación oficial vigente de Supabase, sección 8) | Pooling de conexiones para runtime | `.env.example` distingue `DATABASE_URL` (mismo host `*.pooler.supabase.com`, puerto 6543, Supavisor en **modo transacción**, `?pgbouncer=true` — bandera correcta y soportada para ese modo, ver sección 8) de `DIRECT_URL` (mismo host, puerto 5432, Supavisor en **modo sesión** — no una conexión directa a Postgres, pese al nombre de la variable — solo para `prisma migrate`) — patrón estándar de Supabase + Prisma: Prisma Migrate no funciona bien a través del modo transacción. |
@@ -103,7 +103,7 @@ Plataforma CRM/
 │                                  #   (prisma/*.ts se ejecuta con tsx, no con tsc).
 ├── README.md                     # Quickstart + explicación de cada carpeta de src/.
 ├── prisma/
-│   ├── schema.prisma               # 10 modelos + 4 enums (ver sección 4).
+│   ├── schema.prisma               # 13 modelos + 6 enums (ver sección 4).
 │   ├── seed.ts                     # Seed idempotente del catálogo Role (ADMIN/USER).
 │   ├── migrations/                  # Inicial + la que agrega organizationId/deletedAt
 │   │                                 #   a Stage + la que agrega el índice
@@ -863,17 +863,21 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   schema principal declarativo y en Prisma, y aísla lo "no estándar" en un solo lugar
   documentado.
 
-- **Soft delete (`deletedAt`) en 8 de los 10 modelos.** `Organization`,
-  `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity` y
-  `User` lo tienen. `Stage` lo agregó durante la implementación de
+- **Soft delete (`deletedAt`) en 9 de los 13 modelos.** `Organization`,
+  `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity`,
+  `User` y `Source` lo tienen. `Stage` lo agregó durante la implementación de
   `Pipeline`/`Stage`; `User` lo agregó en la migración de `Invitation`
   (`20260711192539_invitation_and_user_deleted_at`, ver sección 7), con
-  semántica distinta de `isActive` (ver sección 4). Los dos modelos sin
+  semántica distinta de `isActive` (ver sección 4). Los cuatro modelos sin
   `deletedAt` no comparten el mismo motivo: `Role` es un catálogo global sin
   ciclo de vida propio; `Invitation` lo omite deliberadamente porque su
   ciclo de vida ya está representado por `status`
   (`PENDING | ACCEPTED | REVOKED | EXPIRED`, ver sección 4) — agregar
-  `deletedAt` encima sería redundante con esos estados terminales.
+  `deletedAt` encima sería redundante con esos estados terminales; `ApiKey`
+  usa `revokedAt` por el mismo razonamiento que `Invitation` (revocar ya es
+  el nombre propio de "removida", y un soft delete encima obligaría a explicar
+  en qué se diferencia); `IngestionEvent` es un log de ingesta que se purga por
+  antigüedad, no una entidad que alguien retire (ver sección 4).
 
 - **Roles simples y globales, no permisos granulares.** `Role` es un catálogo sin scope
   por organización, explícitamente diseñado para poder agregar
@@ -2563,12 +2567,14 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
 - **Asimetría en soft delete — resuelta para las entidades que la necesitaban.**
   `Stage` y `User` ya tienen `deletedAt` (`User` agregado en el módulo
   `Invitation`, con semántica distinta de `isActive` — ver sección 4). De los
-  10 modelos, quedan 2 sin `deletedAt`, sin ser la misma asimetría que
+  13 modelos, quedan 4 sin `deletedAt`, ninguno por la asimetría que
   `User`/`Stage` tenían: `Role` sigue sin `deletedAt` porque es un catálogo
   global sin ciclo de vida propio; `Invitation` tampoco lo tiene, pero de
   forma deliberada — su ciclo de vida ya está representado por `status`
   (`PENDING | ACCEPTED | REVOKED | EXPIRED`, ver sección 4), no por ausencia
-  de resolver (ver también sección 5).
+  de resolver; y los dos de la capa de ingesta tampoco, también a propósito —
+  `ApiKey` representa la remoción con `revokedAt` e `IngestionEvent` es un log
+  que se purga por antigüedad (ver también sección 5).
 
 - **Email de Supabase Auth único a nivel de todo el proyecto, no por
   organización — y no se libera al revocar/vencer una invitación.** Invitar un
