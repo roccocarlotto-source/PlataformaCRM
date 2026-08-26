@@ -9,6 +9,12 @@ dist/
 .DS_Store
 .gstack/
 
+# Cuerpos de PR redactados para pegar en GitHub. Viven en la raíz para poder
+# leerlos desde el repo, pero NO son parte del proyecto: sin esta regla, un
+# `git add -A` sobre la rama del PR mete el archivo en el propio PR que
+# describe.
+pr-body*.md
+
 # Clave privada ES256 del GoTrue local (supabase/config.toml → signing_keys_path).
 # Efímera: la genera `npm run gen:signing-key` en cada corrida del CI y en cada
 # entorno local. Una clave privada no se commitea aunque no proteja nada real.
