@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useCreateStage, useUpdateStage } from "./mutations";
 import { useStage } from "./queries";
-import type { CreateStageInput, UpdateStageInput } from "./types";
+import type { CreateStageInput, Stage, UpdateStageInput } from "./types";
+import { useFormDraft } from "../../lib/useFormDraft";
 
 interface StageFormValues {
   name: string;
@@ -44,6 +45,22 @@ function toUpdateInput(values: StageFormValues): UpdateStageInput {
   };
 }
 
+// Valores del formulario derivados de un registro ya persistido. Antes esto
+// vivía adentro de un useEffect que hacía setValues; ahora es una función pura
+// y el estado local aparece recién cuando el usuario edita algo — ver
+// lib/useFormDraft.ts para por qué ese efecto perdía datos.
+function toFormValues(data: Stage): StageFormValues {
+  return {
+    name: data.name,
+    order: String(data.order),
+    // probability llega como string (Decimal) — Number() para poder
+    // editarlo como campo numérico, nunca el string crudo tal cual.
+    probability: String(Number(data.probability)),
+    isWon: data.isWon,
+    isLost: data.isLost,
+  };
+}
+
 // Un único componente para create y edit, mismo patrón que
 // CompanyFormPage/PipelineFormPage. isWon/isLost se desmarcan mutuamente
 // en el cliente como cortesía visual (evita un 409 previsible en el caso
@@ -58,22 +75,11 @@ export function StageFormPage() {
   const createStageMutation = useCreateStage(pipelineId ?? "");
   const updateStageMutation = useUpdateStage(pipelineId ?? "");
 
-  const [values, setValues] = useState<StageFormValues>(EMPTY_FORM);
+  const [values, setValues] = useFormDraft<StageFormValues>(
+    stageQuery.data?.id,
+    stageQuery.data ? toFormValues(stageQuery.data) : EMPTY_FORM,
+  );
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isEditMode && stageQuery.data) {
-      setValues({
-        name: stageQuery.data.name,
-        order: String(stageQuery.data.order),
-        // probability llega como string (Decimal) — Number() para poder
-        // editarlo como campo numérico, nunca el string crudo tal cual.
-        probability: String(Number(stageQuery.data.probability)),
-        isWon: stageQuery.data.isWon,
-        isLost: stageQuery.data.isLost,
-      });
-    }
-  }, [isEditMode, stageQuery.data]);
 
   const isSubmitting = createStageMutation.isPending || updateStageMutation.isPending;
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CompanySelect } from "../company/CompanySelect";
 import { ContactSelect } from "../opportunity/ContactSelect";
@@ -14,7 +14,8 @@ import {
   type RelationState,
 } from "./relationPatch";
 import { ACTIVITY_TYPES, ACTIVITY_TYPE_LABELS } from "./types";
-import type { ActivityType, CreateActivityInput, UpdateActivityInput } from "./types";
+import type { Activity, ActivityType, CreateActivityInput, UpdateActivityInput } from "./types";
+import { useFormDraft } from "../../lib/useFormDraft";
 
 interface ActivityFormValues {
   type: ActivityType;
@@ -85,6 +86,40 @@ function toUpdateInput(values: ActivityFormValues, original: RelationState): Upd
   };
 }
 
+// Relaciones tal como vinieron del servidor: es el snapshot contra el que
+// toUpdateInput calcula el patch. Antes era estado (setOriginalRelations dentro
+// del efecto de hidratación) y no hacía falta: nunca cambia después de llegar,
+// así que se deriva.
+function relationsOf(data: Activity): RelationState {
+  return {
+    companyId: data.companyId,
+    contactId: data.contactId,
+    opportunityId: data.opportunityId,
+  };
+}
+
+// Valores del formulario derivados de una Activity ya persistida. Antes esto
+// vivía adentro de un useEffect que hacía setValues; ahora es una función pura
+// y el estado local aparece recién cuando el usuario edita algo — ver
+// lib/useFormDraft.ts para por qué ese efecto perdía datos.
+function toFormValues(data: Activity): ActivityFormValues {
+  const relations = relationsOf(data);
+  return {
+    type: data.type,
+    subject: data.subject,
+    body: data.body ?? "",
+    // dueDate/completedAt son DateTime reales (con hora) — se hidratan
+    // con toDatetimeLocalValue, nunca con un slice directo del ISO UTC
+    // (ver datetimeLocal.ts).
+    dueDate: data.dueDate ? toDatetimeLocalValue(data.dueDate) : "",
+    completedAt: data.completedAt ? toDatetimeLocalValue(data.completedAt) : "",
+    assigneeId: data.assigneeId,
+    companyId: relations.companyId,
+    contactId: relations.contactId,
+    opportunityId: relations.opportunityId,
+  };
+}
+
 // Un único componente para create y edit, mismo patrón que
 // CompanyFormPage/ContactFormPage/OpportunityFormPage.
 export function ActivityFormPage() {
@@ -96,35 +131,14 @@ export function ActivityFormPage() {
   const createActivityMutation = useCreateActivity();
   const updateActivityMutation = useUpdateActivity(id ?? "");
 
-  const [values, setValues] = useState<ActivityFormValues>(EMPTY_FORM);
-  const [originalRelations, setOriginalRelations] = useState<RelationState>(EMPTY_RELATIONS);
+  const [values, setValues] = useFormDraft<ActivityFormValues>(
+    activityQuery.data?.id,
+    activityQuery.data ? toFormValues(activityQuery.data) : EMPTY_FORM,
+  );
+  const originalRelations: RelationState = activityQuery.data
+    ? relationsOf(activityQuery.data)
+    : EMPTY_RELATIONS;
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isEditMode && activityQuery.data) {
-      const activity = activityQuery.data;
-      const relations: RelationState = {
-        companyId: activity.companyId,
-        contactId: activity.contactId,
-        opportunityId: activity.opportunityId,
-      };
-      setValues({
-        type: activity.type,
-        subject: activity.subject,
-        body: activity.body ?? "",
-        // dueDate/completedAt son DateTime reales (con hora) — se hidratan
-        // con toDatetimeLocalValue, nunca con un slice directo del ISO UTC
-        // (ver datetimeLocal.ts).
-        dueDate: activity.dueDate ? toDatetimeLocalValue(activity.dueDate) : "",
-        completedAt: activity.completedAt ? toDatetimeLocalValue(activity.completedAt) : "",
-        assigneeId: activity.assigneeId,
-        companyId: relations.companyId,
-        contactId: relations.contactId,
-        opportunityId: relations.opportunityId,
-      });
-      setOriginalRelations(relations);
-    }
-  }, [isEditMode, activityQuery.data]);
 
   const isSubmitting = createActivityMutation.isPending || updateActivityMutation.isPending;
 

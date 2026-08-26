@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
@@ -7,7 +7,13 @@ import { UserSelect } from "../user/UserSelect";
 import { ContactSelect } from "./ContactSelect";
 import { useCreateOpportunity, useUpdateOpportunity } from "./mutations";
 import { useOpportunity } from "./queries";
-import type { CreateOpportunityInput, OpportunityStatus, UpdateOpportunityInput } from "./types";
+import type {
+  CreateOpportunityInput,
+  Opportunity,
+  OpportunityStatus,
+  UpdateOpportunityInput,
+} from "./types";
+import { useFormDraft } from "../../lib/useFormDraft";
 
 interface OpportunityFormValues {
   title: string;
@@ -85,6 +91,31 @@ function toUpdateInput(values: OpportunityFormValues): UpdateOpportunityInput {
   };
 }
 
+// Valores del formulario derivados de un registro ya persistido. Antes esto
+// vivía adentro de un useEffect que hacía setValues; ahora es una función pura
+// y el estado local aparece recién cuando el usuario edita algo — ver
+// lib/useFormDraft.ts para por qué ese efecto perdía datos.
+function toFormValues(data: Opportunity): OpportunityFormValues {
+  return {
+    title: data.title,
+    // amount llega como string (Decimal) — Number() para poder
+    // editarlo como campo numérico, nunca el string crudo tal cual.
+    amount: String(Number(data.amount)),
+    currency: data.currency,
+    status: data.status,
+    lostReason: data.lostReason ?? "",
+    companyId: data.companyId ?? undefined,
+    contactId: data.contactId ?? undefined,
+    pipelineId: data.pipelineId,
+    stageId: data.stageId,
+    ownerId: data.ownerId,
+    // Lectura ISO → slice(0,10): nunca new Date(iso) + formateo local
+    // (evita corrimiento de día por timezone).
+    expectedCloseDate: data.expectedCloseDate?.slice(0, 10) ?? "",
+    actualCloseDate: data.actualCloseDate?.slice(0, 10) ?? "",
+  };
+}
+
 // Un único componente para create y edit, mismo patrón que
 // CompanyFormPage/ContactFormPage/PipelineFormPage/StageFormPage.
 export function OpportunityFormPage() {
@@ -96,32 +127,11 @@ export function OpportunityFormPage() {
   const createOpportunityMutation = useCreateOpportunity();
   const updateOpportunityMutation = useUpdateOpportunity(id ?? "");
 
-  const [values, setValues] = useState<OpportunityFormValues>(EMPTY_FORM);
+  const [values, setValues] = useFormDraft<OpportunityFormValues>(
+    opportunityQuery.data?.id,
+    opportunityQuery.data ? toFormValues(opportunityQuery.data) : EMPTY_FORM,
+  );
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isEditMode && opportunityQuery.data) {
-      const opportunity = opportunityQuery.data;
-      setValues({
-        title: opportunity.title,
-        // amount llega como string (Decimal) — Number() para poder
-        // editarlo como campo numérico, nunca el string crudo tal cual.
-        amount: String(Number(opportunity.amount)),
-        currency: opportunity.currency,
-        status: opportunity.status,
-        lostReason: opportunity.lostReason ?? "",
-        companyId: opportunity.companyId ?? undefined,
-        contactId: opportunity.contactId ?? undefined,
-        pipelineId: opportunity.pipelineId,
-        stageId: opportunity.stageId,
-        ownerId: opportunity.ownerId,
-        // Lectura ISO → slice(0,10): nunca new Date(iso) + formateo local
-        // (evita corrimiento de día por timezone).
-        expectedCloseDate: opportunity.expectedCloseDate?.slice(0, 10) ?? "",
-        actualCloseDate: opportunity.actualCloseDate?.slice(0, 10) ?? "",
-      });
-    }
-  }, [isEditMode, opportunityQuery.data]);
 
   const isSubmitting = createOpportunityMutation.isPending || updateOpportunityMutation.isPending;
 

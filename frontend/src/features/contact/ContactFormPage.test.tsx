@@ -307,6 +307,12 @@ describe("ContactFormPage", () => {
     renderForm("/contacts/ct1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
-    expect(screen.getByLabelText("Propietario")).toHaveValue("");
+    // waitFor también sobre Propietario, y no es cosmético: desde que los valores
+    // se derivan en render (lib/useFormDraft.ts) en vez de sembrarse con un
+    // efecto, "Nombre" ya tiene su valor un ciclo ANTES — el efecto forzaba un
+    // render extra que este assert aprovechaba sin decirlo para que la query de
+    // usuarios llegara a resolver. UserSelect no renderiza el <select> hasta
+    // isSuccess, así que hay que esperarlo explícitamente.
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
   });
 });

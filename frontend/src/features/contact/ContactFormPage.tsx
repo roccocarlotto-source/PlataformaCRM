@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CompanySelect } from "../company/CompanySelect";
 import { UserSelect } from "../user/UserSelect";
 import { useCreateContact, useUpdateContact } from "./mutations";
 import { useContact } from "./queries";
-import type { CreateContactInput, LifecycleStage } from "./types";
+import type { Contact, CreateContactInput, LifecycleStage } from "./types";
+import { useFormDraft } from "../../lib/useFormDraft";
 
 interface ContactFormValues {
   firstName: string;
@@ -50,6 +51,26 @@ function toInput(values: ContactFormValues): CreateContactInput {
   };
 }
 
+// Valores del formulario derivados de un registro ya persistido. Antes esto
+// vivía adentro de un useEffect que hacía setValues; ahora es una función pura
+// y el estado local aparece recién cuando el usuario edita algo — ver
+// lib/useFormDraft.ts para por qué ese efecto perdía datos.
+function toFormValues(data: Contact): ContactFormValues {
+  return {
+    firstName: data.firstName,
+    lastName: data.lastName,
+    email: data.email ?? "",
+    phone: data.phone ?? "",
+    jobTitle: data.jobTitle ?? "",
+    lifecycleStage: data.lifecycleStage,
+    source: data.source ?? "",
+    companyId: data.companyId ?? undefined,
+    // ?? undefined por lo mismo que companyId justo arriba: el campo es
+    // nullable en la API y UserSelect espera string | undefined.
+    ownerId: data.ownerId ?? undefined,
+  };
+}
+
 // Un único componente para create y edit — el modo se distingue del propio
 // param de ruta (:id), mismo patrón que CompanyFormPage.
 //
@@ -76,26 +97,11 @@ export function ContactFormPage() {
   const createContactMutation = useCreateContact();
   const updateContactMutation = useUpdateContact(id ?? "");
 
-  const [values, setValues] = useState<ContactFormValues>(EMPTY_FORM);
+  const [values, setValues] = useFormDraft<ContactFormValues>(
+    contactQuery.data?.id,
+    contactQuery.data ? toFormValues(contactQuery.data) : EMPTY_FORM,
+  );
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (isEditMode && contactQuery.data) {
-      setValues({
-        firstName: contactQuery.data.firstName,
-        lastName: contactQuery.data.lastName,
-        email: contactQuery.data.email ?? "",
-        phone: contactQuery.data.phone ?? "",
-        jobTitle: contactQuery.data.jobTitle ?? "",
-        lifecycleStage: contactQuery.data.lifecycleStage,
-        source: contactQuery.data.source ?? "",
-        companyId: contactQuery.data.companyId ?? undefined,
-        // ?? undefined por lo mismo que companyId justo arriba: el campo es
-        // nullable en la API y UserSelect espera string | undefined.
-        ownerId: contactQuery.data.ownerId ?? undefined,
-      });
-    }
-  }, [isEditMode, contactQuery.data]);
 
   const isSubmitting = createContactMutation.isPending || updateContactMutation.isPending;
 
