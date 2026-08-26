@@ -1,0 +1,31 @@
+-- Ítem 4 (docs/ingestion-architecture.md §4) — dónde queda el registro de
+-- "nunca sobrescribir en silencio".
+--
+-- La sección 4 exige que, cuando el CRM y el dato entrante tienen valores
+-- distintos, se conserve el del CRM Y SE DEJE REGISTRO en el IngestionEvent.
+-- También exige marcar para revisión manual los contactos sin email, que no se
+-- deduplican. Las dos cosas ocurren en filas que se procesaron CON ÉXITO.
+--
+-- POR QUÉ NO SE REUSÓ error_message. La sección 5 pide que el resultado de un
+-- lote sea consultable: "cuántos entraron, cuántos se promovieron, cuántos
+-- fallaron y por qué". La consulta natural de esa última mitad es
+-- `WHERE error_message IS NOT NULL`, y si un evento PROCESSED llevara texto
+-- ahí, esa consulta devolvería éxitos mezclados con fallos. Sería un dato
+-- correcto contestando mal la única pregunta que el documento pide poder
+-- hacer. error_message conserva un solo significado: por qué falló.
+--
+-- POR QUÉ JSONB Y NO TEXTO. Las notas se consultan por contenido —"listame lo
+-- pendiente de revisión manual", "qué campos entraron en conflicto"— y en
+-- texto plano eso obliga a parsear prosa. La forma la define src/types/
+-- promotion.ts, con un tipo discriminado, no queda librada al que escriba.
+--
+-- Columna NULLABLE y SIN DEFAULT: en Postgres moderno eso no reescribe la
+-- tabla (mismo argumento que la nota 9.2 usó para poder diferir el
+-- identificador de lote), así que agregarla sobre ingestion_events —la tabla de
+-- mayor volumen del esquema— es barato incluso con datos adentro.
+--
+-- No agrega índice, CHECK ni FK, así que no cambia nada de lo que afirma
+-- scripts/verify-schema.ts.
+
+ALTER TABLE public.ingestion_events
+  ADD COLUMN IF NOT EXISTS "promotion_notes" JSONB;

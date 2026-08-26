@@ -1,4 +1,4 @@
-import type { SourceType } from "@prisma/client";
+import { Prisma, type SourceType } from "@prisma/client";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { revokeApiKeysBySource } from "../repositories/apiKey.repository";
@@ -12,6 +12,7 @@ import {
   type SourceSortBy,
   type SortOrder,
 } from "../repositories/source.repository";
+import type { FieldMapping } from "../schemas/fieldMapping.schema";
 import { AppError } from "../utils/AppError";
 
 export interface ListSourcesParams {
@@ -64,24 +65,32 @@ export interface CreateSourceInput {
   name: string;
   type: SourceType;
   isActive?: boolean;
+  fieldMapping?: FieldMapping;
 }
 
-// fieldMapping no se acepta ni acá ni en el update: el documento de ingesta la
-// declara "JSONB" y nada más — ni la forma, ni las claves, ni quién la
-// consume. La define el ítem 4, mirando un payload real. Hasta entonces la
-// columna queda nullable y sin escribir, a propósito.
+// fieldMapping se acepta desde el ítem 5, que le dio forma y consumidor. La
+// restricción por tipo la aplica createSourceSchema (source.controller.ts): en
+// el create, `type` viaja en el mismo payload, así que se puede validar sin
+// tocar la base. En el PATCH no, y por eso ahí la restricción vive más abajo,
+// en updateSource.
 export function createSource(organizationId: string, input: CreateSourceInput) {
   return createSourceRepo({
     organizationId,
     name: input.name,
     type: input.type,
     ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+    ...(input.fieldMapping !== undefined
+      ? { fieldMapping: input.fieldMapping }
+      : {}),
   });
 }
 
 export interface UpdateSourceInput {
   name?: string;
   isActive?: boolean;
+  // null LIMPIA el mapeo; undefined lo deja intacto. La distinción es
+  // deliberada: sin ella no habría forma de revertir una configuración.
+  fieldMapping?: FieldMapping | null;
 }
 
 export async function updateSource(
@@ -90,9 +99,42 @@ export async function updateSource(
   input: UpdateSourceInput,
 ) {
   // 404 si no existe, no es de esta organización, o ya está borrada.
-  await getSourceById(organizationId, id);
+  const source = await getSourceById(organizationId, id);
 
-  const result = await updateSourceRepo(id, organizationId, input);
+  // LA RESTRICCIÓN POR TIPO SE APLICA ACÁ Y NO EN EL SCHEMA porque `type` no
+  // viaja en el PATCH: es inmutable (ver updateSourceSchema) y la única forma de
+  // conocerlo es leyendo la fila. El create sí puede validarlo en su schema.
+  //
+  // SE RECHAZA configurar un mapeo sobre una fuente que no sea FILE_IMPORT, en
+  // vez de aceptarlo y no consumirlo nunca. Las dos eran defendibles; lo decidió
+  // que `type` sea INMUTABLE. Un mapeo guardado en una fuente WEBHOOK no puede
+  // volverse útil más adelante, porque esa fuente nunca va a cambiar de tipo:
+  // aceptarlo sería persistir configuración que demostrablemente jamás se
+  // ejecuta, y quien la escribió se enteraría —si se entera— al ver que sus
+  // contactos no llegan mapeados. Rechazar convierte ese silencio en un 400 en
+  // el momento exacto del error.
+  //
+  // EXTERNAL_DB también se rechaza, y no por descuido: hoy no consume nada (§7
+  // lo pospone entero). Si el ítem 6 necesita un mapeo, va a definir su propia
+  // semántica y esta condición es de una línea.
+  if (input.fieldMapping !== undefined && source.type !== "FILE_IMPORT") {
+    throw new AppError(
+      "fieldMapping solo se puede configurar en una fuente de tipo FILE_IMPORT",
+      400,
+    );
+  }
+
+  const { fieldMapping, ...resto } = input;
+
+  const result = await updateSourceRepo(id, organizationId, {
+    ...resto,
+    // null -> Prisma.DbNull (SQL NULL). Sin la traducción, Prisma escribiría un
+    // JSON null: un valor presente, que haría que la promoción creyera que hay
+    // un mapeo configurado y vacío.
+    ...(fieldMapping !== undefined
+      ? { fieldMapping: fieldMapping === null ? Prisma.DbNull : fieldMapping }
+      : {}),
+  });
   if (result.count === 0) {
     throw new AppError("Fuente no encontrada", 404);
   }

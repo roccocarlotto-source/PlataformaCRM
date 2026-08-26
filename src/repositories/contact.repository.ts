@@ -159,3 +159,177 @@ export function softDeleteContact(
     data: { deletedAt: new Date() },
   });
 }
+
+// ---------------------------------------------------------------------------
+// PROMOCIÓN DESDE STAGING (ítem 4 de docs/ingestion-architecture.md).
+//
+// Es la única escritura de `contacts` que no viene de un usuario autenticado, y
+// la única que usa SQL crudo. Las dos cosas están relacionadas.
+//
+// POR QUÉ NO PUEDE SER prisma.contact.upsert(). La nota 9.5 lo anticipó y es
+// literal: `upsert` exige que el criterio de conflicto sea un único DECLARADO
+// EN EL DSL, y `contacts_org_email_unique` es un índice PARCIAL (vive en la
+// migración, invisible para Prisma) y desde M-13 además SOBRE EXPRESIÓN
+// (lower(email)). Ninguna de las dos formas es expresable en schema.prisma, así
+// que para Prisma ese índice no existe.
+//
+// Y §4 es tajante en que tiene que ser upsert y no insert: "un insert ciego
+// revienta contra esa restricción en cuanto llegue el segundo formulario del
+// mismo lead, que es el caso normal, no el borde".
+//
+// LA VENTAJA QUE 9.5 SEÑALA Y QUE ACÁ SE COBRA: la búsqueda ocurre DENTRO de la
+// misma sentencia, así que no hay un `lower()` que alguien pueda olvidar en un
+// camino de lectura separado, y no hay ventana entre "busqué" y "escribí" en la
+// que otra promoción del mismo email pueda colarse.
+//
+// LA POLÍTICA DE MERGE DE §4 ESTÁ EN EL `DO UPDATE SET`, NO EN TYPESCRIPT:
+//
+//   - "Un campo entrante nulo o vacío NUNCA pisa un valor existente en el CRM"
+//     y "un campo entrante con valor sí actualiza si el existente es nulo" son
+//     LA MISMA REGLA vista desde los dos lados, y las dos las expresa
+//     exactamente COALESCE(contacts.campo, excluded.campo): si el CRM tiene
+//     algo, gana; si no, entra lo que llegó. El vacío ya se convirtió en
+//     ausente en ingestContact.schema.ts, antes de llegar acá.
+//   - "Si ambos tienen valor y difieren, se conserva el del CRM" es el mismo
+//     COALESCE. El "y se deja registro" no puede vivir en SQL: lo arma el
+//     service comparando la fila devuelta contra el candidato (ver abajo).
+//   - lifecycleStage NO APARECE en el SET, ni en la lista de columnas del
+//     INSERT: la ingesta no lo escribe nunca. Al crear queda el default LEAD de
+//     la columna.
+//
+// `email` TAMPOCO SE ACTUALIZA, y es deliberado: el conflicto se resolvió por
+// lower(email), así que el entrante puede diferir solo en mayúsculas. §9.6 dice
+// que se guarda lo que la persona escribió, así que la fila del CRM conserva su
+// grafía.
+// ---------------------------------------------------------------------------
+
+export interface PromoteContactData {
+  organizationId: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  jobTitle?: string;
+  // Qué se escribe en Contact.source — ver la decisión en promotion.service.ts.
+  source: string;
+}
+
+export interface PromotedContact {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string | null;
+  phone: string | null;
+  jobTitle: string | null;
+  source: string | null;
+  // true = la fila ya existía y se actualizó; false = se creó.
+  actualizado: boolean;
+}
+
+// `xmax <> 0` es la forma estándar de distinguir INSERT de UPDATE en un
+// ON CONFLICT: en una fila recién insertada xmax es 0, y en una actualizada
+// lleva el id de la transacción que la tocó. Es información del sistema, no una
+// columna nuestra, y solo se usa para reportar e informar las notas — ninguna
+// decisión de datos depende de ella, así que el caso raro (una fila bloqueada
+// por una transacción abortada) no puede corromper nada.
+interface FilaPromovida {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  job_title: string | null;
+  source: string | null;
+  actualizado: boolean;
+}
+
+function aPromotedContact(fila: FilaPromovida): PromotedContact {
+  return {
+    id: fila.id,
+    firstName: fila.first_name,
+    lastName: fila.last_name,
+    email: fila.email,
+    phone: fila.phone,
+    jobTitle: fila.job_title,
+    source: fila.source,
+    actualizado: fila.actualizado,
+  };
+}
+
+export async function promoteContact(
+  data: PromoteContactData,
+  db: Db = prisma,
+): Promise<PromotedContact> {
+  // SIN EMAIL NO HAY DEDUPLICACIÓN POSIBLE, y §4 lo decide explícitamente:
+  // "Contactos sin email no se deduplican automáticamente. Se promueven como
+  // nuevos y se marcan para revisión manual."
+  //
+  // El índice es parcial —WHERE email IS NOT NULL— así que un ON CONFLICT acá
+  // no tendría contra qué arbitrar: Postgres rechazaría la sentencia. Es un
+  // INSERT liso, a propósito y por construcción. La marca de revisión manual la
+  // agrega el service.
+  if (data.email === undefined) {
+    const filas = await db.$queryRaw<FilaPromovida[]>`
+      INSERT INTO contacts (
+        organization_id, first_name, last_name, phone, job_title, source,
+        created_at, updated_at
+      )
+      VALUES (
+        ${data.organizationId}::uuid,
+        ${data.firstName},
+        ${data.lastName},
+        ${data.phone ?? null},
+        ${data.jobTitle ?? null},
+        ${data.source},
+        now(), now()
+      )
+      RETURNING
+        id, first_name, last_name, email, phone, job_title, source,
+        (xmax <> 0) AS actualizado
+    `;
+    return aPromotedContact(filas[0]);
+  }
+
+  // El predicado del ON CONFLICT repite el del índice palabra por palabra
+  // porque Postgres infiere el índice a partir de él. Si dejara de coincidir
+  // —por ejemplo si alguien cambiara el índice y no esto— Postgres respondería
+  // "no unique or exclusion constraint matching the ON CONFLICT specification"
+  // en vez de elegir otro índice en silencio. Falla ruidoso, que es lo que se
+  // quiere.
+  //
+  // `deleted_at IS NULL` en el predicado tiene una consecuencia real: un
+  // contacto con ese email pero borrado (soft delete) NO entra en conflicto, así
+  // que la promoción crea uno nuevo en vez de resucitar el borrado. Es el
+  // comportamiento que el índice ya definía para el camino HTTP; la promoción
+  // no lo cambia.
+  const filas = await db.$queryRaw<FilaPromovida[]>`
+    INSERT INTO contacts (
+      organization_id, first_name, last_name, email, phone, job_title, source,
+      created_at, updated_at
+    )
+    VALUES (
+      ${data.organizationId}::uuid,
+      ${data.firstName},
+      ${data.lastName},
+      ${data.email},
+      ${data.phone ?? null},
+      ${data.jobTitle ?? null},
+      ${data.source},
+      now(), now()
+    )
+    ON CONFLICT (organization_id, lower(email))
+      WHERE email IS NOT NULL AND deleted_at IS NULL
+    DO UPDATE SET
+      first_name = COALESCE(contacts.first_name, excluded.first_name),
+      last_name  = COALESCE(contacts.last_name,  excluded.last_name),
+      phone      = COALESCE(contacts.phone,      excluded.phone),
+      job_title  = COALESCE(contacts.job_title,  excluded.job_title),
+      source     = COALESCE(contacts.source,     excluded.source),
+      updated_at = now()
+    RETURNING
+      id, first_name, last_name, email, phone, job_title, source,
+      (xmax <> 0) AS actualizado
+  `;
+
+  return aPromotedContact(filas[0]);
+}

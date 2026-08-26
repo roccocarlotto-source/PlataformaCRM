@@ -1,4 +1,4 @@
-import type { Prisma, SourceType } from "@prisma/client";
+import { Prisma, type SourceType } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 export interface SourceFilters {
@@ -18,16 +18,24 @@ export type SortOrder = "asc" | "desc";
 // los índices de estas tablas nacieron bien mientras las viejas siguen sin los
 // suyos: lo nuevo no hereda el defecto de lo viejo. No armonizar hacia atrás.
 //
-// fieldMapping queda AFUERA a propósito: es una columna que todavía nadie
-// escribe y cuya forma define el ítem 4 (ver el listado de columnas sin
-// escribir en la bitácora). Exponer un JSONB sin semántica definida es
-// comprometerse con un contrato que todavía no existe.
+// fieldMapping SÍ figura acá desde el ítem 5, que es el que le dio forma
+// (schemas/fieldMapping.schema.ts) y consumidor (la traducción de una fila de
+// archivo, en promotion.service.ts). El ítem 3 la había dejado afuera porque el
+// documento la declaraba "JSONB" y nada más —ni forma, ni claves, ni quién la
+// consume— y exponerla entonces habría sido comprometerse con un contrato
+// inexistente.
+//
+// Se expone porque un ADMIN que la configura por PATCH tiene que poder leer qué
+// quedó guardado: una columna de configuración que solo se puede escribir es
+// una que nadie puede auditar. No contiene secretos — son nombres de columnas
+// de una planilla.
 const SOURCE_PUBLIC_SELECT = {
   id: true,
   organizationId: true,
   name: true,
   type: true,
   isActive: true,
+  fieldMapping: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.SourceSelect;
@@ -103,6 +111,7 @@ export interface CreateSourceData {
   name: string;
   type: SourceType;
   isActive?: boolean;
+  fieldMapping?: Prisma.InputJsonValue;
 }
 
 export function createSource(data: CreateSourceData, db: Db = prisma) {
@@ -112,6 +121,12 @@ export function createSource(data: CreateSourceData, db: Db = prisma) {
 export interface UpdateSourceData {
   name?: string;
   isActive?: boolean;
+  // Prisma.DbNull escribe SQL NULL (limpiar el mapeo); un objeto lo reemplaza.
+  // NO se acepta el `null` de JS a secas: sobre una columna Json nullable Prisma
+  // lo interpreta como JSON null, que es un valor PRESENTE y distinto de SQL
+  // NULL — la promoción vería "hay un mapeo configurado" y trataría de traducir
+  // con él.
+  fieldMapping?: Prisma.InputJsonValue | typeof Prisma.DbNull;
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir

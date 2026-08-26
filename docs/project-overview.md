@@ -56,7 +56,7 @@ actividades.
 | **TypeScript** (`strict: true`) | Lenguaje del backend | `tsconfig.json` fuerza modo estricto — tipado fuerte de punta a punta, incluso antes de que exista código de aplicación. |
 | **Node.js** | Runtime | Implícito por `package.json`/`tsconfig`. |
 | **tsx** | Runner de desarrollo TS | Dependencia de desarrollo (`devDependencies`), pensado para correr TS sin compilar en cada cambio. |
-| **Prisma ORM 5.20** (`@prisma/client`, `prisma`) | Acceso a datos type-safe + migraciones | Es la única capa de aplicación que existe hoy: `prisma/schema.prisma` define 10 modelos. Scripts en `package.json`: `prisma:generate`, `prisma:validate`, `prisma:studio`. |
+| **Prisma ORM 5.20** (`@prisma/client`, `prisma`) | Acceso a datos type-safe + migraciones | Es la única capa de aplicación que existe hoy: `prisma/schema.prisma` define 13 modelos. Scripts en `package.json`: `prisma:generate`, `prisma:validate`, `prisma:studio`. |
 | **PostgreSQL** | Motor de base de datos | `datasource db { provider = "postgresql" }` en el schema. |
 | **Supabase** (Auth + Postgres hosting) | Autenticación gestionada + hosting de la DB | Proyecto real provisionado y conectado (`.env` completo). El modelo `User` está diseñado para compartir `id` con `auth.users` (tabla gestionada por Supabase). |
 | **Supavisor** (pooler compartido de Supabase — no PgBouncer clásico; confirmado en LOW-2 contra la documentación oficial vigente de Supabase, sección 8) | Pooling de conexiones para runtime | `.env.example` distingue `DATABASE_URL` (mismo host `*.pooler.supabase.com`, puerto 6543, Supavisor en **modo transacción**, `?pgbouncer=true` — bandera correcta y soportada para ese modo, ver sección 8) de `DIRECT_URL` (mismo host, puerto 5432, Supavisor en **modo sesión** — no una conexión directa a Postgres, pese al nombre de la variable — solo para `prisma migrate`) — patrón estándar de Supabase + Prisma: Prisma Migrate no funciona bien a través del modo transacción. |
@@ -103,7 +103,7 @@ Plataforma CRM/
 │                                  #   (prisma/*.ts se ejecuta con tsx, no con tsc).
 ├── README.md                     # Quickstart + explicación de cada carpeta de src/.
 ├── prisma/
-│   ├── schema.prisma               # 10 modelos + 4 enums (ver sección 4).
+│   ├── schema.prisma               # 13 modelos + 6 enums (ver sección 4).
 │   ├── seed.ts                     # Seed idempotente del catálogo Role (ADMIN/USER).
 │   ├── migrations/                  # Inicial + la que agrega organizationId/deletedAt
 │   │                                 #   a Stage + la que agrega el índice
@@ -715,11 +715,119 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
     residual documentado que `onboarding.service.ts` para su propia
     compensación.
 
+### `Source`
+- **Propósito**: origen declarado de datos entrantes de una organización — de dónde
+  llegan los contactos que nadie carga a mano. ✅ Módulo completo
+  (`POST/GET/GET :id/PATCH/DELETE /api/sources`, ADMIN-only).
+- **Relaciones**: pertenece a `Organization`. Tiene `ApiKey[]` e `IngestionEvent[]`,
+  ambas por **FK compuesta** `(organizationId, id)` — no por `id` suelto (ver
+  sección 5).
+- **Decisiones importantes**: `type` (enum `SourceType`:
+  `WEBHOOK | FILE_IMPORT | EXTERNAL_DB`) es **inmutable después de crear** — de él
+  depende qué contrato de payload aplica la promoción, así que cambiarlo
+  reinterpretaría eventos ya guardados. `EXTERNAL_DB` está declarado en el enum pero
+  **no construido**: es el ítem 6, pospuesto por decisión explícita (ver sección 7 y
+  8). `fieldMapping` (JSONB nullable) solo se acepta en fuentes `FILE_IMPORT`;
+  configurarla sobre una `WEBHOOK`/`EXTERNAL_DB` se rechaza con `400`, porque `type`
+  es inmutable y ese mapeo nunca podría llegar a ejecutarse
+  (`docs/ingestion-architecture.md` §9.8). `isActive` es una **pausa que aplica a
+  todas las puertas de entrada** de la fuente, no solo a la automática: con
+  `isActive: false` tanto el webhook como la importación de archivo rechazan. Soft
+  delete (`deletedAt`), y retirar una `Source` **revoca sus claves en cascada** —
+  `authenticateApiKey` valida la fuente en el mismo `SELECT` que la clave, así que
+  no quedan credenciales vivas apuntando a una fuente que ya no existe (§9.4).
+  `@@unique([organizationId, id])` no es una regla de negocio (`id` ya es único):
+  existe para ser el **destino** de las FKs compuestas de `ApiKey` e
+  `IngestionEvent`. Es la primera entidad del proyecto **sin** `@@index([organizationId])`
+  suelto — el compuesto `(organization_id, created_at)` ya cubre cualquier
+  `WHERE organization_id = ?`, así que el índice de una columna sería peso muerto
+  (las 6 entidades viejas lo tienen porque nacieron antes de esa observación — ver
+  A-6 en `scripts/verify-schema.ts`).
+
+### `ApiKey`
+- **Propósito**: credencial de ingesta de una `Source`. Es el **segundo camino de
+  autenticación** del proyecto — sin usuario detrás, para un emisor externo que no
+  tiene sesión (`docs/ingestion-architecture.md` §3). ✅ Módulo completo
+  (`POST/GET /api/api-keys`, `DELETE /api/api-keys/:id`, ADMIN-only).
+- **Relaciones**: pertenece a `Organization` y a una `Source`, esta última por FK
+  compuesta `(organizationId, sourceId) → sources(organizationId, id)`.
+- **Decisiones importantes**: se guarda **solo el hash** (`keyHash`, único global),
+  nunca la clave. **SHA-256 sin sal, deliberadamente y no por descuido**: §3 exige
+  "leer la clave, hashearla, buscar la fila", y bcrypt/scrypt/argon2 producen una sal
+  por fila, así que no habría ningún valor que buscar por igualdad — sería O(n) por
+  request en el camino más caliente del sistema. La analogía con contraseñas es la
+  que está mal: una API key la genera el servidor con 256 bits de un CSPRNG
+  (`randomBytes`), así que el espacio de búsqueda hace irrelevante el costo por
+  intento, y una sal no aporta nada sobre entradas que no se repiten ni se
+  precomputan. **La seguridad no vive en el algoritmo de hash sino en el generador**
+  (§9.3): si `randomBytes` se debilitara, nada del resto del sistema lo compensa.
+  `keyPrefix` (`VarChar(16)`) guarda el tramo inicial legible para poder identificar
+  una clave en un listado o en un ticket **sin** almacenarla; la clave en claro se
+  devuelve **una sola vez**, en la respuesta de creación. `revokedAt` en vez de
+  `deletedAt`, y **sin** `deletedAt`: acá "removida" ya tiene nombre propio, y agregar
+  un soft delete encima obligaría a explicar en qué se diferencia de una revocación
+  (mismo criterio que `Invitation` con su `status`). La revocación es una escritura
+  **condicional**, no un `UPDATE` ciego. `lastUsedAt` **no** se escribe en cada
+  autenticación: es la primera columna del proyecto en el camino caliente, y un
+  `UPDATE` por request sobre la misma fila crearía una versión muerta por request
+  (MVCC) serializando contra el mismo row lock. Se escribe como mucho una vez por
+  minuto (`LAST_USED_AT_GRANULARITY_MS`), con la condición **dentro** del propio
+  `UPDATE` y no en un caché de proceso — así la ventana sigue valiendo con varias
+  instancias, porque la evalúa Postgres, que es uno solo. Para la pregunta que el
+  dato responde ("¿esta clave sigue viva o la puedo revocar?") un minuto de
+  resolución es indistinguible de un milisegundo.
+  El índice `(organizationId, sourceId, createdAt)` cubre dos cosas con una sola
+  estructura: el lado **referenciante** de la FK compuesta —que Postgres no indexa por
+  su cuenta— y el listado "claves de esta fuente" ya ordenado.
+  Es además la única tabla del esquema con RLS activa y **ninguna política**
+  (deny-all para todo rol sin `BYPASSRLS`), a propósito: guarda material
+  criptográfico y su hash no debe ser legible por ningún camino que no sea
+  Express — que sí bypassea RLS. Ver sección 7 (Seguridad).
+
+### `IngestionEvent`
+- **Propósito**: **staging**. Cada fila entrante se guarda cruda antes de convertirse
+  en un `Contact`, y sobrevive a la promoción. Es lo que hace cierto el principio
+  rector de §1 de `docs/ingestion-architecture.md`: poder *"corregir un mapeo y volver
+  a correrlo"*. Sin CRUD propio — se escribe por `POST /api/ingest` (webhook) y
+  `POST /api/imports` (archivo), y se consulta agregado por
+  `GET /api/imports/:batchId`.
+- **Relaciones**: pertenece a `Organization` y a una `Source` (FK compuesta).
+  `promotedContact` (`Contact?`, FK compuesta, `onDelete: NoAction`) apunta al contacto
+  que la fila terminó creando o actualizando.
+- **Decisiones importantes**: **`rawPayload` (JSONB) guarda la fila con sus claves
+  ORIGINALES, sin traducir.** Es el invariante central de toda la capa: si la
+  traducción por `fieldMapping` ocurriera al escribir a staging, un mapeo mal
+  configurado sería **irreversible** y habría que pedir el archivo de nuevo. La
+  traducción vive en la promoción (§9.8). **Idempotencia en la base, no en el
+  código**: único **parcial** `(source_id, external_id) WHERE external_id IS NOT NULL`
+  (`migration.sql` de `20260824120000`) — un webhook que reintenta y un Excel que se
+  sube dos veces chocan ahí. No lleva `organizationId` porque `source_id` ya
+  determina la organización vía la FK compuesta. Los eventos **sin** `externalId` no
+  se deduplican entre sí: se promueven como nuevos y se marcan para revisión manual.
+  `status` (enum `IngestionStatus`: `PENDING | PROCESSED | FAILED | DUPLICATE`) —
+  la cola del worker usa un índice **parcial** `WHERE status = 'PENDING'` que no
+  empieza por `organizationId` (el worker drena todas las organizaciones), y ser
+  parcial es lo que hace que la cola pese lo que pesa el backlog en vez de arrastrar
+  cada fila `PROCESSED` para siempre. `errorMessage` significa **una sola cosa**: por
+  qué falló. Lo que la promoción decidió sin fallar —campos donde el CRM y el dato
+  entrante diferían y ganó el CRM, contactos sin email marcados para revisión— va en
+  `promotionNotes` (JSONB, forma en `src/types/promotion.ts`), justamente para no
+  sobrecargar `errorMessage` con información de filas exitosas. `batchId` (nullable)
+  agrupa las filas de **una** importación de archivo; `NULL` significa "no vino de un
+  lote" y es el estado permanente de los eventos de webhook, que llegan de a uno. Los
+  contadores del lote **se derivan con un `GROUP BY`**, no se persisten — con la
+  consecuencia documentada en §9.9: el `batchId` de una re-subida cuyas filas ya
+  existían no tiene eventos propios, y su `GET` devuelve `404`. **Sin `deletedAt`**:
+  es un log de ingesta, se purga por antigüedad, no se soft-deletea.
+
 ### Enums
 - `ActivityType`: `CALL | MEETING | EMAIL | TASK | NOTE`
 - `LifecycleStage`: `LEAD | MQL | SQL | CUSTOMER | CHURNED`
 - `OpportunityStatus`: `OPEN | WON | LOST`
 - `InvitationStatus`: `PENDING | ACCEPTED | REVOKED | EXPIRED`
+- `SourceType`: `WEBHOOK | FILE_IMPORT | EXTERNAL_DB` — `EXTERNAL_DB` está
+  declarado pero no construido (ítem 6, pospuesto; ver secciones 7 y 8)
+- `IngestionStatus`: `PENDING | PROCESSED | FAILED | DUPLICATE`
 
 ---
 
@@ -755,17 +863,21 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   schema principal declarativo y en Prisma, y aísla lo "no estándar" en un solo lugar
   documentado.
 
-- **Soft delete (`deletedAt`) en 8 de los 10 modelos.** `Organization`,
-  `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity` y
-  `User` lo tienen. `Stage` lo agregó durante la implementación de
+- **Soft delete (`deletedAt`) en 9 de los 13 modelos.** `Organization`,
+  `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity`,
+  `User` y `Source` lo tienen. `Stage` lo agregó durante la implementación de
   `Pipeline`/`Stage`; `User` lo agregó en la migración de `Invitation`
   (`20260711192539_invitation_and_user_deleted_at`, ver sección 7), con
-  semántica distinta de `isActive` (ver sección 4). Los dos modelos sin
+  semántica distinta de `isActive` (ver sección 4). Los cuatro modelos sin
   `deletedAt` no comparten el mismo motivo: `Role` es un catálogo global sin
   ciclo de vida propio; `Invitation` lo omite deliberadamente porque su
   ciclo de vida ya está representado por `status`
   (`PENDING | ACCEPTED | REVOKED | EXPIRED`, ver sección 4) — agregar
-  `deletedAt` encima sería redundante con esos estados terminales.
+  `deletedAt` encima sería redundante con esos estados terminales; `ApiKey`
+  usa `revokedAt` por el mismo razonamiento que `Invitation` (revocar ya es
+  el nombre propio de "removida", y un soft delete encima obligaría a explicar
+  en qué se diferencia); `IngestionEvent` es un log de ingesta que se purga por
+  antigüedad, no una entidad que alguien retire (ver sección 4).
 
 - **Roles simples y globales, no permisos granulares.** `Role` es un catálogo sin scope
   por organización, explícitamente diseñado para poder agregar
@@ -905,7 +1017,7 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   real.
 
 **Base de datos**
-- ✅ `schema.prisma` completo: 10 modelos, 4 enums, relaciones, índices. `Stage`
+- ✅ `schema.prisma` completo: 13 modelos, 6 enums, relaciones, índices. `Stage`
   ganó `organizationId` y `deletedAt` en la migración de ese módulo; `User` ganó
   `deletedAt` en la migración de `Invitation` (ver sección 4).
 - ✅ Cinco migraciones aplicadas contra la base real (inicial, la de `Stage`, la
@@ -2141,8 +2253,15 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   explícitamente como "solo backend, nunca exponer al cliente ni commitear".
 - ✅ Integridad de datos reforzada a nivel DB (`CHECK` constraints, índices únicos
   parciales), verificada contra la base real.
-- ✅ Row Level Security habilitado en las 10 tablas de negocio
-  (`prisma/sql/rls_policies.sql`) — defensa **secundaria**, no reemplaza la
+- ✅ Row Level Security habilitado en las 13 tablas de negocio
+  (`prisma/sql/rls_policies.sql` para las 10 originales;
+  `sources`/`api_keys`/`ingestion_events` lo activan en su propia migración,
+  `20260824120000_ingestion_layer_models`, con una excepción deliberada:
+  `api_keys` queda con RLS activa y **cero políticas**, o sea deny-all para
+  cualquier rol sin `BYPASSRLS` — es la única tabla del esquema que guarda
+  material criptográfico, y su hash no debe ser legible por ningún camino que no
+  sea el backend, ni siquiera por un ADMIN vía PostgREST) — defensa
+  **secundaria**, no reemplaza la
   disciplina de filtrar por `organizationId` en Prisma (ver sección 5 de
   `authentication-architecture.md`; Prisma se conecta con un rol equivalente a
   `service_role`, que tiene `BYPASSRLS`, así que estas políticas no protegen el
@@ -2166,6 +2285,68 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   Reproducido y verificado con un token real de Supabase (login real +
   request autenticado), no solo con un token de prueba armado a mano.
 
+**Capa de ingesta** (`docs/ingestion-architecture.md`) — ítems 1 a 5 del orden de
+construcción de §6 de ese documento, cerrados entre el 2026-08-23 y el 2026-08-26.
+- ✅ **Ítem 1 — CI con Postgres y test de aislamiento corriendo solo.** Requisito
+  previo a cualquier cosa de ingesta, y satisfecho por el trabajo de ALTO-1 etapa 2
+  (`b301e77`, 2026-08-23), no por un commit rotulado "ingesta":
+  `.github/workflows/ci.yml` con tres jobs (`backend`, `frontend`, `integration`).
+  El de integración levanta el stack local de Supabase, **reconstruye la base desde
+  cero** (migraciones + SQL manual), siembra el catálogo de roles, corre
+  `verify:schema` y la suite de integración completa —incluido
+  `src/repositories/tenant-isolation.integration-test.ts`—.
+- ✅ **Ítem 2 — Modelos, migraciones y aislamiento** (`1951b6a`): `Source`, `ApiKey`
+  e `IngestionEvent` (ver sección 4), con FK **compuestas** por
+  `(organizationId, id)`, el único parcial de idempotencia, los índices parciales de
+  la cola del worker y RLS habilitado en las tres tablas.
+- ✅ **Ítem 3 — Gestión de API keys** (`c4cf2a4`): `POST/GET/GET :id/PATCH/DELETE
+  /api/sources` y `POST/GET /api/api-keys`, `DELETE /api/api-keys/:id`, todos
+  ADMIN-only por el camino de auth **existente** (`authenticate` + `authorize`).
+  Clave en claro devuelta una sola vez; retirar una `Source` revoca sus claves en
+  cascada.
+- ✅ **Ítem 4 — Webhook de landing page** (`c818bb1`, `26ff12a`): `POST /api/ingest`
+  con `authenticateApiKey` (segundo camino de auth, sin usuario), su propio parser
+  con tope de 64 KB montado **antes** del `express.json()` global, rate limit por
+  clave configurable por entorno, y el worker de promoción staging → `Contact` que
+  cierra el ciclo completo.
+- ✅ **Ítem 5 — Importación de Excel/CSV** (`c76b47c`, `a02f142`): `POST /api/imports`
+  (multipart vía multer, CSV y XLSX, tope de 10 MB y de 10.000 filas) y
+  `GET /api/imports/:batchId` con los contadores del lote derivados por `GROUP BY`.
+  El `fieldMapping` por columna se aplica **al promover**, nunca al parsear.
+
+**Verificación**: `npm run typecheck` (los tres proyectos de TS), `npm test`
+(115 tests unitarios, sin base de datos), `npm run test:integration` (155 tests
+contra Postgres y Supabase Auth reales) y `npm run verify:schema` (9 afirmaciones
+de esquema) — los cuatro en verde sobre el deliverable final.
+
+**Cómo se revisó — y en qué se diferencia del resto de esta sección.** Este trabajo
+**no pasó por los reviews del Toolkit** (`RV-ENG` / `RV-SECURITY` / `RV-STANDARDS`)
+que respaldan las entradas de M2 a M5 de más arriba: esos no se ejecutaron acá, y no
+hay ningún verdicto suyo que citar. La revisión fue de otra naturaleza —**auditoría
+en conversación contra el repositorio real**, hallazgo por hallazgo, verificando cada
+afirmación contra el código en vez de contra la memoria de lo que se había
+construido—. No es equivalente ni intercambiable con un `PASS` del Toolkit, y se
+deja anotado así a propósito para que nadie lo lea como si lo fuera.
+
+Encontró cosas reales: `importRouter` estaba escrito, tipado y con su propio test de
+integración en verde pero **nunca se había montado**, así que `/api/imports` daba
+`404` en runtime (`a02f142`). El agujero estructural detrás de eso —ningún test del
+proyecto tocaba la app compuesta, porque cada uno arma su propio Express y monta el
+router a mano— quedó cerrado con `src/routes/index.test.ts`, que levanta la app real
+y distingue el `401` de una ruta montada del `404` de `notFound`.
+
+**Ítem 6 — bases de datos externas: pospuesto por decisión explícita, no pendiente
+sin decidir.** §7 de `docs/ingestion-architecture.md` lo recomienda expresamente
+(*"Recomendación explícita: **posponerlo.** Cubrir primero los casos de *push*
+(webhook y archivo)"*), porque conectarse al Postgres o MySQL de un cliente implica
+guardar credenciales de infraestructura ajena y eso cambia el perfil de riesgo del
+producto entero: *"deja de ser 'si me vulneran se filtran datos de mi CRM' y pasa a
+ser 'si me vulneran, entro a la base de mis clientes'"*. Las tres decisiones que
+hacen falta antes de construirlo, textuales: **"dónde y cómo se cifran esas
+credenciales, si la conexión es de solo lectura y cómo se garantiza, y qué
+responsabilidad legal implica"**. El enum `SourceType` ya declara `EXTERNAL_DB`, pero
+no hay ningún código que lo consuma. Ver sección 8.
+
 ---
 
 ## 8. Próximos pasos recomendados
@@ -2188,6 +2369,13 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    el SMTP por defecto, 30/hora con SMTP propio recién configurado). No es un
    bug del código: es una limitación de configuración externa que hay que
    resolver antes de usar `Invitation` con usuarios reales en producción.
+   **Reverificado el 2026-08-26 contra el Dashboard de Supabase —no contra el
+   código—: sigue pendiente.** El matiz importa para saber de dónde sale el
+   dato: a diferencia del punto 5, este no depende de nada del repositorio, así
+   que ningún grep ni test puede confirmarlo, solo la configuración real del
+   proyecto. En Authentication → Emails → SMTP Settings, el toggle "Enable
+   custom SMTP" está **apagado**: el proyecto sigue con el servicio de email por
+   defecto de Supabase y su límite de 2/hora.
    **LOW-3 (2026-07-12)**: las dos ramas de `createInvitation` que resuelven
    antes de esta llamada (email ya es un `User` existente, ya existe una
    `Invitation` PENDING) ya tienen cobertura persistente contra Postgres real
@@ -2308,7 +2496,34 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    sección 7 — M5 sí agregó el selector para Opportunity porque ahí es
    un campo central del formulario, no solo un filtro de listado;
    extenderlo a Company/Contact queda pendiente, es la misma
-   `GET /api/users` ya consumida).
+   `GET /api/users` ya consumida). **Reverificado el 2026-08-26 contra el código:
+   sigue pendiente** — `UserSelect` se importa únicamente desde
+   `OpportunityFormPage` y `ActivityFormPage`; ni `CompanyFormPage`/`CompanyListPage`
+   ni `ContactFormPage`/`ContactListPage` lo usan, y el soporte de `ownerId` en esos
+   dos módulos sigue siendo solo de capa API (tipos + serialización de query).
+
+6. **Capa de ingesta — ítem 6: bases de datos externas (`SourceType.EXTERNAL_DB`).**
+   Único ítem del orden de construcción de `docs/ingestion-architecture.md` §6 que
+   queda sin construir, y **pospuesto por decisión explícita de §7 de ese documento,
+   no por falta de tiempo**: los ítems 1 a 5 (webhook y archivo) cubren los casos de
+   *push*, que resuelven la mayoría de las necesidades reales sin asumir el riesgo
+   que este agrega. Conectarse al Postgres o MySQL de un cliente implica guardar
+   credenciales de infraestructura ajena, y eso cambia el perfil de riesgo del
+   producto entero: *"deja de ser 'si me vulneran se filtran datos de mi CRM' y pasa
+   a ser 'si me vulneran, entro a la base de mis clientes'"*.
+
+   Las tres decisiones que hacen falta **antes** de escribir una línea de esto, y que
+   hoy no están tomadas, textuales de §7: **"dónde y cómo se cifran esas
+   credenciales, si la conexión es de solo lectura y cómo se garantiza, y qué
+   responsabilidad legal implica"**. Ninguna de las tres es una decisión de
+   implementación — son de producto y de riesgo legal, y no se resuelven eligiendo
+   una librería.
+
+   §7 agrega además una condición de salida que no es opcional: cuando llegue el
+   momento, **esta parte necesita revisión de alguien con experiencia en seguridad
+   antes de salir a producción**. El enum ya declara `EXTERNAL_DB` (ver sección 4),
+   pero no hay ningún código que lo consuma, y crear una `Source` de ese tipo no
+   habilita ninguna vía de ingesta.
 
 ---
 
@@ -2359,12 +2574,14 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
 - **Asimetría en soft delete — resuelta para las entidades que la necesitaban.**
   `Stage` y `User` ya tienen `deletedAt` (`User` agregado en el módulo
   `Invitation`, con semántica distinta de `isActive` — ver sección 4). De los
-  10 modelos, quedan 2 sin `deletedAt`, sin ser la misma asimetría que
+  13 modelos, quedan 4 sin `deletedAt`, ninguno por la asimetría que
   `User`/`Stage` tenían: `Role` sigue sin `deletedAt` porque es un catálogo
   global sin ciclo de vida propio; `Invitation` tampoco lo tiene, pero de
   forma deliberada — su ciclo de vida ya está representado por `status`
   (`PENDING | ACCEPTED | REVOKED | EXPIRED`, ver sección 4), no por ausencia
-  de resolver (ver también sección 5).
+  de resolver; y los dos de la capa de ingesta tampoco, también a propósito —
+  `ApiKey` representa la remoción con `revokedAt` e `IngestionEvent` es un log
+  que se purga por antigüedad (ver también sección 5).
 
 - **Email de Supabase Auth único a nivel de todo el proyecto, no por
   organización — y no se libera al revocar/vencer una invitación.** Invitar un

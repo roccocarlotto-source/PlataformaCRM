@@ -433,3 +433,123 @@ un valor existente en el CRM".
   que hacer lo mismo; el CHECK `email = btrim(email)` es el respaldo que hace
   imposible saltearlo, no el mecanismo. Una fila que llegue con espacios se
   marca `FAILED` con su mensaje y el lote sigue (sección 5).
+
+### 9.7 La política CORS de `/api/ingest` es una decisión pendiente
+
+*(2026-08-25, al cerrar el ítem 4.)*
+
+El endpoint de ingesta hereda la política CORS global de `app.ts` —restrictiva,
+acotada a los orígenes de `CORS_ORIGIN`— y **se decidió explícitamente no
+tocarla en esta etapa**. Queda anotado porque una política heredada sin decidir
+y una política heredada a propósito se ven exactamente igual en el código, y la
+diferencia recién aparece cuando algo falla.
+
+Lo que falta para poder decidirla es un dato que todavía no existe: **quién es
+el llamador real**.
+
+- Si el webhook lo dispara **JavaScript de navegador** desde la landing page,
+  `CORS_ORIGIN` tiene que incluir ese dominio o el preflight lo bloquea. Pero
+  ese escenario arrastra un problema mayor que el CORS: la clave de ingesta
+  tendría que vivir en JavaScript de cara al público, o sea ser pública. Eso
+  contradice todo lo que §3 y §9.3 sostienen sobre la clave, y la respuesta
+  correcta probablemente no sea abrir el CORS sino un proxy del lado del
+  servidor de la landing.
+- Si es **server-to-server** —el backend de la landing, un Zapier, un CRM
+  ajeno— CORS no interviene: no hay navegador, no hay origen, no hay preflight.
+  La política actual ya es la correcta y no hay nada que cambiar.
+
+Es decir: **no es una decisión de CORS, es una decisión sobre dónde vive la
+clave**, y por eso no se resuelve eligiendo un valor de configuración. Relajar
+el origen "por las dudas" ahora sería tomar la peor de las dos ramas sin
+haberla elegido.
+
+Queda como requisito abierto, a resolver cuando haya una integración real
+enfrente.
+
+### 9.8 Dónde terminó viviendo `fieldMapping`
+
+*(2026-08-25, al construir el ítem 5.)*
+
+La sección 2 declara `fieldMapping` como "JSONB" y nada más. Eso dejó abierto
+quién la define y quién la consume, y durante el ítem 4 el proyecto llegó a
+sostener las dos respuestas a la vez: §6.5 la ubicaba en el ítem 5 —"lo nuevo
+es parseo, **mapeo de columnas** y volumen"— mientras la bitácora del
+2026-08-24 §13 y tres comentarios del código decían que la escribía el ítem 4.
+
+Queda resuelto y construido así:
+
+- **La define y la consume el ítem 5.** Forma: un mapa plano
+  `{ "<encabezado del archivo>": "<campo de Contact>" }`, validado en
+  `src/schemas/fieldMapping.schema.ts`. Los destinos están restringidos a los
+  mismos cinco campos que reconoce `ingestContactSchema`: cambia **cómo se
+  llega** al contrato de contacto, nunca el contrato.
+- **Solo en fuentes `FILE_IMPORT`.** Configurarla sobre una `WEBHOOK` o una
+  `EXTERNAL_DB` se rechaza con 400. El motivo decisivo es que `type` es
+  inmutable: un mapeo guardado en una fuente webhook nunca podría volverse
+  útil, así que aceptarlo sería persistir configuración que demostrablemente no
+  se ejecuta jamás.
+- **El webhook no cambió.** Sigue con el contrato fijo del ítem 4.
+
+Y la parte que importa más que las tres anteriores:
+
+- **La traducción ocurre AL PROMOVER, no al parsear el archivo.** En staging
+  la fila se guarda con sus encabezados **originales**. Es lo que hace cierta
+  la promesa de la sección 1 —"corregir un mapeo y volver a correrlo"—: si la
+  traducción ocurriera al escribir a staging, un mapeo mal configurado sería
+  irreversible y habría que pedir el archivo de nuevo, que para un Excel de una
+  feria de hace tres meses significa que el dato se perdió.
+
+`Source.fieldMapping` pasa además a estar **expuesta** en la API de `Source`:
+quien la configura tiene que poder leer qué quedó guardado.
+
+### 9.9 Las filas duplicadas de una re-subida no aparecen en el lote nuevo
+
+*(2026-08-26, al cerrar el ítem 5.)*
+
+Subir dos veces el mismo archivo no duplica nada —§4 lo exige y así funciona—,
+pero **la forma concreta en que no duplica tiene una consecuencia visible que
+conviene tener escrita**, porque desde afuera se parece a datos perdidos sin
+serlo.
+
+El `INSERT ... ON CONFLICT DO NOTHING` de la segunda subida no inserta las
+filas que ya existían. Esas filas **siguen perteneciendo al lote que las trajo
+la primera vez**: no se reasignan al `batchId` nuevo ni se copian a él. Por lo
+tanto:
+
+- La respuesta del `POST /api/imports` de la segunda subida informa
+  `duplicados: N` — y **esa respuesta es la única superficie donde el número es
+  visible en el momento**.
+- Consultar más tarde `GET /api/imports/:batchId` con el `batchId` de esa
+  segunda subida **devuelve 404**, no un resumen en cero. `getResumenDeLote`
+  deriva todo de un `GROUP BY` y no distingue "lote sin eventos propios" de
+  "lote inexistente": las dos cosas dan total 0, y las dos contestan lo mismo.
+  Para la API, ese lote nunca existió.
+
+Es decir: el dato del re-envío es **efímero**. Si nadie miró la respuesta del
+POST, después no hay dónde recuperarlo.
+
+**Por qué se acepta así, y no es un descuido:**
+
+- **No hay pérdida de datos.** Las filas duplicadas están intactas y son
+  consultables — bajo el lote original, que es el que efectivamente las
+  ingirió. Lo que se pierde no es un contacto: es la anotación de que alguien
+  volvió a subir el mismo archivo.
+- **La alternativa rompe algo más grande.** Para que el lote nuevo mostrara
+  esas filas, un `IngestionEvent` tendría que poder pertenecer a dos lotes, o
+  bien duplicarse. Y toda la consultabilidad del lote se deriva hoy de un
+  `GROUP BY` sobre `batch_id` (§9.2): un evento con más de un dueño convierte
+  esa derivación en un conteo doble, y hace que cada total del resumen deje de
+  cerrar. Es cambiar una rareza acotada y sin consecuencias por una incorrección
+  sistemática en todos los lotes.
+
+Si algún día hace falta que el re-envío deje rastro consultable, el lugar
+correcto **no** es el evento sino una entidad de lote propia —con sus
+contadores materializados al momento de la subida—, que es exactamente lo que
+§9.2 dejó fuera del alcance del ítem 2. Hasta entonces:
+
+**Esto es deuda anotada, no un pendiente sin decidir.** Se evaluó, se eligió, y
+el comportamiento está fijado por tests: `subir el MISMO archivo dos veces no
+duplica` en `import.controller.integration-test.ts` afirma las tres cosas —el
+`duplicados: 2` de la respuesta del POST, el `0` de eventos bajo el segundo
+lote, y el 404 del GET sobre ese `batchId`—. Si alguna de las tres cambiara,
+esta nota queda desactualizada y el test lo dice antes que nadie.

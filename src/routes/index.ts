@@ -4,6 +4,7 @@ import { apiKeyRouter } from "./apiKey.routes";
 import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
 import { healthRouter } from "./health.routes";
+import { importRouter } from "./import.routes";
 import { invitationRouter } from "./invitation.routes";
 import { meRouter } from "./me.routes";
 import { onboardingRouter } from "./onboarding.routes";
@@ -30,8 +31,26 @@ routes.use("/api", activityRouter);
 routes.use("/api", invitationRouter);
 routes.use("/api", userRouter);
 
-// Capa de ingesta (docs/ingestion-architecture.md). Administración por el
-// camino de auth existente; las rutas de ingesta propiamente dichas son el
-// ítem 4 y van a montar su propio middleware.
+// Capa de ingesta (docs/ingestion-architecture.md). Todo lo que se monta acá
+// va por el camino de auth EXISTENTE —authenticate + authorize("ADMIN")— y por
+// eso vive junto al resto de las rutas administrativas:
+//
+//   - sourceRouter / apiKeyRouter: administración de las fuentes y de sus
+//     claves de ingesta.
+//   - importRouter: la subida de Excel/CSV del ítem 5. Es la SEGUNDA vía de
+//     entrada de datos y no usa API key en ningún momento: del otro lado hay
+//     una persona autenticada, así que hay userId, rol y membresía que
+//     chequear. Su cuerpo es multipart/form-data y lo lee multer, el único que
+//     lo toca —express.json() solo mira application/json y express.urlencoded()
+//     solo application/x-www-form-urlencoded—, así que no tiene ninguna
+//     dependencia de orden que resolver y le corresponde estar acá con las
+//     demás.
+//
+// LA VÍA QUE NO ESTÁ ACÁ es ingestRouter (el webhook del ítem 4: API key, sin
+// usuario detrás). Se monta a mano en app.ts, ANTES del express.json() global,
+// y esa posición no es cosmética: body-parser marca el request al parsearlo, así
+// que montado después su propio express.json() de 64 KB nunca correría. Ver el
+// comentario de app.ts.
 routes.use("/api", sourceRouter);
 routes.use("/api", apiKeyRouter);
+routes.use("/api", importRouter);
