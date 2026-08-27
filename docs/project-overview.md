@@ -71,7 +71,11 @@ actividades.
 **Lo que todavía NO está en el stack del backend**:
 - Ningún framework de testing (usa el runner nativo `node:test`, sin dependencia
   externa — ver sección 7).
-- Ningún linter/formatter (ESLint, Prettier).
+
+**ESLint y Prettier sí están** (ya no son un pendiente): ESLint 10 con flat config
+(`eslint.config.js` en la raíz) y Prettier 3 con un único `.prettierrc`, también en
+la raíz, que cubre backend y frontend de una. El job `lint` de
+`.github/workflows/ci.yml` los corre de forma bloqueante.
 
 ### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage + M5 Opportunity + M6 Activity + M7 Users/Invitations + M8 Dashboard)
 
@@ -85,8 +89,9 @@ actividades.
 | **@supabase/supabase-js** | Cliente de Supabase para el browser | `frontend/src/lib/supabase.ts` — única instancia, únicamente con la `anon key` (nunca `service_role`, esa es exclusiva del backend — ver `src/lib/supabaseAdmin.ts` arriba). |
 | **Vitest** + **jsdom** + **@testing-library/react** + **user-event** + **jest-dom** + **MSW v2** | Testing frontend | `frontend/vite.config.ts` (bloque `test`, `defineConfig` de `vitest/config`), `frontend/src/test/`. Introducido en M2 para remediar `STD-SW-003` — ver detalle abajo. |
 
-**Lo que todavía NO está en el stack del frontend**:
-- Ningún linter/formatter (ESLint, Prettier).
+**Linter y formatter**: ESLint 10 con flat config propia
+(`frontend/eslint.config.js`, con sus reglas de React) y el mismo `.prettierrc` de la
+raíz que usa el backend. Los dos corren en el job `lint` de CI.
 
 ---
 
@@ -2322,21 +2327,61 @@ construcción de §6 de ese documento, cerrados entre el 2026-08-23 y el 2026-08
 contra Postgres y Supabase Auth reales) y `npm run verify:schema` (9 afirmaciones
 de esquema) — los cuatro en verde sobre el deliverable final.
 
-**Cómo se revisó — y en qué se diferencia del resto de esta sección.** Este trabajo
-**no pasó por los reviews del Toolkit** (`RV-ENG` / `RV-SECURITY` / `RV-STANDARDS`)
-que respaldan las entradas de M2 a M5 de más arriba: esos no se ejecutaron acá, y no
-hay ningún verdicto suyo que citar. La revisión fue de otra naturaleza —**auditoría
-en conversación contra el repositorio real**, hallazgo por hallazgo, verificando cada
-afirmación contra el código en vez de contra la memoria de lo que se había
-construido—. No es equivalente ni intercambiable con un `PASS` del Toolkit, y se
-deja anotado así a propósito para que nadie lo lea como si lo fuera.
+**Cómo se revisó.** En dos etapas, y conviene distinguirlas porque no son
+equivalentes ni intercambiables.
 
-Encontró cosas reales: `importRouter` estaba escrito, tipado y con su propio test de
-integración en verde pero **nunca se había montado**, así que `/api/imports` daba
-`404` en runtime (`a02f142`). El agujero estructural detrás de eso —ningún test del
-proyecto tocaba la app compuesta, porque cada uno arma su propio Express y monta el
-router a mano— quedó cerrado con `src/routes/index.test.ts`, que levanta la app real
-y distingue el `401` de una ruta montada del `404` de `notFound`.
+Primero, una **auditoría en conversación contra el repositorio real**, hallazgo por
+hallazgo, verificando cada afirmación contra el código en vez de contra la memoria
+de lo que se había construido. Encontró cosas reales: `importRouter` estaba escrito,
+tipado y con su propio test de integración en verde pero **nunca se había montado**,
+así que `/api/imports` daba `404` en runtime (`a02f142`). El agujero estructural
+detrás de eso —ningún test del proyecto tocaba la app compuesta, porque cada uno
+arma su propio Express y monta el router a mano— quedó cerrado con
+`src/routes/index.test.ts`, que levanta la app real y distingue el `401` de una ruta
+montada del `404` de `notFound`.
+
+Después, los **reviews obligatorios del Toolkit**, que a diferencia del resto de
+esta sección no se habían corrido sobre este trabajo. Se ejecutaron desde cero
+contra el deliverable final, sin heredar nada de la auditoría anterior.
+
+**Reviews obligatorios (Claude-Toolkit-V1), ejecutados desde cero contra el
+deliverable final de los ítems 1 a 5** (2026-08-27 — registro completo, con el
+modelo de amenaza, las 10 categorías OWASP y los 12 hallazgos, en
+`docs/review-ingesta-2026-08-27.md`):
+
+- `RV-ENG`: **PASS**. Partió `CONDITIONAL PASS` por **E-1**:
+  `promotion.service.ts` descartaba el `count` de la escritura condicional que
+  transiciona el `IngestionEvent`, así que ese compare-and-swap no protegía nada —un
+  `updateMany` que no matchea ninguna fila no lanza, y la transacción commiteaba con
+  el `Contact` ya escrito—. Corregido y cubierto con dos tests de integración nuevos
+  en `e21d7fb`.
+- `RV-SECURITY`: **PASS**. Ninguna finding Critical ni High. Partió
+  `CONDITIONAL PASS` por **S-2** y **S-3**, los dos cerrados en `e21d7fb`:
+  `ip-address` actualizada con `npm audit fix` (sin `--force`), y un gate de
+  vulnerabilidades en CI (`scripts/audit-gate.ts` + el step "Auditoría de
+  dependencias" de `ci.yml`) que bloquea cualquier advisory `high`/`critical` que no
+  esté excepcionada por GHSA ID con su motivo verificado. S-1, S-4 y S-5 quedaron
+  con mitigación aceptada y documentada, sin acción requerida.
+- `RV-STANDARDS`: **CONDITIONAL PASS — sigue abierto.** Tres criterios Mandatory de
+  `STD-LEG-002` (Data Privacy) sin satisfacer: **D-1**, no hay clasificación
+  declarada de los datos personales que maneja la ingesta; **D-3**, no hay política
+  de retención ni de borrado implementada para `ingestion_events`, que guarda una
+  segunda copia cruda de esos datos indefinidamente; y **D-4**, borrar un `Contact`
+  es soft delete y no toca esa copia, así que un pedido de borrado no se puede
+  honrar de punta a punta. Se asentó como condición y no como `FAIL` porque el
+  sistema **no está en producción** —no hay pipeline de CD hacia ningún hosting, así
+  que todavía no hay titulares de datos reales— y porque el camino de remediación
+  está especificado (§9.1 de `docs/ingestion-architecture.md` ya define el `DELETE`
+  de la purga, que nadie corre todavía). El razonamiento completo está en la sección
+  5.3 del registro. Los tres quedan para un ciclo aparte de privacidad de datos, con
+  alcance de proyecto entero y no solo de ingesta.
+
+  **Depende de una pregunta sin respuesta confirmada (Q-1):** si hay leads de la
+  Unión Europea en alcance, `STD-LEG-001` (GDPR) pasa a Mandatory y **D-3 deja de
+  ser una condición para volverse bloqueante**. Nadie declaró la jurisdicción de los
+  leads, y una landing page es alcanzable desde la UE por definición, así que
+  mientras tanto se trata de forma conservadora: como hueco declarado, no como "no
+  aplica".
 
 **Ítem 6 — bases de datos externas: pospuesto por decisión explícita, no pendiente
 sin decidir.** §7 de `docs/ingestion-architecture.md` lo recomienda expresamente
@@ -2714,10 +2759,17 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
   conviene que quede claro en el producto si eso es una feature planeada o un efecto
   secundario del modelo.
 
-- **Sigue sin existir configuración de linter/formatter (ESLint, Prettier).**
-  A diferencia de los tests (ver abajo), introducir esto después es más caro
-  (hay que adaptar código ya escrito) que configurarlo desde el arranque de
-  `src/`. Sí existen suites de test persistentes desde H1: unitarias
+- **Sigue sin existir configuración de linter/formatter (ESLint, Prettier) —
+  resuelto (Q-4, 2026-08-27).** A diferencia de los tests (ver abajo), introducir
+  esto después era más caro (hay que adaptar código ya escrito) que configurarlo
+  desde el arranque de `src/`. **Corregido:** el repo tiene ESLint 10 con flat
+  config (`eslint.config.js` en la raíz y `frontend/eslint.config.js` para el
+  frontend) y Prettier 3 con un único `.prettierrc` en la raíz que cubre los dos
+  paquetes, hoy con cero violaciones; el job `lint` de `.github/workflows/ci.yml`
+  corre `npm run lint` en backend y en frontend, y `npm run format:check` sobre
+  todo el repo, de forma bloqueante. Que esta entrada siguiera diciendo lo
+  contrario lo detectó Q-4 de `docs/review-ingesta-2026-08-27.md`. Sí existen
+  suites de test persistentes desde H1: unitarias
   (`*.test.ts`, `npm test`, sin DB) y de integración (`*.integration-test.ts`,
   `npm run test:integration`, contra Postgres/Supabase real) — 8 archivos de
   test en total a la fecha, cubriendo H1/H2/M3/M4/H-1/M1/LOW-1/LOW-3/PIPE-DEFAULT-GHOST/T-1/T-2.
