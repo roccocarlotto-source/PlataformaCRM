@@ -448,3 +448,150 @@ export async function getResumenDeLote(
     fallasOmitidas: Math.max(0, fallidos - fallas.length),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Listado de eventos — G-1 y G-2 de docs/research-frontend-ingesta-2026-08-27.md.
+//
+// Hasta acá lo ÚNICO que salía de esta tabla por HTTP eran los contadores
+// agregados de un lote (getResumenDeLote), y solo si ya se conocía su batchId.
+// Los eventos del webhook quedaban invisibles por completo: su batch_id es NULL
+// para siempre, así que ninguna consulta existente los alcanzaba.
+// ---------------------------------------------------------------------------
+
+// LA PROYECCIÓN DEL LISTADO, Y LO QUE DELIBERADAMENTE DEJA AFUERA.
+//
+// No incluye `rawPayload` ni `promotionNotes`, y no es un olvido: son las dos
+// columnas JSONB de la tabla de mayor volumen del esquema. `rawPayload` puede
+// tener hasta 64 KB por fila en el webhook (INGEST_MAX_BODY_BYTES) o una fila
+// entera de planilla en una importación; con pageSize=100 una sola página
+// podría pesar megabytes, para un listado cuyo propósito es ver ESTADOS.
+//
+// Dónde sigue estando disponible el crudo, para que esto no cierre ninguna
+// puerta: `getResumenDeLote` ya devuelve `rawPayload` de las filas FAILED de un
+// lote (topeado en MAX_FALLAS_DEVUELTAS). Lo que queda sin cubrir es el payload
+// de un evento de WEBHOOK fallido — ver la pregunta abierta del reporte sobre un
+// endpoint de detalle, que no se construyó acá porque no se pidió.
+//
+// `errorMessage` SÍ va: es el dato que hace diagnosticable una fila fallida sin
+// traer el crudo, y es exactamente lo que faltaba para el webhook.
+const INGESTION_EVENT_PUBLIC_SELECT = {
+  id: true,
+  organizationId: true,
+  sourceId: true,
+  batchId: true,
+  externalId: true,
+  status: true,
+  errorMessage: true,
+  promotedContactId: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.IngestionEventSelect;
+
+export type PublicIngestionEvent = Prisma.IngestionEventGetPayload<{
+  select: typeof INGESTION_EVENT_PUBLIC_SELECT;
+}>;
+
+export interface IngestionEventFilters {
+  sourceId?: string;
+  status?: IngestionStatus;
+  batchId?: string;
+}
+
+// Un solo valor, y es a propósito: (organization_id, source_id, created_at) es
+// el único índice compuesto de la tabla, así que ordenar por cualquier otra
+// columna degeneraría en un sort de toda la tabla de mayor volumen del esquema.
+// Se declara como enum igual que en los otros tres listados para que la forma de
+// la query sea la misma, y para que agregar un orden nuevo obligue a agregar
+// primero el índice que lo sostiene.
+export type IngestionEventSortBy = "createdAt";
+
+// Declarado acá y no importado de otro repositorio: source.repository.ts y
+// apiKey.repository.ts ya declaran el suyo propio, cada uno para su módulo.
+// Compartirlo crearía una dependencia entre repositorios que hoy no existe.
+export type SortOrder = "asc" | "desc";
+
+// IngestionEvent no tiene deletedAt: su ciclo de vida ya está representado por
+// `status` (misma decisión que Invitation, ver docs/project-overview.md §9). El
+// filtro base es solo organizationId.
+function buildIngestionEventWhere(
+  organizationId: string,
+  filters: IngestionEventFilters,
+): Prisma.IngestionEventWhereInput {
+  return {
+    organizationId,
+    ...(filters.sourceId ? { sourceId: filters.sourceId } : {}),
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.batchId ? { batchId: filters.batchId } : {}),
+  };
+}
+
+export function findManyIngestionEvents(
+  organizationId: string,
+  filters: IngestionEventFilters,
+  pagination: { skip: number; take: number },
+  sort: { sortBy: IngestionEventSortBy; sortOrder: SortOrder },
+  db: Db = prisma,
+) {
+  return db.ingestionEvent.findMany({
+    where: buildIngestionEventWhere(organizationId, filters),
+    select: INGESTION_EVENT_PUBLIC_SELECT,
+    orderBy: { createdAt: sort.sortOrder },
+    skip: pagination.skip,
+    take: pagination.take,
+  });
+}
+
+export function countIngestionEvents(
+  organizationId: string,
+  filters: IngestionEventFilters,
+  db: Db = prisma,
+) {
+  return db.ingestionEvent.count({ where: buildIngestionEventWhere(organizationId, filters) });
+}
+
+export function findIngestionEventById(id: string, organizationId: string, db: Db = prisma) {
+  return db.ingestionEvent.findFirst({
+    where: { id, organizationId },
+    select: INGESTION_EVENT_PUBLIC_SELECT,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Reproceso de una fila fallida — G-7 del mismo relevamiento.
+//
+// §1 promete que se puede "corregir un mapeo y volver a correrlo", y el diseño
+// lo permite (rawPayload queda intacto), pero no había forma de pedirlo: el
+// worker solo reclama PENDING (claimNextPendingEvent), así que FAILED era
+// terminal.
+//
+// Compare-and-swap, calcado de revokeApiKeyConditional: la transición solo se
+// aplica si el evento sigue en FAILED en el momento exacto de la escritura.
+// `count === 0` significa que otro reintento ganó la carrera, que el evento
+// nunca estuvo en FAILED, o que la fila no es de esta organización — el caller
+// SIEMPRE debe verificar count, nunca asumir éxito por ausencia de excepción
+// (mismo invariante que exigirTransicion en promotion.service.ts).
+//
+// organizationId en el WHERE por el invariante de M4: la escritura misma es la
+// garantía de aislamiento, nunca el pre-chequeo del service.
+//
+// errorMessage SE LIMPIA. La columna significa una sola cosa —por qué falló el
+// intento vigente— y una fila PENDING todavía no falló: dejarle el mensaje
+// anterior sería un estado que la UI tendría que explicar, y que ninguna
+// consulta puede interpretar sin saber de qué intento habla. Es además el mismo
+// criterio que ya aplica markEventProcessed, que lo limpia al pasar a PROCESSED.
+// Si el reintento vuelve a fallar, markEventFailed escribe el mensaje nuevo. Un
+// historial real de intentos necesitaría una columna o una tabla aparte, o sea
+// una migración, que este cambio deliberadamente no hace.
+export function retryIngestionEventConditional(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.ingestionEvent.updateMany({
+    where: { id, organizationId, status: IngestionStatus.FAILED },
+    data: {
+      status: IngestionStatus.PENDING,
+      errorMessage: null,
+    },
+  });
+}

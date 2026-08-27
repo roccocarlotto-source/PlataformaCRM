@@ -553,3 +553,67 @@ duplica` en `import.controller.integration-test.ts` afirma las tres cosas —el
 `duplicados: 2` de la respuesta del POST, el `0` de eventos bajo el segundo
 lote, y el 404 del GET sobre ese `batchId`—. Si alguna de las tres cambiara,
 esta nota queda desactualizada y el test lo dice antes que nadie.
+
+### 9.10 La cola se puede leer, y una fila fallida se puede volver a correr
+
+*(2026-08-27, al relevar qué necesitaba el frontend de la capa de ingesta.)*
+
+El relevamiento de `docs/research-frontend-ingesta-2026-08-27.md` encontró que
+la capa era **escribible pero no observable**. Lo único que salía de
+`ingestion_events` por HTTP eran los contadores agregados de un lote
+(`GET /api/imports/:batchId`), y solo si ya se conocía su `batchId` — que se
+devuelve una única vez, en el `202` del `POST`. Un evento de **webhook** era
+directamente invisible: su `batch_id` es `NULL` para siempre (§9.2), así que
+ninguna consulta existente lo alcanzaba. La única forma de ver un webhook
+fallando era mirar la tabla en la base.
+
+Y §1 promete que se puede *"corregir un mapeo y volver a correrlo"*, pero no
+había cómo pedirlo: el worker solo reclama `PENDING`
+(`claimNextPendingEvent`), así que `FAILED` era terminal.
+
+Se agregaron dos rutas, las dos ADMIN-only por el camino de auth existente
+(`authenticate` + `authorize`), nunca `authenticateApiKey` — una API key sirve
+para ingestar y nada más:
+
+- **`GET /api/ingestion-events`** — listado paginado, con filtros por
+  `sourceId`, `status` y `batchId`, combinables. Cierra la observabilidad del
+  webhook y, de paso, quita la necesidad de guardar el `batchId`: listar los
+  eventos recientes de una fuente alcanza para encontrar una importación.
+- **`POST /api/ingestion-events/:id/retry`** — transición condicional
+  `FAILED → PENDING`. El worker lo recoge en su próxima pasada; **el endpoint no
+  promueve nada**, porque la promoción no vive en el ciclo del request (§5).
+
+**Cuatro decisiones que conviene tener escritas:**
+
+1. **El listado no devuelve `rawPayload` ni `promotionNotes`.** Son las dos
+   columnas JSONB de la tabla de mayor volumen del esquema: `rawPayload` puede
+   ser de hasta 64 KB por fila en el webhook, o una fila entera de planilla en
+   una importación. Con `pageSize=100`, una sola página podría pesar megabytes
+   para un listado cuyo propósito es ver **estados**. `errorMessage` sí va, y es
+   lo que hace diagnosticable una fila fallida sin traer el crudo.
+
+2. **El reintento limpia `errorMessage`.** La columna significa una sola cosa
+   —por qué falló el intento vigente— y una fila `PENDING` todavía no falló:
+   dejarle el mensaje anterior sería un estado que la UI tendría que explicar y
+   que ninguna consulta puede interpretar sin saber de qué intento habla. Es
+   además el mismo criterio que ya aplicaba `markEventProcessed`, que lo limpia
+   al pasar a `PROCESSED`. Un historial real de intentos necesitaría una columna
+   o una tabla aparte —o sea, una migración— y eso quedó deliberadamente afuera.
+
+3. **Un evento por request.** No hay reintento masivo (todos los fallidos de un
+   lote o de una fuente). Es una superficie bastante más grande —¿qué devuelve si
+   la mitad transiciona y la otra mitad no?— y no hacía falta para cerrar la
+   brecha.
+
+4. **El filtro de `status` acepta `DUPLICATE`** aunque ningún código lo escriba
+   nunca (el enum lo declara, pero los duplicados no crean fila). Filtrar por él
+   devuelve una página vacía, que es la respuesta correcta; restringir el schema
+   a los tres estados "reales" haría que el contrato HTTP y el enum de la base
+   divergieran.
+
+**Lo que sigue sin cubrirse, dicho explícitamente:** el `rawPayload` de un
+evento de **webhook** fallido no es consultable por ningún camino. Para las
+filas de un lote sí lo es —`getResumenDeLote` ya lo devuelve, topeado en
+`MAX_FALLAS_DEVUELTAS`—, pero un webhook no tiene lote. Cerrarlo pide un
+endpoint de detalle (`GET /api/ingestion-events/:id`) que no se construyó acá
+porque no se pidió, no porque no haga falta.

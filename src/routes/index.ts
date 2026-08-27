@@ -5,6 +5,7 @@ import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
 import { healthRouter } from "./health.routes";
 import { importRouter } from "./import.routes";
+import { ingestionEventRouter } from "./ingestionEvent.routes";
 import { invitationRouter } from "./invitation.routes";
 import { meRouter } from "./me.routes";
 import { onboardingRouter } from "./onboarding.routes";
@@ -54,3 +55,10 @@ routes.use("/api", userRouter);
 routes.use("/api", sourceRouter);
 routes.use("/api", apiKeyRouter);
 routes.use("/api", importRouter);
+// ingestionEventRouter: lectura de la cola y reproceso de una fila fallida
+// (G-1/G-2/G-7 de docs/research-frontend-ingesta-2026-08-27.md). Va acá, con las
+// demás rutas administrativas, por la misma razón que importRouter: del otro
+// lado hay una persona autenticada, no una API key. Su cuerpo es JSON (de hecho
+// vacío en el retry), así que no tiene ninguna dependencia de orden con el
+// express.json() global.
+routes.use("/api", ingestionEventRouter);

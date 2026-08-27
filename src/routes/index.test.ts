@@ -73,11 +73,19 @@ test("las rutas del ítem 5 están montadas en la app real, no solo en su propio
 });
 
 test("las demás rutas de la capa de ingesta también están montadas", async () => {
-  // sourceRouter y apiKeyRouter van por routes/index.ts, igual que importRouter.
-  for (const path of ["/api/sources", "/api/api-keys"]) {
+  // sourceRouter, apiKeyRouter e ingestionEventRouter van por routes/index.ts,
+  // igual que importRouter.
+  for (const path of ["/api/sources", "/api/api-keys", "/api/ingestion-events"]) {
     const res = await fetch(`${baseUrl}${path}`);
     assert.equal(res.status, 401, `${path} no está montado`);
   }
+
+  // El retry es POST y lleva un :id en el path — se verifica aparte porque un
+  // GET sobre esa ruta daría 404 aunque el router estuviera bien montado.
+  const retry = await fetch(`${baseUrl}/api/ingestion-events/${randomUUID()}/retry`, {
+    method: "POST",
+  });
+  assert.equal(retry.status, 401, "POST /api/ingestion-events/:id/retry no está montado");
 });
 
 test("el webhook de ingesta está montado en app.ts, ANTES del express.json() global", async () => {
