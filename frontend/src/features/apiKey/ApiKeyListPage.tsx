@@ -59,6 +59,11 @@ export function ApiKeyListPage() {
     sortOrder,
   });
 
+  // Las fuentes que alimentan los dos <select> de la pantalla. Se declara acá
+  // arriba, antes de los handlers, porque handleCreate la necesita — ver
+  // nombreDeFuenteElegida.
+  const fuentes = sourcesQuery.data?.data ?? [];
+
   // Solo los sourceId de las claves visibles en ESTA página — nunca "todas las
   // fuentes". Deduplicado dentro del hook.
   const sourceIdsVisibles = apiKeysQuery.data?.data.map((apiKey) => apiKey.sourceId) ?? [];
@@ -67,8 +72,26 @@ export function ApiKeyListPage() {
   const createApiKeyMutation = useCreateApiKey();
   const revokeApiKeyMutation = useRevokeApiKey();
 
+  // Para las FILAS DE LA TABLA: resuelve contra los nombres traídos por
+  // useSourcesByIds, que son exactamente los de las claves visibles.
   function nombreDeFuente(sourceId: string): string {
     return sourceResolution.byId.get(sourceId)?.name ?? SIN_RESOLVER;
+  }
+
+  // Para la fuente RECIÉN ELEGIDA en el control de creación, que es un problema
+  // distinto y no se puede resolver con el hook de arriba.
+  //
+  // sourceResolution solo conoce las fuentes de las claves que YA están en la
+  // página visible del listado. La fuente que alguien acaba de elegir no tiene
+  // por qué estar entre esas — el caso más común es justamente crear la PRIMERA
+  // clave de una fuente recién dada de alta, que no tiene ninguna fila todavía.
+  // Buscar ahí devolvía "—" aunque el nombre estuviera cargado en memoria.
+  //
+  // `fuentes` es la lista que alimenta el propio <select>, así que sourceIdNueva
+  // es por construcción uno de sus elementos: el nombre siempre está, sin ir a
+  // la red.
+  function nombreDeFuenteElegida(sourceId: string): string {
+    return fuentes.find((source) => source.id === sourceId)?.name ?? SIN_RESOLVER;
   }
 
   function cambiarFiltroDeFuente(nuevo: string) {
@@ -88,7 +111,7 @@ export function ApiKeyListPage() {
       const creada = await createApiKeyMutation.mutateAsync({ sourceId: sourceIdNueva });
       // El secreto vive ACÁ y en ningún otro lado. Al cerrar el modal se pone en
       // null y desaparece del árbol; no se guarda en cache ni se persiste.
-      setSecreto({ key: creada.key, sourceName: nombreDeFuente(creada.sourceId) });
+      setSecreto({ key: creada.key, sourceName: nombreDeFuenteElegida(creada.sourceId) });
     } catch {
       // El error ya queda en createApiKeyMutation.isError y se muestra abajo —
       // no hace falta duplicarlo en estado local. El catch existe para que la
@@ -106,8 +129,6 @@ export function ApiKeyListPage() {
     }
     revokeApiKeyMutation.mutate(id);
   }
-
-  const fuentes = sourcesQuery.data?.data ?? [];
 
   return (
     <div>

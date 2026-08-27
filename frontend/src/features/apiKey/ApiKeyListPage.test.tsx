@@ -209,27 +209,58 @@ describe("ApiKeyListPage — listado", () => {
 });
 
 describe("ApiKeyListPage — creación y el secreto", () => {
-  it("crear abre el modal con la clave en claro, y al cerrarlo DESAPARECE del DOM", async () => {
+  it("crear abre el modal con la clave y el NOMBRE de la fuente, y al cerrarlo DESAPARECE del DOM", async () => {
+    // LA FUENTE ELEGIDA NO TIENE NINGUNA CLAVE EN LA PÁGINA VISIBLE, y eso es
+    // deliberado: es el caso real (crear la primera clave de una fuente recién
+    // dada de alta) y el que una versión anterior de este test tapaba, porque
+    // usaba la misma "src1" que ya traía la fila preexistente.
+    //
+    // El handler de detalle solo conoce src1: si el nombre del modal se
+    // resolviera contra useSourcesByIds —que solo sabe de las fuentes de las
+    // claves visibles— acá daría "—" y el test fallaría. Tiene que salir de la
+    // lista que alimenta el propio <select>.
+    let detallesPedidos = 0;
     server.use(
-      sourcesHandler(),
-      http.get(`${sourcesUrl}/:id`, () => HttpResponse.json(makeSource())),
+      sourcesHandler([
+        makeSource({ id: "src1", name: "Landing de precios" }),
+        makeSource({ id: "src2", name: "Feria de otoño" }),
+      ]),
+      http.get(`${sourcesUrl}/:id`, ({ params }) => {
+        detallesPedidos += 1;
+        if (params.id !== "src1") {
+          return HttpResponse.json({ error: { message: "no resuelve" } }, { status: 404 });
+        }
+        return HttpResponse.json(makeSource({ id: "src1", name: "Landing de precios" }));
+      }),
+      // La única clave de la página es de src1, no de src2.
       http.get(keysUrl, () => HttpResponse.json(listResponse())),
       http.post(keysUrl, () =>
-        HttpResponse.json(makeCreatedApiKey({ key: "crm_secreto_visible_una_vez" }), {
-          status: 201,
-        }),
+        HttpResponse.json(
+          makeCreatedApiKey({
+            id: "ak-nueva",
+            sourceId: "src2",
+            key: "crm_secreto_visible_una_vez",
+          }),
+          { status: 201 },
+        ),
       ),
     );
 
     const user = userEvent.setup();
     renderPage();
     await screen.findByRole("table");
+    const detallesAntes = detallesPedidos;
 
-    await user.selectOptions(screen.getByLabelText("Fuente para la clave nueva"), "src1");
+    await user.selectOptions(screen.getByLabelText("Fuente para la clave nueva"), "src2");
     await user.click(screen.getByRole("button", { name: "Crear clave" }));
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText("Clave")).toHaveValue("crm_secreto_visible_una_vez");
+    expect(within(dialog).getByText("Feria de otoño")).toBeInTheDocument();
+    expect(within(dialog).queryByText("—")).not.toBeInTheDocument();
+
+    // Y el nombre salió de memoria: no se pidió ningún detalle nuevo por esto.
+    expect(detallesPedidos).toBe(detallesAntes);
 
     await user.click(screen.getByRole("button", { name: "Listo, ya la guardé" }));
 
