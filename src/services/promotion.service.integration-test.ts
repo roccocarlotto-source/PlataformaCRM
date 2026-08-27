@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
+import type { EventoReclamado } from "../repositories/ingestionEvent.repository";
 import type { PromotionNote } from "../types/promotion";
 import { drenarPendientes } from "../workers/ingestionWorker";
+import { promoverEvento } from "./promotion.service";
 
 // ---------------------------------------------------------------------------
 // Promoción staging -> Contact y worker (ítem 4 de
@@ -488,4 +490,85 @@ test("el contacto promovido pertenece a la organización del evento", async () =
     await prisma.contact.deleteMany({ where: { organizationId: otraOrg.id } });
     await prisma.organization.deleteMany({ where: { id: otraOrg.id } });
   }
+});
+
+// ---------------------------------------------------------------------------
+// E-1 (docs/review-ingesta-2026-08-27.md) — el CAS de la transición de estado
+// tiene que hacer fallar la transacción, no commitear en silencio.
+//
+// SE LLAMA A promoverEvento DIRECTO, SIN PASAR POR EL WORKER, y es el punto
+// entero del test: por el flujo normal esto es INALCANZABLE, porque
+// claimNextPendingEvent toma FOR UPDATE sobre la fila y filtra
+// status = 'PENDING' dentro de la misma transacción. Para ejercitar el chequeo
+// hay que armar el EventoReclamado a mano contra una fila que YA NO está en
+// PENDING — que es exactamente la situación que el CAS dice cubrir y que el
+// mecanismo de reclamo hoy impide.
+// ---------------------------------------------------------------------------
+
+function eventoReclamadoDe(id: string, rawPayload: unknown): EventoReclamado {
+  return {
+    id,
+    organizationId: orgId,
+    sourceId,
+    sourceName,
+    sourceType: "WEBHOOK",
+    fieldMapping: null,
+    rawPayload,
+  };
+}
+
+test("si el evento ya no está en PENDING, la promoción REVIERTE en vez de dejar un contacto huérfano", async () => {
+  // SIN EMAIL a propósito: es el caso más caro del hallazgo. promoteContact
+  // hace un INSERT liso (sin ON CONFLICT, porque el índice único es parcial),
+  // así que un commit acá habría creado un contacto nuevo en CADA pasada del
+  // worker, indefinidamente.
+  const marcador = `Huerfano${randomUUID().slice(0, 8)}`;
+  const id = await crearEvento({ firstName: marcador, lastName: "SinEmail" });
+
+  // Alguien más ya lo procesó: el CAS `status: PENDING` no va a matchear.
+  await prisma.ingestionEvent.update({
+    where: { id },
+    data: { status: "PROCESSED" },
+  });
+
+  await assert.rejects(
+    () =>
+      prisma.$transaction((tx) =>
+        promoverEvento(eventoReclamadoDe(id, { firstName: marcador, lastName: "SinEmail" }), tx),
+      ),
+    /no afectó ninguna fila/,
+    "la transición fallida tiene que lanzar, no devolver un resultado",
+  );
+
+  // LO QUE EL HALLAZGO REALMENTE PROTEGE: el INSERT del contacto se revirtió
+  // con la transacción. Se le pregunta a la base, no al service.
+  assert.equal(
+    await prisma.contact.count({ where: { organizationId: orgId, firstName: marcador } }),
+    0,
+    "el contacto no puede sobrevivir a una transición de estado fallida",
+  );
+
+  // Y el evento quedó como estaba: la reversión no lo pisó.
+  assert.equal((await leerEvento(id)).status, "PROCESSED");
+});
+
+test("lo mismo en el camino FAILED: una fila inválida sobre un evento que ya no está en PENDING también revierte", async () => {
+  // Payload inválido (sin lastName): el camino que llama a markEventFailed.
+  const payload = { firstName: "Invalido" };
+  const id = await crearEvento(payload);
+
+  await prisma.ingestionEvent.update({
+    where: { id },
+    data: { status: "FAILED", errorMessage: "marcado por otro actor" },
+  });
+
+  await assert.rejects(
+    () => prisma.$transaction((tx) => promoverEvento(eventoReclamadoDe(id, payload), tx)),
+    /no afectó ninguna fila/,
+  );
+
+  // El errorMessage del otro actor sigue intacto: nada se sobrescribió.
+  const evento = await leerEvento(id);
+  assert.equal(evento.status, "FAILED");
+  assert.equal(evento.errorMessage, "marcado por otro actor");
 });
