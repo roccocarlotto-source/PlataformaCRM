@@ -66,17 +66,21 @@ jobs:
       - run: npm test
 
   # ---------------------------------------------------------------------------
-  # INFORMATIVO A PROPÓSITO, Y TEMPORAL. Los tres pasos que corren lint o
-  # format:check llevan `continue-on-error: true`: el job aparece en el PR y sus
-  # hallazgos se leen en el log, pero un fallo no impide mergear.
+  # BLOQUEANTE. Un fallo de ESLint o de Prettier corta el job y el merge, igual
+  # que un typecheck roto.
   #
-  # POR QUÉ NO ARRANCA BLOQUEANTE, que es donde tiene que terminar: lint y
-  # format:check vienen corriendo limpios, pero solo en una máquina Windows con
-  # core.autocrlf=true — que es justamente lo que motivó `endOfLine: "auto"` en
-  # .prettierrc. Acá el clon es limpio, en Ubuntu y sin esa conversión. Blindarlo
-  # antes de verlo pasar en este entorno sería asumir el resultado en vez de
-  # verificarlo. Una vez que se lo vea verde acá, se sacan los tres
-  # continue-on-error y el job pasa a ser un gate real.
+  # ARRANCÓ INFORMATIVO Y DEJÓ DE SERLO POR EVIDENCIA, no por confianza. Los
+  # tres pasos llevaron `continue-on-error: true` durante exactamente una
+  # corrida, porque lint y format:check solo habían corrido en una máquina
+  # Windows con core.autocrlf=true — que es justamente lo que motivó
+  # `endOfLine: "auto"` en .prettierrc. Un runner es un clon limpio en Ubuntu,
+  # sin esa conversión: había que verlo antes de blindarlo.
+  #
+  # Ya se vio, en el PR de este mismo job. Las tres salidas del runner, leídas
+  # del log y no del ícono verde —que con continue-on-error da success igual
+  # aunque el paso falle—: `eslint .` sin una sola línea de salida en los dos
+  # paquetes, y "All matched files use Prettier code style!" en Prettier. Cero
+  # annotations de error. Sobre eso se sacan los continue-on-error.
   #
   # Job aparte y no pasos dentro de `backend`/`frontend`, por el mismo criterio
   # que ya separa a `integration`: es otro perfil de ejecución —cubre los dos
@@ -96,7 +100,7 @@ jobs:
   # el repo y `prettier --check .` desde acá ya baja a frontend/.
   # ---------------------------------------------------------------------------
   lint:
-    name: Lint & Prettier (informativo — no bloquea)
+    name: Lint & Prettier
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,17 +119,14 @@ jobs:
 
       - name: ESLint (backend)
         run: npm run lint
-        continue-on-error: true
 
       # Cubre backend y frontend de una: un solo .prettierrc en la raíz.
       - name: Prettier (todo el repo)
         run: npm run format:check
-        continue-on-error: true
 
       - name: ESLint (frontend)
         run: npm run lint
         working-directory: frontend
-        continue-on-error: true
 
   # ---------------------------------------------------------------------------
   # Job aparte, no un paso más del job `backend`, por dos razones:
