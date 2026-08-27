@@ -211,7 +211,18 @@ before(async () => {
   // Cinco eventos de solo lectura en sourceList. Los conteos que los tests de
   // filtro afirman salen de acá:
   //   total 5 · FAILED 2 · batchUno 2 · (FAILED ∩ batchUno) 1
-  await crearEvento({ organizationId: orgA, sourceId: sourceList, status: "PENDING" });
+  //
+  // NINGUNO QUEDA EN PENDING, Y ES UN REQUISITO, NO UNA CASUALIDAD. Un PENDING
+  // no es inerte: `drenarPendientes({ organizationId })` barre TODA la
+  // organización, así que cualquier test que drene —hay dos más abajo— se
+  // llevaría puestos estos eventos y los dejaría en PROCESSED. "De solo
+  // lectura" dejaría de ser cierto y los conteos de arriba valdrían solo hasta
+  // el primer drenado.
+  //
+  // Ningún test de filtro consulta PENDING (todos filtran FAILED, DUPLICATE o
+  // un valor inválido), así que usar PROCESSED en su lugar deja los cuatro
+  // conteos idénticos.
+  await crearEvento({ organizationId: orgA, sourceId: sourceList, status: "PROCESSED" });
   await crearEvento({ organizationId: orgA, sourceId: sourceList, status: "PROCESSED" });
   await crearEvento({
     organizationId: orgA,
@@ -222,7 +233,7 @@ before(async () => {
   await crearEvento({
     organizationId: orgA,
     sourceId: sourceList,
-    status: "PENDING",
+    status: "PROCESSED",
     batchId: batchUno,
   });
   await crearEvento({
@@ -485,6 +496,12 @@ test("POST /retry sobre un FAILED lo devuelve a PENDING y limpia errorMessage", 
   const enBase = await leerEvento(id);
   assert.equal(enBase.status, "PENDING");
   assert.equal(enBase.errorMessage, null, "una fila PENDING no puede arrastrar el error anterior");
+
+  // Este test deja a propósito un evento en PENDING —es lo que acaba de
+  // afirmar—, así que lo borra antes de terminar: la organización del fixture
+  // es compartida y los dos tests de más abajo drenan la cola entera. Ver la
+  // nota del `before` sobre por qué acá no puede quedar nada pendiente suelto.
+  await prisma.ingestionEvent.delete({ where: { id } });
 });
 
 test("DE PUNTA A PUNTA: tras el retry, el worker lo recoge y lo promueve de verdad", async () => {
@@ -499,9 +516,22 @@ test("DE PUNTA A PUNTA: tras el retry, el worker lo recoge y lo promueve de verd
 
   // Control negativo: mientras está en FAILED, el worker NO lo toca. Sin esto
   // el test no probaría que el retry sirvió para algo.
-  const antes = await drenarPendientes({ organizationId: fx.orgA });
-  assert.equal(antes.procesados, 0, "un FAILED no debe ser reclamado por el worker");
-  assert.equal((await leerEvento(id)).status, "FAILED");
+  //
+  // SE AFIRMA SOBRE ESTE EVENTO, NO SOBRE EL CONTADOR DEL DRENADO.
+  // `drenarPendientes({ organizationId })` barre toda la organización, que es
+  // compartida por todos los tests del archivo: `procesados === 0` sería una
+  // afirmación sobre el estado global, y se rompería en cuanto otro test dejara
+  // cualquier pendiente atrás. Lo que este test tiene que probar es más chico y
+  // más preciso — que ESTA fila no fue reclamada — y eso se lee de la fila.
+  await drenarPendientes({ organizationId: fx.orgA });
+
+  const trasDrenado = await leerEvento(id);
+  assert.equal(trasDrenado.status, "FAILED", "un FAILED no debe ser reclamado por el worker");
+  assert.equal(
+    trasDrenado.promotedContactId,
+    null,
+    "y no puede haber promovido ningún contacto estando en FAILED",
+  );
 
   const res = await call("POST", `/api/ingestion-events/${id}/retry`, fx.adminA.accessToken);
   assert.equal(res.status, 200);
@@ -509,9 +539,11 @@ test("DE PUNTA A PUNTA: tras el retry, el worker lo recoge y lo promueve de verd
   // El endpoint NO promueve: solo encola. Después del 200 sigue en PENDING.
   assert.equal((await leerEvento(id)).status, "PENDING");
 
-  // Y ahora sí: claimNextPendingEvent lo recoge en la siguiente pasada.
-  const despues = await drenarPendientes({ organizationId: fx.orgA });
-  assert.equal(despues.procesados, 1);
+  // Y ahora sí: claimNextPendingEvent lo recoge en la siguiente pasada. Otra
+  // vez sin mirar el contador del drenado, por lo mismo que arriba: que ESTE
+  // evento haya terminado PROCESSED con su contacto es la prueba completa de
+  // que el worker lo reclamó y lo promovió.
+  await drenarPendientes({ organizationId: fx.orgA });
 
   const final = await leerEvento(id);
   assert.equal(final.status, "PROCESSED");
@@ -582,6 +614,10 @@ test("409 sobre un evento PENDING — solo FAILED se puede reprocesar", async ()
   const body = (await res.json()) as { error: { message: string } };
   assert.match(body.error.message, /PENDING/);
   assert.equal((await leerEvento(id)).status, "PENDING", "el 409 no puede haber tocado la fila");
+
+  // Mismo motivo que en el retry de más arriba: no se deja un PENDING vivo en
+  // la organización compartida.
+  await prisma.ingestionEvent.delete({ where: { id } });
 });
 
 test("409 sobre un evento PROCESSED — reprocesar uno ya promovido duplicaría trabajo", async () => {
@@ -612,6 +648,9 @@ test("reprocesar dos veces: la primera 200, la segunda 409 — no es idempotente
 
   const segunda = await call("POST", `/api/ingestion-events/${id}/retry`, fx.adminA.accessToken);
   assert.equal(segunda.status, 409);
+
+  // La primera llamada lo dejó en PENDING: mismo motivo que arriba.
+  await prisma.ingestionEvent.delete({ where: { id } });
 });
 
 test("404 cross-organización: B no puede reprocesar un evento de A, ni al revés", async () => {
