@@ -2369,13 +2369,20 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    el SMTP por defecto, 30/hora con SMTP propio recién configurado). No es un
    bug del código: es una limitación de configuración externa que hay que
    resolver antes de usar `Invitation` con usuarios reales en producción.
-   **Reverificado el 2026-08-26 contra el Dashboard de Supabase —no contra el
-   código—: sigue pendiente.** El matiz importa para saber de dónde sale el
-   dato: a diferencia del punto 5, este no depende de nada del repositorio, así
-   que ningún grep ni test puede confirmarlo, solo la configuración real del
-   proyecto. En Authentication → Emails → SMTP Settings, el toggle "Enable
-   custom SMTP" está **apagado**: el proyecto sigue con el servicio de email por
-   defecto de Supabase y su límite de 2/hora.
+   SMTP propio configurado con Resend. Dominio `xentech-crm.com` (comprado y
+   gestionado en Cloudflare), verificado ante Resend vía el flujo Domain
+   Connect de Cloudflare (MX/TXT DKIM/TXT SPF, sin proxy).
+
+   Custom SMTP habilitado en Supabase (`Authentication → Emails → SMTP
+   Settings`): host `smtp.resend.com`, puerto 465, username `resend`, sender
+   `noreply@xentech-crm.com`, sender name "Xentech CRM". Click tracking y
+   open tracking desactivados (correos transaccionales de auth).
+
+   Verificado end-to-end el 2026-08-27: invitación real enviada desde la UI
+   del CRM (`/invitations/new`), recibida correctamente en la bandeja del
+   destinatario. El rate limit pasa de 2/hora (default de Supabase) a
+   30/hora.
+
    **LOW-3 (2026-07-12)**: las dos ramas de `createInvitation` que resuelven
    antes de esta llamada (email ya es un `User` existente, ya existe una
    `Invitation` PENDING) ya tienen cobertura persistente contra Postgres real
