@@ -1,4 +1,4 @@
-import { SourceType } from "@prisma/client";
+import { IngestionStatus, SourceType } from "@prisma/client";
 import { promoteContact, type PromotedContact } from "../repositories/contact.repository";
 import {
   markEventFailed,
@@ -239,6 +239,46 @@ function prepararCandidato(evento: EventoReclamado): ResultadoTraduccion {
   return traducirConMapeo(evento.rawPayload, evento.fieldMapping);
 }
 
+// ---------------------------------------------------------------------------
+// EL COMPARE-AND-SWAP DE LA TRANSICIÓN SOLO PROTEGE SI ALGUIEN MIRA SU
+// RESULTADO. Hallazgo E-1 de docs/review-ingesta-2026-08-27.md.
+//
+// markEventProcessed y markEventFailed son `updateMany` con `status: PENDING`
+// en el WHERE — un CAS deliberado (ver ingestionEvent.repository.ts). Un
+// `updateMany` que no matchea ninguna fila NO LANZA: devuelve `count: 0` y la
+// ejecución sigue. Mientras ese count se descartaba, la red de seguridad estaba
+// inerte: la transacción commiteaba con el Contact ya escrito y el evento
+// seguía en PENDING. En el camino SIN EMAIL eso era lo más caro que podía
+// pasar — promoteContact hace un INSERT liso (sin ON CONFLICT, porque el índice
+// es parcial), así que cada pasada del worker habría creado OTRO contacto,
+// indefinidamente.
+//
+// Hoy el CAS no puede fallar: claimNextPendingEvent toma FOR UPDATE sobre la
+// fila dentro de ESTA misma transacción y filtra `status = 'PENDING'`, así que
+// nadie puede cambiarla entremedio. Este chequeo no arregla un bug alcanzable;
+// hace que el invariante siga valiendo el día que alguien cambie el mecanismo
+// de reclamo, que es exactamente lo que el CAS decía cubrir.
+//
+// SE LANZA UN Error PELADO, NO UN AppError: esto corre en el worker, no en un
+// request, así que no hay status HTTP que asignar. drenarPendientes lo atrapa
+// como error de SISTEMA (no como fila mala): revierte la transacción —el
+// Contact no queda huérfano— y pospone el evento para la próxima pasada. Ver el
+// catch de workers/ingestionWorker.ts.
+//
+// No hay riesgo de bucle: si el CAS no matcheó es porque la fila ya no está en
+// PENDING, así que el siguiente claimNextPendingEvent no la vuelve a elegir.
+// ---------------------------------------------------------------------------
+function exigirTransicion(count: number, evento: EventoReclamado, destino: IngestionStatus): void {
+  if (count === 0) {
+    throw new Error(
+      `promoverEvento: la transición a ${destino} del evento ${evento.id} no afectó ninguna fila ` +
+        "— ya no estaba en PENDING al momento de escribir. Se revierte la transacción para no " +
+        "dejar un Contact promovido sin su IngestionEvent actualizado (E-1, " +
+        "docs/review-ingesta-2026-08-27.md).",
+    );
+  }
+}
+
 export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<ResultadoPromocion> {
   // La traducción por fieldMapping ocurre ANTES de validar y DESPUÉS de
   // staging — ver el bloque de arriba. Para el webhook es un paso transparente:
@@ -250,7 +290,8 @@ export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<R
     // lote sigue (§5). Si se tratara como error de sistema, el evento quedaría
     // en PENDING reintentándose contra una configuración que no se arregla
     // sola.
-    await markEventFailed(evento.id, evento.organizationId, preparado.motivo, db);
+    const marcado = await markEventFailed(evento.id, evento.organizationId, preparado.motivo, db);
+    exigirTransicion(marcado.count, evento, IngestionStatus.FAILED);
     return { estado: "FAILED", errorMessage: preparado.motivo };
   }
 
@@ -264,7 +305,8 @@ export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<R
       .map((issue) => `${issue.path.join(".") || "payload"}: ${issue.message}`)
       .join(", ");
 
-    await markEventFailed(evento.id, evento.organizationId, errorMessage, db);
+    const marcado = await markEventFailed(evento.id, evento.organizationId, errorMessage, db);
+    exigirTransicion(marcado.count, evento, IngestionStatus.FAILED);
     return { estado: "FAILED", errorMessage };
   }
 
@@ -299,7 +341,14 @@ export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<R
     });
   }
 
-  await markEventProcessed(evento.id, evento.organizationId, contacto.id, notas, db);
+  const marcado = await markEventProcessed(
+    evento.id,
+    evento.organizationId,
+    contacto.id,
+    notas,
+    db,
+  );
+  exigirTransicion(marcado.count, evento, IngestionStatus.PROCESSED);
 
   return { estado: "PROCESSED", contactId: contacto.id, notas };
 }

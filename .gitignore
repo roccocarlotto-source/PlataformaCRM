@@ -15,6 +15,11 @@ dist/
 # describe.
 pr-body*.md
 
+# Salida intermedia de `npm audit --json` que consume el gate de dependencias
+# (scripts/audit-gate.ts, hallazgo S-3). Se regenera en cada corrida; commitearla
+# congelaría una foto del árbol de dependencias que nadie va a actualizar.
+npm-audit.json
+
 # Clave privada ES256 del GoTrue local (supabase/config.toml → signing_keys_path).
 # Efímera: la genera `npm run gen:signing-key` en cada corrida del CI y en cada
 # entorno local. Una clave privada no se commitea aunque no proteja nada real.

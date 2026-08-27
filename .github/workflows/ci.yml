@@ -70,6 +70,25 @@ jobs:
         env:
           CORS_ORIGIN: http://localhost:5173
 
+      # Gate de vulnerabilidades de dependencias — hallazgo S-3 de
+      # docs/review-ingesta-2026-08-27.md. Hasta acá el pipeline no miraba las
+      # dependencias en absoluto: las dos vulnerabilidades que encontró ese
+      # review aparecieron corriendo `npm audit` a mano.
+      #
+      # --omit=dev: lo que se despliega. Una vulnerabilidad en una herramienta
+      # de build no está expuesta a nadie del lado del servidor, y meterla en el
+      # mismo gate lo volvería ruidoso hasta que alguien lo apague.
+      #
+      # `|| true` es NECESARIO y no un atajo: `npm audit` sale con código 1 con
+      # solo encontrar una vulnerabilidad de cualquier severidad, así que sin
+      # esto el step moriría antes de que el gate pueda decidir. Quien decide es
+      # scripts/audit-gate.ts, que falla ruidoso si el JSON no existe o no se
+      # puede parsear — un `npm audit` que no corrió NO pasa por "todo limpio".
+      - name: Auditoría de dependencias (bloquea high/critical sin excepción)
+        run: |
+          npm audit --omit=dev --json > npm-audit.json || true
+          npm run audit:gate
+
   frontend:
     name: Frontend — typecheck, build, tests
     runs-on: ubuntu-latest
