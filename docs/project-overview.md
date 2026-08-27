@@ -2323,7 +2323,7 @@ construcción de §6 de ese documento, cerrados entre el 2026-08-23 y el 2026-08
   El `fieldMapping` por columna se aplica **al promover**, nunca al parsear.
 
 **Verificación**: `npm run typecheck` (los tres proyectos de TS), `npm test`
-(115 tests unitarios, sin base de datos), `npm run test:integration` (155 tests
+(115 tests unitarios, sin base de datos), `npm run test:integration` (157 tests
 contra Postgres y Supabase Auth reales) y `npm run verify:schema` (9 afirmaciones
 de esquema) — los cuatro en verde sobre el deliverable final.
 
@@ -2771,8 +2771,8 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
   contrario lo detectó Q-4 de `docs/review-ingesta-2026-08-27.md`. Sí existen
   suites de test persistentes desde H1: unitarias
   (`*.test.ts`, `npm test`, sin DB) y de integración (`*.integration-test.ts`,
-  `npm run test:integration`, contra Postgres/Supabase real) — 8 archivos de
-  test en total a la fecha, cubriendo H1/H2/M3/M4/H-1/M1/LOW-1/LOW-3/PIPE-DEFAULT-GHOST/T-1/T-2.
+  `npm run test:integration`, contra Postgres/Supabase real) — 26 archivos de
+  test en total a la fecha (12 unitarios + 14 de integración), cubriendo H1/H2/M3/M4/H-1/M1/LOW-1/LOW-3/PIPE-DEFAULT-GHOST/T-1/T-2.
 
 ---
 
