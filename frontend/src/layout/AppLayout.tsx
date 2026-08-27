@@ -51,6 +51,7 @@ export function AppLayout() {
             <>
               <Link to="/users">Usuarios</Link>
               <Link to="/invitations">Invitaciones</Link>
+              <Link to="/sources">Fuentes</Link>
             </>
           ) : null}
         </nav>
