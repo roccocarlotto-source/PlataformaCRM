@@ -164,9 +164,15 @@ export function SourceFormPage() {
           disabled={isEditMode}
           onChange={(event) => setValues({ ...values, type: event.target.value as SourceType })}
         >
+          {/* Falta EXTERNAL_DB del enum a propósito, no es un olvido: el ítem 6
+              (bases de datos externas) sigue pospuesto —ver docs/project-overview.md
+              §8— y no hay ninguna forma de ingesta que lo consuma. Crear una
+              fuente de ese tipo hoy no rompe nada, pero tampoco hace nada.
+              `SourceType` en types.ts SÍ lo incluye: el backend lo acepta, así
+              que el tipo tiene que poder representar una fuente existente que
+              llegue por otro camino. Esto es solo no ofrecer la opción. */}
           <option value="WEBHOOK">Webhook</option>
           <option value="FILE_IMPORT">Importación de archivo</option>
-          <option value="EXTERNAL_DB">Base externa</option>
         </select>
       </FormField>
       {isEditMode ? (
