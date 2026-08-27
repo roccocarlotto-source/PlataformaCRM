@@ -66,6 +66,69 @@ jobs:
       - run: npm test
 
   # ---------------------------------------------------------------------------
+  # BLOQUEANTE. Un fallo de ESLint o de Prettier corta el job y el merge, igual
+  # que un typecheck roto.
+  #
+  # ARRANCÓ INFORMATIVO Y DEJÓ DE SERLO POR EVIDENCIA, no por confianza. Los
+  # tres pasos llevaron `continue-on-error: true` durante exactamente una
+  # corrida, porque lint y format:check solo habían corrido en una máquina
+  # Windows con core.autocrlf=true — que es justamente lo que motivó
+  # `endOfLine: "auto"` en .prettierrc. Un runner es un clon limpio en Ubuntu,
+  # sin esa conversión: había que verlo antes de blindarlo.
+  #
+  # Ya se vio, en el PR de este mismo job. Las tres salidas del runner, leídas
+  # del log y no del ícono verde —que con continue-on-error da success igual
+  # aunque el paso falle—: `eslint .` sin una sola línea de salida en los dos
+  # paquetes, y "All matched files use Prettier code style!" en Prettier. Cero
+  # annotations de error. Sobre eso se sacan los continue-on-error.
+  #
+  # Job aparte y no pasos dentro de `backend`/`frontend`, por el mismo criterio
+  # que ya separa a `integration`: es otro perfil de ejecución —cubre los dos
+  # paquetes a la vez— y un fallo se lee como "estilo o reglas de lint", no como
+  # "el backend está roto".
+  #
+  # SIN `npx prisma generate`, a diferencia de `backend` e `integration`: ninguna
+  # de las dos configs de ESLint usa la variante con chequeo de tipos
+  # (tseslint.configs.recommended, no recommendedTypeChecked), así que el linter
+  # solo parsea y nunca necesita que el cliente de Prisma exista.
+  #
+  # UN SOLO setup-node con los dos lockfiles en cache-dependency-path, en vez de
+  # dos pasos: el segundo setup-node volvería a instalar Node para nada — lo
+  # único que aporta es la clave de caché, y esa opción acepta varias rutas.
+  #
+  # format:check corre UNA vez, desde la raíz: hay un solo .prettierrc para todo
+  # el repo y `prettier --check .` desde acá ya baja a frontend/.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint & Prettier
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm ci
+        working-directory: frontend
+
+      - name: ESLint (backend)
+        run: npm run lint
+
+      # Cubre backend y frontend de una: un solo .prettierrc en la raíz.
+      - name: Prettier (todo el repo)
+        run: npm run format:check
+
+      - name: ESLint (frontend)
+        run: npm run lint
+        working-directory: frontend
+
+  # ---------------------------------------------------------------------------
   # Job aparte, no un paso más del job `backend`, por dos razones:
   #   1. Perfil de ejecución distinto — este levanta Docker y tarda minutos;
   #      `backend` da su veredicto en menos de un minuto. Separados corren en
