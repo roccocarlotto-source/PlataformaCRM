@@ -318,3 +318,45 @@ button:disabled {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
+
+/* ---------------------------------------------------------------------------
+   Texto de ayuda debajo de un control. Utilidad genérica: la primera en usarla
+   es SourceFormPage (para explicar por qué el tipo no se puede cambiar y qué
+   hace el mapeo de columnas), pero no tiene nada de específico de ese módulo.
+   --------------------------------------------------------------------------- */
+.ds-hint {
+  margin: calc(var(--space-1) * -1) 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Lista de filas editables — hoy con un único consumidor,
+   features/source/FieldMappingEditor.tsx.
+   Vive acá y no en un stylesheet propio porque el proyecto no tiene CSS por
+   feature: main.tsx carga tres hojas y ninguna es de un módulo. Las clases
+   quedan con el prefijo ds- por coherencia con el resto del archivo. Si aparece
+   un segundo consumidor, el componente se promueve a design-system/ y estas
+   reglas ya están en su lugar.
+   --------------------------------------------------------------------------- */
+.ds-mapping-rows {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ds-mapping-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ds-mapping-row label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
