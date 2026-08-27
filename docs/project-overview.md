@@ -861,7 +861,10 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   constraints ni triggers en su DSL. La solución elegida es un archivo SQL separado
   (`manual_constraints.sql`) que se aplica después de cada migración — mantiene el
   schema principal declarativo y en Prisma, y aísla lo "no estándar" en un solo lugar
-  documentado.
+  documentado. Ese DDL ya forma parte del historial de migraciones desde
+  `20260821140000_incorporate_manual_ddl_into_migrations` y su reaplicación está
+  automatizada en `npm run migrate:deploy`, así que hoy no es un paso manual (ver
+  sección 9 para el detalle).
 
 - **Soft delete (`deletedAt`) en 9 de los 13 modelos.** `Organization`,
   `Company`, `Contact`, `Pipeline`, `Stage`, `Opportunity`, `Activity`,
