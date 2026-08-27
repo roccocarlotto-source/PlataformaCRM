@@ -180,6 +180,10 @@ export function SourceListPage() {
                 <td>{new Date(source.createdAt).toLocaleDateString()}</td>
                 <td>
                   <Link to={`/sources/${source.id}/edit`}>Editar</Link>{" "}
+                  {/* Cross-link a las claves de ESTA fuente, con el filtro ya
+                      aplicado. El filtro de ApiKeyListPage vive en la URL
+                      justamente para que este link pueda armarlo. */}
+                  <Link to={`/api-keys?sourceId=${source.id}`}>Ver claves</Link>{" "}
                   <Button variant="danger" onClick={() => handleDelete(source.id)}>
                     Eliminar
                   </Button>

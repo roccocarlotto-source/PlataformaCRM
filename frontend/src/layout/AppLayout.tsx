@@ -52,6 +52,7 @@ export function AppLayout() {
               <Link to="/users">Usuarios</Link>
               <Link to="/invitations">Invitaciones</Link>
               <Link to="/sources">Fuentes</Link>
+              <Link to="/api-keys">Claves</Link>
             </>
           ) : null}
         </nav>

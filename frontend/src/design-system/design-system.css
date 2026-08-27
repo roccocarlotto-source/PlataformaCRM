@@ -360,3 +360,61 @@ button:disabled {
   flex-direction: column;
   gap: var(--space-1);
 }
+
+/* ---------------------------------------------------------------------------
+   Modal — primer diálogo del proyecto (design-system/Modal.tsx).
+   El overlay no captura clicks a propósito: el cierre es siempre el botón
+   explícito, ver el comentario del componente.
+   --------------------------------------------------------------------------- */
+.ds-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(28, 28, 38, 0.55);
+}
+
+.ds-modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.ds-modal:focus {
+  outline: none;
+}
+
+.ds-modal-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-lg);
+}
+
+.ds-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ds-modal-actions {
+  margin-top: var(--space-4);
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Campo de solo lectura con un secreto: monoespaciado para poder leer carácter
+   por carácter, y seleccionable —readOnly, nunca disabled— porque seleccionar a
+   mano es el respaldo cuando el portapapeles no está disponible. */
+.ds-secret {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: var(--font-size-sm);
+  word-break: break-all;
+}
