@@ -8,14 +8,39 @@ on:
     branches: [master]
   pull_request:
 
+# VERSIONES DE LAS ACTIONS: @v5 en checkout y setup-node, y el motivo no es
+# "estar al día". v4 corre sobre Node 20, que GitHub ya deprecó: los runners lo
+# fuerzan a Node 24 y cada corrida dejaba un warning en las cuatro jobs. La v5
+# de las dos es la primera que corre sobre Node 24 de forma nativa.
+#
+# Requiere runner v2.327.1 o posterior. Los hosted de `ubuntu-latest` están muy
+# por encima; anotarlo importa solo si algún día esto corre en un self-hosted.
+#
+# DOS CAMBIOS DE COMPORTAMIENTO DE v5 QUE SE VERIFICARON ANTES DE SUBIR, no se
+# asumieron inocuos:
+#
+#   - checkout v5.1.0 trae un cambio BREAKING: por defecto se niega a traer el
+#     código de un PR de un fork. Solo aplica a `pull_request_target` y a
+#     `workflow_run`; este workflow dispara con `pull_request` y `push`, así
+#     que no lo toca. Además GitHub retroportó esa protección a todas las
+#     mayores soportadas —v4 incluida—, así que ya regía antes de este cambio.
+#   - setup-node v5 cachea solo con detectar un campo `packageManager` en el
+#     package.json. Ninguno de los dos paquetes lo tiene, y acá el cache se
+#     declara explícito con `cache: npm` + `cache-dependency-path`, así que no
+#     hay dos mecanismos compitiendo.
+#
+# Las dos actions ya van por v7. Quedarse en v5 es deliberado: resuelve el
+# warning, sigue siendo una mayor soportada, y saltar dos mayores más es otra
+# decisión con su propia verificación.
+
 jobs:
   backend:
     name: Backend — typecheck, build, unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -52,9 +77,9 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -103,9 +128,9 @@ jobs:
     name: Lint & Prettier
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -152,9 +177,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
