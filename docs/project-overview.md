@@ -2674,13 +2674,36 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
   perdido, no las carreras `Promise.all` originales de H3/H4 — ver sección 3).
 
 - **Las constraints SQL manuales y las políticas de RLS no están versionadas junto
-  con las migraciones de Prisma.** Tanto `manual_constraints.sql` como
+  con las migraciones de Prisma — resuelto (C-2 + `npm run migrate:deploy`,
+  2026-08-23).** Tanto `manual_constraints.sql` como
   `prisma/sql/rls_policies.sql` se aplicaron a mano una vez
   (`prisma db execute --file ... --url "$DIRECT_URL"`), verificado que existen en la
-  base real. Si alguien genera una migración nueva que toque estas tablas y se
-  olvida de reaplicar alguno de los dos `.sql`, la base queda sin esas protecciones
-  silenciosamente, porque Prisma no se queja de que falten. Automatizarlo (script
-  npm o hook post-migración, ver paso 4 de sección 8) mitiga esto.
+  base real. Si alguien generaba una migración nueva que tocara estas tablas y se
+  olvidaba de reaplicar alguno de los dos `.sql`, la base quedaba sin esas
+  protecciones silenciosamente, porque Prisma no se queja de que falten.
+  **Corregido por dos vías complementarias (C-2, 2026-08-21; `migrate:deploy`,
+  2026-08-23):** el DDL de ambos archivos ya forma parte del historial de
+  migraciones desde `20260821140000_incorporate_manual_ddl_into_migrations`
+  (C-2, ver `docs/auditoria-2026-08-21.md`), así que una base reconstruida solo
+  con `prisma migrate deploy` queda completa; y `scripts/apply-manual-sql.ts`
+  —expuesto como `npm run migrate:deploy`— encadena `prisma migrate deploy` +
+  la reaplicación idempotente de `manual_constraints.sql` y `rls_policies.sql`
+  en un único comando. El job `integration` de `.github/workflows/ci.yml` corre
+  ese comando en cada CI (paso "Reconstruir la base desde cero (migraciones +
+  SQL manual)") y el paso siguiente (`npm run verify:schema`) audita objeto por
+  objeto que no falte ninguno, así que la omisión ya no puede pasar en silencio.
+  Los dos `.sql` se conservan hoy como referencia legible y como red de
+  seguridad idempotente para ese script — así lo declaran sus propios headers.
+  Alcance real de la automatización: cubre los entornos que existen hoy —
+  desarrollo local (el README instruye correr `npm run migrate:deploy` después
+  de generar una migración que toque estas tablas) y CI. Todavía no existe un
+  pipeline de CD hacia un hosting de producción real para el backend Express: no
+  hay Dockerfile, ni workflow de deploy, ni configuración de ningún proveedor en
+  este repo (Supabase aporta Postgres y Auth, no el hosting del backend). Eso no
+  es un pendiente registrado ni una decisión explícita de posponerlo —
+  simplemente todavía no entró en el radar del proyecto. El día que se elija
+  hosting, `npm run migrate:deploy` es exactamente el comando que ese pipeline
+  tiene que invocar.
 
 - **"MVP: un pipeline por organización" vs. el modelo ya permite múltiples.** El
   comentario en el schema y el modelo de datos no están alineados 1:1 — si la UI
