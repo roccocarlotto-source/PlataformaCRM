@@ -2359,7 +2359,7 @@ y administración acotada de `User`, corrección JWT ES256) se sacaron de esta
 lista — quedan documentados en la sección 7. Con `Invitation`/`User` cerrado, no
 queda ningún módulo CRUD pendiente del modelo de datos actual.
 
-1. **Configurar SMTP propio en el proyecto de Supabase** (Dashboard →
+1. **Configurar SMTP propio en el proyecto de Supabase — ✅ resuelto (2026-08-27).** (Dashboard →
    Authentication → Email/SMTP Settings, con un proveedor tipo Resend/Postmark/
    SendGrid). El servicio de email por defecto de Supabase tiene un rate limit
    muy bajo a nivel de todo el proyecto — se confirmó empíricamente durante la
