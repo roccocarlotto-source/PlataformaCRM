@@ -21,6 +21,7 @@ import { InvitationListPage } from "../features/invitation/InvitationListPage";
 import { AcceptInvitationPage } from "../features/auth/AcceptInvitationPage";
 import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
+import { ApiKeyListPage } from "../features/apiKey/ApiKeyListPage";
 import { SourceFormPage } from "../features/source/SourceFormPage";
 import { SourceListPage } from "../features/source/SourceListPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
@@ -91,6 +92,11 @@ export const router = createBrowserRouter([
               { path: "/sources", element: <SourceListPage /> },
               { path: "/sources/new", element: <SourceFormPage /> },
               { path: "/sources/:id/edit", element: <SourceFormPage /> },
+              // Claves de ingesta. Ruta plana, sin anidar bajo /sources/:id: el
+              // filtro ?sourceId= cubre el mismo caso y es el que usa el link
+              // "Ver claves" de SourceListPage. ADMIN-only como el resto de la
+              // capa de ingesta, lectura incluida.
+              { path: "/api-keys", element: <ApiKeyListPage /> },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/contacts/new", element: <ContactFormPage /> },
