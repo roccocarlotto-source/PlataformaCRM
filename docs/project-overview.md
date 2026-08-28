@@ -77,15 +77,15 @@ actividades.
 la raíz, que cubre backend y frontend de una. El job `lint` de
 `.github/workflows/ci.yml` los corre de forma bloqueante.
 
-### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage + M5 Opportunity + M6 Activity + M7 Users/Invitations + M8 Dashboard)
+### Frontend (`frontend/`, M0 scaffold + M1 autenticación y sesión + M2 Company + M3 Contact + M4 Pipeline/Stage + M5 Opportunity + M6 Activity + M7 Users/Invitations + M8 Dashboard + Fase 2 de ingesta: Source, ApiKey, importación y eventos)
 
 | Tecnología | Rol | Por qué (evidencia en el repo) |
 |---|---|---|
 | **React** 19 / **React DOM** | UI | `frontend/package.json` — única librería de vista, sin framework de estado global adicional. |
 | **TypeScript** (`strict: true`) | Lenguaje del frontend | `frontend/tsconfig.app.json` — mismo criterio de tipado estricto que el backend. |
 | **Vite** | Build tool + dev server | `frontend/vite.config.ts` — puerto de dev `5173` por default, coincide con `CORS_ORIGIN` por defecto del backend (`.env.example`). |
-| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2 — desde M8 renderiza `DashboardPage`; ya no es el placeholder de M0, ver sección 7), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3), `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit`, `/pipelines/:pipelineId/stages`, `/pipelines/:pipelineId/stages/new`, `/pipelines/:pipelineId/stages/:stageId/edit` (M4 — las 4 rutas de escritura comparten el mismo `AdminRoute` que Company/Contact), `/opportunities`, `/opportunities/new`, `/opportunities/:id/edit` (M5 — las 2 rutas de escritura reutilizan el mismo `AdminRoute`), `/activities` (M6, lectura abierta a cualquier rol — a diferencia de todas las anteriores, `GET /api/activities` no es ADMIN-only), `/activities/new`, `/activities/:id/edit` (M6 — estas 2 sí reutilizan el mismo `AdminRoute`), `/users`, `/invitations`, `/invitations/new` (M7 — las 3 dentro del mismo `AdminRoute`: a diferencia de Activity, acá la LECTURA también es ADMIN-only, `GET /api/users` y `GET /api/invitations` lo exigen), `/invite/accept` (M7 — única ruta de negocio fuera de `ProtectedRoute`, ver sección de autenticación), `*` (placeholder de M0). M8 no agregó ninguna ruta nueva — solo reemplazó el elemento de `/`. |
-| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail`; M4 agregó `pipelineKeys` (mismo shape que companyKeys, invalidación ampliada a `.all` solo cuando `isDefault: true` puede desmarcar otro pipeline) y `stageKeys` (jerárquica por `pipelineId` — `byPipeline(pipelineId)` como prefijo de array, verificado empíricamente contra `@tanstack/query-core` real); M5 agregó `opportunityKeys` (plana, mismo shape que companyKeys/contactKeys/pipelineKeys — Opportunity no está scoped a un único padre por URL, a diferencia de Stage — invalidación selectiva pura, sin efecto lateral demostrado sobre otras entidades) y `userKeys` (solo `all`/`lists`/`list`, deliberadamente sin `detail`: no existe `GET /api/users/:id` en el backend); M6 agregó `activityKeys` (plana, mismo shape que `opportunityKeys`, con `detail(id)` real porque `GET /api/activities/:id` sí existe y se usa para hidratar la edición); M7 reutilizó `userKeys` sin cambios (no existe `GET /api/users/:id`, no había nada que extender) y agregó `invitationKeys` (plana, sin `detail`: tampoco existe `GET /api/invitations/:id`); M8 no agregó ninguna key factory nueva — `features/dashboard/queries.ts` compone `opportunityKeys`/`pipelineKeys`/`stageKeys` ya existentes vía 3 hooks nuevos (`useOpportunitySummary`, `useMyRecentOpenOpportunities`, `useDefaultPipelineStageSummary`), sin cache paralela — ver sección 7. |
+| **React Router DOM** | Ruteo | `frontend/src/app/router.tsx` — `createBrowserRouter`: `/login` (`LoginPage`, M1), `/` protegida por `ProtectedRoute` → `AppLayout` (M2 — desde M8 renderiza `DashboardPage`; ya no es el placeholder de M0, ver sección 7), `/companies`, `/companies/new`, `/companies/:id/edit` (M2), `/contacts`, `/contacts/new`, `/contacts/:id/edit` (M3), `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit`, `/pipelines/:pipelineId/stages`, `/pipelines/:pipelineId/stages/new`, `/pipelines/:pipelineId/stages/:stageId/edit` (M4 — las 4 rutas de escritura comparten el mismo `AdminRoute` que Company/Contact), `/opportunities`, `/opportunities/new`, `/opportunities/:id/edit` (M5 — las 2 rutas de escritura reutilizan el mismo `AdminRoute`), `/activities` (M6, lectura abierta a cualquier rol — a diferencia de todas las anteriores, `GET /api/activities` no es ADMIN-only), `/activities/new`, `/activities/:id/edit` (M6 — estas 2 sí reutilizan el mismo `AdminRoute`), `/users`, `/invitations`, `/invitations/new` (M7 — las 3 dentro del mismo `AdminRoute`: a diferencia de Activity, acá la LECTURA también es ADMIN-only, `GET /api/users` y `GET /api/invitations` lo exigen), `/invite/accept` (M7 — única ruta de negocio fuera de `ProtectedRoute`, ver sección de autenticación), `*` (placeholder de M0). M8 no agregó ninguna ruta nueva — solo reemplazó el elemento de `/`. La Fase 2 de ingesta agregó seis, TODAS dentro del mismo `AdminRoute` —incluidas las de lectura, a diferencia de Company/Contact: las rutas de `/api/sources`, `/api/api-keys` y `/api/ingestion-events` son ADMIN-only también para leer, mismo caso que `/users`—: `/sources`, `/sources/new`, `/sources/:id/edit`, `/sources/:id/import`, `/api-keys`, `/ingestion-events`. Dos de ellas leen filtros de la query string —`/api-keys` (`?sourceId=`) y `/ingestion-events` (`?sourceId=` y `?batchId=`)—, que es lo que permite los cross-links entre pantallas. |
+| **TanStack Query** | Cache de server state | `frontend/src/lib/queryClient.ts` — infraestructura creada en M0; M1 agregó `GET /api/me` (`AuthContext.tsx`); M2 agregó las queries/mutations de `features/company/` (`companyKeys`, invalidación selectiva por mutación, sin `queryClient.clear()` fuera de la frontera de identidad); M3 agregó las de `features/contact/` (`contactKeys`) más `useCompaniesByIds` (`useQueries`) para resolver nombres de Company en el listado de Contacts sin acoplar `companyKeys.list`/`companyKeys.detail`; M4 agregó `pipelineKeys` (mismo shape que companyKeys, invalidación ampliada a `.all` solo cuando `isDefault: true` puede desmarcar otro pipeline) y `stageKeys` (jerárquica por `pipelineId` — `byPipeline(pipelineId)` como prefijo de array, verificado empíricamente contra `@tanstack/query-core` real); M5 agregó `opportunityKeys` (plana, mismo shape que companyKeys/contactKeys/pipelineKeys — Opportunity no está scoped a un único padre por URL, a diferencia de Stage — invalidación selectiva pura, sin efecto lateral demostrado sobre otras entidades) y `userKeys` (solo `all`/`lists`/`list`, deliberadamente sin `detail`: no existe `GET /api/users/:id` en el backend); M6 agregó `activityKeys` (plana, mismo shape que `opportunityKeys`, con `detail(id)` real porque `GET /api/activities/:id` sí existe y se usa para hidratar la edición); M7 reutilizó `userKeys` sin cambios (no existe `GET /api/users/:id`, no había nada que extender) y agregó `invitationKeys` (plana, sin `detail`: tampoco existe `GET /api/invitations/:id`); M8 no agregó ninguna key factory nueva — `features/dashboard/queries.ts` compone `opportunityKeys`/`pipelineKeys`/`stageKeys` ya existentes vía 3 hooks nuevos (`useOpportunitySummary`, `useMyRecentOpenOpportunities`, `useDefaultPipelineStageSummary`), sin cache paralela — ver sección 7. La Fase 2 de ingesta agregó `sourceKeys` (shape completo con `detail`, que sí existe), `apiKeyKeys` e `ingestionEventKeys` (los dos SIN `detail`: no hay `GET` por id en el backend, mismo criterio que `userKeys`/`invitationKeys`) e `importKeys` (solo `detail`, el inverso: existe `GET /api/imports/:batchId` pero no un listado de lotes). Más dos réplicas de `useCompaniesByIds` —`useSourcesByIds` en `features/apiKey/` y en `features/ingestionEvent/`— para resolver el nombre de la `Source` de cada fila sin un request por fila; replicadas y no compartidas, mismo criterio deliberado que documenta el original. |
 | **@supabase/supabase-js** | Cliente de Supabase para el browser | `frontend/src/lib/supabase.ts` — única instancia, únicamente con la `anon key` (nunca `service_role`, esa es exclusiva del backend — ver `src/lib/supabaseAdmin.ts` arriba). |
 | **Vitest** + **jsdom** + **@testing-library/react** + **user-event** + **jest-dom** + **MSW v2** | Testing frontend | `frontend/vite.config.ts` (bloque `test`, `defineConfig` de `vitest/config`), `frontend/src/test/`. Introducido en M2 para remediar `STD-SW-003` — ver detalle abajo. |
 
@@ -2244,6 +2244,11 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   estándar — ver sección 4).
 - ✅ `User`: `GET /api/users`, `PATCH /api/users/:id`, `DELETE /api/users/:id`
   (ADMIN-only, administración acotada — ver arriba).
+- ✅ **Capa de ingesta**: catorce endpoints más, enumerados en el bullet "Capa de
+  ingesta" de más abajo en vez de repetidos acá — `/api/sources`,
+  `/api/api-keys`, `/api/imports`, `/api/ingestion-events` (todos ADMIN-only
+  por el camino de auth existente) y `POST /api/ingest`, el único del sistema
+  que NO usa `authenticate`: va por `authenticateApiKey`, sin usuario detrás.
 - ✅ `GET /api/me` — identidad de negocio del usuario autenticado
   (`{id, email, fullName, organizationId, role}`), cualquier rol. No hace
   ninguna query propia: serializa `req.auth`, ya resuelto por `authenticate`
@@ -2322,8 +2327,61 @@ construcción de §6 de ese documento, cerrados entre el 2026-08-23 y el 2026-08
   `GET /api/imports/:batchId` con los contadores del lote derivados por `GROUP BY`.
   El `fieldMapping` por columna se aplica **al promover**, nunca al parsear.
 
+**Observabilidad y reproceso — agregado DESPUÉS de cerrar los cinco ítems**, a
+partir de las brechas que encontró `docs/research-frontend-ingesta-2026-08-27.md`
+al relevar qué necesitaba el frontend. No estaba en el orden de construcción de
+§6: la capa era escribible pero no observable.
+- ✅ **`GET /api/ingestion-events`** (`e21d7fb`, PR #18): listado paginado de la
+  cola, con filtros por `sourceId`, `status` y `batchId`. Cierra G-1 y G-2 del
+  relevamiento — hasta acá lo único que salía de `ingestion_events` por HTTP eran
+  los contadores agregados de un lote, y los eventos de webhook (`batchId` null
+  para siempre) eran **invisibles por completo**. La proyección pública excluye
+  `rawPayload` y `promotionNotes`: son las dos columnas JSONB de la tabla de mayor
+  volumen del esquema.
+- ✅ **`POST /api/ingestion-events/:id/retry`** (`e21d7fb`, PR #18): transición
+  condicional `FAILED → PENDING`, con el mismo compare-and-swap que
+  `revokeApiKeyConditional`. Cierra G-7: §1 promete "corregir un mapeo y volver a
+  correrlo" pero el worker solo reclama `PENDING`, así que `FAILED` era terminal.
+  El endpoint **encola, no promueve** — la promoción sigue fuera del ciclo del
+  request (§5).
+- ✅ **`POST /api/imports/preview`** (`26249b7`, PR #21): devuelve los encabezados
+  de un archivo sin crear nada, sin `sourceId` y **sin tocar la base**. Reusa
+  exactamente la misma cadena de parseo que la importación real
+  (`formatoDesdeNombre` → `parsearArchivo`), y hay un test que sube el mismo
+  archivo por los dos caminos para verificarlo — ver §9.11 de
+  `docs/ingestion-architecture.md`.
+
+**Frontend de la capa de ingesta (Fase 2, PRs #19 a #23)** — cuatro pantallas
+nuevas, todas ADMIN-only, todas con el design system (`Source` fue el segundo
+módulo del proyecto en adoptarlo, después de `Company`).
+- ✅ **`Source`** (PR #19): listado con filtros y formulario único create/edit.
+  `type` inmutable, mostrado deshabilitado en edición en vez de escondido.
+  `FieldMappingEditor` es el primer "lista de filas editable" del proyecto —
+  vive en `features/source/` y no en el design system porque tiene un solo
+  consumidor.
+- ✅ **`ApiKey`** (PR #20): listado, creación con el secreto **mostrado una sola
+  vez** en el primer `Modal` del design system, y revocación. El modal **no se
+  cierra con click afuera ni con Escape**, a propósito: el secreto no se puede
+  recuperar, así que los dos gestos que se disparan sin querer serían
+  irreversibles. La garantía de que el secreto no se filtra es de TIPOS —
+  `ApiKey` y `CreatedApiKey` son tipos distintos, y solo el segundo tiene `key`.
+- ✅ **Importación** (PR #22): sugerencia automática de mapeo desde un archivo de
+  muestra (merge, nunca reemplazo: no pisa filas ya configuradas a mano) y
+  pantalla de subida real en `/sources/:id/import`, con el resultado del lote
+  consultable a pedido. `lib/api.ts` ganó `uploadFile()` para multipart —cierra
+  G-6— con `handleResponse()` extraído y compartido con `request()`.
+- ✅ **Eventos** (PR #23): listado de la cola con filtros, "Reintentar" solo en
+  las filas `FAILED`, y link "Ver contacto" cuando el evento se promovió — el
+  camino que cierra el círculo evento → contacto.
+
+**Verificación de la Fase 2**: `npm test` del frontend (604 tests, 69 archivos)
+más las suites del backend detalladas abajo, las tres en verde. La Fase 2 **no
+pasó por los reviews del Toolkit** (`RV-ENG`/`RV-SECURITY`/`RV-STANDARDS`) — a
+diferencia de los ítems 1 a 5, que sí; queda pendiente y se anota acá para que no
+se lea como si los tuviera.
+
 **Verificación**: `npm run typecheck` (los tres proyectos de TS), `npm test`
-(115 tests unitarios, sin base de datos), `npm run test:integration` (157 tests
+(115 tests unitarios, sin base de datos), `npm run test:integration` (185 tests
 contra Postgres y Supabase Auth reales) y `npm run verify:schema` (9 afirmaciones
 de esquema) — los cuatro en verde sobre el deliverable final.
 
@@ -2771,8 +2829,8 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
   contrario lo detectó Q-4 de `docs/review-ingesta-2026-08-27.md`. Sí existen
   suites de test persistentes desde H1: unitarias
   (`*.test.ts`, `npm test`, sin DB) y de integración (`*.integration-test.ts`,
-  `npm run test:integration`, contra Postgres/Supabase real) — 26 archivos de
-  test en total a la fecha (12 unitarios + 14 de integración), cubriendo H1/H2/M3/M4/H-1/M1/LOW-1/LOW-3/PIPE-DEFAULT-GHOST/T-1/T-2.
+  `npm run test:integration`, contra Postgres/Supabase real) — 27 archivos de
+  test en total a la fecha (12 unitarios + 15 de integración), cubriendo H1/H2/M3/M4/H-1/M1/LOW-1/LOW-3/PIPE-DEFAULT-GHOST/T-1/T-2.
 
 ---
 
