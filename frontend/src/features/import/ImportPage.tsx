@@ -155,6 +155,14 @@ export function ImportPage() {
           </ul>
           <p className="ds-hint">Columnas detectadas: {resultado.encabezados.join(", ")}</p>
 
+          {/* Las dos vistas se complementan en vez de competir: acá viven los
+              contadores agregados del lote (un GROUP BY barato), allá la cola
+              fila por fila, con el motivo de cada falla y el botón de
+              reintentar. El batchId del filtro viaja por la URL. */}
+          <p>
+            <Link to={`/ingestion-events?batchId=${resultado.batchId}`}>Ver estas filas</Link>
+          </p>
+
           <p className="ds-hint">
             Las filas se procesan en segundo plano: entran pendientes y se promueven a contactos
             después. Actualizá el estado para ver cómo va.
