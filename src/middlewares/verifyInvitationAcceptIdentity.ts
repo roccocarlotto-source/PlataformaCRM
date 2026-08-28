@@ -47,6 +47,68 @@ import { extractBearerToken } from "../utils/bearerToken";
 // baja frecuencia y ya rate-limiteado en dos etapas; acceptPreAuthRateLimiter
 // (por IP, montado ANTES de este middleware) es el que acota cuántas de estas
 // llamadas puede provocar un anónimo, y sigue corriendo primero.
+//
+// ---------------------------------------------------------------------------
+// QUÉ CIERRA ESTO Y QUÉ NO — corregido después de verificarlo contra GoTrue
+// ---------------------------------------------------------------------------
+//
+// CIERRA: que la decisión dependa de un CLAIM. El email sale de auth.users, no
+// de una afirmación del emisor congelada al emitir el token, y la confirmación
+// se COMPRUEBA en vez de suponerse. Una identidad con token válido y sin
+// confirmar es rechazada acá.
+//
+// NO CIERRA: la necesidad de que "Confirm email" esté ENCENDIDO en el proyecto.
+// Con el toggle apagado GoTrue autoconfirma en el alta, así que el atacante del
+// escenario de ALTO-3 —signup con el email del invitado— termina con
+// email_confirmed_at PUESTO, y ningún chequeo de backend puede distinguir esa
+// confirmación automática de una real.
+//
+// Y un dato que apareció al escribir los tests, no al diseñar: GoTrue NUNCA
+// emite sesión para una identidad sin confirmar, con el toggle en cualquier
+// estado. O sea que "token válido + email sin confirmar" no es alcanzable por
+// los caminos normales de Supabase. Esta comprobación es, entonces, defensa en
+// profundidad —vale para cualquier token que no venga del camino feliz— y no un
+// reemplazo del toggle, que docs/supabase-setup.md sigue exigiendo.
+// Lo único que este archivo DECIDE, separado de la red que lo alimenta.
+//
+// Extraído a una función pura por un motivo concreto, no por prolijidad: la
+// rama de "sin confirmar" NO SE PUEDE EJERCITAR contra un Supabase real, porque
+// GoTrue no emite sesión para una identidad sin confirmar. Un test de
+// integración no puede construir la premisa "token válido + email sin
+// confirmar" y termina salteándose — que es exactamente como esta rama estuvo
+// sin una sola aserción hasta que el conteo de skips del CI lo delató.
+//
+// Con la decisión separada, verifyInvitationAcceptIdentity.test.ts la cubre
+// entera sin red ni base, y el test de integración queda para lo que sí puede
+// probar: que el cableado real (JWT -> Admin API -> request) funciona.
+export interface IdentidadDeAuth {
+  email?: string;
+  email_confirmed_at?: string | null;
+}
+
+export function resolverIdentidadDeInvitacion(
+  userId: string,
+  usuario: IdentidadDeAuth | null | undefined,
+): { userId: string; email: string } {
+  if (!usuario) {
+    // Un `sub` con firma válida que la Admin API no resuelve: identidad borrada
+    // entre la emisión del token y ahora, o un proyecto distinto. En los dos
+    // casos es un 401, igual que un token inválido — no un 500, no es un fallo
+    // del servidor.
+    throw new AppError("No se pudo verificar la identidad del token", 401);
+  }
+
+  if (!usuario.email) {
+    throw new AppError("El token no contiene un email válido", 401);
+  }
+
+  if (!usuario.email_confirmed_at) {
+    throw new AppError("Tenés que confirmar tu email antes de aceptar una invitación", 401);
+  }
+
+  return { userId, email: usuario.email.trim().toLowerCase() };
+}
+
 export const verifyInvitationAcceptIdentity = asyncHandler(
   async (req: Request, _res: Response, next: NextFunction) => {
     const token = extractBearerToken(req);
@@ -54,28 +116,10 @@ export const verifyInvitationAcceptIdentity = asyncHandler(
 
     const { data, error } = await getSupabaseAdmin().auth.admin.getUserById(payload.sub);
 
-    if (error || !data.user) {
-      // Un `sub` con firma válida que la Admin API no resuelve: identidad
-      // borrada entre la emisión del token y ahora, o un proyecto distinto. En
-      // los dos casos es un 401, igual que un token inválido — no un 500, no es
-      // un fallo del servidor.
-      throw new AppError("No se pudo verificar la identidad del token", 401);
-    }
-
-    const usuario = data.user;
-
-    if (!usuario.email) {
-      throw new AppError("El token no contiene un email válido", 401);
-    }
-
-    if (!usuario.email_confirmed_at) {
-      throw new AppError("Tenés que confirmar tu email antes de aceptar una invitación", 401);
-    }
-
-    req.invitationAcceptIdentity = {
-      userId: payload.sub,
-      email: usuario.email.trim().toLowerCase(),
-    };
+    req.invitationAcceptIdentity = resolverIdentidadDeInvitacion(
+      payload.sub,
+      error ? null : data.user,
+    );
 
     next();
   },

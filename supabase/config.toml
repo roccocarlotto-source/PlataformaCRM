@@ -250,14 +250,18 @@ double_confirm_changes = true
 #
 # docs/supabase-setup.md exige "Confirm email = ON" en el proyecto real desde
 # que existe, así que el stack del CI corría con una configuración distinta de
-# la que el propio repositorio documenta como obligatoria. Eso no era gratis:
-# con la confirmación apagada GoTrue AUTOCONFIRMA en el alta, y dos tests del
-# ciclo de ALTO-2/ALTO-3 quedaron afirmando —o salteándose— por esa diferencia,
-# no por lo que probaban.
+# la que el propio repositorio documenta como obligatoria — y es una diferencia
+# con consecuencias, no de detalle: con la confirmación apagada GoTrue
+# AUTOCONFIRMA en el alta, y un test del ciclo de ALTO-2 terminó afirmando por
+# esa diferencia y no por lo que probaba.
 #
-# En particular, el test que verifica que una identidad NO confirmada recibe 401
-# (la rama central de ALTO-3) no podía construir su premisa: con autoconfirm no
-# existe ninguna identidad no confirmada que además tenga un token válido.
+# LO QUE ESTE CAMBIO NO LOGRÓ, anotado para que nadie lo intente de nuevo
+# creyendo que alcanza: NO habilita el test de la rama "sin confirmar" de
+# ALTO-3. Se comprobó que GoTrue no emite sesión para una identidad sin
+# confirmar con el toggle en NINGUNO de los dos estados, y que una edición de
+# email por la Admin API autoconfirma igual. Esa rama no es alcanzable contra un
+# Supabase real y se cubre con un unitario sobre la decisión pura
+# (src/middlewares/verifyInvitationAcceptIdentity.test.ts).
 #
 # Se verificó antes de cambiarlo que ningún test dependía del autoconfirm: las
 # 20 llamadas a admin.createUser de la suite pasan email_confirm: true

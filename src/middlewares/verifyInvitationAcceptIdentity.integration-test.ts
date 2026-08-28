@@ -109,70 +109,26 @@ test("un email CONFIRMADO pasa, y la identidad sale de la Admin API — no del c
   }
 });
 
-// EL ORDEN ES: confirmar, iniciar sesión, y RECIÉN DESPUÉS dejar la identidad
-// sin confirmar. No al revés, y la primera versión de este test se equivocó.
+// LA RAMA DE "SIN CONFIRMAR" NO ESTÁ ACÁ, Y NO ES UN OLVIDO.
 //
-// Lo intuitivo es crear el usuario con `email_confirm: false` e iniciar sesión.
-// No funciona en ningún entorno: GoTrue rechaza `signInWithPassword` de un
-// usuario sin confirmar con "Email not confirmed", así que el test se salteaba
-// SIEMPRE — incluido el CI, donde un comentario anterior afirmaba que no. La
-// rama central de ALTO-3 quedaba sin una sola aserción.
+// Necesitaría un JWT válido de una identidad no confirmada, y eso NO EXISTE:
+// GoTrue no emite sesión para una identidad sin confirmar. Se probaron los dos
+// caminos y los dos fallan por diseño del proveedor, no por el test:
 //
-// El camino que sí construye la premisa es cambiarle el email por la Admin API
-// con `email_confirm: false` DESPUÉS de tener el token en la mano. El token
-// sigue siendo criptográficamente válido —se emitió antes— y `getUserById`
-// ahora reporta una identidad no confirmada. Es además un escenario realista y
-// no un truco de laboratorio: alguien con sesión abierta cambia su email y esa
-// dirección nueva todavía no está probada.
-test("un email SIN CONFIRMAR es rechazado con 401 — el agujero de ALTO-3", async (t) => {
-  const email = emailDePrueba("sin-confirmar");
-  const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
-    email,
-    password: PASSWORD,
-    email_confirm: true,
-  });
-  if (error || !data.user) throw new Error(`setup falló: ${error?.message ?? ""}`);
-  const authUserId = data.user.id;
-
-  try {
-    const { accessToken, motivo } = await tokenDe(email);
-    assert.ok(accessToken, `setup falló al iniciar sesión: ${motivo ?? ""}`);
-
-    // Ya con el token emitido: la identidad pasa a tener un email sin confirmar.
-    const emailNuevo = emailDePrueba("sin-confirmar-nuevo");
-    const { error: cambioError } = await getSupabaseAdmin().auth.admin.updateUserById(authUserId, {
-      email: emailNuevo,
-      email_confirm: false,
-    });
-    if (cambioError) throw new Error(`no se pudo cambiar el email: ${cambioError.message}`);
-
-    // Se verifica la premisa en vez de darla por hecha: si el proyecto
-    // autoconfirmó igual el email nuevo, este test no puede probar nada y lo
-    // dice, en vez de pasar por la razón equivocada.
-    const { data: releido } = await getSupabaseAdmin().auth.admin.getUserById(authUserId);
-    if (releido.user?.email_confirmed_at) {
-      t.skip(
-        "el proyecto autoconfirmó el email nuevo, así que no se puede construir una identidad no confirmada con un token válido",
-      );
-      return;
-    }
-
-    const { req, error: rechazo } = await correrMiddleware(accessToken);
-
-    assert.ok(rechazo instanceof AppError, "debe rechazar con AppError, no con un error crudo");
-    assert.equal(rechazo.statusCode, 401);
-    assert.equal(rechazo.message, "Tenés que confirmar tu email antes de aceptar una invitación");
-
-    assert.equal(
-      req.invitationAcceptIdentity,
-      undefined,
-      "no debe dejar identidad en el request cuando rechaza",
-    );
-  } finally {
-    await getSupabaseAdmin().auth.admin.deleteUser(authUserId);
-  }
-});
-
+//   - crear con email_confirm: false e iniciar sesión -> "Email not confirmed",
+//     con el toggle de confirmación encendido Y apagado;
+//   - iniciar sesión y después cambiar el email por la Admin API con
+//     email_confirm: false -> GoTrue autoconfirma igual el email nuevo, porque
+//     una edición de administrador es autoritativa.
+//
+// La versión anterior de este archivo tenía un test para eso que se salteaba
+// SIEMPRE, con un comentario que además afirmaba que en CI no. Esa rama vive
+// ahora en verifyInvitationAcceptIdentity.test.ts, sobre la función pura
+// resolverIdentidadDeInvitacion, donde se puede cubrir entera y sin red.
+//
+// Lo que este archivo sí prueba, y el unitario no puede, es el CABLEADO real:
+// que un JWT emitido por Supabase de verdad termina resolviendo la identidad
+// contra la Admin API y dejándola en el request.
 test("un `sub` que la Admin API no resuelve es 401, no 500", async () => {
   // Se construye desde un usuario real que se borra ANTES de correr el
   // middleware: el token sigue siendo criptográficamente válido y su `sub` ya no

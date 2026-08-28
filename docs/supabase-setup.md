@@ -111,16 +111,28 @@ corre nada.
 | **Confirm email** | **ON** | **Requisito de seguridad, no de conveniencia** |
 
 `Confirm email` es un interruptor distinto de `Enabled`, dentro de la misma
-sección. **Sigue recomendado, pero desde el 2026-08-28 la seguridad del flujo
-de invitaciones ya no depende de él** (hallazgo `ALTO-3`, cerrado).
+sección. **Sigue siendo obligatorio.** El hallazgo `ALTO-3` se cerró el
+2026-08-28, pero cerrarlo NO volvió opcional este toggle — ver abajo, porque es
+fácil leerlo al revés.
 
-Antes sí: `verifyInvitationAcceptIdentity.ts` usaba el claim `email` del JWT
-como credencial completa y nunca miraba `email_verified`, así que este toggle
-era lo único que impedía que alguien aceptara una invitación ajena
-registrándose con el email del invitado. Ahora ese middleware resuelve la
+Lo que cambió: `verifyInvitationAcceptIdentity.ts` usaba el claim `email` del
+JWT como credencial completa y nunca miraba `email_verified`. Ahora resuelve la
 identidad con `admin.getUserById(payload.sub)` y **exige `email_confirmed_at`**,
-rechazando con 401 si falta. La defensa vive en el código y se puede verificar
-leyéndolo, que era el punto del hallazgo.
+rechazando con 401 si falta. La confirmación se **comprueba** en vez de
+suponerse, y el email sale de `auth.users` en vez de un claim.
+
+**Lo que NO cambió, y conviene decirlo sin vueltas:** con este toggle apagado,
+GoTrue **autoconfirma en el alta**. El atacante del escenario de `ALTO-3`
+—signup con el email del invitado— termina con `email_confirmed_at` **puesto**,
+y ningún chequeo de backend puede distinguir esa confirmación automática de una
+real. El chequeo nuevo es defensa en profundidad; el toggle sigue siendo la
+defensa.
+
+Dato relacionado, verificado empíricamente durante ese cierre: **GoTrue nunca
+emite una sesión para una identidad sin confirmar**, con el toggle en cualquier
+estado. Por eso la rama "sin confirmar" del middleware no se puede ejercitar
+contra un Supabase real y se cubre con un test unitario sobre la decisión pura
+(`verifyInvitationAcceptIdentity.test.ts`).
 
 **Por qué sigue siendo ON y no es opcional.** Con el toggle APAGADO, GoTrue
 autoconfirma en el alta, así que `POST /api/onboarding/otp` deja una identidad
