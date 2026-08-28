@@ -234,3 +234,82 @@ describe("SourceListPage", () => {
     expect(await screen.findByText("No hay fuentes para mostrar.")).toBeInTheDocument();
   });
 });
+
+describe("SourceListPage — cross-links por fila", () => {
+  // Los dos links no siguen el mismo criterio, y esa diferencia es la que se
+  // prueba acá: "Ver claves" va en todas las filas porque un listado de claves
+  // vacío es un resultado válido; "Importar archivo" solo en las FILE_IMPORT
+  // porque importar contra otro tipo da un 400 garantizado (import.service.ts).
+
+  function conFilas(sources: ReturnType<typeof makeSource>[]) {
+    return http.get(baseUrl, () =>
+      HttpResponse.json(
+        listResponse({
+          data: sources,
+          pagination: { page: 1, pageSize: 20, total: sources.length, totalPages: 1 },
+        }),
+      ),
+    );
+  }
+
+  it("una fila FILE_IMPORT muestra 'Importar archivo', apuntando a su propia ruta", async () => {
+    server.use(conFilas([makeSource({ id: "src-file", name: "Feria", type: "FILE_IMPORT" })]));
+    renderPage();
+
+    const tabla = within(await screen.findByRole("table"));
+    const link = tabla.getByRole("link", { name: "Importar archivo" });
+    expect(link).toHaveAttribute("href", "/sources/src-file/import");
+  });
+
+  it("una fila WEBHOOK NO muestra 'Importar archivo'", async () => {
+    server.use(conFilas([makeSource({ id: "src-hook", name: "Landing", type: "WEBHOOK" })]));
+    renderPage();
+
+    const tabla = within(await screen.findByRole("table"));
+    expect(tabla.queryByRole("link", { name: "Importar archivo" })).not.toBeInTheDocument();
+  });
+
+  it("una fila EXTERNAL_DB tampoco lo muestra", async () => {
+    server.use(conFilas([makeSource({ id: "src-db", name: "Base", type: "EXTERNAL_DB" })]));
+    renderPage();
+
+    const tabla = within(await screen.findByRole("table"));
+    expect(tabla.queryByRole("link", { name: "Importar archivo" })).not.toBeInTheDocument();
+  });
+
+  it("con las tres juntas, solo la FILE_IMPORT ofrece importar", async () => {
+    server.use(
+      conFilas([
+        makeSource({ id: "src-hook", name: "Landing", type: "WEBHOOK" }),
+        makeSource({ id: "src-file", name: "Feria", type: "FILE_IMPORT" }),
+        makeSource({ id: "src-db", name: "Base", type: "EXTERNAL_DB" }),
+      ]),
+    );
+    renderPage();
+
+    const tabla = within(await screen.findByRole("table"));
+    const links = tabla.getAllByRole("link", { name: "Importar archivo" });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute("href", "/sources/src-file/import");
+  });
+
+  it("'Ver claves' SÍ aparece en las tres, con el filtro por fuente en la URL", async () => {
+    // El caso de contraste: sin esto, los tests de arriba no distinguirían
+    // "el link correcto está condicionado" de "ningún link se renderiza".
+    server.use(
+      conFilas([
+        makeSource({ id: "src-hook", name: "Landing", type: "WEBHOOK" }),
+        makeSource({ id: "src-file", name: "Feria", type: "FILE_IMPORT" }),
+        makeSource({ id: "src-db", name: "Base", type: "EXTERNAL_DB" }),
+      ]),
+    );
+    renderPage();
+
+    const tabla = within(await screen.findByRole("table"));
+    const links = tabla.getAllByRole("link", { name: "Ver claves" });
+    expect(links).toHaveLength(3);
+    expect(links[0]).toHaveAttribute("href", "/api-keys?sourceId=src-hook");
+    expect(links[1]).toHaveAttribute("href", "/api-keys?sourceId=src-file");
+    expect(links[2]).toHaveAttribute("href", "/api-keys?sourceId=src-db");
+  });
+});
