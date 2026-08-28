@@ -122,3 +122,57 @@ test("montar la capa de ingesta no desmontó nada de lo anterior", async () => {
     assert.equal(res.status, 401, `${path} dejó de estar montada`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// S2-6 — Cache-Control: no-store en toda la API.
+//
+// Este archivo es el lugar correcto para probarlo y no un test por ruta: el
+// header lo pone un middleware global de app.ts, así que lo que hay que
+// verificar es que esté puesto lo bastante temprano como para alcanzar TODO
+// camino de respuesta. Eso solo se ve levantando la app real y completa, que es
+// exactamente lo que este archivo ya hace.
+//
+// Los tres casos son caminos distintos de la cadena, no tres veces el mismo:
+// una respuesta que sale de un handler real, una que muere en `authenticate`
+// (401) y una que muere en `notFound` (404). Un middleware montado después de
+// las rutas pasaría el primero y fallaría los otros dos.
+//
+// SOBRE /health NO SE AFIRMA EL STATUS, y no es dejadez: getHealth consulta la
+// base y devuelve 200 o 503 según la alcance, así que vale 200 con una base
+// enfrente y 503 en el job unitario de CI, que corre sin ninguna. Lo que este
+// caso cubre —una respuesta producida por un handler real, no por un
+// middleware que corta antes— es cierto en los dos casos, y pinchar el status
+// haría que este test hablara de la salud de la base en vez del header.
+// ---------------------------------------------------------------------------
+
+test("S2-6: toda respuesta lleva Cache-Control: no-store, en los tres caminos", async () => {
+  const deHandler = await fetch(`${baseUrl}/health`);
+  assert.equal(
+    deHandler.headers.get("cache-control"),
+    "no-store",
+    "una respuesta que sale de un handler real tiene que llevar el header",
+  );
+
+  const noAutorizado = await fetch(`${baseUrl}/api/contacts`);
+  assert.equal(noAutorizado.status, 401);
+  assert.equal(
+    noAutorizado.headers.get("cache-control"),
+    "no-store",
+    "una respuesta que muere en authenticate también lleva el header",
+  );
+
+  const inexistente = await fetch(`${baseUrl}/api/esta-ruta-no-existe`);
+  assert.equal(inexistente.status, 404);
+  assert.equal(
+    inexistente.headers.get("cache-control"),
+    "no-store",
+    "el 404 de notFound también lleva el header",
+  );
+});
+
+// La ingesta se monta ANTES del express.json() global, en su propia rama de
+// app.ts. Es el camino que más fácil se saltearía un middleware mal ubicado.
+test("S2-6: el camino de ingesta, montado aparte, también lleva el header", async () => {
+  const res = await fetch(`${baseUrl}/api/ingest`, { method: "POST" });
+  assert.equal(res.headers.get("cache-control"), "no-store");
+});

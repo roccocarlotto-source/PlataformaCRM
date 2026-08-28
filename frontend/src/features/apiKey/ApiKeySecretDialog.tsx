@@ -7,11 +7,16 @@ import { Modal } from "../../design-system/Modal";
 // pone adentro lo único que es de este dominio: la advertencia, el campo con la
 // clave y el botón de copiar.
 //
-// La clave llega por prop y NO se guarda en ningún lado más: ni en el cache de
-// TanStack Query (no hay queryKey donde caiga), ni en estado del padre más allá
-// de lo que dura este componente montado. Cerrar el modal la borra del árbol y
-// no queda forma de volver a leerla — que es exactamente lo que promete el
-// backend, donde solo vive el hash.
+// La clave llega por prop: no cae en ningún QueryCache (no hay queryKey donde
+// caiga) ni se persiste. Cerrar el modal la borra del árbol de React.
+//
+// LO QUE ESO NO ALCANZABA A LIMPIAR, hasta el hallazgo S2-4 de
+// docs/review-fase2-2026-08-28.md: el resultado de useCreateApiKey queda en el
+// MutationCache como `.data`, con el secreto adentro, y desmontar este
+// componente no lo toca. Por eso `onClose` no es solo "cerrar": el padre
+// (ApiKeyListPage) llama además a `reset()` sobre la mutación. Recién ahí no
+// queda forma de volver a leer la clave, que es lo que promete el backend,
+// donde solo vive el hash.
 // ---------------------------------------------------------------------------
 
 // Cuánto dura el "¡Copiada!" antes de volver a "Copiar". Dos segundos: suficiente

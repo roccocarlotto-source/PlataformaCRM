@@ -103,17 +103,22 @@ describe("IngestionEventListPage — listado", () => {
 
   it("no hace un request por fila: veinte eventos de la misma fuente resuelven una vez", async () => {
     let resoluciones = 0;
+    // LA FUENTE ESTÁ FUERA DE LA LISTA DEL <select> A PROPÓSITO. Lo que este
+    // test protege es la deduplicación por id dentro de useSourcesByIds: veinte
+    // eventos de la misma fuente son UNA resolución, no veinte. Desde E2-3 una
+    // fuente que sí está en la lista se resuelve sin red y daría 0, que probaría
+    // otra cosa — esa ruta tiene su propio test más abajo.
     server.use(
       sourcesHandler(),
       http.get(`${sourcesUrl}/:id`, () => {
         resoluciones += 1;
-        return HttpResponse.json(makeSource({ id: "src1", name: "Landing" }));
+        return HttpResponse.json(makeSource({ id: "src-101", name: "Landing" }));
       }),
       http.get(eventsUrl, () =>
         HttpResponse.json(
           listResponse({
             data: Array.from({ length: 20 }, (_, i) =>
-              makeIngestionEvent({ id: `ev${i}`, sourceId: "src1" }),
+              makeIngestionEvent({ id: `ev${i}`, sourceId: "src-101" }),
             ),
             pagination: { page: 1, pageSize: 20, total: 20, totalPages: 1 },
           }),
@@ -398,5 +403,139 @@ describe("IngestionEventListPage — reintento y contacto promovido", () => {
     const links = tabla.getAllByRole("link", { name: "Ver contacto" });
     expect(links).toHaveLength(1);
     expect(links[0]).toHaveAttribute("href", "/contacts/ct-99/edit");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// E2-3 y E2-4 — docs/review-fase2-2026-08-28.md.
+// ---------------------------------------------------------------------------
+
+describe("IngestionEventListPage — resolución de fuentes y reintento por fila", () => {
+  it("E2-3: no pide el detalle de una fuente que ya está en la lista cargada", async () => {
+    // El contador es la verificación: si la página vuelve a pedir por red un
+    // nombre que ya tiene en memoria, este número deja de ser 0. Antes del
+    // arreglo, esta misma prueba daba 2.
+    let detallesPedidos = 0;
+
+    server.use(
+      sourcesHandler([
+        makeSource({ id: "src1", name: "Landing de precios" }),
+        makeSource({ id: "src2", name: "Importación de octubre" }),
+      ]),
+      http.get(`${sourcesUrl}/:id`, ({ params }) => {
+        detallesPedidos += 1;
+        return HttpResponse.json(makeSource({ id: params.id as string, name: "Por red" }));
+      }),
+      http.get(eventsUrl, () =>
+        HttpResponse.json(
+          listResponse({
+            data: [
+              makeIngestionEvent({ id: "ev-1", sourceId: "src1" }),
+              makeIngestionEvent({ id: "ev-2", sourceId: "src2" }),
+            ],
+            pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+          }),
+        ),
+      ),
+    );
+
+    renderPage();
+    const tabla = within(await screen.findByRole("table"));
+
+    // Los nombres se resolvieron igual — y salieron de la lista en memoria, no
+    // del handler de detalle, que devolvería "Por red".
+    expect(await tabla.findByText("Landing de precios")).toBeInTheDocument();
+    expect(tabla.getByText("Importación de octubre")).toBeInTheDocument();
+    expect(tabla.queryByText("Por red")).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(detallesPedidos).toBe(0);
+    });
+  });
+
+  it("E2-3: una fuente que NO está en la lista sigue resolviéndose por red", async () => {
+    // El fallback no se eliminó: `fuentes` trae solo las primeras
+    // SOURCES_PARA_SELECT, así que la fuente 101 sigue necesitando su GET.
+    let detallesPedidos = 0;
+
+    server.use(
+      sourcesHandler([makeSource({ id: "src1", name: "Landing de precios" })]),
+      http.get(`${sourcesUrl}/:id`, ({ params }) => {
+        detallesPedidos += 1;
+        return HttpResponse.json(
+          makeSource({ id: params.id as string, name: "Fuente fuera del select" }),
+        );
+      }),
+      http.get(eventsUrl, () =>
+        HttpResponse.json(
+          listResponse({
+            data: [
+              makeIngestionEvent({ id: "ev-1", sourceId: "src1" }),
+              makeIngestionEvent({ id: "ev-2", sourceId: "src-101" }),
+            ],
+            pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+          }),
+        ),
+      ),
+    );
+
+    renderPage();
+    const tabla = within(await screen.findByRole("table"));
+
+    expect(await tabla.findByText("Fuente fuera del select")).toBeInTheDocument();
+    expect(tabla.getByText("Landing de precios")).toBeInTheDocument();
+
+    // Exactamente uno: el de la fuente que faltaba, no el de las dos.
+    expect(detallesPedidos).toBe(1);
+  });
+
+  it("E2-4: reintentar una fila no deshabilita el botón de la otra", async () => {
+    // La respuesta del retry se retiene hasta que el test la libera, para poder
+    // mirar la tabla MIENTRAS la mutación está pendiente — que es el único
+    // momento en que este bug era visible.
+    let liberarRetry: () => void = () => {};
+    const retryEnVuelo = new Promise<void>((resolve) => {
+      liberarRetry = resolve;
+    });
+
+    server.use(
+      sourcesHandler(),
+      detalleDeFuente(),
+      http.get(eventsUrl, () =>
+        HttpResponse.json(
+          listResponse({
+            data: [
+              makeIngestionEvent({ id: "ev-a", status: "FAILED", errorMessage: "falló A" }),
+              makeIngestionEvent({ id: "ev-b", status: "FAILED", errorMessage: "falló B" }),
+            ],
+            pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+          }),
+        ),
+      ),
+      http.post(`${eventsUrl}/:id/retry`, async ({ params }) => {
+        await retryEnVuelo;
+        return HttpResponse.json(
+          makeIngestionEvent({ id: params.id as string, status: "PENDING" }),
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    const tabla = within(await screen.findByRole("table"));
+
+    const botones = tabla.getAllByRole("button", { name: "Reintentar" });
+    expect(botones).toHaveLength(2);
+
+    await user.click(botones[0]);
+
+    // Con la mutación en vuelo: el de la fila que se reintentó, deshabilitado;
+    // el de la otra, intacto. Antes del arreglo los dos quedaban deshabilitados.
+    await waitFor(() => {
+      expect(tabla.getAllByRole("button", { name: "Reintentar" })[0]).toBeDisabled();
+    });
+    expect(tabla.getAllByRole("button", { name: "Reintentar" })[1]).toBeEnabled();
+
+    liberarRetry();
   });
 });

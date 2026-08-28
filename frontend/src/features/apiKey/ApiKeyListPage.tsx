@@ -308,7 +308,18 @@ export function ApiKeyListPage() {
         <ApiKeySecretDialog
           apiKey={secreto.key}
           sourceName={secreto.sourceName}
-          onClose={() => setSecreto(null)}
+          /* EL reset() NO ES OPCIONAL — hallazgo S2-4 de
+             docs/review-fase2-2026-08-28.md. setSecreto(null) desmonta el modal
+             y saca la clave del árbol de React, pero useMutation guarda su
+             resultado en el MutationCache como createApiKeyMutation.data, con
+             el secreto adentro, y ahí sobrevive al cierre hasta que el gcTime
+             por defecto lo recoja. reset() lo borra en el momento en que la
+             persona cierra el cuadro, que es cuando el secreto deja de tener
+             ninguna razón de existir del lado del cliente. */
+          onClose={() => {
+            setSecreto(null);
+            createApiKeyMutation.reset();
+          }}
         />
       ) : null}
     </div>

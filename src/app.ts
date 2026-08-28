@@ -16,6 +16,26 @@ export const app = express();
 
 app.use(helmet());
 
+// Cache-Control: no-store en TODA la API — hallazgo S2-6 de
+// docs/review-fase2-2026-08-28.md.
+//
+// EN TODA LA API Y NO EN UNA LISTA DE ENDPOINTS, que es la decisión: una lista
+// de rutas "con datos personales" es algo que alguien tiene que acordarse de
+// actualizar cada vez que se agrega un endpoint, y el día que se olvide nada lo
+// va a decir. La regla amplia no tiene ese modo de fallo. El costo es nulo:
+// esta API no tiene ninguna respuesta que valga la pena cachear —no hay
+// contenido estático, y todo lo demás es específico de un tenant y de un
+// momento— así que no se está renunciando a nada real.
+//
+// TEMPRANO, junto a helmet() y antes de cualquier router: así cubre TODO camino
+// de respuesta, incluidos /api/ingest (que se monta antes del express.json()
+// global), el 404 de notFound y las respuestas de error de errorHandler. Un
+// middleware montado después de las rutas no vería nada de eso.
+app.use((_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 // LA POLÍTICA CORS DE /api/ingest ES UNA DECISIÓN PENDIENTE, NO UN OLVIDO.
 //
 // La ingesta hereda esta política global restrictiva —solo los orígenes de

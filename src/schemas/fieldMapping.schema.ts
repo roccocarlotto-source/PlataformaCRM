@@ -34,6 +34,14 @@ export const MAX_COLUMNAS_MAPEADAS = 50;
 // por la misma razón que el de arriba.
 const MAX_LARGO_ENCABEZADO = 255;
 
+// MISMA REGLA QUE ingestContactSchema: todo mensaje de acá tiene que ser
+// custom, nunca el default de zod (D2-7 de docs/review-fase2-2026-08-28.md).
+//
+// Aplica aunque este schema valide configuración y no datos de una persona:
+// promotion.service.ts lo REVALIDA en cada promoción (traducirConMapeo) y
+// concatena sus issue.message en el mismo IngestionEvent.errorMessage que
+// viaja al navegador. El `errorMap` del z.enum de abajo no es cosmético — sin
+// él, el default de zod diría "received '<el valor real>'".
 export const fieldMappingSchema = z
   .record(
     z

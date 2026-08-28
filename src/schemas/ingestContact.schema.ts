@@ -62,6 +62,28 @@ function opcional(max: number, campo: string) {
     .transform((valor) => (valor === undefined || valor === "" ? undefined : valor));
 }
 
+// ---------------------------------------------------------------------------
+// TODO MENSAJE DE VALIDACIÓN DE ESTE SCHEMA TIENE QUE SER CUSTOM — el segundo
+// argumento del validador de zod— NUNCA el default de la librería.
+//
+// POR QUÉ, y no es estilo: estos mensajes terminan en
+// IngestionEvent.errorMessage (ver promotion.service.ts, que arma el string
+// concatenando issue.message), que se renderiza fila por fila en
+// IngestionEventListPage y viaja al navegador. Un mensaje que haga eco del
+// valor recibido convierte esa columna en un segundo lugar donde vive un dato
+// personal — uno que nadie clasificó, que no tiene retención y que el borrado
+// a pedido no alcanza.
+//
+// Hoy ningún mensaje ecoa nada; el hallazgo D2-7 de
+// docs/review-fase2-2026-08-28.md es que NADA lo garantizaba para el campo que
+// alguien agregue mañana. El caso concreto que hay que evitar es `z.enum` sin
+// `errorMap`, cuyo default es literalmente "Invalid enum value. Expected ...,
+// received '<el valor real>'". Lo mismo vale para z.literal.
+//
+// Está cubierto por ingestContact.schema.test.ts, que le pasa un valor
+// reconocible a cada campo y afirma que no aparece en ningún issue.message. Si
+// alguien agrega un campo sin mensaje propio, ese test lo frena.
+// ---------------------------------------------------------------------------
 export const ingestContactSchema = z.object({
   // Requeridos porque las columnas son NOT NULL. Los largos replican los
   // VarChar de `contacts` para que un valor excedido se marque FAILED con un
