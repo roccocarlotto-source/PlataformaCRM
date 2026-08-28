@@ -187,6 +187,19 @@ lead, que es el caso normal, no el borde.
 - Contactos sin email no se deduplican automáticamente. Se promueven
   como nuevos y se marcan para revisión manual.
 
+**Alcance de "nunca sobrescribir en silencio"** *(aclaración de
+2026-08-28, al implementar el borrado a pedido).* La regla gobierna el
+**flujo normal de promoción**: ninguna ingesta puede pisar un dato del
+CRM sin dejar rastro. **No** gobierna un borrado explícito y posterior
+pedido por el titular de los datos, que es otra cosa y llega por otro
+camino (`POST /api/contacts/:id/erase-personal-data`).
+
+Ese borrado **redacta** las notas en vez de eliminarlas: conserva
+`tipo`, `campo` y `motivo` —o sea, el registro de que hubo un conflicto
+y en qué campo, que es lo que esta regla protege— y reemplaza solo los
+valores. El registro sigue en pie; lo que se destruye es el dato
+personal que contenía. Ver §5.2 de `docs/data-classification.md`.
+
 ---
 
 ## 5. Procesamiento asíncrono
