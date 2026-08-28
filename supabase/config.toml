@@ -245,7 +245,24 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+#
+# EN true DESDE EL 2026-08-28, y no es un ajuste cosmético del stack local.
+#
+# docs/supabase-setup.md exige "Confirm email = ON" en el proyecto real desde
+# que existe, así que el stack del CI corría con una configuración distinta de
+# la que el propio repositorio documenta como obligatoria. Eso no era gratis:
+# con la confirmación apagada GoTrue AUTOCONFIRMA en el alta, y dos tests del
+# ciclo de ALTO-2/ALTO-3 quedaron afirmando —o salteándose— por esa diferencia,
+# no por lo que probaban.
+#
+# En particular, el test que verifica que una identidad NO confirmada recibe 401
+# (la rama central de ALTO-3) no podía construir su premisa: con autoconfirm no
+# existe ninguna identidad no confirmada que además tenga un token válido.
+#
+# Se verificó antes de cambiarlo que ningún test dependía del autoconfirm: las
+# 20 llamadas a admin.createUser de la suite pasan email_confirm: true
+# explícito, y no hay una sola llamada a auth.signUp.
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
