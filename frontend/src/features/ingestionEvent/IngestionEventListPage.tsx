@@ -44,17 +44,43 @@ export function IngestionEventListPage() {
     sortOrder,
   });
 
-  // Solo los sourceId de los eventos visibles en ESTA página. Deduplicado dentro
-  // del hook.
-  const sourceIdsVisibles = eventsQuery.data?.data.map((evento) => evento.sourceId) ?? [];
-  const sourceResolution = useSourcesByIds(sourceIdsVisibles);
-
   const retryMutation = useRetryIngestionEvent();
 
+  // La lista que alimenta el <select> de filtro. Ya está en memoria.
   const fuentes = sourcesQuery.data?.data ?? [];
 
+  // ---------------------------------------------------------------------
+  // RESOLUCIÓN DE NOMBRES EN DOS PASOS — hallazgo E2-3 de
+  // docs/review-fase2-2026-08-28.md.
+  //
+  // Hasta acá se le pasaban a useSourcesByIds TODOS los sourceId visibles, sin
+  // mirar antes `fuentes` — que ya tiene hasta 100 fuentes cargadas para el
+  // <select> de arriba. Una página con veinte eventos de veinte fuentes
+  // distintas disparaba hasta veinte GET /sources/:id para resolver nombres que
+  // ya estaban en memoria.
+  //
+  // Es el patrón que ApiKeyListPage ya aplicaba del otro lado
+  // (nombreDeFuenteElegida busca en `fuentes` primero); acá faltaba.
+  //
+  // EL HOOK NO SE ELIMINA, y es el punto: `fuentes` trae las primeras
+  // SOURCES_PARA_SELECT. La fuente número 101 no está ahí, así que sigue
+  // necesitando el fallback por red. Lo que cambia es que deja de ser el
+  // PRIMER recurso y pasa a ser el único para lo que realmente falta.
+  // ---------------------------------------------------------------------
+  const fuentesEnMemoria = new Map(fuentes.map((source) => [source.id, source.name]));
+
+  const sourceIdsVisibles = eventsQuery.data?.data.map((evento) => evento.sourceId) ?? [];
+  const sourceIdsSinResolver = sourceIdsVisibles.filter((id) => !fuentesEnMemoria.has(id));
+
+  // Con la lista cargada y todas las fuentes adentro, esto recibe [] y
+  // useQueries no dispara ningún request.
+  const sourceResolution = useSourcesByIds(sourceIdsSinResolver);
+
   function nombreDeFuente(sourceId: string): string {
-    return sourceResolution.byId.get(sourceId)?.name ?? SIN_RESOLVER;
+    // Memoria primero, red después. El orden es el arreglo.
+    return (
+      fuentesEnMemoria.get(sourceId) ?? sourceResolution.byId.get(sourceId)?.name ?? SIN_RESOLVER
+    );
   }
 
   function cambiarFiltroDeFuente(nuevo: string) {
@@ -205,8 +231,14 @@ export function IngestionEventListPage() {
                       el motivo anterior no se pierde para siempre — se reescribe
                       con el del intento nuevo. */}
                   {evento.status === "FAILED" ? (
+                    /* SOLO LA FILA EN VUELO — hallazgo E2-4 de
+                       docs/review-fase2-2026-08-28.md. `isPending` es un solo
+                       booleano para toda la mutación, así que reintentar una
+                       fila deshabilitaba el botón de las otras diecinueve.
+                       `variables` es el argumento del mutate() en curso, o sea
+                       el id del evento que realmente se está reintentando. */
                     <Button
-                      disabled={retryMutation.isPending}
+                      disabled={retryMutation.isPending && retryMutation.variables === evento.id}
                       onClick={() => retryMutation.mutate(evento.id)}
                     >
                       Reintentar

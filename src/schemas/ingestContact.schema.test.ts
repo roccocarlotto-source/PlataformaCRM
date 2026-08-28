@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { fieldMappingSchema } from "./fieldMapping.schema";
 import { ingestContactSchema } from "./ingestContact.schema";
 
 // El contrato de payload del webhook. Lo que se prueba acá no es "zod
@@ -106,4 +107,137 @@ test("un valor más largo que su columna invalida el payload en vez de reventar 
     phone: "9".repeat(31),
   });
   assert.equal(telefono.success, false);
+});
+
+// ---------------------------------------------------------------------------
+// D2-7 — ningún mensaje de validación puede hacer eco del valor recibido.
+//
+// El hallazgo NO es que hoy filtre datos personales: se verificó que no lo
+// hace. Es que nada lo garantizaba para el campo que alguien agregue mañana.
+// El caso concreto es `z.enum` sin `errorMap`, cuyo mensaje por defecto es
+// "Invalid enum value. Expected ..., received '<el valor real>'".
+//
+// Estos mensajes terminan concatenados en IngestionEvent.errorMessage (ver
+// promotion.service.ts), que se renderiza fila por fila en
+// IngestionEventListPage y viaja al navegador. Un eco convertiría esa columna
+// en un segundo lugar donde vive un dato personal, sin clasificación, sin
+// retención y fuera del alcance del borrado a pedido.
+//
+// EL VALOR ES RECONOCIBLE A PROPÓSITO: si aparece en un mensaje, aparece
+// entero y el assert lo señala sin ambigüedad.
+// ---------------------------------------------------------------------------
+
+const VALOR_ESPIA = "VALOR-SECRETO-DE-PRUEBA-12345";
+
+function mensajesDe(resultado: ReturnType<typeof ingestContactSchema.safeParse>): string[] {
+  assert.equal(resultado.success, false, "el payload de prueba tiene que fallar la validación");
+  return resultado.success ? [] : resultado.error.issues.map((issue) => issue.message);
+}
+
+// Base válida: cada caso rompe UN campo por vez, así el issue que se inspecciona
+// es el del campo bajo prueba y no el ruido de los demás.
+function payloadValido() {
+  return {
+    firstName: "Ana",
+    lastName: "Gómez",
+    email: "ana@ejemplo.test",
+    phone: "+5411555555",
+    jobTitle: "Compras",
+  };
+}
+
+// Un valor que supera cualquier .max() del schema, construido a partir del
+// espía para que siga siendo reconocible aunque se trunque.
+function largoConEspia(largo: number): string {
+  return VALOR_ESPIA + "x".repeat(Math.max(0, largo - VALOR_ESPIA.length));
+}
+
+test("D2-7: email con formato inválido NO ecoa el valor recibido", () => {
+  const resultado = ingestContactSchema.safeParse({
+    ...payloadValido(),
+    email: VALOR_ESPIA,
+  });
+
+  const mensajes = mensajesDe(resultado);
+  assert.ok(mensajes.length > 0, "tiene que haber al menos un issue");
+  for (const mensaje of mensajes) {
+    assert.ok(
+      !mensaje.includes(VALOR_ESPIA),
+      `el mensaje "${mensaje}" hace eco del valor recibido`,
+    );
+  }
+});
+
+test("D2-7: los campos con .max() no ecoan el valor al pasarse de largo", () => {
+  // Los cuatro campos con tope, cada uno con su largo. Es el caso donde un
+  // mensaje mal escrito ("«X» supera los N caracteres") sería más natural de
+  // escribir y por eso el más fácil de introducir sin querer.
+  const casos: [string, unknown][] = [
+    ["firstName", largoConEspia(101)],
+    ["lastName", largoConEspia(101)],
+    ["email", `${largoConEspia(250)}@ejemplo.test`],
+    ["phone", largoConEspia(31)],
+    ["jobTitle", largoConEspia(101)],
+  ];
+
+  for (const [campo, valor] of casos) {
+    const resultado = ingestContactSchema.safeParse({ ...payloadValido(), [campo]: valor });
+    for (const mensaje of mensajesDe(resultado)) {
+      assert.ok(
+        !mensaje.includes(VALOR_ESPIA),
+        `${campo}: el mensaje "${mensaje}" hace eco del valor recibido`,
+      );
+    }
+  }
+});
+
+test("D2-7: los requeridos vacíos no ecoan, y el tipo equivocado tampoco", () => {
+  // firstName/lastName vacíos (min(1)) y un tipo que no es string: los dos
+  // caminos que no pasan por un .max() ni por .email().
+  const vacios = ingestContactSchema.safeParse({ ...payloadValido(), firstName: "" });
+  for (const mensaje of mensajesDe(vacios)) {
+    assert.ok(!mensaje.includes(VALOR_ESPIA));
+  }
+
+  const tipoMalo = ingestContactSchema.safeParse({
+    ...payloadValido(),
+    phone: { secreto: VALOR_ESPIA },
+  });
+  for (const mensaje of mensajesDe(tipoMalo)) {
+    assert.ok(
+      !mensaje.includes(VALOR_ESPIA),
+      `el mensaje "${mensaje}" hace eco de un valor no-string`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// fieldMappingSchema entra en la misma regla, y no por simetría:
+// promotion.service.ts lo REVALIDA en cada promoción (traducirConMapeo) y
+// concatena sus issue.message en el mismo errorMessage. Su `z.enum` de destinos
+// es exactamente el caso que el default de zod ecoaría.
+// ---------------------------------------------------------------------------
+
+test("D2-7: el destino inválido de un fieldMapping NO ecoa el valor recibido", () => {
+  const resultado = fieldMappingSchema.safeParse({ Nombre: VALOR_ESPIA });
+
+  assert.equal(resultado.success, false);
+  const mensajes = resultado.success ? [] : resultado.error.issues.map((i) => i.message);
+  assert.ok(mensajes.length > 0);
+  for (const mensaje of mensajes) {
+    assert.ok(
+      !mensaje.includes(VALOR_ESPIA),
+      `el mensaje "${mensaje}" hace eco del destino recibido — falta el errorMap del z.enum`,
+    );
+  }
+});
+
+test("D2-7: un encabezado demasiado largo tampoco se ecoa", () => {
+  const resultado = fieldMappingSchema.safeParse({ [largoConEspia(300)]: "firstName" });
+
+  assert.equal(resultado.success, false);
+  const mensajes = resultado.success ? [] : resultado.error.issues.map((i) => i.message);
+  for (const mensaje of mensajes) {
+    assert.ok(!mensaje.includes(VALOR_ESPIA), `el mensaje "${mensaje}" hace eco del encabezado`);
+  }
 });
