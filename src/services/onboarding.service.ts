@@ -60,6 +60,18 @@ export interface OnboardingResult {
 // proveedor de email que este repo no tiene. Un OTP propio habría necesitado
 // una dependencia nueva, una variable de entorno nueva y un proveedor a elegir.
 //
+// QUÉ GARANTIZA ESTO, EXACTAMENTE. Que `POST /api/onboarding` no cree
+// Organization ni User sin un código válido. Eso vale siempre, con cualquier
+// configuración del proyecto, y tiene test propio.
+//
+// Lo que NO garantiza por sí solo es el estado de la fila de auth.users: si el
+// proyecto tiene `Confirm email` APAGADO, GoTrue autoconfirma en el alta y el
+// paso 1 deja una identidad ya confirmada para cualquier email tipeado. Pero en
+// esa configuración el `POST /auth/v1/signup` público de Supabase ya permite lo
+// mismo, así que este endpoint no agrega una capacidad nueva. `Confirm email`
+// tiene que estar ENCENDIDO — ya era un requisito documentado en
+// docs/supabase-setup.md, y ahora también lo es de este flujo.
+//
 // REQUISITO OPERATIVO, y no está en este repo: para que el mail lleve el código
 // de 6 dígitos, la plantilla "Magic Link" del proyecto de Supabase tiene que
 // incluir `{{ .Token }}`. Es la propia librería la que lo dice: "Magic links and

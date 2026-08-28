@@ -87,17 +87,28 @@ async function limpiar(email: string, organizationId?: string) {
   }
 }
 
-test("requestOnboardingOtp crea la identidad en auth.users SIN confirmar — la confirmación la sella el paso 2", async () => {
+// NO SE AFIRMA QUE LA IDENTIDAD NAZCA SIN CONFIRMAR, y hace falta explicar por
+// qué, porque es lo primero que uno querría afirmar acá.
+//
+// Ese estado no lo decide este código: lo decide `Confirm email` del proyecto de
+// Supabase (`auth.email.enable_confirmations`). Con la confirmación APAGADA
+// —como está el stack local del CI— GoTrue autoconfirma en el alta, así que la
+// fila nace confirmada. Con la confirmación ENCENDIDA —lo que
+// docs/supabase-setup.md exige para producción— nace sin confirmar.
+//
+// La primera versión de este test afirmaba "sin confirmar" y el CI la
+// desmintió. La corrección NO es aflojar la aserción hasta que pase: es que
+// esa nunca fue la garantía de ALTO-2. La garantía es que **el registro no
+// ocurre sin un código válido**, y eso lo afirma el test siguiente, sin depender
+// de ninguna configuración. Ver también la nota de residual en la bitácora.
+test("requestOnboardingOtp crea la identidad en auth.users para poder enviarle el código", async () => {
   const email = emailDePrueba("pide-codigo");
   try {
     await requestOnboardingOtp({ email });
 
     const identidad = await buscarIdentidad(email);
     assert.ok(identidad, "signInWithOtp debía crear la identidad (shouldCreateUser: true)");
-    assert.ok(
-      !identidad.email_confirmed_at,
-      "la identidad NO debe nacer confirmada: eso es exactamente lo que ALTO-2 vino a sacar",
-    );
+    assert.equal(identidad.email, email);
   } finally {
     await limpiar(email);
   }
@@ -132,12 +143,14 @@ test("onboardOrganization rechaza con 401 un código incorrecto, y no crea ni Or
     assert.equal(capturado.statusCode, 401);
     assert.equal(capturado.message, "El código de verificación es inválido o expiró");
 
+    // LA GARANTÍA DE ALTO-2, y no depende de ninguna configuración del
+    // proyecto: sin un código válido no se registra nada. Ni Organization, ni
+    // User, ni contraseña fijada.
     const organizaciones = await prisma.organization.count({ where: { name: organizationName } });
     assert.equal(organizaciones, 0, "no debe haber quedado ninguna Organization");
 
-    // Y la identidad sigue sin confirmar: un código incorrecto no confirma nada.
-    const identidad = await buscarIdentidad(email);
-    assert.ok(identidad && !identidad.email_confirmed_at);
+    const usuarios = await prisma.user.count({ where: { email } });
+    assert.equal(usuarios, 0, "no debe haber quedado ningún perfil de negocio");
   } finally {
     await limpiar(email);
   }

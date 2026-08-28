@@ -122,6 +122,23 @@ identidad con `admin.getUserById(payload.sub)` y **exige `email_confirmed_at`**,
 rechazando con 401 si falta. La defensa vive en el código y se puede verificar
 leyéndolo, que era el punto del hallazgo.
 
+**Por qué sigue siendo ON y no es opcional.** Con el toggle APAGADO, GoTrue
+autoconfirma en el alta, así que `POST /api/onboarding/otp` deja una identidad
+**ya confirmada** para cualquier email que alguien tipee — el *squatting* de
+`ALTO-2` a nivel `auth.users` vuelve a ser alcanzable. Dos precisiones para no
+sobredimensionarlo:
+
+- con el toggle apagado, el `POST /auth/v1/signup` público de Supabase **ya**
+  permite exactamente eso, así que el endpoint del CRM no agrega una capacidad
+  nueva; lo que hace es no protegerte de una plataforma configurada abierta;
+- **lo que sí vale siempre, con el toggle en cualquier estado**, es que
+  `POST /api/onboarding` no crea `Organization` ni `User` sin un código válido.
+  Esa garantía vive en el código y tiene test propio.
+
+Verificado empíricamente, no supuesto: el stack local del CI tiene
+`enable_confirmations = false` y ahí la identidad nace confirmada — fue el CI el
+que lo mostró, contra una primera versión del test que afirmaba lo contrario.
+
 ### Plantilla de email "Magic Link" — requisito del registro
 
 **Authentication → Email Templates → Magic Link.** La plantilla tiene que

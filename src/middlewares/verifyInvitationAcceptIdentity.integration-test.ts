@@ -37,22 +37,40 @@ function emailDePrueba(etiqueta: string): string {
 
 // Corre el middleware y devuelve { req, error }: `error` es lo que recibió
 // `next`, o undefined si pasó limpio.
+//
+// SE ESPERA A `next`, NO AL RETORNO DEL MIDDLEWARE, y la distinción no es
+// estilística: asyncHandler devuelve `void`, no la promesa interna
+// (`Promise.resolve(handler(...)).catch(next)` sin `return`). Un `await` sobre
+// la llamada resuelve de inmediato, antes de que el middleware haya hecho nada,
+// y las aserciones corren contra un estado vacío. La primera versión de este
+// archivo tenía ese bug y el CI lo encontró: fallaba con "el middleware siempre
+// debe terminar llamando a next()" incluso en el camino feliz.
+//
+// La única señal confiable de que terminó es que `next` haya sido llamado, así
+// que se espera exactamente eso. El timeout evita que un cuelgue se manifieste
+// como un test que nunca termina.
 async function correrMiddleware(accessToken: string) {
   const req = {
     headers: { authorization: `Bearer ${accessToken}` },
   } as unknown as Request;
 
   let capturado: unknown;
-  let llamoNext = false;
 
-  const next: NextFunction = ((err?: unknown) => {
-    llamoNext = true;
-    capturado = err;
-  }) as NextFunction;
+  const termino = new Promise<void>((resolve, reject) => {
+    const temporizador = setTimeout(() => {
+      reject(new Error("el middleware nunca llamó a next()"));
+    }, 10_000);
 
-  await verifyInvitationAcceptIdentity(req, {} as Response, next);
+    const next: NextFunction = ((err?: unknown) => {
+      clearTimeout(temporizador);
+      capturado = err;
+      resolve();
+    }) as NextFunction;
 
-  assert.ok(llamoNext, "el middleware siempre debe terminar llamando a next()");
+    verifyInvitationAcceptIdentity(req, {} as Response, next);
+  });
+
+  await termino;
   return { req, error: capturado };
 }
 
