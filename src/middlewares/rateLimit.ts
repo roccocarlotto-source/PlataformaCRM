@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { rateLimit, type RateLimitInfo } from "express-rate-limit";
 import { env } from "../config/env";
 import { acceptInvitationSchema } from "../schemas/invitation.schema";
-import { onboardingSchema } from "../schemas/onboarding.schema";
+import { onboardingOtpSchema, onboardingSchema } from "../schemas/onboarding.schema";
 import type { AuthContext, InvitationAcceptIdentity } from "../types/auth";
 import type { IngestContext } from "../types/ingest";
 import { AppError } from "../utils/AppError";
@@ -88,6 +88,50 @@ export function createOnboardingRateLimiter() {
 }
 
 export const onboardingRateLimiter = createOnboardingRateLimiter();
+
+// ---------------------------------------------------------------------------
+// Onboarding, paso 1 — POST /api/onboarding/otp (público, sin identidad previa).
+// ALTO-2.
+//
+// LIMITER PROPIO Y NO EL DE ARRIBA, por una razón mecánica: cada uno decide qué
+// cuenta contra su cupo parseando SU schema, y un body de solo { email } nunca
+// pasa onboardingSchema — reusar aquel habría hecho que este endpoint saltee el
+// límite en el 100% de los requests.
+//
+// Amenaza propia y más aguda que la del paso 2: este es el ÚNICO endpoint del
+// sistema que dispara un email hacia una dirección arbitraria elegida por quien
+// llama, sin ninguna identidad previa. Sin límite es un amplificador de correo
+// no solicitado con el dominio del proyecto como remitente, y el costo lo paga
+// la reputación de envío del proyecto de Supabase, no el atacante.
+//
+// MISMA VENTANA Y MISMO CUPO QUE EL PASO 2, a propósito: los dos pasos son el
+// mismo registro visto en dos requests, y darle al primero un cupo distinto solo
+// serviría para que el cuello de botella quede en el paso equivocado. Supabase
+// además impone su propio mínimo entre envíos por email (max_frequency), que
+// acota el abuso dirigido a UNA dirección; este limiter acota el abuso dirigido
+// a MUCHAS desde un mismo origen, que es lo que aquel no ve.
+//
+// keyGenerator: ninguno, mismo criterio que el resto de los públicos.
+//
+// Baseline operacional, no un umbral definitivo.
+// ---------------------------------------------------------------------------
+export const ONBOARDING_OTP_WINDOW_MS = ONBOARDING_WINDOW_MS;
+export const ONBOARDING_OTP_MAX = ONBOARDING_MAX;
+
+export function createOnboardingOtpRateLimiter() {
+  return rateLimit({
+    windowMs: ONBOARDING_OTP_WINDOW_MS,
+    max: ONBOARDING_OTP_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    skip: (req) => !onboardingOtpSchema.safeParse(req.body).success,
+    handler: buildRateLimitHandler(
+      "Demasiados pedidos de código de verificación. Probá de nuevo más tarde.",
+    ),
+  });
+}
+
+export const onboardingOtpRateLimiter = createOnboardingOtpRateLimiter();
 
 // ---------------------------------------------------------------------------
 // Invitation accept — etapa 1: pre-auth, POST /api/invitations/accept,

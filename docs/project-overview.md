@@ -1061,8 +1061,11 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   montada sobre las rutas reales de los 8 módulos de negocio (mismo patrón
   `authenticate` + `authorize("ADMIN")` en escritura en los 8), verificada
   contra logins reales.
-- ✅ `POST /api/onboarding` — único registro público del sistema. Ver detalle en
-  `docs/authentication-architecture.md` sección 1.
+- ✅ `POST /api/onboarding/otp` + `POST /api/onboarding` — único registro público
+  del sistema, en dos llamadas desde el cierre de `ALTO-2` (2026-08-28): primero se
+  pide un código de 6 dígitos al email, después se registra con ese código. Sigue
+  siendo un solo paso de datos (Organization + User + identidad se crean juntos).
+  Ver detalle en `docs/authentication-architecture.md` sección 1.
 - ✅ **Módulo `Company` completo** — primer módulo de negocio del CRM, módulo de
   referencia. CRUD + soft delete + listado paginado con búsqueda por nombre, filtro
   por industria y por `ownerId`, y ordenamiento. `organizationId` siempre desde
@@ -2232,7 +2235,7 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   para reflejar el diseño real de `Invitation` sobre esa base.
 
 **API**
-- ✅ `POST /api/onboarding` (público).
+- ✅ `POST /api/onboarding/otp` y `POST /api/onboarding` (públicos).
 - ✅ `Company`: `POST/GET/GET :id/PATCH/DELETE /api/companies` (protegidos).
 - ✅ `Contact`: `POST/GET/GET :id/PATCH/DELETE /api/contacts` (protegidos).
 - ✅ `Pipeline`: `POST/GET/GET :id/PATCH/DELETE /api/pipelines` (protegidos).

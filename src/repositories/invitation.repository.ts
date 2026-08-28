@@ -79,6 +79,22 @@ export function findInvitationsByEmail(email: string, db: Db = prisma) {
   });
 }
 
+// La invitación PENDIENTE de un email, en CUALQUIER organización — a
+// diferencia de findPendingInvitationByOrgAndEmail, que responde la pregunta
+// acotada a una. La usa el onboarding (ALTO-2): un email con invitación
+// pendiente ya está hablado, y registrarle una organización propia lo dejaría
+// sin poder aceptarla nunca (un User pertenece a exactamente una organización).
+//
+// No filtra por expiresAt: la transición a EXPIRED es perezosa en este modelo
+// (ver el enum InvitationStatus en schema.prisma) y agregarle acá un criterio
+// de tiempo propio sería una segunda definición de "vencida" conviviendo con
+// expireDueInvitations.
+export function findPendingInvitationByEmail(email: string, db: Db = prisma) {
+  return db.invitation.findFirst({
+    where: { email, status: "PENDING" },
+  });
+}
+
 export function findPendingInvitationByOrgAndEmail(
   organizationId: string,
   email: string,

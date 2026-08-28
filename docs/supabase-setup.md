@@ -111,12 +111,27 @@ corre nada.
 | **Confirm email** | **ON** | **Requisito de seguridad, no de conveniencia** |
 
 `Confirm email` es un interruptor distinto de `Enabled`, dentro de la misma
-sección. Es lo único que impide que alguien acepte una invitación ajena
-registrándose con el email del invitado:
-`src/middlewares/verifyInvitationAcceptIdentity.ts` usa el claim `email` del
-JWT como credencial completa y **no verifica `email_verified`** (hallazgo
-ALTO-3 de `docs/auditoria-2026-08-21.md`). Mientras ese hallazgo siga abierto,
-la seguridad del flujo de invitaciones depende de este toggle.
+sección. **Sigue recomendado, pero desde el 2026-08-28 la seguridad del flujo
+de invitaciones ya no depende de él** (hallazgo `ALTO-3`, cerrado).
+
+Antes sí: `verifyInvitationAcceptIdentity.ts` usaba el claim `email` del JWT
+como credencial completa y nunca miraba `email_verified`, así que este toggle
+era lo único que impedía que alguien aceptara una invitación ajena
+registrándose con el email del invitado. Ahora ese middleware resuelve la
+identidad con `admin.getUserById(payload.sub)` y **exige `email_confirmed_at`**,
+rechazando con 401 si falta. La defensa vive en el código y se puede verificar
+leyéndolo, que era el punto del hallazgo.
+
+### Plantilla de email "Magic Link" — requisito del registro
+
+**Authentication → Email Templates → Magic Link.** La plantilla tiene que
+incluir `{{ .Token }}`, no solo `{{ .ConfirmationURL }}`.
+
+`POST /api/onboarding` exige un OTP de 6 dígitos que se envía por esta
+plantilla (hallazgo `ALTO-2`). Magic links y OTPs comparten implementación en
+Supabase: con la plantilla por defecto el mail llega igual, pero con un enlace
+en vez de un código, y **nadie puede completar el registro**. Falla cerrado y
+para todos — es un fallo funcional visible, no un agujero silencioso.
 
 **SMTP** — pendiente. Con el servidor por defecto de Supabase el límite es de
 ~2 emails por hora; con SMTP propio, ~30. Suficiente para desarrollo,
