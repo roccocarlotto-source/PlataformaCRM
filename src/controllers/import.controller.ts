@@ -87,6 +87,26 @@ export const resumenDeLoteHandler = asyncHandler<AuthenticatedRequest>(
 //
 // req.auth se usa solo para llegar hasta acá: authorize("ADMIN") ya corrió. El
 // handler no lee organizationId porque no hay nada que aislar — no toca la base.
+//
+// SUBE EL ARCHIVO ENTERO PARA LEER UNA SOLA FILA, y es una excepción CONSCIENTE
+// a la minimización de datos — hallazgo D2-6 de
+// docs/review-fase2-2026-08-28.md. Hasta 10 MB y hasta 10.000 filas de datos
+// personales cruzan la red y se expanden en memoria para devolver los
+// encabezados y nada más. En términos estrictos de STD-LEG-002 es recolección
+// desproporcionada.
+//
+// Se acepta, no se corrige, y la razón es la garantía central de §9.11 de
+// docs/ingestion-architecture.md: el preview devuelve LOS MISMOS encabezados
+// que la importación real porque llama a la MISMA cadena de parseo. Un lector
+// parcial que solo leyera la primera fila sería un segundo camino de parseo, y
+// dos parsers que interpretan distinto un BOM o un espacio desalinean el
+// `fieldMapping` EN SILENCIO — las filas fallan después con "ninguna columna
+// del fieldMapping existe" y nada explica por qué. El review lo anota en §3.3
+// como decisión correcta, no como descuido.
+//
+// Queda registrado en docs/data-classification.md §3. Lo que acota el costo es
+// el límite de tamaño (IMPORT_MAX_FILE_BYTES) y la cuota propia del endpoint
+// (S2-3), no una lectura parcial que no existe.
 export const previsualizarEncabezadosHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     // importUpload ya garantizó que existe y cortó con 400 si no — mismo
