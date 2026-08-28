@@ -143,3 +143,14 @@ export function softDeleteOpportunity(id: string, organizationId: string, db: Db
     data: { deletedAt: new Date() },
   });
 }
+
+// Oportunidades activas de un stage — el conteo sobre el que decide el RESTRICT
+// de deleteStage (ALTO-8). organizationId en el WHERE por el mismo motivo que
+// en countActiveStagesByPipeline: decide si una escritura procede.
+export function countActiveOpportunitiesByStage(
+  stageId: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.opportunity.count({ where: { stageId, organizationId, deletedAt: null } });
+}

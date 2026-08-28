@@ -128,3 +128,32 @@ export function softDeletePipeline(id: string, organizationId: string, db: Db = 
     data: { deletedAt: new Date(), isDefault: false },
   });
 }
+
+// Punto de serialización de la relación Pipeline -> Stage (ALTO-8): lockea la
+// fila del Pipeline con SELECT ... FOR UPDATE.
+//
+// El RESTRICT de deletePipeline ("no se puede borrar un pipeline con stages
+// activos") es una decisión que se toma sobre un CONTEO, así que sin un punto
+// de serialización no vale nada: createStage podía insertar un Stage entre el
+// conteo y el borrado, y la organización quedaba con un Stage activo colgando
+// de un Pipeline borrado — el escenario 2 del hallazgo, por la puerta de
+// atrás. Es la misma clase de bug que H-1, y el mismo mecanismo que lo
+// resolvió.
+//
+// LA FILA DEL PIPELINE, NO LA DE LA ORGANIZACIÓN, a diferencia de
+// lockOrganizationForUpdate. Un lock de organización serializaría la creación
+// de stages de TODOS los pipelines del tenant contra el borrado de cualquiera
+// de ellos; éste solo serializa lo que de verdad compite: las escrituras sobre
+// un mismo Pipeline. deletePipeline toma los dos —el de organización lo exige
+// su propio invariante de "nunca cero pipelines" (H-1)— y siempre en ese orden,
+// organización primero, para que no haya dos caminos que los tomen al revés.
+//
+// Sin default para `db`, mismo criterio que lockOrganizationForUpdate: fuera de
+// una transacción el lock se libera al instante y no sirve para nada.
+export async function lockPipelineForUpdate(
+  id: string,
+  organizationId: string,
+  db: Db,
+): Promise<void> {
+  await db.$queryRaw`SELECT id FROM pipelines WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid FOR UPDATE`;
+}

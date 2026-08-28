@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
-import { prisma } from "../lib/prisma";
-import { findPipelineById } from "../repositories/pipeline.repository";
+import { prisma, type Db } from "../lib/prisma";
+import { countActiveOpportunitiesByStage } from "../repositories/opportunity.repository";
+import { findPipelineById, lockPipelineForUpdate } from "../repositories/pipeline.repository";
 import {
   countStages,
   countStagesByName,
@@ -9,6 +10,7 @@ import {
   findStageById,
   findStagesByPipeline,
   findStageWithFlag,
+  lockStageForUpdate,
   reindexStages,
   shiftDownAfter,
   shiftUpFrom,
@@ -56,8 +58,11 @@ export async function getStageById(organizationId: string, id: string) {
   return stage;
 }
 
-async function validatePipelineId(organizationId: string, pipelineId: string) {
-  const pipeline = await findPipelineById(pipelineId, organizationId);
+// `db` explícito para poder revalidar DENTRO de la transacción de createStage,
+// con el lock del pipeline ya sostenido: el default (`prisma`) es el pre-check
+// rápido de afuera, que es UX y no la defensa. Ver createStage.
+async function validatePipelineId(organizationId: string, pipelineId: string, db: Db = prisma) {
+  const pipeline = await findPipelineById(pipelineId, organizationId, db);
   if (!pipeline) {
     throw new AppError("El pipelineId indicado no existe o no pertenece a tu organización", 400);
   }
@@ -181,6 +186,20 @@ export async function createStage(organizationId: string, input: CreateStageInpu
 
   try {
     return await prisma.$transaction(async (tx) => {
+      // ALTO-8 — la otra mitad del RESTRICT de deletePipeline. El bloqueo del
+      // borrado decide sobre un conteo de stages activos, y sin lock ese conteo
+      // se queda viejo entre que se lee y que se escribe: dos requests
+      // concurrentes —uno creando un Stage acá, otro borrando el Pipeline—
+      // pueden pasar los dos su chequeo y dejar un Stage activo colgando de un
+      // Pipeline borrado. Es el escenario 2 del hallazgo entrando por la puerta
+      // de atrás, y la misma clase de bug que H-1.
+      await lockPipelineForUpdate(input.pipelineId, organizationId, tx);
+
+      // Revalida con el lock sostenido. El validatePipelineId de más arriba es
+      // un 400 rápido para el caso común; ESTA lectura es la que decide, porque
+      // es la única que no puede quedar obsoleta entre leer y escribir.
+      await validatePipelineId(organizationId, input.pipelineId, tx);
+
       const siblings = await findStagesByPipeline(input.pipelineId, tx);
       const targetOrder = clamp(input.order ?? siblings.length + 1, 1, siblings.length + 1);
 
@@ -265,10 +284,51 @@ export async function updateStage(organizationId: string, id: string, input: Upd
   }
 }
 
+// ALTO-8, escenario 1 — RESTRICT lógico: borrar un Stage con oportunidades
+// vivas no está permitido.
+//
+// Antes deleteStage no consultaba `opportunities` en absoluto. Las
+// oportunidades del stage borrado seguían contando en countOpportunities y en
+// los totales, pero desaparecían del tablero, que se arma por stages activos:
+// los números del pipeline dejaban de cuadrar con las columnas.
+//
+// BLOQUEO Y NO CASCADA, misma decisión que ya rige para "el último pipeline"
+// (deletePipeline) y con el mismo formato de error: AppError con 400. Una
+// cascada lógica obligaría a distinguir "borrado por cascada" de "borrado
+// propio" para poder restaurar con sentido —un deleteBatchId y todo lo que
+// arrastra— y el bloqueo elimina la clase entera de bugs sin agregar estado
+// nuevo. Peor UX, sí: el precio es explícito.
+//
+// La opción de filtrar en lectura por el estado del padre está descartada por
+// la auditoría misma (opción C de ALTO-8): mueve la inconsistencia a las
+// queries y hay que acordarse en cada una.
 export async function deleteStage(organizationId: string, id: string) {
-  const stage = await getStageById(organizationId, id);
+  // 404 rápido, sin abrir transacción — mismo criterio que deletePipeline.
+  await getStageById(organizationId, id);
 
   await prisma.$transaction(async (tx) => {
+    // Serializa contra createOpportunity / updateOpportunity, que toman este
+    // mismo lock. Sin él, el conteo de abajo puede leer 0 mientras otra
+    // transacción está insertando la oportunidad número 1.
+    await lockStageForUpdate(id, organizationId, tx);
+
+    // Revalida con el lock sostenido, y además vuelve a leer `order`: el
+    // reindexado de otra operación pudo haberlo movido entre el pre-check y
+    // este punto, y shiftDownAfter con un `order` viejo cerraría el hueco
+    // equivocado.
+    const stage = await findStageById(id, organizationId, tx);
+    if (!stage) {
+      throw new AppError("Etapa no encontrada", 404);
+    }
+
+    const oportunidadesActivas = await countActiveOpportunitiesByStage(id, organizationId, tx);
+    if (oportunidadesActivas > 0) {
+      throw new AppError(
+        "No se puede eliminar una etapa que tiene oportunidades activas. Movelas a otra etapa primero.",
+        400,
+      );
+    }
+
     const result = await softDeleteStage(id, organizationId, tx);
     if (result.count === 0) {
       throw new AppError("Etapa no encontrada", 404);

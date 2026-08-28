@@ -237,3 +237,32 @@ export async function reindexStages(
     }
   }
 }
+
+// Stages activos de un pipeline — el conteo sobre el que decide el RESTRICT de
+// deletePipeline (ALTO-8). Exige organizationId además de pipelineId: a
+// diferencia de findStagesByPipeline, esto decide si una escritura procede, así
+// que el aislamiento tiene que estar en su propio WHERE y no en el del caller.
+export function countActiveStagesByPipeline(
+  pipelineId: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.stage.count({ where: { pipelineId, organizationId, deletedAt: null } });
+}
+
+// Punto de serialización de la relación Stage -> Opportunity (ALTO-8): lockea
+// la fila del Stage con SELECT ... FOR UPDATE. Mismo razonamiento que
+// lockPipelineForUpdate en pipeline.repository.ts — el RESTRICT de deleteStage
+// decide sobre un conteo, y sin serializar contra createOpportunity /
+// updateOpportunity el conteo se puede quedar viejo entre que se lee y que se
+// escribe.
+//
+// Sin default para `db`: fuera de una transacción el lock se libera al
+// instante.
+export async function lockStageForUpdate(
+  id: string,
+  organizationId: string,
+  db: Db,
+): Promise<void> {
+  await db.$queryRaw`SELECT id FROM stages WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid FOR UPDATE`;
+}
