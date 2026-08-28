@@ -6,7 +6,9 @@ import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { FieldMappingEditor } from "./FieldMappingEditor";
+import { SugerirMapeoDesdeArchivo } from "./SugerirMapeoDesdeArchivo";
 import {
+  agregarFilasSugeridas,
   mapToRows,
   rowsToMapping,
   type FieldMappingRow,
@@ -191,11 +193,29 @@ export function SourceFormPage() {
       </FormField>
 
       {usaMapeo ? (
-        <FieldMappingEditor
-          rows={values.mappingRows}
-          disabled={isSubmitting}
-          onChange={(mappingRows) => setValues({ ...values, mappingRows })}
-        />
+        <>
+          {/* La sugerencia va ANTES del editor: el orden natural es traer las
+              columnas y después ajustarlas, no al revés. Solo aparece con
+              FILE_IMPORT, igual que el editor — el backend rechaza fieldMapping
+              en cualquier otro tipo. */}
+          <SugerirMapeoDesdeArchivo
+            disabled={isSubmitting}
+            onSugerir={(encabezados) =>
+              setValues({
+                ...values,
+                // MERGE, no reemplazo: agregarFilasSugeridas deja intactas las
+                // filas que ya estaban. Alguien que configuró un mapeo a mano no
+                // puede perderlo por subir un archivo de muestra.
+                mappingRows: agregarFilasSugeridas(values.mappingRows, encabezados),
+              })
+            }
+          />
+          <FieldMappingEditor
+            rows={values.mappingRows}
+            disabled={isSubmitting}
+            onChange={(mappingRows) => setValues({ ...values, mappingRows })}
+          />
+        </>
       ) : null}
 
       {error ? <ErrorState>{error}</ErrorState> : null}

@@ -137,3 +137,87 @@ export function rowsToMapping(filas: FieldMappingRow[]): RowsToMappingResult {
   }
   return { ok: true, mapping };
 }
+
+// ---------------------------------------------------------------------------
+// SUGERENCIA DE DESTINO para un encabezado de archivo.
+//
+// ES UNA HEURÍSTICA, NO UNA PROMESA. Lo que devuelve se precarga en el editor
+// como una fila más —editable, y visible antes de guardar— exactamente igual que
+// si alguien la hubiera tipeado. Nada se aplica solo: el mapeo se persiste
+// recién con el botón Guardar del formulario, como cualquier otro campo.
+//
+// La comparación es sobre el encabezado NORMALIZADO (minúsculas, sin tildes,
+// espacios colapsados) contra una tabla fija de sinónimos. No hay fuzzy matching
+// ni distancia de edición: un acierto parcial que se equivoca es peor que no
+// sugerir nada, porque una fila mal sugerida que nadie revisa termina mapeando
+// una columna al campo equivocado en silencio.
+//
+// SIN SUGERENCIA DEVUELVE "", que es exactamente el estado de una fila agregada
+// a mano sin elegir destino todavía. No se inventa un destino "parecido" para no
+// dejar ninguna fila vacía: una columna como "Observación" no tiene campo de
+// destino razonable entre los cinco que la ingesta escribe, y forzarla a uno
+// sería peor que dejarla para que la persona decida.
+//
+// La tabla se edita a mano cuando aparezca un caso real que no cubra. Incluye
+// los nombres canónicos (firstname, lastname, email, phone, jobtitle) porque un
+// archivo exportado por el propio sistema los trae así.
+// ---------------------------------------------------------------------------
+const SINONIMOS: Record<CampoDeContacto, readonly string[]> = {
+  firstName: ["nombre", "nombres", "firstname"],
+  lastName: ["apellido", "apellidos", "lastname"],
+  email: ["email", "mail", "correo", "correo electronico"],
+  phone: ["telefono", "celular", "phone"],
+  jobTitle: ["puesto", "cargo", "rol", "jobtitle"],
+};
+
+// Minúsculas, sin tildes, recortado y con los espacios internos colapsados.
+//
+// NFD separa cada letra acentuada en letra + marca diacrítica, y el rango
+// U+0300-U+036F borra esas marcas: "Teléfono" -> "telefono". Es la misma técnica
+// que usa utils/slug.ts en el backend.
+export function normalizarEncabezado(encabezado: string): string {
+  return encabezado
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+export function sugerirDestino(encabezado: string): CampoDeContacto | "" {
+  const normalizado = normalizarEncabezado(encabezado);
+  if (normalizado === "") return "";
+
+  for (const campo of CAMPOS_DE_CONTACTO) {
+    if (SINONIMOS[campo].includes(normalizado)) {
+      return campo;
+    }
+  }
+
+  return "";
+}
+
+// Agrega una fila por cada encabezado del archivo que TODAVÍA NO ESTÁ en el
+// mapeo, con su destino sugerido. Devuelve la lista nueva completa.
+//
+// ES UN MERGE, NUNCA UN REEMPLAZO: las filas que ya existen no se tocan, ni su
+// encabezado ni su destino. Alguien que ya configuró "Mail" -> email a mano no
+// puede perder ese trabajo por subir un archivo de muestra.
+//
+// LA COMPARACIÓN ES EXACTA, no normalizada, y es a propósito: el mapeo real que
+// consume la promoción compara la clave del JSON contra el encabezado del
+// archivo carácter por carácter (traducirConMapeo en promotion.service.ts), así
+// que "Mail" y "mail" SON dos columnas distintas para el sistema. Deduplicar por
+// la forma normalizada acá escondería una fila que después no matchearía nada.
+export function agregarFilasSugeridas(
+  filas: FieldMappingRow[],
+  encabezados: readonly string[],
+): FieldMappingRow[] {
+  const yaPresentes = new Set(filas.map((fila) => fila.encabezado));
+
+  const nuevas = encabezados
+    .filter((encabezado) => !yaPresentes.has(encabezado))
+    .map((encabezado) => ({ encabezado, destino: sugerirDestino(encabezado) }));
+
+  return [...filas, ...nuevas];
+}
