@@ -312,3 +312,53 @@ export async function promoteContact(
 
   return aPromotedContact(filas[0]);
 }
+
+// ---------------------------------------------------------------------------
+// BORRADO DE DATOS PERSONALES A PEDIDO — hallazgo D2-4 de
+// docs/review-fase2-2026-08-28.md.
+//
+// NO ES EL SOFT DELETE, y la diferencia es el punto entero:
+//
+//   softDeleteContact   -> escribe deletedAt. Saca la fila de la vista. Los
+//                          datos siguen ahí. REVERSIBLE.
+//   erasePersonalData   -> destruye los datos personales. La fila queda.
+//                          IRREVERSIBLE.
+//
+// Son dos conceptos distintos —visibilidad del registro contra existencia del
+// dato— y esta función deliberadamente NO toca deletedAt: un contacto puede
+// pedir el borrado de sus datos sin que la organización pierda el registro de
+// que la oportunidad existió.
+//
+// POR QUÉ ANONIMIZA Y NO BORRA LA FILA: `Opportunity` y `Activity` referencian
+// `contacts` por FK. Borrar la fila rompería historial de negocio de la
+// organización, que no es dato de la persona.
+//
+// POR QUÉ email VA A NULL Y NO A UN MARCADOR, que es la decisión con filo acá:
+// existe el único parcial `contacts_org_email_unique` sobre
+// (organization_id, lower(email)) WHERE email IS NOT NULL. Con un marcador
+// fijo, el SEGUNDO borrado de la misma organización chocaría contra ese índice
+// y fallaría. NULL queda fuera del índice parcial por definición, así que la
+// operación es repetible. phone y jobTitle van a NULL simplemente porque son
+// nullable y no hay nada que preservar.
+//
+// firstName y lastName SÍ llevan marcador: son NOT NULL en el esquema, así que
+// no hay opción de vaciarlos. El marcador es el MISMO para todos a propósito —
+// STD-LEG-002 es explícito en que "la seudonimización no es anonimización": un
+// valor único por contacto sería un identificador nuevo, no un borrado.
+export const MARCADOR_DE_DATO_BORRADO = "[dato borrado]";
+
+// Idempotente: correrla dos veces deja el mismo resultado y no falla. Un
+// borrado a pedido que revienta cuando se repite obliga a quien lo opera a
+// llevar la cuenta de qué ya pidió, y no gana nada a cambio.
+export function erasePersonalDataFromContact(id: string, organizationId: string, db: Db = prisma) {
+  return db.contact.updateMany({
+    where: { id, organizationId },
+    data: {
+      firstName: MARCADOR_DE_DATO_BORRADO,
+      lastName: MARCADOR_DE_DATO_BORRADO,
+      email: null,
+      phone: null,
+      jobTitle: null,
+    },
+  });
+}

@@ -208,7 +208,39 @@ es anonimización"_. Reemplazar un nombre por un marcador fijo sí lo es,
 porque el marcador no es reversible ni re-identificable; conservar el
 `id` del contacto no re-identifica a nadie por sí mismo.
 
-Lo que alcanza y lo que no está en §6 y en el propio endpoint.
+**Qué alcanza**, exactamente:
+
+| Dato | Queda en |
+|---|---|
+| `Contact.firstName`, `Contact.lastName` | Un marcador fijo, igual para todos. Son `NOT NULL`, no hay opción de vaciarlos |
+| `Contact.email`, `.phone`, `.jobTitle` | `NULL` |
+| `IngestionEvent.rawPayload` de los eventos que promovieron a ese contacto | `{ erased: true }`. Es `NOT NULL`, así que no puede ir a `NULL`; un `{}` se leería como "el formulario no mandó nada", que es un estado real y distinto |
+
+`email` va a `NULL` y no a un marcador por una razón concreta, no por
+gusto: existe el único parcial `contacts_org_email_unique` sobre
+`(organization_id, lower(email)) WHERE email IS NOT NULL`. Con un marcador
+fijo, el **segundo** borrado de la misma organización chocaría contra ese
+índice. `NULL` queda fuera del índice parcial por definición.
+
+**Qué NO alcanza, y hay que leerlo antes de dar el borrado por completo:**
+
+1. **`IngestionEvent.promotionNotes`**, que guarda los **valores** de
+   `firstName`, `lastName`, `phone` y `jobTitle` que la promoción
+   descartó (§2.3). Es dato personal de la misma persona, en la misma
+   fila que sí se limpia. Quedó afuera porque borrarlo destruye el
+   registro que §4 de `docs/ingestion-architecture.md` exige — _"nunca
+   sobrescribir en silencio"_ — y ese cruce es una decisión de producto
+   que todavía no se tomó.
+2. **`IngestionEvent.errorMessage`**, sin garantía de no transportar el
+   valor que falló (`D2-7`).
+3. **`IngestionEvent.externalId`**, que si lo proveyó la fuente por
+   `X-External-Id` puede ser el email del lead.
+4. **Los eventos de esa persona que nunca se promovieron** (`FAILED`,
+   `PENDING`): no tienen `promotedContactId`, así que nada los vincula
+   al contacto y el borrado no los encuentra.
+5. **El texto libre** de `Activity` y `Opportunity` (§2.5).
+
+Las cinco están escritas también en el código que las deja afuera.
 
 ### 5.3 Los otros derechos del titular
 

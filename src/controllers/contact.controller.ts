@@ -1,8 +1,10 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { logAccesoADatosPersonales } from "../lib/accessLog";
 import {
   createContact,
   deleteContact,
+  erasePersonalData,
   getContactById,
   listContacts,
   updateContact,
@@ -102,5 +104,39 @@ export const deleteContactHandler = asyncHandler<AuthenticatedRequest>(
     const id = parseOrThrow(idParamSchema, req.params.id);
     await deleteContact(req.auth.organizationId, id);
     res.status(204).send();
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Borrado de datos personales a pedido — D2-4 de
+// docs/review-fase2-2026-08-28.md.
+//
+// POST y no DELETE, y no es un detalle de gusto: DELETE /api/contacts/:id ya
+// existe y significa otra cosa (soft delete, reversible). Dos verbos distintos
+// sobre el mismo recurso para dos operaciones que no se parecen es exactamente
+// lo que evita que alguien invoque la irreversible creyendo que invoca la otra.
+// El sufijo del path la nombra en vez de dejarla implícita en el método.
+//
+// 200 con un resumen, no 204: la operación es irreversible y quien la pide
+// tiene que poder decir qué se borró. `ingestionEventsAnonimizados` es lo que
+// el estándar llama borrado verificable.
+//
+// SE REGISTRA EL ACCESO igual que las lecturas de la capa de ingesta (D2-5).
+// Acá pesa más todavía: es la única operación del sistema que destruye datos
+// personales sin vuelta atrás, así que quién la pidió y sobre quién es
+// justamente lo que hay que poder reconstruir después.
+export const erasePersonalDataHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(idParamSchema, req.params.id);
+
+    logAccesoADatosPersonales({
+      auth: req.auth,
+      recurso: "POST /api/contacts/:id/erase-personal-data",
+      clase: "Sensitive",
+      detalle: { contactId: id, operacion: "borrado_irreversible" },
+    });
+
+    const resultado = await erasePersonalData(req.auth.organizationId, id);
+    res.status(200).json(resultado);
   },
 );

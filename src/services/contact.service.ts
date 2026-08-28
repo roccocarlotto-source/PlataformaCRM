@@ -1,8 +1,10 @@
 import { Prisma, type LifecycleStage } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import { findCompanyById } from "../repositories/company.repository";
 import {
   countContacts,
   createContact as createContactRepo,
+  erasePersonalDataFromContact,
   findContactById,
   findManyContacts,
   softDeleteContact,
@@ -10,6 +12,7 @@ import {
   type ContactSortBy,
   type SortOrder,
 } from "../repositories/contact.repository";
+import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
 import { AppError } from "../utils/AppError";
 import { resolveOwnerId } from "./ownership.service";
 
@@ -227,4 +230,51 @@ export async function deleteContact(organizationId: string, id: string) {
   if (result.count === 0) {
     throw new AppError("Contacto no encontrado", 404);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Borrado de datos personales a pedido — D2-4 de
+// docs/review-fase2-2026-08-28.md. La política está en
+// docs/data-classification.md §5.2.
+//
+// NO ES deleteContact. Ese sigue existiendo, sigue siendo soft delete y sigue
+// siendo reversible. Esto destruye datos y no se deshace.
+//
+// EN UNA TRANSACCIÓN, y no por prolijidad: si el contacto quedara anonimizado
+// y la limpieza de los eventos fallara, el sistema afirmaría haber borrado
+// datos personales que siguen enteros en `raw_payload`. Un borrado a medias es
+// peor que uno que falló, porque nadie lo vuelve a pedir.
+//
+// El pre-chequeo con getContactById existe por el 404 (mismo criterio que el
+// resto del módulo: no se confirma la existencia de recursos ajenos), pero la
+// garantía de aislamiento es el `organizationId` dentro de cada WHERE, nunca
+// este SELECT.
+// ---------------------------------------------------------------------------
+
+export interface ResultadoDeBorrado {
+  contactId: string;
+  // Cuántos eventos de ingesta perdieron su rawPayload. Se devuelve porque el
+  // estándar pide que el borrado sea verificable, y porque quien lo pide tiene
+  // que poder decir cuánto se borró sin ir a mirar la base.
+  ingestionEventsAnonimizados: number;
+}
+
+export async function erasePersonalData(
+  organizationId: string,
+  id: string,
+): Promise<ResultadoDeBorrado> {
+  await getContactById(organizationId, id);
+
+  return prisma.$transaction(async (tx) => {
+    const contacto = await erasePersonalDataFromContact(id, organizationId, tx);
+
+    if (contacto.count === 0) {
+      // Se borró entre el pre-chequeo y la escritura. Mismo 404.
+      throw new AppError("Contacto no encontrado", 404);
+    }
+
+    const eventos = await anonymizeIngestionEventsOfContact(id, organizationId, tx);
+
+    return { contactId: id, ingestionEventsAnonimizados: eventos.count };
+  });
 }
