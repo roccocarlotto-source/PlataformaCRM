@@ -184,6 +184,15 @@ export function SourceListPage() {
                       aplicado. El filtro de ApiKeyListPage vive en la URL
                       justamente para que este link pueda armarlo. */}
                   <Link to={`/api-keys?sourceId=${source.id}`}>Ver claves</Link>{" "}
+                  {/* Solo en las FILE_IMPORT, a diferencia de "Ver claves":
+                      importar contra otro tipo daría un 400 garantizado
+                      (import.service.ts), mientras que un listado de claves
+                      vacío no es un error sino un resultado válido. */}
+                  {source.type === "FILE_IMPORT" ? (
+                    <>
+                      <Link to={`/sources/${source.id}/import`}>Importar archivo</Link>{" "}
+                    </>
+                  ) : null}
                   <Button variant="danger" onClick={() => handleDelete(source.id)}>
                     Eliminar
                   </Button>

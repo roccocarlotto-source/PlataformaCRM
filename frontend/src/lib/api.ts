@@ -96,6 +96,19 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     signal: options.signal,
   });
 
+  return handleResponse<T>(res);
+}
+
+// El manejo de la RESPUESTA, compartido por request() y uploadFile().
+//
+// Se extrajo al agregar el soporte de multipart: es exactamente la misma lógica
+// —el 401 global, la extracción del mensaje de error, el 204 sin body, el parseo
+// del JSON— y tenerla dos veces habría hecho que cualquier divergencia futura
+// entre las dos funciones fuera un bug silencioso en una mitad de la app.
+//
+// El comportamiento es idéntico al que request() tenía inline: este cambio no
+// altera nada para los call sites existentes.
+async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     // 401 = el propio token ya no es válido (vencido más allá de lo que el
     // auto-refresh de Supabase pudo cubrir, revocado, etc.) — a diferencia
@@ -120,4 +133,45 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   // corrupto es una violación de contrato del backend, no un error de
   // negocio ni un error de red.
   return (await res.json()) as T;
+}
+
+// ---------------------------------------------------------------------------
+// Subida de archivos por multipart — G-6 de
+// docs/research-frontend-ingesta-2026-08-27.md.
+//
+// request() no sirve para esto y no es cuestión de agregarle una rama: siempre
+// hace JSON.stringify del body y siempre fija Content-Type: application/json.
+// Un FormData por ese camino llegaría al backend como "[object Object]".
+//
+// LO QUE NO SE FIJA ACÁ, Y ES EL PUNTO ENTERO: el Content-Type. Un multipart
+// necesita un boundary —una marca aleatoria que separa las partes— y el header
+// tiene que declararlo. `fetch` lo genera solo cuando recibe un FormData Y NADIE
+// le puso el header a mano; ponerlo, aunque sea con el valor "correcto"
+// multipart/form-data, deja al backend sin boundary que buscar y multer rechaza
+// el cuerpo entero.
+//
+// Todo lo demás es igual que request(): mismo buildUrl, mismo token opcional,
+// mismo handleResponse.
+// ---------------------------------------------------------------------------
+export async function uploadFile<T>(
+  path: string,
+  formData: FormData,
+  // Método siempre POST: los dos usos (importar y previsualizar) lo son. Cuando
+  // aparezca un PUT/PATCH multipart se agrega el parámetro; hoy sería una opción
+  // sin consumidor.
+  options: { getAccessToken?: GetAccessToken; signal?: AbortSignal } = {},
+): Promise<T> {
+  const headers: Record<string, string> = {};
+
+  const token = await options.getAccessToken?.();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(buildUrl(path), {
+    method: "POST",
+    headers,
+    body: formData,
+    signal: options.signal,
+  });
+
+  return handleResponse<T>(res);
 }
