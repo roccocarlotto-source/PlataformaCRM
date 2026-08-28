@@ -295,6 +295,23 @@ La purga razonable, mientras tanto, no necesita ninguna columna nueva:
 naturaleza —un reintento de webhook es cuestión de minutos u horas— así que
 purgar filas viejas no rompe la garantía en la práctica.
 
+**Esa purga ya existe** *(2026-08-28, cerrando el hallazgo D2-3 de
+`docs/review-fase2-2026-08-28.md`)*. Hasta acá esta sección describía la
+consulta correcta y nada la ejecutaba, que es exactamente lo que los dos
+reviews señalaron. Se corre a mano:
+
+```
+npm run purge:ingestion-events -- --dry-run   # cuenta, no borra
+npm run purge:ingestion-events                # borra, e imprime cuántas
+```
+
+El corte es de **90 días** y la política completa —período, alcance,
+disparador y método— vive en `docs/data-classification.md` §5.1, que es
+donde el estándar de privacidad pide que viva. **Sin cron**: el proyecto
+no tiene scheduler ni pipeline de CD, y declarar uno que nada ejecuta
+daría la retención por resuelta. La consecuencia es que la retención se
+cumple si alguien corre el comando, y está escrita como tal.
+
 ### 9.2 Falta un identificador de lote
 
 *(2026-08-24, al diseñar el ítem 2.)*
