@@ -27,11 +27,15 @@ export interface ImportPreview {
 }
 
 // FallaDeLote en ingestionEvent.repository.ts.
+//
+// SIN `rawPayload` — hallazgo D2-2 de docs/review-fase2-2026-08-28.md. El
+// backend dejó de mandarlo: eran hasta 100 filas crudas de planilla con datos
+// personales que esta pantalla nunca renderizó y que quedaban en el cache de
+// TanStack Query. Declararlo acá sería volver a prometer un campo que ya no
+// llega.
 export interface FallaDeLote {
   id: string;
   errorMessage: string | null;
-  // La fila del archivo tal como se guardó, con sus encabezados originales.
-  rawPayload: unknown;
 }
 
 // ResumenDeLote en ingestionEvent.repository.ts — la respuesta de

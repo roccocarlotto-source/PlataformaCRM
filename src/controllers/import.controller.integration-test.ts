@@ -735,7 +735,7 @@ test("GET /api/imports/:batchId cuenta bien ANTES y DESPUÉS de drenar", async (
     pendientes: number;
     promovidos: number;
     fallidos: number;
-    fallas: { errorMessage: string; rawPayload: Record<string, unknown> }[];
+    fallas: { errorMessage: string }[];
     fallasOmitidas: number;
   };
 
@@ -747,9 +747,17 @@ test("GET /api/imports/:batchId cuenta bien ANTES y DESPUÉS de drenar", async (
   assert.equal(despues.fallas.length, 1);
   assert.ok(despues.fallas[0].errorMessage, "el por qué no puede venir vacío");
   assert.equal(despues.fallasOmitidas, 0);
-  // La fila que falló viene con sus encabezados originales: es lo que permite
-  // ver QUÉ fila era sin volver a abrir el archivo.
-  assert.equal(despues.fallas[0].rawPayload.Nombre, "Sin");
+
+  // Y NO viene la fila cruda — hallazgo D2-2 de
+  // docs/review-fase2-2026-08-28.md. Esta respuesta cargaba hasta 100
+  // rawPayload de leads reales hacia una pantalla que solo muestra el motivo.
+  // Se afirma la ausencia en vez de simplemente dejar de mirar el campo: si
+  // alguien vuelve a agregarlo al select, este test lo tiene que frenar.
+  assert.equal(
+    "rawPayload" in despues.fallas[0],
+    false,
+    "rawPayload no va en la respuesta de GET /api/imports/:batchId",
+  );
 });
 
 test("un batchId inexistente da 404, y el de otra organización también", async () => {

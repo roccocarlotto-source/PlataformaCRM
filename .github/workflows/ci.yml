@@ -98,16 +98,49 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Los DOS lockfiles: este job instala el paquete raíz además del frontend,
+      # para el gate de auditoría de más abajo. Sin la ruta de la raíz acá, ese
+      # install sería el único sin caché del pipeline.
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: |
+            frontend/package-lock.json
+            package-lock.json
 
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+
+      # Gate de vulnerabilidades del frontend — hallazgo S2-1 de
+      # docs/review-fase2-2026-08-28.md. El gate existía desde S-3 pero cubría
+      # SOLO el paquete raíz, y el frontend es la mitad de los archivos de la
+      # Fase 2: sus dependencias no las miraba nadie. Las 2 advisories high de
+      # react-router (S2-2) aparecieron corriendo `npm audit` a mano, igual que
+      # las que motivaron el gate original — el mismo agujero, un paquete más
+      # allá.
+      #
+      # Mismo mecanismo, no uno nuevo: idéntico `npm audit --omit=dev --json` y
+      # el mismo scripts/audit-gate.ts. Lo único que cambia es sobre qué JSON
+      # decide y con qué excepciones, que ahora van por workspace: la de
+      # uuid/exceljs es de un árbol de dependencias que el frontend no tiene, y
+      # heredarla acá silenciaría una advisory que nadie verificó en este lado.
+      #
+      # `|| true` por lo mismo que en el job backend: `npm audit` sale con 1 con
+      # solo encontrar algo de cualquier severidad, y quien decide es el gate.
+      - name: Auditoría de dependencias (bloquea high/critical sin excepción)
+        run: npm audit --omit=dev --json > npm-audit.json || true
+
+      # El gate vive en el paquete raíz —se corre con el tsx de ahí—, así que
+      # este step sale del working-directory del job. El `npm ci` de la raíz es
+      # la única razón por la que este job instala los dos paquetes.
+      - name: Gate de auditoría (frontend)
+        working-directory: .
+        run: |
+          npm ci
+          npm run audit:gate:frontend
 
   # ---------------------------------------------------------------------------
   # BLOQUEANTE. Un fallo de ESLint o de Prettier corta el job y el merge, igual
