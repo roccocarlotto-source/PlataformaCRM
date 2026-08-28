@@ -1,4 +1,5 @@
 import type { OpportunityStatus } from "@prisma/client";
+import { prisma, type Db } from "../lib/prisma";
 import { findCompanyById } from "../repositories/company.repository";
 import { findContactById } from "../repositories/contact.repository";
 import {
@@ -12,7 +13,7 @@ import {
   type SortOrder,
 } from "../repositories/opportunity.repository";
 import { findPipelineById } from "../repositories/pipeline.repository";
-import { findStageById } from "../repositories/stage.repository";
+import { findStageById, lockStageForUpdate } from "../repositories/stage.repository";
 import { AppError } from "../utils/AppError";
 import { resolveOwnerId } from "./ownership.service";
 
@@ -105,8 +106,16 @@ async function validatePipelineId(organizationId: string, pipelineId: string) {
 
 // El stage tiene que existir en la organización Y pertenecer al pipeline
 // indicado — evita la inconsistencia "pipeline A + stage de pipeline B".
-async function validateStageId(organizationId: string, stageId: string, pipelineId: string) {
-  const stage = await findStageById(stageId, organizationId);
+//
+// `db` explícito para poder revalidar DENTRO de la transacción, con el lock de
+// la fila del Stage ya sostenido (ALTO-8). El default es el pre-check rápido.
+async function validateStageId(
+  organizationId: string,
+  stageId: string,
+  pipelineId: string,
+  db: Db = prisma,
+) {
+  const stage = await findStageById(stageId, organizationId, db);
   if (!stage) {
     throw new AppError("El stageId indicado no existe o no pertenece a tu organización", 400);
   }
@@ -142,23 +151,44 @@ export async function createOpportunity(
     validateContactId(organizationId, input.contactId),
   ]);
 
+  // Pre-checks rápidos, fuera de la transacción — 400 inmediato en el caso
+  // común sin abrir una. No son la defensa: la lectura que decide es la de
+  // adentro, con el lock ya tomado.
   await validatePipelineId(organizationId, input.pipelineId);
   await validateStageId(organizationId, input.stageId, input.pipelineId);
 
-  return createOpportunityRepo({
-    organizationId,
-    companyId,
-    contactId,
-    ownerId,
-    pipelineId: input.pipelineId,
-    stageId: input.stageId,
-    title: input.title,
-    amount: input.amount,
-    currency: input.currency,
-    expectedCloseDate: input.expectedCloseDate,
-    actualCloseDate: input.actualCloseDate,
-    status: input.status,
-    lostReason: input.lostReason,
+  return prisma.$transaction(async (tx) => {
+    // ALTO-8 — la otra mitad del RESTRICT de deleteStage. Ese borrado decide
+    // sobre un conteo de oportunidades activas; sin este lock, dos requests
+    // concurrentes —uno creando la oportunidad, otro borrando el stage— pasan
+    // los dos su chequeo y la oportunidad queda en un stage borrado, invisible
+    // en el tablero pero contada en los totales.
+    await lockStageForUpdate(input.stageId, organizationId, tx);
+
+    // Revalida con el lock sostenido. Alcanza con el stage: no hace falta
+    // revalidar el pipeline porque deletePipeline exige cero stages activos, y
+    // este stage está vivo y lockeado — el pipeline no puede haberse borrado
+    // debajo mientras eso sea cierto.
+    await validateStageId(organizationId, input.stageId, input.pipelineId, tx);
+
+    return createOpportunityRepo(
+      {
+        organizationId,
+        companyId,
+        contactId,
+        ownerId,
+        pipelineId: input.pipelineId,
+        stageId: input.stageId,
+        title: input.title,
+        amount: input.amount,
+        currency: input.currency,
+        expectedCloseDate: input.expectedCloseDate,
+        actualCloseDate: input.actualCloseDate,
+        status: input.status,
+        lostReason: input.lostReason,
+      },
+      tx,
+    );
   });
 }
 
@@ -215,12 +245,29 @@ export async function updateOpportunity(
     await validatePipelineId(organizationId, input.pipelineId);
   }
 
-  if (input.stageId) {
-    const effectivePipelineId = input.pipelineId ?? opportunity.pipelineId;
-    await validateStageId(organizationId, input.stageId, effectivePipelineId);
+  const effectivePipelineId = input.pipelineId ?? opportunity.pipelineId;
+  const nuevoStageId = input.stageId;
+
+  if (nuevoStageId) {
+    await validateStageId(organizationId, nuevoStageId, effectivePipelineId);
   }
 
-  const result = await updateOpportunityRepo(id, organizationId, data);
+  // La escritura va en transacción SOLO cuando cambia el stage, y es
+  // deliberado: es el único caso con un invariante que defender —el RESTRICT de
+  // deleteStage— y por lo tanto el único que necesita el lock. Un UPDATE que no
+  // toca stageId no compite con nadie, y envolverlo igual costaría un BEGIN y
+  // un COMMIT de más en el camino más frecuente.
+  const result = nuevoStageId
+    ? await prisma.$transaction(async (tx) => {
+        await lockStageForUpdate(nuevoStageId, organizationId, tx);
+        // Revalida con el lock sostenido: entre el pre-check de arriba y este
+        // punto, deleteStage pudo haber borrado el stage de destino. Sin esto,
+        // su RESTRICT sería evitable simplemente por llegar primero.
+        await validateStageId(organizationId, nuevoStageId, effectivePipelineId, tx);
+        return updateOpportunityRepo(id, organizationId, data, tx);
+      })
+    : await updateOpportunityRepo(id, organizationId, data);
+
   if (result.count === 0) {
     throw new AppError("Oportunidad no encontrada", 404);
   }

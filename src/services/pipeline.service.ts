@@ -8,12 +8,14 @@ import {
   findManyPipelines,
   findOldestActivePipeline,
   findPipelineById,
+  lockPipelineForUpdate,
   softDeletePipeline,
   unsetDefaultPipeline,
   updatePipeline as updatePipelineRepo,
   type PipelineSortBy,
   type SortOrder,
 } from "../repositories/pipeline.repository";
+import { countActiveStagesByPipeline } from "../repositories/stage.repository";
 import { AppError } from "../utils/AppError";
 
 export interface ListPipelinesParams {
@@ -170,6 +172,19 @@ export async function deletePipeline(organizationId: string, id: string) {
   await prisma.$transaction(async (tx) => {
     await lockOrganizationForUpdate(organizationId, tx);
 
+    // ALTO-8 — el lock de la fila del Pipeline, además del de la organización.
+    // Son dos invariantes distintos con dos ámbitos distintos: "la organización
+    // nunca se queda con cero pipelines" (H-1) se decide sobre un conteo de
+    // TODA la organización, y "este pipeline no tiene stages activos" se decide
+    // sobre un conteo de ESTE pipeline. El segundo compite con createStage, que
+    // toma únicamente el lock de fila; serializar eso con el de organización
+    // habría frenado la creación de stages de todos los pipelines del tenant.
+    //
+    // ORDEN FIJO —organización primero, pipeline después— y es el único camino
+    // que toma los dos, así que no hay forma de que dos transacciones los tomen
+    // en orden inverso.
+    await lockPipelineForUpdate(id, organizationId, tx);
+
     // Revalida dentro de la transacción, con el lock ya sostenido: el
     // pre-check de arriba es solo UX rápida, esta lectura es la que
     // realmente decide.
@@ -181,6 +196,22 @@ export async function deletePipeline(organizationId: string, id: string) {
     const activeCount = await countActivePipelines(organizationId, tx);
     if (activeCount <= 1) {
       throw new AppError("No se puede eliminar el último pipeline de la organización", 400);
+    }
+
+    // ALTO-8, escenario 2 — RESTRICT lógico: un Pipeline con Stages vivos no se
+    // borra. Sin esto, findManyStages devolvía los stages huérfanos en el
+    // listado de la organización cuando no venía filters.pipelineId.
+    //
+    // VA DESPUÉS del chequeo del último pipeline, no antes, y el orden importa:
+    // una organización recién onboardeada tiene un solo pipeline Y stages
+    // adentro, así que invertirlo cambiaría el error de "no se puede eliminar
+    // el último pipeline" por "tiene etapas activas" en el caso más común.
+    const stagesActivos = await countActiveStagesByPipeline(id, organizationId, tx);
+    if (stagesActivos > 0) {
+      throw new AppError(
+        "No se puede eliminar un pipeline que tiene etapas activas. Eliminá primero sus etapas.",
+        400,
+      );
     }
 
     if (!pipeline.isDefault) {
