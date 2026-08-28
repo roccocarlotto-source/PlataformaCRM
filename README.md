@@ -11,7 +11,7 @@ de autenticación y onboarding, ver
 > Estado actual: infraestructura base + autenticación (`authenticate`/`authorize`,
 > verificados contra logins reales de Supabase vía JWKS/ES256) + conexión real a
 > Supabase (migraciones, `manual_constraints.sql` y RLS aplicados, catálogo `Role`
-> sembrado) + `POST /api/onboarding` + **módulos `Company`, `Contact`, `Pipeline`,
+> sembrado) + `POST /api/onboarding` (con verificación de email por OTP) + **módulos `Company`, `Contact`, `Pipeline`,
 > `Stage`, `Opportunity`, `Activity` e `Invitation` completos** (CRUD, soft delete,
 > paginación) + **administración acotada de `User`** — cierra el conjunto de
 > entidades de negocio del modelo de datos actual. `Opportunity` valida

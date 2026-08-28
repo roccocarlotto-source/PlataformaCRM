@@ -105,14 +105,25 @@ seguridad y simplicidad que da.
 >   devolver `409` ("ya existe una organización con ese nombre") — más predecible
 >   para el usuario y necesario para que una segunda petición idéntica sea
 >   idempotente (no cree una organización distinta silenciosamente).
-> - **Email auto-confirmado, no requiere click de confirmación.** El paso 4 de abajo
->   asumía que el usuario no tiene sesión válida hasta confirmar su email. El
->   endpoint usa la Admin API (`email_confirm: true`), que no dispara el flujo de
->   confirmación por email que sí tiene el `signUp` público — evita depender de
->   infraestructura de envío de mails (SMTP) que todavía no existe en el proyecto.
->   Es una reducción de seguridad consciente y documentada, revisable cuando se
->   agregue el flujo de invitaciones (que sí va a necesitar envío de mails, vía
->   `inviteUserByEmail`).
+> - **~~Email auto-confirmado, no requiere click de confirmación.~~ REVERTIDO el
+>   2026-08-28 — hallazgo `ALTO-2`.** Este párrafo decía que el endpoint usaba
+>   `email_confirm: true` de la Admin API para evitar depender de infraestructura de
+>   envío de mails, y lo llamaba "una reducción de seguridad consciente y
+>   documentada, revisable cuando se agregue el flujo de invitaciones". Ese momento
+>   llegó, y el costo resultó mayor que el anotado: marcar la identidad como
+>   confirmada sin ninguna prueba permitía **email squatting permanente** — registrar
+>   una organización con el email de una víctima quemaba esa dirección para siempre,
+>   porque a partir de ahí `createInvitation` e `inviteUserByEmail` la rechazan con
+>   409 y la víctima real ya no puede ser invitada a su propia organización.
+>
+>   **Ahora el registro exige un OTP de 6 dígitos enviado al email antes de aceptar
+>   nada.** No cambia a dos pasos de datos: `Organization` + `User` + identidad se
+>   siguen creando como una sola operación lógica. Lo que se agrega antes es una
+>   prueba de control del email, y son dos llamadas HTTP en vez de una:
+>   `POST /api/onboarding/otp` y después `POST /api/onboarding` con el código. Ver el
+>   encabezado de `src/services/onboarding.service.ts` para el detalle, incluida la
+>   verificación de por qué no existe forma de emitir un OTP sin crear antes la fila
+>   en `auth.users` con la librería que el proyecto tiene fijada.
 
 Contexto de producto que resuelve una aparente contradicción con la sección 2: el CRM
 **no permite que alguien se una a una organización existente sin ser invitado**, pero
@@ -164,14 +175,34 @@ distintas — este documento los separa explícitamente para no confundirlos.
    organización ni perfil (a diferencia del flujo de invitación, ver sección 2, donde
    esa ventana sí existe intencionalmente).
 
-4. **Confirmación de email.** Si el proyecto de Supabase tiene confirmación de email
-   habilitada (recomendado), el usuario no obtiene una sesión válida hasta clickear el
-   link de confirmación. La `Organization` y el `User` ADMIN ya existen en ese punto
-   (se crearon en el paso 3), pero el founder todavía no puede autenticarse — evita que
-   alguien registre una cuenta con un email que no controla y aun así "cree" una
-   organización utilizable.
+4. **Confirmación de email — resuelto el 2026-08-28 (`ALTO-2`), y el orden se
+   invirtió.** Este paso decía que la confirmación venía *después* de crear la
+   organización, y que dependía de que el proyecto tuviera el toggle habilitado. Ya
+   no: el email se prueba **antes**, con un OTP de 6 dígitos, y sin ese código el
+   paso 3 no ocurre en absoluto.
 
-5. **Primer login.** Una vez confirmado el email, el founder inicia sesión
+   - `POST /api/onboarding/otp` con `{ email }` → `signInWithOtp` crea la fila en
+     `auth.users` **sin confirmar** y Supabase envía el código.
+   - `POST /api/onboarding` con `{ organizationName, fullName, email, password, otp }`
+     → `verifyOtp` sella `email_confirmed_at`, `admin.updateUserById` fija la
+     contraseña, y recién ahí se crean `Organization` y `User`.
+
+   Que la organización no exista hasta que el email esté probado es más fuerte que lo
+   que este paso describía antes: ya no hay ninguna ventana en la que exista una
+   organización creada con un email que nadie controla.
+
+   **Requisito operativo, fuera de este repositorio:** la plantilla *Magic Link* del
+   proyecto de Supabase tiene que incluir `{{ .Token }}` para que el mail lleve el
+   código en vez de un enlace. Es la propia librería la que lo documenta ("Magic links
+   and OTPs share the same implementation"). Si falta, el registro **falla cerrado**
+   para todo el mundo — nadie puede completarlo —, que es un modo de fallo
+   cualitativamente distinto del que señalaba `ALTO-3`, donde una configuración mal
+   puesta dejaba pasar a quien no debía.
+
+   Las identidades sin confirmar que deja quien pide un código y abandona las limpia
+   `npm run purge:unconfirmed-auth-users`.
+
+5. **Primer login.** Una vez creada la cuenta, el founder inicia sesión
    normalmente (ver [sección 3](#3-flujo-de-autenticación)). El middleware lo
    reconoce como `ADMIN` de su organización recién creada porque `public.users` ya
    existe con esos datos desde el paso 3 — no hace falta ningún paso adicional de

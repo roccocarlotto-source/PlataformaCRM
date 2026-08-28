@@ -10,6 +10,7 @@ import { createOnboarding } from "../controllers/onboarding.controller";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
+import { requestOnboardingOtp } from "../services/onboarding.service";
 import { slugify } from "../utils/slug";
 import { errorHandler } from "./errorHandler";
 import { notFound } from "./notFound";
@@ -129,6 +130,12 @@ test("onboardingRateLimiter: cuenta intentos con body válido y bloquea el exced
       fullName: "Test User",
       email: `m1-onboarding-${randomUUID()}@example.test`,
       password: "password123",
+      // ALTO-2: el schema exige el código, y el limiter decide qué cuenta
+      // parseándolo. Sin esto el body sería Zod-inválido y NINGÚN intento
+      // contaría contra el cupo — que es exactamente lo que este test mide.
+      // No hace falta que sea el código correcto: el 409 por slug duplicado se
+      // resuelve antes de llegar a verifyOtp, así que sigue sin tocar Supabase.
+      otp: "000000",
     };
 
     for (let i = 0; i < ONBOARDING_MAX; i++) {
@@ -193,6 +200,7 @@ test("onboardingRateLimiter: body Zod-inválido no consume cupo", async () => {
         fullName: "Test User",
         email: `m1-probe-${randomUUID()}@example.test`,
         password: "password123",
+        otp: "000000",
       }),
     });
     assert.equal(
@@ -210,15 +218,31 @@ test("onboardingRateLimiter: un request real dentro del cupo completa el flujo d
   const { url, close } = await startTestApp(mountOnboarding);
   let orgId: string | undefined;
   let authUserId: string | undefined;
+  const email = `m1-happy-onboarding-${randomUUID()}@example.test`;
   try {
+    // ALTO-2 — el registro real ahora tiene un paso previo: probar el email.
+    // Este test dice "un request real dentro del cupo completa el flujo sin
+    // fricción", así que tiene que completar el flujo real, no una versión
+    // recortada. El código se obtiene con generateLink (no envía mail) por el
+    // mismo motivo que en onboarding.service.integration-test.ts: así corre
+    // igual contra el stack local y contra un proyecto hosteado.
+    await requestOnboardingOtp({ email });
+    const { data: link, error: linkError } = await getSupabaseAdmin().auth.admin.generateLink({
+      type: "magiclink",
+      email,
+    });
+    const otp = link.properties?.email_otp;
+    assert.ok(otp, `no se pudo generar el OTP: ${linkError?.message ?? "sin email_otp"}`);
+
     const res = await fetch(`${url}/api/onboarding`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         organizationName: `M1 Onboarding Happy ${randomUUID()}`,
         fullName: "Happy Path",
-        email: `m1-happy-onboarding-${randomUUID()}@example.test`,
+        email,
         password: "password123",
+        otp,
       }),
     });
     assert.equal(res.status, 201);
