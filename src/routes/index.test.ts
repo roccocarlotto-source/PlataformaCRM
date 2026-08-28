@@ -133,18 +133,24 @@ test("montar la capa de ingesta no desmontó nada de lo anterior", async () => {
 // exactamente lo que este archivo ya hace.
 //
 // Los tres casos son caminos distintos de la cadena, no tres veces el mismo:
-// una respuesta de handler (200), una que muere en `authenticate` (401) y una
-// que muere en `notFound` (404). Un middleware montado después de las rutas
-// pasaría el primero y fallaría los otros dos.
+// una respuesta que sale de un handler real, una que muere en `authenticate`
+// (401) y una que muere en `notFound` (404). Un middleware montado después de
+// las rutas pasaría el primero y fallaría los otros dos.
+//
+// SOBRE /health NO SE AFIRMA EL STATUS, y no es dejadez: getHealth consulta la
+// base y devuelve 200 o 503 según la alcance, así que vale 200 con una base
+// enfrente y 503 en el job unitario de CI, que corre sin ninguna. Lo que este
+// caso cubre —una respuesta producida por un handler real, no por un
+// middleware que corta antes— es cierto en los dos casos, y pinchar el status
+// haría que este test hablara de la salud de la base en vez del header.
 // ---------------------------------------------------------------------------
 
 test("S2-6: toda respuesta lleva Cache-Control: no-store, en los tres caminos", async () => {
-  const ok = await fetch(`${baseUrl}/health`);
-  assert.equal(ok.status, 200);
+  const deHandler = await fetch(`${baseUrl}/health`);
   assert.equal(
-    ok.headers.get("cache-control"),
+    deHandler.headers.get("cache-control"),
     "no-store",
-    "una respuesta 200 de un handler real tiene que llevar el header",
+    "una respuesta que sale de un handler real tiene que llevar el header",
   );
 
   const noAutorizado = await fetch(`${baseUrl}/api/contacts`);
