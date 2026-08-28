@@ -7,8 +7,8 @@ import { prisma } from "./prisma";
 // (docs/auditoria-2026-08-21-diagnostico.sql, afirmado por
 // scripts/verify-schema.ts).
 //
-// El CI ya prueba el lado positivo: `npm run verify:schema` corre las 15 filas
-// contra la base recién construida y falla si alguna de las 9 afirmadas no da
+// El CI ya prueba el lado positivo: `npm run verify:schema` corre las 16 filas
+// contra la base recién construida y falla si alguna de las 12 afirmadas no da
 // su valor. Lo que eso NO prueba es lo único que importaba en la revisión del
 // 2026-08-25: que la afirmación FALLE cuando el esquema está mal. Un chequeo
 // que pasa siempre también pasa contra una base recién construida.
@@ -32,6 +32,15 @@ import { prisma } from "./prisma";
 //
 // Comparar el normalizador contra la definición rota prueba exactamente la
 // misma propiedad —la comparación discrimina— sin tocar un solo objeto.
+//
+// LA EXCEPCIÓN, agregada el 2026-08-28: los tests de la fila 14 SÍ crean
+// objetos, y el párrafo de arriba no los alcanza. Lo que se descartó ahí era
+// DROP INDEX sobre `contacts`, que toma un ACCESS EXCLUSIVE sobre una tabla
+// compartida; esos tests crean tablas NUEVAS dentro de una transacción que
+// después se revierte, sin tocar ninguna existente, así que no bloquean a
+// nadie. Y no hay alternativa: la fila 14 no pregunta por un objeto con
+// nombre sino por todo el esquema a la vez, y una afirmación universal solo se
+// prueba falsable con un contraejemplo. Ver el comentario de esa sección.
 
 const DIAGNOSTICO = "docs/auditoria-2026-08-21-diagnostico.sql";
 
@@ -61,11 +70,15 @@ const CABEZA_NORMALIZADOR = "lower(regexp_replace(regexp_replace(regexp_replace(
 // compara un solo lado contra un literal ya normalizado.
 const COPIAS_ESPERADAS = 11;
 
-// Los únicos regexp_replace del archivo que NO son parte del normalizador: la
-// fila 14 saca la calificación de esquema de conrelid/confrelid para poder
-// comparar contra una firma escrita sin ella. Van en una lista blanca explícita
-// para que un regexp_replace nuevo en cualquier otro lado haga fallar el test
-// en vez de pasar por "no es del normalizador".
+// Los únicos regexp_replace del archivo que NO son parte del normalizador: las
+// filas 14 y 16 sacan la calificación de esquema de conrelid/confrelid para
+// poder comparar contra una firma escrita sin ella. La lista blanca no lleva
+// cuenta de cuántas veces aparece cada forma —se quitan todas— porque la
+// propiedad que interesa es que no haya VARIANTES, no cuántas copias hay.
+//
+// Van en una lista blanca explícita para que un regexp_replace nuevo en
+// cualquier otro lado haga fallar el test en vez de pasar por "no es del
+// normalizador".
 const REGEXP_REPLACE_PERMITIDOS = [
   String.raw`regexp_replace(c.conrelid::regclass::text, '^public\.', '')`,
   String.raw`regexp_replace(c.confrelid::regclass::text, '^public\.', '')`,
@@ -81,6 +94,18 @@ async function norm(expresionSql: string): Promise<string> {
   const filas = await prisma.$queryRawUnsafe<{ v: string | null }[]>(
     `select ${normalizar(expresionSql)} as v`,
   );
+  const valor = filas[0]?.v;
+  assert.ok(valor, `la expresión no devolvió nada: ${expresionSql}`);
+  return valor;
+}
+
+// Igual que norm() pero SIN normalizador, para las filas que comparan cadenas
+// que el catálogo devuelve tal cual: la firma de la fila 16 se arma
+// concatenando attname, sin un solo cast ni calificación de esquema que
+// normalizar. Pasarla igual por el normalizador escondería una diferencia de
+// mayúsculas o de paréntesis que en ESE formato sí importa.
+async function escalar(expresionSql: string): Promise<string> {
+  const filas = await prisma.$queryRawUnsafe<{ v: string | null }[]>(`select ${expresionSql} as v`);
   const valor = filas[0]?.v;
   assert.ok(valor, `la expresión no devolvió nada: ${expresionSql}`);
   return valor;
@@ -320,10 +345,21 @@ test("fila 5 distingue una política de aislamiento abierta con USING (true)", a
 });
 
 // ---------------------------------------------------------------------------
-// Fila 14 — FKs compuestas
+// Fila 16 — el mapa hijo -> padre de las 18 FKs conocidas
 // ---------------------------------------------------------------------------
 
-test("fila 14 distingue una FK compuesta que apunta al padre equivocado", async () => {
+// ESTE TEST ESTABA EN LA FILA 14 y se mudó acá el 2026-08-28, junto con la
+// cobertura que prueba.
+//
+// La fila 14 pasó a ser un chequeo ESTRUCTURAL y por construcción no puede ver
+// este caso: una FK compuesta bien formada hacia la tabla equivocada tiene dos
+// columnas, la primera organization_id de los dos lados, y acciones
+// referenciales conformes. Pasa la fila 14 entera. A qué padre debe apuntar
+// cada FK solo lo sabe un mapa, y ese mapa es ahora la fila 16.
+//
+// Sin normalizador, a diferencia de las filas 5/7/8/9/10/15: la firma de la
+// fila 16 se arma concatenando attname y no contiene nada que normalizar.
+test("fila 16 distingue una FK compuesta que apunta al padre equivocado", async () => {
   const firma = (nombre: string) => `(
     select c.conname || '|'
       || regexp_replace(c.conrelid::regclass::text, '^public\\.', '') || '('
@@ -335,42 +371,225 @@ test("fila 14 distingue una FK compuesta que apunta al padre equivocado", async 
       || (select string_agg(a.attname, ',' order by k.ord)
             from unnest(c.confkey) with ordinality as k(attnum, ord)
             join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
-      || ') upd=' || c.confupdtype::text || ' del=' || c.confdeltype::text || ' match=' || c.confmatchtype::text
+      || ')'
     from pg_constraint c where c.conname = ${lit(nombre)})`;
 
-  const real = await norm(firma("ingestion_events_organization_id_promoted_contact_id_fkey"));
+  const real = await escalar(firma("ingestion_events_organization_id_promoted_contact_id_fkey"));
+
+  const ESPERADA =
+    "ingestion_events_organization_id_promoted_contact_id_fkey|" +
+    "ingestion_events(organization_id,promoted_contact_id)->contacts(organization_id,id)";
+
+  // El padre equivocado: la FK seguiría siendo compuesta y seguiría empezando
+  // por organization_id de los dos lados. Compararía la organización contra la
+  // tabla que no es, y la fila 14 no tendría forma de notarlo.
+  const CON_PADRE_EQUIVOCADO =
+    "ingestion_events_organization_id_promoted_contact_id_fkey|" +
+    "ingestion_events(organization_id,promoted_contact_id)->users(organization_id,id)";
+
+  assert.equal(real, ESPERADA, "la FK real no coincide con la firma que espera la fila 16");
+  assert.notEqual(real, CON_PADRE_EQUIVOCADO);
+
+  // Y que la fila 16 del .sql liste EXACTAMENTE esa firma. Sin esto el test
+  // compararía la base contra su propia constante, y la lista del diagnóstico
+  // podría haber derivado sin que nadie se entere — que es justo el modo de
+  // fallo que este archivo existe para cerrar.
+  const archivo = readFileSync(DIAGNOSTICO, "utf8");
+  assert.ok(
+    archivo.includes(`('${ESPERADA}')`),
+    `${DIAGNOSTICO}: la fila 16 ya no lista la firma esperada de ingestion_events -> contacts`,
+  );
+  assert.ok(
+    !archivo.includes(`('${CON_PADRE_EQUIVOCADO}')`),
+    `${DIAGNOSTICO}: la fila 16 lista la firma con el padre EQUIVOCADO`,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Fila 14 — el chequeo estructural genérico
+// ---------------------------------------------------------------------------
+
+// ESTE ES EL ÚNICO TEST DEL ARCHIVO QUE CREA OBJETOS, y el argumento del
+// encabezado para no hacerlo no aplica acá.
+//
+// Lo que se descartó arriba era DROP INDEX + CREATE INDEX sobre `contacts`:
+// eso toma un ACCESS EXCLUSIVE sobre una tabla que otros archivos de la suite
+// escriben en paralelo. Esto crea TRES TABLAS NUEVAS y no toca ninguna
+// existente, así que no bloquea a nadie. El DDL de Postgres es transaccional:
+// la transacción se revierte al terminar y ninguna otra sesión llega a ver las
+// tablas, ni siquiera mientras existen.
+//
+// Y crear algo es la única forma de probar esta fila. Las demás preguntan por
+// un objeto CON NOMBRE, así que alcanza con comparar su definición real contra
+// una rota. La fila 14 pregunta por TODO EL ESQUEMA a la vez —"ninguna FK entre
+// tablas con organization_id está mal formada"— y una afirmación universal solo
+// se prueba falsable poniéndole delante un contraejemplo.
+//
+// Los tres fixtures cubren las tres mitades del chequeo: la FK simple (la
+// pregunta original de C-3), la compuesta con un ON DELETE que viola la regla
+// derivada, y la compuesta conforme —esta última para que "detecta" no se
+// confunda con "marca todo".
+
+const FIN_FILA_14 = "where problema is not null";
+
+// Extrae del .sql el TEXTO REAL de la fila 14 para correrlo solo. Se afirma
+// sobre el diagnóstico, no sobre una copia de su lógica: una copia divergiría,
+// que es el modo de fallo que este archivo persigue en el normalizador.
+function extraerFila14(): string {
+  const sql = readFileSync(DIAGNOSTICO, "utf8")
+    .split("\n")
+    .filter((linea) => !/^\s*--/.test(linea))
+    .join("\n");
+
+  const inicio = sql.indexOf("select 14,");
+  assert.notEqual(inicio, -1, `${DIAGNOSTICO}: no se encontró el "select 14," de la fila 14`);
+
+  const fin = sql.indexOf(FIN_FILA_14, inicio);
+  assert.notEqual(
+    fin,
+    -1,
+    `${DIAGNOSTICO}: la fila 14 ya no termina en "${FIN_FILA_14}" — si se reescribió, actualizar FIN_FILA_14`,
+  );
+
+  return sql.slice(inicio, fin + FIN_FILA_14.length);
+}
+
+// Marca para revertir la transacción sin que el fallo se confunda con un error
+// real: Prisma solo revierte si el callback lanza.
+class Revertir extends Error {}
+
+async function resultadoFila14Con(ddl: string[]): Promise<string> {
+  const consulta = `select * from (${extraerFila14()}) as t(n, chequeo, resultado, esperado)`;
+  let resultado: string | undefined;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const sentencia of ddl) {
+        await tx.$executeRawUnsafe(sentencia);
+      }
+      const filas = await tx.$queryRawUnsafe<{ resultado: string }[]>(consulta);
+      resultado = filas[0]?.resultado;
+      throw new Revertir();
+    });
+  } catch (err) {
+    if (!(err instanceof Revertir)) throw err;
+  }
+
+  assert.ok(resultado !== undefined, "la fila 14 no devolvió ninguna fila");
+  return resultado;
+}
+
+test("fila 14 detecta una FK simple y un ON DELETE fuera de la regla, sin marcar la conforme", async () => {
+  const resultado = await resultadoFila14Con([
+    `create table public.zz_fila14_padre (
+       organization_id uuid not null,
+       id uuid not null primary key,
+       unique (organization_id, id)
+     )`,
+
+    // (1) FK SIMPLE entre dos tablas con organization_id. Es exactamente el
+    // agujero de C-3: Postgres verifica que el UUID exista, no que pertenezca a
+    // la misma organización.
+    `create table public.zz_fila14_hijo_simple (
+       organization_id uuid not null,
+       id uuid not null primary key,
+       padre_id uuid,
+       constraint zz_fila14_hijo_simple_padre_fkey
+         foreign key (padre_id) references public.zz_fila14_padre(id)
+     )`,
+
+    // (2) Compuesta y bien apuntada, pero con ON DELETE CASCADE sobre una
+    // columna NULLABLE. La regla de 20260821140200 dice NO ACTION ahí, y
+    // CASCADE borraría filas como efecto colateral silencioso.
+    `create table public.zz_fila14_hijo_cascade (
+       organization_id uuid not null,
+       id uuid not null primary key,
+       padre_id uuid,
+       constraint zz_fila14_hijo_cascade_padre_fkey
+         foreign key (organization_id, padre_id)
+         references public.zz_fila14_padre(organization_id, id)
+         on update cascade on delete cascade
+     )`,
+
+    // (3) La conforme: compuesta, contra (organization_id, id), ON UPDATE
+    // CASCADE, ON DELETE NO ACTION porque padre_id es nullable.
+    `create table public.zz_fila14_hijo_ok (
+       organization_id uuid not null,
+       id uuid not null primary key,
+       padre_id uuid,
+       constraint zz_fila14_hijo_ok_padre_fkey
+         foreign key (organization_id, padre_id)
+         references public.zz_fila14_padre(organization_id, id)
+         on update cascade on delete no action
+     )`,
+  ]);
+
+  assert.match(
+    resultado,
+    /zz_fila14_hijo_simple\(padre_id\).*FK SIMPLE/,
+    `la fila 14 no reportó la FK simple. Devolvió: ${resultado}`,
+  );
+
+  assert.match(
+    resultado,
+    /zz_fila14_hijo_cascade\(organization_id,padre_id\): ON DELETE es c y debería ser a/,
+    `la fila 14 no reportó el ON DELETE fuera de la regla. Devolvió: ${resultado}`,
+  );
+
+  assert.ok(
+    !resultado.includes("zz_fila14_hijo_ok"),
+    `la fila 14 marcó como problema una FK conforme — el chequeo marca todo. Devolvió: ${resultado}`,
+  );
+});
+
+test("fila 14 no mira las FKs cuyo padre no tiene organization_id", async () => {
+  // El recorte que hace que x.organization_id -> organizations.id y
+  // users.role_id -> roles.id no entren. Sin él, la fila 14 exigiría que la FK
+  // a la propia tabla de organizaciones fuera compuesta contra
+  // organizations(organization_id, id), una columna que no existe.
+  const resultado = await resultadoFila14Con([
+    `create table public.zz_fila14_catalogo (
+       id uuid not null primary key
+     )`,
+    `create table public.zz_fila14_hijo_catalogo (
+       organization_id uuid not null,
+       id uuid not null primary key,
+       catalogo_id uuid,
+       constraint zz_fila14_hijo_catalogo_fkey
+         foreign key (catalogo_id) references public.zz_fila14_catalogo(id)
+     )`,
+  ]);
 
   assert.equal(
-    real,
-    await norm(
-      lit(
-        "ingestion_events_organization_id_promoted_contact_id_fkey|ingestion_events(organization_id,promoted_contact_id)->contacts(organization_id,id) upd=c del=a match=s",
-      ),
-    ),
+    resultado,
+    "ninguna",
+    `la fila 14 marcó una FK hacia una tabla sin organization_id. Devolvió: ${resultado}`,
+  );
+});
+
+test("fila 14 falla si una excepción declarada deja de corresponder a una FK", async () => {
+  // La excepción de stages -> pipelines no es una exención: si esa FK
+  // desapareciera, el `values` quedaría declarando algo que ya no existe y el
+  // chequeo lo dice en vez de callarse. No se puede borrar esa FK para
+  // probarlo —tomaría un lock sobre stages— así que se prueba la propiedad
+  // simétrica: que el nombre declarado en el .sql es exactamente el de una FK
+  // que existe hoy.
+  const declarada = await escalar(
+    `(select count(*)::text from pg_constraint c
+        join pg_namespace ns on ns.oid = c.connamespace
+        where ns.nspname = 'public'
+          and c.conname = 'stages_organization_id_pipeline_id_fkey')`,
+  );
+  assert.equal(
+    declarada,
+    "1",
+    "la excepción declarada en la fila 14 no corresponde a ninguna FK real: el chequeo la reportaría como EXCEPCIÓN HUÉRFANA",
   );
 
-  // El padre equivocado: la FK seguiría siendo compuesta, seguiría empezando
-  // por organization_id de los dos lados, y seguiría contando para el total de
-  // 18 que afirmaba la versión anterior. Pero compararía la organización contra
-  // la tabla que no es.
-  assert.notEqual(
-    real,
-    await norm(
-      lit(
-        "ingestion_events_organization_id_promoted_contact_id_fkey|ingestion_events(organization_id,promoted_contact_id)->users(organization_id,id) upd=c del=a match=s",
-      ),
-    ),
-  );
-
-  // Y la acción referencial: CASCADE en vez de NO ACTION borraría eventos de
-  // auditoría al borrar un contacto. El conteo tampoco lo veía.
-  assert.notEqual(
-    real,
-    await norm(
-      lit(
-        "ingestion_events_organization_id_promoted_contact_id_fkey|ingestion_events(organization_id,promoted_contact_id)->contacts(organization_id,id) upd=c del=c match=s",
-      ),
-    ),
+  const archivo = readFileSync(DIAGNOSTICO, "utf8");
+  assert.ok(
+    archivo.includes("('stages_organization_id_pipeline_id_fkey', 'c',"),
+    `${DIAGNOSTICO}: la fila 14 ya no declara la excepción de stages -> pipelines`,
   );
 });
 

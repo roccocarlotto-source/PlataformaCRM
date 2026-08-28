@@ -222,6 +222,10 @@ model Company {
   @@index([ownerId])
   @@index([domain])
   @@index([organizationId, name])
+  // ALTO-6 — sirve al patrón de listado real de esta entidad:
+  // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
+  // No parcial a propósito: ver la migración 20260828120000.
+  @@index([organizationId, deletedAt, createdAt])
   @@map("companies")
 }
 
@@ -261,6 +265,10 @@ model Contact {
   @@index([ownerId])
   @@index([lifecycleStage])
   @@index([organizationId, lifecycleStage])
+  // ALTO-6 — sirve al patrón de listado real de esta entidad:
+  // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
+  // No parcial a propósito: ver la migración 20260828120000.
+  @@index([organizationId, deletedAt, createdAt])
   @@map("contacts")
 }
 
@@ -286,6 +294,10 @@ model Pipeline {
   @@unique([organizationId, name])
   @@unique([organizationId, id])
   @@index([organizationId])
+  // ALTO-6 — sirve al patrón de listado real de esta entidad:
+  // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
+  // No parcial a propósito: ver la migración 20260828120000.
+  @@index([organizationId, deletedAt, createdAt])
   @@map("pipelines")
 }
 
@@ -322,6 +334,10 @@ model Stage {
   // se crean manualmente en prisma/sql/manual_constraints.sql
   @@index([organizationId])
   @@index([pipelineId])
+  // ALTO-6 — sirve al patrón de listado real de esta entidad:
+  // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
+  // No parcial a propósito: ver la migración 20260828120000.
+  @@index([organizationId, deletedAt, createdAt])
   @@map("stages")
 }
 
@@ -369,6 +385,10 @@ model Opportunity {
   @@index([organizationId, status])
   @@index([organizationId, stageId])
   @@index([organizationId, pipelineId])
+  // ALTO-6 — sirve al patrón de listado real de esta entidad:
+  // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
+  // No parcial a propósito: ver la migración 20260828120000.
+  @@index([organizationId, deletedAt, createdAt])
   @@map("opportunities")
 }
 
@@ -411,6 +431,10 @@ model Activity {
   @@index([assigneeId])
   @@index([organizationId, dueDate])
   @@index([assigneeId, completedAt])
+  // ALTO-6 — sirve al patrón de listado real de esta entidad:
+  // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
+  // No parcial a propósito: ver la migración 20260828120000.
+  @@index([organizationId, deletedAt, createdAt])
   @@map("activities")
 }
 
