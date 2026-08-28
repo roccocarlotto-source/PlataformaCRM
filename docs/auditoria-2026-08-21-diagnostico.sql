@@ -15,7 +15,7 @@
 --   V-3 → ¿el rol de la app realmente bypassea RLS?
 --
 -- ---------------------------------------------------------------------------
--- MÉTODO: las 9 filas afirmadas comparan SEMÁNTICA, no existencia
+-- MÉTODO: las 12 filas afirmadas comparan SEMÁNTICA, no existencia
 --
 -- Revisión del 2026-08-25. Hasta entonces la mayoría de los chequeos afirmados
 -- preguntaban si un objeto EXISTÍA CON CIERTO NOMBRE, no si hacía lo que dice
@@ -26,9 +26,10 @@
 -- Ahora cada afirmación compara contra la definición completa. Dos técnicas,
 -- según lo que el catálogo ofrezca:
 --
---   a) Valores de catálogo, sin texto renderizado (fila 14): confupdtype,
---      confdeltype, confmatchtype, conkey/confkey resueltos a nombres de
---      columna. No hay ambigüedad de formato posible.
+--   a) Valores de catálogo, sin texto renderizado (filas 11, 12, 14 y 16):
+--      confupdtype, confdeltype, confmatchtype, conkey/confkey e indkey
+--      resueltos a nombres de columna, y opcname para la clase de operadores.
+--      No hay ambigüedad de formato posible.
 --   b) La salida de pg_get_indexdef / pg_get_constraintdef / pg_get_triggerdef
 --      —la normalización que hace el propio Postgres— comparada contra la
 --      definición esperada, pasando LAS DOS por el mismo normalizador.
@@ -67,7 +68,7 @@
 -- src/lib/schema-diagnostic.integration-test.ts cuenta las apariciones, afirma
 -- el número EXACTO, y afirma además que no queda en el archivo ninguna otra
 -- secuencia de reemplazos anidados fuera de las dos calificaciones de regclass
--- de la fila 14. Agregar una copia, modificar una, o inventar una variante,
+-- de las filas 14 y 16. Agregar una copia, modificar una, o inventar una variante,
 -- rompe ese test.
 --
 -- DEUDA OPCIONAL: reordenar el cuerpo como CTE para que el normalizador aparezca
@@ -362,24 +363,131 @@ from (
 
   union all
 
-  -- A-6 ─ Índices que sirven al orden por defecto de los listados.
+  -- ALTO-6 ─ El índice que sirve al patrón de listado real.
+  --
+  -- DEJÓ DE SER INFORMATIVA (2026-08-28, P0 del roadmap). Hasta acá esta fila
+  -- se imprimía sin afirmarse porque el hallazgo estaba abierto y fallaba a
+  -- propósito.
+  --
+  -- Toda query de listado de las 6 entidades de negocio tiene la misma forma:
+  --   WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC
+  -- y ninguna de las 6 tenía un índice que la sirviera: ni uno solo incluía
+  -- deleted_at, y ninguno empezaba por (organization_id, created_at). El plan
+  -- era index scan sobre (organization_id), heap fetch de todo el tenant,
+  -- filtrado de deleted_at y sort completo para devolver 20 filas — dos veces
+  -- por request, porque findMany y count corren en paralelo con el mismo where.
+  --
+  -- ÍNDICE NO PARCIAL, y la decisión tiene motivo. Un parcial
+  -- (organization_id, created_at) WHERE deleted_at IS NULL sería más chico
+  -- porque no indexa las filas borradas, pero el DSL de Prisma no expresa
+  -- predicados parciales: viviría solo en la migración, invisible para
+  -- schema.prisma, que es exactamente el estado que C-2 vino a eliminar. Éste
+  -- se declara con @@index y viaja por una migración normal.
+  --
+  -- SE COMPARA CONTRA EL CATÁLOGO POR COLUMNAS, no contra el texto de
+  -- pg_indexes.indexdef como hacía la versión informativa. Un `like
+  -- '%(organization_id, created_at%'` depende del formato exacto que renderiza
+  -- Postgres y no distingue la posición de las columnas clave, que es
+  -- justamente lo único que decide si el índice sirve para este plan.
   select 11,
-    'A-6 · Índices que empiezan por (organization_id, created_at)',
-    coalesce(string_agg(indexname, ', '), 'ninguno'),
-    '6, uno por entidad listable (A-6 sigue abierto para las 6 viejas) —
-     sources ya lo tiene, parcial, desde la capa de ingesta'
-  from pg_indexes
-  where schemaname = 'public'
-    and indexdef like '%(organization_id, created_at%'
+    'ALTO-6 · Los 6 índices (organization_id, deleted_at, created_at) de las entidades listables',
+    coalesce(string_agg('FALTA sobre ' || e.tabla, ' ;; ' order by e.tabla), 'ninguno'),
+    'ninguno'
+  from (values
+    ('contacts'),
+    ('companies'),
+    ('opportunities'),
+    ('activities'),
+    ('pipelines'),
+    ('stages')
+  ) as e(tabla)
+  where not exists (
+    select 1
+    from pg_index i
+    join pg_class tc on tc.oid = i.indrelid
+    join pg_namespace tns on tns.oid = tc.relnamespace
+    where tns.nspname = 'public'
+      and tc.relname = e.tabla
+      and i.indisvalid
+      -- Sin predicado: un índice parcial serviría igual para este plan, pero
+      -- sería un objeto que schema.prisma no declara — la situación que la
+      -- decisión de arriba descartó, y que este chequeo no debe dar por buena.
+      and i.indpred is null
+      and (select a.attname from pg_attribute a
+             where a.attrelid = i.indrelid and a.attnum = i.indkey[0]) = 'organization_id'
+      and (select a.attname from pg_attribute a
+             where a.attrelid = i.indrelid and a.attnum = i.indkey[1]) = 'deleted_at'
+      and (select a.attname from pg_attribute a
+             where a.attrelid = i.indrelid and a.attnum = i.indkey[2]) = 'created_at'
+  )
 
   union all
 
-  -- A-7 ─ Búsqueda de texto.
+  -- ALTO-7 ─ pg_trgm y los 9 índices GIN que sirven a los search.
+  --
+  -- DEJÓ DE SER INFORMATIVA (2026-08-28, P0 del roadmap), igual que la fila 11,
+  -- y por el mismo motivo: el hallazgo se cerró. Además dejó de preguntar solo
+  -- si la extensión existe — una extensión instalada sin un solo índice GIN no
+  -- acelera nada, así que "instalada" nunca fue la propiedad que importaba.
+  --
+  -- Los seis repositorios con search generan ILIKE '%x%' (el `contains` de
+  -- Prisma con mode: insensitive). Un comodín inicial no puede usar un btree,
+  -- ni siquiera sobre lower(col): sin pg_trgm es seq scan garantizado, y se
+  -- paga dos veces por request porque findMany y count corren en paralelo con
+  -- el mismo where.
+  --
+  -- Las 9 columnas son las que los buildWhere consultan de verdad, leídas del
+  -- código y no supuestas: contacts (first_name, last_name, email), companies
+  -- (name), opportunities (title), activities (subject, body), stages (name) y
+  -- pipelines (name).
+  --
+  -- SE COMPARA CONTRA EL CATÁLOGO, no contra pg_get_indexdef. En Supabase las
+  -- extensiones viven en el esquema extensions, así que el texto renderizado
+  -- del índice trae la clase de operadores calificada como
+  -- extensions.gin_trgm_ops — y el normalizador de este archivo saca la
+  -- calificación public., no otras. Preguntarle a pg_opclass por el NOMBRE de
+  -- la clase evita por completo esa dependencia de dónde quedó instalada la
+  -- extensión. Es la técnica (a) del encabezado.
   select 12,
-    'A-7 · Extensión pg_trgm',
-    case when exists (select 1 from pg_extension where extname = 'pg_trgm')
-      then 'instalada' else 'no instalada' end,
-    'instalada solo si se implementa la opción A de A-7'
+    'ALTO-7 · pg_trgm y los 9 índices GIN gin_trgm_ops de las columnas de búsqueda',
+    coalesce(string_agg(falta, ' ;; ' order by falta), 'ninguno'),
+    'ninguno'
+  from (
+    select 'FALTA la extensión pg_trgm' as falta
+    where not exists (select 1 from pg_extension where extname = 'pg_trgm')
+
+    union all
+
+    select 'FALTA el índice GIN gin_trgm_ops sobre ' || e.tabla || '.' || e.columna
+    from (values
+      ('contacts', 'first_name'),
+      ('contacts', 'last_name'),
+      ('contacts', 'email'),
+      ('companies', 'name'),
+      ('opportunities', 'title'),
+      ('activities', 'subject'),
+      ('activities', 'body'),
+      ('stages', 'name'),
+      ('pipelines', 'name')
+    ) as e(tabla, columna)
+    where not exists (
+      select 1
+      from pg_index i
+      join pg_class ic on ic.oid = i.indexrelid
+      join pg_class tc on tc.oid = i.indrelid
+      join pg_namespace tns on tns.oid = tc.relnamespace
+      join pg_am am on am.oid = ic.relam
+      join pg_opclass oc on oc.oid = i.indclass[0]
+      join pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[0]
+      where tns.nspname = 'public'
+        and tc.relname = e.tabla
+        and a.attname = e.columna
+        and am.amname = 'gin'
+        and oc.opcname = 'gin_trgm_ops'
+        and i.indnkeyatts = 1
+        and i.indisvalid
+    )
+  ) as faltantes
 
   union all
 
@@ -393,82 +501,127 @@ from (
 
   union all
 
-  -- C-3 ─ Las 18 FKs compuestas por organización, UNA POR UNA.
+  -- C-3 ─ Toda FK entre dos tablas con organization_id es compuesta.
   --
   -- Es la garantía de aislamiento central del proyecto: Postgres rechazando a
   -- nivel de motor cualquier fila cuya organización no coincida con la de la
   -- fila referenciada.
   --
-  -- Antes esto contaba filas de pg_constraint y comparaba el total con 18. Un
-  -- conteo no distingue CUÁLES: borrar activities → contacts y agregar
-  -- cualquier otra FK de dos columnas que empiece por organization_id deja el
-  -- total en 18. Peor: una FK que apunte al PADRE EQUIVOCADO —
-  -- ingestion_events(organization_id, promoted_contact_id) → users en vez de
-  -- contacts— también contaba, y la constraint quedaba comparando la
-  -- organización contra la tabla que no era.
+  -- ESTA FILA DEJÓ DE SER UNA LISTA (2026-08-28, P0 del roadmap). Antes
+  -- enumeraba las 18 FKs conocidas y las comparaba una por una con un FULL
+  -- OUTER JOIN. Eso afirmaba mucho sobre lo que YA existía y nada sobre lo que
+  -- viniera después: una tabla nueva con organization_id —Resource,
+  -- ServiceType, Booking, Agent, Conversation, Message, todas en el P2 del
+  -- roadmap— podía nacer con una FK simple y el chequeo seguía diciendo
+  -- "ninguna" hasta que alguien se acordara de editar la lista a mano. La
+  -- garantía era de una lista mantenida, no del esquema.
   --
-  -- Este chequeo no renderiza texto: compara valores de catálogo. conkey y
-  -- confkey resueltos a nombres de columna, y confupdtype/confdeltype/
-  -- confmatchtype como los códigos de una letra que guarda Postgres
-  -- (a=NO ACTION, r=RESTRICT, c=CASCADE, n=SET NULL, s=MATCH SIMPLE). No hay
-  -- ambigüedad de formato posible, y las acciones referenciales —que son una
-  -- decisión de diseño discutida y documentada en la migración 20260821140200—
-  -- quedan afirmadas junto con el resto.
+  -- Ahora la pregunta se hace al revés y sin lista: PARA TODA FK del esquema
+  -- public cuyas dos tablas —la hija y la padre— tengan columna
+  -- organization_id, esa FK tiene que ser
+  -- (organization_id, x_id) -> padre(organization_id, id). Una tabla nueva
+  -- queda cubierta por existir, no por acordarse.
   --
-  -- El FULL OUTER JOIN atrapa las dos direcciones: la que falta o cambió, y la
-  -- que aparece sin estar en la lista. Agregar una FK compuesta nueva obliga a
-  -- actualizar esta lista, que es exactamente lo que se quiere.
+  -- El recorte deja afuera exactamente lo que tiene que dejar afuera, y se
+  -- verificó contra el esquema real en vez de suponerse: las FKs
+  -- x.organization_id -> organizations.id no entran (organizations no tiene
+  -- columna organization_id, tiene id), y users.role_id / invitations.role_id
+  -- tampoco (roles es un catálogo global, sin organización). Las 18 restantes
+  -- son las que se afirman.
+  --
+  -- LAS ACCIONES REFERENCIALES SE SIGUEN AFIRMANDO, y también sin lista. La
+  -- migración 20260821140200 no eligió el ON DELETE de cada FK por separado:
+  -- fijó una regla —columna referenciante nullable -> NO ACTION, NOT NULL ->
+  -- RESTRICT— y ON UPDATE CASCADE + MATCH SIMPLE para todas. Esa regla es
+  -- derivable de pg_attribute.attnotnull, así que el chequeo la deriva en vez
+  -- de transcribirla. Sin esto, generalizar habría cambiado un chequeo que
+  -- atrapa un ON DELETE CASCADE colado por otro que no lo ve.
+  --
+  -- LA ÚNICA EXCEPCIÓN A ESA REGLA ESTÁ DECLARADA ABAJO, en un `values` con su
+  -- motivo al lado, y no es una exención: el chequeo exige que
+  -- stages -> pipelines sea CASCADE, y falla igual si dejara de serlo. Una
+  -- excepción declarada para una FK que ya no existe también falla, con
+  -- "EXCEPCIÓN HUÉRFANA" — por eso el FULL OUTER JOIN, que es lo único que
+  -- quedó de la forma anterior.
+  --
+  -- LO QUE ESTA FILA NO PUEDE VER, y por eso existe la fila 16: a qué tabla
+  -- padre debe apuntar cada FK. Una FK compuesta bien formada hacia el padre
+  -- equivocado —ingestion_events(organization_id, promoted_contact_id) ->
+  -- users en vez de contacts— es estructuralmente indistinguible de una
+  -- correcta. Eso solo lo sabe un mapa, y ese mapa es la fila 16.
   select 14,
-    'C-3 · FKs compuestas (organization_id, x_id) -> padre(organization_id, id)',
-    coalesce(
-      string_agg(coalesce('SOBRA/CAMBIÓ: ' || a.firma, 'FALTA/CAMBIÓ: ' || e.firma), ' ;; '),
-      'ninguna'
-    ),
+    'C-3 · Toda FK entre tablas con organization_id es compuesta, con las acciones de la regla',
+    coalesce(string_agg(problema, ' ;; ' order by problema), 'ninguna'),
     'ninguna'
-  from (values
-    ('activities_organization_id_assignee_id_fkey|activities(organization_id,assignee_id)->users(organization_id,id) upd=c del=a match=s'),
-    ('activities_organization_id_author_id_fkey|activities(organization_id,author_id)->users(organization_id,id) upd=c del=r match=s'),
-    ('activities_organization_id_company_id_fkey|activities(organization_id,company_id)->companies(organization_id,id) upd=c del=a match=s'),
-    ('activities_organization_id_contact_id_fkey|activities(organization_id,contact_id)->contacts(organization_id,id) upd=c del=a match=s'),
-    ('activities_organization_id_opportunity_id_fkey|activities(organization_id,opportunity_id)->opportunities(organization_id,id) upd=c del=a match=s'),
-    ('api_keys_organization_id_source_id_fkey|api_keys(organization_id,source_id)->sources(organization_id,id) upd=c del=r match=s'),
-    ('companies_organization_id_owner_id_fkey|companies(organization_id,owner_id)->users(organization_id,id) upd=c del=a match=s'),
-    ('contacts_organization_id_company_id_fkey|contacts(organization_id,company_id)->companies(organization_id,id) upd=c del=a match=s'),
-    ('contacts_organization_id_owner_id_fkey|contacts(organization_id,owner_id)->users(organization_id,id) upd=c del=a match=s'),
-    ('ingestion_events_organization_id_promoted_contact_id_fkey|ingestion_events(organization_id,promoted_contact_id)->contacts(organization_id,id) upd=c del=a match=s'),
-    ('ingestion_events_organization_id_source_id_fkey|ingestion_events(organization_id,source_id)->sources(organization_id,id) upd=c del=r match=s'),
-    ('invitations_organization_id_invited_by_id_fkey|invitations(organization_id,invited_by_id)->users(organization_id,id) upd=c del=r match=s'),
-    ('opportunities_organization_id_company_id_fkey|opportunities(organization_id,company_id)->companies(organization_id,id) upd=c del=a match=s'),
-    ('opportunities_organization_id_contact_id_fkey|opportunities(organization_id,contact_id)->contacts(organization_id,id) upd=c del=a match=s'),
-    ('opportunities_organization_id_owner_id_fkey|opportunities(organization_id,owner_id)->users(organization_id,id) upd=c del=r match=s'),
-    ('opportunities_organization_id_pipeline_id_fkey|opportunities(organization_id,pipeline_id)->pipelines(organization_id,id) upd=c del=r match=s'),
-    ('opportunities_organization_id_stage_id_fkey|opportunities(organization_id,stage_id)->stages(organization_id,id) upd=c del=r match=s'),
-    ('stages_organization_id_pipeline_id_fkey|stages(organization_id,pipeline_id)->pipelines(organization_id,id) upd=c del=c match=s')
-  ) as e(firma)
-  full outer join (
-    select c.conname || '|'
-        || regexp_replace(c.conrelid::regclass::text, '^public\.', '') || '('
-        || (select string_agg(a.attname, ',' order by k.ord)
-              from unnest(c.conkey) with ordinality as k(attnum, ord)
-              join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
-        || ')->'
-        || regexp_replace(c.confrelid::regclass::text, '^public\.', '') || '('
-        || (select string_agg(a.attname, ',' order by k.ord)
-              from unnest(c.confkey) with ordinality as k(attnum, ord)
-              join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
-        || ') upd=' || c.confupdtype::text || ' del=' || c.confdeltype::text
-        || ' match=' || c.confmatchtype::text as firma
-    from pg_constraint c
-    join pg_namespace cns on cns.oid = c.connamespace
-    where cns.nspname = 'public'
-      and c.contype = 'f'
-      and array_length(c.conkey, 1) = 2
-      and (select a.attname from pg_attribute a
-             where a.attrelid = c.conrelid and a.attnum = c.conkey[1]) = 'organization_id'
-      and (select a.attname from pg_attribute a
-             where a.attrelid = c.confrelid and a.attnum = c.confkey[1]) = 'organization_id'
-  ) as a on a.firma = e.firma
-  where a.firma is null or e.firma is null
+  from (
+    select
+      case
+        when fk.conname is null then
+          'EXCEPCIÓN HUÉRFANA: ' || exc.conname || ' está declarada como excepción y ya no es '
+            || 'una FK entre dos tablas con organization_id — sacarla del `values`'
+        when fk.n_cols = 1 then
+          fk.hijo || '(' || fk.cols_hijo || ') -> ' || fk.padre || '(' || fk.cols_padre
+            || '): FK SIMPLE, debería ser (organization_id, ' || fk.cols_hijo || ') -> '
+            || fk.padre || '(organization_id, id)'
+        when fk.cols_hijo not like 'organization_id,%' then
+          fk.hijo || '(' || fk.cols_hijo || ') -> ' || fk.padre || '(' || fk.cols_padre
+            || '): la primera columna referenciante debería ser organization_id'
+        when fk.cols_padre <> 'organization_id,id' then
+          fk.hijo || '(' || fk.cols_hijo || ') -> ' || fk.padre || '(' || fk.cols_padre
+            || '): debería referenciar ' || fk.padre || '(organization_id, id)'
+        when fk.upd <> 'c' then
+          fk.hijo || '(' || fk.cols_hijo || '): ON UPDATE es ' || fk.upd
+            || ' y debería ser CASCADE (c)'
+        when fk.match_type <> 's' then
+          fk.hijo || '(' || fk.cols_hijo || '): MATCH es ' || fk.match_type
+            || ' y debería ser SIMPLE (s)'
+        when fk.del <> coalesce(exc.del, case when fk.hija_not_null then 'r' else 'a' end) then
+          fk.hijo || '(' || fk.cols_hijo || '): ON DELETE es ' || fk.del || ' y debería ser '
+            || coalesce(exc.del, case when fk.hija_not_null then 'r' else 'a' end) || ' — '
+            || coalesce(exc.motivo, case when fk.hija_not_null
+                 then 'columna referenciante NOT NULL -> RESTRICT (r), regla de 20260821140200'
+                 else 'columna referenciante nullable -> NO ACTION (a), regla de 20260821140200' end)
+      end as problema
+    from (values
+      ('stages_organization_id_pipeline_id_fkey', 'c',
+       'un Stage es una composición estricta de su Pipeline, no una referencia — única excepción declarada a la regla de 20260821140200')
+    ) as exc(conname, del, motivo)
+    full outer join (
+      select
+        c.conname as conname,
+        regexp_replace(c.conrelid::regclass::text, '^public\.', '') as hijo,
+        regexp_replace(c.confrelid::regclass::text, '^public\.', '') as padre,
+        array_length(c.conkey, 1) as n_cols,
+        (select string_agg(a.attname, ',' order by k.ord)
+           from unnest(c.conkey) with ordinality as k(attnum, ord)
+           join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum) as cols_hijo,
+        (select string_agg(a.attname, ',' order by k.ord)
+           from unnest(c.confkey) with ordinality as k(attnum, ord)
+           join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum) as cols_padre,
+        -- La regla de ON DELETE mira la columna referenciante que NO es
+        -- organization_id — esa es la que puede ser nullable. organization_id
+        -- es NOT NULL en las 6 tablas y agregarla al bool_and no cambiaría
+        -- nada, pero dejaría el chequeo dependiendo de que siga siéndolo.
+        (select bool_and(a.attnotnull)
+           from unnest(c.conkey) as k(attnum)
+           join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum
+           where a.attname <> 'organization_id') as hija_not_null,
+        c.confupdtype::text as upd,
+        c.confdeltype::text as del,
+        c.confmatchtype::text as match_type
+      from pg_constraint c
+      join pg_namespace cns on cns.oid = c.connamespace
+      where cns.nspname = 'public'
+        and c.contype = 'f'
+        and exists (select 1 from pg_attribute a
+                      where a.attrelid = c.conrelid and a.attname = 'organization_id'
+                        and a.attnum > 0 and not a.attisdropped)
+        and exists (select 1 from pg_attribute a
+                      where a.attrelid = c.confrelid and a.attname = 'organization_id'
+                        and a.attnum > 0 and not a.attisdropped)
+    ) as fk on fk.conname = exc.conname
+  ) as hallazgos
+  where problema is not null
 
   union all
 
@@ -501,6 +654,74 @@ from (
        where ins.nspname = 'public' and i.relname = 'contacts_org_email_unique' and i.relkind = 'i'),
       'FALTA el índice'),
     'sobre lower(email)'
+  union all
+
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 18 FKs conocidas.
+  --
+  -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
+  -- FK compuesta bien formada que apunte a la tabla equivocada
+  -- —ingestion_events(organization_id, promoted_contact_id) -> users en vez de
+  -- contacts— es indistinguible de una correcta: dos columnas, la primera
+  -- organization_id de los dos lados, acciones referenciales conformes. Pasa la
+  -- fila 14 entera, y la constraint queda comparando la organización contra la
+  -- tabla que no es. Es un caso real y documentado, no hipotético: es el que
+  -- motivó que este chequeo dejara de contar filas en la revisión del
+  -- 2026-08-25.
+  --
+  -- NO EXHAUSTIVA A PROPÓSITO, y es la diferencia con la versión anterior. El
+  -- FULL OUTER JOIN de antes fallaba también cuando SOBRABA una FK, así que
+  -- cada tabla nueva con organization_id obligaba a editar esta lista a mano —
+  -- exactamente la fricción que el P0 del roadmap vino a sacar. Acá el
+  -- `where not exists` va en una sola dirección: una FK de la lista que falte o
+  -- haya cambiado de padre FALLA; una FK nueva que no esté en la lista NO
+  -- falla, porque de esa ya se ocupa la fila 14 por existir.
+  --
+  -- Por eso la firma no incluye upd/del/match: esas las afirma la fila 14 para
+  -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
+  -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
+  select 16,
+    'C-3 · Las 18 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
+    'ninguna'
+  from (values
+    ('activities_organization_id_assignee_id_fkey|activities(organization_id,assignee_id)->users(organization_id,id)'),
+    ('activities_organization_id_author_id_fkey|activities(organization_id,author_id)->users(organization_id,id)'),
+    ('activities_organization_id_company_id_fkey|activities(organization_id,company_id)->companies(organization_id,id)'),
+    ('activities_organization_id_contact_id_fkey|activities(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('activities_organization_id_opportunity_id_fkey|activities(organization_id,opportunity_id)->opportunities(organization_id,id)'),
+    ('api_keys_organization_id_source_id_fkey|api_keys(organization_id,source_id)->sources(organization_id,id)'),
+    ('companies_organization_id_owner_id_fkey|companies(organization_id,owner_id)->users(organization_id,id)'),
+    ('contacts_organization_id_company_id_fkey|contacts(organization_id,company_id)->companies(organization_id,id)'),
+    ('contacts_organization_id_owner_id_fkey|contacts(organization_id,owner_id)->users(organization_id,id)'),
+    ('ingestion_events_organization_id_promoted_contact_id_fkey|ingestion_events(organization_id,promoted_contact_id)->contacts(organization_id,id)'),
+    ('ingestion_events_organization_id_source_id_fkey|ingestion_events(organization_id,source_id)->sources(organization_id,id)'),
+    ('invitations_organization_id_invited_by_id_fkey|invitations(organization_id,invited_by_id)->users(organization_id,id)'),
+    ('opportunities_organization_id_company_id_fkey|opportunities(organization_id,company_id)->companies(organization_id,id)'),
+    ('opportunities_organization_id_contact_id_fkey|opportunities(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('opportunities_organization_id_owner_id_fkey|opportunities(organization_id,owner_id)->users(organization_id,id)'),
+    ('opportunities_organization_id_pipeline_id_fkey|opportunities(organization_id,pipeline_id)->pipelines(organization_id,id)'),
+    ('opportunities_organization_id_stage_id_fkey|opportunities(organization_id,stage_id)->stages(organization_id,id)'),
+    ('stages_organization_id_pipeline_id_fkey|stages(organization_id,pipeline_id)->pipelines(organization_id,id)')
+  ) as e(firma)
+  where not exists (
+    select 1
+    from pg_constraint c
+    join pg_namespace cns on cns.oid = c.connamespace
+    where cns.nspname = 'public'
+      and c.contype = 'f'
+      and c.conname || '|'
+          || regexp_replace(c.conrelid::regclass::text, '^public\.', '') || '('
+          || (select string_agg(a.attname, ',' order by k.ord)
+                from unnest(c.conkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+          || ')->'
+          || regexp_replace(c.confrelid::regclass::text, '^public\.', '') || '('
+          || (select string_agg(a.attname, ',' order by k.ord)
+                from unnest(c.confkey) with ordinality as k(attnum, ord)
+                join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
+          || ')' = e.firma
+  )
+
 
 ) as diagnostico
 order by n;

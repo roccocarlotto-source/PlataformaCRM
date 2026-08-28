@@ -7,16 +7,20 @@ import { PrismaClient } from "@prisma/client";
 // constraints, políticas RLS, la función current_organization_id) están
 // realmente ahí.
 //
-// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 15
+// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 16
 // chequeos y se escribió para correrse a mano en el SQL Editor de Supabase.
 // Acá se ejecuta igual —es una sola sentencia, de solo lectura— y además se
 // afirma sobre el subconjunto que tiene una respuesta mecánica: si algo
 // falta, este script dice QUÉ faltó y sale con código 1, en vez de dejar que
 // el error aparezca tres pasos después como un fallo críptico de Prisma.
 //
-// Las filas que corresponden a hallazgos ABIERTOS de la auditoría (A-6, A-7)
-// se imprimen pero no se afirman: hoy fallan a propósito y no son un defecto
-// de la construcción de la base.
+// Las filas informativas se imprimen pero no se afirman. Desde el 2026-08-28
+// ninguna de ellas corresponde ya a un hallazgo abierto: A-6 y A-7 (filas 11 y
+// 12) se cerraron con el P0 del roadmap y pasaron a afirmarse. Las que quedan
+// sin afirmar describen el ENTORNO, no la construcción de la base — qué roles
+// tienen BYPASSRLS, qué tablas no tienen RLS habilitada, si hay filas de
+// public.users huérfanas de auth.users— y su valor correcto depende del
+// proyecto contra el que se corran.
 //
 // Sobre qué hace útil a este script: afirmar que un objeto EXISTE es barato y
 // pasa casi siempre. Afirmar que hace lo que dice es lo que lo convierte en una
@@ -90,7 +94,7 @@ function extraerConsulta(texto: string): string {
 
 // Chequeos con respuesta mecánica: fila → valor exacto que debe devolver.
 //
-// Revisión del 2026-08-25: las 9 afirmaciones comparan ahora la DEFINICIÓN de
+// Revisión del 2026-08-25: las afirmaciones comparan la DEFINICIÓN de
 // cada objeto, no su existencia. Antes casi todas preguntaban "¿hay algo que se
 // llame así?", y esa pregunta la contesta que sí un índice recreado sin su
 // predicado parcial, un CHECK reescrito para no restringir nada, una política
@@ -133,20 +137,47 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
       esperado: "conforme",
     },
   ],
+  // ALTO-6 y ALTO-7, cerrados el 2026-08-28: las dos filas eran informativas
+  // porque los hallazgos estaban abiertos y fallaban a propósito. Al cerrarse,
+  // dejarlas sin afirmar era dejar el chequeo apagado justo cuando empezaba a
+  // poder decir algo.
+  [
+    11,
+    {
+      descripcion: "ALTO-6 · los 6 índices (organization_id, deleted_at, created_at)",
+      esperado: "ninguno",
+    },
+  ],
+  [
+    12,
+    {
+      descripcion: "ALTO-7 · pg_trgm y los 9 índices GIN gin_trgm_ops de búsqueda",
+      esperado: "ninguno",
+    },
+  ],
   // C-3: las FKs compuestas por organización son la garantía de aislamiento
   // central del proyecto, y hasta la capa de ingesta nada en CI comprobaba que
   // existieran — la migración que las creó podía perderse en un rebase y los
   // tests de aislamiento por repositorio habrían seguido pasando igual, porque
   // prueban el WHERE de la escritura, no la constraint.
   //
-  // Ya no es un conteo: las 18 se verifican una por una contra valores de
-  // catálogo (columnas resueltas a nombre, y los códigos de confupdtype /
-  // confdeltype / confmatchtype), así que quedan afirmadas también las acciones
-  // referenciales que la migración 20260821140200 discutió una por una.
+  // Desde el 2026-08-28 la fila 14 ya no es una lista: es un chequeo
+  // ESTRUCTURAL sobre pg_catalog. Toda FK cuyas dos tablas tengan
+  // organization_id tiene que ser compuesta contra (organization_id, id), con
+  // ON UPDATE CASCADE, MATCH SIMPLE y el ON DELETE que la regla de
+  // 20260821140200 deriva de si la columna referenciante es NOT NULL. Una tabla
+  // nueva queda cubierta por existir, sin que nadie edite nada.
+  //
+  // La fila 16 es lo único que un chequeo estructural no puede saber: A QUÉ
+  // padre debe apuntar cada FK. Una FK compuesta bien formada hacia la tabla
+  // equivocada pasa la fila 14 entera. Esa lista sigue existiendo, pero ya no
+  // es exhaustiva —una FK nueva no obliga a editarla, de eso se ocupa la 14—
+  // así que no reintroduce la fricción que el P0 del roadmap vino a sacar.
   [
     14,
     {
-      descripcion: "C-3 · las 18 FKs compuestas: que falten, sobren o hayan cambiado",
+      descripcion:
+        "C-3 · toda FK entre tablas con organization_id: compuesta, con las acciones de la regla",
       esperado: "ninguna",
     },
   ],
@@ -157,6 +188,13 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
     {
       descripcion: "M-13 · contacts_org_email_unique evalúa lower(email) en su 2.ª columna",
       esperado: "sobre lower(email)",
+    },
+  ],
+  [
+    16,
+    {
+      descripcion: "C-3 · las 18 FKs conocidas siguen apuntando a la tabla padre de su diseño",
+      esperado: "ninguna",
     },
   ],
 ]);
@@ -190,7 +228,7 @@ async function main() {
   }
 
   console.log(
-    `\n(· = informativo, no se afirma: corresponde a hallazgos abiertos de la auditoría)\n`,
+    `\n(· = informativo, no se afirma: describe el ENTORNO —roles con BYPASSRLS, tablas\n sin RLS, huérfanos de auth.users— no la construcción de la base)\n`,
   );
 
   // El camino inverso del bucle de arriba, y hace falta.
@@ -198,7 +236,7 @@ async function main() {
   // Ese bucle recorre las filas que VOLVIERON y para cada una busca su
   // expectativa. Una expectativa cuya fila dejó de volver —porque alguien borró
   // un `union all` del .sql— nunca se consulta: no entra en `fallidos`, y el
-  // script terminaba anunciando "los 9 chequeos afirmados pasaron", donde 9 era
+  // script terminaba anunciando "los N chequeos afirmados pasaron", donde N era
   // el tamaño del Map y no la cantidad que se evaluó de verdad. Borrar una fila
   // del .sql desactivaba su chequeo en silencio, que es la peor forma de
   // desactivarlo.
