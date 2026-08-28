@@ -617,3 +617,76 @@ filas de un lote sí lo es —`getResumenDeLote` ya lo devuelve, topeado en
 `MAX_FALLAS_DEVUELTAS`—, pero un webhook no tiene lote. Cerrarlo pide un
 endpoint de detalle (`GET /api/ingestion-events/:id`) que no se construyó acá
 porque no se pidió, no porque no haga falta.
+
+### 9.11 La vista previa de encabezados tiene que usar el MISMO parser que la importación
+
+*(2026-08-27, al construir la sugerencia automática de mapeo.)*
+
+Configurar un `fieldMapping` a mano exige saber cómo se llaman las columnas del
+archivo, y hasta acá la única forma de averiguarlo era subirlo de verdad y mirar
+los `encabezados` que devolvía el `202`. Se agregó **`POST /api/imports/preview`**:
+mismo multipart, mismos límites (10 MB, `.csv`/`.xlsx`), sin `sourceId`, y
+**sin tocar la base** — ni lee `Source`, ni escribe `IngestionEvent`, ni persiste
+el archivo. Por eso tampoco recibe `organizationId`: no hay nada que aislar
+porque no hay ningún dato del tenant involucrado.
+
+**La garantía central no es "devuelve encabezados", es que devuelve LOS MISMOS
+que la importación real.** `previsualizarEncabezados` llama a la misma cadena, con
+las mismas funciones y en el mismo orden que `importarArchivo`:
+
+```
+formatoDesdeNombre(nombre)  ->  parsearArchivo(contenido, formato)  ->  .encabezados
+```
+
+Si divergieran, un BOM de Excel, un espacio alrededor de un encabezado o una celda
+con formato alcanzarían para que el mapeo armado mirando la vista previa no
+matcheara lo que la importación interpreta después, y las filas fallarían con
+*"ninguna columna del fieldMapping existe"* sin que nada explique por qué.
+
+Eso no se verifica leyendo el código: un test sube **el mismo archivo por los dos
+caminos** y compara las dos respuestas, con contenido deliberadamente hostil (BOM,
+espacios, una columna sin nombre al final). Si alguien mete un parser propio en el
+preview, ese test lo ve.
+
+**Consecuencia heredada, y deliberada:** `parsearArchivo` rechaza con `400` un
+archivo sin filas de datos, así que un archivo con **solo encabezados** tampoco se
+puede previsualizar. Relajarlo exigiría saltear `parsearArchivo`, o sea abrir el
+segundo camino que este endpoint existe para evitar — y un archivo que la
+importación real rechazaría no es uno para el que valga la pena configurar un
+mapeo.
+
+### 9.12 La sugerencia de mapeo es una heurística acotada, no una promesa
+
+*(2026-08-27, al integrar la vista previa en el formulario de `Source`.)*
+
+Con los encabezados reales a mano, el formulario precarga una fila del mapeo por
+columna y **sugiere** el campo de destino. Tres límites que conviene tener
+escritos, porque los tres son decisiones y no capacidades faltantes:
+
+1. **Los destinos posibles son los cinco de `CAMPOS_DE_CONTACTO`** y nada más
+   (`firstName`, `lastName`, `email`, `phone`, `jobTitle`) — el mismo conjunto que
+   `ingestContactSchema` reconoce, por la razón de §9.8: cambia cómo se llega al
+   contrato, nunca el contrato. Una columna como **"Observación" no tiene destino
+   razonable y no se le inventa uno**: queda con el destino vacío, igual que una
+   fila agregada a mano, para que la persona decida.
+2. **Sin fuzzy matching.** La comparación es del encabezado normalizado
+   (minúsculas, sin tildes, espacios colapsados) contra una tabla fija de
+   sinónimos. Un acierto parcial equivocado mapea una columna al campo incorrecto
+   **en silencio**, y una fila mal sugerida que nadie revisa es peor que una fila
+   vacía que salta a la vista.
+3. **Es un merge, nunca un reemplazo.** Las filas que ya existen no se tocan: quien
+   configuró un mapeo a mano no lo pierde por subir un archivo de muestra. Y la
+   comparación de "esta columna ya está" es **exacta, no normalizada**, porque
+   `traducirConMapeo` compara la clave del JSON contra el encabezado del archivo
+   carácter por carácter: `"Mail"` y `"mail"` son dos columnas distintas para el
+   sistema, y deduplicarlas acá escondería una fila que después no matchearía nada.
+
+Nada se aplica solo: las filas sugeridas quedan visibles y editables, y se
+persisten con el mismo botón Guardar que cualquier otro campo del formulario.
+
+**Aparte, sobre `EXTERNAL_DB`:** el `<select>` de tipo del formulario ofrece solo
+`WEBHOOK` y `FILE_IMPORT`. El valor sigue existiendo en el enum de Prisma y el
+backend lo acepta —el tipo del frontend también lo declara, para poder representar
+una fuente que llegue por otro camino— pero no se ofrece crear una: el ítem 6
+sigue pospuesto (§7) y no hay ninguna forma de ingesta que lo consuma, así que una
+fuente de ese tipo hoy no haría nada.
