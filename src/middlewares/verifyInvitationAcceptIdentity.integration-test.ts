@@ -109,33 +109,50 @@ test("un email CONFIRMADO pasa, y la identidad sale de la Admin API — no del c
   }
 });
 
+// EL ORDEN ES: confirmar, iniciar sesión, y RECIÉN DESPUÉS dejar la identidad
+// sin confirmar. No al revés, y la primera versión de este test se equivocó.
+//
+// Lo intuitivo es crear el usuario con `email_confirm: false` e iniciar sesión.
+// No funciona en ningún entorno: GoTrue rechaza `signInWithPassword` de un
+// usuario sin confirmar con "Email not confirmed", así que el test se salteaba
+// SIEMPRE — incluido el CI, donde un comentario anterior afirmaba que no. La
+// rama central de ALTO-3 quedaba sin una sola aserción.
+//
+// El camino que sí construye la premisa es cambiarle el email por la Admin API
+// con `email_confirm: false` DESPUÉS de tener el token en la mano. El token
+// sigue siendo criptográficamente válido —se emitió antes— y `getUserById`
+// ahora reporta una identidad no confirmada. Es además un escenario realista y
+// no un truco de laboratorio: alguien con sesión abierta cambia su email y esa
+// dirección nueva todavía no está probada.
 test("un email SIN CONFIRMAR es rechazado con 401 — el agujero de ALTO-3", async (t) => {
   const email = emailDePrueba("sin-confirmar");
   const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
     email,
     password: PASSWORD,
-    email_confirm: false,
+    email_confirm: true,
   });
   if (error || !data.user) throw new Error(`setup falló: ${error?.message ?? ""}`);
   const authUserId = data.user.id;
 
   try {
     const { accessToken, motivo } = await tokenDe(email);
+    assert.ok(accessToken, `setup falló al iniciar sesión: ${motivo ?? ""}`);
 
-    if (!accessToken) {
-      // Este caso necesita un JWT válido de un usuario NO confirmado, y eso solo
-      // se puede obtener si el proyecto permite iniciar sesión sin confirmar
-      // (auth.email.enable_confirmations = false, que es como está el stack
-      // local del CI). Contra un proyecto con "Confirm email" encendido no hay
-      // forma de fabricar ese token — y ahí este escenario ya está cubierto por
-      // el propio Supabase, que es justamente lo que ALTO-3 no quería que fuera
-      // la ÚNICA defensa.
-      //
-      // Se salta con motivo explícito en vez de fallar: el test no puede
-      // construir su premisa, no es que la afirmación sea falsa. En CI no se
-      // saltea nunca.
+    // Ya con el token emitido: la identidad pasa a tener un email sin confirmar.
+    const emailNuevo = emailDePrueba("sin-confirmar-nuevo");
+    const { error: cambioError } = await getSupabaseAdmin().auth.admin.updateUserById(authUserId, {
+      email: emailNuevo,
+      email_confirm: false,
+    });
+    if (cambioError) throw new Error(`no se pudo cambiar el email: ${cambioError.message}`);
+
+    // Se verifica la premisa en vez de darla por hecha: si el proyecto
+    // autoconfirmó igual el email nuevo, este test no puede probar nada y lo
+    // dice, en vez de pasar por la razón equivocada.
+    const { data: releido } = await getSupabaseAdmin().auth.admin.getUserById(authUserId);
+    if (releido.user?.email_confirmed_at) {
       t.skip(
-        `no se pudo obtener un token de un usuario sin confirmar (${motivo ?? ""}) — el proyecto exige confirmación para iniciar sesión`,
+        "el proyecto autoconfirmó el email nuevo, así que no se puede construir una identidad no confirmada con un token válido",
       );
       return;
     }
