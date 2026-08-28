@@ -2434,12 +2434,35 @@ modelo de amenaza, las 10 categorías OWASP y los 12 hallazgos, en
   5.3 del registro. Los tres quedan para un ciclo aparte de privacidad de datos, con
   alcance de proyecto entero y no solo de ingesta.
 
-  **Depende de una pregunta sin respuesta confirmada (Q-1):** si hay leads de la
-  Unión Europea en alcance, `STD-LEG-001` (GDPR) pasa a Mandatory y **D-3 deja de
-  ser una condición para volverse bloqueante**. Nadie declaró la jurisdicción de los
-  leads, y una landing page es alcanzable desde la UE por definición, así que
-  mientras tanto se trata de forma conservadora: como hueco declarado, no como "no
-  aplica".
+  **Q-1 está respondida (2026-08-28), y con eso `STD-LEG-001` (GDPR) pasa de
+  Conditional a Mandatory.** Rocco confirmó que hay —o que no se puede descartar
+  que haya— leads residentes de la Unión Europea en alcance. La pregunta ya no
+  está abierta y el criterio conservador que se venía aplicando "mientras tanto"
+  dejó de ser provisorio: es el que rige.
+
+  **Lo que eso cambia NO es trabajo técnico, y conviene decirlo así de
+  explícito.** `D-3` (retención), `D2-2` (el `rawPayload` que viajaba al
+  navegador sin que nadie lo usara) y `D2-5` (registro de acceso a datos
+  personales) ya están los tres cerrados e implementados, igual que `D-4`/`D2-4`
+  (borrado a pedido). Se construyeron cuando todavía eran buenas prácticas
+  voluntarias; con GDPR Mandatory pasan a ser **la forma en que este sistema
+  cumple una obligación legal**. La implementación existente ya satisface lo que
+  los tres exigían — no hizo falta ningún cambio de código para cerrar `Q-1`. Lo
+  nuevo es la clasificación de esa obligación, no el trabajo.
+
+  La consecuencia sobre la clasificación de datos sí es real y está en
+  `docs/data-classification.md`: como el esquema no registra el país ni la
+  residencia de un lead, "los leads de la UE" no es un subconjunto que el sistema
+  pueda distinguir, así que **los datos personales de un lead pasan de Sensitive a
+  Regulated en su conjunto**, no en una porción.
+
+  **Lo que queda abierto de GDPR es legal, no de ingeniería** y está listado en
+  §6.1 de ese documento: la base legal del tratamiento, los plazos de respuesta a
+  solicitudes de titulares y el registro de actividades de tratamiento del Art. 30.
+  Ninguna de las tres la contesta un documento de arquitectura, y ninguna se
+  completó con un valor razonable acá. Cerrar `Q-1` deja el sistema técnicamente
+  alineado con lo que GDPR le exigiría a un software; no determina por sí solo el
+  cumplimiento GDPR del negocio, que necesita revisión legal.
 
 **Ítem 6 — bases de datos externas: pospuesto por decisión explícita, no pendiente
 sin decidir.** §7 de `docs/ingestion-architecture.md` lo recomienda expresamente
