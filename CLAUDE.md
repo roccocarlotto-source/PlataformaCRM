@@ -69,3 +69,28 @@ Toolkit's own CLAUDE.md — nothing about it is described here.
 This file must never contain: Toolkit rules, Constitutional
 Principles, internal Toolkit documentation, or Router logic. Any of
 that belongs to the Toolkit's own CLAUDE.md, never to this one.
+
+---
+
+## GitHub CLI (`gh`)
+
+`gh` está instalado y autenticado en esta máquina, y ve el repositorio
+`roccocarlotto-source/PlataformaCRM`. Es la herramienta estándar para
+todo lo que toque PRs y CI:
+
+- **Crear PRs:** `gh pr create`, siempre con `--body-file` apuntando al
+  `pr-body-*.md` de costumbre. Nunca `--body` con el texto inline.
+- **Estado de CI:** `gh pr checks` o `gh run watch` en vez de pedirle a
+  Rocco una captura de pantalla, siempre que `gh` alcance para
+  confirmarlo.
+
+**`gh pr merge` no se corre nunca por iniciativa propia.** El merge es
+una decisión que se toma en la conversación de revisión — con Rocco y/o
+con el otro agente — nunca un paso automático de una tarea, sin importar
+qué tan verde esté el CI. Si una tarea llega al punto de que el PR está
+listo y el CI pasó, el reporte lo dice y ahí termina el trabajo de esa
+tarea: no se ejecuta el merge.
+
+Esto no es una limitación técnica — `gh pr merge` funcionaría
+perfectamente bien — sino una decisión de proceso explícita: mantener el
+punto donde alguien más revisa antes de que algo llegue a `master`.
