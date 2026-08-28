@@ -1,6 +1,7 @@
 import { IngestionStatus } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
+import { logAccesoADatosPersonales } from "../lib/accessLog";
 import { listIngestionEvents, retryIngestionEvent } from "../services/ingestionEvent.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -47,6 +48,29 @@ const listQuerySchema = z.object({
 export const listIngestionEventsHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(listQuerySchema, req.query);
+
+    // Registro de acceso — D2-5. Va ANTES de la consulta y no después: lo que
+    // el estándar quiere saber es que alguien pidió ver estos datos, y eso ya
+    // es cierto acá. Si la consulta falla, el intento igual quedó registrado.
+    //
+    // Sensitive aunque la proyección deje afuera rawPayload y promotionNotes:
+    // el listado dice QUÉ leads existen, con su errorMessage y su link al
+    // contacto promovido. La minimización reduce la exposición, no cambia la
+    // clase del registro al que se accedió.
+    //
+    // Solo los filtros que vinieron. page/pageSize quedan afuera a propósito:
+    // son paginación, no "qué pidió ver".
+    logAccesoADatosPersonales({
+      auth: req.auth,
+      recurso: "GET /api/ingestion-events",
+      clase: "Sensitive",
+      detalle: {
+        ...(query.sourceId ? { sourceId: query.sourceId } : {}),
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.batchId ? { batchId: query.batchId } : {}),
+      },
+    });
+
     const result = await listIngestionEvents(req.auth.organizationId, query);
     res.status(200).json(result);
   },
@@ -68,6 +92,18 @@ export const listIngestionEventsHandler = asyncHandler<AuthenticatedRequest>(
 export const retryIngestionEventHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
+
+    // Registro de acceso — D2-5. Este endpoint NO devuelve rawPayload, pero
+    // identifica qué evento —o sea, de qué lead— tocó una persona, y el
+    // criterio del estándar es sobre el acceso al dato, no sobre cuánto de él
+    // vuelve en la respuesta.
+    logAccesoADatosPersonales({
+      auth: req.auth,
+      recurso: "POST /api/ingestion-events/:id/retry",
+      clase: "Sensitive",
+      detalle: { ingestionEventId: id },
+    });
+
     const evento = await retryIngestionEvent(req.auth.organizationId, id);
     res.status(200).json(evento);
   },

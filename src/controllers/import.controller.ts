@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
+import { logAccesoADatosPersonales } from "../lib/accessLog";
 import {
   importarArchivo,
   obtenerResumenDeLote,
@@ -58,6 +59,18 @@ export const importarArchivoHandler = asyncHandler<AuthenticatedRequest>(
 export const resumenDeLoteHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const batchId = parseOrThrow(batchIdParamSchema, req.params.batchId);
+
+    // Registro de acceso — D2-5. La respuesta ya no lleva rawPayload (cerrado
+    // por D2-2), pero sigue devolviendo el errorMessage de hasta 100 filas
+    // fallidas, y es la pantalla desde la que una persona mira una importación
+    // de leads reales.
+    logAccesoADatosPersonales({
+      auth: req.auth,
+      recurso: "GET /api/imports/:batchId",
+      clase: "Sensitive",
+      detalle: { batchId },
+    });
+
     const resumen = await obtenerResumenDeLote(req.auth.organizationId, batchId);
     res.status(200).json(resumen);
   },

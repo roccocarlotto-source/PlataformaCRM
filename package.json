@@ -19,6 +19,7 @@
     "prisma:seed": "prisma db seed",
     "migrate:deploy": "tsx scripts/apply-manual-sql.ts",
     "verify:schema": "tsx scripts/verify-schema.ts",
+    "purge:ingestion-events": "tsx scripts/purge-ingestion-events.ts",
     "audit:gate": "tsx scripts/audit-gate.ts",
     "audit:gate:frontend": "tsx scripts/audit-gate.ts frontend/npm-audit.json --workspace=frontend",
     "gen:signing-key": "tsx scripts/gen-signing-key.ts"

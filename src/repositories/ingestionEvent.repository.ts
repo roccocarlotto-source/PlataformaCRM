@@ -618,3 +618,73 @@ export function retryIngestionEventConditional(
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// PURGA DE RETENCIÓN — hallazgo D2-3 de docs/review-fase2-2026-08-28.md (y D-3
+// de la ronda anterior: el mismo hueco sin cerrar por segunda vez).
+//
+// La política vive en docs/data-classification.md §5.1: 90 días desde
+// created_at, solo PROCESSED y DUPLICATE, borrado FÍSICO. La consulta es
+// exactamente la que §9.1 de docs/ingestion-architecture.md ya especificaba
+// hace meses; lo que faltaba era algo que la corriera.
+//
+// POR QUÉ SOLO ESOS DOS ESTADOS, y no es una optimización: un PENDING es
+// trabajo sin hacer, y un FAILED es el ÚNICO lugar donde vive el dato que no se
+// pudo promover a Contact. Borrarlos por edad sería perder información que
+// nadie recuperó todavía — un evento viejo y fallido es justamente el que hay
+// que mirar, no el que hay que borrar. Vale sin importar la antigüedad.
+//
+// POR QUÉ ACÁ Y NO ADENTRO DEL SCRIPT: para que el `where` sea UNO SOLO. El
+// dry-run cuenta y el borrado destruye; si cada uno armara su propio filtro,
+// podrían divergir y el número que alguien mira antes de ejecutar no sería el
+// de lo que se va a borrar. Además deja la purga testeable sin invocar un
+// proceso aparte.
+//
+// SIN organizationId, a diferencia de todo el resto de este archivo: no es una
+// operación de un tenant sobre sus datos, es mantenimiento del operador del
+// sistema sobre la tabla entera. No hay ningún request ni AuthContext detrás.
+// ---------------------------------------------------------------------------
+
+export const DIAS_DE_RETENCION_INGESTION_EVENT = 90;
+
+const ESTADOS_PURGABLES = [IngestionStatus.PROCESSED, IngestionStatus.DUPLICATE];
+
+export function fechaDeCorteDeRetencion(ahora: Date = new Date()): Date {
+  const corte = new Date(ahora);
+  corte.setUTCDate(corte.getUTCDate() - DIAS_DE_RETENCION_INGESTION_EVENT);
+  return corte;
+}
+
+// `organizationId` es OPCIONAL y el script NUNCA lo pasa: la purga real es
+// sobre la tabla entera. Existe por la misma razón que el parámetro de
+// drenarPendientes({ organizationId }) — el test de integración corre contra
+// una base que puede estar compartida, y un DELETE sin acotar borraría datos
+// de otras organizaciones de verdad. Acá el riesgo es mayor que en el worker,
+// porque esto no cambia un estado: destruye filas.
+export interface PurgaScope {
+  organizationId?: string;
+}
+
+function buildPurgaWhere(corte: Date, scope: PurgaScope): Prisma.IngestionEventWhereInput {
+  return {
+    createdAt: { lt: corte },
+    status: { in: ESTADOS_PURGABLES },
+    ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
+  };
+}
+
+// Cuánto borraría la purga sin borrarlo. Es lo que consume `--dry-run`.
+export function countIngestionEventsPurgables(
+  corte: Date,
+  scope: PurgaScope = {},
+  db: Db = prisma,
+) {
+  return db.ingestionEvent.count({ where: buildPurgaWhere(corte, scope) });
+}
+
+// El borrado real. Devuelve cuántas filas murieron: el estándar pide que el
+// borrado sea verificable, y sin ese número no queda rastro de haberse
+// cumplido.
+export function purgeIngestionEvents(corte: Date, scope: PurgaScope = {}, db: Db = prisma) {
+  return db.ingestionEvent.deleteMany({ where: buildPurgaWhere(corte, scope) });
+}
