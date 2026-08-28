@@ -688,3 +688,45 @@ export function countIngestionEventsPurgables(
 export function purgeIngestionEvents(corte: Date, scope: PurgaScope = {}, db: Db = prisma) {
   return db.ingestionEvent.deleteMany({ where: buildPurgaWhere(corte, scope) });
 }
+
+// ---------------------------------------------------------------------------
+// Anonimización del crudo de los eventos que promovieron a un contacto —
+// segunda mitad de D2-4 (ver erasePersonalDataFromContact).
+//
+// `rawPayload` es NOT NULL, así que no puede ir a NULL: se reemplaza por un
+// marcador explícito. Que diga `erased` y no quede un `{}` ambiguo importa —
+// un objeto vacío se lee como "el formulario no mandó nada", que es un estado
+// real y distinto.
+//
+// LO QUE ESTA FUNCIÓN NO LIMPIA, y hay que tenerlo presente porque el nombre
+// del endpoint promete más de lo que esto hace:
+//
+//   - `promotionNotes`, que en una NotaConflicto guarda los VALORES de
+//     firstName/lastName/phone/jobTitle que la promoción descartó (ver
+//     src/types/promotion.ts). Es dato personal de la misma persona, en la
+//     misma fila. Quedó afuera a propósito: borrarlo destruye el registro que
+//     §4 de docs/ingestion-architecture.md exige ("nunca sobrescribir en
+//     silencio"), y esa es una decisión de producto que no se tomó todavía.
+//   - `errorMessage`, sin garantía de no transportar el valor que falló
+//     (hallazgo D2-7, abierto).
+//   - `externalId`, que si lo proveyó la fuente por X-External-Id puede ser el
+//     email del lead.
+//   - Los eventos de esa persona que NUNCA se promovieron (FAILED, PENDING):
+//     no tienen promotedContactId, así que este WHERE no los alcanza.
+//
+// Está escrito acá, en docs/data-classification.md §5.2 y en el reporte del
+// PR. Ninguna de las cuatro se resuelve sola.
+// ---------------------------------------------------------------------------
+
+export const RAW_PAYLOAD_BORRADO = { erased: true } as const;
+
+export function anonymizeIngestionEventsOfContact(
+  contactId: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.ingestionEvent.updateMany({
+    where: { organizationId, promotedContactId: contactId },
+    data: { rawPayload: RAW_PAYLOAD_BORRADO },
+  });
+}

@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   createContactHandler,
   deleteContactHandler,
+  erasePersonalDataHandler,
   getContactHandler,
   listContactsHandler,
   updateContactHandler,
@@ -39,4 +40,19 @@ contactRouter.delete(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   deleteContactHandler,
+);
+
+// Borrado de datos personales a pedido (D2-4). ADMIN-only y con el mismo
+// rate limiter de escritura que el resto: es la operación más destructiva del
+// módulo, no una excepción a la que se le aflojan los controles.
+//
+// Ruta propia y no un flag de DELETE /contacts/:id: son dos operaciones
+// distintas —una reversible, la otra no— y compartir endpoint haría que la
+// diferencia dependiera de un parámetro que se puede olvidar.
+contactRouter.post(
+  "/contacts/:id/erase-personal-data",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  erasePersonalDataHandler,
 );
