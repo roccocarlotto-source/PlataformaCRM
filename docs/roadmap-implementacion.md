@@ -8,12 +8,12 @@ Orden de prioridad sugerido: primero lo que protege lo ya construido (P0), despu
 
 Nada de esto es nuevo, pero se re-lista acá para que quede en un solo lugar junto con el resto:
 
-- [ ] Generalizar el chequeo de FKs compuestas por organización — hoy es una lista cerrada de 18 relaciones conocidas en `verify-schema.ts`, no una garantía estructural. Es la base de todo el aislamiento multi-tenant; cerrar esto antes de sumar entidades nuevas (Agent, Conversation, Booking, etc. — ver P2) para que nazcan ya cubiertas.
-- [ ] Índices `(organizationId, createdAt)` con `deletedAt IS NULL` en las entidades de negocio — necesario antes de que la capa de ingesta y el agente de IA empiecen a generar volumen real.
-- [ ] `search` con `ILIKE '%x%'` sin `pg_trgm` en los repositorios que lo usan.
-- [ ] Cascada de soft-delete (Stage → Opportunity, Pipeline → Stage).
-- [ ] Verificación de email en registro (`email_confirm: true` sin verificación) y validación de `email_verified` al aceptar una invitación.
-- [ ] ESLint/Prettier/Dockerfile — deuda de higiene, barata de pagar ahora.
+- [x] Generalizar el chequeo de FKs compuestas por organización — hoy es una lista cerrada de 18 relaciones conocidas en `verify-schema.ts`, no una garantía estructural. Es la base de todo el aislamiento multi-tenant; cerrar esto antes de sumar entidades nuevas (Agent, Conversation, Booking, etc. — ver P2) para que nazcan ya cubiertas.
+- [x] Índices `(organizationId, createdAt)` con `deletedAt IS NULL` en las entidades de negocio — necesario antes de que la capa de ingesta y el agente de IA empiecen a generar volumen real.
+- [x] `search` con `ILIKE '%x%'` sin `pg_trgm` en los repositorios que lo usan.
+- [x] Cascada de soft-delete (Stage → Opportunity, Pipeline → Stage).
+- [x] Verificación de email en registro (`email_confirm: true` sin verificación) y validación de `email_verified` al aceptar una invitación.
+- [x] ESLint/Prettier/Dockerfile — deuda de higiene, barata de pagar ahora.
 
 ## P1 — Prerrequisitos transversales
 
