@@ -122,3 +122,53 @@ export async function obtenerResumenDeLote(
 
   return resumen;
 }
+
+// ---------------------------------------------------------------------------
+// Vista previa de encabezados (Fase 2c). Responde "¿qué columnas tiene este
+// archivo?" y nada más.
+//
+// NO TOCA LA BASE. Ni lee `Source`, ni escribe `IngestionEvent`, ni persiste el
+// archivo en ningún lado — ni siquiera temporalmente. Por eso tampoco recibe
+// `organizationId` ni `sourceId`: no hay nada que aislar por tenant porque no
+// hay ningún dato del tenant involucrado. El aislamiento de esta operación lo da
+// que el archivo lo trae quien llama, en su propio request.
+//
+// REUSA EXACTAMENTE LA MISMA CADENA QUE `importarArchivo`, y esa es la razón de
+// ser de esta función:
+//
+//     formatoDesdeNombre(nombre)  ->  parsearArchivo(contenido, formato)
+//                                     -> .encabezados
+//
+// Si la vista previa usara un parser propio —o el mismo con otras opciones— los
+// encabezados que alguien ve al configurar el mapeo podrían no ser los que la
+// importación real interpreta después: una diferencia de un espacio, de un BOM
+// o de una celda con formato alcanzaría para que el mapeo quedara desalineado y
+// las filas fallaran con "ninguna columna del fieldMapping existe". La garantía
+// de "mismo código, mismo resultado" es más importante que cualquier otra cosa
+// de este endpoint, y la única forma de tenerla es no escribir un segundo
+// camino.
+//
+// CONSECUENCIA HEREDADA, dicha explícitamente: `parsearArchivo` rechaza con 400
+// un archivo sin ninguna fila de datos. La vista previa hereda ese rechazo, así
+// que un archivo con solo encabezados no se puede previsualizar. Es deliberado:
+// relajarlo acá exigiría saltear `parsearArchivo`, o sea abrir el segundo camino
+// que esta función existe para evitar — y un archivo que la importación real
+// rechazaría no es uno para el que valga la pena configurar un mapeo.
+// ---------------------------------------------------------------------------
+
+export interface ResultadoPrevisualizacion {
+  // Mismo campo y misma forma que ResultadoImportacion.encabezados, a propósito:
+  // el frontend consume una sola representación de "los encabezados de este
+  // archivo", venga del camino que venga.
+  encabezados: string[];
+}
+
+export async function previsualizarEncabezados(input: {
+  nombreArchivo: string;
+  contenido: Buffer;
+}): Promise<ResultadoPrevisualizacion> {
+  const formato = formatoDesdeNombre(input.nombreArchivo);
+  const parseado = await parsearArchivo(input.contenido, formato);
+
+  return { encabezados: parseado.encabezados };
+}

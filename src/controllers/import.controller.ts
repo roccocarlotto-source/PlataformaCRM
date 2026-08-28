@@ -1,6 +1,10 @@
 import type { Response } from "express";
 import { z } from "zod";
-import { importarArchivo, obtenerResumenDeLote } from "../services/import.service";
+import {
+  importarArchivo,
+  obtenerResumenDeLote,
+  previsualizarEncabezados,
+} from "../services/import.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -56,5 +60,31 @@ export const resumenDeLoteHandler = asyncHandler<AuthenticatedRequest>(
     const batchId = parseOrThrow(batchIdParamSchema, req.params.batchId);
     const resumen = await obtenerResumenDeLote(req.auth.organizationId, batchId);
     res.status(200).json(resumen);
+  },
+);
+
+// Vista previa de encabezados (Fase 2c). 200 y no 202: a diferencia de la
+// importación real, acá no se aceptó nada para procesar después — la respuesta
+// ES el resultado completo de la operación, y la operación ya terminó.
+//
+// SIN BODY SCHEMA, y no por omisión: este endpoint no recibe ningún campo de
+// texto. `sourceId` no viaja a propósito (ver previsualizarEncabezados) porque
+// la pregunta "¿qué columnas tiene este archivo?" no depende de ninguna fuente.
+// Un parseOrThrow sobre un objeto vacío no validaría nada.
+//
+// req.auth se usa solo para llegar hasta acá: authorize("ADMIN") ya corrió. El
+// handler no lee organizationId porque no hay nada que aislar — no toca la base.
+export const previsualizarEncabezadosHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    // importUpload ya garantizó que existe y cortó con 400 si no — mismo
+    // respaldo del non-null que en importarArchivoHandler.
+    const archivo = req.file!;
+
+    const resultado = await previsualizarEncabezados({
+      nombreArchivo: archivo.originalname,
+      contenido: archivo.buffer,
+    });
+
+    res.status(200).json(resultado);
   },
 );

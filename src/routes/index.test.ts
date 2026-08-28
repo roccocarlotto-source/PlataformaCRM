@@ -70,6 +70,10 @@ test("las rutas del ítem 5 están montadas en la app real, no solo en su propio
 
   const get = await fetch(`${baseUrl}/api/imports/${randomUUID()}`);
   assert.equal(get.status, 401, "GET /api/imports/:batchId no está montado");
+
+  // Vista previa de encabezados (Fase 2c), en el mismo router.
+  const preview = await fetch(`${baseUrl}/api/imports/preview`, { method: "POST" });
+  assert.equal(preview.status, 401, "POST /api/imports/preview no está montado");
 });
 
 test("las demás rutas de la capa de ingesta también están montadas", async () => {

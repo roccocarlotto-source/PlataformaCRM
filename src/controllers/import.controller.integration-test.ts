@@ -794,3 +794,129 @@ test("un USER no puede consultar el resultado de un lote", async () => {
   const res = await api("GET", `/api/imports/${randomUUID()}`, usuarioComun.accessToken);
   assert.equal(res.status, 403);
 });
+
+// ---------------------------------------------------------------------------
+// Vista previa de encabezados — POST /api/imports/preview (Fase 2c).
+//
+// La garantía que estos tests protegen no es "devuelve encabezados": es que
+// devuelve LOS MISMOS que la importación real. Ver previsualizarEncabezados en
+// import.service.ts — las dos rutas llaman a la misma cadena
+// formatoDesdeNombre -> parsearArchivo, y el test de abajo lo verifica sobre el
+// mismo archivo por los dos caminos, no leyendo el código.
+// ---------------------------------------------------------------------------
+
+// Sube un archivo a /preview. Sin sourceId a propósito: el endpoint no lo pide.
+function previsualizar(
+  token: string,
+  nombre: string,
+  contenido: Buffer | string,
+): Promise<Response> {
+  const form = new FormData();
+  form.append("file", new Blob([contenido]), nombre);
+
+  return fetch(`${baseUrl}/api/imports/preview`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  });
+}
+
+test("preview de un CSV devuelve los encabezados y NO escribe nada", async () => {
+  const eventosAntes = await prisma.ingestionEvent.count({ where: { organizationId: orgId } });
+
+  const res = await previsualizar(
+    admin.accessToken,
+    "leads.csv",
+    "Nombre,Apellido,Mail\nAna,Gómez,ana@ejemplo.test\n",
+  );
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { encabezados: string[] };
+  assert.deepEqual(body.encabezados, ["Nombre", "Apellido", "Mail"]);
+
+  // La afirmación central del endpoint: es de solo lectura.
+  assert.equal(
+    await prisma.ingestionEvent.count({ where: { organizationId: orgId } }),
+    eventosAntes,
+    "la vista previa no puede crear ningún IngestionEvent",
+  );
+});
+
+test("preview de un XLSX real también funciona", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const hoja = workbook.addWorksheet("Leads");
+  hoja.addRow(["Nombre", "Apellido", "Mail"]);
+  hoja.addRow(["Ana", "Gómez", "ana-preview@ejemplo.test"]);
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+  const res = await previsualizar(admin.accessToken, "feria.xlsx", buffer);
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { encabezados: string[] };
+  assert.deepEqual(body.encabezados, ["Nombre", "Apellido", "Mail"]);
+});
+
+test("EL MISMO ARCHIVO da los MISMOS encabezados por los dos caminos", async () => {
+  // Este es el test que justifica la tarea. Si alguien reimplementara el parseo
+  // en la vista previa, acá se vería: un BOM, un espacio, una celda con formato
+  // alcanzarían para que el mapeo armado mirando el preview no matcheara lo que
+  // la importación real interpreta.
+  //
+  // El contenido es deliberadamente hostil: BOM de Excel al principio, espacios
+  // alrededor de los encabezados, una columna sin nombre al final.
+  const contenido = "\ufeff Nombre , Apellido ,Mail,\nAna,Gómez,ana-doble@ejemplo.test,\n";
+  const source = await crearSource("Doble camino", "FILE_IMPORT");
+
+  const preview = await previsualizar(admin.accessToken, "doble.csv", contenido);
+  assert.equal(preview.status, 200);
+  const { encabezados: delPreview } = (await preview.json()) as { encabezados: string[] };
+
+  const importacion = await subir(admin.accessToken, source, "doble.csv", contenido);
+  assert.equal(importacion.status, 202);
+  const { encabezados: deLaImportacion } = (await importacion.json()) as {
+    encabezados: string[];
+  };
+
+  assert.deepEqual(delPreview, deLaImportacion);
+  // Y no es que los dos devuelvan vacío: el BOM se comió, los espacios se
+  // recortaron y la columna sin nombre se ignoró, en los dos por igual.
+  assert.deepEqual(delPreview, ["Nombre", "Apellido", "Mail"]);
+});
+
+test("preview hereda los mismos rechazos que la importación real", async () => {
+  // Extensión no soportada: 415, igual que en /imports.
+  const extension = await previsualizar(admin.accessToken, "leads.txt", "Nombre\nAna");
+  assert.equal(extension.status, 415);
+
+  // Archivo por encima del tope de multer: 413, igual que en /imports.
+  const grande = Buffer.alloc(IMPORT_MAX_FILE_BYTES + 1024, 0x61);
+  const tamano = await previsualizar(admin.accessToken, "grande.csv", grande);
+  assert.equal(tamano.status, 413);
+
+  // Sin el campo "file": 400, igual que en /imports.
+  const form = new FormData();
+  const sinArchivo = await fetch(`${baseUrl}/api/imports/preview`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${admin.accessToken}` },
+    body: form,
+  });
+  assert.equal(sinArchivo.status, 400);
+});
+
+test("preview hereda el rechazo de un archivo sin filas de datos", async () => {
+  // Consecuencia deliberada de reusar parsearArchivo tal cual: un archivo con
+  // solo encabezados da 400 en los dos caminos. Relajarlo acá exigiría un
+  // segundo camino de parseo, que es justo lo que este endpoint evita.
+  const res = await previsualizar(admin.accessToken, "solo-encabezados.csv", "Nombre,Mail\n");
+  assert.equal(res.status, 400);
+});
+
+test("preview es ADMIN-only y exige token", async () => {
+  const deUsuario = await previsualizar(usuarioComun.accessToken, "leads.csv", "Nombre\nAna");
+  assert.equal(deUsuario.status, 403);
+
+  const form = new FormData();
+  form.append("file", new Blob(["Nombre\nAna"]), "leads.csv");
+  const sinToken = await fetch(`${baseUrl}/api/imports/preview`, { method: "POST", body: form });
+  assert.equal(sinToken.status, 401);
+});
