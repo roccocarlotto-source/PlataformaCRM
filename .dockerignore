@@ -1,0 +1,35 @@
+# Qué NO entra al contexto de build. Sin esto, `docker build` sube node_modules
+# y dist enteros al daemon antes de ejecutar la primera instrucción, y el
+# `npm ci` de la imagen quedaría compitiendo con un node_modules de Windows que
+# no le sirve de nada.
+#
+# .env EN PRIMER LUGAR, y es lo único de esta lista que no es una optimización:
+# el Dockerfile no lo copia, pero excluirlo acá garantiza que ninguna
+# instrucción futura pueda meterlo en una capa por accidente. Las credenciales
+# del contenedor se inyectan en runtime, nunca se hornean en la imagen.
+.env
+.env.local
+.env.*.local
+supabase/signing_keys.json
+
+node_modules
+frontend/node_modules
+dist
+frontend/dist
+
+.git
+.gitignore
+.github
+
+# Nada de esto llega a la imagen: el runtime corre dist/, no las fuentes ni los
+# tests.
+docs
+frontend
+supabase
+scripts
+*.md
+npm-audit.json
+.gstack
+
+Dockerfile
+.dockerignore

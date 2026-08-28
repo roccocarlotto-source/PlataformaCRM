@@ -260,3 +260,53 @@ Ver `.env.example` — cada variable está documentada ahí mismo (de dónde sac
 qué se usa). Hoy las variables de Supabase (`DATABASE_URL`, `SUPABASE_*`) pueden estar
 vacías: el servidor arranca igual, pero `/health` va a reportar la base como no
 disponible hasta que se complete `.env` con un proyecto de Supabase real.
+
+## Docker
+
+`Dockerfile` multi-stage: la etapa de build compila con `devDependencies`
+(TypeScript y el CLI de Prisma incluidos), la de runtime instala solo
+`dependencies` y recibe el cliente de Prisma ya generado por copia — generarlo
+ahí sería imposible, el CLI es una `devDependency`.
+
+Node **22**, la misma versión que declaran los cuatro jobs de
+`.github/workflows/ci.yml`. Imagen base `bookworm-slim` y no `alpine`: Prisma
+resuelve su motor por `binaryTarget`, y Alpine (musl) exigiría
+`linux-musl-openssl-3.0.x`, un target que `schema.prisma` no declara.
+
+```bash
+docker build -t plataforma-crm-backend .
+docker run --rm -p 4000:4000 --env-file .env plataforma-crm-backend
+```
+
+**La imagen no contiene ningún secreto ni ningún valor de `.env`.** `.env` está
+en `.dockerignore`, así que ni siquiera llega al contexto de build. Las
+credenciales se inyectan en runtime (`--env-file`, o el mecanismo de secretos de
+la plataforma donde se despliegue).
+
+### Variables que espera el contenedor en runtime
+
+Son exactamente las de `.env.example` — no hay ninguna variable propia del
+contenedor:
+
+| Variable | ¿Requerida? | Notas |
+|---|---|---|
+| `CORS_ORIGIN` | **Sí** | La única que `src/config/env.ts` valida como obligatoria: sin ella el proceso no arranca. |
+| `DATABASE_URL` | En la práctica sí | Conexión pooled (PgBouncer, puerto 6543). Opcional en el schema de entorno, pero sin ella `/health` reporta la base como no disponible y toda ruta de negocio falla. |
+| `DIRECT_URL` | No, para este contenedor | Solo la usan las migraciones, que **no** corren desde acá. |
+| `SUPABASE_URL` | En la práctica sí | De ella sale el JWKS con el que se verifica cada JWT. |
+| `SUPABASE_SERVICE_ROLE_KEY` | En la práctica sí | La usa la Admin API (onboarding, invitaciones). |
+| `SUPABASE_ANON_KEY` | No | La consume el frontend, no este backend. |
+| `PORT` | No | Default `4000`, que es el que declara `EXPOSE`. |
+| `NODE_ENV` | No | La imagen ya lo fija en `production`. |
+| `LOG_LEVEL` | No | Default `info` en producción. |
+
+`src/config/env.ts` acepta además cinco `INGEST_*` (ventana y tope del rate
+limit de ingesta, y los tres del worker) que **no** están en `.env.example`
+porque todas tienen default explícito y ninguna hace falta para arrancar.
+
+### Migraciones
+
+No corren desde el contenedor, y es deliberado: `npm run migrate:deploy`
+necesita `tsx` y el CLI de Prisma, los dos ausentes a propósito de la imagen de
+runtime. Aplicar migraciones es un paso de despliegue con su propio momento, no
+algo que cada réplica que arranca deba intentar a la vez.
