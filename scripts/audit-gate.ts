@@ -28,13 +28,33 @@ import { readFileSync } from "node:fs";
 // problema que documenta scripts/apply-manual-sql.ts. Que el JSON lo produzca
 // quien invoca (CI o la persona) mantiene este script portable y, de paso,
 // testeable contra un archivo armado a mano.
+//
+// POR QUÉ CONOCE EL WORKSPACE — hallazgo S2-1 de
+// docs/review-fase2-2026-08-28.md. El gate cubría solo el paquete raíz, y el
+// frontend —la mitad de la Fase 2— no lo pasaba por ningún lado. Extenderlo era
+// correr el mismo script sobre un segundo JSON, pero las excepciones NO son
+// compartidas: la de uuid/exceljs es un árbol de dependencias que el frontend
+// ni siquiera tiene. Una excepción heredada silenciaría en un paquete una
+// advisory que nadie verificó ahí, que es exactamente lo que este gate existe
+// para no permitir. Por eso cada excepción declara a qué workspace pertenece y
+// solo se aplica en ese.
 // ---------------------------------------------------------------------------
+
+// Los dos paquetes del repo. No es una lista abierta a propósito: si algún día
+// hay un tercero, agregarlo acá obliga a decidir qué excepciones le tocan.
+const WORKSPACES = ["backend", "frontend"] as const;
+type Workspace = (typeof WORKSPACES)[number];
 
 interface Excepcion {
   // El identificador estable de la advisory. Es lo que se comparte entre
   // versiones y ecosistemas; el `source` numérico de npm no lo es.
   ghsa: string;
   paquete: string;
+  // En qué workspace se verificó que no es alcanzable. Una excepción vale para
+  // ESE árbol de dependencias y no para el otro: el mismo GHSA puede llegar por
+  // otro camino, en otra versión y con otro uso, y ahí la verificación que
+  // respalda esta línea ya no dice nada.
+  workspace: Workspace;
   motivo: string;
   // De dónde sale la decisión de aceptarla. Sin esto, dentro de seis meses la
   // excepción es una línea sin dueño que nadie se anima a sacar.
@@ -50,6 +70,7 @@ const EXCEPCIONES: Excepcion[] = [
   {
     ghsa: "GHSA-w5hq-g745-h8pq",
     paquete: "uuid",
+    workspace: "backend",
     motivo:
       "Llega como dependencia transitiva de exceljs (uuid@8.3.2). La advisory afecta a v3/v5/v6 " +
       "cuando se pasa el argumento `buf`, y exceljs usa exclusivamente v4 sin `buf` " +
@@ -87,7 +108,32 @@ interface ReporteAudit {
   metadata?: { vulnerabilities?: Record<string, number> };
 }
 
-const archivo = process.argv[2] ?? "npm-audit.json";
+// ---------------------------------------------------------------------------
+// Argumentos: [archivo] [--workspace=backend|frontend].
+//
+// El workspace por defecto es `backend` para que la invocación histórica
+// —`npm run audit:gate` sin argumentos, desde la raíz— siga significando
+// exactamente lo mismo que antes de S2-1.
+// ---------------------------------------------------------------------------
+const args = process.argv.slice(2);
+const archivo = args.find((a) => !a.startsWith("--")) ?? "npm-audit.json";
+
+const workspaceArg = args.find((a) => a.startsWith("--workspace="))?.split("=")[1];
+
+if (workspaceArg !== undefined && !WORKSPACES.includes(workspaceArg as Workspace)) {
+  // FALLA RUIDOSO, por el mismo criterio que el JSON ilegible: un workspace mal
+  // escrito no debe degradar a "el de siempre" en silencio. Con un typo, el
+  // gate estaría auditando el JSON de un paquete con las excepciones de otro.
+  console.error(
+    `audit-gate: workspace desconocido "${workspaceArg}". Valores válidos: ${WORKSPACES.join(", ")}.`,
+  );
+  process.exit(1);
+}
+
+const workspace: Workspace = (workspaceArg as Workspace | undefined) ?? "backend";
+
+// Solo las excepciones verificadas para ESTE workspace. El resto no existe acá.
+const EXCEPCIONES_DEL_WORKSPACE = EXCEPCIONES.filter((e) => e.workspace === workspace);
 
 let reporte: ReporteAudit;
 
@@ -154,22 +200,25 @@ for (const vuln of Object.values(reporte.vulnerabilities ?? {})) {
   }
 }
 
-const exceptuadas = new Set(EXCEPCIONES.map((e) => e.ghsa));
+const exceptuadas = new Set(EXCEPCIONES_DEL_WORKSPACE.map((e) => e.ghsa));
 const bloqueantes = [...advisories.values()].filter((a) => !exceptuadas.has(a.ghsa));
 const aceptadas = [...advisories.values()].filter((a) => exceptuadas.has(a.ghsa));
 
 const totales = reporte.metadata?.vulnerabilities ?? {};
 
-console.log("Gate de auditoría de dependencias (high/critical)\n");
+console.log(`Gate de auditoría de dependencias (high/critical) — workspace: ${workspace}\n`);
 console.log(
   `  Resumen de npm: ${String(totales.total ?? 0)} vulnerabilidad(es) — ` +
     `critical ${String(totales.critical ?? 0)}, high ${String(totales.high ?? 0)}, ` +
     `moderate ${String(totales.moderate ?? 0)}, low ${String(totales.low ?? 0)}`,
 );
 console.log(`  Advisories high/critical detectadas: ${String(advisories.size)}`);
-console.log(`  Excepciones declaradas: ${String(EXCEPCIONES.length)}`);
+console.log(
+  `  Excepciones declaradas para este workspace: ${String(EXCEPCIONES_DEL_WORKSPACE.length)}` +
+    ` (de ${String(EXCEPCIONES.length)} en total)`,
+);
 
-for (const exc of EXCEPCIONES) {
+for (const exc of EXCEPCIONES_DEL_WORKSPACE) {
   const activa = advisories.has(exc.ghsa);
   console.log(
     `    · ${exc.ghsa} (${exc.paquete}) — ${
@@ -183,7 +232,7 @@ for (const exc of EXCEPCIONES) {
 if (aceptadas.length > 0) {
   console.log("");
   for (const a of aceptadas) {
-    const exc = EXCEPCIONES.find((e) => e.ghsa === a.ghsa);
+    const exc = EXCEPCIONES_DEL_WORKSPACE.find((e) => e.ghsa === a.ghsa);
     console.log(`  ACEPTADA  ${a.ghsa} (${a.paquete}, ${a.severidad}): ${a.titulo}`);
     console.log(`            motivo: ${exc?.motivo ?? "(sin motivo declarado)"}`);
   }
@@ -200,9 +249,10 @@ if (bloqueantes.length > 0) {
   }
   console.error(
     "\nResolvela con `npm audit fix`, o —si verificaste que no es alcanzable en este código—\n" +
-      "agregá su GHSA a EXCEPCIONES en scripts/audit-gate.ts CON el motivo verificado y el\n" +
-      "hallazgo que lo respalda. Subir el umbral de severidad no es una opción: silenciaría\n" +
-      "también todo lo que venga después.",
+      "agregá su GHSA a EXCEPCIONES en scripts/audit-gate.ts CON el motivo verificado, el\n" +
+      "hallazgo que lo respalda y el workspace en el que lo verificaste — una excepción vale\n" +
+      "para ese árbol de dependencias y no para el otro. Subir el umbral de severidad no es\n" +
+      "una opción: silenciaría también todo lo que venga después.",
   );
   process.exit(1);
 }

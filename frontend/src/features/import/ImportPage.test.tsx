@@ -229,9 +229,7 @@ describe("ImportPage — subida y resultado", () => {
           pendientes: 3,
           promovidos: 8,
           fallidos: 1,
-          fallas: [
-            { id: "ev1", errorMessage: "email: email inválido", rawPayload: { Mail: "no-es" } },
-          ],
+          fallas: [{ id: "ev1", errorMessage: "email: email inválido" }],
           fallasOmitidas: 0,
         });
       }),
@@ -269,7 +267,7 @@ describe("ImportPage — subida y resultado", () => {
           pendientes: 0,
           promovidos: 0,
           fallidos: 5000,
-          fallas: [{ id: "ev1", errorMessage: "falló", rawPayload: {} }],
+          fallas: [{ id: "ev1", errorMessage: "falló" }],
           fallasOmitidas: 4999,
         }),
       ),

@@ -372,12 +372,18 @@ export async function insertPendingEventsBatch(
 // GROUP BY no.
 // ---------------------------------------------------------------------------
 
+// SIN `rawPayload`, y es deliberado — hallazgo D2-2 de
+// docs/review-fase2-2026-08-28.md. Esta respuesta viajaba con hasta 100 filas
+// crudas de planilla (nombre, email y teléfono de personas reales) hacia una
+// pantalla que solo renderiza `errorMessage` y no las lee nunca: datos
+// personales cruzando la frontera HTTP sin que nadie los consuma.
+//
+// Si alguna vez hace falta ver la fila que falló, el crudo sigue intacto en
+// IngestionEvent.rawPayload y lo que corresponde es un endpoint de detalle que
+// lo exponga a propósito, no que se cuele de arrastre en un resumen.
 export interface FallaDeLote {
   id: string;
   errorMessage: string | null;
-  // La fila del archivo tal como se guardó, con sus encabezados originales. Es
-  // lo que permite ver QUÉ fila falló sin volver a abrir el archivo.
-  rawPayload: unknown;
 }
 
 export interface ResumenDeLote {
@@ -432,8 +438,13 @@ export async function getResumenDeLote(
             batchId,
             status: IngestionStatus.FAILED,
           },
-          select: { id: true, errorMessage: true, rawPayload: true },
-          orderBy: { createdAt: "asc" },
+          select: { id: true, errorMessage: true },
+          // Desempate por id, mismo motivo que en findManyIngestionEvents: una
+          // importación escribe el lote entero con el `now()` de una sola
+          // transacción, así que estas filas comparten created_at al
+          // microsegundo. Sin segunda clave, el `take` puede devolver una
+          // muestra distinta en cada consulta sobre el mismo bloque de empates.
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           take: MAX_FALLAS_DEVUELTAS,
         })
       : [];
@@ -466,11 +477,12 @@ export async function getResumenDeLote(
 // entera de planilla en una importación; con pageSize=100 una sola página
 // podría pesar megabytes, para un listado cuyo propósito es ver ESTADOS.
 //
-// Dónde sigue estando disponible el crudo, para que esto no cierre ninguna
-// puerta: `getResumenDeLote` ya devuelve `rawPayload` de las filas FAILED de un
-// lote (topeado en MAX_FALLAS_DEVUELTAS). Lo que queda sin cubrir es el payload
-// de un evento de WEBHOOK fallido — ver la pregunta abierta del reporte sobre un
-// endpoint de detalle, que no se construyó acá porque no se pidió.
+// Dónde sigue estando disponible el crudo: SOLO en la tabla. Ninguna respuesta
+// HTTP lo expone hoy — `getResumenDeLote` lo devolvía hasta el hallazgo D2-2 de
+// docs/review-fase2-2026-08-28.md, y se lo sacó por ser un dato personal que
+// nadie consumía. Que un evento fallido —de webhook o de importación— pueda
+// verse fila por fila sigue siendo la pregunta abierta del endpoint de detalle,
+// que no se construyó acá porque no se pidió.
 //
 // `errorMessage` SÍ va: es el dato que hace diagnosticable una fila fallida sin
 // traer el crudo, y es exactamente lo que faltaba para el webhook.
@@ -535,7 +547,18 @@ export function findManyIngestionEvents(
   return db.ingestionEvent.findMany({
     where: buildIngestionEventWhere(organizationId, filters),
     select: INGESTION_EVENT_PUBLIC_SELECT,
-    orderBy: { createdAt: sort.sortOrder },
+    // DESEMPATE POR ID, y no es cosmético — hallazgo E2-1 de
+    // docs/review-fase2-2026-08-28.md. Una importación inserta hasta 500 filas
+    // por sentencia con el `now()` de una sola transacción, que en Postgres es
+    // constante dentro de ella: el lote entero comparte created_at al
+    // microsegundo. Con una sola clave de orden el desempate lo elige el plan y
+    // puede cambiar entre consultas, así que dos páginas consecutivas del mismo
+    // OFFSET pueden repetir filas y —peor— saltearse otras: una fila fallida
+    // podía no aparecer en NINGUNA página.
+    //
+    // `id` es la clave primaria, así que el orden queda total y determinista.
+    // Va en el mismo sentido que createdAt para que el recorrido sea coherente.
+    orderBy: [{ createdAt: sort.sortOrder }, { id: sort.sortOrder }],
     skip: pagination.skip,
     take: pagination.take,
   });

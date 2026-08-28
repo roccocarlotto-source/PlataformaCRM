@@ -21,7 +21,16 @@ const idParamSchema = z.string().uuid("id inválido");
 const statusSchema = z.nativeEnum(IngestionStatus);
 
 const listQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+  // TOPE EXPLÍCITO — hallazgo S2-5 de docs/review-fase2-2026-08-28.md. `page`
+  // no tenía `.max()`, a diferencia de `pageSize`, así que `?page=999999999`
+  // se aceptaba y llegaba a Postgres como un OFFSET gigante: el motor igual
+  // tiene que recorrer y descartar todas esas filas antes de devolver una
+  // página vacía. Es trabajo real por un request sin costo para quien lo pide.
+  //
+  // 10.000 con pageSize=100 son un millón de filas de alcance, muy por encima
+  // de cualquier navegación real de este listado, así que no le saca nada a
+  // nadie. Es un techo de cordura, no una regla de negocio.
+  page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   sourceId: z.string().uuid("sourceId inválido").optional(),
   status: statusSchema.optional(),
