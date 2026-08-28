@@ -174,7 +174,7 @@ function leerContacto(id: string) {
 function leerEvento(id: string) {
   return prisma.ingestionEvent.findUniqueOrThrow({
     where: { id },
-    select: { rawPayload: true, promotedContactId: true, status: true },
+    select: { rawPayload: true, promotedContactId: true, status: true, promotionNotes: true },
   });
 }
 
@@ -395,4 +395,148 @@ test("no toca eventos de ingesta de otra organización", async () => {
   const eventoAjeno = await leerEvento(ajeno.eventoId);
   assert.notDeepEqual(eventoAjeno.rawPayload, { erased: true });
   assert.equal((await leerContacto(ajeno.contactId)).firstName, "Ana");
+});
+
+// ---------------------------------------------------------------------------
+// promotionNotes — se REDACTA, no se borra.
+//
+// La columna guarda dos cosas distintas: QUÉ PASÓ (tipo, campo, motivo) y CON
+// QUÉ VALOR (crm, entrante). El borrado destruye lo segundo y conserva lo
+// primero, que es lo que concilia el pedido de la persona con el "nunca
+// sobrescribir en silencio" de §4 de docs/ingestion-architecture.md.
+//
+// SE LEE DE LA BASE, no de la respuesta del endpoint: lo que hay que verificar
+// es qué quedó guardado, no qué dijo el JSON de salida.
+// ---------------------------------------------------------------------------
+
+// Valores reconocibles: si alguno sobrevive, el assert lo señala sin
+// ambigüedad y el grep del final lo encuentra en cualquier parte del JSON.
+const TELEFONO_QUE_GANO = "+54 11 4444-0001";
+const TELEFONO_DESCARTADO = "+54 11 4444-0002";
+
+async function crearEventoConNotas(
+  organizationId: string,
+  sourceId: string,
+  contactId: string,
+  promotionNotes: unknown,
+): Promise<string> {
+  const evento = await prisma.ingestionEvent.create({
+    data: {
+      organizationId,
+      sourceId,
+      externalId: `notas-${randomUUID()}`,
+      rawPayload: { Telefono: TELEFONO_DESCARTADO },
+      status: "PROCESSED",
+      promotedContactId: contactId,
+      promotionNotes: promotionNotes as never,
+    },
+    select: { id: true },
+  });
+  return evento.id;
+}
+
+test("redacta los valores de promotionNotes y conserva tipo, campo y motivo", async () => {
+  const { contactId } = await crearContactoConEvento(orgA, sourceA);
+
+  const eventoId = await crearEventoConNotas(orgA, sourceA, contactId, [
+    {
+      tipo: "conflicto",
+      campo: "phone",
+      crm: TELEFONO_QUE_GANO,
+      entrante: TELEFONO_DESCARTADO,
+    },
+    {
+      tipo: "ignorado",
+      campo: "lifecycleStage",
+      entrante: "CUSTOMER",
+      motivo: "la ingesta nunca escribe lifecycleStage",
+    },
+  ]);
+
+  const res = await call(
+    "POST",
+    `/api/contacts/${contactId}/erase-personal-data`,
+    adminA.accessToken,
+  );
+  assert.equal(res.status, 200);
+
+  const evento = await leerEvento(eventoId);
+  const notas = evento.promotionNotes as unknown as Record<string, unknown>[];
+
+  assert.equal(notas.length, 2, "no se pierde ninguna nota: se redactan, no se borran");
+
+  // La estructura sobrevive entera; los dos valores, no.
+  assert.deepEqual(notas[0], {
+    tipo: "conflicto",
+    campo: "phone",
+    crm: MARCADOR_DE_DATO_BORRADO,
+    entrante: MARCADOR_DE_DATO_BORRADO,
+  });
+
+  // motivo NO es un valor de dato: es una explicación escrita por el código.
+  assert.deepEqual(notas[1], {
+    tipo: "ignorado",
+    campo: "lifecycleStage",
+    entrante: MARCADOR_DE_DATO_BORRADO,
+    motivo: "la ingesta nunca escribe lifecycleStage",
+  });
+
+  // Sigue siendo consultable QUE hubo un conflicto en phone — que es
+  // exactamente lo que §4 pide que no se pierda.
+  assert.equal(notas[0].campo, "phone");
+
+  // Y ninguno de los dos teléfonos sobrevive en ninguna parte de la fila.
+  const filaEntera = JSON.stringify(evento);
+  assert.ok(!filaEntera.includes(TELEFONO_QUE_GANO), "el valor que ganó no puede sobrevivir");
+  assert.ok(!filaEntera.includes(TELEFONO_DESCARTADO), "el valor descartado tampoco");
+});
+
+test("un evento sin conflictos (promotionNotes en NULL) no rompe el borrado", async () => {
+  const { contactId } = await crearContactoConEvento(orgA, sourceA);
+  const eventoId = await crearEventoConNotas(orgA, sourceA, contactId, null);
+
+  const res = await call(
+    "POST",
+    `/api/contacts/${contactId}/erase-personal-data`,
+    adminA.accessToken,
+  );
+  assert.equal(res.status, 200);
+
+  const evento = await leerEvento(eventoId);
+  assert.equal(evento.promotionNotes, null, "NULL se mantiene NULL");
+  assert.deepEqual(evento.rawPayload, { erased: true }, "el crudo se limpia igual");
+});
+
+test("con varios eventos del mismo contacto se redactan todos, y el conteo los incluye", async () => {
+  // El cambio pasó de un updateMany a un findMany + update por fila: que el
+  // número devuelto siga siendo el total es justamente lo que podría romperse.
+  const { contactId, eventoId: eventoDelFixture } = await crearContactoConEvento(orgA, sourceA);
+
+  const uno = await crearEventoConNotas(orgA, sourceA, contactId, [
+    { tipo: "conflicto", campo: "phone", crm: TELEFONO_QUE_GANO, entrante: TELEFONO_DESCARTADO },
+  ]);
+  const dos = await crearEventoConNotas(orgA, sourceA, contactId, [
+    { tipo: "revision_manual", motivo: "contacto sin email" },
+  ]);
+
+  const res = await call(
+    "POST",
+    `/api/contacts/${contactId}/erase-personal-data`,
+    adminA.accessToken,
+  );
+  const body = (await res.json()) as { ingestionEventsAnonimizados: number };
+  assert.equal(body.ingestionEventsAnonimizados, 3, "los tres eventos del contacto");
+
+  const primero = await leerEvento(uno);
+  const notasPrimero = primero.promotionNotes as unknown as Record<string, unknown>[];
+  assert.equal(notasPrimero[0].crm, MARCADOR_DE_DATO_BORRADO);
+
+  // La nota que no tiene valores queda igual: redactar no es borrar.
+  const segundo = await leerEvento(dos);
+  assert.deepEqual(segundo.promotionNotes, [
+    { tipo: "revision_manual", motivo: "contacto sin email" },
+  ]);
+
+  // Y el evento del fixture, que no tiene notas, se anonimizó igual.
+  assert.deepEqual((await leerEvento(eventoDelFixture)).rawPayload, { erased: true });
 });

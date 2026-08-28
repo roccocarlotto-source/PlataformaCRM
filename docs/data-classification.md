@@ -304,6 +304,7 @@ porque el marcador no es reversible ni re-identificable; conservar el
 | `Contact.firstName`, `Contact.lastName` | Un marcador fijo, igual para todos. Son `NOT NULL`, no hay opción de vaciarlos |
 | `Contact.email`, `.phone`, `.jobTitle` | `NULL` |
 | `IngestionEvent.rawPayload` de los eventos que promovieron a ese contacto | `{ erased: true }`. Es `NOT NULL`, así que no puede ir a `NULL`; un `{}` se leería como "el formulario no mandó nada", que es un estado real y distinto |
+| `IngestionEvent.promotionNotes` de esos mismos eventos | **Redactado, no borrado.** Se conservan `tipo`, `campo` y `motivo`; los valores —`crm` y `entrante`— pasan al mismo marcador fijo |
 
 `email` va a `NULL` y no a un marcador por una razón concreta, no por
 gusto: existe el único parcial `contacts_org_email_unique` sobre
@@ -311,25 +312,43 @@ gusto: existe el único parcial `contacts_org_email_unique` sobre
 fijo, el **segundo** borrado de la misma organización chocaría contra ese
 índice. `NULL` queda fuera del índice parcial por definición.
 
+**`promotionNotes` se redacta y no se borra** *(2026-08-28)*, y ahí hubo
+una tensión real que valía la pena resolver bien en vez de rápido. La
+columna guarda dos cosas distintas: **qué pasó** —hubo un conflicto, en
+qué campo, por qué se ignoró algo— y **con qué valor**. Lo primero es el
+registro que §4 de `docs/ingestion-architecture.md` exige y que borrar
+destruiría; lo segundo es dato personal del titular.
+
+Se separan: `tipo`, `campo` y `motivo` quedan intactos, y `crm` y
+`entrante` pasan al marcador. Después de un borrado sigue siendo cierto y
+consultable que hubo un conflicto en `phone`; lo que ya no se puede leer
+es qué teléfono era. No se está sobrescribiendo el registro en silencio —
+se está borrando el dato personal que ese registro contenía, a pedido de
+su titular, dejando el registro en pie.
+
+`NotaRevisionManual` no se toca: su `motivo` es una explicación fija que
+escribe el código, no un valor que haya llegado de un formulario. Y ante
+una forma que no reconoce —la columna es JSONB y una escritura directa a
+la base puede dejar ahí cualquier cosa— la redacción es **fail-closed**:
+borra la columna entera. En una operación de borrado, "no reconozco esto"
+no puede significar "lo dejo como está".
+
 **Qué NO alcanza, y hay que leerlo antes de dar el borrado por completo:**
 
-1. **`IngestionEvent.promotionNotes`**, que guarda los **valores** de
-   `firstName`, `lastName`, `phone` y `jobTitle` que la promoción
-   descartó (§2.3). Es dato personal de la misma persona, en la misma
-   fila que sí se limpia. Quedó afuera porque borrarlo destruye el
-   registro que §4 de `docs/ingestion-architecture.md` exige — _"nunca
-   sobrescribir en silencio"_ — y ese cruce es una decisión de producto
-   que todavía no se tomó.
-2. **`IngestionEvent.errorMessage`**, sin garantía de no transportar el
-   valor que falló (`D2-7`).
-3. **`IngestionEvent.externalId`**, que si lo proveyó la fuente por
+1. **`IngestionEvent.errorMessage`**. Desde `D2-7` hay tests que fijan
+   que ningún mensaje de validación haga eco del valor recibido, así que
+   hoy no transporta datos personales; lo que falta es una garantía
+   estructural, no una corrección pendiente.
+2. **`IngestionEvent.externalId`**, que si lo proveyó la fuente por
    `X-External-Id` puede ser el email del lead.
-4. **Los eventos de esa persona que nunca se promovieron** (`FAILED`,
+3. **Los eventos de esa persona que nunca se promovieron** (`FAILED`,
    `PENDING`): no tienen `promotedContactId`, así que nada los vincula
    al contacto y el borrado no los encuentra.
-5. **El texto libre** de `Activity` y `Opportunity` (§2.5).
+4. **El texto libre** de `Activity` y `Opportunity` (§2.5).
 
-Las cinco están escritas también en el código que las deja afuera.
+Las cuatro están escritas también en el código que las deja afuera.
+**`promotionNotes` salió de esta lista el 2026-08-28**: era el punto 1 y
+se resolvió redactándolo, como se explica más arriba.
 
 ### 5.3 Los otros derechos del titular
 

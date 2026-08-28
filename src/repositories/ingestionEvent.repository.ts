@@ -1,6 +1,7 @@
 import { IngestionStatus, Prisma, type SourceType } from "@prisma/client";
 import type { PromotionNote } from "../types/promotion";
 import { prisma, type Db } from "../lib/prisma";
+import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
 
 // ---------------------------------------------------------------------------
 // Staging de la ingesta (docs/ingestion-architecture.md §1 y §5): una fila por
@@ -698,35 +699,129 @@ export function purgeIngestionEvents(corte: Date, scope: PurgaScope = {}, db: Db
 // un objeto vacío se lee como "el formulario no mandó nada", que es un estado
 // real y distinto.
 //
-// LO QUE ESTA FUNCIÓN NO LIMPIA, y hay que tenerlo presente porque el nombre
-// del endpoint promete más de lo que esto hace:
+// `promotionNotes` SE REDACTA, NO SE BORRA — y ahí está la decisión.
 //
-//   - `promotionNotes`, que en una NotaConflicto guarda los VALORES de
-//     firstName/lastName/phone/jobTitle que la promoción descartó (ver
-//     src/types/promotion.ts). Es dato personal de la misma persona, en la
-//     misma fila. Quedó afuera a propósito: borrarlo destruye el registro que
-//     §4 de docs/ingestion-architecture.md exige ("nunca sobrescribir en
-//     silencio"), y esa es una decisión de producto que no se tomó todavía.
-//   - `errorMessage`, sin garantía de no transportar el valor que falló
-//     (hallazgo D2-7, abierto).
+// Una NotaConflicto guarda los VALORES de firstName/lastName/phone/jobTitle
+// que la promoción descartó (ver src/types/promotion.ts): dato personal de la
+// misma persona, en la misma fila que se está limpiando. Pero borrar la
+// columna entera destruiría el registro que §4 de
+// docs/ingestion-architecture.md exige — "nunca sobrescribir en silencio".
+//
+// La tensión se resuelve separando las dos cosas que esa columna guarda: QUÉ
+// PASÓ y CON QUÉ VALOR. Se conserva la estructura —`tipo`, `campo`, `motivo`—
+// y se reemplazan solo los valores. Después de un borrado sigue siendo cierto
+// y consultable que hubo un conflicto en `phone`; lo que ya no se puede leer
+// es qué teléfono era. No se está sobrescribiendo el registro en silencio: se
+// está borrando el dato personal que ese registro contenía, a pedido de su
+// titular y dejando el registro en pie.
+//
+// LO QUE ESTA FUNCIÓN SIGUE SIN LIMPIAR, porque el nombre del endpoint promete
+// más de lo que ninguna función puede hacer sola:
+//
+//   - `errorMessage`, sin garantía formal de no transportar el valor que falló.
+//     Desde D2-7 hay tests que fijan que ningún mensaje de validación haga eco
+//     del valor recibido, así que hoy no lo transporta; la clase de ese campo
+//     describe qué pasaría si esa garantía se rompiera.
 //   - `externalId`, que si lo proveyó la fuente por X-External-Id puede ser el
 //     email del lead.
 //   - Los eventos de esa persona que NUNCA se promovieron (FAILED, PENDING):
 //     no tienen promotedContactId, así que este WHERE no los alcanza.
 //
-// Está escrito acá, en docs/data-classification.md §5.2 y en el reporte del
-// PR. Ninguna de las cuatro se resuelve sola.
+// Está escrito acá y en docs/data-classification.md §5.2.
 // ---------------------------------------------------------------------------
 
 export const RAW_PAYLOAD_BORRADO = { erased: true } as const;
 
-export function anonymizeIngestionEventsOfContact(
+// Redacta los valores de dato personal de `promotionNotes` conservando la
+// estructura. Recibe el valor crudo tal como sale de Prisma, que es JSONB: no
+// hay ninguna garantía de que tenga la forma de PromotionNote, porque una
+// escritura directa a la base puede dejar ahí cualquier cosa — el mismo
+// razonamiento por el que traducirConMapeo revalida el fieldMapping.
+//
+// FAIL-CLOSED ANTE UNA FORMA DESCONOCIDA: si el valor no es un array, o si
+// alguno de sus elementos no es una de las tres notas declaradas, la columna
+// entera se va a NULL. En una función de borrado, "no reconozco esto" no puede
+// significar "lo dejo como está": significaría dejar dato personal sin redactar
+// justo en la operación que existe para destruirlo.
+export function redactPromotionNotes(
+  valor: Prisma.JsonValue,
+): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  // NULL se mantiene NULL: un evento sin conflictos no tiene nada que redactar,
+  // y escribirle un array vacío inventaría un estado que la promoción nunca
+  // produce (ver markEventProcessed).
+  if (valor === null) return Prisma.DbNull;
+  if (!Array.isArray(valor)) return Prisma.DbNull;
+
+  const redactadas: Prisma.JsonValue[] = [];
+
+  for (const nota of valor) {
+    if (typeof nota !== "object" || nota === null || Array.isArray(nota)) return Prisma.DbNull;
+
+    const objeto = nota as Record<string, Prisma.JsonValue>;
+
+    switch (objeto.tipo) {
+      case "conflicto":
+        // `crm` es el valor que ganó y `entrante` el que se descartó. Los dos
+        // son datos de la persona: el primero además sigue vivo en Contact
+        // hasta que erasePersonalDataFromContact lo borra en esta misma
+        // transacción, así que dejarlo acá sería conservar una copia de lo que
+        // se acaba de destruir al lado.
+        redactadas.push({
+          ...objeto,
+          crm: MARCADOR_DE_DATO_BORRADO,
+          entrante: MARCADOR_DE_DATO_BORRADO,
+        });
+        break;
+      case "ignorado":
+        // `motivo` explica por qué se ignoró y `campo` cuál era; ninguno de los
+        // dos es un valor. Solo `entrante` lo es.
+        redactadas.push({ ...objeto, entrante: MARCADOR_DE_DATO_BORRADO });
+        break;
+      case "revision_manual":
+        // No tiene ningún campo de valor: `motivo` es una explicación fija
+        // escrita por el código, no algo que haya llegado del formulario.
+        redactadas.push(objeto);
+        break;
+      default:
+        return Prisma.DbNull;
+    }
+  }
+
+  // El cast es el mismo precio que paga markEventProcessed: InputJsonValue
+  // exige una firma de índice que JsonValue no ofrece en la posición de array.
+  return redactadas as unknown as Prisma.InputJsonValue;
+}
+
+// NO ES UN updateMany, y no puede serlo: la redacción de `promotionNotes`
+// depende del contenido de CADA fila, así que hay que leer antes de escribir.
+// `rawPayload` sí es un valor estático, pero separarlo en dos pasadas dejaría
+// una ventana en la que una fila tiene el crudo borrado y las notas intactas.
+//
+// Todo corre sobre el `db` que recibe, que en producción es el `tx` de
+// erasePersonalData: la lectura y las escrituras son parte de la misma
+// transacción que anonimiza el Contact.
+//
+// Devuelve `{ count }` como antes —contando las filas que trajo el findMany—
+// para que contact.service.ts no tenga que cambiar cómo la llama.
+export async function anonymizeIngestionEventsOfContact(
   contactId: string,
   organizationId: string,
   db: Db = prisma,
-) {
-  return db.ingestionEvent.updateMany({
+): Promise<{ count: number }> {
+  const eventos = await db.ingestionEvent.findMany({
     where: { organizationId, promotedContactId: contactId },
-    data: { rawPayload: RAW_PAYLOAD_BORRADO },
+    select: { id: true, promotionNotes: true },
   });
+
+  for (const evento of eventos) {
+    await db.ingestionEvent.update({
+      where: { id: evento.id },
+      data: {
+        rawPayload: RAW_PAYLOAD_BORRADO,
+        promotionNotes: redactPromotionNotes(evento.promotionNotes),
+      },
+    });
+  }
+
+  return { count: eventos.length };
 }
