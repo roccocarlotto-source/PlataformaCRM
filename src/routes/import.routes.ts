@@ -7,7 +7,7 @@ import {
 import { authenticate } from "../middlewares/authenticate";
 import { authorize } from "../middlewares/authorize";
 import { importUpload } from "../middlewares/importUpload";
-import { businessWriteRateLimiter } from "../middlewares/rateLimit";
+import { businessWriteRateLimiter, importPreviewRateLimiter } from "../middlewares/rateLimit";
 
 export const importRouter = Router();
 
@@ -56,7 +56,7 @@ importRouter.post(
 // necesidad: son verbos distintos, así que "preview" nunca podría capturarse
 // como un :batchId. Si algún día hubiera un GET acá, el orden ya está bien.
 //
-// businessWriteRateLimiter A PESAR DE QUE NO ESCRIBE NADA, y es una desviación
+// LLEVA RATE LIMIT A PESAR DE QUE NO ESCRIBE NADA, y es una desviación
 // deliberada del criterio "solo en las escrituras" que sigue el resto del
 // proyecto. El limiter acota COSTO por identidad, y este endpoint carga
 // exactamente el mismo costo que la importación real: parsear hasta 10 MB de
@@ -67,6 +67,22 @@ importRouter.post(
 // POST /imports — sería estrictamente peor que la posición actual, y por un
 // endpoint que además no escribe nada que lo frene naturalmente.
 //
+// PERO NO EL MISMO QUE EL POST DE ARRIBA — hallazgo S2-3 de
+// docs/review-fase2-2026-08-28.md. Hasta acá compartía `businessWriteRateLimiter`
+// (100/min), y esa cuota está calibrada para escritura de negocio de alta
+// frecuencia. La diferencia con el `POST /imports` de al lado es que ESE paga el
+// parseo caro recién después de tres precondiciones baratas que quien llama no
+// controla —la fuente existe, es FILE_IMPORT, está activa—, y este no tiene
+// ninguna: no recibe `sourceId`, que es justamente su razón de ser. O sea que
+// era el camino más barato del sistema hacia su operación más cara.
+//
+// `importPreviewRateLimiter` le da su propia cuota, 10/min, un orden de magnitud
+// debajo. Es holgado para el uso real —una vista previa por archivo, mientras
+// alguien arma un fieldMapping mirando la pantalla— y es una cuota SEPARADA:
+// agotarla no deja sin cupo al `POST /imports`, que es la escritura que alguien
+// está esperando que funcione. El razonamiento completo del número está en
+// middlewares/rateLimit.ts.
+//
 // El orden de los tres primeros es el mismo que el del POST de importación y por
 // la misma razón: importUpload va DESPUÉS de authorize para no parsear un
 // multipart de 10 MB de alguien que todavía no probó ser ADMIN de la organización.
@@ -74,7 +90,7 @@ importRouter.post(
 importRouter.post(
   "/imports/preview",
   authenticate,
-  businessWriteRateLimiter,
+  importPreviewRateLimiter,
   authorize("ADMIN"),
   importUpload,
   previsualizarEncabezadosHandler,

@@ -126,7 +126,40 @@ verificado por JWKS/ES256) y está aislado por organización.
 | `POST /api/ingestion-events/:id/retry` | No devuelve datos del lead, pero identifica un evento concreto | ADMIN |
 | `GET /api/users`, `GET /api/invitations` | Email y nombre de personas usuarias e invitadas | ADMIN |
 | `GET /api/activities` | Texto libre | Cualquier usuario autenticado |
+| `POST /api/imports/preview` | **Entrada**, no salida. Devuelve solo los encabezados — pero recibe el archivo entero: ver la excepción de abajo | ADMIN |
 | `POST /api/ingest` | **Entrada**, no salida. Escribe `rawPayload` | Una `ApiKey` válida, sin JWT |
+
+### Excepción declarada a la minimización: `POST /api/imports/preview`
+
+*(Hallazgo `D2-6` de `docs/review-fase2-2026-08-28.md`, aceptado como
+excepción el 2026-08-28.)*
+
+El endpoint **sube el archivo completo —hasta 10 MB, hasta 10.000 filas de
+datos personales— para devolver una sola fila**, la de encabezados. En
+términos estrictos del estándar es recolección desproporcionada: se
+transfiere y se expande en memoria mucho más de lo necesario para la
+finalidad declarada.
+
+**Se acepta y no se corrige**, por la razón que el propio review anota en
+su §3.3 como decisión correcta y no como descuido: la garantía central
+del endpoint es que devuelve **los mismos** encabezados que la
+importación real, y la sostiene llamando a la **misma** cadena de parseo
+(§9.11 de `docs/ingestion-architecture.md`). Un lector parcial que solo
+leyera la primera fila sería un segundo camino de parseo, y dos parsers
+que interpretan distinto un BOM o un espacio desalinean el
+`fieldMapping` **en silencio**: las filas fallan después con *"ninguna
+columna del fieldMapping existe"* y nada explica por qué.
+
+El riesgo de tener dos caminos de parseo es peor que el de transferir de
+más. Lo que acota el costo no es una lectura parcial —no existe— sino el
+límite de tamaño (`IMPORT_MAX_FILE_BYTES`) y la cuota propia del endpoint
+(`S2-3`, 10 requests/minuto por identidad). **Nada se persiste**: el
+preview no toca la base, no lee `Source` y no escribe ningún
+`IngestionEvent`.
+
+Qué la volvería revisable: que aparezca una forma de leer encabezados que
+use exactamente el mismo parser que la importación real, en vez de uno
+propio.
 
 La asimetría que conviene tener presente: **la capa de ingesta es más
 restrictiva que el CRM**. Ver la cola de eventos es ADMIN-only; ver la

@@ -191,18 +191,28 @@ export const acceptInvitationRateLimiter = createAcceptInvitationRateLimiter();
 export const BUSINESS_WRITE_WINDOW_MS = 60 * 1000;
 export const BUSINESS_WRITE_MAX = 100;
 
-function businessWriteKeyGenerator(req: Request): string {
-  const auth = (req as Request & { auth?: AuthContext }).auth;
-  if (!auth) {
-    // No debería poder pasar nunca: `authenticate` corre antes en la cadena
-    // y, si falla, ya cortó el request con su propio 401 sin llegar acá —
-    // mismo razonamiento que acceptInvitationKeyGenerator.
-    throw new Error(
-      "businessWriteRateLimiter: falta req.auth — verificá el orden de middlewares en el router correspondiente",
-    );
-  }
-  return auth.userId;
+// Keying por identidad ya verificada (req.auth.userId), compartido por todos
+// los limiters que corren después de `authenticate`. Se factorizó al agregar
+// el de /imports/preview (S2-3): es LA MISMA amenaza —un ADMIN autenticado
+// golpeando un endpoint— así que replicar la función habría sido dos copias
+// de una decisión que es una sola. El nombre del limiter se pasa solo para
+// que el error diga cuál es el router mal ordenado.
+function authUserIdKeyGenerator(limiterName: string) {
+  return (req: Request): string => {
+    const auth = (req as Request & { auth?: AuthContext }).auth;
+    if (!auth) {
+      // No debería poder pasar nunca: `authenticate` corre antes en la cadena
+      // y, si falla, ya cortó el request con su propio 401 sin llegar acá —
+      // mismo razonamiento que acceptInvitationKeyGenerator.
+      throw new Error(
+        `${limiterName}: falta req.auth — verificá el orden de middlewares en el router correspondiente`,
+      );
+    }
+    return auth.userId;
+  };
 }
+
+const businessWriteKeyGenerator = authUserIdKeyGenerator("businessWriteRateLimiter");
 
 // overrides es solo para tests de integración: permite un `max` chico para
 // no tener que disparar 100+ requests reales para probar el bloqueo — ver
@@ -220,6 +230,59 @@ export function createBusinessWriteRateLimiter(overrides?: { windowMs?: number; 
 }
 
 export const businessWriteRateLimiter = createBusinessWriteRateLimiter();
+
+// ---------------------------------------------------------------------------
+// S2-3 — vista previa de encabezados, POST /api/imports/preview.
+//
+// POR QUÉ NO ALCANZA LA CUOTA DE NEGOCIO, que es la que compartía hasta acá.
+// La importación real paga el parseo caro recién DESPUÉS de tres precondiciones
+// baratas que quien llama no controla: findSourceById (404), type !==
+// FILE_IMPORT (400) y !isActive (400). El preview no tiene ninguna —no recibe
+// sourceId, y esa es su razón de ser (§9.11 de
+// docs/ingestion-architecture.md)— así que es el camino MÁS BARATO del sistema
+// hacia la operación MÁS CARA: expandir un XLSX en memoria, que es un ZIP y por
+// lo tanto no está acotado por el tamaño subido (ver parsearXlsx en
+// utils/spreadsheet.ts, y S-5 de docs/review-ingesta-2026-08-27.md, donde ese
+// costo ya se aceptó como riesgo conocido).
+//
+// POR QUÉ 10 Y NO 100. BUSINESS_WRITE_MAX es deliberadamente generoso porque su
+// uso legítimo es de alta frecuencia: un ADMIN reordenando etapas o cargando
+// contactos en lote. Una vista previa de encabezados no se parece a eso — se
+// pide una vez por archivo, mientras alguien arma un fieldMapping mirando la
+// pantalla. Un orden de magnitud menos sigue siendo holgado para ese uso y
+// recorta en 10x el trabajo que una sola identidad puede forzar.
+//
+// MISMO keying que la escritura de negocio, y a propósito: la población es
+// idéntica (ADMIN autenticado, authorize corre después de este limiter) y la
+// unidad que se quiere acotar es la identidad, nunca req.ip — ver el encabezado
+// de este archivo sobre trust proxy.
+//
+// Es una cuota SEPARADA, no una más chica compartida: agotar el preview no
+// puede dejar sin cupo a POST /imports, que es la escritura real y la que
+// alguien está esperando que funcione.
+//
+// Baseline operacional, no un umbral definitivo — mismo criterio que el resto
+// de este archivo.
+// ---------------------------------------------------------------------------
+export const IMPORT_PREVIEW_WINDOW_MS = 60 * 1000;
+export const IMPORT_PREVIEW_MAX = 10;
+
+// overrides es solo para tests de integración, mismo criterio que las otras dos
+// factories. La instancia de producción no los pasa.
+export function createImportPreviewRateLimiter(overrides?: { windowMs?: number; max?: number }) {
+  return rateLimit({
+    windowMs: overrides?.windowMs ?? IMPORT_PREVIEW_WINDOW_MS,
+    max: overrides?.max ?? IMPORT_PREVIEW_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    keyGenerator: authUserIdKeyGenerator("importPreviewRateLimiter"),
+    handler: buildRateLimitHandler(
+      "Demasiadas vistas previas seguidas. Probá de nuevo en un momento.",
+    ),
+  });
+}
+
+export const importPreviewRateLimiter = createImportPreviewRateLimiter();
 
 // ---------------------------------------------------------------------------
 // Ítem 4 — ingesta, POST /api/ingest. §3: "Rate limit propio y más estricto por

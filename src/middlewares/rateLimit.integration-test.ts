@@ -16,10 +16,13 @@ import { notFound } from "./notFound";
 import {
   ACCEPT_IDENTITY_MAX,
   ACCEPT_PRE_AUTH_MAX,
+  BUSINESS_WRITE_MAX,
+  IMPORT_PREVIEW_MAX,
   ONBOARDING_MAX,
   createAcceptInvitationRateLimiter,
   createAcceptPreAuthRateLimiter,
   createBusinessWriteRateLimiter,
+  createImportPreviewRateLimiter,
   createOnboardingRateLimiter,
 } from "./rateLimit";
 import { verifyInvitationAcceptIdentity } from "./verifyInvitationAcceptIdentity";
@@ -571,4 +574,136 @@ test("businessWriteRateLimiter: el cupo agotado de una identidad no afecta a otr
   } finally {
     await close();
   }
+});
+
+// ---------------------------------------------------------------------------
+// S2-3 — importPreviewRateLimiter
+//
+// Mismo montaje que businessWriteRateLimiter y por la misma razón: lo que está
+// bajo prueba es el limiter, no la resolución de auth, así que req.auth se
+// fabrica con un header de test.
+//
+// LO QUE ESTOS TESTS TIENEN QUE PROBAR NO ES "hay un rate limit" —eso ya
+// existía—, sino que la cuota del preview es PROPIA Y MÁS ESTRICTA que la de
+// negocio. Por eso el primer caso monta los DOS limiters en la misma app, con
+// sus proporciones reales, y verifica que el del preview se agota mientras al
+// otro todavía le queda cupo. Con dos assert sueltos sobre cada limiter por
+// separado, un cambio que igualara los dos umbrales pasaría sin que nada lo
+// note.
+// ---------------------------------------------------------------------------
+
+function mountPreviewAndBusinessWrite(app: express.Express, previewMax: number, writeMax: number) {
+  const fabricarAuth = (
+    req: express.Request,
+    _res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    const userId = req.header("x-test-user-id") ?? "test-user-fixed";
+    req.auth = {
+      userId,
+      organizationId: "test-org-fixed",
+      role: "ADMIN",
+      email: `${userId}@example.test`,
+      fullName: "Test User",
+    } satisfies AuthContext;
+    next();
+  };
+
+  app.post(
+    "/test/imports/preview",
+    fabricarAuth,
+    createImportPreviewRateLimiter({ windowMs: 60_000, max: previewMax }),
+    (_req, res) => res.status(200).json({ ok: true }),
+  );
+
+  app.post(
+    "/test/imports",
+    fabricarAuth,
+    createBusinessWriteRateLimiter({ windowMs: 60_000, max: writeMax }),
+    (_req, res) => res.status(200).json({ ok: true }),
+  );
+}
+
+test("importPreviewRateLimiter: se agota antes que el de negocio, y son cuotas separadas", async () => {
+  // Proporción real (10 vs 100), reducida 1:10 para no disparar 100 requests.
+  const previewMax = 2;
+  const writeMax = 20;
+  assert.equal(
+    BUSINESS_WRITE_MAX / IMPORT_PREVIEW_MAX,
+    writeMax / previewMax,
+    "los máximos del test tienen que mantener la proporción real entre las dos cuotas",
+  );
+
+  const { url, close } = await startTestApp((app) =>
+    mountPreviewAndBusinessWrite(app, previewMax, writeMax),
+  );
+  try {
+    for (let i = 0; i < previewMax; i++) {
+      const res = await fetch(`${url}/test/imports/preview`, { method: "POST" });
+      assert.equal(res.status, 200, `preview ${i + 1}/${previewMax} debería contar, no bloquearse`);
+    }
+
+    const previewBlocked = await fetch(`${url}/test/imports/preview`, { method: "POST" });
+    assert.equal(previewBlocked.status, 429, "el preview se agota en su propia cuota, más chica");
+    assert.ok(
+      previewBlocked.headers.get("retry-after"),
+      "una respuesta 429 debe incluir el header Retry-After",
+    );
+
+    // LA AFIRMACIÓN QUE IMPORTA: la importación real sigue disponible para la
+    // MISMA identidad. Si las dos cuotas fueran una sola, esto daría 429.
+    const writeStillOk = await fetch(`${url}/test/imports`, { method: "POST" });
+    assert.equal(
+      writeStillOk.status,
+      200,
+      "agotar el preview no puede dejar sin cupo a POST /imports: son cuotas separadas",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("importPreviewRateLimiter: el cupo agotado de una identidad no afecta a otra", async () => {
+  const max = 2;
+  const { url, close } = await startTestApp((app) =>
+    mountPreviewAndBusinessWrite(app, max, max * 10),
+  );
+  try {
+    for (let i = 0; i < max; i++) {
+      const res = await fetch(`${url}/test/imports/preview`, {
+        method: "POST",
+        headers: { "x-test-user-id": "preview-a" },
+      });
+      assert.equal(res.status, 200);
+    }
+    const aBlocked = await fetch(`${url}/test/imports/preview`, {
+      method: "POST",
+      headers: { "x-test-user-id": "preview-a" },
+    });
+    assert.equal(aBlocked.status, 429);
+
+    const bStillOk = await fetch(`${url}/test/imports/preview`, {
+      method: "POST",
+      headers: { "x-test-user-id": "preview-b" },
+    });
+    assert.equal(
+      bStillOk.status,
+      200,
+      "el keying es por identidad: el cupo de A no puede consumir el de B",
+    );
+  } finally {
+    await close();
+  }
+});
+
+// El número real que quedó en producción, afirmado explícitamente: si alguien
+// lo sube a la altura de la cuota de negocio, S2-3 vuelve a estar abierto y
+// este test lo dice.
+test("la cuota del preview es un orden de magnitud menor que la de negocio", () => {
+  assert.equal(IMPORT_PREVIEW_MAX, 10);
+  assert.equal(BUSINESS_WRITE_MAX, 100);
+  assert.ok(
+    IMPORT_PREVIEW_MAX * 5 <= BUSINESS_WRITE_MAX,
+    "el preview no puede acercarse a la cuota de escritura de negocio",
+  );
 });
