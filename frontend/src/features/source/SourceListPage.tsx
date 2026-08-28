@@ -193,6 +193,12 @@ export function SourceListPage() {
                       <Link to={`/sources/${source.id}/import`}>Importar archivo</Link>{" "}
                     </>
                   ) : null}
+                  {/* Sin condicionar por tipo, a diferencia de "Importar
+                      archivo": CUALQUIER fuente puede tener eventos — un
+                      webhook los genera de a uno, una FILE_IMPORT por lote — así
+                      que el listado filtrado siempre tiene sentido, aunque
+                      devuelva vacío. */}
+                  <Link to={`/ingestion-events?sourceId=${source.id}`}>Ver eventos</Link>{" "}
                   <Button variant="danger" onClick={() => handleDelete(source.id)}>
                     Eliminar
                   </Button>

@@ -23,6 +23,7 @@ import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
 import { ApiKeyListPage } from "../features/apiKey/ApiKeyListPage";
 import { ImportPage } from "../features/import/ImportPage";
+import { IngestionEventListPage } from "../features/ingestionEvent/IngestionEventListPage";
 import { SourceFormPage } from "../features/source/SourceFormPage";
 import { SourceListPage } from "../features/source/SourceListPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
@@ -103,6 +104,11 @@ export const router = createBrowserRouter([
               // "Ver claves" de SourceListPage. ADMIN-only como el resto de la
               // capa de ingesta, lectura incluida.
               { path: "/api-keys", element: <ApiKeyListPage /> },
+              // Cola de eventos de ingesta: browsear, ver por qué falló una
+              // fila y reprocesarla. ADMIN-only como el resto de la capa, y
+              // por el mismo motivo — las dos rutas del backend llevan
+              // authorize("ADMIN"), lectura incluida.
+              { path: "/ingestion-events", element: <IngestionEventListPage /> },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/contacts/new", element: <ContactFormPage /> },

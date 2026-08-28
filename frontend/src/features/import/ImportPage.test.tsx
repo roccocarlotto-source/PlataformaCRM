@@ -287,3 +287,43 @@ describe("ImportPage — subida y resultado", () => {
     expect(await screen.findByText(/4999 quedaron afuera/)).toBeInTheDocument();
   });
 });
+
+describe("ImportPage — Q-B: link al listado de eventos del lote", () => {
+  it("el panel ofrece 'Ver estas filas' con el batchId del lote recién creado", async () => {
+    // Las dos vistas se complementan: acá los contadores agregados, allá la cola
+    // fila por fila con el motivo de cada falla y el botón de reintentar.
+    server.use(
+      sourceHandler(),
+      http.post(importsUrl, () =>
+        HttpResponse.json(
+          {
+            batchId: "batch-77",
+            encabezados: ["Nombre"],
+            filasLeidas: 3,
+            insertados: 3,
+            duplicados: 0,
+          },
+          { status: 202 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    const input = await screen.findByLabelText(/Archivo/);
+
+    await user.upload(input, csv());
+    await user.click(screen.getByRole("button", { name: "Importar" }));
+
+    const link = await screen.findByRole("link", { name: "Ver estas filas" });
+    expect(link).toHaveAttribute("href", "/ingestion-events?batchId=batch-77");
+  });
+
+  it("sin subida todavía, el link no existe", async () => {
+    server.use(sourceHandler());
+    renderPage();
+    await screen.findByLabelText(/Archivo/);
+
+    expect(screen.queryByRole("link", { name: "Ver estas filas" })).not.toBeInTheDocument();
+  });
+});

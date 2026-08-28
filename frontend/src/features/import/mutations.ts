@@ -1,18 +1,22 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ingestionEventKeys } from "../ingestionEvent/queries";
 import { importFile } from "./api";
 
-// SIN invalidateQueries, y no es un olvido.
+// INVALIDA EL LISTADO DE EVENTOS, no el suyo propio.
 //
-// Todas las demás mutaciones del proyecto invalidan el listado que acaban de
-// afectar. Acá no hay ninguno: la importación crea IngestionEvent, y el frontend
-// todavía no tiene ninguna pantalla que los liste (es la última pieza de la Fase
-// 2). Invalidar `importKeys` tampoco corresponde — el batchId del lote nuevo no
-// estaba en cache antes de crearse.
+// Es la dependencia cruzada que este archivo anticipaba y no podía tener
+// todavía: una importación exitosa crea IngestionEvent, así que quien navegue de
+// acá a la pantalla de Eventos en la misma sesión tiene que ver las filas nuevas
+// sin recargar la página.
 //
-// El día que exista el listado de eventos, esta mutación va a querer invalidarlo.
-// Agregarlo hoy sería inventar una dependencia con algo que no existe.
+// No se invalida `importKeys`: el batchId del lote recién creado no estaba en
+// cache antes de existir, así que no hay nada viejo que tirar.
 export function useImportFile(sourceId: string) {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (file: File) => importFile(sourceId, file),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ingestionEventKeys.lists() });
+    },
   });
 }

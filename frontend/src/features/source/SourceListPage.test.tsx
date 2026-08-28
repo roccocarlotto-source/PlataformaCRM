@@ -312,4 +312,25 @@ describe("SourceListPage — cross-links por fila", () => {
     expect(links[1]).toHaveAttribute("href", "/api-keys?sourceId=src-file");
     expect(links[2]).toHaveAttribute("href", "/api-keys?sourceId=src-db");
   });
+
+  it("'Ver eventos' aparece en TODA fila, sin importar el tipo", async () => {
+    // A diferencia de "Importar archivo": cualquier Source puede tener eventos
+    // —un webhook los genera de a uno, una FILE_IMPORT por lote— así que el
+    // listado filtrado siempre tiene sentido, aunque devuelva vacío.
+    server.use(
+      conFilas([
+        makeSource({ id: "src-hook", name: "Landing", type: "WEBHOOK" }),
+        makeSource({ id: "src-file", name: "Feria", type: "FILE_IMPORT" }),
+        makeSource({ id: "src-db", name: "Base", type: "EXTERNAL_DB" }),
+      ]),
+    );
+    renderPage();
+
+    const tabla = within(await screen.findByRole("table"));
+    const links = tabla.getAllByRole("link", { name: "Ver eventos" });
+    expect(links).toHaveLength(3);
+    expect(links[0]).toHaveAttribute("href", "/ingestion-events?sourceId=src-hook");
+    expect(links[1]).toHaveAttribute("href", "/ingestion-events?sourceId=src-file");
+    expect(links[2]).toHaveAttribute("href", "/ingestion-events?sourceId=src-db");
+  });
 });
