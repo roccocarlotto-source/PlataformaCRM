@@ -14,8 +14,11 @@ import {
 } from "../repositories/booking.repository";
 import { findContactById } from "../repositories/contact.repository";
 import { findOpportunityById } from "../repositories/opportunity.repository";
-import { lockResourceForUpdate } from "../repositories/resource.repository";
-import { lockServiceTypeForUpdate } from "../repositories/serviceType.repository";
+import { findResourceById, lockResourceForUpdate } from "../repositories/resource.repository";
+import {
+  findServiceTypeById,
+  lockServiceTypeForUpdate,
+} from "../repositories/serviceType.repository";
 import { AppError } from "../utils/AppError";
 import { estaDentroDelHorario } from "../utils/workingHours";
 import { resolverContexto } from "./availability.service";
@@ -151,11 +154,12 @@ export async function createBooking(
       resourceId: input.resourceId,
       serviceTypeId: input.serviceTypeId,
       desde: startsAt,
-      // Se expande un margen de un día para adelante y no solo el turno: una
-      // franja se recorta al rango pedido, así que pedir exactamente [inicio,
-      // fin) devolvería la franja recortada al turno y `estaContenido` daría
-      // true siempre — la validación no probaría nada. Con el margen, la franja
-      // llega entera y la contención es real.
+      // Se expande un margen de un día para adelante y no solo el turno: el FIN
+      // de una franja se recorta a `hasta` (el inicio no, desde A-5), así que
+      // pedir exactamente [inicio, fin) devolvería la franja recortada al fin
+      // del turno y `estaContenido` daría true aunque el turno excediera el
+      // cierre — la validación no probaría nada de ese lado. Con el margen, la
+      // franja llega entera y la contención es real.
       hasta: new Date(startsAt.getTime() + 24 * 60 * 60 * 1000),
     },
   );
@@ -183,10 +187,34 @@ export async function createBooking(
     await lockResourceForUpdate(input.resourceId, organizationId, tx);
     await lockServiceTypeForUpdate(input.serviceTypeId, organizationId, tx);
 
-    // LA REVALIDACIÓN CON EL LOCK SOSTENIDO. Sin esto el control de capacidad
+    // A-4 (auditoría 2026-08-29), la otra mitad — y M-1 de la misma auditoría:
+    // RELEER EL RECURSO Y EL SERVICIO CON LOS LOCKS SOSTENIDOS. Los de arriba
+    // salieron de resolverContexto, fuera de la transacción, y entre esa lectura
+    // y este punto pudo commitear un deleteServiceType, un deleteResource o un
+    // updateServiceType que movió el servicio a OTRO recurso. Ese último es el
+    // que importa para A-4: updateServiceType toma este mismo lock y cuenta
+    // reservas antes de mover; si esta transacción estaba esperando el lock,
+    // su conteo dio cero y el movimiento commiteó — y sin esta relectura, la
+    // reserva se insertaba igual sobre el recurso viejo, que es exactamente el
+    // huérfano que A-4 describe. El lock serializa; la relectura es lo que
+    // hace que serializar sirva de algo. Mismo patrón que createServiceType y
+    // replaceWorkingHoursForResource.
+    const resourceActual = await findResourceById(input.resourceId, organizationId, tx);
+    if (!resourceActual) {
+      throw new AppError("El recurso indicado no existe o no pertenece a tu organización", 400);
+    }
+    const serviceTypeActual = await findServiceTypeById(input.serviceTypeId, organizationId, tx);
+    if (!serviceTypeActual) {
+      throw new AppError("El servicio indicado no existe o no pertenece a tu organización", 400);
+    }
+    if (serviceTypeActual.resourceId !== resourceActual.id) {
+      throw new AppError("El servicio indicado no lo provee ese recurso", 400);
+    }
+
+    // LA REVALIDACIÓN DE CAPACIDAD CON EL LOCK SOSTENIDO. Sin esto el control
     // sería evitable con solo llegar primero: dos requests concurrentes leerían
     // los dos "queda lugar" antes de que ninguno inserte. Es la lección de
-    // ALTO-8 y de H-1.
+    // ALTO-8 y de H-1. La capacidad sale de la relectura, no del pre-check.
     const tomados = await countOverlappingBookings(
       organizationId,
       input.resourceId,
@@ -195,11 +223,11 @@ export async function createBooking(
       tx,
     );
 
-    if (tomados >= serviceType.capacity) {
+    if (tomados >= serviceTypeActual.capacity) {
       throw new AppError(
-        serviceType.capacity === 1
+        serviceTypeActual.capacity === 1
           ? "Ese horario ya está reservado"
-          : `Ese horario ya no tiene lugares disponibles (capacidad ${serviceType.capacity})`,
+          : `Ese horario ya no tiene lugares disponibles (capacidad ${serviceTypeActual.capacity})`,
         409,
       );
     }
