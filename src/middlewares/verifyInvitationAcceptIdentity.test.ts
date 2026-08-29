@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { AuthApiError, AuthRetryableFetchError } from "@supabase/supabase-js";
 import { AppError } from "../utils/AppError";
 import {
+  esUsuarioInexistente,
   resolverIdentidadDeInvitacion,
   type IdentidadDeAuth,
 } from "./verifyInvitationAcceptIdentity";
@@ -87,6 +89,37 @@ test("un `sub` que la Admin API no resuelve es 401, nunca 500", () => {
     assert.equal(err.statusCode, 401);
     assert.equal(err.message, "No se pudo verificar la identidad del token");
   }
+});
+
+// ---------------------------------------------------------------------------
+// A-3 — "no existe" vs "no pude preguntar", con las clases REALES que devuelve
+// @supabase/auth-js@2.110.2 (construidas como las construye lib/fetch.js
+// handleError), sin red. Solo el 404 de la API es "no existe"; el resto es
+// infraestructura y el middleware lo convierte en 503 + log, no en 401.
+// ---------------------------------------------------------------------------
+
+test("esUsuarioInexistente: solo el 404 de la Admin API cuenta como 'no existe'", () => {
+  assert.equal(
+    esUsuarioInexistente(new AuthApiError("User not found", 404, "user_not_found")),
+    true,
+  );
+});
+
+test("esUsuarioInexistente: un fallo de red o un 5xx de GoTrue NO es 'no existe' — es 503, no 401", () => {
+  // handleError: fetch sin respuesta → status 0; 5xx → ese status.
+  assert.equal(esUsuarioInexistente(new AuthRetryableFetchError("fetch failed", 0)), false);
+  assert.equal(esUsuarioInexistente(new AuthRetryableFetchError("Bad Gateway", 502)), false);
+});
+
+test("esUsuarioInexistente: un 401/403 de la Admin API es la service role key de ESTE servidor, no el invitado — tampoco es 'no existe'", () => {
+  assert.equal(esUsuarioInexistente(new AuthApiError("Invalid API key", 401, "bad_jwt")), false);
+  assert.equal(esUsuarioInexistente(new AuthApiError("Forbidden", 403, "not_admin")), false);
+});
+
+test("esUsuarioInexistente: un 404 que no viene de la API (otra clase con status 404) no se confunde con 'no existe'", () => {
+  // Defensa contra un futuro CustomAuthError con status 404: la decisión se
+  // toma por clase + status, no por status solo.
+  assert.equal(esUsuarioInexistente({ name: "AuthUnknownError", status: 404 }), false);
 });
 
 test("el orden de los chequeos: sin identidad gana sobre sin email, y sin email sobre sin confirmar", () => {
