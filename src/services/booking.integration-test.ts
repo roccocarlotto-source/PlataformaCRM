@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { createBooking as insertarReserva } from "../repositories/booking.repository";
+import { lockResourceForUpdate } from "../repositories/resource.repository";
 import { AppError } from "../utils/AppError";
 import { getCifrador } from "../utils/encryption";
 import { obtenerDisponibilidad } from "./availability.service";
@@ -755,42 +758,243 @@ test("una clase con cupo acepta varias reservas y rechaza la que pasa el tope", 
   }
 });
 
-test("DOS RESERVAS CONCURRENTES por el último cupo: solo una entra", async () => {
-  // LA CARRERA QUE EL LOCK EXISTE PARA CERRAR. Sin lockResourceForUpdate, las
-  // dos leerían "queda lugar" antes de que ninguna inserte y el cupo se
-  // sobrevendería. Es la lección de ALTO-8 y de H-1, ejercitada de verdad.
+// ---------------------------------------------------------------------------
+// A-7 (docs/auditoria-2026-08-29.md) — LA CARRERA POR EL ÚLTIMO CUPO, forzada
+// de verdad y contra el lock correcto.
+//
+// El test anterior hacía Promise.allSettled sobre dos createBooking reales del
+// MISMO servicio y esperaba que el scheduler los solapara antes de que ninguno
+// commiteara. Dos problemas, independientes:
+//
+//   1. NO FORZABA EL SOLAPAMIENTO. Cada createBooking hace varias lecturas
+//      fuera de transacción antes de la FASE 2; que los dos llegaran al conteo
+//      antes de que ninguno insertara dependía del timing. Con el lock sacado,
+//      el test detectaba el bug a veces.
+//   2. EL LOCK QUE DECÍA PROBAR ERA REDUNDANTE EN ÉL MISMO. createBooking toma
+//      DOS locks —resource y después serviceType— y las dos reservas usaban el
+//      mismo serviceTypeId, así que sacar lockResourceForUpdate y dejar solo
+//      lockServiceTypeForUpdate dejaba el test verde: el del servicio ya
+//      serializaba dos reservas del mismo servicio.
+//
+// Lo que se hace ahora, con la misma técnica de T-1
+// (activity.service.integration-test.ts) y del test de A-1 en
+// stage.service.integration-test.ts:
+//
+//   - DOS SERVICIOS DISTINTOS SOBRE EL MISMO RECURSO ("Corte" y "Barba" del
+//     mismo barbero). Es el caso real que countOverlappingBookings describe:
+//     compiten por el recurso aunque no sean el mismo servicio. Y es lo que
+//     hace que el lock del servicio NO alcance: cada uno lockea SU servicio, y
+//     el único lock que comparten es el del recurso.
+//   - Una transacción A del test toma el lock del recurso con la misma sentencia
+//     que usa createBooking (lockResourceForUpdate), inserta la reserva de
+//     "Corte" —lo que haría un createBooking que llegó primero— y se queda
+//     abierta sin commitear.
+//   - Se arranca el createBooking REAL de "Barba" y se confirma contra
+//     pg_stat_activity que quedó bloqueado por A, y contra pg_locks que lo que
+//     espera es la fila de `resources` — no otra cosa.
+//   - Recién entonces se libera A, y el service tiene que perder con 409.
+//
+// POR QUÉ ESTO SÍ DISTINGUE EL LOCK CORRECTO: si alguien saca
+// lockResourceForUpdate de createBooking y deja lockServiceTypeForUpdate, la
+// reserva de "Barba" lockea el servicio "Barba" (libre), NO se bloquea, cuenta
+// cero (la de "Corte" sigue sin commitear bajo READ COMMITTED), inserta y
+// commitea — y el test falla dos veces: no se detecta ningún backend bloqueado,
+// y la base termina con DOS reservas CONFIRMED para el mismo barbero a la misma
+// hora. Con el lock, la reserva de "Barba" espera en `resources` hasta que A
+// commitea, relee, cuenta uno y rechaza.
+//
+// Lo que NO cambia acá es el service: este PR es de calidad de test.
+// ---------------------------------------------------------------------------
+
+// Corre `escrituras` dentro de una transacción A que primero toma el lock del
+// recurso y queda abierta; arranca `operacionDelService` mientras A sigue
+// abierta; confirma contra Postgres que quedó bloqueada por A y sobre qué
+// relación espera; libera A; devuelve el resultado del service (o su error).
+async function correrContraRecursoBloqueado<T>(
+  escenario: Escenario,
+  escrituras: (txA: Prisma.TransactionClient) => Promise<void>,
+  operacionDelService: () => Promise<T>,
+): Promise<{ resultado: PromiseSettledResult<T>; relacionesEnEspera: string[] }> {
+  let aPid: number | undefined;
+
+  let signalAHaEscrito: () => void;
+  const aHaEscrito = new Promise<void>((resolve) => {
+    signalAHaEscrito = resolve;
+  });
+
+  let liberarA: () => void;
+  const liberacionDeA = new Promise<void>((resolve) => {
+    liberarA = resolve;
+  });
+
+  // maxWait/timeout generosos: el plazo real lo administra liberacionDeA, no el
+  // default de 5 s de $transaction — mismo criterio que T-1.
+  const txAPromise = prisma.$transaction(
+    async (txA) => {
+      const pidRow = await txA.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+      aPid = pidRow[0].pid;
+
+      await lockResourceForUpdate(escenario.resourceId, escenario.organizationId, txA);
+      await escrituras(txA);
+
+      signalAHaEscrito();
+      await liberacionDeA;
+    },
+    { maxWait: 15000, timeout: 15000 },
+  );
+
+  await aHaEscrito;
+  assert.ok(aPid !== undefined, "debe conocerse el pid de la transacción A");
+
+  const servicePromise = operacionDelService();
+  // Evita un unhandledRejection mientras el polling mantiene la promesa
+  // pendiente; el resultado real se consume más abajo.
+  servicePromise.catch(() => {});
+
+  // Confirmo contra Postgres real que hay un backend bloqueado por A, y capturo
+  // su pid para preguntarle a pg_locks sobre qué fila espera.
+  let pidBloqueado: number | undefined;
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    const rows = await prisma.$queryRaw<{ pid: number }[]>`
+      SELECT pid FROM pg_stat_activity
+      WHERE ${aPid}::int = ANY(pg_blocking_pids(pid))
+    `;
+    if (rows.length > 0) {
+      pidBloqueado = rows[0].pid;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  assert.ok(
+    pidBloqueado !== undefined,
+    "no se detectó ningún backend bloqueado por el lock del recurso dentro del plazo — sin lockResourceForUpdate, createBooking no espera a nadie y sobrevende el cupo",
+  );
+
+  // Un backend que espera un lock de fila sostiene un lock `tuple` sobre la
+  // relación de esa fila. Es lo que dice EN QUÉ TABLA se trabó.
+  const enEspera = await prisma.$queryRaw<{ relname: string }[]>`
+    SELECT c.relname
+    FROM pg_locks l
+    JOIN pg_class c ON c.oid = l.relation
+    WHERE l.pid = ${pidBloqueado}::int AND l.locktype = 'tuple'
+  `;
+  const relacionesEnEspera = enEspera.map((r) => r.relname);
+
+  liberarA!();
+  await txAPromise;
+
+  const [resultado] = await Promise.allSettled([servicePromise]);
+  return { resultado, relacionesEnEspera };
+}
+
+test("A-7: DOS SERVICIOS DISTINTOS del mismo recurso compiten por el último cupo — el segundo espera el lock del RECURSO y pierde con 409", async () => {
   const escenario = await montar("carrera");
   try {
-    const resultados = await Promise.allSettled([
-      createBooking(
-        escenario.organizationId,
-        {
-          resourceId: escenario.resourceId,
-          serviceTypeId: escenario.serviceTypeId,
-          contactId: escenario.contactId,
-          startsAt: LUNES_9_LOCAL,
-        },
-        doblarGoogle().cliente,
-      ),
-      createBooking(
-        escenario.organizationId,
-        {
-          resourceId: escenario.resourceId,
-          serviceTypeId: escenario.serviceTypeId,
-          contactId: escenario.contactId,
-          startsAt: LUNES_9_LOCAL,
-        },
-        doblarGoogle().cliente,
-      ),
-    ]);
+    // El segundo servicio del mismo barbero. Misma duración y capacidad 1: dos
+    // turnos de una hora a la misma hora no entran en la misma persona.
+    const barba = await createServiceType(escenario.organizationId, {
+      branchId: escenario.branchId,
+      resourceId: escenario.resourceId,
+      name: "Barba",
+      durationMin: 60,
+      capacity: 1,
+    });
 
-    const exitosas = resultados.filter((r) => r.status === "fulfilled");
-    assert.equal(exitosas.length, 1, "exactamente una tiene que ganar");
+    const finDelTurno = new Date(LUNES_9_LOCAL.getTime() + 60 * 60 * 1000);
+
+    const { resultado, relacionesEnEspera } = await correrContraRecursoBloqueado(
+      escenario,
+      // A: la reserva de "Corte" que llegó primero, todavía sin commitear.
+      async (txA) => {
+        await insertarReserva(
+          {
+            organizationId: escenario.organizationId,
+            branchId: escenario.branchId,
+            serviceTypeId: escenario.serviceTypeId,
+            resourceId: escenario.resourceId,
+            contactId: escenario.contactId,
+            startsAt: LUNES_9_LOCAL,
+            endsAt: finDelTurno,
+          },
+          txA,
+        );
+      },
+      // El service real: la reserva de "Barba", mismo barbero, misma hora.
+      () =>
+        createBooking(
+          escenario.organizationId,
+          {
+            resourceId: escenario.resourceId,
+            serviceTypeId: barba.id,
+            contactId: escenario.contactId,
+            startsAt: LUNES_9_LOCAL,
+          },
+          doblarGoogle().cliente,
+        ),
+    );
+
+    assert.deepEqual(
+      relacionesEnEspera,
+      ["resources"],
+      "createBooking tiene que esperar el FOR UPDATE del RECURSO: el lock del servicio no sirve acá porque 'Barba' y 'Corte' son servicios distintos",
+    );
+
+    assert.equal(resultado.status, "rejected", "la segunda reserva tiene que perder");
+    assertAppError((resultado as PromiseRejectedResult).reason, 409);
+    assert.ok(
+      ((resultado as PromiseRejectedResult).reason as AppError).message.includes("reservado"),
+    );
+
+    const enBase = await prisma.booking.findMany({
+      where: { resourceId: escenario.resourceId, status: "CONFIRMED" },
+      select: { serviceTypeId: true },
+    });
+    assert.equal(enBase.length, 1, "un solo turno CONFIRMED para el barbero a esa hora");
+    assert.equal(enBase[0].serviceTypeId, escenario.serviceTypeId, "y es el que llegó primero");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("A-7: la contracara — con el cupo LIBRE, la reserva que esperó el lock del recurso entra al liberarse", async () => {
+  // Misma barrera, sin reserva previa: A solo sostiene el lock del recurso. Es
+  // lo que prueba que el lock serializa y no bloquea de más — la reserva que
+  // esperó no pierde nada por haber esperado.
+  const escenario = await montar("carrera-libre");
+  try {
+    const barba = await createServiceType(escenario.organizationId, {
+      branchId: escenario.branchId,
+      resourceId: escenario.resourceId,
+      name: "Barba",
+      durationMin: 60,
+      capacity: 1,
+    });
+
+    const { resultado, relacionesEnEspera } = await correrContraRecursoBloqueado(
+      escenario,
+      async () => undefined,
+      () =>
+        createBooking(
+          escenario.organizationId,
+          {
+            resourceId: escenario.resourceId,
+            serviceTypeId: barba.id,
+            contactId: escenario.contactId,
+            startsAt: LUNES_9_LOCAL,
+          },
+          doblarGoogle().cliente,
+        ),
+    );
+
+    assert.deepEqual(relacionesEnEspera, ["resources"]);
+    assert.equal(resultado.status, "fulfilled", "sin competencia real, la reserva entra");
 
     const enBase = await prisma.booking.count({
       where: { resourceId: escenario.resourceId, status: "CONFIRMED" },
     });
-    assert.equal(enBase, 1, "y la base tiene que reflejarlo");
+    assert.equal(enBase, 1);
   } finally {
     await desmontar(escenario);
   }
