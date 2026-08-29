@@ -53,13 +53,35 @@ import { z } from "zod";
 // llegara como cadena vacía, el COALESCE del upsert la trataría como un valor y
 // pisaría el teléfono que una persona cargó a mano. Se normaliza acá, una sola
 // vez, y no en cada rama del merge.
-function opcional(max: number, campo: string) {
-  return z
-    .string()
-    .trim()
-    .max(max, `${campo} no puede superar los ${max} caracteres`)
-    .optional()
-    .transform((valor) => (valor === undefined || valor === "" ? undefined : valor));
+//
+// LA AUSENCIA SE DECIDE ANTES DE CUALQUIER OTRA REGLA (z.preprocess), y ese
+// orden es A-6 de docs/auditoria-2026-08-29.md. Hasta entonces `email` tenía su
+// propia copia de esta regla, con el `.transform()` al FINAL de la cadena:
+// `.email("email inválido")` corría antes y rechazaba la cadena vacía, así que
+// el transform que la habría convertido en `undefined` nunca llegaba a
+// ejecutarse. Consecuencia: un formulario con el input de email sin completar
+// —`"email": ""`, lo que manda cualquier <form>— marcaba la fila FAILED en vez
+// de promoverla con revisión manual; y como csv-parse entrega `""` para una
+// celda vacía (no `null`, que sí se descartaba), TODA fila de un CSV sin email
+// fallaba, mientras que la misma fila en XLSX entraba. El helper generalizado
+// es lo que hace imposible repetir ese error: las reglas propias de cada campo
+// (`refinar`, hoy solo el formato de email) se aplican a lo que YA se decidió
+// que es un valor presente.
+//
+// Un valor que no es string (un número, un booleano) NO se toca acá: sigue
+// hasta z.string(), que lo rechaza con el mensaje de tipo, que no ecoa el
+// valor (ver D2-7 abajo).
+function opcional(
+  max: number,
+  campo: string,
+  refinar: (base: z.ZodString) => z.ZodString = (base) => base,
+) {
+  return z.preprocess(
+    (valor) => (typeof valor === "string" && valor.trim() === "" ? undefined : valor),
+    refinar(z.string().trim())
+      .max(max, `${campo} no puede superar los ${max} caracteres`)
+      .optional(),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -107,14 +129,9 @@ export const ingestContactSchema = z.object({
   //
   // El formato se valida igual que en el camino HTTP: un email con typo se
   // marca FAILED y queda consultable (§5), que es mejor que guardarlo y
-  // deduplicar mal para siempre.
-  email: z
-    .string()
-    .trim()
-    .email("email inválido")
-    .max(255, "email no puede superar los 255 caracteres")
-    .optional()
-    .transform((valor) => (valor === undefined || valor === "" ? undefined : valor)),
+  // deduplicar mal para siempre. Pero SOLO si hay un email: la cadena vacía es
+  // ausencia, decidida por `opcional` antes de que `.email()` la vea (A-6).
+  email: opcional(255, "email", (base) => base.email("email inválido")),
 
   phone: opcional(30, "phone"),
   jobTitle: opcional(100, "jobTitle"),

@@ -23,6 +23,75 @@ test("un campo vacío se trata como AUSENTE, no como valor — si no, pisaría e
   assert.equal(r.jobTitle, undefined);
 });
 
+// ---------------------------------------------------------------------------
+// A-6 (docs/auditoria-2026-08-29.md) — un email VACÍO es ausencia, no un email
+// inválido.
+//
+// La regla "cadena vacía = ausente" ya existía para phone y jobTitle, pero
+// email tenía su propia copia con el transform al final de la cadena: .email()
+// corría antes y rechazaba "" con "email inválido", así que la fila quedaba
+// FAILED. Un formulario con el input de email sin completar manda "" (es lo
+// que hace cualquier <form>), y csv-parse entrega "" para una celda vacía: toda
+// fila CSV sin email fallaba, mientras que la misma fila en XLSX (celda vacía =
+// null, que sí se descartaba) entraba.
+// ---------------------------------------------------------------------------
+
+test("A-6: un email VACÍO se trata como AUSENTE, igual que phone y jobTitle — no como 'email inválido'", () => {
+  const resultado = ingestContactSchema.safeParse({
+    firstName: "Ana",
+    lastName: "Gómez",
+    email: "",
+  });
+
+  assert.equal(resultado.success, true, "antes: 'email inválido' y la fila FAILED");
+  assert.equal(resultado.success && resultado.data.email, undefined);
+});
+
+test("A-6: un email de solo espacios también es ausencia", () => {
+  const r = ingestContactSchema.parse({ firstName: "Ana", lastName: "Gómez", email: "   " });
+  assert.equal(r.email, undefined);
+});
+
+test("A-6: las tres reglas de 'vacío = ausente' son la misma: email, phone y jobTitle vacíos en el mismo payload", () => {
+  const r = ingestContactSchema.parse({
+    firstName: "Ana",
+    lastName: "Gómez",
+    email: "",
+    phone: "",
+    jobTitle: "  ",
+  });
+
+  assert.deepEqual(
+    { email: r.email, phone: r.phone, jobTitle: r.jobTitle },
+    { email: undefined, phone: undefined, jobTitle: undefined },
+  );
+});
+
+test("A-6: la ausencia no afloja el formato — un email PRESENTE e inválido sigue siendo inválido", () => {
+  // La regla de formato se aplica a lo que ya se decidió que es un valor: "" no
+  // lo es, "no-es-un-email" sí.
+  const resultado = ingestContactSchema.safeParse({
+    firstName: "Ana",
+    lastName: "Gómez",
+    email: "no-es-un-email",
+  });
+  assert.equal(resultado.success, false);
+  assert.ok(
+    !resultado.success && resultado.error.issues.some((i) => i.message === "email inválido"),
+  );
+});
+
+test("A-6: un email que no es string sigue rechazándose por tipo, no se convierte en ausencia", () => {
+  // preprocess solo decide sobre strings vacíos: un número no es "ausente", es
+  // un payload mal formado, y el mensaje de tipo no ecoa el valor (D2-7).
+  const resultado = ingestContactSchema.safeParse({
+    firstName: "Ana",
+    lastName: "Gómez",
+    email: 12345,
+  });
+  assert.equal(resultado.success, false);
+});
+
 test("los espacios al borde se recortan — el CHECK de la base los rechazaría", () => {
   const r = ingestContactSchema.parse({
     firstName: "  Ana  ",

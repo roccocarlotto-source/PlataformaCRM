@@ -4,6 +4,7 @@ import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import type { EventoReclamado } from "../repositories/ingestionEvent.repository";
 import type { PromotionNote } from "../types/promotion";
+import { filasParaStaging, parsearArchivo } from "../utils/spreadsheet";
 import { drenarPendientes } from "../workers/ingestionWorker";
 import { promoverEvento } from "./promotion.service";
 
@@ -24,6 +25,7 @@ import { promoverEvento } from "./promotion.service";
 let orgId: string;
 let sourceId: string;
 let sourceName: string;
+let fileSourceId: string;
 
 async function crearEvento(rawPayload: unknown): Promise<string> {
   const evento = await prisma.ingestionEvent.create({
@@ -76,6 +78,19 @@ before(async () => {
     data: { organizationId: orgId, name: sourceName, type: "WEBHOOK" },
   });
   sourceId = source.id;
+
+  // La fuente de archivo, con un mapeo de encabezados "humanos" a campos de
+  // Contact: es el camino que A-6 necesita ejercitar (parser -> staging ->
+  // traducción con mapeo -> schema).
+  const archivo = await prisma.source.create({
+    data: {
+      organizationId: orgId,
+      name: "Planilla de la feria",
+      type: "FILE_IMPORT",
+      fieldMapping: { Nombre: "firstName", Apellido: "lastName", Mail: "email" },
+    },
+  });
+  fileSourceId = archivo.id;
 });
 
 after(async () => {
@@ -319,6 +334,72 @@ test("un contacto SIN email no se dedupea: se crea nuevo y queda marcado para re
     const marcas = notasDe(evento.promotionNotes).filter((n) => n.tipo === "revision_manual");
     assert.equal(marcas.length, 1, "tiene que quedar la marca de revisión manual");
   }
+});
+
+// ---------------------------------------------------------------------------
+// A-6 (docs/auditoria-2026-08-29.md) — el camino CSV entero, con la celda de
+// email vacía.
+//
+// Es el escenario 2 del hallazgo: csv-parse entrega "" para una celda vacía, el
+// parser la conserva, la traducción con mapeo la deja pasar, y
+// ingestContactSchema la rechazaba con "email inválido" — toda fila CSV sin
+// email terminaba FAILED. Acá se recorre ese camino con las piezas reales
+// (parsearArchivo -> filasParaStaging -> ingestion_events -> drenarPendientes)
+// en vez de fabricar el rawPayload a mano, para que el test dependa de la forma
+// que el parser produce de verdad y no de una suposición sobre ella.
+// ---------------------------------------------------------------------------
+
+test("A-6: una fila de CSV con la celda de email VACÍA se promueve como contacto sin email, no queda FAILED", async () => {
+  const parseado = await parsearArchivo(
+    Buffer.from(
+      "Nombre,Apellido,Mail\nSinMail,Feria,\nConMail,Feria,conmail@ejemplo.test\n",
+      "utf8",
+    ),
+    "csv",
+  );
+  const filas = filasParaStaging(parseado.filas);
+  assert.equal(filas[0].rawPayload.Mail, "", "la premisa: la celda vacía llega como cadena vacía");
+
+  const ids: string[] = [];
+  for (const fila of filas) {
+    const evento = await prisma.ingestionEvent.create({
+      data: {
+        organizationId: orgId,
+        sourceId: fileSourceId,
+        externalId: `a6-${randomUUID()}`,
+        rawPayload: fila.rawPayload as never,
+      },
+      select: { id: true },
+    });
+    ids.push(evento.id);
+  }
+
+  const resumen = await drenarPendientes({ organizationId: orgId, limite: filas.length });
+  assert.equal(resumen.procesados, 2, "las dos filas tienen que promoverse");
+
+  const sinMail = await leerEvento(ids[0]);
+  assert.equal(sinMail.status, "PROCESSED", `antes quedaba FAILED con: ${sinMail.errorMessage}`);
+  assert.ok(sinMail.promotedContactId, "y con un contacto promovido");
+
+  const contacto = await prisma.contact.findUniqueOrThrow({
+    where: { id: sinMail.promotedContactId! },
+    select: { firstName: true, lastName: true, email: true },
+  });
+  assert.deepEqual(contacto, { firstName: "SinMail", lastName: "Feria", email: null });
+
+  // Sin email no hay criterio de deduplicación: queda la marca de revisión
+  // manual, igual que en el webhook (§4).
+  const marcas = notasDe(sinMail.promotionNotes).filter((n) => n.tipo === "revision_manual");
+  assert.equal(marcas.length, 1);
+
+  // La fila CON email, en el mismo lote, entra con su email.
+  const conMail = await leerEvento(ids[1]);
+  assert.equal(conMail.status, "PROCESSED");
+  const otro = await prisma.contact.findUniqueOrThrow({
+    where: { id: conMail.promotedContactId! },
+    select: { email: true },
+  });
+  assert.equal(otro.email, "conmail@ejemplo.test");
 });
 
 // ---------------------------------------------------------------------------

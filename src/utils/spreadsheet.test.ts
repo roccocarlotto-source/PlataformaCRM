@@ -62,6 +62,24 @@ test("una fila con menos o más columnas que el encabezado NO aborta el archivo"
   assert.equal(parseado.filas[1].Mail, null);
 });
 
+test("A-6: una celda VACÍA de un CSV llega como cadena vacía, no como null — es la forma que el schema tiene que tratar como ausencia", async () => {
+  // Es la premisa de A-6 (docs/auditoria-2026-08-29.md): csv-parse entrega ""
+  // para una celda sin contenido, y este parser la conserva tal cual. Del otro
+  // lado, ingestContactSchema tiene que leer "" como "sin email"; hasta A-6 la
+  // rechazaba con "email inválido" y toda fila CSV sin email terminaba FAILED,
+  // mientras que la misma fila en XLSX (celda vacía = null) entraba. Este test
+  // fija la forma del dato para que ese contrato entre el parser y el schema no
+  // se pierda de vista.
+  const parseado = await parsearArchivo(
+    csv("Nombre,Apellido,Mail\nAna,Gómez,\nBeto,Pérez,beto@ejemplo.test\n"),
+    "csv",
+  );
+
+  assert.equal(parseado.filas.length, 2);
+  assert.deepEqual(parseado.filas[0], { Nombre: "Ana", Apellido: "Gómez", Mail: "" });
+  assert.equal(parseado.filas[1].Mail, "beto@ejemplo.test");
+});
+
 test("las filas totalmente vacías se descartan", async () => {
   const parseado = await parsearArchivo(
     csv("Nombre,Mail\nAna,ana@ejemplo.test\n,\n\nBeto,beto@ejemplo.test\n"),
