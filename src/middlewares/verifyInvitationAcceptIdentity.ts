@@ -45,9 +45,13 @@ import { extractBearerToken } from "../utils/bearerToken";
 // auth.users.
 //
 // COSTO: una llamada a la Admin API por intento de aceptación. Es un endpoint de
-// baja frecuencia y ya rate-limiteado en dos etapas; acceptPreAuthRateLimiter
-// (por IP, montado ANTES de este middleware) es el que acota cuántas de estas
-// llamadas puede provocar un anónimo, y sigue corriendo primero.
+// baja frecuencia, y el orden de este middleware es lo que acota quién puede
+// provocar esa llamada: la firma del JWT se verifica ANTES de getUserById, así
+// que un anónimo con tokens basura muere en el 401 de verifySupabaseJwt sin
+// llegar nunca a Supabase. Lo que sí llega —una identidad real— lo acota
+// acceptInvitationRateLimiter, que corre después con el `sub` ya verificado.
+// (Hasta el 29/08 había además un limiter por IP antes de este middleware; se
+// sacó en A-2 de docs/auditoria-2026-08-29.md — ver rateLimit.ts.)
 //
 // ---------------------------------------------------------------------------
 // QUÉ CIERRA ESTO Y QUÉ NO — corregido después de verificarlo contra GoTrue
