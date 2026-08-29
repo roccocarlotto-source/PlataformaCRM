@@ -766,29 +766,107 @@ test("al renovar, el canal NUEVO se guarda ANTES de cerrar el viejo", async () =
   }
 });
 
-test("el worker NO toca conexiones cuyo canal está lejos de vencer", async () => {
+// ---------------------------------------------------------------------------
+// A-8 (docs/auditoria-2026-08-29.md) — el barrido del worker, probado de verdad.
+//
+// Los dos tests negativos de acá abajo llamaban `renovarCanalesVencidos()` sin
+// doble y afirmaban que la fila no había cambiado. En CI no hay ninguna
+// GOOGLE_*, así que cada conexión reventaba en getClienteGoogleCalendar() con
+// un 500 de configuración ANTES de llegar a ninguna lógica, el bucle la contaba
+// como `fallidos` y seguía: NINGUNA conexión podía cambiar en esa llamada, y
+// los tests quedaban verdes aunque el filtro de la consulta no existiera.
+// Además el barrido recorría la base ENTERA —las conexiones de los otros
+// archivos de la suite, que corren en paralelo— y con credenciales reales en
+// .env las habría marcado ERROR contra Google.
+//
+// Ahora cada test (a) inyecta el doble, (b) se acota a su organización, (c)
+// afirma sobre el `resumen` y sobre lo que el doble vio, y (d) monta en la
+// misma organización una conexión que SÍ tiene que procesarse: así "no tocó la
+// que no debía" se prueba junto con "sí tocó la que debía", y el test no puede
+// quedar verde porque nada pasó.
+// ---------------------------------------------------------------------------
+
+// Una segunda sucursal de la misma organización, con su propia conexión. Es lo
+// que permite tener en un mismo test una conexión que el worker debe procesar y
+// otra que no, sin duplicar `montar`.
+async function conectarSegundaSucursal(
+  escenario: Escenario,
+  extra: Parameters<typeof conectarGoogle>[1] & { status?: "ACTIVE" | "REVOKED" } = {},
+) {
+  const sucursal = await createBranch(escenario.organizationId, {
+    name: `Sucursal 2 ${randomUUID().slice(0, 8)}`,
+    timezone: TZ,
+  });
+  const { status, ...canal } = extra;
+  const conexion = await prisma.googleCalendarConnection.create({
+    data: {
+      organizationId: escenario.organizationId,
+      branchId: sucursal.id,
+      refreshToken: status === "REVOKED" ? null : getCifrador().encrypt("1//refresh"),
+      calendarId: "primary",
+      status: status ?? "ACTIVE",
+      ...canal,
+    },
+  });
+  return { sucursal, conexion };
+}
+
+test("el worker NO toca conexiones cuyo canal está lejos de vencer — y SÍ renueva, en la misma pasada, la que vence dentro del margen", async () => {
   const escenario = await montar("worker-vigente");
   try {
-    const canal = randomUUID();
+    const canalVigente = randomUUID();
     await conectarGoogle(escenario, {
-      channelId: canal,
-      channelResourceId: "r1",
+      channelId: canalVigente,
+      channelResourceId: "r-vigente",
       // Vence en 6 días: muy por encima del margen de 24 h.
       channelExpiration: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000),
     });
 
-    await renovarCanalesVencidos();
+    // La contraparte, en la misma organización: vence en una hora, dentro del
+    // margen. Si el filtro por vencimiento desapareciera, las dos se renovarían;
+    // si desapareciera todo el barrido, ninguna.
+    const canalPorVencer = randomUUID();
+    const { sucursal: porVencer } = await conectarSegundaSucursal(escenario, {
+      channelId: canalPorVencer,
+      channelResourceId: "r-por-vencer",
+      channelExpiration: new Date(Date.now() + 60 * 60 * 1000),
+    });
 
-    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+    const doble = doblarGoogle();
+    const resumen = await renovarCanalesVencidos({
+      cliente: doble.cliente,
+      organizationId: escenario.organizationId,
+    });
+
+    assert.deepEqual(
+      resumen,
+      { renovados: 1, fallidos: 0 },
+      "exactamente una conexión tenía que renovarse; con el 500 de configuración de antes esto daba fallidos > 0 y el test no lo miraba",
+    );
+
+    const vigente = await prisma.googleCalendarConnection.findFirstOrThrow({
       where: { branchId: escenario.branchId },
     });
-    assert.equal(fila.channelId, canal, "el canal vigente no se toca");
+    assert.equal(vigente.channelId, canalVigente, "el canal vigente no se toca");
+
+    const renovada = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: porVencer.id },
+    });
+    assert.notEqual(renovada.channelId, canalPorVencer, "el que vencía tiene un canal nuevo");
+
+    // Lo que Google vio: un solo canal creado (el de la sucursal por vencer) y
+    // un solo canal detenido (el viejo de esa misma sucursal). Nada del vigente.
+    assert.equal(doble.canalesCreados.length, 1);
+    assert.equal(doble.canalesCreados[0].channelId, renovada.channelId);
+    assert.deepEqual(doble.canalesDetenidos, [
+      { channelId: canalPorVencer, resourceId: "r-por-vencer" },
+    ]);
   } finally {
     await desmontar(escenario);
   }
 });
 
-test("una conexión REVOKED no recibe canal", async () => {
+test("una conexión REVOKED no recibe canal — y la ACTIVE sin canal de la misma organización sí, en la misma pasada", async () => {
   const escenario = await montar("worker-revoked");
   try {
     await prisma.googleCalendarConnection.create({
@@ -801,14 +879,71 @@ test("una conexión REVOKED no recibe canal", async () => {
       },
     });
 
-    await renovarCanalesVencidos();
+    // La contraparte: ACTIVE y sin canal, exactamente lo que queda después del
+    // flujo OAuth. Si el filtro `status: "ACTIVE"` desapareciera, la REVOKED
+    // entraría al bucle y renovarCanal reventaría en obtenerAccessToken (sin
+    // token) → fallidos: 1.
+    const { sucursal: activa } = await conectarSegundaSucursal(escenario);
 
-    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+    const doble = doblarGoogle();
+    const resumen = await renovarCanalesVencidos({
+      cliente: doble.cliente,
+      organizationId: escenario.organizationId,
+    });
+
+    assert.deepEqual(resumen, { renovados: 1, fallidos: 0 });
+
+    const revocada = await prisma.googleCalendarConnection.findFirstOrThrow({
       where: { branchId: escenario.branchId },
     });
-    assert.equal(fila.channelId, null);
+    assert.equal(revocada.channelId, null, "una REVOKED nunca recibe canal");
+    assert.equal(revocada.status, "REVOKED");
+
+    const conCanal = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: activa.id },
+    });
+    assert.ok(conCanal.channelId, "la ACTIVE sin canal recibió el suyo");
+
+    assert.equal(doble.canalesCreados.length, 1, "Google vio un solo canal: el de la ACTIVE");
+    assert.deepEqual(doble.canalesDetenidos, []);
   } finally {
     await desmontar(escenario);
+  }
+});
+
+test("el barrido acotado a una organización no toca las conexiones de otra (la premisa de la suite)", async () => {
+  // Es la mitad "bomba de tiempo" de A-8: sin alcance, un barrido desde este
+  // archivo pasaba por las conexiones de los otros archivos de la suite. Dos
+  // organizaciones, las dos con una conexión ACTIVE sin canal: el barrido de
+  // una no puede haber visto la otra.
+  const a = await montar("worker-alcance-a");
+  const b = await montar("worker-alcance-b");
+  try {
+    await conectarGoogle(a);
+    await conectarGoogle(b);
+
+    const doble = doblarGoogle();
+    const resumen = await renovarCanalesVencidos({
+      cliente: doble.cliente,
+      organizationId: a.organizationId,
+    });
+
+    assert.deepEqual(resumen, { renovados: 1, fallidos: 0 });
+
+    const deA = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: a.branchId },
+    });
+    assert.ok(deA.channelId, "la organización pedida se procesó");
+
+    const deB = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: b.branchId },
+    });
+    assert.equal(deB.channelId, null, "la otra organización no se tocó");
+
+    assert.equal(doble.canalesCreados.length, 1);
+  } finally {
+    await desmontar(a);
+    await desmontar(b);
   }
 });
 

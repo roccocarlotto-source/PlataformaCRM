@@ -185,11 +185,26 @@ export function findConnectionByChannelId(channelId: string, db: Db = prisma) {
 // por OAuth (el paso 2 no crea canales), después de un 410 que obligó a limpiar,
 // y después de que un canal venza sin renovarse. Una sola consulta y una sola
 // rama en el worker.
-export function findConnectionsNeedingChannel(limiteDeVencimiento: Date, db: Db = prisma) {
+//
+// `alcance.organizationId` es SOLO para tests (A-8 de
+// docs/auditoria-2026-08-29.md): el worker de producción barre TODAS las
+// organizaciones, que es su trabajo; un test que ejercita el barrido tiene que
+// poder acotarlo a la organización que él mismo montó, porque la suite corre en
+// paralelo contra una base compartida y sin esto el barrido de un archivo
+// toca las conexiones de los demás. Sin el parámetro, el comportamiento es el
+// de siempre — es la única excepción al "organizationId en todo WHERE" de este
+// archivo, y está justificada por lo mismo que findConnectionByChannelId: acá
+// no hay tenant que pida, es el proceso.
+export function findConnectionsNeedingChannel(
+  limiteDeVencimiento: Date,
+  alcance: { organizationId?: string } = {},
+  db: Db = prisma,
+) {
   return db.googleCalendarConnection.findMany({
     where: {
       status: "ACTIVE",
       OR: [{ channelId: null }, { channelExpiration: { lt: limiteDeVencimiento } }],
+      ...(alcance.organizationId ? { organizationId: alcance.organizationId } : {}),
     },
   });
 }
