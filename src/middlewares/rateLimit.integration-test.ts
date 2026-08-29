@@ -630,7 +630,7 @@ test("cadena completa: una aceptación real tiene éxito dentro del cupo por ide
     assert.equal(
       res.status,
       201,
-      "una aceptación real, dentro de ambos cupos, debe tener éxito sin fricción del rate limiting",
+      "una aceptación real, dentro del cupo por identidad, debe tener éxito sin fricción del rate limiting",
     );
   } finally {
     await close();
