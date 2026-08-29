@@ -67,6 +67,23 @@ enum IngestionStatus {
   DUPLICATE
 }
 
+// Ciclo de vida de un OutboxEvent. PENDING (esperando entrega o su próximo
+// reintento) -> PROCESSED (el handler entregó) | DEAD_LETTER (agotó los
+// intentos, o no hay handler para su eventType).
+//
+// NO HAY FAILED TRANSITORIO, a diferencia de IngestionStatus, y es una
+// diferencia deliberada: allá FAILED significa "esta fila nunca va a servir"
+// (el payload no era válido) y es terminal. Acá un fallo de entrega es, por
+// defecto, TRANSITORIO — el destino externo puede estar caído— así que el
+// evento se queda en PENDING con nextAttemptAt en el futuro. Un estado
+// intermedio solo agregaría un valor más que todo consumidor tiene que
+// entender, sin distinguir nada que attempts y nextAttemptAt no digan ya.
+enum OutboxStatus {
+  PENDING
+  PROCESSED
+  DEAD_LETTER
+}
+
 // ---------------------------------------------------------------------------
 // Organization — raíz del aislamiento multi-tenant
 // ---------------------------------------------------------------------------
@@ -92,6 +109,7 @@ model Organization {
   sources         Source[]
   apiKeys         ApiKey[]
   ingestionEvents IngestionEvent[]
+  outboxEvents    OutboxEvent[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -600,4 +618,77 @@ model IngestionEvent {
   // mayor volumen del esquema.
   @@index([organizationId, batchId])
   @@map("ingestion_events")
+}
+
+// ===========================================================================
+// Motor de eventos salientes (outbox) — P1 de docs/roadmap-implementacion.md
+//
+// La contracara de IngestionEvent: aquella tabla es lo que el CRM RECIBE, ésta
+// es lo que el CRM EMITE. El patrón es el mismo a propósito —fila de staging,
+// worker con polling, reclamo con FOR UPDATE SKIP LOCKED— porque ya está
+// probado en este repositorio y no había razón para inventar otro.
+//
+// POR QUÉ EXISTE: hoy no hay ningún mecanismo para que el CRM avise "esto
+// pasó". Lo necesitan tres cosas que todavía no existen —el aviso a Resea para
+// el QR de reseña, el recordatorio de WhatsApp antes de un turno, y el trigger
+// "Oportunidad → Ganada" del motor de automatizaciones— y se construye una vez,
+// genérico, antes de cablear cualquiera de las tres.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// OutboxEvent — un evento de negocio que hay que entregar hacia afuera.
+//
+// EL PUNTO DEL PATRÓN, y lo único que no se puede aflojar: la fila se escribe
+// DENTRO de la misma transacción que el cambio de negocio que la origina (ver
+// emitOutboxEvent). O se guardan los dos, o no se guarda ninguno. Sin eso, un
+// proceso que muere entre el commit del negocio y el envío del aviso pierde el
+// aviso para siempre, y no queda rastro de que faltó.
+//
+// SIN deletedAt: es un registro append-only, igual que IngestionEvent. Borrarlo
+// lógicamente no significa nada —o está pendiente, o ya se entregó, o murió— y
+// la retención se resuelve con un DELETE físico por created_at + status (ver
+// scripts/purge-outbox-events.ts).
+//
+// eventType es un String libre y el motor NO lo interpreta: quien emite decide
+// el valor ("opportunity.won", "booking.reminder_due") y el registro de
+// handlers decide quién lo atiende. El motor solo transporta.
+// ---------------------------------------------------------------------------
+
+model OutboxEvent {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  eventType      String       @map("event_type") @db.VarChar(100)
+  payload        Json
+  status         OutboxStatus @default(PENDING)
+  // Cuántas veces se intentó entregar. Nace en 0 y solo sube: es lo que decide
+  // cuándo se agotan los reintentos y el evento pasa a DEAD_LETTER.
+  attempts       Int          @default(0)
+  // NULL significa "reclamable ya" — es el estado de un evento recién emitido,
+  // que nunca se intentó. Después de un fallo pasa a llevar la fecha del
+  // próximo intento, calculada con backoff.
+  nextAttemptAt  DateTime?    @map("next_attempt_at")
+  // El último error de entrega, para poder diagnosticar un DEAD_LETTER sin
+  // tener que reproducirlo.
+  lastError      String?      @map("last_error")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  // (organization_id, created_at) DESDE EL ARRANQUE, sin esperar a que alguien
+  // lo audite: es la lección de ALTO-6, donde las 6 entidades de negocio
+  // nacieron sin el índice de su propio listado y hubo que agregarlo tres meses
+  // después. Sirve cualquier "los eventos de esta organización, más recientes
+  // primero", que es como se va a mirar esta tabla desde afuera del worker.
+  //
+  // Sin @@index([organizationId]) suelto: un btree sobre (organization_id,
+  // created_at) ya sirve cualquier WHERE organization_id = ?, así que el índice
+  // de una sola columna sería peso muerto. Mismo criterio que la capa de
+  // ingesta.
+  //
+  // El índice de la COLA —el que sirve "candidatos a reclamar"— es parcial y
+  // sobre una expresión, dos formas que el DSL de Prisma no expresa: vive en la
+  // migración 20260828150000.
+  @@index([organizationId, createdAt])
+  @@map("outbox_events")
 }

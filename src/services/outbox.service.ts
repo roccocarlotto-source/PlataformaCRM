@@ -1,0 +1,226 @@
+import { env } from "../config/env";
+import type { Db } from "../lib/prisma";
+import {
+  markOutboxEventDeadLetter,
+  markOutboxEventProcessed,
+  rescheduleOutboxEvent,
+  type EventoReclamado,
+} from "../repositories/outboxEvent.repository";
+import type { RegistroDeHandlers } from "./outboxHandlers";
+import { registroDeHandlers as registroPorDefecto } from "./outboxHandlers";
+
+// ---------------------------------------------------------------------------
+// La entrega de UN evento saliente, y las decisiones puras que la gobiernan.
+//
+// Análogo a promotion.service.ts en la capa de ingesta: el worker recorre la
+// cola, esto resuelve un evento. La separación permite que el worker no sepa
+// nada de reintentos y que los reintentos se puedan probar sin base.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// DECISIONES PURAS
+// ---------------------------------------------------------------------------
+
+export interface ParametrosDeBackoff {
+  baseMs: number;
+  topeMs: number;
+}
+
+// Backoff exponencial: base * 2^(intentosPrevios), acotado por topeMs.
+//
+// `intentosPrevios` es el valor de attempts ANTES de este fallo, no después. Con
+// base 30 s eso da 30 s, 1 m, 2 m, 4 m… — el primer reintento espera la base,
+// no el doble. Pasarle el contador ya incrementado correría toda la escala un
+// lugar, que es el error clásico de esta función y el motivo de que el
+// parámetro se llame así y no `attempts`.
+//
+// El tope existe para que subir OUTBOX_MAX_ATTEMPTS no produzca esperas de días
+// por la duplicación. Con los defaults no se alcanza.
+export function calcularEsperaDeBackoff(
+  intentosPrevios: number,
+  parametros: ParametrosDeBackoff,
+): number {
+  // Math.min contra el tope ANTES de multiplicar evitaría el overflow, pero con
+  // un exponente grande 2**n ya es Infinity y Math.min lo resuelve igual:
+  // Infinity acotado por topeMs es topeMs. No hace falta acotar el exponente.
+  const espera = parametros.baseMs * Math.pow(2, Math.max(0, intentosPrevios));
+  return Math.min(espera, parametros.topeMs);
+}
+
+export interface ResolucionDeFallo {
+  estado: "REINTENTAR" | "DEAD_LETTER";
+  attempts: number;
+  nextAttemptAt: Date | null;
+}
+
+// Qué hacer con un evento cuya entrega falló. Pura y por eso testeable sin
+// base: es la única lógica del motor donde un error de más/de menos cambia si
+// un evento se pierde o se reintenta para siempre.
+//
+// `attempts` sube SIEMPRE, incluso en el camino a DEAD_LETTER: la fila tiene que
+// poder decir cuántas veces se intentó de verdad. Un DEAD_LETTER con attempts
+// congelado en el valor anterior haría creer que quedaba un intento sin usar.
+export function resolverFallo(
+  intentosPrevios: number,
+  ahora: Date,
+  limites: { maxIntentos: number; backoff: ParametrosDeBackoff },
+): ResolucionDeFallo {
+  const attempts = intentosPrevios + 1;
+
+  if (attempts >= limites.maxIntentos) {
+    return { estado: "DEAD_LETTER", attempts, nextAttemptAt: null };
+  }
+
+  const espera = calcularEsperaDeBackoff(intentosPrevios, limites.backoff);
+  return {
+    estado: "REINTENTAR",
+    attempts,
+    nextAttemptAt: new Date(ahora.getTime() + espera),
+  };
+}
+
+// Un Error puede traer un mensaje enorme (un stack, un cuerpo de respuesta
+// HTTP). last_error es TEXT y aguanta, pero una fila de auditoría con 400 KB de
+// stack no es más útil que una con 500 caracteres: se recorta.
+const LARGO_MAXIMO_DE_ERROR = 500;
+
+export function describirError(err: unknown): string {
+  const texto = err instanceof Error ? err.message : String(err);
+  const limpio = texto.trim() || "el handler falló sin mensaje";
+  return limpio.length > LARGO_MAXIMO_DE_ERROR
+    ? `${limpio.slice(0, LARGO_MAXIMO_DE_ERROR)}…`
+    : limpio;
+}
+
+// ---------------------------------------------------------------------------
+// ENTREGA
+// ---------------------------------------------------------------------------
+
+export type EstadoDeEntrega = "PROCESSED" | "REINTENTAR" | "DEAD_LETTER";
+
+export interface ResultadoDeEntrega {
+  estado: EstadoDeEntrega;
+  attempts: number;
+}
+
+export interface OpcionesDeEntrega {
+  registro?: RegistroDeHandlers;
+  ahora?: Date;
+}
+
+// Corre el handler acotado por un tope de tiempo. El tope no es una comodidad:
+// esta función corre DENTRO de la transacción del evento, así que un handler
+// colgado sostiene el lock de la fila y una conexión del pool. Si lo cortara el
+// timeout de Prisma en vez de éste, la transacción se abortaría y el UPDATE de
+// attempts/nextAttemptAt se revertiría con ella — el fallo no quedaría
+// registrado y el evento se reintentaría para siempre sin avanzar el contador.
+//
+// Se corre contra el reloj real y no contra `ahora`: `ahora` es la referencia
+// para calcular el próximo turno, esto es tiempo de pared.
+async function ejecutarConTope(handler: () => Promise<void>, topeMs: number): Promise<void> {
+  let temporizador: NodeJS.Timeout | undefined;
+
+  const limite = new Promise<never>((_resolve, reject) => {
+    temporizador = setTimeout(() => {
+      reject(new Error(`el handler no respondió en ${String(topeMs)} ms`));
+    }, topeMs);
+  });
+
+  try {
+    await Promise.race([handler(), limite]);
+  } finally {
+    // Sin esto, el timer pendiente mantiene vivo el event loop hasta que expire
+    // — en un test, eso es un proceso que no termina.
+    if (temporizador) {
+      clearTimeout(temporizador);
+    }
+  }
+}
+
+// Entrega un evento ya reclamado (y bloqueado) y escribe su transición.
+//
+// TODO OCURRE DENTRO DE `db`, que es la transacción del evento. Es lo que hace
+// que no exista un estado en el que la entrega ocurrió pero la fila no lo
+// registra: o commitean las dos cosas, o ninguna.
+//
+// NUNCA LANZA POR UN FALLO DE ENTREGA. Un handler que revienta es el caso
+// esperado, no una excepción — se traduce a REINTENTAR o DEAD_LETTER. Lo que sí
+// puede lanzar es un fallo de la BASE al escribir la transición, y ahí lanzar es
+// lo correcto: la transacción se revierte y el worker lo pospone.
+export async function entregarEvento(
+  evento: EventoReclamado,
+  db: Db,
+  opciones: OpcionesDeEntrega = {},
+): Promise<ResultadoDeEntrega> {
+  const registro = opciones.registro ?? registroPorDefecto;
+  const ahora = opciones.ahora ?? new Date();
+
+  const handler = registro.obtener(evento.eventType);
+
+  // HANDLER AUSENTE: DEAD_LETTER DIRECTO, SIN GASTAR REINTENTOS. Reintentar no
+  // hace aparecer un handler — es un bug de configuración, no una falla
+  // transitoria, y consumir los 5 intentos solo retrasaría el diagnóstico
+  // varios minutos y ensuciaría el contador. attempts queda como estaba: nadie
+  // intentó nada.
+  if (!handler) {
+    await markOutboxEventDeadLetter(
+      evento.id,
+      evento.organizationId,
+      {
+        attempts: evento.attempts,
+        lastError: `no hay handler registrado para "${evento.eventType}"`,
+      },
+      db,
+    );
+    return { estado: "DEAD_LETTER", attempts: evento.attempts };
+  }
+
+  try {
+    await ejecutarConTope(
+      () =>
+        handler({
+          id: evento.id,
+          organizationId: evento.organizationId,
+          eventType: evento.eventType,
+          payload: evento.payload,
+        }),
+      env.OUTBOX_HANDLER_TIMEOUT_MS,
+    );
+  } catch (err) {
+    const resolucion = resolverFallo(evento.attempts, ahora, {
+      maxIntentos: env.OUTBOX_MAX_ATTEMPTS,
+      backoff: {
+        baseMs: env.OUTBOX_BACKOFF_BASE_MS,
+        topeMs: env.OUTBOX_BACKOFF_MAX_MS,
+      },
+    });
+    const lastError = describirError(err);
+
+    if (resolucion.estado === "DEAD_LETTER") {
+      await markOutboxEventDeadLetter(
+        evento.id,
+        evento.organizationId,
+        { attempts: resolucion.attempts, lastError },
+        db,
+      );
+      return { estado: "DEAD_LETTER", attempts: resolucion.attempts };
+    }
+
+    await rescheduleOutboxEvent(
+      evento.id,
+      evento.organizationId,
+      {
+        attempts: resolucion.attempts,
+        // No puede ser null en esta rama; el tipo lo permite porque la rama
+        // DEAD_LETTER comparte la forma del resultado.
+        nextAttemptAt: resolucion.nextAttemptAt ?? ahora,
+        lastError,
+      },
+      db,
+    );
+    return { estado: "REINTENTAR", attempts: resolucion.attempts };
+  }
+
+  await markOutboxEventProcessed(evento.id, evento.organizationId, db);
+  return { estado: "PROCESSED", attempts: evento.attempts };
+}
