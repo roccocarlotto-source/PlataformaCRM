@@ -7,8 +7,8 @@ import { getCifrador } from "../utils/encryption";
 import { obtenerDisponibilidad } from "./availability.service";
 import { cancelBooking, createBooking } from "./booking.service";
 import { createBranch } from "./branch.service";
-import { createResource } from "./resource.service";
-import { createServiceType, deleteServiceType } from "./serviceType.service";
+import { createResource, deleteResource } from "./resource.service";
+import { createServiceType, deleteServiceType, updateServiceType } from "./serviceType.service";
 import { replaceWorkingHoursForResource } from "./workingHours.service";
 import {
   GoogleAuthError,
@@ -1091,6 +1091,208 @@ test("no se puede borrar un servicio con reservas CONFIRMED", async () => {
       where: { id: escenario.serviceTypeId },
     });
     assert.equal(persistido.deletedAt, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A-4 (docs/auditoria-2026-08-29.md) — mover un servicio de recurso con
+// reservas CONFIRMED se rechaza, igual que borrarlo.
+// ---------------------------------------------------------------------------
+
+test("A-4: no se puede mover a otro recurso un servicio con reservas CONFIRMED, y el recurso viejo sigue sin poder borrarse", async () => {
+  const escenario = await montar("a4-mover");
+  try {
+    const otroRecurso = await createResource(escenario.organizationId, {
+      branchId: escenario.branchId,
+      name: "Pedro (barbero)",
+      type: "PERSON",
+    });
+
+    await createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: LUNES_9_LOCAL,
+      },
+      doblarGoogle().cliente,
+    );
+
+    const err = await capturar(() =>
+      updateServiceType(escenario.organizationId, escenario.serviceTypeId, {
+        resourceId: otroRecurso.id,
+      }),
+    );
+
+    assertAppError(err, 400);
+    assert.ok((err as AppError).message.includes("reservas activas"));
+
+    const persistido = await prisma.serviceType.findUniqueOrThrow({
+      where: { id: escenario.serviceTypeId },
+    });
+    assert.equal(persistido.resourceId, escenario.resourceId, "el servicio no se movió");
+
+    // El escenario completo del hallazgo: con el movimiento rechazado, el
+    // recurso viejo sigue teniendo un servicio activo y deleteResource lo
+    // sigue protegiendo — la cadena de RESTRICT no se rompió.
+    const borrado = await capturar(() =>
+      deleteResource(escenario.organizationId, escenario.resourceId),
+    );
+    assertAppError(borrado, 400);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("A-4: con la reserva CANCELADA el servicio sí se puede mover, y las reservas históricas conservan el recurso viejo", async () => {
+  const escenario = await montar("a4-mover-cancelada");
+  try {
+    const otroRecurso = await createResource(escenario.organizationId, {
+      branchId: escenario.branchId,
+      name: "Pedro (barbero)",
+      type: "PERSON",
+    });
+
+    const reserva = await createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: LUNES_9_LOCAL,
+      },
+      doblarGoogle().cliente,
+    );
+    await cancelBooking(escenario.organizationId, reserva.id, doblarGoogle().cliente);
+
+    const movido = await updateServiceType(escenario.organizationId, escenario.serviceTypeId, {
+      resourceId: otroRecurso.id,
+    });
+    assert.equal(movido.resourceId, otroRecurso.id);
+
+    // Una reserva cancelada es historia: sigue diciendo con qué recurso fue.
+    const historica = await prisma.booking.findUniqueOrThrow({ where: { id: reserva.id } });
+    assert.equal(historica.resourceId, escenario.resourceId);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("A-4: mover al MISMO recurso con reservas activas no es un movimiento y no se rechaza", async () => {
+  const escenario = await montar("a4-mismo-recurso");
+  try {
+    await createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: LUNES_9_LOCAL,
+      },
+      doblarGoogle().cliente,
+    );
+
+    const actualizado = await updateServiceType(escenario.organizationId, escenario.serviceTypeId, {
+      resourceId: escenario.resourceId,
+      name: "Corte renombrado",
+    });
+    assert.equal(actualizado.name, "Corte renombrado");
+    assert.equal(actualizado.resourceId, escenario.resourceId);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// La otra mitad de A-4: createBooking relee el servicio con el lock sostenido.
+// Acá se prueba el caso secuencial (el servicio se movió ANTES de la reserva);
+// la versión concurrente la cierra el lock + esta misma relectura.
+test("A-4: reservar contra un recurso que YA NO provee el servicio se rechaza con 400", async () => {
+  const escenario = await montar("a4-reservar-movido");
+  try {
+    const otroRecurso = await createResource(escenario.organizationId, {
+      branchId: escenario.branchId,
+      name: "Pedro (barbero)",
+      type: "PERSON",
+    });
+    await updateServiceType(escenario.organizationId, escenario.serviceTypeId, {
+      resourceId: otroRecurso.id,
+    });
+
+    const err = await capturar(() =>
+      createBooking(
+        escenario.organizationId,
+        {
+          resourceId: escenario.resourceId,
+          serviceTypeId: escenario.serviceTypeId,
+          contactId: escenario.contactId,
+          startsAt: LUNES_9_LOCAL,
+        },
+        doblarGoogle().cliente,
+      ),
+    );
+    assertAppError(err, 400);
+    assert.ok((err as AppError).message.includes("no lo provee"));
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A-5 (docs/auditoria-2026-08-29.md) — la grilla no se corre con `from`, contra
+// la base y el horario real.
+// ---------------------------------------------------------------------------
+
+test("A-5: consultar 'a partir de ahora' devuelve la misma grilla que consultar desde el inicio del día, con menos turnos al principio", async () => {
+  const escenario = await montar("a5-grilla");
+  try {
+    // Reserva existente de 10 a 11 local (13:00Z-14:00Z).
+    await createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: new Date("2026-09-07T13:00:00Z"),
+      },
+      doblarGoogle().cliente,
+    );
+
+    const consultar = (desde: Date) =>
+      obtenerDisponibilidad(
+        escenario.organizationId,
+        {
+          resourceId: escenario.resourceId,
+          serviceTypeId: escenario.serviceTypeId,
+          desde,
+          hasta: new Date("2026-09-08T00:00:00Z"),
+        },
+        doblarGoogle().cliente,
+      );
+
+    const desdeElInicio = await consultar(new Date("2026-09-07T00:00:00Z"));
+    const aPartirDeLas9y10 = await consultar(new Date("2026-09-07T12:10:00Z"));
+
+    const inicios = (turnos: { inicio: Date }[]) => turnos.map((t) => t.inicio.toISOString());
+
+    // Lunes 9-13 local, turnos de 60: 9, 10 (reservado), 11, 12.
+    assert.deepEqual(inicios(desdeElInicio), [
+      "2026-09-07T12:00:00.000Z",
+      "2026-09-07T14:00:00.000Z",
+      "2026-09-07T15:00:00.000Z",
+    ]);
+
+    // Con el bug: la franja llegaba como 9:10-13:00, la grilla salía 9:10,
+    // 10:10, 11:10 (12:10 no entra), 9:10 y 10:10 chocaban con la reserva de
+    // las 10, y el resultado era ["11:10"] — un turno que la grilla real no
+    // tiene, y que si alguien lo reservaba tapaba los de 11 y 12.
+    assert.deepEqual(
+      inicios(aPartirDeLas9y10),
+      ["2026-09-07T14:00:00.000Z", "2026-09-07T15:00:00.000Z"],
+      "misma grilla que desde el inicio del día, sin el turno de las 9 que ya empezó",
+    );
   } finally {
     await desmontar(escenario);
   }

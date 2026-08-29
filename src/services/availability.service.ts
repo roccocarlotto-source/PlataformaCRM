@@ -76,6 +76,10 @@ export interface EntradaDelCalculo {
   reservasConfirmadas: Intervalo[];
   duracionMin: number;
   capacidad: number;
+  // A-5: los turnos que EMPIEZAN antes de este instante no se ofrecen (ya
+  // pasaron, o quedan antes del rango pedido). Es un FILTRO sobre la grilla ya
+  // generada, no un corrimiento de la grilla — ver el comentario del bucle.
+  desde?: Date;
 }
 
 export function calcularTurnos({
@@ -84,14 +88,26 @@ export function calcularTurnos({
   reservasConfirmadas,
   duracionMin,
   capacidad,
+  desde,
 }: EntradaDelCalculo): TurnoDisponible[] {
   const duracionMs = duracionMin * 60 * 1000;
   const turnos: TurnoDisponible[] = [];
 
   for (const franja of franjasDeTrabajo) {
-    // LA GRILLA ARRANCA EN EL BORDE DE CADA FRANJA y avanza de a `duracionMin`:
-    // turnos consecutivos, sin huecos. Es la política más simple y la más
-    // predecible para quien mira la agenda — "cada media hora desde las 9".
+    // LA GRILLA ARRANCA EN EL BORDE REAL DE CADA FRANJA y avanza de a
+    // `duracionMin`: turnos consecutivos, sin huecos. Es la política más simple
+    // y la más predecible para quien mira la agenda — "cada media hora desde
+    // las 9".
+    //
+    // "REAL" es la corrección de A-5 (docs/auditoria-2026-08-29.md): antes
+    // expandirFranjas recortaba el inicio de la franja al `from` de la
+    // consulta, así que la grilla arrancaba donde el cliente preguntó y no
+    // donde el recurso abre — dos consultas a distinta hora del mismo día
+    // daban grillas corridas, y una reserva hecha desde una tapaba dos turnos
+    // de la otra. Ahora la franja llega entera y `desde` se aplica ABAJO, como
+    // filtro sobre los turnos generados: la grilla es la misma para todos, y
+    // quien pregunta más tarde ve la misma grilla con menos turnos al
+    // principio.
     //
     // La alternativa sería una grilla independiente del horario (siempre en
     // punto y media, por ejemplo), que desperdicia el arranque cuando el
@@ -102,6 +118,13 @@ export function calcularTurnos({
       inicio + duracionMs <= franja.fin.getTime();
       inicio += duracionMs
     ) {
+      // El filtro de A-5: descarta lo que empieza antes de `desde` SIN cambiar
+      // dónde arranca la grilla. Un turno que empieza antes y termina después
+      // de `desde` tampoco se ofrece: ya empezó.
+      if (desde && inicio < desde.getTime()) {
+        continue;
+      }
+
       const turno: Intervalo = { inicio: new Date(inicio), fin: new Date(inicio + duracionMs) };
 
       // Google: cualquier superposición descarta el turno, sin importar la
@@ -190,6 +213,9 @@ export async function obtenerDisponibilidad(
     reservasConfirmadas: reservas.map((r) => ({ inicio: r.startsAt, fin: r.endsAt })),
     duracionMin: serviceType.durationMin,
     capacidad: serviceType.capacity,
+    // A-5: el `from` de la consulta filtra los turnos ya generados; no mueve el
+    // borde de la franja (resolverContexto la expande entera).
+    desde: params.desde,
   });
 }
 

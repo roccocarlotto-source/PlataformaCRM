@@ -200,10 +200,16 @@ test("los días sin franja no aportan nada", () => {
   assert.deepEqual(intervalos, []);
 });
 
-test("las franjas se RECORTAN al rango pedido", () => {
+test("el INICIO de una franja NO se recorta a `desde`; el fin sí a `hasta` (A-5)", () => {
   // Se pide desde el lunes a las 11 local (14:00Z). La franja 9-13 tiene que
-  // aportar 11-13, no 9-13: si no, la disponibilidad ofrecería horarios que ya
-  // pasaron.
+  // salir con su inicio REAL —9:00 local, 12:00Z— aunque se haya pedido desde
+  // las 11: la grilla de turnos arranca en el borde de la franja, y si el borde
+  // se moviera al `desde` de cada consulta, dos consultas a distinta hora
+  // darían grillas corridas (11:10, 11:40… en vez de 11:30, 12:00…).
+  //
+  // El objetivo que el recorte antiguo perseguía —"no ofrecer horarios que ya
+  // pasaron"— sigue vigente, pero lo cumple calcularTurnos filtrando los turnos
+  // generados (ver availability.service.test.ts), no esta función.
   const intervalos = expandirFranjas({
     franjas: [LUNES_9_A_13],
     zona: BA,
@@ -212,8 +218,36 @@ test("las franjas se RECORTAN al rango pedido", () => {
   });
 
   assert.equal(intervalos.length, 1);
-  assert.equal(iso(intervalos[0].inicio), "2026-09-07T14:00:00.000Z");
-  assert.equal(iso(intervalos[0].fin), "2026-09-07T15:00:00.000Z");
+  assert.equal(iso(intervalos[0].inicio), "2026-09-07T12:00:00.000Z", "el inicio real, no `desde`");
+  assert.equal(
+    iso(intervalos[0].fin),
+    "2026-09-07T15:00:00.000Z",
+    "el fin sí se recorta a `hasta`",
+  );
+});
+
+test("una franja que termina justo en `desde` o empieza justo en `hasta` no aparece: el rango es [desde, hasta)", () => {
+  // Termina a las 13 local (16:00Z) y se pide desde las 16:00Z: ya cerró.
+  assert.deepEqual(
+    expandirFranjas({
+      franjas: [LUNES_9_A_13],
+      zona: BA,
+      desde: new Date("2026-09-07T16:00:00Z"),
+      hasta: new Date("2026-09-07T20:00:00Z"),
+    }),
+    [],
+  );
+
+  // Empieza a las 16 local (19:00Z) y se pide hasta las 19:00Z: todavía no abrió.
+  assert.deepEqual(
+    expandirFranjas({
+      franjas: [LUNES_16_A_20],
+      zona: BA,
+      desde: new Date("2026-09-07T12:00:00Z"),
+      hasta: new Date("2026-09-07T19:00:00Z"),
+    }),
+    [],
+  );
 });
 
 test("una franja que queda enteramente fuera del rango no aparece", () => {

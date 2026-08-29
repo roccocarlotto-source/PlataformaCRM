@@ -165,11 +165,27 @@ export interface ParametrosDeExpansion {
   hasta: Date;
 }
 
-// Expande el horario semanal recurrente a los intervalos CONCRETOS que caen
-// dentro de [desde, hasta), recortados a ese rango.
+// Expande el horario semanal recurrente a los intervalos CONCRETOS que se
+// superponen con [desde, hasta).
 //
-// El recorte importa: si alguien pide disponibilidad del martes a las 11 en
-// adelante, la franja "martes de 9 a 13" tiene que aportar 11-13 y no 9-13.
+// EL INICIO DE UNA FRANJA NUNCA SE RECORTA A `desde` — A-5 de
+// docs/auditoria-2026-08-29.md. Antes sí: si alguien pedía disponibilidad del
+// martes a las 11:10, la franja "martes de 9 a 13" salía como 11:10-13:00, y
+// como la grilla de turnos arranca en el borde de cada franja, los turnos
+// salían 11:10, 11:40, 12:10… en vez de 11:30, 12:00, 12:30. Dos clientes que
+// consultaban en momentos distintos veían grillas distintas, y una reserva
+// hecha desde una grilla corrida tapaba DOS turnos de la grilla real. El
+// objetivo del recorte ("no ofrecer horarios que ya pasaron") sigue vigente,
+// pero se cumple FILTRANDO los turnos ya generados (calcularTurnos, `desde`),
+// no moviendo el borde del horario: la franja expresa el horario real del
+// recurso, y si abre a las 9 empieza a las 9 se pida lo que se pida.
+//
+// Lo que SÍ se recorta:
+//   - el FIN, a `hasta`: no mueve la grilla (que arranca en el inicio) y evita
+//     generar turnos más allá del rango pedido;
+//   - las franjas que quedan ENTERAS fuera del rango (terminan antes de
+//     `desde` o empiezan en `hasta` o después): no aportan nada y no vale la
+//     pena expandirlas.
 export function expandirFranjas({
   franjas,
   zona,
@@ -212,12 +228,17 @@ export function expandirFranjas({
       const inicio = instanteDeHoraLocal(dia, franja.startMinute, zona);
       const fin = instanteDeHoraLocal(dia, franja.endMinute, zona);
 
-      // Recorte al rango pedido.
-      const inicioRecortado = new Date(Math.max(inicio.getTime(), desde.getTime()));
+      // Fuera del rango por completo: no aporta nada.
+      if (fin.getTime() <= desde.getTime() || inicio.getTime() >= hasta.getTime()) {
+        continue;
+      }
+
+      // El inicio queda ENTERO (ver el comentario de la función); solo el fin
+      // se recorta a `hasta`.
       const finRecortado = new Date(Math.min(fin.getTime(), hasta.getTime()));
 
-      if (inicioRecortado.getTime() < finRecortado.getTime()) {
-        intervalos.push({ inicio: inicioRecortado, fin: finRecortado });
+      if (inicio.getTime() < finRecortado.getTime()) {
+        intervalos.push({ inicio, fin: finRecortado });
       }
     }
   }
