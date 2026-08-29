@@ -117,12 +117,59 @@ model GoogleCalendarConnection {
 }
 ```
 
+> **Nota del 29/08/2026 — `GoogleCalendarConnection` ya existe, y el bloque de
+> arriba tiene una premisa falsa.**
+>
+> Implementada en la migración `20260829120000`. Lo que cambió respecto de lo
+> escrito arriba:
+>
+> - **"cifrado en reposo, igual criterio que `ApiKey`" no se pudo seguir, porque
+>   ese criterio no existe.** Se verificó contra el repo antes de implementar:
+>   `ApiKey` **no está cifrada, está hasheada** — SHA-256 sin sal
+>   (`src/utils/apiKey.ts`), irreversible a propósito. Y no había ningún módulo
+>   de cifrado en el proyecto (grep por `createCipheriv`/`decrypt`/`aes-256`
+>   sobre `src/`, `prisma/` y `scripts/`: cero coincidencias).
+>
+>   La diferencia no es de implementación sino de problema: una API key solo hay
+>   que **reconocerla** (comparar por igualdad contra lo que llega en un header),
+>   así que un hash irreversible es la primitiva correcta. Un refresh token hay
+>   que **recuperarlo** para mandárselo a Google, así que hashearlo lo volvería
+>   inútil.
+>
+>   Se paró y se consultó antes de elegir, por ser una decisión de seguridad y no
+>   de convención. Resultado: **AES-256-GCM** con `node:crypto`, clave maestra de
+>   32 bytes por variable de entorno (`SECRET_ENCRYPTION_KEY`), en un módulo
+>   **genérico** (`src/utils/encryption.ts`) y no atado a Google ni a "refresh
+>   token" — cualquier otro secreto recuperable que aparezca lo va a necesitar
+>   igual.
+> - **`refreshToken` es NULLABLE**, no `String`. Una conexión `REVOKED` no tiene
+>   token: se pone en `NULL` al desconectar, así que un volcado de la base no
+>   arrastra credenciales de sucursales que ya se fueron. Un `CHECK` en la
+>   migración sostiene la otra mitad del invariante: una fila `ACTIVE` sin token
+>   es imposible.
+> - **Se agregaron `lastErrorAt` y `lastErrorMessage`.** §4 pide "notificar al
+>   admin de la sucursal para reconectar" y no hay ningún mecanismo de
+>   notificación construido, así que **el registro en la fila es la
+>   notificación**: sin él, `status = ERROR` no distingue "el usuario revocó el
+>   acceso desde su cuenta de Google" de "el calendario se borró" de "Google
+>   estaba caído" — tres cosas con tres respuestas distintas.
+> - **El `@unique` es compuesto**, `@@unique([organizationId, branchId])`, por un
+>   requisito de Prisma (el lado definidor de una relación 1-a-1 tiene que ser
+>   único sobre los mismos campos que usa la relación). Garantiza exactamente lo
+>   mismo: la FK compuesta obliga a que el `organizationId` de la fila sea el de
+>   su sucursal, y `branches.id` es la PK.
+> - **`connectedAt` y `createdAt` no son lo mismo.** Reconectar **actualiza la
+>   fila existente** (nunca crea una segunda): `createdAt` sigue diciendo cuándo
+>   esa sucursal conectó Google por primera vez, `connectedAt` cuándo vale el
+>   token que hay guardado ahora.
+
 Control de capacidad: al crear un `Booking`, el servicio cuenta `Booking`s activos con el mismo `serviceTypeId` + `resourceId` + horario, y rechaza si ya alcanzó `ServiceType.capacity`. Esto es lógica propia del CRM — Google Calendar solo recibe un evento por reserva (o un evento compartido con múltiples asistentes en el caso de clases, a definir en implementación) y lo que le importa a este sistema es su propio conteo, no lo que Google reporte como "libre/ocupado".
 
 ## 4. Integración con Google Calendar
 
-- **Conexión por sucursal**: cada Sucursal conecta su propia cuenta de Google (OAuth 2.0, flujo estándar de autorización) — la mayoría de los negocios chicos usan Gmail personal, no Google Workspace, así que no hay delegación de dominio disponible como atajo. El `refreshToken` resultante se guarda cifrado, mismo criterio de manejo de secretos que ya se usa para `ApiKey`.
-- **Scopes necesarios**: `https://www.googleapis.com/auth/calendar.events` (crear/modificar/cancelar eventos) como mínimo; evaluar si hace falta `calendar.readonly` adicional para leer disponibilidad de calendarios que el negocio ya tenía en uso antes de conectar.
+- **Conexión por sucursal**: cada Sucursal conecta su propia cuenta de Google (OAuth 2.0, flujo estándar de autorización) — la mayoría de los negocios chicos usan Gmail personal, no Google Workspace, así que no hay delegación de dominio disponible como atajo. El `refreshToken` resultante se guarda cifrado ~~, mismo criterio de manejo de secretos que ya se usa para `ApiKey`~~ **con AES-256-GCM (`src/utils/encryption.ts`) — la comparación con `ApiKey` era falsa, ver la nota del 29/08/2026 en §3**. El flujo necesita además un parámetro `state` **firmado y expirable** (`src/utils/oauthState.ts`): el callback es el único camino de escritura del módulo que no puede estar autenticado —Google redirige el navegador y no reenvía el JWT— así que el `state` es lo único que prueba qué sucursal inició la conexión, y sin él cualquiera podría conectar su cuenta de Google a la sucursal de otra organización.
+- **Scopes necesarios**: ~~`https://www.googleapis.com/auth/calendar.events` (crear/modificar/cancelar eventos) como mínimo; evaluar si hace falta `calendar.readonly` adicional para leer disponibilidad de calendarios que el negocio ya tenía en uso antes de conectar.~~ **Corregido el 29/08/2026 — las dos mitades de esa frase estaban mal.** Verificado contra la [referencia oficial de `freebusy.query`](https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query): ese endpoint acepta **exactamente cuatro** scopes (`calendar.readonly`, `calendar`, `calendar.events.freebusy`, `calendar.freebusy`) y **`calendar.events` no es ninguno de ellos**. Pedir solo `calendar.events` habría compilado, desplegado, y fallado con un 403 recién la primera vez que alguien consultara disponibilidad. El par que se implementó es el **más acotado que cubre el módulo entero**: `calendar.events` (para `events.insert` del paso 3) + **`calendar.events.freebusy`** (solo busy/free, sin leer ningún detalle de ningún evento). **No** `calendar.readonly`, que también funcionaría pero da lectura completa de todos los calendarios —títulos, invitados, descripciones, adjuntos— para responder una pregunta que es "¿está ocupado a las 15?". Los dos se piden desde la primera autorización aunque el paso 2 solo consulte disponibilidad: el consentimiento OAuth se otorga una vez por cuenta, y agregar un scope después obliga a que **toda sucursal ya conectada vuelva a pasar por la pantalla de Google**.
+- **`access_type=offline` y `prompt=consent` son obligatorios en la URL de autorización** (agregado el 29/08/2026, no estaba en el diseño). Sin `access_type=offline` Google no emite refresh token y la integración se muere sola en una hora. Sin `prompt=consent`, **reconectar** una sucursal que ya había autorizado devuelve un 200 impecable y **sin** `refresh_token` — Google lo emite una sola vez por combinación de cuenta y cliente. Como reconectar tras un `REVOKED`/`ERROR` es justo el caso que hay que soportar, es el error clásico de esta integración.
 - **Consulta de disponibilidad**: usar el endpoint `freebusy.query` de Google Calendar API para saber qué horarios están ocupados dentro del rango de trabajo configurado por Resource (el rango de trabajo — días/horarios — se define en este CRM, no en Google).
 - **Creación de reserva**: al confirmar un `Booking`, crear el evento correspondiente vía `events.insert` y guardar el `googleEventId` devuelto.
 - **Sincronización inversa (cambios hechos directo en Google Calendar)**: suscribirse a notificaciones push de Google Calendar (`events.watch`) para detectar si alguien cancela o mueve un evento desde el calendario en vez de desde el CRM. Importante: los canales de notificación push de Google **expiran** (máximo ~7 días) y hay que renovarlos antes de que caduquen — esto necesita un worker periódico, similar en espíritu al `ingestionWorker.ts` que ya existe para la capa de ingesta.
@@ -133,7 +180,26 @@ Control de capacidad: al crear un `Booking`, el servicio cuenta `Booking`s activ
 
 Sigue el patrón controller → service → repository ya usado en el resto de `src/`:
 
+- `POST /api/branches/:branchId/google-calendar/connect` — inicia la conexión: devuelve la URL de autorización de Google (con el `state` firmado). **Devuelve la URL en el cuerpo, no un 302**: el endpoint está detrás de `authenticate`, y un navegador siguiendo una redirección no reenvía el header `Authorization`. El frontend hace `window.location.href = authorizationUrl`. *(Implementado el 29/08/2026.)*
+- `GET /api/integrations/google-calendar/callback` — receptor del redirect de Google. **Sin `authenticate`**, por lo dicho en §4; lo que sostiene la frontera de tenant es el `state` firmado, que se valida **antes de tocar la base**. Sin `:branchId` en el path a propósito: una sola fuente para el destino, la criptográfica — y una sola "Authorized redirect URI" que cargar en Google Cloud Console. *(Implementado el 29/08/2026.)*
+- `GET /api/branches/:branchId/google-calendar` — estado de la conexión (`ACTIVE`/`REVOKED`/`ERROR` y el motivo del error). Nunca devuelve el `refreshToken`, ni cifrado. *(Implementado el 29/08/2026.)*
+- `DELETE /api/branches/:branchId/google-calendar` — desconecta: revoca contra Google (best-effort — un Google caído no puede impedirle a un ADMIN desconectar) y deja la fila en `REVOKED` con el token en `NULL`. *(Implementado el 29/08/2026.)*
 - `GET /api/availability?resourceId=&serviceTypeId=&from=&to=` — calcula horarios libres combinando el rango de trabajo configurado, el `freebusy` de Google, y la capacidad ya ocupada en `Booking` (para `ServiceType.capacity > 1`).
+
+  > **NO se construyó en el paso 2, y es una decisión explícita, no un olvido.**
+  > Depende de dos piezas que no existen: el **rango de trabajo por `Resource`**
+  > (días y horarios), que no está en el schema ni diseñado en ninguna parte de
+  > este documento —es una frase suelta en este mismo bullet y en §4— y
+  > `Booking`, que es el paso 3. Inventar un modelo de horarios para destrabarlo
+  > habría sido tomar una decisión de producto de contrabando; queda para cuando
+  > se aborde el paso 3.
+  >
+  > Lo que **sí** quedó construido y probado es la mitad que no depende de esa
+  > decisión: `consultarDisponibilidad()` en
+  > `googleCalendarConnection.service.ts` devuelve los intervalos **ocupados**
+  > que Google reporta para el calendario de una sucursal, con el token
+  > descifrado y renovado. Falta restar eso del rango de trabajo, que es
+  > exactamente la parte que hay que diseñar.
 - `POST /api/bookings` — crea la reserva: valida capacidad, crea el evento en Google, guarda el registro local, y dispara las automatizaciones de la sección 6.
 - `PATCH /api/bookings/:id` — cancela o reprograma; refleja el cambio en Google Calendar.
 - `POST /api/webhooks/google-calendar` — receptor de notificaciones push de Google (cambios externos).
@@ -157,7 +223,7 @@ Google Calendar API: gratis dentro de las cuotas estándar (ver sección 1) — 
 ## 9. Plan de implementación sugerido
 
 1. CRUD de `Resource` y `ServiceType` (sin Google Calendar todavía) — permite probar el modelo de capacidad y multi-tenancy de forma aislada.
-2. Conexión OAuth con Google Calendar por sucursal + `freebusy.query` para disponibilidad real.
+2. ~~Conexión OAuth con Google Calendar por sucursal + `freebusy.query` para disponibilidad real.~~ **Hecho el 29/08/2026** — modelo `GoogleCalendarConnection` + migración, flujo OAuth completo (iniciar / callback / desconectar), `state` firmado y expirable, cifrado genérico de secretos en reposo, y el wrapper de `freebusy.query` con su test unitario. **`GET /api/availability` quedó fuera a propósito**: ver la nota en §5.
 3. `POST /api/bookings` con creación de evento en Google + control de capacidad propio.
 4. Webhook de sincronización inversa + worker de renovación de canales push.
 5. Conectar automatizaciones (Activity, Opportunity, recordatorio WhatsApp).
