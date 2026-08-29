@@ -53,6 +53,63 @@ const envSchema = z.object({
   // Tope de eventos por pasada, para que una cola grande no monopolice el
   // proceso: se drena un tramo, se cede el control, y el siguiente tick sigue.
   INGEST_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(50),
+
+  // Motor de eventos salientes (outbox) — P1 del roadmap. Mismo patrón que las
+  // INGEST_* de arriba: declaradas acá con default explícito y sin aparecer en
+  // .env.example, porque ninguna hace falta para arrancar. Se verificó que esa
+  // es la convención real (las INGEST_* tampoco están en .env.example) antes de
+  // seguirla.
+  //
+  // Mismo enum explícito que INGEST_WORKER_ENABLED y por el mismo motivo:
+  // z.coerce.boolean() coacciona cualquier string no vacío a true, así que
+  // OUTBOX_WORKER_ENABLED=false lo habilitaría.
+  OUTBOX_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  // 5 segundos, igual que la ingesta: nadie está esperando del otro lado de un
+  // evento saliente, así que la latencia de entrega no es un requisito.
+  OUTBOX_WORKER_POLL_MS: z.coerce.number().int().positive().default(5000),
+  // Tope de eventos por pasada. Más chico que el de ingesta (50) a propósito:
+  // ahí cada evento es trabajo de base y termina en milisegundos, acá cada uno
+  // puede ser una llamada HTTP a un tercero. Un lote grande de entregas lentas
+  // dejaría el tick corriendo minutos.
+  OUTBOX_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(20),
+
+  // Reintentos. Al fallar una entrega el evento vuelve a PENDING con
+  // nextAttemptAt en el futuro; al alcanzar el tope pasa a DEAD_LETTER, que es
+  // terminal y nadie reintenta.
+  //
+  // 5 intentos con base de 30 s duplicando: 30 s, 1 m, 2 m, 4 m — el último
+  // intento cae unas 8 minutos después del primero. Suficiente para atravesar
+  // un reinicio o un pico del destino, corto para que un destino realmente roto
+  // no acumule reintentos durante horas antes de que alguien lo mire.
+  OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  OUTBOX_BACKOFF_BASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30 * 1000),
+  // Techo del backoff. Con 5 intentos y base de 30 s no se alcanza; existe para
+  // que subir OUTBOX_MAX_ATTEMPTS no produzca esperas de días por la
+  // duplicación.
+  OUTBOX_BACKOFF_MAX_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
+
+  // Tope de tiempo para UNA entrega, y no es una comodidad: la entrega corre
+  // dentro de la transacción del evento (ver outboxWorker.ts). Sin un tope, un
+  // handler colgado sostiene el lock de la fila y una conexión del pool hasta
+  // que Prisma aborte la transacción por su propio timeout — y ahí el fallo NO
+  // se registra, porque el UPDATE de attempts/nextAttemptAt se revierte con
+  // ella. Con este tope el fallo ocurre ADENTRO y queda contabilizado.
+  OUTBOX_HANDLER_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10 * 1000),
 });
 
 function parseEnv() {

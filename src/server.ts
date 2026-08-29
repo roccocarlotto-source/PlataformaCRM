@@ -3,6 +3,7 @@ import { env } from "./config/env";
 import { logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
 import { iniciarWorkerDeIngesta } from "./workers/ingestionWorker";
+import { iniciarWorkerDeOutbox } from "./workers/outboxWorker";
 
 const server = app.listen(env.PORT, () => {
   logger.info(`Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
@@ -16,6 +17,12 @@ const server = app.listen(env.PORT, () => {
 // es lo único que de verdad tiene que drenarla.
 const detenerWorker = iniciarWorkerDeIngesta();
 
+// El worker de eventos salientes, por el mismo motivo y con el mismo criterio:
+// vive con el proceso servidor, no con la instancia de Express. Son dos timers
+// independientes a propósito — la cola de entrada y la de salida no comparten
+// cadencia, ni lote, ni razones para estar caídas.
+const detenerWorkerDeOutbox = iniciarWorkerDeOutbox();
+
 function shutdown(signal: string) {
   logger.info(`${signal} recibido, cerrando servidor...`);
   // Antes de cerrar el servidor: deja de agendar pasadas nuevas. Una pasada en
@@ -23,6 +30,7 @@ function shutdown(signal: string) {
   // a medias— y los eventos que no llegó a tocar siguen en PENDING, que es
   // exactamente donde tienen que estar para que los tome el próximo arranque.
   detenerWorker();
+  detenerWorkerDeOutbox();
 
   server.close(() => {
     prisma
