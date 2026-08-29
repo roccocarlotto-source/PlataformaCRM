@@ -163,13 +163,27 @@ export function createBooking(data: CreateBookingData, db: Db = prisma) {
 // Segunda escritura, DESPUÉS de que Google respondió y fuera de la transacción
 // de creación. Ver el comentario de createBooking en booking.service.ts sobre
 // por qué la llamada a Google no puede vivir adentro de la transacción.
+//
+// SOLO SOBRE UNA RESERVA TODAVÍA CONFIRMED — M-2 de docs/auditoria-2026-08-29.md.
+// Entre el commit de la reserva y la respuesta de Google pasan hasta diez
+// segundos, y en esa ventana puede llegar una cancelación: markBookingCancelled
+// la aplica (la fila está CONFIRMED y sin googleEventId, así que no hay nada que
+// borrar en Google), y si esta escritura no mirara el status, el id que Google
+// devuelve tarde quedaría escrito sobre una fila CANCELLED — un evento vivo en
+// el calendario del negocio que nadie vuelve a borrar, porque desde la base esa
+// reserva nunca tuvo evento. Con el status en el WHERE, el caller lee count ===
+// 0 y sabe que tiene que borrar el evento recién creado. Mismo criterio que
+// markBookingCancelled: el WHERE decide, no el pre-check.
 export function setGoogleEventId(
   id: string,
   organizationId: string,
   googleEventId: string,
   db: Db = prisma,
 ) {
-  return db.booking.updateMany({ where: { id, organizationId }, data: { googleEventId } });
+  return db.booking.updateMany({
+    where: { id, organizationId, status: "CONFIRMED" },
+    data: { googleEventId },
+  });
 }
 
 export function markBookingCancelled(id: string, organizationId: string, db: Db = prisma) {
