@@ -585,7 +585,7 @@ test("acceptInvitationRateLimiter: el cupo agotado de una identidad no afecta a 
   }
 });
 
-test("cadena completa: una aceptación real tiene éxito dentro de ambos cupos", async () => {
+test("cadena completa: una aceptación real tiene éxito dentro del cupo por identidad", async () => {
   const adminRole = await findRoleByName("ADMIN");
   assert.ok(adminRole, "el rol ADMIN debe estar sembrado");
 
