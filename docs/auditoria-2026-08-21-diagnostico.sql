@@ -179,7 +179,13 @@ from (
         || '/(organization_id = current_organization_id())' as firma
     from (values
       ('users'), ('companies'), ('contacts'), ('opportunities'), ('pipelines'),
-      ('activities'), ('stages'), ('invitations'), ('sources'), ('ingestion_events')
+      ('activities'), ('stages'), ('invitations'), ('sources'), ('ingestion_events'),
+      -- M-5 (auditoría 2026-08-29), migración 20260901120000: las seis tablas
+      -- del outbox y del módulo de agenda con política de aislamiento.
+      -- google_calendar_connections NO está acá a propósito, igual que
+      -- api_keys: RLS habilitada y cero políticas (deny-all, guarda secretos).
+      ('outbox_events'), ('branches'), ('resources'), ('service_types'),
+      ('working_hours'), ('bookings')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
