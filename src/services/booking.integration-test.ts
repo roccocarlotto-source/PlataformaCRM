@@ -134,6 +134,12 @@ interface OpcionesDelDoble {
   fallaAlCrearEvento?: Error;
   fallaAlConsultar?: Error;
   eventId?: string;
+  // M-2: se llama cuando el service YA LLEGÓ a Google (la reserva está
+  // commiteada) y la promesa que devuelve es lo que el doble espera antes de
+  // responder con el id. Es lo que le da al test el control de la ventana
+  // entre el commit y la respuesta de Google: puede cancelar de verdad en el
+  // medio y recién después soltar la respuesta.
+  alCrearEvento?: () => Promise<void> | void;
 }
 
 interface Doble {
@@ -166,12 +172,13 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
       opciones.fallaAlConsultar
         ? Promise.reject(opciones.fallaAlConsultar)
         : Promise.resolve(opciones.ocupados ?? []),
-    crearEvento: (evento) => {
+    crearEvento: async (evento) => {
       if (opciones.fallaAlCrearEvento) {
-        return Promise.reject(opciones.fallaAlCrearEvento);
+        throw opciones.fallaAlCrearEvento;
       }
       eventosCreados.push({ titulo: evento.titulo, zona: evento.zona });
-      return Promise.resolve(opciones.eventId ?? "evento-google-1");
+      await opciones.alCrearEvento?.();
+      return opciones.eventId ?? "evento-google-1";
     },
     eliminarEvento: (evento) => {
       eventosBorrados.push(evento.eventId);
@@ -1209,6 +1216,106 @@ test("cancelar borra el evento en Google", async () => {
     await cancelBooking(escenario.organizationId, booking.id, doble.cliente);
 
     assert.deepEqual(doble.eventosBorrados, ["evt-a-borrar"]);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// M-2 (docs/auditoria-2026-08-29.md) — la ventana entre el commit y Google.
+//
+// La reserva se commitea en la FASE 2 y Google se llama DESPUÉS, fuera de la
+// transacción (decisión documentada en createBooking, que no se toca). En esa
+// ventana —hasta el timeout de Google— puede llegar una cancelación: la fila
+// está CONFIRMED y sin googleEventId, así que cancelBooking la aplica y no
+// encuentra nada que borrar en Google. Cuando Google responde tarde,
+// setGoogleEventId escribía el id sobre la fila ya CANCELLED: un evento vivo en
+// el calendario del negocio que nadie volvía a borrar, porque desde la base
+// esa reserva nunca tuvo evento.
+//
+// LA VENTANA SE FUERZA, NO SE RAZONA: a diferencia de A-1 y A-7 (un lock de
+// Postgres sostenido), acá es tiempo entre un commit ya hecho y una respuesta
+// de red que no llegó. El doble avisa cuando el service llegó a Google
+// (`alCrearEvento`) y se queda esperando una promesa que el test controla: el
+// test confirma contra la base que la reserva ya está commiteada y sin evento,
+// cancela DE VERDAD con cancelBooking, y recién entonces suelta la respuesta.
+// ---------------------------------------------------------------------------
+
+test("M-2: cancelar mientras Google todavía no respondió deja la reserva CANCELLED y BORRA el evento recién creado", async () => {
+  const escenario = await montar("m2-ventana");
+  try {
+    await conectarGoogle(escenario);
+
+    let llegoAGoogle!: () => void;
+    const llegada = new Promise<void>((resolve) => {
+      llegoAGoogle = resolve;
+    });
+    let soltarRespuesta!: () => void;
+    const respuestaRetenida = new Promise<void>((resolve) => {
+      soltarRespuesta = resolve;
+    });
+
+    const doble = doblarGoogle({
+      eventId: "evento-que-nacio-huerfano",
+      alCrearEvento: () => {
+        llegoAGoogle();
+        return respuestaRetenida;
+      },
+    });
+
+    // (a) Se arranca la reserva sin esperarla: va a quedar detenida dentro del
+    // doble, con la FASE 2 ya commiteada.
+    const creacion = createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: LUNES_9_LOCAL,
+      },
+      doble.cliente,
+    );
+
+    await llegada;
+
+    // La premisa de la ventana, contra la base: la reserva existe, está
+    // CONFIRMED y todavía no tiene evento.
+    const commiteada = await prisma.booking.findFirstOrThrow({
+      where: { resourceId: escenario.resourceId },
+    });
+    assert.equal(commiteada.status, "CONFIRMED");
+    assert.equal(commiteada.googleEventId, null, "Google todavía no respondió");
+
+    // (b) La cancelación REAL, en el medio. No encuentra evento que borrar.
+    const cancelada = await cancelBooking(escenario.organizationId, commiteada.id, doble.cliente);
+    assert.equal(cancelada.status, "CANCELLED");
+    assert.deepEqual(doble.eventosBorrados, [], "no había evento que borrar al cancelar");
+
+    // (c) Recién ahora Google "responde" y createBooking sigue con la FASE 3.
+    soltarRespuesta();
+    const resultado = await creacion;
+
+    // Las dos partes del hallazgo. Sin el fix: la fila quedaba CANCELLED pero
+    // con googleEventId escrito encima, y eventosBorrados seguía vacío.
+    const final = await prisma.booking.findUniqueOrThrow({ where: { id: commiteada.id } });
+    assert.equal(final.status, "CANCELLED", "la cancelación no se pisa");
+    assert.equal(
+      final.googleEventId,
+      null,
+      "el id tardío no se escribe sobre una reserva cancelada",
+    );
+
+    assert.deepEqual(doble.eventosCreados.length, 1, "Google sí creó el evento");
+    assert.deepEqual(
+      doble.eventosBorrados,
+      ["evento-que-nacio-huerfano"],
+      "el evento recién creado tiene que borrarse: es un huérfano que nadie más va a ver",
+    );
+
+    // Y lo que createBooking devuelve es la reserva como quedó, no una CONFIRMED
+    // con evento que ya no existe.
+    assert.equal(resultado.status, "CANCELLED");
+    assert.equal(resultado.googleEventId, null);
   } finally {
     await desmontar(escenario);
   }

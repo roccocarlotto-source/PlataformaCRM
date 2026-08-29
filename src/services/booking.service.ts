@@ -269,7 +269,25 @@ export async function createBooking(
     return booking;
   }
 
-  await setGoogleEventId(booking.id, organizationId, googleEventId);
+  const enlazado = await setGoogleEventId(booking.id, organizationId, googleEventId);
+
+  if (enlazado.count === 0) {
+    // M-2 (auditoría 2026-08-29) — LA VENTANA ENTRE EL COMMIT Y GOOGLE. Mientras
+    // se esperaba la respuesta de Google (hasta diez segundos), la reserva dejó
+    // de estar CONFIRMED: alguien la canceló. Esa cancelación fue correcta y no
+    // encontró ningún evento que borrar, porque googleEventId todavía era NULL.
+    // El evento que Google acaba de crear es entonces un HUÉRFANO: la base no
+    // lo referencia y nadie va a volver a pasar por borrarReservaDeGoogle con
+    // su id. Se borra acá, best-effort como toda llamada a Google, y se
+    // devuelve la reserva tal como quedó — cancelada y sin evento— en vez de
+    // fingir que se enlazó.
+    logger.warn(
+      { bookingId: booking.id, organizationId, googleEventId },
+      "La reserva se canceló mientras Google creaba el evento: se borra el evento recién creado para no dejarlo huérfano",
+    );
+    await borrarReservaDeGoogle(organizationId, resource.branchId, googleEventId, cliente);
+    return getBookingById(organizationId, booking.id);
+  }
 
   return { ...booking, googleEventId };
 }
