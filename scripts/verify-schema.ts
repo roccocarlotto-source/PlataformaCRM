@@ -122,9 +122,12 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // information_schema que se consultaba antes.
   [1, { descripcion: "C-1 · anon/authenticated sin escritura sobre public", esperado: "ninguno" }],
   [2, { descripcion: "C-1 · anon/authenticated sin lectura sobre public", esperado: "ninguno" }],
-  // Las 12 políticas de RLS comparadas por definición (cmd, permissive, roles,
+  // Las 18 políticas de RLS comparadas por definición (cmd, permissive, roles,
   // USING y WITH CHECK), con FULL OUTER JOIN para atrapar tanto la que falta
-  // como la que sobra.
+  // como la que sobra: 16 de aislamiento uniforme (10 originales + las 6 del
+  // outbox y de agenda que agregó 20260901120000, M-5) más las 2 especiales
+  // (organizations solo SELECT, roles lectura para autenticados). api_keys y
+  // google_calendar_connections no tienen política a propósito (deny-all).
   [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
   [7, { descripcion: "Los 8 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
   [8, { descripcion: "Los 5 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
