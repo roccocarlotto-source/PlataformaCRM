@@ -11,7 +11,6 @@ import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import { requestOnboardingOtp } from "../services/onboarding.service";
-import { slugify } from "../utils/slug";
 import { errorHandler } from "./errorHandler";
 import { notFound } from "./notFound";
 import {
@@ -116,25 +115,28 @@ function mountOnboarding(app: express.Express) {
   app.post("/api/onboarding", createOnboardingRateLimiter(), createOnboarding);
 }
 
+// Los dos tests de abajo usaban una organización con el mismo slug para que el
+// controller respondiera 409 "sin tocar Supabase". Desde M-13
+// (docs/auditoria-2026-08-29.md) ese chequeo corre DESPUÉS de verifyOtp —era un
+// oráculo de nombres para cualquiera con un código inventado—, así que un body
+// válido con un código inventado ahora rebota en el 401 del OTP. Para este
+// archivo da igual: lo que se mide es que el limiter CUENTE el request (corre
+// antes del controller), y sigue sin escribirse nada. El código va contra el
+// GoTrue del stack local, que en supabase/config.toml admite 3600
+// verificaciones por 5 minutos por IP.
 test("onboardingRateLimiter: cuenta intentos con body válido y bloquea el excedente con 429 + Retry-After", async () => {
-  const candidateName = `M1 Onboarding Dup ${randomUUID()}`;
-  const dupSlug = slugify(candidateName);
-  const dupOrg = await prisma.organization.create({
-    data: { name: "M1 existing org", slug: dupSlug },
-  });
-
   const { url, close } = await startTestApp(mountOnboarding);
   try {
     const body = {
-      organizationName: candidateName, // slugify(candidateName) === dupSlug -> 409 local, nunca toca Supabase
+      organizationName: `M1 Onboarding ${randomUUID()}`,
       fullName: "Test User",
       email: `m1-onboarding-${randomUUID()}@example.test`,
       password: "password123",
       // ALTO-2: el schema exige el código, y el limiter decide qué cuenta
       // parseándolo. Sin esto el body sería Zod-inválido y NINGÚN intento
       // contaría contra el cupo — que es exactamente lo que este test mide.
-      // No hace falta que sea el código correcto: el 409 por slug duplicado se
-      // resuelve antes de llegar a verifyOtp, así que sigue sin tocar Supabase.
+      // No hace falta que sea el código correcto: rebota en verifyOtp con 401,
+      // sin escribir nada.
       otp: "000000",
     };
 
@@ -146,8 +148,8 @@ test("onboardingRateLimiter: cuenta intentos con body válido y bloquea el exced
       });
       assert.equal(
         res.status,
-        409,
-        `intento ${i + 1}/${ONBOARDING_MAX} debería contar (409 por slug duplicado), no bloquearse`,
+        401,
+        `intento ${i + 1}/${ONBOARDING_MAX} debería contar (401 por OTP inválido), no bloquearse`,
       );
     }
 
@@ -165,17 +167,10 @@ test("onboardingRateLimiter: cuenta intentos con body válido y bloquea el exced
     );
   } finally {
     await close();
-    await prisma.organization.delete({ where: { id: dupOrg.id } });
   }
 });
 
 test("onboardingRateLimiter: body Zod-inválido no consume cupo", async () => {
-  const candidateName = `M1 Onboarding Probe ${randomUUID()}`;
-  const dupSlug = slugify(candidateName);
-  const dupOrg = await prisma.organization.create({
-    data: { name: "M1 existing org probe", slug: dupSlug },
-  });
-
   const { url, close } = await startTestApp(mountOnboarding);
   try {
     for (let i = 0; i < ONBOARDING_MAX + 5; i++) {
@@ -196,7 +191,7 @@ test("onboardingRateLimiter: body Zod-inválido no consume cupo", async () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        organizationName: candidateName,
+        organizationName: `M1 Onboarding Probe ${randomUUID()}`,
         fullName: "Test User",
         email: `m1-probe-${randomUUID()}@example.test`,
         password: "password123",
@@ -205,12 +200,11 @@ test("onboardingRateLimiter: body Zod-inválido no consume cupo", async () => {
     });
     assert.equal(
       probe.status,
-      409,
-      "un body válido después de varios inválidos debe evaluarse normalmente (409 por slug duplicado), no 429",
+      401,
+      "un body válido después de varios inválidos debe evaluarse normalmente (401 por OTP inválido), no 429",
     );
   } finally {
     await close();
-    await prisma.organization.delete({ where: { id: dupOrg.id } });
   }
 });
 
