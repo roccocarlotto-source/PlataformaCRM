@@ -1,6 +1,7 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { findConnectionsNeedingChannel } from "../repositories/googleCalendarConnection.repository";
+import type { ClienteGoogleCalendar } from "../services/googleCalendar.service";
 import { renovarCanal } from "../services/googleCalendarConnection.service";
 
 // ---------------------------------------------------------------------------
@@ -53,16 +54,41 @@ export interface ResumenDeRenovacion {
   fallidos: number;
 }
 
-export async function renovarCanalesVencidos(): Promise<ResumenDeRenovacion> {
+// Las dos opciones son SOLO PARA TESTS (A-8 de docs/auditoria-2026-08-29.md);
+// el tick de producción (abajo) no pasa ninguna y el comportamiento sin ellas
+// es el de siempre.
+//
+//   - `cliente`: el doble de Google, mismo patrón ClienteInyectado que ya usan
+//     obtenerAccessToken y renovarCanal. Sin él, un test que llame a esta
+//     función en CI —donde no hay ninguna GOOGLE_*— no ejercita nada: cada
+//     conexión revienta en getClienteGoogleCalendar() con un 500 de
+//     configuración ANTES de llegar a ninguna lógica, el bucle lo cuenta como
+//     `fallidos` y sigue, y el test queda verde sin haber probado ni el filtro
+//     de la consulta ni el ciclo de vida del canal.
+//   - `organizationId`: acota el barrido a una organización. En producción
+//     este worker recorre TODAS las conexiones ACTIVE de la base, que es su
+//     trabajo; en la suite —que corre archivos en paralelo contra una base
+//     compartida— un barrido sin alcance toca las conexiones de OTROS tests,
+//     y con credenciales reales en .env las marcaría ERROR contra Google.
+export interface OpcionesDeRenovacion {
+  cliente?: ClienteGoogleCalendar;
+  organizationId?: string;
+}
+
+export async function renovarCanalesVencidos(
+  opciones: OpcionesDeRenovacion = {},
+): Promise<ResumenDeRenovacion> {
   const resumen: ResumenDeRenovacion = { renovados: 0, fallidos: 0 };
 
   const limite = new Date(Date.now() + env.GOOGLE_CHANNEL_RENEW_MARGIN_MS);
 
-  const conexiones = await findConnectionsNeedingChannel(limite);
+  const conexiones = await findConnectionsNeedingChannel(limite, {
+    organizationId: opciones.organizationId,
+  });
 
   for (const conexion of conexiones) {
     try {
-      const resultado = await renovarCanal(conexion);
+      const resultado = await renovarCanal(conexion, opciones.cliente);
 
       resumen.renovados++;
 
