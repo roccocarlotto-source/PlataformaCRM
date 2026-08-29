@@ -94,6 +94,23 @@ enum ResourceType {
   CLASS
 }
 
+// Ciclo de vida de la conexión OAuth de una sucursal con Google Calendar
+// (docs/booking-architecture.md §4). ACTIVE: hay un refresh token válido y
+// utilizable. REVOKED: la desconectó un ADMIN desde el CRM — es un estado
+// deliberado, no una falla. ERROR: Google rechazó el token (el usuario revocó el
+// acceso desde su propia cuenta, o el grant caducó) — es una falla que necesita
+// que alguien reconecte, y el motivo queda en lastErrorMessage.
+//
+// REVOKED y ERROR son el MISMO estado operativo —no se puede llamar a Google— y
+// aun así son dos valores distintos a propósito: solo ERROR es una anomalía que
+// alguien tiene que mirar. Colapsarlos haría imposible distinguir "esta sucursal
+// decidió no usar Google" de "esta sucursal se rompió y nadie se enteró".
+enum ConnectionStatus {
+  ACTIVE
+  REVOKED
+  ERROR
+}
+
 // ---------------------------------------------------------------------------
 // Organization — raíz del aislamiento multi-tenant
 // ---------------------------------------------------------------------------
@@ -124,6 +141,8 @@ model Organization {
   branches     Branch[]
   resources    Resource[]
   serviceTypes ServiceType[]
+
+  googleCalendarConnections GoogleCalendarConnection[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -770,6 +789,10 @@ model Branch {
   resources    Resource[]
   serviceTypes ServiceType[]
 
+  // Singular y opcional: el @unique sobre branch_id del otro lado convierte esta
+  // relación en 1-a-lo-sumo-1, y Prisma la tipa así.
+  googleCalendarConnection GoogleCalendarConnection?
+
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3).
   @@unique([organizationId, id])
   // (organization_id, created_at) desde el arranque, sin esperar a que alguien
@@ -865,4 +888,86 @@ model ServiceType {
   // Sirve el conteo del RESTRICT de deleteResource.
   @@index([organizationId, resourceId])
   @@map("service_types")
+}
+
+// ---------------------------------------------------------------------------
+// GoogleCalendarConnection — la autorización OAuth de UNA sucursal contra UNA
+// cuenta de Google (docs/booking-architecture.md §4, paso 2 de §9).
+//
+// UNA FILA POR SUCURSAL, y branch_id es UNIQUE a nivel base, no solo por
+// convención del service: reconectar una sucursal ACTUALIZA su fila, nunca crea
+// una segunda. Sin ese UNIQUE, dos callbacks concurrentes dejarían dos filas
+// ACTIVE y nada podría decidir cuál es la buena.
+//
+// EL refreshToken ES NULLABLE, y eso es la mitad de la política de secretos de
+// esta tabla: una conexión REVOKED no tiene token, no tiene un token vacío. Al
+// desconectar se pone en NULL, así que un volcado de la base no arrastra
+// credenciales de sucursales que ya se fueron. El CHECK de la migración sostiene
+// la otra mitad: una fila ACTIVE SIN token es imposible.
+// ---------------------------------------------------------------------------
+model GoogleCalendarConnection {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  branchId       String @map("branch_id") @db.Uuid
+
+  // CIFRADO EN REPOSO con AES-256-GCM (src/utils/encryption.ts) — NUNCA en
+  // claro, y NUNCA en una respuesta de la API.
+  //
+  // ATENCIÓN AL LEER docs/booking-architecture.md §3/§4: aquello dice "mismo
+  // criterio que ApiKey" y esa premisa es FALSA. ApiKey no está cifrada: está
+  // HASHEADA con SHA-256 sin sal (src/utils/apiKey.ts), que es irreversible a
+  // propósito porque una API key solo hay que RECONOCERLA. Un refresh token hay
+  // que RECUPERARLO para poder usarlo contra Google, así que hashearlo lo
+  // volvería inútil. Son dos problemas distintos con dos primitivos distintos.
+  refreshToken String? @map("refresh_token")
+
+  // El calendario sobre el que opera esta sucursal. "primary" es el calendario
+  // principal de la cuenta que autorizó; el negocio puede elegir otro.
+  calendarId String @default("primary") @map("calendar_id") @db.VarChar(255)
+
+  status ConnectionStatus @default(ACTIVE)
+
+  // Por qué esta conexión dejó de funcionar. No hay ningún mecanismo de aviso al
+  // admin todavía (§4 lo pide, no existe), así que el registro en la fila ES la
+  // notificación: sin esto, "status = ERROR" no dice si el usuario revocó el
+  // acceso desde su cuenta de Google, si el calendario se borró, o si Google
+  // estaba caído — tres cosas con tres respuestas distintas.
+  //
+  // VarChar(500) y no `text`: lo que se guarda acá es el `error` +
+  // `error_description` de Google, no un stack. El tope obliga a truncar en el
+  // service en vez de dejar que una respuesta inesperadamente larga entre entera.
+  lastErrorAt      DateTime? @map("last_error_at")
+  lastErrorMessage String?   @map("last_error_message") @db.VarChar(500)
+
+  // Cuándo se autorizó POR ÚLTIMA VEZ, distinto de createdAt: reconectar
+  // actualiza la fila existente, así que createdAt sigue diciendo cuándo esta
+  // sucursal conectó Google por primera vez y connectedAt cuándo vale el token
+  // que hay guardado ahora.
+  connectedAt DateTime @default(now()) @map("connected_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+
+  // EL UNIQUE QUE SOSTIENE "UNA CONEXIÓN POR SUCURSAL", y es compuesto y no un
+  // @unique suelto sobre branchId por un requisito de Prisma: el lado
+  // definidor de una relación 1-a-1 tiene que ser único SOBRE LOS MISMOS CAMPOS
+  // que usa la relación, y la de acá abajo es (organizationId, branchId).
+  //
+  // Garantiza exactamente lo mismo que un unique sobre branch_id solo, y no por
+  // convención sino por construcción: la FK compuesta obliga a que el
+  // organization_id de esta fila sea el de SU sucursal, y branches.id es la PK
+  // —un solo organization_id posible por branch_id—, así que dos filas con el
+  // mismo branch_id colisionan en este índice sí o sí. Un unique adicional sobre
+  // branch_id sería un segundo índice para la misma garantía.
+  @@unique([organizationId, branchId])
+  // SIN (organization_id, created_at), a diferencia de branches/resources/
+  // service_types, y es una decisión y no un olvido: la lección de ALTO-6 es
+  // sobre el índice del LISTADO de una entidad, y acá no hay listado. Todo
+  // acceso a esta tabla es por sucursal —una fila— y lo sirve el UNIQUE de acá
+  // arriba, incluido el conteo del RESTRICT de deleteBranch. Mismo criterio con
+  // el que service_types se quedó sin su @@unique: no se agregan objetos que
+  // nadie usa.
+  @@map("google_calendar_connections")
 }

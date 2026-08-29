@@ -110,6 +110,47 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(10 * 1000),
+
+  // -------------------------------------------------------------------------
+  // Cifrado de secretos en reposo — src/utils/encryption.ts (P2.1, paso 2).
+  //
+  // Clave maestra de 32 bytes en base64. De ella se derivan por HKDF las
+  // subclaves de cada propósito: cifrar secretos recuperables (hoy el refresh
+  // token de Google Calendar) y firmar el `state` del flujo OAuth.
+  //
+  // NO TIENE VALOR TODAVÍA. Se genera con `npm run gen:encryption-key` y se
+  // configura en el entorno; sin ella el servidor arranca igual y /health
+  // responde, pero cualquier operación de Google Calendar falla con un 500 que
+  // dice exactamente qué falta.
+  //
+  // OPCIONAL ACÁ Y VALIDADA EN EL MOMENTO DE USO, igual que DATABASE_URL y las
+  // SUPABASE_*: es la convención real del archivo (ver el comentario de arriba
+  // de todo), y el motivo es el mismo — que la falta de una integración no
+  // impida arrancar el proceso ni responder el health check.
+  //
+  // El LARGO no se valida acá sino en parseMasterKey(): un z.string().length()
+  // sobre el base64 aceptaría igual cadenas que no decodifican a 32 bytes, así
+  // que el chequeo verdadero tiene que mirar los bytes decodificados y ese es el
+  // único lugar donde existen.
+  SECRET_ENCRYPTION_KEY: z.string().optional(),
+
+  // -------------------------------------------------------------------------
+  // Google Calendar OAuth 2.0 — docs/booking-architecture.md §4.
+  //
+  // NINGUNA TIENE VALOR TODAVÍA: salen de crear un proyecto en Google Cloud
+  // Console, habilitar la Google Calendar API y crear credenciales de tipo
+  // "OAuth client ID / Web application". Ver docs/bitacora-2026-08-29.md.
+  //
+  // GOOGLE_REDIRECT_URI tiene que coincidir EXACTAMENTE (esquema, host, puerto y
+  // path) con una de las "Authorized redirect URIs" cargadas en esa consola:
+  // Google compara la cadena completa y rechaza el intercambio con
+  // redirect_uri_mismatch ante cualquier diferencia, incluida una barra final.
+  // Apunta al callback de este backend, no al frontend.
+  //
+  // Opcionales por el mismo criterio que SECRET_ENCRYPTION_KEY y las SUPABASE_*.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REDIRECT_URI: z.string().optional(),
 });
 
 function parseEnv() {

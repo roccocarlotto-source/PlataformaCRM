@@ -297,6 +297,26 @@ jobs:
       - name: Verificar que el esquema quedó completo
         run: npm run verify:schema
 
+      # Clave EFÍMERA Y DESCARTABLE para la suite de integración (P2.1, paso 2):
+      # la conexión con Google Calendar cifra su refresh token en reposo y sin
+      # una clave esos tests no pueden correr.
+      #
+      # SE GENERA ACÁ, EN CADA CORRIDA, en vez de hardcodear un valor en este
+      # archivo: una clave fija y versionada es exactamente el patrón que después
+      # alguien copia a producción. Ésta vive lo que vive el runner y solo cifra
+      # datos de prueba que se borran al terminar — mismo criterio que la clave
+      # ES256 del GoTrue local de más arriba.
+      #
+      # Va por $GITHUB_ENV y no por el `env:` del step siguiente porque el valor
+      # se calcula en tiempo de ejecución; `env:` solo admite expresiones que se
+      # resuelven antes de que el job arranque.
+      #
+      # Los tests NO tocan Google: el cliente de la API se inyecta mockeado (ver
+      # google-calendar-connection.integration-test.ts), así que no hace falta
+      # ninguna GOOGLE_* real acá.
+      - name: Generar la clave de cifrado efímera de la suite
+        run: echo "SECRET_ENCRYPTION_KEY=$(npm run --silent gen:encryption-key)" >> "$GITHUB_ENV"
+
       - name: Suite de integración
         run: npm run test:integration
         env:

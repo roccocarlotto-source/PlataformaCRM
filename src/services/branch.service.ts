@@ -10,6 +10,7 @@ import {
   type BranchSortBy,
   type SortOrder,
 } from "../repositories/branch.repository";
+import { countActiveConnectionsByBranch } from "../repositories/googleCalendarConnection.repository";
 import { countActiveResourcesByBranch } from "../repositories/resource.repository";
 import { countActiveServiceTypesByBranch } from "../repositories/serviceType.repository";
 import { AppError } from "../utils/AppError";
@@ -132,6 +133,30 @@ export async function deleteBranch(organizationId: string, id: string) {
     if (serviciosActivos > 0) {
       throw new AppError(
         "No se puede eliminar una sucursal que tiene servicios activos. Eliminá primero sus servicios.",
+        400,
+      );
+    }
+
+    // TERCER RESTRICT (P2.1, paso 2): no se borra una sucursal que todavía tiene
+    // Google Calendar conectado. La conexión guarda una credencial viva sobre la
+    // cuenta de Google del negocio, y borrar la sucursal la dejaría huérfana:
+    // sin fila que consultar, nadie podría revocarla nunca más desde el CRM.
+    //
+    // SOLO ACTIVE BLOQUEA. Una conexión REVOKED ya no tiene token —se pone en
+    // NULL al desconectar— y una en ERROR es un grant que Google ya rechaza. En
+    // los dos casos no hay nada conectado que se pueda perder, así que exigir
+    // limpiarlas sería un trámite sin contenido.
+    //
+    // VA ÚLTIMO, después de recursos y servicios, y no es indiferente: los tres
+    // mensajes son excluyentes —se devuelve el primero que dispara— así que el
+    // orden decide cuál ve el ADMIN. Recursos y servicios son datos que hay que
+    // migrar o borrar a mano; desconectar Google es un click. Empezar por lo
+    // caro deja el trámite corto para el final, en vez de hacerle desconectar
+    // Google para descubrir recién ahí que igual no puede borrar la sucursal.
+    const conexionesActivas = await countActiveConnectionsByBranch(id, organizationId, tx);
+    if (conexionesActivas > 0) {
+      throw new AppError(
+        "No se puede eliminar una sucursal que tiene Google Calendar conectado. Desconectalo primero.",
         400,
       );
     }

@@ -5,6 +5,7 @@ import { apiKeyRouter } from "./apiKey.routes";
 import { branchRouter } from "./branch.routes";
 import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
+import { googleCalendarConnectionRouter } from "./googleCalendarConnection.routes";
 import { healthRouter } from "./health.routes";
 import { importRouter } from "./import.routes";
 import { ingestionEventRouter } from "./ingestionEvent.routes";
@@ -77,6 +78,13 @@ routes.use("/api", branchRouter);
 routes.use("/api", resourceRouter);
 
 routes.use("/api", serviceTypeRouter);
+
+// Conexión OAuth con Google Calendar (paso 2 de booking-architecture.md §9).
+// Sus tres rutas administrativas comparten la forma del resto de este bloque;
+// la cuarta —el callback de Google— NO lleva authenticate, porque Google
+// redirige el navegador del usuario y no reenvía el JWT. Lo que sostiene la
+// frontera de tenant ahí es el `state` firmado; ver el comentario del router.
+routes.use("/api", googleCalendarConnectionRouter);
 // ingestionEventRouter: lectura de la cola y reproceso de una fila fallida
 // (G-1/G-2/G-7 de docs/research-frontend-ingesta-2026-08-27.md). Va acá, con las
 // demás rutas administrativas, por la misma razón que importRouter: del otro
