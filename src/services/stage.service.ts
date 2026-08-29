@@ -300,9 +300,21 @@ export async function updateStage(organizationId: string, id: string, input: Upd
         await reindexStages(actual.pipelineId, finalOrderIds, tx);
       }
 
-      const result = await updateStageRepo(id, organizationId, rest, tx);
-      if (result.count === 0) {
-        throw new AppError("Etapa no encontrada", 404);
+      // SOLO si hay algo que escribir además del orden. Bug preexistente que
+      // destapó el test de concurrencia de A-1: con un PATCH que trae solo
+      // `order` (el de un drag & drop), `rest` es `{}` y Prisma resuelve
+      // `updateMany({ data: {} })` como `{ count: 0 }` sin ejecutar nada — ni
+      // siquiera toca `updatedAt`, que solo se bumpea cuando hay cambios. Ese
+      // 0 se leía como "no existe": el reorden respondía 404 y la transacción
+      // revertía el reindexado ya hecho. La existencia de la etapa ya la
+      // decidió la relectura de arriba, con el lock sostenido; acá el count
+      // solo tiene sentido cuando hubo un UPDATE real.
+      const hayCamposParaEscribir = Object.values(rest).some((valor) => valor !== undefined);
+      if (hayCamposParaEscribir) {
+        const result = await updateStageRepo(id, organizationId, rest, tx);
+        if (result.count === 0) {
+          throw new AppError("Etapa no encontrada", 404);
+        }
       }
 
       const updated = await findStageById(id, organizationId, tx);

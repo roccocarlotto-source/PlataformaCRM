@@ -246,6 +246,30 @@ async function correrContraPipelineBloqueado<T>(
   return { resultado, relacionesEnEspera };
 }
 
+// Bug preexistente que destaparon los dos tests de carrera de abajo la primera
+// vez que corrieron en CI: un PATCH que trae SOLO `order` (el de un drag &
+// drop) dejaba `rest = {}`, y Prisma resuelve `updateMany({ data: {} })` como
+// `{ count: 0 }` sin ejecutar nada. Ese 0 se leía como "no existe": el reorden
+// respondía 404 y la transacción revertía el reindexado. Ningún test lo cubría.
+test("updateStage con SOLO `order` mueve la etapa y devuelve la etapa — no 404 (bug preexistente)", async () => {
+  const { pipeline, etapas } = await crearPipelineConEtapas(3);
+  const [s1, s2, s3] = etapas;
+
+  const movida = await updateStage(fx.orgId, s3.id, { order: 1 });
+  assert.equal(movida.id, s3.id);
+  assert.equal(movida.order, 1);
+
+  const activas = await etapasActivasOrdenadas(pipeline.id);
+  assert.deepEqual(
+    activas.map((s) => s.id),
+    [s3.id, s1.id, s2.id],
+  );
+  assert.deepEqual(
+    activas.map((s) => s.order),
+    [1, 2, 3],
+  );
+});
+
 test("updateStage vs deleteStage concurrentes: el reorden espera el lock del PIPELINE (no el de una fila de stage), y la etapa borrada nunca recibe un slot del reindexado", async () => {
   const { pipeline, etapas } = await crearPipelineConEtapas(4);
   const [s1, s2, s3, s4] = etapas;
