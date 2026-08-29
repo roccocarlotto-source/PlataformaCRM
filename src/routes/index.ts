@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { activityRouter } from "./activity.routes";
 import { apiKeyRouter } from "./apiKey.routes";
+
+import { branchRouter } from "./branch.routes";
 import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
 import { healthRouter } from "./health.routes";
@@ -10,6 +12,10 @@ import { invitationRouter } from "./invitation.routes";
 import { meRouter } from "./me.routes";
 import { onboardingRouter } from "./onboarding.routes";
 import { opportunityRouter } from "./opportunity.routes";
+
+import { resourceRouter } from "./resource.routes";
+
+import { serviceTypeRouter } from "./serviceType.routes";
 import { pipelineRouter } from "./pipeline.routes";
 import { sourceRouter } from "./source.routes";
 import { stageRouter } from "./stage.routes";
@@ -55,6 +61,22 @@ routes.use("/api", userRouter);
 routes.use("/api", sourceRouter);
 routes.use("/api", apiKeyRouter);
 routes.use("/api", importRouter);
+
+// Módulo de Agenda/Booking (docs/booking-architecture.md), primer tramo: las
+
+// entidades de configuración. Van acá, con el resto de las rutas
+
+// administrativas, porque comparten exactamente su forma — authenticate para
+
+// leer, authorize("ADMIN") para escribir. Booking y la disponibilidad todavía
+
+// no existen.
+
+routes.use("/api", branchRouter);
+
+routes.use("/api", resourceRouter);
+
+routes.use("/api", serviceTypeRouter);
 // ingestionEventRouter: lectura de la cola y reproceso de una fila fallida
 // (G-1/G-2/G-7 de docs/research-frontend-ingesta-2026-08-27.md). Va acá, con las
 // demás rutas administrativas, por la misma razón que importRouter: del otro

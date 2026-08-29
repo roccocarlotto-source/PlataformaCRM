@@ -84,6 +84,16 @@ enum OutboxStatus {
   DEAD_LETTER
 }
 
+// Tipo de recurso agendable (docs/booking-architecture.md §3). PERSON: una
+// persona que atiende (un barbero, un médico). ROOM: un espacio (una sala, una
+// cancha). CLASS: una clase con cupo, donde el recurso no es ni una persona ni
+// un lugar sino la clase misma.
+enum ResourceType {
+  PERSON
+  ROOM
+  CLASS
+}
+
 // ---------------------------------------------------------------------------
 // Organization — raíz del aislamiento multi-tenant
 // ---------------------------------------------------------------------------
@@ -110,6 +120,10 @@ model Organization {
   apiKeys         ApiKey[]
   ingestionEvents IngestionEvent[]
   outboxEvents    OutboxEvent[]
+
+  branches     Branch[]
+  resources    Resource[]
+  serviceTypes ServiceType[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -691,4 +705,164 @@ model OutboxEvent {
   // migración 20260828150000.
   @@index([organizationId, createdAt])
   @@map("outbox_events")
+}
+
+// Módulo de Agenda/Booking — P2.1 de docs/roadmap-implementacion.md
+//
+// Primer tramo: las entidades de configuración (Branch, Resource, ServiceType).
+// SIN Google Calendar y SIN Booking todavía — el resto de P2.1 viene después.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Branch — sucursal. Prerrequisito que el diseño daba por existente y no
+// existía: docs/booking-architecture.md §3 modela Resource/ServiceType/Booking
+// con organizationId + sucursalId, pero no había ninguna entidad de sucursal en
+// este schema (verificado con grep sobre el archivo completo: cero
+// coincidencias).
+//
+// SE LLAMA Branch, NO Sucursal. El schema es 100% inglés —Organization,
+// Contact, Pipeline, Stage— y el `sucursalId` del documento de diseño es un
+// desliz de redacción, no una decisión. La prosa de los documentos sigue
+// diciendo "sucursal", igual que dice "organización" para Organization.
+//
+// ALCANCE ACOTADO, Y ES UNA DECISIÓN, NO UNA ETAPA INTERMEDIA: por ahora SOLO
+// las entidades de Booking tienen branchId. Contact, Company, Opportunity,
+// Activity, Pipeline y Stage NO lo tienen y no se preparó nada para que lo
+// tengan. Sucursalizar el resto del CRM es una decisión mucho más grande —toca
+// el aislamiento de todas las lecturas, no solo el modelo— y no se asume de
+// antemano.
+//
+// SIN SUCURSAL OBLIGATORIA: el onboarding no crea ninguna. Una organización que
+// no usa Booking tiene cero Branch y ese es un estado válido. No hay invariante
+// de "al menos una sucursal activa" — a diferencia de "al menos un pipeline
+// activo" (H-1), acá nada se rompe con cero.
+//
+// FK a Organization de columna simple, como todas: `organizations` tiene `id`,
+// no `organization_id`, así que no existe una versión compuesta de esa
+// relación. Las compuestas que impuso C-3 son las CRUZADAS entre entidades
+// tenant-scoped, y las de este módulo (Resource/ServiceType -> Branch,
+// ServiceType -> Resource) sí lo son.
+// ---------------------------------------------------------------------------
+
+model Branch {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  name           String    @db.VarChar(255)
+  // Zona horaria IANA de la sucursal ("America/Argentina/Buenos_Aires").
+  // §4 del documento de diseño es explícito: cada sucursal necesita la suya y
+  // NO se asume la del servidor. Se agrega ahora, antes de que Google Calendar
+  // exista, para no migrar de nuevo cuando llegue — a diferencia de
+  // googleCalendarId, que sí se dejó afuera: aquello es una columna que no
+  // significa nada hasta que haya integración, esto es un dato del negocio que
+  // ya se puede cargar y ya es correcto.
+  //
+  // El default "UTC" y el VarChar(50) replican Organization.timezone, para que
+  // las dos tablas describan el mismo dato de la misma forma. El API igual la
+  // EXIGE al crear (ver branch.controller.ts): una sucursal silenciosamente en
+  // UTC produce turnos a la hora equivocada, y el default acá es una red de
+  // seguridad del esquema, no la forma esperada de usarlo.
+  timezone       String    @default("UTC") @db.VarChar(50)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  resources    Resource[]
+  serviceTypes ServiceType[]
+
+  // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3).
+  @@unique([organizationId, id])
+  // (organization_id, created_at) desde el arranque, sin esperar a que alguien
+  // lo audite: es la lección de ALTO-6, donde las 6 entidades de negocio
+  // nacieron sin el índice de su propio listado.
+  @@index([organizationId, createdAt])
+  @@map("branches")
+}
+
+// ---------------------------------------------------------------------------
+// Resource — lo que se agenda: una persona, un espacio o una clase.
+//
+// SIN googleCalendarId todavía. Llega recién con la integración: una columna
+// nullable que nadie escribe durante meses no aporta nada y sí hay que
+// explicarla en cada revisión.
+// ---------------------------------------------------------------------------
+
+model Resource {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  branchId       String       @map("branch_id") @db.Uuid
+  name           String       @db.VarChar(255)
+  type           ResourceType
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  deletedAt      DateTime?    @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+
+  serviceTypes ServiceType[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, createdAt])
+  // (organization_id, branch_id) sirve las dos consultas que de verdad
+  // existen: "los recursos de esta sucursal" —el filtro más frecuente de este
+  // listado— y el conteo del RESTRICT de deleteBranch. NO se agrega por ser el
+  // lado referenciante de la FK: Postgres solo lo necesitaría para abaratar un
+  // DELETE del padre, y branches usa soft delete, así que su
+  // (organization_id, id) no cambia ni se borra nunca. Mismo criterio ya
+  // aplicado en ingestion_events.
+  @@index([organizationId, branchId])
+  @@map("resources")
+}
+
+// ---------------------------------------------------------------------------
+// ServiceType — qué se puede reservar sobre un Resource, con su duración y su
+// cupo.
+//
+// capacity = 1 es un turno exclusivo; capacity > 1 es una clase con cupo. El
+// control de capacidad al reservar es lógica de este CRM (§3 del documento), no
+// algo que se delegue al proveedor de calendario — pero eso llega con Booking,
+// que todavía no existe.
+//
+// INVARIANTE QUE EL DOCUMENTO NO MENCIONA y que el service impone: el branchId
+// de un ServiceType tiene que coincidir con el branchId de su Resource. Un
+// servicio "de la sucursal A" que usa un recurso de la B es un dato
+// inconsistente que nadie ve hasta que alguien intenta reservar. Se valida con
+// el mismo patrón que Opportunity ya usa para Stage/Pipeline (validateStageId).
+//
+// La FK compuesta a resources garantiza la ORGANIZACIÓN, no la sucursal: no hay
+// forma de expresar "y además la misma sucursal" en una FK sin denormalizar más
+// columnas. Por eso la validación vive en el service y tiene test propio.
+// ---------------------------------------------------------------------------
+
+model ServiceType {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  branchId       String    @map("branch_id") @db.Uuid
+  resourceId     String    @map("resource_id") @db.Uuid
+  name           String    @db.VarChar(255)
+  // Duración en minutos. El > 0 se valida en Zod y además con un CHECK en la
+  // migración: un servicio de 0 minutos no es un servicio, y la defensa que
+  // sobrevive a un camino de escritura futuro que no pase por el controller es
+  // la de la base.
+  durationMin    Int       @map("duration_min")
+  // 1 = turno exclusivo, N = clase con cupo. Mismo criterio que durationMin
+  // para el >= 1.
+  capacity       Int       @default(1)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+  resource     Resource     @relation(fields: [organizationId, resourceId], references: [organizationId, id])
+
+  // Sin @@unique([organizationId, id]): nada lo referencia todavía. Llega
+  // cuando exista Booking, que sí lo necesita — mismo criterio que se aplicó a
+  // googleCalendarId, no agregar objetos que nadie usa.
+  @@index([organizationId, createdAt])
+  @@index([organizationId, branchId])
+  // Sirve el conteo del RESTRICT de deleteResource.
+  @@index([organizationId, resourceId])
+  @@map("service_types")
 }
