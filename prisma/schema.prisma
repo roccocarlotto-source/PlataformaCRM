@@ -111,6 +111,41 @@ enum ConnectionStatus {
   ERROR
 }
 
+// Día de la semana de una franja de horario de trabajo (WorkingHours).
+//
+// ENUM Y NO UN ENTERO 0-6, y es la decisión que evita el bug clásico de esta
+// clase de modelo: no hay una convención universal sobre si 0 es domingo o
+// lunes — `Date.getDay()` dice domingo, ISO-8601 y Luxon dicen lunes— así que un
+// entero obliga a que TODO consumidor recuerde cuál se eligió, y el día que uno
+// se equivoque el horario queda corrido un día sin ningún error visible.
+//
+// El orden de los valores es el ISO (lunes primero), y el mapeo desde el número
+// de Luxon vive en un solo lugar: src/utils/workingHours.ts.
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+// Ciclo de vida de un Booking (docs/booking-architecture.md §3).
+//
+// CONFIRMED es el único estado que OCUPA CUPO. Los otros tres son historia:
+// CANCELLED (se dio de baja, el cupo se liberó), COMPLETED (la persona vino) y
+// NO_SHOW (no vino). Ninguno de esos tres bloquea una reserva nueva en el mismo
+// horario ni impide borrar el servicio — ver contarReservasActivas() en
+// serviceType.service.ts y contarReservasSuperpuestas() en booking.repository.ts,
+// que son los dos lugares donde esa distinción decide algo.
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
 // ---------------------------------------------------------------------------
 // Organization — raíz del aislamiento multi-tenant
 // ---------------------------------------------------------------------------
@@ -143,6 +178,9 @@ model Organization {
   serviceTypes ServiceType[]
 
   googleCalendarConnections GoogleCalendarConnection[]
+
+  workingHours WorkingHours[]
+  bookings     Booking[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -307,6 +345,7 @@ model Contact {
   opportunities   Opportunity[]
   activities      Activity[]
   ingestionEvents IngestionEvent[]
+  bookings        Booking[]
 
   @@unique([organizationId, id])
   // Único (organization_id, email) WHERE email IS NOT NULL — índice parcial,
@@ -423,6 +462,7 @@ model Opportunity {
   stage        Stage        @relation(fields: [organizationId, stageId], references: [organizationId, id])
 
   activities Activity[]
+  bookings   Booking[]
 
   @@unique([organizationId, id])
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL) y
@@ -793,6 +833,8 @@ model Branch {
   // relación en 1-a-lo-sumo-1, y Prisma la tipa así.
   googleCalendarConnection GoogleCalendarConnection?
 
+  bookings Booking[]
+
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3).
   @@unique([organizationId, id])
   // (organization_id, created_at) desde el arranque, sin esperar a que alguien
@@ -824,6 +866,8 @@ model Resource {
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
 
   serviceTypes ServiceType[]
+  workingHours WorkingHours[]
+  bookings     Booking[]
 
   @@unique([organizationId, id])
   @@index([organizationId, createdAt])
@@ -880,9 +924,14 @@ model ServiceType {
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
   resource     Resource     @relation(fields: [organizationId, resourceId], references: [organizationId, id])
 
-  // Sin @@unique([organizationId, id]): nada lo referencia todavía. Llega
-  // cuando exista Booking, que sí lo necesita — mismo criterio que se aplicó a
-  // googleCalendarId, no agregar objetos que nadie usa.
+  bookings Booking[]
+
+  // AHORA SÍ: Booking lo referencia con una FK compuesta, así que este UNIQUE
+  // dejó de ser un objeto sin uso y pasó a ser el que la habilita. Es el tercero
+  // de los tres pendientes que PR #41 dejó anotados (los otros dos son el count
+  // real de contarReservasActivas y el lock de deleteServiceType, los dos
+  // cerrados en este mismo PR).
+  @@unique([organizationId, id])
   @@index([organizationId, createdAt])
   @@index([organizationId, branchId])
   // Sirve el conteo del RESTRICT de deleteResource.
@@ -970,4 +1019,140 @@ model GoogleCalendarConnection {
   // el que service_types se quedó sin su @@unique: no se agregan objetos que
   // nadie usa.
   @@map("google_calendar_connections")
+}
+
+// ---------------------------------------------------------------------------
+// WorkingHours — el horario semanal recurrente de un Resource (P2.1, paso 3).
+//
+// UNA FILA = UNA FRANJA de un día. "Lunes de 9 a 13 y de 16 a 20" son DOS filas,
+// las dos con weekday = MONDAY. Es lo que permite el horario partido, que es la
+// forma normal de trabajar de una peluquería o un consultorio, y por eso NO hay
+// un @@unique([resourceId, weekday]).
+//
+// POR RESOURCE Y NO POR BRANCH: decisión tomada, cada recurso puede tener su
+// propio horario (un barbero trabaja martes a sábado, otro lunes a viernes, en
+// la misma sucursal).
+//
+// ALCANCE MÍNIMO A PROPÓSITO — sin excepciones, sin feriados y sin bloqueos
+// puntuales. Mismo criterio con el que Branch nació sin nada opcional: se
+// agregan cuando alguien los necesite. Lo que hoy NO se puede expresar y hay que
+// tener presente: "el 25 de diciembre no atiendo" y "este martes me tomo la
+// tarde" no tienen representación; el horario es puramente semanal.
+//
+// LA HORA ES LOCAL DE LA SUCURSAL, NO UTC. `weekday` + `startMinute` son
+// hora de pared en la zona IANA de Branch.timezone. Convertirlas a instantes
+// concretos exige una fecha y la zona, y eso vive en src/utils/workingHours.ts
+// (con Luxon, por el horario de verano). Guardar UTC acá sería directamente un
+// error: "los lunes a las 9" no es un instante, y en una zona con DST no
+// corresponde siempre al mismo UTC.
+// ---------------------------------------------------------------------------
+model WorkingHours {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  resourceId     String  @map("resource_id") @db.Uuid
+  weekday        Weekday
+
+  // MINUTOS DESDE LA MEDIANOCHE LOCAL, no `time` de Postgres y no "HH:MM".
+  //
+  // Contra `@db.Time`: Prisma lo mapea a DateTime, así que del otro lado llega
+  // un Date parado en el 1/1/1970 del que hay que extraer la hora igual — un
+  // tipo más rico que no aporta nada y sí invita a operar con él como si fuera
+  // un instante.
+  //
+  // Contra "HH:MM" en VarChar: toda la lógica de este módulo es aritmética
+  // (¿entra un turno de 30 minutos?, ¿se superponen dos franjas?), y un entero
+  // es la representación honesta de eso. La API sí habla "HH:MM" — la
+  // conversión vive en el borde, en workingHours.controller.ts.
+  //
+  // Rango 0..1440. El 1440 es medianoche del día siguiente y existe para poder
+  // expresar una franja que termina a las 24:00; los CHECK de la migración
+  // sostienen 0 <= start < end <= 1440.
+  startMinute Int @map("start_minute")
+  endMinute   Int @map("end_minute")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  resource     Resource     @relation(fields: [organizationId, resourceId], references: [organizationId, id])
+
+  // SIN deletedAt: no es una entidad de negocio que se archive, es la
+  // configuración vigente de un recurso. El endpoint la REEMPLAZA entera (ver
+  // workingHours.service.ts), así que una fila vieja no significa nada — mismo
+  // criterio que GoogleCalendarConnection, que tampoco lo tiene.
+  //
+  // (organization_id, resource_id) sirve la única consulta que existe: "el
+  // horario de este recurso", que es lo que leen la disponibilidad y la
+  // validación de POST /api/bookings. No hay listado por organización.
+  @@index([organizationId, resourceId])
+  @@map("working_hours")
+}
+
+// ---------------------------------------------------------------------------
+// Booking — una reserva (docs/booking-architecture.md §3, paso 3 de §9).
+//
+// ES LA FUENTE DE VERDAD, y eso es una decisión de §4 y no una consecuencia:
+// Google Calendar es un reflejo. Un Booking se guarda aunque Google falle o
+// aunque la sucursal no tenga Google conectado — en esos casos googleEventId
+// queda en NULL y la reserva vale igual.
+//
+// SIN deletedAt: cancelar es un `status`, no un borrado. Una reserva cancelada
+// es historia que hay que conservar (el cliente canceló, eso pasó), y un soft
+// delete agregaría un quinto estado que no significa nada distinto de CANCELLED.
+// Mismo razonamiento que GoogleCalendarConnection.
+// ---------------------------------------------------------------------------
+model Booking {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  branchId       String @map("branch_id") @db.Uuid
+  serviceTypeId  String @map("service_type_id") @db.Uuid
+  resourceId     String @map("resource_id") @db.Uuid
+
+  // NOT NULL: una reserva sin contacto no es una reserva — alguien la pidió.
+  // Es la diferencia con Opportunity/Activity, donde contactId es opcional
+  // porque aquellas pueden colgar de una Company.
+  contactId String @map("contact_id") @db.Uuid
+
+  // Vínculo opcional con el pipeline comercial (§3). Nullable, y por eso su FK
+  // es NO ACTION y no RESTRICT — la regla de 20260821140200.
+  opportunityId String? @map("opportunity_id") @db.Uuid
+
+  // INSTANTES REALES (timestamp con zona, UTC), a diferencia de WorkingHours.
+  // Acá sí corresponde: una reserva ocurre en un momento concreto. La zona de la
+  // sucursal se usa para MOSTRARLA y para calcular contra el horario de trabajo,
+  // no para guardarla.
+  startsAt DateTime @map("starts_at")
+  endsAt   DateTime @map("ends_at")
+
+  status BookingStatus @default(CONFIRMED)
+
+  // Id del evento en Google Calendar. NULL es un estado NORMAL y esperado, no
+  // un error: la sucursal puede no tener Google conectado, o la llamada puede
+  // haber fallado — §4 es explícito en que eso no bloquea la reserva.
+  googleEventId String? @map("google_event_id") @db.VarChar(255)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+  serviceType  ServiceType  @relation(fields: [organizationId, serviceTypeId], references: [organizationId, id])
+  resource     Resource     @relation(fields: [organizationId, resourceId], references: [organizationId, id])
+  contact      Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
+  opportunity  Opportunity? @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
+
+  // LA CONSULTA CALIENTE DEL MÓDULO: "¿qué reservas del recurso R se superponen
+  // con [inicio, fin)?". La responden la validación de capacidad de
+  // POST /api/bookings y el cálculo de disponibilidad, que son los dos caminos
+  // que corren en cada reserva. Sin este índice, cada una es un scan de la tabla
+  // de mayor crecimiento del módulo.
+  @@index([organizationId, resourceId, startsAt])
+  // Sirve el conteo del RESTRICT de deleteServiceType (reservas CONFIRMED de un
+  // servicio) y la capacidad por servicio.
+  @@index([organizationId, serviceTypeId, startsAt])
+  // "Las reservas de este contacto" — la vista de ficha de cliente.
+  @@index([organizationId, contactId])
+  // La agenda: "las reservas de esta organización entre dos fechas".
+  @@index([organizationId, startsAt])
+  @@map("bookings")
 }
