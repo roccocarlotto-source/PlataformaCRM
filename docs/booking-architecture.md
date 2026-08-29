@@ -16,13 +16,46 @@ No incluye (por ahora, fuera de alcance): motor de disponibilidad propio sin pro
 
 ## 3. Modelo de datos
 
-Nuevas entidades, todas bajo el mismo patrón de aislamiento multi-tenant ya usado en el resto del schema (`organizationId` + `sucursalId`, FKs compuestas, soft delete donde aplica):
+> **Nota del 28/08/2026 — `Branch` ya existe como entidad real.**
+>
+> Cuando se escribió esta sección, las tres entidades se modelaban con
+> `organizationId + sucursalId` **pero no había ninguna entidad de sucursal en
+> `prisma/schema.prisma`** — verificado con grep sobre el archivo completo, cero
+> coincidencias. Era un prerrequisito que el diseño daba por existente.
+>
+> Ya está implementada, junto con `Resource` y `ServiceType` (migración
+> `20260828160000`). Tres precisiones sobre lo que se construyó:
+>
+> - **Se llama `Branch`, no `Sucursal`, y el campo es `branchId`.** El schema es
+>   100% inglés (`Organization`, `Contact`, `Pipeline`, `Stage`); el
+>   `sucursalId` que decían estos bloques era un desliz de redacción y quedó
+>   corregido arriba. La prosa de este documento sigue diciendo "sucursal", igual
+>   que dice "organización" para `Organization`.
+> - **Alcance acotado a este módulo.** Solo las entidades de Booking llevan
+>   `branchId`. `Contact`, `Company`, `Opportunity`, `Activity`, `Pipeline` y
+>   `Stage` **no** lo tienen y no se preparó nada para que lo tengan:
+>   sucursalizar el resto del CRM toca el aislamiento de todas las lecturas, no
+>   solo el modelo, y es una decisión aparte y más grande.
+> - **Sin sucursal obligatoria.** El onboarding no crea ninguna y cero `Branch`
+>   es un estado válido para una organización que no usa Booking. No hay
+>   invariante de "al menos una sucursal activa" — a diferencia de "al menos un
+>   pipeline activo", acá nada se rompe con cero.
+>
+> `Branch` lleva además `timezone` (IANA, validada contra el runtime), que la §4
+> de este mismo documento ya pedía. Se agregó ahora, antes de que Google Calendar
+> exista, para no migrar de nuevo cuando llegue.
+>
+> **Lo que todavía NO está** de estos bloques: `googleCalendarId` en `Resource`,
+> el modelo `Booking` entero y `GoogleCalendarConnection`. Ver el plan de
+> implementación en §9.
+
+Nuevas entidades, todas bajo el mismo patrón de aislamiento multi-tenant ya usado en el resto del schema (`organizationId` + `branchId`, FKs compuestas, soft delete donde aplica):
 
 ```prisma
 model Resource {
   id             String   @id @default(uuid())
   organizationId String
-  sucursalId     String
+  branchId     String
   name           String              // "Juan (barbero)", "Sala 2", "Clase de Yoga 18hs"
   type           ResourceType        // PERSON | ROOM | CLASS
   googleCalendarId String?           // id del calendario de Google vinculado (null hasta conectar)
@@ -40,7 +73,7 @@ enum ResourceType {
 model ServiceType {
   id             String   @id @default(uuid())
   organizationId String
-  sucursalId     String
+  branchId     String
   name           String              // "Corte de pelo", "Clase de Pilates"
   durationMin    Int
   capacity       Int      @default(1) // 1 = turno exclusivo, N = clase con cupo
@@ -53,7 +86,7 @@ model ServiceType {
 model Booking {
   id             String   @id @default(uuid())
   organizationId String
-  sucursalId     String
+  branchId     String
   serviceTypeId  String
   resourceId     String
   contactId      String
@@ -76,7 +109,7 @@ enum BookingStatus {
 model GoogleCalendarConnection {
   id             String   @id @default(uuid())
   organizationId String
-  sucursalId     String   @unique       // una conexión de Google Calendar por sucursal
+  branchId     String   @unique       // una conexión de Google Calendar por sucursal
   refreshToken   String                  // cifrado en reposo, igual criterio que ApiKey
   calendarId     String                  // calendario primario u otro elegido por el negocio
   connectedAt    DateTime @default(now())
