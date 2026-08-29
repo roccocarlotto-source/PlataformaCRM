@@ -65,6 +65,14 @@ const URL_TOKEN = "https://oauth2.googleapis.com/token";
 const URL_REVOCACION = "https://oauth2.googleapis.com/revoke";
 const URL_FREEBUSY = "https://www.googleapis.com/calendar/v3/freeBusy";
 
+// events.insert / events.delete operan sobre el calendario, que va en la ruta y
+// tiene que ir URL-encodeado: el id de un calendario secundario es una dirección
+// de correo ("algo@group.calendar.google.com") y sin encodear el "@" rompe la
+// URL.
+function urlDeEventos(calendarId: string): string {
+  return `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+}
+
 // Tope por llamada. Google puede tardar, pero un request colgado no puede
 // sostener indefinidamente el handler que lo espera — mismo razonamiento que
 // OUTBOX_HANDLER_TIMEOUT_MS, donde la falta de un tope dejaba una transacción
@@ -186,6 +194,35 @@ export interface ClienteGoogleCalendar {
   revocarToken(token: string): Promise<void>;
   // El endpoint que motiva todo este archivo.
   consultarFreeBusy(consulta: ConsultaFreeBusy): Promise<IntervaloOcupado[]>;
+  // events.insert — crea el evento que refleja una reserva. Devuelve el id que
+  // Google le asigna, que es lo que se guarda en Booking.googleEventId.
+  crearEvento(evento: EventoACrear): Promise<string>;
+  // events.delete — best-effort al cancelar. Ver el comentario de su
+  // implementación sobre por qué un 404/410 no es un error.
+  eliminarEvento(evento: EventoAEliminar): Promise<void>;
+}
+
+export interface EventoACrear {
+  accessToken: string;
+  calendarId: string;
+  titulo: string;
+  descripcion?: string;
+  inicio: Date;
+  fin: Date;
+  // Zona IANA de la sucursal. §4 del documento: se pasa explícitamente en cada
+  // llamada y NUNCA se asume la del servidor.
+  //
+  // Google exige `timeZone` junto al `dateTime` aunque el dateTime ya lleve
+  // offset: es lo que hace que el evento se muestre y se repita bien en el
+  // calendario de quien lo mira, y lo que decide cómo se comporta si alguien
+  // lo mueve después.
+  zona: string;
+}
+
+export interface EventoAEliminar {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
 }
 
 // FACTORY, mismo patrón que crearCifrador() / crearRegistroDeHandlers(): recibe
@@ -409,6 +446,73 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
       }
 
       return ocupados;
+    },
+
+    // -----------------------------------------------------------------------
+    // events.insert — el reflejo en Google de una reserva ya guardada.
+    //
+    // "YA GUARDADA" no es un detalle de redacción: §4 del documento es explícito
+    // en que el sistema no debe bloquear una reserva por una falla del proveedor
+    // externo, así que quien llama a esto ya commiteó el Booking. Un error de
+    // acá no deshace nada — ver booking.service.ts.
+    // -----------------------------------------------------------------------
+    async crearEvento({ accessToken, calendarId, titulo, descripcion, inicio, fin, zona }) {
+      const res = await pedir(urlDeEventos(calendarId), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          summary: titulo,
+          ...(descripcion ? { description: descripcion } : {}),
+          // dateTime en ISO con offset + timeZone explícito. Google acepta los
+          // dos juntos y es lo recomendado: el offset fija el instante, la zona
+          // fija cómo se interpreta y se muestra.
+          start: { dateTime: inicio.toISOString(), timeZone: zona },
+          end: { dateTime: fin.toISOString(), timeZone: zona },
+        }),
+      });
+
+      if (!res.ok) {
+        const { mensaje, codigo } = await describirFallo(res);
+        throw new GoogleAuthError(mensaje, codigo === "invalid_grant" || res.status === 401);
+      }
+
+      const datos = (await res.json()) as { id?: unknown };
+
+      if (typeof datos.id !== "string") {
+        // Un 200 sin id significa que el evento pudo haberse creado y no
+        // tenemos con qué referenciarlo después. No es un fallo de
+        // autorización, así que no degrada la conexión.
+        throw new GoogleAuthError("Google creó el evento pero no devolvió su id", false);
+      }
+
+      return datos.id;
+    },
+
+    // -----------------------------------------------------------------------
+    // events.delete — al cancelar una reserva.
+    //
+    // 404 Y 410 NO SON ERRORES ACÁ, y tratarlos como tales sería el bug de esta
+    // función: significan que el evento ya no está en Google (alguien lo borró a
+    // mano desde el calendario, o esta misma cancelación ya se intentó y llegó
+    // más lejos de lo que creíamos). El resultado deseado —que el evento no
+    // exista— ya se cumplió, así que fallar obligaría a reintentar algo que ya
+    // está hecho y dejaría la cancelación local en un estado raro.
+    // -----------------------------------------------------------------------
+    async eliminarEvento({ accessToken, calendarId, eventId }) {
+      const res = await pedir(`${urlDeEventos(calendarId)}/${encodeURIComponent(eventId)}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (res.ok || res.status === 404 || res.status === 410) {
+        return;
+      }
+
+      const { mensaje, codigo } = await describirFallo(res);
+      throw new GoogleAuthError(mensaje, codigo === "invalid_grant" || res.status === 401);
     },
   };
 }

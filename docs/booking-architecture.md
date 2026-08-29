@@ -105,7 +105,57 @@ enum BookingStatus {
   COMPLETED
   NO_SHOW
 }
+```
 
+> **Nota del 30/08/2026 — `Booking` ya existe, y apareció una entidad que este
+> documento nunca modeló: `WorkingHours`.**
+>
+> Implementadas en la migración `20260830120000`.
+>
+> **`WorkingHours` es la entidad que faltaba.** Las §4 y §5 mencionaban "el rango
+> de trabajo configurado por Resource" como si existiera, pero **no estaba
+> modelado en ninguna parte de este documento** — era el pendiente que el paso 2
+> dejó anotado y que bloqueaba `GET /api/availability`. Decisión tomada y ahora
+> construida:
+>
+> - **Por `Resource`, no por `Branch`**: dos barberos de la misma sucursal pueden
+>   trabajar días distintos.
+> - **Una fila = una franja.** "Lunes de 9 a 13 y de 16 a 20" son **dos** filas
+>   con `weekday = MONDAY`, que es lo que permite el horario partido — la forma
+>   normal de trabajar de una peluquería o un consultorio. Por eso **no** hay un
+>   `@@unique([resourceId, weekday])`.
+> - **La hora es LOCAL de la sucursal, no UTC.** `weekday` + `startMinute` son
+>   hora de pared en la zona de `Branch.timezone`. Guardar UTC sería incorrecto:
+>   "los lunes a las 9" no es un instante, y en una zona con horario de verano no
+>   corresponde siempre al mismo UTC.
+> - **Minutos desde la medianoche (`Int`), no `time` ni `"HH:MM"`.** Toda la
+>   lógica del módulo es aritmética; la API sí habla `"HH:MM"` y la conversión
+>   vive en el borde.
+> - **Alcance mínimo a propósito**, mismo criterio con el que nació `Branch`: sin
+>   excepciones, sin feriados y sin bloqueos puntuales. **Lo que hoy no se puede
+>   expresar**: "el 25 de diciembre no atiendo" y "este martes me tomo la tarde".
+>   Se agregan cuando alguien los necesite.
+>
+> **Sobre `Booking`**, respecto del borrador de arriba:
+>
+> - **Sin `deletedAt`**: cancelar es un `status`. Una reserva cancelada es
+>   historia que hay que conservar, y un soft delete sería un quinto estado que
+>   no significa nada distinto de `CANCELLED`.
+> - **`contactId` es NOT NULL** (y su FK es `RESTRICT`, no `NO ACTION`): una
+>   reserva sin contacto no es una reserva. Es la diferencia con
+>   `Opportunity`/`Activity`, donde `contactId` es opcional porque aquellas
+>   pueden colgar de una `Company` — la regla de FKs del proyecto deriva la
+>   acción de la nulabilidad, no del caso.
+> - **`endsAt` no lo manda el cliente**: sale de `ServiceType.durationMin`.
+>   Aceptarlo permitiría reservar dos horas de un servicio de treinta minutos y
+>   romper la grilla para todos los demás.
+> - **`googleEventId` en `NULL` es un estado NORMAL**, no un error: la sucursal
+>   puede no tener Google conectado, o la llamada puede haber fallado.
+>
+> Se agregó además el `@@unique([organizationId, id])` a `ServiceType` que el
+> PR #41 había dejado pendiente: ahora la FK compuesta de `Booking` lo referencia.
+
+```prisma
 model GoogleCalendarConnection {
   id             String   @id @default(uuid())
   organizationId String
@@ -186,6 +236,30 @@ Sigue el patrón controller → service → repository ya usado en el resto de `
 - `DELETE /api/branches/:branchId/google-calendar` — desconecta: revoca contra Google (best-effort — un Google caído no puede impedirle a un ADMIN desconectar) y deja la fila en `REVOKED` con el token en `NULL`. *(Implementado el 29/08/2026.)*
 - `GET /api/availability?resourceId=&serviceTypeId=&from=&to=` — calcula horarios libres combinando el rango de trabajo configurado, el `freebusy` de Google, y la capacidad ya ocupada en `Booking` (para `ServiceType.capacity > 1`).
 
+  > **Construido el 30/08/2026 (paso 3).** La cuenta que hace: el horario de
+  > trabajo del recurso, **menos** los intervalos ocupados que reporta
+  > `freebusy.query`, **menos** el cupo ya tomado por `Booking`s `CONFIRMED`.
+  >
+  > **La capacidad es la resta que Google no puede hacer**, y es exactamente lo
+  > que §1 anticipaba: una clase de yoga aparece *ocupada* en Google desde la
+  > primera inscripción, así que restar solo Google mostraría llena una clase con
+  > un único inscripto. La respuesta incluye `availableSeats` por turno.
+  >
+  > **Un fallo de Google no rompe la disponibilidad**: se calcula igual con el
+  > horario y las reservas locales, y queda registrado en el log. Se acepta el
+  > riesgo de ofrecer un turno que en Google estaba ocupado — mostrar un turno de
+  > más se resuelve al intentar reservarlo; un 500 deja la agenda inutilizable.
+  >
+  > **La validación "¿este horario está dentro del horario de trabajo?" es LA
+  > MISMA función que usa `POST /api/bookings`** (`estaDentroDelHorario`, sobre
+  > el contexto que resuelve `resolverContexto`). No es una refactorización
+  > oportunista: si lo que se ofrece y lo que se acepta se calcularan por
+  > separado, podrían divergir — y esa divergencia se manifiesta como un cliente
+  > que reserva un turno que el sistema le ofreció y después le rechaza.
+  >
+  > *Lo que sigue es la nota del paso 2, conservada porque explica por qué esto
+  > no se pudo construir antes:*
+  >
   > **NO se construyó en el paso 2, y es una decisión explícita, no un olvido.**
   > Depende de dos piezas que no existen: el **rango de trabajo por `Resource`**
   > (días y horarios), que no está en el schema ni diseñado en ninguna parte de
@@ -200,8 +274,42 @@ Sigue el patrón controller → service → repository ya usado en el resto de `
   > que Google reporta para el calendario de una sucursal, con el token
   > descifrado y renovado. Falta restar eso del rango de trabajo, que es
   > exactamente la parte que hay que diseñar.
-- `POST /api/bookings` — crea la reserva: valida capacidad, crea el evento en Google, guarda el registro local, y dispara las automatizaciones de la sección 6.
-- `PATCH /api/bookings/:id` — cancela o reprograma; refleja el cambio en Google Calendar.
+- `POST /api/bookings` — crea la reserva: valida capacidad, crea el evento en Google, guarda el registro local, y ~~dispara las automatizaciones de la sección 6~~. *(Construido el 30/08/2026, **sin** las automatizaciones: emitir un evento al outbox hoy lo mandaría derecho a `DEAD_LETTER` porque no hay ningún handler registrado. Es el paso 5.)*
+
+  > **El orden de las operaciones es la decisión, más que cualquier validación
+  > suelta.** La llamada a Google va **afuera** de la transacción de base:
+  >
+  > 1. validaciones (400 barato, sin lock);
+  > 2. **transacción corta**: lock del `Resource` + lock del `ServiceType` +
+  >    revalidación de capacidad + `INSERT`; commit;
+  > 3. **ya commiteado**: `events.insert` y, si funcionó, una segunda escritura
+  >    con el `googleEventId`.
+  >
+  > El lock del recurso es lo que cierra la carrera de dos reservas simultáneas
+  > por el mismo cupo. Sostenerlo durante una llamada HTTP a un tercero —hasta 10
+  > segundos de timeout— **serializaría todas las reservas de ese recurso contra
+  > la latencia de Google**, y un Google colgado bloquearía el recurso entero. Es
+  > el mismo problema que `OUTBOX_HANDLER_TIMEOUT_MS` documenta para el worker de
+  > eventos salientes.
+  >
+  > **Lo que se acepta a cambio**: entre el commit y la respuesta de Google hay
+  > una ventana en la que la reserva existe acá y todavía no allá. Si el proceso
+  > muere justo ahí queda un `Booking` con `googleEventId` en `NULL` — que es
+  > **el mismo estado** que produce una sucursal sin Google conectado, o sea uno
+  > ya soportado y no una anomalía nueva.
+  >
+  > **Un fallo de Google no bloquea la reserva** (§4), y eso incluye el caso de
+  > una sucursal **sin conexión activa**: no es un error, la reserva se guarda
+  > igual sin `googleEventId`.
+  >
+  > La capacidad cuenta reservas `CONFIRMED` que **se superponen** con el horario
+  > pedido, no solo las que coinciden exacto: dos turnos que se pisan
+  > parcialmente compiten por el mismo recurso. Se cuenta **por recurso**, porque
+  > dos servicios distintos del mismo recurso compiten por él igual.
+
+- ~~`PATCH /api/bookings/:id` — cancela o reprograma; refleja el cambio en Google Calendar.~~ **Partido en dos el 30/08/2026, y solo se construyó la cancelación:**
+  - `PATCH /api/bookings/:id/cancel` — pasa la reserva a `CANCELLED`, libera el cupo y borra el evento en Google (best-effort: un Google caído no puede impedir cancelar, porque el cupo tiene que liberarse sí o sí). El verbo va en el path porque es una **transición de estado** acotada, no una actualización parcial arbitraria. No es un `DELETE` porque no borra nada: la reserva queda como historia.
+  - **Reprogramar quedó fuera de alcance.** Cambiar `startsAt`/`endsAt` exige revalidar el horario de trabajo, la capacidad en el horario nuevo **y** mover el evento en Google — o sea, la creación completa otra vez más el manejo del estado anterior. Hoy el camino es cancelar y crear.
 - `POST /api/webhooks/google-calendar` — receptor de notificaciones push de Google (cambios externos).
 
 ## 6. Automatizaciones disparadas por un Booking
@@ -224,7 +332,7 @@ Google Calendar API: gratis dentro de las cuotas estándar (ver sección 1) — 
 
 1. CRUD de `Resource` y `ServiceType` (sin Google Calendar todavía) — permite probar el modelo de capacidad y multi-tenancy de forma aislada.
 2. ~~Conexión OAuth con Google Calendar por sucursal + `freebusy.query` para disponibilidad real.~~ **Hecho el 29/08/2026** — modelo `GoogleCalendarConnection` + migración, flujo OAuth completo (iniciar / callback / desconectar), `state` firmado y expirable, cifrado genérico de secretos en reposo, y el wrapper de `freebusy.query` con su test unitario. **`GET /api/availability` quedó fuera a propósito**: ver la nota en §5.
-3. `POST /api/bookings` con creación de evento en Google + control de capacidad propio.
+3. ~~`POST /api/bookings` con creación de evento en Google + control de capacidad propio.~~ **Hecho el 30/08/2026** — más el prerrequisito que este documento nunca modeló: **`WorkingHours`** (el "rango de trabajo" que §4 y §5 daban por existente). Incluye `GET /api/availability`, que el paso 2 no pudo construir por eso mismo, la cancelación, y los tres pendientes que el PR #41 había dejado anotados en `serviceType.service.ts`. **Sin reprogramar** y **sin automatizaciones** (paso 5): ver §5.
 4. Webhook de sincronización inversa + worker de renovación de canales push.
 5. Conectar automatizaciones (Activity, Opportunity, recordatorio WhatsApp).
 6. Implementar `get_availability()` / `create_booking()` como tools del agente de IA.

@@ -141,6 +141,13 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
       opciones.fallaAlConsultar
         ? Promise.reject(opciones.fallaAlConsultar)
         : Promise.resolve(opciones.ocupados ?? []),
+
+    // Agregados en el paso 3 (Booking). Este archivo no los ejercita —lo hace
+    // booking.integration-test.ts— pero la interfaz los exige, y dejarlos
+    // lanzando es lo correcto: si algún test de acá terminara llamándolos, el
+    // fallo dice qué pasó en vez de devolver un valor inventado que se cuela.
+    crearEvento: () => Promise.reject(new Error("crearEvento no se usa en este archivo")),
+    eliminarEvento: () => Promise.reject(new Error("eliminarEvento no se usa en este archivo")),
   };
 
   return { cliente, revocados };

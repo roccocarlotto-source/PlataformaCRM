@@ -1,4 +1,5 @@
 import { prisma, type Db } from "../lib/prisma";
+import { countActiveBookingsByServiceType } from "../repositories/booking.repository";
 import { findBranchById, lockBranchForUpdate } from "../repositories/branch.repository";
 import { findResourceById, lockResourceForUpdate } from "../repositories/resource.repository";
 import {
@@ -6,6 +7,7 @@ import {
   createServiceType as createServiceTypeRepo,
   findManyServiceTypes,
   findServiceTypeById,
+  lockServiceTypeForUpdate,
   softDeleteServiceType,
   updateServiceType as updateServiceTypeRepo,
   type ServiceTypeFilters,
@@ -202,55 +204,55 @@ export async function updateServiceType(
 }
 
 // ---------------------------------------------------------------------------
-// RESTRICT contra Booking — ESCRITO ANTES DE QUE Booking EXISTA
+// RESTRICT contra Booking — AHORA CUENTA RESERVAS REALES
 // ---------------------------------------------------------------------------
 //
-// Hoy devuelve 0 SIEMPRE, porque el modelo Booking todavía no está en el schema
-// (es el ítem siguiente de P2.1). Está escrito igual, y la única razón por la
-// que eso no es código muerto disfrazado es que deja la forma correcta puesta:
-// cuando Booking exista, esto es UNA LÍNEA —el count real— y no un rediseño del
-// borrado.
+// Hasta el paso 3 esto devolvía `0` fijo, porque el modelo Booking no existía.
+// Los TRES pendientes que aquella versión dejó anotados están cerrados en este
+// mismo PR:
 //
-// ⚠️ LO QUE HAY QUE HACER AL IMPLEMENTAR Booking, y está anotado también en
-// docs/roadmap-implementacion.md §2.1 para que no dependa de que alguien lea
-// este comentario:
+//   1. el count real (acá abajo);
+//   2. el lock de fila del ServiceType en deleteServiceType (más abajo);
+//   3. el @@unique([organizationId, id]) del schema, que ahora sí lo referencia
+//      la FK compuesta de Booking.
 //
-//   1. reemplazar el 0 por el count real de Booking activos del serviceTypeId
-//      (status CONFIRMED, y decidir explícitamente si COMPLETED/NO_SHOW cuentan
-//      — probablemente no: son historia, no reservas vivas);
-//   2. agregarle a deleteServiceType el lock de fila del ServiceType, que hoy no
-//      tiene porque no hay nada contra qué serializar, exactamente igual que
-//      lockResourceForUpdate en deleteResource;
-//   3. agregar el @@unique([organizationId, id]) a ServiceType, que se dejó
-//      afuera a propósito porque todavía nada lo referencia.
-//
-// Sin (1) y (2) juntos el bloqueo sería evitable por concurrencia, que es la
-// lección de ALTO-8: el chequeo solo no cierra nada.
-// Los parámetros se declaran sin usar A PROPÓSITO: son la firma que el count
-// real va a necesitar, y dejarla puesta es lo que hace que implementarlo sea una
-// línea. Mismo recurso que errorHandler.ts usa para el `_next` de Express.
-function contarReservasActivas(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _serviceTypeId: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _organizationId: string,
-): number {
-  return 0;
-}
-
+// SOLO CONFIRMED CUENTA COMO ACTIVA, y ésa era la decisión que quedó
+// explícitamente pendiente. COMPLETED y NO_SHOW son HISTORIA: describen turnos
+// que ya pasaron, así que borrar el servicio no las pierde ni las contradice —
+// las filas siguen ahí con su FK intacta, porque el borrado es lógico.
+// CANCELLED tampoco bloquea, por lo mismo. Bloquear por historia haría que un
+// servicio con un año de uso fuera imposible de dar de baja, que es justo lo
+// contrario de lo que un RESTRICT tiene que proteger.
+// ---------------------------------------------------------------------------
 export async function deleteServiceType(organizationId: string, id: string) {
+  // 404 rápido, sin abrir transacción — mismo criterio que deleteBranch y
+  // deletePipeline. No es la defensa: se revalida adentro, con el lock sostenido.
   await getServiceTypeById(organizationId, id);
 
-  const reservasActivas = contarReservasActivas(id, organizationId);
-  if (reservasActivas > 0) {
-    throw new AppError(
-      "No se puede eliminar un servicio que tiene reservas activas. Cancelalas primero.",
-      400,
-    );
-  }
+  await prisma.$transaction(async (tx) => {
+    // EL LOCK QUE FALTABA. Sin él, el RESTRICT de acá abajo decide sobre un
+    // conteo que se queda viejo entre que se lee y que se borra: alguien podría
+    // crear una reserva justo en el medio y quedaría colgando de un servicio ya
+    // eliminado. Es la lección de ALTO-8 —el chequeo solo no cierra nada— y es
+    // el mismo lock que createBooking toma del otro lado.
+    await lockServiceTypeForUpdate(id, organizationId, tx);
 
-  const result = await softDeleteServiceType(id, organizationId);
-  if (result.count === 0) {
-    throw new AppError("Servicio no encontrado", 404);
-  }
+    const serviceType = await findServiceTypeById(id, organizationId, tx);
+    if (!serviceType) {
+      throw new AppError("Servicio no encontrado", 404);
+    }
+
+    const reservasActivas = await countActiveBookingsByServiceType(id, organizationId, tx);
+    if (reservasActivas > 0) {
+      throw new AppError(
+        "No se puede eliminar un servicio que tiene reservas activas. Cancelalas primero.",
+        400,
+      );
+    }
+
+    const result = await softDeleteServiceType(id, organizationId, tx);
+    if (result.count === 0) {
+      throw new AppError("Servicio no encontrado", 404);
+    }
+  });
 }

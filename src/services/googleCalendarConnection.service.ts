@@ -360,3 +360,90 @@ export async function consultarDisponibilidad(
     throw err;
   }
 }
+
+// ---------------------------------------------------------------------------
+// 7. Reflejo de una reserva en Google — usado por booking.service.ts
+//
+// LAS DOS FUNCIONES DE ACÁ ABAJO SON BEST-EFFORT Y NUNCA LANZAN. Devuelven lo
+// que consiguieron y registran el resto en el log.
+//
+// No es comodidad: §4 del documento de diseño dice que "el sistema no debe
+// bloquear una reserva por una falla del proveedor externo", y la forma de
+// garantizar eso a nivel de código es que el camino de Google no tenga manera de
+// tumbar al que lo llama. Si esto lanzara, cada consumidor tendría que acordarse
+// de envolverlo en un try, y el día que uno se olvide una reserva perfectamente
+// válida termina en un 500.
+//
+// El caso "esta sucursal no tiene Google conectado" NO ES UN ERROR y viaja por
+// el mismo camino: es un estado normal del producto (conectar Google es
+// opcional), y por eso ni siquiera se loguea como advertencia.
+// ---------------------------------------------------------------------------
+
+// Crea el evento y devuelve su id, o `undefined` si no se pudo por cualquier
+// motivo. `undefined` es exactamente lo que va a Booking.googleEventId.
+export async function reflejarReservaEnGoogle(
+  organizationId: string,
+  branchId: string,
+  evento: { titulo: string; descripcion?: string; inicio: Date; fin: Date },
+  cliente?: ClienteInyectado,
+): Promise<string | undefined> {
+  try {
+    const branch = await getBranchById(organizationId, branchId);
+    const { accessToken, calendarId } = await obtenerAccessToken(organizationId, branchId, cliente);
+
+    return await resolverCliente(cliente).crearEvento({
+      accessToken,
+      calendarId,
+      titulo: evento.titulo,
+      descripcion: evento.descripcion,
+      inicio: evento.inicio,
+      fin: evento.fin,
+      // La zona de la SUCURSAL, nunca la del servidor.
+      zona: branch.timezone,
+    });
+  } catch (err) {
+    // Una sucursal sin conexión activa da 404/409 desde obtenerAccessToken, y es
+    // un estado NORMAL: no se loguea como problema. Cualquier otra cosa sí, para
+    // que quede rastro de que la reserva quedó sin reflejar.
+    const esSinConexion =
+      err instanceof AppError && (err.statusCode === 404 || err.statusCode === 409);
+
+    if (!esSinConexion) {
+      logger.warn(
+        { err, organizationId, branchId },
+        "No se pudo crear el evento en Google Calendar; la reserva se guarda igual sin googleEventId",
+      );
+    }
+
+    return undefined;
+  }
+}
+
+// Borra el evento. No devuelve nada: quien cancela no puede hacer nada distinto
+// según haya funcionado o no.
+export async function borrarReservaDeGoogle(
+  organizationId: string,
+  branchId: string,
+  googleEventId: string,
+  cliente?: ClienteInyectado,
+): Promise<void> {
+  try {
+    const { accessToken, calendarId } = await obtenerAccessToken(organizationId, branchId, cliente);
+
+    await resolverCliente(cliente).eliminarEvento({
+      accessToken,
+      calendarId,
+      eventId: googleEventId,
+    });
+  } catch (err) {
+    const esSinConexion =
+      err instanceof AppError && (err.statusCode === 404 || err.statusCode === 409);
+
+    if (!esSinConexion) {
+      logger.warn(
+        { err, organizationId, branchId, googleEventId },
+        "No se pudo borrar el evento en Google Calendar; la reserva queda cancelada igual del lado del CRM",
+      );
+    }
+  }
+}

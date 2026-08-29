@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { activityRouter } from "./activity.routes";
 import { apiKeyRouter } from "./apiKey.routes";
+import { bookingRouter } from "./booking.routes";
 
 import { branchRouter } from "./branch.routes";
 import { companyRouter } from "./company.routes";
@@ -85,6 +86,11 @@ routes.use("/api", serviceTypeRouter);
 // redirige el navegador del usuario y no reenvía el JWT. Lo que sostiene la
 // frontera de tenant ahí es el `state` firmado; ver el comentario del router.
 routes.use("/api", googleCalendarConnectionRouter);
+
+// Agenda propiamente dicha (paso 3): horario de trabajo por recurso,
+// disponibilidad y reservas. Con esto queda cerrado GET /api/availability, que
+// el paso 2 no pudo construir porque el horario de trabajo no existía.
+routes.use("/api", bookingRouter);
 // ingestionEventRouter: lectura de la cola y reproceso de una fila fallida
 // (G-1/G-2/G-7 de docs/research-frontend-ingesta-2026-08-27.md). Va acá, con las
 // demás rutas administrativas, por la misma razón que importRouter: del otro

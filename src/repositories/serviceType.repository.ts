@@ -120,3 +120,25 @@ export function softDeleteServiceType(id: string, organizationId: string, db: Db
     data: { deletedAt: new Date() },
   });
 }
+
+// Punto de serialización de la relación ServiceType -> Booking. Cierra el
+// pendiente (2) que PR #41 dejó anotado: entonces no existía porque no había
+// nada contra qué serializar.
+//
+// Mismo razonamiento que lockBranchForUpdate y lockResourceForUpdate: el
+// RESTRICT de deleteServiceType decide sobre un CONTEO de reservas activas, y
+// sin serializar contra createBooking ese conteo se queda viejo entre que se lee
+// y que se escribe — el bloqueo sería evitable con solo llegar primero, que es
+// la lección de ALTO-8.
+//
+// ORDEN: siempre DESPUÉS del lock de resource cuando se toman los dos
+// (createBooking). Ningún camino toma serviceType antes que resource.
+//
+// Sin default para `db`: fuera de una transacción el lock se libera al instante.
+export async function lockServiceTypeForUpdate(
+  id: string,
+  organizationId: string,
+  db: Db,
+): Promise<void> {
+  await db.$queryRaw`SELECT id FROM service_types WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid FOR UPDATE`;
+}

@@ -406,3 +406,158 @@ test("revocarToken postea el token al endpoint de revocación", async () => {
   assert.equal(llamadas[0].url, "https://oauth2.googleapis.com/revoke");
   assert.equal(new URLSearchParams(String(llamadas[0].init.body)).get("token"), "rt-a-revocar");
 });
+
+// ---------------------------------------------------------------------------
+// events.insert / events.delete — agregados en el paso 3 (Booking)
+// ---------------------------------------------------------------------------
+
+const EVENTO = {
+  accessToken: "access-abc",
+  calendarId: "primary",
+  titulo: "Corte de pelo — Ana Pérez",
+  descripcion: "Reserva creada desde el CRM.",
+  inicio: new Date("2026-09-07T12:00:00Z"),
+  fin: new Date("2026-09-07T12:30:00Z"),
+  zona: "America/Argentina/Buenos_Aires",
+};
+
+test("crearEvento devuelve el id que asigna Google", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: { id: "evento-google-123" } });
+
+  const id = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearEvento(EVENTO);
+
+  assert.equal(id, "evento-google-123");
+  assert.equal(llamadas[0].url, "https://www.googleapis.com/calendar/v3/calendars/primary/events");
+  assert.equal(llamadas[0].init.method, "POST");
+});
+
+test("crearEvento manda la zona de la SUCURSAL junto a cada dateTime", async () => {
+  // §4 del documento: la zona se pasa explícitamente en cada llamada y nunca se
+  // asume la del servidor. Google la exige junto al dateTime aunque éste ya
+  // lleve offset — es lo que decide cómo se muestra el evento.
+  const { fetch, llamadas } = mockearFetch({ json: { id: "e1" } });
+
+  await crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearEvento(EVENTO);
+
+  const cuerpo = cuerpoDe(llamadas[0]);
+  assert.deepEqual(cuerpo.start, {
+    dateTime: "2026-09-07T12:00:00.000Z",
+    timeZone: "America/Argentina/Buenos_Aires",
+  });
+  assert.deepEqual(cuerpo.end, {
+    dateTime: "2026-09-07T12:30:00.000Z",
+    timeZone: "America/Argentina/Buenos_Aires",
+  });
+  assert.equal(cuerpo.summary, "Corte de pelo — Ana Pérez");
+});
+
+test("crearEvento URL-encodea el id del calendario", async () => {
+  // Un calendario secundario se identifica con una dirección de correo. Sin
+  // encodear, el "@" rompe la URL y Google responde cualquier cosa menos lo
+  // esperado.
+  const { fetch, llamadas } = mockearFetch({ json: { id: "e1" } });
+
+  await crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearEvento({
+    ...EVENTO,
+    calendarId: "sala2@group.calendar.google.com",
+  });
+
+  assert.equal(
+    llamadas[0].url,
+    "https://www.googleapis.com/calendar/v3/calendars/sala2%40group.calendar.google.com/events",
+  );
+});
+
+test("crearEvento omite la descripción cuando no viene", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: { id: "e1" } });
+
+  await crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearEvento({
+    ...EVENTO,
+    descripcion: undefined,
+  });
+
+  assert.ok(!("description" in cuerpoDe(llamadas[0])));
+});
+
+test("un 200 sin id en crearEvento no se toma como éxito", async () => {
+  // El evento pudo haberse creado y no tenemos con qué referenciarlo. No es un
+  // fallo de autorización, así que no degrada la conexión.
+  const { fetch } = mockearFetch({ json: { summary: "sin id" } });
+
+  await assert.rejects(
+    () => crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearEvento(EVENTO),
+    (err: unknown) =>
+      err instanceof GoogleAuthError && !err.grantInvalido && err.message.includes("id"),
+  );
+});
+
+test("un 401 en crearEvento marca el grant como inválido", async () => {
+  const { fetch } = mockearFetch({
+    ok: false,
+    status: 401,
+    json: { error: { message: "Invalid Credentials" } },
+  });
+
+  await assert.rejects(
+    () => crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearEvento(EVENTO),
+    (err: unknown) => err instanceof GoogleAuthError && err.grantInvalido,
+  );
+});
+
+test("un 500 en crearEvento NO marca el grant como inválido", async () => {
+  const { fetch } = mockearFetch({ ok: false, status: 500, json: { error: { message: "boom" } } });
+
+  await assert.rejects(
+    () => crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearEvento(EVENTO),
+    (err: unknown) => err instanceof GoogleAuthError && !err.grantInvalido,
+  );
+});
+
+test("eliminarEvento hace DELETE sobre el evento", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: {} });
+
+  await crearClienteGoogleCalendar({ ...CONFIG, fetch }).eliminarEvento({
+    accessToken: "abc",
+    calendarId: "primary",
+    eventId: "evento-123",
+  });
+
+  assert.equal(
+    llamadas[0].url,
+    "https://www.googleapis.com/calendar/v3/calendars/primary/events/evento-123",
+  );
+  assert.equal(llamadas[0].init.method, "DELETE");
+});
+
+test("un 404 o un 410 al eliminar NO son errores: el evento ya no está", async () => {
+  // Alguien lo borró a mano desde el calendario, o esta cancelación ya llegó más
+  // lejos de lo que creíamos. El resultado deseado —que el evento no exista— ya
+  // se cumplió. Tratarlo como error obligaría a reintentar algo ya hecho.
+  for (const status of [404, 410]) {
+    const { fetch } = mockearFetch({
+      ok: false,
+      status,
+      json: { error: { message: "Not Found" } },
+    });
+
+    await crearClienteGoogleCalendar({ ...CONFIG, fetch }).eliminarEvento({
+      accessToken: "abc",
+      calendarId: "primary",
+      eventId: "ya-no-esta",
+    });
+  }
+});
+
+test("un 500 al eliminar SÍ es un error", async () => {
+  const { fetch } = mockearFetch({ ok: false, status: 500, json: { error: { message: "boom" } } });
+
+  await assert.rejects(
+    () =>
+      crearClienteGoogleCalendar({ ...CONFIG, fetch }).eliminarEvento({
+        accessToken: "abc",
+        calendarId: "primary",
+        eventId: "e1",
+      }),
+    (err: unknown) => err instanceof GoogleAuthError && !err.grantInvalido,
+  );
+});
