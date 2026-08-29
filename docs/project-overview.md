@@ -900,6 +900,24 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   modelo de datos entre "lead" y "contacto" cuando en la práctica es la misma entidad
   con distinto estado.
 
+  > **Formalizado el 28/08/2026 (P1 del roadmap).** Esta decisión **reemplaza** lo que
+  > indicaba la **sección 5 (CRM)** del documento de visión
+  > `sistema_saas_definicion_funcional.md` (carpeta "Sistema Saas"), que describía a
+  > `Lead` como *"entidad específica, no un simple contacto"*. **No es la sección 8** —
+  > esa es "Knowledge Base y RAG"; el dato se verificó leyendo el archivo. Ese
+  > documento **ya fue actualizado** en la misma sesión, así que las dos fuentes dicen
+  > hoy lo mismo. Vive fuera de este repositorio y fuera de git, así que cualquier
+  > cambio futuro ahí no tiene diff ni review: si vuelven a divergir, manda esto.
+  >
+  > **Lo que la decisión NO resuelve.** Ese punto del documento de visión enumeraba
+  > atributos de un lead que hoy no tienen dónde vivir: servicio/producto de interés,
+  > intención, presupuesto, urgencia, datos recopilados por IA, score y campos
+  > personalizados. `Contact` no tiene ninguno. La sección 9 (Calificación) y el
+  > principio rector 14 (Lead Score) de ese documento dependen de esos datos, así que
+  > el gap es real: falta decidir **dónde viven** —columnas nuevas en `Contact` vs. una
+  > tabla de calificación aparte— antes de implementar `create_lead()`/`update_lead()`
+  > y las tools de calificación. Anotado en `docs/roadmap-implementacion.md`, P2.2.
+
 - **Pipeline con `Stage` ordenado (`order: Int`).** Modelo estándar de pipeline
   kanban de ventas: cada oportunidad vive en una etapa de un pipeline, con
   `probability` de cierre y flags mutuamente excluyentes `isWon`/`isLost`.
