@@ -17,10 +17,12 @@ Nada de esto es nuevo, pero se re-lista acá para que quede en un solo lugar jun
 
 ## P1 — Prerrequisitos transversales
 
-Estos dos no son features en sí, son la base que necesitan casi todos los módulos nuevos de abajo:
+Estos dos no son features en sí, son la base que necesitan casi todos los módulos nuevos de abajo.
 
-- [ ] **Motor de eventos salientes** (patrón outbox, análogo al que ya usan para `IngestionEvent` del lado entrante). Hoy no existe ningún mecanismo para que el CRM avise "esto pasó" — ni al motor de automatizaciones, ni a Resea, ni a nada. Lo necesitan: el trigger "Oportunidad → Ganada" del motor de automatizaciones, el aviso a Resea para enviar el QR de reseña, y el recordatorio de WhatsApp antes de un turno agendado. Construir esto una vez, genérico, antes de cablear cualquiera de esos tres casos particulares.
-- [ ] **Decisión: modelo de Lead vs. Contact.** El documento de visión original (sección 8) dice explícitamente que Lead debe ser una entidad propia, distinta de Contact. Lo que se construyó hasta ahora en este repo no tiene una entidad `Lead` separada — la capa de ingesta promueve directamente a `Contact`. Esto no bloqueaba nada mientras el CRM se usaba como CRM tradicional, pero si el agente de IA va a tener una tool `create_lead()` (catálogo de herramientas, sección 12 del documento de visión), hay que decidir antes de construirla: ¿se agrega la entidad `Lead` real como estaba pensada, o se actualiza el documento de visión para reflejar que `Contact` con un campo de estado cumple ese rol? Bloquea el diseño de las tools de calificación del agente.
+> **Los dos cerrados el 2026-08-28** — ver `docs/bitacora-2026-08-28.md`. Mismo criterio que en P0: los tildes reflejan trabajo terminado y con CI en verde en PRs abiertos (#39 y #40), **todavía sin mergear**. El cierre de Lead vs. Contact abrió un pendiente propio, anotado en P2.2 más abajo: la decisión de entidad está tomada, pero los atributos de calificación siguen sin tener dónde vivir.
+
+- [x] **Motor de eventos salientes** (patrón outbox, análogo al que ya usan para `IngestionEvent` del lado entrante). Hoy no existe ningún mecanismo para que el CRM avise "esto pasó" — ni al motor de automatizaciones, ni a Resea, ni a nada. Lo necesitan: el trigger "Oportunidad → Ganada" del motor de automatizaciones, el aviso a Resea para enviar el QR de reseña, y el recordatorio de WhatsApp antes de un turno agendado. Construir esto una vez, genérico, antes de cablear cualquiera de esos tres casos particulares.
+- [x] **Decisión: modelo de Lead vs. Contact.** ~~El documento de visión original (sección 8) dice explícitamente que Lead debe ser una entidad propia, distinta de Contact.~~ **Formalizado (PR #40): `Contact.lifecycleStage` cumple ese rol y no se agrega una entidad separada.** Dos precisiones sobre el enunciado original de este ítem, verificadas leyendo el archivo: eso lo decía la **sección 5 (CRM)**, no la 8 —la 8 es "Knowledge Base y RAG"— y ese documento **ya fue actualizado**, no quedó pendiente. Lo que sigue abierto es un pendiente NUEVO, en P2.2: los atributos de calificación que ese punto asignaba a `Lead` no tienen dónde vivir. Texto original del ítem, para contexto: Lo que se construyó hasta ahora en este repo no tiene una entidad `Lead` separada — la capa de ingesta promueve directamente a `Contact`. Esto no bloqueaba nada mientras el CRM se usaba como CRM tradicional, pero si el agente de IA va a tener una tool `create_lead()` (catálogo de herramientas, sección 12 del documento de visión), hay que decidir antes de construirla: ¿se agrega la entidad `Lead` real como estaba pensada, o se actualiza el documento de visión para reflejar que `Contact` con un campo de estado cumple ese rol? Bloquea el diseño de las tools de calificación del agente.
 
 ## P2 — Módulos nuevos, en orden de menor a mayor dependencia
 
@@ -62,10 +64,14 @@ No documentado en detalle todavía (a diferencia de Booking) — este roadmap de
 
 **Tools del catálogo (sección 12/13 del documento de visión) — estado de cada una respecto a lo ya construido:**
 - `create_opportunity()` / `update_opportunity()` — bajo esfuerzo: ya existe `opportunity.service.ts`, la tool es un wrapper delgado con la capa de permisos del agente encima.
-- `create_lead()` / `update_lead()` — depende de la decisión de P1 (Lead vs. Contact) antes de poder implementarse bien.
+- `create_lead()` / `update_lead()` — la decisión de P1 (Lead vs. Contact) ya está tomada y formalizada: `Contact.lifecycleStage` cumple ese rol y NO se agrega una entidad separada. Lo que sigue bloqueando a estas dos tools es el bullet de acá abajo, no aquella decisión.
 - `get_availability()` / `create_booking()` — dependen del módulo de Booking (2.1).
 - `send_message()` — depende de la integración de WhatsApp de este mismo módulo.
 - `create_payment_link()` — no existe ninguna integración de pagos en este repo hoy (ver 2.3, es un gap nuevo, no cubierto en discusiones anteriores).
+
+**Pendiente que bloquea las tools de calificación (abierto el 28/08/2026, al formalizar Lead vs. Contact):**
+
+- [ ] Decidir dónde viven los atributos de calificación que el documento de visión asigna a `Lead` (score, intención, presupuesto, urgencia, servicio de interés, datos recopilados por IA, campos personalizados) — columnas nuevas en `Contact` vs. tabla de calificación aparte — **antes** de implementar `create_lead()`/`update_lead()` y las tools de calificación. Ninguno de esos atributos existe hoy en `Contact`, y la sección 9 (Calificación) y el principio rector 14 (Lead Score) del documento de visión dependen de ellos. Ver la nota fechada en `docs/project-overview.md`, sección 5.
 
 **Capa de permisos:** cada tool debe validar contra `Agent.enabledTools` y los guardrails configurados antes de ejecutar — el principio ya establecido de "la IA puede proponer, el backend decide" tiene que vivir acá, no en el prompt del modelo.
 
