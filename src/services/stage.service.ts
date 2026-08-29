@@ -261,16 +261,60 @@ export async function updateStage(organizationId: string, id: string, input: Upd
 
   try {
     return await prisma.$transaction(async (tx) => {
-      if (requestedOrder !== undefined && requestedOrder !== stage.order) {
-        const siblings = await findStagesByPipeline(stage.pipelineId, tx);
-        const finalOrderIds = computeFinalOrderIds(siblings, id, requestedOrder);
+      // A-1 (auditoría 2026-08-29) — el cierre de ALTO-5. El reindexado de
+      // `order` es una decisión sobre la lista COMPLETA de hermanos, y las tres
+      // operaciones que la mantienen (createStage, updateStage, deleteStage)
+      // tienen que serializar sobre la misma fila: la del pipeline. Sin este
+      // lock, dos reordenamientos concurrentes leían la misma lista y el
+      // primero se perdía en silencio (reindexStages reasigna 1..N a todos,
+      // así que ni siquiera había violación de constraint que lo delatara); un
+      // reorden contra createStage podía terminar en deadlock (500) o en un
+      // 409 espurio contra el índice único; y un reorden contra deleteStage
+      // leía una foto pre-borrado y le asignaba un slot a la etapa borrada.
+      //
+      // PRIMERA sentencia y ANTES de cualquier lectura, en el mismo orden que
+      // createStage (pipeline, y recién después cualquier fila de stage): así
+      // no hay dos caminos que tomen los locks al revés.
+      //
+      // El pipelineId sale del pre-check de afuera y eso es correcto: un stage
+      // nunca cambia de pipeline vía la API, así que ese dato no puede quedar
+      // viejo. `order` sí puede, y por eso se relee abajo.
+      await lockPipelineForUpdate(stage.pipelineId, organizationId, tx);
 
-        await reindexStages(stage.pipelineId, finalOrderIds, tx);
+      // Relee con el lock sostenido. El `stage` del pre-check es UX (404
+      // rápido); su `order` puede haber cambiado por un reindexado ajeno que
+      // commiteó entre aquella lectura y este punto, y comparar contra un
+      // valor viejo haría un reorden de más (o de menos).
+      const actual = await findStageById(id, organizationId, tx);
+      if (!actual) {
+        throw new AppError("Etapa no encontrada", 404);
       }
 
-      const result = await updateStageRepo(id, organizationId, rest, tx);
-      if (result.count === 0) {
-        throw new AppError("Etapa no encontrada", 404);
+      if (requestedOrder !== undefined && requestedOrder !== actual.order) {
+        // Con el lock del pipeline sostenido, esta lectura no puede ser una
+        // foto vieja: cualquier borrado o alta concurrente ya commiteó (y
+        // findStagesByPipeline excluye los borrados) o todavía no empezó.
+        const siblings = await findStagesByPipeline(actual.pipelineId, tx);
+        const finalOrderIds = computeFinalOrderIds(siblings, id, requestedOrder);
+
+        await reindexStages(actual.pipelineId, finalOrderIds, tx);
+      }
+
+      // SOLO si hay algo que escribir además del orden. Bug preexistente que
+      // destapó el test de concurrencia de A-1: con un PATCH que trae solo
+      // `order` (el de un drag & drop), `rest` es `{}` y Prisma resuelve
+      // `updateMany({ data: {} })` como `{ count: 0 }` sin ejecutar nada — ni
+      // siquiera toca `updatedAt`, que solo se bumpea cuando hay cambios. Ese
+      // 0 se leía como "no existe": el reorden respondía 404 y la transacción
+      // revertía el reindexado ya hecho. La existencia de la etapa ya la
+      // decidió la relectura de arriba, con el lock sostenido; acá el count
+      // solo tiene sentido cuando hubo un UPDATE real.
+      const hayCamposParaEscribir = Object.values(rest).some((valor) => valor !== undefined);
+      if (hayCamposParaEscribir) {
+        const result = await updateStageRepo(id, organizationId, rest, tx);
+        if (result.count === 0) {
+          throw new AppError("Etapa no encontrada", 404);
+        }
       }
 
       const updated = await findStageById(id, organizationId, tx);
@@ -303,13 +347,29 @@ export async function updateStage(organizationId: string, id: string, input: Upd
 // la auditoría misma (opción C de ALTO-8): mueve la inconsistencia a las
 // queries y hay que acordarse en cada una.
 export async function deleteStage(organizationId: string, id: string) {
-  // 404 rápido, sin abrir transacción — mismo criterio que deletePipeline.
-  await getStageById(organizationId, id);
+  // 404 rápido, sin abrir transacción — mismo criterio que deletePipeline. Se
+  // conserva solo por su pipelineId, que es inmutable (un stage nunca cambia
+  // de pipeline vía la API); todo lo demás se relee adentro.
+  const preview = await getStageById(organizationId, id);
 
   await prisma.$transaction(async (tx) => {
+    // A-1 (auditoría 2026-08-29) — el lock del PIPELINE, primero. Borrar una
+    // etapa cierra un hueco en la numeración (shiftDownAfter), o sea que es
+    // una escritura sobre la lista completa de hermanos, igual que createStage
+    // y updateStage; los tres tienen que serializar sobre la misma fila.
+    // Antes este camino solo tomaba el lock de la propia etapa, así que un
+    // reordenamiento concurrente podía leer la lista con esta etapa todavía
+    // viva y asignarle un slot después de borrada.
+    //
+    // ORDEN FIJO: pipeline y DESPUÉS stage, el mismo que createStage. Ningún
+    // camino toma un stage antes que su pipeline (createOpportunity y
+    // updateOpportunity toman el stage solo), así que no hay abrazo posible.
+    await lockPipelineForUpdate(preview.pipelineId, organizationId, tx);
+
     // Serializa contra createOpportunity / updateOpportunity, que toman este
-    // mismo lock. Sin él, el conteo de abajo puede leer 0 mientras otra
-    // transacción está insertando la oportunidad número 1.
+    // mismo lock (y solo éste). Sin él, el conteo de abajo puede leer 0
+    // mientras otra transacción está insertando la oportunidad número 1. El
+    // lock del pipeline no lo reemplaza: aquellas dos no lo toman.
     await lockStageForUpdate(id, organizationId, tx);
 
     // Revalida con el lock sostenido, y además vuelve a leer `order`: el

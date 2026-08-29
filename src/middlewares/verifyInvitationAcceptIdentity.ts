@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { verifySupabaseJwt } from "../lib/jwt";
+import { logger } from "../lib/logger";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -44,9 +45,13 @@ import { extractBearerToken } from "../utils/bearerToken";
 // auth.users.
 //
 // COSTO: una llamada a la Admin API por intento de aceptación. Es un endpoint de
-// baja frecuencia y ya rate-limiteado en dos etapas; acceptPreAuthRateLimiter
-// (por IP, montado ANTES de este middleware) es el que acota cuántas de estas
-// llamadas puede provocar un anónimo, y sigue corriendo primero.
+// baja frecuencia, y el orden de este middleware es lo que acota quién puede
+// provocar esa llamada: la firma del JWT se verifica ANTES de getUserById, así
+// que un anónimo con tokens basura muere en el 401 de verifySupabaseJwt sin
+// llegar nunca a Supabase. Lo que sí llega —una identidad real— lo acota
+// acceptInvitationRateLimiter, que corre después con el `sub` ya verificado.
+// (Hasta el 29/08 había además un limiter por IP antes de este middleware; se
+// sacó en A-2 de docs/auditoria-2026-08-29.md — ver rateLimit.ts.)
 //
 // ---------------------------------------------------------------------------
 // QUÉ CIERRA ESTO Y QUÉ NO — corregido después de verificarlo contra GoTrue
@@ -109,12 +114,69 @@ export function resolverIdentidadDeInvitacion(
   return { userId, email: usuario.email.trim().toLowerCase() };
 }
 
+// ---------------------------------------------------------------------------
+// A-3 (docs/auditoria-2026-08-29.md) — "la Admin API no encontró al usuario" y
+// "la Admin API no respondió" NO SON EL MISMO 401.
+//
+// Antes, cualquier `error` de getUserById se descartaba sin log y se pasaba
+// `null` a resolverIdentidadDeInvitacion, que responde 401 "No se pudo
+// verificar la identidad del token". Con Supabase caído, con la red cortada o
+// con un 5xx de GoTrue, el invitado veía su credencial como inválida y el
+// servidor no dejaba ni una línea que dijera qué pasó.
+//
+// LA DISTINCIÓN, VERIFICADA CONTRA @supabase/auth-js@2.110.2 (lib/fetch.js
+// handleError y GoTrueAdminApi.getUserById), no asumida:
+//
+//   - fetch que ni siquiera responde (red, DNS, timeout) → AuthRetryableFetchError
+//     con status 0;
+//   - respuesta 5xx de GoTrue → AuthRetryableFetchError con ese status;
+//   - cualquier otro status HTTP → AuthApiError con `status` y `code`. El
+//     usuario inexistente es un 404 (`user_not_found`).
+//   - getUserById atrapa todo lo que sea AuthError y lo devuelve como `error`
+//     en vez de lanzarlo; lo que no es AuthError (un bug) sí se propaga y cae
+//     en errorHandler como 500, que es lo correcto.
+//
+// Así que "no existe" es exactamente `AuthApiError` + 404, y todo lo demás
+// —incluido un 401/403 de la Admin API, que significa que la service role key
+// de ESTE servidor está mal, no que el invitado sea quien dice ser— es un
+// fallo nuestro o de Supabase: 503 y el error original al log. 503 y no 500
+// por el mismo criterio que el webhook de Google Calendar y /health: fallo
+// transitorio, no es culpa de quien llama, conviene reintentar.
+// ---------------------------------------------------------------------------
+
+// La forma mínima del error que devuelve auth-js, para no atar la decisión
+// (ni su test) a la clase concreta: `isAuthApiError` de la librería compara
+// por `name`, así que esto hace lo mismo con una superficie explícita.
+export interface ErrorDeAdminApi {
+  name?: string;
+  status?: number;
+  message?: string;
+}
+
+// Exportada para fijarla con tests unitarios sin red, igual que
+// resolverIdentidadDeInvitacion: es la decisión, separada de la red que la
+// alimenta.
+export function esUsuarioInexistente(error: ErrorDeAdminApi): boolean {
+  return error.name === "AuthApiError" && error.status === 404;
+}
+
 export const verifyInvitationAcceptIdentity = asyncHandler(
   async (req: Request, _res: Response, next: NextFunction) => {
     const token = extractBearerToken(req);
     const payload = await verifySupabaseJwt(token);
 
     const { data, error } = await getSupabaseAdmin().auth.admin.getUserById(payload.sub);
+
+    if (error && !esUsuarioInexistente(error)) {
+      logger.error(
+        { err: error, status: error.status, userId: payload.sub },
+        "La Admin API de Supabase no pudo resolver la identidad (no es 'usuario inexistente'): se responde 503, no 401",
+      );
+      throw new AppError(
+        "No se pudo verificar la identidad en este momento. Probá de nuevo en unos segundos.",
+        503,
+      );
+    }
 
     req.invitationAcceptIdentity = resolverIdentidadDeInvitacion(
       payload.sub,

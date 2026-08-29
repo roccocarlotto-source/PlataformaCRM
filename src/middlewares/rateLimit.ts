@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { rateLimit, type RateLimitInfo } from "express-rate-limit";
+import type { z } from "zod";
 import { env } from "../config/env";
 import { acceptInvitationSchema } from "../schemas/invitation.schema";
 import { onboardingOtpSchema, onboardingSchema } from "../schemas/onboarding.schema";
@@ -33,12 +34,29 @@ import { AppError } from "../utils/AppError";
 // correcta — no es automático.
 //
 // trust proxy: deliberadamente sin configurar (default de Express,
-// deshabilitado) — correcto para un proceso Node/Express directo, sin
-// reverse proxy/load balancer documentado delante. Ningún keyGenerator de
-// acá confía en X-Forwarded-For más allá de lo que Express ya decide via
-// trust proxy. El día que haya un proxy real y documentado delante,
-// trust proxy debe configurarse explícitamente a esa topología (nunca
-// `true` a ciegas) antes de que el límite por IP vuelva a ser correcto.
+// deshabilitado), y la consecuencia es que NINGÚN limiter de este archivo
+// puede keyear por IP. Hasta el 28/08 el encabezado decía que el default por
+// IP de la librería era "correcto para un proceso Node/Express directo, sin
+// reverse proxy documentado delante"; ese día entró el Dockerfile, y un
+// contenedor se despliega detrás de un proxy o balanceador —el de cualquier
+// PaaS— por definición. Con trust proxy apagado, detrás de un proxy `req.ip`
+// es LA IP DEL PROXY PARA TODOS LOS CLIENTES, así que un cupo por IP no es
+// "un poco impreciso": es un cupo GLOBAL que cualquiera agota gratis para
+// todos los demás (A-2 de docs/auditoria-2026-08-29.md).
+//
+// Por eso cada limiter keyea por una identidad que el request trae consigo:
+// el userId del JWT ya verificado, el apiKeyId de la clave de ingesta, o el
+// email del body en los dos endpoints de onboarding (ver
+// crearKeyingPorEmail). Y por eso la etapa pre-auth de
+// POST /api/invitations/accept —la única ruta pública sin ningún dato de
+// identidad antes de verificar— NO tiene limiter en vez de tener uno por IP;
+// ver la sección de Invitation accept sobre por qué ese costo se acepta.
+//
+// Ningún keyGenerator de acá confía en X-Forwarded-For más allá de lo que
+// Express ya decide via trust proxy. Configurar trust proxy a la topología
+// real (nunca `true` a ciegas) sigue siendo un requisito del deploy, pero para
+// que `req.ip` y los logs digan la verdad — no para que un limiter dependa de
+// él.
 
 // express-rate-limit@8.5.2 no aumenta globalmente Express.Request con
 // `rateLimit` (a diferencia de versiones anteriores) — el nombre de la
@@ -58,14 +76,79 @@ function buildRateLimitHandler(message: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Keying por EMAIL del body — los dos endpoints de onboarding (A-2).
+//
+// Son los únicos endpoints públicos del sistema cuyo request trae una
+// identidad consigo antes de cualquier verificación: el email que se está
+// registrando. No es una identidad PROBADA (eso lo hace el OTP), pero es
+// exactamente la unidad que hay que acotar: "cuántas veces se intentó
+// registrar ESTA dirección", que es lo que cuesta un email de Supabase y una
+// llamada a la Admin API. Y es inmune al proxy: no depende de req.ip.
+//
+// LO QUE ESTO NO ACOTA, escrito para que no se lea como más de lo que es: un
+// atacante que rote emails inventados tiene un cupo nuevo por cada uno. Para
+// el paso 1 (/otp) eso sigue costando un email por dirección, que Supabase ya
+// limita por su lado (max_frequency por email y su propio límite de envíos);
+// para el paso 2 un email inventado nunca tiene un OTP válido y muere en
+// verifyOtp. El cupo por IP tampoco frenaba a ese atacante —rota IPs igual de
+// gratis— y además dejaba a todos los clientes reales detrás de un proxy
+// compartiendo cinco intentos; este keying pierde nada de lo que aquel daba
+// y deja de castigar a los legítimos.
+//
+// EL EMAIL SE PARSEA UNA SOLA VEZ. express-rate-limit@8.5.2 llama primero a
+// `skip` y después a `keyGenerator`, con el mismo `request` (verificado en
+// dist/index.cjs: `await config.skip(...)` y recién después
+// `await config.keyGenerator(...)`). skip() ya parseaba el body con el
+// schema para decidir si el request cuenta; ahora además guarda el email en
+// un WeakMap por request, y keyGenerator() lo lee de ahí. Un WeakMap y no
+// una propiedad en `req`: no hay que ampliar el tipo de Request para un dato
+// que solo estos dos callbacks se pasan entre sí, y las entradas mueren con
+// el request sin que nadie las limpie.
+//
+// Normalizado a minúsculas: Supabase trata los emails sin distinguir
+// mayúsculas, así que `Juan@x.com` y `juan@x.com` son la misma cuenta y
+// tienen que compartir cupo — si no, el cupo se multiplica con solo alternar
+// el case. El trim ya lo hace el schema.
+// ---------------------------------------------------------------------------
+const emailPorRequest = new WeakMap<Request, string>();
+
+function crearKeyingPorEmail<T extends { email: string }>(
+  limiterName: string,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+) {
+  return {
+    skip: (req: Request): boolean => {
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return true;
+      }
+      emailPorRequest.set(req, parsed.data.email.toLowerCase());
+      return false;
+    },
+    keyGenerator: (req: Request): string => {
+      const email = emailPorRequest.get(req);
+      if (email === undefined) {
+        // No debería poder pasar nunca: la librería llama a skip() antes que a
+        // keyGenerator() sobre el mismo request, y skip() solo deja pasar los
+        // requests para los que guardó el email. Mismo criterio que los otros
+        // keyGenerator de este archivo: fallar ruidoso, nunca caer a req.ip.
+        throw new Error(
+          `${limiterName}: falta el email parseado por skip() — la librería cambió el orden de sus callbacks`,
+        );
+      }
+      return email;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Onboarding — POST /api/onboarding (público, sin identidad previa).
 //
 // Amenaza: creación masiva automatizada de Organization + identidad real de
 // Supabase Auth (email_confirm: true, sin el rate limit de envío de email
 // que sí protege a Invitation), y costo en la Admin API de Supabase.
-// keyGenerator: ninguno — se usa el default de la librería, que ya resuelve
-// IPv4/IPv6 de forma segura (ipKeyGenerator + ipv6Subnet interno,
-// verificado contra la documentación oficial de la 8.5.2).
+// keyGenerator: por el email del body (ver crearKeyingPorEmail arriba), nunca
+// por IP.
 // Cuenta solo requests con body válido según onboardingSchema: un body
 // malformado nunca toca Supabase ni Postgres, así que contarlo no protege
 // nada y sí penaliza a un usuario real que se equivoca de formato.
@@ -82,7 +165,7 @@ export function createOnboardingRateLimiter() {
     max: ONBOARDING_MAX,
     standardHeaders: "draft-7",
     legacyHeaders: false,
-    skip: (req) => !onboardingSchema.safeParse(req.body).success,
+    ...crearKeyingPorEmail("onboardingRateLimiter", onboardingSchema),
     handler: buildRateLimitHandler("Demasiados intentos de registro. Probá de nuevo más tarde."),
   });
 }
@@ -109,9 +192,15 @@ export const onboardingRateLimiter = createOnboardingRateLimiter();
 // serviría para que el cuello de botella quede en el paso equivocado. Supabase
 // además impone su propio mínimo entre envíos por email (max_frequency), que
 // acota el abuso dirigido a UNA dirección; este limiter acota el abuso dirigido
-// a MUCHAS desde un mismo origen, que es lo que aquel no ve.
+// a MUCHAS direcciones, que es lo que aquel no ve.
 //
-// keyGenerator: ninguno, mismo criterio que el resto de los públicos.
+// keyGenerator: por el email del body, igual que el paso 2 (ver
+// crearKeyingPorEmail). Con el keying anterior por IP, "muchas direcciones
+// desde un mismo origen" era la frase de arriba; con proxy delante, ese
+// "mismo origen" eran todos los clientes juntos. Ahora el cupo acota los
+// pedidos de código por dirección —cinco cada quince minutos para el mismo
+// email—, que es el abuso que de verdad cuesta (un email por pedido) y que
+// se puede acotar sin castigar a nadie más.
 //
 // Baseline operacional, no un umbral definitivo.
 // ---------------------------------------------------------------------------
@@ -124,7 +213,7 @@ export function createOnboardingOtpRateLimiter() {
     max: ONBOARDING_OTP_MAX,
     standardHeaders: "draft-7",
     legacyHeaders: false,
-    skip: (req) => !onboardingOtpSchema.safeParse(req.body).success,
+    ...crearKeyingPorEmail("onboardingOtpRateLimiter", onboardingOtpSchema),
     handler: buildRateLimitHandler(
       "Demasiados pedidos de código de verificación. Probá de nuevo más tarde.",
     ),
@@ -134,39 +223,54 @@ export function createOnboardingOtpRateLimiter() {
 export const onboardingOtpRateLimiter = createOnboardingOtpRateLimiter();
 
 // ---------------------------------------------------------------------------
-// Invitation accept — etapa 1: pre-auth, POST /api/invitations/accept,
-// montado ANTES de verifyInvitationAcceptIdentity.
+// Invitation accept — la etapa PRE-AUTH NO TIENE LIMITER, y es una decisión
+// (A-2 de docs/auditoria-2026-08-29.md), no un olvido.
 //
-// Amenaza: actor completamente anónimo (sin ningún JWT válido) inundando
-// la ruta con tokens basura/vencidos — cada uno paga el costo real de
-// intentar verify (parseo + verificación criptográfica ES256 contra el
-// JWKS), sin llegar nunca a tener un `sub`. El limiter por identidad
-// (etapa 2) estructuralmente no puede mitigar esto: corre después del
-// único punto donde ese costo se paga. Población: cualquiera en internet,
-// misma que onboarding — a diferencia de la etapa 2, no está acotada a
-// "gente invitada".
+// Hasta el 29/08 acá vivía acceptPreAuthRateLimiter: 20 requests cada 5
+// minutos sobre POST /api/invitations/accept, montado ANTES de
+// verifyInvitationAcceptIdentity, sin keyGenerator — o sea, por IP. Era el
+// único limiter de este archivo en esa situación, y las tres salidas posibles
+// se evaluaron en la revisión de A-2:
 //
-// Cuenta TODO request que llega, sin skip: cualquier filtro acá
-// requeriría verificar primero, anulando el propósito del límite.
-// keyGenerator: ninguno, mismo criterio que onboarding.
+//   - DEJARLO POR IP "documentado" no era más seguro: es exactamente el mismo
+//     problema que A-2 señaló para los dos limiters de onboarding —con trust
+//     proxy apagado y un proxy delante, req.ip es la IP del proxy para todos
+//     los clientes, y el cupo se vuelve GLOBAL: 20 POST vacíos bloqueaban la
+//     aceptación de invitaciones para todo el mundo durante cinco minutos, a
+//     costo cero—, solo que dejado sin resolver en un tercer lugar.
+//   - KEYEAR POR EL `sub` DEL JWT SIN VERIFICAR se descartó: el claim es
+//     falsificable (un atacante rota `sub`s gratis y tiene cupo infinito) y un
+//     token que ni siquiera parsea cae a una clave fija — o sea que en el peor
+//     caso, el del atacante real, se comporta igual que la opción por IP que
+//     se quería evitar. Más complejidad para ganar solo el caso benigno.
+//   - SACARLO, que es lo que se hizo.
+//
+// LO QUE QUEDA SIN ACOTAR: un actor anónimo inundando la ruta con tokens
+// basura o vencidos, donde cada request paga una verificación ES256 contra
+// el JWKS (que jose cachea; no es un fetch por request) y muere con un 401.
+// No toca Postgres ni la Admin API: verifyInvitationAcceptIdentity verifica
+// la firma ANTES de llamar a getUserById, así que un token inválido nunca
+// llega a Supabase.
+//
+// POR QUÉ SE ACEPTA: es el mismo trade-off que este archivo ya tomó para
+// ingestRateLimiter (ver más abajo): el flood anónimo con clave inválida
+// contra POST /api/ingest tampoco tiene límite propio, porque matarlo cuesta
+// un hash SHA-256 y una búsqueda por índice único, sin tocar ninguna tabla
+// de negocio. Una verificación de firma contra un JWKS en memoria es el mismo
+// tipo de costo —algo más de CPU, cero I/O de negocio—, así que se aplica el
+// mismo criterio en vez de inventar uno nuevo para esta ruta. Lo que ese
+// criterio NO haría es dejar sin límite algo que cueste I/O.
+//
+// LO QUE NO CAMBIA: acceptInvitationRateLimiter (abajo) sigue intacto y es el
+// que de verdad importa. Corre después de verifyInvitationAcceptIdentity, o
+// sea con un `sub` ya verificado, y es el que acota lo caro: la llamada a la
+// Admin API de Supabase por intento y la carga de Postgres. Un anónimo con
+// tokens basura nunca llega hasta él, y una identidad real no puede pasar de
+// su cupo.
 // ---------------------------------------------------------------------------
-export const ACCEPT_PRE_AUTH_WINDOW_MS = 5 * 60 * 1000;
-export const ACCEPT_PRE_AUTH_MAX = 20;
-
-export function createAcceptPreAuthRateLimiter() {
-  return rateLimit({
-    windowMs: ACCEPT_PRE_AUTH_WINDOW_MS,
-    max: ACCEPT_PRE_AUTH_MAX,
-    standardHeaders: "draft-7",
-    legacyHeaders: false,
-    handler: buildRateLimitHandler("Demasiados intentos. Probá de nuevo más tarde."),
-  });
-}
-
-export const acceptPreAuthRateLimiter = createAcceptPreAuthRateLimiter();
 
 // ---------------------------------------------------------------------------
-// Invitation accept — etapa 2: post-auth, montado DESPUÉS de
+// Invitation accept — post-auth, montado DESPUÉS de
 // verifyInvitationAcceptIdentity.
 //
 // Amenaza: una identidad Supabase YA verificada (población acotada a gente
