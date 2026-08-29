@@ -186,11 +186,52 @@ export async function updateServiceType(
   // updateOpportunity.
   const result = nuevoResourceId
     ? await prisma.$transaction(async (tx) => {
+        // ORDEN FIJO: branch -> resource -> serviceType, el mismo que
+        // createServiceType (branch -> resource) y createBooking (resource ->
+        // serviceType). Ningún camino toma un serviceType antes que un
+        // recurso, así que no hay abrazo posible.
         await lockBranchForUpdate(branchIdEfectivo, organizationId, tx);
         await lockResourceForUpdate(nuevoResourceId, organizationId, tx);
 
+        // A-4 (auditoría 2026-08-29) — EL LOCK DEL PROPIO SERVICIO, que faltaba.
+        // Los dos de arriba serializan contra deleteBranch y deleteResource del
+        // recurso NUEVO; contra lo que hay que serializar acá es contra
+        // createBooking, que toma el recurso VIEJO (el actual del servicio) y
+        // después este mismo lock. Sin él, el conteo de abajo podía leer 0
+        // mientras otra transacción estaba insertando la reserva número 1
+        // sobre el recurso viejo — la lección de ALTO-8, otra vez.
+        await lockServiceTypeForUpdate(id, organizationId, tx);
+
         await validateBranchId(organizationId, branchIdEfectivo, tx);
         await validateResourceId(organizationId, nuevoResourceId, branchIdEfectivo, tx);
+
+        // Relee el servicio con el lock sostenido: el de afuera es UX (404
+        // rápido) y su resourceId puede haber cambiado en el medio.
+        const actual = await findServiceTypeById(id, organizationId, tx);
+        if (!actual) {
+          throw new AppError("Servicio no encontrado", 404);
+        }
+
+        // A-4 — RESTRICT CONTRA LAS RESERVAS AL MOVER DE RECURSO. La cadena de
+        // RESTRICT del módulo (deleteServiceType cuenta reservas,
+        // deleteResource cuenta servicios, deleteBranch cuenta recursos) solo
+        // se sostiene mientras Booking.resourceId == ServiceType.resourceId.
+        // Mover un servicio con reservas CONFIRMED a otro recurso rompía esa
+        // igualdad: las reservas quedaban con el recurso viejo, deleteResource
+        // del viejo contaba cero servicios y lo borraba con reservas reales
+        // colgando; y la capacidad de las contaba contra el recurso viejo
+        // mientras el nuevo aparecía libre en esos horarios. Mismo criterio y
+        // mismo conteo que deleteServiceType: solo CONFIRMED bloquea, y solo
+        // si el recurso cambia de verdad.
+        if (actual.resourceId !== nuevoResourceId) {
+          const reservasActivas = await countActiveBookingsByServiceType(id, organizationId, tx);
+          if (reservasActivas > 0) {
+            throw new AppError(
+              "No se puede mover a otro recurso un servicio que tiene reservas activas. Cancelalas primero.",
+              400,
+            );
+          }
+        }
 
         return updateServiceTypeRepo(id, organizationId, input, tx);
       })
