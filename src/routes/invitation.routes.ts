@@ -7,11 +7,7 @@ import {
 } from "../controllers/invitation.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { authorize } from "../middlewares/authorize";
-import {
-  acceptInvitationRateLimiter,
-  acceptPreAuthRateLimiter,
-  businessWriteRateLimiter,
-} from "../middlewares/rateLimit";
+import { acceptInvitationRateLimiter, businessWriteRateLimiter } from "../middlewares/rateLimit";
 import { verifyInvitationAcceptIdentity } from "../middlewares/verifyInvitationAcceptIdentity";
 
 export const invitationRouter = Router();
@@ -39,15 +35,19 @@ invitationRouter.delete(
 
 // Público en el sentido de no pasar por authenticate (exige public.users
 // ya existente) — pero no anónimo: exige un JWT de Supabase válido. Ver
-// invitation.controller.ts. M1 — dos etapas de rate limiting (ver
-// rateLimit.ts para el porqué de cada una):
-//   1. acceptPreAuthRateLimiter: por IP, antes de verificar el JWT —
-//      protege el costo de intentar verificar, sin identidad todavía.
-//   2. verifyInvitationAcceptIdentity: verifica el JWT una sola vez.
-//   3. acceptInvitationRateLimiter: por identidad ya verificada (sub).
+// invitation.controller.ts.
+//   1. verifyInvitationAcceptIdentity: verifica el JWT una sola vez.
+//   2. acceptInvitationRateLimiter: por identidad ya verificada (sub).
+//
+// SIN LIMITER ANTES DE VERIFICAR, y es una decisión (A-2 de
+// docs/auditoria-2026-08-29.md): hasta el 29/08 acá iba acceptPreAuthRateLimiter,
+// que keyeaba por IP porque antes de verificar no hay ninguna identidad — y
+// por IP, detrás de un proxy, el cupo era global para todos los clientes. Lo
+// que queda sin acotar es una verificación de firma contra un JWKS cacheado
+// por request anónimo, que no toca Postgres ni la Admin API; ver rateLimit.ts
+// para el paralelismo con el flood anónimo de ingesta, que ya se aceptaba.
 invitationRouter.post(
   "/invitations/accept",
-  acceptPreAuthRateLimiter,
   verifyInvitationAcceptIdentity,
   acceptInvitationRateLimiter,
   acceptInvitationHandler,

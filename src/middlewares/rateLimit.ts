@@ -47,8 +47,10 @@ import { AppError } from "../utils/AppError";
 // Por eso cada limiter keyea por una identidad que el request trae consigo:
 // el userId del JWT ya verificado, el apiKeyId de la clave de ingesta, o el
 // email del body en los dos endpoints de onboarding (ver
-// crearKeyingPorEmail). La única excepción hoy es acceptPreAuthRateLimiter,
-// que corre antes de que exista ninguna identidad; ver su comentario.
+// crearKeyingPorEmail). Y por eso la etapa pre-auth de
+// POST /api/invitations/accept —la única ruta pública sin ningún dato de
+// identidad antes de verificar— NO tiene limiter en vez de tener uno por IP;
+// ver la sección de Invitation accept sobre por qué ese costo se acepta.
 //
 // Ningún keyGenerator de acá confía en X-Forwarded-For más allá de lo que
 // Express ya decide via trust proxy. Configurar trust proxy a la topología
@@ -221,48 +223,54 @@ export function createOnboardingOtpRateLimiter() {
 export const onboardingOtpRateLimiter = createOnboardingOtpRateLimiter();
 
 // ---------------------------------------------------------------------------
-// Invitation accept — etapa 1: pre-auth, POST /api/invitations/accept,
-// montado ANTES de verifyInvitationAcceptIdentity.
+// Invitation accept — la etapa PRE-AUTH NO TIENE LIMITER, y es una decisión
+// (A-2 de docs/auditoria-2026-08-29.md), no un olvido.
 //
-// Amenaza: actor completamente anónimo (sin ningún JWT válido) inundando
-// la ruta con tokens basura/vencidos — cada uno paga el costo real de
-// intentar verify (parseo + verificación criptográfica ES256 contra el
-// JWKS), sin llegar nunca a tener un `sub`. El limiter por identidad
-// (etapa 2) estructuralmente no puede mitigar esto: corre después del
-// único punto donde ese costo se paga. Población: cualquiera en internet,
-// misma que onboarding — a diferencia de la etapa 2, no está acotada a
-// "gente invitada".
+// Hasta el 29/08 acá vivía acceptPreAuthRateLimiter: 20 requests cada 5
+// minutos sobre POST /api/invitations/accept, montado ANTES de
+// verifyInvitationAcceptIdentity, sin keyGenerator — o sea, por IP. Era el
+// único limiter de este archivo en esa situación, y las tres salidas posibles
+// se evaluaron en la revisión de A-2:
 //
-// Cuenta TODO request que llega, sin skip: cualquier filtro acá
-// requeriría verificar primero, anulando el propósito del límite.
+//   - DEJARLO POR IP "documentado" no era más seguro: es exactamente el mismo
+//     problema que A-2 señaló para los dos limiters de onboarding —con trust
+//     proxy apagado y un proxy delante, req.ip es la IP del proxy para todos
+//     los clientes, y el cupo se vuelve GLOBAL: 20 POST vacíos bloqueaban la
+//     aceptación de invitaciones para todo el mundo durante cinco minutos, a
+//     costo cero—, solo que dejado sin resolver en un tercer lugar.
+//   - KEYEAR POR EL `sub` DEL JWT SIN VERIFICAR se descartó: el claim es
+//     falsificable (un atacante rota `sub`s gratis y tiene cupo infinito) y un
+//     token que ni siquiera parsea cae a una clave fija — o sea que en el peor
+//     caso, el del atacante real, se comporta igual que la opción por IP que
+//     se quería evitar. Más complejidad para ganar solo el caso benigno.
+//   - SACARLO, que es lo que se hizo.
 //
-// keyGenerator: ninguno TODAVÍA — sigue en el default de la librería (IP), y
-// es el único limiter de este archivo en esa situación. NO es el criterio de
-// los otros públicos (onboarding ya keyea por email): es una DECISIÓN
-// PENDIENTE, abierta en la revisión de A-2 (docs/auditoria-2026-08-29.md).
-// Lo que hace distinto a este endpoint es que no hay ningún dato de identidad
-// antes de verificar el JWT — que es justo lo que este limiter protege de
-// verificar de más. Mientras la decisión no esté tomada, vale lo que dice el
-// encabezado: detrás de un proxy este cupo es global (20 requests cada 5
-// minutos para todos los clientes juntos).
+// LO QUE QUEDA SIN ACOTAR: un actor anónimo inundando la ruta con tokens
+// basura o vencidos, donde cada request paga una verificación ES256 contra
+// el JWKS (que jose cachea; no es un fetch por request) y muere con un 401.
+// No toca Postgres ni la Admin API: verifyInvitationAcceptIdentity verifica
+// la firma ANTES de llamar a getUserById, así que un token inválido nunca
+// llega a Supabase.
+//
+// POR QUÉ SE ACEPTA: es el mismo trade-off que este archivo ya tomó para
+// ingestRateLimiter (ver más abajo): el flood anónimo con clave inválida
+// contra POST /api/ingest tampoco tiene límite propio, porque matarlo cuesta
+// un hash SHA-256 y una búsqueda por índice único, sin tocar ninguna tabla
+// de negocio. Una verificación de firma contra un JWKS en memoria es el mismo
+// tipo de costo —algo más de CPU, cero I/O de negocio—, así que se aplica el
+// mismo criterio en vez de inventar uno nuevo para esta ruta. Lo que ese
+// criterio NO haría es dejar sin límite algo que cueste I/O.
+//
+// LO QUE NO CAMBIA: acceptInvitationRateLimiter (abajo) sigue intacto y es el
+// que de verdad importa. Corre después de verifyInvitationAcceptIdentity, o
+// sea con un `sub` ya verificado, y es el que acota lo caro: la llamada a la
+// Admin API de Supabase por intento y la carga de Postgres. Un anónimo con
+// tokens basura nunca llega hasta él, y una identidad real no puede pasar de
+// su cupo.
 // ---------------------------------------------------------------------------
-export const ACCEPT_PRE_AUTH_WINDOW_MS = 5 * 60 * 1000;
-export const ACCEPT_PRE_AUTH_MAX = 20;
-
-export function createAcceptPreAuthRateLimiter() {
-  return rateLimit({
-    windowMs: ACCEPT_PRE_AUTH_WINDOW_MS,
-    max: ACCEPT_PRE_AUTH_MAX,
-    standardHeaders: "draft-7",
-    legacyHeaders: false,
-    handler: buildRateLimitHandler("Demasiados intentos. Probá de nuevo más tarde."),
-  });
-}
-
-export const acceptPreAuthRateLimiter = createAcceptPreAuthRateLimiter();
 
 // ---------------------------------------------------------------------------
-// Invitation accept — etapa 2: post-auth, montado DESPUÉS de
+// Invitation accept — post-auth, montado DESPUÉS de
 // verifyInvitationAcceptIdentity.
 //
 // Amenaza: una identidad Supabase YA verificada (población acotada a gente

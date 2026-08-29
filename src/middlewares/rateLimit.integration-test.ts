@@ -16,13 +16,11 @@ import { errorHandler } from "./errorHandler";
 import { notFound } from "./notFound";
 import {
   ACCEPT_IDENTITY_MAX,
-  ACCEPT_PRE_AUTH_MAX,
   BUSINESS_WRITE_MAX,
   IMPORT_PREVIEW_MAX,
   ONBOARDING_MAX,
   ONBOARDING_OTP_MAX,
   createAcceptInvitationRateLimiter,
-  createAcceptPreAuthRateLimiter,
   createBusinessWriteRateLimiter,
   createImportPreviewRateLimiter,
   createOnboardingOtpRateLimiter,
@@ -406,64 +404,50 @@ test("los cupos de /onboarding/otp y /onboarding son independientes para el mism
 });
 
 // ---------------------------------------------------------------------------
-// Invitation accept — limiter pre-auth (etapa 1), mecánica aislada
-// ---------------------------------------------------------------------------
-
-function mountPreAuthOnly(app: express.Express) {
-  app.post("/x", createAcceptPreAuthRateLimiter(), (_req, res) => {
-    res.status(200).json({ ok: true });
-  });
-}
-
-test("acceptPreAuthRateLimiter: cuenta todo request sin excepción y bloquea el excedente con 429 + Retry-After", async () => {
-  const { url, close } = await startTestApp(mountPreAuthOnly);
-  try {
-    for (let i = 0; i < ACCEPT_PRE_AUTH_MAX; i++) {
-      const res = await fetch(`${url}/x`, { method: "POST" });
-      assert.equal(res.status, 200, `intento ${i + 1} debería pasar`);
-    }
-    const blocked = await fetch(`${url}/x`, { method: "POST" });
-    assert.equal(blocked.status, 429);
-    assert.ok(blocked.headers.get("retry-after"));
-  } finally {
-    await close();
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Invitation accept — cadena completa real (las dos etapas + identidad)
+// Invitation accept — cadena completa real (verificación + limiter por identidad)
+//
+// Hasta el 29/08 la cadena tenía un tercer eslabón adelante,
+// acceptPreAuthRateLimiter (por IP), con dos tests propios: "cuenta todo
+// request sin excepción" y "bloquea incluso a una identidad real una vez
+// agotado". Los dos probaban exactamente el comportamiento por IP que A-2 de
+// docs/auditoria-2026-08-29.md sacó, así que se fueron con él. Lo que queda
+// bajo prueba es lo que quedó montado: verifyInvitationAcceptIdentity y
+// acceptInvitationRateLimiter, en ese orden.
 // ---------------------------------------------------------------------------
 
 function mountFullAcceptChain(app: express.Express) {
   app.post(
     "/api/invitations/accept",
-    createAcceptPreAuthRateLimiter(),
     verifyInvitationAcceptIdentity,
     createAcceptInvitationRateLimiter(),
     acceptInvitationHandler,
   );
 }
 
-test("cadena completa: el limiter pre-auth bloquea incluso a una identidad real y válida una vez agotado", async () => {
-  const identity = await createRealAuthUserWithJwt("preauth-block");
+// La contracara de haber sacado el limiter pre-auth: un flood anónimo de
+// tokens basura muere en el 401 de la verificación de firma, request por
+// request, y NO consume el cupo de ninguna identidad real — el limiter por
+// identidad nunca llega a ejecutarse para un token inválido. Es la propiedad
+// que hace aceptable no tener límite antes de verificar.
+test("cadena completa: un flood anónimo de tokens basura recibe 401 en cada request y no consume el cupo de una identidad real", async () => {
+  const identity = await createRealAuthUserWithJwt("anon-flood");
   const { url, close } = await startTestApp(mountFullAcceptChain);
   try {
-    for (let i = 0; i < ACCEPT_PRE_AUTH_MAX; i++) {
+    for (let i = 0; i < ACCEPT_IDENTITY_MAX + 5; i++) {
       const res = await fetch(`${url}/api/invitations/accept`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ fullName: "x" }),
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer basura-${i}`,
+        },
+        body: JSON.stringify({ fullName: "x", invitationId: randomUUID() }),
       });
-      assert.equal(
-        res.status,
-        401,
-        `intento sin token ${i + 1}/${ACCEPT_PRE_AUTH_MAX} debería contar (401), no bloquearse todavía`,
-      );
+      assert.equal(res.status, 401, `token basura ${i + 1} tiene que morir en la verificación`);
     }
 
-    // Un JWT real y válido, con invitationId inexistente (Zod-válido) —
-    // si el pre-auth no estuviera agotado, esto daría 404, nunca 429.
-    const blocked = await fetch(`${url}/api/invitations/accept`, {
+    // La identidad real sigue con su cupo entero: 404 (invitación inexistente,
+    // Zod-válida), nunca 429.
+    const real = await fetch(`${url}/api/invitations/accept`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -472,9 +456,9 @@ test("cadena completa: el limiter pre-auth bloquea incluso a una identidad real 
       body: JSON.stringify({ fullName: "Real Identity", invitationId: randomUUID() }),
     });
     assert.equal(
-      blocked.status,
-      429,
-      "el pre-auth agotado debe bloquear incluso a una identidad real y válida, antes de intentar verificar el JWT",
+      real.status,
+      404,
+      "el flood anónimo no puede haber consumido el cupo de una identidad verificada",
     );
   } finally {
     await close();
