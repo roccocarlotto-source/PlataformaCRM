@@ -148,6 +148,16 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
     // fallo dice qué pasó en vez de devolver un valor inventado que se cuela.
     crearEvento: () => Promise.reject(new Error("crearEvento no se usa en este archivo")),
     eliminarEvento: () => Promise.reject(new Error("eliminarEvento no se usa en este archivo")),
+
+    // Agregados en el paso 4 (sincronización inversa). `detenerCanal` SÍ se
+    // ejercita indirectamente: desconectar() ahora lo intenta si hay canal — y
+    // como estos escenarios no crean canal, no llega a llamarse. Se deja
+    // registrando en vez de lanzando para que ese camino, si algún día se
+    // ejercita acá, no falle por el doble.
+    crearCanalDeNotificaciones: () =>
+      Promise.reject(new Error("crearCanalDeNotificaciones no se usa en este archivo")),
+    detenerCanal: () => Promise.resolve(),
+    listarCambios: () => Promise.reject(new Error("listarCambios no se usa en este archivo")),
   };
 
   return { cliente, revocados };

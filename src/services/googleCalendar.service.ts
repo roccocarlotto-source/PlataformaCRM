@@ -65,10 +65,32 @@ const URL_TOKEN = "https://oauth2.googleapis.com/token";
 const URL_REVOCACION = "https://oauth2.googleapis.com/revoke";
 const URL_FREEBUSY = "https://www.googleapis.com/calendar/v3/freeBusy";
 
-// events.insert / events.delete operan sobre el calendario, que va en la ruta y
-// tiene que ir URL-encodeado: el id de un calendario secundario es una dirección
-// de correo ("algo@group.calendar.google.com") y sin encodear el "@" rompe la
-// URL.
+// Un evento de Google trae `dateTime` (con hora) o `date` (evento de día
+// completo, "yyyy-mm-dd"). Se contemplan los dos: un evento de día completo en
+// el calendario del negocio es perfectamente posible —un feriado, una jornada
+// cerrada— y devolver `undefined` para esos haría que un cambio de horario sobre
+// uno se leyera como "sin horario" en vez de como un cambio.
+function leerInstante(campo?: { dateTime?: unknown; date?: unknown }): Date | undefined {
+  const crudo =
+    typeof campo?.dateTime === "string"
+      ? campo.dateTime
+      : typeof campo?.date === "string"
+        ? campo.date
+        : undefined;
+
+  if (!crudo) {
+    return undefined;
+  }
+
+  const fecha = new Date(crudo);
+
+  return Number.isNaN(fecha.getTime()) ? undefined : fecha;
+}
+
+// events.insert / events.delete / events.watch / events.list operan sobre el
+// calendario, que va en la RUTA y tiene que ir URL-encodeado: el id de un
+// calendario secundario es una dirección de correo
+// ("algo@group.calendar.google.com") y sin encodear el "@" rompe la URL.
 function urlDeEventos(calendarId: string): string {
   return `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
 }
@@ -200,6 +222,83 @@ export interface ClienteGoogleCalendar {
   // events.delete — best-effort al cancelar. Ver el comentario de su
   // implementación sobre por qué un 404/410 no es un error.
   eliminarEvento(evento: EventoAEliminar): Promise<void>;
+  // events.watch — abre un canal de notificaciones push (paso 4).
+  crearCanalDeNotificaciones(canal: CanalACrear): Promise<CanalCreado>;
+  // channels.stop — cierra uno. Pide id + resourceId, verificado.
+  detenerCanal(canal: CanalADetener): Promise<void>;
+  // events.list con syncToken. PAGINA INTERNAMENTE; ver su implementación.
+  listarCambios(consulta: ConsultaDeCambios): Promise<CambiosDeCalendario>;
+}
+
+export interface CanalACrear {
+  accessToken: string;
+  calendarId: string;
+  // El id que NOSOTROS elegimos (un UUID). Google lo devuelve en cada
+  // notificación como X-Goog-Channel-ID.
+  channelId: string;
+  // URL HTTPS del webhook. El dominio tiene que estar VERIFICADO en Search
+  // Console y registrado en la API Console — Google rechaza el watch si no.
+  address: string;
+  // El token firmado que Google va a devolver en X-Goog-Channel-Token. Es lo
+  // único que autentica una notificación. Ver utils/webhookToken.ts.
+  token: string;
+  ttlSegundos: number;
+}
+
+export interface CanalCreado {
+  channelId: string;
+  // Id opaco de Google. Sin él channels.stop es imposible.
+  resourceId: string;
+  expiration: Date;
+}
+
+export interface CanalADetener {
+  accessToken: string;
+  channelId: string;
+  resourceId: string;
+}
+
+export interface ConsultaDeCambios {
+  accessToken: string;
+  calendarId: string;
+  // Ausente = sincronización COMPLETA, solo para obtener un token nuevo.
+  syncToken?: string;
+}
+
+// Un evento tal como llega en una sincronización incremental. Solo los campos
+// que este módulo usa — no se modela el recurso Events entero.
+export interface EventoCambiado {
+  id: string;
+  // "confirmed" | "tentative" | "cancelled". Un evento borrado llega con
+  // status "cancelled", y en sync incremental llegan solos (no hace falta
+  // showDeleted) — verificado contra la referencia del recurso Events.
+  status?: string;
+  inicio?: Date;
+  fin?: Date;
+}
+
+export interface CambiosDeCalendario {
+  eventos: EventoCambiado[];
+  // El token para la PRÓXIMA sincronización. Ver la implementación sobre por
+  // qué solo puede salir de la última página.
+  nextSyncToken?: string;
+}
+
+// ---------------------------------------------------------------------------
+// El syncToken venció o es inválido: Google responde 410 GONE y hay que
+// resincronizar completo.
+//
+// ES UNA CLASE APARTE Y NO UN GoogleAuthError porque quien llama tiene que poder
+// distinguirlo para RECUPERARSE, no para reportarlo: la respuesta correcta a un
+// 410 es volver a llamar sin syncToken, no propagar un error. Si fuera un
+// GoogleAuthError con `grantInvalido: false`, sería indistinguible de un Google
+// caído y la conexión se quedaría con un token muerto para siempre.
+// ---------------------------------------------------------------------------
+export class GoogleSyncTokenInvalidoError extends AppError {
+  constructor(message: string) {
+    super(message, 410);
+    Object.setPrototypeOf(this, GoogleSyncTokenInvalidoError.prototype);
+  }
 }
 
 export interface EventoACrear {
@@ -513,6 +612,209 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
 
       const { mensaje, codigo } = await describirFallo(res);
       throw new GoogleAuthError(mensaje, codigo === "invalid_grant" || res.status === 401);
+    },
+
+    // -----------------------------------------------------------------------
+    // events.watch — abre el canal de notificaciones push.
+    //
+    // El TTL se manda en `params.ttl` (segundos) y no como `expiration`: es la
+    // forma que documenta la referencia. El default de Google es 604800 s = 7
+    // días exactos.
+    //
+    // `expiration` VUELVE EN MILISEGUNDOS, no en segundos. Interpretarlo como
+    // segundos daría una fecha de 1970 y el worker de renovación recrearía el
+    // canal en cada pasada, para siempre, sin que nada fallara visiblemente.
+    // -----------------------------------------------------------------------
+    async crearCanalDeNotificaciones({
+      accessToken,
+      calendarId,
+      channelId,
+      address,
+      token,
+      ttlSegundos,
+    }) {
+      const res = await pedir(`${urlDeEventos(calendarId)}/watch`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: channelId,
+          type: "web_hook",
+          address,
+          token,
+          params: { ttl: String(ttlSegundos) },
+        }),
+      });
+
+      if (!res.ok) {
+        const { mensaje, codigo } = await describirFallo(res);
+        throw new GoogleAuthError(mensaje, codigo === "invalid_grant" || res.status === 401);
+      }
+
+      const datos = (await res.json()) as {
+        id?: unknown;
+        resourceId?: unknown;
+        expiration?: unknown;
+      };
+
+      // resourceId es OBLIGATORIO para poder llamar a channels.stop después. Un
+      // canal sin él es un canal que no se puede cerrar nunca, solo esperar a
+      // que venza — así que se falla acá en vez de guardar una fila inservible.
+      if (typeof datos.resourceId !== "string") {
+        throw new GoogleAuthError("Google creó el canal pero no devolvió resourceId", false);
+      }
+
+      // `expiration` es opcional en el esquema de Google. Si no viene, se asume
+      // el TTL pedido: es preferible una expiración estimada (que a lo sumo hace
+      // renovar un poco antes) a una fila sin expiración, que el worker no
+      // sabría cuándo renovar.
+      const expiration =
+        typeof datos.expiration === "string" || typeof datos.expiration === "number"
+          ? new Date(Number(datos.expiration))
+          : new Date(Date.now() + ttlSegundos * 1000);
+
+      if (Number.isNaN(expiration.getTime())) {
+        throw new GoogleAuthError(
+          `Google devolvió una expiración de canal ininteligible: ${String(datos.expiration)}`,
+          false,
+        );
+      }
+
+      return {
+        channelId: typeof datos.id === "string" ? datos.id : channelId,
+        resourceId: datos.resourceId,
+        expiration,
+      };
+    },
+
+    // -----------------------------------------------------------------------
+    // channels.stop — pide id + resourceId, verificado contra la referencia.
+    //
+    // Un 404 NO es un error, por lo mismo que en eliminarEvento: el canal ya no
+    // existe (venció, o alguien ya lo detuvo) y el resultado deseado ya se
+    // cumplió. Todo el uso de este método es best-effort, así que fallar acá
+    // solo serviría para tumbar al que llama.
+    // -----------------------------------------------------------------------
+    async detenerCanal({ accessToken, channelId, resourceId }) {
+      const res = await pedir("https://www.googleapis.com/calendar/v3/channels/stop", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ id: channelId, resourceId }),
+      });
+
+      if (res.ok || res.status === 404) {
+        return;
+      }
+
+      const { mensaje, codigo } = await describirFallo(res);
+      throw new GoogleAuthError(mensaje, codigo === "invalid_grant" || res.status === 401);
+    },
+
+    // -----------------------------------------------------------------------
+    // events.list — los cambios desde la última sincronización.
+    //
+    // PAGINA INTERNAMENTE, Y ESA ES LA RAZÓN DE QUE ESTA FUNCIÓN EXISTA EN VEZ
+    // DE DEVOLVER UNA PÁGINA CRUDA. Textual en la guía de sync de Google:
+    //
+    //     "the nextSyncToken field is present only on the last page"
+    //
+    // Las páginas intermedias traen `nextPageToken` y NO traen `nextSyncToken`.
+    // Si quien llama guardara el token de una página intermedia —o peor, se
+    // quedara con la primera página y guardara un token que no existe— la
+    // próxima sincronización arrancaría desde un punto que nunca reflejó todos
+    // los cambios: un HUECO INVISIBLE. No hay error, no hay log, solo eventos
+    // que nunca se procesan.
+    //
+    // Teniendo el bucle acá adentro, ese error no se puede cometer desde
+    // afuera: la función devuelve todos los eventos y UN solo token, el bueno.
+    //
+    // Los eventos CANCELADOS llegan solos en sync incremental —no hace falta
+    // `showDeleted`— y son justamente los que este módulo necesita ver.
+    // -----------------------------------------------------------------------
+    async listarCambios({ accessToken, calendarId, syncToken }) {
+      const eventos: EventoCambiado[] = [];
+      let pageToken: string | undefined;
+      let nextSyncToken: string | undefined;
+
+      // Tope de páginas: una guarda contra un nextPageToken que Google devuelva
+      // en bucle (o contra un doble de test mal escrito). 100 páginas × 250
+      // eventos por defecto son 25.000 cambios en una pasada, muy por encima de
+      // cualquier volumen real de este producto.
+      for (let pagina = 0; pagina < 100; pagina++) {
+        const parametros = new URLSearchParams();
+        if (syncToken) {
+          parametros.set("syncToken", syncToken);
+        }
+        if (pageToken) {
+          parametros.set("pageToken", pageToken);
+        }
+
+        const res = await pedir(`${urlDeEventos(calendarId)}?${parametros.toString()}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        // 410 GONE = el syncToken venció o es inválido. Es RECUPERABLE y por eso
+        // tiene su propia clase: la respuesta correcta es volver a llamar sin
+        // syncToken, no propagar un fallo.
+        if (res.status === 410) {
+          throw new GoogleSyncTokenInvalidoError(
+            "El token de sincronización de Google venció o es inválido: hay que resincronizar",
+          );
+        }
+
+        if (!res.ok) {
+          const { mensaje, codigo } = await describirFallo(res);
+          throw new GoogleAuthError(mensaje, codigo === "invalid_grant" || res.status === 401);
+        }
+
+        const datos = (await res.json()) as {
+          items?: unknown;
+          nextPageToken?: unknown;
+          nextSyncToken?: unknown;
+        };
+
+        if (Array.isArray(datos.items)) {
+          for (const item of datos.items) {
+            if (!item || typeof item !== "object") {
+              continue;
+            }
+            const evento = item as {
+              id?: unknown;
+              status?: unknown;
+              start?: { dateTime?: unknown; date?: unknown };
+              end?: { dateTime?: unknown; date?: unknown };
+            };
+
+            if (typeof evento.id !== "string") {
+              continue;
+            }
+
+            eventos.push({
+              id: evento.id,
+              status: typeof evento.status === "string" ? evento.status : undefined,
+              inicio: leerInstante(evento.start),
+              fin: leerInstante(evento.end),
+            });
+          }
+        }
+
+        nextSyncToken = typeof datos.nextSyncToken === "string" ? datos.nextSyncToken : undefined;
+
+        pageToken = typeof datos.nextPageToken === "string" ? datos.nextPageToken : undefined;
+
+        if (!pageToken) {
+          // Última página: acá —y solo acá— puede venir el nextSyncToken.
+          break;
+        }
+      }
+
+      return { eventos, nextSyncToken };
     },
   };
 }

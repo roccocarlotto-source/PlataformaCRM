@@ -174,6 +174,15 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
       eventosBorrados.push(evento.eventId);
       return Promise.resolve();
     },
+
+    // Agregados en el paso 4 (sincronización inversa). Este archivo no los
+    // ejercita —lo hace googleCalendarSync.integration-test.ts— pero la interfaz
+    // los exige. Lanzan a propósito: si algún test de acá terminara llamándolos,
+    // el fallo dice qué pasó en vez de devolver un valor inventado.
+    crearCanalDeNotificaciones: () =>
+      Promise.reject(new Error("crearCanalDeNotificaciones no se usa en este archivo")),
+    detenerCanal: () => Promise.resolve(),
+    listarCambios: () => Promise.reject(new Error("listarCambios no se usa en este archivo")),
   };
 
   return { cliente, eventosCreados, eventosBorrados };

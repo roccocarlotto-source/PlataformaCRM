@@ -1,17 +1,22 @@
+import { randomUUID } from "node:crypto";
+import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { lockBranchForUpdate } from "../repositories/branch.repository";
 import {
+  clearConnectionChannel,
   findConnectionByBranch,
   findConnectionWithSecretByBranch,
   markConnectionError,
   markConnectionRevoked,
+  setConnectionChannel,
   upsertConnection,
   type ConexionPublica,
 } from "../repositories/googleCalendarConnection.repository";
 import { AppError } from "../utils/AppError";
 import { getCifrador } from "../utils/encryption";
 import { firmarState, verificarState } from "../utils/oauthState";
+import { firmarWebhookToken } from "../utils/webhookToken";
 import { getBranchById } from "./branch.service";
 import {
   GoogleAuthError,
@@ -215,6 +220,22 @@ export async function desconectar(
   // peor caso de abortar es un ADMIN que no puede desconectar. El primero es
   // claramente preferible, y queda registrado en el log.
   // -------------------------------------------------------------------------
+  // EL CANAL SE CIERRA ANTES QUE EL TOKEN, y el orden importa: channels.stop se
+  // autentica con un access token que sale del refresh token. Revocar primero
+  // dejaría el canal imposible de cerrar, vivo hasta vencer, mandando
+  // notificaciones que este sistema ya no puede procesar.
+  //
+  // Best-effort por el mismo criterio que la revocación de abajo: si esto
+  // abortara, un Google caído dejaría al ADMIN sin poder desconectar.
+  if (conexion.channelId && conexion.channelResourceId) {
+    await detenerCanalDeConexion(
+      organizationId,
+      branchId,
+      { channelId: conexion.channelId, resourceId: conexion.channelResourceId },
+      cliente,
+    );
+  }
+
   if (conexion.refreshToken) {
     try {
       const enClaro = getCifrador().decrypt(conexion.refreshToken);
@@ -228,6 +249,11 @@ export async function desconectar(
   }
 
   await markConnectionRevoked(branchId, organizationId);
+  // El canal se limpia de la fila SIEMPRE, haya podido cerrarse en Google o no:
+  // una conexión REVOKED con datos de canal describiría un canal que este
+  // sistema ya no puede usar ni renovar. El CHECK de la migración exige que los
+  // tres campos vayan juntos, y esto los limpia juntos.
+  await clearConnectionChannel(branchId, organizationId);
 }
 
 // ---------------------------------------------------------------------------
@@ -446,4 +472,116 @@ export async function borrarReservaDeGoogle(
       );
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// 8. Canal de notificaciones push (paso 4)
+//
+// LO USA EL WORKER DE RENOVACIÓN, no el flujo OAuth. completarConexion() NO crea
+// canales a propósito: cablearlo ahí habría tocado un camino ya revisado y
+// mergeado para agregarle una llamada externa más que puede fallar, y la demora
+// hasta el próximo tick del worker (una hora) no importa — un canal que no
+// existe todavía solo significa que los cambios hechos en Google en esa ventana
+// no se detectan, que es exactamente lo mismo que pasaba antes de este paso.
+// ---------------------------------------------------------------------------
+
+// Cierra un canal en Google. BEST-EFFORT Y NUNCA LANZA, mismo criterio que
+// reflejarReservaEnGoogle: quien llama no puede hacer nada distinto según haya
+// funcionado o no, y un fallo acá jamás debe tumbar la operación que lo pidió
+// (desconectar una integración, o renovar un canal).
+export async function detenerCanalDeConexion(
+  organizationId: string,
+  branchId: string,
+  canal: { channelId: string; resourceId: string },
+  cliente?: ClienteInyectado,
+): Promise<void> {
+  try {
+    const { accessToken } = await obtenerAccessToken(organizationId, branchId, cliente);
+
+    await resolverCliente(cliente).detenerCanal({
+      accessToken,
+      channelId: canal.channelId,
+      resourceId: canal.resourceId,
+    });
+  } catch (err) {
+    const esSinConexion =
+      err instanceof AppError && (err.statusCode === 404 || err.statusCode === 409);
+
+    if (!esSinConexion) {
+      logger.warn(
+        { err, organizationId, branchId, channelId: canal.channelId },
+        "No se pudo cerrar el canal de notificaciones en Google; queda vivo hasta vencer",
+      );
+    }
+  }
+}
+
+export interface ResultadoDeRenovacion {
+  channelId: string;
+  expiration: Date;
+}
+
+// Abre un canal nuevo para una conexión y lo guarda. Si había uno anterior, lo
+// cierra DESPUÉS de que el nuevo quedó guardado.
+//
+// EL ORDEN —crear, guardar, recién ahí cerrar el viejo— es deliberado y es lo
+// que evita la ventana ciega: cerrando primero, cualquier cambio hecho en Google
+// entre el cierre y la creación no dispararía ninguna notificación y se
+// perdería. Con este orden, en el peor caso los dos canales conviven un instante
+// y llega una notificación duplicada, que es inofensiva (procesarla dos veces no
+// hace nada: el segundo pase no encuentra cambios, o encuentra un Booking ya
+// cancelado).
+export async function renovarCanal(
+  conexion: {
+    organizationId: string;
+    branchId: string;
+    channelId: string | null;
+    channelResourceId: string | null;
+  },
+  cliente?: ClienteInyectado,
+): Promise<ResultadoDeRenovacion> {
+  const { organizationId, branchId } = conexion;
+
+  if (!env.GOOGLE_WEBHOOK_URL) {
+    throw new AppError(
+      "GOOGLE_WEBHOOK_URL no está configurada en el servidor: sin ella no se pueden abrir canales de notificaciones",
+      500,
+    );
+  }
+
+  const { accessToken, calendarId } = await obtenerAccessToken(organizationId, branchId, cliente);
+
+  // El id del canal se genera ACÁ y ANTES de firmar el token, porque el token lo
+  // codifica: es lo que ata el token a un canal concreto y no solo a una
+  // sucursal (ver utils/webhookToken.ts).
+  const channelId = randomUUID();
+
+  const token = await firmarWebhookToken({ organizationId, branchId, channelId });
+
+  const creado = await resolverCliente(cliente).crearCanalDeNotificaciones({
+    accessToken,
+    calendarId,
+    channelId,
+    address: env.GOOGLE_WEBHOOK_URL,
+    token,
+    ttlSegundos: env.GOOGLE_CHANNEL_TTL_SECONDS,
+  });
+
+  await setConnectionChannel(branchId, organizationId, {
+    channelId: creado.channelId,
+    channelResourceId: creado.resourceId,
+    channelExpiration: creado.expiration,
+  });
+
+  // Recién ahora el viejo, y solo si había uno. Best-effort.
+  if (conexion.channelId && conexion.channelResourceId) {
+    await detenerCanalDeConexion(
+      organizationId,
+      branchId,
+      { channelId: conexion.channelId, resourceId: conexion.channelResourceId },
+      cliente,
+    );
+  }
+
+  return { channelId: creado.channelId, expiration: creado.expiration };
 }
