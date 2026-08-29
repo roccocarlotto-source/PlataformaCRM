@@ -31,7 +31,16 @@ const opportunityFields = {
     .trim()
     .min(1, "title es requerido")
     .max(255, "title no puede superar los 255 caracteres"),
-  amount: z.coerce.number().min(0, "amount debe ser mayor o igual a 0").optional(),
+  // z.number() y NO z.coerce.number() — M-9 de docs/auditoria-2026-08-29.md.
+  // `amount` viene de un body JSON, donde un cliente bien hecho manda un
+  // número; coerce solo tiene sentido en query strings, que Express entrega
+  // siempre como string. Con coerce, `Number(null)` es 0, así que
+  // `{"amount": null}` —la forma natural de pedir "limpiá el monto"— pasaba el
+  // .min(0) y se guardaba como 0 sin que nadie lo pidiera; lo mismo con "",
+  // [] y false. Ahora un null explícito es un 400. Si en algún momento se
+  // decide que `amount` se pueda limpiar con null en PATCH, eso es .nullable()
+  // y es la conversación de M-10, no ésta.
+  amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
   currency: currencySchema.optional(),
   status: statusSchema.optional(),
   companyId: z.string().uuid("companyId inválido").optional(),
@@ -41,7 +50,9 @@ const opportunityFields = {
   ownerId: z.string().uuid("ownerId inválido").optional(),
 };
 
-const createOpportunitySchema = z
+// Exportado para poder fijar con tests unitarios (sin base) qué rechaza el
+// borde: ver opportunity.controller.test.ts.
+export const createOpportunitySchema = z
   .object({
     ...opportunityFields,
     expectedCloseDate: z.coerce.date().optional(),
@@ -61,7 +72,7 @@ const createOpportunitySchema = z
 // reabrir una oportunidad WON/LOST de vuelta a OPEN sin arrastrar datos de un
 // cierre anterior. Sin .nullable(), z.coerce.date() convertía un `null`
 // explícito en 1970-01-01 en vez de rechazarlo o limpiarlo.
-const updateOpportunitySchema = z
+export const updateOpportunitySchema = z
   .object({
     ...opportunityFields,
     expectedCloseDate: z.coerce.date().nullable().optional(),
