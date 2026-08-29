@@ -321,6 +321,17 @@ jobs:
         run: npm run test:integration
         env:
           CORS_ORIGIN: http://localhost:5173
+          # Destino ficticio de los canales de notificaciones push (P2.1, paso
+          # 4). NADIE LO CONTACTA: los tests inyectan un cliente de Google
+          # mockeado, así que esta URL solo tiene que existir para que
+          # renovarCanal() no falle por configuración faltante.
+          #
+          # En producción, en cambio, no alcanza con definirla: Google exige que
+          # el DOMINIO esté verificado en Search Console y registrado en la API
+          # Console antes de aceptar una URL como destino de notificaciones. Por
+          # eso el valor de acá es deliberadamente un ejemplo y no algo que se
+          # pueda confundir con el real.
+          GOOGLE_WEBHOOK_URL: https://ci.example.invalid/api/webhooks/google-calendar
 
       - name: Diagnóstico (solo si algo falló)
         if: failure()
