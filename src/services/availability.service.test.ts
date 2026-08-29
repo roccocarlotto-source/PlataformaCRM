@@ -246,6 +246,68 @@ test("Google y las reservas propias se restan a la vez", () => {
   assert.deepEqual(inicios(turnos), ["2026-09-07T13:00:00.000Z", "2026-09-07T15:00:00.000Z"]);
 });
 
+// ---------------------------------------------------------------------------
+// A-5 (docs/auditoria-2026-08-29.md) — la grilla se ancla en el borde REAL de
+// la franja, y `desde` solo FILTRA.
+//
+// El escenario del hallazgo: mismo horario, misma reserva existente, dos
+// consultas con `from` distinto dentro del mismo día. Tienen que devolver LA
+// MISMA grilla (los mismos inicios de turno); la segunda solo tiene menos
+// turnos al principio. Nunca turnos corridos ni huecos distintos.
+// ---------------------------------------------------------------------------
+
+test("A-5: dos consultas con `desde` distinto ven la MISMA grilla, la segunda con menos turnos al principio", () => {
+  const reservaExistente = intervalo("2026-09-07T13:00:00Z", "2026-09-07T14:00:00Z");
+  const entrada = { ...BASE, reservasConfirmadas: [reservaExistente] };
+
+  // Consulta A: desde el inicio del día.
+  const desdeElInicio = calcularTurnos({ ...entrada, desde: new Date("2026-09-07T00:00:00Z") });
+  // Consulta B: "a partir de ahora", diez minutos después de abrir.
+  const desdeLas9y10 = calcularTurnos({ ...entrada, desde: new Date("2026-09-07T12:10:00Z") });
+
+  assert.deepEqual(inicios(desdeElInicio), [
+    "2026-09-07T12:00:00.000Z",
+    "2026-09-07T14:00:00.000Z",
+    "2026-09-07T15:00:00.000Z",
+  ]);
+
+  // Con el bug, la franja llegaba recortada a 12:10 y la grilla salía 12:10,
+  // 13:10, 14:10, 15:10 — 12:10 y 13:10 chocaban con la reserva de 13:00, y el
+  // resultado era ["14:10"]: un turno que no existe en la grilla real, y un
+  // hueco de más.
+  assert.deepEqual(
+    inicios(desdeLas9y10),
+    ["2026-09-07T14:00:00.000Z", "2026-09-07T15:00:00.000Z"],
+    "la grilla es la misma; solo falta el turno de 12:00, que ya empezó",
+  );
+
+  // La propiedad general: todo inicio de B es un inicio de A.
+  for (const inicio of inicios(desdeLas9y10)) {
+    assert.ok(inicios(desdeElInicio).includes(inicio), `${inicio} no está en la grilla real`);
+  }
+});
+
+test("A-5: un turno que ya EMPEZÓ antes de `desde` no se ofrece, aunque termine después", () => {
+  // Son las 12:30Z: el turno de 12:00-13:00 va por la mitad. No se ofrece — y
+  // tampoco se corre para que empiece a las 12:30, que era el bug.
+  const turnos = calcularTurnos({ ...BASE, desde: new Date("2026-09-07T12:30:00Z") });
+
+  assert.deepEqual(inicios(turnos), [
+    "2026-09-07T13:00:00.000Z",
+    "2026-09-07T14:00:00.000Z",
+    "2026-09-07T15:00:00.000Z",
+  ]);
+});
+
+test("A-5: un `desde` que coincide con el inicio de un turno lo incluye (el filtro es `inicio < desde`)", () => {
+  const turnos = calcularTurnos({ ...BASE, desde: new Date("2026-09-07T13:00:00Z") });
+  assert.equal(inicios(turnos)[0], "2026-09-07T13:00:00.000Z");
+});
+
+test("A-5: sin `desde` no se filtra nada (la firma vieja sigue valiendo)", () => {
+  assert.equal(calcularTurnos(BASE).length, 4);
+});
+
 test("los turnos salen en orden cronológico", () => {
   const turnos = calcularTurnos({ ...BASE, franjasDeTrabajo: [MANANA, TARDE] });
 
