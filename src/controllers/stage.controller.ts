@@ -16,7 +16,18 @@ const idParamSchema = z.string().uuid("id inválido");
 const notBothWonAndLost = (data: { isWon?: boolean; isLost?: boolean }) =>
   !(data.isWon && data.isLost);
 
-const createStageSchema = z
+// z.number() y NO z.coerce.number() en `order` y `probability` — M-9 de
+// docs/auditoria-2026-08-29.md. Vienen de un body JSON, donde un cliente bien
+// hecho manda un número; coerce es para query strings, que Express entrega
+// siempre como string. Con coerce, `Number(null)` es 0: en `order` lo frenaba
+// el .positive() por casualidad, pero `{"probability": null}` pasaba el
+// .min(0) y se guardaba como 0 sin que nadie lo pidiera. Ahora un null
+// explícito es un 400 en los dos; "limpiar con null" sería .nullable() y es la
+// conversación de M-10, no ésta.
+//
+// Exportados para poder fijar con tests unitarios (sin base) qué rechaza el
+// borde: ver stage.controller.test.ts.
+export const createStageSchema = z
   .object({
     pipelineId: z.string().uuid("pipelineId inválido"),
     name: z
@@ -24,8 +35,8 @@ const createStageSchema = z
       .trim()
       .min(1, "name es requerido")
       .max(100, "name no puede superar los 100 caracteres"),
-    order: z.coerce.number().int().positive().optional(),
-    probability: z.coerce
+    order: z.number().int().positive().optional(),
+    probability: z
       .number()
       .min(0, "probability debe estar entre 0 y 100")
       .max(100, "probability debe estar entre 0 y 100")
@@ -38,15 +49,15 @@ const createStageSchema = z
   });
 
 // pipelineId no es editable — una etapa no cambia de pipeline una vez creada.
-const updateStageSchema = z
+export const updateStageSchema = z
   .object({
     name: z
       .string()
       .trim()
       .min(1, "name es requerido")
       .max(100, "name no puede superar los 100 caracteres"),
-    order: z.coerce.number().int().positive(),
-    probability: z.coerce.number().min(0).max(100),
+    order: z.number().int().positive(),
+    probability: z.number().min(0).max(100),
     isWon: z.boolean(),
     isLost: z.boolean(),
   })
