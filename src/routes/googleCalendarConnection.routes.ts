@@ -5,6 +5,7 @@ import {
   iniciarConexionHandler,
   obtenerConexionHandler,
 } from "../controllers/googleCalendarConnection.controller";
+import { googleCalendarWebhookHandler } from "../controllers/googleCalendarWebhook.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { authorize } from "../middlewares/authorize";
 import { businessWriteRateLimiter } from "../middlewares/rateLimit";
@@ -97,3 +98,31 @@ googleCalendarConnectionRouter.delete(
 // vez de una por sucursal (Google no admite comodines en el path).
 // ---------------------------------------------------------------------------
 googleCalendarConnectionRouter.get("/integrations/google-calendar/callback", callbackHandler);
+
+// ---------------------------------------------------------------------------
+// EL WEBHOOK DE SINCRONIZACIÓN INVERSA (paso 4) — SIN authenticate Y SIN RATE
+// LIMITER, por exactamente los mismos motivos que el callback de acá arriba.
+//
+// Google hace este POST desde su infraestructura y no reenvía ningún JWT: no hay
+// identidad que verificar ni que keyear. Lo que sostiene la frontera de tenant es
+// el token FIRMADO que viaja en X-Goog-Channel-Token, que codifica organización,
+// sucursal y canal, y que se verifica ANTES de tocar la base
+// (utils/webhookToken.ts).
+//
+// SIN RATE LIMITER, con el mismo razonamiento ya documentado en el callback: los
+// limiters del proyecto keyean por identidad ya verificada (req.auth.userId,
+// req.ingest.apiKeyId) y acá no hay ninguna; keyear por IP está descartado en
+// este proyecto porque no configura trust proxy. La superficie que eso deja está
+// acotada por construcción: un request sin token firmado válido muere en un HMAC
+// sobre unos cientos de bytes, sin tocar Postgres ni llamar a Google.
+//
+// EL CUERPO NO SE PARSEA porque VIENE VACÍO — Google lo documenta explícitamente:
+// la notificación dice "algo cambió en este canal" y nada más; el contenido hay
+// que ir a buscarlo con events.list. Todo lo que este handler necesita está en
+// los headers, así que el express.json() global no le hace ni bien ni mal.
+//
+// LA URL ES FIJA Y SIN :branchId, igual que el callback y por lo mismo: una sola
+// fuente para el destino (el token firmado) y una sola URL que registrar en
+// Google — que además tiene que estar en un DOMINIO VERIFICADO en Search Console.
+// ---------------------------------------------------------------------------
+googleCalendarConnectionRouter.post("/webhooks/google-calendar", googleCalendarWebhookHandler);

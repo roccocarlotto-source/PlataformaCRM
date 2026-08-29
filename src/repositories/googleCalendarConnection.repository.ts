@@ -158,3 +158,89 @@ export function markConnectionError(
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Canal de notificaciones push y sincronización incremental (paso 4)
+// ---------------------------------------------------------------------------
+
+// La búsqueda del webhook: llega X-Goog-Channel-ID y hay que encontrar la
+// conexión. Devuelve la fila CON el secreto porque el camino que sigue necesita
+// el refresh token para llamar a events.list.
+//
+// SIN organizationId en el WHERE, a diferencia de todo el resto de este archivo,
+// y es deliberado: el webhook no tiene organización todavía —no hay JWT, Google
+// no lo reenvía— así que el channelId ES la clave de entrada. Lo que sostiene el
+// aislamiento es el UNIQUE de la columna (una fila o ninguna) más la
+// verificación del token firmado, que ocurre ANTES de llegar acá y que afirma a
+// qué organización pertenece ese canal. El caller compara las dos cosas.
+export function findConnectionByChannelId(channelId: string, db: Db = prisma) {
+  return db.googleCalendarConnection.findUnique({ where: { channelId } });
+}
+
+// Las conexiones ACTIVE que necesitan un canal: o no tienen ninguno, o el que
+// tienen vence dentro del margen.
+//
+// LOS DOS CASOS SE TRATAN IGUAL a propósito. "Sin canal" no es un estado
+// excepcional que merezca su propio camino: es lo que queda después de conectar
+// por OAuth (el paso 2 no crea canales), después de un 410 que obligó a limpiar,
+// y después de que un canal venza sin renovarse. Una sola consulta y una sola
+// rama en el worker.
+export function findConnectionsNeedingChannel(limiteDeVencimiento: Date, db: Db = prisma) {
+  return db.googleCalendarConnection.findMany({
+    where: {
+      status: "ACTIVE",
+      OR: [{ channelId: null }, { channelExpiration: { lt: limiteDeVencimiento } }],
+    },
+  });
+}
+
+export interface DatosDeCanal {
+  channelId: string;
+  channelResourceId: string;
+  channelExpiration: Date;
+}
+
+// Guarda el canal recién creado. Los tres campos van JUNTOS — el CHECK de la
+// migración lo exige, y el motivo es que un canal a medias es inutilizable de
+// forma silenciosa (sin resourceId no se puede detener nunca).
+export function setConnectionChannel(
+  branchId: string,
+  organizationId: string,
+  datos: DatosDeCanal,
+  db: Db = prisma,
+) {
+  return db.googleCalendarConnection.updateMany({
+    where: { branchId, organizationId },
+    data: {
+      channelId: datos.channelId,
+      channelResourceId: datos.channelResourceId,
+      channelExpiration: datos.channelExpiration,
+    },
+  });
+}
+
+// Limpia el canal (los tres campos a la vez, por el CHECK). NO toca syncToken:
+// el token de sincronización sobrevive al canal y sigue siendo válido — perderlo
+// forzaría una resincronización completa sin ninguna necesidad.
+export function clearConnectionChannel(branchId: string, organizationId: string, db: Db = prisma) {
+  return db.googleCalendarConnection.updateMany({
+    where: { branchId, organizationId },
+    data: { channelId: null, channelResourceId: null, channelExpiration: null },
+  });
+}
+
+// El token de la PRÓXIMA sincronización. Se guarda al final del procesamiento,
+// nunca antes: si algo falla en el medio, el token viejo sigue en la fila y la
+// próxima notificación reprocesa los mismos cambios. Reprocesar es inofensivo
+// —cancelar un Booking ya cancelado no hace nada— y perder cambios no lo es.
+export function setConnectionSyncToken(
+  branchId: string,
+  organizationId: string,
+  syncToken: string,
+  db: Db = prisma,
+) {
+  return db.googleCalendarConnection.updateMany({
+    where: { branchId, organizationId },
+    data: { syncToken },
+  });
+}

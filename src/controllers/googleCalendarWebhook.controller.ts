@@ -1,0 +1,118 @@
+import type { Request, Response } from "express";
+import { logger } from "../lib/logger";
+import { procesarNotificacion } from "../services/googleCalendarSync.service";
+import { AppError } from "../utils/AppError";
+import { asyncHandler } from "../utils/asyncHandler";
+
+// ---------------------------------------------------------------------------
+// POST /api/webhooks/google-calendar — el receptor de notificaciones push.
+//
+// SIN authenticate Y SIN AuthenticatedRequest, por el mismo motivo estructural
+// que el callback OAuth: Google hace este POST desde su infraestructura y no
+// reenvía ningún JWT. Lo único que autentica la notificación es el token firmado
+// que viaja en X-Goog-Channel-Token, y lo verifica el service ANTES de tocar la
+// base (ver googleCalendarSync.service.ts).
+//
+// ---------------------------------------------------------------------------
+// EL CUERPO DEL POST VIENE VACÍO, Y NO ES UN DETALLE
+// ---------------------------------------------------------------------------
+//
+// Textual en la guía de push de Google: "Notification messages posted by the
+// Calendar API to your receiving URL don't include a message body. These
+// messages don't contain specific information about updated resources; you must
+// make another API call to see full change details."
+//
+// O sea: la notificación dice "algo cambió en este canal" y nada más. QUÉ cambió
+// hay que ir a buscarlo con events.list. Por eso este handler no parsea ningún
+// cuerpo y todo lo que necesita sale de los HEADERS.
+//
+// ---------------------------------------------------------------------------
+// LOS CÓDIGOS DE RESPUESTA SON EL MECANISMO DE REINTENTO
+// ---------------------------------------------------------------------------
+//
+// No hay cola propia ni reintentos propios acá, y es deliberado: Google YA
+// reintenta la entrega con backoff cuando la respuesta no es 2xx. Construir un
+// outbox para esto sería duplicar un mecanismo que el proveedor ya provee, para
+// un volumen (negocios chicos, pocos cambios por día) que no lo justifica.
+//
+//   200 -> procesado, o no hay nada que hacer. Google no reintenta.
+//   403 -> el token no salió de acá. Google reintenta y va a seguir fallando,
+//          pero el canal es espurio y no queremos aceptarlo en silencio.
+//   5xx -> algo se rompió de nuestro lado (Google caído, base caída). Google
+//          reintenta, que es exactamente lo que queremos.
+//
+// EL CASO QUE MÁS IMPORTA ES EL 200 DEL "canal desconocido": un canal que ya no
+// está en la base (se reemplazó, o la sucursal se desconectó) NO puede devolver
+// 5xx — Google reintentaría con backoff una notificación que nunca vamos a poder
+// procesar, y el canal seguiría vivo hasta vencer. Se responde 200 y se loguea.
+// ---------------------------------------------------------------------------
+
+// Los nombres de los headers, verificados contra la guía de push. Express los
+// normaliza a minúsculas.
+const HEADER_CHANNEL_ID = "x-goog-channel-id";
+const HEADER_CHANNEL_TOKEN = "x-goog-channel-token";
+const HEADER_RESOURCE_STATE = "x-goog-resource-state";
+const HEADER_MESSAGE_NUMBER = "x-goog-message-number";
+
+function leerHeader(req: Request, nombre: string): string | undefined {
+  const valor = req.headers[nombre];
+  return typeof valor === "string" ? valor : undefined;
+}
+
+export const googleCalendarWebhookHandler = asyncHandler<Request>(async (req, res: Response) => {
+  const channelId = leerHeader(req, HEADER_CHANNEL_ID);
+  const token = leerHeader(req, HEADER_CHANNEL_TOKEN);
+  const resourceState = leerHeader(req, HEADER_RESOURCE_STATE);
+
+  // Sin estos tres no hay nada que procesar y no puede ser Google. 400 sin
+  // tocar nada: es la defensa más barata posible, antes incluso del HMAC.
+  if (!channelId || !token || !resourceState) {
+    res.status(400).json({ error: { message: "Faltan headers de notificación de Google" } });
+    return;
+  }
+
+  try {
+    const resultado = await procesarNotificacion({ channelId, resourceState, token });
+
+    // Solo se loguea lo que produjo un efecto o lo que llama la atención. Una
+    // notificación sin cambios es la mayoría del tráfico de este endpoint y
+    // loguearla llenaría el log de ruido.
+    if (resultado.bookingsCancelados > 0 || resultado.eventosMovidos > 0) {
+      logger.info(
+        {
+          channelId,
+          accion: resultado.accion,
+          bookingsCancelados: resultado.bookingsCancelados,
+          eventosMovidos: resultado.eventosMovidos,
+          mensaje: leerHeader(req, HEADER_MESSAGE_NUMBER),
+        },
+        "Notificación de Google Calendar procesada",
+      );
+    }
+
+    res.status(200).end();
+  } catch (err) {
+    // 403: el token no salió de acá. No es transitorio.
+    if (err instanceof AppError && err.statusCode === 403) {
+      logger.warn({ channelId }, "Notificación con token de canal inválido: se rechaza");
+      res.status(403).json({ error: { message: err.message } });
+      return;
+    }
+
+    // TODO LO DEMÁS ES 503 A PROPÓSITO, incluidos los AppError con otro
+    // status. Un 409 de "la conexión no está activa" o un 502 de Google caído
+    // son condiciones que pueden resolverse solas, y devolver el status
+    // original haría que Google dejara de reintentar en los casos 4xx — o sea
+    // que perderíamos la notificación por algo temporal.
+    //
+    // Se loguea con el error completo: es la única forma de enterarse de por
+    // qué falló, porque la respuesta no lleva detalle hacia un endpoint
+    // público.
+    logger.error(
+      { err, channelId, resourceState },
+      "Falló el procesamiento de una notificación de Google Calendar; se responde 503 para que Google reintente",
+    );
+
+    res.status(503).json({ error: { message: "No se pudo procesar la notificación" } });
+  }
+});

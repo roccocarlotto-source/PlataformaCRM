@@ -996,6 +996,45 @@ model GoogleCalendarConnection {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  // -------------------------------------------------------------------------
+  // SINCRONIZACIÓN INVERSA (paso 4 de docs/booking-architecture.md §9)
+  //
+  // Los cuatro son NULLABLE porque una conexión recién creada NO tiene canal: el
+  // flujo OAuth del paso 2 no crea ninguno. Lo crea el worker de renovación en
+  // su siguiente pasada, que trata "sin canal" y "con canal por vencer" como el
+  // mismo caso. Ver googleCalendarChannelWorker.ts.
+  // -------------------------------------------------------------------------
+
+  // El id que NOSOTROS le damos al canal (un UUID). Google lo devuelve en cada
+  // notificación como X-Goog-Channel-ID, y es por donde se encuentra esta fila.
+  //
+  // @unique: dos conexiones no pueden compartir canal, y es lo que hace que
+  // buscar por channelId devuelva una fila o ninguna, nunca varias.
+  channelId String? @unique @map("channel_id") @db.Uuid
+
+  // El id OPACO que asigna Google al recurso observado. No es nuestro y no se
+  // puede derivar: viene en la respuesta de events.watch y es OBLIGATORIO para
+  // poder llamar a channels.stop más tarde (ese endpoint pide id + resourceId,
+  // verificado contra la referencia). Sin guardarlo, un canal no se puede
+  // detener nunca — solo esperar a que venza.
+  channelResourceId String? @map("channel_resource_id") @db.VarChar(255)
+
+  // Cuándo vence el canal. Google lo devuelve como timestamp Unix en
+  // MILISEGUNDOS (no segundos) y el TTL por defecto es 604800 s = 7 días
+  // exactos, verificado contra la referencia de events.watch.
+  channelExpiration DateTime? @map("channel_expiration")
+
+  // El token de sincronización incremental de events.list. Con él, Google
+  // devuelve SOLO lo que cambió desde la última vez — incluidos los eventos
+  // cancelados, que en una lista normal no aparecerían.
+  //
+  // NULL significa "nunca se sincronizó": la primera notificación hace una
+  // sincronización completa solo para obtener un token, sin reconciliar hacia
+  // atrás. Lo mismo pasa cuando Google lo invalida con un 410.
+  //
+  // Sin límite de longitud: Google no especifica el tamaño de estos tokens.
+  syncToken String? @map("sync_token")
+
   organization Organization @relation(fields: [organizationId], references: [id])
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
 
@@ -1011,6 +1050,15 @@ model GoogleCalendarConnection {
   // mismo branch_id colisionan en este índice sí o sí. Un unique adicional sobre
   // branch_id sería un segundo índice para la misma garantía.
   @@unique([organizationId, branchId])
+  // Sirve la pasada del worker de renovación: "conexiones ACTIVE cuyo canal
+  // falta o vence pronto". Sin él, esa consulta es un scan de la tabla en cada
+  // tick — barato hoy (una fila por sucursal) y no dentro de un año.
+  //
+  // Por (status, channel_expiration) y no al revés: el filtro por status es el
+  // que descarta más filas de entrada, y channel_expiration se compara por rango
+  // (< ahora + margen), que es lo que un btree resuelve en el ÚLTIMO lugar.
+  // Invertido, el rango dejaría el status sin poder usarse para acotar.
+  @@index([status, channelExpiration])
   // SIN (organization_id, created_at), a diferencia de branches/resources/
   // service_types, y es una decisión y no un olvido: la lección de ALTO-6 es
   // sobre el índice del LISTADO de una entidad, y acá no hay listado. Todo

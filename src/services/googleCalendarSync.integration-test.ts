@@ -1,0 +1,901 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { test } from "node:test";
+import { prisma } from "../lib/prisma";
+import { AppError } from "../utils/AppError";
+import { getCifrador } from "../utils/encryption";
+import { firmarWebhookToken, verificarWebhookToken } from "../utils/webhookToken";
+import { renovarCanalesVencidos } from "../workers/googleCalendarChannelWorker";
+import { createBooking } from "./booking.service";
+import { createBranch } from "./branch.service";
+import { desconectar, renovarCanal } from "./googleCalendarConnection.service";
+import { procesarNotificacion } from "./googleCalendarSync.service";
+import { createResource } from "./resource.service";
+import { createServiceType } from "./serviceType.service";
+import { replaceWorkingHoursForResource } from "./workingHours.service";
+import {
+  GoogleSyncTokenInvalidoError,
+  type ClienteGoogleCalendar,
+  type EventoCambiado,
+} from "./googleCalendar.service";
+
+// ---------------------------------------------------------------------------
+// P2.1, paso 4 — sincronización inversa, contra Postgres real.
+//
+// GOOGLE ESTÁ MOCKEADO SIEMPRE. Lo real es todo lo demás: la base, el cifrado,
+// la firma del token del canal, los CHECK y las transiciones de Booking.
+//
+// Lo que se prueba acá y no se puede probar sin base:
+//
+//   1. El token firmado es la ÚNICA defensa del webhook, y funciona.
+//   2. Un evento cancelado en Google cancela el Booking y LIBERA EL CUPO.
+//   3. Un evento MOVIDO no toca nada (decisión de producto).
+//   4. El syncToken se guarda al final, y un 410 resincroniza.
+//   5. El worker crea canales donde faltan y renueva los que vencen.
+//   6. Desconectar cierra el canal.
+//
+// CADA TEST TRAE SU PROPIA ORGANIZACIÓN, mismo criterio que el resto de la
+// suite: el runner corre los archivos en paralelo contra una base compartida.
+
+const TZ = "America/Argentina/Buenos_Aires";
+
+// Lunes 7/9/2026, 9:00 local = 12:00Z. El recurso trabaja lunes de 9 a 13.
+const LUNES_9_LOCAL = new Date("2026-09-07T12:00:00Z");
+
+interface Escenario {
+  organizationId: string;
+  branchId: string;
+  resourceId: string;
+  serviceTypeId: string;
+  contactId: string;
+}
+
+async function montar(etiqueta: string): Promise<Escenario> {
+  const org = await prisma.organization.create({
+    data: {
+      name: `Sync ${etiqueta} ${randomUUID()}`,
+      slug: `sync-${etiqueta}-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    },
+  });
+
+  const branch = await createBranch(org.id, { name: "Centro", timezone: TZ });
+  const resource = await createResource(org.id, {
+    branchId: branch.id,
+    name: "Juan",
+    type: "PERSON",
+  });
+  const serviceType = await createServiceType(org.id, {
+    branchId: branch.id,
+    resourceId: resource.id,
+    name: "Corte",
+    durationMin: 60,
+  });
+  const contact = await prisma.contact.create({
+    data: { organizationId: org.id, firstName: "Ana", lastName: "Pérez" },
+  });
+
+  await replaceWorkingHoursForResource(org.id, resource.id, [
+    { weekday: "MONDAY", startMinute: 540, endMinute: 780 },
+  ]);
+
+  return {
+    organizationId: org.id,
+    branchId: branch.id,
+    resourceId: resource.id,
+    serviceTypeId: serviceType.id,
+    contactId: contact.id,
+  };
+}
+
+async function desmontar(escenario: Escenario) {
+  const where = { organizationId: escenario.organizationId };
+  await prisma.booking.deleteMany({ where });
+  await prisma.workingHours.deleteMany({ where });
+  await prisma.googleCalendarConnection.deleteMany({ where });
+  await prisma.serviceType.deleteMany({ where });
+  await prisma.resource.deleteMany({ where });
+  await prisma.branch.deleteMany({ where });
+  await prisma.contact.deleteMany({ where });
+  await prisma.organization.delete({ where: { id: escenario.organizationId } });
+}
+
+function assertAppError(err: unknown, statusCode: number) {
+  assert.ok(err instanceof AppError, `debe ser AppError, no un error crudo. Fue: ${String(err)}`);
+  assert.equal(err.statusCode, statusCode);
+}
+
+async function capturar(fn: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await fn();
+  } catch (err) {
+    return err;
+  }
+  assert.fail("se esperaba un error y no hubo ninguno");
+}
+
+// ---------------------------------------------------------------------------
+// El doble de Google
+// ---------------------------------------------------------------------------
+
+interface OpcionesDelDoble {
+  cambios?: EventoCambiado[];
+  nextSyncToken?: string;
+  // Lanza GoogleSyncTokenInvalidoError la PRIMERA vez y responde bien la
+  // segunda: es exactamente la secuencia de un 410 seguido de resincronización.
+  syncTokenVencido?: boolean;
+  expiration?: Date;
+}
+
+interface Doble {
+  cliente: ClienteGoogleCalendar;
+  canalesCreados: { channelId: string; token: string; address: string }[];
+  canalesDetenidos: { channelId: string; resourceId: string }[];
+  listadosConSyncToken: (string | undefined)[];
+}
+
+function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
+  const canalesCreados: { channelId: string; token: string; address: string }[] = [];
+  const canalesDetenidos: { channelId: string; resourceId: string }[] = [];
+  const listadosConSyncToken: (string | undefined)[] = [];
+  let yaFallo = false;
+
+  const cliente: ClienteGoogleCalendar = {
+    construirUrlDeAutorizacion: (state) => `https://accounts.google.com/fake?state=${state}`,
+    intercambiarCodigo: () =>
+      Promise.resolve({
+        refreshToken: "1//refresh",
+        accessToken: "access",
+        expiraEnSegundos: 3599,
+        scope: "",
+      }),
+    renovarAccessToken: () =>
+      Promise.resolve({ accessToken: "access-renovado", expiraEnSegundos: 3599, scope: "" }),
+    revocarToken: () => Promise.resolve(),
+    consultarFreeBusy: () => Promise.resolve([]),
+    crearEvento: () => Promise.resolve("evt-nuevo"),
+    eliminarEvento: () => Promise.resolve(),
+
+    crearCanalDeNotificaciones: (canal) => {
+      canalesCreados.push({
+        channelId: canal.channelId,
+        token: canal.token,
+        address: canal.address,
+      });
+      return Promise.resolve({
+        channelId: canal.channelId,
+        resourceId: `recurso-de-${canal.channelId.slice(0, 8)}`,
+        expiration: opciones.expiration ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+    },
+
+    detenerCanal: (canal) => {
+      canalesDetenidos.push({ channelId: canal.channelId, resourceId: canal.resourceId });
+      return Promise.resolve();
+    },
+
+    listarCambios: (consulta) => {
+      listadosConSyncToken.push(consulta.syncToken);
+
+      if (opciones.syncTokenVencido && !yaFallo && consulta.syncToken) {
+        yaFallo = true;
+        return Promise.reject(new GoogleSyncTokenInvalidoError("token vencido"));
+      }
+
+      return Promise.resolve({
+        eventos: opciones.cambios ?? [],
+        nextSyncToken: opciones.nextSyncToken ?? "token-nuevo",
+      });
+    },
+  };
+
+  return { cliente, canalesCreados, canalesDetenidos, listadosConSyncToken };
+}
+
+// Crea la conexión directamente: el flujo OAuth completo ya está probado en
+// google-calendar-connection.integration-test.ts.
+async function conectarGoogle(
+  escenario: Escenario,
+  extra: {
+    channelId?: string;
+    channelResourceId?: string;
+    channelExpiration?: Date;
+    syncToken?: string;
+  } = {},
+) {
+  return prisma.googleCalendarConnection.create({
+    data: {
+      organizationId: escenario.organizationId,
+      branchId: escenario.branchId,
+      refreshToken: getCifrador().encrypt("1//refresh"),
+      calendarId: "primary",
+      status: "ACTIVE",
+      ...extra,
+    },
+  });
+}
+
+async function reservar(escenario: Escenario, googleEventId?: string) {
+  const booking = await createBooking(
+    escenario.organizationId,
+    {
+      resourceId: escenario.resourceId,
+      serviceTypeId: escenario.serviceTypeId,
+      contactId: escenario.contactId,
+      startsAt: LUNES_9_LOCAL,
+    },
+    doblarGoogle().cliente,
+  );
+
+  if (googleEventId) {
+    await prisma.booking.update({ where: { id: booking.id }, data: { googleEventId } });
+  }
+
+  return booking;
+}
+
+// ---------------------------------------------------------------------------
+// 1. El token firmado es la única defensa del webhook
+// ---------------------------------------------------------------------------
+
+test("una notificación con token inválido se rechaza con 403 sin tocar la base", async () => {
+  const escenario = await montar("token-malo");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    assertAppError(
+      await capturar(() =>
+        procesarNotificacion(
+          { channelId: canal, resourceState: "exists", token: "no-es-un-token-firmado" },
+          doblarGoogle().cliente,
+        ),
+      ),
+      403,
+    );
+
+    // El syncToken no cambió: no se procesó nada.
+    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(fila.syncToken, "t0");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("un token VÁLIDO pero de OTRO canal se rechaza", async () => {
+  // EL AGUJERO QUE EL channelId DENTRO DEL TOKEN CIERRA: sin ese campo, un token
+  // legítimo de la sucursal A podría reproducirse junto al X-Goog-Channel-ID de
+  // la sucursal B.
+  const escenario = await montar("canal-cruzado");
+  try {
+    const canalReal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canalReal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+    });
+
+    // Token firmado para OTRO canal, con la misma organización y sucursal.
+    const tokenDeOtroCanal = await firmarWebhookToken({
+      organizationId: escenario.organizationId,
+      branchId: escenario.branchId,
+      channelId: randomUUID(),
+    });
+
+    assertAppError(
+      await capturar(() =>
+        procesarNotificacion(
+          { channelId: canalReal, resourceState: "exists", token: tokenDeOtroCanal },
+          doblarGoogle().cliente,
+        ),
+      ),
+      403,
+    );
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("resourceState = sync responde sin hacer nada", async () => {
+  // Es el mensaje de confirmación que Google manda al CREAR el canal. No trae
+  // cambios; procesarlo dispararía una sincronización completa inútil por cada
+  // canal creado.
+  const escenario = await montar("sync-inicial");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    const token = await firmarWebhookToken({
+      organizationId: escenario.organizationId,
+      branchId: escenario.branchId,
+      channelId: canal,
+    });
+
+    const doble = doblarGoogle();
+    const resultado = await procesarNotificacion(
+      { channelId: canal, resourceState: "sync", token },
+      doble.cliente,
+    );
+
+    assert.equal(resultado.accion, "sync-inicial");
+    assert.deepEqual(doble.listadosConSyncToken, [], "no se llamó a events.list");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("una notificación de un canal que ya no está en la base responde sin error", async () => {
+  // NO puede devolver 5xx: Google reintentaría con backoff una notificación que
+  // nunca vamos a poder procesar.
+  const escenario = await montar("canal-desconocido");
+  try {
+    const canalFantasma = randomUUID();
+
+    const token = await firmarWebhookToken({
+      organizationId: escenario.organizationId,
+      branchId: escenario.branchId,
+      channelId: canalFantasma,
+    });
+
+    const resultado = await procesarNotificacion(
+      { channelId: canalFantasma, resourceState: "exists", token },
+      doblarGoogle().cliente,
+    );
+
+    assert.equal(resultado.accion, "canal-desconocido");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 2. Evento cancelado en Google -> el Booking se cancela y libera el cupo
+// ---------------------------------------------------------------------------
+
+async function notificar(escenario: Escenario, canal: string, doble: Doble) {
+  const token = await firmarWebhookToken({
+    organizationId: escenario.organizationId,
+    branchId: escenario.branchId,
+    channelId: canal,
+  });
+
+  return procesarNotificacion({ channelId: canal, resourceState: "exists", token }, doble.cliente);
+}
+
+test("un evento CANCELADO en Google cancela el Booking y libera el cupo", async () => {
+  const escenario = await montar("cancelado");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    const booking = await reservar(escenario, "evt-google-1");
+
+    const resultado = await notificar(
+      escenario,
+      canal,
+      doblarGoogle({ cambios: [{ id: "evt-google-1", status: "cancelled" }] }),
+    );
+
+    assert.equal(resultado.bookingsCancelados, 1);
+
+    const persistido = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
+    assert.equal(persistido.status, "CANCELLED");
+
+    // Y EL CUPO SE LIBERÓ DE VERDAD: se puede volver a reservar el horario.
+    const nueva = await reservar(escenario);
+    assert.equal(nueva.status, "CONFIRMED");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("un evento cancelado cuyo Booking YA estaba cancelado no hace nada", async () => {
+  // Es lo que hace seguro guardar el syncToken al final: reprocesar la misma
+  // notificación no puede tener efecto.
+  const escenario = await montar("ya-cancelada");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    const booking = await reservar(escenario, "evt-1");
+    await prisma.booking.update({ where: { id: booking.id }, data: { status: "CANCELLED" } });
+
+    const resultado = await notificar(
+      escenario,
+      canal,
+      doblarGoogle({ cambios: [{ id: "evt-1", status: "cancelled" }] }),
+    );
+
+    assert.equal(resultado.bookingsCancelados, 0);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("un evento cancelado que no corresponde a ningún Booking se ignora", async () => {
+  // La inmensa mayoría de los cambios de un calendario son del negocio, no del
+  // CRM.
+  const escenario = await montar("evento-ajeno");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    const resultado = await notificar(
+      escenario,
+      canal,
+      doblarGoogle({ cambios: [{ id: "evento-del-negocio", status: "cancelled" }] }),
+    );
+
+    assert.equal(resultado.bookingsCancelados, 0);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("un evento cancelado de OTRA organización no toca el Booking de ésta", async () => {
+  // El googleEventId lo asigna Google, no este sistema, así que nada garantiza
+  // que sea único entre calendarios de organizaciones distintas. Sin el
+  // organizationId en el WHERE, una colisión alcanzaría para cancelar la reserva
+  // de otro tenant.
+  const a = await montar("cruce-a");
+  const b = await montar("cruce-b");
+  try {
+    const canalB = randomUUID();
+    await conectarGoogle(b, {
+      channelId: canalB,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    // Las dos organizaciones tienen una reserva con el MISMO googleEventId.
+    const bookingDeA = await reservar(a, "evt-compartido");
+    await reservar(b, "evt-compartido");
+
+    await notificar(
+      b,
+      canalB,
+      doblarGoogle({ cambios: [{ id: "evt-compartido", status: "cancelled" }] }),
+    );
+
+    const deA = await prisma.booking.findUniqueOrThrow({ where: { id: bookingDeA.id } });
+    assert.equal(deA.status, "CONFIRMED", "la reserva de la otra organización no se toca");
+  } finally {
+    await desmontar(a);
+    await desmontar(b);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 3. Evento MOVIDO -> no se aplica (decisión de producto)
+// ---------------------------------------------------------------------------
+
+test("un evento MOVIDO en Google NO reprograma el Booking: solo se registra", async () => {
+  // DECISIÓN DE PRODUCTO, no una limitación técnica: mover un Booking es
+  // reprogramar, y reprogramar exige revalidar horario de trabajo, capacidad y
+  // Google. Aplicarlo automáticamente acá sería construir esa validación por la
+  // puerta de atrás — o peor, NO construirla y mover la reserva a un horario
+  // fuera del horario de trabajo o encima de otro turno.
+  const escenario = await montar("movido");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    const booking = await reservar(escenario, "evt-movido");
+
+    const resultado = await notificar(
+      escenario,
+      canal,
+      doblarGoogle({
+        cambios: [
+          {
+            id: "evt-movido",
+            status: "confirmed",
+            inicio: new Date("2026-09-07T15:00:00Z"),
+            fin: new Date("2026-09-07T16:00:00Z"),
+          },
+        ],
+      }),
+    );
+
+    assert.equal(resultado.eventosMovidos, 1);
+    assert.equal(resultado.bookingsCancelados, 0);
+
+    const persistido = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
+    assert.equal(persistido.status, "CONFIRMED", "el status no se toca");
+    assert.equal(
+      persistido.startsAt.toISOString(),
+      LUNES_9_LOCAL.toISOString(),
+      "el horario tampoco: la reserva queda desactualizada a propósito",
+    );
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("un evento que NO cambió de horario no cuenta como movido", async () => {
+  const escenario = await montar("sin-cambio");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    const booking = await reservar(escenario, "evt-igual");
+
+    const resultado = await notificar(
+      escenario,
+      canal,
+      doblarGoogle({
+        cambios: [
+          {
+            id: "evt-igual",
+            status: "confirmed",
+            inicio: booking.startsAt,
+            fin: booking.endsAt,
+          },
+        ],
+      }),
+    );
+
+    assert.equal(resultado.eventosMovidos, 0);
+    assert.equal(resultado.accion, "sin-cambios");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 4. El syncToken
+// ---------------------------------------------------------------------------
+
+test("el syncToken nuevo se guarda al terminar de procesar", async () => {
+  const escenario = await montar("guardar-token");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    const doble = doblarGoogle({ nextSyncToken: "t1" });
+    await notificar(escenario, canal, doble);
+
+    assert.deepEqual(doble.listadosConSyncToken, ["t0"], "se llamó con el token guardado");
+
+    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(fila.syncToken, "t1");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("la PRIMERA sincronización (sin token) no reconcilia hacia atrás: solo guarda el token", async () => {
+  // Una sincronización completa trae el calendario entero del negocio —años de
+  // eventos ajenos al CRM— y compararlos todos es un problema distinto y mucho
+  // más grande que "mantenerse al día".
+  const escenario = await montar("primera-sync");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      // sin syncToken
+    });
+
+    const booking = await reservar(escenario, "evt-viejo");
+
+    const resultado = await notificar(
+      escenario,
+      canal,
+      doblarGoogle({
+        cambios: [{ id: "evt-viejo", status: "cancelled" }],
+        nextSyncToken: "t-inicial",
+      }),
+    );
+
+    assert.equal(resultado.accion, "sync-inicial");
+    assert.equal(resultado.bookingsCancelados, 0, "NO se reconcilia hacia atrás");
+
+    const persistido = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
+    assert.equal(persistido.status, "CONFIRMED");
+
+    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(fila.syncToken, "t-inicial", "pero el token sí queda guardado");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("un 410 resincroniza completo y guarda un token nuevo", async () => {
+  const escenario = await montar("410");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "vencido",
+    });
+
+    const doble = doblarGoogle({ syncTokenVencido: true, nextSyncToken: "t-fresco" });
+
+    const resultado = await notificar(escenario, canal, doble);
+
+    assert.equal(resultado.accion, "sync-inicial");
+    // Dos llamadas: la primera con el token vencido, la segunda sin token.
+    assert.deepEqual(doble.listadosConSyncToken, ["vencido", undefined]);
+
+    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(fila.syncToken, "t-fresco");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 5. El worker de renovación
+// ---------------------------------------------------------------------------
+
+test("el worker crea un canal donde no hay ninguno", async () => {
+  // "Sin canal" y "canal por vencer" son el mismo caso — es lo que permite que
+  // el flujo OAuth del paso 2 no cree canales.
+  const escenario = await montar("worker-crea");
+  try {
+    await conectarGoogle(escenario);
+
+    const doble = doblarGoogle();
+    const antes = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(antes.channelId, null);
+
+    await renovarCanal(antes, doble.cliente);
+
+    const despues = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+
+    assert.ok(despues.channelId);
+    assert.ok(despues.channelResourceId, "el resourceId es obligatorio para poder cerrarlo");
+    assert.ok(despues.channelExpiration);
+
+    assert.equal(doble.canalesCreados.length, 1);
+    assert.equal(doble.canalesCreados[0].channelId, despues.channelId);
+    assert.deepEqual(doble.canalesDetenidos, [], "no había canal viejo que cerrar");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("el token del canal se firma con el channelId real y verifica", async () => {
+  const escenario = await montar("worker-token");
+  try {
+    await conectarGoogle(escenario);
+
+    const doble = doblarGoogle();
+    const conexion = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+
+    await renovarCanal(conexion, doble.cliente);
+
+    const verificado = await verificarWebhookToken(doble.canalesCreados[0].token);
+
+    assert.equal(verificado.organizationId, escenario.organizationId);
+    assert.equal(verificado.branchId, escenario.branchId);
+    assert.equal(verificado.channelId, doble.canalesCreados[0].channelId);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("al renovar, el canal NUEVO se guarda ANTES de cerrar el viejo", async () => {
+  // El orden evita la ventana ciega: cerrando primero, cualquier cambio hecho en
+  // Google entre el cierre y la creación no dispararía notificación y se
+  // perdería.
+  const escenario = await montar("worker-renueva");
+  try {
+    const canalViejo = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canalViejo,
+      channelResourceId: "recurso-viejo",
+      channelExpiration: new Date(Date.now() + 3600000),
+    });
+
+    const conexion = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+
+    const doble = doblarGoogle();
+    await renovarCanal(conexion, doble.cliente);
+
+    const despues = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+
+    assert.notEqual(despues.channelId, canalViejo, "quedó guardado el canal nuevo");
+    assert.deepEqual(doble.canalesDetenidos, [
+      { channelId: canalViejo, resourceId: "recurso-viejo" },
+    ]);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("el worker NO toca conexiones cuyo canal está lejos de vencer", async () => {
+  const escenario = await montar("worker-vigente");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      // Vence en 6 días: muy por encima del margen de 24 h.
+      channelExpiration: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000),
+    });
+
+    await renovarCanalesVencidos();
+
+    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(fila.channelId, canal, "el canal vigente no se toca");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("una conexión REVOKED no recibe canal", async () => {
+  const escenario = await montar("worker-revoked");
+  try {
+    await prisma.googleCalendarConnection.create({
+      data: {
+        organizationId: escenario.organizationId,
+        branchId: escenario.branchId,
+        refreshToken: null,
+        calendarId: "primary",
+        status: "REVOKED",
+      },
+    });
+
+    await renovarCanalesVencidos();
+
+    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(fila.channelId, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 6. Desconectar cierra el canal
+// ---------------------------------------------------------------------------
+
+test("desconectar cierra el canal en Google y lo limpia de la fila", async () => {
+  const escenario = await montar("desconectar");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "recurso-x",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    const doble = doblarGoogle();
+    await desconectar(escenario.organizationId, escenario.branchId, doble.cliente);
+
+    assert.deepEqual(doble.canalesDetenidos, [{ channelId: canal, resourceId: "recurso-x" }]);
+
+    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+
+    assert.equal(fila.status, "REVOKED");
+    assert.equal(fila.channelId, null, "el canal se limpia de la fila");
+    assert.equal(fila.channelResourceId, null);
+    assert.equal(fila.channelExpiration, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 7. El invariante de la base
+// ---------------------------------------------------------------------------
+
+test("la base RECHAZA un canal a medias (channelId sin resourceId)", async () => {
+  // Un canal a medias es inutilizable de forma silenciosa: con channelId pero
+  // sin resourceId, el webhook procesa notificaciones pero el canal NO SE PUEDE
+  // CERRAR NUNCA.
+  const escenario = await montar("check-canal");
+  try {
+    await assert.rejects(
+      () =>
+        prisma.googleCalendarConnection.create({
+          data: {
+            organizationId: escenario.organizationId,
+            branchId: escenario.branchId,
+            refreshToken: getCifrador().encrypt("1//refresh"),
+            calendarId: "primary",
+            status: "ACTIVE",
+            channelId: randomUUID(),
+            // sin channelResourceId ni channelExpiration
+          },
+        }),
+      /channel_all_or_none/,
+    );
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("dos conexiones no pueden compartir el mismo channelId", async () => {
+  const a = await montar("unique-a");
+  const b = await montar("unique-b");
+  try {
+    const canal = randomUUID();
+
+    await conectarGoogle(a, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+    });
+
+    await assert.rejects(() =>
+      conectarGoogle(b, {
+        channelId: canal,
+        channelResourceId: "r2",
+        channelExpiration: new Date(Date.now() + 86400000),
+      }),
+    );
+  } finally {
+    await desmontar(a);
+    await desmontar(b);
+  }
+});

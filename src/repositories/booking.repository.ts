@@ -178,3 +178,22 @@ export function markBookingCancelled(id: string, organizationId: string, db: Db 
     data: { status: "CANCELLED" },
   });
 }
+
+// La reserva que refleja un evento concreto de Google — la búsqueda de la
+// sincronización inversa (paso 4).
+//
+// EXIGE organizationId además del googleEventId, y no es simetría con el resto
+// del archivo: los ids de evento los asigna GOOGLE, no este sistema, así que
+// nada garantiza que sean únicos entre calendarios de organizaciones distintas.
+// Sin el organizationId en el WHERE, una colisión —o un id reproducido a
+// propósito— alcanzaría para cancelar la reserva de otro tenant.
+//
+// Sin filtro por status: quien llama necesita ver también las ya canceladas para
+// distinguir "no hay nada que hacer" de "no existe".
+export function findBookingByGoogleEventId(
+  googleEventId: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.booking.findFirst({ where: { googleEventId, organizationId } });
+}

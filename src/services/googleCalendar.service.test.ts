@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   GOOGLE_CALENDAR_SCOPES,
   GoogleAuthError,
+  GoogleSyncTokenInvalidoError,
   crearClienteGoogleCalendar,
   type FetchLike,
 } from "./googleCalendar.service";
@@ -559,5 +560,307 @@ test("un 500 al eliminar SÍ es un error", async () => {
         eventId: "e1",
       }),
     (err: unknown) => err instanceof GoogleAuthError && !err.grantInvalido,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// events.watch / channels.stop / events.list — paso 4 (sincronización inversa)
+// ---------------------------------------------------------------------------
+
+const CANAL = {
+  accessToken: "access-abc",
+  calendarId: "primary",
+  channelId: "11111111-2222-3333-4444-555555555555",
+  address: "https://crm.ejemplo.com/api/webhooks/google-calendar",
+  token: "token-firmado",
+  ttlSegundos: 604800,
+};
+
+test("crearCanalDeNotificaciones manda id, type web_hook, address, token y ttl", async () => {
+  const { fetch, llamadas } = mockearFetch({
+    json: { id: CANAL.channelId, resourceId: "recurso-opaco", expiration: "1788000000000" },
+  });
+
+  const creado = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearCanalDeNotificaciones(
+    CANAL,
+  );
+
+  assert.equal(creado.channelId, CANAL.channelId);
+  assert.equal(creado.resourceId, "recurso-opaco");
+
+  assert.equal(
+    llamadas[0].url,
+    "https://www.googleapis.com/calendar/v3/calendars/primary/events/watch",
+  );
+
+  const cuerpo = cuerpoDe(llamadas[0]);
+  assert.equal(cuerpo.id, CANAL.channelId);
+  assert.equal(cuerpo.type, "web_hook");
+  assert.equal(cuerpo.address, CANAL.address);
+  assert.equal(cuerpo.token, CANAL.token);
+  // El TTL va en params.ttl y como STRING de segundos, que es la forma que
+  // documenta la referencia.
+  assert.deepEqual(cuerpo.params, { ttl: "604800" });
+});
+
+test("la expiración del canal se interpreta en MILISEGUNDOS, no en segundos", async () => {
+  // EL ERROR QUE ESTE TEST EXISTE PARA IMPEDIR: Google devuelve `expiration` como
+  // timestamp Unix en milisegundos. Leerlo como segundos daría una fecha de 1970
+  // y el worker recrearía el canal en cada pasada, para siempre, sin que nada
+  // fallara visiblemente.
+  const { fetch } = mockearFetch({
+    json: { id: CANAL.channelId, resourceId: "r1", expiration: "1788000000000" },
+  });
+
+  const creado = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearCanalDeNotificaciones(
+    CANAL,
+  );
+
+  assert.equal(creado.expiration.getTime(), 1788000000000);
+  assert.ok(creado.expiration.getUTCFullYear() > 2020, "si diera 1970, se leyó como segundos");
+});
+
+test("sin expiration en la respuesta se asume el TTL pedido", async () => {
+  // `expiration` es opcional en el esquema de Google. Una fila sin expiración
+  // sería peor: el worker no sabría cuándo renovar.
+  const { fetch } = mockearFetch({ json: { id: CANAL.channelId, resourceId: "r1" } });
+
+  const antes = Date.now();
+  const creado = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearCanalDeNotificaciones(
+    CANAL,
+  );
+
+  assert.ok(creado.expiration.getTime() >= antes + 604800 * 1000 - 1000);
+});
+
+test("un canal SIN resourceId se rechaza: no se podría cerrar nunca", async () => {
+  // channels.stop pide id + resourceId. Guardar una fila sin resourceId dejaría
+  // un canal imposible de detener, solo esperable a que venza.
+  const { fetch } = mockearFetch({ json: { id: CANAL.channelId } });
+
+  await assert.rejects(
+    () => crearClienteGoogleCalendar({ ...CONFIG, fetch }).crearCanalDeNotificaciones(CANAL),
+    (err: unknown) =>
+      err instanceof GoogleAuthError && !err.grantInvalido && err.message.includes("resourceId"),
+  );
+});
+
+test("detenerCanal postea id + resourceId al endpoint de channels.stop", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: {} });
+
+  await crearClienteGoogleCalendar({ ...CONFIG, fetch }).detenerCanal({
+    accessToken: "abc",
+    channelId: "canal-1",
+    resourceId: "recurso-1",
+  });
+
+  assert.equal(llamadas[0].url, "https://www.googleapis.com/calendar/v3/channels/stop");
+  assert.deepEqual(cuerpoDe(llamadas[0]), { id: "canal-1", resourceId: "recurso-1" });
+});
+
+test("un 404 al detener un canal NO es error: ya no existe", async () => {
+  const { fetch } = mockearFetch({
+    ok: false,
+    status: 404,
+    json: { error: { message: "Not Found" } },
+  });
+
+  await crearClienteGoogleCalendar({ ...CONFIG, fetch }).detenerCanal({
+    accessToken: "abc",
+    channelId: "canal-vencido",
+    resourceId: "r1",
+  });
+});
+
+// ---------------------------------------------------------------------------
+// events.list con syncToken — la paginación es lo que más importa
+// ---------------------------------------------------------------------------
+
+// Un fetch falso que devuelve una respuesta distinta por llamada, para poder
+// simular varias páginas.
+function mockearPaginas(paginas: { ok?: boolean; status?: number; json: unknown }[]): {
+  fetch: FetchLike;
+  llamadas: LlamadaRegistrada[];
+} {
+  const llamadas: LlamadaRegistrada[] = [];
+  let i = 0;
+
+  const fetchFalso: FetchLike = (url, init) => {
+    llamadas.push({ url, init });
+    const pagina = paginas[Math.min(i, paginas.length - 1)];
+    i++;
+
+    return Promise.resolve({
+      ok: pagina.ok ?? true,
+      status: pagina.status ?? 200,
+      json: () => Promise.resolve(pagina.json),
+    } as Response);
+  };
+
+  return { fetch: fetchFalso, llamadas };
+}
+
+test("listarCambios devuelve los eventos y el syncToken de una sola página", async () => {
+  const { fetch, llamadas } = mockearPaginas([
+    {
+      json: {
+        items: [
+          {
+            id: "evt-1",
+            status: "confirmed",
+            start: { dateTime: "2026-09-07T12:00:00Z" },
+            end: { dateTime: "2026-09-07T13:00:00Z" },
+          },
+        ],
+        nextSyncToken: "token-nuevo",
+      },
+    },
+  ]);
+
+  const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+    syncToken: "token-viejo",
+  });
+
+  assert.equal(cambios.eventos.length, 1);
+  assert.equal(cambios.eventos[0].id, "evt-1");
+  assert.equal(cambios.eventos[0].inicio?.toISOString(), "2026-09-07T12:00:00.000Z");
+  assert.equal(cambios.nextSyncToken, "token-nuevo");
+
+  assert.ok(llamadas[0].url.includes("syncToken=token-viejo"));
+});
+
+test("PAGINA hasta agotar nextPageToken y toma el syncToken de la ÚLTIMA página", async () => {
+  // EL TEST MÁS IMPORTANTE DE ESTE ARCHIVO. Textual en la guía de sync de Google:
+  // "the nextSyncToken field is present only on the last page".
+  //
+  // Si esta función se quedara con la primera página, se guardaría un syncToken
+  // inexistente (o ninguno) y la próxima sincronización arrancaría con un HUECO
+  // INVISIBLE: eventos que cambiaron y que nadie va a procesar nunca. Sin error,
+  // sin log, sin síntoma.
+  const { fetch, llamadas } = mockearPaginas([
+    { json: { items: [{ id: "evt-1" }], nextPageToken: "pag-2" } },
+    { json: { items: [{ id: "evt-2" }], nextPageToken: "pag-3" } },
+    { json: { items: [{ id: "evt-3" }], nextSyncToken: "token-final" } },
+  ]);
+
+  const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+    syncToken: "token-viejo",
+  });
+
+  assert.equal(llamadas.length, 3, "tiene que pedir las tres páginas");
+  assert.deepEqual(
+    cambios.eventos.map((e) => e.id),
+    ["evt-1", "evt-2", "evt-3"],
+    "y acumular los eventos de TODAS",
+  );
+  assert.equal(cambios.nextSyncToken, "token-final");
+
+  // Las páginas 2 y 3 se piden con el pageToken correspondiente.
+  assert.ok(llamadas[1].url.includes("pageToken=pag-2"));
+  assert.ok(llamadas[2].url.includes("pageToken=pag-3"));
+});
+
+test("si ninguna página trae nextSyncToken, no se inventa uno", async () => {
+  // Preferible reprocesar en la próxima notificación a guardar un token que no
+  // existe.
+  const { fetch } = mockearPaginas([{ json: { items: [{ id: "evt-1" }] } }]);
+
+  const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+  });
+
+  assert.equal(cambios.nextSyncToken, undefined);
+});
+
+test("una sincronización COMPLETA no manda syncToken", async () => {
+  const { fetch, llamadas } = mockearPaginas([{ json: { items: [], nextSyncToken: "t1" } }]);
+
+  await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+  });
+
+  assert.ok(!llamadas[0].url.includes("syncToken"));
+});
+
+test("un 410 lanza GoogleSyncTokenInvalidoError, distinguible de cualquier otro fallo", async () => {
+  // Es RECUPERABLE: la respuesta correcta es volver a llamar sin syncToken. Si
+  // fuera un GoogleAuthError sería indistinguible de un Google caído y la
+  // conexión se quedaría con un token muerto para siempre.
+  const { fetch } = mockearPaginas([
+    { ok: false, status: 410, json: { error: { message: "Sync token is no longer valid" } } },
+  ]);
+
+  await assert.rejects(
+    () =>
+      crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+        accessToken: "abc",
+        calendarId: "primary",
+        syncToken: "vencido",
+      }),
+    (err: unknown) => err instanceof GoogleSyncTokenInvalidoError && err.statusCode === 410,
+  );
+});
+
+test("un evento CANCELADO llega con status cancelled y se preserva", async () => {
+  const { fetch } = mockearPaginas([
+    { json: { items: [{ id: "evt-borrado", status: "cancelled" }], nextSyncToken: "t" } },
+  ]);
+
+  const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+    syncToken: "t0",
+  });
+
+  assert.equal(cambios.eventos[0].status, "cancelled");
+  assert.equal(cambios.eventos[0].inicio, undefined, "un evento borrado no trae horario");
+});
+
+test("un evento de DÍA COMPLETO (date en vez de dateTime) también se lee", async () => {
+  const { fetch } = mockearPaginas([
+    {
+      json: {
+        items: [
+          {
+            id: "evt-dia",
+            status: "confirmed",
+            start: { date: "2026-09-07" },
+            end: { date: "2026-09-08" },
+          },
+        ],
+        nextSyncToken: "t",
+      },
+    },
+  ]);
+
+  const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+    syncToken: "t0",
+  });
+
+  assert.ok(cambios.eventos[0].inicio instanceof Date);
+});
+
+test("un item sin id se descarta en vez de romper la lista", async () => {
+  const { fetch } = mockearPaginas([
+    { json: { items: [{ status: "confirmed" }, { id: "evt-ok" }], nextSyncToken: "t" } },
+  ]);
+
+  const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+    syncToken: "t0",
+  });
+
+  assert.deepEqual(
+    cambios.eventos.map((e) => e.id),
+    ["evt-ok"],
   );
 });

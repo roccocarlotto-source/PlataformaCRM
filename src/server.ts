@@ -3,6 +3,7 @@ import { env } from "./config/env";
 import { logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
 import { iniciarWorkerDeIngesta } from "./workers/ingestionWorker";
+import { iniciarWorkerDeCanales } from "./workers/googleCalendarChannelWorker";
 import { iniciarWorkerDeOutbox } from "./workers/outboxWorker";
 
 const server = app.listen(env.PORT, () => {
@@ -23,6 +24,13 @@ const detenerWorker = iniciarWorkerDeIngesta();
 // cadencia, ni lote, ni razones para estar caídas.
 const detenerWorkerDeOutbox = iniciarWorkerDeOutbox();
 
+// El worker de canales de Google Calendar (paso 4 del módulo de agenda), por el
+// mismo motivo que los otros dos: vive con el proceso servidor, no con la
+// instancia de Express. Su cadencia es de UNA HORA y no de cinco segundos —
+// vigila canales que duran siete días, no una cola— así que es el único de los
+// tres cuyo tick normal no hace nada.
+const detenerWorkerDeCanales = iniciarWorkerDeCanales();
+
 function shutdown(signal: string) {
   logger.info(`${signal} recibido, cerrando servidor...`);
   // Antes de cerrar el servidor: deja de agendar pasadas nuevas. Una pasada en
@@ -31,6 +39,7 @@ function shutdown(signal: string) {
   // exactamente donde tienen que estar para que los tome el próximo arranque.
   detenerWorker();
   detenerWorkerDeOutbox();
+  detenerWorkerDeCanales();
 
   server.close(() => {
     prisma

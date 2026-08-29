@@ -223,6 +223,33 @@ Control de capacidad: al crear un `Booking`, el servicio cuenta `Booking`s activ
 - **Consulta de disponibilidad**: usar el endpoint `freebusy.query` de Google Calendar API para saber qué horarios están ocupados dentro del rango de trabajo configurado por Resource (el rango de trabajo — días/horarios — se define en este CRM, no en Google).
 - **Creación de reserva**: al confirmar un `Booking`, crear el evento correspondiente vía `events.insert` y guardar el `googleEventId` devuelto.
 - **Sincronización inversa (cambios hechos directo en Google Calendar)**: suscribirse a notificaciones push de Google Calendar (`events.watch`) para detectar si alguien cancela o mueve un evento desde el calendario en vez de desde el CRM. Importante: los canales de notificación push de Google **expiran** (máximo ~7 días) y hay que renovarlos antes de que caduquen — esto necesita un worker periódico, similar en espíritu al `ingestionWorker.ts` que ya existe para la capa de ingesta.
+
+  > **Construido el 31/08/2026 (paso 4).** El "~7 días" se verificó y **esta vez el documento tenía razón**: el TTL por defecto de `events.watch` es `604800` segundos, o sea 7 días exactos. El worker renueva con 24 h de margen y corre cada hora.
+  >
+  > **Lo que se verificó contra Google antes de implementar** (el documento ya se había equivocado dos veces en este módulo, así que nada se dio por hecho):
+  >
+  > | Cosa | Resultado |
+  > | --- | --- |
+  > | TTL del canal | `604800` s = 7 días exactos, por defecto |
+  > | `expiration` de la respuesta | Timestamp Unix en **milisegundos**, no en segundos |
+  > | Headers push | `X-Goog-Channel-ID`, `-Channel-Token`, `-Resource-ID`, `-Resource-State`, `-Message-Number`, `-Resource-URI`, `-Channel-Expiration` |
+  > | `resourceState` | `sync` (canal creado), `exists` (cambió algo), `not_exists` |
+  > | Cuerpo del POST | **Vacío**, textual: *"don't include a message body… you must make another API call to see full change details"* |
+  > | `syncToken` vencido | **410 GONE** → hay que resincronizar completo |
+  > | `nextSyncToken` | Textual: *"present only on the last page"* — hay que paginar con `nextPageToken` hasta agotar |
+  > | Evento borrado | Llega con `status: "cancelled"`, y en sync incremental viene solo (sin `showDeleted`) |
+  > | `channels.stop` | `id` + `resourceId` |
+  >
+  > **⚠️ Requiere verificación de dominio, que es configuración externa.** Google exige que el dominio del `address` esté **verificado en Search Console** y registrado como dominio permitido del proyecto en la API Console, antes de aceptar la URL. Es una medida anti-abuso. Sin eso, `events.watch` falla y la sincronización inversa no funciona — el resto del módulo sí. Más HTTPS con certificado válido, así que en local no anda sin un túnel.
+  >
+  > **Las dos decisiones de producto, y son distintas a propósito:**
+  >
+  > - **Evento CANCELADO en Google → el `Booking` pasa a `CANCELLED` y libera el cupo.** Es seguro de automatizar porque cancelar **no necesita validar nada**: liberar un cupo nunca puede producir un estado inválido.
+  > - **Evento MOVIDO en Google → NO se aplica, solo se registra** (`warn` con `bookingId` y los horarios viejo y nuevo). Mover un `Booking` es **reprogramar**, y reprogramar exige revalidar horario de trabajo, capacidad y Google — lo que quedó fuera de alcance en el paso 3 por esa misma razón. Aplicarlo automáticamente sería construir esa validación por la puerta de atrás, o peor: **no** construirla y mover la reserva a un horario fuera del horario de trabajo o encima de otro turno. **Lo que se acepta**: la reserva queda desactualizada hasta que alguien la resuelva a mano. Es el caso menos común de los dos.
+  >
+  > **El estado del canal vive en `GoogleCalendarConnection`** (`channelId`, `channelResourceId`, `channelExpiration`, `syncToken`), no en una tabla nueva: nace y muere con la conexión. Los cuatro son nullable y un `CHECK` exige que los tres del canal vayan juntos — un canal a medias es inutilizable de forma silenciosa (sin `resourceId` no se puede cerrar nunca).
+  >
+  > **El flujo OAuth del paso 2 no crea canales.** El worker trata "sin canal" y "canal por vencer" como el mismo caso, así que una conexión nueva recibe el suyo en la siguiente pasada. Evitó tocar un camino ya revisado y mergeado.
 - **Manejo de fallas**: si Google Calendar API no responde o el token fue revocado por el usuario, el `Booking` se guarda igual como fuente de verdad local (`GoogleCalendarConnection.status = ERROR`) y se notifica al admin de la sucursal para reconectar — el sistema no debe bloquear una reserva por una falla del proveedor externo.
 - **Zona horaria**: cada Sucursal necesita su propia zona horaria configurada (no asumir la del servidor) — se pasa explícitamente en cada llamada a la API de Google.
 
@@ -310,7 +337,15 @@ Sigue el patrón controller → service → repository ya usado en el resto de `
 - ~~`PATCH /api/bookings/:id` — cancela o reprograma; refleja el cambio en Google Calendar.~~ **Partido en dos el 30/08/2026, y solo se construyó la cancelación:**
   - `PATCH /api/bookings/:id/cancel` — pasa la reserva a `CANCELLED`, libera el cupo y borra el evento en Google (best-effort: un Google caído no puede impedir cancelar, porque el cupo tiene que liberarse sí o sí). El verbo va en el path porque es una **transición de estado** acotada, no una actualización parcial arbitraria. No es un `DELETE` porque no borra nada: la reserva queda como historia.
   - **Reprogramar quedó fuera de alcance.** Cambiar `startsAt`/`endsAt` exige revalidar el horario de trabajo, la capacidad en el horario nuevo **y** mover el evento en Google — o sea, la creación completa otra vez más el manejo del estado anterior. Hoy el camino es cancelar y crear.
-- `POST /api/webhooks/google-calendar` — receptor de notificaciones push de Google (cambios externos).
+- `POST /api/webhooks/google-calendar` — receptor de notificaciones push de Google (cambios externos). *(Construido el 31/08/2026.)*
+
+  > **Sin `authenticate` y sin rate limiter**, por los mismos motivos ya documentados en el callback OAuth: Google hace este POST desde su infraestructura y no reenvía ningún JWT, así que no hay identidad que verificar ni que keyear (y keyear por IP está descartado en este proyecto, que no configura `trust proxy`).
+  >
+  > **La defensa es un token firmado**, hermano del `state` de OAuth y con la misma primitiva (`deriveKey` + `jose`, con su propio `info` y su propia audiencia). Codifica `organizationId` + `branchId` + **`channelId`**, y ese tercer campo es el que no es obvio: sin él, un token válido del canal de la sucursal A podría reproducirse junto al `X-Goog-Channel-ID` de la B. El handler verifica que el `channelId` del token firmado coincida con el del header, **antes de tocar la base**.
+  >
+  > **Los códigos de respuesta SON el mecanismo de reintento** — no hay cola propia, y es deliberado: Google ya reintenta con backoff ante una respuesta no-2xx, y construir un outbox para esto duplicaría un mecanismo que el proveedor ya da, para un volumen que no lo justifica. `200` procesado o nada que hacer; `403` token que no salió de acá; `5xx` algo se rompió de este lado y conviene que reintente. **Un canal desconocido devuelve 200**, no 5xx: si no, Google reintentaría para siempre una notificación que nunca vamos a poder procesar.
+  >
+  > **Un `410` resincroniza completo**, y **sin reconciliar retroactivamente** cada evento contra los `Booking`s existentes: una sincronización completa trae el calendario entero del negocio, años de eventos mayormente ajenos al CRM. Alcanza con quedar sincronizado hacia adelante. *Lo que se pierde*: los cambios ocurridos entre que el token venció y la resincronización.
 
 ## 6. Automatizaciones disparadas por un Booking
 
@@ -333,7 +368,7 @@ Google Calendar API: gratis dentro de las cuotas estándar (ver sección 1) — 
 1. CRUD de `Resource` y `ServiceType` (sin Google Calendar todavía) — permite probar el modelo de capacidad y multi-tenancy de forma aislada.
 2. ~~Conexión OAuth con Google Calendar por sucursal + `freebusy.query` para disponibilidad real.~~ **Hecho el 29/08/2026** — modelo `GoogleCalendarConnection` + migración, flujo OAuth completo (iniciar / callback / desconectar), `state` firmado y expirable, cifrado genérico de secretos en reposo, y el wrapper de `freebusy.query` con su test unitario. **`GET /api/availability` quedó fuera a propósito**: ver la nota en §5.
 3. ~~`POST /api/bookings` con creación de evento en Google + control de capacidad propio.~~ **Hecho el 30/08/2026** — más el prerrequisito que este documento nunca modeló: **`WorkingHours`** (el "rango de trabajo" que §4 y §5 daban por existente). Incluye `GET /api/availability`, que el paso 2 no pudo construir por eso mismo, la cancelación, y los tres pendientes que el PR #41 había dejado anotados en `serviceType.service.ts`. **Sin reprogramar** y **sin automatizaciones** (paso 5): ver §5.
-4. Webhook de sincronización inversa + worker de renovación de canales push.
+4. ~~Webhook de sincronización inversa + worker de renovación de canales push.~~ **Hecho el 31/08/2026** — `events.watch` / `channels.stop` / `events.list` con `syncToken` paginado, webhook autenticado con token firmado, y worker de renovación (cada hora, 24 h de margen sobre canales de 7 días). Un evento cancelado en Google cancela el `Booking`; uno movido **solo se registra** (reprogramar sigue fuera de alcance). **Requiere verificar el dominio en Search Console** — ver §4.
 5. Conectar automatizaciones (Activity, Opportunity, recordatorio WhatsApp).
 6. Implementar `get_availability()` / `create_booking()` como tools del agente de IA.
 

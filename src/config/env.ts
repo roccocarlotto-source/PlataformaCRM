@@ -151,6 +151,70 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),
+
+  // -------------------------------------------------------------------------
+  // Sincronización inversa — canales de notificaciones push (P2.1, paso 4).
+  //
+  // GOOGLE_WEBHOOK_URL: la URL HTTPS que recibe las notificaciones de Google.
+  //
+  //   NO ALCANZA CON PONERLA ACÁ. Google exige que el DOMINIO esté verificado en
+  //   Search Console y registrado como dominio permitido del proyecto en la API
+  //   Console — es una medida anti-abuso, para que nadie pueda dirigir
+  //   notificaciones al dominio de otro. Sin eso, events.watch falla. Es
+  //   configuración externa, igual que las credenciales OAuth del paso 2; ver
+  //   docs/bitacora-2026-08-31.md.
+  //
+  //   Tiene que ser HTTPS con certificado válido (nada de autofirmado), así que
+  //   en desarrollo local no funciona sin un túnel público.
+  //
+  // Opcional por el mismo criterio que el resto de las GOOGLE_*: el servidor
+  // arranca sin ella y el worker de canales se apaga solo avisando.
+  GOOGLE_WEBHOOK_URL: z.string().optional(),
+
+  // Mismo enum explícito que INGEST_WORKER_ENABLED y por el mismo motivo:
+  // z.coerce.boolean() coacciona cualquier string no vacío a true, así que
+  // GOOGLE_CHANNEL_WORKER_ENABLED=false lo habilitaría.
+  GOOGLE_CHANNEL_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+
+  // 1 HORA, tres órdenes de magnitud más que los otros dos workers (5 s), y la
+  // diferencia es del problema, no de gusto: aquellos drenan colas donde un
+  // evento puede llegar en cualquier momento; éste vigila canales que duran
+  // SIETE DÍAS. Con un margen de renovación de 24 h, chequear cada hora da 24
+  // oportunidades de renovar antes de que el canal venza — de sobra para
+  // absorber un deploy o un reinicio.
+  GOOGLE_CHANNEL_WORKER_POLL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 60 * 1000),
+
+  // Cuánto antes del vencimiento se renueva. 24 horas sobre un canal de 7 días.
+  //
+  // NO ES UN NÚMERO CÓMODO, ES EL QUE ABSORBE UNA CAÍDA: si el proceso está
+  // apagado un fin de semana largo, un margen chico deja vencer los canales y
+  // los cambios hechos en Google en esa ventana se pierden para siempre (no hay
+  // forma de recuperarlos: el syncToken sigue sirviendo, pero nadie avisa que
+  // hay algo que buscar hasta la próxima notificación). Un día de margen cubre
+  // un fin de semana de servidor caído sin volver la renovación demasiado
+  // agresiva.
+  GOOGLE_CHANNEL_RENEW_MARGIN_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(24 * 60 * 60 * 1000),
+
+  // TTL que se le pide a Google al abrir el canal. 604800 s = 7 días, que es el
+  // default documentado de la API — verificado contra la referencia de
+  // events.watch, no asumido. Se declara explícito para que el valor esté a la
+  // vista y no dependa de un default ajeno que puede cambiar.
+  GOOGLE_CHANNEL_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(7 * 24 * 60 * 60),
 });
 
 function parseEnv() {
