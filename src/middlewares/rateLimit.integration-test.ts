@@ -20,10 +20,12 @@ import {
   BUSINESS_WRITE_MAX,
   IMPORT_PREVIEW_MAX,
   ONBOARDING_MAX,
+  ONBOARDING_OTP_MAX,
   createAcceptInvitationRateLimiter,
   createAcceptPreAuthRateLimiter,
   createBusinessWriteRateLimiter,
   createImportPreviewRateLimiter,
+  createOnboardingOtpRateLimiter,
   createOnboardingRateLimiter,
 } from "./rateLimit";
 import { verifyInvitationAcceptIdentity } from "./verifyInvitationAcceptIdentity";
@@ -261,6 +263,145 @@ test("onboardingRateLimiter: un request real dentro del cupo completa el flujo d
     if (authUserId) {
       await getSupabaseAdmin().auth.admin.deleteUser(authUserId);
     }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A-2 (docs/auditoria-2026-08-29.md) — el keying de onboarding es por EMAIL del
+// body, nunca por IP.
+//
+// Estos tests montan el limiter con un handler stub (200) en vez del controller
+// real: lo que está bajo prueba es CON QUÉ CLAVE cuenta, no el registro. El
+// controller real ya lo cubren los tres tests de arriba, y el de /otp dispararía
+// un email real de Supabase por cada request.
+//
+// LO QUE TIENEN QUE DEMOSTRAR, y por qué los dos sentidos: con el keying por IP
+// anterior, TODOS los requests de estos tests salían de 127.0.0.1 y compartían
+// un único cupo — así que "otro email sigue pasando" es la aserción que habría
+// fallado con el código viejo, y "el mismo email con otro case comparte cupo" es
+// la que impide que el fix se pueda esquivar alternando mayúsculas.
+// ---------------------------------------------------------------------------
+
+function mountOnboardingKeyingStub(app: express.Express) {
+  app.post("/onboarding", createOnboardingRateLimiter(), (_req, res) => {
+    res.status(200).json({ ok: true });
+  });
+  app.post("/onboarding/otp", createOnboardingOtpRateLimiter(), (_req, res) => {
+    res.status(200).json({ ok: true });
+  });
+}
+
+function bodyDeOnboarding(email: string) {
+  return {
+    organizationName: "Keying",
+    fullName: "Keying Test",
+    email,
+    password: "password123",
+    otp: "000000",
+  };
+}
+
+async function postJson(url: string, body: unknown) {
+  return fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+test("onboardingRateLimiter: el cupo es por email — el mismo email (aun con otro case y espacios) lo comparte, otro email no", async () => {
+  const { url, close } = await startTestApp(mountOnboardingKeyingStub);
+  try {
+    const sufijo = randomUUID().slice(0, 8);
+    const emailA = `keying-a-${sufijo}@example.test`;
+
+    for (let i = 0; i < ONBOARDING_MAX; i++) {
+      const res = await postJson(`${url}/onboarding`, bodyDeOnboarding(emailA));
+      assert.equal(res.status, 200, `intento ${i + 1}/${ONBOARDING_MAX} de A debería contar`);
+    }
+
+    // La misma dirección escrita distinto: Supabase la trata como la misma
+    // cuenta, así que tiene que caer en el mismo cupo — si no, alternar el case
+    // multiplicaría el cupo gratis.
+    const mismaConOtroCase = await postJson(
+      `${url}/onboarding`,
+      bodyDeOnboarding(`  KEYING-A-${sufijo}@Example.TEST  `),
+    );
+    assert.equal(
+      mismaConOtroCase.status,
+      429,
+      "el mismo email con otro case/espacios tiene que compartir el cupo agotado",
+    );
+    assert.ok(mismaConOtroCase.headers.get("retry-after"));
+
+    // LA ASERCIÓN QUE HABRÍA FALLADO CON EL KEYING POR IP: otro email, desde la
+    // misma IP (todo este test sale de 127.0.0.1), sigue teniendo su cupo.
+    const otroEmail = await postJson(
+      `${url}/onboarding`,
+      bodyDeOnboarding(`keying-b-${sufijo}@example.test`),
+    );
+    assert.equal(
+      otroEmail.status,
+      200,
+      "otro email no puede verse afectado por el cupo agotado del primero — con keying por IP esto daba 429",
+    );
+  } finally {
+    await close();
+  }
+});
+
+test("onboardingOtpRateLimiter: el cupo es por email — el mismo email lo comparte, otro email no", async () => {
+  const { url, close } = await startTestApp(mountOnboardingKeyingStub);
+  try {
+    const sufijo = randomUUID().slice(0, 8);
+    const emailA = `otp-keying-a-${sufijo}@example.test`;
+
+    for (let i = 0; i < ONBOARDING_OTP_MAX; i++) {
+      const res = await postJson(`${url}/onboarding/otp`, { email: emailA });
+      assert.equal(res.status, 200, `pedido ${i + 1}/${ONBOARDING_OTP_MAX} de A debería contar`);
+    }
+
+    const mismaConOtroCase = await postJson(`${url}/onboarding/otp`, {
+      email: `OTP-Keying-A-${sufijo}@EXAMPLE.test`,
+    });
+    assert.equal(mismaConOtroCase.status, 429);
+    assert.ok(mismaConOtroCase.headers.get("retry-after"));
+
+    const otroEmail = await postJson(`${url}/onboarding/otp`, {
+      email: `otp-keying-b-${sufijo}@example.test`,
+    });
+    assert.equal(
+      otroEmail.status,
+      200,
+      "otro email no puede verse afectado por el cupo agotado del primero — con keying por IP esto daba 429",
+    );
+
+    // Y un body sin email válido sigue sin consumir cupo de nadie ni romper
+    // el keyGenerator: skip() lo descarta antes de que se pida una clave.
+    const invalido = await postJson(`${url}/onboarding/otp`, { email: "no-es-un-email" });
+    assert.equal(invalido.status, 200, "el stub responde 200: el limiter lo salteó sin error");
+  } finally {
+    await close();
+  }
+});
+
+// Los dos limiters de onboarding cuentan cosas distintas: agotar el pedido de
+// códigos de un email no puede dejar sin cupo al registro de ese mismo email
+// (son dos endpoints, dos stores).
+test("los cupos de /onboarding/otp y /onboarding son independientes para el mismo email", async () => {
+  const { url, close } = await startTestApp(mountOnboardingKeyingStub);
+  try {
+    const email = `otp-vs-registro-${randomUUID().slice(0, 8)}@example.test`;
+
+    for (let i = 0; i < ONBOARDING_OTP_MAX; i++) {
+      assert.equal((await postJson(`${url}/onboarding/otp`, { email })).status, 200);
+    }
+    assert.equal((await postJson(`${url}/onboarding/otp`, { email })).status, 429);
+
+    const registro = await postJson(`${url}/onboarding`, bodyDeOnboarding(email));
+    assert.equal(registro.status, 200, "el registro del mismo email tiene su propio cupo");
+  } finally {
+    await close();
   }
 });
 
