@@ -45,7 +45,7 @@ import { prisma } from "./prisma";
 const DIAGNOSTICO = "docs/auditoria-2026-08-21-diagnostico.sql";
 
 // La cola del normalizador tal como aparece en el .sql. Se afirma más abajo que
-// las 11 copias del archivo son idénticas a ésta y que no hay ninguna otra
+// las 13 copias del archivo son idénticas a ésta y que no hay ninguna otra
 // variante: si alguien afloja el normalizador —agrega un tipo a la lista de
 // casts, saca un paso— este test deja de estar probando lo que el diagnóstico
 // hace de verdad, y tiene que enterarse.
@@ -66,9 +66,12 @@ const CABEZA_NORMALIZADOR = "lower(regexp_replace(regexp_replace(regexp_replace(
 // el test. Contar es lo que convierte la aserción en una que no puede pasar sin
 // la propiedad.
 //
-// 11 = 5 comparaciones con dos lados (filas 5, 7, 8, 9 y 10) + la fila 15, que
-// compara un solo lado contra un literal ya normalizado.
-const COPIAS_ESPERADAS = 11;
+// 13 = 6 comparaciones con dos lados (filas 5, 7, 8, 9, 10 y 17) + la fila 15,
+// que compara un solo lado contra un literal ya normalizado. La fila 17 (M-7 de
+// docs/auditoria-2026-08-29.md, índices parciales no únicos) sumó las dos
+// últimas: es el único cambio legítimo de este número — una fila NUEVA que
+// compara por definición—, no una copia de más en una fila que ya existía.
+const COPIAS_ESPERADAS = 13;
 
 // Los únicos regexp_replace del archivo que NO son parte del normalizador: las
 // filas 14 y 16 sacan la calificación de esquema de conrelid/confrelid para
@@ -146,7 +149,7 @@ function escaparParaRegex(texto: string): string {
   return texto.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Las 11 copias del normalizador en el .sql son idénticas entre sí, idénticas a
+// Las 13 copias del normalizador en el .sql son idénticas entre sí, idénticas a
 // la que usa este test, y no hay ninguna otra variante en el archivo.
 //
 // Las tres aserciones son distintas y hacen falta las tres:
@@ -160,7 +163,7 @@ function escaparParaRegex(texto: string): string {
 // La versión anterior era `archivo.includes(COLA)`, que devuelve true con una
 // sola coincidencia: pasaba con 10 copias buenas y 1 divergente, que es
 // exactamente lo que había.
-test("las 11 copias del normalizador en el .sql son idénticas y no hay variantes", () => {
+test("las 13 copias del normalizador en el .sql son idénticas y no hay variantes", () => {
   // Se sacan las líneas de comentario con el mismo criterio que extraerConsulta
   // en scripts/verify-schema.ts: la propiedad es sobre el SQL que se le manda a
   // Postgres, no sobre la prosa que lo explica. Sin esto, mencionar
@@ -242,6 +245,35 @@ test("fila 7 distingue un índice que dejó de ser único", async () => {
     // Sin UNIQUE la ingesta deja de ser idempotente y un webhook que reintenta
     // duplica. El nombre no cambia.
     "CREATE INDEX ingestion_events_source_external_unique ON public.ingestion_events USING btree (source_id, external_id) WHERE (external_id IS NOT NULL)",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Fila 17 — índices parciales NO únicos (M-7 de docs/auditoria-2026-08-29.md)
+// ---------------------------------------------------------------------------
+
+test("fila 17 distingue el índice de google_event_id al que le sacaron el predicado parcial", async () => {
+  await assertDiscrimina(
+    "bookings_organization_id_google_event_id_idx",
+    `pg_get_indexdef('public.bookings_organization_id_google_event_id_idx'::regclass)`,
+    "CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)",
+    // Sin el predicado el índice indexa también todas las reservas sin evento
+    // de Google —que nunca van a matchear la consulta— y crece con cada
+    // reserva del tenant. Mismo nombre, mismas columnas: un chequeo por nombre
+    // lo daría por bueno.
+    "CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (organization_id, google_event_id)",
+  );
+});
+
+test("fila 17 distingue el índice con las columnas en el orden invertido", async () => {
+  await assertDiscrimina(
+    "bookings_organization_id_google_event_id_idx",
+    `pg_get_indexdef('public.bookings_organization_id_google_event_id_idx'::regclass)`,
+    "CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)",
+    // (google_event_id, organization_id) sirve a la misma consulta, pero es
+    // otra definición: el chequeo compara la definición entera, no "un índice
+    // que tenga esas columnas".
+    "CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (google_event_id, organization_id) WHERE (google_event_id IS NOT NULL)",
   );
 });
 

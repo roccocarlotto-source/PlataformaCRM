@@ -7,7 +7,7 @@ import { PrismaClient } from "@prisma/client";
 // constraints, políticas RLS, la función current_organization_id) están
 // realmente ahí.
 //
-// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 16
+// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 17
 // chequeos y se escribió para correrse a mano en el SQL Editor de Supabase.
 // Acá se ejecuta igual —es una sola sentencia, de solo lectura— y además se
 // afirma sobre el subconjunto que tiene una respuesta mecánica: si algo
@@ -198,6 +198,15 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
     {
       descripcion: "C-3 · las 28 FKs conocidas siguen apuntando a la tabla padre de su diseño",
       esperado: "ninguna",
+    },
+  ],
+  // M-7: los índices parciales NO únicos, que la fila 7 no cubre. Hoy solo el
+  // de bookings.google_event_id; los tres de B-14 van acá cuando se triage.
+  [
+    17,
+    {
+      descripcion: "M-7 · los índices parciales no únicos, por pg_get_indexdef",
+      esperado: "ninguno",
     },
   ],
 ]);
