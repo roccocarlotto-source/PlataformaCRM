@@ -299,5 +299,13 @@ export async function lockStageForUpdate(
   organizationId: string,
   db: Db,
 ): Promise<void> {
-  await db.$queryRaw`SELECT id FROM stages WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid FOR UPDATE`;
+  // Cero filas = no se bloqueó nada; ver lockOrganizationForUpdate (B-17).
+  const filas = await db.$queryRaw<
+    { id: string }[]
+  >`SELECT id FROM stages WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid FOR UPDATE`;
+  if (filas.length === 0) {
+    throw new Error(
+      `lockStageForUpdate: no existe el stage ${id} en la organización ${organizationId} — no se tomó ningún lock`,
+    );
+  }
 }
