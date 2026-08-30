@@ -2,7 +2,7 @@ import { IngestionStatus } from "@prisma/client";
 import { insertPendingIngestionEvent } from "../repositories/ingestionEvent.repository";
 import type { IngestContext } from "../types/ingest";
 import { AppError } from "../utils/AppError";
-import { deriveExternalId } from "../utils/externalId";
+import { deriveExternalId, validatePayloadDepth } from "../utils/externalId";
 
 // ---------------------------------------------------------------------------
 // La mitad de staging de la ingesta (docs/ingestion-architecture.md §5): valida
@@ -56,6 +56,14 @@ export async function ingestEvent(
       400,
     );
   }
+
+  // El guard de profundidad corre SIEMPRE, venga o no X-External-Id, y antes
+  // del INSERT: el JSON.stringify del repositorio es recursivo y sin límite
+  // propio, y el `??` de abajo hace que deriveExternalId (y con él el chequeo
+  // que trae adentro) se saltee justo cuando el header viene provisto (M-15).
+  // No contradice el "no valida la forma del payload" de arriba: no es una
+  // regla de negocio sobre el contenido, es una defensa del proceso.
+  validatePayloadDepth(payload);
 
   // Provisto por la fuente o derivado del contenido — §4 y §8, que advierte
   // explícitamente contra confiar en que venga siempre. El derivado se calcula

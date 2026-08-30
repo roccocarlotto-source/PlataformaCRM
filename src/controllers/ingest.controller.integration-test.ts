@@ -20,7 +20,7 @@ import { createIngestRateLimiter } from "../middlewares/rateLimit";
 import { insertPendingIngestionEvent } from "../repositories/ingestionEvent.repository";
 import { LAST_USED_AT_GRANULARITY_MS } from "../services/ingestAuth.service";
 import { generateApiKey } from "../utils/apiKey";
-import { deriveExternalId } from "../utils/externalId";
+import { deriveExternalId, MAX_PAYLOAD_DEPTH } from "../utils/externalId";
 import { ingestHandler } from "./ingest.controller";
 
 // ---------------------------------------------------------------------------
@@ -713,6 +713,83 @@ test("un array da 400 — los lotes son el ítem 5 y todavía no tienen contrato
     externalId: `array-${randomUUID()}`,
   });
   assert.equal(res.status, 400);
+});
+
+// ---------------------------------------------------------------------------
+// Profundidad del payload (M-15 de docs/auditoria-2026-08-29.md)
+//
+// El guard de MAX_PAYLOAD_DEPTH vivía solo dentro de canonicalize, que corre
+// únicamente para DERIVAR el externalId. Con X-External-Id provisto no se
+// derivaba nada, el payload llegaba sin chequear al JSON.stringify del
+// repositorio, y un anidamiento excesivo salía como 500 (RangeError, que no es
+// AppError) en vez del 400 del otro camino. externalId.test.ts ya cubre el
+// camino derivado contra la función; estos tres fijan el contrato por HTTP en
+// los DOS caminos, con el mismo truco de construcción que aquel archivo.
+// ---------------------------------------------------------------------------
+
+function payloadPorEncimaDelLimite(): Record<string, unknown> {
+  let profundo: unknown = "fondo";
+  for (let i = 0; i <= MAX_PAYLOAD_DEPTH + 5; i++) {
+    profundo = [profundo];
+  }
+  return { payload: profundo };
+}
+
+const MENSAJE_PROFUNDIDAD = `El payload excede los ${MAX_PAYLOAD_DEPTH} niveles de anidamiento permitidos`;
+
+test("un anidamiento excesivo CON X-External-Id da 400 con el mensaje del guard, no 500 (M-15)", async () => {
+  const externalId = `profundo-${randomUUID()}`;
+  const res = await ingest(fx.claveA, payloadPorEncimaDelLimite(), { externalId });
+
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: { message: string } };
+  assert.equal(body.error.message, MENSAJE_PROFUNDIDAD, "el mismo mensaje que el camino derivado");
+
+  // El rechazo es antes del INSERT: no quedó ninguna fila con ese externalId.
+  assert.equal(await eventosDe(fx.sourceA, externalId), 0);
+});
+
+// El 500 de verdad. Con MAX_PAYLOAD_DEPTH + 5 niveles el JSON.stringify del
+// repositorio todavía no desborda (antes del fix ese caso daba 202: se
+// guardaba sin chequear); el desborde aparece desde unos miles de niveles.
+// JSON.parse de V8 es iterativo y lo acepta sin problema, así que el cuerpo
+// pasa el parser y llega entero al service — 10.000 niveles son ~20 KB,
+// holgado bajo INGEST_MAX_BODY_BYTES. Es el escenario literal del hallazgo.
+test("un anidamiento de miles de niveles CON X-External-Id da 400, no el 500 del desborde de pila (M-15)", async () => {
+  const niveles = 10_000;
+  const raw = `{"payload":${"[".repeat(niveles)}1${"]".repeat(niveles)}}`;
+  assert.ok(raw.length < INGEST_MAX_BODY_BYTES, "el cuerpo tiene que pasar el límite de tamaño");
+
+  const externalId = `abismo-${randomUUID()}`;
+  const res = await ingest(fx.claveA, null, { raw, externalId });
+
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: { message: string } };
+  assert.equal(body.error.message, MENSAJE_PROFUNDIDAD);
+  assert.equal(await eventosDe(fx.sourceA, externalId), 0);
+});
+
+test("un anidamiento excesivo SIN X-External-Id sigue dando 400 (regresión del camino que ya andaba)", async () => {
+  const res = await ingest(fx.claveA, payloadPorEncimaDelLimite());
+
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: { message: string } };
+  assert.equal(body.error.message, MENSAJE_PROFUNDIDAD);
+});
+
+test("el anidamiento justo dentro del límite CON X-External-Id se acepta (control del borde)", async () => {
+  let dentro: unknown = "fondo";
+  // -1 porque el objeto que envuelve ya cuenta como un nivel — el mismo
+  // criterio que externalId.test.ts.
+  for (let i = 0; i < MAX_PAYLOAD_DEPTH - 1; i++) {
+    dentro = [dentro];
+  }
+
+  const externalId = `borde-${randomUUID()}`;
+  const res = await ingest(fx.claveA, { payload: dentro }, { externalId });
+
+  assert.equal(res.status, 202);
+  assert.equal(await eventosDe(fx.sourceA, externalId), 1);
 });
 
 // ---------------------------------------------------------------------------
