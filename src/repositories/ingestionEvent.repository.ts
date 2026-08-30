@@ -1,7 +1,60 @@
 import { IngestionStatus, Prisma, type SourceType } from "@prisma/client";
 import type { PromotionNote } from "../types/promotion";
 import { prisma, type Db } from "../lib/prisma";
+import { AppError } from "../utils/AppError";
 import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
+
+// ---------------------------------------------------------------------------
+// El carácter NUL (U+0000) y jsonb — M-16 de docs/auditoria-2026-08-29.md.
+//
+// Postgres no admite U+0000 dentro de un jsonb (error 22P05, "unsupported
+// Unicode escape sequence"), y nada antes de este archivo lo filtra:
+// JSON.parse acepta el escape de NUL como string válido, esObjetoJson solo
+// mira el tipo, y csv-parse conserva el byte en la celda. Sin este chequeo,
+// el INSERT revienta con el error crudo de Postgres —que no es AppError— y el
+// emisor recibe un 500 por algo que mandó él.
+//
+// SE RECHAZA, NO SE SANITIZA. Guardar el payload "tal cual llegó, sin
+// normalizar nada" es el principio de ingestEvent (§1); borrar el byte en
+// silencio lo rompería, y es el mismo criterio que M-15 (rechazar, no truncar).
+//
+// El recorrido es sobre el VALOR YA DECODIFICADO, comparando el carácter real.
+// No se busca el escape como sub-cadena dentro de JSON.stringify(payload): un
+// string legítimo que contenga ese escape escrito como texto plano (alguien
+// pega una regex o documentación) se reserializa con el backslash duplicado,
+// y la cadena resultante contiene el patrón buscado a partir del segundo
+// backslash — falso positivo sobre un payload que no tiene ningún NUL real.
+// Un NUL real en el string decodificado no se confunde con seis caracteres
+// de texto.
+//
+// Vive acá y no en los services porque los dos INSERT de jsonb están en este
+// archivo: un solo chequeo cubre /api/ingest y /api/imports a la vez.
+// ---------------------------------------------------------------------------
+
+const NUL = String.fromCharCode(0);
+
+function contieneNul(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.includes(NUL);
+  }
+  if (Array.isArray(value)) {
+    return value.some(contieneNul);
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).some(
+      ([clave, val]) => clave.includes(NUL) || contieneNul(val),
+    );
+  }
+  return false;
+}
+
+const MENSAJE_NUL = "no puede contener el carácter NUL (U+0000)";
+
+function assertSinNul(rawPayload: unknown): void {
+  if (contieneNul(rawPayload)) {
+    throw new AppError(`El payload ${MENSAJE_NUL}`, 400);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Staging de la ingesta (docs/ingestion-architecture.md §1 y §5): una fila por
@@ -70,6 +123,8 @@ export async function insertPendingIngestionEvent(
   data: InsertPendingEventData,
   db: Db = prisma,
 ): Promise<InsertPendingEventResult> {
+  assertSinNul(data.rawPayload);
+
   const ejecutar = async (tx: Db): Promise<InsertPendingEventResult> => {
     const insertadas = await tx.$queryRaw<FilaId[]>`
       INSERT INTO ingestion_events (
@@ -323,6 +378,24 @@ export async function insertPendingEventsBatch(
   },
   db: Db = prisma,
 ): Promise<InsertBatchResult> {
+  // TODAS las filas se validan ANTES de la primera tanda, no tanda por tanda:
+  // si la fila 2.900 de 3.000 trae un NUL, no tiene que haber quedado nada de
+  // las 2.800 anteriores. Es la única forma de garantizar "cero filas
+  // insertadas" sin depender de la atomicidad entre tandas (M-17).
+  //
+  // `i + 1` es el mismo número de fila que lleva el externalId (ver
+  // filasParaStaging en utils/spreadsheet.ts): 1-based y contando solo filas
+  // de datos. Es el único dato que el usuario tiene para ubicar la fila en su
+  // archivo.
+  data.filas.forEach((fila, i) => {
+    if (contieneNul(fila.rawPayload)) {
+      throw new AppError(
+        `La fila ${i + 1} del archivo (contando solo filas de datos, sin el encabezado) ${MENSAJE_NUL}`,
+        400,
+      );
+    }
+  });
+
   let insertados = 0;
 
   for (let i = 0; i < data.filas.length; i += FILAS_POR_TANDA) {

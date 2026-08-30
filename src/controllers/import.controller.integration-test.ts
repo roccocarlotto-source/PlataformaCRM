@@ -512,6 +512,39 @@ test("un archivo por encima de IMPORT_MAX_FILE_BYTES da 413, no el 500 que darí
   assert.equal(res.status, 413);
 });
 
+// M-16 de docs/auditoria-2026-08-29.md. csv-parse conserva un byte NUL dentro
+// de la celda (verificado contra la librería: "a" + NUL + "b" vuelve como un
+// string de 3 caracteres con códigos [97, 0, 98]), así que llega intacto al
+// jsonb y Postgres lo rechaza con 22P05. Se rechaza el archivo ENTERO con 400
+// antes de la primera tanda: cero filas insertadas, incluidas las anteriores a
+// la fila con el NUL, sin depender de la atomicidad entre tandas (M-17).
+//
+// El byte se arma con Buffer.from([0]) a propósito: ni un NUL literal ni su
+// escape escrito como texto en este archivo.
+test("un CSV con un byte NUL en una celda da 400, no 500, y no inserta NINGUNA fila (M-16)", async () => {
+  const source = await crearSource("Con NUL", "FILE_IMPORT");
+  const csv = Buffer.concat([
+    Buffer.from("nombre,email\nAna,ana@y.com\nBeto,beto@y.com\na"),
+    Buffer.from([0]),
+    Buffer.from("b,x@y.com\n"),
+  ]);
+
+  const res = await subir(admin.accessToken, source, "con-nul.csv", csv);
+
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: { message: string } };
+  assert.match(body.error.message, /NUL \(U\+0000\)/);
+  // La fila 3 de datos es la del NUL — el mismo número que ve el usuario en su
+  // archivo sin contar el encabezado, y el único dato que tiene para ubicarla.
+  assert.match(body.error.message, /fila 3 /);
+
+  // Las dos filas ANTERIORES a la del NUL tampoco entraron.
+  assert.equal(
+    await prisma.ingestionEvent.count({ where: { organizationId: orgId, sourceId: source } }),
+    0,
+  );
+});
+
 test('un multipart SIN el campo "file" da 400, no un 500 por req.file undefined', async () => {
   // El handler hace `req.file!`. Ese non-null solo es honesto si el middleware
   // garantiza que existe: si algún día se sacara el chequeo de importUpload,
