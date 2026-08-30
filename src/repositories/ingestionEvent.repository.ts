@@ -353,7 +353,27 @@ export function markEventFailed(
 // ocupa la sentencia armada.
 // ---------------------------------------------------------------------------
 
-const FILAS_POR_TANDA = 500;
+export const FILAS_POR_TANDA = 500;
+
+// Tope de la transacción que envuelve TODAS las tandas de un archivo (M-17 de
+// docs/auditoria-2026-08-29.md). No es el default de Prisma (5 s) por
+// decisión, no por descuido: el peor caso legítimo son MAX_FILAS_POR_ARCHIVO
+// (10.000, utils/spreadsheet.ts) / FILAS_POR_TANDA = 20 round-trips
+// secuenciales dentro de una sola transacción interactiva. MEDIDO al escribir
+// esto, contra una base de Supabase remota (latencia de red incluida): una
+// tanda de 500 filas tarda 160-330 ms y las 20 tandas completas, 3,2 s. Es
+// decir, el default de 5 s quedaba a menos de 2× de una importación legítima
+// en el tope: envolver en transacción sin tocarlo habría convertido "arregla
+// un fallo raro" en "una importación grande ahora puede fallar por timeout".
+// 60 s son ~19× esa medida —margen para un pool saturado o un disco lento—
+// sin dejar una transacción colgada para siempre si la conexión se muere.
+// El test de ingestionEvent-batch.integration-test.ts fija que la
+// extrapolación a 20 tandas siga entrando con margen; si algún día falla, el
+// número se repiensa con una medida nueva, no se sube a ciegas.
+//
+// maxWait (cuánto se espera un slot del pool ANTES de abrir la transacción)
+// queda en el default de 2 s, el mismo que usa cada $transaction del proyecto.
+export const IMPORT_BATCH_TRANSACTION_TIMEOUT_MS = 60_000;
 
 export interface FilaDeLote {
   externalId: string;
@@ -396,43 +416,62 @@ export async function insertPendingEventsBatch(
     }
   });
 
-  let insertados = 0;
+  // TODAS las tandas van en UNA transacción (M-17). Sin ella cada
+  // `await $queryRaw` era su propio commit: si la tanda 4 de 6 moría por una
+  // falla de infraestructura, las tandas 1-3 quedaban commiteadas bajo un
+  // batchId que el cliente nunca recibió (el request respondió 500), el worker
+  // las promovía igual, y en el reintento caían como "duplicados" sin que
+  // ningún resumen de ningún request las mencionara jamás. No se perdían
+  // datos; se perdía la trazabilidad. Ahora, o entra el archivo entero o no
+  // entra nada, y el 500 sigue siendo 500: es una falla del servidor, no del
+  // cliente.
+  const ejecutar = async (tx: Db): Promise<InsertBatchResult> => {
+    let insertados = 0;
 
-  for (let i = 0; i < data.filas.length; i += FILAS_POR_TANDA) {
-    const tanda = data.filas.slice(i, i + FILAS_POR_TANDA);
+    for (let i = 0; i < data.filas.length; i += FILAS_POR_TANDA) {
+      const tanda = data.filas.slice(i, i + FILAS_POR_TANDA);
 
-    const valores = tanda.map(
-      (fila) => Prisma.sql`(
-        ${data.organizationId}::uuid,
-        ${data.sourceId}::uuid,
-        ${data.batchId}::uuid,
-        ${fila.externalId},
-        ${JSON.stringify(fila.rawPayload)}::jsonb,
-        'PENDING'::"IngestionStatus",
-        now(), now()
-      )`,
-    );
+      const valores = tanda.map(
+        (fila) => Prisma.sql`(
+          ${data.organizationId}::uuid,
+          ${data.sourceId}::uuid,
+          ${data.batchId}::uuid,
+          ${fila.externalId},
+          ${JSON.stringify(fila.rawPayload)}::jsonb,
+          'PENDING'::"IngestionStatus",
+          now(), now()
+        )`,
+      );
 
-    // Dos filas del MISMO archivo nunca colisionan entre sí, y no por suerte:
-    // el externalId de una fila de archivo incluye su número de fila (ver
-    // utils/spreadsheet.ts), así que dos filas idénticas del mismo archivo
-    // producen externalId distintos. Sin eso, dos filas iguales colapsarían en
-    // una y se perdería un lead sin que nada lo dijera.
-    const insertadas = await db.$queryRaw<FilaId[]>`
-      INSERT INTO ingestion_events (
-        organization_id, source_id, batch_id, external_id, raw_payload, status,
-        created_at, updated_at
-      )
-      VALUES ${Prisma.join(valores)}
-      ON CONFLICT (source_id, external_id) WHERE external_id IS NOT NULL
-      DO NOTHING
-      RETURNING id
-    `;
+      // Dos filas del MISMO archivo nunca colisionan entre sí, y no por
+      // suerte: el externalId de una fila de archivo incluye su número de fila
+      // (ver utils/spreadsheet.ts), así que dos filas idénticas del mismo
+      // archivo producen externalId distintos. Sin eso, dos filas iguales
+      // colapsarían en una y se perdería un lead sin que nada lo dijera.
+      const insertadas = await tx.$queryRaw<FilaId[]>`
+        INSERT INTO ingestion_events (
+          organization_id, source_id, batch_id, external_id, raw_payload, status,
+          created_at, updated_at
+        )
+        VALUES ${Prisma.join(valores)}
+        ON CONFLICT (source_id, external_id) WHERE external_id IS NOT NULL
+        DO NOTHING
+        RETURNING id
+      `;
 
-    insertados += insertadas.length;
-  }
+      insertados += insertadas.length;
+    }
 
-  return { insertados, duplicados: data.filas.length - insertados };
+    return { insertados, duplicados: data.filas.length - insertados };
+  };
+
+  // Mismo criterio que insertPendingIngestionEvent: si ya viene una
+  // transacción, se usa esa — anidar $transaction sobre un TransactionClient
+  // no es válido. Hoy import.service.ts siempre llama con el cliente raíz,
+  // pero la función no tiene por qué saberlo.
+  return "$transaction" in db
+    ? db.$transaction((tx) => ejecutar(tx), { timeout: IMPORT_BATCH_TRANSACTION_TIMEOUT_MS })
+    : ejecutar(db);
 }
 
 // ---------------------------------------------------------------------------
