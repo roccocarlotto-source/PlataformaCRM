@@ -146,7 +146,7 @@ export async function createInvitation(
 
   if (authError || !authData.user) {
     try {
-      await hardDeleteInvitation(invitation.id);
+      await hardDeleteInvitation(invitation.id, organizationId);
     } catch (cleanupErr) {
       logger.error(
         { err: cleanupErr, orphanedInvitationId: invitation.id },
