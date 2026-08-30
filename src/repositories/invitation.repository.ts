@@ -138,11 +138,47 @@ export function revokeInvitationConditional(id: string, organizationId: string, 
   });
 }
 
-export function acceptInvitationRowConditional(id: string, db: Db = prisma) {
-  return db.invitation.updateMany({
-    where: { id, status: "PENDING" },
-    data: { status: "ACCEPTED", acceptedAt: new Date() },
-  });
+// expiresAt > now() en el propio WHERE (B-18 de docs/auditoria-2026-08-29.md):
+// el CAS es ahora también la defensa real contra la carrera de VENCIMIENTO,
+// no solo contra accept-vs-accept / accept-vs-revoke. Sin esto, una fila que
+// cruzaba expiresAt entre el pre-check del service (Date.now() de JS) y esta
+// escritura seguía en PENDING —nadie había corrido expireDueInvitations sobre
+// ella todavía— y el CAS la aceptaba igual. La ventana es de milisegundos,
+// pero es exactamente lo que "la escritura misma es la garantía, no el
+// pre-check" viene a cerrar. Cuando el CAS falla por este motivo, el caller
+// (acceptInvitation) distingue el caso PENDING-pero-vencida y responde el 410
+// de vencimiento, expirando la fila de paso.
+// SQL crudo con clock_timestamp() y no updateMany con new Date(), y la
+// diferencia es el punto entero de B-18: un Date de JS se evalúa AL LLAMAR la
+// función, así que un CAS que queda bloqueado esperando el lock de otra
+// transacción compararía expires_at contra un reloj viejo y aceptaría una
+// fila ya vencida al liberarse — se comprobó empíricamente al escribir el
+// test. clock_timestamp() se evalúa en el momento de la EJECUCIÓN del UPDATE
+// (a diferencia de now(), que es el inicio de transacción), así que la
+// escritura misma decide con el reloj real, sin ninguna ventana.
+//
+// LÍMITE CONOCIDO, verificado empíricamente al escribir el test: NINGUNA
+// guarda en el WHERE cubre al caso en que este UPDATE queda bloqueado detrás
+// de una transacción que NO modifica la fila (un SELECT FOR UPDATE pelado):
+// Postgres evalúa el qual ANTES de bloquear, y sin una versión nueva de la
+// fila no hay re-evaluación al liberarse — el UPDATE aplica con la decisión
+// vieja. Ese caso no existe en producción: los únicos que compiten por esta
+// fila (accept, revoke, expire) SÍ la modifican, y una fila modificada
+// dispara la re-evaluación (EvalPlanQual) sobre la versión nueva, donde
+// clock_timestamp() —volátil— vuelve a ejecutarse fresco. Es exactamente lo
+// que el test determinístico de B-18 fuerza con un "touch".
+export async function acceptInvitationRowConditional(
+  id: string,
+  db: Db = prisma,
+): Promise<{ count: number }> {
+  const count = await db.$executeRaw`
+    UPDATE invitations
+    SET status = 'ACCEPTED'::"InvitationStatus", accepted_at = now(), updated_at = now()
+    WHERE id = ${id}::uuid
+      AND status = 'PENDING'::"InvitationStatus"
+      AND expires_at > clock_timestamp()
+  `;
+  return { count };
 }
 
 // Compensación deliberada de createInvitation cuando falla la llamada a
