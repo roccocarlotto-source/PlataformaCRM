@@ -6,6 +6,7 @@ import {
   createContact as createContactRepo,
   erasePersonalDataFromContact,
   findContactById,
+  findContactByIdIncludingDeleted,
   findManyContacts,
   softDeleteContact,
   updateContact as updateContactRepo,
@@ -263,7 +264,19 @@ export async function erasePersonalData(
   organizationId: string,
   id: string,
 ): Promise<ResultadoDeBorrado> {
-  await getContactById(organizationId, id);
+  // M-18 (auditoría 2026-08-29): INCLUYENDO los soft-deleteados, y no
+  // getContactById. Ese helper filtra deletedAt: null —correcto para
+  // list/get/update/delete— y acá estaba reutilizado sin querer para lo
+  // contrario: un contacto que ya recibió DELETE /api/contacts/:id (soft
+  // delete) respondía 404 al pedir el borrado de sus datos, que seguían en la
+  // fila y en ingestion_events.raw_payload, sin ningún camino para destruirlos.
+  // El repositorio ya estaba preparado (erasePersonalDataFromContact ignora
+  // deletedAt a propósito); lo que faltaba era que el service lo dejara llegar.
+  // El aislamiento no cambia: organizationId sigue en el WHERE.
+  const contacto = await findContactByIdIncludingDeleted(id, organizationId);
+  if (!contacto) {
+    throw new AppError("Contacto no encontrado", 404);
+  }
 
   return prisma.$transaction(async (tx) => {
     const contacto = await erasePersonalDataFromContact(id, organizationId, tx);

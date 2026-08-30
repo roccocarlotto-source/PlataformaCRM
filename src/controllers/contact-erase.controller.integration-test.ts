@@ -369,6 +369,87 @@ test("el ADMIN de otra organización recibe 404, y no borra nada", async () => {
   assert.notEqual(contacto.email, null);
 });
 
+// ---------------------------------------------------------------------------
+// M-18 (docs/auditoria-2026-08-29.md) — el borrado de datos sobre un contacto
+// YA soft-deleteado. Era el caso más común en la práctica —alguien pide que su
+// ficha se oculte y después que sus datos se destruyan, o al revés— y respondía
+// 404: el pre-chequeo reutilizaba findContactById (deletedAt: null) para algo
+// que necesita lo contrario. Los datos seguían en la fila y en raw_payload.
+// ---------------------------------------------------------------------------
+
+test("M-18: un contacto soft-deleteado SÍ se puede borrar: 200, los datos se destruyen y deletedAt se conserva", async () => {
+  const { contactId, eventoId } = await crearContactoConEvento(orgA, sourceA);
+
+  const borrado = await call("DELETE", `/api/contacts/${contactId}`, adminA.accessToken);
+  assert.equal(borrado.status, 204, "el soft delete real, por la ruta real");
+  const ocultado = await leerContacto(contactId);
+  assert.notEqual(ocultado.deletedAt, null, "premisa: quedó soft-deleteado");
+  assert.equal(ocultado.firstName, "Ana", "y con sus datos intactos");
+
+  const res = await call(
+    "POST",
+    `/api/contacts/${contactId}/erase-personal-data`,
+    adminA.accessToken,
+  );
+  assert.equal(res.status, 200, "antes: 404, y los datos personales quedaban ahí");
+
+  // Igual que en el camino sin soft delete: marcador en los NOT NULL, NULL en
+  // el resto, y el rawPayload del evento anonimizado.
+  const contacto = await leerContacto(contactId);
+  assert.equal(contacto.firstName, MARCADOR_DE_DATO_BORRADO);
+  assert.equal(contacto.lastName, MARCADOR_DE_DATO_BORRADO);
+  assert.equal(contacto.email, null);
+  assert.equal(contacto.phone, null);
+  assert.equal(contacto.jobTitle, null);
+  // Y sigue oculto: destruir el dato no revierte el soft delete. Son los dos
+  // conceptos distintos que el repositorio ya documenta.
+  assert.notEqual(contacto.deletedAt, null, "el borrado de datos no revierte el soft delete");
+
+  const evento = await leerEvento(eventoId);
+  assert.equal(evento.rawPayload, null);
+  assert.equal(evento.promotedContactId, contactId, "el vínculo con el historial sobrevive");
+});
+
+test("M-18: un contacto soft-deleteado de OTRA organización sigue dando 404 — el organizationId del WHERE es lo que protege, no el filtro de deletedAt", async () => {
+  const { contactId } = await crearContactoConEvento(orgA, sourceA);
+  await call("DELETE", `/api/contacts/${contactId}`, adminA.accessToken);
+
+  const res = await call(
+    "POST",
+    `/api/contacts/${contactId}/erase-personal-data`,
+    adminB.accessToken,
+  );
+  assert.equal(res.status, 404);
+
+  const contacto = await leerContacto(contactId);
+  assert.equal(contacto.firstName, "Ana", "un pedido cross-organización no puede tocar la fila");
+  assert.notEqual(contacto.email, null);
+  assert.notEqual(contacto.deletedAt, null);
+});
+
+test("M-18: sobre un contacto soft-deleteado también es idempotente — pedirlo dos veces no falla", async () => {
+  const { contactId } = await crearContactoConEvento(orgA, sourceA);
+  await call("DELETE", `/api/contacts/${contactId}`, adminA.accessToken);
+
+  const primera = await call(
+    "POST",
+    `/api/contacts/${contactId}/erase-personal-data`,
+    adminA.accessToken,
+  );
+  assert.equal(primera.status, 200);
+
+  const segunda = await call(
+    "POST",
+    `/api/contacts/${contactId}/erase-personal-data`,
+    adminA.accessToken,
+  );
+  assert.equal(segunda.status, 200);
+
+  const contacto = await leerContacto(contactId);
+  assert.equal(contacto.firstName, MARCADOR_DE_DATO_BORRADO);
+  assert.notEqual(contacto.deletedAt, null);
+});
+
 test("un contacto inexistente da 404", async () => {
   const res = await call(
     "POST",
