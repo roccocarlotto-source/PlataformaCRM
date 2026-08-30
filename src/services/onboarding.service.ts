@@ -122,16 +122,29 @@ export async function onboardOrganization(input: OnboardingInput): Promise<Onboa
   const { organizationName, fullName, email, password, otp } = input;
   const slug = slugify(organizationName);
 
-  // Pre-chequeo: falla rápido en el caso común (nombre repetido) sin tocar
-  // Supabase. No elimina la carrera entre dos requests simultáneos — eso lo
-  // resuelve la constraint única de la base más abajo.
-  const existingOrganization = await findOrganizationBySlug(slug);
-  if (existingOrganization) {
-    throw new AppError("Ya existe una organización con ese nombre", 409);
+  // M-13 (auditoría 2026-08-29), bug 1 — el M-27 del 21/08 que había quedado
+  // abierto: un nombre sin caracteres ASCII alfanuméricos ("株式会社", "###")
+  // slugifica a "". El schema valida min(1) sobre el NOMBRE, no sobre el slug,
+  // así que pasaba, la primera organización quedaba con slug = "" y la segunda
+  // —con cualquier nombre que también diera ""— recibía "Ya existe una
+  // organización con ese nombre" sin relación con lo que escribió.
+  //
+  // Se rechaza ACÁ, antes de gastar el código OTP, y es válido hacerlo temprano
+  // a diferencia del chequeo de nombre repetido de abajo: no depende de ningún
+  // dato de otro tenant, es una propiedad del input que quien llama ya conoce.
+  // No abre ningún oráculo. `slugify` sigue devolviendo "" para ese input: es
+  // una función genérica, y rechazar ese resultado es responsabilidad de quien
+  // lo usa para algo que tiene que ser no vacío.
+  if (slug === "") {
+    throw new AppError(
+      "No se pudo generar un identificador a partir del nombre de la organización. Tiene que incluir al menos una letra o un número.",
+      400,
+    );
   }
 
   // ---------------------------------------------------------------------
-  // 1. Probar el email. Antes de esto no se escribe absolutamente nada.
+  // 1. Probar el email. Antes de esto no se escribe absolutamente nada — y
+  //    tampoco se CONSULTA nada que dependa de otro tenant. Ver M-13 abajo.
   // ---------------------------------------------------------------------
   const supabaseAnon = getSupabaseAnon();
   const { data: verificado, error: otpError } = await supabaseAnon.auth.verifyOtp({
@@ -179,6 +192,25 @@ export async function onboardOrganization(input: OnboardingInput): Promise<Onboa
       "Ese email tiene una invitación pendiente. Aceptala en vez de registrar una organización nueva.",
       409,
     );
+  }
+
+  // ¿Ese nombre ya es de alguien? — M-13 (auditoría 2026-08-29), bug 2.
+  //
+  // Este chequeo vivía ARRIBA de verifyOtp, como "pre-chequeo: falla rápido en
+  // el caso común sin tocar Supabase". La optimización era real, pero dejaba un
+  // endpoint público que respondía distinto según si el nombre existía —409— o
+  // no —seguía de largo y recién ahí fallaba el OTP—, para cualquiera con un
+  // código inventado. Un oráculo de nombres de organización, misma familia que
+  // el B-1 del 21/08. Acá abajo la pregunta la hace alguien que ya probó su
+  // email, igual que las dos anteriores; el orden entre las tres no importa.
+  //
+  // El costo, asumido: el nombre repetido ya no falla gratis sin tocar
+  // Supabase. Es el mismo trade-off que ALTO-2 ya aceptó para el chequeo de
+  // email. La carrera entre dos registros simultáneos con el mismo nombre la
+  // sigue cerrando la constraint única de la base, en el catch de más abajo.
+  const existingOrganization = await findOrganizationBySlug(slug);
+  if (existingOrganization) {
+    throw new AppError("Ya existe una organización con ese nombre", 409);
   }
 
   // ---------------------------------------------------------------------

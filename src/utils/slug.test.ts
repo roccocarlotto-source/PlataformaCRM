@@ -42,10 +42,15 @@ test("colisión por truncado: dos nombres que difieren después del caracter 100
   assert.equal(slugify(base + "-uno"), slugify(base + "-dos"));
 });
 
-// Comportamiento actual, documentado tal cual: un nombre compuesto solo por
-// caracteres no alfanuméricos produce el slug vacío. El schema de onboarding
-// (min(1)) lo deja pasar. Ver el reporte: queda como hallazgo, no se corrige
-// en esta tarea.
+// Un nombre compuesto solo por caracteres no alfanuméricos produce el slug
+// vacío, y ESTO NO CAMBIA: slugify es una función genérica y rechazar ese
+// resultado es responsabilidad de quien lo usa para algo que tiene que ser no
+// vacío — mismo criterio que ya rige acá para las colisiones ("se resuelve
+// como error aguas arriba, no acá"). Fue el M-27 de la auditoría del 21/08
+// (reabierto como M-13 en la del 29/08) y se corrigió aguas arriba: el schema
+// de onboarding valida min(1) sobre el NOMBRE, no sobre el slug, así que
+// onboardOrganization rechaza con 400 cuando slugify devuelve "" — ver
+// onboarding.service.ts y su test de integración.
 test("un nombre sin caracteres alfanuméricos produce el slug vacío", () => {
   assert.equal(slugify("###"), "");
   assert.equal(slugify("株式会社"), "");
