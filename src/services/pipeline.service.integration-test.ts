@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import { esperarBloqueadoPor, sostenerTransaccion } from "../lib/carreras.test-helper";
 import { prisma } from "../lib/prisma";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import {
@@ -110,14 +111,18 @@ test("createPipeline traduce la violación real del nombre duplicado a 409, no a
 //     de mostrarlo, aunque el mismo código, en un proceso tibio con
 //     muchas iteraciones, sí lo reproducía la enorme mayoría de las veces
 //     (evidencia del diagnóstico temporal, arriba).
-//   - Se mantiene "ambos no-default" igual: ejercita el camino simple
-//     (distinto del de promoción de default) bajo contención real; post-fix
-//     pasó 5/5 corridas aisladas bajo el mismo protocolo — vale como test
-//     de invariante/regresión de ese camino, no se presenta como
-//     reproductor confiable del bug en un solo intento aislado. No hay
-//     ninguna barrera que fuerce un interleaving concreto (sigue siendo
-//     Promise.allSettled tal cual): 5/5 es el resultado observado bajo el
-//     protocolo corrido, no una garantía de determinismo del test.
+//   - "ambos no-default" quedó así hasta M-19 (docs/auditoria-2026-08-29.md):
+//     0/4 de detección aislada era un test secuencial disfrazado de carrera.
+//     Desde M-19 fuerza el interleaving peligroso con la técnica de
+//     src/lib/carreras.test-helper.ts: una transacción A toma el MISMO
+//     lockOrganizationForUpdate que toma deletePipeline y aplica el efecto
+//     del rival (soft delete de p2) sin commitear; el deletePipeline real de
+//     p1 tiene que bloquearse en ese lock —Postgres lo confirma vía
+//     pg_blocking_pids— y, al releer, encontrar que p1 es el último. Sin el
+//     lock, B no se bloquea y el helper lo reporta como fallo determinista.
+//     "uno default, otro no" sigue con Promise.allSettled: su ventana ancha
+//     lo detectaba 4/4 y además afirma la promoción del default remanente,
+//     que la técnica de A/B no ejercita.
 //
 // Corregido con el mismo mecanismo que M3 (lockOrganizationForUpdate +
 // prisma.$transaction), a diferencia de M3 tomado incondicionalmente en el
@@ -126,40 +131,54 @@ test("createPipeline traduce la violación real del nombre duplicado a 409, no a
 // "solo lockear a veces" acá (ver informe de la corrección).
 // ---------------------------------------------------------------------------
 
-test("deletePipeline vs deletePipeline (ambos no-default): nunca deja la organización sin ningún Pipeline activo", async () => {
+test("deletePipeline vs deletePipeline (ambos no-default): el segundo se bloquea en el lock de la organización y, al releer, nunca deja la organización sin ningún Pipeline activo", async () => {
   const org = await createTestOrg();
   try {
     const p1 = await createPipeline(org.id, { name: "P1" });
     const p2 = await createPipeline(org.id, { name: "P2" });
     if (!p1 || !p2) throw new Error("setup failed");
-
-    const results = await Promise.allSettled([
-      deletePipeline(org.id, p1.id),
-      deletePipeline(org.id, p2.id),
-    ]);
-
-    const fulfilled = results.filter((r) => r.status === "fulfilled");
-    const rejected = results.filter((r) => r.status === "rejected");
-
-    assert.equal(
-      fulfilled.length,
-      1,
-      "exactamente una de las dos operaciones concurrentes debe ganar",
-    );
-    assert.equal(rejected.length, 1, "la otra debe perder, nunca ambas deben tener éxito");
-
-    const loserReason = (rejected[0] as PromiseRejectedResult).reason;
-    assert.ok(
-      loserReason instanceof AppError,
-      "la perdedora debe ser un AppError, no un error crudo",
-    );
-    assert.equal(loserReason.statusCode, 400);
-    assert.equal(loserReason.message, "No se puede eliminar el último pipeline de la organización");
-
-    const remaining = await prisma.pipeline.count({
-      where: { organizationId: org.id, deletedAt: null },
+    // Que ninguno sea default: el camino simple es el que M-19 señala.
+    await prisma.pipeline.updateMany({
+      where: { organizationId: org.id },
+      data: { isDefault: false },
     });
-    assert.equal(remaining, 1, "debe quedar exactamente un Pipeline activo — nunca cero");
+
+    // A: el deletePipeline rival de p2 — mismo lock real, mismo efecto (soft
+    // delete), sin commitear.
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockOrganizationForUpdate(org.id, tx);
+      await tx.pipeline.update({ where: { id: p2.id }, data: { deletedAt: new Date() } });
+    });
+
+    // B: el deletePipeline real de p1. Su pre-check ve dos pipelines activos
+    // (A no commiteó); su transacción tiene que bloquearse en el lock.
+    const b = deletePipeline(org.id, p1.id);
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, "deletePipeline(p1)");
+
+    a.liberar();
+    await a.terminada;
+
+    const resultado = await b.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    assert.ok(
+      resultado instanceof AppError,
+      `deletePipeline(p1) debía rechazar tras releer; resultado: ${String(resultado)}`,
+    );
+    assert.equal(resultado.statusCode, 400);
+    assert.equal(resultado.message, "No se puede eliminar el último pipeline de la organización");
+
+    const activos = await prisma.pipeline.findMany({
+      where: { organizationId: org.id, deletedAt: null },
+      select: { id: true },
+    });
+    assert.deepEqual(
+      activos.map((p) => p.id),
+      [p1.id],
+      "debe quedar exactamente un Pipeline activo, p1 — nunca cero",
+    );
   } finally {
     await deleteTestOrg(org.id);
   }

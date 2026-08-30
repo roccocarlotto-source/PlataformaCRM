@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
-import { prisma } from "../lib/prisma";
+import { pidsConTransaccionAbierta } from "../lib/carreras.test-helper";
+import { prisma, type Db } from "../lib/prisma";
 import type { EventoReclamado } from "../repositories/ingestionEvent.repository";
 import type { PromotionNote } from "../types/promotion";
 import { filasParaStaging, parsearArchivo } from "../utils/spreadsheet";
@@ -494,37 +495,107 @@ test("el límite por pasada se respeta y el resto queda para la siguiente", asyn
 // Concurrencia
 // ---------------------------------------------------------------------------
 
-test("dos promociones simultáneas del mismo email no revientan contra el índice único", async () => {
+// M-19 de docs/auditoria-2026-08-29.md: con limite: 1 y Promise.all, "1 y 1"
+// no distinguía solapamiento de secuencia — cada drenado toma un evento sea o
+// no concurrente, y una ejecución en la que el segundo arranca después de que
+// el primero commiteó produce exactamente el mismo resultado sin haber
+// ejercitado ni SKIP LOCKED ni el ON CONFLICT. Acá no hay lock contra el que
+// esperar (SKIP LOCKED existe para que no se bloqueen), así que lo que se
+// fuerza es el SOLAPAMIENTO: cada drenado se sostiene a mitad de camino —fila
+// reclamada, transacción abierta— con el punto de inyección antesDePromover
+// (solo para tests), y Postgres confirma vía pg_stat_activity que las dos
+// transacciones están vivas AL MISMO TIEMPO antes de dejar avanzar a ninguna.
+// Recién entonces A promueve (inserta el contacto) y B promueve DESPUÉS, con
+// el contacto ya existente: es el ON CONFLICT el que resuelve B, no la suerte.
+//
+// Sin SKIP LOCKED, el reclamo de B se quedaría esperando la fila de A y el
+// test lo reporta por plazo; sin ON CONFLICT, B chocaría con 23505 y quedaría
+// pospuesto. Los dos son fallos deterministas.
+function pausaReclamo(pids: number[]) {
+  let avisar: () => void = () => undefined;
+  const reclamado = new Promise<void>((resolve) => {
+    avisar = resolve;
+  });
+  let liberar: () => void = () => undefined;
+  const liberado = new Promise<void>((resolve) => {
+    liberar = resolve;
+  });
+  const hook = async (_evento: EventoReclamado, tx: Db) => {
+    const fila = await tx.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+    pids.push(fila[0].pid);
+    avisar();
+    await liberado;
+  };
+  return { hook, reclamado, liberar };
+}
+
+function conPlazo<T>(promesa: Promise<T>, ms: number, mensaje: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const plazo = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(mensaje)), ms);
+  });
+  return Promise.race([promesa, plazo]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+test("dos promociones simultáneas del mismo email: las dos transacciones están vivas A LA VEZ, y el ON CONFLICT resuelve a la segunda", async () => {
   const email = `carrera-${randomUUID()}@ejemplo.test`;
 
   await crearEvento({ firstName: "Carrera", lastName: "Uno", email });
   await crearEvento({ firstName: "Carrera", lastName: "Dos", email });
 
-  // Dos drenados EN PARALELO, cada uno con su propia transacción y su propio
-  // reclamo. Es el escenario que un SELECT-y-después-INSERT perdería: los dos
-  // verían "no existe" y el segundo INSERT chocaría contra
-  // contacts_org_email_unique con un 23505 sin traducir.
-  //
-  // SKIP LOCKED hace que no se peleen por el mismo evento, y el ON CONFLICT
-  // hace que el segundo encuentre el contacto que el primero acaba de crear.
-  const [a, b] = await Promise.all([
-    drenarPendientes({ organizationId: orgId, limite: 1 }),
-    drenarPendientes({ organizationId: orgId, limite: 1 }),
-  ]);
+  const pids: number[] = [];
+  const pausaA = pausaReclamo(pids);
+  const pausaB = pausaReclamo(pids);
 
-  // Uno cada uno, no la suma: sobre la suma este test pasaría igual si un
-  // drenado se llevara los dos eventos y el otro ninguno, que es precisamente
-  // el escenario SIN carrera. Exigiendo 1 y 1 se garantiza que los dos
-  // reclamaron y escribieron.
-  assert.equal(a.procesados, 1, "cada drenado tiene que haber reclamado un evento");
-  assert.equal(b.procesados, 1, "cada drenado tiene que haber reclamado un evento");
-  assert.equal(a.pospuestos + b.pospuestos, 0, "ninguno puede haber fallado");
+  try {
+    // A reclama su evento y se queda sostenida, con la fila bloqueada FOR UPDATE.
+    const a = drenarPendientes({ organizationId: orgId, limite: 1, antesDePromover: pausaA.hook });
+    a.catch(() => undefined);
+    await conPlazo(pausaA.reclamado, 5_000, "el drenado A no llegó a reclamar");
 
-  assert.equal(
-    await prisma.contact.count({ where: { organizationId: orgId, email } }),
-    1,
-    "un solo contacto: el segundo evento actualizó, no insertó",
-  );
+    // B reclama MIENTRAS A sigue abierta: SKIP LOCKED tiene que darle el otro
+    // evento sin esperar. Si esperara, este plazo vence.
+    const b = drenarPendientes({ organizationId: orgId, limite: 1, antesDePromover: pausaB.hook });
+    b.catch(() => undefined);
+    await conPlazo(
+      pausaB.reclamado,
+      5_000,
+      "el drenado B no llegó a reclamar mientras A seguía abierta — sin SKIP LOCKED se quedaría esperando la fila de A",
+    );
+
+    // LA AFIRMACIÓN QUE FALTABA: solapamiento real, dicho por Postgres. Dos
+    // backends distintos, los dos con una transacción abierta ahora mismo.
+    assert.equal(pids.length, 2);
+    assert.notEqual(pids[0], pids[1], "dos backends distintos");
+    assert.deepEqual(
+      await pidsConTransaccionAbierta(pids),
+      [...pids].sort((x, y) => x - y),
+      "las dos transacciones tienen que estar vivas al mismo tiempo",
+    );
+
+    // A promueve primero: inserta el contacto. B promueve después, con el
+    // contacto ya existente: el ON CONFLICT lo encuentra y actualiza.
+    pausaA.liberar();
+    const resumenA = await a;
+    pausaB.liberar();
+    const resumenB = await b;
+
+    assert.equal(resumenA.procesados, 1, "A tiene que haber promovido su evento");
+    assert.equal(resumenB.procesados, 1, "B tiene que haber promovido su evento");
+    assert.equal(resumenA.pospuestos + resumenB.pospuestos, 0, "ninguno puede haber fallado");
+
+    assert.equal(
+      await prisma.contact.count({ where: { organizationId: orgId, email } }),
+      1,
+      "un solo contacto: el segundo evento actualizó, no insertó",
+    );
+  } finally {
+    // Si el test falló a mitad de camino, que no queden transacciones abiertas.
+    pausaA.liberar();
+    pausaB.liberar();
+  }
 });
 
 // ---------------------------------------------------------------------------
