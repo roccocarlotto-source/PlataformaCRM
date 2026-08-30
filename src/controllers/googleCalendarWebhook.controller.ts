@@ -35,7 +35,9 @@ import { asyncHandler } from "../utils/asyncHandler";
 // outbox para esto sería duplicar un mecanismo que el proveedor ya provee, para
 // un volumen (negocios chicos, pocos cambios por día) que no lo justifica.
 //
-//   200 -> procesado, o no hay nada que hacer. Google no reintenta.
+//   200 -> procesado, o no hay nada que hacer. Google no reintenta. Incluye
+//          DOS casos que no son "procesado" y que se responden 200 a propósito:
+//          el canal desconocido y la conexión que no está activa (abajo).
 //   403 -> el token no salió de acá. Google reintenta y va a seguir fallando,
 //          pero el canal es espurio y no queremos aceptarlo en silencio.
 //   5xx -> algo se rompió de nuestro lado (Google caído, base caída). Google
@@ -45,6 +47,14 @@ import { asyncHandler } from "../utils/asyncHandler";
 // está en la base (se reemplazó, o la sucursal se desconectó) NO puede devolver
 // 5xx — Google reintentaría con backoff una notificación que nunca vamos a poder
 // procesar, y el canal seguiría vivo hasta vencer. Se responde 200 y se loguea.
+//
+// EL MISMO CRITERIO APLICA A LA CONEXIÓN QUE NO ESTÁ ACTIVA (M-4 de
+// docs/auditoria-2026-08-29.md): findConnectionByChannelId no filtra por status,
+// así que un canal cuya conexión está en ERROR se sigue encontrando, y
+// obtenerAccessToken tira AppError(409) —"hay que reconectar"— en cada
+// notificación. Ese 409 NO es transitorio: exige que un humano reconecte la
+// sucursal desde la UI. Se responde 200 para cortar el reintento de Google; el
+// canal sigue vivo del lado de Google hasta que alguien reconecte, a propósito.
 // ---------------------------------------------------------------------------
 
 // Los nombres de los headers, verificados contra la guía de push. Express los
@@ -99,11 +109,32 @@ export const googleCalendarWebhookHandler = asyncHandler<Request>(async (req, re
       return;
     }
 
+    // 409: la conexión no está activa (ERROR, o un grant que Google acaba de
+    // invalidar — ver obtenerAccessToken en googleCalendarConnection.service.ts).
+    // A diferencia de un 409 transitorio, ESTE no se resuelve solo: exige que un
+    // humano reconecte la sucursal desde la UI. Responder 503 haría que Google
+    // reintentara con backoff durante días (hasta 7, según su documentación) una
+    // notificación que nunca vamos a poder procesar, y llenaría el log de errores
+    // por una condición ya conocida (M-4 de docs/auditoria-2026-08-29.md). Se
+    // responde 200 para cortar el reintento — el canal de Google sigue vivo hasta
+    // que alguien reconecte la sucursal, a propósito: cerrarlo contra Google
+    // (channels.stop) queda fuera de este fix. warn y no error, por el mismo
+    // criterio que el "canal desconocido" del service: condición conocida, no
+    // incidente.
+    if (err instanceof AppError && err.statusCode === 409) {
+      logger.warn(
+        { channelId, err },
+        "Notificación para una conexión que no está activa: se ignora hasta que alguien reconecte la sucursal",
+      );
+      res.status(200).end();
+      return;
+    }
+
     // TODO LO DEMÁS ES 503 A PROPÓSITO, incluidos los AppError con otro
-    // status. Un 409 de "la conexión no está activa" o un 502 de Google caído
-    // son condiciones que pueden resolverse solas, y devolver el status
-    // original haría que Google dejara de reintentar en los casos 4xx — o sea
-    // que perderíamos la notificación por algo temporal.
+    // status (salvo el 403 y el 409 de arriba). Un 502 de Google caído o una
+    // base caída son condiciones que pueden resolverse solas, y devolver el
+    // status original haría que Google dejara de reintentar en los casos 4xx —
+    // o sea que perderíamos la notificación por algo temporal.
     //
     // Se loguea con el error completo: es la única forma de enterarse de por
     // qué falló, porque la respuesta no lleva detalle hacia un endpoint
