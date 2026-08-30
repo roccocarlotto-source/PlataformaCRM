@@ -1202,5 +1202,12 @@ model Booking {
   @@index([organizationId, contactId])
   // La agenda: "las reservas de esta organización entre dos fechas".
   @@index([organizationId, startsAt])
+  // Parcial: (organization_id, google_event_id) WHERE google_event_id IS NOT
+  // NULL — el DSL de Prisma no expresa el predicado, vive en la migración
+  // 20260902120000_bookings_google_event_id_index. M-7 de
+  // docs/auditoria-2026-08-29.md: sirve a findBookingByGoogleEventId, que
+  // aplicarCambio llama una vez por cada evento cambiado de Google —la inmensa
+  // mayoría ajenos al CRM— y sin este índice cada uno escaneaba el tenant
+  // entero. Lo afirma la fila 17 de docs/auditoria-2026-08-21-diagnostico.sql.
   @@map("bookings")
 }

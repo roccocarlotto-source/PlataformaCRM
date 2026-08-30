@@ -58,7 +58,7 @@
 -- del nombre del objeto: el mensaje tiene que alcanzar para arreglarlo sin
 -- volver a la base.
 --
--- EL NORMALIZADOR ESTÁ COPIADO 11 VECES, y las 11 tienen que ser IDÉNTICAS.
+-- EL NORMALIZADOR ESTÁ COPIADO 13 VECES, y las 13 tienen que ser IDÉNTICAS.
 -- Postgres no deja declarar una función en una sentencia de solo lectura, y
 -- este archivo tiene que seguir siendo una sola sentencia pegable en el SQL
 -- Editor, así que la repetición es el precio. Una copia que diverja convierte
@@ -764,6 +764,41 @@ from (
                 join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum)
           || ')' = e.firma
   )
+
+  union all
+
+  -- V-2 ─ Los índices parciales NO únicos, comparados por DEFINICIÓN COMPLETA.
+  --
+  -- La fila 7 afirma solo los índices únicos parciales; hasta M-7 de
+  -- docs/auditoria-2026-08-29.md ningún índice parcial no único estaba
+  -- afirmado en ninguna fila. Un índice de rendimiento perdido en un rebase no
+  -- rompe ningún test —la consulta sigue devolviendo lo mismo, solo que con un
+  -- scan— y es exactamente la clase de regresión que solo un chequeo de esquema
+  -- puede ver. Misma técnica que la fila 7: pg_get_indexdef entero contra la
+  -- definición esperada, pasando los dos lados por el normalizador.
+  --
+  -- HOY SOLO TIENE EL ÍNDICE DE bookings. B-14 (BAJO, sin triage todavía)
+  -- señala otros tres índices parciales no únicos sin afirmar —
+  -- ingestion_events_pending_created_at_idx, outbox_events_claimable_idx y
+  -- sources_org_created_at_idx—: cuando se triage, van en ESTA MISMA fila, no
+  -- en una nueva.
+  select 17,
+    'V-2 · Índices parciales no únicos que faltan o cambiaron de definición',
+    coalesce(string_agg(e.nombre || ' → ' || coalesce(a.def, 'FALTA'), ' ;; ' order by e.nombre), 'ninguno'),
+    'ninguno'
+  from (values
+    ('bookings_organization_id_google_event_id_idx',
+     'CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)')
+  ) as e(nombre, esperado)
+  left join lateral (
+    select pg_get_indexdef(i.oid) as def
+    from pg_class i
+    join pg_namespace ins on ins.oid = i.relnamespace
+    where ins.nspname = 'public' and i.relname = e.nombre and i.relkind = 'i'
+  ) as a on true
+  where a.def is null
+     or lower(regexp_replace(regexp_replace(regexp_replace(a.def, '::(character varying|text|numeric|bpchar|uuid|integer|bigint|boolean|date|jsonb|"[^"]+")', '', 'g'), 'public\.', '', 'gi'), '[\s()]', '', 'g'))
+      <> lower(regexp_replace(regexp_replace(regexp_replace(e.esperado, '::(character varying|text|numeric|bpchar|uuid|integer|bigint|boolean|date|jsonb|"[^"]+")', '', 'g'), 'public\.', '', 'gi'), '[\s()]', '', 'g'))
 
 
 ) as diagnostico
