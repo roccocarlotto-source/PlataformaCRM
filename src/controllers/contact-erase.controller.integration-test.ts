@@ -406,7 +406,11 @@ test("M-18: un contacto soft-deleteado SÍ se puede borrar: 200, los datos se de
   assert.notEqual(contacto.deletedAt, null, "el borrado de datos no revierte el soft delete");
 
   const evento = await leerEvento(eventoId);
-  assert.equal(evento.rawPayload, null);
+  assert.deepEqual(
+    evento.rawPayload,
+    { erased: true },
+    "el marcador explícito, igual que sin soft delete",
+  );
   assert.equal(evento.promotedContactId, contactId, "el vínculo con el historial sobrevive");
 });
 
