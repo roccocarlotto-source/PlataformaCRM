@@ -81,7 +81,7 @@ function conectar(extra: { channelId: string; status: "ACTIVE" | "ERROR" }) {
       refreshToken: getCifrador().encrypt("1//refresh"),
       calendarId: "primary",
       channelId: extra.channelId,
-      channelResourceId: `res-${extra.channelId}`,
+      channelResourceId: randomUUID(),
       channelExpiration: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000),
       status: extra.status,
       ...(extra.status === "ERROR"
@@ -128,7 +128,7 @@ after(async () => {
 // ---------------------------------------------------------------------------
 
 test("una notificación válida para una conexión en ERROR responde 200, no 503 (M-4)", async () => {
-  const channelId = `canal-error-${randomUUID()}`;
+  const channelId = randomUUID();
   await conectar({ channelId, status: "ERROR" });
   const token = await firmarWebhookToken({ organizationId: orgId, branchId, channelId });
 
@@ -157,7 +157,7 @@ test("una notificación válida para una conexión en ERROR responde 200, no 503
 // ---------------------------------------------------------------------------
 
 test("un token que no salió de acá sigue dando 403 — la rama nueva no lo intercepta", async () => {
-  const channelId = `canal-403-${randomUUID()}`;
+  const channelId = randomUUID();
   await conectar({ channelId, status: "ERROR" });
 
   const res = await notificar({ channelId, token: "no-es-un-token-firmado" });
@@ -166,7 +166,7 @@ test("un token que no salió de acá sigue dando 403 — la rama nueva no lo int
 });
 
 test("un token válido pero de OTRO canal sigue dando 403, aunque la conexión esté en ERROR", async () => {
-  const channelId = `canal-ajeno-${randomUUID()}`;
+  const channelId = randomUUID();
   await conectar({ channelId, status: "ERROR" });
   const tokenDeOtroCanal = await firmarWebhookToken({
     organizationId: orgId,
@@ -180,7 +180,7 @@ test("un token válido pero de OTRO canal sigue dando 403, aunque la conexión e
 });
 
 test("un canal que no está en la base sigue dando 200 por el camino de canal desconocido", async () => {
-  const canalFantasma = `canal-fantasma-${randomUUID()}`;
+  const canalFantasma = randomUUID();
   const token = await firmarWebhookToken({
     organizationId: orgId,
     branchId,
