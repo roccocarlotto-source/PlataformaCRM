@@ -185,6 +185,35 @@ export async function ejecutarConTope(
 // esperado, no una excepción — se traduce a REINTENTAR o DEAD_LETTER. Lo que sí
 // puede lanzar es un fallo de la BASE al escribir la transición, y ahí lanzar es
 // lo correcto: la transacción se revierte y el worker lo pospone.
+
+// Calca exigirTransicion de promotion.service.ts (E-1) — B-26 de
+// docs/auditoria-2026-08-29.md: las tres transiciones son updateMany con
+// status: PENDING en el WHERE, y su { count } se descartaba. Un count === 0
+// significa que la fila ya no estaba en PENDING al escribir, y commitear en
+// silencio la dejaría pisada con un estado que no corresponde. Error pelado y
+// no AppError: esto corre en el worker, no en un request.
+//
+// HONESTIDAD SOBRE EL ALCANCE, porque acá NO es igual que en la ingesta: en
+// promoverEvento, el CAS y la escritura de negocio (crear el Contact) van en
+// la misma transacción, así que revertir deshace las dos juntas. Acá el
+// handler ya corrió ANTES de la transición — su efecto externo, si lo tiene,
+// ya ocurrió y ninguna reversión lo deshace. Este chequeo NO previene
+// entregas duplicadas: protege algo más angosto — que la fila no quede
+// sobreescrita con un estado incorrecto si alguna vez dejara de ser cierto
+// que el reclamo (FOR UPDATE SKIP LOCKED, misma transacción) la mantiene
+// bloqueada de punta a punta. Hoy ese camino es inalcanzable; el chequeo
+// existe para que el invariante sobreviva a un cambio del mecanismo, igual
+// que B-12/B-17.
+function exigirTransicion(count: number, evento: EventoReclamado, destino: string): void {
+  if (count === 0) {
+    throw new Error(
+      `entregarEvento: la transición a ${destino} del evento ${evento.id} no afectó ninguna fila ` +
+        "— ya no estaba en PENDING al momento de escribir. Se revierte la transacción para no " +
+        "pisar el estado que otro actor ya dejó (B-26, docs/auditoria-2026-08-29.md).",
+    );
+  }
+}
+
 export async function entregarEvento(
   evento: EventoReclamado,
   db: Db,
@@ -201,7 +230,7 @@ export async function entregarEvento(
   // varios minutos y ensuciaría el contador. attempts queda como estaba: nadie
   // intentó nada.
   if (!handler) {
-    await markOutboxEventDeadLetter(
+    const marcado = await markOutboxEventDeadLetter(
       evento.id,
       evento.organizationId,
       {
@@ -210,6 +239,7 @@ export async function entregarEvento(
       },
       db,
     );
+    exigirTransicion(marcado.count, evento, "DEAD_LETTER");
     return { estado: "DEAD_LETTER", attempts: evento.attempts };
   }
 
@@ -236,16 +266,17 @@ export async function entregarEvento(
     const lastError = describirError(err);
 
     if (resolucion.estado === "DEAD_LETTER") {
-      await markOutboxEventDeadLetter(
+      const marcado = await markOutboxEventDeadLetter(
         evento.id,
         evento.organizationId,
         { attempts: resolucion.attempts, lastError },
         db,
       );
+      exigirTransicion(marcado.count, evento, "DEAD_LETTER");
       return { estado: "DEAD_LETTER", attempts: resolucion.attempts };
     }
 
-    await rescheduleOutboxEvent(
+    const reprogramado = await rescheduleOutboxEvent(
       evento.id,
       evento.organizationId,
       {
@@ -257,9 +288,11 @@ export async function entregarEvento(
       },
       db,
     );
+    exigirTransicion(reprogramado.count, evento, "REINTENTAR (reschedule)");
     return { estado: "REINTENTAR", attempts: resolucion.attempts };
   }
 
-  await markOutboxEventProcessed(evento.id, evento.organizationId, db);
+  const procesado = await markOutboxEventProcessed(evento.id, evento.organizationId, db);
+  exigirTransicion(procesado.count, evento, "PROCESSED");
   return { estado: "PROCESSED", attempts: evento.attempts };
 }

@@ -5,6 +5,8 @@ import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { claimNextClaimableEvent, emitOutboxEvent } from "../repositories/outboxEvent.repository";
 import { crearRegistroDeHandlers, type RegistroDeHandlers } from "../services/outboxHandlers";
+import { entregarEvento } from "../services/outbox.service";
+import type { EventoReclamado } from "../repositories/outboxEvent.repository";
 import { drenarOutbox } from "./outboxWorker";
 
 // Motor de eventos salientes — el worker completo contra Postgres real.
@@ -452,6 +454,125 @@ test("M-14: al vencer el tope, la señal que recibió el handler queda abortada 
   } finally {
     env.OUTBOX_HANDLER_TIMEOUT_MS = topeOriginal;
     liberar();
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// B-26 de docs/auditoria-2026-08-29.md — las tres transiciones verifican su
+// count, calcando E-1 de la ingesta.
+//
+// SE LLAMA A entregarEvento DIRECTO, SIN PASAR POR EL RECLAMO, y es el punto
+// entero: por el flujo normal esto es inalcanzable, porque
+// claimNextClaimableEvent toma FOR UPDATE SKIP LOCKED sobre la fila y filtra
+// status = PENDING en la misma transacción. Para ejercitar el chequeo se arma
+// el EventoReclamado a mano contra una fila que otro actor YA transicionó por
+// fuera — la situación que el count dice cubrir y que el reclamo hoy impide.
+// A diferencia de la ingesta, acá la reversión NO deshace ningún efecto
+// externo del handler (ya corrió): lo que se afirma es que la fila del otro
+// actor no se pisa.
+// ---------------------------------------------------------------------------
+
+function eventoReclamadoDe(
+  evento: { id: string; organizationId: string },
+  eventType: string,
+): EventoReclamado {
+  return {
+    id: evento.id,
+    organizationId: evento.organizationId,
+    eventType,
+    payload: {},
+    attempts: 0,
+  };
+}
+
+test("B-26: si el evento ya no está en PENDING, marcar PROCESSED revierte en vez de pisar el estado del otro actor", async () => {
+  const escenario = await montar("b26-processed");
+  try {
+    escenario.registro.registrar("b26.ok", async () => undefined);
+    const evento = await emitir(escenario, "b26.ok");
+
+    // Otro actor ya lo mandó a DEAD_LETTER, con su diagnóstico.
+    await prisma.outboxEvent.update({
+      where: { id: evento.id },
+      data: { status: "DEAD_LETTER", lastError: "marcado por otro actor", attempts: 5 },
+    });
+
+    await assert.rejects(
+      () =>
+        prisma.$transaction((tx) =>
+          entregarEvento(eventoReclamadoDe(evento, "b26.ok"), tx, {
+            registro: escenario.registro,
+          }),
+        ),
+      /no afectó ninguna fila/,
+    );
+
+    // La fila del otro actor quedó exactamente como estaba.
+    const fila = await leer(evento.id);
+    assert.equal(fila.status, "DEAD_LETTER");
+    assert.equal(fila.lastError, "marcado por otro actor");
+    assert.equal(fila.attempts, 5);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("B-26: lo mismo en el camino del reschedule — un handler que falla sobre un evento ya transicionado revierte", async () => {
+  const escenario = await montar("b26-reschedule");
+  try {
+    escenario.registro.registrar("b26.falla", async () => {
+      throw new Error("el destino respondió 503");
+    });
+    const evento = await emitir(escenario, "b26.falla");
+
+    await prisma.outboxEvent.update({
+      where: { id: evento.id },
+      data: { status: "PROCESSED", lastError: null },
+    });
+
+    await assert.rejects(
+      () =>
+        prisma.$transaction((tx) =>
+          entregarEvento(eventoReclamadoDe(evento, "b26.falla"), tx, {
+            registro: escenario.registro,
+          }),
+        ),
+      /no afectó ninguna fila/,
+    );
+
+    const fila = await leer(evento.id);
+    assert.equal(fila.status, "PROCESSED", "el PROCESSED del otro actor no se pisa");
+    assert.equal(fila.lastError, null, "el reschedule fallido no le escribió su error encima");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("B-26: lo mismo en el DEAD_LETTER por handler ausente — un evento ya transicionado revierte", async () => {
+  const escenario = await montar("b26-dead-letter");
+  try {
+    // Sin handler registrado para este tipo: el camino de DEAD_LETTER directo.
+    const evento = await emitir(escenario, "b26.sin-handler");
+
+    await prisma.outboxEvent.update({
+      where: { id: evento.id },
+      data: { status: "PROCESSED" },
+    });
+
+    await assert.rejects(
+      () =>
+        prisma.$transaction((tx) =>
+          entregarEvento(eventoReclamadoDe(evento, "b26.sin-handler"), tx, {
+            registro: escenario.registro,
+          }),
+        ),
+      /no afectó ninguna fila/,
+    );
+
+    const fila = await leer(evento.id);
+    assert.equal(fila.status, "PROCESSED", "el PROCESSED del otro actor no se pisa");
+  } finally {
     await desmontar(escenario);
   }
 });
