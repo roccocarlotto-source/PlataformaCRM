@@ -139,51 +139,77 @@ export async function drenarOutbox(opciones: OpcionesDeDrenado = {}): Promise<Re
   return resumen;
 }
 
-export function iniciarWorkerDeOutbox(): () => void {
+// SOLO PARA TESTS (M-12): el tick de producción no pasa nada y el
+// comportamiento sin opciones es el de siempre. Permite arrancar el bucle con
+// una cadencia corta y una pasada controlada por el test —una promesa que el
+// test resuelve a mano— para probar que detener() espera al tick en curso sin
+// base, sin timers reales y sin condiciones de carrera de timing.
+export interface OpcionesDelWorker {
+  pollMs?: number;
+  drenar?: () => Promise<ResumenDeEntrega>;
+}
+
+// Devuelve el stop del worker. Es ASÍNCRONO (M-12 c): resuelve recién cuando
+// no queda ninguna pasada en curso. Es el escenario literal del hallazgo:
+// SIGTERM mientras entregarEvento está dentro del handler — el handler
+// completa su efecto externo, y sin esta espera $disconnect() llegaba antes de
+// markOutboxEventProcessed, la transacción se revertía y el evento se
+// entregaba OTRA VEZ al reiniciar.
+export function iniciarWorkerDeOutbox(opciones: OpcionesDelWorker = {}): () => Promise<void> {
   if (!env.OUTBOX_WORKER_ENABLED) {
     logger.info(
       "Worker de eventos salientes deshabilitado por OUTBOX_WORKER_ENABLED: los eventos quedan en PENDING",
     );
-    return () => undefined;
+    return () => Promise.resolve();
   }
+
+  const pollMs = opciones.pollMs ?? env.OUTBOX_WORKER_POLL_MS;
+  const drenar = opciones.drenar ?? (() => drenarOutbox());
 
   let detenido = false;
   let timer: NodeJS.Timeout | undefined;
+  // La promesa del tick que está corriendo ahora mismo, si hay uno. Es lo que
+  // el stop espera.
+  let tickEnCurso: Promise<void> | undefined;
 
   const tick = async () => {
     if (detenido) {
       return;
     }
 
-    try {
-      const resumen = await drenarOutbox();
-      if (resumen.entregados + resumen.reprogramados + resumen.muertos + resumen.pospuestos > 0) {
-        logger.info(resumen, "Drenado de eventos salientes");
+    tickEnCurso = (async () => {
+      try {
+        const resumen = await drenar();
+        if (resumen.entregados + resumen.reprogramados + resumen.muertos + resumen.pospuestos > 0) {
+          logger.info(resumen, "Drenado de eventos salientes");
+        }
+        if (resumen.muertos > 0) {
+          // Con nombre propio y en warn: un DEAD_LETTER es lo único de este
+          // worker que NADIE va a reintentar. Si solo apareciera dentro del
+          // resumen en info, se perdería entre los drenados normales.
+          logger.warn(
+            { muertos: resumen.muertos },
+            "Eventos salientes que agotaron sus intentos o no tienen handler: requieren revisión manual",
+          );
+        }
+      } catch (err) {
+        // Red de seguridad del bucle: drenarOutbox ya atrapa por evento, así que
+        // llegar acá significa que falló algo fuera de ese alcance. El bucle NO
+        // puede morir por eso — si muere, la cola deja de drenarse en silencio.
+        logger.error({ err }, "Fallo inesperado en el drenado de eventos salientes");
       }
-      if (resumen.muertos > 0) {
-        // Con nombre propio y en warn: un DEAD_LETTER es lo único de este
-        // worker que NADIE va a reintentar. Si solo apareciera dentro del
-        // resumen en info, se perdería entre los drenados normales.
-        logger.warn(
-          { muertos: resumen.muertos },
-          "Eventos salientes que agotaron sus intentos o no tienen handler: requieren revisión manual",
-        );
-      }
-    } catch (err) {
-      // Red de seguridad del bucle: drenarOutbox ya atrapa por evento, así que
-      // llegar acá significa que falló algo fuera de ese alcance. El bucle NO
-      // puede morir por eso — si muere, la cola deja de drenarse en silencio.
-      logger.error({ err }, "Fallo inesperado en el drenado de eventos salientes");
-    }
+    })();
+
+    await tickEnCurso;
 
     if (!detenido) {
-      timer = setTimeout(() => void tick(), env.OUTBOX_WORKER_POLL_MS);
+      timer = setTimeout(() => void tick(), pollMs);
     }
   };
 
   logger.info(
     {
-      pollMs: env.OUTBOX_WORKER_POLL_MS,
+      pollMs,
       batchSize: env.OUTBOX_WORKER_BATCH_SIZE,
       maxAttempts: env.OUTBOX_MAX_ATTEMPTS,
       // Qué tipos sabe atender ESTE proceso. Es lo primero que uno quiere saber
@@ -194,12 +220,22 @@ export function iniciarWorkerDeOutbox(): () => void {
     "Worker de eventos salientes iniciado",
   );
 
-  timer = setTimeout(() => void tick(), env.OUTBOX_WORKER_POLL_MS);
+  timer = setTimeout(() => void tick(), pollMs);
 
-  return () => {
+  return async () => {
     detenido = true;
     if (timer) {
       clearTimeout(timer);
     }
+    // Si hay un tick corriendo AHORA MISMO, esto espera a que termine su `for`
+    // completo (todas las transacciones de esta pasada) antes de resolver. Es lo
+    // que cierra M-12 (c): sin esto, clearTimeout cancelaba el PRÓXIMO tick pero
+    // nada esperaba al que estaba en curso, y $disconnect() podía llegar entre el
+    // efecto externo de una pasada y el UPDATE que lo deja registrado — la
+    // transacción se revertía y el trabajo se repetía al reiniciar. Se espera el
+    // tick COMPLETO y no solo la transacción actual porque interrumpir a mitad
+    // del bucle exigiría enhebrar una cancelación por todo el drenado, y el peor
+    // caso de esperar está acotado por un lote (batch size × tiempo por evento).
+    await tickEnCurso;
   };
 }

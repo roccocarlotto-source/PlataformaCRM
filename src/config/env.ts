@@ -111,6 +111,30 @@ const envSchema = z.object({
     .positive()
     .default(10 * 1000),
 
+  // Tope total del apagado ordenado (M-12 de docs/auditoria-2026-08-29.md):
+  // cuánto se espera a que los workers terminen su pasada en curso, el servidor
+  // cierre sus conexiones y Prisma se desconecte, antes de forzar la salida con
+  // código 1. Ver src/shutdown.ts.
+  //
+  // TIENE QUE SER MENOR QUE EL GRACE PERIOD DEL ORQUESTADOR —el tiempo entre
+  // SIGTERM y SIGKILL—, porque si el orquestador mata el proceso antes, este
+  // tope nunca llega a actuar y el apagado ordenado tampoco. Este repo no fija
+  // dónde se despliega ni con qué grace period, así que el default es
+  // conservador: 8 segundos, por debajo de los 10 s que Docker da por defecto
+  // (el más chico de los dos orquestadores habituales; Kubernetes da 30 s),
+  // con ~2 s de margen para la latencia de la señal y el $disconnect final.
+  // Un apagado normal tarda bien menos de un segundo; lo que este tope corta
+  // es una pasada colgada por un motivo que no se anticipó —un handler en su
+  // propio tope de OUTBOX_HANDLER_TIMEOUT_MS ya lo excede, y ahí lo correcto
+  // es cortar: el evento queda como estaba y se reintenta al reiniciar. Si
+  // algún día se sabe el grace period real del entorno, es un ajuste de esta
+  // sola constante.
+  SHUTDOWN_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(8 * 1000),
+
   // -------------------------------------------------------------------------
   // Cifrado de secretos en reposo — src/utils/encryption.ts (P2.1, paso 2).
   //
