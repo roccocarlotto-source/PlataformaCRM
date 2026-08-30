@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { AppError } from "../utils/AppError";
@@ -378,5 +378,70 @@ test("onboardOrganization rechaza con 409 un email que ya tiene cuenta, y NO bor
     assert.ok(usuario, "el perfil de negocio de la cuenta existente debe seguir ahí");
   } finally {
     await limpiar(email, organizationId);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// M-11 (b), §28.7 de docs/bitacora-2026-08-29.md — el sitio "No se encontró el
+// rol ADMIN" es un error de configuración del servidor (falta el seed) y va
+// con isOperational: false. Este test dispara ESE throw de verdad, con el
+// flujo real completo hasta la transacción.
+//
+// POR QUÉ NO SE BORRA NI SE RENOMBRA EL ROL ADMIN DE LA BASE: es una fila
+// global, sembrada una vez, que todos los archivos de integración leen en sus
+// fixtures — y el runner los corre en paralelo. Tocarla aunque sea unos
+// cientos de milisegundos es una receta de fallos espurios en OTROS archivos.
+// En su lugar se dobla prisma.$transaction con mock.method de node:test, solo
+// en este proceso y solo durante este test: la callback del service recibe un
+// tx cuyo role.findUnique devuelve null, que es exactamente "una base sin el
+// rol ADMIN" desde el punto de vista del código que se está probando.
+// ---------------------------------------------------------------------------
+
+test("M-11 b: sin el rol ADMIN en la base, onboardOrganization lanza un AppError 500 NO operacional", async () => {
+  const email = emailDePrueba("sin-rol-admin");
+  const organizationName = `M-11 sin rol ADMIN ${randomUUID()}`;
+
+  const transaccion = mock.method(prisma, "$transaction", ((
+    fn: (tx: unknown) => Promise<unknown>,
+  ) => fn({ role: { findUnique: async () => null } })) as never);
+
+  try {
+    await requestOnboardingOtp({ email });
+    const codigo = await obtenerCodigo(email);
+
+    let capturado: unknown;
+    try {
+      await onboardOrganization({
+        organizationName,
+        fullName: "Sin Rol",
+        email,
+        password: PASSWORD,
+        otp: codigo,
+      });
+    } catch (err) {
+      capturado = err;
+    }
+
+    assert.equal(
+      transaccion.mock.callCount(),
+      1,
+      "el flujo tiene que haber llegado a la transacción",
+    );
+    assert.ok(capturado instanceof AppError, String(capturado));
+    assert.equal(capturado.statusCode, 500);
+    assert.equal(capturado.isOperational, false);
+    // El mensaje sigue intacto: es para el log.
+    assert.equal(
+      capturado.message,
+      "No se encontró el rol ADMIN. Contactá al administrador del sistema.",
+    );
+
+    // Y no quedó nada a medias: ni Organization, ni identidad (la compensación
+    // del service la revierte).
+    assert.equal(await prisma.organization.count({ where: { name: organizationName } }), 0);
+    assert.equal(await buscarIdentidad(email), undefined);
+  } finally {
+    transaccion.mock.restore();
+    await limpiar(email);
   }
 });

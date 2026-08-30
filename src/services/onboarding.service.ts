@@ -239,10 +239,12 @@ export async function onboardOrganization(input: OnboardingInput): Promise<Onboa
       const role = await findRoleByName("ADMIN", tx);
       if (!role) {
         // Falta el seed (npm run prisma:seed) — error de configuración del
-        // servidor, no algo que el usuario pueda resolver.
+        // servidor, no algo que el usuario pueda resolver. isOperational:
+        // false por eso mismo: el mensaje es para el log (M-11 b).
         throw new AppError(
           "No se encontró el rol ADMIN. Contactá al administrador del sistema.",
           500,
+          false,
         );
       }
 
