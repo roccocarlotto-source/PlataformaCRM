@@ -333,7 +333,7 @@ export async function acceptInvitation(
   const fullName = input.fullName.trim();
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const resultado = await prisma.$transaction(async (tx) => {
       // Compare-and-swap: primer paso de la transacción, antes de crear el
       // User. Solo transiciona si status sigue siendo PENDING en el
       // momento exacto de la escritura — así se resuelve tanto "accept vs
@@ -355,6 +355,19 @@ export async function acceptInvitation(
         if (!current) {
           throw new AppError("Invitación no encontrada", 404);
         }
+        // B-18: con expires_at en el WHERE del CAS, hay un caso nuevo en que
+        // el CAS falla con la fila TODAVÍA en PENDING — venció entre el
+        // pre-check de arriba y la escritura, y nadie la expiró aún. Sin esta
+        // rama caería en el default de acceptConflictError ("Invitación
+        // inválida", 400) en vez del 410 de vencimiento. Se expira acá mismo
+        // para no dejar un PENDING zombie, pero el 410 NO se lanza adentro:
+        // un throw revertiría la transacción y desharía esta misma
+        // expiración. Se devuelve un sentinela y el throw ocurre después del
+        // commit, abajo.
+        if (current.status === "PENDING" && current.expiresAt.getTime() <= Date.now()) {
+          await expireDueInvitations({ id: current.id }, tx);
+          return { vencidaTrasElCas: true as const };
+        }
         throw acceptConflictError(current.status);
       }
 
@@ -369,6 +382,14 @@ export async function acceptInvitation(
         tx,
       );
     });
+
+    // B-18: el 410 de "venció tras el CAS" se lanza DESPUÉS del commit — así
+    // la expiración de arriba persiste (ver el comentario en la rama).
+    if ("vencidaTrasElCas" in resultado) {
+      throw new AppError("Esta invitación venció, pedile a tu administrador que te reinvite", 410);
+    }
+
+    return resultado;
   } catch (err) {
     if (err instanceof AppError) {
       throw err;

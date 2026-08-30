@@ -10,6 +10,7 @@ import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import type { InvitationAcceptIdentity } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { acceptInvitationRowConditional } from "../repositories/invitation.repository";
 import { acceptInvitation, createInvitation, revokeInvitation } from "./invitation.service";
 
 // Test de integración del LOW "accept/revoke de Invitation puede devolver
@@ -585,4 +586,103 @@ test("M-11 b: createInvitation sin el rol en el catálogo lanza un AppError 500 
     "No se encontró el rol indicado. Contactá al administrador del sistema.",
   );
   assert.equal(await prisma.invitation.count({ where: { organizationId: fx.orgId, email } }), 0);
+});
+
+// ---------------------------------------------------------------------------
+// B-18 de docs/auditoria-2026-08-29.md — el CAS de aceptación revalida el
+// vencimiento en su propia escritura (expires_at > clock_timestamp()).
+// ---------------------------------------------------------------------------
+
+test("B-18 (repository): el CAS no acepta una PENDING ya vencida — count 0 y la fila intacta", async () => {
+  // Escritura directa por Prisma para saltear a propósito el
+  // expireDueInvitations perezoso del service: la fila queda como la deja la
+  // carrera real, PENDING con expiresAt en el pasado.
+  const email = `b18-repo-${randomUUID()}@example.test`;
+  const invitation = await createInvitationRow(email, "PENDING", {
+    expiresAt: new Date(Date.now() - 60_000),
+  });
+
+  const result = await acceptInvitationRowConditional(invitation.id);
+  assert.equal(result.count, 0, "el CAS no debe aceptar una invitación vencida");
+
+  const fila = await prisma.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
+  assert.equal(fila.status, "PENDING", "el CAS solo decide, no expira — eso es del caller");
+  assert.equal(fila.acceptedAt, null);
+});
+
+test("B-18 (service, camino perezoso): aceptar una PENDING ya vencida da el 410 de vencimiento y deja la fila EXPIRED", async () => {
+  // Acá quien ataja es el expireDueInvitations del arranque + el pre-check —
+  // el contrato de siempre, fijado. La rama NUEVA del CAS fallido es el
+  // fallback para la ventana que este fixture no puede producir (la fila ya
+  // llega vencida al arranque); esa ventana la fuerza el test siguiente.
+  const email = `b18-lazy-${randomUUID()}@example.test`;
+  const invitation = await createInvitationRow(email, "PENDING", {
+    expiresAt: new Date(Date.now() - 60_000),
+  });
+
+  const identity: InvitationAcceptIdentity = { userId: randomUUID(), email };
+  await assert.rejects(
+    () => acceptInvitation(identity, { fullName: "Tarde" }),
+    (err) =>
+      assertAppError(err, 410, "Esta invitación venció, pedile a tu administrador que te reinvite"),
+  );
+
+  const fila = await prisma.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
+  assert.equal(fila.status, "EXPIRED");
+});
+
+// El escenario COMPLETO del hallazgo —la fila vence ENTRE el pre-check y la
+// ejecución del CAS— forzado de forma determinística. Tres piezas:
+//
+//   1. El pre-check corre con la expiración todavía en el futuro (margen
+//      holgado contra la latencia de la base remota, pero por debajo del
+//      timeout de 5 s de la transacción del service).
+//   2. Una transacción A del test sostiene un TOUCH sobre la fila (update de
+//      updatedAt, sin cambiar status): el CAS real se bloquea detrás. El touch
+//      no es decorativo — Postgres evalúa el qual de un UPDATE antes de
+//      bloquear, y solo RE-evalúa (EvalPlanQual) si al liberarse encuentra una
+//      versión nueva de la fila; con un simple FOR UPDATE del otro lado, el
+//      CAS aplicaría su decisión vieja (verificado empíricamente). Con el
+//      touch, la re-evaluación corre sobre la versión nueva y
+//      clock_timestamp() —volátil— se ejecuta fresco.
+//   3. El test espera a que el RELOJ cruce expiresAt (espera por condición,
+//      no una carrera: B sigue bloqueada por A mientras tanto) y recién ahí
+//      libera A: el CAS re-evalúa, ve la fila vencida, da count 0, y la rama
+//      nueva del service expira la fila y responde el 410 — después del
+//      commit, así la expiración persiste.
+test("B-18 (service, rama nueva): la invitación vence ENTRE el pre-check y el CAS → 410, no el 400 genérico, y la fila queda EXPIRED", async () => {
+  const email = `b18-cas-${randomUUID()}@example.test`;
+  const expiresAt = new Date(Date.now() + 2_500);
+  const invitation = await createInvitationRow(email, "PENDING", { expiresAt });
+
+  const a = await sostenerTransaccion(async (tx) => {
+    await tx.invitation.update({
+      where: { id: invitation.id },
+      data: { updatedAt: new Date() },
+    });
+  });
+
+  const identity: InvitationAcceptIdentity = { userId: randomUUID(), email };
+  const b = acceptInvitation(identity, { fullName: "Tarde" });
+  b.catch(() => undefined);
+  // El pre-check ya pasó (la expiración estaba en el futuro); lo que espera el
+  // lock de A es el UPDATE del CAS.
+  await esperarBloqueadoPor(a, b, "acceptInvitation (B-18)");
+
+  while (Date.now() <= expiresAt.getTime()) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+
+  a.liberar();
+  await a.terminada;
+
+  await assert.rejects(
+    () => b,
+    (err) =>
+      assertAppError(err, 410, "Esta invitación venció, pedile a tu administrador que te reinvite"),
+  );
+
+  const fila = await prisma.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
+  assert.equal(fila.status, "EXPIRED", "la rama nueva expira la fila: no queda un PENDING zombie");
+  assert.equal(await prisma.user.count({ where: { id: identity.userId } }), 0);
 });
