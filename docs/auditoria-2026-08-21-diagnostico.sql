@@ -263,13 +263,28 @@ from (
 
   union all
 
-  -- V-2 ─ Los 5 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 11 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
   -- base aceptaba montos negativos con el chequeo en verde. La firma incluye la
   -- tabla porque conname no es único por base: un CHECK con el mismo nombre en
   -- otra tabla contaba como presente.
+  --
+  -- Los 6 del módulo de Booking / Google Calendar se agregaron por M-6 de
+  -- docs/auditoria-2026-08-29.md: hasta entonces esta fila afirmaba 5 de 11,
+  -- y perder en un rebase la sección de CHECKs de 20260830120000 pasaba
+  -- migrate deploy, verify:schema y la suite (Zod frena todo en el borde de
+  -- la API) sin que nada lo dijera.
+  --
+  -- ATENCIÓN con google_calendar_connections_channel_all_or_none_check: es el
+  -- PRIMER CHECK afirmado con la forma (A AND B AND C) OR (D AND E AND F), o
+  -- sea con OR y AND mezclados. Es exactamente el límite conocido del
+  -- normalizador que documenta el encabezado (líneas 49-55): al sacar los
+  -- paréntesis se pierde la asociatividad, así que esta fila ya no distingue
+  -- esa parentización de otra que reparta los mismos operandos de otra
+  -- manera. Se acepta a sabiendas —la alternativa era depender de acertarle a
+  -- la parentización exacta que elige Postgres— y NO se toca el normalizador.
   select 8,
     'V-2 · CHECK constraints que faltan o cambiaron de definición',
     coalesce(string_agg(e.nombre || ' → ' || coalesce(a.def, 'FALTA'), ' ;; ' order by e.nombre), 'ninguno'),
@@ -284,7 +299,19 @@ from (
     ('activities_related_entity_check', 'activities',
      'CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL OR opportunity_id IS NOT NULL)'),
     ('contacts_email_trimmed_check', 'contacts',
-     'CHECK (email IS NULL OR email = btrim(email))')
+     'CHECK (email IS NULL OR email = btrim(email))'),
+    ('service_types_duration_positive_check', 'service_types',
+     'CHECK (duration_min > 0)'),
+    ('service_types_capacity_positive_check', 'service_types',
+     'CHECK (capacity >= 1)'),
+    ('google_calendar_connections_active_requires_token_check', 'google_calendar_connections',
+     'CHECK (status <> ''ACTIVE'' OR refresh_token IS NOT NULL)'),
+    ('working_hours_minute_range_check', 'working_hours',
+     'CHECK (start_minute >= 0 AND end_minute <= 1440 AND start_minute < end_minute)'),
+    ('bookings_time_range_check', 'bookings',
+     'CHECK (starts_at < ends_at)'),
+    ('google_calendar_connections_channel_all_or_none_check', 'google_calendar_connections',
+     'CHECK (channel_id IS NULL AND channel_resource_id IS NULL AND channel_expiration IS NULL OR channel_id IS NOT NULL AND channel_resource_id IS NOT NULL AND channel_expiration IS NOT NULL)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -532,7 +559,7 @@ from (
   -- verificó contra el esquema real en vez de suponerse: las FKs
   -- x.organization_id -> organizations.id no entran (organizations no tiene
   -- columna organization_id, tiene id), y users.role_id / invitations.role_id
-  -- tampoco (roles es un catálogo global, sin organización). Las 18 restantes
+  -- tampoco (roles es un catálogo global, sin organización). Las 28 restantes
   -- son las que se afirman.
   --
   -- LAS ACCIONES REFERENCIALES SE SIGUEN AFIRMANDO, y también sin lista. La
@@ -662,7 +689,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 18 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 28 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -686,7 +713,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 18 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 28 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -696,9 +723,15 @@ from (
     ('activities_organization_id_contact_id_fkey|activities(organization_id,contact_id)->contacts(organization_id,id)'),
     ('activities_organization_id_opportunity_id_fkey|activities(organization_id,opportunity_id)->opportunities(organization_id,id)'),
     ('api_keys_organization_id_source_id_fkey|api_keys(organization_id,source_id)->sources(organization_id,id)'),
+    ('bookings_organization_id_branch_id_fkey|bookings(organization_id,branch_id)->branches(organization_id,id)'),
+    ('bookings_organization_id_contact_id_fkey|bookings(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('bookings_organization_id_opportunity_id_fkey|bookings(organization_id,opportunity_id)->opportunities(organization_id,id)'),
+    ('bookings_organization_id_resource_id_fkey|bookings(organization_id,resource_id)->resources(organization_id,id)'),
+    ('bookings_organization_id_service_type_id_fkey|bookings(organization_id,service_type_id)->service_types(organization_id,id)'),
     ('companies_organization_id_owner_id_fkey|companies(organization_id,owner_id)->users(organization_id,id)'),
     ('contacts_organization_id_company_id_fkey|contacts(organization_id,company_id)->companies(organization_id,id)'),
     ('contacts_organization_id_owner_id_fkey|contacts(organization_id,owner_id)->users(organization_id,id)'),
+    ('google_calendar_connections_organization_id_branch_id_fkey|google_calendar_connections(organization_id,branch_id)->branches(organization_id,id)'),
     ('ingestion_events_organization_id_promoted_contact_id_fkey|ingestion_events(organization_id,promoted_contact_id)->contacts(organization_id,id)'),
     ('ingestion_events_organization_id_source_id_fkey|ingestion_events(organization_id,source_id)->sources(organization_id,id)'),
     ('invitations_organization_id_invited_by_id_fkey|invitations(organization_id,invited_by_id)->users(organization_id,id)'),
@@ -707,7 +740,11 @@ from (
     ('opportunities_organization_id_owner_id_fkey|opportunities(organization_id,owner_id)->users(organization_id,id)'),
     ('opportunities_organization_id_pipeline_id_fkey|opportunities(organization_id,pipeline_id)->pipelines(organization_id,id)'),
     ('opportunities_organization_id_stage_id_fkey|opportunities(organization_id,stage_id)->stages(organization_id,id)'),
-    ('stages_organization_id_pipeline_id_fkey|stages(organization_id,pipeline_id)->pipelines(organization_id,id)')
+    ('resources_organization_id_branch_id_fkey|resources(organization_id,branch_id)->branches(organization_id,id)'),
+    ('service_types_organization_id_branch_id_fkey|service_types(organization_id,branch_id)->branches(organization_id,id)'),
+    ('service_types_organization_id_resource_id_fkey|service_types(organization_id,resource_id)->resources(organization_id,id)'),
+    ('stages_organization_id_pipeline_id_fkey|stages(organization_id,pipeline_id)->pipelines(organization_id,id)'),
+    ('working_hours_organization_id_resource_id_fkey|working_hours(organization_id,resource_id)->resources(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
