@@ -99,7 +99,9 @@ export async function updateUser(
   if (input.role !== undefined) {
     const role = await findRoleByName(input.role);
     if (!role) {
-      throw new AppError("No se encontró el rol indicado", 500);
+      // isOperational: false — falta el seed, error de configuración del
+      // servidor, no del cliente (M-11 b).
+      throw new AppError("No se encontró el rol indicado", 500, false);
     }
     data.roleId = role.id;
   }

@@ -188,3 +188,61 @@ test("degradación ADMIN→USER vs degradación ADMIN→USER: adminA degrada a a
     (orgId, actorId, targetId) => updateUser(orgId, actorId, targetId, { role: "USER" }),
   );
 });
+
+// ---------------------------------------------------------------------------
+// M-11 (b), §28.7 de docs/bitacora-2026-08-29.md — "No se encontró el rol
+// indicado" en updateUser es un error de configuración del servidor (falta el
+// seed) y va con isOperational: false.
+// ---------------------------------------------------------------------------
+
+// CÓMO SE SIMULA "EL ROL NO ESTÁ EN EL CATÁLOGO" SIN TOCAR EL ROL REAL: la fila
+// del rol es global y la leen en paralelo todos los archivos de integración;
+// borrarla o renombrarla unos milisegundos es una fuente de fallos espurios en
+// OTROS archivos. En cambio se reemplaza, solo en este proceso y solo durante
+// la llamada, prisma.role.findUnique — que es exactamente lo que findRoleByName
+// ejecuta — por una función que devuelve null, y se restaura en el finally.
+// (mock.method de node:test no sirve acá: el delegate de Prisma es un Proxy
+// que resuelve el método en el get, y mock.method no lo encuentra como
+// propiedad; una asignación directa sí lo pisa.)
+async function sinRolEnElCatalogo<T>(fn: () => Promise<T>): Promise<T> {
+  const delegate = prisma.role as unknown as { findUnique: unknown };
+  const original = delegate.findUnique;
+  delegate.findUnique = async () => null;
+  try {
+    return await fn();
+  } finally {
+    delegate.findUnique = original;
+  }
+}
+
+test("M-11 b: updateUser con un rol que no está en el catálogo lanza un AppError 500 NO operacional y no toca al usuario", async () => {
+  const scenario = await setupScenario("m11-sin-rol");
+  try {
+    const antes = await prisma.user.findUniqueOrThrow({
+      where: { id: scenario.adminB.id },
+      select: { roleId: true },
+    });
+
+    let capturado: unknown;
+    await sinRolEnElCatalogo(async () => {
+      try {
+        await updateUser(scenario.orgId, scenario.adminA.id, scenario.adminB.id, { role: "USER" });
+      } catch (err) {
+        capturado = err;
+      }
+    });
+
+    assert.ok(capturado instanceof AppError, String(capturado));
+    assert.equal(capturado.statusCode, 500);
+    assert.equal(capturado.isOperational, false);
+    assert.equal(capturado.message, "No se encontró el rol indicado");
+
+    const despues = await prisma.user.findUniqueOrThrow({
+      where: { id: scenario.adminB.id },
+      select: { roleId: true },
+    });
+    assert.equal(despues.roleId, antes.roleId, "el rol del usuario no cambió");
+  } finally {
+    await teardownScenario(scenario);
+  }
+});
