@@ -18,7 +18,8 @@ const idParamSchema = z.string().uuid("id inválido");
 const lifecycleStageSchema = z.enum(["LEAD", "MQL", "SQL", "CUSTOMER", "CHURNED"]);
 
 // Campos compartidos entre create (firstName/lastName requeridos) y update
-// (todos opcionales vía .partial() más abajo).
+// (todos opcionales vía .partial() más abajo). Solo los que NO cambian de
+// nulabilidad entre uno y otro; los que sí, van definidos dos veces más abajo.
 const contactFields = {
   firstName: z
     .string()
@@ -30,6 +31,14 @@ const contactFields = {
     .trim()
     .min(1, "lastName es requerido")
     .max(100, "lastName no puede superar los 100 caracteres"),
+  lifecycleStage: lifecycleStageSchema.optional(),
+  ownerId: z.string().uuid("ownerId inválido").optional(),
+};
+
+// Exportados para testear la frontera del schema sin base ni HTTP
+// (contact.controller.test.ts), mismo criterio que opportunity y stage.
+export const createContactSchema = z.object({
+  ...contactFields,
   email: z
     .string()
     .trim()
@@ -38,16 +47,46 @@ const contactFields = {
     .optional(),
   phone: z.string().trim().max(30, "phone no puede superar los 30 caracteres").optional(),
   jobTitle: z.string().trim().max(100, "jobTitle no puede superar los 100 caracteres").optional(),
-  lifecycleStage: lifecycleStageSchema.optional(),
   source: z.string().trim().max(100, "source no puede superar los 100 caracteres").optional(),
   companyId: z.string().uuid("companyId inválido").optional(),
-  ownerId: z.string().uuid("ownerId inválido").optional(),
-};
+});
 
-const createContactSchema = z.object(contactFields);
-
-const updateContactSchema = z
-  .object(contactFields)
+// M-10 (auditoría 2026-08-29): email/phone/jobTitle/source/companyId son
+// .nullable() acá (a diferencia de create): permiten limpiarse
+// explícitamente con un `null` en PATCH — `companyId: null` desvincula al
+// contacto de su empresa. Sin .nullable(), rebotaban con 400 de Zod antes de
+// llegar al service. Mismo patrón que opportunity y activity. El resto del
+// camino para `email` y `companyId` está en updateContact (contact.service.ts).
+export const updateContactSchema = z
+  .object({
+    ...contactFields,
+    email: z
+      .string()
+      .trim()
+      .email("email inválido")
+      .max(255, "email no puede superar los 255 caracteres")
+      .nullable()
+      .optional(),
+    phone: z
+      .string()
+      .trim()
+      .max(30, "phone no puede superar los 30 caracteres")
+      .nullable()
+      .optional(),
+    jobTitle: z
+      .string()
+      .trim()
+      .max(100, "jobTitle no puede superar los 100 caracteres")
+      .nullable()
+      .optional(),
+    source: z
+      .string()
+      .trim()
+      .max(100, "source no puede superar los 100 caracteres")
+      .nullable()
+      .optional(),
+    companyId: z.string().uuid("companyId inválido").nullable().optional(),
+  })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
     message: "Debe enviar al menos un campo para actualizar",
