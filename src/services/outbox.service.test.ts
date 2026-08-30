@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
-import { calcularEsperaDeBackoff, describirError, resolverFallo } from "./outbox.service";
+import { mock, test } from "node:test";
+import { logger } from "../lib/logger";
+import {
+  calcularEsperaDeBackoff,
+  describirError,
+  ejecutarConTope,
+  resolverFallo,
+} from "./outbox.service";
 import { crearRegistroDeHandlers } from "./outboxHandlers";
 
 // Unitarios, sin base ni red: acá vive la única lógica del motor donde un error
@@ -144,4 +150,140 @@ test("tiposRegistrados devuelve los tipos ordenados — es lo que loguea el arra
   registro.registrar("booking.reminder_due", async () => undefined);
 
   assert.deepEqual(registro.tiposRegistrados(), ["booking.reminder_due", "opportunity.won"]);
+});
+
+// ---------------------------------------------------------------------------
+// ejecutarConTope — M-14 de docs/auditoria-2026-08-29.md
+//
+// Sin base ni red: la función no toca Prisma. Los topes son chicos (10-20 ms)
+// porque el VALOR del tope no es lo que se prueba, solo que se respete; y no
+// hace falta mock.timers porque abort() y reject() corren en el MISMO callback
+// del setTimeout, así que "en cuanto ejecutarConTope rechaza, la señal ya está
+// abortada" es determinístico.
+// ---------------------------------------------------------------------------
+
+test("un handler que completa antes del tope resuelve, y su señal NO queda abortada", async () => {
+  let capturada: AbortSignal | undefined;
+
+  await ejecutarConTope(async (signal) => {
+    capturada = signal;
+  }, 1_000);
+
+  assert.ok(capturada);
+  assert.equal(capturada.aborted, false);
+});
+
+test("un handler que no responde: al vencer el tope rechaza con 'no respondió en N ms' y la señal ya está abortada", async () => {
+  let capturada: AbortSignal | undefined;
+
+  await assert.rejects(
+    ejecutarConTope((signal) => {
+      capturada = signal;
+      return new Promise<void>(() => undefined);
+    }, 15),
+    /no respondió en 15 ms/,
+  );
+
+  assert.ok(capturada);
+  assert.equal(capturada.aborted, true);
+  assert.match(String((capturada.reason as Error).message), /no respondió en 15 ms/);
+});
+
+test("un handler que RESPETA la señal se para solo al vencer el tope", async () => {
+  let seParo = false;
+
+  await assert.rejects(
+    ejecutarConTope(
+      (signal) =>
+        new Promise<void>((_resolve, reject) => {
+          // Lo que haría fetch(url, { signal }) por dentro: escuchar el abort y
+          // cortar. Es el único mecanismo por el que un handler deja de
+          // competir con el reintento.
+          signal.addEventListener("abort", () => {
+            seParo = true;
+            reject(signal.reason as Error);
+          });
+        }),
+      15,
+    ),
+  );
+
+  assert.equal(seParo, true);
+});
+
+test("un handler que IGNORA la señal y falla DESPUÉS del tope queda logueado en warn con su error real", async () => {
+  const warn = mock.method(logger, "warn", () => undefined);
+  let fallarTarde: (err: Error) => void = () => undefined;
+
+  try {
+    await assert.rejects(
+      ejecutarConTope(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            fallarTarde = reject;
+          }),
+        15,
+      ),
+      /no respondió en 15 ms/,
+    );
+    assert.equal(warn.mock.callCount(), 0, "hasta acá no hay nada que loguear");
+
+    // El handler sigue vivo y ahora falla, cuando el intento ya se reprogramó.
+    // Sin la rama nueva, esto era una excepción que nadie escuchaba.
+    const tardio = new Error("el destino respondió 503, pero a los 12 segundos");
+    fallarTarde(tardio);
+    await new Promise((r) => setImmediate(r));
+
+    assert.equal(warn.mock.callCount(), 1);
+    const [payload, mensaje] = warn.mock.calls[0].arguments as [{ err: unknown }, string];
+    assert.equal(payload.err, tardio);
+    assert.match(mensaje, /después de vencer su propio tope/);
+  } finally {
+    warn.mock.restore();
+  }
+});
+
+test("control: un handler que falla ANTES del tope rechaza con SU error, sin warn — ese camino lo maneja entregarEvento", async () => {
+  const warn = mock.method(logger, "warn", () => undefined);
+  let capturada: AbortSignal | undefined;
+
+  try {
+    await assert.rejects(
+      ejecutarConTope(async (signal) => {
+        capturada = signal;
+        throw new Error("el destino respondió 503");
+      }, 1_000),
+      /el destino respondió 503/,
+    );
+    await new Promise((r) => setImmediate(r));
+
+    assert.equal(warn.mock.callCount(), 0);
+    assert.ok(capturada);
+    assert.equal(capturada.aborted, false, "el tope no venció: no hay nada que abortar");
+  } finally {
+    warn.mock.restore();
+  }
+});
+
+test("un handler que IGNORA la señal y completa tarde no loguea nada — no hay fallo que registrar", async () => {
+  const warn = mock.method(logger, "warn", () => undefined);
+  let completarTarde: () => void = () => undefined;
+
+  try {
+    await assert.rejects(
+      ejecutarConTope(
+        () =>
+          new Promise<void>((resolve) => {
+            completarTarde = resolve;
+          }),
+        15,
+      ),
+    );
+    completarTarde();
+    await new Promise((r) => setImmediate(r));
+
+    assert.equal(warn.mock.callCount(), 0);
+  } finally {
+    warn.mock.restore();
+  }
 });

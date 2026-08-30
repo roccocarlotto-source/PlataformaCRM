@@ -403,3 +403,55 @@ test("el reclamo respeta el turno: un evento reprogramado cede el paso a uno rec
     await desmontar(escenario);
   }
 });
+
+// ---------------------------------------------------------------------------
+// M-14 de docs/auditoria-2026-08-29.md — la señal se aborta de verdad en el
+// camino real, con transacción y todo, no solo en el aislamiento sin base de
+// outbox.service.test.ts.
+//
+// OUTBOX_HANDLER_TIMEOUT_MS se baja temporariamente mutando `env` y se
+// restaura en el finally —mismo criterio que adelantarElReloj: lo que importa
+// es la máquina de estados, no esperar 10 s de verdad. No se simula la entrega
+// duplicada en sí (necesitaría un destino externo real); lo que se fija es que
+// el handler RECIBE una señal y que esa señal queda abortada cuando el evento
+// ya se reprogramó.
+// ---------------------------------------------------------------------------
+
+test("M-14: al vencer el tope, la señal que recibió el handler queda abortada y el evento se reprograma con el tope en lastError", async () => {
+  const escenario = await montar("m14-abort");
+  const topeOriginal = env.OUTBOX_HANDLER_TIMEOUT_MS;
+  env.OUTBOX_HANDLER_TIMEOUT_MS = 50;
+  let capturada: AbortSignal | undefined;
+  let liberar: () => void = () => undefined;
+
+  try {
+    escenario.registro.registrar("test.abort", async (evento) => {
+      capturada = evento.signal;
+      // Ignora la señal a propósito: nunca resuelve por su cuenta durante el
+      // drenado. Es el handler del escenario del hallazgo.
+      await new Promise<void>((resolve) => {
+        liberar = resolve;
+      });
+    });
+
+    const evento = await emitir(escenario, "test.abort");
+
+    const resumen = await drenarOutbox({
+      organizationId: escenario.organizationId,
+      registro: escenario.registro,
+    });
+    assert.equal(resumen.reprogramados, 1);
+
+    const fila = await leer(evento.id);
+    assert.equal(fila.status, "PENDING");
+    assert.equal(fila.attempts, 1);
+    assert.match(fila.lastError ?? "", /no respondió en 50 ms/);
+
+    assert.ok(capturada, "el handler tiene que haber recibido una señal");
+    assert.equal(capturada.aborted, true);
+  } finally {
+    env.OUTBOX_HANDLER_TIMEOUT_MS = topeOriginal;
+    liberar();
+    await desmontar(escenario);
+  }
+});

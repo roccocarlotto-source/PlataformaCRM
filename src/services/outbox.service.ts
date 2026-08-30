@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { logger } from "../lib/logger";
 import type { Db } from "../lib/prisma";
 import {
   markOutboxEventDeadLetter,
@@ -117,17 +118,54 @@ export interface OpcionesDeEntrega {
 //
 // Se corre contra el reloj real y no contra `ahora`: `ahora` es la referencia
 // para calcular el próximo turno, esto es tiempo de pared.
-async function ejecutarConTope(handler: () => Promise<void>, topeMs: number): Promise<void> {
+//
+// EL ABORTSIGNAL (M-14 de docs/auditoria-2026-08-29.md) no cancela nada por su
+// cuenta — ningún mecanismo de JS puede forzar a una promesa ajena a dejar de
+// correr, y Promise.race menos: solo decide a quién se le hace caso primero.
+// Lo que hace es darle al handler la SEÑAL para que se pare solo, si la
+// respeta (pasándosela a un fetch, por ejemplo). Sin la señal, esta función ya
+// cortaba la ESPERA al vencer el tope, pero el handler seguía corriendo
+// huérfano: si más tarde completaba, el reintento ya estaba agendado y el
+// destino podía recibir el aviso dos veces; y si más tarde lanzaba, nadie
+// escuchaba esa segunda promesa y la excepción se perdía sin dejar rastro. Lo
+// segundo se arregla siempre, respete el handler la señal o no: el fallo
+// tardío queda logueado.
+//
+// Exportada para poder probarla en aislamiento: es exactamente la función que
+// el hallazgo cambia, y no toca la base.
+export async function ejecutarConTope(
+  handler: (signal: AbortSignal) => Promise<void>,
+  topeMs: number,
+): Promise<void> {
+  const controller = new AbortController();
   let temporizador: NodeJS.Timeout | undefined;
+
+  const promesaDelHandler = handler(controller.signal);
+
+  // Rama SEPARADA de la que mira Promise.race: no consume el rechazo que race
+  // necesita ver cuando el handler falla ANTES del tope (ese sigue subiendo
+  // normal y entregarEvento lo traduce a REINTENTAR/DEAD_LETTER). Solo actúa
+  // cuando la señal ya está abortada, es decir, cuando el fallo llegó tarde —
+  // el único caso donde, sin esto, se perdía sin log.
+  promesaDelHandler.catch((err: unknown) => {
+    if (controller.signal.aborted) {
+      logger.warn(
+        { err },
+        "El handler del outbox falló después de vencer su propio tope — el intento ya se había reprogramado",
+      );
+    }
+  });
 
   const limite = new Promise<never>((_resolve, reject) => {
     temporizador = setTimeout(() => {
-      reject(new Error(`el handler no respondió en ${String(topeMs)} ms`));
+      const motivo = new Error(`el handler no respondió en ${String(topeMs)} ms`);
+      controller.abort(motivo);
+      reject(motivo);
     }, topeMs);
   });
 
   try {
-    await Promise.race([handler(), limite]);
+    await Promise.race([promesaDelHandler, limite]);
   } finally {
     // Sin esto, el timer pendiente mantiene vivo el event loop hasta que expire
     // — en un test, eso es un proceso que no termina.
@@ -177,12 +215,13 @@ export async function entregarEvento(
 
   try {
     await ejecutarConTope(
-      () =>
+      (signal) =>
         handler({
           id: evento.id,
           organizationId: evento.organizationId,
           eventType: evento.eventType,
           payload: evento.payload,
+          signal,
         }),
       env.OUTBOX_HANDLER_TIMEOUT_MS,
     );
