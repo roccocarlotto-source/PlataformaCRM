@@ -186,7 +186,8 @@ export interface UpdateContactInput {
   jobTitle?: string | null;
   lifecycleStage?: LifecycleStage;
   source?: string | null;
-  companyId?: string;
+  // `null` desvincula al contacto de su empresa (M-10).
+  companyId?: string | null;
   ownerId?: string;
 }
 
@@ -205,12 +206,23 @@ export async function updateContact(
     data.ownerId = await resolveOwnerId(organizationId, actorUserId, input.ownerId);
   }
 
-  if (input.companyId) {
-    data.companyId = (await resolveCompanyId(organizationId, input.companyId)) ?? undefined;
+  // M-10 (auditoría 2026-08-29): `"companyId" in input`, no `if (input.companyId)`
+  // — un truthy check trata `null` igual que "no vino", y `null` acá significa
+  // "desvinculá al contacto de su empresa". resolveCompanyId ya devuelve
+  // `null` cuando no recibe id (es lo que usa createContact para "sin
+  // empresa"); lo que faltaba era no pisar ese resultado con `?? undefined`,
+  // que Prisma ignora en un update. Misma idiom que activity.service.ts.
+  if ("companyId" in input) {
+    data.companyId = await resolveCompanyId(organizationId, input.companyId ?? undefined);
   }
 
+  // M-29 del 21/08 (mitad backend), reabierto como M-10: `input.email ??
+  // undefined` convertía un `null` explícito en `undefined` antes de que
+  // normalizeEmail lo viera, y Prisma ignora `undefined` en un update — la
+  // operación respondía 200 sin cambiar nada. El `null` se preserva; el
+  // contrato de normalizeEmail (string | undefined, trim y nada más) no cambia.
   if (input.email !== undefined) {
-    data.email = normalizeEmail(input.email ?? undefined);
+    data.email = input.email === null ? null : normalizeEmail(input.email);
   }
 
   try {
