@@ -2,6 +2,7 @@ import { app } from "./app";
 import { env } from "./config/env";
 import { logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
+import { crearShutdown } from "./shutdown";
 import { iniciarWorkerDeIngesta } from "./workers/ingestionWorker";
 import { iniciarWorkerDeCanales } from "./workers/googleCalendarChannelWorker";
 import { iniciarWorkerDeOutbox } from "./workers/outboxWorker";
@@ -31,26 +32,38 @@ const detenerWorkerDeOutbox = iniciarWorkerDeOutbox();
 // tres cuyo tick normal no hace nada.
 const detenerWorkerDeCanales = iniciarWorkerDeCanales();
 
-function shutdown(signal: string) {
-  logger.info(`${signal} recibido, cerrando servidor...`);
-  // Antes de cerrar el servidor: deja de agendar pasadas nuevas. Una pasada en
-  // curso termina sola —cada evento va en su propia transacción y ninguna queda
-  // a medias— y los eventos que no llegó a tocar siguen en PENDING, que es
-  // exactamente donde tienen que estar para que los tome el próximo arranque.
-  detenerWorker();
-  detenerWorkerDeOutbox();
-  detenerWorkerDeCanales();
+// El apagado ordenado (M-12 de docs/auditoria-2026-08-29.md). La orquestación
+// vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
+// probarla sin señales reales; acá solo se cablean los efectos de verdad.
+const shutdown = crearShutdown({
+  cerrarServidor: () =>
+    new Promise<void>((resolve) => {
+      server.close(() => resolve());
+      // server.close() espera a TODAS las conexiones, incluidas las keep-alive
+      // inactivas que un cliente puede sostener para siempre. Esto cierra ahora
+      // mismo las que no tienen un request en vuelo; las que sí lo tienen se
+      // dejan terminar solas, que es lo correcto.
+      server.closeIdleConnections();
+    }),
+  // Los tres stops esperan a la pasada en curso de su worker (M-12 c): cada
+  // evento va en su propia transacción y ninguna queda a medias, y los que no
+  // llegó a tocar siguen en PENDING para el próximo arranque.
+  detenerWorkers: async () => {
+    await Promise.all([detenerWorker(), detenerWorkerDeOutbox(), detenerWorkerDeCanales()]);
+  },
+  desconectarPrisma: () => prisma.$disconnect(),
+  salir: (codigo) => process.exit(codigo),
+  logger,
+  timeoutMs: env.SHUTDOWN_TIMEOUT_MS,
+});
 
-  server.close(() => {
-    prisma
-      .$disconnect()
-      .catch((err) => logger.error({ err }, "Error al desconectar Prisma"))
-      .finally(() => {
-        logger.info("Servidor cerrado correctamente");
-        process.exit(0);
-      });
-  });
-}
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+// Node ≥ 15 termina el proceso ante un unhandledRejection SIN pasar por ningún
+// handler de señal: sin esto no había $disconnect(), ni log estructurado de qué
+// pasó, ni chance de que un worker terminara su pasada (M-12 b).
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "unhandledRejection no manejado: iniciando shutdown");
+  void shutdown("unhandledRejection");
+});

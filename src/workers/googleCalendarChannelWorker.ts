@@ -120,12 +120,24 @@ export async function renovarCanalesVencidos(
   return resumen;
 }
 
-export function iniciarWorkerDeCanales(): () => void {
+// SOLO PARA TESTS (M-12): el tick de producción no pasa nada y el
+// comportamiento sin opciones es el de siempre. Permite arrancar el bucle con
+// una cadencia corta y una pasada controlada por el test —una promesa que el
+// test resuelve a mano— para probar que detener() espera al tick en curso sin
+// base, sin timers reales y sin condiciones de carrera de timing.
+export interface OpcionesDelWorker {
+  pollMs?: number;
+  renovar?: () => Promise<ResumenDeRenovacion>;
+}
+
+// Devuelve el stop del worker. Es ASÍNCRONO (M-12 c): resuelve recién cuando
+// no queda ninguna pasada en curso.
+export function iniciarWorkerDeCanales(opciones: OpcionesDelWorker = {}): () => Promise<void> {
   if (!env.GOOGLE_CHANNEL_WORKER_ENABLED) {
     logger.info(
       "Worker de canales de Google Calendar deshabilitado por GOOGLE_CHANNEL_WORKER_ENABLED: no se renuevan canales y la sincronización inversa deja de funcionar cuando venzan",
     );
-    return () => undefined;
+    return () => Promise.resolve();
   }
 
   // SIN GOOGLE_WEBHOOK_URL NO SE PUEDE ABRIR NINGÚN CANAL, así que el worker no
@@ -136,39 +148,49 @@ export function iniciarWorkerDeCanales(): () => void {
     logger.warn(
       "GOOGLE_WEBHOOK_URL no está configurada: el worker de canales no arranca y la sincronización inversa está inactiva. Requiere además un dominio verificado en Search Console.",
     );
-    return () => undefined;
+    return () => Promise.resolve();
   }
+
+  const pollMs = opciones.pollMs ?? env.GOOGLE_CHANNEL_WORKER_POLL_MS;
+  const renovar = opciones.renovar ?? (() => renovarCanalesVencidos());
 
   let detenido = false;
   let timer: NodeJS.Timeout | undefined;
+  // La promesa del tick que está corriendo ahora mismo, si hay uno. Es lo que
+  // el stop espera.
+  let tickEnCurso: Promise<void> | undefined;
 
   const tick = async () => {
     if (detenido) {
       return;
     }
 
-    try {
-      const resumen = await renovarCanalesVencidos();
+    tickEnCurso = (async () => {
+      try {
+        const resumen = await renovar();
 
-      if (resumen.renovados + resumen.fallidos > 0) {
-        logger.info(resumen, "Pasada de renovación de canales de Google Calendar");
+        if (resumen.renovados + resumen.fallidos > 0) {
+          logger.info(resumen, "Pasada de renovación de canales de Google Calendar");
+        }
+      } catch (err) {
+        // Red de seguridad del bucle: renovarCanalesVencidos ya atrapa por
+        // conexión, así que llegar acá significa que falló la consulta misma. El
+        // bucle NO puede morir por eso — si muere, los canales dejan de renovarse
+        // en silencio y la sincronización inversa se apaga sola en siete días.
+        logger.error({ err }, "Fallo inesperado en la pasada de renovación de canales");
       }
-    } catch (err) {
-      // Red de seguridad del bucle: renovarCanalesVencidos ya atrapa por
-      // conexión, así que llegar acá significa que falló la consulta misma. El
-      // bucle NO puede morir por eso — si muere, los canales dejan de renovarse
-      // en silencio y la sincronización inversa se apaga sola en siete días.
-      logger.error({ err }, "Fallo inesperado en la pasada de renovación de canales");
-    }
+    })();
+
+    await tickEnCurso;
 
     if (!detenido) {
-      timer = setTimeout(() => void tick(), env.GOOGLE_CHANNEL_WORKER_POLL_MS);
+      timer = setTimeout(() => void tick(), pollMs);
     }
   };
 
   logger.info(
     {
-      pollMs: env.GOOGLE_CHANNEL_WORKER_POLL_MS,
+      pollMs,
       margenMs: env.GOOGLE_CHANNEL_RENEW_MARGIN_MS,
       ttlSegundos: env.GOOGLE_CHANNEL_TTL_SECONDS,
       webhookUrl: env.GOOGLE_WEBHOOK_URL,
@@ -183,10 +205,20 @@ export function iniciarWorkerDeCanales(): () => void {
   // (normalmente no encuentra nada que renovar).
   timer = setTimeout(() => void tick(), 0);
 
-  return () => {
+  return async () => {
     detenido = true;
     if (timer) {
       clearTimeout(timer);
     }
+    // Si hay un tick corriendo AHORA MISMO, esto espera a que termine su `for`
+    // completo (todas las transacciones de esta pasada) antes de resolver. Es lo
+    // que cierra M-12 (c): sin esto, clearTimeout cancelaba el PRÓXIMO tick pero
+    // nada esperaba al que estaba en curso, y $disconnect() podía llegar entre el
+    // efecto externo de una pasada y el UPDATE que lo deja registrado — la
+    // transacción se revertía y el trabajo se repetía al reiniciar. Se espera el
+    // tick COMPLETO y no solo la transacción actual porque interrumpir a mitad
+    // del bucle exigiría enhebrar una cancelación por todo el drenado, y el peor
+    // caso de esperar está acotado por un lote (batch size × tiempo por evento).
+    await tickEnCurso;
   };
 }

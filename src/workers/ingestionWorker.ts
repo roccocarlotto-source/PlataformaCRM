@@ -135,54 +135,87 @@ export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<
 // drenado que tarde más que el intervalo se solaparía con el siguiente, y dos
 // pasadas concurrentes del mismo proceso competirían por los mismos locks.
 // Encadenando, el próximo tick se agenda recién cuando el anterior terminó.
-export function iniciarWorkerDeIngesta(): () => void {
+// SOLO PARA TESTS (M-12): el tick de producción no pasa nada y el
+// comportamiento sin opciones es el de siempre. Permite arrancar el bucle con
+// una cadencia corta y una pasada controlada por el test —una promesa que el
+// test resuelve a mano— para probar que detener() espera al tick en curso sin
+// base, sin timers reales y sin condiciones de carrera de timing.
+export interface OpcionesDelWorker {
+  pollMs?: number;
+  drenar?: () => Promise<ResumenDrenado>;
+}
+
+// Devuelve el stop del worker. Es ASÍNCRONO (M-12 c): resuelve recién cuando
+// no queda ninguna pasada en curso, para que el shutdown pueda desconectar
+// Prisma sin cortar una transacción a medias.
+export function iniciarWorkerDeIngesta(opciones: OpcionesDelWorker = {}): () => Promise<void> {
   if (!env.INGEST_WORKER_ENABLED) {
     logger.info(
       "Worker de ingesta deshabilitado por INGEST_WORKER_ENABLED: los eventos quedan en PENDING",
     );
-    return () => undefined;
+    return () => Promise.resolve();
   }
+
+  const pollMs = opciones.pollMs ?? env.INGEST_WORKER_POLL_MS;
+  const drenar = opciones.drenar ?? (() => drenarPendientes());
 
   let detenido = false;
   let timer: NodeJS.Timeout | undefined;
+  // La promesa del tick que está corriendo ahora mismo, si hay uno. Es lo que
+  // el stop espera.
+  let tickEnCurso: Promise<void> | undefined;
 
   const tick = async () => {
     if (detenido) {
       return;
     }
 
-    try {
-      const resumen = await drenarPendientes();
-      if (resumen.procesados + resumen.fallidos + resumen.pospuestos > 0) {
-        logger.info(resumen, "Drenado de ingesta");
+    tickEnCurso = (async () => {
+      try {
+        const resumen = await drenar();
+        if (resumen.procesados + resumen.fallidos + resumen.pospuestos > 0) {
+          logger.info(resumen, "Drenado de ingesta");
+        }
+      } catch (err) {
+        // Red de seguridad del bucle: drenarPendientes ya atrapa por evento, así
+        // que llegar acá significa que falló algo fuera de ese alcance. El bucle
+        // NO puede morir por eso — si muere, la cola deja de drenarse en silencio
+        // y nada lo avisa hasta que alguien mira la tabla.
+        logger.error({ err }, "Fallo inesperado en el drenado de ingesta");
       }
-    } catch (err) {
-      // Red de seguridad del bucle: drenarPendientes ya atrapa por evento, así
-      // que llegar acá significa que falló algo fuera de ese alcance. El bucle
-      // NO puede morir por eso — si muere, la cola deja de drenarse en silencio
-      // y nada lo avisa hasta que alguien mira la tabla.
-      logger.error({ err }, "Fallo inesperado en el drenado de ingesta");
-    }
+    })();
+
+    await tickEnCurso;
 
     if (!detenido) {
-      timer = setTimeout(() => void tick(), env.INGEST_WORKER_POLL_MS);
+      timer = setTimeout(() => void tick(), pollMs);
     }
   };
 
   logger.info(
     {
-      pollMs: env.INGEST_WORKER_POLL_MS,
+      pollMs,
       batchSize: env.INGEST_WORKER_BATCH_SIZE,
     },
     "Worker de ingesta iniciado",
   );
 
-  timer = setTimeout(() => void tick(), env.INGEST_WORKER_POLL_MS);
+  timer = setTimeout(() => void tick(), pollMs);
 
-  return () => {
+  return async () => {
     detenido = true;
     if (timer) {
       clearTimeout(timer);
     }
+    // Si hay un tick corriendo AHORA MISMO, esto espera a que termine su `for`
+    // completo (todas las transacciones de esta pasada) antes de resolver. Es lo
+    // que cierra M-12 (c): sin esto, clearTimeout cancelaba el PRÓXIMO tick pero
+    // nada esperaba al que estaba en curso, y $disconnect() podía llegar entre el
+    // efecto externo de una pasada y el UPDATE que lo deja registrado — la
+    // transacción se revertía y el trabajo se repetía al reiniciar. Se espera el
+    // tick COMPLETO y no solo la transacción actual porque interrumpir a mitad
+    // del bucle exigiría enhebrar una cancelación por todo el drenado, y el peor
+    // caso de esperar está acotado por un lote (batch size × tiempo por evento).
+    await tickEnCurso;
   };
 }
