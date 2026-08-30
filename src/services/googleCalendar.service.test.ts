@@ -864,3 +864,82 @@ test("un item sin id se descarta en vez de romper la lista", async () => {
     ["evt-ok"],
   );
 });
+
+// ---------------------------------------------------------------------------
+// timeMin — M-3 de docs/auditoria-2026-08-29.md: la sincronización COMPLETA se
+// acota, y el límite viaja en TODAS las páginas.
+// ---------------------------------------------------------------------------
+
+const TIME_MIN = "2026-08-30T12:00:00.000Z";
+
+test("una sincronización COMPLETA con timeMin lo manda en la URL, y no manda syncToken", async () => {
+  const { fetch, llamadas } = mockearPaginas([{ json: { items: [], nextSyncToken: "t1" } }]);
+
+  await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+    timeMin: TIME_MIN,
+  });
+
+  assert.equal(llamadas.length, 1);
+  assert.ok(llamadas[0].url.includes(`timeMin=${encodeURIComponent(TIME_MIN)}`));
+  assert.ok(!llamadas[0].url.includes("syncToken"));
+});
+
+test("una sincronización INCREMENTAL manda syncToken y no manda timeMin", async () => {
+  const { fetch, llamadas } = mockearPaginas([{ json: { items: [], nextSyncToken: "t1" } }]);
+
+  await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+    syncToken: "token-viejo",
+  });
+
+  assert.ok(llamadas[0].url.includes("syncToken=token-viejo"));
+  assert.ok(!llamadas[0].url.includes("timeMin"));
+});
+
+test("timeMin se repite en CADA página de una sincronización completa paginada", async () => {
+  // Es la parte que se rompe si timeMin se agrega antes del `for` en vez de
+  // adentro: Google no recuerda el límite desde el pageToken, así que una
+  // página 2 sin timeMin volvería a traer el calendario entero.
+  const { fetch, llamadas } = mockearPaginas([
+    { json: { items: [{ id: "evt-1" }], nextPageToken: "pag-2" } },
+    { json: { items: [{ id: "evt-2" }], nextPageToken: "pag-3" } },
+    { json: { items: [{ id: "evt-3" }], nextSyncToken: "t-final" } },
+  ]);
+
+  const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+    timeMin: TIME_MIN,
+  });
+
+  assert.equal(llamadas.length, 3);
+  for (const [indice, llamada] of llamadas.entries()) {
+    assert.ok(
+      llamada.url.includes(`timeMin=${encodeURIComponent(TIME_MIN)}`),
+      `la página ${String(indice + 1)} tiene que llevar timeMin`,
+    );
+    assert.ok(!llamada.url.includes("syncToken"));
+  }
+  assert.ok(llamadas[1].url.includes("pageToken=pag-2"));
+  assert.ok(llamadas[2].url.includes("pageToken=pag-3"));
+  assert.equal(cambios.nextSyncToken, "t-final");
+});
+
+test("syncToken y timeMin juntos es un bug del llamador y revienta ANTES de pedirle nada a Google", async () => {
+  const { fetch, llamadas } = mockearPaginas([{ json: { items: [] } }]);
+
+  await assert.rejects(
+    crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+      accessToken: "abc",
+      calendarId: "primary",
+      syncToken: "t0",
+      timeMin: TIME_MIN,
+    }),
+    /mutuamente excluyentes/,
+  );
+
+  assert.equal(llamadas.length, 0, "no llegó a hacer ningún request");
+});

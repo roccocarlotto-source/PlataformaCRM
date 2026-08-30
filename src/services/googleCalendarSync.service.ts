@@ -157,6 +157,16 @@ async function sincronizar(
 ): Promise<ResultadoDeNotificacion> {
   const { organizationId, branchId } = conexion;
 
+  // M-3 de docs/auditoria-2026-08-29.md: una sincronización COMPLETA se acota
+  // desde ahora. Las dos ramas que la hacen (primera sincronización, y 410)
+  // descartan los eventos que trae —solo usan nextSyncToken—, así que listar
+  // el calendario entero era paginar años de eventos para tirarlos; y en un
+  // calendario grande el tope de 100 páginas cortaba antes de la última,
+  // nextSyncToken quedaba undefined y la conexión no convergía nunca. Es la
+  // consecuencia directa de "no reconciliar hacia atrás", no una decisión
+  // nueva. Se calcula una vez para las dos llamadas de esta misma ejecución.
+  const ahora = new Date().toISOString();
+
   // obtenerAccessToken descifra el refresh token, lo renueva contra Google y
   // —lo importante— traduce un grant muerto a status = ERROR. Reusarlo es lo
   // que hace que este camino no tenga su propia versión de ese manejo.
@@ -171,6 +181,10 @@ async function sincronizar(
       accessToken,
       calendarId,
       syncToken: conexion.syncToken ?? undefined,
+      // Solo la primera sincronización (sin syncToken) es una lista completa;
+      // timeMin la acota. Con syncToken tiene que ir undefined: Google no
+      // admite los dos juntos.
+      timeMin: conexion.syncToken ? undefined : ahora,
     });
   } catch (err) {
     if (!(err instanceof GoogleSyncTokenInvalidoError)) {
@@ -194,7 +208,7 @@ async function sincronizar(
       "El syncToken venció (410): se resincroniza completo sin reconciliar hacia atrás",
     );
 
-    cambios = await clienteGoogle.listarCambios({ accessToken, calendarId });
+    cambios = await clienteGoogle.listarCambios({ accessToken, calendarId, timeMin: ahora });
 
     if (cambios.nextSyncToken) {
       await setConnectionSyncToken(branchId, organizationId, cambios.nextSyncToken);
