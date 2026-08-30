@@ -165,20 +165,20 @@ export interface CreateStageInput {
 export async function createStage(organizationId: string, input: CreateStageInput) {
   await validatePipelineId(organizationId, input.pipelineId);
 
-  const existingByName = await countStagesByName(input.pipelineId, input.name);
+  const existingByName = await countStagesByName(input.pipelineId, organizationId, input.name);
   if (existingByName > 0) {
     throw new AppError("Ya existe una etapa con ese nombre en este pipeline", 409);
   }
 
   if (input.isWon) {
-    const existing = await findStageWithFlag(input.pipelineId, "isWon");
+    const existing = await findStageWithFlag(input.pipelineId, organizationId, "isWon");
     if (existing) {
       throw new AppError("Ya existe una etapa marcada como ganada en este pipeline", 409);
     }
   }
 
   if (input.isLost) {
-    const existing = await findStageWithFlag(input.pipelineId, "isLost");
+    const existing = await findStageWithFlag(input.pipelineId, organizationId, "isLost");
     if (existing) {
       throw new AppError("Ya existe una etapa marcada como perdida en este pipeline", 409);
     }
@@ -237,21 +237,26 @@ export async function updateStage(organizationId: string, id: string, input: Upd
   const stage = await getStageById(organizationId, id);
 
   if (input.name && input.name !== stage.name) {
-    const existingByName = await countStagesByName(stage.pipelineId, input.name, id);
+    const existingByName = await countStagesByName(
+      stage.pipelineId,
+      organizationId,
+      input.name,
+      id,
+    );
     if (existingByName > 0) {
       throw new AppError("Ya existe una etapa con ese nombre en este pipeline", 409);
     }
   }
 
   if (input.isWon) {
-    const existing = await findStageWithFlag(stage.pipelineId, "isWon", id);
+    const existing = await findStageWithFlag(stage.pipelineId, organizationId, "isWon", id);
     if (existing) {
       throw new AppError("Ya existe una etapa marcada como ganada en este pipeline", 409);
     }
   }
 
   if (input.isLost) {
-    const existing = await findStageWithFlag(stage.pipelineId, "isLost", id);
+    const existing = await findStageWithFlag(stage.pipelineId, organizationId, "isLost", id);
     if (existing) {
       throw new AppError("Ya existe una etapa marcada como perdida en este pipeline", 409);
     }
