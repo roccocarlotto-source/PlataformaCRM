@@ -90,6 +90,28 @@ export function findContactById(id: string, organizationId: string, db: Db = pri
   });
 }
 
+// Mismo shape que findContactById, SIN el filtro de deletedAt — M-18 de
+// docs/auditoria-2026-08-29.md. Existe para UN solo consumidor: el pre-chequeo
+// de erasePersonalData. El borrado de datos personales (D2-4) y el soft delete
+// son dos conceptos distintos —existencia del dato contra visibilidad del
+// registro, ver erasePersonalDataFromContact más abajo— y el caso más común en
+// la práctica es justamente que se pidan los dos: alguien pide que su ficha se
+// oculte y DESPUÉS que sus datos se destruyan, o al revés. Con el filtro de
+// deletedAt, el segundo pedido respondía 404 y los datos seguían ahí.
+//
+// list/get/update/delete siguen usando findContactById y tienen que seguir
+// tratando un contacto soft-deleteado como "no encontrado": eso no cambia. El
+// aislamiento sigue siendo organizationId en el WHERE, igual que arriba.
+export function findContactByIdIncludingDeleted(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.contact.findFirst({
+    where: { id, organizationId },
+  });
+}
+
 export interface CreateContactData {
   organizationId: string;
   companyId: string | null;
