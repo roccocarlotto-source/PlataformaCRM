@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
+import { esperarBloqueadoPor, sostenerTransaccion } from "../lib/carreras.test-helper";
 import { prisma } from "../lib/prisma";
+import { lockBranchForUpdate } from "../repositories/branch.repository";
+import { lockResourceForUpdate } from "../repositories/resource.repository";
 import { AppError } from "../utils/AppError";
 import { createBranch, deleteBranch, updateBranch } from "./branch.service";
 import { createResource, deleteResource } from "./resource.service";
@@ -338,42 +341,121 @@ test("un hijo YA BORRADO no bloquea: el RESTRICT mira deletedAt, no la existenci
 
 // ---------------------------------------------------------------------------
 // Las carreras — la mitad que el chequeo solo no cubre
+//
+// M-19 de docs/auditoria-2026-08-29.md: con Promise.allSettled, el lado
+// delete siempre commiteaba ANTES de que el lado create llegara a su
+// revalidación interna (el preludio de create, fuera de la transacción, es más
+// largo), así que create se rechazaba a sí mismo por una revalidación que
+// existe con o sin lock — el test pasaba por la razón equivocada y habría
+// pasado igual sin ningún lock*ForUpdate. Ahora cada par fuerza los DOS
+// interleavings peligrosos con src/lib/carreras.test-helper.ts:
+//
+//   "create sostiene, delete se bloquea": una transacción A toma el MISMO lock
+//   que toma el create real e inserta el hijo sin commitear; el delete real
+//   tiene que bloquearse en ese lock (pg_blocking_pids lo confirma) y, al
+//   releer, contar el hijo → RESTRICT.
+//
+//   "delete sostiene, create se bloquea": A toma el MISMO lock que toma el
+//   delete real y borra el padre sin commitear; el create real pasa su
+//   pre-check (el padre sigue vivo para MVCC), se bloquea en el lock y, al
+//   releer, encuentra el padre borrado → rechaza.
+//
+// En los dos, sin el lock del lado bloqueado B no se bloquea, decide sobre el
+// estado viejo y queda el huérfano: el helper lo reporta como fallo
+// determinista. La aserción de estado ("cero huérfanos") sigue, pero ahora
+// con la certeza de que se llegó a ella por haberse bloqueado.
 // ---------------------------------------------------------------------------
 
-test("createResource vs deleteBranch: nunca queda un recurso activo en una sucursal borrada", async () => {
-  // Sin el lock de fila de la sucursal, los dos pasan su chequeo y el recurso
-  // queda colgando. Es la lección de ALTO-8: un RESTRICT decide sobre un conteo,
-  // y un conteo sin punto de serialización no decide nada.
-  const escenario = await montar("carrera-branch");
+async function recursosHuerfanos(organizationId: string) {
+  return prisma.resource.count({
+    where: { organizationId, deletedAt: null, branch: { deletedAt: { not: null } } },
+  });
+}
+
+async function serviciosHuerfanos(organizationId: string) {
+  return prisma.serviceType.count({
+    where: { organizationId, deletedAt: null, resource: { deletedAt: { not: null } } },
+  });
+}
+
+async function resultadoDe(promesa: Promise<unknown>): Promise<unknown> {
+  return promesa.then(
+    () => undefined,
+    (err: unknown) => err,
+  );
+}
+
+test("createResource vs deleteBranch — create sostiene el lock de la sucursal: deleteBranch se bloquea, relee y aplica el RESTRICT", async () => {
+  const escenario = await montar("carrera-branch-a");
   try {
     const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
 
-    await Promise.allSettled([
-      createResource(escenario.organizationId, {
-        branchId: branch.id,
-        name: "Juan",
-        type: "PERSON",
-      }),
-      deleteBranch(escenario.organizationId, branch.id),
-    ]);
-
-    // La aserción es sobre el ESTADO, no sobre quién ganó: los dos
-    // interleavings son legítimos y ninguno puede dejar un huérfano.
-    const huerfanos = await prisma.resource.count({
-      where: {
-        organizationId: escenario.organizationId,
-        deletedAt: null,
-        branch: { deletedAt: { not: null } },
-      },
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockBranchForUpdate(branch.id, escenario.organizationId, tx);
+      await tx.resource.create({
+        data: {
+          organizationId: escenario.organizationId,
+          branchId: branch.id,
+          name: "Juan",
+          type: "PERSON",
+        },
+      });
     });
-    assert.equal(huerfanos, 0, "quedó un recurso activo en una sucursal borrada");
+
+    const b = deleteBranch(escenario.organizationId, branch.id);
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, "deleteBranch");
+
+    a.liberar();
+    await a.terminada;
+
+    const resultado = await resultadoDe(b);
+    assert.ok(resultado instanceof AppError, `deleteBranch debía rechazar: ${String(resultado)}`);
+    assert.equal(resultado.statusCode, 400);
+    assert.match(resultado.message, /recursos activos/);
+
+    assert.equal(await recursosHuerfanos(escenario.organizationId), 0);
+    const viva = await prisma.branch.findUniqueOrThrow({ where: { id: branch.id } });
+    assert.equal(viva.deletedAt, null, "la sucursal con un recurso activo no se borra");
   } finally {
     await desmontar(escenario);
   }
 });
 
-test("createServiceType vs deleteResource: nunca queda un servicio activo en un recurso borrado", async () => {
-  const escenario = await montar("carrera-resource");
+test("createResource vs deleteBranch — delete sostiene el lock: createResource pasa su pre-check, se bloquea, relee y rechaza", async () => {
+  const escenario = await montar("carrera-branch-b");
+  try {
+    const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
+
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockBranchForUpdate(branch.id, escenario.organizationId, tx);
+      await tx.branch.update({ where: { id: branch.id }, data: { deletedAt: new Date() } });
+    });
+
+    const b = createResource(escenario.organizationId, {
+      branchId: branch.id,
+      name: "Juan",
+      type: "PERSON",
+    });
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, "createResource");
+
+    a.liberar();
+    await a.terminada;
+
+    const resultado = await resultadoDe(b);
+    assert.ok(
+      resultado instanceof AppError,
+      `createResource debía rechazar al releer la sucursal borrada: ${String(resultado)}`,
+    );
+    assert.equal(await recursosHuerfanos(escenario.organizationId), 0);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("createServiceType vs deleteResource — create sostiene los locks: deleteResource se bloquea, relee y aplica el RESTRICT", async () => {
+  const escenario = await montar("carrera-resource-a");
   try {
     const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
     const recurso = await createResource(escenario.organizationId, {
@@ -382,24 +464,75 @@ test("createServiceType vs deleteResource: nunca queda un servicio activo en un 
       type: "PERSON",
     });
 
-    await Promise.allSettled([
-      createServiceType(escenario.organizationId, {
-        branchId: branch.id,
-        resourceId: recurso.id,
-        name: "Corte",
-        durationMin: 30,
-      }),
-      deleteResource(escenario.organizationId, recurso.id),
-    ]);
-
-    const huerfanos = await prisma.serviceType.count({
-      where: {
-        organizationId: escenario.organizationId,
-        deletedAt: null,
-        resource: { deletedAt: { not: null } },
-      },
+    // A: el createServiceType rival — branch y DESPUÉS resource, su orden
+    // fijo, y la inserción real, sin commitear.
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockBranchForUpdate(branch.id, escenario.organizationId, tx);
+      await lockResourceForUpdate(recurso.id, escenario.organizationId, tx);
+      await tx.serviceType.create({
+        data: {
+          organizationId: escenario.organizationId,
+          branchId: branch.id,
+          resourceId: recurso.id,
+          name: "Corte",
+          durationMin: 30,
+        },
+      });
     });
-    assert.equal(huerfanos, 0, "quedó un servicio activo en un recurso borrado");
+
+    const b = deleteResource(escenario.organizationId, recurso.id);
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, "deleteResource");
+
+    a.liberar();
+    await a.terminada;
+
+    const resultado = await resultadoDe(b);
+    assert.ok(resultado instanceof AppError, `deleteResource debía rechazar: ${String(resultado)}`);
+    assert.equal(resultado.statusCode, 400);
+    assert.match(resultado.message, /servicios activos/);
+
+    assert.equal(await serviciosHuerfanos(escenario.organizationId), 0);
+    const vivo = await prisma.resource.findUniqueOrThrow({ where: { id: recurso.id } });
+    assert.equal(vivo.deletedAt, null, "el recurso con un servicio activo no se borra");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("createServiceType vs deleteResource — delete sostiene el lock: createServiceType pasa su pre-check, se bloquea, relee y rechaza", async () => {
+  const escenario = await montar("carrera-resource-b");
+  try {
+    const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
+    const recurso = await createResource(escenario.organizationId, {
+      branchId: branch.id,
+      name: "Juan",
+      type: "PERSON",
+    });
+
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockResourceForUpdate(recurso.id, escenario.organizationId, tx);
+      await tx.resource.update({ where: { id: recurso.id }, data: { deletedAt: new Date() } });
+    });
+
+    const b = createServiceType(escenario.organizationId, {
+      branchId: branch.id,
+      resourceId: recurso.id,
+      name: "Corte",
+      durationMin: 30,
+    });
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, "createServiceType");
+
+    a.liberar();
+    await a.terminada;
+
+    const resultado = await resultadoDe(b);
+    assert.ok(
+      resultado instanceof AppError,
+      `createServiceType debía rechazar al releer el recurso borrado: ${String(resultado)}`,
+    );
+    assert.equal(await serviciosHuerfanos(escenario.organizationId), 0);
   } finally {
     await desmontar(escenario);
   }

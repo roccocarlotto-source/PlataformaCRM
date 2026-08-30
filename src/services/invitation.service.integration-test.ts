@@ -4,6 +4,7 @@ import { test, before, after } from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import type { InvitationStatus } from "@prisma/client";
 import { env } from "../config/env";
+import { esperarBloqueadoPor, sostenerTransaccion } from "../lib/carreras.test-helper";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
@@ -473,60 +474,68 @@ test("revokeInvitation: id inexistente → 404 (sin cambios)", async () => {
 // ---------------------------------------------------------------------------
 // CAS perdido — carrera real forzada de forma determinística vía lock de
 // Postgres, no Promise.all esperando quién gane.
+//
+// M-19 de docs/auditoria-2026-08-29.md: la sincronización entre la transacción
+// A y la llamada real era por setTimeout (400 ms / 150 ms) — en un runner
+// lento, flaky. Ahora A se sostiene por señal (src/lib/carreras.test-helper.ts)
+// y se libera recién cuando Postgres confirma, vía pg_blocking_pids, que la
+// escritura condicional de la llamada real está esperando el lock de fila que
+// A sostiene. Eso fija además el matiz que importa: el pre-check rápido del
+// service (un SELECT fuera de la transacción, MVCC) sigue viendo PENDING
+// porque A no commiteó, así que la llamada llega hasta el CAS y es el CAS —
+// no el pre-check— el que decide, al releer, que perdió.
 // ---------------------------------------------------------------------------
+
+// A: la transición rival (PENDING → ACCEPTED), sostenida sin commitear.
+async function ganarTransicionSinCommitear(invitationId: string) {
+  return sostenerTransaccion(async (tx) => {
+    const result = await tx.invitation.updateMany({
+      where: { id: invitationId, status: "PENDING" },
+      data: { status: "ACCEPTED", acceptedAt: new Date() },
+    });
+    assert.equal(result.count, 1, "la transacción A debe ganar la transición real");
+  });
+}
 
 test("acceptInvitation: pierde el CAS por una transición real concurrente → re-read reporta el estado ganador específico", async () => {
   const email = `low1-accept-cas-loss-${randomUUID()}@example.test`;
   const invitation = await createInvitationRow(email, "PENDING");
 
-  // Transacción A: gana la transición real (PENDING -> ACCEPTED) y
-  // mantiene el lock de fila sin commitear el tiempo suficiente para que
-  // la lectura inicial de acceptInvitation (MVCC, fuera de cualquier
-  // lock) todavía vea PENDING, pero su propia escritura condicional tenga
-  // que esperar a que A libere el lock.
-  const txAPromise = prisma.$transaction(async (txA) => {
-    const result = await txA.invitation.updateMany({
-      where: { id: invitation.id, status: "PENDING" },
-      data: { status: "ACCEPTED", acceptedAt: new Date() },
-    });
-    assert.equal(result.count, 1, "la transacción A debe ganar la transición real");
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  });
-
-  // Buffer generoso: asegura que A ya escribió (sin commitear) y sostiene
-  // el lock antes de que arranque la llamada real al service.
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  const a = await ganarTransicionSinCommitear(invitation.id);
 
   const identity: InvitationAcceptIdentity = { userId: randomUUID(), email };
+  const b = acceptInvitation(identity, { fullName: "Loser" });
+  b.catch(() => undefined);
+  // El pre-check de acceptInvitation ya pasó (vio PENDING); lo que está
+  // esperando el lock es el UPDATE condicional dentro de su transacción.
+  await esperarBloqueadoPor(a, b, "acceptInvitation");
+
+  a.liberar();
+  await a.terminada;
+
   await assert.rejects(
-    () => acceptInvitation(identity, { fullName: "Loser" }),
+    () => b,
     (err) => assertAppError(err, 409, "Esta invitación ya fue aceptada"),
   );
-
-  await txAPromise;
 });
 
 test("revokeInvitation: pierde el CAS por una transición real concurrente → re-read reporta el estado ganador específico", async () => {
   const email = `low1-revoke-cas-loss-${randomUUID()}@example.test`;
   const invitation = await createInvitationRow(email, "PENDING");
 
-  const txAPromise = prisma.$transaction(async (txA) => {
-    const result = await txA.invitation.updateMany({
-      where: { id: invitation.id, status: "PENDING" },
-      data: { status: "ACCEPTED", acceptedAt: new Date() },
-    });
-    assert.equal(result.count, 1, "la transacción A debe ganar la transición real");
-    await new Promise((resolve) => setTimeout(resolve, 400));
-  });
+  const a = await ganarTransicionSinCommitear(invitation.id);
 
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  const b = revokeInvitation(fx.orgId, invitation.id);
+  b.catch(() => undefined);
+  await esperarBloqueadoPor(a, b, "revokeInvitation");
+
+  a.liberar();
+  await a.terminada;
 
   await assert.rejects(
-    () => revokeInvitation(fx.orgId, invitation.id),
+    () => b,
     (err) => assertAppError(err, 409, "Esta invitación ya fue aceptada, no se puede revocar"),
   );
-
-  await txAPromise;
 });
 
 // ---------------------------------------------------------------------------

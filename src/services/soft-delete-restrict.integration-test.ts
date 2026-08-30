@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
+import { esperarBloqueadoPor, sostenerTransaccion } from "../lib/carreras.test-helper";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import { lockOrganizationForUpdate } from "../repositories/organization.repository";
+import { lockPipelineForUpdate } from "../repositories/pipeline.repository";
 import { findRoleByName } from "../repositories/role.repository";
+import { lockStageForUpdate } from "../repositories/stage.repository";
 import { AppError } from "../utils/AppError";
 import { createOpportunity } from "./opportunity.service";
 import { createPipeline, deletePipeline } from "./pipeline.service";
@@ -237,59 +241,190 @@ test("deletePipeline procede cuando sus etapas ya están borradas", async () => 
 
 // ---------------------------------------------------------------------------
 // Las carreras — la mitad del arreglo que los tests secuenciales no ven
+//
+// M-19 de docs/auditoria-2026-08-29.md: con Promise.allSettled, el lado
+// delete siempre commiteaba ANTES de que el lado create llegara a su
+// revalidación interna (el preludio de create, fuera de la transacción, es más
+// largo), así que create se rechazaba a sí mismo por una revalidación que
+// existe con o sin lock — el test pasaba por la razón equivocada y habría
+// pasado igual sin ningún lock*ForUpdate. Ahora cada par fuerza los DOS
+// interleavings peligrosos con src/lib/carreras.test-helper.ts:
+//
+//   "create sostiene, delete se bloquea": una transacción A toma el MISMO lock
+//   que toma el create real e inserta el hijo sin commitear; el delete real
+//   tiene que bloquearse en ese lock (pg_blocking_pids lo confirma) y, al
+//   releer, contar el hijo → RESTRICT.
+//
+//   "delete sostiene, create se bloquea": A toma el MISMO lock que toma el
+//   delete real y borra el padre sin commitear; el create real pasa su
+//   pre-check (el padre sigue vivo para MVCC), se bloquea en el lock y, al
+//   releer, encuentra el padre borrado → rechaza.
+//
+// En los dos, sin el lock del lado bloqueado B no se bloquea, decide sobre el
+// estado viejo y queda el huérfano: el helper lo reporta como fallo
+// determinista. La aserción de estado ("cero huérfanos") sigue, pero ahora
+// con la certeza de que se llegó a ella por haberse bloqueado.
 // ---------------------------------------------------------------------------
 
-test("createOpportunity vs deleteStage: nunca queda una oportunidad activa en una etapa borrada", async () => {
-  const escenario = await montar("carrera-stage");
+async function oportunidadesHuerfanas(orgId: string) {
+  return prisma.opportunity.count({
+    where: { organizationId: orgId, deletedAt: null, stage: { deletedAt: { not: null } } },
+  });
+}
+
+async function etapasHuerfanas(orgId: string) {
+  return prisma.stage.count({
+    where: { organizationId: orgId, deletedAt: null, pipeline: { deletedAt: { not: null } } },
+  });
+}
+
+async function resultadoDe(promesa: Promise<unknown>): Promise<unknown> {
+  return promesa.then(
+    () => undefined,
+    (err: unknown) => err,
+  );
+}
+
+test("createOpportunity vs deleteStage — create sostiene el lock del stage: deleteStage se bloquea, relee y aplica el RESTRICT", async () => {
+  const escenario = await montar("carrera-stage-a");
   try {
     const pipeline = await createPipeline(escenario.orgId, { name: "P" });
     const stage = await createStage(escenario.orgId, { pipelineId: pipeline.id, name: "S1" });
 
-    await Promise.allSettled([
-      createOpportunity(escenario.orgId, escenario.userId, {
-        title: "Carrera",
-        pipelineId: pipeline.id,
-        stageId: stage.id,
-        companyId: escenario.companyId,
-      }),
-      deleteStage(escenario.orgId, stage.id),
-    ]);
-
-    // La aserción es sobre el ESTADO, no sobre quién ganó: los dos
-    // interleavings posibles son legítimos, y ninguno puede dejar un huérfano.
-    const huerfanas = await prisma.opportunity.count({
-      where: {
-        organizationId: escenario.orgId,
-        deletedAt: null,
-        stage: { deletedAt: { not: null } },
-      },
+    // A: el createOpportunity rival — el MISMO lockStageForUpdate que toma el
+    // service, y la inserción real, sin commitear.
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockStageForUpdate(stage.id, escenario.orgId, tx);
+      await tx.opportunity.create({
+        data: {
+          organizationId: escenario.orgId,
+          ownerId: escenario.userId,
+          pipelineId: pipeline.id,
+          stageId: stage.id,
+          companyId: escenario.companyId,
+          title: "Carrera",
+        },
+      });
     });
-    assert.equal(huerfanas, 0, "quedó una oportunidad activa en una etapa borrada");
+
+    const b = deleteStage(escenario.orgId, stage.id);
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, "deleteStage");
+
+    a.liberar();
+    await a.terminada;
+
+    const resultado = await resultadoDe(b);
+    assert.ok(resultado instanceof AppError, `deleteStage debía rechazar: ${String(resultado)}`);
+    assert.equal(resultado.statusCode, 400);
+    assert.match(resultado.message, /oportunidades activas/);
+
+    assert.equal(await oportunidadesHuerfanas(escenario.orgId), 0);
+    const vivo = await prisma.stage.findUniqueOrThrow({ where: { id: stage.id } });
+    assert.equal(vivo.deletedAt, null, "la etapa con una oportunidad activa no se borra");
   } finally {
     await desmontar(escenario);
   }
 });
 
-test("createStage vs deletePipeline: nunca queda una etapa activa en un pipeline borrado — el escenario 2 deja de ser alcanzable", async () => {
-  const escenario = await montar("carrera-pipeline");
+test("createOpportunity vs deleteStage — delete sostiene el lock: createOpportunity pasa su pre-check, se bloquea, relee y rechaza", async () => {
+  const escenario = await montar("carrera-stage-b");
+  try {
+    const pipeline = await createPipeline(escenario.orgId, { name: "P" });
+    const stage = await createStage(escenario.orgId, { pipelineId: pipeline.id, name: "S1" });
+
+    // A: el deleteStage rival — sus dos locks en su orden fijo, y el soft
+    // delete real, sin commitear.
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockPipelineForUpdate(pipeline.id, escenario.orgId, tx);
+      await lockStageForUpdate(stage.id, escenario.orgId, tx);
+      await tx.stage.update({ where: { id: stage.id }, data: { deletedAt: new Date() } });
+    });
+
+    const b = createOpportunity(escenario.orgId, escenario.userId, {
+      title: "Carrera",
+      pipelineId: pipeline.id,
+      stageId: stage.id,
+      companyId: escenario.companyId,
+    });
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, "createOpportunity");
+
+    a.liberar();
+    await a.terminada;
+
+    const resultado = await resultadoDe(b);
+    assert.ok(
+      resultado instanceof AppError,
+      `createOpportunity debía rechazar al releer la etapa borrada: ${String(resultado)}`,
+    );
+    assert.equal(await oportunidadesHuerfanas(escenario.orgId), 0);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("createStage vs deletePipeline — create sostiene el lock del pipeline: deletePipeline se bloquea, relee y aplica el RESTRICT", async () => {
+  const escenario = await montar("carrera-pipeline-a");
   try {
     const objetivo = await createPipeline(escenario.orgId, { name: "Objetivo" });
     await createPipeline(escenario.orgId, { name: "Otro" });
 
-    await Promise.allSettled([
-      createStage(escenario.orgId, { pipelineId: objetivo.id, name: "S1" }),
-      deletePipeline(escenario.orgId, objetivo.id),
-    ]);
-
-    const huerfanos = await prisma.stage.count({
-      where: {
-        organizationId: escenario.orgId,
-        deletedAt: null,
-        pipeline: { deletedAt: { not: null } },
-      },
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockPipelineForUpdate(objetivo.id, escenario.orgId, tx);
+      await tx.stage.create({
+        data: { organizationId: escenario.orgId, pipelineId: objetivo.id, name: "S1", order: 1 },
+      });
     });
+
+    const b = deletePipeline(escenario.orgId, objetivo.id);
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, "deletePipeline");
+
+    a.liberar();
+    await a.terminada;
+
+    const resultado = await resultadoDe(b);
+    assert.ok(resultado instanceof AppError, `deletePipeline debía rechazar: ${String(resultado)}`);
+    assert.equal(resultado.statusCode, 400);
+    assert.match(resultado.message, /etapas activas/);
+
+    assert.equal(await etapasHuerfanas(escenario.orgId), 0);
+    const vivo = await prisma.pipeline.findUniqueOrThrow({ where: { id: objetivo.id } });
+    assert.equal(vivo.deletedAt, null, "el pipeline con una etapa activa no se borra");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("createStage vs deletePipeline — delete sostiene los locks: createStage pasa su pre-check, se bloquea, relee y rechaza", async () => {
+  const escenario = await montar("carrera-pipeline-b");
+  try {
+    const objetivo = await createPipeline(escenario.orgId, { name: "Objetivo" });
+    await createPipeline(escenario.orgId, { name: "Otro" });
+
+    // A: el deletePipeline rival — organización y DESPUÉS pipeline, su orden
+    // fijo, y el soft delete real, sin commitear.
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockOrganizationForUpdate(escenario.orgId, tx);
+      await lockPipelineForUpdate(objetivo.id, escenario.orgId, tx);
+      await tx.pipeline.update({ where: { id: objetivo.id }, data: { deletedAt: new Date() } });
+    });
+
+    const b = createStage(escenario.orgId, { pipelineId: objetivo.id, name: "S1" });
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, "createStage");
+
+    a.liberar();
+    await a.terminada;
+
+    const resultado = await resultadoDe(b);
+    assert.ok(
+      resultado instanceof AppError,
+      `createStage debía rechazar al releer el pipeline borrado: ${String(resultado)}`,
+    );
     assert.equal(
-      huerfanos,
+      await etapasHuerfanas(escenario.orgId),
       0,
       "quedó una etapa activa en un pipeline borrado — findManyStages la devolvería en el listado de la organización",
     );

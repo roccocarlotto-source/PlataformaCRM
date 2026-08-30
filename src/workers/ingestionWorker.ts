@@ -1,7 +1,10 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
-import { prisma } from "../lib/prisma";
-import { claimNextPendingEvent } from "../repositories/ingestionEvent.repository";
+import { prisma, type Db } from "../lib/prisma";
+import {
+  claimNextPendingEvent,
+  type EventoReclamado,
+} from "../repositories/ingestionEvent.repository";
 import { promoverEvento, type ResultadoPromocion } from "../services/promotion.service";
 
 // ---------------------------------------------------------------------------
@@ -51,6 +54,14 @@ export interface OpcionesDrenado {
   // Acota el drenado a una organización. Producción no lo usa; ver
   // claimNextPendingEvent.
   organizationId?: string;
+  // SOLO PARA TESTS (M-19 de docs/auditoria-2026-08-29.md): se ejecuta DENTRO
+  // de la transacción del evento, después del reclamo con SKIP LOCKED y antes
+  // de promoverlo. Es el único punto donde un test puede sostener un drenado a
+  // mitad de camino —con su fila reclamada y su transacción abierta— y
+  // confirmar contra pg_stat_activity que un segundo drenado está vivo AL
+  // MISMO TIEMPO, en vez de inferir el solapamiento de un resultado que una
+  // ejecución secuencial produciría igual. Producción no lo pasa nunca.
+  antesDePromover?: (evento: EventoReclamado, tx: Db) => Promise<void>;
 }
 
 // Drena hasta `limite` eventos pendientes. Cada evento va en SU PROPIA
@@ -88,6 +99,7 @@ export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<
         }
 
         idReclamado = evento.id;
+        await opciones.antesDePromover?.(evento, tx);
         return await promoverEvento(evento, tx);
       });
     } catch (err) {

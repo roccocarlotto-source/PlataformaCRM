@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
-import { prisma } from "../lib/prisma";
+import { esperarBloqueadoPor, sostenerTransaccion } from "../lib/carreras.test-helper";
+import { prisma, type Db } from "../lib/prisma";
+import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { deleteUser, updateUser } from "./user.service";
@@ -109,29 +111,6 @@ async function teardownScenario(scenario: Scenario) {
   }
 }
 
-function assertExactlyOneWinsOneLoses(
-  results: PromiseSettledResult<unknown>[],
-  expectedMessage: string,
-) {
-  const fulfilled = results.filter((r) => r.status === "fulfilled");
-  const rejected = results.filter((r) => r.status === "rejected");
-
-  assert.equal(
-    fulfilled.length,
-    1,
-    "exactamente una de las dos operaciones concurrentes debe ganar",
-  );
-  assert.equal(rejected.length, 1, "la otra debe perder, nunca ambas deben tener éxito");
-
-  const loserReason = (rejected[0] as PromiseRejectedResult).reason;
-  assert.ok(
-    loserReason instanceof AppError,
-    "la perdedora debe ser un AppError, no un error crudo",
-  );
-  assert.equal(loserReason.statusCode, 400);
-  assert.equal(loserReason.message, expectedMessage);
-}
-
 async function assertExactlyOneActiveAdminRemains(organizationId: string) {
   const remaining = await prisma.user.count({
     where: { organizationId, isActive: true, deletedAt: null, role: { name: "ADMIN" } },
@@ -143,22 +122,54 @@ async function assertExactlyOneActiveAdminRemains(organizationId: string) {
   );
 }
 
+// M-19 de docs/auditoria-2026-08-29.md — la carrera ya no se deja al azar del
+// scheduler (Promise.allSettled detectaba el bug en ~29 % de las corridas: un
+// PR que borrara lockOrganizationForUpdate pasaba CI 7 de 10 veces). Ahora:
+//
+//   A (control): la operación RIVAL —adminB actuando sobre adminA— reducida a
+//     lo que aporta a la carrera: toma el MISMO lockOrganizationForUpdate que
+//     toma el service y aplica su efecto (adminA deja de ser ADMIN activo),
+//     sin commitear hasta que el test la libere.
+//   B (real): adminA actuando sobre adminB, por el service de verdad. Su
+//     lectura barata previa ve a adminA todavía activo (A no commiteó); su
+//     transacción tiene que BLOQUEARSE en el lock. Postgres lo confirma vía
+//     pg_blocking_pids; recién ahí se libera A, y B relee: adminA ya no cuenta
+//     y adminB es el último → 400.
+//
+// Sin el lock, B no se bloquea, decide sobre el estado viejo y deja la
+// organización sin ningún ADMIN — y el helper lo reporta como fallo
+// determinista, no como una tasa.
 async function runRaceScenario(
   label: string,
   expectedMessage: string,
   operation: (orgId: string, actorId: string, targetId: string) => Promise<unknown>,
+  efectoRival: (tx: Db, rivalId: string) => Promise<void>,
 ) {
   const scenario = await setupScenario(label);
   try {
-    // adminA actúa (como ADMIN activo) sobre adminB; concurrentemente,
-    // adminB actúa (como ADMIN activo) sobre adminA. Ninguna es
-    // auto-modificación — el target de cada llamada es siempre el otro.
-    const results = await Promise.allSettled([
-      operation(scenario.orgId, scenario.adminA.id, scenario.adminB.id),
-      operation(scenario.orgId, scenario.adminB.id, scenario.adminA.id),
-    ]);
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockOrganizationForUpdate(scenario.orgId, tx);
+      await efectoRival(tx, scenario.adminA.id);
+    });
 
-    assertExactlyOneWinsOneLoses(results, expectedMessage);
+    const b = operation(scenario.orgId, scenario.adminA.id, scenario.adminB.id);
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, label);
+
+    a.liberar();
+    await a.terminada;
+
+    const resultado = await b.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    assert.ok(
+      resultado instanceof AppError,
+      `${label}: la operación real debía rechazar con AppError tras releer; resultado: ${String(resultado)}`,
+    );
+    assert.equal(resultado.statusCode, 400);
+    assert.equal(resultado.message, expectedMessage);
+
     await assertExactlyOneActiveAdminRemains(scenario.orgId);
   } finally {
     await teardownScenario(scenario);
@@ -170,6 +181,13 @@ test("deleteUser vs deleteUser: adminA elimina a adminB mientras adminB elimina 
     "delete-delete",
     "No se puede eliminar al último ADMIN activo de la organización",
     (orgId, actorId, targetId) => deleteUser(orgId, actorId, targetId),
+    // El efecto del deleteUser rival sobre adminA: soft delete.
+    async (tx, rivalId) => {
+      await tx.user.update({
+        where: { id: rivalId },
+        data: { deletedAt: new Date(), isActive: false },
+      });
+    },
   );
 });
 
@@ -178,6 +196,9 @@ test("updateUser(isActive=false) vs updateUser(isActive=false): adminA desactiva
     "deactivate-deactivate",
     "No se puede modificar al último ADMIN activo de la organización",
     (orgId, actorId, targetId) => updateUser(orgId, actorId, targetId, { isActive: false }),
+    async (tx, rivalId) => {
+      await tx.user.update({ where: { id: rivalId }, data: { isActive: false } });
+    },
   );
 });
 
@@ -186,6 +207,11 @@ test("degradación ADMIN→USER vs degradación ADMIN→USER: adminA degrada a a
     "demote-demote",
     "No se puede modificar al último ADMIN activo de la organización",
     (orgId, actorId, targetId) => updateUser(orgId, actorId, targetId, { role: "USER" }),
+    async (tx, rivalId) => {
+      const userRole = await findRoleByName("USER", tx);
+      if (!userRole) throw new Error("No está sembrado el rol USER. Abortando.");
+      await tx.user.update({ where: { id: rivalId }, data: { roleId: userRole.id } });
+    },
   );
 });
 
