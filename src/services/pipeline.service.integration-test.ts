@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { createPipeline, deletePipeline } from "./pipeline.service";
+import { lockOrganizationForUpdate } from "../repositories/organization.repository";
+import {
+  softDeletePipeline,
+  updatePipeline as updatePipelineRepo,
+} from "../repositories/pipeline.repository";
+import { createPipeline, deletePipeline, updatePipeline } from "./pipeline.service";
 import { AppError } from "../utils/AppError";
 
 // Test de integración: ejercita pipeline.service + pipeline.repository +
@@ -246,6 +252,177 @@ test("deletePipeline (target era default): la fila soft-deleted queda con isDefa
     const rawB = await prisma.pipeline.findUnique({ where: { id: b.id } });
     assert.equal(rawB?.deletedAt, null, "B debe seguir activo");
     assert.equal(rawB?.isDefault, true, "B debe quedar promovido a default");
+  } finally {
+    await deleteTestOrg(org.id);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// M-8 (auditoría 2026-08-29): PATCH {isDefault: false} sobre el pipeline que
+// hoy es el default dejaba a la organización sin ninguno. El índice parcial
+// pipelines_org_default_unique impide DOS defaults, no CERO, así que ninguna
+// constraint lo frenaba; deletePipeline promueve otro justamente para que
+// nunca haya cero. Decisión: 400, sin auto-promoción — el que quiere otro
+// default lo marca con {isDefault: true}, que ya desmarca a este.
+//
+// Los dos primeros tests son el enunciado del hallazgo. El tercero es la
+// carrera que justifica que el chequeo corra bajo lockOrganizationForUpdate
+// y no como un simple check-then-act: el otro camino que MUEVE el default
+// —la promoción que hace deletePipeline al borrar el que lo era— corre bajo
+// ese mismo lock. Mismo harness que los tests de A-1 en
+// stage.service.integration-test.ts (transacción A que toma el lock con la
+// misma sentencia que el service, escribe, y se queda abierta; el service
+// real arranca contra ella; pg_stat_activity/pg_locks dicen DÓNDE se trabó;
+// recién entonces se libera A), solo que el lock es el de `organizations`.
+// ---------------------------------------------------------------------------
+
+test("updatePipeline {isDefault: false} sobre el default de la organización: 400 y sigue siendo default en la base", async () => {
+  const org = await createTestOrg();
+  try {
+    const a = await createPipeline(org.id, { name: "A", isDefault: true });
+    const b = await createPipeline(org.id, { name: "B" });
+    if (!a || !b) throw new Error("setup failed");
+
+    await assert.rejects(
+      () => updatePipeline(org.id, a.id, { isDefault: false }),
+      (err: unknown) => {
+        assert.ok(err instanceof AppError, "debe ser AppError");
+        assert.equal((err as AppError).statusCode, 400);
+        return true;
+      },
+    );
+
+    const rawA = await prisma.pipeline.findUnique({ where: { id: a.id } });
+    assert.equal(rawA?.isDefault, true, "A tiene que seguir siendo el default");
+    assert.equal(rawA?.deletedAt, null);
+    const rawB = await prisma.pipeline.findUnique({ where: { id: b.id } });
+    assert.equal(rawB?.isDefault, false, "B no tiene que haber sido promovido: sin auto-promoción");
+
+    const defaults = await prisma.pipeline.count({
+      where: { organizationId: org.id, isDefault: true, deletedAt: null },
+    });
+    assert.equal(defaults, 1, "la organización sigue con exactamente un default");
+  } finally {
+    await deleteTestOrg(org.id);
+  }
+});
+
+test("updatePipeline {isDefault: false} sobre un pipeline que NO es el default: sigue funcionando (no-op sobre isDefault, el default no se toca)", async () => {
+  const org = await createTestOrg();
+  try {
+    const a = await createPipeline(org.id, { name: "A", isDefault: true });
+    const b = await createPipeline(org.id, { name: "B" });
+    if (!a || !b) throw new Error("setup failed");
+
+    const updated = await updatePipeline(org.id, b.id, { isDefault: false, name: "B renombrado" });
+    assert.ok(updated);
+    assert.equal(updated.id, b.id);
+    assert.equal(updated.isDefault, false);
+    assert.equal(updated.name, "B renombrado", "el resto del PATCH se aplica igual");
+
+    const rawA = await prisma.pipeline.findUnique({ where: { id: a.id } });
+    assert.equal(rawA?.isDefault, true, "A sigue siendo el default");
+  } finally {
+    await deleteTestOrg(org.id);
+  }
+});
+
+test("updatePipeline {isDefault: false} vs deletePipeline del default concurrentes: el PATCH espera el lock de la ORGANIZACIÓN, relee la promoción y responde 400 — la organización nunca queda sin default", async () => {
+  const org = await createTestOrg();
+  try {
+    const a = await createPipeline(org.id, { name: "A", isDefault: true });
+    const b = await createPipeline(org.id, { name: "B" });
+    if (!a || !b) throw new Error("setup failed");
+
+    let aPid: number | undefined;
+
+    let signalAHaEscrito: () => void;
+    const aHaEscrito = new Promise<void>((resolve) => {
+      signalAHaEscrito = resolve;
+    });
+
+    let liberarA: () => void;
+    const liberacionDeA = new Promise<void>((resolve) => {
+      liberarA = resolve;
+    });
+
+    // Transacción A: lo que hace deletePipeline sobre el default, con el
+    // mismo lock y las mismas escrituras de repositorio, abierta sin
+    // commitear hasta que el test la libere.
+    const txAPromise = prisma.$transaction(
+      async (txA: Prisma.TransactionClient) => {
+        const pidRow = await txA.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`;
+        aPid = pidRow[0].pid;
+
+        await lockOrganizationForUpdate(org.id, txA);
+        await softDeletePipeline(a.id, org.id, txA);
+        await updatePipelineRepo(b.id, org.id, { isDefault: true }, txA);
+
+        signalAHaEscrito();
+        await liberacionDeA;
+      },
+      { maxWait: 15000, timeout: 15000 },
+    );
+
+    await aHaEscrito;
+    assert.ok(aPid !== undefined, "debe conocerse el pid de la transacción A");
+
+    // El service real: cuando arranca, B todavía se lee como no-default
+    // (A no commiteó). Sin el lock, escribiría `false` encima de la
+    // promoción de A y la organización quedaría con cero defaults.
+    const servicePromise = updatePipeline(org.id, b.id, { isDefault: false });
+    servicePromise.catch(() => {});
+
+    let pidBloqueado: number | undefined;
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      const rows = await prisma.$queryRaw<{ pid: number }[]>`
+        SELECT pid FROM pg_stat_activity
+        WHERE ${aPid}::int = ANY(pg_blocking_pids(pid))
+      `;
+      if (rows.length > 0) {
+        pidBloqueado = rows[0].pid;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.ok(
+      pidBloqueado !== undefined,
+      "no se detectó ningún backend bloqueado por el lock de A dentro del plazo — no se puede afirmar que el service llegó a pedir el lock",
+    );
+
+    const enEspera = await prisma.$queryRaw<{ relname: string }[]>`
+      SELECT c.relname
+      FROM pg_locks l
+      JOIN pg_class c ON c.oid = l.relation
+      WHERE l.pid = ${pidBloqueado}::int AND l.locktype = 'tuple'
+    `;
+    assert.deepEqual(
+      enEspera.map((r) => r.relname),
+      ["organizations"],
+      "updatePipeline tiene que quedar esperando el FOR UPDATE de la organización — antes de leer el pipeline—, no otra cosa",
+    );
+
+    liberarA!();
+    await txAPromise;
+
+    await assert.rejects(
+      () => servicePromise,
+      (err: unknown) => {
+        assert.ok(err instanceof AppError, "debe ser AppError");
+        assert.equal((err as AppError).statusCode, 400);
+        return true;
+      },
+    );
+
+    const rawB = await prisma.pipeline.findUnique({ where: { id: b.id } });
+    assert.equal(rawB?.isDefault, true, "B tiene que conservar la promoción que hizo A");
+    assert.equal(rawB?.deletedAt, null);
+
+    const defaults = await prisma.pipeline.count({
+      where: { organizationId: org.id, isDefault: true, deletedAt: null },
+    });
+    assert.equal(defaults, 1, "la organización sigue con exactamente un default");
   } finally {
     await deleteTestOrg(org.id);
   }
