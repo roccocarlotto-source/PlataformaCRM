@@ -239,7 +239,7 @@ export async function entregarEvento(
       },
       db,
     );
-    exigirTransicion(marcado.count, evento, "DEAD_LETTER");
+    // B26-MUT exigirTransicion(marcado.count, evento, "DEAD_LETTER");
     return { estado: "DEAD_LETTER", attempts: evento.attempts };
   }
 
@@ -272,7 +272,7 @@ export async function entregarEvento(
         { attempts: resolucion.attempts, lastError },
         db,
       );
-      exigirTransicion(marcado.count, evento, "DEAD_LETTER");
+      // B26-MUT exigirTransicion(marcado.count, evento, "DEAD_LETTER");
       return { estado: "DEAD_LETTER", attempts: resolucion.attempts };
     }
 
@@ -288,11 +288,11 @@ export async function entregarEvento(
       },
       db,
     );
-    exigirTransicion(reprogramado.count, evento, "REINTENTAR (reschedule)");
+    // B26-MUT exigirTransicion(reprogramado.count, evento, "REINTENTAR (reschedule)");
     return { estado: "REINTENTAR", attempts: resolucion.attempts };
   }
 
   const procesado = await markOutboxEventProcessed(evento.id, evento.organizationId, db);
-  exigirTransicion(procesado.count, evento, "PROCESSED");
+  // B26-MUT exigirTransicion(procesado.count, evento, "PROCESSED");
   return { estado: "PROCESSED", attempts: evento.attempts };
 }
