@@ -138,6 +138,53 @@ export async function updatePipeline(
       });
     }
 
+    // M-8 (auditoría 2026-08-29): `isDefault: false` sobre el pipeline que hoy
+    // es el default dejaba a la organización sin ninguno. El índice parcial
+    // pipelines_org_default_unique impide DOS defaults, no CERO, y
+    // deletePipeline se toma el trabajo de promover otro justamente para que
+    // nunca haya cero — este camino era el único que podía romper ese
+    // invariante sin que nada lo frenara. Decisión: 400, sin auto-promoción
+    // (a diferencia del delete, acá no hay un "siguiente" obvio: quien quiere
+    // otro default lo marca con `isDefault: true`, que ya desmarca a este).
+    //
+    // Bajo lockOrganizationForUpdate, el mismo lock de organización que toma
+    // deletePipeline: el invariante "hay exactamente un default" es de TODA la
+    // organización, y el otro camino que lo mueve —la promoción que hace el
+    // delete del default— corre bajo ese lock. Sin él, un PATCH que leyera
+    // "no es default" un instante antes de que un delete concurrente lo
+    // promoviera escribiría `false` encima de esa promoción y la organización
+    // quedaría con cero. Con el lock, o el PATCH pasa antes (y el delete
+    // promueve después, dejando `true`) o espera y relee `true` → 400.
+    if (input.isDefault === false) {
+      return await prisma.$transaction(async (tx) => {
+        await lockOrganizationForUpdate(organizationId, tx);
+
+        // Revalida con el lock ya sostenido — el pre-check de arriba es solo
+        // el 404 rápido, esta lectura es la que decide.
+        const pipeline = await findPipelineById(id, organizationId, tx);
+        if (!pipeline) {
+          throw new AppError("Pipeline no encontrado", 404);
+        }
+        if (pipeline.isDefault) {
+          throw new AppError(
+            "No se puede quitar el default de un pipeline sin marcar antes otro como default",
+            400,
+          );
+        }
+
+        const result = await updatePipelineRepo(id, organizationId, input, tx);
+        if (result.count === 0) {
+          throw new AppError("Pipeline no encontrado", 404);
+        }
+
+        const updated = await findPipelineById(id, organizationId, tx);
+        if (!updated) {
+          throw new AppError("Pipeline no encontrado", 404);
+        }
+        return updated;
+      });
+    }
+
     const result = await updatePipelineRepo(id, organizationId, input);
     if (result.count === 0) {
       throw new AppError("Pipeline no encontrado", 404);
