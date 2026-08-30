@@ -841,9 +841,12 @@ export function getClienteGoogleCalendar(): ClienteGoogleCalendar {
   if (faltantes.length > 0) {
     // Las lista TODAS de una. Reportar solo la primera obligaría a configurar,
     // reintentar y descubrir la siguiente, una por vez.
+    // isOperational: false — lista variables de entorno; es para el log, no
+    // para el cliente (M-11 b).
     throw new AppError(
       `La integración con Google Calendar no está configurada en el servidor. Faltan: ${faltantes.join(", ")}`,
       500,
+      false,
     );
   }
 

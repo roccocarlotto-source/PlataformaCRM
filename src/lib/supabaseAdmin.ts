@@ -15,9 +15,12 @@ export function getSupabaseAdmin(): SupabaseClient {
   }
 
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    // isOperational: false — el mensaje nombra variables de entorno; es para
+    // el log, no para el cliente (M-11 b).
     throw new AppError(
       "SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY no están configurados en el servidor",
       500,
+      false,
     );
   }
 

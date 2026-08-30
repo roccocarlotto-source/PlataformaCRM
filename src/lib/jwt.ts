@@ -16,7 +16,8 @@ function getJwks() {
   }
 
   if (!env.SUPABASE_URL) {
-    throw new AppError("SUPABASE_URL no está configurado en el servidor", 500);
+    // isOperational: false — nombra una variable de entorno (M-11 b).
+    throw new AppError("SUPABASE_URL no está configurado en el servidor", 500, false);
   }
 
   jwks = createRemoteJWKSet(new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`));
