@@ -73,23 +73,37 @@ function notificar(headers: {
   });
 }
 
-function conectar(extra: { channelId: string; status: "ACTIVE" | "ERROR" }) {
-  return prisma.googleCalendarConnection.create({
+// Una sucursal NUEVA por cada conexión: (organization_id, branch_id) es único
+// en google_calendar_connections —una conexión por sucursal—, así que dos tests
+// no pueden compartir la sucursal del fixture. Devuelve lo que hace falta para
+// firmar el token de ese canal.
+async function sucursalConConexion(
+  status: "ACTIVE" | "ERROR",
+): Promise<{ branchId: string; channelId: string }> {
+  const branch = await createBranch(orgId, {
+    name: `Sucursal ${randomUUID().slice(0, 8)}`,
+    timezone: "America/Argentina/Buenos_Aires",
+  });
+  const channelId = randomUUID();
+
+  await prisma.googleCalendarConnection.create({
     data: {
       organizationId: orgId,
-      branchId,
+      branchId: branch.id,
       refreshToken: getCifrador().encrypt("1//refresh"),
       calendarId: "primary",
-      channelId: extra.channelId,
+      channelId,
       channelResourceId: randomUUID(),
       channelExpiration: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000),
-      status: extra.status,
-      ...(extra.status === "ERROR"
+      status,
+      ...(status === "ERROR"
         ? { lastErrorAt: new Date(), lastErrorMessage: "invalid_grant: Token has been revoked" }
         : {}),
     },
     select: { id: true },
   });
+
+  return { branchId: branch.id, channelId };
 }
 
 before(async () => {
@@ -128,8 +142,7 @@ after(async () => {
 // ---------------------------------------------------------------------------
 
 test("una notificación válida para una conexión en ERROR responde 200, no 503 (M-4)", async () => {
-  const channelId = randomUUID();
-  await conectar({ channelId, status: "ERROR" });
+  const { branchId, channelId } = await sucursalConConexion("ERROR");
   const token = await firmarWebhookToken({ organizationId: orgId, branchId, channelId });
 
   const res = await notificar({ channelId, token });
@@ -157,8 +170,7 @@ test("una notificación válida para una conexión en ERROR responde 200, no 503
 // ---------------------------------------------------------------------------
 
 test("un token que no salió de acá sigue dando 403 — la rama nueva no lo intercepta", async () => {
-  const channelId = randomUUID();
-  await conectar({ channelId, status: "ERROR" });
+  const { channelId } = await sucursalConConexion("ERROR");
 
   const res = await notificar({ channelId, token: "no-es-un-token-firmado" });
 
@@ -166,8 +178,7 @@ test("un token que no salió de acá sigue dando 403 — la rama nueva no lo int
 });
 
 test("un token válido pero de OTRO canal sigue dando 403, aunque la conexión esté en ERROR", async () => {
-  const channelId = randomUUID();
-  await conectar({ channelId, status: "ERROR" });
+  const { branchId, channelId } = await sucursalConConexion("ERROR");
   const tokenDeOtroCanal = await firmarWebhookToken({
     organizationId: orgId,
     branchId,
