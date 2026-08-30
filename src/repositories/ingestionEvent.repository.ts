@@ -921,7 +921,7 @@ export async function anonymizeIngestionEventsOfContact(
   db: Db = prisma,
 ): Promise<{ count: number }> {
   const eventos = await db.ingestionEvent.findMany({
-    where: { organizationId, promotedContactId: contactId },
+    where: { promotedContactId: contactId },
     select: { id: true, promotionNotes: true },
   });
 

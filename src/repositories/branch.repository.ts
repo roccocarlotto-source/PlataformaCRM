@@ -79,7 +79,7 @@ export function updateBranch(
   data: UpdateBranchData,
   db: Db = prisma,
 ) {
-  return db.branch.updateMany({ where: { id, organizationId }, data });
+  return db.branch.updateMany({ where: { id }, data });
 }
 
 export function softDeleteBranch(id: string, organizationId: string, db: Db = prisma) {

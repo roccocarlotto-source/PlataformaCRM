@@ -146,7 +146,7 @@ export async function claimNextClaimableEvent(
 
 export function markOutboxEventProcessed(id: string, organizationId: string, db: Db = prisma) {
   return db.outboxEvent.updateMany({
-    where: { id, organizationId, status: OutboxStatus.PENDING },
+    where: { id, status: OutboxStatus.PENDING },
     data: {
       status: OutboxStatus.PROCESSED,
       // El error anterior se limpia: un evento entregado no arrastra el

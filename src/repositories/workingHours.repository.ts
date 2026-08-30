@@ -59,7 +59,7 @@ export async function replaceWorkingHours(
   franjas: FranjaAGuardar[],
   db: Db,
 ) {
-  await db.workingHours.deleteMany({ where: { resourceId, organizationId } });
+  await db.workingHours.deleteMany({ where: { resourceId } });
 
   if (franjas.length > 0) {
     await db.workingHours.createMany({

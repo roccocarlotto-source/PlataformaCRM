@@ -111,7 +111,7 @@ export function updateServiceType(
   data: UpdateServiceTypeData,
   db: Db = prisma,
 ) {
-  return db.serviceType.updateMany({ where: { id, organizationId }, data });
+  return db.serviceType.updateMany({ where: { id }, data });
 }
 
 export function softDeleteServiceType(id: string, organizationId: string, db: Db = prisma) {

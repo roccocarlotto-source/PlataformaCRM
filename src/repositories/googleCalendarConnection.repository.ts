@@ -239,7 +239,7 @@ export function setConnectionChannel(
 // forzaría una resincronización completa sin ninguna necesidad.
 export function clearConnectionChannel(branchId: string, organizationId: string, db: Db = prisma) {
   return db.googleCalendarConnection.updateMany({
-    where: { branchId, organizationId },
+    where: { branchId },
     data: { channelId: null, channelResourceId: null, channelExpiration: null },
   });
 }

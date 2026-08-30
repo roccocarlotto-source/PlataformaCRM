@@ -188,7 +188,7 @@ export function setGoogleEventId(
 
 export function markBookingCancelled(id: string, organizationId: string, db: Db = prisma) {
   return db.booking.updateMany({
-    where: { id, organizationId, status: "CONFIRMED" },
+    where: { id, status: "CONFIRMED" },
     data: { status: "CANCELLED" },
   });
 }

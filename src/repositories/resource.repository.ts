@@ -94,7 +94,7 @@ export function updateResource(
   data: UpdateResourceData,
   db: Db = prisma,
 ) {
-  return db.resource.updateMany({ where: { id, organizationId }, data });
+  return db.resource.updateMany({ where: { id }, data });
 }
 
 export function softDeleteResource(id: string, organizationId: string, db: Db = prisma) {
