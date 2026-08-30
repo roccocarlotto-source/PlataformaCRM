@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { AppError } from "./AppError";
-import { MAX_PAYLOAD_DEPTH, canonicalStringify, deriveExternalId } from "./externalId";
+import {
+  MAX_PAYLOAD_DEPTH,
+  canonicalStringify,
+  deriveExternalId,
+  validatePayloadDepth,
+} from "./externalId";
 
 // El contrato de deriveExternalId es exactamente uno: DOS PAYLOADS CON EL MISMO
 // CONTENIDO DAN EL MISMO externalId, Y DOS CON CONTENIDO DISTINTO NO. Todo lo
@@ -92,4 +97,35 @@ test("el anidamiento justo en el límite se acepta (control del borde)", () => {
   }
 
   assert.doesNotThrow(() => deriveExternalId({ payload: dentro }));
+});
+
+// validatePayloadDepth (M-15): el mismo guard, sin derivar nada. Existe para el
+// camino con X-External-Id provisto, donde deriveExternalId no corre y el
+// chequeo de arriba no alcanzaba. Se fija que comparte el límite EXACTO y el
+// mensaje con el camino derivado — una sola regla para el emisor, no dos.
+test("validatePayloadDepth rechaza con el mismo 400 y el mismo mensaje que el camino derivado", () => {
+  let profundo: unknown = "fondo";
+  for (let i = 0; i <= MAX_PAYLOAD_DEPTH + 5; i++) {
+    profundo = [profundo];
+  }
+
+  assert.throws(
+    () => validatePayloadDepth({ payload: profundo }),
+    (err: unknown) =>
+      err instanceof AppError &&
+      err.statusCode === 400 &&
+      err.message ===
+        `El payload excede los ${MAX_PAYLOAD_DEPTH} niveles de anidamiento permitidos`,
+  );
+});
+
+test("validatePayloadDepth acepta el anidamiento justo en el límite (control del borde)", () => {
+  let dentro: unknown = "fondo";
+  for (let i = 0; i < MAX_PAYLOAD_DEPTH - 1; i++) {
+    dentro = [dentro];
+  }
+
+  assert.doesNotThrow(() => validatePayloadDepth({ payload: dentro }));
+  // Un nivel más y cae: el borde es exactamente el mismo que el de deriveExternalId.
+  assert.throws(() => validatePayloadDepth({ payload: [dentro] }));
 });

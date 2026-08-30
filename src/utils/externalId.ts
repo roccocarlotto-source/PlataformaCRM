@@ -83,6 +83,22 @@ export function canonicalStringify(value: unknown): string {
   return JSON.stringify(canonicalize(value, 0));
 }
 
+// El MISMO guard de profundidad, disponible para quien NO necesita el JSON
+// canónico. Existe por M-15 de docs/auditoria-2026-08-29.md: el guard vivía
+// solo dentro de canonicalize, y canonicalize solo corre cuando hay que
+// derivar el externalId — es decir, únicamente cuando el cliente NO manda
+// X-External-Id. Con el header provisto, el payload llegaba sin chequear
+// hasta el JSON.stringify del repositorio, que es recursivo y sin protección
+// propia: un anidamiento de miles de niveles (que entra holgado en 64 KB)
+// reventaba con RangeError, que no es AppError y por lo tanto salía como 500.
+//
+// Descarta la copia canónica a propósito: acá solo interesa el efecto de
+// lanzar. Tira exactamente el mismo AppError(400) y el mismo mensaje que el
+// camino derivado, para que el emisor vea una sola regla, no dos.
+export function validatePayloadDepth(payload: unknown): void {
+  canonicalize(payload, 0);
+}
+
 // SHA-256 hex (64 caracteres). El mismo primitivo que hashApiKey pero con otro
 // propósito y sin ninguna propiedad de seguridad detrás: acá no hay secreto que
 // proteger, solo un identificador estable y de longitud fija para el contenido.
