@@ -131,12 +131,16 @@ interface Doble {
   canalesCreados: { channelId: string; token: string; address: string }[];
   canalesDetenidos: { channelId: string; resourceId: string }[];
   listadosConSyncToken: (string | undefined)[];
+  // M-3: con qué timeMin se llamó a events.list en cada listado. Una
+  // sincronización completa tiene que llevarlo; una incremental, no.
+  listadosConTimeMin: (string | undefined)[];
 }
 
 function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
   const canalesCreados: { channelId: string; token: string; address: string }[] = [];
   const canalesDetenidos: { channelId: string; resourceId: string }[] = [];
   const listadosConSyncToken: (string | undefined)[] = [];
+  const listadosConTimeMin: (string | undefined)[] = [];
   let yaFallo = false;
 
   const cliente: ClienteGoogleCalendar = {
@@ -175,6 +179,7 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
 
     listarCambios: (consulta) => {
       listadosConSyncToken.push(consulta.syncToken);
+      listadosConTimeMin.push(consulta.timeMin);
 
       if (opciones.syncTokenVencido && !yaFallo && consulta.syncToken) {
         yaFallo = true;
@@ -188,7 +193,20 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
     },
   };
 
-  return { cliente, canalesCreados, canalesDetenidos, listadosConSyncToken };
+  return { cliente, canalesCreados, canalesDetenidos, listadosConSyncToken, listadosConTimeMin };
+}
+
+// M-3: una sincronización completa se acota desde "ahora". El valor exacto no
+// cambia ninguna rama —solo viaja como string a Google—, así que alcanza con
+// que sea una fecha reciente; la tolerancia es generosa para no depender del
+// reloj de la máquina del CI.
+function assertTimeMinReciente(timeMin: string | undefined, contexto: string): void {
+  assert.ok(timeMin, `${contexto}: la sincronización completa tiene que llevar timeMin`);
+  const distanciaMs = Math.abs(Date.now() - new Date(timeMin).getTime());
+  assert.ok(
+    distanciaMs < 5_000,
+    `${contexto}: timeMin (${timeMin}) tiene que ser "ahora", y dista ${String(distanciaMs)} ms`,
+  );
 }
 
 // Crea la conexión directamente: el flujo OAuth completo ya está probado en
@@ -598,6 +616,8 @@ test("el syncToken nuevo se guarda al terminar de procesar", async () => {
     await notificar(escenario, canal, doble);
 
     assert.deepEqual(doble.listadosConSyncToken, ["t0"], "se llamó con el token guardado");
+    // M-3: con syncToken NO va timeMin — Google no admite los dos juntos.
+    assert.deepEqual(doble.listadosConTimeMin, [undefined]);
 
     const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
       where: { branchId: escenario.branchId },
@@ -624,17 +644,18 @@ test("la PRIMERA sincronización (sin token) no reconcilia hacia atrás: solo gu
 
     const booking = await reservar(escenario, "evt-viejo");
 
-    const resultado = await notificar(
-      escenario,
-      canal,
-      doblarGoogle({
-        cambios: [{ id: "evt-viejo", status: "cancelled" }],
-        nextSyncToken: "t-inicial",
-      }),
-    );
+    const doble = doblarGoogle({
+      cambios: [{ id: "evt-viejo", status: "cancelled" }],
+      nextSyncToken: "t-inicial",
+    });
+    const resultado = await notificar(escenario, canal, doble);
 
     assert.equal(resultado.accion, "sync-inicial");
     assert.equal(resultado.bookingsCancelados, 0, "NO se reconcilia hacia atrás");
+
+    // M-3: la lista completa va acotada desde ahora, y sin syncToken.
+    assert.equal(doble.listadosConSyncToken[0], undefined);
+    assertTimeMinReciente(doble.listadosConTimeMin[0], "primera sincronización");
 
     const persistido = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
     assert.equal(persistido.status, "CONFIRMED");
@@ -666,6 +687,9 @@ test("un 410 resincroniza completo y guarda un token nuevo", async () => {
     assert.equal(resultado.accion, "sync-inicial");
     // Dos llamadas: la primera con el token vencido, la segunda sin token.
     assert.deepEqual(doble.listadosConSyncToken, ["vencido", undefined]);
+    // M-3: la incremental va sin timeMin; la completa del reintento, acotada.
+    assert.equal(doble.listadosConTimeMin[0], undefined);
+    assertTimeMinReciente(doble.listadosConTimeMin[1], "resincronización tras 410");
 
     const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
       where: { branchId: escenario.branchId },

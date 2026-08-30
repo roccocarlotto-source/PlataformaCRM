@@ -263,6 +263,16 @@ export interface ConsultaDeCambios {
   calendarId: string;
   // Ausente = sincronización COMPLETA, solo para obtener un token nuevo.
   syncToken?: string;
+  // Acota una sincronización COMPLETA (sin syncToken) a partir de este
+  // instante (RFC3339). Google no admite combinarlo con syncToken —quien
+  // llama nunca debería pasar los dos juntos— y el syncToken que resulte de
+  // una consulta con timeMin recuerda ese límite para las sincronizaciones
+  // incrementales siguientes. Ver M-3 de docs/auditoria-2026-08-29.md: sin
+  // esto, una sincronización completa listaba el calendario ENTERO —años de
+  // eventos que igual se descartan— y en un calendario grande el bucle de
+  // 100 páginas cortaba antes de la última, nextSyncToken quedaba undefined y
+  // cada notificación volvía a bajar 100 páginas sin converger jamás.
+  timeMin?: string;
 }
 
 // Un evento tal como llega en una sincronización incremental. Solo los campos
@@ -736,7 +746,16 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
     // Los eventos CANCELADOS llegan solos en sync incremental —no hace falta
     // `showDeleted`— y son justamente los que este módulo necesita ver.
     // -----------------------------------------------------------------------
-    async listarCambios({ accessToken, calendarId, syncToken }) {
+    async listarCambios({ accessToken, calendarId, syncToken, timeMin }) {
+      // Guarda defensiva: Google responde 400 si vienen los dos, y ese 400 se
+      // leería como un fallo de Google cuando es un bug nuestro. Mejor que
+      // reviente acá, con el motivo.
+      if (syncToken && timeMin) {
+        throw new Error(
+          "listarCambios: syncToken y timeMin son mutuamente excluyentes — timeMin acota solo una sincronización completa",
+        );
+      }
+
       const eventos: EventoCambiado[] = [];
       let pageToken: string | undefined;
       let nextSyncToken: string | undefined;
@@ -746,9 +765,14 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
       // eventos por defecto son 25.000 cambios en una pasada, muy por encima de
       // cualquier volumen real de este producto.
       for (let pagina = 0; pagina < 100; pagina++) {
+        // Los parámetros se reconstruyen en CADA página: timeMin tiene que ir
+        // también en la 2, la 3… — Google no lo recuerda desde el pageToken.
         const parametros = new URLSearchParams();
         if (syncToken) {
           parametros.set("syncToken", syncToken);
+        }
+        if (timeMin) {
+          parametros.set("timeMin", timeMin);
         }
         if (pageToken) {
           parametros.set("pageToken", pageToken);
