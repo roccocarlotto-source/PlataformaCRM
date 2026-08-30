@@ -25,6 +25,15 @@ export interface EventoAEntregar {
   organizationId: string;
   eventType: string;
   payload: unknown;
+  // M-14 de docs/auditoria-2026-08-29.md: se aborta cuando vence
+  // OUTBOX_HANDLER_TIMEOUT_MS. Un handler que la pasa a su propia operación
+  // cancelable (fetch, por ejemplo, que la acepta nativamente) deja de competir
+  // con el reintento — sin esto, el handler seguía corriendo solo después de
+  // que el evento ya se había reprogramado, y el destino podía recibir el aviso
+  // dos veces. Un handler que la ignora sigue pudiendo completar tarde: la
+  // señal es una invitación a pararse, no una cancelación forzada (ninguna
+  // promesa de JS se puede cancelar desde afuera).
+  signal: AbortSignal;
 }
 
 // Entrega o lanza. No devuelve nada: el motor no tiene qué hacer con un valor
