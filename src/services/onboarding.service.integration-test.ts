@@ -199,6 +199,137 @@ test("onboardOrganization con el código correcto crea Organization + User y dej
   }
 });
 
+// ---------------------------------------------------------------------------
+// M-13 (docs/auditoria-2026-08-29.md) — dos bugs en el mismo flujo.
+//
+// Bug 1: un nombre sin caracteres ASCII alfanuméricos slugifica a "" y pasaba el
+// schema (min(1) es sobre el nombre). Bug 2: el chequeo "¿ya existe una
+// organización con ese slug?" corría ANTES de verifyOtp, así que un endpoint
+// público respondía 409 o 401 según si el nombre existía, sin que quien
+// preguntaba tuviera ningún código válido — un oráculo de nombres.
+// ---------------------------------------------------------------------------
+
+test("M-13 bug 1: un nombre que slugifica a '' se rechaza con 400 ANTES de gastar el OTP, y no crea nada", async () => {
+  // Sin requestOnboardingOtp y con un código inventado, a propósito: si el
+  // rechazo viniera de verifyOtp sería un 401. Que sea 400 prueba que el slug
+  // vacío se rechaza antes de tocar Supabase.
+  const email = emailDePrueba("slug-vacio");
+  for (const organizationName of ["株式会社", "###"]) {
+    let capturado: unknown;
+    try {
+      await onboardOrganization({
+        organizationName,
+        fullName: "Quien Sea",
+        email,
+        password: PASSWORD,
+        otp: "000000",
+      });
+      assert.fail(`onboardOrganization debía rechazar "${organizationName}"`);
+    } catch (err) {
+      capturado = err;
+    }
+
+    assert.ok(capturado instanceof AppError, "debe ser AppError, no un error crudo");
+    assert.equal(capturado.statusCode, 400, "antes: 409 o un slug vacío persistido");
+    assert.ok(capturado.message.includes("identificador"));
+  }
+
+  assert.equal(await prisma.organization.count({ where: { slug: "" } }), 0);
+  assert.equal(await prisma.user.count({ where: { email } }), 0);
+  // No hubo verifyOtp ni signInWithOtp: la identidad no tiene por qué existir.
+  assert.equal(await buscarIdentidad(email), undefined);
+});
+
+test("M-13 bug 2: un nombre YA EXISTENTE con un OTP incorrecto responde 401, no 409 — el oráculo está cerrado", async () => {
+  const emailDuenio = emailDePrueba("oraculo-duenio");
+  const emailAjeno = emailDePrueba("oraculo-ajeno");
+  const organizationName = `M-13 oraculo ${randomUUID()}`;
+  let organizationId: string | undefined;
+  try {
+    // Una organización real, registrada como corresponde.
+    await requestOnboardingOtp({ email: emailDuenio });
+    const registro = await onboardOrganization({
+      organizationName,
+      fullName: "Dueña",
+      email: emailDuenio,
+      password: PASSWORD,
+      otp: await obtenerCodigo(emailDuenio),
+    });
+    organizationId = registro.organization.id;
+
+    // Alguien sin ningún código válido prueba el MISMO nombre desde otro email.
+    // Antes del fix esto daba 409 ("Ya existe una organización con ese
+    // nombre"): el pre-chequeo corría sin haber probado nada. Ahora tiene que
+    // ser el 401 del OTP, indistinguible del que daría un nombre libre.
+    let capturado: unknown;
+    try {
+      await onboardOrganization({
+        organizationName,
+        fullName: "Curioso",
+        email: emailAjeno,
+        password: PASSWORD,
+        otp: "000000",
+      });
+      assert.fail("onboardOrganization debía rechazar el código inválido");
+    } catch (err) {
+      capturado = err;
+    }
+
+    assert.ok(capturado instanceof AppError);
+    assert.equal(capturado.statusCode, 401, "antes del fix: 409, el oráculo de nombres");
+    assert.equal(capturado.message, "El código de verificación es inválido o expiró");
+  } finally {
+    await limpiar(emailAjeno);
+    await limpiar(emailDuenio, organizationId);
+  }
+});
+
+test("M-13: con el OTP correcto, el nombre YA EXISTENTE sigue respondiendo 409 — mover el chequeo no lo rompió", async () => {
+  const emailDuenio = emailDePrueba("dup-nombre-duenio");
+  const emailSegundo = emailDePrueba("dup-nombre-segundo");
+  const organizationName = `M-13 nombre repetido ${randomUUID()}`;
+  let organizationId: string | undefined;
+  try {
+    await requestOnboardingOtp({ email: emailDuenio });
+    const registro = await onboardOrganization({
+      organizationName,
+      fullName: "Dueña",
+      email: emailDuenio,
+      password: PASSWORD,
+      otp: await obtenerCodigo(emailDuenio),
+    });
+    organizationId = registro.organization.id;
+
+    await requestOnboardingOtp({ email: emailSegundo });
+    const codigoValido = await obtenerCodigo(emailSegundo);
+
+    let capturado: unknown;
+    try {
+      await onboardOrganization({
+        organizationName,
+        fullName: "Segunda",
+        email: emailSegundo,
+        password: PASSWORD,
+        otp: codigoValido,
+      });
+      assert.fail("onboardOrganization debía rechazar el nombre repetido");
+    } catch (err) {
+      capturado = err;
+    }
+
+    assert.ok(capturado instanceof AppError);
+    assert.equal(capturado.statusCode, 409);
+    assert.equal(capturado.message, "Ya existe una organización con ese nombre");
+
+    // Y no se creó nada para el segundo email.
+    assert.equal(await prisma.user.count({ where: { email: emailSegundo } }), 0);
+    assert.equal(await prisma.organization.count({ where: { name: organizationName } }), 1);
+  } finally {
+    await limpiar(emailSegundo);
+    await limpiar(emailDuenio, organizationId);
+  }
+});
+
 test("onboardOrganization rechaza con 409 un email que ya tiene cuenta, y NO borra la identidad existente", async () => {
   const email = emailDePrueba("duplicado");
   let organizationId: string | undefined;
