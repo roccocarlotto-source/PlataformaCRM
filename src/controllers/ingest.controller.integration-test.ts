@@ -793,6 +793,68 @@ test("el anidamiento justo dentro del límite CON X-External-Id se acepta (contr
 });
 
 // ---------------------------------------------------------------------------
+// El carácter NUL (M-16 de docs/auditoria-2026-08-29.md)
+//
+// Postgres no admite U+0000 dentro de un jsonb (22P05). JSON.parse acepta el
+// escape de NUL como string válido, así que el byte llegaba decodificado hasta
+// el INSERT y reventaba con el error crudo de Postgres: 500 por algo que mandó
+// el emisor. Se rechaza con 400, no se sanitiza (§1: el payload se guarda tal
+// cual o no se guarda).
+//
+// Los strings se construyen con String.fromCharCode a propósito: ni un NUL
+// literal ni la secuencia de escape escrita como texto en este archivo, que
+// tiende a mutar al pasar por herramientas intermedias.
+// ---------------------------------------------------------------------------
+
+test("un string con un carácter NUL real da 400, no el 500 del 22P05 de Postgres (M-16)", async () => {
+  const externalId = `nul-${randomUUID()}`;
+  const res = await ingest(
+    fx.claveA,
+    { firstName: "a" + String.fromCharCode(0) + "b", email: "a@b.com" },
+    { externalId },
+  );
+
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { error: { message: string } };
+  assert.match(body.error.message, /NUL \(U\+0000\)/);
+  assert.equal(await eventosDe(fx.sourceA, externalId), 0);
+});
+
+test("un NUL en una CLAVE del objeto también da 400 (M-16)", async () => {
+  const externalId = `nul-clave-${randomUUID()}`;
+  const res = await ingest(
+    fx.claveA,
+    { ["first" + String.fromCharCode(0) + "Name"]: "a", email: "a@b.com" },
+    { externalId },
+  );
+
+  assert.equal(res.status, 400);
+  assert.equal(await eventosDe(fx.sourceA, externalId), 0);
+});
+
+// El control del falso positivo. Seis caracteres de texto plano — backslash,
+// "u", "0", "0", "0", "0" — SIN ningún NUL real: lo que alguien tipearía a mano
+// al pegar una regex. Un detector que buscara el escape como sub-cadena del
+// JSON reserializado lo rechazaría; el nuestro mira el valor decodificado.
+test("el texto plano backslash-u0000 (sin NUL real) se acepta y se guarda tal cual (M-16)", async () => {
+  const textoPlano = "a" + String.fromCharCode(92, 117, 48, 48, 48, 48) + "b";
+  assert.equal(textoPlano.length, 8, "son 8 caracteres de texto, no un NUL decodificado");
+  assert.ok(!textoPlano.includes(String.fromCharCode(0)));
+
+  const externalId = `nul-texto-${randomUUID()}`;
+  const res = await ingest(fx.claveA, { nota: textoPlano, email: "a@b.com" }, { externalId });
+
+  assert.equal(res.status, 202);
+
+  const { id } = (await res.json()) as { id: string };
+  const fila = await prisma.ingestionEvent.findUniqueOrThrow({
+    where: { id },
+    select: { rawPayload: true },
+  });
+  assert.deepEqual(fila.rawPayload, { nota: textoPlano, email: "a@b.com" });
+});
+
+// ---------------------------------------------------------------------------
 // Rate limit POR CLAVE
 // ---------------------------------------------------------------------------
 
