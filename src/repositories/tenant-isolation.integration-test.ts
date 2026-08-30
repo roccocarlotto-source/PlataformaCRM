@@ -16,6 +16,30 @@ import { updateUser, softDeleteUser } from "./user.repository";
 import { revokeInvitationConditional } from "./invitation.repository";
 import { updateSource, softDeleteSource } from "./source.repository";
 import { revokeApiKeyConditional, revokeApiKeysBySource } from "./apiKey.repository";
+import { updateBranch, softDeleteBranch } from "./branch.repository";
+import { updateResource, softDeleteResource } from "./resource.repository";
+import { updateServiceType, softDeleteServiceType } from "./serviceType.repository";
+import { findWorkingHoursByResource, replaceWorkingHours } from "./workingHours.repository";
+import { setGoogleEventId, markBookingCancelled } from "./booking.repository";
+import {
+  markConnectionRevoked,
+  markConnectionError,
+  setConnectionChannel,
+  clearConnectionChannel,
+  setConnectionSyncToken,
+} from "./googleCalendarConnection.repository";
+import {
+  markOutboxEventProcessed,
+  rescheduleOutboxEvent,
+  markOutboxEventDeadLetter,
+} from "./outboxEvent.repository";
+import {
+  retryIngestionEventConditional,
+  markEventFailed,
+  anonymizeIngestionEventsOfContact,
+} from "./ingestionEvent.repository";
+import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
+import type { NotaIgnorado, PromotionNote } from "../types/promotion";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -66,8 +90,18 @@ import { revokeApiKeyConditional, revokeApiKeysBySource } from "./apiKey.reposit
 // crear código muerto para poder testearlo. Sus escrituras nacen con el ítem 4
 // —el worker y la promoción— y sus tests van con ellas.
 //
+// M-20 (docs/auditoria-2026-08-29.md) SALDÓ ESA DEUDA Y LA DEL MÓDULO DE
+// AGENDA: las escrituras de Branch, Resource, ServiceType, WorkingHours,
+// Booking, GoogleCalendarConnection, OutboxEvent y las tres nuevas de
+// IngestionEvent (retry, markEventFailed, anonymize) ya filtraban por
+// organizationId en su WHERE, pero solo tenían pruebas a nivel service (404
+// cross-org), que prueban el pre-check y no el WHERE — la distinción que este
+// archivo existe para hacer. Entran al final, con el mismo fixture y los
+// mismos dos helpers. WorkingHours es el caso distinto de todos: ver sus dos
+// tests.
+//
 // Un solo fixture (Organization A + Organization B con un registro real por
-// entidad) se crea una vez en `before` y se reusa en las 28 pruebas: ninguna
+// entidad) se crea una vez en `before` y se reusa en las 49 pruebas: ninguna
 // debería lograr mutar el estado de B si el aislamiento funciona, así que
 // compartir el fixture es seguro y evita crear una identidad real de
 // Supabase Auth por caso.
@@ -90,8 +124,23 @@ interface Fixture {
   stageA1: { id: string };
   contactA: { id: string };
   sourceA: { id: string };
+  // M-20 — módulo de agenda, outbox y las escrituras nuevas de ingesta.
+  branchB: { id: string };
+  resourceB: { id: string };
+  serviceTypeB: { id: string };
+  bookingB: { id: string };
+  gcalB: { id: string };
+  outboxEventB: { id: string };
+  ingestionEventBFailed: { id: string };
+  ingestionEventBPending: { id: string };
+  ingestionEventBProcessed: { id: string };
   authUserId: string;
 }
+
+// El valor reconocible dentro de la nota de promoción del evento PROCESSED de
+// B: si anonymizeIngestionEventsOfContact lo tocara cross-tenant, aparecería
+// reemplazado por MARCADOR_DE_DATO_BORRADO.
+const ENTRANTE_RECONOCIBLE = "m20-lifecycle-de-org-b";
 
 async function createRealAuthUser(label: string) {
   const email = `m4-test-${label}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
@@ -234,6 +283,109 @@ before(async () => {
     },
   });
 
+  // M-20 — el módulo de agenda de Organization B, completo: una reserva
+  // exige sucursal, recurso, servicio y contacto reales (FKs compuestas).
+  const branchB = await prisma.branch.create({
+    data: {
+      organizationId: orgB.id,
+      name: "M4 Org B Branch",
+      timezone: "America/Argentina/Buenos_Aires",
+    },
+  });
+  const resourceB = await prisma.resource.create({
+    data: {
+      organizationId: orgB.id,
+      branchId: branchB.id,
+      name: "M4 Org B Resource",
+      type: "PERSON",
+    },
+  });
+  const serviceTypeB = await prisma.serviceType.create({
+    data: {
+      organizationId: orgB.id,
+      branchId: branchB.id,
+      resourceId: resourceB.id,
+      name: "M4 Org B Service",
+      durationMin: 30,
+    },
+  });
+  await prisma.workingHours.create({
+    data: {
+      organizationId: orgB.id,
+      resourceId: resourceB.id,
+      weekday: "MONDAY",
+      startMinute: 540,
+      endMinute: 1020,
+    },
+  });
+  const bookingB = await prisma.booking.create({
+    data: {
+      organizationId: orgB.id,
+      branchId: branchB.id,
+      resourceId: resourceB.id,
+      serviceTypeId: serviceTypeB.id,
+      contactId: contactB.id,
+      startsAt: new Date("2026-09-07T12:00:00Z"),
+      endsAt: new Date("2026-09-07T12:30:00Z"),
+    },
+  });
+  // Con canal YA seteado: si no, "clearConnectionChannel no cambió nada"
+  // sería cierto aunque la función no filtrara por organizationId.
+  const gcalB = await prisma.googleCalendarConnection.create({
+    data: {
+      organizationId: orgB.id,
+      branchId: branchB.id,
+      refreshToken: "m4-org-b-refresh-token-cifrado",
+      calendarId: "primary",
+      status: "ACTIVE",
+      channelId: randomUUID(),
+      channelResourceId: "m4-org-b-resource",
+      channelExpiration: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000),
+      syncToken: "m4-org-b-sync-token",
+    },
+  });
+  // Directo por Prisma: emitOutboxEvent exige una transacción abierta a
+  // propósito y no aporta nada acá.
+  const outboxEventB = await prisma.outboxEvent.create({
+    data: { organizationId: orgB.id, eventType: "m4.test", payload: { de: "org-b" } },
+  });
+  // Tres filas de ingesta de B, una por estado de partida: cada escritura
+  // condicional necesita el suyo, y ningún test puede dejar el fixture mutado
+  // para el que viene después.
+  const ingestionEventBFailed = await prisma.ingestionEvent.create({
+    data: {
+      organizationId: orgB.id,
+      sourceId: sourceB.id,
+      rawPayload: { email: "failed@org-b.test" },
+      status: "FAILED",
+      errorMessage: "m4: fallo de org B",
+    },
+  });
+  const ingestionEventBPending = await prisma.ingestionEvent.create({
+    data: {
+      organizationId: orgB.id,
+      sourceId: sourceB.id,
+      rawPayload: { email: "pending@org-b.test" },
+      status: "PENDING",
+    },
+  });
+  const notaIgnorado: NotaIgnorado = {
+    tipo: "ignorado",
+    campo: "lifecycleStage",
+    entrante: ENTRANTE_RECONOCIBLE,
+    motivo: "la ingesta no escribe lifecycleStage",
+  };
+  const ingestionEventBProcessed = await prisma.ingestionEvent.create({
+    data: {
+      organizationId: orgB.id,
+      sourceId: sourceB.id,
+      rawPayload: { email: "processed@org-b.test", lifecycleStage: ENTRANTE_RECONOCIBLE },
+      status: "PROCESSED",
+      promotedContactId: contactB.id,
+      promotionNotes: [notaIgnorado] as unknown as Prisma.InputJsonValue,
+    },
+  });
+
   fx = {
     orgA: { id: orgA.id },
     orgB: { id: orgB.id },
@@ -252,6 +404,15 @@ before(async () => {
     stageA1: { id: stageA1.id },
     contactA: { id: contactA.id },
     sourceA: { id: sourceA.id },
+    branchB: { id: branchB.id },
+    resourceB: { id: resourceB.id },
+    serviceTypeB: { id: serviceTypeB.id },
+    bookingB: { id: bookingB.id },
+    gcalB: { id: gcalB.id },
+    outboxEventB: { id: outboxEventB.id },
+    ingestionEventBFailed: { id: ingestionEventBFailed.id },
+    ingestionEventBPending: { id: ingestionEventBPending.id },
+    ingestionEventBProcessed: { id: ingestionEventBProcessed.id },
     authUserId: authUserB.id,
   };
 });
@@ -259,6 +420,17 @@ before(async () => {
 after(async () => {
   if (!fx) return;
   const ambas = { in: [fx.orgA.id, fx.orgB.id] };
+
+  // M-20 — el módulo de agenda, en orden de FKs: Booking depende de Branch,
+  // Resource, ServiceType y Contact; WorkingHours y GoogleCalendarConnection
+  // de Resource/Branch; ServiceType de Branch y Resource.
+  await prisma.booking.deleteMany({ where: { organizationId: ambas } });
+  await prisma.workingHours.deleteMany({ where: { organizationId: ambas } });
+  await prisma.googleCalendarConnection.deleteMany({ where: { organizationId: ambas } });
+  await prisma.serviceType.deleteMany({ where: { organizationId: ambas } });
+  await prisma.resource.deleteMany({ where: { organizationId: ambas } });
+  await prisma.branch.deleteMany({ where: { organizationId: ambas } });
+  await prisma.outboxEvent.deleteMany({ where: { organizationId: ambas } });
 
   // ingestion_events y api_keys primero: sus FKs a sources son RESTRICT, así
   // que Postgres rechaza borrar una Source que todavía tenga hijas.
@@ -660,4 +832,285 @@ test("dos IngestionEvent con externalId nulo sobre la misma Source: entran los d
   // promueven como nuevos y se marcan para revisión manual. Un único sin el
   // WHERE dejaría pasar exactamente una fila sin externalId por Source.
   assert.notEqual(primero.id, segundo.id);
+});
+
+// ---------------------------------------------------------------------------
+// M-20 de docs/auditoria-2026-08-29.md — el módulo de agenda, outbox y las
+// escrituras nuevas de ingesta. Mismo patrón que las 20 de arriba: la
+// garantía bajo prueba es el WHERE efectivo del repository, y el éxito es
+// count === 0 con B intacta.
+// ---------------------------------------------------------------------------
+
+// Branch ---------------------------------------------------------------------
+
+test("updateBranch: id de Organization B + organizationId de Organization A no modifica la Branch", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.branch.findUniqueOrThrow({ where: { id: fx.branchB.id } }),
+    () => updateBranch(fx.branchB.id, fx.orgA.id, { name: "hijacked-branch" }),
+    "updateBranch",
+  );
+});
+
+test("softDeleteBranch: id de Organization B + organizationId de Organization A no borra la Branch", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.branch.findUniqueOrThrow({ where: { id: fx.branchB.id } }),
+    () => softDeleteBranch(fx.branchB.id, fx.orgA.id),
+    "softDeleteBranch",
+  );
+});
+
+// Resource -------------------------------------------------------------------
+
+test("updateResource: id de Organization B + organizationId de Organization A no modifica el Resource", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.resource.findUniqueOrThrow({ where: { id: fx.resourceB.id } }),
+    () => updateResource(fx.resourceB.id, fx.orgA.id, { name: "hijacked-resource" }),
+    "updateResource",
+  );
+});
+
+test("softDeleteResource: id de Organization B + organizationId de Organization A no borra el Resource", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.resource.findUniqueOrThrow({ where: { id: fx.resourceB.id } }),
+    () => softDeleteResource(fx.resourceB.id, fx.orgA.id),
+    "softDeleteResource",
+  );
+});
+
+// ServiceType ----------------------------------------------------------------
+
+test("updateServiceType: id de Organization B + organizationId de Organization A no modifica el ServiceType", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.serviceType.findUniqueOrThrow({ where: { id: fx.serviceTypeB.id } }),
+    () => updateServiceType(fx.serviceTypeB.id, fx.orgA.id, { name: "hijacked-service" }),
+    "updateServiceType",
+  );
+});
+
+test("softDeleteServiceType: id de Organization B + organizationId de Organization A no borra el ServiceType", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.serviceType.findUniqueOrThrow({ where: { id: fx.serviceTypeB.id } }),
+    () => softDeleteServiceType(fx.serviceTypeB.id, fx.orgA.id),
+    "softDeleteServiceType",
+  );
+});
+
+// WorkingHours — EL CASO DISTINTO --------------------------------------------
+//
+// replaceWorkingHours no es un updateMany({ id, organizationId }): es un
+// deleteMany({ resourceId, organizationId }) seguido, si hay franjas, de un
+// createMany con esos mismos organizationId/resourceId, sin ningún findFirst
+// que valide que el recurso es de esa organización. Lo que lo protege es la FK
+// COMPUESTA WorkingHours -> Resource (organization_id, resource_id) ->
+// (organization_id, id), la misma clase que impuso C-3. Eso da dos caminos
+// según el contenido de `franjas`, y cada uno tiene su test.
+
+test("replaceWorkingHours CON franjas: resourceId de Organization B + organizationId de Organization A — el deleteMany no borra nada y la FK compuesta rechaza el INSERT (P2003); el horario de B sigue igual", async () => {
+  // Camino 1: hay filas que insertar. El deleteMany no encuentra nada (las
+  // franjas reales de B tienen organization_id = orgB), y el createMany que
+  // sigue intenta (organization_id = orgA, resource_id = resourceB): una
+  // combinación que la FK compuesta no puede satisfacer.
+  const antes = await findWorkingHoursByResource(fx.resourceB.id, fx.orgB.id);
+  assert.equal(antes.length, 1, "el fixture tiene exactamente una franja real para resourceB");
+
+  await assertViolaFk(
+    () =>
+      prisma.$transaction((tx) =>
+        replaceWorkingHours(
+          fx.resourceB.id,
+          fx.orgA.id,
+          [{ weekday: "TUESDAY", startMinute: 600, endMinute: 660 }],
+          tx,
+        ),
+      ),
+    "replaceWorkingHours con franjas",
+  );
+
+  // Leído con el organizationId REAL: la transacción abortó entera, el
+  // deleteMany incluido, y el horario de B está exactamente como estaba.
+  const despues = await findWorkingHoursByResource(fx.resourceB.id, fx.orgB.id);
+  assert.deepEqual(despues, antes, "el horario de B debe permanecer intacto tras el rechazo");
+});
+
+test("replaceWorkingHours SIN franjas: resourceId de Organization B + organizationId de Organization A no tira y no toca el horario de B", async () => {
+  // Camino 2: franjas vacías. El deleteMany tampoco borra nada, y como no hay
+  // filas que insertar el createMany ni se ejecuta: la llamada termina sin
+  // error y sin haber tocado nada — un no-op, no por una validación explícita
+  // sino porque no queda ninguna escritura real con esos parámetros. Sin un
+  // { count } que comparar, la propiedad se prueba por lectura antes/después,
+  // como el test de reindexStages.
+  const antes = await findWorkingHoursByResource(fx.resourceB.id, fx.orgB.id);
+  assert.equal(antes.length, 1);
+
+  const devuelto = await prisma.$transaction((tx) =>
+    replaceWorkingHours(fx.resourceB.id, fx.orgA.id, [], tx),
+  );
+  assert.deepEqual(devuelto, [], "leído con el organizationId incorrecto, no ve ninguna franja");
+
+  const despues = await findWorkingHoursByResource(fx.resourceB.id, fx.orgB.id);
+  assert.deepEqual(despues, antes, "el horario de B debe permanecer intacto");
+});
+
+// Booking --------------------------------------------------------------------
+// Las dos escrituras llevan status: "CONFIRMED" en el WHERE, como
+// revokeInvitationConditional; el fixture está CONFIRMED, así que lo único
+// que las frena es el organizationId.
+
+test("setGoogleEventId: id de Organization B + organizationId de Organization A no escribe el googleEventId", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.booking.findUniqueOrThrow({ where: { id: fx.bookingB.id } }),
+    () => setGoogleEventId(fx.bookingB.id, fx.orgA.id, "evt-hijacked-by-org-a"),
+    "setGoogleEventId",
+  );
+});
+
+test("markBookingCancelled: id de Organization B + organizationId de Organization A no cancela la reserva", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.booking.findUniqueOrThrow({ where: { id: fx.bookingB.id } }),
+    () => markBookingCancelled(fx.bookingB.id, fx.orgA.id),
+    "markBookingCancelled",
+  );
+});
+
+// GoogleCalendarConnection ---------------------------------------------------
+// La clave del WHERE acá es branchId, no id: se llama con la sucursal de B y
+// la organización de A. La conexión del fixture tiene canal y syncToken
+// seteados para que "no cambió nada" sea una afirmación real en las cinco.
+
+function leerConexionB() {
+  return prisma.googleCalendarConnection.findUniqueOrThrow({ where: { id: fx.gcalB.id } });
+}
+
+test("markConnectionRevoked: branchId de Organization B + organizationId de Organization A no revoca la conexión", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerConexionB,
+    () => markConnectionRevoked(fx.branchB.id, fx.orgA.id),
+    "markConnectionRevoked",
+  );
+});
+
+test("markConnectionError: branchId de Organization B + organizationId de Organization A no marca ERROR", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerConexionB,
+    () => markConnectionError(fx.branchB.id, fx.orgA.id, "hijacked: invalid_grant"),
+    "markConnectionError",
+  );
+});
+
+test("setConnectionChannel: branchId de Organization B + organizationId de Organization A no reemplaza el canal", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerConexionB,
+    () =>
+      setConnectionChannel(fx.branchB.id, fx.orgA.id, {
+        channelId: randomUUID(),
+        channelResourceId: "hijacked-resource",
+        channelExpiration: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      }),
+    "setConnectionChannel",
+  );
+});
+
+test("clearConnectionChannel: branchId de Organization B + organizationId de Organization A no limpia el canal", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerConexionB,
+    () => clearConnectionChannel(fx.branchB.id, fx.orgA.id),
+    "clearConnectionChannel",
+  );
+});
+
+test("setConnectionSyncToken: branchId de Organization B + organizationId de Organization A no cambia el syncToken", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerConexionB,
+    () => setConnectionSyncToken(fx.branchB.id, fx.orgA.id, "hijacked-sync-token"),
+    "setConnectionSyncToken",
+  );
+});
+
+// OutboxEvent ----------------------------------------------------------------
+// Las tres llevan status: PENDING en el WHERE; el fixture está PENDING.
+
+function leerOutboxB() {
+  return prisma.outboxEvent.findUniqueOrThrow({ where: { id: fx.outboxEventB.id } });
+}
+
+test("markOutboxEventProcessed: id de Organization B + organizationId de Organization A no marca PROCESSED", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerOutboxB,
+    () => markOutboxEventProcessed(fx.outboxEventB.id, fx.orgA.id),
+    "markOutboxEventProcessed",
+  );
+});
+
+test("rescheduleOutboxEvent: id de Organization B + organizationId de Organization A no reprograma el evento", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerOutboxB,
+    () =>
+      rescheduleOutboxEvent(fx.outboxEventB.id, fx.orgA.id, {
+        attempts: 1,
+        nextAttemptAt: new Date(Date.now() + 60_000),
+        lastError: "hijacked",
+      }),
+    "rescheduleOutboxEvent",
+  );
+});
+
+test("markOutboxEventDeadLetter: id de Organization B + organizationId de Organization A no manda el evento a DEAD_LETTER", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerOutboxB,
+    () =>
+      markOutboxEventDeadLetter(fx.outboxEventB.id, fx.orgA.id, {
+        attempts: 5,
+        lastError: "hijacked",
+      }),
+    "markOutboxEventDeadLetter",
+  );
+});
+
+// IngestionEvent — las tres escrituras que el hallazgo señala -----------------
+
+test("retryIngestionEventConditional: id de Organization B (FAILED) + organizationId de Organization A no lo devuelve a PENDING", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.ingestionEvent.findUniqueOrThrow({ where: { id: fx.ingestionEventBFailed.id } }),
+    () => retryIngestionEventConditional(fx.ingestionEventBFailed.id, fx.orgA.id),
+    "retryIngestionEventConditional",
+  );
+});
+
+test("markEventFailed: id de Organization B (PENDING) + organizationId de Organization A no lo marca FAILED", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.ingestionEvent.findUniqueOrThrow({ where: { id: fx.ingestionEventBPending.id } }),
+    () => markEventFailed(fx.ingestionEventBPending.id, fx.orgA.id, "hijacked"),
+    "markEventFailed",
+  );
+});
+
+// La más distinta de las tres: no filtra por id sino por promotedContactId +
+// organizationId, y no es un updateMany — es un findMany (con organizationId
+// en el WHERE) seguido de un update por id, fila por fila. El caso cross-tenant
+// es "contactId de B + organizationId de A": el findMany no debe encontrar
+// nada, así que ni el rawPayload ni la nota de promoción de B se redactan.
+test("anonymizeIngestionEventsOfContact: contactId de Organization B + organizationId de Organization A no redacta ningún evento", async () => {
+  const antes = await prisma.ingestionEvent.findUniqueOrThrow({
+    where: { id: fx.ingestionEventBProcessed.id },
+  });
+  const notasAntes = antes.promotionNotes as unknown as PromotionNote[];
+  assert.equal(notasAntes.length, 1);
+  assert.equal((notasAntes[0] as NotaIgnorado).entrante, ENTRANTE_RECONOCIBLE);
+
+  const resultado = await anonymizeIngestionEventsOfContact(fx.contactB.id, fx.orgA.id);
+  assert.equal(
+    resultado.count,
+    0,
+    "anonymizeIngestionEventsOfContact: no debe afectar ninguna fila",
+  );
+
+  const despues = await prisma.ingestionEvent.findUniqueOrThrow({
+    where: { id: fx.ingestionEventBProcessed.id },
+  });
+  assert.deepEqual(despues, antes, "el evento de Organization B debe permanecer intacto");
+
+  const notasDespues = despues.promotionNotes as unknown as PromotionNote[];
+  const entrante = (notasDespues[0] as NotaIgnorado).entrante;
+  assert.equal(entrante, ENTRANTE_RECONOCIBLE, "la nota sigue sin redactar");
+  assert.notEqual(entrante, MARCADOR_DE_DATO_BORRADO);
 });
