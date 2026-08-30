@@ -29,7 +29,11 @@ export async function resolveAuthContext(payload: JwtPayload): Promise<AuthConte
   }
 
   if (!isRoleName(user.role.name)) {
-    throw new AppError(`Rol desconocido: ${user.role.name}`, 500);
+    // Invariante de datos roto: un usuario con un rol fuera de RoleName no
+    // debería poder existir. isOperational: false porque el mensaje expone el
+    // valor real del dato corrupto — sin valor para un cliente, con valor para
+    // quien esté mapeando la base (M-11 b, mismo criterio que authorize).
+    throw new AppError(`Rol desconocido: ${user.role.name}`, 500, false);
   }
 
   return {

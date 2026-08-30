@@ -254,6 +254,7 @@ export function crearCifrador(masterKey: Buffer): Cifrador {
         throw new AppError(
           "No se pudo descifrar el secreto: fue manipulado, o SECRET_ENCRYPTION_KEY no es la clave con la que se cifró",
           500,
+          false,
         );
       }
     },
@@ -276,6 +277,7 @@ export function getCifrador(): Cifrador {
     throw new AppError(
       "SECRET_ENCRYPTION_KEY no está configurada en el servidor: sin ella no se pueden guardar ni leer secretos cifrados",
       500,
+      false,
     );
   }
 

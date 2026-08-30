@@ -104,6 +104,16 @@ function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
   app.get("/descifrar", () => {
     crearCifrador(CLAVE).decrypt("esto-no-es-un-secreto-cifrado");
   });
+  // Formato válido pero ciphertext manipulado: el que rechaza es el tag de
+  // GCM, en el catch de decipher.final() — el sitio 3 de la bitácora §28.7.
+  app.get("/descifrar-manipulado", () => {
+    const cifrador = crearCifrador(CLAVE);
+    const guardado = cifrador.encrypt("un refresh token");
+    const partes = guardado.split(".");
+    const ultimo = partes[3].at(-1) === "A" ? "B" : "A";
+    partes[3] = partes[3].slice(0, -1) + ultimo;
+    cifrador.decrypt(partes.join("."));
+  });
 
   app.use(notFound);
   app.use(errorHandler);
@@ -257,6 +267,19 @@ test("(b) reproducción real: un secreto cifrado con formato inválido no filtra
   assert.equal(res.status, 500);
   assert.equal((await cuerpo(res)).error.message, "Error interno del servidor");
   assert.equal(lineaDeError().msg, "Secreto cifrado con formato inválido");
+});
+
+test("(b) reproducción real: un secreto cifrado MANIPULADO no filtra ni la causa ni el nombre de la clave", async () => {
+  const res = await pedir("/descifrar-manipulado");
+
+  assert.equal(res.status, 500);
+  const body = await cuerpo(res);
+  assert.equal(body.error.message, "Error interno del servidor");
+  assert.ok(!body.error.message.includes("SECRET_ENCRYPTION_KEY"));
+  assert.equal(
+    lineaDeError().msg,
+    "No se pudo descifrar el secreto: fue manipulado, o SECRET_ENCRYPTION_KEY no es la clave con la que se cifró",
+  );
 });
 
 test("(b) un error que no es AppError responde genérico, y con stack solo en desarrollo", async () => {

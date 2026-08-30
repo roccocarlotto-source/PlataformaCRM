@@ -81,9 +81,11 @@ function getClaveDeFirma(): Uint8Array {
   }
 
   if (!env.SECRET_ENCRYPTION_KEY) {
+    // isOperational: false — nombra una variable de entorno (M-11 b).
     throw new AppError(
       "SECRET_ENCRYPTION_KEY no está configurada en el servidor: sin ella no se puede firmar el token del canal de notificaciones",
       500,
+      false,
     );
   }
 

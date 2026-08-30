@@ -543,9 +543,11 @@ export async function renovarCanal(
   const { organizationId, branchId } = conexion;
 
   if (!env.GOOGLE_WEBHOOK_URL) {
+    // isOperational: false — nombra una variable de entorno (M-11 b).
     throw new AppError(
       "GOOGLE_WEBHOOK_URL no está configurada en el servidor: sin ella no se pueden abrir canales de notificaciones",
       500,
+      false,
     );
   }
 
