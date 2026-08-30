@@ -81,8 +81,11 @@ test("2. renovarCanal sin GOOGLE_WEBHOOK_URL: AppError 500 no operacional, antes
 test("3. un ciphertext manipulado (formato válido, tag de GCM rechazado): AppError 500 no operacional", async () => {
   const cifrador = crearCifrador(Buffer.alloc(MASTER_KEY_BYTES, 9));
   const partes = cifrador.encrypt("un refresh token").split(".");
-  const ultimo = partes[3].at(-1) === "A" ? "B" : "A";
-  partes[3] = partes[3].slice(0, -1) + ultimo;
+  // Un BYTE del ciphertext decodificado, no un carácter del base64url: el
+  // último carácter puede ser solo relleno y dejar los bytes iguales.
+  const bytes = Buffer.from(partes[3], "base64url");
+  bytes[0] ^= 0xff;
+  partes[3] = bytes.toString("base64url");
 
   const err = await capturar(() => cifrador.decrypt(partes.join(".")));
 

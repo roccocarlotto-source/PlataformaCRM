@@ -106,13 +106,21 @@ function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
   });
   // Formato válido pero ciphertext manipulado: el que rechaza es el tag de
   // GCM, en el catch de decipher.final() — el sitio 3 de la bitácora §28.7.
-  app.get("/descifrar-manipulado", () => {
+  //
+  // Se altera un BYTE del ciphertext decodificado, no un carácter del
+  // base64url: el último carácter puede aportar solo bits de relleno, y
+  // cambiarlo deja los bytes iguales — el descifrado NO fallaba, la ruta no
+  // respondía y el test se colgaba hasta el timeout (pasó en CI, con un IV
+  // aleatorio distinto del de la corrida local). Y si por lo que fuera no
+  // lanzara, se responde igual: un handler que no responde cuelga el test.
+  app.get("/descifrar-manipulado", (_req, res) => {
     const cifrador = crearCifrador(CLAVE);
-    const guardado = cifrador.encrypt("un refresh token");
-    const partes = guardado.split(".");
-    const ultimo = partes[3].at(-1) === "A" ? "B" : "A";
-    partes[3] = partes[3].slice(0, -1) + ultimo;
+    const partes = cifrador.encrypt("un refresh token").split(".");
+    const bytes = Buffer.from(partes[3], "base64url");
+    bytes[0] ^= 0xff;
+    partes[3] = bytes.toString("base64url");
     cifrador.decrypt(partes.join("."));
+    res.status(200).json({ error: "descifró un secreto manipulado" });
   });
 
   app.use(notFound);
