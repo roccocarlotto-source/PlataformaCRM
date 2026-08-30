@@ -149,8 +149,26 @@ export function acceptInvitationRowConditional(id: string, db: Db = prisma) {
 // Supabase: hard delete, no una transición de estado — esta fila nunca
 // llegó a existir funcionalmente (ver invitation.service.ts). No usar para
 // ningún otro caso: revocar/expirar son siempre transiciones de status.
-export function hardDeleteInvitation(id: string, db: Db = prisma) {
-  return db.invitation.delete({ where: { id } });
+//
+// organizationId en el WHERE (B-12/B-13 de docs/auditoria-2026-08-29.md), con
+// el alcance honesto: el único caller borra la fila que él mismo acaba de
+// insertar en el mismo request, así que hoy no existe ningún camino real por
+// el que llegue un id ajeno — es consistencia con el resto de las escrituras
+// del proyecto y defensa en profundidad, no la corrección de una fuga.
+//
+// deleteMany + count !== 1 -> throw, y no delete(): delete() lanzaba P2025 si
+// la fila no existía y ESE lanzamiento es lo que el catch del caller loguea
+// como "requiere limpieza manual"; deleteMany devuelve { count: 0 } en
+// silencio, así que sin este chequeo la compensación fallida dejaría de ser
+// ruidosa. Mismo patrón que reindexStages/shiftUpFrom/shiftDownAfter (B-12).
+export async function hardDeleteInvitation(id: string, organizationId: string, db: Db = prisma) {
+  const result = await db.invitation.deleteMany({ where: { id, organizationId } });
+  if (result.count !== 1) {
+    throw new Error(
+      `hardDeleteInvitation: la invitación ${id} no existe en la organización ${organizationId}`,
+    );
+  }
+  return result;
 }
 
 // Transición perezosa PENDING -> EXPIRED, centralizada acá para no
