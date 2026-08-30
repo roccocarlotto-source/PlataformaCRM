@@ -69,8 +69,22 @@ export function findStagesByPipeline(pipelineId: string, db: Db = prisma) {
   });
 }
 
+// organizationId además de pipelineId (B-12 de docs/auditoria-2026-08-29.md),
+// y también en countStagesByName: las dos deciden si createStage/updateStage
+// tiran un 409, así que les aplica el mismo criterio que
+// countActiveStagesByPipeline documenta más abajo — "esto decide si una
+// escritura procede, así que el aislamiento tiene que estar en su propio
+// WHERE y no en el del caller". Con honestidad sobre el alcance: pipelineId
+// es un UUID sin colisión posible entre organizaciones y los seis call sites
+// ya validan la pertenencia del pipeline antes de llamar, así que esto no
+// cambia ningún resultado real hoy — es consistencia y defensa en
+// profundidad, no la corrección de una fuga. El respaldo real de los tres
+// 409, además, son los índices únicos parciales de la base
+// (stages_pipeline_name_unique / _won_ / _lost_); estos pre-checks son la
+// versión legible del error.
 export function findStageWithFlag(
   pipelineId: string,
+  organizationId: string,
   flag: "isWon" | "isLost",
   excludeId?: string,
   db: Db = prisma,
@@ -79,13 +93,14 @@ export function findStageWithFlag(
   return db.stage.findFirst({
     where:
       flag === "isWon"
-        ? { pipelineId, deletedAt: null, isWon: true, ...exclude }
-        : { pipelineId, deletedAt: null, isLost: true, ...exclude },
+        ? { pipelineId, organizationId, deletedAt: null, isWon: true, ...exclude }
+        : { pipelineId, organizationId, deletedAt: null, isLost: true, ...exclude },
   });
 }
 
 export function countStagesByName(
   pipelineId: string,
+  organizationId: string,
   name: string,
   excludeId?: string,
   db: Db = prisma,
@@ -93,6 +108,7 @@ export function countStagesByName(
   return db.stage.count({
     where: {
       pipelineId,
+      organizationId,
       deletedAt: null,
       name,
       ...(excludeId ? { id: { not: excludeId } } : {}),
@@ -152,6 +168,16 @@ export function softDeleteStage(id: string, organizationId: string, db: Db = pri
 // el order de todos los que están en esa posición o después — procesando
 // del más alto al más bajo, cada casillero de destino ya quedó libre por el
 // paso anterior, nunca choca contra la constraint única.
+// pipelineId en el WHERE de cada escritura (B-12 de
+// docs/auditoria-2026-08-29.md), igual que reindexStages y por el mismo
+// motivo documentado ahí: la escritura misma es la garantía, no la lectura de
+// unas líneas más arriba. A diferencia de reindexStages, acá los ids salen de
+// un findMany propio ya filtrado por pipelineId, así que la guarda solo puede
+// dispararse si una fila cambió de pipeline ENTRE esa lectura y esta
+// escritura — un estado que la API no produce, pero que un update directo a
+// la base o un bug futuro sí podrían. Antes, ese caso reescribía en silencio
+// el `order` de una fila del pipeline (potencialmente de la organización) al
+// que el id sí pertenece; ahora afecta 0 filas y aborta la transacción.
 export async function shiftUpFrom(pipelineId: string, targetOrder: number, db: Db): Promise<void> {
   const siblings = await db.stage.findMany({
     where: { pipelineId, deletedAt: null, order: { gte: targetOrder } },
@@ -159,16 +185,20 @@ export async function shiftUpFrom(pipelineId: string, targetOrder: number, db: D
   });
 
   for (const stage of siblings) {
-    await db.stage.update({
-      where: { id: stage.id },
+    const result = await db.stage.updateMany({
+      where: { id: stage.id, pipelineId },
       data: { order: stage.order + 1 },
     });
+    if (result.count !== 1) {
+      throw new Error(`shiftUpFrom: el stage ${stage.id} no pertenece al pipeline ${pipelineId}`);
+    }
   }
 }
 
 // Borrar: cierra el hueco que deja un stage eliminado en `removedOrder`,
 // decrementando en 1 el order de todos los posteriores — procesando del más
 // bajo al más alto, mismo razonamiento que shiftUpFrom pero al revés.
+// Mismo cierre de B-12 que shiftUpFrom — ver el comentario de arriba.
 export async function shiftDownAfter(
   pipelineId: string,
   removedOrder: number,
@@ -180,10 +210,15 @@ export async function shiftDownAfter(
   });
 
   for (const stage of siblings) {
-    await db.stage.update({
-      where: { id: stage.id },
+    const result = await db.stage.updateMany({
+      where: { id: stage.id, pipelineId },
       data: { order: stage.order - 1 },
     });
+    if (result.count !== 1) {
+      throw new Error(
+        `shiftDownAfter: el stage ${stage.id} no pertenece al pipeline ${pipelineId}`,
+      );
+    }
   }
 }
 

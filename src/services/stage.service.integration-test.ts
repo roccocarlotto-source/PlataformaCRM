@@ -4,7 +4,12 @@ import { test, before, after } from "node:test";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { lockPipelineForUpdate } from "../repositories/pipeline.repository";
-import { reindexStages, shiftDownAfter, softDeleteStage } from "../repositories/stage.repository";
+import {
+  reindexStages,
+  shiftDownAfter,
+  shiftUpFrom,
+  softDeleteStage,
+} from "../repositories/stage.repository";
 import { AppError } from "../utils/AppError";
 import { updateStage } from "./stage.service";
 
@@ -356,4 +361,39 @@ test("updateStage vs updateStage concurrentes: el segundo reorden espera el lock
     activas.map((s) => s.order),
     [1, 2, 3, 4],
   );
+});
+
+// ---------------------------------------------------------------------------
+// B-12 de docs/auditoria-2026-08-29.md — shiftUpFrom/shiftDownAfter llevan
+// pipelineId en el WHERE de cada escritura, como reindexStages.
+//
+// LO QUE ESTE TEST FIJA, Y LO QUE NO PUEDE FIJAR. Con un pipelineId ajeno, el
+// findMany interno de las dos funciones devuelve vacío, no se ejecuta ninguna
+// escritura y la llamada es un no-op inofensivo — eso es lo que se afirma
+// acá, leyendo el pipeline real antes y después. La GUARDA nueva (count !== 1
+// aborta) no se puede disparar de forma determinística sin una carrera: los
+// ids salen de un findMany ya filtrado por pipelineId, así que solo un cambio
+// de pipeline de la fila ENTRE esa lectura y la escritura la alcanza — a
+// diferencia de reindexStages, que recibe los ids del caller y por eso su
+// guarda sí tiene test directo (tenant-isolation). Para la guarda de acá, la
+// señal es la suite entera en verde (el camino feliz no cambió) y la simetría
+// textual con reindexStages.
+// ---------------------------------------------------------------------------
+
+test("B-12: shiftUpFrom y shiftDownAfter con un pipelineId ajeno son un no-op — no tocan las etapas del pipeline real", async () => {
+  const { pipeline } = await crearPipelineConEtapas(3);
+  const ajeno = await prisma.pipeline.create({
+    data: { organizationId: fx.orgId, name: `B12 ajeno ${randomUUID()}` },
+  });
+
+  const antes = await etapasActivasOrdenadas(pipeline.id);
+  assert.equal(antes.length, 3);
+
+  // El findMany interno, filtrado por el pipeline ajeno (sin etapas), no
+  // devuelve nada: ninguna escritura llega a ejecutarse.
+  await prisma.$transaction((tx) => shiftUpFrom(ajeno.id, 1, tx));
+  await prisma.$transaction((tx) => shiftDownAfter(ajeno.id, 0, tx));
+
+  const despues = await etapasActivasOrdenadas(pipeline.id);
+  assert.deepEqual(despues, antes, "las etapas del pipeline real quedan exactamente igual");
 });
