@@ -1,5 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import { AppError } from "../utils/AppError";
+import { clasificarErrorDeBodyParser } from "./bodyParserError";
 
 // ---------------------------------------------------------------------------
 // Parseo del cuerpo de la ingesta, con su propio límite y su propio
@@ -52,14 +53,13 @@ const parser = express.json({
 // HACE FALTA PORQUE errorHandler MANDA A 500 TODO LO QUE NO SEA AppError. Los
 // errores de body-parser son http-errors con su `status` correcto adentro, pero
 // errorHandler no lo mira (a propósito: no filtrar qué error de terceros trae
-// un status creíble es cómo se filtran mensajes internos al cliente). El
-// resultado hoy es que un body demasiado grande responde 500 en toda la app.
-// Acá se traduce solo lo que este parser puede producir, uno por uno y con un
-// mensaje nuestro.
-interface ErrorDeBodyParser {
-  type?: string;
-}
-
+// un status creíble es cómo se filtran mensajes internos al cliente).
+//
+// LA CLASIFICACIÓN DEL `err.type` VIVE EN bodyParserError.ts y la comparten
+// este parser y los globales de app.ts (M-11 a). Lo que es propio de acá son
+// los MENSAJES: el de 413 nombra INGEST_MAX_BODY_BYTES porque el emisor de un
+// webhook necesita saber cuál es el tope que superó, y no es el mismo que el
+// del resto de la app.
 export function ingestJsonParser(req: Request, res: Response, next: NextFunction): void {
   parser(req, res, (err: unknown) => {
     if (!err) {
@@ -67,10 +67,8 @@ export function ingestJsonParser(req: Request, res: Response, next: NextFunction
       return;
     }
 
-    const tipo = (err as ErrorDeBodyParser).type;
-
-    switch (tipo) {
-      case "entity.too.large":
+    switch (clasificarErrorDeBodyParser(err)) {
+      case "demasiado_grande":
         next(
           new AppError(
             `El cuerpo del request supera el máximo de ${INGEST_MAX_BODY_BYTES} bytes`,
@@ -78,11 +76,10 @@ export function ingestJsonParser(req: Request, res: Response, next: NextFunction
           ),
         );
         return;
-      case "entity.parse.failed":
+      case "cuerpo_invalido":
         next(new AppError("El cuerpo del request no es JSON válido", 400));
         return;
-      case "charset.unsupported":
-      case "encoding.unsupported":
+      case "codificacion_no_soportada":
         next(new AppError("Codificación de cuerpo no soportada", 415));
         return;
       default:

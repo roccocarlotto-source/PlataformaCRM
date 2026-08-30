@@ -26,9 +26,12 @@ export function getSupabaseAnon(): SupabaseClient {
   }
 
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+    // isOperational: false — nombra variables de entorno; es para el log, no
+    // para el cliente (M-11 b, mismo criterio que supabaseAdmin).
     throw new AppError(
       "SUPABASE_URL o SUPABASE_ANON_KEY no están configurados en el servidor",
       500,
+      false,
     );
   }
 

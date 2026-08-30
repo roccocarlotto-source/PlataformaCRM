@@ -8,7 +8,9 @@ import type { RoleName } from "../types/auth";
 export function authorize(...allowedRoles: RoleName[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     if (!req.auth) {
-      next(new AppError("authorize() debe usarse después del middleware authenticate", 500));
+      // Error de programación nuestro, nunca del cliente: isOperational false
+      // para que el mensaje quede en el log y no en la respuesta (M-11 b).
+      next(new AppError("authorize() debe usarse después del middleware authenticate", 500, false));
       return;
     }
 

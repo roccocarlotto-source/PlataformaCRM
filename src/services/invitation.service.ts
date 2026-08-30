@@ -107,9 +107,12 @@ export async function createInvitation(
       { roleName: input.role },
       "No se encontró el rol indicado en el catálogo — falta el seed",
     );
+    // isOperational: false — falta el seed, error de configuración del
+    // servidor; el detalle ya quedó en el logger.error de arriba (M-11 b).
     throw new AppError(
       "No se encontró el rol indicado. Contactá al administrador del sistema.",
       500,
+      false,
     );
   }
 

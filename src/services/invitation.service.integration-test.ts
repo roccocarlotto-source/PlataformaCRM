@@ -528,3 +528,52 @@ test("revokeInvitation: pierde el CAS por una transición real concurrente → r
 
   await txAPromise;
 });
+
+// ---------------------------------------------------------------------------
+// M-11 (b), §28.7 de docs/bitacora-2026-08-29.md — "No se encontró el rol
+// indicado" es un error de configuración del servidor (falta el seed) y va con
+// isOperational: false. El logger.error del service ya deja el detalle.
+// ---------------------------------------------------------------------------
+
+// CÓMO SE SIMULA "EL ROL NO ESTÁ EN EL CATÁLOGO" SIN TOCAR EL ROL REAL: la fila
+// del rol es global y la leen en paralelo todos los archivos de integración;
+// borrarla o renombrarla unos milisegundos es una fuente de fallos espurios en
+// OTROS archivos. En cambio se reemplaza, solo en este proceso y solo durante
+// la llamada, prisma.role.findUnique — que es exactamente lo que findRoleByName
+// ejecuta — por una función que devuelve null, y se restaura en el finally.
+// (mock.method de node:test no sirve acá: el delegate de Prisma es un Proxy
+// que resuelve el método en el get, y mock.method no lo encuentra como
+// propiedad; una asignación directa sí lo pisa.)
+async function sinRolEnElCatalogo<T>(fn: () => Promise<T>): Promise<T> {
+  const delegate = prisma.role as unknown as { findUnique: unknown };
+  const original = delegate.findUnique;
+  delegate.findUnique = async () => null;
+  try {
+    return await fn();
+  } finally {
+    delegate.findUnique = original;
+  }
+}
+
+test("M-11 b: createInvitation sin el rol en el catálogo lanza un AppError 500 NO operacional y no crea la Invitation", async () => {
+  const email = `low1-sin-rol-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+
+  let capturado: unknown;
+  await sinRolEnElCatalogo(async () => {
+    try {
+      await createInvitation(fx.orgId, fx.inviterId, { email, role: "USER" });
+    } catch (err) {
+      capturado = err;
+    }
+  });
+
+  assert.ok(capturado instanceof AppError, String(capturado));
+  assert.equal(capturado.statusCode, 500);
+  assert.equal(capturado.isOperational, false);
+  // El mensaje sigue intacto: es para el log.
+  assert.equal(
+    capturado.message,
+    "No se encontró el rol indicado. Contactá al administrador del sistema.",
+  );
+  assert.equal(await prisma.invitation.count({ where: { organizationId: fx.orgId, email } }), 0);
+});

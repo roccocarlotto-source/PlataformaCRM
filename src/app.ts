@@ -5,6 +5,7 @@ import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { env } from "./config/env";
 import { logger } from "./lib/logger";
+import { jsonParser, urlencodedParser } from "./middlewares/bodyParserError";
 import { errorHandler } from "./middlewares/errorHandler";
 import { notFound } from "./middlewares/notFound";
 import { routes } from "./routes";
@@ -85,8 +86,11 @@ app.use(pinoHttp({ logger }));
 // exista.
 app.use("/api", ingestRouter);
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Los mismos express.json() / express.urlencoded() de siempre, con los mismos
+// límites por default, pero con sus errores traducidos a 413/400/415 en vez
+// del 500 que producía errorHandler (M-11 a). Ver middlewares/bodyParserError.ts.
+app.use(jsonParser);
+app.use(urlencodedParser);
 
 app.use(routes);
 

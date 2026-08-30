@@ -143,13 +143,19 @@ export function parseMasterKey(valor: string): Buffer {
   try {
     bytes = Buffer.from(valor, "base64");
   } catch {
-    throw new AppError("SECRET_ENCRYPTION_KEY no es base64 válido", 500);
+    // isOperational: false en todos los AppError de este archivo que van a
+    // 500: nombran variables de entorno, comandos internos o el formato del
+    // esquema de cifrado —versión, largos de IV y authTag—, información sin
+    // valor para un cliente legítimo y con valor para quien intente entender
+    // cómo está armado el cifrado. El mensaje sigue en el log (M-11 b).
+    throw new AppError("SECRET_ENCRYPTION_KEY no es base64 válido", 500, false);
   }
 
   if (bytes.length !== MASTER_KEY_BYTES) {
     throw new AppError(
       `SECRET_ENCRYPTION_KEY debe ser de ${MASTER_KEY_BYTES} bytes en base64 y es de ${bytes.length}. Generá una con: npm run gen:encryption-key`,
       500,
+      false,
     );
   }
 
@@ -161,6 +167,7 @@ export function parseMasterKey(valor: string): Buffer {
     throw new AppError(
       "SECRET_ENCRYPTION_KEY es una clave de solo ceros — eso no es una clave. Generá una con: npm run gen:encryption-key",
       500,
+      false,
     );
   }
 
@@ -206,7 +213,7 @@ export function crearCifrador(masterKey: Buffer): Cifrador {
       const partes = guardado.split(SEPARADOR);
 
       if (partes.length !== 4) {
-        throw new AppError("Secreto cifrado con formato inválido", 500);
+        throw new AppError("Secreto cifrado con formato inválido", 500, false);
       }
 
       const [version, ivB64, tagB64, ciphertextB64] = partes;
@@ -215,7 +222,7 @@ export function crearCifrador(masterKey: Buffer): Cifrador {
         // No es lo mismo que "formato inválido": esto es una fila escrita por
         // una versión del formato que este código no conoce, y el mensaje tiene
         // que decirlo para que no se lea como corrupción.
-        throw new AppError(`Secreto cifrado con una versión desconocida: ${version}`, 500);
+        throw new AppError(`Secreto cifrado con una versión desconocida: ${version}`, 500, false);
       }
 
       const iv = Buffer.from(ivB64, "base64url");
@@ -226,7 +233,7 @@ export function crearCifrador(masterKey: Buffer): Cifrador {
       // acepta, y ese error terminaría en errorHandler como un 500 sin mensaje
       // útil. Chequearlo acá convierte un fallo opaco en uno que dice qué pasó.
       if (iv.length !== IV_BYTES || authTag.length !== AUTH_TAG_BYTES) {
-        throw new AppError("Secreto cifrado con formato inválido", 500);
+        throw new AppError("Secreto cifrado con formato inválido", 500, false);
       }
 
       const decipher = createDecipheriv(ALGORITMO, clave, iv);
@@ -247,6 +254,7 @@ export function crearCifrador(masterKey: Buffer): Cifrador {
         throw new AppError(
           "No se pudo descifrar el secreto: fue manipulado, o SECRET_ENCRYPTION_KEY no es la clave con la que se cifró",
           500,
+          false,
         );
       }
     },
@@ -269,6 +277,7 @@ export function getCifrador(): Cifrador {
     throw new AppError(
       "SECRET_ENCRYPTION_KEY no está configurada en el servidor: sin ella no se pueden guardar ni leer secretos cifrados",
       500,
+      false,
     );
   }
 
