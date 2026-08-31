@@ -904,17 +904,50 @@ export function redactPromotionNotes(
   return redactadas as unknown as Prisma.InputJsonValue;
 }
 
-// NO ES UN updateMany, y no puede serlo: la redacción de `promotionNotes`
-// depende del contenido de CADA fila, así que hay que leer antes de escribir.
-// `rawPayload` sí es un valor estático, pero separarlo en dos pasadas dejaría
-// una ventana en la que una fila tiene el crudo borrado y las notas intactas.
+// NO ES UN SOLO updateMany sobre todo el conjunto, y no puede serlo: la
+// redacción de `promotionNotes` depende del contenido de CADA fila, así que hay
+// que leer antes de escribir. `rawPayload` sí es un valor estático, pero
+// separarlo en dos pasadas dejaría una ventana en la que una fila tiene el
+// crudo borrado y las notas intactas.
 //
 // Todo corre sobre el `db` que recibe, que en producción es el `tx` de
 // erasePersonalData: la lectura y las escrituras son parte de la misma
 // transacción que anonimiza el Contact.
 //
-// Devuelve `{ count }` como antes —contando las filas que trajo el findMany—
-// para que contact.service.ts no tenga que cambiar cómo la llama.
+// LA ESCRITURA DE CADA FILA LLEVA organizationId EN SU PROPIO WHERE — B-27 de
+// docs/auditoria-2026-08-29.md. Antes era `update({ where: { id } })`: correcto
+// en la práctica, porque cada `id` sale del findMany de arriba, que ya filtra
+// por organizationId, pero el aislamiento de la escritura dependía de que ese
+// findMany se mantuviera bien para siempre. Con `updateMany({ where: { id,
+// organizationId } })` la escritura misma es la garantía, igual que en el
+// resto de las escrituras tenant-scoped de este archivo (ver
+// tenant-isolation.integration-test.ts): si mañana alguien relaja el filtro
+// de lectura, la escritura sigue sin poder tocar una fila ajena.
+//
+// EL count SE VERIFICA, y se lanza un `Error` pelado —no AppError: corre dentro
+// de la transacción de erasePersonalData y no es un 404 de negocio, mismo
+// criterio que hardDeleteInvitation (B-13) y exigirTransicion (B-26)—. Que
+// `count` sea 0 significa que la fila que el findMany acaba de traer ya no
+// está en esta organización cuando se la va a escribir. Hoy hay UNA sola forma
+// de que pase, y no es determinística: la purga de retención
+// (purgeIngestionEvents) borra PROCESSED, y puede confirmar entre el findMany
+// y la iteración que toca esa fila — READ COMMITTED: cada sentencia ve lo
+// confirmado hasta ese momento, también dentro del `tx`. Antes de B-27 ese
+// mismo escenario ya reventaba (`update` por id sobre una fila inexistente es
+// P2025), así que el chequeo no agrega un modo de fallo nuevo: le pone nombre
+// al que ya existía, y mantiene honesto el `count` que se devuelve — cada fila
+// contada se verificó escrita. Un reintento del borrado tras la purga sale
+// bien: el findMany ya no la trae. Que el `id` pase a ser de OTRA organización
+// no tiene ningún camino: organizationId no se reasigna en ningún lado.
+//
+// NO se tolera en silencio (seguir el loop y contar la fila igual) porque un
+// borrado a pedido que reporta "N anonimizados" cuando escribió N-1 es
+// justamente lo que el estándar pide poder verificar; fallar cerrado y dejar
+// que la transacción se revierta es el mismo criterio que redactPromotionNotes.
+//
+// Devuelve `{ count }` como antes —contando las filas que trajo el findMany,
+// que con el chequeo de arriba son exactamente las que se escribieron— para
+// que contact.service.ts no tenga que cambiar cómo la llama.
 export async function anonymizeIngestionEventsOfContact(
   contactId: string,
   organizationId: string,
@@ -926,13 +959,19 @@ export async function anonymizeIngestionEventsOfContact(
   });
 
   for (const evento of eventos) {
-    await db.ingestionEvent.update({
-      where: { id: evento.id },
+    const escrito = await db.ingestionEvent.updateMany({
+      where: { id: evento.id, organizationId },
       data: {
         rawPayload: RAW_PAYLOAD_BORRADO,
         promotionNotes: redactPromotionNotes(evento.promotionNotes),
       },
     });
+
+    if (escrito.count !== 1) {
+      throw new Error(
+        `anonymizeIngestionEventsOfContact: el evento ${evento.id} ya no existe en la organización ${organizationId} — la escritura no afectó ninguna fila (B-27)`,
+      );
+    }
   }
 
   return { count: eventos.length };
