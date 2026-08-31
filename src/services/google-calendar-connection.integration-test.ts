@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { SignJWT } from "jose";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
+import { markConnectionRevoked } from "../repositories/googleCalendarConnection.repository";
 import { AppError } from "../utils/AppError";
 import { deriveKey, getCifrador, parseMasterKey } from "../utils/encryption";
 import { firmarState, verificarState } from "../utils/oauthState";
@@ -919,5 +920,98 @@ test("la FK compuesta rechaza una conexión cuya organización no es la de su su
   } finally {
     await desmontar(a);
     await desmontar(b);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// B-3 de docs/auditoria-2026-08-29.md — reconectar resetea el estado de
+// sincronización. A diferencia de B-16, este era un camino alcanzable: tras
+// reconectar con OTRA cuenta de Google, el syncToken ajeno daba 410 en el
+// primer sync y el canal viejo —con vencimiento lejano— dejaba a la sucursal
+// hasta 7 días sin notificaciones push (findConnectionsNeedingChannel no la
+// veía como necesitada de canal).
+// ---------------------------------------------------------------------------
+
+test("B-3: reconectar con OTRA cuenta resetea syncToken y el canal — nada del calendario viejo sobrevive", async () => {
+  const escenario = await montar("b3-reconectar");
+  try {
+    const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
+    await conectar(escenario.organizationId, branch.id, doblarGoogle());
+
+    // El estado que deja una conexión que ya sincronizó: token y canal de la
+    // cuenta A. Directo en la fila — lo que se prueba es el reseteo, no cómo
+    // se originaron (los produce el flujo del paso 4, ajeno a este archivo).
+    await prisma.googleCalendarConnection.updateMany({
+      where: { branchId: branch.id, organizationId: escenario.organizationId },
+      data: {
+        syncToken: "sync-token-de-la-cuenta-a",
+        channelId: randomUUID(),
+        channelResourceId: "r-cuenta-a",
+        channelExpiration: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    // La caída a ERROR que precede a la reconexión en el camino real: Google
+    // rechaza el grant. markConnectionError conserva syncToken y canal (fuera
+    // del alcance de B-3), que es justamente la premisa del bug.
+    const roto = doblarGoogle({
+      fallaAlRenovar: new GoogleAuthError("Google rechazó la solicitud (invalid_grant)", true),
+    });
+    await capturar(() => obtenerAccessToken(escenario.organizationId, branch.id, roto.cliente));
+
+    // Reconexión con otra cuenta: otro refresh token.
+    await conectar(
+      escenario.organizationId,
+      branch.id,
+      doblarGoogle({ refreshToken: "1//token-de-otra-cuenta" }),
+    );
+
+    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: branch.id },
+    });
+    assert.equal(fila.status, "ACTIVE");
+    assert.equal(getCifrador().decrypt(fila.refreshToken as string), "1//token-de-otra-cuenta");
+    assert.equal(fila.syncToken, null, "el syncToken de la cuenta vieja daría 410");
+    assert.equal(fila.channelId, null, "el canal viejo bloquearía uno nuevo hasta vencer");
+    assert.equal(fila.channelResourceId, null);
+    assert.equal(fila.channelExpiration, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("B-3 (repository): markConnectionRevoked limpia también syncToken y el canal, sin depender de clearConnectionChannel", async () => {
+  const escenario = await montar("b3-revoked");
+  try {
+    const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
+    await conectar(escenario.organizationId, branch.id, doblarGoogle());
+    await prisma.googleCalendarConnection.updateMany({
+      where: { branchId: branch.id, organizationId: escenario.organizationId },
+      data: {
+        syncToken: "sync-token-vivo",
+        channelId: randomUUID(),
+        channelResourceId: "r-vivo",
+        channelExpiration: new Date(Date.now() + 86_400_000),
+      },
+    });
+
+    // Directo al repository, sin pasar por desconectar(): lo que se prueba es
+    // que ESTA escritura alcanza sola. El service además llama a
+    // clearConnectionChannel justo después, y esa redundancia es deliberada
+    // (ver el comentario de la función) — por eso acá no interviene.
+    const resultado = await markConnectionRevoked(branch.id, escenario.organizationId);
+    assert.equal(resultado.count, 1);
+
+    const fila = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: branch.id },
+    });
+    assert.equal(fila.status, "REVOKED");
+    assert.equal(fila.refreshToken, null);
+    assert.equal(fila.syncToken, null);
+    assert.equal(fila.channelId, null);
+    assert.equal(fila.channelResourceId, null);
+    assert.equal(fila.channelExpiration, null);
+  } finally {
+    await desmontar(escenario);
   }
 });
