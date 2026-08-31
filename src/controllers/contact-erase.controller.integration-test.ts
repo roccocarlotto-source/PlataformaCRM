@@ -5,13 +5,18 @@ import { after, before, test } from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import express from "express";
 import { env } from "../config/env";
-import { prisma } from "../lib/prisma";
+import { prisma, type Db } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { MARCADOR_DE_DATO_BORRADO } from "../repositories/contact.repository";
+import {
+  anonymizeIngestionEventsOfContact,
+  RAW_PAYLOAD_BORRADO,
+} from "../repositories/ingestionEvent.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { contactRouter } from "../routes/contact.routes";
+import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
 // POST /api/contacts/:id/erase-personal-data — D2-4 de
@@ -624,4 +629,109 @@ test("con varios eventos del mismo contacto se redactan todos, y el conteo los i
 
   // Y el evento del fixture, que no tiene notas, se anonimizó igual.
   assert.deepEqual((await leerEvento(eventoDelFixture)).rawPayload, { erased: true });
+});
+
+// ---------------------------------------------------------------------------
+// B-27 de docs/auditoria-2026-08-29.md — la escritura de cada evento lleva
+// organizationId en su propio WHERE y verifica el count (sexto y último del
+// bucket "escritura-es-garantía"). Estos tests van directo al repository, no
+// al endpoint: la guarda vive ahí, y su camino de error no es alcanzable desde
+// HTTP de forma determinística (ver la nota sobre la función).
+//
+// El camino feliz por el endpoint lo cubren los tests de arriba ("anonimiza el
+// contacto...", "redacta los valores...", "con varios eventos..."), que siguen
+// tal cual: la forma nueva de escribir no cambia lo que se escribe.
+// ---------------------------------------------------------------------------
+
+test("B-27 (repository): con el organizationId correcto anonimiza cada evento del contacto y devuelve cuántos", async () => {
+  const { contactId, eventoId } = await crearContactoConEvento(orgA, sourceA);
+  const conNotas = await crearEventoConNotas(orgA, sourceA, contactId, [
+    { tipo: "conflicto", campo: "phone", crm: TELEFONO_QUE_GANO, entrante: TELEFONO_DESCARTADO },
+  ]);
+
+  const resultado = await anonymizeIngestionEventsOfContact(contactId, orgA);
+  assert.equal(resultado.count, 2, "las dos filas del contacto, verificadas escritas");
+
+  assert.deepEqual((await leerEvento(eventoId)).rawPayload, RAW_PAYLOAD_BORRADO);
+  const redactado = await leerEvento(conNotas);
+  assert.deepEqual(redactado.rawPayload, RAW_PAYLOAD_BORRADO);
+  assert.deepEqual(redactado.promotionNotes, [
+    {
+      tipo: "conflicto",
+      campo: "phone",
+      crm: MARCADOR_DE_DATO_BORRADO,
+      entrante: MARCADOR_DE_DATO_BORRADO,
+    },
+  ]);
+  // El vínculo sobrevive: se borró el dato, no el historial.
+  assert.equal(redactado.promotedContactId, contactId);
+});
+
+// CÓMO SE FUERZA count === 0 SIN UNA CARRERA REAL: no hay forma determinística
+// de que la purga de retención confirme justo entre el findMany y una iteración
+// del loop. En vez de correr contra el reloj, se le pasa a la función un `db`
+// que delega en el prisma real pero, justo antes de la SEGUNDA escritura, borra
+// la fila que esa escritura iba a tocar — exactamente el estado que dejaría una
+// purga que confirmó en ese instante. El updateMany que sigue es el de verdad,
+// contra Postgres real, y devuelve count 0 por su cuenta: lo único simulado es
+// el momento del borrado. (mock.method de node:test no sirve sobre los
+// delegates de Prisma, que son un Proxy — ver
+// invitation.service.integration-test.ts; acá ni hace falta, porque la función
+// recibe el `db` por parámetro.)
+type FindManyArgs = Parameters<typeof prisma.ingestionEvent.findMany>[0];
+type UpdateManyArgs = Parameters<typeof prisma.ingestionEvent.updateMany>[0];
+
+function dbQuePurgaAntesDeLaSegundaEscritura(): { db: Db; purgados: string[] } {
+  const purgados: string[] = [];
+  let escrituras = 0;
+  const db = {
+    ingestionEvent: {
+      findMany: (args: FindManyArgs) => prisma.ingestionEvent.findMany(args),
+      updateMany: async (args: UpdateManyArgs) => {
+        escrituras += 1;
+        if (escrituras === 2) {
+          const id = args.where?.id;
+          assert.equal(typeof id, "string", "la escritura de B-27 filtra por id literal");
+          await prisma.ingestionEvent.delete({ where: { id: id as string } });
+          purgados.push(id as string);
+        }
+        return prisma.ingestionEvent.updateMany(args);
+      },
+    },
+  } as unknown as Db;
+  return { db, purgados };
+}
+
+test("B-27 (repository): si una fila desaparece entre el findMany y su escritura, lanza un Error pelado (no AppError) que la nombra", async () => {
+  const { contactId } = await crearContactoConEvento(orgA, sourceA);
+  await crearEventoConNotas(orgA, sourceA, contactId, [
+    { tipo: "revision_manual", motivo: "contacto sin email" },
+  ]);
+  const { db, purgados } = dbQuePurgaAntesDeLaSegundaEscritura();
+
+  let capturado: unknown;
+  try {
+    await anonymizeIngestionEventsOfContact(contactId, orgA, db);
+  } catch (err) {
+    capturado = err;
+  }
+
+  assert.equal(purgados.length, 1, "el fixture purgó exactamente una fila");
+  assert.ok(capturado instanceof Error, String(capturado));
+  assert.ok(!(capturado instanceof AppError), "corre dentro de la transacción: Error pelado");
+  assert.match(capturado.message, /no afectó ninguna fila \(B-27\)/);
+  assert.ok(capturado.message.includes(purgados[0]), "el mensaje nombra el evento");
+  assert.ok(capturado.message.includes(orgA), "y la organización");
+
+  // La PRIMERA fila sí se escribió (acá no hay transacción que la revierta —
+  // en producción erasePersonalData la envuelve en su `tx` y el throw deshace
+  // también esta escritura): es lo que prueba que el throw salió de la segunda
+  // iteración del loop y no de la lectura.
+  const restantes = await prisma.ingestionEvent.findMany({
+    where: { promotedContactId: contactId },
+    select: { id: true, rawPayload: true },
+  });
+  assert.equal(restantes.length, 1);
+  assert.notEqual(restantes[0].id, purgados[0]);
+  assert.deepEqual(restantes[0].rawPayload, RAW_PAYLOAD_BORRADO);
 });
