@@ -1085,10 +1085,11 @@ test("markEventFailed: id de Organization B (PENDING) + organizationId de Organi
 });
 
 // La más distinta de las tres: no filtra por id sino por promotedContactId +
-// organizationId, y no es un updateMany — es un findMany (con organizationId
-// en el WHERE) seguido de un update por id, fila por fila. El caso cross-tenant
-// es "contactId de B + organizationId de A": el findMany no debe encontrar
-// nada, así que ni el rawPayload ni la nota de promoción de B se redactan.
+// organizationId, y no es un solo updateMany — es un findMany (con
+// organizationId en el WHERE) seguido de un updateMany por id + organizationId,
+// fila por fila (B-27). El caso cross-tenant es "contactId de B +
+// organizationId de A": el findMany no debe encontrar nada, así que ni el
+// rawPayload ni la nota de promoción de B se redactan.
 test("anonymizeIngestionEventsOfContact: contactId de Organization B + organizationId de Organization A no redacta ningún evento", async () => {
   const antes = await prisma.ingestionEvent.findUniqueOrThrow({
     where: { id: fx.ingestionEventBProcessed.id },
