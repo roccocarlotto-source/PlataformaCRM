@@ -120,10 +120,6 @@ export function upsertConnection(datos: DatosDeConexion, db: Db = prisma) {
     lastErrorAt: null,
     lastErrorMessage: null,
     connectedAt: new Date(),
-    syncToken: null,
-    channelId: null,
-    channelResourceId: null,
-    channelExpiration: null,
   };
 
   return db.googleCalendarConnection.upsert({
@@ -160,10 +156,6 @@ export function markConnectionRevoked(branchId: string, organizationId: string, 
       refreshToken: null,
       lastErrorAt: null,
       lastErrorMessage: null,
-      syncToken: null,
-      channelId: null,
-      channelResourceId: null,
-      channelExpiration: null,
     },
   });
 }
