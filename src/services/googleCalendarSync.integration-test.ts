@@ -1077,6 +1077,9 @@ test("B-16: findConnectionByChannelId devuelve solo organizationId, branchId y s
     await conectarGoogle(escenario, {
       channelId: canal,
       channelResourceId: "r-b16",
+      // Los tres campos del canal o ninguno: lo exige el CHECK
+      // channel_all_or_none_check (ver el test "la base RECHAZA un canal a medias").
+      channelExpiration: new Date(Date.now() + 6 * 60 * 60 * 1000),
       syncToken: "sync-b16",
     });
 
