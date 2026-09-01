@@ -178,9 +178,10 @@ export async function insertPendingIngestionEvent(
 }
 
 // ---------------------------------------------------------------------------
-// La cola del worker (§5). El índice parcial `(created_at) WHERE status =
-// 'PENDING'` de la migración 20260824120000 existe exactamente para esta
-// consulta.
+// La cola del worker (§5). El índice parcial sobre
+// `(coalesce(next_attempt_at, created_at)) WHERE status = 'PENDING'` — nacido
+// en la migración 20260824120000 como (created_at) y movido a la expresión en
+// 20260902130000 (B-30) — existe exactamente para esta consulta.
 // ---------------------------------------------------------------------------
 
 export interface EventoReclamado {
@@ -196,6 +197,10 @@ export interface EventoReclamado {
   sourceType: SourceType;
   fieldMapping: unknown;
   rawPayload: unknown;
+  // Cuántas veces esta fila ya falló por error de SISTEMA (B-30) — es lo que
+  // el catch de drenarPendientes le pasa a resolverFallo para decidir entre
+  // reprogramar y DEAD_LETTER. Espejo de EventoReclamado en la cola de outbox.
+  attempts: number;
 }
 
 interface FilaReclamada {
@@ -206,6 +211,7 @@ interface FilaReclamada {
   source_type: SourceType;
   field_mapping: unknown;
   raw_payload: unknown;
+  attempts: number;
 }
 
 // Reclama UN evento pendiente y lo deja bloqueado hasta el fin de la
@@ -248,18 +254,26 @@ export async function claimNextPendingEvent(
   // FOR UPDATE OF e — solo la fila del evento; bloquear también la Source
   // serializaría todos los eventos de una misma fuente contra un único lock,
   // que es justo lo contrario de lo que SKIP LOCKED viene a dar.
+  // LA CONDICIÓN DE RECLAMABLE se escribe con coalesce y no con
+  // `next_attempt_at IS NULL OR next_attempt_at <= now()` — B-30, mismo punto
+  // que claimNextClaimableEvent en la cola de outbox: las dos son equivalentes,
+  // pero solo la primera la puede servir el índice de rango sobre la expresión
+  // (ver la migración 20260902130000). Una fila recién nacida tiene
+  // next_attempt_at NULL y es reclamable ya; una que falló por error de sistema
+  // espera su turno sin que nadie la mire hasta entonces.
   const filas = await db.$queryRaw<FilaReclamada[]>`
     SELECT e.id, e.organization_id, e.source_id,
            s.name AS source_name, s.type AS source_type,
            s.field_mapping AS field_mapping,
-           e.raw_payload
+           e.raw_payload, e.attempts
     FROM ingestion_events e
     JOIN sources s
       ON s.organization_id = e.organization_id AND s.id = e.source_id
     WHERE e.status = 'PENDING'::"IngestionStatus"
+      AND coalesce(e.next_attempt_at, e.created_at) <= now()
     ${filtroOrg}
     ${filtroExcluidos}
-    ORDER BY e.created_at
+    ORDER BY coalesce(e.next_attempt_at, e.created_at)
     FOR UPDATE OF e SKIP LOCKED
     LIMIT 1
   `;
@@ -277,7 +291,61 @@ export async function claimNextPendingEvent(
     sourceType: fila.source_type,
     fieldMapping: fila.field_mapping,
     rawPayload: fila.raw_payload,
+    attempts: fila.attempts,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Reintentos ante un error de SISTEMA — B-30, espejo exacto de
+// rescheduleOutboxEvent/markOutboxEventDeadLetter en la cola de outbox.
+//
+// organizationId en el WHERE por el invariante de M4, y `status: PENDING` como
+// compare-and-swap: estas dos se llaman FUERA de la transacción del reclamo
+// (que ya se revirtió cuando el catch las necesita), así que el CAS no es
+// redundancia — es la única garantía de no pisar una fila que otro worker
+// resolvió en el medio.
+// ---------------------------------------------------------------------------
+
+// Un fallo de sistema que TODAVÍA tiene reintentos: sube attempts, guarda el
+// error y programa el próximo turno. La fila sigue en PENDING — no hay estado
+// intermedio, mismo criterio que la cola de outbox. lastError y NO
+// errorMessage: esa columna significa "por qué falló el dato cuando la fila
+// está en FAILED", y esta fila no está en FAILED.
+export function rescheduleIngestionEvent(
+  id: string,
+  organizationId: string,
+  datos: { attempts: number; nextAttemptAt: Date; lastError: string },
+  db: Db = prisma,
+) {
+  return db.ingestionEvent.updateMany({
+    where: { id, organizationId, status: IngestionStatus.PENDING },
+    data: {
+      attempts: datos.attempts,
+      nextAttemptAt: datos.nextAttemptAt,
+      lastError: datos.lastError,
+    },
+  });
+}
+
+// Terminal: agotó sus reintentos contra un error de sistema. Distinto de
+// markEventFailed (dato inválido, sin gastar reintentos) — la distinción está
+// en el comentario de IngestionStatus en el schema.
+export function markIngestionEventDeadLetter(
+  id: string,
+  organizationId: string,
+  datos: { attempts: number; lastError: string },
+  db: Db = prisma,
+) {
+  return db.ingestionEvent.updateMany({
+    where: { id, organizationId, status: IngestionStatus.PENDING },
+    data: {
+      status: IngestionStatus.DEAD_LETTER,
+      attempts: datos.attempts,
+      lastError: datos.lastError,
+      // Deja de tener sentido: nadie va a reclamar esta fila otra vez.
+      nextAttemptAt: null,
+    },
+  });
 }
 
 // organizationId en el WHERE de las dos transiciones, por el invariante de M4:

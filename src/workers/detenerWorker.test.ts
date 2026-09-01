@@ -27,7 +27,7 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
         pollMs,
         drenar: async () => {
           await pasada();
-          return { procesados: 0, fallidos: 0, pospuestos: 0 };
+          return { procesados: 0, fallidos: 0, pospuestos: 0, muertos: 0 };
         },
       }),
   },
