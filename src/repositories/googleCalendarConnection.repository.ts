@@ -155,13 +155,15 @@ export function upsertConnection(datos: DatosDeConexion, db: Db = prisma) {
 // TAMBIÉN syncToken Y EL CANAL VAN A NULL — B-3. El syncToken es lo que pide el
 // hallazgo: es estado del calendario de la cuenta que se acaba de desconectar,
 // y dejarlo haría que una reconexión futura arranque con un token ajeno (410).
-// El canal se limpia acá ADEMÁS de en clearConnectionChannel —que desconectar()
-// llama justo después, así que hoy es redundante— por el mismo criterio de todo
+// El canal se limpia ACÁ, en la misma escritura, por el mismo criterio de todo
 // este ciclo de auditoría: la escritura misma es la garantía. "REVOKED" queda
 // definido por esta única función como "sin credencial y sin ningún estado de
-// la cuenta" sin depender de que el próximo caller, si alguna vez hay otro, se
-// acuerde de llamar también a clearConnectionChannel. Los tres campos del canal
-// juntos, por el CHECK channel_all_or_none_check.
+// la cuenta" sin depender de que el caller se acuerde de llamar también a
+// clearConnectionChannel — cuando se escribió esto, desconectar() la llamaba
+// justo después y la redundancia era deliberada; esa segunda llamada (las "dos
+// escrituras sin transacción" de B-8) se sacó después porque ya no cambiaba
+// nada. Los tres campos del canal juntos, por el CHECK
+// channel_all_or_none_check.
 export function markConnectionRevoked(branchId: string, organizationId: string, db: Db = prisma) {
   return db.googleCalendarConnection.updateMany({
     where: { branchId, organizationId },

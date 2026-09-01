@@ -4,7 +4,6 @@ import { prisma } from "../lib/prisma";
 import { logger } from "../lib/logger";
 import { lockBranchForUpdate } from "../repositories/branch.repository";
 import {
-  clearConnectionChannel,
   findConnectionByBranch,
   findConnectionWithSecretByBranch,
   markConnectionError,
@@ -248,12 +247,17 @@ export async function desconectar(
     }
   }
 
+  // UNA SOLA ESCRITURA, y es deliberado. markConnectionRevoked deja en la misma
+  // sentencia status = REVOKED, el token, el syncToken y los tres campos del
+  // canal en NULL (decisión de B-3 de docs/auditoria-2026-08-29.md: "REVOKED"
+  // queda definido por esa única función como "sin credencial y sin ningún
+  // estado de la cuenta"). Acá había además un clearConnectionChannel justo
+  // después, que era la segunda escritura sin transacción que señalaba B-8: un
+  // crash entre las dos dejaba REVOKED con canal cargado. Desde B-3 esa segunda
+  // llamada no cambiaba nada, y se sacó (B-8) para que este código no sugiera
+  // una necesidad que ya no existe. El canal se limpia de la fila SIEMPRE, haya
+  // podido cerrarse en Google o no — solo que lo hace la línea de arriba.
   await markConnectionRevoked(branchId, organizationId);
-  // El canal se limpia de la fila SIEMPRE, haya podido cerrarse en Google o no:
-  // una conexión REVOKED con datos de canal describiría un canal que este
-  // sistema ya no puede usar ni renovar. El CHECK de la migración exige que los
-  // tres campos vayan juntos, y esto los limpia juntos.
-  await clearConnectionChannel(branchId, organizationId);
 }
 
 // ---------------------------------------------------------------------------

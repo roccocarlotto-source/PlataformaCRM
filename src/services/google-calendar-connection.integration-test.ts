@@ -1030,9 +1030,10 @@ test("B-3 (repository): markConnectionRevoked limpia también syncToken y el can
     });
 
     // Directo al repository, sin pasar por desconectar(): lo que se prueba es
-    // que ESTA escritura alcanza sola. El service además llama a
-    // clearConnectionChannel justo después, y esa redundancia es deliberada
-    // (ver el comentario de la función) — por eso acá no interviene.
+    // que ESTA escritura alcanza sola. Cuando se escribió, el service además
+    // llamaba a clearConnectionChannel justo después (redundancia deliberada);
+    // B-8 sacó esa segunda llamada apoyándose en este mismo test, que es la
+    // prueba de que no hacía falta.
     const resultado = await markConnectionRevoked(branch.id, escenario.organizationId);
     assert.equal(resultado.count, 1);
 
