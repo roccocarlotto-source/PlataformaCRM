@@ -255,6 +255,49 @@ test("una celda de FÓRMULA guarda su RESULTADO, no la fórmula", async () => {
   assert.deepEqual(parseado.filas, [{ Nombre: "Ana", Mail: "ana@ejemplo.test" }]);
 });
 
+// B-29 (docs/auditoria-2026-08-29.md): cuando la fórmula FALLA, exceljs pone en
+// `result` un CellErrorValue `{ error: "#N/A" }`, y la recursión sobre `result`
+// no tenía rama para eso: caía al String() final y guardaba "[object Object]",
+// silencioso e indistinguible de un valor real. Se prueba por el camino real
+// —libro escrito y vuelto a leer, con `{ formula, result: { error } }`— y no
+// armando el objeto a mano, para que el round-trip por XLSX quede incluido.
+test("B-29: una celda de FÓRMULA con ERROR guarda el código de error (#N/A), no [object Object]", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const hoja = workbook.addWorksheet("Leads");
+  hoja.addRow(["Nombre", "Mail"]);
+  const fila = hoja.addRow([]);
+  fila.getCell(1).value = "Ana";
+  // Un VLOOKUP que no encuentra la fila: lo que produce cualquier planilla que
+  // cruza dos hojas y a la que le falta un registro.
+  fila.getCell(2).value = {
+    formula: 'VLOOKUP("ana",A1:B1,2,FALSE)',
+    result: { error: "#N/A" },
+  } as ExcelJS.CellFormulaValue;
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+  const parseado = await parsearArchivo(buffer, "xlsx");
+
+  assert.deepEqual(parseado.filas, [{ Nombre: "Ana", Mail: "#N/A" }]);
+  assert.ok(!JSON.stringify(parseado).includes("[object Object]"));
+});
+
+test("B-29: el código de error se conserva sea cual sea (#DIV/0!), no está atado a #N/A", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const hoja = workbook.addWorksheet("Leads");
+  hoja.addRow(["Nombre", "Cuota"]);
+  const fila = hoja.addRow([]);
+  fila.getCell(1).value = "Ana";
+  fila.getCell(2).value = {
+    formula: "1/0",
+    result: { error: "#DIV/0!" },
+  } as ExcelJS.CellFormulaValue;
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+  const parseado = await parsearArchivo(buffer, "xlsx");
+
+  assert.equal(parseado.filas[0].Cuota, "#DIV/0!");
+});
+
 test("una celda con HIPERVÍNCULO guarda el texto visible, no el objeto", async () => {
   const workbook = new ExcelJS.Workbook();
   const hoja = workbook.addWorksheet("Leads");

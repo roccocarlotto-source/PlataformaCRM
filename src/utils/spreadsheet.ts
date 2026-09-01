@@ -85,7 +85,7 @@ function normalizarCelda(valor: unknown): ValorDeCelda {
   // textual en propiedades conocidas. Se prefiere `text` (lo que la persona ve
   // en la celda) y, para una fórmula, su resultado calculado.
   if (typeof valor === "object") {
-    const obj = valor as { text?: unknown; result?: unknown; richText?: unknown };
+    const obj = valor as { text?: unknown; result?: unknown; richText?: unknown; error?: unknown };
     if (typeof obj.text === "string") {
       return obj.text;
     }
@@ -94,6 +94,15 @@ function normalizarCelda(valor: unknown): ValorDeCelda {
     }
     if (Array.isArray(obj.richText)) {
       return obj.richText.map((parte) => (parte as { text?: string }).text ?? "").join("");
+    }
+    // Una fórmula que falla: exceljs pone en `result` un CellErrorValue,
+    // `{ error: "#N/A" }` (o "#DIV/0!", "#REF!", …). Sin esta rama, la llamada
+    // recursiva de arriba caía al String(valor) final y guardaba literalmente
+    // "[object Object]" — silencioso e indistinguible de un valor real (B-29 de
+    // docs/auditoria-2026-08-29.md). Se guarda el código de error tal cual: es
+    // exactamente lo que la persona ve en la celda, mismo criterio que `text`.
+    if (typeof obj.error === "string") {
+      return obj.error;
     }
   }
   return String(valor);
