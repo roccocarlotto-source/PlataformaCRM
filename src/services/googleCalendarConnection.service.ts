@@ -420,25 +420,6 @@ export async function consultarDisponibilidad(
 // convertir un fallo best-effort contra Google en una excepción que tumbe la
 // reserva o la cancelación. Si no se puede marcar, queda registrado como error
 // de sistema y la fila sigue como estaba.
-async function marcarConexionSiGrantInvalido(
-  err: unknown,
-  organizationId: string,
-  branchId: string,
-): Promise<void> {
-  if (!(err instanceof GoogleAuthError && err.grantInvalido)) {
-    return;
-  }
-
-  try {
-    await markConnectionError(branchId, organizationId, err.message);
-  } catch (errAlMarcar) {
-    logger.error(
-      { err: errAlMarcar, organizationId, branchId, motivo: err.message },
-      "Google rechazó el grant pero no se pudo marcar la conexión en ERROR; sigue figurando ACTIVE y hay que revisarla",
-    );
-  }
-}
-
 // Crea el evento y devuelve su id, o `undefined` si no se pudo por cualquier
 // motivo. `undefined` es exactamente lo que va a Booking.googleEventId.
 export async function reflejarReservaEnGoogle(
@@ -462,8 +443,6 @@ export async function reflejarReservaEnGoogle(
       zona: branch.timezone,
     });
   } catch (err) {
-    await marcarConexionSiGrantInvalido(err, organizationId, branchId);
-
     // Una sucursal sin conexión activa da 404/409 desde obtenerAccessToken, y es
     // un estado NORMAL: no se loguea como problema. Cualquier otra cosa sí, para
     // que quede rastro de que la reserva quedó sin reflejar.
@@ -498,8 +477,6 @@ export async function borrarReservaDeGoogle(
       eventId: googleEventId,
     });
   } catch (err) {
-    await marcarConexionSiGrantInvalido(err, organizationId, branchId);
-
     const esSinConexion =
       err instanceof AppError && (err.statusCode === 404 || err.statusCode === 409);
 
