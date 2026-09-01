@@ -291,7 +291,51 @@ export async function obtenerConexion(
 // Sin esto, cada consumidor futuro (el paso 3, el paso 4) tendría que acordarse
 // de marcar la conexión cuando Google la rechaza, y el día que uno se olvide la
 // sucursal quedaría rota y en ACTIVE, o sea invisible.
+//
+// CON CACHE EN MEMORIA DEL ACCESS TOKEN — B-2 de docs/auditoria-2026-08-29.md.
+// Antes se renovaba contra Google en CADA llamada: dos requests por operación
+// (disponibilidad, reserva, cancelación, webhook, worker), descartando el
+// `expires_in` que Google devuelve. Un Map a nivel de módulo, sin librería:
+//
+//   - Clave `${organizationId}:${branchId}`, no branchId solo — branchId ya es
+//     único, pero todo este archivo scopea por los dos y el cache no es la
+//     excepción.
+//   - EL CACHE REEMPLAZA SOLO LA LLAMADA DE RED. La lectura fresca de la fila y
+//     el chequeo de status/refreshToken siguen corriendo en cada llamada, ANTES
+//     de mirar el cache: una conexión en ERROR o REVOKED rebota en el 409 aunque
+//     tenga una entrada cacheada de cuando estaba ACTIVE — por eso
+//     markConnectionError no necesita invalidar nada.
+//   - LA RECONEXIÓN SE DETECTA SOLA: la entrada guarda el refresh token CIFRADO
+//     tal como está en la fila, y si el de la fila fresca no coincide es un
+//     miss. upsertConnection y markConnectionRevoked no tocan el cache. (El
+//     cifrado usa un IV aleatorio, así que reconectar con la MISMA cuenta
+//     también da un ciphertext distinto y un miss: una renovación de más,
+//     inofensiva.)
+//   - `expiraEn` = ahora + expires_in − un minuto de margen, para no entregar un
+//     token al que le quedan segundos. Si Google no manda expires_in
+//     (expiraEnSegundos = 0) la entrada nace vencida y se comporta como antes,
+//     sin caso especial.
+//   - En MEMORIA DEL PROCESO: con varias instancias cada una tiene el suyo, lo
+//     que es correcto (un access token puede pedirse N veces) aunque no óptimo.
+//
+// FUERA DE ALCANCE, decidido en la revisión: deduplicar llamadas concurrentes
+// en vuelo (dos requests simultáneas sobre la misma sucursal con el cache frío
+// renuevan dos veces). El hallazgo es el caso común, no ese borde.
 // ---------------------------------------------------------------------------
+interface EntradaCacheDeToken {
+  accessToken: string;
+  calendarId: string;
+  refreshTokenCifrado: string;
+  expiraEn: number; // epoch ms
+}
+
+const cacheDeTokens = new Map<string, EntradaCacheDeToken>();
+const MARGEN_DE_SEGURIDAD_MS = 60_000;
+
+function claveDeCache(organizationId: string, branchId: string): string {
+  return `${organizationId}:${branchId}`;
+}
+
 export async function obtenerAccessToken(
   organizationId: string,
   branchId: string,
@@ -310,10 +354,29 @@ export async function obtenerAccessToken(
     );
   }
 
+  const clave = claveDeCache(organizationId, branchId);
+  const cacheada = cacheDeTokens.get(clave);
+
+  if (
+    cacheada &&
+    cacheada.refreshTokenCifrado === conexion.refreshToken &&
+    cacheada.expiraEn > Date.now()
+  ) {
+    return { accessToken: cacheada.accessToken, calendarId: cacheada.calendarId };
+  }
+
   const refreshToken = getCifrador().decrypt(conexion.refreshToken);
 
   try {
     const tokens = await resolverCliente(cliente).renovarAccessToken(refreshToken);
+
+    cacheDeTokens.set(clave, {
+      accessToken: tokens.accessToken,
+      calendarId: conexion.calendarId,
+      refreshTokenCifrado: conexion.refreshToken,
+      expiraEn: Date.now() + tokens.expiraEnSegundos * 1000 - MARGEN_DE_SEGURIDAD_MS,
+    });
+
     return { accessToken: tokens.accessToken, calendarId: conexion.calendarId };
   } catch (err) {
     // SOLO grantInvalido degrada la conexión. Un timeout o un 500 de Google son
