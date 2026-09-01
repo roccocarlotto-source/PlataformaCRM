@@ -866,16 +866,7 @@ export const RAW_PAYLOAD_BORRADO = { erased: true } as const;
 // array entero se va a NULL. Las claves permitidas son exactamente las de cada
 // variante de PromotionNote (types/promotion.ts); las FALTANTES no se validan
 // a propósito — una nota incompleta es otro problema, no una fuga.
-const CLAVES_CONFLICTO = new Set(["tipo", "campo", "crm", "entrante"]);
-const CLAVES_IGNORADO = new Set(["tipo", "campo", "entrante", "motivo"]);
-const CLAVES_REVISION_MANUAL = new Set(["tipo", "motivo"]);
-
-function tieneClaveExtra(
-  objeto: Record<string, Prisma.JsonValue>,
-  permitidas: Set<string>,
-): boolean {
-  return Object.keys(objeto).some((clave) => !permitidas.has(clave));
-}
+// MUTACIÓN DE VERIFICACIÓN — NO MERGEAR: sin sets ni tieneClaveExtra
 
 export function redactPromotionNotes(
   valor: Prisma.JsonValue,
@@ -895,7 +886,6 @@ export function redactPromotionNotes(
 
     switch (objeto.tipo) {
       case "conflicto":
-        if (tieneClaveExtra(objeto, CLAVES_CONFLICTO)) return Prisma.DbNull;
         // `crm` es el valor que ganó y `entrante` el que se descartó. Los dos
         // son datos de la persona: el primero además sigue vivo en Contact
         // hasta que erasePersonalDataFromContact lo borra en esta misma
@@ -908,13 +898,11 @@ export function redactPromotionNotes(
         });
         break;
       case "ignorado":
-        if (tieneClaveExtra(objeto, CLAVES_IGNORADO)) return Prisma.DbNull;
         // `motivo` explica por qué se ignoró y `campo` cuál era; ninguno de los
         // dos es un valor. Solo `entrante` lo es.
         redactadas.push({ ...objeto, entrante: MARCADOR_DE_DATO_BORRADO });
         break;
       case "revision_manual":
-        if (tieneClaveExtra(objeto, CLAVES_REVISION_MANUAL)) return Prisma.DbNull;
         // No tiene ningún campo de valor: `motivo` es una explicación fija
         // escrita por el código, no algo que haya llegado del formulario.
         redactadas.push(objeto);
