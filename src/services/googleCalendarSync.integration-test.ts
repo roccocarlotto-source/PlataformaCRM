@@ -236,14 +236,14 @@ async function conectarGoogle(
   });
 }
 
-async function reservar(escenario: Escenario, googleEventId?: string) {
+async function reservar(escenario: Escenario, googleEventId?: string, startsAt = LUNES_9_LOCAL) {
   const booking = await createBooking(
     escenario.organizationId,
     {
       resourceId: escenario.resourceId,
       serviceTypeId: escenario.serviceTypeId,
       contactId: escenario.contactId,
-      startsAt: LUNES_9_LOCAL,
+      startsAt,
     },
     doblarGoogle().cliente,
   );
@@ -589,6 +589,51 @@ test("un evento que NO cambió de horario no cuenta como movido", async () => {
             status: "confirmed",
             inicio: booking.startsAt,
             fin: booking.endsAt,
+          },
+        ],
+      }),
+    );
+
+    assert.equal(resultado.eventosMovidos, 0);
+    assert.equal(resultado.accion, "sin-cambios");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// B-5 (docs/auditoria-2026-08-29.md): el test de arriba no detectaba el bug
+// porque manda booking.startsAt tal cual, con los mismos milisegundos de los
+// dos lados. Google devuelve SEGUNDOS: una reserva creada con milisegundos
+// —cualquier cliente que serialice con toISOString()— notificada con el mismo
+// instante sin fracción no puede contar como movida.
+test("una reserva con milisegundos notificada al segundo exacto NO cuenta como movida", async () => {
+  const escenario = await montar("sin-cambio-ms");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r1",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "t0",
+    });
+
+    const conMilisegundos = new Date("2026-09-07T12:00:00.347Z");
+    const booking = await reservar(escenario, "evt-igual-ms", conMilisegundos);
+    assert.equal(booking.startsAt.getMilliseconds(), 347, "la premisa: el CRM guardó los ms");
+
+    // Lo que Google devolvería: el mismo instante, truncado al segundo.
+    const alSegundo = (fecha: Date) => new Date(Math.floor(fecha.getTime() / 1000) * 1000);
+
+    const resultado = await notificar(
+      escenario,
+      canal,
+      doblarGoogle({
+        cambios: [
+          {
+            id: "evt-igual-ms",
+            status: "confirmed",
+            inicio: alSegundo(booking.startsAt),
+            fin: alSegundo(booking.endsAt),
           },
         ],
       }),
