@@ -4,7 +4,10 @@ import { test } from "node:test";
 import { SignJWT } from "jose";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
-import { markConnectionRevoked } from "../repositories/googleCalendarConnection.repository";
+import {
+  markConnectionError,
+  markConnectionRevoked,
+} from "../repositories/googleCalendarConnection.repository";
 import { AppError } from "../utils/AppError";
 import { deriveKey, getCifrador, parseMasterKey } from "../utils/encryption";
 import { firmarState, verificarState } from "../utils/oauthState";
@@ -100,15 +103,23 @@ interface OpcionesDelDoble {
   fallaAlRenovar?: GoogleAuthError;
   fallaAlRevocar?: Error;
   fallaAlConsultar?: GoogleAuthError;
+  // B-2: lo que devuelve renovarAccessToken. El TTL corto es la forma de
+  // probar el vencimiento del cache sin temporizadores reales.
+  accessTokenRenovado?: string;
+  expiraEnSegundos?: number;
 }
 
 interface Doble {
   cliente: ClienteGoogleCalendar;
   revocados: string[];
+  // B-2: los refresh tokens con los que se pidió renovar, en orden. Su largo es
+  // cuántas veces se fue a Google.
+  renovados: string[];
 }
 
 function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
   const revocados: string[] = [];
+  const renovados: string[] = [];
 
   const cliente: ClienteGoogleCalendar = {
     construirUrlDeAutorizacion: (state) => `https://accounts.google.com/fake?state=${state}`,
@@ -121,14 +132,16 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
         scope: "",
       }),
 
-    renovarAccessToken: () =>
-      opciones.fallaAlRenovar
+    renovarAccessToken: (refreshToken) => {
+      renovados.push(refreshToken);
+      return opciones.fallaAlRenovar
         ? Promise.reject(opciones.fallaAlRenovar)
         : Promise.resolve({
-            accessToken: "access-token-renovado",
-            expiraEnSegundos: 3599,
+            accessToken: opciones.accessTokenRenovado ?? "access-token-renovado",
+            expiraEnSegundos: opciones.expiraEnSegundos ?? 3599,
             scope: "",
-          }),
+          });
+    },
 
     revocarToken: (token) => {
       if (opciones.fallaAlRevocar) {
@@ -161,7 +174,7 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
     listarCambios: () => Promise.reject(new Error("listarCambios no se usa en este archivo")),
   };
 
-  return { cliente, revocados };
+  return { cliente, revocados, renovados };
 }
 
 // Recorre el flujo entero como lo haría un ADMIN: pide la URL, saca el state
@@ -1011,6 +1024,120 @@ test("B-3 (repository): markConnectionRevoked limpia también syncToken y el can
     assert.equal(fila.channelId, null);
     assert.equal(fila.channelResourceId, null);
     assert.equal(fila.channelExpiration, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 10. B-2 (docs/auditoria-2026-08-29.md) — el cache del access token
+//
+// obtenerAccessToken renovaba contra Google en CADA llamada. Ahora reusa el
+// token mientras esté vigente, y solo eso: la lectura fresca de la fila y el
+// chequeo de status siguen corriendo siempre. El cache vive en memoria del
+// módulo y cada test usa su propia sucursal, así que no se pisan entre sí.
+// ---------------------------------------------------------------------------
+
+test("B-2: dos llamadas seguidas con el token vigente van a Google UNA sola vez", async () => {
+  const escenario = await montar("b2-hit");
+  try {
+    const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
+    await conectar(escenario.organizationId, branch.id, doblarGoogle());
+
+    const doble = doblarGoogle();
+    const primera = await obtenerAccessToken(escenario.organizationId, branch.id, doble.cliente);
+    const segunda = await obtenerAccessToken(escenario.organizationId, branch.id, doble.cliente);
+
+    assert.equal(doble.renovados.length, 1, "la segunda llamada no fue a Google");
+    assert.equal(primera.accessToken, segunda.accessToken);
+    assert.equal(segunda.calendarId, "primary");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("B-2: un token vencido se vuelve a pedir, y el nuevo queda cacheado", async () => {
+  const escenario = await montar("b2-vencido");
+  try {
+    const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
+    await conectar(escenario.organizationId, branch.id, doblarGoogle());
+
+    // 30 segundos de vida: con el minuto de margen de seguridad, la entrada
+    // nace vencida — sin esperar nada.
+    const efimero = doblarGoogle({ accessTokenRenovado: "access-efimero", expiraEnSegundos: 30 });
+    const primera = await obtenerAccessToken(escenario.organizationId, branch.id, efimero.cliente);
+    assert.equal(primera.accessToken, "access-efimero");
+
+    const duradero = doblarGoogle({ accessTokenRenovado: "access-duradero" });
+    const segunda = await obtenerAccessToken(escenario.organizationId, branch.id, duradero.cliente);
+    assert.equal(duradero.renovados.length, 1, "vencido: SÍ se volvió a Google");
+    assert.equal(segunda.accessToken, "access-duradero", "y no se entregó el vencido");
+
+    const tercera = await obtenerAccessToken(escenario.organizationId, branch.id, duradero.cliente);
+    assert.equal(duradero.renovados.length, 1, "el nuevo quedó cacheado");
+    assert.equal(tercera.accessToken, "access-duradero");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("B-2: reconectar con otro refresh token invalida el cache sin que nadie lo limpie", async () => {
+  const escenario = await montar("b2-reconectar");
+  try {
+    const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
+    await conectar(escenario.organizationId, branch.id, doblarGoogle());
+
+    const antes = doblarGoogle({ accessTokenRenovado: "access-de-la-cuenta-vieja" });
+    await obtenerAccessToken(escenario.organizationId, branch.id, antes.cliente);
+    assert.deepEqual(antes.renovados, [REFRESH_TOKEN]);
+
+    // El flujo real de reconexión, con otra cuenta. upsertConnection no toca el
+    // cache: lo que cambia es el refresh token cifrado de la fila.
+    await conectar(
+      escenario.organizationId,
+      branch.id,
+      doblarGoogle({ refreshToken: "1//token-de-otra-cuenta" }),
+    );
+
+    const despues = doblarGoogle({ accessTokenRenovado: "access-de-la-cuenta-nueva" });
+    const token = await obtenerAccessToken(escenario.organizationId, branch.id, despues.cliente);
+
+    assert.deepEqual(
+      despues.renovados,
+      ["1//token-de-otra-cuenta"],
+      "se renovó de nuevo, y con el refresh token nuevo",
+    );
+    assert.equal(
+      token.accessToken,
+      "access-de-la-cuenta-nueva",
+      "no se reusó el de la cuenta vieja",
+    );
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("B-2: una conexión en ERROR sigue dando 409 aunque tenga un token cacheado de cuando estaba ACTIVE", async () => {
+  const escenario = await montar("b2-error");
+  try {
+    const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
+    await conectar(escenario.organizationId, branch.id, doblarGoogle());
+
+    const doble = doblarGoogle();
+    await obtenerAccessToken(escenario.organizationId, branch.id, doble.cliente);
+    assert.equal(doble.renovados.length, 1);
+
+    await markConnectionError(branch.id, escenario.organizationId, "invalid_grant");
+
+    assertAppError(
+      await capturar(() => obtenerAccessToken(escenario.organizationId, branch.id, doble.cliente)),
+      409,
+    );
+    assert.equal(
+      doble.renovados.length,
+      1,
+      "ni miró el cache ni fue a Google: rebotó en el status",
+    );
   } finally {
     await desmontar(escenario);
   }
