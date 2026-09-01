@@ -343,14 +343,6 @@ jobs:
       - name: Generar la clave de cifrado efímera de la suite
         run: echo "SECRET_ENCRYPTION_KEY=$(npm run --silent gen:encryption-key)" >> "$GITHUB_ENV"
 
-      # TEMPORAL (diagnóstico de B-35, se quita antes de cerrar el PR):
-      # imprime lo que env.ts resolvió de verdad en este job, para dejar en el
-      # log del CI la evidencia de que isDevelopment dejó de ser true.
-      - name: Diagnóstico B-35 — NODE_ENV e isDevelopment resueltos
-        run: npx tsx -e "import { env } from './src/config/env'; console.log('NODE_ENV=' + (process.env.NODE_ENV ?? '(ausente)'), 'isDevelopment=' + String(env.isDevelopment), 'isProduction=' + String(env.isProduction))"
-        env:
-          CORS_ORIGIN: http://localhost:5173
-
       - name: Suite de integración
         run: npm run test:integration
         env:
