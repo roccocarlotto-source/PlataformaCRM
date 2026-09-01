@@ -270,10 +270,9 @@ export async function claimNextPendingEvent(
     JOIN sources s
       ON s.organization_id = e.organization_id AND s.id = e.source_id
     WHERE e.status = 'PENDING'::"IngestionStatus"
-      AND coalesce(e.next_attempt_at, e.created_at) <= now()
     ${filtroOrg}
     ${filtroExcluidos}
-    ORDER BY coalesce(e.next_attempt_at, e.created_at)
+    ORDER BY e.created_at -- MUTACIÓN 1 — NO MERGEAR
     FOR UPDATE OF e SKIP LOCKED
     LIMIT 1
   `;
