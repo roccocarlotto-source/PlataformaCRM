@@ -132,6 +132,7 @@ async function capturar(fn: () => Promise<unknown>): Promise<unknown> {
 interface OpcionesDelDoble {
   ocupados?: IntervaloOcupado[];
   fallaAlCrearEvento?: Error;
+  fallaAlEliminarEvento?: Error;
   fallaAlConsultar?: Error;
   eventId?: string;
   // M-2: se llama cuando el service YA LLEGÓ a Google (la reserva está
@@ -181,6 +182,9 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
       return opciones.eventId ?? "evento-google-1";
     },
     eliminarEvento: (evento) => {
+      if (opciones.fallaAlEliminarEvento) {
+        return Promise.reject(opciones.fallaAlEliminarEvento);
+      }
       eventosBorrados.push(evento.eventId);
       return Promise.resolve();
     },
@@ -1105,6 +1109,52 @@ test("si Google FALLA al crear el evento, la reserva se guarda igual", async () 
     const enBase = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
     assert.equal(enBase.status, "CONFIRMED");
     assert.equal(enBase.googleEventId, null);
+
+    // Control negativo de B-4: un Google CAÍDO (grantInvalido: false) no toca la
+    // conexión. Marcar ERROR por un mal minuto ajeno obligaría a reconectar.
+    const conexion = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(conexion.status, "ACTIVE");
+    assert.equal(conexion.lastErrorMessage, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// B-4 (docs/auditoria-2026-08-29.md): un 401 de Google EN events.insert —no en
+// el refresh del token, que obtenerAccessToken ya cubre— tiene que dejar la
+// conexión en ERROR. Antes solo quedaba un logger.warn y la fila seguía ACTIVE
+// indefinidamente: la conexión rota era invisible. El test de arriba es el
+// control negativo de este.
+test("si Google rechaza el GRANT al crear el evento, la reserva se guarda igual y la conexión pasa a ERROR", async () => {
+  const escenario = await montar("google-grant-crear");
+  try {
+    await conectarGoogle(escenario);
+
+    const booking = await createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: LUNES_9_LOCAL,
+      },
+      doblarGoogle({
+        fallaAlCrearEvento: new GoogleAuthError("Google rechazó la solicitud (401)", true),
+      }).cliente,
+    );
+
+    // §4 sigue valiendo: la reserva no se bloquea por Google.
+    assert.equal(booking.status, "CONFIRMED");
+    assert.equal(booking.googleEventId ?? null, null);
+
+    const conexion = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(conexion.status, "ERROR");
+    assert.equal(conexion.lastErrorMessage, "Google rechazó la solicitud (401)");
+    assert.ok(conexion.lastErrorAt);
   } finally {
     await desmontar(escenario);
   }
@@ -1216,6 +1266,82 @@ test("cancelar borra el evento en Google", async () => {
     await cancelBooking(escenario.organizationId, booking.id, doble.cliente);
 
     assert.deepEqual(doble.eventosBorrados, ["evt-a-borrar"]);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// B-4, el otro camino: un 401 de Google EN events.delete. La cancelación se
+// aplica igual (el cupo se libera sí o sí) y la conexión queda en ERROR.
+test("si Google rechaza el GRANT al borrar el evento, la reserva queda cancelada igual y la conexión pasa a ERROR", async () => {
+  const escenario = await montar("google-grant-borrar");
+  try {
+    await conectarGoogle(escenario);
+
+    const booking = await createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: LUNES_9_LOCAL,
+      },
+      doblarGoogle({ eventId: "evt-grant-muerto" }).cliente,
+    );
+
+    const doble = doblarGoogle({
+      fallaAlEliminarEvento: new GoogleAuthError("Google rechazó la solicitud (401)", true),
+    });
+    const cancelada = await cancelBooking(escenario.organizationId, booking.id, doble.cliente);
+
+    assert.equal(cancelada.status, "CANCELLED");
+    assert.deepEqual(doble.eventosBorrados, [], "el doble rechazó antes de registrar el borrado");
+
+    const enBase = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
+    assert.equal(enBase.status, "CANCELLED");
+
+    const conexion = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(conexion.status, "ERROR");
+    assert.equal(conexion.lastErrorMessage, "Google rechazó la solicitud (401)");
+    assert.ok(conexion.lastErrorAt);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// Control negativo del anterior: Google CAÍDO al borrar (grantInvalido: false)
+// cancela igual y NO toca la conexión.
+test("si Google está caído al borrar el evento, la reserva queda cancelada igual y la conexión sigue ACTIVE", async () => {
+  const escenario = await montar("google-caido-borrar");
+  try {
+    await conectarGoogle(escenario);
+
+    const booking = await createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: LUNES_9_LOCAL,
+      },
+      doblarGoogle({ eventId: "evt-google-caido" }).cliente,
+    );
+
+    const cancelada = await cancelBooking(
+      escenario.organizationId,
+      booking.id,
+      doblarGoogle({ fallaAlEliminarEvento: new GoogleAuthError("Google caído", false) }).cliente,
+    );
+
+    assert.equal(cancelada.status, "CANCELLED");
+
+    const conexion = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(conexion.status, "ACTIVE");
+    assert.equal(conexion.lastErrorMessage, null);
   } finally {
     await desmontar(escenario);
   }

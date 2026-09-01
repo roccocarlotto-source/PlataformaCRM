@@ -405,6 +405,40 @@ export async function consultarDisponibilidad(
 // opcional), y por eso ni siquiera se loguea como advertencia.
 // ---------------------------------------------------------------------------
 
+// Un grant muerto detectado EN LA LLAMADA A LA API, no en el refresh — B-4 de
+// docs/auditoria-2026-08-29.md. obtenerAccessToken cubre el refresh del token y
+// consultarDisponibilidad hace este mismo chequeo (y relanza); las dos funciones
+// de abajo lo hacían a medias: el GoogleAuthError que lanzan crearEvento y
+// eliminarEvento ante un 401 de Google es un 502, nunca 404/409, así que ya
+// salía por el logger.warn de siempre — pero NADIE marcaba la fila, y la
+// conexión seguía ACTIVE indefinidamente: obtenerConexion mentía y el worker de
+// canales la trataba como sana. Un log es una migaja en un archivo; la fila es
+// el estado que alguien puede consultar.
+//
+// NUNCA LANZA, y esa es la parte que no es opcional: quien la llama tiene
+// contrato "nunca lanza", y una escritura a la base que falle acá no puede
+// convertir un fallo best-effort contra Google en una excepción que tumbe la
+// reserva o la cancelación. Si no se puede marcar, queda registrado como error
+// de sistema y la fila sigue como estaba.
+async function marcarConexionSiGrantInvalido(
+  err: unknown,
+  organizationId: string,
+  branchId: string,
+): Promise<void> {
+  if (!(err instanceof GoogleAuthError && err.grantInvalido)) {
+    return;
+  }
+
+  try {
+    await markConnectionError(branchId, organizationId, err.message);
+  } catch (errAlMarcar) {
+    logger.error(
+      { err: errAlMarcar, organizationId, branchId, motivo: err.message },
+      "Google rechazó el grant pero no se pudo marcar la conexión en ERROR; sigue figurando ACTIVE y hay que revisarla",
+    );
+  }
+}
+
 // Crea el evento y devuelve su id, o `undefined` si no se pudo por cualquier
 // motivo. `undefined` es exactamente lo que va a Booking.googleEventId.
 export async function reflejarReservaEnGoogle(
@@ -428,6 +462,8 @@ export async function reflejarReservaEnGoogle(
       zona: branch.timezone,
     });
   } catch (err) {
+    await marcarConexionSiGrantInvalido(err, organizationId, branchId);
+
     // Una sucursal sin conexión activa da 404/409 desde obtenerAccessToken, y es
     // un estado NORMAL: no se loguea como problema. Cualquier otra cosa sí, para
     // que quede rastro de que la reserva quedó sin reflejar.
@@ -462,6 +498,8 @@ export async function borrarReservaDeGoogle(
       eventId: googleEventId,
     });
   } catch (err) {
+    await marcarConexionSiGrantInvalido(err, organizationId, branchId);
+
     const esSinConexion =
       err instanceof AppError && (err.statusCode === 404 || err.statusCode === 409);
 
