@@ -82,7 +82,7 @@ export function countConnectionsWithSecretByBranch(
   db: Db = prisma,
 ) {
   return db.googleCalendarConnection.count({
-    where: { branchId, organizationId, refreshToken: { not: null } },
+    where: { branchId, organizationId, status: "ACTIVE" }, // MUTACIÓN DE VERIFICACIÓN — NO MERGEAR
   });
 }
 
