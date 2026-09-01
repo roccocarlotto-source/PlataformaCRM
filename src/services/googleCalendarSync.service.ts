@@ -259,6 +259,29 @@ async function sincronizar(
 }
 
 // ---------------------------------------------------------------------------
+// ¿Google y el CRM dicen horarios distintos? — B-5 de docs/auditoria-2026-08-29.md
+//
+// Google devuelve `dateTime` con precisión de SEGUNDOS (RFC3339 sin fracción),
+// y Booking.startsAt/endsAt pueden traer milisegundos: createBooking guarda
+// input.startsAt tal cual llega, y Date.toISOString() —lo que manda cualquier
+// cliente JS— siempre los incluye. Comparar los getTime() exactos hacía que ESE
+// booking se logueara como "movido" en cada notificación sobre su evento,
+// incluida una que solo editó la descripción, para siempre.
+//
+// TOLERANCIA POR DIFERENCIA ABSOLUTA, y no truncar los dos lados a segundo: no
+// está verificado contra Google si al guardar TRUNCA o REDONDEA los
+// milisegundos, y con truncado un 12:00:00.600 que Google redondeara a 12:00:01
+// seguiría siendo un falso positivo; con la tolerancia da lo mismo qué haga.
+// Un movimiento real en Google es de minutos, nunca de menos de un segundo, así
+// que la tolerancia no puede tapar uno.
+// ---------------------------------------------------------------------------
+const TOLERANCIA_DE_INSTANTE_MS = 1000;
+
+function sonOtroHorario(enGoogle: Date, enElCrm: Date): boolean {
+  return Math.abs(enGoogle.getTime() - enElCrm.getTime()) >= TOLERANCIA_DE_INSTANTE_MS;
+}
+
+// ---------------------------------------------------------------------------
 // Un evento cambiado, contra el Booking que lo refleje (si hay alguno).
 // ---------------------------------------------------------------------------
 async function aplicarCambio(
@@ -311,8 +334,8 @@ async function aplicarCambio(
   // MOVIDO EN GOOGLE -> solo se registra. Ver el encabezado del archivo.
   // -------------------------------------------------------------------------
   const cambioDeHorario =
-    (evento.inicio && evento.inicio.getTime() !== booking.startsAt.getTime()) ||
-    (evento.fin && evento.fin.getTime() !== booking.endsAt.getTime());
+    (evento.inicio && sonOtroHorario(evento.inicio, booking.startsAt)) ||
+    (evento.fin && sonOtroHorario(evento.fin, booking.endsAt));
 
   if (cambioDeHorario) {
     logger.warn(
