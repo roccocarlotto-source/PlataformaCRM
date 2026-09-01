@@ -161,12 +161,7 @@ function armarFila(encabezados: string[], celdas: unknown[]): FilaCruda {
     // más difuso que el propio hallazgo. Enumerable/writable/configurable
     // como una propiedad común: para Object.values, JSON.stringify y quien
     // lea la fila después, no hay diferencia con una asignación.
-    Object.defineProperty(fila, encabezado, {
-      value: normalizarCelda(celdas[i]),
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
+    fila[encabezado] = normalizarCelda(celdas[i]); // MUTACIÓN — NO MERGEAR
   });
   return fila;
 }
