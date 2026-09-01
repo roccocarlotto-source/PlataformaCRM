@@ -77,7 +77,7 @@ function canonicalize(value: unknown, depth: number): unknown {
     // en el mismo externalId y uno de los dos eventos se perdía contra el índice
     // único. Sin prototipo no hay setter que disparar; Object.keys y
     // JSON.stringify funcionan igual.
-    const ordenado: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+    const ordenado: Record<string, unknown> = {}; // MUTACIÓN — NO MERGEAR
     for (const clave of Object.keys(entrada).sort()) {
       ordenado[clave] = canonicalize(entrada[clave], depth + 1);
     }

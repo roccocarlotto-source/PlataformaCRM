@@ -199,7 +199,8 @@ export function traducirConMapeo(rawPayload: unknown, fieldMapping: unknown): Re
     // —la función Object heredada— seguía de largo por comoTextoDeCelda hasta
     // datos[destino]. La fila viene de JSON.parse (el rawPayload guardado), así
     // que lo que hay que corregir es la pregunta, no el objeto.
-    if (!Object.hasOwn(fila, encabezado)) {
+    if (!(encabezado in fila)) {
+      // MUTACIÓN — NO MERGEAR
       columnasAusentes.push(encabezado);
       continue;
     }
