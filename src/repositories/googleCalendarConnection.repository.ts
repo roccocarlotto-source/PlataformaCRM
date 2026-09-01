@@ -295,7 +295,7 @@ export function setConnectionChannel(
   db: Db = prisma,
 ) {
   return db.googleCalendarConnection.updateMany({
-    where: { branchId, organizationId, status: "ACTIVE" },
+    where: { branchId, organizationId }, // MUTACIÓN DE VERIFICACIÓN — NO MERGEAR
     data: {
       channelId: datos.channelId,
       channelResourceId: datos.channelResourceId,
