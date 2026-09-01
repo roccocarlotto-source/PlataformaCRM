@@ -10,7 +10,7 @@ import {
   type BranchSortBy,
   type SortOrder,
 } from "../repositories/branch.repository";
-import { countActiveConnectionsByBranch } from "../repositories/googleCalendarConnection.repository";
+import { countConnectionsWithSecretByBranch } from "../repositories/googleCalendarConnection.repository";
 import { countActiveResourcesByBranch } from "../repositories/resource.repository";
 import { countActiveServiceTypesByBranch } from "../repositories/serviceType.repository";
 import { AppError } from "../utils/AppError";
@@ -142,10 +142,17 @@ export async function deleteBranch(organizationId: string, id: string) {
     // cuenta de Google del negocio, y borrar la sucursal la dejaría huérfana:
     // sin fila que consultar, nadie podría revocarla nunca más desde el CRM.
     //
-    // SOLO ACTIVE BLOQUEA. Una conexión REVOKED ya no tiene token —se pone en
-    // NULL al desconectar— y una en ERROR es un grant que Google ya rechaza. En
-    // los dos casos no hay nada conectado que se pueda perder, así que exigir
-    // limpiarlas sería un trámite sin contenido.
+    // LO QUE BLOQUEA ES EL SECRETO, NO EL STATUS — B-9 de
+    // docs/auditoria-2026-08-29.md. Una conexión REVOKED ya no tiene token (se
+    // pone en NULL al desconectar) y no bloquea: no hay nada que se pueda
+    // perder. Una en ERROR es un grant que Google rechazó, pero
+    // markConnectionError CONSERVA el refresh token a propósito —puede ser algo
+    // que se resuelva del lado de Google—, así que sigue habiendo un secreto
+    // cifrado en la fila y SÍ bloquea. Antes se contaba por status = ACTIVE y
+    // una sucursal en ERROR se podía borrar con su credencial adentro, sin
+    // ninguna fila desde la que revocarla. El camino para el ADMIN ya existe:
+    // desconectar() acepta una conexión en ERROR (solo rechaza REVOKED) y pone
+    // el token en NULL; después de eso, el borrado procede.
     //
     // VA ÚLTIMO, después de recursos y servicios, y no es indiferente: los tres
     // mensajes son excluyentes —se devuelve el primero que dispara— así que el
@@ -153,10 +160,10 @@ export async function deleteBranch(organizationId: string, id: string) {
     // migrar o borrar a mano; desconectar Google es un click. Empezar por lo
     // caro deja el trámite corto para el final, en vez de hacerle desconectar
     // Google para descubrir recién ahí que igual no puede borrar la sucursal.
-    const conexionesActivas = await countActiveConnectionsByBranch(id, organizationId, tx);
-    if (conexionesActivas > 0) {
+    const conexionesConSecreto = await countConnectionsWithSecretByBranch(id, organizationId, tx);
+    if (conexionesConSecreto > 0) {
       throw new AppError(
-        "No se puede eliminar una sucursal que tiene Google Calendar conectado. Desconectalo primero.",
+        "No se puede eliminar una sucursal que todavía tiene Google Calendar conectado, aunque la conexión esté en error. Desconectalo primero.",
         400,
       );
     }

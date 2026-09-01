@@ -157,7 +157,7 @@ export async function completarConexion(
   const refreshTokenCifrado = getCifrador().encrypt(tokens.refreshToken);
 
   // TRANSACCIÓN CON EL LOCK DE LA SUCURSAL, y es la mitad que el upsert solo no
-  // cubre. deleteBranch decide sobre un CONTEO de conexiones ACTIVE (ver el
+  // cubre. deleteBranch decide sobre un CONTEO de conexiones con secreto (ver el
   // RESTRICT en branch.service.ts): sin serializar contra esta escritura, ese
   // conteo se queda viejo entre que se lee y que se borra, y una sucursal se
   // podría borrar justo mientras alguien la conecta. Es la misma clase de bug
