@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { prisma } from "../lib/prisma";
+import {
+  findConnectionByChannelId,
+  findConnectionsNeedingChannel,
+} from "../repositories/googleCalendarConnection.repository";
 import { AppError } from "../utils/AppError";
 import { getCifrador } from "../utils/encryption";
 import { firmarWebhookToken, verificarWebhookToken } from "../utils/webhookToken";
@@ -1056,5 +1060,62 @@ test("dos conexiones no pueden compartir el mismo channelId", async () => {
   } finally {
     await desmontar(a);
     await desmontar(b);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// B-16 de docs/auditoria-2026-08-29.md — las dos lecturas del canal no traen el
+// secreto. Directo al repository: la garantía es el `select`, y el shape exacto
+// de las claves es el contrato — el deepEqual falla tanto si falta un campo que
+// un caller necesita como si alguien vuelve a traer de más.
+// ---------------------------------------------------------------------------
+
+test("B-16: findConnectionByChannelId devuelve solo organizationId, branchId y syncToken — sin refreshToken", async () => {
+  const escenario = await montar("b16-canal");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r-b16",
+      // Los tres campos del canal o ninguno: lo exige el CHECK
+      // channel_all_or_none_check (ver el test "la base RECHAZA un canal a medias").
+      channelExpiration: new Date(Date.now() + 6 * 60 * 60 * 1000),
+      syncToken: "sync-b16",
+    });
+
+    const conexion = await findConnectionByChannelId(canal);
+
+    assert.ok(conexion, "la conexión existe");
+    assert.deepEqual(conexion, {
+      organizationId: escenario.organizationId,
+      branchId: escenario.branchId,
+      syncToken: "sync-b16",
+    });
+    assert.ok(!("refreshToken" in conexion), "el secreto no viaja por el camino del webhook");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("B-16: findConnectionsNeedingChannel devuelve solo lo que renovarCanal necesita — sin refreshToken", async () => {
+  const escenario = await montar("b16-worker");
+  try {
+    // ACTIVE y sin canal: candidata segura del barrido, como tras el OAuth.
+    await conectarGoogle(escenario);
+
+    const filas = await findConnectionsNeedingChannel(new Date(Date.now() + 60_000), {
+      organizationId: escenario.organizationId,
+    });
+
+    assert.equal(filas.length, 1);
+    assert.deepEqual(filas[0], {
+      organizationId: escenario.organizationId,
+      branchId: escenario.branchId,
+      channelId: null,
+      channelResourceId: null,
+    });
+    assert.ok(!("refreshToken" in filas[0]), "el secreto no viaja por el barrido del worker");
+  } finally {
+    await desmontar(escenario);
   }
 });

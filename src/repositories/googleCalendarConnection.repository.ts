@@ -197,8 +197,15 @@ export function markConnectionError(
 // ---------------------------------------------------------------------------
 
 // La búsqueda del webhook: llega X-Goog-Channel-ID y hay que encontrar la
-// conexión. Devuelve la fila CON el secreto porque el camino que sigue necesita
-// el refresh token para llamar a events.list.
+// conexión. SIN el secreto — B-16 de docs/auditoria-2026-08-29.md. El
+// comentario original decía que devolvía la fila completa "porque el camino que
+// sigue necesita el refresh token para llamar a events.list", y eso era falso:
+// el flujo del webhook (googleCalendarSync.service.ts) usa organizationId,
+// branchId y syncToken, y el access token lo consigue obtenerAccessToken con su
+// PROPIA lectura vía findConnectionWithSecretByBranch y su propio descifrado.
+// El select explícito es la defensa que no depende de que alguien se acuerde
+// (ver findConnectionWithSecretByBranch arriba: traer el secreto exige llamar a
+// la función que lo dice en el nombre).
 //
 // SIN organizationId en el WHERE, a diferencia de todo el resto de este archivo,
 // y es deliberado: el webhook no tiene organización todavía —no hay JWT, Google
@@ -207,7 +214,10 @@ export function markConnectionError(
 // verificación del token firmado, que ocurre ANTES de llegar acá y que afirma a
 // qué organización pertenece ese canal. El caller compara las dos cosas.
 export function findConnectionByChannelId(channelId: string, db: Db = prisma) {
-  return db.googleCalendarConnection.findUnique({ where: { channelId } });
+  return db.googleCalendarConnection.findUnique({
+    where: { channelId },
+    select: { organizationId: true, branchId: true, syncToken: true },
+  });
 }
 
 // Las conexiones ACTIVE que necesitan un canal: o no tienen ninguno, o el que
@@ -228,6 +238,10 @@ export function findConnectionByChannelId(channelId: string, db: Db = prisma) {
 // de siempre — es la única excepción al "organizationId en todo WHERE" de este
 // archivo, y está justificada por lo mismo que findConnectionByChannelId: acá
 // no hay tenant que pida, es el proceso.
+//
+// El select es exactamente lo que renovarCanal pide en su parámetro y lo que el
+// worker loguea — B-16: el refresh token no viaja por acá; renovarCanal lo
+// obtiene por su cuenta vía obtenerAccessToken.
 export function findConnectionsNeedingChannel(
   limiteDeVencimiento: Date,
   alcance: { organizationId?: string } = {},
@@ -238,6 +252,12 @@ export function findConnectionsNeedingChannel(
       status: "ACTIVE",
       OR: [{ channelId: null }, { channelExpiration: { lt: limiteDeVencimiento } }],
       ...(alcance.organizationId ? { organizationId: alcance.organizationId } : {}),
+    },
+    select: {
+      organizationId: true,
+      branchId: true,
+      channelId: true,
+      channelResourceId: true,
     },
   });
 }
