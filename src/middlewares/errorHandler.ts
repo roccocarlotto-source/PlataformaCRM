@@ -53,6 +53,7 @@ import { traducirErrorDePrisma } from "../utils/prismaErrors";
 //     final), así que es defensa en profundidad para el día que exista una
 //     ruta que streamee, no un bug alcanzable.
 // ---------------------------------------------------------------------------
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- mutación de verificación
 export function errorHandler(err: unknown, req: Request, res: Response, next: NextFunction): void {
   const prismaError = err instanceof AppError ? undefined : traducirErrorDePrisma(err);
   const appError = err instanceof AppError ? err : prismaError;
@@ -70,11 +71,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, next: Ne
     log.warn(logPayload, logMessage);
   }
 
-  if (res.headersSent) {
-    next(err);
-    return;
-  }
-
+  // MUTACIÓN DE VERIFICACIÓN — NO MERGEAR: sin el chequeo de res.headersSent
   res.status(statusCode).json({
     error: {
       message,
