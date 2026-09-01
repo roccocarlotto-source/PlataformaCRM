@@ -534,8 +534,10 @@ test("un 404 o un 410 al eliminar NO son errores: el evento ya no está", async 
   // Alguien lo borró a mano desde el calendario, o esta cancelación ya llegó más
   // lejos de lo que creíamos. El resultado deseado —que el evento no exista— ya
   // se cumplió. Tratarlo como error obligaría a reintentar algo ya hecho.
+  // Un mock NUEVO por iteración: cada vuelta afirma sobre SU llamadas[0], sin
+  // compartir el array entre estados ni comparar contra el índice equivocado.
   for (const status of [404, 410]) {
-    const { fetch } = mockearFetch({
+    const { fetch, llamadas } = mockearFetch({
       ok: false,
       status,
       json: { error: { message: "Not Found" } },
@@ -546,6 +548,16 @@ test("un 404 o un 410 al eliminar NO son errores: el evento ya no está", async 
       calendarId: "primary",
       eventId: "ya-no-esta",
     });
+
+    // B-32: "no lanza" solo no alcanza — un eliminarEvento que retornara sin
+    // llamar a fetch pasaría igual. La tolerancia al 404/410 vale únicamente
+    // si el DELETE real ocurrió, contra el evento correcto.
+    assert.equal(llamadas.length, 1, `con ${status} tiene que haber UNA llamada real a fetch`);
+    assert.equal(
+      llamadas[0].url,
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events/ya-no-esta",
+    );
+    assert.equal(llamadas[0].init.method, "DELETE");
   }
 });
 
@@ -659,7 +671,7 @@ test("detenerCanal postea id + resourceId al endpoint de channels.stop", async (
 });
 
 test("un 404 al detener un canal NO es error: ya no existe", async () => {
-  const { fetch } = mockearFetch({
+  const { fetch, llamadas } = mockearFetch({
     ok: false,
     status: 404,
     json: { error: { message: "Not Found" } },
@@ -670,6 +682,13 @@ test("un 404 al detener un canal NO es error: ya no existe", async () => {
     channelId: "canal-vencido",
     resourceId: "r1",
   });
+
+  // B-32, mismo criterio que el 404/410 de eliminarEvento: la tolerancia al
+  // 404 vale únicamente si el POST a channels.stop ocurrió de verdad y con el
+  // cuerpo correcto — igual que afirma el test de éxito de arriba.
+  assert.equal(llamadas.length, 1);
+  assert.equal(llamadas[0].url, "https://www.googleapis.com/calendar/v3/channels/stop");
+  assert.deepEqual(cuerpoDe(llamadas[0]), { id: "canal-vencido", resourceId: "r1" });
 });
 
 // ---------------------------------------------------------------------------
