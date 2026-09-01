@@ -59,20 +59,30 @@ export function findConnectionWithSecretByBranch(
   return db.googleCalendarConnection.findFirst({ where: { branchId, organizationId } });
 }
 
-// Conexiones ACTIVE de una sucursal — el conteo sobre el que decide el RESTRICT
-// de deleteBranch. Exige organizationId además de branchId, mismo criterio que
-// countActiveResourcesByBranch: esto decide si una escritura procede, así que el
-// aislamiento va en su propio WHERE y no en el del caller.
+// Conexiones de una sucursal que TODAVÍA GUARDAN UN SECRETO — el conteo sobre
+// el que decide el RESTRICT de deleteBranch. Exige organizationId además de
+// branchId, mismo criterio que countActiveResourcesByBranch: esto decide si una
+// escritura procede, así que el aislamiento va en su propio WHERE y no en el
+// del caller.
 //
-// Solo ACTIVE: una conexión REVOKED o ERROR no bloquea el borrado de la
-// sucursal. Ya no hay nada conectado que se pueda perder.
-export function countActiveConnectionsByBranch(
+// POR refreshToken Y NO POR status — B-9 de docs/auditoria-2026-08-29.md. Lo
+// que no puede quedar huérfano al borrar la sucursal es la credencial cifrada:
+// sin fila, nadie podría desconectarla ni intentar revocarla nunca más. Y el
+// status no la describe: ACTIVE siempre tiene refreshToken (lo exige el CHECK),
+// REVOKED nunca (NULL desde markConnectionRevoked), pero ERROR lo CONSERVA a
+// propósito (ver markConnectionError). Contar por "status = ACTIVE", como se
+// hacía, dejaba borrar una sucursal en ERROR con su token adentro. Filtrar por
+// la presencia del secreto captura ACTIVE + ERROR y excluye REVOKED sin
+// enumerar statuses, y es lo que se quiere aunque mañana aparezca uno nuevo.
+// El nombre sigue la convención de findConnectionWithSecretByBranch: que el
+// secreto aparezca en el grep.
+export function countConnectionsWithSecretByBranch(
   branchId: string,
   organizationId: string,
   db: Db = prisma,
 ) {
   return db.googleCalendarConnection.count({
-    where: { branchId, organizationId, status: "ACTIVE" },
+    where: { branchId, organizationId, refreshToken: { not: null } },
   });
 }
 

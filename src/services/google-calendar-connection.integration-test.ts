@@ -42,7 +42,8 @@ import {
 //      CIFRADO que se puede volver a descifrar y usar.
 //   2. El state inválido y el vencido — la frontera de tenant del callback.
 //   3. Reconectar ACTUALIZA la fila, no crea una segunda (el UNIQUE).
-//   4. El RESTRICT nuevo de deleteBranch, y que REVOKED/ERROR no bloquean.
+//   4. El RESTRICT nuevo de deleteBranch: bloquea mientras quede un secreto en
+//      la fila (ACTIVE y ERROR), y REVOKED no bloquea.
 //   5. Que el refresh token NO sale por ninguna lectura de la API.
 //   6. Que invalid_grant lleva la conexión a ERROR y un fallo transitorio no.
 //
@@ -814,7 +815,11 @@ test("una conexión REVOKED NO bloquea el borrado de la sucursal", async () => {
   }
 });
 
-test("una conexión en ERROR tampoco bloquea el borrado", async () => {
+test("una conexión en ERROR SÍ bloquea el borrado: conserva el refresh token, y desconectar es el camino", async () => {
+  // B-9 de docs/auditoria-2026-08-29.md. Este test decía lo contrario
+  // ("tampoco bloquea") sobre la premisa de que en ERROR "no hay nada que
+  // perder" — falsa: markConnectionError conserva el refresh token cifrado a
+  // propósito, y borrar la sucursal lo dejaba sin fila desde la que revocarlo.
   const escenario = await montar("restrict-error");
   try {
     const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
@@ -830,10 +835,26 @@ test("una conexión en ERROR tampoco bloquea el borrado", async () => {
       ),
     );
 
-    await deleteBranch(escenario.organizationId, branch.id);
+    const enError = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: branch.id },
+    });
+    assert.equal(enError.status, "ERROR");
+    assert.notEqual(enError.refreshToken, null, "la premisa: ERROR conserva el secreto");
+
+    const err = await capturar(() => deleteBranch(escenario.organizationId, branch.id));
+    assertAppError(err, 400);
+    assert.ok((err as AppError).message.includes("Google Calendar"));
 
     const persistida = await prisma.branch.findUniqueOrThrow({ where: { id: branch.id } });
-    assert.notEqual(persistida.deletedAt, null);
+    assert.equal(persistida.deletedAt, null, "la sucursal no se borró con el secreto adentro");
+
+    // El camino que ya existía: desconectar acepta ERROR, pone el token en
+    // NULL, y recién ahí el borrado procede.
+    await desconectar(escenario.organizationId, branch.id, doblarGoogle().cliente);
+    await deleteBranch(escenario.organizationId, branch.id);
+
+    const borrada = await prisma.branch.findUniqueOrThrow({ where: { id: branch.id } });
+    assert.notEqual(borrada.deletedAt, null);
   } finally {
     await desmontar(escenario);
   }
