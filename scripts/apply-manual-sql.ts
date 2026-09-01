@@ -8,13 +8,16 @@ import { spawnSync } from "node:child_process";
 //   1. `prisma migrate deploy` — aplica migraciones pendientes; a
 //      diferencia de `migrate dev`, no interactúa ni regenera migraciones,
 //      es el comando pensado para CI/producción.
-//   2. Reaplicación de manual_constraints.sql (triggers, índices únicos
-//      parciales, CHECK constraints).
+//   2. Reaplicación de manual_constraints.sql (triggers e índices únicos
+//      parciales — los CHECK constraints ya no: B-15 de
+//      docs/auditoria-2026-08-29.md los sacó de la reaplicación, porque un
+//      ADD CONSTRAINT ... CHECK revalida cada fila bajo ACCESS EXCLUSIVE en
+//      cada deploy y desde C-2 viven en las migraciones versionadas).
 //   3. Reaplicación de rls_policies.sql (políticas RLS).
 //
-// Ambos .sql son idempotentes (cada objeto se dropea antes de recrearse),
-// así que correr este script en un deploy donde ninguno cambió es un no-op
-// seguro, no un error.
+// Ambos .sql son idempotentes (cada objeto se dropea antes de recrearse, o
+// usa if not exists), así que correr este script en un deploy donde ninguno
+// cambió es un no-op seguro, no un error.
 //
 // Requiere DIRECT_URL — se pasa como argumento explícito a cada comando en
 // vez de interpolarse en un string de shell, para que el script funcione
