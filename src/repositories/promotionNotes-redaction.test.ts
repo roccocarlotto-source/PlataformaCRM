@@ -146,3 +146,74 @@ test("un array vacío se mantiene como array vacío", () => {
   const redactadas = comoArray(redactPromotionNotes([] as unknown as Prisma.JsonValue));
   assert.deepEqual(redactadas, []);
 });
+
+// ---------------------------------------------------------------------------
+// B-31 (docs/auditoria-2026-08-29.md): una clave EXTRA en una nota de tipo
+// conocido. El fail-closed aplicaba solo al `tipo` desconocido; el `{
+// ...objeto }` copiaba todo y solo pisaba los campos de valor conocidos, así
+// que una clave no listada sobrevivía intacta al "redactado" — justo en la
+// operación que existe para destruir esos valores. No hay forma de saber si
+// una clave extra transporta un valor de la persona: misma regla que el tipo
+// desconocido, el array entero se va a NULL.
+// ---------------------------------------------------------------------------
+
+test("B-31: una NotaConflicto con una clave extra borra el array entero — la clave podría ser un valor", () => {
+  const notas = [
+    {
+      tipo: "conflicto",
+      campo: "phone",
+      crm: TELEFONO_VIEJO,
+      entrante: TELEFONO_NUEVO,
+      notaInterna: `el crm anterior era ${TELEFONO_VIEJO}`,
+    },
+  ];
+
+  assert.equal(redactPromotionNotes(notas as unknown as Prisma.JsonValue), Prisma.DbNull);
+});
+
+test("B-31: una NotaIgnorado con una clave extra borra el array entero", () => {
+  const notas = [
+    {
+      tipo: "ignorado",
+      campo: "lifecycleStage",
+      entrante: "CUSTOMER",
+      motivo: "nunca se escribe",
+      copiaDeSeguridad: TELEFONO_NUEVO,
+    },
+  ];
+
+  assert.equal(redactPromotionNotes(notas as unknown as Prisma.JsonValue), Prisma.DbNull);
+});
+
+test("B-31: una NotaRevisionManual con una clave extra borra el array entero", () => {
+  const notas = [
+    { tipo: "revision_manual", motivo: "sin email", emailQueFallo: "ana@ejemplo.test" },
+  ];
+
+  assert.equal(redactPromotionNotes(notas as unknown as Prisma.JsonValue), Prisma.DbNull);
+});
+
+test("B-31: una nota correcta MÁS una de tipo conocido con clave extra — se va todo, como con el tipo desconocido", () => {
+  const notas = [
+    { tipo: "revision_manual", motivo: "sin email" },
+    { tipo: "conflicto", campo: "phone", crm: TELEFONO_VIEJO, entrante: TELEFONO_NUEVO, extra: 1 },
+  ];
+
+  // No se redacta la primera y se descarta la segunda: mismo patrón que "un
+  // `tipo` desconocido borra el array entero, no solo esa nota".
+  assert.equal(redactPromotionNotes(notas as unknown as Prisma.JsonValue), Prisma.DbNull);
+});
+
+test("B-31: control — una nota con EXACTAMENTE las claves de su tipo se sigue redactando normal", () => {
+  const notas: PromotionNote[] = [
+    { tipo: "conflicto", campo: "phone", crm: TELEFONO_VIEJO, entrante: TELEFONO_NUEVO },
+  ];
+
+  const redactadas = comoArray(redactPromotionNotes(notas as unknown as Prisma.JsonValue));
+  assert.deepEqual(redactadas[0], {
+    tipo: "conflicto",
+    campo: "phone",
+    crm: MARCADOR_DE_DATO_BORRADO,
+    entrante: MARCADOR_DE_DATO_BORRADO,
+  });
+});

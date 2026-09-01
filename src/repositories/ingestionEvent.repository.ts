@@ -855,6 +855,28 @@ export const RAW_PAYLOAD_BORRADO = { erased: true } as const;
 // entera se va a NULL. En una función de borrado, "no reconozco esto" no puede
 // significar "lo dejo como está": significaría dejar dato personal sin redactar
 // justo en la operación que existe para destruirlo.
+//
+// Y TAMBIÉN ANTE UNA CLAVE EXTRA EN UNA NOTA CONOCIDA — B-31 de
+// docs/auditoria-2026-08-29.md. El fail-closed aplicaba solo al `tipo`
+// desconocido; para un tipo reconocido, el `{ ...objeto }` copiaba TODO y solo
+// pisaba los campos de valor conocidos, así que una clave no listada (una
+// `notaInterna` dejada por una escritura directa, por ejemplo) sobrevivía
+// intacta al "redactado". No hay forma de saber si una clave extra transporta
+// un valor de la persona, así que rige la misma regla que el `default`: el
+// array entero se va a NULL. Las claves permitidas son exactamente las de cada
+// variante de PromotionNote (types/promotion.ts); las FALTANTES no se validan
+// a propósito — una nota incompleta es otro problema, no una fuga.
+const CLAVES_CONFLICTO = new Set(["tipo", "campo", "crm", "entrante"]);
+const CLAVES_IGNORADO = new Set(["tipo", "campo", "entrante", "motivo"]);
+const CLAVES_REVISION_MANUAL = new Set(["tipo", "motivo"]);
+
+function tieneClaveExtra(
+  objeto: Record<string, Prisma.JsonValue>,
+  permitidas: Set<string>,
+): boolean {
+  return Object.keys(objeto).some((clave) => !permitidas.has(clave));
+}
+
 export function redactPromotionNotes(
   valor: Prisma.JsonValue,
 ): Prisma.InputJsonValue | typeof Prisma.DbNull {
@@ -873,6 +895,7 @@ export function redactPromotionNotes(
 
     switch (objeto.tipo) {
       case "conflicto":
+        if (tieneClaveExtra(objeto, CLAVES_CONFLICTO)) return Prisma.DbNull;
         // `crm` es el valor que ganó y `entrante` el que se descartó. Los dos
         // son datos de la persona: el primero además sigue vivo en Contact
         // hasta que erasePersonalDataFromContact lo borra en esta misma
@@ -885,11 +908,13 @@ export function redactPromotionNotes(
         });
         break;
       case "ignorado":
+        if (tieneClaveExtra(objeto, CLAVES_IGNORADO)) return Prisma.DbNull;
         // `motivo` explica por qué se ignoró y `campo` cuál era; ninguno de los
         // dos es un valor. Solo `entrante` lo es.
         redactadas.push({ ...objeto, entrante: MARCADOR_DE_DATO_BORRADO });
         break;
       case "revision_manual":
+        if (tieneClaveExtra(objeto, CLAVES_REVISION_MANUAL)) return Prisma.DbNull;
         // No tiene ningún campo de valor: `motivo` es una explicación fija
         // escrita por el código, no algo que haya llegado del formulario.
         redactadas.push(objeto);
