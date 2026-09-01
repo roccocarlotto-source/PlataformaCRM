@@ -39,14 +39,21 @@ import { traducirErrorDePrisma } from "../utils/prismaErrors";
 //     mensaje real (no AppError, o AppError no operacional): es exactamente el
 //     caso en que un desarrollador local depurando quiere verlo. Un AppError
 //     operacional ya dice todo lo que tiene que decir en su mensaje.
+//
+//   - SI LOS HEADERS YA SALIERON, NO ESCRIBE (B-24 de
+//     docs/auditoria-2026-08-29.md). Un handler que ya mandó headers —o empezó
+//     a escribir el cuerpo— y recién ahí falla no puede recibir un segundo
+//     res.status().json(): Node tira ERR_HTTP_HEADERS_SENT desde adentro del
+//     propio error handler, el último eslabón, y ese crash secundario tapa al
+//     error original. La convención de Express es delegar en next(err): el
+//     finalhandler por defecto sabe cerrar la conexión sin reescribir. Se
+//     loguea IGUAL antes de delegar — que los headers hayan salido no vuelve
+//     menos importante saber qué falló. Hoy ningún endpoint escribe antes de
+//     poder fallar (todos responden con un único res.status().json() al
+//     final), así que es defensa en profundidad para el día que exista una
+//     ruta que streamee, no un bug alcanzable.
 // ---------------------------------------------------------------------------
-export function errorHandler(
-  err: unknown,
-  req: Request,
-  res: Response,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _next: NextFunction,
-): void {
+export function errorHandler(err: unknown, req: Request, res: Response, next: NextFunction): void {
   const prismaError = err instanceof AppError ? undefined : traducirErrorDePrisma(err);
   const appError = err instanceof AppError ? err : prismaError;
   const isAppError = appError !== undefined;
@@ -61,6 +68,11 @@ export function errorHandler(
     log.error(logPayload, logMessage);
   } else {
     log.warn(logPayload, logMessage);
+  }
+
+  if (res.headersSent) {
+    next(err);
+    return;
   }
 
   res.status(statusCode).json({

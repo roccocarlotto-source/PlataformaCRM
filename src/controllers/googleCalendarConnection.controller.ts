@@ -100,12 +100,15 @@ export const callbackHandler = asyncHandler<Request>(async (req, res: Response) 
       ? err.message
       : "No se pudo completar la conexión con Google Calendar.";
 
-    // SE LOGUEA ACÁ Y NO SE RELANZA. Relanzar después de responder llevaría el
-    // error a errorHandler, que hace res.status().json() sin mirar
-    // res.headersSent — o sea que intentaría escribir headers sobre una
-    // respuesta ya enviada y tiraría ERR_HTTP_HEADERS_SENT encima del error
-    // original. Este es el único handler del proyecto que responde por su
-    // cuenta, así que es el único que tiene que resolver su propio logueo.
+    // SE LOGUEA ACÁ Y NO SE RELANZA. Este es el único handler del proyecto que
+    // responde por su cuenta (texto plano para un navegador, no JSON), así que
+    // es el único que tiene que resolver su propio logueo y su propia
+    // respuesta de error. Cuando se escribió esto, relanzar habría llevado el
+    // error a un errorHandler que hacía res.status().json() sin mirar
+    // res.headersSent (ERR_HTTP_HEADERS_SENT encima del error original); desde
+    // B-24 errorHandler delega en next(err) si los headers ya salieron, pero
+    // el finalhandler de Express respondería con SU formato, no con este
+    // texto para personas — el motivo de resolverlo acá sigue en pie.
     logger.error({ err, path: req.originalUrl }, "Falló el callback de Google Calendar");
 
     res

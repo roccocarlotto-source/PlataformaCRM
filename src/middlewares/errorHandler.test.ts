@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { Writable } from "node:stream";
-import { after, before, test } from "node:test";
+import { after, before, mock, test } from "node:test";
 import { Prisma } from "@prisma/client";
 import express, { type Request as ExpressRequest, type Response as ExpressResponse } from "express";
 import pino from "pino";
@@ -401,4 +401,79 @@ test("un 404 de notFound pasa por errorHandler como cualquier otro 4xx", async (
   const res = await pedir(`/no-existe-${randomUUID()}`);
   assert.equal(res.status, 404);
   assert.equal(lineaDeError().level, pino.levels.values.warn);
+});
+
+// ---------------------------------------------------------------------------
+// (f) res.headersSent — B-24 de docs/auditoria-2026-08-29.md.
+//
+// DEFENSA EN PROFUNDIDAD, NO UN BUG ALCANZABLE HOY: ningún endpoint de src/
+// manda headers ni empieza a escribir el cuerpo antes de poder fallar (todos
+// responden con un único res.status().json() al final), así que no hay
+// request real que llegue a este camino. Por eso el escenario se fuerza A
+// MANO, llamando a errorHandler directo con un req/res/next armados acá, y
+// no con la app HTTP de arriba: no hay ninguna ruta de producción que
+// justifique montarlo, y con HTTP real (flushHeaders + next(err)) el
+// finalhandler de Express cerraría el socket y lo único observable desde
+// afuera sería un fetch que falla — menos preciso que afirmar, sobre la
+// función, que delegó en next(err) y no intentó escribir.
+// ---------------------------------------------------------------------------
+
+function armarRespuesta(headersSent: boolean) {
+  const status = mock.fn<(codigo: number) => ExpressResponse>(() => res);
+  const json = mock.fn<(cuerpo: unknown) => ExpressResponse>(() => res);
+  const res = { headersSent, status, json } as unknown as ExpressResponse;
+  return { res, status, json };
+}
+
+function armarRequest() {
+  const log = {
+    error: mock.fn<(payload: unknown, mensaje: string) => void>(() => undefined),
+    warn: mock.fn<(payload: unknown, mensaje: string) => void>(() => undefined),
+  };
+  const req = {
+    log,
+    originalUrl: "/streaming-que-fallo",
+    method: "GET",
+  } as unknown as ExpressRequest;
+  return { req, log };
+}
+
+test("(f) con los headers ya enviados, errorHandler loguea, delega en next(err) y NO intenta escribir", () => {
+  const err = new AppError("Este mensaje es seguro para el cliente", 500);
+  const { res, status, json } = armarRespuesta(true);
+  const { req, log } = armarRequest();
+  const next = mock.fn<(err: unknown) => void>(() => undefined);
+
+  errorHandler(err, req, res, next);
+
+  // Se delega al finalhandler de Express con el error ORIGINAL.
+  assert.equal(next.mock.callCount(), 1);
+  assert.equal(next.mock.calls[0].arguments[0], err);
+
+  // Sin segundo intento de respuesta: es lo que tiraba ERR_HTTP_HEADERS_SENT.
+  assert.equal(status.mock.callCount(), 0);
+  assert.equal(json.mock.callCount(), 0);
+
+  // Y el log sale igual: headers enviados no significa "no loguear".
+  assert.equal(log.error.mock.callCount(), 1);
+  assert.equal(log.warn.mock.callCount(), 0);
+  const [payload, mensaje] = log.error.mock.calls[0].arguments as [{ err: unknown }, string];
+  assert.equal(payload.err, err);
+  assert.equal(mensaje, "Este mensaje es seguro para el cliente");
+});
+
+test("(f) control: con los headers NO enviados, errorHandler responde como siempre y no toca next", () => {
+  const err = new AppError("No encontrado", 404);
+  const { res, status, json } = armarRespuesta(false);
+  const { req, log } = armarRequest();
+  const next = mock.fn<(err: unknown) => void>(() => undefined);
+
+  errorHandler(err, req, res, next);
+
+  assert.equal(next.mock.callCount(), 0);
+  assert.equal(status.mock.callCount(), 1);
+  assert.equal(status.mock.calls[0].arguments[0], 404);
+  assert.equal(json.mock.callCount(), 1);
+  assert.deepEqual(json.mock.calls[0].arguments[0], { error: { message: "No encontrado" } });
+  assert.equal(log.warn.mock.callCount(), 1);
 });
