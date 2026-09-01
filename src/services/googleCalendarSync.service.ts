@@ -149,6 +149,10 @@ interface ConexionConSecreto {
   organizationId: string;
   branchId: string;
   syncToken: string | null;
+  // Anidado, con la forma exacta que devuelve findConnectionByChannelId (B-6):
+  // así la conexión que trae Prisma se pasa tal cual, sin copiar campos en
+  // procesarNotificacion ni inventar un shape intermedio.
+  branch: { timezone: string };
 }
 
 async function sincronizar(
@@ -156,6 +160,10 @@ async function sincronizar(
   cliente?: ClienteInyectado,
 ): Promise<ResultadoDeNotificacion> {
   const { organizationId, branchId } = conexion;
+  // La zona de la SUCURSAL, nunca la del servidor: es lo que decide a qué
+  // instante corresponde un evento de día completo (B-6). Va en las DOS
+  // llamadas a listarCambios de abajo.
+  const timezone = conexion.branch.timezone;
 
   // M-3 de docs/auditoria-2026-08-29.md: una sincronización COMPLETA se acota
   // desde ahora. Las dos ramas que la hacen (primera sincronización, y 410)
@@ -185,6 +193,7 @@ async function sincronizar(
       // timeMin la acota. Con syncToken tiene que ir undefined: Google no
       // admite los dos juntos.
       timeMin: conexion.syncToken ? undefined : ahora,
+      timezone,
     });
   } catch (err) {
     if (!(err instanceof GoogleSyncTokenInvalidoError)) {
@@ -208,7 +217,12 @@ async function sincronizar(
       "El syncToken venció (410): se resincroniza completo sin reconciliar hacia atrás",
     );
 
-    cambios = await clienteGoogle.listarCambios({ accessToken, calendarId, timeMin: ahora });
+    cambios = await clienteGoogle.listarCambios({
+      accessToken,
+      calendarId,
+      timeMin: ahora,
+      timezone,
+    });
 
     if (cambios.nextSyncToken) {
       await setConnectionSyncToken(branchId, organizationId, cambios.nextSyncToken);
