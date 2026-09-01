@@ -1,13 +1,17 @@
 -- Prisma no soporta nativamente: índices únicos parciales (WHERE), CHECK
--- constraints, ni triggers. Este archivo se aplica manualmente después de
--- cada `prisma migrate dev` (o se copia su contenido dentro de la migración
--- SQL generada) para completar las restricciones que sí forman parte del
--- diseño pero no del lenguaje de schema.prisma.
+-- constraints, ni triggers. Este archivo completa dos de esas tres piezas
+-- (triggers e índices); los CHECK constraints ya NO viven acá — B-15 de
+-- docs/auditoria-2026-08-29.md los sacó de la reaplicación por deploy, porque
+-- un ADD CONSTRAINT ... CHECK revalida cada fila bajo ACCESS EXCLUSIVE y desde
+-- C-2 los crean las migraciones versionadas (20260821140000 los cuatro
+-- originales, 20260825120000 el de M-13).
 --
 -- Este contenido ya forma parte del historial de migraciones desde
 -- prisma/migrations/20260821140000_incorporate_manual_ddl_into_migrations
 -- (C-2, docs/auditoria-2026-08-21.md). Se conserva acá como referencia
--- legible y como red de seguridad idempotente para scripts/apply-manual-sql.ts.
+-- legible y como red de seguridad idempotente para scripts/apply-manual-sql.ts
+-- — barata para triggers e índices (puro catálogo, o if not exists), que es
+-- justamente lo que los CHECK no eran.
 
 -- ---------------------------------------------------------------------------
 -- 1. Sincronización de email: auth.users -> public.users
@@ -104,8 +108,9 @@ create unique index if not exists stages_pipeline_name_unique
   where deleted_at is null;
 
 -- A lo sumo un stage marcado como ganado, y a lo sumo uno marcado como
--- perdido, por pipeline (distinto de stages_won_lost_exclusive_check más
--- abajo, que impide que un mismo stage sea ambas cosas a la vez).
+-- perdido, por pipeline (distinto de stages_won_lost_exclusive_check —creado
+-- por las migraciones, ver la cabecera—, que impide que un mismo stage sea
+-- ambas cosas a la vez).
 create unique index if not exists stages_pipeline_won_unique
   on public.stages (pipeline_id)
   where is_won = true and deleted_at is null;
@@ -124,54 +129,3 @@ create unique index if not exists stages_pipeline_lost_unique
 create unique index if not exists invitations_org_email_pending_unique
   on public.invitations (organization_id, email)
   where status = 'PENDING';
-
--- ---------------------------------------------------------------------------
--- 3. CHECK constraints
--- ---------------------------------------------------------------------------
-
--- Postgres no soporta "ADD CONSTRAINT IF NOT EXISTS" (a diferencia de los
--- índices de la sección anterior) — cada constraint se dropea primero para
--- que este archivo completo sea seguro de reaplicar (idempotente), igual
--- que ya lo son los triggers de la sección 1.
-
--- Una oportunidad debe estar asociada a una Company, a un Contact, o a ambos.
-alter table public.opportunities
-  drop constraint if exists opportunities_company_or_contact_check;
-alter table public.opportunities
-  add constraint opportunities_company_or_contact_check
-  check (company_id is not null or contact_id is not null);
-
-alter table public.opportunities
-  drop constraint if exists opportunities_amount_non_negative_check;
-alter table public.opportunities
-  add constraint opportunities_amount_non_negative_check
-  check (amount >= 0);
-
--- Un stage no puede ser simultáneamente ganado y perdido.
-alter table public.stages
-  drop constraint if exists stages_won_lost_exclusive_check;
-alter table public.stages
-  add constraint stages_won_lost_exclusive_check
-  check (not (is_won and is_lost));
-
--- M-13 — el email de un contacto no puede tener espacios al borde.
--- RESPALDO, NO MECANISMO: la aplicación sigue normalizando con .trim() (y la
--- promoción del ítem 4 tiene que hacer lo mismo). Este CHECK existe para que
--- sea imposible saltearlo. Hace falta porque lower(' x ') no es igual a
--- lower('x'): el case lo resuelve el índice, los espacios no.
-alter table public.contacts
-  drop constraint if exists contacts_email_trimmed_check;
-alter table public.contacts
-  add constraint contacts_email_trimmed_check
-  check (email is null or email = btrim(email));
-
--- Una actividad debe estar asociada al menos a Company, Contact u Opportunity.
-alter table public.activities
-  drop constraint if exists activities_related_entity_check;
-alter table public.activities
-  add constraint activities_related_entity_check
-  check (
-    company_id is not null
-    or contact_id is not null
-    or opportunity_id is not null
-  );
