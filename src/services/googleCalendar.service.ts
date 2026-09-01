@@ -1,4 +1,3 @@
-import { DateTime } from "luxon";
 import { env } from "../config/env";
 import { AppError } from "../utils/AppError";
 
@@ -84,7 +83,8 @@ const URL_FREEBUSY = "https://www.googleapis.com/calendar/v3/freeBusy";
 // devuelve `undefined`, igual que un dateTime ilegible.
 function leerInstante(
   campo: { dateTime?: unknown; date?: unknown } | undefined,
-  zona: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- mutación de verificación
+  _zona: string,
 ): Date | undefined {
   if (typeof campo?.dateTime === "string") {
     const fecha = new Date(campo.dateTime);
@@ -92,8 +92,9 @@ function leerInstante(
   }
 
   if (typeof campo?.date === "string") {
-    const medianoche = DateTime.fromISO(campo.date, { zone: zona });
-    return medianoche.isValid ? medianoche.toJSDate() : undefined;
+    // MUTACIÓN DE VERIFICACIÓN — NO MERGEAR: el camino viejo, medianoche UTC.
+    const fecha = new Date(campo.date);
+    return Number.isNaN(fecha.getTime()) ? undefined : fecha;
   }
 
   return undefined;
