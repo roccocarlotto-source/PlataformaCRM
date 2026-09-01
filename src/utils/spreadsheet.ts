@@ -101,9 +101,7 @@ function normalizarCelda(valor: unknown): ValorDeCelda {
     // "[object Object]" — silencioso e indistinguible de un valor real (B-29 de
     // docs/auditoria-2026-08-29.md). Se guarda el código de error tal cual: es
     // exactamente lo que la persona ve en la celda, mismo criterio que `text`.
-    if (typeof obj.error === "string") {
-      return obj.error;
-    }
+    // MUTACIÓN DE VERIFICACIÓN — NO MERGEAR: sin la rama de `error`
   }
   return String(valor);
 }
