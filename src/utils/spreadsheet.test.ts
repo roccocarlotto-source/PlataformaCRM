@@ -385,3 +385,49 @@ test("el rawPayload de cada fila es la fila cruda, sin tocar", () => {
 
   assert.deepEqual(primera.rawPayload, filas[0]);
 });
+
+// ---------------------------------------------------------------------------
+// B-28 (docs/auditoria-2026-08-29.md): una columna llamada literalmente
+// "__proto__". Con `fila[encabezado] = …` sobre un objeto normal, esa clave no
+// se crea —dispara el setter heredado— y la columna se perdía en silencio para
+// todas las filas. Se prueba por el camino real (xlsx y csv) y se afirma que la
+// clave queda como PROPIEDAD PROPIA de un objeto NORMAL: la fila es el
+// rawPayload que viaja a Prisma y se vuelve a leer, así que su forma no cambia.
+// ---------------------------------------------------------------------------
+
+test("B-28: una columna __proto__ de un XLSX sobrevive como propiedad propia, con su valor", async () => {
+  const workbook = new ExcelJS.Workbook();
+  const hoja = workbook.addWorksheet("Leads");
+  hoja.addRow(["Nombre", "__proto__"]);
+  hoja.addRow(["Ana", "dato-en-proto"]);
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+
+  const parseado = await parsearArchivo(buffer, "xlsx");
+
+  assert.deepEqual(parseado.encabezados, ["Nombre", "__proto__"]);
+  const fila = parseado.filas[0];
+  assert.ok(
+    Object.hasOwn(fila, "__proto__"),
+    "la clave tiene que ser propiedad propia, no el prototipo",
+  );
+  assert.equal(fila["__proto__"], "dato-en-proto");
+  assert.deepEqual(Object.keys(fila), ["Nombre", "__proto__"]);
+  assert.equal(
+    Object.getPrototypeOf(fila),
+    Object.prototype,
+    "la fila sigue siendo un objeto normal",
+  );
+  assert.equal(JSON.stringify(fila), '{"Nombre":"Ana","__proto__":"dato-en-proto"}');
+});
+
+test("B-28: lo mismo por CSV — el camino de armarFila es común a los dos formatos", async () => {
+  const parseado = await parsearArchivo(
+    Buffer.from("Nombre,__proto__\nAna,dato-en-proto\n"),
+    "csv",
+  );
+
+  const fila = parseado.filas[0];
+  assert.ok(Object.hasOwn(fila, "__proto__"));
+  assert.equal(fila["__proto__"], "dato-en-proto");
+  assert.equal(Object.getPrototypeOf(fila), Object.prototype);
+});

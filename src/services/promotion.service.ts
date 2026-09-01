@@ -165,7 +165,10 @@ function comoTextoDeCelda(valor: unknown): unknown {
   return valor;
 }
 
-function traducirConMapeo(rawPayload: unknown, fieldMapping: unknown): ResultadoTraduccion {
+// Exportada para probar su frontera sin base ni worker (B-28), mismo criterio
+// que listContactsQuerySchema en contact.controller.ts (B-21). Producción la
+// llama solo desde prepararCandidato.
+export function traducirConMapeo(rawPayload: unknown, fieldMapping: unknown): ResultadoTraduccion {
   // EL MAPEO SE REVALIDA ACÁ AUNQUE EL PATCH YA LO HAYA VALIDADO, y no es
   // paranoia: field_mapping es una columna JSONB, y cualquier escritura directa
   // a la base —una migración de datos, un arreglo manual en producción— puede
@@ -189,7 +192,14 @@ function traducirConMapeo(rawPayload: unknown, fieldMapping: unknown): Resultado
   const columnasAusentes: string[] = [];
 
   for (const [encabezado, destino] of Object.entries(mapeo.data)) {
-    if (!(encabezado in fila)) {
+    // Object.hasOwn y NO `in` — B-28 de docs/auditoria-2026-08-29.md. `in`
+    // recorre toda la cadena de prototipos: con una columna origen llamada
+    // "constructor" (o "toString", "hasOwnProperty"…) en el mapeo, `"constructor"
+    // in fila` daba true aunque la fila no la tuviera, y fila["constructor"]
+    // —la función Object heredada— seguía de largo por comoTextoDeCelda hasta
+    // datos[destino]. La fila viene de JSON.parse (el rawPayload guardado), así
+    // que lo que hay que corregir es la pregunta, no el objeto.
+    if (!Object.hasOwn(fila, encabezado)) {
       columnasAusentes.push(encabezado);
       continue;
     }

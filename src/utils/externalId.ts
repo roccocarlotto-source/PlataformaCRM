@@ -69,7 +69,15 @@ function canonicalize(value: unknown, depth: number): unknown {
 
   if (value !== null && typeof value === "object") {
     const entrada = value as Record<string, unknown>;
-    const ordenado: Record<string, unknown> = {};
+    // SIN PROTOTIPO — B-28 de docs/auditoria-2026-08-29.md. `entrada` sale de
+    // JSON.parse, que crea una propiedad propia aunque la clave sea "__proto__";
+    // pero sobre un `{}` literal, `ordenado["__proto__"] = x` no crea nada:
+    // dispara el setter heredado de Object.prototype y la clave desaparece del
+    // JSON canónico, así que {"a":1,"__proto__":{"x":1}} y {"a":1} colisionaban
+    // en el mismo externalId y uno de los dos eventos se perdía contra el índice
+    // único. Sin prototipo no hay setter que disparar; Object.keys y
+    // JSON.stringify funcionan igual.
+    const ordenado: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const clave of Object.keys(entrada).sort()) {
       ordenado[clave] = canonicalize(entrada[clave], depth + 1);
     }

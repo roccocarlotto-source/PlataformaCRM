@@ -129,3 +129,30 @@ test("validatePayloadDepth acepta el anidamiento justo en el límite (control de
   // Un nivel más y cae: el borde es exactamente el mismo que el de deriveExternalId.
   assert.throws(() => validatePayloadDepth({ payload: [dentro] }));
 });
+
+// ---------------------------------------------------------------------------
+// B-28 (docs/auditoria-2026-08-29.md): una clave literal "__proto__" en el
+// payload. JSON.parse la crea como propiedad propia, pero la copia canónica se
+// armaba sobre un `{}` literal, donde `ordenado["__proto__"] = …` dispara el
+// setter heredado en vez de crear la clave: desaparecía del JSON canónico y dos
+// payloads distintos colisionaban en el mismo externalId — el segundo evento se
+// perdía contra el índice único, en silencio.
+// ---------------------------------------------------------------------------
+
+test("B-28: una clave literal __proto__ en el payload cambia el externalId — no colisiona con el payload sin ella", () => {
+  const sinProto = JSON.parse('{"a":1}');
+  const conProto = JSON.parse('{"a":1,"__proto__":{"x":1}}');
+
+  // La premisa: JSON.parse SÍ la crea como propiedad propia.
+  assert.ok(Object.hasOwn(conProto, "__proto__"));
+
+  assert.notEqual(deriveExternalId(sinProto), deriveExternalId(conProto));
+  assert.equal(canonicalStringify(conProto), '{"__proto__":{"x":1},"a":1}');
+});
+
+test("B-28: dos payloads que difieren SOLO en el valor de __proto__ también dan externalId distintos", () => {
+  const uno = JSON.parse('{"a":1,"__proto__":{"x":1}}');
+  const otro = JSON.parse('{"a":1,"__proto__":{"x":2}}');
+
+  assert.notEqual(deriveExternalId(uno), deriveExternalId(otro));
+});
