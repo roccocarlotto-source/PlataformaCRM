@@ -59,12 +59,21 @@ enum SourceType {
 // Ciclo de vida de un IngestionEvent. PENDING (recién aterrizado, esperando al
 // worker) -> PROCESSED (promovido a Contact) | FAILED (la fila no era válida;
 // errorMessage dice por qué, y el resto del lote siguió) | DUPLICATE (ya había
-// sido ingerido antes).
+// sido ingerido antes) | DEAD_LETTER (agotó sus reintentos contra un error de
+// SISTEMA — B-30 de docs/auditoria-2026-08-29.md).
+//
+// FAILED y DEAD_LETTER son terminales los dos, pero dicen cosas distintas —la
+// misma distinción que el comentario de OutboxStatus, del otro lado: FAILED es
+// "este payload nunca va a servir" (dato inválido, terminal desde el primer
+// fallo, sin gastar reintentos); DEAD_LETTER es "esto SÍ podría haber servido,
+// pero un error de sistema se repitió hasta agotar attempts". Colapsarlos
+// haría indistinguible un dato malo de un bug nuestro.
 enum IngestionStatus {
   PENDING
   PROCESSED
   FAILED
   DUPLICATE
+  DEAD_LETTER
 }
 
 // Ciclo de vida de un OutboxEvent. PENDING (esperando entrega o su próximo
@@ -658,6 +667,15 @@ model IngestionEvent {
   rawPayload        Json            @map("raw_payload")
   status            IngestionStatus @default(PENDING)
   errorMessage      String?         @map("error_message")
+  // Reintentos ante un error de SISTEMA (B-30) — espejo de OutboxEvent, mismo
+  // significado campo por campo: attempts sube en cada fallo de sistema y
+  // decide el paso a DEAD_LETTER; nextAttemptAt NULL es "reclamable ya".
+  // lastError es de ESTE mecanismo y NO reemplaza a errorMessage, que sigue
+  // significando una sola cosa: por qué falló el dato cuando la fila está en
+  // FAILED.
+  attempts          Int             @default(0)
+  nextAttemptAt     DateTime?       @map("next_attempt_at")
+  lastError         String?         @map("last_error")
   promotedContactId String?         @map("promoted_contact_id") @db.Uuid
   // Registro de lo que la promoción decidió sin fallar: campos donde el CRM y
   // el dato entrante diferían y ganó el CRM (§4, "nunca sobrescribir en

@@ -1,8 +1,11 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { prisma, type Db } from "../lib/prisma";
+import { describirError, resolverFallo } from "../utils/backoff";
 import {
   claimNextPendingEvent,
+  markIngestionEventDeadLetter,
+  rescheduleIngestionEvent,
   type EventoReclamado,
 } from "../repositories/ingestionEvent.repository";
 import { promoverEvento, type ResultadoPromocion } from "../services/promotion.service";
@@ -42,8 +45,13 @@ export interface ResumenDrenado {
   procesados: number;
   fallidos: number;
   // Eventos que no se pudieron procesar por un error de SISTEMA (no de datos):
-  // quedaron en PENDING y se reintentan en la próxima pasada.
+  // quedaron en PENDING con su próximo turno programado por backoff (B-30) y
+  // se reintentan cuando les toque.
   pospuestos: number;
+  // Eventos que agotaron sus reintentos contra un error de sistema y pasaron a
+  // DEAD_LETTER (B-30) — espejo de ResumenDeEntrega.muertos en outbox: es lo
+  // único de esta cola que nadie va a reintentar solo.
+  muertos: number;
 }
 
 export interface OpcionesDrenado {
@@ -70,7 +78,7 @@ export interface OpcionesDrenado {
 // fila pueda abortar.
 export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<ResumenDrenado> {
   const limite = opciones.limite ?? env.INGEST_WORKER_BATCH_SIZE;
-  const resumen: ResumenDrenado = { procesados: 0, fallidos: 0, pospuestos: 0 };
+  const resumen: ResumenDrenado = { procesados: 0, fallidos: 0, pospuestos: 0, muertos: 0 };
 
   // Ids que fallaron por error de sistema en ESTA pasada. Sin esta lista el
   // siguiente reclamo volvería a elegir la misma fila —es la más vieja y sigue
@@ -83,9 +91,11 @@ export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<
     let resultado: ResultadoPromocion | null;
     // Se captura FUERA de la transacción a propósito: si algo explota adentro,
     // la transacción se revierte y el evento ya no es alcanzable desde el
-    // catch. Sin este id no habría a quién posponer y el bucle volvería a
-    // elegir la misma fila hasta agotar el límite de la pasada.
-    let idReclamado: string | undefined;
+    // catch. Sin esto no habría a quién posponer y el bucle volvería a elegir
+    // la misma fila hasta agotar el límite de la pasada. Con B-30 se capturan
+    // también organizationId y attempts: son lo que el catch necesita para
+    // contabilizar el fallo en la propia fila.
+    let reclamado: { id: string; organizationId: string; attempts: number } | undefined;
 
     try {
       resultado = await prisma.$transaction(async (tx) => {
@@ -98,7 +108,11 @@ export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<
           return null;
         }
 
-        idReclamado = evento.id;
+        reclamado = {
+          id: evento.id,
+          organizationId: evento.organizationId,
+          attempts: evento.attempts,
+        };
         await opciones.antesDePromover?.(evento, tx);
         return await promoverEvento(evento, tx);
       });
@@ -108,23 +122,79 @@ export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<
       // un problema de sistema —la base no responde, una constraint que la
       // validación no anticipó— y la transacción ya se revirtió, así que el
       // evento sigue en PENDING.
-      //
-      // Se pospone en vez de marcarse FAILED, y la diferencia importa: FAILED
-      // es terminal y nadie reintenta, así que marcar así un corte de red
-      // perdería el evento para siempre. Queda para la próxima pasada.
-      resumen.pospuestos++;
-      if (idReclamado) {
-        pospuestos.push(idReclamado);
-      } else {
+      if (!reclamado) {
         // Falló antes de llegar a reclamar nada (la base no responde). No hay
         // fila que posponer y seguir iterando solo repetiría el mismo fallo:
         // se corta la pasada y se reintenta en el próximo tick.
+        resumen.pospuestos++;
         logger.error({ err }, "No se pudo reclamar un evento de ingesta");
         break;
       }
+
+      // B-30 de docs/auditoria-2026-08-29.md: el fallo se CONTABILIZA en la
+      // fila. Antes solo se posponía en memoria y un error determinístico para
+      // este contenido se repetía en cada tick, para siempre, sin que nada lo
+      // detuviera ni lo señalara. Este catch es el ÚNICO lugar que puede
+      // contarlo: a diferencia de outbox —donde el fallo del handler se
+      // resuelve DENTRO de la transacción y el catch de afuera es solo
+      // infraestructura—, acá promoverEvento ya resolvió la fila mala
+      // internamente (FAILED, sin lanzar), así que lo que llega es por
+      // descarte el error de sistema, transitorio o determinístico, y ninguna
+      // otra capa lo distingue.
+      //
+      // La escritura va SUELTA con el prisma de nivel superior: la transacción
+      // del reclamo ya se revirtió, y el updateMany con status: PENDING en el
+      // WHERE es su propio compare-and-swap. Y va en su propio try: si la base
+      // es justamente lo que está caído, registrar el intento también falla —
+      // se loguea y la fila queda como quedaba antes de B-30 (PENDING, sin
+      // contar), que es el mejor comportamiento disponible en ese estado.
+      const lastError = describirError(err);
+      const resolucion = resolverFallo(reclamado.attempts, new Date(), {
+        maxIntentos: env.INGEST_MAX_ATTEMPTS,
+        backoff: { baseMs: env.INGEST_BACKOFF_BASE_MS, topeMs: env.INGEST_BACKOFF_MAX_MS },
+      });
+
+      try {
+        if (resolucion.estado === "DEAD_LETTER") {
+          await markIngestionEventDeadLetter(reclamado.id, reclamado.organizationId, {
+            attempts: resolucion.attempts,
+            lastError,
+          });
+          // La fila dejó PENDING: no hace falta posponerla, el reclamo ya no
+          // la puede elegir.
+          resumen.muertos++;
+          logger.error(
+            { err, eventoId: reclamado.id, attempts: resolucion.attempts },
+            "Error de sistema al promover un evento de ingesta: agotó sus reintentos y pasa a DEAD_LETTER",
+          );
+          continue;
+        }
+
+        await rescheduleIngestionEvent(reclamado.id, reclamado.organizationId, {
+          attempts: resolucion.attempts,
+          // No puede ser null en esta rama; el tipo lo permite porque la rama
+          // DEAD_LETTER comparte la forma del resultado.
+          nextAttemptAt: resolucion.nextAttemptAt ?? new Date(),
+          lastError,
+        });
+      } catch (errContable) {
+        logger.error(
+          { err: errContable, eventoId: reclamado.id },
+          "No se pudo registrar el intento fallido del evento de ingesta; queda en PENDING sin contar",
+        );
+      }
+
+      // Se pospone en vez de marcarse FAILED, y la diferencia importa: FAILED
+      // es terminal y nadie reintenta, así que marcar así un corte de red
+      // perdería el evento para siempre. Con nextAttemptAt en el futuro el
+      // WHERE del reclamo ya la excluye en la PRÓXIMA pasada; la lista en
+      // memoria sigue evitando que ESTA misma pasada la vuelva a elegir si el
+      // backoff configurado fuera muy corto.
+      resumen.pospuestos++;
+      pospuestos.push(reclamado.id);
       logger.error(
-        { err, eventoId: idReclamado },
-        "Error de sistema al promover un evento de ingesta: queda en PENDING para reintentar",
+        { err, eventoId: reclamado.id, attempts: resolucion.attempts },
+        "Error de sistema al promover un evento de ingesta: queda en PENDING para reintentar con backoff",
       );
       continue;
     }
@@ -185,8 +255,18 @@ export function iniciarWorkerDeIngesta(opciones: OpcionesDelWorker = {}): () => 
     tickEnCurso = (async () => {
       try {
         const resumen = await drenar();
-        if (resumen.procesados + resumen.fallidos + resumen.pospuestos > 0) {
+        if (resumen.procesados + resumen.fallidos + resumen.pospuestos + resumen.muertos > 0) {
           logger.info(resumen, "Drenado de ingesta");
+        }
+        if (resumen.muertos > 0) {
+          // Con nombre propio y en warn, igual que el worker de outbox: un
+          // DEAD_LETTER es lo único de esta cola que NADIE va a reintentar. Si
+          // solo apareciera dentro del resumen en info, se perdería entre los
+          // drenados normales.
+          logger.warn(
+            { muertos: resumen.muertos },
+            "Eventos de ingesta que agotaron sus reintentos por error de sistema: requieren revisión manual",
+          );
         }
       } catch (err) {
         // Red de seguridad del bucle: drenarPendientes ya atrapa por evento, así

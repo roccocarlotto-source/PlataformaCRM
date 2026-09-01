@@ -665,6 +665,7 @@ function eventoReclamadoDe(id: string, rawPayload: unknown): EventoReclamado {
     sourceName,
     sourceType: "WEBHOOK",
     fieldMapping: null,
+    attempts: 0,
     rawPayload,
   };
 }

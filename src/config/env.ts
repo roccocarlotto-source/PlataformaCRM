@@ -54,6 +54,28 @@ const envSchema = z.object({
   // proceso: se drena un tramo, se cede el control, y el siguiente tick sigue.
   INGEST_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(50),
 
+  // Reintentos de la promoción ante un error de SISTEMA (B-30 de
+  // docs/auditoria-2026-08-29.md) — réplica de los OUTBOX_* de abajo, mismos
+  // defaults y mismo razonamiento: 5 intentos con base de 30 s duplicando dan
+  // 30 s, 1 m, 2 m, 4 m; suficiente para atravesar un reinicio o un pico de la
+  // base, corto para que un bug determinístico no haga ruido durante horas
+  // antes de pasar a DEAD_LETTER. Un payload inválido NO consume esto: va a
+  // FAILED en el primer intento, como siempre.
+  INGEST_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  INGEST_BACKOFF_BASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30 * 1000),
+  // Techo del backoff, como OUTBOX_BACKOFF_MAX_MS: con 5 intentos y base de
+  // 30 s no se alcanza; existe para que subir INGEST_MAX_ATTEMPTS no produzca
+  // esperas de días por la duplicación.
+  INGEST_BACKOFF_MAX_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
+
   // Motor de eventos salientes (outbox) — P1 del roadmap. Mismo patrón que las
   // INGEST_* de arriba: declaradas acá con default explícito y sin aparecer en
   // .env.example, porque ninguna hace falta para arrancar. Se verificó que esa
