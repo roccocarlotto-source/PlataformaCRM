@@ -20,15 +20,29 @@ import { env } from "../config/env";
 // ninguna funcionalidad, y el costo de olvidarla es que el primer request de
 // ingesta que llegue deje una credencial viva en el log.
 //
+// x-external-id NO es una credencial pero SÍ puede ser PII — B-20 de
+// docs/auditoria-2026-08-29.md (B-3 del 21/08). Es el header por el que la
+// fuente identifica al lead en la capa de ingesta (ingest.controller.ts), y
+// ingestionEvent.repository.ts documenta que ese externalId "puede ser el
+// email del lead". Sin redactarlo, cada request a /api/ingest —o cualquier
+// error en esa ruta que pase por errorHandler— dejaba ese email en texto plano
+// en req.headers. Mismo tratamiento que x-api-key: se tapa el header, el dato
+// sigue entrando al sistema igual.
+//
 // LO QUE ESTO NO CUBRE, y hay que tener presente: `redact` opera sobre el
 // objeto ya serializado, y los serializers de pino-std-serializers escriben
 // también req.url, req.query y req.params. Una clave que viaje por querystring
 // NO se redacta — por eso la clave de ingesta va en un header y nunca en la
-// URL (ver utils/apiKey.ts).
+// URL (ver utils/apiKey.ts). Vale igual para la PII: `GET /api/contacts?email=…`
+// (un filtro real de contact.controller.ts) queda en req.url tal cual. Taparlo
+// exige un serializer propio que decida, por listado, qué query params son
+// PII — es la mitad grande de B-20, trackeada como B-3 del 21/08, y queda
+// fuera a propósito: acá solo se redacta el header.
 const REDACT_PATHS = [
   "req.headers.authorization",
   "req.headers.cookie",
   'req.headers["x-api-key"]',
+  'req.headers["x-external-id"]',
   'res.headers["set-cookie"]',
 ];
 const REDACT_CENSOR = "[REDACTED]";
