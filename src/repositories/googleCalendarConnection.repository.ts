@@ -216,7 +216,15 @@ export function markConnectionError(
 export function findConnectionByChannelId(channelId: string, db: Db = prisma) {
   return db.googleCalendarConnection.findUnique({
     where: { channelId },
-    select: { organizationId: true, branchId: true, syncToken: true },
+    select: {
+      organizationId: true,
+      branchId: true,
+      syncToken: true,
+      // La zona de la sucursal viaja con la conexión —B-6— para que la
+      // sincronización lea los eventos de día completo como medianoche de esa
+      // zona. Por la relación, en la misma consulta: sin un getBranchById aparte.
+      branch: { select: { timezone: true } },
+    },
   });
 }
 

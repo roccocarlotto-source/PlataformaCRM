@@ -1,3 +1,4 @@
+import { DateTime } from "luxon";
 import { env } from "../config/env";
 import { AppError } from "../utils/AppError";
 
@@ -70,21 +71,32 @@ const URL_FREEBUSY = "https://www.googleapis.com/calendar/v3/freeBusy";
 // el calendario del negocio es perfectamente posible —un feriado, una jornada
 // cerrada— y devolver `undefined` para esos haría que un cambio de horario sobre
 // uno se leyera como "sin horario" en vez de como un cambio.
-function leerInstante(campo?: { dateTime?: unknown; date?: unknown }): Date | undefined {
-  const crudo =
-    typeof campo?.dateTime === "string"
-      ? campo.dateTime
-      : typeof campo?.date === "string"
-        ? campo.date
-        : undefined;
-
-  if (!crudo) {
-    return undefined;
+//
+// LA ZONA ES DE LA SUCURSAL, y solo importa para `date` — B-6 de
+// docs/auditoria-2026-08-29.md. Un `dateTime` trae su propio offset o Z, así
+// que se parsea tal cual. Un `date` no trae hora: `new Date("2026-09-07")` lo
+// leía como medianoche UTC por la propia especificación de Date para fechas ISO
+// sin hora, sin importar dónde esté la sucursal, y en Buenos Aires eso son las
+// 21:00 del día anterior. El instante correcto es la MEDIANOCHE de ese día EN
+// la zona de la sucursal, con Luxon —la conversión a mano con Intl.DateTimeFormat
+// es fácil de hacer mal (offsets, DST), y workingHours.ts ya resuelve la misma
+// clase de problema con Luxon—. Una zona inválida da un DateTime inválido y se
+// devuelve `undefined`, igual que un dateTime ilegible.
+function leerInstante(
+  campo: { dateTime?: unknown; date?: unknown } | undefined,
+  zona: string,
+): Date | undefined {
+  if (typeof campo?.dateTime === "string") {
+    const fecha = new Date(campo.dateTime);
+    return Number.isNaN(fecha.getTime()) ? undefined : fecha;
   }
 
-  const fecha = new Date(crudo);
+  if (typeof campo?.date === "string") {
+    const medianoche = DateTime.fromISO(campo.date, { zone: zona });
+    return medianoche.isValid ? medianoche.toJSDate() : undefined;
+  }
 
-  return Number.isNaN(fecha.getTime()) ? undefined : fecha;
+  return undefined;
 }
 
 // events.insert / events.delete / events.watch / events.list operan sobre el
@@ -273,6 +285,11 @@ export interface ConsultaDeCambios {
   // 100 páginas cortaba antes de la última, nextSyncToken quedaba undefined y
   // cada notificación volvía a bajar 100 páginas sin converger jamás.
   timeMin?: string;
+  // La zona IANA de la SUCURSAL, para leer los eventos de día completo (que
+  // vienen como fecha sin hora) como medianoche de esa zona y no UTC — B-6.
+  // OBLIGATORIA, mismo criterio que ConsultaFreeBusy.timeZone: que TypeScript
+  // no deje pasar un caller que se olvide, en vez de asumir la del servidor.
+  timezone: string;
 }
 
 // Un evento tal como llega en una sincronización incremental. Solo los campos
@@ -746,7 +763,7 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
     // Los eventos CANCELADOS llegan solos en sync incremental —no hace falta
     // `showDeleted`— y son justamente los que este módulo necesita ver.
     // -----------------------------------------------------------------------
-    async listarCambios({ accessToken, calendarId, syncToken, timeMin }) {
+    async listarCambios({ accessToken, calendarId, syncToken, timeMin, timezone }) {
       // Guarda defensiva: Google responde 400 si vienen los dos, y ese 400 se
       // leería como un fallo de Google cuando es un bug nuestro. Mejor que
       // reviente acá, con el motivo.
@@ -822,8 +839,8 @@ export function crearClienteGoogleCalendar(config: ConfiguracionGoogle): Cliente
             eventos.push({
               id: evento.id,
               status: typeof evento.status === "string" ? evento.status : undefined,
-              inicio: leerInstante(evento.start),
-              fin: leerInstante(evento.end),
+              inicio: leerInstante(evento.start, timezone),
+              fin: leerInstante(evento.end, timezone),
             });
           }
         }

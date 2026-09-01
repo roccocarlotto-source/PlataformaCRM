@@ -138,6 +138,9 @@ interface Doble {
   // M-3: con qué timeMin se llamó a events.list en cada listado. Una
   // sincronización completa tiene que llevarlo; una incremental, no.
   listadosConTimeMin: (string | undefined)[];
+  // B-6: con qué zona se llamó en cada listado. Tiene que ser la de la
+  // SUCURSAL, en todos.
+  listadosConTimezone: string[];
 }
 
 function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
@@ -145,6 +148,7 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
   const canalesDetenidos: { channelId: string; resourceId: string }[] = [];
   const listadosConSyncToken: (string | undefined)[] = [];
   const listadosConTimeMin: (string | undefined)[] = [];
+  const listadosConTimezone: string[] = [];
   let yaFallo = false;
 
   const cliente: ClienteGoogleCalendar = {
@@ -184,6 +188,7 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
     listarCambios: (consulta) => {
       listadosConSyncToken.push(consulta.syncToken);
       listadosConTimeMin.push(consulta.timeMin);
+      listadosConTimezone.push(consulta.timezone);
 
       if (opciones.syncTokenVencido && !yaFallo && consulta.syncToken) {
         yaFallo = true;
@@ -197,7 +202,14 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
     },
   };
 
-  return { cliente, canalesCreados, canalesDetenidos, listadosConSyncToken, listadosConTimeMin };
+  return {
+    cliente,
+    canalesCreados,
+    canalesDetenidos,
+    listadosConSyncToken,
+    listadosConTimeMin,
+    listadosConTimezone,
+  };
 }
 
 // M-3: una sincronización completa se acota desde "ahora". El valor exacto no
@@ -1135,6 +1147,8 @@ test("B-16: findConnectionByChannelId devuelve solo organizationId, branchId y s
       organizationId: escenario.organizationId,
       branchId: escenario.branchId,
       syncToken: "sync-b16",
+      // B-6: la zona de la sucursal viaja con la conexión, y solo eso de branch.
+      branch: { timezone: TZ },
     });
     assert.ok(!("refreshToken" in conexion), "el secreto no viaja por el camino del webhook");
   } finally {
@@ -1160,6 +1174,35 @@ test("B-16: findConnectionsNeedingChannel devuelve solo lo que renovarCanal nece
       channelResourceId: null,
     });
     assert.ok(!("refreshToken" in filas[0]), "el secreto no viaja por el barrido del worker");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// B-6 de docs/auditoria-2026-08-29.md — la zona de la sucursal llega hasta
+// events.list. El bug vive en leerInstante (probado en
+// googleCalendar.service.test.ts); acá se prueba el cableado: la zona sale de
+// la fila por findConnectionByChannelId y sincronizar la pasa en LAS DOS
+// llamadas a listarCambios, la incremental y la completa tras un 410.
+// ---------------------------------------------------------------------------
+
+test("B-6: sincronizar pasa la zona de la SUCURSAL a listarCambios, también en la resincronización tras un 410", async () => {
+  const escenario = await montar("b6-zona");
+  try {
+    const canal = randomUUID();
+    await conectarGoogle(escenario, {
+      channelId: canal,
+      channelResourceId: "r-b6",
+      channelExpiration: new Date(Date.now() + 86400000),
+      syncToken: "vencido",
+    });
+
+    const doble = doblarGoogle({ syncTokenVencido: true });
+    await notificar(escenario, canal, doble);
+
+    assert.deepEqual(doble.listadosConSyncToken, ["vencido", undefined], "hubo 410 y reintento");
+    assert.deepEqual(doble.listadosConTimezone, [TZ, TZ], "la zona de la sucursal, en las dos");
   } finally {
     await desmontar(escenario);
   }

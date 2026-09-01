@@ -720,6 +720,7 @@ test("listarCambios devuelve los eventos y el syncToken de una sola página", as
   const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
     accessToken: "abc",
     calendarId: "primary",
+    timezone: "UTC",
     syncToken: "token-viejo",
   });
 
@@ -748,6 +749,7 @@ test("PAGINA hasta agotar nextPageToken y toma el syncToken de la ÚLTIMA págin
   const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
     accessToken: "abc",
     calendarId: "primary",
+    timezone: "UTC",
     syncToken: "token-viejo",
   });
 
@@ -772,6 +774,7 @@ test("si ninguna página trae nextSyncToken, no se inventa uno", async () => {
   const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
     accessToken: "abc",
     calendarId: "primary",
+    timezone: "UTC",
   });
 
   assert.equal(cambios.nextSyncToken, undefined);
@@ -783,6 +786,7 @@ test("una sincronización COMPLETA no manda syncToken", async () => {
   await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
     accessToken: "abc",
     calendarId: "primary",
+    timezone: "UTC",
   });
 
   assert.ok(!llamadas[0].url.includes("syncToken"));
@@ -801,6 +805,7 @@ test("un 410 lanza GoogleSyncTokenInvalidoError, distinguible de cualquier otro 
       crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
         accessToken: "abc",
         calendarId: "primary",
+        timezone: "UTC",
         syncToken: "vencido",
       }),
     (err: unknown) => err instanceof GoogleSyncTokenInvalidoError && err.statusCode === 410,
@@ -815,6 +820,7 @@ test("un evento CANCELADO llega con status cancelled y se preserva", async () =>
   const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
     accessToken: "abc",
     calendarId: "primary",
+    timezone: "UTC",
     syncToken: "t0",
   });
 
@@ -822,7 +828,11 @@ test("un evento CANCELADO llega con status cancelled y se preserva", async () =>
   assert.equal(cambios.eventos[0].inicio, undefined, "un evento borrado no trae horario");
 });
 
-test("un evento de DÍA COMPLETO (date en vez de dateTime) también se lee", async () => {
+test("un evento de DÍA COMPLETO (date en vez de dateTime) se lee como medianoche EN LA ZONA DE LA SUCURSAL", async () => {
+  // B-6 de docs/auditoria-2026-08-29.md: `new Date("2026-09-07")` es medianoche
+  // UTC por especificación, sin importar dónde esté la sucursal. En Buenos Aires
+  // (UTC-3, sin horario de verano) la medianoche del 7 es las 03:00Z del 7 — y
+  // la lectura vieja daba las 21:00 del 6, hora local.
   const { fetch } = mockearPaginas([
     {
       json: {
@@ -842,10 +852,28 @@ test("un evento de DÍA COMPLETO (date en vez de dateTime) también se lee", asy
   const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
     accessToken: "abc",
     calendarId: "primary",
+    timezone: "America/Argentina/Buenos_Aires",
     syncToken: "t0",
   });
 
-  assert.ok(cambios.eventos[0].inicio instanceof Date);
+  assert.equal(cambios.eventos[0].inicio?.toISOString(), "2026-09-07T03:00:00.000Z");
+  assert.equal(cambios.eventos[0].fin?.toISOString(), "2026-09-08T03:00:00.000Z");
+});
+
+test("un evento de DÍA COMPLETO con una zona inválida queda sin horario en vez de romper", async () => {
+  const { fetch } = mockearPaginas([
+    { json: { items: [{ id: "evt-dia", start: { date: "2026-09-07" } }], nextSyncToken: "t" } },
+  ]);
+
+  const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
+    accessToken: "abc",
+    calendarId: "primary",
+    timezone: "Marte/Olympus_Mons",
+    syncToken: "t0",
+  });
+
+  assert.equal(cambios.eventos[0].id, "evt-dia");
+  assert.equal(cambios.eventos[0].inicio, undefined);
 });
 
 test("un item sin id se descarta en vez de romper la lista", async () => {
@@ -856,6 +884,7 @@ test("un item sin id se descarta en vez de romper la lista", async () => {
   const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
     accessToken: "abc",
     calendarId: "primary",
+    timezone: "UTC",
     syncToken: "t0",
   });
 
@@ -878,6 +907,7 @@ test("una sincronización COMPLETA con timeMin lo manda en la URL, y no manda sy
   await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
     accessToken: "abc",
     calendarId: "primary",
+    timezone: "UTC",
     timeMin: TIME_MIN,
   });
 
@@ -892,6 +922,7 @@ test("una sincronización INCREMENTAL manda syncToken y no manda timeMin", async
   await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
     accessToken: "abc",
     calendarId: "primary",
+    timezone: "UTC",
     syncToken: "token-viejo",
   });
 
@@ -912,6 +943,7 @@ test("timeMin se repite en CADA página de una sincronización completa paginada
   const cambios = await crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
     accessToken: "abc",
     calendarId: "primary",
+    timezone: "UTC",
     timeMin: TIME_MIN,
   });
 
@@ -935,6 +967,7 @@ test("syncToken y timeMin juntos es un bug del llamador y revienta ANTES de pedi
     crearClienteGoogleCalendar({ ...CONFIG, fetch }).listarCambios({
       accessToken: "abc",
       calendarId: "primary",
+      timezone: "UTC",
       syncToken: "t0",
       timeMin: TIME_MIN,
     }),
