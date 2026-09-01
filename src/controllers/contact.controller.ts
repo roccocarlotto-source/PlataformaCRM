@@ -98,7 +98,7 @@ export const listContactsQuerySchema = z.object({
   // Tope de cordura, el mismo que ingestionEvent (S2-5) — B-21 de
   // docs/auditoria-2026-08-29.md: sin él, ?page=999999999 llega a Postgres
   // como un OFFSET gigante que igual hay que recorrer.
-  page: z.coerce.number().int().positive().max(10_000).default(1),
+  page: z.coerce.number().int().positive().default(1), // MUTACIÓN DE VERIFICACIÓN — NO MERGEAR
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   search: z.string().trim().min(1).optional(),
   firstName: z.string().trim().min(1).optional(),
