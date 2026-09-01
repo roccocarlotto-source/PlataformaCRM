@@ -355,15 +355,6 @@ export async function obtenerAccessToken(
   }
 
   const clave = claveDeCache(organizationId, branchId);
-  const cacheada = cacheDeTokens.get(clave);
-
-  if (
-    cacheada &&
-    cacheada.refreshTokenCifrado === conexion.refreshToken &&
-    cacheada.expiraEn > Date.now()
-  ) {
-    return { accessToken: cacheada.accessToken, calendarId: cacheada.calendarId };
-  }
 
   const refreshToken = getCifrador().decrypt(conexion.refreshToken);
 
