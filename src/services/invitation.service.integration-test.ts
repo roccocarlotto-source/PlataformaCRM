@@ -155,6 +155,9 @@ function assertAppError(err: unknown, statusCode: number, message: string): true
 // (confirmado empíricamente, `over_email_send_rate_limit` — ver
 // docs/project-overview.md secciones 8 y 9), así que no es seguro
 // ejercitarlo desde un test persistente que puede correrse repetidas veces.
+// Los tests de B-22, al final del archivo, ejercitan ese tramo SIN romper
+// esta restricción: sus caminos fallan en GoTrue antes de enviar ningún
+// email, o doblan el cliente — ninguna corrida gasta envíos reales.
 //
 // Las dos ramas de abajo sí son seguras: ambas lanzan su AppError antes de
 // que createInvitation llegue a insertar la fila de Invitation
@@ -629,6 +632,95 @@ test("B-18 (service, camino perezoso): aceptar una PENDING ya vencida da el 410 
 
   const fila = await prisma.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
   assert.equal(fila.status, "EXPIRED");
+});
+
+// ---------------------------------------------------------------------------
+// B-22 de docs/auditoria-2026-08-29.md — createInvitation traducía CUALQUIER
+// 422 de inviteUserByEmail a "email ya registrado" (409): status === 422 no
+// distingue el duplicado de las demás validaciones de GoTrue. La señal
+// correcta es error.code ("email_exists", verificado contra GoTrue real).
+//
+// CÓMO SE PRUEBA SIN GASTAR ENVÍOS DE EMAIL (la restricción del encabezado
+// sigue vigente): el caso real usa una identidad CONFIRMADA creada por la
+// Admin API — admin.createUser con email_confirm no envía mail, y el invite
+// posterior falla con email_exists ANTES de intentar enviar nada. Las ramas
+// que GoTrue real no permite gatillar de forma determinística (un 422 que no
+// es duplicado; un error sin code) se fuerzan doblando inviteUserByEmail en
+// el cliente singleton — mismo criterio que sinRolEnElCatalogo acá arriba y
+// que el doble de prisma.$transaction en onboarding (M-11 b): el error que
+// la rama decide es un dato de entrada, no hace falta un GoTrue roto de
+// verdad. No hizo falta un gancho de producción tipo antesDePromover (B-30):
+// aquel inyecta un fallo EN MEDIO de la transacción de un worker; acá la
+// frontera es una única llamada awaiteada sobre un singleton ya alcanzable
+// vía getSupabaseAdmin().
+// ---------------------------------------------------------------------------
+
+async function conInviteDoblado<T>(resultado: unknown, fn: () => Promise<T>): Promise<T> {
+  const adminApi = getSupabaseAdmin().auth.admin as unknown as { inviteUserByEmail: unknown };
+  const original = adminApi.inviteUserByEmail;
+  adminApi.inviteUserByEmail = async () => resultado;
+  try {
+    return await fn();
+  } finally {
+    adminApi.inviteUserByEmail = original;
+  }
+}
+
+test("B-22: email que ya es identidad confirmada (sin fila en public.users) → 409 real de GoTrue, y la Invitation queda compensada", async () => {
+  const invitee = await createRealAuthUser("b22-dup");
+  try {
+    await assert.rejects(
+      () => createInvitation(fx.orgId, fx.inviterId, { email: invitee.email, role: "USER" }),
+      (err) => assertAppError(err, 409, "Ese email ya está registrado en la plataforma"),
+    );
+    assert.equal(
+      await prisma.invitation.count({
+        where: { organizationId: fx.orgId, email: invitee.email },
+      }),
+      0,
+      "la Invitation creada antes de llamar a Supabase debe haberse compensado (hard delete)",
+    );
+  } finally {
+    await getSupabaseAdmin().auth.admin.deleteUser(invitee.id);
+  }
+});
+
+test("B-22: un 422 de GoTrue que NO es duplicado → 500 genérico, no el 409 falso de antes", async () => {
+  const email = `b22-422-no-dup-${randomUUID()}@example.test`;
+  await conInviteDoblado(
+    {
+      data: { user: null },
+      // Un 422 real de GoTrue por una validación ajena a duplicados: mismo
+      // status que email_exists, code y mensaje distintos. Antes del fix,
+      // status === 422 lo convertía en "Ese email ya está registrado".
+      error: { code: "validation_failed", status: 422, message: "Signups not allowed for otp" },
+    },
+    () =>
+      assert.rejects(
+        () => createInvitation(fx.orgId, fx.inviterId, { email, role: "USER" }),
+        (err) => assertAppError(err, 500, "No se pudo enviar la invitación"),
+      ),
+  );
+  assert.equal(
+    await prisma.invitation.count({ where: { organizationId: fx.orgId, email } }),
+    0,
+    "también en el camino 500 la Invitation debe haberse compensado",
+  );
+});
+
+test("B-22: error de duplicado SIN code pero con el mensaje clásico → 409 (señal secundaria conservadora)", async () => {
+  const email = `b22-sin-code-${randomUUID()}@example.test`;
+  await conInviteDoblado(
+    {
+      data: { user: null },
+      error: { status: 422, message: "A user with this email address has already been registered" },
+    },
+    () =>
+      assert.rejects(
+        () => createInvitation(fx.orgId, fx.inviterId, { email, role: "USER" }),
+        (err) => assertAppError(err, 409, "Ese email ya está registrado en la plataforma"),
+      ),
+  );
 });
 
 // El escenario COMPLETO del hallazgo —la fila vence ENTRE el pre-check y la
