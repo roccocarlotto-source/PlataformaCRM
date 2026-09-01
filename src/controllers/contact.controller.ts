@@ -92,8 +92,13 @@ export const updateContactSchema = z
     message: "Debe enviar al menos un campo para actualizar",
   });
 
-const listQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+// Exportado para probar su frontera sin base ni HTTP (B-21), mismo criterio
+// que createContactSchema/updateContactSchema con M-10.
+export const listContactsQuerySchema = z.object({
+  // Tope de cordura, el mismo que ingestionEvent (S2-5) — B-21 de
+  // docs/auditoria-2026-08-29.md: sin él, ?page=999999999 llega a Postgres
+  // como un OFFSET gigante que igual hay que recorrer.
+  page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   search: z.string().trim().min(1).optional(),
   firstName: z.string().trim().min(1).optional(),
@@ -117,7 +122,7 @@ export const createContactHandler = asyncHandler<AuthenticatedRequest>(
 
 export const listContactsHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
-    const query = parseOrThrow(listQuerySchema, req.query);
+    const query = parseOrThrow(listContactsQuerySchema, req.query);
     const result = await listContacts(req.auth.organizationId, query);
     res.status(200).json(result);
   },

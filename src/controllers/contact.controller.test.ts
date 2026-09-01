@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { createContactSchema, updateContactSchema } from "./contact.controller";
+import {
+  createContactSchema,
+  listContactsQuerySchema,
+  updateContactSchema,
+} from "./contact.controller";
 
 // M-10 (docs/auditoria-2026-08-29.md) — PATCH tiene que poder vaciar los
 // campos opcionales de Contact. email/phone/jobTitle/source/companyId eran
@@ -61,4 +65,33 @@ test("M-10: ownerId/firstName/lastName/lifecycleStage NO admiten null en update"
       `${campo}: null no es parte de M-10`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// B-21 (docs/auditoria-2026-08-29.md) — `page` con tope, igual que `pageSize`.
+// Sin `.max()`, ?page=999999999 se aceptaba y llegaba a Postgres como un
+// OFFSET gigante que el motor igual recorre. Mismo 10.000 que ingestionEvent
+// (S2-5). Sin base y sin HTTP: la frontera del schema, como M-10.
+// ---------------------------------------------------------------------------
+
+test("B-21: page por encima de 10.000 se rechaza", () => {
+  const resultado = listContactsQuerySchema.safeParse({ page: "10001" });
+  assert.equal(resultado.success, false);
+  assert.ok(
+    !resultado.success && resultado.error.issues.some((i) => i.path[0] === "page"),
+    "el rechazo tiene que ser por page, no por otro campo",
+  );
+});
+
+test("B-21: page = 10.000 exacto sigue siendo válido (el borde no se corrió de más)", () => {
+  const resultado = listContactsQuerySchema.safeParse({ page: "10000" });
+  assert.equal(resultado.success, true);
+  assert.equal(resultado.success && resultado.data.page, 10_000);
+});
+
+// El criterio que ya existía para pageSize, como referencia de que page ahora
+// se trata igual.
+test("B-21: pageSize por encima de 100 se sigue rechazando", () => {
+  assert.equal(listContactsQuerySchema.safeParse({ pageSize: "101" }).success, false);
+  assert.equal(listContactsQuerySchema.safeParse({ pageSize: "100" }).success, true);
 });
