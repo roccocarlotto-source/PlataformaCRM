@@ -97,6 +97,20 @@ export interface DatosDeConexion {
 // haría que una conexión sana se leyera como una rota. connectedAt se pisa con
 // la fecha de ESTA autorización; createdAt no se toca, así que sigue diciendo
 // cuándo esta sucursal conectó Google por primera vez.
+//
+// Y TAMBIÉN LIMPIA syncToken Y EL CANAL — B-3 de docs/auditoria-2026-08-29.md.
+// El callback de OAuth no tiene forma de saber si la cuenta que acaba de
+// autorizar es la misma de la vez anterior (completarConexion usa siempre
+// calendarId "primary"), así que toda reconexión se trata como un calendario
+// potencialmente distinto — lo único que se puede asumir con seguridad. Antes,
+// reconectar con OTRA cuenta dejaba en la fila el estado de sincronización de
+// la cuenta vieja, con dos consecuencias reales: el syncToken ajeno producía un
+// 410 en el primer sync (recuperable, pero un viaje de más a Google), y el
+// canal viejo era peor — findConnectionsNeedingChannel veía un channelId con
+// una channelExpiration lejana y NO abría canal para la cuenta nueva hasta que
+// venciera el viejo: hasta 7 días sin notificaciones push tras reconectar.
+// Los tres campos del canal van juntos, como exige el CHECK
+// channel_all_or_none_check; en el create son un no-op (ya nacen NULL).
 // ---------------------------------------------------------------------------
 export function upsertConnection(datos: DatosDeConexion, db: Db = prisma) {
   const comun = {
@@ -106,6 +120,10 @@ export function upsertConnection(datos: DatosDeConexion, db: Db = prisma) {
     lastErrorAt: null,
     lastErrorMessage: null,
     connectedAt: new Date(),
+    syncToken: null,
+    channelId: null,
+    channelResourceId: null,
+    channelExpiration: null,
   };
 
   return db.googleCalendarConnection.upsert({
@@ -123,6 +141,17 @@ export function upsertConnection(datos: DatosDeConexion, db: Db = prisma) {
 // volcado de la base arrastra secretos de sucursales que ya se desconectaron. El
 // CHECK de la migración permite el NULL justamente en los estados que no son
 // ACTIVE.
+//
+// TAMBIÉN syncToken Y EL CANAL VAN A NULL — B-3. El syncToken es lo que pide el
+// hallazgo: es estado del calendario de la cuenta que se acaba de desconectar,
+// y dejarlo haría que una reconexión futura arranque con un token ajeno (410).
+// El canal se limpia acá ADEMÁS de en clearConnectionChannel —que desconectar()
+// llama justo después, así que hoy es redundante— por el mismo criterio de todo
+// este ciclo de auditoría: la escritura misma es la garantía. "REVOKED" queda
+// definido por esta única función como "sin credencial y sin ningún estado de
+// la cuenta" sin depender de que el próximo caller, si alguna vez hay otro, se
+// acuerde de llamar también a clearConnectionChannel. Los tres campos del canal
+// juntos, por el CHECK channel_all_or_none_check.
 export function markConnectionRevoked(branchId: string, organizationId: string, db: Db = prisma) {
   return db.googleCalendarConnection.updateMany({
     where: { branchId, organizationId },
@@ -131,6 +160,10 @@ export function markConnectionRevoked(branchId: string, organizationId: string, 
       refreshToken: null,
       lastErrorAt: null,
       lastErrorMessage: null,
+      syncToken: null,
+      channelId: null,
+      channelResourceId: null,
+      channelExpiration: null,
     },
   });
 }
