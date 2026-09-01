@@ -128,6 +128,12 @@ interface OpcionesDelDoble {
   // segunda: es exactamente la secuencia de un 410 seguido de resincronización.
   syncTokenVencido?: boolean;
   expiration?: Date;
+  // B-7: se llama cuando el service YA LLEGÓ a Google a crear el canal, antes
+  // de que el doble responda. Es lo que le da al test la ventana entre la
+  // lectura de la conexión y la escritura del canal: puede desconectar de
+  // verdad ahí y recién después soltar la respuesta. Misma técnica que
+  // `alCrearEvento` en booking.integration-test.ts (M-2).
+  alCrearCanal?: () => Promise<void> | void;
 }
 
 interface Doble {
@@ -167,17 +173,18 @@ function doblarGoogle(opciones: OpcionesDelDoble = {}): Doble {
     crearEvento: () => Promise.resolve("evt-nuevo"),
     eliminarEvento: () => Promise.resolve(),
 
-    crearCanalDeNotificaciones: (canal) => {
+    crearCanalDeNotificaciones: async (canal) => {
       canalesCreados.push({
         channelId: canal.channelId,
         token: canal.token,
         address: canal.address,
       });
-      return Promise.resolve({
+      await opciones.alCrearCanal?.();
+      return {
         channelId: canal.channelId,
         resourceId: `recurso-de-${canal.channelId.slice(0, 8)}`,
         expiration: opciones.expiration ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      });
+      };
     },
 
     detenerCanal: (canal) => {
@@ -1203,6 +1210,57 @@ test("B-6: sincronizar pasa la zona de la SUCURSAL a listarCambios, también en 
 
     assert.deepEqual(doble.listadosConSyncToken, ["vencido", undefined], "hubo 410 y reintento");
     assert.deepEqual(doble.listadosConTimezone, [TZ, TZ], "la zona de la sucursal, en las dos");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// B-7 de docs/auditoria-2026-08-29.md — la carrera entre renovar el canal y
+// desconectar. renovarCanal lee la conexión (obtenerAccessToken valida ACTIVE),
+// va a Google a crear el canal, y recién después escribe la fila. Si
+// desconectar() corre en el medio, la escritura vieja pisaba una fila REVOKED
+// con un canal que nadie iba a renovar ni cerrar hasta vencer.
+//
+// La ventana se fuerza sin timing real: el doble desconecta DE VERDAD desde
+// adentro de crearCanalDeNotificaciones, antes de responder — así el guard se
+// ejercita con la fila ya cambiada en la base.
+// ---------------------------------------------------------------------------
+
+test("B-7: si la sucursal se desconecta mientras Google crea el canal, no se pisa la fila REVOKED, el canal huérfano se cierra y renovarCanal falla", async () => {
+  const escenario = await montar("b7-carrera");
+  try {
+    await conectarGoogle(escenario);
+
+    const doble: Doble = doblarGoogle({
+      alCrearCanal: () => desconectar(escenario.organizationId, escenario.branchId, doble.cliente),
+    });
+
+    const antes = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(antes.status, "ACTIVE");
+    assert.equal(antes.channelId, null);
+
+    assertAppError(await capturar(() => renovarCanal(antes, doble.cliente)), 409);
+
+    const despues = await prisma.googleCalendarConnection.findFirstOrThrow({
+      where: { branchId: escenario.branchId },
+    });
+    assert.equal(despues.status, "REVOKED", "desconectar corrió en el medio");
+    assert.equal(despues.channelId, null, "la escritura NO pisó la fila REVOKED");
+    assert.equal(despues.channelResourceId, null);
+    assert.equal(despues.channelExpiration, null);
+
+    // Google sí llegó a crear el canal, y ese mismo canal se cerró: no queda
+    // ninguno vivo hasta vencer.
+    assert.equal(doble.canalesCreados.length, 1);
+    assert.deepEqual(doble.canalesDetenidos, [
+      {
+        channelId: doble.canalesCreados[0].channelId,
+        resourceId: `recurso-de-${doble.canalesCreados[0].channelId.slice(0, 8)}`,
+      },
+    ]);
   } finally {
     await desmontar(escenario);
   }

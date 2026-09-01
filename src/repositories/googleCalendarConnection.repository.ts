@@ -281,6 +281,15 @@ export interface DatosDeCanal {
 // Guarda el canal recién creado. Los tres campos van JUNTOS — el CHECK de la
 // migración lo exige, y el motivo es que un canal a medias es inutilizable de
 // forma silenciosa (sin resourceId no se puede detener nunca).
+//
+// SOLO SOBRE UNA CONEXIÓN ACTIVE — B-7 de docs/auditoria-2026-08-29.md. Entre
+// que renovarCanal leyó la conexión (y obtenerAccessToken validó el status) y
+// que llega acá hay una llamada a Google en el medio; si desconectar() corrió
+// en esa ventana, la fila ya es REVOKED y escribirle el canal la dejaría con
+// uno que nadie renueva ni cierra hasta vencer (findConnectionsNeedingChannel
+// solo mira ACTIVE). La escritura misma es la garantía, no la lectura de
+// arriba — mismo criterio que B-12 y B-27. Devuelve `count`: 0 significa que
+// la conexión dejó de estar activa y el caller tiene que reaccionar.
 export function setConnectionChannel(
   branchId: string,
   organizationId: string,
@@ -288,7 +297,7 @@ export function setConnectionChannel(
   db: Db = prisma,
 ) {
   return db.googleCalendarConnection.updateMany({
-    where: { branchId, organizationId },
+    where: { branchId, organizationId, status: "ACTIVE" },
     data: {
       channelId: datos.channelId,
       channelResourceId: datos.channelResourceId,

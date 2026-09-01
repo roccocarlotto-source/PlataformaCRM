@@ -674,11 +674,43 @@ export async function renovarCanal(
     ttlSegundos: env.GOOGLE_CHANNEL_TTL_SECONDS,
   });
 
-  await setConnectionChannel(branchId, organizationId, {
+  const guardado = await setConnectionChannel(branchId, organizationId, {
     channelId: creado.channelId,
     channelResourceId: creado.resourceId,
     channelExpiration: creado.expiration,
   });
+
+  // B-7 de docs/auditoria-2026-08-29.md: la conexión dejó de estar ACTIVE
+  // mientras se creaba el canal en Google (desconectar() o markConnectionError
+  // corrieron en esa ventana), y setConnectionChannel no escribió nada. El
+  // canal que se acaba de abrir quedó huérfano: no está en ninguna fila, así
+  // que nadie lo va a renovar ni cerrar hasta que venza. Se cierra acá,
+  // best-effort y DIRECTO contra el cliente con el accessToken que ya está en
+  // scope — detenerCanalDeConexion no sirve para esto: pasa por
+  // obtenerAccessToken, que con la fila ya fuera de ACTIVE rebota en 409 y no
+  // cerraría nada. Y se LANZA, no se traga: renovarCanal no es una de las
+  // funciones "nunca lanzan" de este archivo, y el worker atrapa por conexión —
+  // así lo cuenta como fallido en vez de loguear "creado o renovado" sobre una
+  // conexión que ya no lo está.
+  if (guardado.count !== 1) {
+    try {
+      await resolverCliente(cliente).detenerCanal({
+        accessToken,
+        channelId: creado.channelId,
+        resourceId: creado.resourceId,
+      });
+    } catch (err) {
+      logger.warn(
+        { err, organizationId, branchId, channelId: creado.channelId },
+        "La conexión dejó de estar activa mientras se creaba el canal y no se pudo cerrar el canal huérfano; queda vivo hasta vencer",
+      );
+    }
+
+    throw new AppError(
+      "La conexión de esta sucursal con Google Calendar dejó de estar activa mientras se renovaba el canal; el canal creado se cerró y no se guardó",
+      409,
+    );
+  }
 
   // Recién ahora el viejo, y solo si había uno. Best-effort.
   if (conexion.channelId && conexion.channelResourceId) {
