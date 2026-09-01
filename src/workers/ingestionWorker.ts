@@ -1,11 +1,8 @@
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { prisma, type Db } from "../lib/prisma";
-import { describirError, resolverFallo } from "../utils/backoff";
 import {
   claimNextPendingEvent,
-  markIngestionEventDeadLetter,
-  rescheduleIngestionEvent,
   type EventoReclamado,
 } from "../repositories/ingestionEvent.repository";
 import { promoverEvento, type ResultadoPromocion } from "../services/promotion.service";
@@ -148,53 +145,12 @@ export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<
       // es justamente lo que está caído, registrar el intento también falla —
       // se loguea y la fila queda como quedaba antes de B-30 (PENDING, sin
       // contar), que es el mejor comportamiento disponible en ese estado.
-      const lastError = describirError(err);
-      const resolucion = resolverFallo(reclamado.attempts, new Date(), {
-        maxIntentos: env.INGEST_MAX_ATTEMPTS,
-        backoff: { baseMs: env.INGEST_BACKOFF_BASE_MS, topeMs: env.INGEST_BACKOFF_MAX_MS },
-      });
-
-      try {
-        if (resolucion.estado === "DEAD_LETTER") {
-          await markIngestionEventDeadLetter(reclamado.id, reclamado.organizationId, {
-            attempts: resolucion.attempts,
-            lastError,
-          });
-          // La fila dejó PENDING: no hace falta posponerla, el reclamo ya no
-          // la puede elegir.
-          resumen.muertos++;
-          logger.error(
-            { err, eventoId: reclamado.id, attempts: resolucion.attempts },
-            "Error de sistema al promover un evento de ingesta: agotó sus reintentos y pasa a DEAD_LETTER",
-          );
-          continue;
-        }
-
-        await rescheduleIngestionEvent(reclamado.id, reclamado.organizationId, {
-          attempts: resolucion.attempts,
-          // No puede ser null en esta rama; el tipo lo permite porque la rama
-          // DEAD_LETTER comparte la forma del resultado.
-          nextAttemptAt: resolucion.nextAttemptAt ?? new Date(),
-          lastError,
-        });
-      } catch (errContable) {
-        logger.error(
-          { err: errContable, eventoId: reclamado.id },
-          "No se pudo registrar el intento fallido del evento de ingesta; queda en PENDING sin contar",
-        );
-      }
-
-      // Se pospone en vez de marcarse FAILED, y la diferencia importa: FAILED
-      // es terminal y nadie reintenta, así que marcar así un corte de red
-      // perdería el evento para siempre. Con nextAttemptAt en el futuro el
-      // WHERE del reclamo ya la excluye en la PRÓXIMA pasada; la lista en
-      // memoria sigue evitando que ESTA misma pasada la vuelva a elegir si el
-      // backoff configurado fuera muy corto.
+      // MUTACIÓN 2 — NO MERGEAR: sin contabilización (comportamiento pre-B-30)
       resumen.pospuestos++;
       pospuestos.push(reclamado.id);
       logger.error(
-        { err, eventoId: reclamado.id, attempts: resolucion.attempts },
-        "Error de sistema al promover un evento de ingesta: queda en PENDING para reintentar con backoff",
+        { err, eventoId: reclamado.id },
+        "Error de sistema al promover un evento de ingesta: queda en PENDING para reintentar",
       );
       continue;
     }
