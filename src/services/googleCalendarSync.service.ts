@@ -275,12 +275,6 @@ async function sincronizar(
 // Un movimiento real en Google es de minutos, nunca de menos de un segundo, así
 // que la tolerancia no puede tapar uno.
 // ---------------------------------------------------------------------------
-const TOLERANCIA_DE_INSTANTE_MS = 1000;
-
-function sonOtroHorario(enGoogle: Date, enElCrm: Date): boolean {
-  return Math.abs(enGoogle.getTime() - enElCrm.getTime()) >= TOLERANCIA_DE_INSTANTE_MS;
-}
-
 // ---------------------------------------------------------------------------
 // Un evento cambiado, contra el Booking que lo refleje (si hay alguno).
 // ---------------------------------------------------------------------------
@@ -334,8 +328,8 @@ async function aplicarCambio(
   // MOVIDO EN GOOGLE -> solo se registra. Ver el encabezado del archivo.
   // -------------------------------------------------------------------------
   const cambioDeHorario =
-    (evento.inicio && sonOtroHorario(evento.inicio, booking.startsAt)) ||
-    (evento.fin && sonOtroHorario(evento.fin, booking.endsAt));
+    (evento.inicio && evento.inicio.getTime() !== booking.startsAt.getTime()) ||
+    (evento.fin && evento.fin.getTime() !== booking.endsAt.getTime());
 
   if (cambioDeHorario) {
     logger.warn(
