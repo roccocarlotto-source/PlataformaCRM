@@ -42,7 +42,7 @@ const REDACT_PATHS = [
   "req.headers.authorization",
   "req.headers.cookie",
   'req.headers["x-api-key"]',
-  'req.headers["x-external-id"]',
+  // MUTACIÓN DE VERIFICACIÓN — NO MERGEAR: sin x-external-id
   'res.headers["set-cookie"]',
 ];
 const REDACT_CENSOR = "[REDACTED]";
