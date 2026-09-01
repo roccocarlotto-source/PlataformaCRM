@@ -70,7 +70,8 @@ export const updateStageSchema = z
   });
 
 const listQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+  // Tope de cordura, el mismo que ingestionEvent (S2-5) — B-21.
+  page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   pipelineId: z.string().uuid("pipelineId inválido").optional(),
   search: z.string().trim().min(1).optional(),

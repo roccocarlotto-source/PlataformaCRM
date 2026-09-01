@@ -12,7 +12,10 @@ const createApiKeySchema = z.object({
 });
 
 const listQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+  // Tope de cordura, el mismo que ingestionEvent (S2-5) — B-21 de
+  // docs/auditoria-2026-08-29.md: sin él, ?page=999999999 llega a Postgres
+  // como un OFFSET gigante que igual hay que recorrer.
+  page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   sourceId: z.string().uuid("sourceId inválido").optional(),
   // Estado derivado de revokedAt, no una columna. Sin filtro se listan las

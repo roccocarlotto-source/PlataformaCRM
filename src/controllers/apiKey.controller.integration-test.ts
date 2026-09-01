@@ -452,3 +452,24 @@ test("una Source pausada (isActive: false) sigue aceptando claves nuevas", async
   });
   assert.equal(creada.status, 201, "pausar la ingesta no debe impedir rotar credenciales");
 });
+
+// ---------------------------------------------------------------------------
+// B-21 (docs/auditoria-2026-08-29.md) — `page` con tope, por HTTP real: la
+// cadena completa parseOrThrow → errorHandler → 400. Mismo patrón que el test
+// "pageSize por encima del máximo da 400" de ingestionEvent (S2-5).
+// ---------------------------------------------------------------------------
+
+test("B-21: GET /api/api-keys?page=10001 da 400 — page tiene tope, igual que pageSize", async () => {
+  const res = await call("GET", "/api/api-keys?page=10001", fx.adminA.accessToken);
+  assert.equal(res.status, 400);
+  const texto = await res.text();
+  assert.ok(texto.includes("10000"), `el mensaje tiene que nombrar el tope: ${texto}`);
+});
+
+test("B-21: GET /api/api-keys?page=10000 exacto sigue siendo válido", async () => {
+  const res = await call("GET", "/api/api-keys?page=10000", fx.adminA.accessToken);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { data: unknown[]; pagination: { page: number } };
+  assert.equal(body.pagination.page, 10_000);
+  assert.deepEqual(body.data, [], "una página que nadie tiene: vacía, no un error");
+});

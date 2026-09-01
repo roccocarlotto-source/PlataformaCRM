@@ -15,7 +15,8 @@ const roleSchema = z.enum(["ADMIN", "USER"]);
 const booleanQueryParam = z.enum(["true", "false"]).transform((v) => v === "true");
 
 const listQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+  // Tope de cordura, el mismo que ingestionEvent (S2-5) — B-21.
+  page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   role: roleSchema.optional(),
   isActive: booleanQueryParam.optional(),
