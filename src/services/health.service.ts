@@ -1,4 +1,3 @@
-import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 
 export interface HealthStatus {
@@ -31,10 +30,7 @@ export async function checkHealth(): Promise<HealthStatus> {
     // primer campo del payload es la convención de errorHandler y los workers.
     // Lo que NO cambia acá: rate limit y el costo del SELECT 1 por llamada son
     // M-17, otro hallazgo.
-    logger.error(
-      { err },
-      "El chequeo de salud contra la base falló: /health responde 503 hasta que la base vuelva",
-    );
+    void err; // MUTACIÓN DE VERIFICACIÓN — NO MERGEAR: sin logger.error
     database = "error";
   }
 
