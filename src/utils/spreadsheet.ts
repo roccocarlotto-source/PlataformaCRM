@@ -149,7 +149,24 @@ function armarFila(encabezados: string[], celdas: unknown[]): FilaCruda {
     if (encabezado === "") {
       return; // columna sin nombre: se ignora, ver validarEncabezados
     }
-    fila[encabezado] = normalizarCelda(celdas[i]);
+    // defineProperty Y NO `fila[encabezado] = …` — B-28 de
+    // docs/auditoria-2026-08-29.md. Sobre un objeto normal, la asignación con
+    // la clave literal "__proto__" no crea una propiedad: dispara el setter
+    // heredado de Object.prototype y esa columna se pierde en silencio para
+    // TODAS las filas del archivo. defineProperty crea la propiedad propia
+    // siempre, sea cual sea el nombre. Se eligió esto y no un objeto sin
+    // prototipo (Object.create(null), como en canonicalize) porque esta fila
+    // NO es local: es el rawPayload que viaja a Prisma como JSONB y que
+    // promotion.service.ts vuelve a leer — cambiarle el prototipo es un riesgo
+    // más difuso que el propio hallazgo. Enumerable/writable/configurable
+    // como una propiedad común: para Object.values, JSON.stringify y quien
+    // lea la fila después, no hay diferencia con una asignación.
+    Object.defineProperty(fila, encabezado, {
+      value: normalizarCelda(celdas[i]),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   });
   return fila;
 }
