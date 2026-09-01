@@ -354,21 +354,33 @@ test("la MISMA hora local produce distinto UTC antes y después del cambio de ho
 });
 
 test("en Santiago (hemisferio sur) el cambio de hora también se refleja", () => {
-  // Chile mueve el reloj en septiembre (invierno -> verano austral).
+  // Chile mueve el reloj hacia el verano austral en la zona de septiembre.
+  //
+  // B-33: las fechas comparadas están DELIBERADAMENTE lejos del cambio — un
+  // lunes de invierno profundo (6/7) contra uno de verano profundo (7/12). La
+  // versión original comparaba 31/8 contra 14/9, apostando a que el decreto
+  // anual chileno cayera dentro de esa ventana de dos semanas (no hay ley de
+  // fecha fija: se publica año a año, y ya se movió en el pasado). En 2026
+  // acertó —quedó fijado para la noche del 5 al 6 de septiembre—, pero un
+  // decreto corrido una semana fuera de la ventana hacía fallar el test sin
+  // ningún bug del código. Con invierno y verano profundos, cualquier fecha
+  // plausible del decreto (Chile adelanta por agosto-octubre y retrocede por
+  // abril) queda ENTRE las dos fechas, y el test prueba exactamente lo mismo:
+  // que el offset UTC cambia entre estaciones.
   const franjas = [LUNES_9_A_13];
 
   const antes = expandirFranjas({
     franjas,
     zona: SANTIAGO,
-    desde: new Date("2026-08-31T00:00:00Z"),
-    hasta: new Date("2026-09-01T00:00:00Z"),
+    desde: new Date("2026-07-06T00:00:00Z"),
+    hasta: new Date("2026-07-07T00:00:00Z"),
   });
 
   const despues = expandirFranjas({
     franjas,
     zona: SANTIAGO,
-    desde: new Date("2026-09-14T00:00:00Z"),
-    hasta: new Date("2026-09-15T00:00:00Z"),
+    desde: new Date("2026-12-07T00:00:00Z"),
+    hasta: new Date("2026-12-08T00:00:00Z"),
   });
 
   assert.equal(antes.length, 1);
