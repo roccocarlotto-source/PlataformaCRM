@@ -155,12 +155,27 @@ export async function createInvitation(
     }
 
     // Límite real de la plataforma: el email de auth.users es único en todo
-    // el proyecto de Supabase, no por organización — invitar un email que
-    // ya es identidad de Supabase (miembro de otra organización, u otra
-    // invitación en curso en otra organización) falla acá, no antes.
+    // el proyecto de Supabase, no por organización. Lo que falla acá — y no
+    // antes — es invitar un email que ya es identidad CONFIRMADA sin fila en
+    // public.users (quedó de un registro compensado, o de un usuario borrado
+    // de public.users; un miembro vivo de otra organización lo ataja
+    // findUserByEmail más arriba). Una identidad SIN confirmar con otra
+    // invitación en curso no falla: GoTrue reenvía el invite y devuelve
+    // éxito — verificado contra GoTrue real (B-22).
+    //
+    // B-22: la señal primaria es error.code — "email_exists" es lo que
+    // devuelve GoTrue real para este caso (verificado empíricamente, 2.x).
+    // Antes se decidía por status === 422, pero GoTrue responde 422 para
+    // varias validaciones que no son duplicado, y cualquiera de ellas se
+    // convertía en un 409 falso para el ADMIN. El regex sobre message queda
+    // como señal secundaria conservadora, por si algún GoTrue viejo no
+    // mandara code en este camino — con el "been" opcional, porque el
+    // mensaje real es "already been registered" y el regex heredado, sin
+    // esa palabra, no lo matcheaba nunca: la señal de mensaje estaba
+    // muerta y solo decidía el status.
     const isDuplicate =
-      authError?.status === 422 ||
-      /already registered|already exists/i.test(authError?.message ?? "");
+      authError?.code === "email_exists" ||
+      /already (been )?registered|already exists/i.test(authError?.message ?? "");
 
     if (isDuplicate) {
       throw new AppError("Ese email ya está registrado en la plataforma", 409);

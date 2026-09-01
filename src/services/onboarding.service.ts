@@ -109,6 +109,16 @@ export async function requestOnboardingOtp(input: RequestOnboardingOtpInput): Pr
     // distinguir "usuario inexistente" de "demasiados intentos", y eso es
     // justamente lo que no queremos devolverle a un endpoint público.
     logger.error({ err: error }, "Error emitiendo el código de verificación de registro");
+
+    // B-22: la única excepción es el rate limit de envío de email — el 429
+    // real que GoTrue ya mostró E2E (over_email_send_rate_limit, ver
+    // docs/project-overview.md). No abre el oráculo que el comentario de
+    // arriba protege: el rate limit no depende de si la cuenta existe, y un
+    // cliente que lo recibe tiene que hacer backoff, no reintentar contra
+    // un 502 como si el servidor estuviera roto.
+    if (error.code === "over_email_send_rate_limit") {
+      throw new AppError("Demasiados intentos. Esperá antes de volver a pedir el código.", 429);
+    }
     throw new AppError("No se pudo enviar el código de verificación. Probá de nuevo.", 502);
   }
 }

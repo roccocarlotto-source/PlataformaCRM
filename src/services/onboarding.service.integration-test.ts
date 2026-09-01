@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mock, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import { getSupabaseAnon } from "../lib/supabaseAnon";
 import { AppError } from "../utils/AppError";
 import { onboardOrganization, requestOnboardingOtp } from "./onboarding.service";
 
@@ -444,4 +445,71 @@ test("M-11 b: sin el rol ADMIN en la base, onboardOrganization lanza un AppError
     transaccion.mock.restore();
     await limpiar(email);
   }
+});
+
+// ---------------------------------------------------------------------------
+// B-22 de docs/auditoria-2026-08-29.md — requestOnboardingOtp aplastaba TODO
+// error de signInWithOtp en el 502 genérico, incluido el 429 real de
+// over_email_send_rate_limit (el mismo que ya se observó E2E, ver
+// docs/project-overview.md): un cliente rate-limiteado tiene que hacer
+// backoff, no reintentar contra un "error de servidor".
+//
+// Gatillar el rate limit REAL sería lento y no determinístico (depende del
+// contador de envíos de GoTrue, compartido por toda la suite), así que el
+// error se dobla en el cliente singleton — mismo criterio que el doble de
+// prisma.$transaction de M-11 b acá arriba: la rama decide sobre el error
+// que recibe, no hace falta producir la condición de verdad. Sin gancho de
+// producción: getSupabaseAnon() ya expone el singleton que usa el service.
+// ---------------------------------------------------------------------------
+
+async function conSignInWithOtpDoblado<T>(error: unknown, fn: () => Promise<T>): Promise<T> {
+  const auth = getSupabaseAnon().auth as unknown as { signInWithOtp: unknown };
+  const original = auth.signInWithOtp;
+  auth.signInWithOtp = async () => ({ data: { user: null, session: null }, error });
+  try {
+    return await fn();
+  } finally {
+    auth.signInWithOtp = original;
+  }
+}
+
+test("B-22: over_email_send_rate_limit en signInWithOtp → 429 con mensaje de backoff, no el 502 genérico", async () => {
+  await conSignInWithOtpDoblado(
+    {
+      code: "over_email_send_rate_limit",
+      status: 429,
+      message: "For security purposes, you can only request this once every 60 seconds",
+    },
+    () =>
+      assert.rejects(
+        () => requestOnboardingOtp({ email: emailDePrueba("b22-rate-limit") }),
+        (err) => {
+          assert.ok(err instanceof AppError, "debe ser AppError, no un error crudo");
+          assert.equal(err.statusCode, 429);
+          assert.equal(
+            err.message,
+            "Demasiados intentos. Esperá antes de volver a pedir el código.",
+          );
+          return true;
+        },
+      ),
+  );
+});
+
+test("B-22: cualquier otro error de signInWithOtp sigue en el 502 genérico, sin filtrar el motivo real", async () => {
+  await conSignInWithOtpDoblado(
+    // Un error cuyo mensaje distingue algo que el endpoint público no debe
+    // revelar — la respuesta tiene que seguir siendo la genérica de siempre.
+    { code: "unexpected_failure", status: 500, message: "Database error finding user" },
+    () =>
+      assert.rejects(
+        () => requestOnboardingOtp({ email: emailDePrueba("b22-otro-error") }),
+        (err) => {
+          assert.ok(err instanceof AppError, "debe ser AppError, no un error crudo");
+          assert.equal(err.statusCode, 502);
+          assert.equal(err.message, "No se pudo enviar el código de verificación. Probá de nuevo.");
+          return true;
+        },
+      ),
+  );
 });
