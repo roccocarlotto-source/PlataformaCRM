@@ -788,7 +788,19 @@ from (
     'ninguno'
   from (values
     ('bookings_organization_id_google_event_id_idx',
-     'CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)')
+     'CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)'),
+    -- B-14 (docs/auditoria-2026-08-29.md): los índices de las COLAS. Si se
+    -- pierden, los reclamos degradan a seq scan sin ningún error — la clase de
+    -- regresión que solo este chequeo ve. El de ingestion_events es además el
+    -- caso que motivó el hallazgo: cambió de forma con B-30 (migración
+    -- 20260902130000, de (created_at) a la expresión con coalesce) y hasta
+    -- esta fila nadie afirmaba ni la forma vieja ni la nueva.
+    ('ingestion_events_pending_created_at_idx',
+     'CREATE INDEX ingestion_events_pending_created_at_idx ON public.ingestion_events USING btree (COALESCE(next_attempt_at, created_at)) WHERE (status = ''PENDING''::"IngestionStatus")'),
+    ('outbox_events_claimable_idx',
+     'CREATE INDEX outbox_events_claimable_idx ON public.outbox_events USING btree (COALESCE(next_attempt_at, created_at)) WHERE (status = ''PENDING''::"OutboxStatus")'),
+    ('sources_org_created_at_idx',
+     'CREATE INDEX sources_org_created_at_idx ON public.sources USING btree (organization_id, created_at) WHERE (deleted_at IS NULL)')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def
