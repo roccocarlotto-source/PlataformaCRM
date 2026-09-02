@@ -816,6 +816,49 @@ from (
      or lower(regexp_replace(regexp_replace(regexp_replace(a.def, '::(character varying|text|numeric|bpchar|uuid|integer|bigint|boolean|date|jsonb|"[^"]+")', '', 'g'), 'public\.', '', 'gi'), '[\s()]', '', 'g'))
       <> lower(regexp_replace(regexp_replace(regexp_replace(e.esperado, '::(character varying|text|numeric|bpchar|uuid|integer|bigint|boolean|date|jsonb|"[^"]+")', '', 'g'), 'public\.', '', 'gi'), '[\s()]', '', 'g'))
 
+  union all
+
+  -- V-3 (docs/auditoria-2026-08-29.md) ─ Privilegios POR DEFECTO sobre las
+  -- tablas NUEVAS de public.
+  --
+  -- Las filas 1 y 2 preguntan por las tablas que EXISTEN. Ésta pregunta por
+  -- las que todavía no: pg_default_acl es lo que Postgres consulta al crear
+  -- una tabla para decidir con qué ACL nace, y es donde 20260821140100 (sin
+  -- FOR ROLE) y 20260902150000 (FOR ROLE postgres) registraron el REVOKE a
+  -- anon/authenticated. Ninguna otra fila lo miraba: un rebase que perdiera
+  -- esas migraciones, o una migración futura que volviera a otorgar, dejaría
+  -- que la próxima tabla naciera abierta —y sin RLS hasta que M-5 se la
+  -- agregue— sin que ningún test funcional lo note.
+  --
+  -- Valores de catálogo (técnica a): aclexplode sobre defaclacl, sin texto
+  -- renderizado ni normalizador. Se mira PUBLIC además de anon/authenticated,
+  -- por lo mismo que las filas 1 y 2: un GRANT ... TO PUBLIC se los da a los
+  -- dos igual. Y no solo el rol `postgres`: cualquier rol que HOY sea dueño de
+  -- tablas en public es un rol que crea tablas, y sus defaults también tienen
+  -- que estar cerrados — es lo que hace estructural al chequeo. Los defaults
+  -- de supabase_admin sobre public (que sí otorgan a anon/authenticated)
+  -- quedan afuera mientras supabase_admin no sea dueño de ninguna tabla de
+  -- public; el día que lo sea, esta fila lo dice.
+  --
+  -- SOLO TABLAS (defaclobjtype 'r'), como las migraciones que afirma. Los
+  -- defaults sobre secuencias y funciones siguen siendo los de Supabase.
+  select 18,
+    'V-3 · Grants por defecto a anon/authenticated/PUBLIC sobre tablas nuevas de public',
+    coalesce(string_agg(r.rolname || '→' || coalesce(g.rolname, 'PUBLIC') || ':' || a.privilege_type, ', '
+                        order by r.rolname, coalesce(g.rolname, 'PUBLIC'), a.privilege_type), 'ninguno'),
+    'ninguno'
+  from pg_default_acl d
+  join pg_roles r on r.oid = d.defaclrole
+  join pg_namespace n on n.oid = d.defaclnamespace
+  cross join lateral aclexplode(d.defaclacl) a
+  left join pg_roles g on g.oid = a.grantee
+  where n.nspname = 'public'
+    and coalesce(g.rolname, 'PUBLIC') in ('anon', 'authenticated', 'PUBLIC')
+    and (r.rolname = 'postgres'
+         or exists (select 1 from pg_class c
+                    where c.relkind in ('r', 'p') and c.relnamespace = n.oid and c.relowner = r.oid))
+    and d.defaclobjtype = 'r'
+
 
 ) as diagnostico
 order by n;
