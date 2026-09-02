@@ -129,7 +129,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // (organizations solo SELECT, roles lectura para autenticados). api_keys y
   // google_calendar_connections no tienen política a propósito (deny-all).
   [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
-  [7, { descripcion: "Los 8 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
+  [7, { descripcion: "Los 9 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
   [8, { descripcion: "Los 11 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
   [9, { descripcion: "Los 2 triggers de email, por pg_get_triggerdef", esperado: "ninguno" }],
   [
@@ -200,8 +200,9 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
       esperado: "ninguna",
     },
   ],
-  // M-7: los índices parciales NO únicos, que la fila 7 no cubre. Hoy solo el
-  // de bookings.google_event_id; los tres de B-14 van acá cuando se triage.
+  // M-7: los índices parciales NO únicos, que la fila 7 no cubre. Hoy los tres
+  // de B-14; el de bookings.google_event_id que la estrenó se volvió UNIQUE con
+  // V-4 y pasó a la fila 7.
   [
     17,
     {

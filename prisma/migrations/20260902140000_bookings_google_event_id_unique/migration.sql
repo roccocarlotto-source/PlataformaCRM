@@ -1,0 +1,41 @@
+-- ---------------------------------------------------------------------------
+-- V-4 de docs/auditoria-2026-08-29.md — (organization_id, google_event_id)
+-- pasa a ser ÚNICO.
+--
+-- El índice de M-7 (20260902120000) era parcial y NO único, a propósito: se
+-- agregó por rendimiento y dejó la unicidad como pregunta abierta (V-4). La
+-- respuesta: findBookingByGoogleEventId hace findFirst sin orderBy, y
+-- aplicarCambio (googleCalendarSync.service.ts) cancela el Booking que ese
+-- findFirst devuelva cuando el evento se borró en Google. Si dos reservas de
+-- la misma organización compartieran google_event_id, se cancelaría UNA
+-- cualquiera — posiblemente la de otro cliente.
+--
+-- DE DÓNDE PODRÍA SALIR EL DUPLICADO: no de un mismo calendario (Google
+-- garantiza el id único dentro de cada calendario, y setGoogleEventId solo
+-- escribe el id que Google devolvió para ESE evento). La conexión con Google
+-- es POR SUCURSAL (google_calendar_connections, unique (organization_id,
+-- branch_id)), así que una organización con dos sucursales en dos cuentas de
+-- Google tiene dos calendarios cuyos ids se generan de forma independiente;
+-- la garantía de Google es por calendario, no global. Nunca se observó; es
+-- defensa estructural contra una consecuencia severa.
+--
+-- Postgres no "vuelve único" un índice existente: se reemplaza. Mismo
+-- predicado parcial (la columna es nullable y NULL es el estado normal de una
+-- reserva sin Google — §4 de docs/booking-architecture.md; los NULL no
+-- participan de la unicidad ni del índice). Nombre según la convención de los
+-- índices únicos parciales manuales (contacts_org_email_unique,
+-- ingestion_events_source_external_unique): es lo que la fila 7 del
+-- diagnóstico afirma por nombre y definición completa. Sigue sirviendo a la
+-- misma consulta que el índice de M-7: mismas columnas, mismo orden, mismo
+-- predicado.
+--
+-- Sobre los datos existentes: la única escritura de google_event_id es
+-- setGoogleEventId, una vez por reserva, con el id que Google devolvió para
+-- esa reserva. Se verificó además que el proyecto de Supabase del .env no
+-- tiene la tabla bookings todavía (las migraciones de agenda no se aplicaron
+-- ahí), así que en ese entorno no hay filas que puedan violar la restricción.
+-- ---------------------------------------------------------------------------
+DROP INDEX IF EXISTS public.bookings_organization_id_google_event_id_idx;
+CREATE UNIQUE INDEX bookings_org_google_event_unique
+  ON public.bookings (organization_id, google_event_id)
+  WHERE google_event_id IS NOT NULL;

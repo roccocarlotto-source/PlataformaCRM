@@ -248,32 +248,61 @@ test("fila 7 distingue un índice que dejó de ser único", async () => {
   );
 });
 
+// V-4 (docs/auditoria-2026-08-29.md) — el índice de google_event_id nació en la
+// fila 17 (M-7, no único) y la migración 20260902140000 lo reemplazó por
+// bookings_org_google_event_unique, que la fila 7 afirma. La mutación que
+// importa es exactamente la forma vieja: mismas columnas, mismo predicado, sin
+// UNIQUE — lo que había antes de V-4, y lo que un rebase que perdiera la
+// migración dejaría.
+
+test("fila 7 distingue el índice de google_event_id que volvió a ser NO único — la forma de M-7", async () => {
+  await assertDiscrimina(
+    "bookings_org_google_event_unique",
+    `pg_get_indexdef('public.bookings_org_google_event_unique'::regclass)`,
+    "CREATE UNIQUE INDEX bookings_org_google_event_unique ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)",
+    // Sin UNIQUE, findBookingByGoogleEventId vuelve a poder encontrar dos
+    // reservas y markBookingCancelled a cancelar una cualquiera.
+    "CREATE INDEX bookings_org_google_event_unique ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)",
+  );
+});
+
+test("fila 7 distingue el índice de google_event_id al que le sacaron el predicado parcial", async () => {
+  await assertDiscrimina(
+    "bookings_org_google_event_unique",
+    `pg_get_indexdef('public.bookings_org_google_event_unique'::regclass)`,
+    "CREATE UNIQUE INDEX bookings_org_google_event_unique ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)",
+    // Sin el predicado los NULL entran al índice (crece con cada reserva sin
+    // Google) — y aunque Postgres no considere iguales dos NULL, es otra
+    // definición y el chequeo compara la definición entera.
+    "CREATE UNIQUE INDEX bookings_org_google_event_unique ON public.bookings USING btree (organization_id, google_event_id)",
+  );
+});
+
 // ---------------------------------------------------------------------------
-// Fila 17 — índices parciales NO únicos (M-7 de docs/auditoria-2026-08-29.md)
+// Fila 17 — índices parciales NO únicos (M-7 de docs/auditoria-2026-08-29.md;
+// desde V-4 contiene solo los tres de B-14)
 // ---------------------------------------------------------------------------
 
-test("fila 17 distingue el índice de google_event_id al que le sacaron el predicado parcial", async () => {
+test("fila 17 distingue el índice de sources al que le sacaron el predicado parcial", async () => {
   await assertDiscrimina(
-    "bookings_organization_id_google_event_id_idx",
-    `pg_get_indexdef('public.bookings_organization_id_google_event_id_idx'::regclass)`,
-    "CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)",
-    // Sin el predicado el índice indexa también todas las reservas sin evento
-    // de Google —que nunca van a matchear la consulta— y crece con cada
-    // reserva del tenant. Mismo nombre, mismas columnas: un chequeo por nombre
-    // lo daría por bueno.
-    "CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (organization_id, google_event_id)",
+    "sources_org_created_at_idx",
+    `pg_get_indexdef('public.sources_org_created_at_idx'::regclass)`,
+    "CREATE INDEX sources_org_created_at_idx ON public.sources USING btree (organization_id, created_at) WHERE (deleted_at IS NULL)",
+    // Sin el predicado el índice indexa también las fuentes retiradas —que
+    // ninguna lectura devuelve— y crece con cada soft delete. Mismo nombre,
+    // mismas columnas: un chequeo por nombre lo daría por bueno.
+    "CREATE INDEX sources_org_created_at_idx ON public.sources USING btree (organization_id, created_at)",
   );
 });
 
 test("fila 17 distingue el índice con las columnas en el orden invertido", async () => {
   await assertDiscrimina(
-    "bookings_organization_id_google_event_id_idx",
-    `pg_get_indexdef('public.bookings_organization_id_google_event_id_idx'::regclass)`,
-    "CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)",
-    // (google_event_id, organization_id) sirve a la misma consulta, pero es
-    // otra definición: el chequeo compara la definición entera, no "un índice
-    // que tenga esas columnas".
-    "CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (google_event_id, organization_id) WHERE (google_event_id IS NOT NULL)",
+    "sources_org_created_at_idx",
+    `pg_get_indexdef('public.sources_org_created_at_idx'::regclass)`,
+    "CREATE INDEX sources_org_created_at_idx ON public.sources USING btree (organization_id, created_at) WHERE (deleted_at IS NULL)",
+    // (created_at, organization_id) es otra definición: el chequeo compara la
+    // definición entera, no "un índice que tenga esas columnas".
+    "CREATE INDEX sources_org_created_at_idx ON public.sources USING btree (created_at, organization_id) WHERE (deleted_at IS NULL)",
   );
 });
 

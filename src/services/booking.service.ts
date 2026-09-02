@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import {
@@ -269,7 +270,35 @@ export async function createBooking(
     return booking;
   }
 
-  const enlazado = await setGoogleEventId(booking.id, organizationId, googleEventId);
+  let enlazado: { count: number };
+  try {
+    enlazado = await setGoogleEventId(booking.id, organizationId, googleEventId);
+  } catch (err) {
+    // V-4 (docs/auditoria-2026-08-29.md) — (organization_id, google_event_id)
+    // es ÚNICO desde la migración 20260902140000. Un P2002 acá significa que
+    // OTRA reserva de esta organización ya tiene este id de evento: dos
+    // calendarios de Google (dos sucursales con dos cuentas) repitieron un id,
+    // o algo escribió un id que no era el de esta reserva. Nunca debería pasar;
+    // por eso se loguea como ERROR con todos los ids, no como warn.
+    //
+    // NO SE LANZA. La reserva ya está commiteada y vale (FASE 3: "pase lo que
+    // pase acá"); un error después del commit le diría al cliente que la
+    // reserva falló e invitaría a repetirla, que es peor que quedarse sin
+    // enlace. El contrato ya expresa "sin enlace" con googleEventId null (§4 de
+    // docs/booking-architecture.md: es un estado normal), y es lo que se
+    // devuelve — sin fingir que se enlazó. El evento recién creado sí se
+    // borra, best-effort como en M-2: la base no lo referencia y nadie iba a
+    // volver a pasar por él.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      logger.error(
+        { bookingId: booking.id, organizationId, branchId: resource.branchId, googleEventId },
+        "Otra reserva de la organización ya tiene este googleEventId: no se enlaza y se borra el evento recién creado — revisar los calendarios conectados, no es mala suerte",
+      );
+      await borrarReservaDeGoogle(organizationId, resource.branchId, googleEventId, cliente);
+      return booking;
+    }
+    throw err;
+  }
 
   if (enlazado.count === 0) {
     // M-2 (auditoría 2026-08-29) — LA VENTANA ENTRE EL COMMIT Y GOOGLE. Mientras
