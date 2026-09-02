@@ -691,3 +691,73 @@ test("un id que no es uuid da 400, no 404 ni 500", async () => {
   const res = await call("POST", "/api/ingestion-events/no-es-uuid/retry", fx.adminA.accessToken);
   assert.equal(res.status, 400);
 });
+
+// ---------------------------------------------------------------------------
+// V-9 (docs/auditoria-2026-08-29.md) — el retry era el camino SIN carrera para
+// promover un evento de una fuente pausada o retirada: solo miraba que el
+// evento siguiera en FAILED, nunca la Source. Un FAILED de hace semanas, con
+// la fuente pausada mientras tanto, volvía a PENDING y el worker lo promovía.
+//
+// Cada test crea SU PROPIA fuente en el estado que prueba, en vez de pausar
+// sourceRetry: esa la comparten los tests de arriba y un isActive: false a
+// mitad de archivo les cambiaría el resultado. El evento se crea directo en
+// la base —POST /ingest ya rechaza la creación con la fuente pausada—, que es
+// exactamente la situación del hallazgo: la fila existía de antes.
+// ---------------------------------------------------------------------------
+
+test("V-9: 409 sobre un FAILED cuya fuente está PAUSADA — no vuelve a PENDING", async () => {
+  const fuentePausada = await prisma.source.create({
+    data: { organizationId: fx.orgA, name: "Landing pausada", type: "WEBHOOK", isActive: false },
+    select: { id: true },
+  });
+  const id = await crearEvento({
+    organizationId: fx.orgA,
+    sourceId: fuentePausada.id,
+    status: "FAILED",
+    errorMessage: "falló cuando la fuente estaba activa",
+  });
+
+  const res = await call("POST", `/api/ingestion-events/${id}/retry`, fx.adminA.accessToken);
+  assert.equal(res.status, 409);
+  const body = (await res.json()) as { error: { message: string } };
+  assert.match(body.error.message, /pausada/);
+
+  const enBase = await leerEvento(id);
+  assert.equal(enBase.status, "FAILED", "el 409 no puede haber encolado la fila");
+  assert.equal(
+    enBase.errorMessage,
+    "falló cuando la fuente estaba activa",
+    "y tampoco puede haber limpiado el motivo del fallo original",
+  );
+
+  await prisma.ingestionEvent.delete({ where: { id } });
+});
+
+test("V-9: 409 sobre un FAILED cuya fuente fue RETIRADA (deletedAt) — no vuelve a PENDING", async () => {
+  const fuenteRetirada = await prisma.source.create({
+    data: {
+      organizationId: fx.orgA,
+      name: "Landing retirada",
+      type: "WEBHOOK",
+      deletedAt: new Date(),
+    },
+    select: { id: true },
+  });
+  const id = await crearEvento({
+    organizationId: fx.orgA,
+    sourceId: fuenteRetirada.id,
+    status: "FAILED",
+    errorMessage: "falló antes de retirar la fuente",
+  });
+
+  const res = await call("POST", `/api/ingestion-events/${id}/retry`, fx.adminA.accessToken);
+  assert.equal(res.status, 409);
+  const body = (await res.json()) as { error: { message: string } };
+  assert.match(body.error.message, /retirada/);
+
+  const enBase = await leerEvento(id);
+  assert.equal(enBase.status, "FAILED");
+  assert.equal(enBase.errorMessage, "falló antes de retirar la fuente");
+
+  await prisma.ingestionEvent.delete({ where: { id } });
+});

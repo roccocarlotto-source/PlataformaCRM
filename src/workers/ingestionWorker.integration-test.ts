@@ -82,6 +82,7 @@ function leer(id: string) {
       nextAttemptAt: true,
       lastError: true,
       errorMessage: true,
+      promotedContactId: true,
     },
   });
 }
@@ -244,6 +245,81 @@ test("B-30: control — un payload inválido sigue yendo a FAILED en el primer i
     assert.equal(fila.nextAttemptAt, null);
     assert.equal(fila.lastError, null);
     assert.ok(fila.errorMessage, "el motivo del dato inválido sigue en errorMessage, como siempre");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// V-9 (docs/auditoria-2026-08-29.md) — el worker promovía eventos de fuentes
+// pausadas o retiradas: el JOIN de claimNextPendingEvent solo exigía que la
+// fuente existiera, y nada entre el reclamo y promoverEvento volvía a mirar
+// is_active/deleted_at. La compuerta de entrada (ingestAuth.service.ts) decide
+// si se CREA la fila; no dice nada de las que ya existían cuando un ADMIN
+// pausó o retiró la fuente.
+//
+// El evento se crea directo en la base con la fuente todavía activa y DESPUÉS
+// se pausa/retira la fuente — el orden real de la carrera del hallazgo. Lo
+// que se afirma es que la fila queda SIN RECLAMAR: mismo status, sin
+// intentos consumidos, sin contacto, sin lastError. No es un fallo, es una
+// fila que espera a que la fuente vuelva.
+// ---------------------------------------------------------------------------
+
+async function afirmarSinReclamar(id: string, escenario: Escenario, contexto: string) {
+  const fila = await leer(id);
+  assert.equal(fila.status, "PENDING", `${contexto}: tiene que seguir PENDING`);
+  assert.equal(fila.attempts, 0, `${contexto}: no reclamar no consume intentos`);
+  assert.equal(fila.nextAttemptAt, null, `${contexto}: no hay backoff, no fue un fallo`);
+  assert.equal(fila.lastError, null, contexto);
+  assert.equal(fila.promotedContactId, null, `${contexto}: no puede haber promovido nada`);
+  const contactos = await prisma.contact.count({
+    where: { organizationId: escenario.organizationId },
+  });
+  assert.equal(contactos, 0, `${contexto}: no puede existir ningún Contact en la organización`);
+}
+
+test("V-9: un PENDING cuya fuente se PAUSÓ después de creado no se reclama — y sí cuando la fuente vuelve", async () => {
+  const escenario = await montar("fuente-pausada");
+  try {
+    const id = await crearEvento(escenario, payloadValido());
+    await prisma.source.update({ where: { id: escenario.sourceId }, data: { isActive: false } });
+
+    const resumen = await drenarPendientes({ organizationId: escenario.organizationId });
+    assert.deepEqual(resumen, { procesados: 0, fallidos: 0, pospuestos: 0, muertos: 0 });
+    await afirmarSinReclamar(id, escenario, "con la fuente pausada");
+
+    // Control: la fila no está rota ni perdida. Reactivar la fuente es todo lo
+    // que hace falta para que la próxima pasada la promueva — es lo que
+    // distingue "sin reclamar" de "FAILED" o "DEAD_LETTER".
+    await prisma.source.update({ where: { id: escenario.sourceId }, data: { isActive: true } });
+    const segunda = await drenarPendientes({ organizationId: escenario.organizationId });
+    assert.equal(segunda.procesados, 1);
+    const fila = await leer(id);
+    assert.equal(fila.status, "PROCESSED");
+    assert.ok(fila.promotedContactId, "reactivada la fuente, el mismo evento se promueve");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("V-9: un PENDING cuya fuente fue RETIRADA (deletedAt) después de creado no se reclama nunca", async () => {
+  const escenario = await montar("fuente-retirada");
+  try {
+    const id = await crearEvento(escenario, payloadValido());
+    await prisma.source.update({
+      where: { id: escenario.sourceId },
+      data: { deletedAt: new Date() },
+    });
+
+    const resumen = await drenarPendientes({ organizationId: escenario.organizationId });
+    assert.deepEqual(resumen, { procesados: 0, fallidos: 0, pospuestos: 0, muertos: 0 });
+    await afirmarSinReclamar(id, escenario, "con la fuente retirada");
+
+    // Segunda pasada: sigue igual. Una fuente retirada no vuelve (softDelete es
+    // terminal en source.service.ts), así que la fila queda sin reclamar de
+    // forma estable, no se reintenta ni se marca.
+    await drenarPendientes({ organizationId: escenario.organizationId });
+    await afirmarSinReclamar(id, escenario, "segunda pasada con la fuente retirada");
   } finally {
     await desmontar(escenario);
   }
