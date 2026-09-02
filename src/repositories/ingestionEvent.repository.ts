@@ -261,20 +261,6 @@ export async function claimNextPendingEvent(
   // (ver la migración 20260902130000). Una fila recién nacida tiene
   // next_attempt_at NULL y es reclamable ya; una que falló por error de sistema
   // espera su turno sin que nadie la mire hasta entonces.
-  //
-  // LA FUENTE TIENE QUE ESTAR ACTIVA Y NO RETIRADA — V-9 de
-  // docs/auditoria-2026-08-29.md. Hasta ahí el JOIN solo exigía que la fuente
-  // existiera: la compuerta de is_active/deleted_at vivía únicamente en la
-  // ENTRADA (resolveIngestContext, ingestAuth.service.ts), que decide si se
-  // crea la fila, y nada volvía a mirarla entre el reclamo y promoverEvento
-  // (que usa lo que trae este JOIN tal cual). Una fila que ya existía cuando
-  // un ADMIN pausó o retiró la fuente —o que un retry devolvió a PENDING
-  // semanas después— se promovía igual. Las condiciones van en el ON porque
-  // califican QUÉ fuente es aceptable para el reclamo, no qué evento; el
-  // efecto es que la fila queda sin reclamar —no se transiciona, no se
-  // consume intento— hasta que la fuente vuelva a estar activa. Es la mitad
-  // estructural del fix; la otra es retryIngestionEvent, que rechaza antes de
-  // encolar para no devolver un 200 sobre una fila que nadie va a tomar.
   const filas = await db.$queryRaw<FilaReclamada[]>`
     SELECT e.id, e.organization_id, e.source_id,
            s.name AS source_name, s.type AS source_type,
@@ -283,7 +269,6 @@ export async function claimNextPendingEvent(
     FROM ingestion_events e
     JOIN sources s
       ON s.organization_id = e.organization_id AND s.id = e.source_id
-      AND s.is_active AND s.deleted_at IS NULL
     WHERE e.status = 'PENDING'::"IngestionStatus"
       AND coalesce(e.next_attempt_at, e.created_at) <= now()
     ${filtroOrg}
