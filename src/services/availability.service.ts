@@ -6,6 +6,7 @@ import { AppError } from "../utils/AppError";
 import {
   estaDentroDelHorario,
   expandirFranjas,
+  generarGrilla,
   seSuperponen,
   type Intervalo,
 } from "../utils/workingHours";
@@ -90,7 +91,6 @@ export function calcularTurnos({
   capacidad,
   desde,
 }: EntradaDelCalculo): TurnoDisponible[] {
-  const duracionMs = duracionMin * 60 * 1000;
   const turnos: TurnoDisponible[] = [];
 
   for (const franja of franjasDeTrabajo) {
@@ -113,19 +113,18 @@ export function calcularTurnos({
     // punto y media, por ejemplo), que desperdicia el arranque cuando el
     // recurso abre 9:15. Si algún día hace falta, es un parámetro de esta
     // función y no un rediseño.
-    for (
-      let inicio = franja.inicio.getTime();
-      inicio + duracionMs <= franja.fin.getTime();
-      inicio += duracionMs
-    ) {
+    //
+    // LA ARITMÉTICA DEL PASO VIVE EN generarGrilla (workingHours.ts) desde V-2:
+    // es la misma que createBooking usa para ACEPTAR un startsAt (estaEnLaGrilla),
+    // así que lo que se ofrece y lo que se acepta no pueden divergir. Este bucle
+    // solo filtra.
+    for (const turno of generarGrilla(franja, duracionMin)) {
       // El filtro de A-5: descarta lo que empieza antes de `desde` SIN cambiar
       // dónde arranca la grilla. Un turno que empieza antes y termina después
       // de `desde` tampoco se ofrece: ya empezó.
-      if (desde && inicio < desde.getTime()) {
+      if (desde && turno.inicio.getTime() < desde.getTime()) {
         continue;
       }
-
-      const turno: Intervalo = { inicio: new Date(inicio), fin: new Date(inicio + duracionMs) };
 
       // Google: cualquier superposición descarta el turno, sin importar la
       // capacidad. Un evento ajeno en el calendario del recurso significa que el

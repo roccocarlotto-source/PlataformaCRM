@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { test } from "node:test";
+import { before, mock, test } from "node:test";
 import { prisma } from "../lib/prisma";
+import { createBooking as insertarReserva } from "../repositories/booking.repository";
 import {
   findConnectionByChannelId,
   findConnectionsNeedingChannel,
@@ -10,7 +11,7 @@ import { AppError } from "../utils/AppError";
 import { getCifrador } from "../utils/encryption";
 import { firmarWebhookToken, verificarWebhookToken } from "../utils/webhookToken";
 import { renovarCanalesVencidos } from "../workers/googleCalendarChannelWorker";
-import { createBooking } from "./booking.service";
+import { createBooking, relojDeReservas } from "./booking.service";
 import { createBranch } from "./branch.service";
 import { desconectar, renovarCanal } from "./googleCalendarConnection.service";
 import { procesarNotificacion } from "./googleCalendarSync.service";
@@ -45,6 +46,13 @@ const TZ = "America/Argentina/Buenos_Aires";
 
 // Lunes 7/9/2026, 9:00 local = 12:00Z. El recurso trabaja lunes de 9 a 13.
 const LUNES_9_LOCAL = new Date("2026-09-07T12:00:00Z");
+
+// V-2: createBooking rechaza reservas en el pasado, y las de este archivo están
+// fijadas en ese lunes — el reloj de la reserva se fija al domingo anterior,
+// como en booking.integration-test.ts, para que la suite no caduque.
+before(() => {
+  mock.method(relojDeReservas, "ahora", () => new Date("2026-09-06T12:00:00Z"));
+});
 
 interface Escenario {
   organizationId: string;
@@ -636,8 +644,25 @@ test("una reserva con milisegundos notificada al segundo exacto NO cuenta como m
       syncToken: "t0",
     });
 
+    // Desde V-2 createBooking no acepta un startsAt con milisegundos (no está
+    // en la grilla), así que la premisa "el CRM guardó los ms" solo puede venir
+    // de una fila anterior a V-2 o escrita por otro camino: se inserta por el
+    // repositorio, que es exactamente esa fila. La tolerancia de B-5 tiene que
+    // seguir valiendo para ellas.
     const conMilisegundos = new Date("2026-09-07T12:00:00.347Z");
-    const booking = await reservar(escenario, "evt-igual-ms", conMilisegundos);
+    const booking = await insertarReserva({
+      organizationId: escenario.organizationId,
+      branchId: escenario.branchId,
+      serviceTypeId: escenario.serviceTypeId,
+      resourceId: escenario.resourceId,
+      contactId: escenario.contactId,
+      startsAt: conMilisegundos,
+      endsAt: new Date(conMilisegundos.getTime() + 60 * 60 * 1000),
+    });
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { googleEventId: "evt-igual-ms" },
+    });
     assert.equal(booking.startsAt.getMilliseconds(), 347, "la premisa: el CRM guardó los ms");
 
     // Lo que Google devolvería: el mismo instante, truncado al segundo.
