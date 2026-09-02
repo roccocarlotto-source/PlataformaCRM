@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { recordApiKeyUsage, resolveIngestContext } from "../services/ingestAuth.service";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
+import { countRawHeaderOccurrences } from "../utils/rawHeaders";
 
 // ---------------------------------------------------------------------------
 // SEGUNDO camino de autenticación (docs/ingestion-architecture.md §3). No
@@ -33,12 +34,26 @@ const API_KEY_HEADER = "x-api-key";
 
 export const authenticateApiKey = asyncHandler(
   async (req: Request, _res: Response, next: NextFunction) => {
-    const header = req.headers[API_KEY_HEADER];
+    // B-25: un header repetido NO llega como array — Node une los valores con
+    // ", " en un solo string antes de que ningún middleware los vea (el array
+    // existe solo para set-cookie), así que el `typeof !== "string"` que
+    // había acá era código muerto. La única evidencia del repetido es
+    // req.rawHeaders (ver utils/rawHeaders.ts). No se elige una ni se acepta
+    // la concatenación: no hay forma de saber cuál quiso mandar el emisor, y
+    // "a, b" no es una credencial que nadie presentó tal cual. (Antes la
+    // concatenación terminaba en 401 igual, por no matchear ninguna clave
+    // real; ahora el rechazo es explícito y por el motivo verdadero, con el
+    // mismo 401 genérico de todos los rechazos.)
+    if (countRawHeaderOccurrences(req.rawHeaders, API_KEY_HEADER) > 1) {
+      throw new AppError("Credencial de ingesta inválida", 401);
+    }
 
-    // Un header repetido llega como array. No se elige uno ni se concatenan:
-    // no hay forma de saber cuál quiso mandar el emisor, y adivinar sería
-    // aceptar una credencial que nadie presentó tal cual.
-    if (typeof header !== "string" || header.length === 0) {
+    // Con 0 o 1 ocurrencia garantizada arriba, el valor normalizado es
+    // siempre string o undefined — el cast documenta lo que el tipo genérico
+    // de req.headers no sabe.
+    const header = req.headers[API_KEY_HEADER] as string | undefined;
+
+    if (header === undefined || header.length === 0) {
       throw new AppError("Credencial de ingesta inválida", 401);
     }
 

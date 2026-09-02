@@ -4,6 +4,7 @@ import type { IngestRequest } from "../types/ingest";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
 import { EXTERNAL_ID_MAX_LENGTH } from "../utils/externalId";
+import { countRawHeaderOccurrences } from "../utils/rawHeaders";
 
 // El externalId provisto por la fuente viaja en su propio header, fuera del
 // payload: así el cuerpo queda crudo e intacto (§1) y ninguna de sus claves
@@ -16,16 +17,30 @@ const EXTERNAL_ID_HEADER = "x-external-id";
 // cuestión de seguridad sino de fidelidad: el externalId es el identificador
 // que la fuente eligió, y si lo tocáramos dejaría de coincidir con el que ella
 // va a mandar en el reintento, que es todo el punto de la idempotencia.
-function parseExternalIdHeader(valor: string | string[] | undefined): string | undefined {
-  if (valor === undefined) {
-    return undefined;
+//
+// B-25: recibe el req entero, no el valor ya normalizado, porque la
+// repetición del header NO es observable en req.headers: Node une los valores
+// repetidos con ", " en un solo string (el array que este código esperaba
+// antes solo existe para set-cookie), así que "X-External-Id: a" +
+// "X-External-Id: b" llegaba como el string "a, b", pasaba todos los chequeos
+// y se usaba tal cual como externalId — matching de idempotencia incluido. La
+// única evidencia del wire es req.rawHeaders (ver utils/rawHeaders.ts).
+function parseExternalIdHeader(req: IngestRequest): string | undefined {
+  // Header repetido -> 400. No se elige uno: dos identificadores distintos
+  // para el mismo evento no tienen resolución correcta, y quedarse con el
+  // primero (o con la concatenación que arma Node) significaría deduplicar
+  // contra algo que el emisor no eligió.
+  if (countRawHeaderOccurrences(req.rawHeaders, EXTERNAL_ID_HEADER) > 1) {
+    throw new AppError(`${EXTERNAL_ID_HEADER} no puede repetirse`, 400);
   }
 
-  // Header repetido -> array. No se elige uno: dos identificadores distintos
-  // para el mismo evento no tienen resolución correcta, y quedarse con el
-  // primero significaría deduplicar contra algo que el emisor no eligió.
-  if (typeof valor !== "string") {
-    throw new AppError(`${EXTERNAL_ID_HEADER} no puede repetirse`, 400);
+  // Con 0 o 1 ocurrencia garantizada arriba, el valor normalizado es siempre
+  // string o undefined — el cast documenta lo que el tipo genérico de
+  // req.headers no sabe (string[] existe solo para set-cookie).
+  const valor = req.headers[EXTERNAL_ID_HEADER] as string | undefined;
+
+  if (valor === undefined) {
+    return undefined;
   }
 
   // Vacío se trata como ausente, no como error: mandar el header en blanco es
@@ -66,7 +81,7 @@ function parseExternalIdHeader(valor: string | string[] | undefined): string | u
 // La respuesta NUNCA echoea la clave, ni entera ni en parte: son tres campos y
 // ninguno deriva de ella.
 export const ingestHandler = asyncHandler<IngestRequest>(async (req, res: Response) => {
-  const externalId = parseExternalIdHeader(req.headers[EXTERNAL_ID_HEADER]);
+  const externalId = parseExternalIdHeader(req);
   const result = await ingestEvent(req.ingest, req.body, externalId);
   res.status(202).json(result);
 });
