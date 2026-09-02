@@ -64,46 +64,69 @@ async function createFixtureUser(label: string, role: "ADMIN" | "USER") {
     throw new Error(`No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`);
   }
 
-  const roleRow = await findRoleByName(role);
-  if (!roleRow) {
-    throw new Error(`No está sembrado el rol ${role}. Abortando.`);
-  }
+  // B-34: a partir de acá la identidad de Supabase YA EXISTE en el proyecto
+  // compartido, pero el finally que la limpiaría vive en el test — y los call
+  // sites llaman a este helper ANTES de entrar a su try. Si cualquier paso
+  // posterior falla (rol sin sembrar, escritura de Prisma, login), el helper
+  // deshace acá mismo lo que llegó a crear (en orden inverso) y relanza el
+  // error original: ningún call site tiene que acordarse de limpiar una
+  // creación a medias, y un fallo transitorio no deja huérfanos.
+  let org: { id: string } | undefined;
+  let userCreado = false;
+  try {
+    const roleRow = await findRoleByName(role);
+    if (!roleRow) {
+      throw new Error(`No está sembrado el rol ${role}. Abortando.`);
+    }
 
-  const org = await prisma.organization.create({
-    data: {
-      name: `ME test org ${label} ${randomUUID()}`,
-      slug: `me-test-org-${label}-${Date.now()}`,
-    },
-  });
+    org = await prisma.organization.create({
+      data: {
+        name: `ME test org ${label} ${randomUUID()}`,
+        slug: `me-test-org-${label}-${Date.now()}`,
+      },
+    });
 
-  const fullName = `ME Test ${label}`;
-  await prisma.user.create({
-    data: {
-      id: data.user.id,
+    const fullName = `ME Test ${label}`;
+    await prisma.user.create({
+      data: {
+        id: data.user.id,
+        organizationId: org.id,
+        roleId: roleRow.id,
+        email,
+        fullName,
+      },
+    });
+    userCreado = true;
+
+    const anonClient = createClient(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!);
+    const { data: signInData, error: signInError } = await anonClient.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (signInError || !signInData.session) {
+      throw new Error(`No se pudo iniciar sesión real (${label}): ${signInError?.message}`);
+    }
+
+    return {
+      accessToken: signInData.session.access_token,
+      authUserId: data.user.id,
       organizationId: org.id,
-      roleId: roleRow.id,
       email,
       fullName,
-    },
-  });
-
-  const anonClient = createClient(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!);
-  const { data: signInData, error: signInError } = await anonClient.auth.signInWithPassword({
-    email,
-    password,
-  });
-  if (signInError || !signInData.session) {
-    throw new Error(`No se pudo iniciar sesión real (${label}): ${signInError?.message}`);
+      role,
+    };
+  } catch (err) {
+    // La limpieza es best-effort y NUNCA reemplaza al error original: si
+    // también falla, se reporta aparte y el que sube es el del fixture.
+    try {
+      if (userCreado) await prisma.user.delete({ where: { id: data.user.id } });
+      if (org) await prisma.organization.delete({ where: { id: org.id } });
+      await getSupabaseAdmin().auth.admin.deleteUser(data.user.id);
+    } catch (cleanupErr) {
+      console.error(`createFixtureUser(${label}): falló también la limpieza`, cleanupErr);
+    }
+    throw err;
   }
-
-  return {
-    accessToken: signInData.session.access_token,
-    authUserId: data.user.id,
-    organizationId: org.id,
-    email,
-    fullName,
-    role,
-  };
 }
 
 // Identidad Supabase + login real, deliberadamente SIN fila en
