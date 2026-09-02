@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { before, mock, test } from "node:test";
 import { prisma } from "../lib/prisma";
+import { createBooking as insertarReserva } from "../repositories/booking.repository";
 import {
   findConnectionByChannelId,
   findConnectionsNeedingChannel,
@@ -643,8 +644,25 @@ test("una reserva con milisegundos notificada al segundo exacto NO cuenta como m
       syncToken: "t0",
     });
 
+    // Desde V-2 createBooking no acepta un startsAt con milisegundos (no está
+    // en la grilla), así que la premisa "el CRM guardó los ms" solo puede venir
+    // de una fila anterior a V-2 o escrita por otro camino: se inserta por el
+    // repositorio, que es exactamente esa fila. La tolerancia de B-5 tiene que
+    // seguir valiendo para ellas.
     const conMilisegundos = new Date("2026-09-07T12:00:00.347Z");
-    const booking = await reservar(escenario, "evt-igual-ms", conMilisegundos);
+    const booking = await insertarReserva({
+      organizationId: escenario.organizationId,
+      branchId: escenario.branchId,
+      serviceTypeId: escenario.serviceTypeId,
+      resourceId: escenario.resourceId,
+      contactId: escenario.contactId,
+      startsAt: conMilisegundos,
+      endsAt: new Date(conMilisegundos.getTime() + 60 * 60 * 1000),
+    });
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { googleEventId: "evt-igual-ms" },
+    });
     assert.equal(booking.startsAt.getMilliseconds(), 347, "la premisa: el CRM guardó los ms");
 
     // Lo que Google devolvería: el mismo instante, truncado al segundo.

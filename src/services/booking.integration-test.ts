@@ -764,17 +764,29 @@ test("con capacidad 1, el MISMO horario no se puede reservar dos veces", async (
 
 test("dos reservas que se PISAN PARCIALMENTE también chocan", async () => {
   // El caso que el prompt marca explícitamente: no alcanza con comparar horarios
-  // idénticos. Servicio de 60 minutos: 12:00-13:00 y 12:30-13:30 compiten por el
-  // mismo barbero.
+  // idénticos. Hasta V-2 esto se forzaba con el MISMO servicio de 60 minutos a
+  // las 12:30 —un turno fuera de la grilla, que createBooking ya no acepta—.
+  // El solapamiento parcial real nace de DOS SERVICIOS DE DISTINTA DURACIÓN
+  // sobre el mismo recurso, cada uno alineado a SU grilla: "Corte" de 60 (9:00,
+  // 10:00, …) y "Barba" de 90 (9:00, 10:30, …). Corte 10:00-11:00 y Barba
+  // 9:00-10:30 compiten por el mismo barbero entre las 10:00 y las 10:30.
   const escenario = await montar("pisada-parcial");
   try {
+    const barba = await createServiceType(escenario.organizationId, {
+      branchId: escenario.branchId,
+      resourceId: escenario.resourceId,
+      name: "Barba",
+      durationMin: 90,
+      capacity: 1,
+    });
+
     await createBooking(
       escenario.organizationId,
       {
         resourceId: escenario.resourceId,
         serviceTypeId: escenario.serviceTypeId,
         contactId: escenario.contactId,
-        startsAt: LUNES_9_LOCAL,
+        startsAt: new Date("2026-09-07T13:00:00Z"), // Corte, 10:00-11:00 local
       },
       doblarGoogle().cliente,
     );
@@ -785,9 +797,9 @@ test("dos reservas que se PISAN PARCIALMENTE también chocan", async () => {
           escenario.organizationId,
           {
             resourceId: escenario.resourceId,
-            serviceTypeId: escenario.serviceTypeId,
+            serviceTypeId: barba.id,
             contactId: escenario.contactId,
-            startsAt: new Date("2026-09-07T12:30:00Z"),
+            startsAt: LUNES_9_LOCAL, // Barba, 9:00-10:30 local
           },
           doblarGoogle().cliente,
         ),
