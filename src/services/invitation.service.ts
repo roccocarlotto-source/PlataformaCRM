@@ -287,8 +287,8 @@ function assertPending(status: string): void {
   }
 }
 
-// identity ya viene verificada (M1): verifyInvitationAcceptIdentity
-// (middleware) es ahora el único punto que verifica el JWT — este service
+// identity ya viene verificada (M1): la cadena de verifyInvitationAcceptIdentity.ts
+// (middlewares) es ahora el único punto que verifica el JWT — este service
 // no vuelve a hacerlo, ni le hace falta el token crudo.
 export async function acceptInvitation(
   identity: InvitationAcceptIdentity,

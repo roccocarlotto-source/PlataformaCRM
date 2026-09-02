@@ -7,8 +7,8 @@ import {
 } from "../controllers/invitation.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { authorize } from "../middlewares/authorize";
-import { acceptInvitationRateLimiter, businessWriteRateLimiter } from "../middlewares/rateLimit";
-import { verifyInvitationAcceptIdentity } from "../middlewares/verifyInvitationAcceptIdentity";
+import { businessWriteRateLimiter } from "../middlewares/rateLimit";
+import { cadenaDeAceptacionDeInvitacion } from "../middlewares/verifyInvitationAcceptIdentity";
 
 export const invitationRouter = Router();
 
@@ -35,9 +35,15 @@ invitationRouter.delete(
 
 // Público en el sentido de no pasar por authenticate (exige public.users
 // ya existente) — pero no anónimo: exige un JWT de Supabase válido. Ver
-// invitation.controller.ts.
-//   1. verifyInvitationAcceptIdentity: verifica el JWT una sola vez.
-//   2. acceptInvitationRateLimiter: por identidad ya verificada (sub).
+// invitation.controller.ts. La cadena vive en UN solo lugar
+// (crearCadenaDeAceptacion, verifyInvitationAcceptIdentity.ts) porque su orden
+// es lo que V-8 de docs/auditoria-2026-08-29.md corrigió:
+//   1. verifyInvitationAcceptToken: firma del JWT (barato, JWKS cacheado).
+//   2. body válido (400 barato).
+//   3. acceptInvitationRateLimiter: por el `sub` verificado.
+//   4. resolveInvitationAcceptIdentity: Admin API, ya dentro del cupo.
+// Antes el limiter corría después de la Admin API, así que un 429 no
+// ahorraba la llamada cara.
 //
 // SIN LIMITER ANTES DE VERIFICAR, y es una decisión (A-2 de
 // docs/auditoria-2026-08-29.md): hasta el 29/08 acá iba acceptPreAuthRateLimiter,
@@ -48,7 +54,6 @@ invitationRouter.delete(
 // para el paralelismo con el flood anónimo de ingesta, que ya se aceptaba.
 invitationRouter.post(
   "/invitations/accept",
-  verifyInvitationAcceptIdentity,
-  acceptInvitationRateLimiter,
+  ...cadenaDeAceptacionDeInvitacion,
   acceptInvitationHandler,
 );

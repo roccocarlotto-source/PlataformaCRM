@@ -4,7 +4,7 @@ import type { z } from "zod";
 import { env } from "../config/env";
 import { acceptInvitationSchema } from "../schemas/invitation.schema";
 import { onboardingOtpSchema, onboardingSchema } from "../schemas/onboarding.schema";
-import type { AuthContext, InvitationAcceptIdentity } from "../types/auth";
+import type { AuthContext, InvitationAcceptSubject } from "../types/auth";
 import type { IngestContext } from "../types/ingest";
 import { AppError } from "../utils/AppError";
 
@@ -248,8 +248,8 @@ export const onboardingOtpRateLimiter = createOnboardingOtpRateLimiter();
 // LO QUE QUEDA SIN ACOTAR: un actor anónimo inundando la ruta con tokens
 // basura o vencidos, donde cada request paga una verificación ES256 contra
 // el JWKS (que jose cachea; no es un fetch por request) y muere con un 401.
-// No toca Postgres ni la Admin API: verifyInvitationAcceptIdentity verifica
-// la firma ANTES de llamar a getUserById, así que un token inválido nunca
+// No toca Postgres ni la Admin API: verifyInvitationAcceptToken verifica la
+// firma como primera etapa de la cadena, así que un token inválido nunca
 // llega a Supabase.
 //
 // POR QUÉ SE ACEPTA: es el mismo trade-off que este archivo ya tomó para
@@ -262,43 +262,57 @@ export const onboardingOtpRateLimiter = createOnboardingOtpRateLimiter();
 // criterio NO haría es dejar sin límite algo que cueste I/O.
 //
 // LO QUE NO CAMBIA: acceptInvitationRateLimiter (abajo) sigue intacto y es el
-// que de verdad importa. Corre después de verifyInvitationAcceptIdentity, o
-// sea con un `sub` ya verificado, y es el que acota lo caro: la llamada a la
-// Admin API de Supabase por intento y la carga de Postgres. Un anónimo con
-// tokens basura nunca llega hasta él, y una identidad real no puede pasar de
-// su cupo.
+// que de verdad importa: con un `sub` ya verificado, acota cuántas veces una
+// identidad real puede llegar a la Admin API de Supabase y a Postgres. Un
+// anónimo con tokens basura nunca llega hasta él, y una identidad real no
+// puede pasar de su cupo. (Que de verdad acote la Admin API depende de DÓNDE
+// corre — ver V-8 en el bloque siguiente: hasta ese fix corría después de la
+// llamada, y este mismo párrafo afirmaba algo que el código no hacía.)
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Invitation accept — post-auth, montado DESPUÉS de
-// verifyInvitationAcceptIdentity.
+// Invitation accept — por identidad, montado ENTRE la verificación de firma
+// del JWT y la llamada a la Admin API (crearCadenaDeAceptacion en
+// verifyInvitationAcceptIdentity.ts).
 //
-// Amenaza: una identidad Supabase YA verificada (población acotada a gente
-// invitada u onboardeada, no "cualquiera en internet") golpeando el
-// endpoint repetidamente — carga de Postgres, no de CPU de verificación.
+// V-8 de docs/auditoria-2026-08-29.md: hasta ese fix este limiter corría
+// DESPUÉS de verifyInvitationAcceptIdentity entero, o sea después de
+// getUserById, en cada request. El 429 le ahorraba el handler a una identidad
+// con el cupo agotado, pero no la llamada a Supabase: N requests eran N
+// llamadas a la Admin API, con N sin ninguna cota. Y la población no está
+// "acotada a gente invitada": el registro público (onboarding.service.ts)
+// le da a cualquiera una cuenta confirmada y un JWT válido, y el service
+// recién pregunta si hay invitación para ese email después de esta cadena.
+// Ahora keyea por req.invitationAcceptSubject (el `sub` con firma verificada,
+// etapa 1) y corre antes de la etapa 2 (Admin API): una identidad con el cupo
+// agotado no llega a Supabase.
 //
-// keyGenerator custom por identidad verificada (userId = sub del JWT) —
-// nunca usa req.ip, así que la validación de fallback-a-IP de la librería
-// (ERR_ERL_KEY_GEN_IPV6, agregada en 8.0.0) no aplica acá en absoluto.
-// Cuenta solo requests con identidad válida (estructural: si
-// verifyInvitationAcceptIdentity falla, este limiter nunca se ejecuta) Y
-// body válido según acceptInvitationSchema (skip), mismo criterio que
-// onboarding.
+// Amenaza: una identidad Supabase con firma válida —cualquiera que se haya
+// registrado, invitada o no— golpeando el endpoint repetidamente: llamadas a
+// la Admin API y carga de Postgres, no CPU de verificación.
+//
+// keyGenerator custom por el `sub` verificado — nunca usa req.ip, así que la
+// validación de fallback-a-IP de la librería (ERR_ERL_KEY_GEN_IPV6, agregada
+// en 8.0.0) no aplica acá en absoluto. Cuenta solo requests con firma válida
+// (estructural: si verifyInvitationAcceptToken falla, este limiter nunca se
+// ejecuta) Y body válido según acceptInvitationSchema (skip, mismo criterio
+// que onboarding) — y como la cadena valida el body ANTES de llegar acá, un
+// body inválido tampoco llega a la Admin API por la puerta del skip.
 // ---------------------------------------------------------------------------
 export const ACCEPT_IDENTITY_WINDOW_MS = 10 * 60 * 1000;
 export const ACCEPT_IDENTITY_MAX = 10;
 
 function acceptInvitationKeyGenerator(req: Request): string {
-  const identity = req.invitationAcceptIdentity as InvitationAcceptIdentity | undefined;
-  if (!identity) {
-    // No debería poder pasar nunca: verifyInvitationAcceptIdentity corre
-    // antes en la cadena y, si falla, ya cortó el request con su propio
-    // 401 sin llegar acá.
+  const subject = req.invitationAcceptSubject as InvitationAcceptSubject | undefined;
+  if (!subject) {
+    // No debería poder pasar nunca: verifyInvitationAcceptToken corre antes
+    // en la cadena y, si falla, ya cortó el request con su propio 401 sin
+    // llegar acá.
     throw new Error(
-      "acceptInvitationRateLimiter: falta req.invitationAcceptIdentity — verificá el orden de middlewares en invitation.routes.ts",
+      "acceptInvitationRateLimiter: falta req.invitationAcceptSubject — verificá el orden de crearCadenaDeAceptacion en verifyInvitationAcceptIdentity.ts",
     );
   }
-  return identity.userId;
+  return subject.userId;
 }
 
 export function createAcceptInvitationRateLimiter() {

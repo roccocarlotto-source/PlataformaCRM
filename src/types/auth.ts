@@ -36,18 +36,26 @@ export interface AuthenticatedRequest extends Request {
   auth: AuthContext;
 }
 
+// El `sub` de un JWT de Supabase con firma verificada, ANTES de resolverlo
+// contra la Admin API — V-8 de docs/auditoria-2026-08-29.md. Es lo único que
+// acceptInvitationRateLimiter necesita para keyear, y existe como dato
+// separado justamente para que el limiter pueda correr antes de la llamada
+// cara (getUserById) y no después. Adjuntado por verifyInvitationAcceptToken.
+export interface InvitationAcceptSubject {
+  userId: string;
+}
+
 // Identidad Supabase verificada para el flujo de aceptación de
 // invitaciones (M1) — no confundir con AuthContext: acá todavía no existe
 // fila en public.users, así que no hay organizationId/role que resolver.
-// Adjuntada por verifyInvitationAcceptIdentity, consumida tanto por
-// acceptInvitationRateLimiter (keying por userId) como por el controller/
-// service — verificación única, sin repetirla en ninguno de los dos.
+// Adjuntada por resolveInvitationAcceptIdentity (Admin API, ya con el cupo
+// por identidad consumido), consumida por el controller/service.
 export interface InvitationAcceptIdentity {
   userId: string;
   email: string;
 }
 
-// Para controllers que corren después de `verifyInvitationAcceptIdentity`.
+// Para controllers que corren después de `resolveInvitationAcceptIdentity`.
 export interface InvitationAcceptRequest extends Request {
   invitationAcceptIdentity: InvitationAcceptIdentity;
 }
@@ -57,6 +65,7 @@ declare global {
   namespace Express {
     interface Request {
       auth?: AuthContext;
+      invitationAcceptSubject?: InvitationAcceptSubject;
       invitationAcceptIdentity?: InvitationAcceptIdentity;
     }
   }

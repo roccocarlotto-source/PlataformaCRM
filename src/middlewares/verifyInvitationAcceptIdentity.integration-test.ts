@@ -4,7 +4,10 @@ import { test } from "node:test";
 import type { NextFunction, Request, Response } from "express";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { AppError } from "../utils/AppError";
-import { verifyInvitationAcceptIdentity } from "./verifyInvitationAcceptIdentity";
+import {
+  resolveInvitationAcceptIdentity,
+  verifyInvitationAcceptToken,
+} from "./verifyInvitationAcceptIdentity";
 
 // ALTO-3 — la aceptación de invitación ya no confía en el claim `email` del JWT.
 //
@@ -67,7 +70,18 @@ async function correrMiddleware(accessToken: string) {
       resolve();
     }) as NextFunction;
 
-    verifyInvitationAcceptIdentity(req, {} as Response, next);
+    // Las dos etapas de V-8 en secuencia, sin el limiter del medio: lo que
+    // este archivo prueba es el cableado JWT -> Admin API -> request; el
+    // orden con el limiter lo fija verifyInvitationAcceptIdentity.chain.test.ts.
+    const despuesDeLaFirma: NextFunction = ((err?: unknown) => {
+      if (err) {
+        next(err);
+        return;
+      }
+      resolveInvitationAcceptIdentity(req, {} as Response, next);
+    }) as NextFunction;
+
+    verifyInvitationAcceptToken(req, {} as Response, despuesDeLaFirma);
   });
 
   await termino;
