@@ -32,14 +32,27 @@ async function parDeClaves() {
   return generateKeyPair("ES256");
 }
 
+// `aud` por defecto "authenticated", como TODO token de sesión que emite
+// Supabase Auth (claim obligatorio en @supabase/auth-js, RequiredClaims). Desde
+// V-7 verifySupabaseJwtWith lo exige, así que el camino feliz tiene que
+// firmarlo. `aud: null` firma un token SIN el claim, para probar ese rechazo.
 async function firmar(
   privateKey: CryptoKey,
-  opciones: { alg?: string; exp?: string; sub?: string; nbf?: string } = {},
+  opciones: {
+    alg?: string;
+    exp?: string;
+    sub?: string;
+    nbf?: string;
+    aud?: string | string[] | null;
+  } = {},
 ) {
   const jwt = new SignJWT({})
     .setProtectedHeader({ alg: opciones.alg ?? "ES256" })
     .setIssuedAt()
     .setExpirationTime(opciones.exp ?? "1h");
+  if (opciones.aud !== null) {
+    jwt.setAudience(opciones.aud ?? "authenticated");
+  }
   if (opciones.sub !== undefined) {
     jwt.setSubject(opciones.sub);
   }
@@ -136,6 +149,40 @@ test("un token con nbf en el futuro es 401 (JWTClaimValidationFailed)", async ()
   const token = await firmar(privateKey, { sub: USER_ID, nbf: "1h" });
   const err = await capturar(token, async () => publicKey);
   assert.equal(err.statusCode, 401);
+});
+
+// V-7 — el claim `aud` se exige y se compara. Ambos casos son
+// JWTClaimValidationFailed (verificado en jose@6.2.3, lib/jwt_claims_set.js:
+// 'missing required "aud" claim' y 'unexpected "aud" claim value'), o sea la
+// clase que ya estaba en ERRORES_DEL_TOKEN: 401 "Token inválido", sin log.
+// Antes de V-7 los dos tokens de abajo PASABAN la verificación.
+test('un token con `aud` distinto de "authenticated" es 401 (JWTClaimValidationFailed), no 503', async () => {
+  const { privateKey, publicKey } = await parDeClaves();
+  const token = await firmar(privateKey, { sub: USER_ID, aud: "otro-proposito" });
+  const espia = espiarLoggerError();
+  try {
+    const err = await capturar(token, async () => publicKey);
+    assert.equal(err.statusCode, 401);
+    assert.equal(err.message, "Token inválido");
+    assert.equal(espia.llamadas(), 0, "un aud ajeno es culpa del token, no del servidor");
+  } finally {
+    espia.restaurar();
+  }
+});
+
+test("un token SIN `aud` es 401 (JWTClaimValidationFailed): Supabase siempre lo emite, su ausencia no es un token de sesión", async () => {
+  const { privateKey, publicKey } = await parDeClaves();
+  const token = await firmar(privateKey, { sub: USER_ID, aud: null });
+  const err = await capturar(token, async () => publicKey);
+  assert.equal(err.statusCode, 401);
+  assert.equal(err.message, "Token inválido");
+});
+
+test('un `aud` en forma de array que incluye "authenticated" pasa (semántica de jose; RequiredClaims lo tipa string | string[])', async () => {
+  const { privateKey, publicKey } = await parDeClaves();
+  const token = await firmar(privateKey, { sub: USER_ID, aud: ["otro", "authenticated"] });
+  const payload = await verifySupabaseJwtWith(token, async () => publicKey);
+  assert.equal(payload.sub, USER_ID);
 });
 
 test("un token válido pero sin `sub` es 401", async () => {
