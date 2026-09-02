@@ -282,7 +282,9 @@ model Invitation {
   invitedBy    User         @relation("InvitationInvitedBy", fields: [organizationId, invitedById], references: [organizationId, id])
 
   // Único (organization_id, email) WHERE status = 'PENDING' — índice único
-  // parcial, se crea manualmente en prisma/sql/manual_constraints.sql
+  // parcial; vive en la migración
+  // 20260821140000_incorporate_manual_ddl_into_migrations (C-2), con
+  // manual_constraints.sql como red de seguridad idempotente además
   // (Prisma no soporta índices únicos parciales en su DSL).
   @@index([organizationId])
   @@index([email])
@@ -357,8 +359,11 @@ model Contact {
   bookings        Booking[]
 
   @@unique([organizationId, id])
-  // Único (organization_id, email) WHERE email IS NOT NULL — índice parcial,
-  // se crea manualmente en prisma/sql/manual_constraints.sql
+  // Único (organization_id, lower(email)) WHERE email IS NOT NULL AND
+  // deleted_at IS NULL — índice único parcial; su versión actual (con
+  // lower()) vive en la migración
+  // 20260825120000_m13_case_insensitive_contact_email, con
+  // manual_constraints.sql como red de seguridad idempotente además
   @@index([organizationId])
   @@index([companyId])
   @@index([ownerId])
@@ -388,8 +393,10 @@ model Pipeline {
   stages        Stage[]
   opportunities Opportunity[]
 
-  // Único (organization_id) WHERE is_default = true — índice parcial,
-  // se crea manualmente en prisma/sql/manual_constraints.sql
+  // Único (organization_id) WHERE is_default = true AND deleted_at IS NULL —
+  // índice único parcial; vive en la migración
+  // 20260821140000_incorporate_manual_ddl_into_migrations (C-2), con
+  // manual_constraints.sql como red de seguridad idempotente además
   @@unique([organizationId, name])
   @@unique([organizationId, id])
   @@index([organizationId])
@@ -429,8 +436,10 @@ model Stage {
 
   @@unique([organizationId, id])
   // Únicos (pipeline_id, order) y (pipeline_id, name) WHERE deleted_at IS NULL,
-  // y (pipeline_id) WHERE is_won/is_lost = true — índices únicos parciales,
-  // se crean manualmente en prisma/sql/manual_constraints.sql
+  // y (pipeline_id) WHERE is_won/is_lost = true AND deleted_at IS NULL —
+  // índices únicos parciales; viven en la migración
+  // 20260821140000_incorporate_manual_ddl_into_migrations (C-2), con
+  // manual_constraints.sql como red de seguridad idempotente además
   @@index([organizationId])
   @@index([pipelineId])
   // ALTO-6 — sirve al patrón de listado real de esta entidad:
@@ -475,8 +484,9 @@ model Opportunity {
 
   @@unique([organizationId, id])
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL) y
-  // CHECK (amount >= 0) se agregan manualmente en
-  // prisma/sql/manual_constraints.sql
+  // CHECK (amount >= 0) viven en la migración
+  // 20260821140000_incorporate_manual_ddl_into_migrations (C-2) — y ya NO en
+  // manual_constraints.sql: B-15 sacó los CHECK de la reaplicación por deploy
   @@index([organizationId])
   @@index([companyId])
   @@index([contactId])
@@ -521,8 +531,9 @@ model Activity {
   opportunity  Opportunity? @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)
 
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL OR
-  // opportunity_id IS NOT NULL) se agrega manualmente en
-  // prisma/sql/manual_constraints.sql
+  // opportunity_id IS NOT NULL) vive en la migración
+  // 20260821140000_incorporate_manual_ddl_into_migrations (C-2) — y ya NO en
+  // manual_constraints.sql: B-15 sacó los CHECK de la reaplicación por deploy
   @@index([organizationId])
   @@index([authorId])
   @@index([companyId])
