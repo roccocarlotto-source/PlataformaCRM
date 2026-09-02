@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { Writable } from "node:stream";
 import { after, before, test } from "node:test";
 import express from "express";
+import type { Request as ExpressRequest, Response as ExpressResponse } from "express";
+import { AppError } from "../utils/AppError";
 import pino from "pino";
 import pinoHttp from "pino-http";
 import { loggerOptions } from "../lib/logger";
@@ -852,6 +855,116 @@ test("el texto plano backslash-u0000 (sin NUL real) se acepta y se guarda tal cu
     select: { rawPayload: true },
   });
   assert.deepEqual(fila.rawPayload, { nota: textoPlano, email: "a@b.com" });
+});
+
+// ---------------------------------------------------------------------------
+// B-25 de docs/auditoria-2026-08-29.md — headers repetidos en el wire
+//
+// Node une los valores de un header repetido con ", " ANTES de que ningún
+// middleware los vea (el array solo existe para set-cookie), así que los
+// chequeos `typeof !== "string"` eran código muerto: dos X-External-Id
+// distintos se aceptaban como el id "a, b" — idempotencia incluida. La
+// detección real es contra req.rawHeaders (utils/rawHeaders.ts).
+//
+// fetch NO sirve para mandar el caso: su clase Headers une los duplicados
+// ANTES de que salgan por la red. http.request de Node acepta un array como
+// valor de un header y ESO sí produce dos líneas de header reales en el wire.
+// ---------------------------------------------------------------------------
+
+function ingestCrudo(
+  headers: Record<string, string | string[]>,
+  body: unknown,
+): Promise<{ status: number; texto: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        hostname: "127.0.0.1",
+        port: Number(new URL(baseUrl).port),
+        path: "/api/ingest",
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+      },
+      (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, texto: data }));
+      },
+    );
+    req.on("error", reject);
+    req.end(JSON.stringify(body));
+  });
+}
+
+test("B-25: dos X-External-Id distintos en el wire dan 400 — no un evento con el id concatenado", async () => {
+  const a = `b25-${randomUUID()}`;
+  const b = `b25-${randomUUID()}`;
+
+  const res = await ingestCrudo(
+    { "x-api-key": fx.claveA, "X-External-Id": [a, b] },
+    { email: "a@b.com" },
+  );
+
+  // Primero la fila, porque eso era lo observable del bug: con el código
+  // viejo el request daba 202 y quedaba un evento cuyo externalId era
+  // literalmente "a, b".
+  assert.equal(
+    await eventosDe(fx.sourceA, `${a}, ${b}`),
+    0,
+    "no puede existir un evento con el id concatenado que Node arma del header repetido",
+  );
+  assert.equal(res.status, 400, "el 400 que el código viejo pretendía dar y nunca daba");
+  assert.match(res.texto, /x-external-id no puede repetirse/);
+  assert.equal(await eventosDe(fx.sourceA, a), 0);
+  assert.equal(await eventosDe(fx.sourceA, b), 0);
+});
+
+test("B-25: dos x-api-key INDIVIDUALMENTE válidas dan el mismo 401 genérico, y cada una sigue sirviendo sola", async () => {
+  const k1 = (await crearClave(fx.orgA, fx.sourceA)).clave;
+  const k2 = (await crearClave(fx.orgA, fx.sourceA)).clave;
+
+  const res = await ingestCrudo(
+    { "x-api-key": [k1, k2], "x-external-id": `b25-apikey-${randomUUID()}` },
+    { email: "a@b.com" },
+  );
+  assert.equal(res.status, 401);
+
+  // Mismo cuerpo que cualquier otro rechazo: el repetido tampoco es un
+  // oráculo.
+  const generico = await ingest(CLAVE_INEXISTENTE, { email: "a@b.com" });
+  assert.equal(res.texto, await generico.text());
+
+  // Control de que el 401 fue por la repetición y no porque las claves no
+  // sirvieran: cada una, sola, autentica.
+  const s1 = await ingest(k1, { email: "a@b.com" }, { externalId: `b25-k1-${randomUUID()}` });
+  const s2 = await ingest(k2, { email: "a@b.com" }, { externalId: `b25-k2-${randomUUID()}` });
+  assert.equal(s1.status, 202);
+  assert.equal(s2.status, 202);
+});
+
+// El e2e de arriba no puede distinguir POR QUÉ dio 401: el status y el cuerpo
+// son idénticos por diseño anti-oráculo, y con el código viejo "k1, k2"
+// tampoco matcheaba ninguna clave y terminaba en el mismo 401. Este test de
+// contrato del middleware sí discrimina: headers trae UNA clave válida (lo
+// que el typeof viejo aceptaba sin mirar nada más) y rawHeaders muestra la
+// repetición (lo que solo mira el chequeo nuevo). Con el código viejo este
+// caso AUTENTICABA.
+test("B-25 (contrato del middleware): x-api-key repetido en rawHeaders da 401 aunque headers traiga una clave válida", async () => {
+  const fakeReq = {
+    headers: { "x-api-key": fx.claveA },
+    rawHeaders: ["Host", "127.0.0.1", "x-api-key", fx.claveA, "X-Api-Key", fx.claveA],
+  } as unknown as ExpressRequest;
+
+  const resultado = await new Promise<unknown>((resolve) => {
+    void authenticateApiKey(fakeReq, {} as ExpressResponse, (err?: unknown) => resolve(err));
+  });
+
+  assert.ok(
+    resultado instanceof AppError,
+    `el middleware debe rechazar con AppError; llegó: ${String(resultado)}`,
+  );
+  assert.equal(resultado.statusCode, 401);
+  assert.equal(resultado.message, "Credencial de ingesta inválida");
 });
 
 // ---------------------------------------------------------------------------
