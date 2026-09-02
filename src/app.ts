@@ -5,7 +5,7 @@ import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { env } from "./config/env";
 import { logger } from "./lib/logger";
-import { jsonParser, urlencodedParser } from "./middlewares/bodyParserError";
+import { jsonParser } from "./middlewares/bodyParserError";
 import { errorHandler } from "./middlewares/errorHandler";
 import { notFound } from "./middlewares/notFound";
 import { routes } from "./routes";
@@ -86,11 +86,17 @@ app.use(pinoHttp({ logger }));
 // exista.
 app.use("/api", ingestRouter);
 
-// Los mismos express.json() / express.urlencoded() de siempre, con los mismos
-// límites por default, pero con sus errores traducidos a 413/400/415 en vez
-// del 500 que producía errorHandler (M-11 a). Ver middlewares/bodyParserError.ts.
+// El mismo express.json() de siempre, con los mismos límites por default,
+// pero con sus errores traducidos a 413/400/415 en vez del 500 que producía
+// errorHandler (M-11 a). Ver middlewares/bodyParserError.ts.
+//
+// SIN express.urlencoded(): ningún endpoint de la app consume ese
+// content-type (B-23 de docs/auditoria-2026-08-29.md) — montarlo era correr
+// qs (extended: true) en cada request para un body que nadie leía. La única
+// vía multipart es multer en importRouter, y la ingesta trae su propio
+// parser JSON (arriba). Un application/x-www-form-urlencoded sigue sin
+// aceptarse, igual que antes, solo que ahora sin parsearlo de por medio.
 app.use(jsonParser);
-app.use(urlencodedParser);
 
 app.use(routes);
 
