@@ -91,7 +91,6 @@ export function countOverlappingBookings(
   inicio: Date,
   fin: Date,
   db: Db = prisma,
-  excluirBookingId?: string,
 ) {
   return db.booking.count({
     where: {
@@ -100,7 +99,6 @@ export function countOverlappingBookings(
       status: "CONFIRMED",
       startsAt: { lt: fin },
       endsAt: { gt: inicio },
-      ...(excluirBookingId ? { id: { not: excluirBookingId } } : {}),
     },
   });
 }
