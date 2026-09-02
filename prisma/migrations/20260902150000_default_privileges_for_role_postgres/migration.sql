@@ -1,0 +1,40 @@
+-- ---------------------------------------------------------------------------
+-- V-3 de docs/auditoria-2026-08-29.md — el ALTER DEFAULT PRIVILEGES de C-1,
+-- con el rol EXPLÍCITO.
+--
+-- 20260821140100 cerró los grants por defecto de Supabase a anon/authenticated
+-- sobre las tablas NUEVAS de public con:
+--
+--   alter default privileges in schema public
+--     revoke all on tables from anon, authenticated;
+--
+-- Sin FOR ROLE, Postgres aplica la sentencia al rol que la EJECUTA
+-- (current_role), no a un rol fijo. Hoy ese rol es `postgres` en todos los
+-- entornos documentados —producción (DIRECT_URL usa el mismo usuario que
+-- DATABASE_URL, docs/supabase-setup.md; verificado con `select current_user`
+-- contra el proyecto real) y CI (DB_URL de `supabase status`)—, así que la
+-- restricción quedó registrada en pg_default_acl para (postgres, public,
+-- tablas) y las 14 tablas de public son de `postgres`. Pero era un supuesto
+-- implícito: si algún entorno migrara con otro rol, la sentencia original
+-- habría cerrado los defaults de ESE rol y no los de `postgres`, y las tablas
+-- que `postgres` creara después nacerían con grants a anon/authenticated — y
+-- sin RLS hasta que M-5 se la agregue.
+--
+-- Esta migración REAFIRMA la misma restricción nombrando el rol. Es
+-- idempotente: revocar lo que ya no está otorgado no cambia nada, así que
+-- contra una base donde 20260821140100 ya corrió como `postgres` es un no-op.
+-- Las migraciones aplicadas no se editan (Prisma las trackea por checksum).
+-- La fila 18 de docs/auditoria-2026-08-21-diagnostico.sql afirma desde ahora
+-- que pg_default_acl no otorga nada a anon/authenticated/PUBLIC sobre tablas
+-- nuevas de public, para `postgres` y para cualquier rol que sea dueño de
+-- tablas en public.
+--
+-- ALCANCE, igual que la original: solo TABLAS. pg_default_acl del proyecto
+-- real sigue otorgando a anon/authenticated los defaults de Supabase sobre
+-- SECUENCIAS (rwU) y FUNCIONES (X) nuevas de public para `postgres`; hoy no
+-- hay secuencias en public y las tres funciones son triggers o
+-- current_organization_id(). Queda anotado en la bitácora como suelto, no se
+-- amplía acá.
+-- ---------------------------------------------------------------------------
+alter default privileges for role postgres in schema public
+  revoke all on tables from anon, authenticated;

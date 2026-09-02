@@ -682,3 +682,87 @@ test("fila 15 mira la 2.ª columna clave, no cualquier mención de lower en la d
     "la fila 7 tampoco debe darla por buena",
   );
 });
+
+// ---------------------------------------------------------------------------
+// Fila 18 — privilegios por defecto sobre tablas nuevas (V-3 de
+// docs/auditoria-2026-08-29.md)
+// ---------------------------------------------------------------------------
+
+// Misma técnica que la fila 14: la fila afirma algo universal ("ningún rol que
+// cree tablas en public otorga por defecto a anon/authenticated/PUBLIC"), y una
+// afirmación universal solo se prueba falsable con un contraejemplo. El
+// contraejemplo es un ALTER DEFAULT PRIVILEGES dentro de una transacción que
+// se revierte: es DDL transaccional, y crear una tabla en paralelo (la fila 14
+// lo hace) lee pg_default_acl por snapshot, sin bloquearse con esto.
+
+const FIN_FILA_18 = "and d.defaclobjtype = 'r'";
+
+function extraerFila18(): string {
+  const sql = readFileSync(DIAGNOSTICO, "utf8")
+    .split("\n")
+    .filter((linea) => !/^\s*--/.test(linea))
+    .join("\n");
+
+  const inicio = sql.indexOf("select 18,");
+  assert.notEqual(inicio, -1, `${DIAGNOSTICO}: no se encontró el "select 18," de la fila 18`);
+
+  const fin = sql.indexOf(FIN_FILA_18, inicio);
+  assert.notEqual(
+    fin,
+    -1,
+    `${DIAGNOSTICO}: la fila 18 ya no termina en "${FIN_FILA_18}" — si se reescribió, actualizar FIN_FILA_18`,
+  );
+
+  return sql.slice(inicio, fin + FIN_FILA_18.length);
+}
+
+async function resultadoFila18Con(ddl: string[]): Promise<string> {
+  const consulta = `select * from (${extraerFila18()}) as t(n, chequeo, resultado, esperado)`;
+  let resultado: string | undefined;
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (const sentencia of ddl) {
+        await tx.$executeRawUnsafe(sentencia);
+      }
+      const filas = await tx.$queryRawUnsafe<{ resultado: string }[]>(consulta);
+      resultado = filas[0]?.resultado;
+      throw new Revertir();
+    });
+  } catch (err) {
+    if (!(err instanceof Revertir)) throw err;
+  }
+
+  assert.ok(resultado !== undefined, "la fila 18 no devolvió ninguna fila");
+  return resultado;
+}
+
+test("fila 18: con la base como la dejan las migraciones, no hay grants por defecto a anon/authenticated/PUBLIC", async () => {
+  // El control positivo: lo que 20260821140100 y 20260902150000 escribieron
+  // se ve en pg_default_acl. Sin esto, "detecta" podría significar "no
+  // encuentra nada nunca".
+  assert.equal(await resultadoFila18Con([]), "ninguno");
+});
+
+test("fila 18 detecta un GRANT por defecto a anon sobre tablas nuevas — lo contrario del REVOKE de C-1", async () => {
+  const resultado = await resultadoFila18Con([
+    "alter default privileges for role postgres in schema public grant select on tables to anon",
+  ]);
+  assert.match(
+    resultado,
+    /postgres→anon:SELECT/,
+    `la fila 18 tenía que ver el grant: ${resultado}`,
+  );
+  assert.doesNotMatch(resultado, /authenticated/, "y no inventar uno que no está");
+});
+
+test("fila 18 detecta un GRANT por defecto a PUBLIC — invisible para un chequeo que solo mire anon/authenticated por nombre", async () => {
+  const resultado = await resultadoFila18Con([
+    "alter default privileges for role postgres in schema public grant insert on tables to public",
+  ]);
+  assert.match(
+    resultado,
+    /postgres→PUBLIC:INSERT/,
+    `la fila 18 tenía que ver el grant: ${resultado}`,
+  );
+});

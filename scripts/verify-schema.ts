@@ -7,7 +7,7 @@ import { PrismaClient } from "@prisma/client";
 // constraints, políticas RLS, la función current_organization_id) están
 // realmente ahí.
 //
-// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 17
+// Reusa docs/auditoria-2026-08-21-diagnostico.sql, que ya hace esos 18
 // chequeos y se escribió para correrse a mano en el SQL Editor de Supabase.
 // Acá se ejecuta igual —es una sola sentencia, de solo lectura— y además se
 // afirma sobre el subconjunto que tiene una respuesta mecánica: si algo
@@ -207,6 +207,19 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
     17,
     {
       descripcion: "M-7 · los índices parciales no únicos, por pg_get_indexdef",
+      esperado: "ninguno",
+    },
+  ],
+  // V-3: lo que las filas 1 y 2 afirman sobre las tablas que existen, sobre
+  // las que todavía no — pg_default_acl para postgres (y todo rol dueño de
+  // tablas en public) no otorga nada a anon/authenticated/PUBLIC sobre tablas
+  // nuevas. Es lo que 20260821140100 y 20260902150000 escribieron, y ninguna
+  // otra fila lo miraba.
+  [
+    18,
+    {
+      descripcion:
+        "V-3 · pg_default_acl: sin grants a anon/authenticated/PUBLIC sobre tablas nuevas de public",
       esperado: "ninguno",
     },
   ],
