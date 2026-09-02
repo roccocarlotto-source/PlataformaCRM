@@ -215,7 +215,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 8 índices únicos parciales, comparados por DEFINICIÓN COMPLETA.
+  -- V-2 ─ Los 9 índices únicos parciales, comparados por DEFINICIÓN COMPLETA.
   --
   -- Antes esto buscaba el NOMBRE en pg_indexes y nada más. Los tres agujeros que
   -- eso dejaba, todos con historia en este proyecto:
@@ -249,7 +249,13 @@ from (
     ('invitations_org_email_pending_unique',
      'CREATE UNIQUE INDEX invitations_org_email_pending_unique ON public.invitations USING btree (organization_id, email) WHERE (status = ''PENDING'')'),
     ('ingestion_events_source_external_unique',
-     'CREATE UNIQUE INDEX ingestion_events_source_external_unique ON public.ingestion_events USING btree (source_id, external_id) WHERE (external_id IS NOT NULL)')
+     'CREATE UNIQUE INDEX ingestion_events_source_external_unique ON public.ingestion_events USING btree (source_id, external_id) WHERE (external_id IS NOT NULL)'),
+    -- V-4 (docs/auditoria-2026-08-29.md): nació en la fila 17 como índice NO
+    -- único (M-7) y la migración 20260902140000 lo reemplazó por este UNIQUE.
+    -- Sin UNIQUE, findFirst + markBookingCancelled podrían cancelar la reserva
+    -- equivocada si dos calendarios de la misma organización repitieran un id.
+    ('bookings_org_google_event_unique',
+     'CREATE UNIQUE INDEX bookings_org_google_event_unique ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def
@@ -777,18 +783,16 @@ from (
   -- puede ver. Misma técnica que la fila 7: pg_get_indexdef entero contra la
   -- definición esperada, pasando los dos lados por el normalizador.
   --
-  -- HOY SOLO TIENE EL ÍNDICE DE bookings. B-14 (BAJO, sin triage todavía)
-  -- señala otros tres índices parciales no únicos sin afirmar —
-  -- ingestion_events_pending_created_at_idx, outbox_events_claimable_idx y
-  -- sources_org_created_at_idx—: cuando se triage, van en ESTA MISMA fila, no
-  -- en una nueva.
+  -- NACIÓ CON EL ÍNDICE DE bookings.google_event_id (M-7), que ya no está acá:
+  -- V-4 lo volvió UNIQUE (migración 20260902140000) y pasó a la fila 7, que es
+  -- la que afirma los únicos parciales. Hoy la fila contiene los tres de B-14;
+  -- cualquier índice parcial no único nuevo va en ESTA MISMA fila, no en una
+  -- nueva.
   select 17,
     'V-2 · Índices parciales no únicos que faltan o cambiaron de definición',
     coalesce(string_agg(e.nombre || ' → ' || coalesce(a.def, 'FALTA'), ' ;; ' order by e.nombre), 'ninguno'),
     'ninguno'
   from (values
-    ('bookings_organization_id_google_event_id_idx',
-     'CREATE INDEX bookings_organization_id_google_event_id_idx ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)'),
     -- B-14 (docs/auditoria-2026-08-29.md): los índices de las COLAS. Si se
     -- pierden, los reclamos degradan a seq scan sin ningún error — la clase de
     -- regresión que solo este chequeo ve. El de ingestion_events es además el

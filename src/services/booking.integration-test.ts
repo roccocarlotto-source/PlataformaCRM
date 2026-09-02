@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import type { Prisma } from "@prisma/client";
+import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { createBooking as insertarReserva } from "../repositories/booking.repository";
 import { lockResourceForUpdate } from "../repositories/resource.repository";
@@ -1443,6 +1444,88 @@ test("M-2: cancelar mientras Google todavía no respondió deja la reserva CANCE
     assert.equal(resultado.status, "CANCELLED");
     assert.equal(resultado.googleEventId, null);
   } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// V-4 (docs/auditoria-2026-08-29.md) — (organization_id, google_event_id) es
+// ÚNICO desde la migración 20260902140000, y setGoogleEventId puede por lo
+// tanto fallar con P2002: otra reserva de la organización ya tiene ese id.
+//
+// Se fuerza con el doble devolviendo el MISMO id para dos reservas — en la
+// realidad saldría de dos calendarios de Google de dos sucursales, no de uno;
+// para la restricción de la base es indistinguible. Lo que se afirma es el
+// tratamiento: la reserva queda CONFIRMED y válida, SIN enlace (no se finge),
+// el evento recién creado se borra (huérfano, como en M-2), la primera reserva
+// conserva su enlace, y el caso queda en el log como error. Sin el catch de
+// createBooking, el P2002 subía crudo y esta llamada lanzaba.
+// ---------------------------------------------------------------------------
+
+test("V-4: si otra reserva ya tiene el googleEventId, la nueva queda CONFIRMED sin enlace, se borra el evento y se loguea como error", async () => {
+  const escenario = await montar("v4-evento-repetido");
+  const espia = mock.method(logger, "error", () => undefined);
+  try {
+    await conectarGoogle(escenario);
+
+    const primera = await createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: LUNES_9_LOCAL,
+      },
+      doblarGoogle({ eventId: "evento-repetido-entre-calendarios" }).cliente,
+    );
+    assert.equal(primera.googleEventId, "evento-repetido-entre-calendarios");
+
+    const doble = doblarGoogle({ eventId: "evento-repetido-entre-calendarios" });
+    const segunda = await createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: new Date(LUNES_9_LOCAL.getTime() + 60 * 60 * 1000),
+      },
+      doble.cliente,
+    );
+
+    assert.equal(
+      segunda.status,
+      "CONFIRMED",
+      "la reserva vale: el conflicto es del enlace, no de la reserva",
+    );
+    assert.equal(segunda.googleEventId, null, "no se finge el enlace");
+
+    const enBase = await prisma.booking.findUniqueOrThrow({ where: { id: segunda.id } });
+    assert.equal(enBase.status, "CONFIRMED");
+    assert.equal(enBase.googleEventId, null);
+
+    const primeraEnBase = await prisma.booking.findUniqueOrThrow({ where: { id: primera.id } });
+    assert.equal(
+      primeraEnBase.googleEventId,
+      "evento-repetido-entre-calendarios",
+      "la reserva que tenía el id lo conserva: la UNIQUE protege a la existente",
+    );
+
+    assert.equal(doble.eventosCreados.length, 1, "Google sí creó el segundo evento");
+    assert.deepEqual(
+      doble.eventosBorrados,
+      ["evento-repetido-entre-calendarios"],
+      "el evento que no se pudo enlazar se borra: nadie iba a volver a pasar por él",
+    );
+
+    assert.equal(espia.mock.calls.length, 1, "un id repetido es una anomalía y queda como error");
+    const logueado = espia.mock.calls[0].arguments[0] as {
+      bookingId?: string;
+      googleEventId?: string;
+    };
+    assert.equal(logueado.bookingId, segunda.id);
+    assert.equal(logueado.googleEventId, "evento-repetido-entre-calendarios");
+  } finally {
+    espia.mock.restore();
     await desmontar(escenario);
   }
 });

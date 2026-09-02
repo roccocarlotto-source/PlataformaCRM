@@ -1231,12 +1231,18 @@ model Booking {
   @@index([organizationId, contactId])
   // La agenda: "las reservas de esta organización entre dos fechas".
   @@index([organizationId, startsAt])
-  // Parcial: (organization_id, google_event_id) WHERE google_event_id IS NOT
-  // NULL — el DSL de Prisma no expresa el predicado, vive en la migración
-  // 20260902120000_bookings_google_event_id_index. M-7 de
-  // docs/auditoria-2026-08-29.md: sirve a findBookingByGoogleEventId, que
-  // aplicarCambio llama una vez por cada evento cambiado de Google —la inmensa
-  // mayoría ajenos al CRM— y sin este índice cada uno escaneaba el tenant
-  // entero. Lo afirma la fila 17 de docs/auditoria-2026-08-21-diagnostico.sql.
+  // ÚNICO Y PARCIAL: bookings_org_google_event_unique sobre (organization_id,
+  // google_event_id) WHERE google_event_id IS NOT NULL — el DSL de Prisma no
+  // expresa el predicado, vive en la migración
+  // 20260902140000_bookings_google_event_id_unique. Nació como índice NO único
+  // por rendimiento (M-7 de docs/auditoria-2026-08-29.md, migración
+  // 20260902120000: sirve a findBookingByGoogleEventId, que aplicarCambio llama
+  // una vez por cada evento cambiado de Google y que sin índice escaneaba el
+  // tenant entero) y V-4 lo volvió UNIQUE: findFirst sin orderBy +
+  // markBookingCancelled cancelarían UNA reserva cualquiera si dos compartieran
+  // el id, y la conexión con Google es por sucursal —dos cuentas de Google de
+  // la misma organización son dos calendarios cuyos ids Google genera de forma
+  // independiente—. Los NULL quedan afuera: una reserva sin Google es normal.
+  // Lo afirma la fila 7 de docs/auditoria-2026-08-21-diagnostico.sql.
   @@map("bookings")
 }
