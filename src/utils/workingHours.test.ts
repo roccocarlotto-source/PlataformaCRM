@@ -4,7 +4,9 @@ import {
   encontrarFranjasSuperpuestas,
   estaContenido,
   estaDentroDelHorario,
+  estaEnLaGrilla,
   expandirFranjas,
+  generarGrilla,
   horaLocalDesdeMinutos,
   minutosDesdeHoraLocal,
   seSuperponen,
@@ -132,6 +134,78 @@ test("un turno NO puede cruzar el hueco entre dos franjas del mismo día", () =>
     fin: new Date("2026-09-07T23:00:00Z"),
   };
   assert.equal(estaDentroDelHorario(enLaSegunda, franjas), true);
+});
+
+// ---------------------------------------------------------------------------
+// La grilla — V-2 de docs/auditoria-2026-08-29.md. Lo que se ofrece
+// (calcularTurnos) y lo que se acepta (createBooking) pasan por generarGrilla.
+// ---------------------------------------------------------------------------
+
+// 9-13 y 16-20 de Buenos Aires: 12:00Z-16:00Z y 19:00Z-23:00Z.
+const HORARIO_PARTIDO = [
+  { inicio: new Date("2026-09-07T12:00:00Z"), fin: new Date("2026-09-07T16:00:00Z") },
+  { inicio: new Date("2026-09-07T19:00:00Z"), fin: new Date("2026-09-07T23:00:00Z") },
+];
+
+function turnoDe30(inicioIso: string) {
+  const inicio = new Date(inicioIso);
+  return { inicio, fin: new Date(inicio.getTime() + 30 * 60 * 1000) };
+}
+
+test("generarGrilla: turnos consecutivos desde el borde de la franja hasta el último que entra entero", () => {
+  const grilla = generarGrilla(
+    { inicio: new Date("2026-09-07T12:00:00Z"), fin: new Date("2026-09-07T13:45:00Z") },
+    30,
+  );
+  assert.deepEqual(
+    grilla.map((t) => `${iso(t.inicio)}→${iso(t.fin)}`),
+    [
+      "2026-09-07T12:00:00.000Z→2026-09-07T12:30:00.000Z",
+      "2026-09-07T12:30:00.000Z→2026-09-07T13:00:00.000Z",
+      "2026-09-07T13:00:00.000Z→2026-09-07T13:30:00.000Z",
+    ],
+    "13:30-14:00 no entra: la franja cierra 13:45",
+  );
+});
+
+test("estaEnLaGrilla: el borde de apertura (k = 0) y un paso posterior están en la grilla", () => {
+  assert.equal(estaEnLaGrilla(turnoDe30("2026-09-07T12:00:00Z"), HORARIO_PARTIDO, 30), true);
+  assert.equal(estaEnLaGrilla(turnoDe30("2026-09-07T12:30:00Z"), HORARIO_PARTIDO, 30), true);
+  // Y en la segunda franja, desde SU borde.
+  assert.equal(estaEnLaGrilla(turnoDe30("2026-09-07T19:00:00Z"), HORARIO_PARTIDO, 30), true);
+});
+
+test("estaEnLaGrilla: 9:07 está CONTENIDO en la franja pero NO en la grilla — el caso de V-2", () => {
+  const nueveYSiete = turnoDe30("2026-09-07T12:07:00Z");
+  assert.equal(estaDentroDelHorario(nueveYSiete, HORARIO_PARTIDO), true, "contención sí");
+  assert.equal(estaEnLaGrilla(nueveYSiete, HORARIO_PARTIDO, 30), false, "grilla no");
+});
+
+test("estaEnLaGrilla: un turno en el hueco entre las dos franjas no está ni contenido ni en la grilla", () => {
+  // 14:00 local = 17:00Z: el recurso no está.
+  const enElHueco = turnoDe30("2026-09-07T17:00:00Z");
+  assert.equal(estaDentroDelHorario(enElHueco, HORARIO_PARTIDO), false);
+  assert.equal(estaEnLaGrilla(enElHueco, HORARIO_PARTIDO, 30), false);
+});
+
+test("estaEnLaGrilla: la grilla es relativa al borde de la franja, no a la hora en punto", () => {
+  // Un recurso que abre 9:15 local (12:15Z) tiene turnos 9:15, 9:45… — las 9:30
+  // en punto NO están en su grilla aunque estén contenidas.
+  const abreA_Y_CUARTO = [
+    { inicio: new Date("2026-09-07T12:15:00Z"), fin: new Date("2026-09-07T16:00:00Z") },
+  ];
+  assert.equal(estaEnLaGrilla(turnoDe30("2026-09-07T12:15:00Z"), abreA_Y_CUARTO, 30), true);
+  assert.equal(estaEnLaGrilla(turnoDe30("2026-09-07T12:45:00Z"), abreA_Y_CUARTO, 30), true);
+  assert.equal(estaEnLaGrilla(turnoDe30("2026-09-07T12:30:00Z"), abreA_Y_CUARTO, 30), false);
+});
+
+test("estaEnLaGrilla: un turno alineado pero de OTRA duración no está en la grilla", () => {
+  // 9:00-10:00 con paso de 30: empieza en la grilla, pero no ES un turno de ella.
+  const deUnaHora = {
+    inicio: new Date("2026-09-07T12:00:00Z"),
+    fin: new Date("2026-09-07T13:00:00Z"),
+  };
+  assert.equal(estaEnLaGrilla(deUnaHora, HORARIO_PARTIDO, 30), false);
 });
 
 test("sin franjas, nada está dentro del horario", () => {

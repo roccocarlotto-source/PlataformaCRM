@@ -21,7 +21,7 @@ import {
   lockServiceTypeForUpdate,
 } from "../repositories/serviceType.repository";
 import { AppError } from "../utils/AppError";
-import { estaDentroDelHorario } from "../utils/workingHours";
+import { estaDentroDelHorario, estaEnLaGrilla } from "../utils/workingHours";
 import { resolverContexto } from "./availability.service";
 import type { ClienteGoogleCalendar } from "./googleCalendar.service";
 import { borrarReservaDeGoogle, reflejarReservaEnGoogle } from "./googleCalendarConnection.service";
@@ -119,14 +119,44 @@ export interface CreateBookingInput {
 // nueva. La alternativa (Google adentro) cambia esa ventana por un problema de
 // concurrencia peor.
 // ---------------------------------------------------------------------------
+// El "ahora" contra el que createBooking rechaza un startsAt en el pasado (V-2
+// de docs/auditoria-2026-08-29.md). Es un objeto y no un Date.now() inline por
+// una razón concreta: los tests de integración de agenda fijan sus reservas en
+// fechas de calendario concretas (un lunes de septiembre de 2026, porque el
+// horario de trabajo es por día de la semana y la zona importa), y "en el
+// pasado" es relativo al reloj real — sin un reloj reemplazable, esa suite
+// empezaría a fallar sola el día que esas fechas queden atrás. Mismo criterio
+// que el `antesDePromover` del worker de ingesta: un gancho explícito, no un
+// Date.now() que nadie puede controlar.
+export const relojDeReservas = {
+  ahora: (): Date => new Date(),
+};
+
 export async function createBooking(
   organizationId: string,
   input: CreateBookingInput,
   cliente?: ClienteGoogleCalendar,
 ) {
+  // Capturado UNA vez, al entrar: una sola noción de "ahora" para toda la
+  // llamada, comparada como instante UTC — no depende de la zona de la sucursal.
+  const ahora = relojDeReservas.ahora();
+
   // -------------------------------------------------------------------------
   // FASE 1 — validaciones
   // -------------------------------------------------------------------------
+
+  // V-2: EN EL PASADO, NO. Va antes de tocar la base: es lo más barato de todo
+  // y no necesita el contexto del recurso. El borde es `<`, no `<=`: un turno
+  // que empieza exactamente ahora todavía no pasó, y es el mismo borde con que
+  // calcularTurnos ofrece la grilla (`inicio < desde` se descarta, el igual
+  // se ofrece) — lo que la disponibilidad ofrece en este instante, la reserva
+  // lo acepta en este instante. Sin margen de gracia: no hay ninguna
+  // convención de tolerancia para "ahora" en el repo (TOLERANCIA_DE_INSTANTE_MS
+  // compara dos instantes de Google entre sí, no contra el reloj) y un
+  // segundo de red no convierte un turno de 30 minutos en uno perdido.
+  if (input.startsAt.getTime() < ahora.getTime()) {
+    throw new AppError("El horario solicitado ya pasó", 400);
+  }
 
   const contact = await findContactById(input.contactId, organizationId);
   if (!contact) {
@@ -168,8 +198,23 @@ export async function createBooking(
   const endsAt = new Date(startsAt.getTime() + serviceType.durationMin * 60 * 1000);
 
   // LA VALIDACIÓN DE HORARIO, con la misma función que la disponibilidad.
-  if (!estaDentroDelHorario({ inicio: startsAt, fin: endsAt }, franjasDeTrabajo)) {
+  const turno = { inicio: startsAt, fin: endsAt };
+  if (!estaDentroDelHorario(turno, franjasDeTrabajo)) {
     throw new AppError("El horario solicitado está fuera del horario de trabajo del recurso", 400);
+  }
+
+  // V-2: Y EN LA GRILLA, con la misma aritmética que la disponibilidad
+  // (generarGrilla, la que calcularTurnos recorre para ofrecer). Hasta acá solo
+  // se validaba contención: 9:07 con turnos de 30 minutos era válido y tapaba
+  // los turnos de 9:00 y 9:30 que todo el mundo ve. A-5 (bitácora §13.2) dejó
+  // esto afuera a propósito al arreglar la grilla ofrecida; V-2 cierra la otra
+  // mitad. La grilla es relativa al borde de la franja que contiene al turno,
+  // no a la hora en punto — por eso se pregunta contra las franjas reales.
+  if (!estaEnLaGrilla(turno, franjasDeTrabajo, serviceType.durationMin)) {
+    throw new AppError(
+      "El horario solicitado no coincide con los turnos disponibles de este recurso",
+      400,
+    );
   }
 
   // -------------------------------------------------------------------------

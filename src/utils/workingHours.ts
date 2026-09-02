@@ -131,6 +131,59 @@ export function estaDentroDelHorario(intervalo: Intervalo, franjas: Intervalo[])
 }
 
 // ---------------------------------------------------------------------------
+// La grilla de turnos — V-2 de docs/auditoria-2026-08-29.md
+// ---------------------------------------------------------------------------
+
+// Los turnos de UNA franja: arrancan en el borde real de la franja y avanzan de
+// a `duracionMin`, consecutivos y sin huecos, hasta el último que entra entero.
+// NO es una grilla de reloj ("siempre en punto y media"): es relativa a cuándo
+// abre esa franja ese día — un recurso que abre 9:15 tiene turnos 9:15, 9:45…
+//
+// ES LA ÚNICA ARITMÉTICA DE PASO DEL MÓDULO, y las dos puntas la comparten:
+// calcularTurnos (availability.service.ts) la recorre para OFRECER, y
+// estaEnLaGrilla la recorre para ACEPTAR. Hasta V-2 el bucle vivía adentro de
+// calcularTurnos y createBooking solo validaba contención (estaDentroDelHorario):
+// una reserva a las 9:07 con turnos de 30 minutos era válida y tapaba los
+// turnos de 9:00 y 9:30 de la grilla que todo el mundo ve. Mismo criterio que
+// compartir estaDentroDelHorario: un solo lugar, una sola respuesta.
+export function generarGrilla(franja: Intervalo, duracionMin: number): Intervalo[] {
+  const duracionMs = duracionMin * 60 * 1000;
+  const turnos: Intervalo[] = [];
+  for (
+    let inicio = franja.inicio.getTime();
+    inicio + duracionMs <= franja.fin.getTime();
+    inicio += duracionMs
+  ) {
+    turnos.push({ inicio: new Date(inicio), fin: new Date(inicio + duracionMs) });
+  }
+  return turnos;
+}
+
+// ¿El intervalo es EXACTAMENTE uno de los turnos que la grilla generaría? Implica
+// contención en alguna franja (los turnos nacen adentro), alineación al paso
+// desde el borde de ESA franja, y duración igual al paso. Un intervalo que cae
+// en el hueco entre dos franjas no está en la grilla de ninguna; uno que empieza
+// a las 9:07 tampoco, aunque esté contenido.
+//
+// Se pregunta por enumeración y no por módulo ((inicio - franja.inicio) %
+// duración) a propósito: enumerar es la misma función que ofrece los turnos, así
+// que "lo que se acepta" no puede divergir de "lo que se ofrece" ni por un
+// detalle de redondeo. Una franja tiene a lo sumo unas decenas de turnos.
+export function estaEnLaGrilla(
+  intervalo: Intervalo,
+  franjas: Intervalo[],
+  duracionMin: number,
+): boolean {
+  const inicio = intervalo.inicio.getTime();
+  const fin = intervalo.fin.getTime();
+  return franjas.some((franja) =>
+    generarGrilla(franja, duracionMin).some(
+      (turno) => turno.inicio.getTime() === inicio && turno.fin.getTime() === fin,
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // La conversión que motiva el archivo
 // ---------------------------------------------------------------------------
 

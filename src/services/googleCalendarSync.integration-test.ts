@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { test } from "node:test";
+import { before, mock, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import {
   findConnectionByChannelId,
@@ -10,7 +10,7 @@ import { AppError } from "../utils/AppError";
 import { getCifrador } from "../utils/encryption";
 import { firmarWebhookToken, verificarWebhookToken } from "../utils/webhookToken";
 import { renovarCanalesVencidos } from "../workers/googleCalendarChannelWorker";
-import { createBooking } from "./booking.service";
+import { createBooking, relojDeReservas } from "./booking.service";
 import { createBranch } from "./branch.service";
 import { desconectar, renovarCanal } from "./googleCalendarConnection.service";
 import { procesarNotificacion } from "./googleCalendarSync.service";
@@ -45,6 +45,13 @@ const TZ = "America/Argentina/Buenos_Aires";
 
 // Lunes 7/9/2026, 9:00 local = 12:00Z. El recurso trabaja lunes de 9 a 13.
 const LUNES_9_LOCAL = new Date("2026-09-07T12:00:00Z");
+
+// V-2: createBooking rechaza reservas en el pasado, y las de este archivo están
+// fijadas en ese lunes — el reloj de la reserva se fija al domingo anterior,
+// como en booking.integration-test.ts, para que la suite no caduque.
+before(() => {
+  mock.method(relojDeReservas, "ahora", () => new Date("2026-09-06T12:00:00Z"));
+});
 
 interface Escenario {
   organizationId: string;

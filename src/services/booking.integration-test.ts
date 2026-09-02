@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mock, test } from "node:test";
+import { before, mock, test } from "node:test";
 import type { Prisma } from "@prisma/client";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
@@ -9,7 +9,7 @@ import { lockResourceForUpdate } from "../repositories/resource.repository";
 import { AppError } from "../utils/AppError";
 import { getCifrador } from "../utils/encryption";
 import { obtenerDisponibilidad } from "./availability.service";
-import { cancelBooking, createBooking } from "./booking.service";
+import { cancelBooking, createBooking, relojDeReservas } from "./booking.service";
 import { createBranch } from "./branch.service";
 import { createResource, deleteResource } from "./resource.service";
 import { createServiceType, deleteServiceType, updateServiceType } from "./serviceType.service";
@@ -52,6 +52,17 @@ interface Escenario {
 
 // Lunes 7 de septiembre de 2026. 9 a 13 local = 12:00Z a 16:00Z.
 const LUNES_9_LOCAL = new Date("2026-09-07T12:00:00Z");
+
+// V-2: createBooking rechaza un startsAt en el pasado, y "pasado" es relativo
+// al reloj. Las reservas de este archivo están fijadas en el calendario (el
+// lunes de arriba), así que el reloj de la reserva se fija también: el domingo
+// anterior a mediodía UTC. Sin esto, la suite entera empezaría a fallar sola
+// el 7/9/2026, sin ningún bug. Lo que el test de "ya pasó" necesita es un
+// startsAt anterior a ESTE instante, no al real.
+const AHORA_FIJO = new Date("2026-09-06T12:00:00Z");
+before(() => {
+  mock.method(relojDeReservas, "ahora", () => AHORA_FIJO);
+});
 
 async function montar(
   etiqueta: string,
@@ -575,6 +586,93 @@ test("una reserva FUERA del horario de trabajo se rechaza", async () => {
 
     assertAppError(err, 400);
     assert.ok((err as AppError).message.includes("horario de trabajo"));
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// V-2 (docs/auditoria-2026-08-29.md) — createBooking aceptaba cualquier
+// startsAt dentro del horario: en el pasado, y desalineado de la grilla (9:07
+// con turnos de 30 minutos tapaba los turnos de 9:00 y 9:30 que la
+// disponibilidad ofrece). A-5 (bitácora §13.2) lo dejó afuera a propósito al
+// arreglar la grilla OFRECIDA; esto cierra la mitad de la escritura. El reloj
+// está fijado arriba (AHORA_FIJO); "ya pasó" es respecto de ese instante.
+// ---------------------------------------------------------------------------
+
+test("V-2: una reserva en el PASADO se rechaza con 400 y no deja ninguna fila", async () => {
+  const escenario = await montar("v2-pasado", { durationMin: 30 });
+  try {
+    // El lunes ANTERIOR a AHORA_FIJO, a las 9 local: dentro del horario de
+    // trabajo y alineado — lo único que tiene de malo es que ya pasó.
+    const lunesPasado = new Date("2026-08-31T12:00:00Z");
+    const err = await capturar(() =>
+      createBooking(
+        escenario.organizationId,
+        {
+          resourceId: escenario.resourceId,
+          serviceTypeId: escenario.serviceTypeId,
+          contactId: escenario.contactId,
+          startsAt: lunesPasado,
+        },
+        doblarGoogle().cliente,
+      ),
+    );
+
+    assertAppError(err, 400);
+    assert.equal((err as AppError).message, "El horario solicitado ya pasó");
+    assert.equal(
+      await prisma.booking.count({ where: { organizationId: escenario.organizationId } }),
+      0,
+      "el rechazo es de FASE 1: no puede haber tocado la base",
+    );
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("V-2: una reserva DESALINEADA de la grilla (9:07 con turnos de 30) se rechaza con 400 aunque esté en horario", async () => {
+  const escenario = await montar("v2-desalineada", { durationMin: 30 });
+  try {
+    // 9:07 local = 12:07Z: contenida en 9-13, pero la grilla es 9:00, 9:30, …
+    const nueveYSiete = new Date("2026-09-07T12:07:00Z");
+    const err = await capturar(() =>
+      createBooking(
+        escenario.organizationId,
+        {
+          resourceId: escenario.resourceId,
+          serviceTypeId: escenario.serviceTypeId,
+          contactId: escenario.contactId,
+          startsAt: nueveYSiete,
+        },
+        doblarGoogle().cliente,
+      ),
+    );
+
+    assertAppError(err, 400);
+    assert.equal(
+      (err as AppError).message,
+      "El horario solicitado no coincide con los turnos disponibles de este recurso",
+    );
+    assert.equal(
+      await prisma.booking.count({ where: { organizationId: escenario.organizationId } }),
+      0,
+    );
+
+    // Control: el turno alineado que la disponibilidad OFRECE para ese mismo
+    // recurso se acepta igual que siempre (9:30 local = 12:30Z).
+    const alineada = await createBooking(
+      escenario.organizationId,
+      {
+        resourceId: escenario.resourceId,
+        serviceTypeId: escenario.serviceTypeId,
+        contactId: escenario.contactId,
+        startsAt: new Date("2026-09-07T12:30:00Z"),
+      },
+      doblarGoogle().cliente,
+    );
+    assert.equal(alineada.status, "CONFIRMED");
+    assert.equal(alineada.startsAt.toISOString(), "2026-09-07T12:30:00.000Z");
   } finally {
     await desmontar(escenario);
   }
