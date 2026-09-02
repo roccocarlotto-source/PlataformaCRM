@@ -259,11 +259,25 @@ test("la clave en claro no reaparece en NINGUNA respuesta posterior a la creaci�
 });
 
 test("GET /api/api-keys — el listado expone solo la proyección pública", async () => {
+  // B-34: antes este test afirmaba `body.data.length > 0` confiando en que
+  // los tests ANTERIORES del archivo hubieran creado claves — corrido solo
+  // (o si otro test las borrara antes), el listado venía vacío y el for de
+  // abajo no verificaba ningún shape. La clave sobre la que se afirma se
+  // crea ACÁ: el resultado es el mismo corriendo aislado que con el archivo.
+  const creada = await call("POST", "/api/api-keys", fx.adminA.accessToken, {
+    sourceId: fx.sourceA,
+  });
+  assert.equal(creada.status, 201);
+  const { id: idCreada } = (await creada.json()) as { id: string };
+
   const res = await call("GET", "/api/api-keys", fx.adminA.accessToken);
   assert.equal(res.status, 200);
 
   const body = (await res.json()) as { data: Record<string, unknown>[] };
-  assert.ok(body.data.length > 0, "el fixture ya creó claves para esta organización");
+  assert.ok(
+    body.data.some((item) => item.id === idCreada),
+    "el listado debe incluir la clave recién creada por ESTE test",
+  );
 
   for (const item of body.data) {
     assert.deepEqual(Object.keys(item).sort(), [

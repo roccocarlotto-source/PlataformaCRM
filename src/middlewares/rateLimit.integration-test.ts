@@ -91,20 +91,36 @@ async function createRealAuthUserWithJwt(label: string) {
     throw new Error(`No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`);
   }
 
-  const anonClient = createClient(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!);
-  const { data: signInData, error: signInError } = await anonClient.auth.signInWithPassword({
-    email,
-    password,
-  });
-  if (signInError || !signInData.session) {
-    throw new Error(`No se pudo iniciar sesión real (${label}): ${signInError?.message}`);
-  }
+  // B-34: la identidad ya existe en el proyecto compartido y los call sites
+  // llaman a este helper ANTES de sus try/finally. Si el login falla, el
+  // helper borra acá mismo la identidad recién creada y relanza el error
+  // original — sin esto quedaba huérfana para siempre. (createRealAuthUser,
+  // de un solo paso, no necesita esto: si falla, no creó nada.)
+  try {
+    const anonClient = createClient(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!);
+    const { data: signInData, error: signInError } = await anonClient.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (signInError || !signInData.session) {
+      throw new Error(`No se pudo iniciar sesión real (${label}): ${signInError?.message}`);
+    }
 
-  return {
-    authUserId: data.user.id,
-    email,
-    accessToken: signInData.session.access_token,
-  };
+    return {
+      authUserId: data.user.id,
+      email,
+      accessToken: signInData.session.access_token,
+    };
+  } catch (err) {
+    // Best-effort: si la limpieza también falla, se reporta aparte y el que
+    // sube es el error original del fixture.
+    try {
+      await getSupabaseAdmin().auth.admin.deleteUser(data.user.id);
+    } catch (cleanupErr) {
+      console.error(`createRealAuthUserWithJwt(${label}): falló también la limpieza`, cleanupErr);
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
