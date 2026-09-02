@@ -42,7 +42,8 @@ function getJwks() {
 //
 //   EL TOKEN ES INVÁLIDO (culpa de quien llama → 401, sin log):
 //     - JWTExpired                    vencido (mensaje propio, como antes)
-//     - JWTClaimValidationFailed      un claim no cumple (nbf, iat futuro…)
+//     - JWTClaimValidationFailed      un claim no cumple (nbf, iat futuro,
+//                                     `aud` ausente o ≠ "authenticated" — V-7)
 //     - JWTInvalid / JWSInvalid       no es un JWT/JWS bien formado
 //     - JWSSignatureVerificationFailed la firma no verifica con la clave
 //     - JOSEAlgNotAllowed             alg fuera de ["ES256"] (la anon key
@@ -118,6 +119,23 @@ export async function verifySupabaseJwtWith(
   try {
     const result = await jwtVerify(token, getKey, {
       algorithms: ["ES256"],
+      // V-7 (docs/auditoria-2026-08-29.md §6): jose NO valida `aud` salvo que
+      // se le pida — sin esta línea, cualquier JWT ES256 firmado por el JWKS
+      // del proyecto y no vencido pasaba con cualquier `aud`, o sin ninguno.
+      // Los tokens de sesión de Supabase Auth traen SIEMPRE aud:
+      // "authenticated" (claim obligatorio: RequiredClaims en
+      // @supabase/auth-js; es el mismo valor que GoTrue pone en `role` y que
+      // rls_policies.sql compara vía auth.role()). Pinnearlo cierra la puerta
+      // a cualquier JWT que ese mismo JWKS firme con otro propósito, hoy o en
+      // el futuro. Un `aud` ausente o distinto es JWTClaimValidationFailed →
+      // cae en ERRORES_DEL_TOKEN (401) sin caso nuevo en la tabla de abajo.
+      //
+      // `iss` queda deliberadamente SIN pinnear, y no por descuido: ALTO-3 de
+      // docs/auditoria-2026-08-21.md descartó la opción (A) —issuer/audience
+      // en jwtVerify— porque un cambio de formato de `iss` rompería el login
+      // de golpe (ver verifyInvitationAcceptIdentity.ts). Esa objeción es
+      // solo sobre `iss`; `aud` es un valor fijo de GoTrue.
+      audience: "authenticated",
     });
     payload = result.payload;
   } catch (err) {
