@@ -7,6 +7,7 @@ import {
   type IngestionEventSortBy,
   type SortOrder,
 } from "../repositories/ingestionEvent.repository";
+import { findSourceById } from "../repositories/source.repository";
 import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,37 @@ export async function retryIngestionEvent(organizationId: string, id: string) {
   // sin importar lo que este SELECT haya visto un instante antes.
   if (evento.status !== IngestionStatus.FAILED) {
     throw new AppError(`Solo se puede reprocesar un evento FAILED (está en ${evento.status})`, 409);
+  }
+
+  // V-9 de docs/auditoria-2026-08-29.md: LA FUENTE TIENE QUE ESTAR ACTIVA Y NO
+  // RETIRADA. Este endpoint era el camino sin carrera del hallazgo: un FAILED
+  // puede llevar semanas en la cola, y si mientras tanto un ADMIN pausó o
+  // retiró la fuente, el retry lo devolvía a PENDING y el worker lo promovía
+  // igual (su JOIN con sources no filtraba). Ahora el worker ya no reclama
+  // filas de fuentes pausadas/retiradas (claimNextPendingEvent), así que sin
+  // este chequeo el retry respondería 200 "encolado de nuevo" sobre una fila
+  // que nadie va a tomar nunca — un 200 que miente. Se rechaza acá, con el
+  // motivo real: quien pregunta ya está autenticado como ADMIN de la
+  // organización, no es el oráculo que ingestAuth.service.ts evita con su
+  // RECHAZO genérico.
+  //
+  // findSourceById ya excluye deletedAt: la FK garantiza que la fuente existe,
+  // así que null significa "retirada"; si vuelve, isActive dice si está
+  // pausada. 409 y no 404/422: el evento existe y el request está bien
+  // formado; lo que hay es un conflicto con el estado actual de un recurso
+  // del que la operación depende — mismo tipo de rechazo que el de arriba.
+  //
+  // ESTE PRE-CHEQUEO NO ENTRA EN EL CAS y no hace falta que entre: si la
+  // fuente se pausa entre este SELECT y el UPDATE, la fila queda PENDING sin
+  // que el worker la reclame — exactamente lo mismo que le pasa a cualquier
+  // PENDING cuya fuente se pausa después de creado. Lo que este chequeo
+  // cierra es la respuesta honesta en el caso no concurrente.
+  const fuente = await findSourceById(evento.sourceId, organizationId);
+  if (!fuente) {
+    throw new AppError("No se puede reprocesar: la fuente del evento fue retirada", 409);
+  }
+  if (!fuente.isActive) {
+    throw new AppError("No se puede reprocesar: la fuente del evento está pausada", 409);
   }
 
   const result = await retryIngestionEventConditional(id, organizationId);
