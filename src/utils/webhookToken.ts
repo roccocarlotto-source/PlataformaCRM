@@ -110,6 +110,45 @@ export async function firmarWebhookToken(datos: WebhookToken, clave?: Uint8Array
     .sign(clave ?? getClaveDeFirma());
 }
 
+// ---------------------------------------------------------------------------
+// EL STATUS DEL RECHAZO ES 403, Y NO ES COSMÉTICO — V-1 de
+// docs/auditoria-2026-08-29.md
+// ---------------------------------------------------------------------------
+//
+// Tres endpoints del proyecto reciben una credencial sin sesión y la rechazan
+// con tres status distintos, y es una decisión por TIPO DE LLAMADOR, no una
+// inconsistencia (V-1 la marcó como tal viendo solo dos de los tres):
+//
+//   - 401  ingestAuth.service.ts — una API key: la presenta un cliente de API
+//          que puede volver a presentar otra. "Autenticate" es el mensaje.
+//   - 400  oauthState.ts — el `state` de OAuth: lo trae el navegador de una
+//          PERSONA como parámetro del request, y el callback le responde en
+//          texto legible; no es una credencial de un cliente de API.
+//   - 403  este archivo — el token del canal: lo manda una máquina (la
+//          infraestructura de Google, o alguien haciéndose pasar por ella).
+//          No hay identidad que pueda reautenticarse: "no vas a pasar".
+//
+// Y ACÁ EL NÚMERO ES LÓGICA VIVA, por dos acoplamientos que hay que conocer
+// antes de tocarlo:
+//
+//   1. googleCalendarWebhook.controller.ts despacha por este status: un
+//      AppError con STATUS_TOKEN_DE_CANAL_INVALIDO se responde tal cual (warn,
+//      sin stack); cualquier otro error cae al 503 genérico. Por eso el número
+//      vive en UNA constante que el controller importa: cambiarlo acá sin
+//      tocar el controller haría que un token falsificado cayera al 503 en
+//      silencio.
+//   2. Google reintenta con backoff SOLO ante 500/502/503/504; "every other
+//      return status code is considered to be a message failure" (guía de
+//      push de Calendar). Un 4xx corta el reintento y no acepta la
+//      notificación: exactamente lo que se quiere para un canal espurio. Si
+//      ese token cayera al 503, Google reintentaría con backoff una
+//      notificación que nunca va a poder procesar.
+//
+// Unificar los tres status "por consistencia" no le da nada a ningún
+// consumidor real y pone en riesgo el punto 1. Se deja escrito para que la
+// próxima lectura lo encuentre como decisión y no como descuido.
+export const STATUS_TOKEN_DE_CANAL_INVALIDO = 403;
+
 // Verifica firma, vencimiento, emisor y audiencia. Lanza AppError 403 —no 401 y
 // no 500— en todo camino de fallo: del otro lado no hay una identidad que pueda
 // reautenticarse, hay un emisor que no probó ser Google hablando de un canal
@@ -137,9 +176,15 @@ export async function verificarWebhookToken(
     payload = resultado.payload;
   } catch (err) {
     if (err instanceof joseErrors.JWTExpired) {
-      throw new AppError("El token del canal de notificaciones expiró", 403);
+      throw new AppError(
+        "El token del canal de notificaciones expiró",
+        STATUS_TOKEN_DE_CANAL_INVALIDO,
+      );
     }
-    throw new AppError("Token del canal de notificaciones inválido", 403);
+    throw new AppError(
+      "Token del canal de notificaciones inválido",
+      STATUS_TOKEN_DE_CANAL_INVALIDO,
+    );
   }
 
   // La firma prueba que salió de acá, no que el contenido tenga la forma
@@ -150,7 +195,10 @@ export async function verificarWebhookToken(
     typeof payload.branchId !== "string" ||
     typeof payload.channelId !== "string"
   ) {
-    throw new AppError("Token del canal de notificaciones inválido", 403);
+    throw new AppError(
+      "Token del canal de notificaciones inválido",
+      STATUS_TOKEN_DE_CANAL_INVALIDO,
+    );
   }
 
   return {

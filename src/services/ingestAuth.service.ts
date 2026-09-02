@@ -23,6 +23,15 @@ import { hashApiKey } from "../utils/apiKey";
 // Es una constante y no un literal repetido justamente para que no puedan
 // divergir: agregar mañana un rechazo nuevo con su propio mensaje sería la
 // forma natural de romper esto sin darse cuenta.
+//
+// EL STATUS ES 401, y es el tercero de tres (V-1 de
+// docs/auditoria-2026-08-29.md, que solo vio dos): el `state` de OAuth
+// rechaza con 400 (oauthState.ts) y el token del canal de Google con 403
+// (webhookToken.ts, que lista los tres y el porqué). Acá 401 porque una API
+// key es una credencial de un cliente de API que puede volver a presentar
+// otra — "autenticate" es el mensaje correcto —, y ningún consumidor despacha
+// por el valor. No se unifica con los otros dos: cada uno responde a un tipo
+// de llamador distinto, y el 403 del webhook es lógica viva del controller.
 const RECHAZO = "Credencial de ingesta inválida";
 
 // Cada cuánto, como mucho, se escribe ApiKey.lastUsedAt.
