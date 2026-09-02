@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import express from "express";
 import { env } from "../config/env";
@@ -25,7 +25,7 @@ import {
   createOnboardingOtpRateLimiter,
   createOnboardingRateLimiter,
 } from "./rateLimit";
-import { verifyInvitationAcceptIdentity } from "./verifyInvitationAcceptIdentity";
+import { crearCadenaDeAceptacion } from "./verifyInvitationAcceptIdentity";
 import type { AuthContext } from "../types/auth";
 
 // Test de integración de M1 (rate limiting) — HTTP real contra apps
@@ -421,18 +421,58 @@ test("los cupos de /onboarding/otp y /onboarding son independientes para el mism
 // request sin excepción" y "bloquea incluso a una identidad real una vez
 // agotado". Los dos probaban exactamente el comportamiento por IP que A-2 de
 // docs/auditoria-2026-08-29.md sacó, así que se fueron con él. Lo que queda
-// bajo prueba es lo que quedó montado: verifyInvitationAcceptIdentity y
-// acceptInvitationRateLimiter, en ese orden.
+// bajo prueba es lo que quedó montado — y desde V-8 se monta con la MISMA
+// función que invitation.routes.ts (crearCadenaDeAceptacion: firma del JWT →
+// body válido → limiter por `sub` → Admin API), con un limiter nuevo por app
+// para que los tests no compartan cupo. Los dobles de la firma y de la Admin
+// API no se usan acá: contra Supabase real es donde el cableado se prueba.
 // ---------------------------------------------------------------------------
 
 function mountFullAcceptChain(app: express.Express) {
   app.post(
     "/api/invitations/accept",
-    verifyInvitationAcceptIdentity,
-    createAcceptInvitationRateLimiter(),
+    ...crearCadenaDeAceptacion({ limiter: createAcceptInvitationRateLimiter() }),
     acceptInvitationHandler,
   );
 }
+
+// V-8 contra Supabase REAL: la misma propiedad que fija el test unitario del
+// orden (verifyInvitationAcceptIdentity.chain.test.ts), pero con la firma y la
+// Admin API de verdad — espiando getUserById en el cliente admin real. Antes
+// del fix, ACCEPT_IDENTITY_MAX + 3 requests eran ACCEPT_IDENTITY_MAX + 3
+// llamadas.
+test("V-8, cadena real: una identidad con el cupo agotado no provoca llamadas nuevas a la Admin API de Supabase", async () => {
+  const identity = await createRealAuthUserWithJwt("v8-admin-api");
+  const { url, close } = await startTestApp(mountFullAcceptChain);
+  const admin = getSupabaseAdmin().auth.admin;
+  const espia = mock.method(admin, "getUserById");
+  try {
+    const llamadasDeEstaIdentidad = () =>
+      espia.mock.calls.filter((c) => c.arguments[0] === identity.authUserId).length;
+
+    for (let i = 0; i < ACCEPT_IDENTITY_MAX + 3; i++) {
+      const res = await fetch(`${url}/api/invitations/accept`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${identity.accessToken}`,
+        },
+        body: JSON.stringify({ fullName: "Test", invitationId: randomUUID() }),
+      });
+      assert.equal(res.status, i < ACCEPT_IDENTITY_MAX ? 404 : 429, `request ${i + 1}`);
+    }
+
+    assert.equal(
+      llamadasDeEstaIdentidad(),
+      ACCEPT_IDENTITY_MAX,
+      "solo los requests dentro del cupo llegan a getUserById; los 429 no tocan Supabase",
+    );
+  } finally {
+    espia.mock.restore();
+    await close();
+    await getSupabaseAdmin().auth.admin.deleteUser(identity.authUserId);
+  }
+});
 
 // La contracara de haber sacado el limiter pre-auth: un flood anónimo de
 // tokens basura muere en el 401 de la verificación de firma, request por

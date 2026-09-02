@@ -65,9 +65,11 @@ export const revokeInvitationHandler = asyncHandler<AuthenticatedRequest>(
 // Sin authenticate: quien acepta todavía no tiene fila en public.users, así
 // que el middleware estándar (resolveAuthContext) fallaría con 403
 // exactamente en el caso que este endpoint necesita resolver.
-// verifyInvitationAcceptIdentity (middleware, montado en invitation.routes.ts
-// antes de este handler) ya verificó el JWT de Supabase una sola vez y dejó
-// la identidad en req.invitationAcceptIdentity — no se vuelve a verificar acá.
+// La cadena de crearCadenaDeAceptacion (verifyInvitationAcceptIdentity.ts,
+// montada en invitation.routes.ts antes de este handler) ya verificó el JWT de
+// Supabase, aplicó el cupo por identidad y resolvió la identidad contra la
+// Admin API, dejándola en req.invitationAcceptIdentity — no se vuelve a
+// verificar acá.
 export const acceptInvitationHandler = asyncHandler<InvitationAcceptRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(acceptInvitationSchema, req.body);
