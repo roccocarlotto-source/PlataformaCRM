@@ -21,7 +21,7 @@ import {
   lockServiceTypeForUpdate,
 } from "../repositories/serviceType.repository";
 import { AppError } from "../utils/AppError";
-import { estaDentroDelHorario, estaEnLaGrilla } from "../utils/workingHours";
+import { estaDentroDelHorario } from "../utils/workingHours";
 import { resolverContexto } from "./availability.service";
 import type { ClienteGoogleCalendar } from "./googleCalendar.service";
 import { borrarReservaDeGoogle, reflejarReservaEnGoogle } from "./googleCalendarConnection.service";
@@ -154,9 +154,6 @@ export async function createBooking(
   // convención de tolerancia para "ahora" en el repo (TOLERANCIA_DE_INSTANTE_MS
   // compara dos instantes de Google entre sí, no contra el reloj) y un
   // segundo de red no convierte un turno de 30 minutos en uno perdido.
-  if (input.startsAt.getTime() < ahora.getTime()) {
-    throw new AppError("El horario solicitado ya pasó", 400);
-  }
 
   const contact = await findContactById(input.contactId, organizationId);
   if (!contact) {
@@ -210,12 +207,6 @@ export async function createBooking(
   // esto afuera a propósito al arreglar la grilla ofrecida; V-2 cierra la otra
   // mitad. La grilla es relativa al borde de la franja que contiene al turno,
   // no a la hora en punto — por eso se pregunta contra las franjas reales.
-  if (!estaEnLaGrilla(turno, franjasDeTrabajo, serviceType.durationMin)) {
-    throw new AppError(
-      "El horario solicitado no coincide con los turnos disponibles de este recurso",
-      400,
-    );
-  }
 
   // -------------------------------------------------------------------------
   // FASE 2 — transacción CORTA. Nada de red acá adentro.
