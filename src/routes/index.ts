@@ -65,19 +65,12 @@ routes.use("/api", apiKeyRouter);
 routes.use("/api", importRouter);
 
 // Módulo de Agenda/Booking (docs/booking-architecture.md), primer tramo: las
-
-// entidades de configuración. Van acá, con el resto de las rutas
-
-// administrativas, porque comparten exactamente su forma — authenticate para
-
-// leer, authorize("ADMIN") para escribir. Booking y la disponibilidad todavía
-
-// no existen.
-
+// entidades de configuración (sucursal, recurso, tipo de servicio). Van acá,
+// con el resto de las rutas administrativas, porque comparten exactamente su
+// forma — authenticate para leer, authorize("ADMIN") para escribir. La agenda
+// propiamente dicha (bookingRouter) se monta más abajo.
 routes.use("/api", branchRouter);
-
 routes.use("/api", resourceRouter);
-
 routes.use("/api", serviceTypeRouter);
 
 // Conexión OAuth con Google Calendar (paso 2 de booking-architecture.md §9).
