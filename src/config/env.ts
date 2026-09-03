@@ -261,6 +261,27 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(7 * 24 * 60 * 60),
+
+  // -------------------------------------------------------------------------
+  // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
+  //
+  // MERCADOPAGO_WEBHOOK_SECRET: el secreto con el que MercadoPago firma cada
+  //   notificación (HMAC-SHA256 sobre id/request-id/ts — ver
+  //   src/utils/mercadopagoSignature.ts). Sale del panel de la integración.
+  // MERCADOPAGO_ACCESS_TOKEN: el access token con el que el webhook vuelve a
+  //   pedir el preapproval a la API de MercadoPago — nunca se confía en el
+  //   `status` del payload, porque la firma no lo cubre.
+  // QR_CLAIM_APP_URL: base del frontend a la que apunta el link "¿Sos el
+  //   dueño...?" de la landing pública. HOY NO APUNTA A NINGÚN LADO: se
+  //   completa en Fase 3, cuando el módulo QR del frontend tenga una ruta de
+  //   claim real. Sin ella, el link simplemente no se renderiza.
+  //
+  // Opcionales por el mismo criterio que SECRET_ENCRYPTION_KEY y las GOOGLE_*:
+  // el servidor arranca sin ellas, y un webhook real sin las dos de MercadoPago
+  // configuradas falla con un 500 que dice exactamente qué falta (en el log).
+  MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
+  MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
+  QR_CLAIM_APP_URL: z.string().optional(),
 });
 
 function parseEnv() {

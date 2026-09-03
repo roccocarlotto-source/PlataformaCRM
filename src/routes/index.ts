@@ -19,6 +19,9 @@ import { resourceRouter } from "./resource.routes";
 
 import { serviceTypeRouter } from "./serviceType.routes";
 import { pipelineRouter } from "./pipeline.routes";
+import { qrRouter } from "./qr.routes";
+import { qrAdminRouter } from "./qrAdmin.routes";
+import { qrPublicRouter } from "./qrPublic.routes";
 import { sourceRouter } from "./source.routes";
 import { stageRouter } from "./stage.routes";
 import { userRouter } from "./user.routes";
@@ -91,3 +94,22 @@ routes.use("/api", bookingRouter);
 // vacío en el retry), así que no tiene ninguna dependencia de orden con el
 // express.json() global.
 routes.use("/api", ingestionEventRouter);
+
+// Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
+//
+//   - qrPublicRouter: GET/POST /qr/resolve/:qrId, SIN /api y sin
+//     authenticate — misma excepción que /health. Es la URL impresa en el
+//     sticker: un teléfono la abre desde la cámara, no hay sesión ni JSON.
+//   - qrRouter: gestión de los QRs de la organización (claim/digital/listar/
+//     editar/borrar). Misma forma que branchRouter: authenticate para leer,
+//     + authorize("ADMIN") para escribir.
+//   - qrAdminRouter: activación manual por un platform admin. authenticate +
+//     requirePlatformAdmin, NO authorize("ADMIN") — ver ese middleware.
+//
+// LA RUTA QUE NO ESTÁ ACÁ es qrWebhookRouter (POST /webhooks/mercadopago): se
+// monta a mano en app.ts, ANTES del express.json() global, por el mismo motivo
+// exacto que ingestRouter — verifica la firma antes de leer el cuerpo y trae su
+// propio parser. Ver el comentario de app.ts.
+routes.use(qrPublicRouter);
+routes.use("/api", qrRouter);
+routes.use("/api", qrAdminRouter);

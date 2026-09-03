@@ -26,10 +26,14 @@ parar cada pieza y qué falta para terminar de aplicarla.
   correrla porque el sandbox en la nube no tenía salida de red hacia
   Supabase. Ver "Cómo aplicar Fase 1" abajo por lo que cambió respecto del
   plan original al ejecutarla.
-- [ ] **Fase 2 — Backend Express.** Guía completa de endpoints, decisiones y
-  pasos de aplicación en "Fase 2 — Backend Express" más abajo. La Fase 1 ya
-  está migrada y el Prisma Client tipado ya incluye `QrCode`/`PaymentEvent`/
-  etc. — no queda ningún prerrequisito de esquema.
+- [x] **Fase 2 — Backend Express. Completa (2026-09-03).** Los 10 endpoints
+  de la guía de más abajo están implementados en `src/` (rutas `qrPublic`,
+  `qr`, `qrAdmin` y `qrWebhook`, con sus controllers, services y
+  repositorios), con `requirePlatformAdmin` como middleware nuevo y las tres
+  env vars (`MERCADOPAGO_WEBHOOK_SECRET`, `MERCADOPAGO_ACCESS_TOKEN`,
+  `QR_CLAIM_APP_URL`) opcionales en `config/env.ts` y `.env.example`. Ver
+  "Qué se desvió del plan al implementar Fase 2" al final de la sección de
+  Fase 2. Sin cambios de esquema: `verify:schema` sigue igual.
 - [ ] **Fase 3 — Frontend.** Fusionar `Plataforma-QR/admin/src/` como módulo
   de `frontend/`.
 - [ ] **Fase 4 — Corte e infraestructura.** Cloudflare Worker, decomiso de
@@ -528,3 +532,68 @@ prueban del lado original:
    tiene la sección de Fase 1, si algo cambió al implementar.
 7. `gh pr create` — nunca mergear. Igual que Fase 1, la verificación y el
    merge quedan para después de que se revise el PR real.
+
+### Qué se desvió del plan al implementar Fase 2 (2026-09-03)
+
+Mismo criterio que la nota de Fase 1: lo que cambió al ejecutar, con el
+porqué, para que quede a la vista en el PR.
+
+- **`POST /api/qr/digital` acepta `qrType` (`REUSABLE` | `SINGLE_USE`,
+  default `REUSABLE`).** El contrato de la guía no lo listaba, pero
+  `create_digital_qr_code` del original lo tiene desde 0015 (`p_qr_type`) y
+  es el ÚNICO camino por el que puede nacer un single-use — sin él, todo el
+  árbol de single-use del endpoint de `resolve` (que la guía sí especifica
+  completo) sería código muerto. `claim` NO lo acepta: un QR físico es
+  siempre `REUSABLE`, igual que en el original (el single-use físico sigue
+  fuera de alcance, pendiente de su propia decisión — 0015, encabezado).
+- **`claim` y `digital` toman `lockOrganizationForUpdate` además del
+  INSERT.** La guía lo dejaba a elección ("`SELECT ... FOR UPDATE` vía
+  `$queryRaw` o `SERIALIZABLE`"); se usó el lock de fila que el repo ya
+  tiene (B-17) porque es el mismo `select ... for update` sobre el business
+  que hacía 0006, y porque el schema de Fase 1 no trajo el
+  `UNIQUE (organization_id, display_number)` ni el CHECK
+  `display_number iff claimed` del original — sin el lock, dos claims
+  concurrentes del mismo tenant podrían repartir el mismo número sin que
+  nada lo rechace. El test de carrera real (`carreras.test-helper`) lo
+  afirma. Traer esas dos constraints al schema queda como candidato para
+  una migración chica posterior, no bloquea nada hoy.
+- **La sucursal ajena responde 400, no 404/403.** La guía decía "404/403
+  genérico, mismo criterio que el resto del repo"; el criterio real del
+  repo para ese caso es `validateBranchId` en `resource.service.ts`:
+  `AppError(400, "La sucursal indicada no existe o no pertenece a tu
+  organización")`. Se reusó ese mismo mensaje y ese mismo status — nunca
+  se confirma que la sucursal exista.
+- **`PATCH /api/qr/:id` es parcial de verdad.** `update_qr_code` del
+  original exigía `name` y `destination_url` siempre (era un reemplazo
+  completo). Acá cada campo es opcional, se exige al menos uno, y
+  `message: null` lo vacía explícitamente — misma semántica que el resto
+  de los PATCH del repo (M-10).
+- **El webhook usa `data.id` o `id` del query, y exige `application/json`
+  con 400 explícito.** Lo segundo no estaba en el original (Deno hacía
+  `req.json()` y fallaba con 400 ante cualquier cosa): con body-parser, un
+  Content-Type distinto dejaría un `req.body` vacío en silencio y el
+  handler contestaría `200 ignored` a un request malformado. El 400
+  explícito es lo que evita mentirle a MercadoPago.
+- **`fetchPreapproval` valida la forma de la respuesta** (`id` y `status`
+  strings) antes de usarla; el original la casteaba. Un 502 solo cuando
+  el fallo fue el re-fetch a MercadoPago; todo lo demás sigue al
+  `errorHandler`.
+- **Los tests de platform admin no pasan por Supabase Auth.** La app de
+  test reemplaza `authenticate` por un stub que pone `req.auth`; lo que se
+  prueba es `requirePlatformAdmin` (contra `platform_admins` real) y los
+  services. La verificación de JWT ya la cubren `me.controller` y
+  `rateLimit.integration-test` — no se duplica.
+- **Se trabajó en el worktree `plataforma-crm-qr-integration-fase2`** que
+  el paso 1 ya había creado (existía, limpio, en `origin/master` con PR
+  #136 incluido), con `.env` copiado y `npm ci` propio.
+
+Lo que NO cambió y conviene tener presente al revisar:
+
+- Los mensajes de error hacia el cliente son en español, como el resto del
+  repo, aunque el original los tuviera en inglés ("QR already claimed or
+  does not exist" → "QR ya reclamado o no existe").
+- `QR_CLAIM_APP_URL` sigue sin valor: el link "¿Sos el dueño...?" no se
+  renderiza hasta Fase 3.
+- El mapeo de estados de MercadoPago (`authorized` → ACTIVE, `cancelled` /
+  `paused` → INACTIVE) es el supuesto heredado del original, todavía no
+  verificado contra un sandbox real.
