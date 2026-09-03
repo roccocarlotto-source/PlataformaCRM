@@ -78,6 +78,13 @@ function parseExternalIdHeader(req: IngestRequest): string | undefined {
 // algo que ya había funcionado a la primera. `duplicate` está para que igual
 // pueda distinguirlo y dejar de insistir, sin que nada se rompa si lo ignora.
 //
+// LO QUE ESTE 202 NO DICE, y está escrito para el emisor en §9.13 (V-12 de
+// docs/auditoria-2026-08-29.md): si el contenido de este envío difiere del que
+// ya está bajo ese externalId, el contenido nuevo no se guardó ni se va a
+// procesar — el retry del ADMIN reprocesa el rawPayload original. Una
+// corrección viaja con otro X-External-Id, o sin header (el derivado cambia
+// con el contenido).
+//
 // La respuesta NUNCA echoea la clave, ni entera ni en parte: son tres campos y
 // ninguno deriva de ella.
 export const ingestHandler = asyncHandler<IngestRequest>(async (req, res: Response) => {

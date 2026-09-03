@@ -166,6 +166,9 @@ que se sube dos veces no pueden duplicar. Cada evento trae un
 `externalId` provisto por la fuente o derivado determinísticamente del
 payload (hash estable del contenido). El único parcial sobre
 `(sourceId, externalId)` lo garantiza en la base, no en el código.
+*(Aclaración de 2026-09-02, V-12: la contracara de esta garantía —un
+payload **corregido** reenviado bajo el mismo `externalId` provisto no se
+guarda ni se procesa— está escrita para quien emite en §9.13.)*
 
 **Deduplicación (a nivel contacto).** Ya existe un índice único
 parcial `(organization_id, email) WHERE email IS NOT NULL` en
@@ -720,3 +723,72 @@ backend lo acepta —el tipo del frontend también lo declara, para poder repres
 una fuente que llegue por otro camino— pero no se ofrece crear una: el ítem 6
 sigue pospuesto (§7) y no hay ninguna forma de ingesta que lo consuma, así que una
 fuente de ese tipo hoy no haría nada.
+
+### 9.13 Un payload corregido bajo el mismo `X-External-Id` no se guarda ni se procesa
+
+*(2026-09-02, V-12 de `docs/auditoria-2026-08-29.md`.)*
+
+Es la contracara de §4 y **es lo que §4 pide**: la idempotencia a nivel
+evento se apoya en el único parcial `(sourceId, externalId)`, y el `INSERT`
+de `insertPendingIngestionEvent` es `ON CONFLICT ... DO NOTHING`. Conviene
+tenerlo escrito para quien integra una fuente, porque desde afuera se
+parece a "mandé la corrección y no pasó nada" — y es exactamente eso.
+
+**Lo que pasa, para quien emite a `POST /api/ingest`:**
+
+- Si reenviás un evento con el **mismo `X-External-Id`** y el contenido
+  cambió respecto al que ya recibimos, **el contenido nuevo no se guarda ni
+  se procesa**. La fila existente queda como está: con su `rawPayload`
+  original y en el estado en que esté (`PENDING`, `PROCESSED` o `FAILED`,
+  da lo mismo — el conflicto es por clave, no por estado).
+- La respuesta **lo indica**: `202` con `duplicate: true` y el `id` del
+  evento preexistente (no es un error, por lo que explica el comentario de
+  `ingestHandler`: un `4xx` dejaría reintentando en loop al webhook que la
+  idempotencia existe para cubrir). Pero el sistema **no vuelve a intentar
+  nada** con el contenido corregido, ni lo compara con el existente, ni lo
+  anota en ningún lado.
+- El reproceso del ADMIN (`POST /api/ingestion-events/:id/retry`, §9.10)
+  **no recibe payload**: vuelve el evento de `FAILED` a `PENDING` y el
+  worker reprocesa el `rawPayload` **original**. Sirve para volver a correr
+  la misma fila —tras corregir un `fieldMapping`, por ejemplo—, no para
+  reemplazar su contenido.
+- Y un evento `FAILED` **no se purga nunca** (la retención de §9.1 y
+  `docs/data-classification.md` §5.1 solo borra `PROCESSED`/`DUPLICATE` a
+  los 90 días): un `X-External-Id` cuyo primer envío quedó `FAILED` queda
+  ocupado de forma permanente.
+
+**Cómo se procesa una corrección hoy — la única vía soportada:** mandarla
+con **otro `X-External-Id`**. No existe ningún endpoint, script ni camino de
+código que reemplace el `rawPayload` de un `IngestionEvent` existente; la
+única escritura sobre esa columna es la **redacción** del borrado a pedido
+(`POST /api/contacts/:id/erase-personal-data`, §5.2 de
+`docs/data-classification.md`), que hace lo contrario de corregir.
+Modificar la fila a mano en la base no es un camino del producto.
+
+**Dos precisiones que evitan documentar de más:**
+
+- **Si la fuente NO manda `X-External-Id`, este problema no existe.** El
+  `externalId` derivado es un SHA-256 del JSON canónico del payload
+  (`utils/externalId.ts`): un payload corregido tiene otro contenido, otro
+  hash, y entra como evento nuevo. El descarte es exclusivo de una fuente
+  que fija el header por su cuenta — que es, a la vez, la única forma de
+  que dos contenidos distintos colisionen.
+- **Los archivos tampoco lo sufren.** El `externalId` de una fila de
+  archivo es el hash de `{ fila, datos }` (`utils/spreadsheet.ts`): una
+  fila corregida y re-subida en la misma posición cambia de hash y entra
+  como evento nuevo; el evento viejo, si quedó `FAILED`, sigue `FAILED`.
+  Lo que sí se descarta en una re-subida son las filas **idénticas** (§9.9).
+
+**Por qué se acepta así.** Aceptar un payload distinto bajo la misma clave
+obligaría a elegir entre pisar el original (perder lo que ya se procesó, y
+romper "nunca sobrescribir en silencio") o versionar eventos (dos filas por
+clave, lo que §9.1 y §9.9 muestran que rompe la garantía y los conteos).
+Que el emisor elija la clave es lo que le da el control: una clave por
+**versión** del dato (o ninguna, y dejar que el contenido la derive) es
+suficiente y no requiere nada nuevo.
+
+Esto es documentación de un comportamiento existente, no un cambio: lo fija
+`ingest.controller.integration-test.ts`, que manda un segundo envío con
+contenido **distinto** bajo el mismo `X-External-Id` y afirma el `202`,
+`duplicate: true` y el mismo `id` del evento que ya estaba — exactamente el
+escenario de esta nota.
