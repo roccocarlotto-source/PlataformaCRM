@@ -21,6 +21,22 @@ import { AppError } from "./AppError";
 // llegue sin haber sido atrapado por su servicio sigue cayendo al 500 genérico
 // de siempre, a propósito: devolver undefined es la forma de decir "de este no
 // sé nada".
+//
+// ESTA TRADUCCIÓN TAMBIÉN CIERRA V-6 de docs/auditoria-2026-08-29.md, y lo
+// cierra sin que nadie haya tocado ningún lock. V-6 señalaba que toda
+// $transaction de los services usa el timeout por defecto de Prisma (5 s) —
+// sigue siendo así: solo outboxWorker.ts y el lote de importación lo ajustan—
+// y que, bajo un lock de fila (lockOrganizationForUpdate, lockResourceForUpdate,
+// etc.), una operación lenta hace que la siguiente venza con P2028 "→ 500 sin
+// mensaje". Esa consecuencia dejó de ser cierta con M-11: el engine emite P2028
+// justamente para la transacción expirada ("Transaction already closed: …
+// expired transaction. The timeout for this transaction was N ms", verificado
+// en el query engine de Prisma 5.22.0), y P2028 sale de acá como el 409 de
+// arriba, con mensaje de reintento e isOperational, así que el cliente lo ve
+// tal cual. Los catch de P2002 de los services relanzan todo lo demás, así
+// que ningún P2028 se pierde en el camino. Lo fija errorHandler.test.ts (c).
+// Ajustar el timeout por sitio sigue siendo posible si el volumen algún día lo
+// pide; hoy no hay motivo.
 // ---------------------------------------------------------------------------
 
 export function traducirErrorDePrisma(err: unknown): AppError | undefined {
