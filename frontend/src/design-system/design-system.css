@@ -564,3 +564,216 @@ button:disabled {
   height: 40px;
   font-size: var(--font-size-xs);
 }
+
+/* ---------------------------------------------------------------------------
+   Card.tsx — contenedor de bloque de información. Mismos tokens que
+   .ds-table-wrap; el título va en la fuente de UI (14px/600), no en la
+   display: en el diseño el título de tarjeta es un rótulo, el título de
+   página (h1) es el único en Space Grotesk grande.
+   --------------------------------------------------------------------------- */
+.ds-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-5);
+  min-width: 0;
+}
+
+.ds-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.ds-card-title {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Los estados dentro de una tarjeta no necesitan el padding vertical que
+   tienen sueltos en una página. */
+.ds-card .ds-loading,
+.ds-card .ds-empty {
+  padding: 0;
+}
+
+.ds-card .ds-error {
+  margin: 0;
+}
+
+/* Grilla de tarjetas: tantas columnas como entren de ≥260px, así 3 KPI o 2
+   secciones se reparten el ancho y colapsan a una columna en pantallas
+   angostas sin media queries. */
+.ds-card-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin: 0;
+}
+
+/* Apila bloques verticales con el gap estándar entre tarjetas. */
+.ds-stack {
+  display: grid;
+  gap: var(--space-4);
+}
+
+/* Botones de navegación dentro de una tarjeta (Quick Actions). Un <Link>
+   con las clases de .ds-button conserva la semántica de link (href, abrir
+   en otra pestaña, rol para lectores de pantalla) — mismo criterio que
+   .ds-link-button para la variante primaria. */
+.ds-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+a.ds-button {
+  text-decoration: none;
+}
+
+a.ds-button--secondary:hover {
+  color: var(--color-text);
+}
+
+/* ---------------------------------------------------------------------------
+   KPI — tarjeta chica con rótulo arriba y número grande abajo (24px en la
+   fuente display, como los números del diseño). Hoy con un único consumidor,
+   features/dashboard/OpportunitySummaryCards.tsx; queda acá y no como
+   componente por el mismo criterio que ds-mapping-rows.
+   --------------------------------------------------------------------------- */
+.ds-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ds-kpi-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-faint);
+}
+
+.ds-kpi-value {
+  font-family: var(--font-display);
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 0;
+}
+
+/* Loading/error ocupan el lugar del número sin su tamaño. */
+.ds-kpi-state {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Meter — fila "rótulo … valor" con barra proporcional debajo (pista 6px,
+   relleno en el color primario). El ancho del relleno lo calcula el
+   consumidor a partir de datos reales; acá solo la forma. Único consumidor
+   hoy: features/dashboard/PipelineStageSummary.tsx.
+   --------------------------------------------------------------------------- */
+.ds-meter-list {
+  list-style: none;
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+}
+
+.ds-meter {
+  display: grid;
+  gap: 6px;
+}
+
+.ds-meter-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.ds-meter-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-meter-track {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-border-strong);
+  overflow: hidden;
+}
+
+.ds-meter-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+}
+
+/* ---------------------------------------------------------------------------
+   Lista de filas dentro de una tarjeta: texto principal + secundario a la
+   izquierda, dato alineado a la derecha, separador entre filas. Único
+   consumidor hoy: features/dashboard/RecentOpenOpportunities.tsx.
+   --------------------------------------------------------------------------- */
+.ds-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ds-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ds-list-row:first-child {
+  padding-top: 0;
+}
+
+.ds-list-row:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.ds-list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ds-list-primary {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ds-list-secondary {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.ds-list-trailing {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ds-kpi-state[role="alert"] {
+  color: var(--color-danger);
+}
