@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { Badge } from "../../design-system/Badge";
+import { Button } from "../../design-system/Button";
+import { EmptyState } from "../../design-system/EmptyState";
+import { ErrorState } from "../../design-system/ErrorState";
+import { LoadingState } from "../../design-system/LoadingState";
+import { Pagination } from "../../design-system/Pagination";
+import { Table } from "../../design-system/Table";
 import { usePipeline } from "../pipeline/queries";
 import { useDeleteStage, useUpdateStage } from "./mutations";
 import { useStages } from "./queries";
@@ -21,6 +28,20 @@ function formatProbability(probability: string): string {
   return `${Number(probability)}%`;
 }
 
+// Ancho de la barra de probabilidad: el dato real acotado a 0–100. El
+// backend ya lo valida en ese rango; el clamp solo evita que un valor
+// fuera de rango (o NaN) dibuje una barra rota.
+function probabilityWidth(probability: string): number {
+  const value = Number(probability);
+  if (Number.isNaN(value)) return 0;
+  return Math.min(100, Math.max(0, value));
+}
+
+// Diseño de referencia: "Etapas del embudo". Filas con nombre, barra de
+// probabilidad + porcentaje, un único badge de estado (solo en la etapa
+// ganada o perdida) y acciones. El ícono de arrastrar para reordenar del
+// diseño NO se implementa: drag-and-drop es funcionalidad nueva, no un
+// restyle; "Subir"/"Bajar" siguen tal cual.
 export function StageListPage() {
   const { pipelineId } = useParams<{ pipelineId: string }>();
   const { me } = useAuth();
@@ -65,15 +86,15 @@ export function StageListPage() {
   }
 
   if (pipelineQuery.isLoading) {
-    return <p>Cargando…</p>;
+    return <LoadingState />;
   }
 
   if (pipelineQuery.isError || !pipelineQuery.data) {
     return (
-      <p role="alert">
+      <ErrorState>
         No pudimos cargar el pipeline
         {pipelineQuery.error instanceof Error ? `: ${pipelineQuery.error.message}` : "."}
-      </p>
+      </ErrorState>
     );
   }
 
@@ -81,61 +102,73 @@ export function StageListPage() {
 
   return (
     <div>
-      <h1>Etapas de {pipeline.name}</h1>
-      {isAdmin ? <Link to={`/pipelines/${pipelineId}/stages/new`}>Nueva etapa</Link> : null}
-
-      <div>
-        <input
-          type="search"
-          placeholder="Buscar por nombre"
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setPage(1);
-          }}
-        />
+      <div className="ds-page-header">
+        <h1>Etapas de {pipeline.name}</h1>
+        {isAdmin ? (
+          <Link to={`/pipelines/${pipelineId}/stages/new`} className="ds-link-button">
+            Nueva etapa
+          </Link>
+        ) : null}
       </div>
 
-      {stagesQuery.isLoading ? <p>Cargando…</p> : null}
+      <div className="ds-filters">
+        <label>
+          Buscar
+          <input
+            type="search"
+            placeholder="Buscar por nombre"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
+      </div>
+
+      {stagesQuery.isLoading ? <LoadingState /> : null}
 
       {stagesQuery.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos cargar las etapas
           {stagesQuery.error instanceof Error ? `: ${stagesQuery.error.message}` : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {deleteStageMutation.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos eliminar la etapa
           {deleteStageMutation.error instanceof Error
             ? `: ${deleteStageMutation.error.message}`
             : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {updateStageMutation.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos mover la etapa
           {updateStageMutation.error instanceof Error
             ? `: ${updateStageMutation.error.message}`
             : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {stagesQuery.isSuccess && stagesQuery.data.data.length === 0 ? (
-        <p>No hay etapas para mostrar.</p>
+        <EmptyState>No hay etapas para mostrar.</EmptyState>
       ) : null}
 
       {stagesQuery.isSuccess && stagesQuery.data.data.length > 0 ? (
-        <table>
+        <Table>
           <thead>
             <tr>
               <th>Orden</th>
               <th>Nombre</th>
               <th>Probabilidad</th>
-              <th>Ganada</th>
-              <th>Perdida</th>
+              {/* Ganada y Perdida eran dos columnas booleanas ("Sí"/""); en el
+                  diseño es un solo badge inline, y como el backend garantiza
+                  que una etapa no es ambas a la vez (409/CHECK), una columna
+                  alcanza. Los tests ubican la celda por cabecera. */}
+              <th>Estado</th>
               {isAdmin ? <th>Acciones</th> : null}
             </tr>
           </thead>
@@ -156,59 +189,60 @@ export function StageListPage() {
                 <tr key={stage.id}>
                   <td>{stage.order}</td>
                   <td>{stage.name}</td>
-                  <td>{formatProbability(stage.probability)}</td>
-                  <td>{stage.isWon ? "Sí" : ""}</td>
-                  <td>{stage.isLost ? "Sí" : ""}</td>
+                  <td>
+                    {/* La barra es decorativa: el porcentaje de al lado ya es
+                        el dato. Ancho = probability real, 0–100. */}
+                    <span className="ds-meter-inline">
+                      <span className="ds-meter-track" aria-hidden="true">
+                        <span
+                          className="ds-meter-fill"
+                          style={{ width: `${probabilityWidth(stage.probability)}%` }}
+                        />
+                      </span>
+                      <span className="ds-meter-value">{formatProbability(stage.probability)}</span>
+                    </span>
+                  </td>
+                  <td>
+                    {stage.isWon ? <Badge variant="success">Etapa de Ganada</Badge> : null}
+                    {stage.isLost ? <Badge variant="danger">Etapa de Perdida</Badge> : null}
+                  </td>
                   {isAdmin ? (
                     <td>
-                      <Link to={`/pipelines/${pipelineId}/stages/${stage.id}/edit`}>Editar</Link>
-                      <button type="button" onClick={() => handleDelete(stage.id)}>
+                      {/* Los tres botones siguen siendo hermanos directos y en
+                          este orden: los tests ubican "Subir" como el segundo
+                          <button> de la fila. */}
+                      <Link to={`/pipelines/${pipelineId}/stages/${stage.id}/edit`}>Editar</Link>{" "}
+                      <Button variant="danger" onClick={() => handleDelete(stage.id)}>
                         Eliminar
-                      </button>
-                      <button
-                        type="button"
+                      </Button>{" "}
+                      <Button
                         disabled={isFirstOverall}
                         onClick={() => handleMove(stage.id, stage.order - 1)}
                       >
                         Subir
-                      </button>
-                      <button
-                        type="button"
+                      </Button>{" "}
+                      <Button
                         disabled={isLastOverall}
                         onClick={() => handleMove(stage.id, stage.order + 1)}
                       >
                         Bajar
-                      </button>
+                      </Button>
                     </td>
                   ) : null}
                 </tr>
               );
             })}
           </tbody>
-        </table>
+        </Table>
       ) : null}
 
       {stagesQuery.isSuccess ? (
-        <div>
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((current) => current - 1)}
-          >
-            Anterior
-          </button>
-          <span>
-            Página {stagesQuery.data.pagination.page} de{" "}
-            {stagesQuery.data.pagination.totalPages || 1}
-          </span>
-          <button
-            type="button"
-            disabled={page >= stagesQuery.data.pagination.totalPages}
-            onClick={() => setPage((current) => current + 1)}
-          >
-            Siguiente
-          </button>
-        </div>
+        <Pagination
+          page={page}
+          totalPages={stagesQuery.data.pagination.totalPages}
+          onPrevious={() => setPage((current) => current - 1)}
+          onNext={() => setPage((current) => current + 1)}
+        />
       ) : null}
     </div>
   );

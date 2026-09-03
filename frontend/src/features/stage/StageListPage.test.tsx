@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
+import { cellByHeader } from "../../test/cellByHeader";
 import { StageListPage } from "./StageListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { StageListResponse } from "./types";
@@ -139,6 +140,8 @@ describe("StageListPage", () => {
   });
 
   it("S14 badges isWon/isLost se muestran correctamente por fila", async () => {
+    // Ganada y Perdida se consolidaron en una sola columna "Estado" con un
+    // único badge (o ninguno). La celda se ubica por cabecera, no por índice.
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     mockPipeline({ id: "pl1" });
     server.use(
@@ -147,8 +150,9 @@ describe("StageListPage", () => {
           data: [
             makeStage({ id: "st-won", name: "Cerrado ganado", isWon: true, isLost: false }),
             makeStage({ id: "st-lost", name: "Cerrado perdido", isWon: false, isLost: true }),
+            makeStage({ id: "st-open", name: "Negociación", isWon: false, isLost: false }),
           ],
-          pagination: { page: 1, pageSize: 100, total: 2, totalPages: 1 },
+          pagination: { page: 1, pageSize: 100, total: 3, totalPages: 1 },
         }),
       ),
     );
@@ -156,12 +160,16 @@ describe("StageListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Cerrado ganado")).toBeInTheDocument());
-    const wonRow = screen.getByText("Cerrado ganado").closest("tr");
-    const lostRow = screen.getByText("Cerrado perdido").closest("tr");
-    expect(wonRow?.querySelectorAll("td")[3]).toHaveTextContent("Sí");
-    expect(wonRow?.querySelectorAll("td")[4]).toHaveTextContent("");
-    expect(lostRow?.querySelectorAll("td")[3]).toHaveTextContent("");
-    expect(lostRow?.querySelectorAll("td")[4]).toHaveTextContent("Sí");
+    const wonCell = cellByHeader(screen.getByText("Cerrado ganado").closest("tr"), "Estado");
+    const lostCell = cellByHeader(screen.getByText("Cerrado perdido").closest("tr"), "Estado");
+    const openCell = cellByHeader(screen.getByText("Negociación").closest("tr"), "Estado");
+
+    expect(wonCell).toHaveTextContent("Etapa de Ganada");
+    expect(wonCell).not.toHaveTextContent("Etapa de Perdida");
+    expect(lostCell).toHaveTextContent("Etapa de Perdida");
+    expect(lostCell).not.toHaveTextContent("Etapa de Ganada");
+    // Ni ganada ni perdida: sin badge, la celda queda vacía.
+    expect(openCell).toBeEmptyDOMElement();
   });
 
   it("S15 USER no ve Nueva etapa / Editar / Eliminar / Subir / Bajar", async () => {

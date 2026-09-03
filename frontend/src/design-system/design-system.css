@@ -788,3 +788,29 @@ a.ds-button--secondary:hover {
   gap: var(--space-2);
   white-space: nowrap;
 }
+
+/* Variante en línea del meter para celdas de tabla: barra angosta a la
+   izquierda y el valor a la derecha, como la probabilidad por etapa en
+   "Etapas del embudo". Único consumidor hoy: features/stage/StageListPage.tsx. */
+.ds-meter-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ds-meter-inline .ds-meter-track {
+  display: block;
+  width: 96px;
+  height: 4px;
+  flex-shrink: 0;
+}
+
+.ds-meter-inline .ds-meter-fill {
+  display: block;
+}
+
+.ds-meter-inline .ds-meter-value {
+  font-family: var(--font-display);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

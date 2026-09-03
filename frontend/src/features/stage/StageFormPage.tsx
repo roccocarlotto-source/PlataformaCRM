@@ -1,5 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Button } from "../../design-system/Button";
+import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
+import { LoadingState } from "../../design-system/LoadingState";
 import { useCreateStage, useUpdateStage } from "./mutations";
 import { useStage } from "./queries";
 import type { CreateStageInput, Stage, UpdateStageInput } from "./types";
@@ -65,7 +69,8 @@ function toFormValues(data: Stage): StageFormValues {
 // CompanyFormPage/PipelineFormPage. isWon/isLost se desmarcan mutuamente
 // en el cliente como cortesía visual (evita un 409 previsible en el caso
 // común) — la autoridad real sigue siendo el 409/CHECK del backend, esto
-// no lo reemplaza ni lo duplica como validación de integridad.
+// no lo reemplaza ni lo duplica como validación de integridad. Siguen
+// siendo checkboxes nativos dentro de FormField, como en SourceFormPage.
 export function StageFormPage() {
   const { pipelineId, stageId } = useParams<{ pipelineId: string; stageId?: string }>();
   const isEditMode = stageId !== undefined;
@@ -99,42 +104,39 @@ export function StageFormPage() {
   }
 
   if (isEditMode && stageQuery.isLoading) {
-    return <p>Cargando…</p>;
+    return <LoadingState />;
   }
 
   if (isEditMode && stageQuery.isError) {
     return (
-      <p role="alert">
+      <ErrorState>
         No pudimos cargar la etapa
         {stageQuery.error instanceof Error ? `: ${stageQuery.error.message}` : "."}
-      </p>
+      </ErrorState>
     );
   }
 
   return (
     <form onSubmit={handleSubmit}>
       <h1>{isEditMode ? "Editar etapa" : "Nueva etapa"}</h1>
-      <label>
-        Nombre
+      <FormField label="Nombre">
         <input
           type="text"
           value={values.name}
           onChange={(event) => setValues({ ...values, name: event.target.value })}
           required
         />
-      </label>
-      <label>
-        Orden
+      </FormField>
+      <FormField label="Orden">
         <input
           type="number"
           min={1}
           value={values.order}
           onChange={(event) => setValues({ ...values, order: event.target.value })}
         />
-      </label>
-      {!isEditMode ? <p>Si se omite, la etapa se agrega al final.</p> : null}
-      <label>
-        Probabilidad (%)
+      </FormField>
+      {!isEditMode ? <p className="ds-hint">Si se omite, la etapa se agrega al final.</p> : null}
+      <FormField label="Probabilidad (%)">
         <input
           type="number"
           min={0}
@@ -142,27 +144,25 @@ export function StageFormPage() {
           value={values.probability}
           onChange={(event) => setValues({ ...values, probability: event.target.value })}
         />
-      </label>
-      <label>
-        Ganada
+      </FormField>
+      <FormField label="Ganada">
         <input
           type="checkbox"
           checked={values.isWon}
           onChange={(event) => setValues({ ...values, isWon: event.target.checked, isLost: false })}
         />
-      </label>
-      <label>
-        Perdida
+      </FormField>
+      <FormField label="Perdida">
         <input
           type="checkbox"
           checked={values.isLost}
           onChange={(event) => setValues({ ...values, isLost: event.target.checked, isWon: false })}
         />
-      </label>
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={isSubmitting}>
+      </FormField>
+      {error ? <ErrorState>{error}</ErrorState> : null}
+      <Button type="submit" variant="primary" disabled={isSubmitting}>
         {isSubmitting ? "Guardando…" : "Guardar"}
-      </button>
+      </Button>
     </form>
   );
 }

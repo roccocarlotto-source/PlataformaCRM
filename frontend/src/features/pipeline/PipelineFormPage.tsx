@@ -1,5 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Button } from "../../design-system/Button";
+import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
+import { LoadingState } from "../../design-system/LoadingState";
 import { useCreatePipeline, useUpdatePipeline } from "./mutations";
 import { usePipeline } from "./queries";
 import type { CreatePipelineInput, Pipeline } from "./types";
@@ -39,6 +43,9 @@ function toFormValues(data: Pipeline): PipelineFormValues {
 // exactamente uno — desmarcar el default actual es una operación válida
 // que puede dejar la organización en cero defaults, y este formulario no
 // inventa una restricción que el backend no tiene.
+//
+// El checkbox va dentro de FormField como en SourceFormPage ("Activa"): es un
+// checkbox nativo, solo hereda el estilo base.
 export function PipelineFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
@@ -72,42 +79,40 @@ export function PipelineFormPage() {
   }
 
   if (isEditMode && pipelineQuery.isLoading) {
-    return <p>Cargando…</p>;
+    return <LoadingState />;
   }
 
   if (isEditMode && pipelineQuery.isError) {
     return (
-      <p role="alert">
+      <ErrorState>
         No pudimos cargar el pipeline
         {pipelineQuery.error instanceof Error ? `: ${pipelineQuery.error.message}` : "."}
-      </p>
+      </ErrorState>
     );
   }
 
   return (
     <form onSubmit={handleSubmit}>
       <h1>{isEditMode ? "Editar pipeline" : "Nuevo pipeline"}</h1>
-      <label>
-        Nombre
+      <FormField label="Nombre">
         <input
           type="text"
           value={values.name}
           onChange={(event) => setValues({ ...values, name: event.target.value })}
           required
         />
-      </label>
-      <label>
-        Default
+      </FormField>
+      <FormField label="Default">
         <input
           type="checkbox"
           checked={values.isDefault}
           onChange={(event) => setValues({ ...values, isDefault: event.target.checked })}
         />
-      </label>
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={isSubmitting}>
+      </FormField>
+      {error ? <ErrorState>{error}</ErrorState> : null}
+      <Button type="submit" variant="primary" disabled={isSubmitting}>
         {isSubmitting ? "Guardando…" : "Guardar"}
-      </button>
+      </Button>
     </form>
   );
 }
