@@ -156,6 +156,29 @@ enum BookingStatus {
 }
 
 // ---------------------------------------------------------------------------
+// QrType / QrSubscriptionStatus / QrSubscriptionChangeSource — módulo QR
+// (integración de QR Reviews, ver docs/qr-integration.md). Portados 1:1 de
+// los enums `qr_type` / `subscription_status` / `subscription_change_source`
+// del proyecto Supabase original de QR Reviews
+// (Plataforma-QR/supabase/migrations/0001_init.sql, 0015_single_use_qr.sql).
+// ---------------------------------------------------------------------------
+
+enum QrType {
+  REUSABLE
+  SINGLE_USE
+}
+
+enum QrSubscriptionStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum QrSubscriptionChangeSource {
+  MERCADOPAGO_WEBHOOK
+  PLATFORM_ADMIN
+}
+
+// ---------------------------------------------------------------------------
 // Organization — raíz del aislamiento multi-tenant
 // ---------------------------------------------------------------------------
 
@@ -167,6 +190,29 @@ model Organization {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
+
+  // ---------------------------------------------------------------------
+  // Módulo QR (integración de QR Reviews) — billing a nivel Organization,
+  // no por Branch (decisión del plan de integración): todas las sucursales
+  // de una cuenta con el módulo activo pueden generar/gestionar QRs.
+  // Prefijo "qr" deliberado: esto es el estado de la suscripción del
+  // MÓDULO QR específicamente (hoy facturada aparte vía MercadoPago), no
+  // necesariamente el mismo mecanismo de billing que el resto del SaaS
+  // termine usando — no colisionar los dos conceptos.
+  // ---------------------------------------------------------------------
+  qrSubscriptionStatus        QrSubscriptionStatus @default(INACTIVE) @map("qr_subscription_status")
+  qrMercadopagoSubscriptionId String?              @unique @map("qr_mercadopago_subscription_id")
+  // DEC-057 original: independiente de qrSubscriptionStatus. Escribible
+  // solo desde el endpoint de platform admin (Fase 2) — nunca por el propio
+  // dueño de la cuenta, nunca por el webhook de MercadoPago.
+  qrBillingExempt             Boolean              @default(false) @map("qr_billing_exempt")
+  // DEC-064/066 original: contador durable de "próximo display_number a
+  // asignar" para los QRs de esta cuenta — sobrevive borrados de QrCode
+  // (nunca se reusa un número), se incrementa dentro de la misma
+  // transacción con lock que el claim/create (ver Fase 2). No es una
+  // sequence de Postgres a propósito: nextval() no es transaccional y
+  // quemaría un número aunque la transacción que lo pidió haga rollback.
+  nextQrDisplayNumber         Int                  @default(1) @map("next_qr_display_number")
 
   users         User[]
   companies     Company[]
@@ -190,6 +236,11 @@ model Organization {
 
   workingHours WorkingHours[]
   bookings     Booking[]
+
+  qrCodes                     QrCode[]
+  qrPaymentEvents             PaymentEvent[]
+  qrSubscriptionStatusChanges QrSubscriptionStatusChange[]
+  qrBillingExemptionChanges   QrBillingExemptionChange[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -864,6 +915,10 @@ model Branch {
 
   bookings Booking[]
 
+  // Módulo QR: los QR de esta sucursal. Nullable del otro lado (QrCode.branchId)
+  // — un QR "Stock" todavía no está asociado a ninguna branch.
+  qrCodes QrCode[]
+
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3).
   @@unique([organizationId, id])
   // (organization_id, created_at) desde el arranque, sin esperar a que alguien
@@ -1245,4 +1300,167 @@ model Booking {
   // independiente—. Los NULL quedan afuera: una reserva sin Google es normal.
   // Lo afirma la fila 7 de docs/auditoria-2026-08-21-diagnostico.sql.
   @@map("bookings")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Módulo QR — integración de QR Reviews (docs/qr-integration.md).
+//
+// Portado de Plataforma-QR/supabase/migrations/*.sql (proyecto Supabase
+// separado, sin negocios reales dados de alta al momento del port — no hubo
+// datos que migrar, solo esquema y comportamiento). Cada modelo referencia la
+// migración de origen para no perder el porqué de cada decisión (DEC-XXX).
+//
+// Cambio de fondo respecto del original: allá `businesses` era 1 admin : 1
+// negocio, con RLS + `security definer` functions llamadas directo desde el
+// frontend vía PostgREST (`anon`/`authenticated` con grants explícitos). Acá
+// no hay ningún grant a `anon`/`authenticated` (ver
+// 20260821140100_revoke_anon_authenticated_direct_access) — el Express
+// backend es la única puerta, autoriza en código, no en RLS. Por eso
+// `businesses` desaparece como tabla propia: sus atributos de suscripción
+// pasan a `Organization` (billing a nivel cuenta, no por sucursal — decisión
+// del plan de integración) y cada `QrCode` cuelga de una `Branch` en vez de
+// tener su propio dueño.
+//
+// Las políticas RLS de esta sección son defensa en profundidad, igual que el
+// resto del schema (ver prisma/sql/rls_policies.sql) — no la autorización
+// principal.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ---------------------------------------------------------------------------
+// QrCode — un QR físico o digital. id es el valor codificado en el QR
+// impreso/mostrado (uuid random, nunca secuencial — DEC-011 original, no
+// cambia). branchId null = Stock (sin reclamar todavía); mismo significado
+// que qr_codes.business_id null en el original.
+//
+// CHECK constraints que Prisma no expresa en su DSL (ver
+// prisma/sql/manual_constraints.sql para el porqué de este split) — agregar a
+// mano en la migración generada, ver docs/qr-integration.md:
+//   - name/destination_url NOT NULL sii branchId IS NOT NULL (equivalente a
+//     qr_codes_name_destination_iff_claimed del original, 0008_qr_own_destination.sql)
+//   - usedAt solo puede ser no-null cuando qrType = SINGLE_USE (equivalente a
+//     qr_codes_used_at_only_single_use, 0015_single_use_qr.sql)
+// ---------------------------------------------------------------------------
+
+model QrCode {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  branchId       String? @map("branch_id") @db.Uuid
+
+  // Etiqueta amigable para el Dashboard ("QR 1", "QR 2"...). Dashboard-only,
+  // nunca parte del routing de resolución (DEC-064/065/066 original) — el
+  // contador vive en Organization.nextQrDisplayNumber.
+  displayNumber Int? @map("display_number")
+
+  name           String? @db.VarChar(255)
+  message        String?
+  destinationUrl String? @map("destination_url")
+
+  qrType QrType    @default(REUSABLE) @map("qr_type")
+  // Solo se escribe una vez, atómicamente, por el endpoint de resolve cuando
+  // qrType = SINGLE_USE (equivalente a consume_single_use_qr() original).
+  usedAt DateTime? @map("used_at")
+
+  claimedAt DateTime? @map("claimed_at")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  // onDelete: NoAction explícito, no el SET NULL que Prisma pone por defecto
+  // en una relación opcional: regla de 20260821140200 (columna referenciante
+  // nullable -> NO ACTION), que la fila 14 del diagnóstico afirma en CI.
+  // Borrar una Branch con QRs asociados falla en vez de desreclamarlos en
+  // silencio — las sucursales se borran en soft delete de todas formas.
+  branch       Branch?      @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction)
+
+  @@index([organizationId, branchId])
+  @@map("qr_codes")
+}
+
+// ---------------------------------------------------------------------------
+// PaymentEvent — ledger de idempotencia de webhooks de MercadoPago (D7
+// original, payment_events en 0001_init.sql). organizationId nullable:
+// preserva el caso de un evento que llega para una suscripción que ya no
+// resuelve a ninguna cuenta.
+// ---------------------------------------------------------------------------
+
+model PaymentEvent {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mercadopagoEventId String   @unique @map("mercadopago_event_id")
+  organizationId     String?  @map("organization_id") @db.Uuid
+  eventType          String   @map("event_type")
+  processedAt        DateTime @default(now()) @map("processed_at")
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+
+  @@map("qr_payment_events")
+}
+
+// ---------------------------------------------------------------------------
+// QrSubscriptionStatusChange — auditoría de cada cambio de
+// qrSubscriptionStatus (D9 original, subscription_status_changes). source
+// distingue si vino del webhook o de un platform admin; changedByAdmin solo
+// se completa en el segundo caso (ver CHECK equivalente a
+// changed_by_only_for_platform_admin, 0001_init.sql — agregar a mano igual
+// que en QrCode).
+// ---------------------------------------------------------------------------
+
+model QrSubscriptionStatusChange {
+  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId           String                     @map("organization_id") @db.Uuid
+  previousStatus           QrSubscriptionStatus       @map("previous_status")
+  newStatus                QrSubscriptionStatus       @map("new_status")
+  source                   QrSubscriptionChangeSource
+  changedByPlatformAdminId String?                    @map("changed_by_platform_admin_id") @db.Uuid
+  reason                   String?
+  createdAt                DateTime                   @default(now()) @map("created_at")
+
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  changedByAdmin PlatformAdmin? @relation(fields: [changedByPlatformAdminId], references: [userId])
+
+  @@map("qr_subscription_status_changes")
+}
+
+// ---------------------------------------------------------------------------
+// QrBillingExemptionChange — auditoría de cada cambio de qrBillingExempt
+// (DEC-057..062 original, billing_exemption_changes). A diferencia de
+// QrSubscriptionStatusChange, acá siempre hay un platform admin — no existe
+// un "source = webhook" para la exención (DEC-058: el webhook de
+// MercadoPago nunca toca este campo).
+// ---------------------------------------------------------------------------
+
+model QrBillingExemptionChange {
+  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId           String   @map("organization_id") @db.Uuid
+  previousValue            Boolean  @map("previous_value")
+  newValue                 Boolean  @map("new_value")
+  changedByPlatformAdminId String   @map("changed_by_platform_admin_id") @db.Uuid
+  reason                   String
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  changedByAdmin PlatformAdmin @relation(fields: [changedByPlatformAdminId], references: [userId])
+
+  @@map("qr_billing_exemption_changes")
+}
+
+// ---------------------------------------------------------------------------
+// PlatformAdmin — allowlist de activación manual (D8 original,
+// platform_admins). Global, sin scope por Organization: es Rocco (el
+// operador de la plataforma), no un rol dentro de una cuenta. Deliberadamente
+// sin write path de aplicación (igual que el original) — la única forma de
+// agregar una fila es acceso directo a la base. userId NO tiene FK declarada
+// hacia auth.users (Prisma no modela ese schema) — mismo criterio ya usado
+// para User.id, que tampoco la declara (ver prisma/sql/manual_constraints.sql):
+// la igualdad con auth.users.id es un invariante de aplicación, no una FK de
+// Postgres.
+// ---------------------------------------------------------------------------
+
+model PlatformAdmin {
+  userId    String   @id @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  subscriptionStatusChanges QrSubscriptionStatusChange[]
+  billingExemptionChanges   QrBillingExemptionChange[]
+
+  @@map("platform_admins")
 }
