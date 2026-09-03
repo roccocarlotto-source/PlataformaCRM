@@ -777,3 +777,14 @@ a.ds-button--secondary:hover {
 .ds-kpi-state[role="alert"] {
   color: var(--color-danger);
 }
+
+/* ---------------------------------------------------------------------------
+   Avatar + nombre en línea, como en las celdas Nombre y Propietario de los
+   listados. El avatar va `decorative` porque el nombre ya está al lado.
+   --------------------------------------------------------------------------- */
+.ds-person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}

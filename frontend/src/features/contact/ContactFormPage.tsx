@@ -1,5 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Button } from "../../design-system/Button";
+import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
+import { LoadingState } from "../../design-system/LoadingState";
 import { CompanySelect } from "../company/CompanySelect";
 import { UserSelect } from "../user/UserSelect";
 import { useCreateContact, useUpdateContact } from "./mutations";
@@ -85,9 +89,14 @@ function toFormValues(data: Contact): ContactFormValues {
 // analogía: Activity comparte la forma del campo pero NO el comportamiento, y
 // por eso pasa un label propio.
 //
-// Este archivo NO usa el design system (ver CompanyFormPage, que sí) y eso se
-// mantiene tal cual: UserSelect trae su propio markup, así que encaja igual en
-// los dos sin arrastrar una unificación de estilos que nadie pidió.
+// CompanySelect y UserSelect se montan sueltos, sin envolverlos en FormField:
+// traen su propio <label htmlFor>, y FormField ES un <label>, así que
+// anidarlos produciría HTML inválido y un getByLabelText ambiguo. Mismo trato
+// que en CompanyFormPage y OpportunityFormPage. Su restyle interno es una
+// tarea aparte, compartida por varios módulos.
+//
+// Etapa es un <select> normal, no un Badge: Badge es solo para mostrar el
+// estado, no para elegirlo.
 export function ContactFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
@@ -121,65 +130,59 @@ export function ContactFormPage() {
   }
 
   if (isEditMode && contactQuery.isLoading) {
-    return <p>Cargando…</p>;
+    return <LoadingState />;
   }
 
   if (isEditMode && contactQuery.isError) {
     return (
-      <p role="alert">
+      <ErrorState>
         No pudimos cargar el contacto
         {contactQuery.error instanceof Error ? `: ${contactQuery.error.message}` : "."}
-      </p>
+      </ErrorState>
     );
   }
 
   return (
     <form onSubmit={handleSubmit}>
       <h1>{isEditMode ? "Editar contacto" : "Nuevo contacto"}</h1>
-      <label>
-        Nombre
+      <FormField label="Nombre">
         <input
           type="text"
           value={values.firstName}
           onChange={(event) => setValues({ ...values, firstName: event.target.value })}
           required
         />
-      </label>
-      <label>
-        Apellido
+      </FormField>
+      <FormField label="Apellido">
         <input
           type="text"
           value={values.lastName}
           onChange={(event) => setValues({ ...values, lastName: event.target.value })}
           required
         />
-      </label>
-      <label>
-        Email
+      </FormField>
+      <FormField label="Email">
         <input
           type="email"
           value={values.email}
           onChange={(event) => setValues({ ...values, email: event.target.value })}
         />
-      </label>
-      <label>
-        Teléfono
+      </FormField>
+      <FormField label="Teléfono">
         <input
           type="text"
           value={values.phone}
           onChange={(event) => setValues({ ...values, phone: event.target.value })}
         />
-      </label>
-      <label>
-        Puesto
+      </FormField>
+      <FormField label="Puesto">
         <input
           type="text"
           value={values.jobTitle}
           onChange={(event) => setValues({ ...values, jobTitle: event.target.value })}
         />
-      </label>
-      <label>
-        Etapa
+      </FormField>
+      <FormField label="Etapa">
         <select
           value={values.lifecycleStage}
           onChange={(event) =>
@@ -192,15 +195,14 @@ export function ContactFormPage() {
           <option value="CUSTOMER">CUSTOMER</option>
           <option value="CHURNED">CHURNED</option>
         </select>
-      </label>
-      <label>
-        Fuente
+      </FormField>
+      <FormField label="Fuente">
         <input
           type="text"
           value={values.source}
           onChange={(event) => setValues({ ...values, source: event.target.value })}
         />
-      </label>
+      </FormField>
       <CompanySelect
         id="contact-form-company"
         label="Empresa"
@@ -213,10 +215,10 @@ export function ContactFormPage() {
         value={values.ownerId}
         onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
       />
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={isSubmitting}>
+      {error ? <ErrorState>{error}</ErrorState> : null}
+      <Button type="submit" variant="primary" disabled={isSubmitting}>
         {isSubmitting ? "Guardando…" : "Guardar"}
-      </button>
+      </Button>
     </form>
   );
 }

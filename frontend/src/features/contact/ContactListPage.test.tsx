@@ -60,6 +60,18 @@ function renderPage() {
   );
 }
 
+// Ubica la celda de una fila por el texto de su <th>, no por índice: el orden
+// de columnas cambió al migrar al design system (Nombre | Empresa | Email |
+// Teléfono | Etapa | Origen | Propietario | Acciones) y puede volver a
+// cambiar sin que estas aserciones se rompan.
+function cellByHeader(row: HTMLElement | null, header: string): HTMLElement | undefined {
+  const headers = Array.from(row?.closest("table")?.querySelectorAll("th") ?? []).map((th) =>
+    th.textContent?.trim(),
+  );
+  const index = headers.indexOf(header);
+  return index === -1 ? undefined : row?.querySelectorAll("td")[index];
+}
+
 describe("ContactListPage", () => {
   it("loading, éxito, error y empty state", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
@@ -383,18 +395,18 @@ describe("ContactListPage", () => {
     // Fallback explícito, nunca el UUID crudo ("co-rota").
     expect(screen.queryByText("co-rota")).not.toBeInTheDocument();
     // Se afirma sobre LA CELDA de Empresa, no con un getByText("—") suelto:
-    // desde que existe la columna Owner hay más de un "—" en la fila (estas
-    // fixtures traen ownerId null), así que el assert viejo pasó a ser
-    // ambiguo. Columnas: Nombre | Email | Etapa | Empresa | Owner | Acciones.
+    // desde que existe la columna Propietario hay más de un "—" en la fila
+    // (estas fixtures traen ownerId null), así que el assert viejo pasó a ser
+    // ambiguo. La celda se ubica por su cabecera, no por índice.
     const filaRota = screen.getByText("Con Pérez").closest("tr");
-    expect(filaRota?.querySelectorAll("td")[3]).toHaveTextContent("—");
+    expect(cellByHeader(filaRota, "Empresa")).toHaveTextContent("—");
   });
 
   // -------------------------------------------------------------------------
-  // Columna Owner — el gap de M3 cerrado (ver ContactListPage.tsx).
+  // Columna Propietario (owner) — el gap de M3 cerrado (ver ContactListPage.tsx).
   // -------------------------------------------------------------------------
 
-  it("ADMIN ve la columna Owner resuelta a fullName", async () => {
+  it("ADMIN ve la columna Propietario resuelta a fullName", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       usersHandler(),
@@ -408,7 +420,7 @@ describe("ContactListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Owner")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Propietario")).toBeInTheDocument());
     await waitFor(() => {
       const fila = screen.getByText("Juana Pérez").closest("tr");
       expect(fila).toHaveTextContent("Ana Pérez");
@@ -417,8 +429,8 @@ describe("ContactListPage", () => {
 
   it("un contacto SIN propietario muestra el guion, no un ownerId crudo ni un nombre ajeno", async () => {
     // Caso que Opportunity no tiene y por eso no esta cubierto alla:
-    // Contact.ownerId es nullable. Columnas: Nombre | Email | Etapa | Empresa |
-    // Owner | Acciones.
+    // Contact.ownerId es nullable. La celda se ubica por su cabecera, no por
+    // índice.
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       usersHandler(),
@@ -432,13 +444,13 @@ describe("ContactListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Owner")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Propietario")).toBeInTheDocument());
     const fila = screen.getByText("Juana Pérez").closest("tr");
-    expect(fila?.querySelectorAll("td")[4]).toHaveTextContent("—");
+    expect(cellByHeader(fila, "Propietario")).toHaveTextContent("—");
     expect(fila).not.toHaveTextContent("Ana Pérez");
   });
 
-  it("USER: no ve la columna Owner ni el ownerId crudo", async () => {
+  it("USER: no ve la columna Propietario ni el ownerId crudo", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       http.get(contactsUrl, () =>
@@ -452,7 +464,7 @@ describe("ContactListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
-    expect(screen.queryByText("Owner")).not.toBeInTheDocument();
+    expect(screen.queryByText("Propietario")).not.toBeInTheDocument();
     expect(screen.queryByText("u1")).not.toBeInTheDocument();
   });
 

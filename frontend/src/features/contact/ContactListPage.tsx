@@ -1,6 +1,14 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { Avatar } from "../../design-system/Avatar";
+import { Badge, type BadgeVariant } from "../../design-system/Badge";
+import { Button } from "../../design-system/Button";
+import { EmptyState } from "../../design-system/EmptyState";
+import { ErrorState } from "../../design-system/ErrorState";
+import { LoadingState } from "../../design-system/LoadingState";
+import { Pagination } from "../../design-system/Pagination";
+import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { useOwnerNames } from "../opportunity/relationResolution";
 import { useCompaniesByIds } from "./companyResolution";
@@ -11,12 +19,23 @@ import type { ContactSortBy, LifecycleStage, SortOrder } from "./types";
 const PAGE_SIZE = 20;
 const LIFECYCLE_STAGES: LifecycleStage[] = ["LEAD", "MQL", "SQL", "CUSTOMER", "CHURNED"];
 
+// Mapeo cerrado decidido en la Fase 1 del rediseño (ver design-system/Badge.tsx):
+// lifecycleStage es un enum fijo sin campo de color en el schema, así que el
+// color lo decide este consumidor y no el componente.
+const LIFECYCLE_BADGE_VARIANT: Record<LifecycleStage, BadgeVariant> = {
+  LEAD: "neutral",
+  MQL: "neutral",
+  SQL: "info",
+  CUSTOMER: "success",
+  CHURNED: "danger",
+};
+
 export function ContactListPage() {
   const { me } = useAuth();
   // Ocultar acciones de escritura para no-ADMIN es cortesía de UX: la
   // autorización real la sigue aplicando authorize("ADMIN") en el backend.
   //
-  // La columna Owner usa este MISMO booleano, y ahí no es solo cortesía:
+  // La columna Propietario usa este MISMO booleano, y ahí no es solo cortesía:
   // resolver un ownerId a nombre necesita GET /api/users, que es ADMIN-only.
   const isAdmin = me?.role === "ADMIN";
 
@@ -68,19 +87,32 @@ export function ContactListPage() {
 
   return (
     <div>
-      <h1>Contactos</h1>
-      {isAdmin ? <Link to="/contacts/new">Nuevo contacto</Link> : null}
+      <div className="ds-page-header">
+        <h1>Contactos</h1>
+        {isAdmin ? (
+          <Link to="/contacts/new" className="ds-link-button">
+            Nuevo contacto
+          </Link>
+        ) : null}
+      </div>
 
-      <div>
-        <input
-          type="search"
-          placeholder="Buscar por nombre o email"
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setPage(1);
-          }}
-        />
+      {/* Filtros inline, mismo patrón que CompanyListPage. El diseño los
+          colapsa detrás de un botón "Filtrar"; ese panel es un patrón de
+          interacción nuevo que no existe en ningún módulo y queda fuera de
+          esta migración a propósito. */}
+      <div className="ds-filters">
+        <label>
+          Buscar
+          <input
+            type="search"
+            placeholder="Buscar por nombre o email"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
         <label>
           Etapa
           <select
@@ -112,15 +144,14 @@ export function ContactListPage() {
               sin ninguna implicancia de "limpiar a null" contra el backend
               (a diferencia de ContactFormPage). */}
           {companyId ? (
-            <button
-              type="button"
+            <Button
               onClick={() => {
                 setCompanyId(undefined);
                 setPage(1);
               }}
             >
               Quitar filtro de empresa
-            </button>
+            </Button>
           ) : null}
         </div>
         <label>
@@ -135,106 +166,128 @@ export function ContactListPage() {
             <option value="lifecycleStage">Etapa</option>
           </select>
         </label>
-        <select
-          value={sortOrder}
-          onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-        >
-          <option value="desc">Descendente</option>
-          <option value="asc">Ascendente</option>
-        </select>
+        <label>
+          Orden
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+          >
+            <option value="desc">Descendente</option>
+            <option value="asc">Ascendente</option>
+          </select>
+        </label>
       </div>
 
-      {contactsQuery.isLoading ? <p>Cargando…</p> : null}
+      {contactsQuery.isLoading ? <LoadingState /> : null}
 
       {contactsQuery.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos cargar los contactos
           {contactsQuery.error instanceof Error ? `: ${contactsQuery.error.message}` : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {deleteContactMutation.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos eliminar el contacto
           {deleteContactMutation.error instanceof Error
             ? `: ${deleteContactMutation.error.message}`
             : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {contactsQuery.isSuccess && contactsQuery.data.data.length === 0 ? (
-        <p>No hay contactos para mostrar.</p>
+        <EmptyState>No hay contactos para mostrar.</EmptyState>
       ) : null}
 
+      {/* Columnas en el orden de la pantalla "Contactos" del diseño. Teléfono
+          y Origen ya existían en Contact y en el formulario; solo faltaban en
+          el listado. Los tests ubican celdas por el texto de su <th>, no por
+          índice, así que reordenar no los rompe. */}
       {contactsQuery.isSuccess && contactsQuery.data.data.length > 0 ? (
-        <table>
+        <Table>
           <thead>
             <tr>
               <th>Nombre</th>
-              <th>Email</th>
-              <th>Etapa</th>
               <th>Empresa</th>
-              {isAdmin ? <th>Owner</th> : null}
+              <th>Email</th>
+              <th>Teléfono</th>
+              <th>Etapa</th>
+              <th>Origen</th>
+              {isAdmin ? <th>Propietario</th> : null}
               {isAdmin ? <th>Acciones</th> : null}
             </tr>
           </thead>
           <tbody>
-            {contactsQuery.data.data.map((contact) => (
-              <tr key={contact.id}>
-                <td>
-                  {contact.firstName} {contact.lastName}
-                </td>
-                <td>{contact.email ?? ""}</td>
-                <td>{contact.lifecycleStage}</td>
-                <td>
-                  {contact.companyId
-                    ? (companyResolution.byId.get(contact.companyId)?.name ?? "—")
-                    : ""}
-                </td>
-                {/* ownerId es nullable acá (a diferencia de Opportunity), así
-                    que el guard no es defensivo de más: sin él, un owner sin
-                    asignar entraría a byId.get(null). Sin dueño y dueño que no
-                    se pudo resolver muestran lo mismo — "—" —, y es correcto:
-                    para quien lee la tabla, las dos cosas son "no hay nombre
-                    que mostrar acá". */}
-                {isAdmin ? (
-                  <td>{contact.ownerId ? (ownerNames.byId.get(contact.ownerId) ?? "—") : "—"}</td>
-                ) : null}
-                {isAdmin ? (
+            {contactsQuery.data.data.map((contact) => {
+              const fullName = `${contact.firstName} ${contact.lastName}`;
+              // ownerId es nullable acá (a diferencia de Opportunity), así
+              // que el guard no es defensivo de más: sin él, un owner sin
+              // asignar entraría a byId.get(null). Sin dueño y dueño que no
+              // se pudo resolver muestran lo mismo — "—" —, y es correcto:
+              // para quien lee la tabla, las dos cosas son "no hay nombre
+              // que mostrar acá". Y sin nombre no hay avatar: un círculo
+              // con "—" adentro no representa a nadie.
+              const ownerName = contact.ownerId
+                ? (ownerNames.byId.get(contact.ownerId) ?? null)
+                : null;
+              return (
+                <tr key={contact.id}>
                   <td>
-                    <Link to={`/contacts/${contact.id}/edit`}>Editar</Link>
-                    <button type="button" onClick={() => handleDelete(contact.id)}>
-                      Eliminar
-                    </button>
+                    {/* decorative: el nombre completo ya está al lado, el
+                        avatar no tiene que anunciarse dos veces. */}
+                    <span className="ds-person">
+                      <Avatar name={fullName} size="sm" decorative />
+                      <span>{fullName}</span>
+                    </span>
                   </td>
-                ) : null}
-              </tr>
-            ))}
+                  <td>
+                    {contact.companyId
+                      ? (companyResolution.byId.get(contact.companyId)?.name ?? "—")
+                      : ""}
+                  </td>
+                  <td>{contact.email ?? ""}</td>
+                  <td>{contact.phone ?? ""}</td>
+                  <td>
+                    <Badge variant={LIFECYCLE_BADGE_VARIANT[contact.lifecycleStage]}>
+                      {contact.lifecycleStage}
+                    </Badge>
+                  </td>
+                  <td>{contact.source ?? ""}</td>
+                  {isAdmin ? (
+                    <td>
+                      {ownerName ? (
+                        <span className="ds-person">
+                          <Avatar name={ownerName} size="sm" decorative />
+                          <span>{ownerName}</span>
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  ) : null}
+                  {isAdmin ? (
+                    <td>
+                      <Link to={`/contacts/${contact.id}/edit`}>Editar</Link>{" "}
+                      <Button variant="danger" onClick={() => handleDelete(contact.id)}>
+                        Eliminar
+                      </Button>
+                    </td>
+                  ) : null}
+                </tr>
+              );
+            })}
           </tbody>
-        </table>
+        </Table>
       ) : null}
 
       {contactsQuery.isSuccess ? (
-        <div>
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((current) => current - 1)}
-          >
-            Anterior
-          </button>
-          <span>
-            Página {contactsQuery.data.pagination.page} de{" "}
-            {contactsQuery.data.pagination.totalPages || 1}
-          </span>
-          <button
-            type="button"
-            disabled={page >= contactsQuery.data.pagination.totalPages}
-            onClick={() => setPage((current) => current + 1)}
-          >
-            Siguiente
-          </button>
-        </div>
+        <Pagination
+          page={page}
+          totalPages={contactsQuery.data.pagination.totalPages}
+          onPrevious={() => setPage((current) => current - 1)}
+          onNext={() => setPage((current) => current + 1)}
+        />
       ) : null}
     </div>
   );
