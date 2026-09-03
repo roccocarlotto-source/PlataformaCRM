@@ -157,3 +157,33 @@ describe("router.tsx — wiring real de M8 (Dashboard en '/')", () => {
     }
   });
 });
+
+describe("router.tsx — wiring real de Fase 3 (módulo QR)", () => {
+  it("/qr (listado) existe y NO está bajo AdminRoute — GET /api/qr es lectura abierta, como /companies", () => {
+    expect(findRoute(router.routes, "/qr")).toBeDefined();
+    const parent = findParentElement(router.routes, "/qr") as { type: unknown } | undefined;
+    expect(parent?.type).toBe(AppLayout);
+    expect(parent?.type).not.toBe(AdminRoute);
+  });
+
+  it("/claim/:qrId es EXACTAMENTE ese path (lo arma buildLandingHtml del backend), dentro de ProtectedRoute y fuera de AdminRoute", () => {
+    expect(findRoute(router.routes, "/claim/:qrId")).toBeDefined();
+    const parent = findParentElement(router.routes, "/claim/:qrId") as
+      { type: unknown } | undefined;
+    expect(parent?.type).toBe(AppLayout);
+    expect(parent?.type).not.toBe(AdminRoute);
+
+    const protectedRouteEntry = router.routes.find(
+      (route) => (route.element as { type?: unknown } | undefined)?.type === ProtectedRoute,
+    );
+    const appLayoutEntry = protectedRouteEntry?.children?.find(
+      (route) => (route.element as { type?: unknown } | undefined)?.type === AppLayout,
+    );
+    expect(appLayoutEntry?.children?.some((route) => route.path === "/claim/:qrId")).toBe(true);
+  });
+
+  it("no hay rutas /qr/new ni /qr/:id/edit: crear y editar son diálogos dentro de /qr", () => {
+    expect(findRoute(router.routes, "/qr/new")).toBeUndefined();
+    expect(findRoute(router.routes, "/qr/:id/edit")).toBeUndefined();
+  });
+});

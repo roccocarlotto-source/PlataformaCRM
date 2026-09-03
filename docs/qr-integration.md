@@ -34,11 +34,20 @@ parar cada pieza y qué falta para terminar de aplicarla.
   `QR_CLAIM_APP_URL`) opcionales en `config/env.ts` y `.env.example`. Ver
   "Qué se desvió del plan al implementar Fase 2" al final de la sección de
   Fase 2. Sin cambios de esquema: `verify:schema` sigue igual.
-- [ ] **Fase 3 — Frontend.** Guía completa en "Fase 3 — Frontend" más abajo.
-  Funcional con el design-system actual del CRM — Rocco todavía no hizo el
-  rediseño, así que no se replica el look de `Plataforma-QR/admin` ni se
-  inventa uno nuevo; cuando el rediseño exista, se re-skinnea sin tocar la
-  lógica de datos (queries/mutations/api quedan intactas).
+- [x] **Fase 3 — Frontend. Completa (2026-09-03).** Módulo QR del frontend
+  implementado con el design-system actual del CRM: `features/qr/` (listado,
+  crear/editar en diálogo, imagen, enviar, reclamar), `features/branch/`
+  (solo lectura, para el selector de sucursal), `lib/{qrImage,sendQr,
+  publicUrl,validation}.ts` portados, rutas `/qr` y `/claim/:qrId` y el
+  link "QR" del nav. Verificado de punta a punta contra el backend de Fase 2
+  con un browser real (claim de un QR físico atravesando el login, QR
+  digital reusable y de un solo uso, imagen generada con la URL pública
+  correcta, edición, borrado, aislamiento entre organizaciones, rol USER).
+  Ver "Qué se desvió del plan al implementar Fase 3" al final de la sección
+  de Fase 3. Rocco todavía no hizo el rediseño, así que no se replica el
+  look de `Plataforma-QR/admin` ni se inventa uno nuevo; cuando el rediseño
+  exista, se re-skinnea sin tocar la lógica de datos (queries/mutations/api
+  quedan intactas).
 - [ ] **Fase 4 — Corte e infraestructura.** Cloudflare Worker, decomiso de
   Vercel, borrado del proyecto `qr-reviews` (dashboard, manual, al final).
 - [ ] **Fase 5 — Repo.** Archivar/borrar `Plataforma-QR` una vez portado.
@@ -861,3 +870,114 @@ archivos de abajo.
    que tienen Fase 1 y Fase 2, si algo cambió.
 8. `gh pr create` — nunca mergear. La verificación del PR real (línea por
    línea, no el transcript pegado) y el merge quedan para después.
+
+### Qué se desvió del plan al implementar Fase 3 (2026-09-03)
+
+Mismo criterio que las notas de Fase 1 y Fase 2: lo que cambió al ejecutar,
+con el porqué, para que quede a la vista en el PR. Dos de estos puntos ya se
+habían detectado en la sesión que se cortó a mitad de la fase (reinicio de
+máquina); se volvieron a confirmar contra el código antes de escribirlos.
+
+- **El `QrCode` real no tiene `updatedAt`, y `displayNumber`/`name`/
+  `destinationUrl` son nullable.** La guía listaba `updatedAt` como campo
+  "esperable"; el modelo Prisma de Fase 1 no lo tiene (a diferencia de
+  `Company`/`Branch`), y los tres campos nullable son herencia del modelo de
+  stock pre-insertado del original, aunque todo camino de escritura de Fase 2
+  los deje siempre poblados. Los endpoints devuelven la fila entera de Prisma
+  (sin `select`), así que `deletedAt` también viaja, siempre `null` en el
+  listado. `features/qr/types.ts` tipa exactamente eso — no se inventa
+  `updatedAt` — y la UI muestra "—" donde falte un valor.
+- **La decisión 7 (preservar `qrId` a través del login) ya estaba resuelta
+  sin código nuevo.** `ProtectedRoute` redirige con
+  `state={{ from: location }}` y `LoginPage` vuelve a `from.pathname` en
+  cuanto la sesión existe; como el `qrId` viaja en la URL, no hace falta
+  `sessionStorage` ni nada extra. Confirmado en el código y de punta a punta
+  con un browser real: abrir `/claim/:qrId` sin sesión → `/login` →
+  iniciar sesión → de vuelta en `/claim/:qrId` con el mismo id.
+  `getSafeRedirectTarget` de `validation.ts` del original NO se porta por
+  la misma razón (el redirect post-login nunca sale de un query param acá);
+  solo se porta `looksLikeUrl`.
+- **Crear y editar son un `Modal` (`QrFormDialog.tsx`), no una
+  `QrFormPage` con ruta propia.** La guía decía "según convención real de
+  `company`" (que usa rutas `/companies/new` y `/companies/:id/edit`). No se
+  puede seguir esa convención porque **no existe `GET /api/qr/:id`** en
+  Fase 2 (`qr.routes.ts` tiene listado, `claim`, `digital`, `PATCH` y
+  `DELETE`, nada más): una ruta `/qr/:id/edit` no tendría de dónde hidratar
+  el formulario tras un reload. El diálogo recibe la fila del listado por
+  prop y no fetchea nada. No hay rutas `/qr/new` ni `/qr/:id/edit`
+  (`router.test.tsx` lo afirma), `features/qr/api.ts` no tiene
+  `getQrCode` y `qrKeys` no tiene `detail`. Tras crear, se abre directo
+  `QrImageDialog` con el QR nuevo — el equivalente del panel "QR nuevo"
+  del Dashboard original.
+- **`/qr` (listado) va fuera de `AdminRoute`, y el link "QR" del nav se ve
+  para ambos roles.** La guía lo ponía dentro de
+  `ProtectedRoute > AppLayout > AdminRoute`. El contrato real es el mismo
+  que `/companies` y `/activities`: `GET /api/qr` es lectura abierta a
+  cualquier usuario autenticado (`qr.routes.ts`: solo `authenticate`), y las
+  acciones de solo lectura (ver imagen, enviar, copiar link) son exactamente
+  el caso de uso de un USER de mostrador. Las escrituras (generar, editar,
+  eliminar) son botones que la página muestra solo a ADMIN, y el backend
+  las sigue rechazando con 403 vía `authorize("ADMIN")` igual que antes.
+- **`BranchSelect` también es el filtro del listado, y la misma query
+  resuelve los nombres de sucursal de las filas.** El listado devuelve
+  `branchId` sin `include` de la sucursal, y no hay `GET /api/branches/:id`
+  por fila que valga la pena; `QrListPage` pide exactamente la misma query
+  que `BranchSelect` (`BRANCHES_PARA_SELECT`, `pageSize: 100`) y TanStack
+  Query la dedupe en una sola request. Riesgo residual documentado: una
+  organización con más de 100 sucursales ve "—" en las que queden afuera,
+  mismo que `UserSelect`.
+- **Handlers MSW por test, no en `src/test/msw/handlers.ts`.** La guía decía
+  "en el mismo archivo donde viven los handlers de `company`/`apiKey`"; ese
+  archivo solo tiene los helpers de `/api/me`, y cada test de `company`/
+  `apiKey` compone lo suyo con `server.use(...)`. Se siguió la convención
+  real del repo. Las fixtures sí son compartidas (`test/qrFixtures.ts`,
+  `test/branchFixtures.ts`).
+- **El estado "Sin reclamar" existe en el código pero no puede aparecer
+  hoy.** Con el modelo de Fase 2 (la fila nace en el claim, ya con
+  `claimedAt`) todo QR listado tiene `claimedAt`; la rama se conserva en
+  `estadoDeQr` por si el stock pre-insertado termina siendo el elegido
+  (candidato abierto de la nota de Fase 2).
+- **"Copiar link" tiene un respaldo visible cuando el portapapeles no está
+  disponible** (contexto no seguro o permiso denegado — es lo que pasa en un
+  browser headless): el listado muestra el link como texto para copiar a
+  mano, y los diálogos ya lo tienen en un campo de solo lectura. La
+  verificación manual ejercitó justo ese camino.
+- **`/claim/:qrId` con un id que no es UUID muestra el mismo copy genérico
+  que un 409** ("QR ya reclamado o no existe"), sin pegarle al backend —
+  nunca se distingue "malformado" de "ya reclamado" de "no existe" (DEC-007,
+  mismo criterio que el backend).
+- **Verificación manual con organizaciones temporales, no con datos
+  reales.** Se crearon dos organizaciones, tres identidades de Supabase Auth
+  (ADMIN y USER de la primera, ADMIN de la segunda), sucursales y un QR de la
+  segunda organización con la misma técnica que `createFixtureUser` de los
+  integration tests (service role), se ejercitó todo el flujo con el browser
+  headless de gstack contra `npm run dev` de backend y frontend, y se borró
+  todo al terminar (incluidas las identidades de Auth). La primera
+  organización se marcó `qrBillingExempt` para que `GET /qr/resolve`
+  redirija sin pasar por MercadoPago. Lo verificado: claim de un "sticker"
+  (id inventado) atravesando el login, segundo claim del mismo id → 409 con
+  el copy genérico, `GET /qr/resolve/:qrId` → 302 al destino, QR digital de
+  un solo uso → página de consentimiento, `POST` → 302, segundo `GET` →
+  "ya fue utilizado" y estado "Usado" en el listado, imagen SVG con el
+  mensaje escapado (`<`, `&`, `"`) y la URL pública `${apiUrl}/qr/resolve/…`,
+  mailto con el mensaje del QR y el link público, edición, borrado con
+  confirmación, el QR de la otra organización nunca en el listado, y USER
+  sin botones de escritura y con el mensaje de la decisión 8 en `/claim`.
+- **`prisma generate` hace falta en el worktree nuevo** aunque
+  `node_modules` exista: el cliente generado no viene con `npm ci`, y sin
+  él `npm run dev` del backend muere al arrancar. No cambia nada del
+  código; queda anotado para el próximo worktree.
+
+Lo que NO cambió y conviene tener presente al revisar:
+
+- La ruta `/claim/:qrId` es exactamente la que arma `buildLandingHtml`
+  (decisión 3) — `router.test.tsx` la afirma con ese path literal.
+- Sin pantalla de platform admin, sin estado de suscripción de la propia
+  organización, sin "eliminar cuenta", sin URL de destino global (decisión
+  2): nada de eso se agregó.
+- `QR_CLAIM_APP_URL` sigue sin valor en `.env.example`: el link "¿Sos el
+  dueño...?" de la landing pública recién aparece cuando se configure
+  apuntando al frontend desplegado (Fase 4).
+- Los mensajes al usuario son en español, como el resto del frontend; la
+  redacción de los mensajes de WhatsApp/email es el default mínimo del
+  original, no una decisión de diseño aprobada.

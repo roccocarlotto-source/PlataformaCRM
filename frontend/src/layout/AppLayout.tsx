@@ -47,6 +47,10 @@ export function AppLayout() {
           <Link to="/pipelines">Pipelines</Link>
           <Link to="/opportunities">Oportunidades</Link>
           <Link to="/activities">Actividades</Link>
+          {/* Módulo QR (docs/qr-integration.md, Fase 3): visible para ambos roles,
+              como /activities — GET /api/qr es de lectura abierta y las acciones
+              de solo lectura (ver imagen, enviar, copiar link) sirven a un USER. */}
+          <Link to="/qr">QR</Link>
           {isAdmin ? (
             <>
               <Link to="/users">Usuarios</Link>

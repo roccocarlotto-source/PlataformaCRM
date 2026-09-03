@@ -70,3 +70,11 @@ describe("AppLayout — nav gateado por rol (M7)", () => {
     expect(screen.getByText("A")).toBeInTheDocument();
   });
 });
+
+describe("AppLayout — nav del módulo QR (Fase 3)", () => {
+  it("el link QR se muestra para ambos roles: el listado es de lectura abierta", () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout();
+    expect(screen.getByRole("link", { name: "QR" })).toHaveAttribute("href", "/qr");
+  });
+});
