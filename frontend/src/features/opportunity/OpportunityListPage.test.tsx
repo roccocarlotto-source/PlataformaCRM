@@ -216,8 +216,8 @@ describe("OpportunityListPage", () => {
     // Contact vinculado como el Owner resuelto (mismo fixture de usuario) —
     // ambas columnas resuelven independientemente al mismo nombre humano.
     expect(within(row).getAllByText("Ana Pérez")).toHaveLength(2);
-    expect(within(row).getByText("Ventas")).toBeInTheDocument();
-    expect(within(row).getByText("Prospecto")).toBeInTheDocument();
+    // Pipeline y Stage van consolidados en un solo badge "Embudo · Etapa".
+    expect(within(row).getByText("Ventas · Prospecto")).toBeInTheDocument();
     expect(within(row).queryByText("co1")).not.toBeInTheDocument();
     expect(within(row).queryByText("ct1")).not.toBeInTheDocument();
   });
@@ -246,7 +246,7 @@ describe("OpportunityListPage", () => {
     expect(row).not.toHaveTextContent("co-borrada");
   });
 
-  it("ADMIN ve la columna Owner resuelta a fullName", async () => {
+  it("ADMIN ve la columna Propietario resuelta a fullName", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       http.get(opportunitiesUrl, () =>
@@ -261,7 +261,7 @@ describe("OpportunityListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Owner")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Propietario")).toBeInTheDocument());
     await waitFor(() => {
       const row = screen.getByText("Renovación anual").closest("tr");
       expect(row).toHaveTextContent("Ana Pérez");
@@ -301,7 +301,7 @@ describe("OpportunityListPage", () => {
     expect(usersRequestCount).toBe(0);
   });
 
-  it("USER: no ve la columna Owner ni el ownerId crudo", async () => {
+  it("USER: no ve la columna Propietario ni el ownerId crudo", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       http.get(opportunitiesUrl, () =>
@@ -316,7 +316,7 @@ describe("OpportunityListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
-    expect(screen.queryByText("Owner")).not.toBeInTheDocument();
+    expect(screen.queryByText("Propietario")).not.toBeInTheDocument();
     expect(screen.queryByText("u1")).not.toBeInTheDocument();
   });
 
@@ -338,8 +338,8 @@ describe("OpportunityListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Acme Corp")).toBeInTheDocument());
     const row = screen.getByText("Renovación anual").closest("tr") as HTMLElement;
-    expect(within(row).getByText("Ventas")).toBeInTheDocument();
-    expect(within(row).getByText("Prospecto")).toBeInTheDocument();
+    // Pipeline y Stage van consolidados en un solo badge "Embudo · Etapa".
+    expect(within(row).getByText("Ventas · Prospecto")).toBeInTheDocument();
     expect(within(row).getByText(/1500\.00 USD/)).toBeInTheDocument();
   });
 

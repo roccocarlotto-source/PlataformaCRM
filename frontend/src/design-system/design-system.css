@@ -814,3 +814,48 @@ a.ds-button--secondary:hover {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
+
+/* ---------------------------------------------------------------------------
+   Celdas compuestas de tabla: dos líneas apiladas (rótulo chico + valor, o
+   empresa + contacto) y un ícono outline chico delante de un texto. Primer
+   consumidor: features/opportunity/OpportunityListPage.tsx (columnas
+   Asociado y Cierre).
+   --------------------------------------------------------------------------- */
+.ds-cell-stack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.ds-cell-caption {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.ds-cell-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.ds-cell-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--color-text-faint);
+}
+
+/* Dos campos en una misma fila del formulario, el segundo angosto (Monto +
+   Moneda). Único consumidor hoy: features/opportunity/OpportunityFormPage.tsx. */
+.ds-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8rem;
+  gap: var(--space-3);
+  max-width: 32rem;
+}
+
+.ds-field-row input {
+  max-width: none;
+}
