@@ -373,6 +373,60 @@ describe("ActivityListPage", () => {
     confirmSpy.mockRestore();
   });
 
+  it("'Vencida' aparece solo con dueDate en el pasado y sin completedAt", async () => {
+    // Hecho derivado de dos campos reales (dueDate pasado + completedAt
+    // null), no un estado del modelo: se muestra como badge al lado de la
+    // fecha de vencimiento, y nada más.
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(activitiesUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeActivity({
+              id: "act-vencida",
+              subject: "Vencida sin completar",
+              dueDate: "2020-01-01T10:00:00.000Z",
+              completedAt: null,
+            }),
+            makeActivity({
+              id: "act-futura",
+              subject: "Todavía no vence",
+              dueDate: "2999-01-01T10:00:00.000Z",
+              completedAt: null,
+            }),
+            makeActivity({
+              id: "act-hecha",
+              subject: "Vencida pero completada",
+              dueDate: "2020-01-01T10:00:00.000Z",
+              completedAt: "2020-01-02T10:00:00.000Z",
+            }),
+            makeActivity({
+              id: "act-sin-fecha",
+              subject: "Sin vencimiento",
+              dueDate: null,
+              completedAt: null,
+            }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 4, totalPages: 1 },
+        }),
+      ),
+      ...relationHandlers(),
+      usersHandler(),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Vencida sin completar")).toBeInTheDocument());
+    // Un único badge en toda la tabla, y está en la fila vencida sin completar.
+    expect(screen.getAllByText("Vencida")).toHaveLength(1);
+    const overdueRow = screen.getByText("Vencida sin completar").closest("tr") as HTMLElement;
+    expect(within(overdueRow).getByText("Vencida")).toBeInTheDocument();
+    for (const subject of ["Todavía no vence", "Vencida pero completada", "Sin vencimiento"]) {
+      const row = screen.getByText(subject).closest("tr") as HTMLElement;
+      expect(within(row).queryByText("Vencida")).not.toBeInTheDocument();
+    }
+  });
+
   it("tipo se muestra con label humano, no el valor crudo del enum", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
