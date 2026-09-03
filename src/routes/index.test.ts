@@ -131,9 +131,13 @@ test("las rutas autenticadas del módulo QR están montadas bajo /api", async ()
 });
 
 test("la resolución pública de QR está montada SIN /api y sin authenticate", async () => {
-  // Un id que no es UUID se resuelve sin tocar la base: 404 con la landing
-  // HTML (DEC-007), no el 404 JSON de notFound ni un 401. Que la respuesta sea
-  // HTML es lo que distingue "montado" de "no montado".
+  // Sin tocar la base: 404 con la landing HTML (DEC-007), no el 404 JSON de
+  // notFound ni un 401. Que la respuesta sea HTML es lo que distingue
+  // "montado" de "no montado". Desde Fase 4 ese 404 lo produce
+  // requireInternalProxySecret (sin header ni secreto configurado en este
+  // entorno, falla cerrado) con la MISMA landing que el controller usa para un
+  // id malformado — para este test da igual cuál de los dos contestó: ambos
+  // solo existen en la cadena de qrPublicRouter.
   for (const method of ["GET", "POST"]) {
     const res = await fetch(`${baseUrl}/qr/resolve/no-es-un-uuid`, { method });
     assert.equal(res.status, 404, `${method} /qr/resolve/:qrId no está montado`);

@@ -282,6 +282,26 @@ const envSchema = z.object({
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
   QR_CLAIM_APP_URL: z.string().optional(),
+
+  // Gate de secreto compartido de /qr/resolve/:qrId (Fase 4, backend — ver
+  // src/middlewares/requireInternalProxySecret.ts). El Cloudflare Worker que
+  // hace el rate limiting manda el secreto en el header
+  // x-internal-proxy-secret; el backend lo exige para que el endpoint no sea
+  // alcanzable salteando al Worker.
+  //
+  // QR_RESOLVE_PROXY_SECRET: el valor actual — el MISMO que INTERNAL_PROXY_SECRET
+  //   en el Worker (los nombres no tienen por qué coincidir; el valor sí).
+  // QR_RESOLVE_PROXY_SECRET_PREVIOUS: el valor anterior, solo durante una
+  //   rotación: se acepta cualquiera de los dos, así se puede actualizar
+  //   primero el Worker o primero el backend sin ventana de caída.
+  //
+  // OPCIONALES PARA QUE EL SERVIDOR ARRANQUE, PERO EL GATE FALLA CERRADO: sin
+  // ninguna de las dos configuradas, /qr/resolve/* responde el 404 genérico a
+  // TODO el mundo. Es el mismo diseño que el original, no un bug — en el
+  // entorno real hay que configurar QR_RESOLVE_PROXY_SECRET antes o junto con
+  // el deploy que trae este middleware.
+  QR_RESOLVE_PROXY_SECRET: z.string().optional(),
+  QR_RESOLVE_PROXY_SECRET_PREVIOUS: z.string().optional(),
 });
 
 function parseEnv() {
