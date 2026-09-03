@@ -1,6 +1,14 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { Avatar } from "../../design-system/Avatar";
+import { Badge, type BadgeVariant } from "../../design-system/Badge";
+import { Button } from "../../design-system/Button";
+import { EmptyState } from "../../design-system/EmptyState";
+import { ErrorState } from "../../design-system/ErrorState";
+import { LoadingState } from "../../design-system/LoadingState";
+import { Pagination } from "../../design-system/Pagination";
+import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
 import { useDeleteOpportunity } from "./mutations";
@@ -17,6 +25,20 @@ import type { OpportunitySortBy, OpportunityStatus, SortOrder } from "./types";
 const PAGE_SIZE = 20;
 const STATUSES: OpportunityStatus[] = ["OPEN", "WON", "LOST"];
 
+// Traducción del enum real a texto + color. Es el mismo status que ya se
+// leía crudo; no hay ningún estado inventado.
+const STATUS_LABEL: Record<OpportunityStatus, string> = {
+  OPEN: "Abierta",
+  WON: "Ganada",
+  LOST: "Perdida",
+};
+
+const STATUS_BADGE_VARIANT: Record<OpportunityStatus, BadgeVariant> = {
+  OPEN: "neutral",
+  WON: "success",
+  LOST: "danger",
+};
+
 // amount siempre llega como string desde la API (Prisma.Decimal, ver
 // types.ts) — Number() antes de formatear, nunca .toFixed() directo sobre
 // el string crudo.
@@ -24,9 +46,56 @@ function formatAmount(amount: string, currency: string): string {
   return `${Number(amount).toFixed(2)} ${currency}`;
 }
 
+// Fecha sola (sin hora) a partir del ISO de la API. Se toma solo la parte
+// YYYY-MM-DD y se formatea en UTC: mismo criterio que el slice(0,10) del
+// formulario, para que un "2026-08-15T00:00:00.000Z" no se corra al 14 en
+// una zona horaria negativa.
+function formatDate(iso: string): string {
+  const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("es", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+// Íconos de la columna Asociado (edificio = empresa, persona = contacto).
+// Son puramente cosméticos —el nombre al lado es el dato—, por eso van
+// aria-hidden y viven acá y no en design-system/: único consumidor.
+function BuildingIcon() {
+  return (
+    <svg className="ds-cell-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M3 14V3.5A1.5 1.5 0 0 1 4.5 2h4A1.5 1.5 0 0 1 10 3.5V14M10 6h2.5A1.5 1.5 0 0 1 14 7.5V14M2 14h13M5.5 5h2M5.5 8h2M5.5 11h2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function PersonIcon() {
+  return (
+    <svg className="ds-cell-icon" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="5" r="2.75" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <path
+        d="M2.75 14a5.25 5.25 0 0 1 10.5 0"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function OpportunityListPage() {
   const { me } = useAuth();
-  // Ocultar acciones de escritura y la columna Owner para no-ADMIN es
+  // Ocultar acciones de escritura y la columna Propietario para no-ADMIN es
   // cortesía de UX / respeto al contrato de autorización real: GET
   // /api/users es ADMIN-only (user.routes.ts), así que useOwnerNames se
   // gatea con este mismo booleano — para USER, ese fetch nunca se dispara.
@@ -85,19 +154,32 @@ export function OpportunityListPage() {
 
   return (
     <div>
-      <h1>Oportunidades</h1>
-      {isAdmin ? <Link to="/opportunities/new">Nueva oportunidad</Link> : null}
+      <div className="ds-page-header">
+        <h1>Oportunidades</h1>
+        {isAdmin ? (
+          <Link to="/opportunities/new" className="ds-link-button">
+            Nueva oportunidad
+          </Link>
+        ) : null}
+      </div>
 
-      <div>
-        <input
-          type="search"
-          placeholder="Buscar por título"
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setPage(1);
-          }}
-        />
+      {/* Los mismos filtros que ya existían, con el look del sistema. El
+          diseño muestra además Etapa y Propietario, y no muestra el orden:
+          agregar filtros es funcionalidad nueva y sacar los que funcionan
+          sería una regresión, así que ni una cosa ni la otra. */}
+      <div className="ds-filters">
+        <label>
+          Buscar
+          <input
+            type="search"
+            placeholder="Buscar por título"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
         <label>
           Estado
           <select
@@ -110,7 +192,7 @@ export function OpportunityListPage() {
             <option value="">Todos</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {STATUS_LABEL[s]}
               </option>
             ))}
           </select>
@@ -126,15 +208,14 @@ export function OpportunityListPage() {
             }}
           />
           {companyId ? (
-            <button
-              type="button"
+            <Button
               onClick={() => {
                 setCompanyId(undefined);
                 setPage(1);
               }}
             >
               Quitar filtro de empresa
-            </button>
+            </Button>
           ) : null}
         </div>
         <div>
@@ -148,15 +229,14 @@ export function OpportunityListPage() {
             }}
           />
           {pipelineId ? (
-            <button
-              type="button"
+            <Button
               onClick={() => {
                 setPipelineId(undefined);
                 setPage(1);
               }}
             >
               Quitar filtro de pipeline
-            </button>
+            </Button>
           ) : null}
         </div>
         <label>
@@ -171,108 +251,156 @@ export function OpportunityListPage() {
             <option value="title">Título</option>
           </select>
         </label>
-        <select
-          value={sortOrder}
-          onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-        >
-          <option value="desc">Descendente</option>
-          <option value="asc">Ascendente</option>
-        </select>
+        <label>
+          Orden
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+          >
+            <option value="desc">Descendente</option>
+            <option value="asc">Ascendente</option>
+          </select>
+        </label>
       </div>
 
-      {opportunitiesQuery.isLoading ? <p>Cargando…</p> : null}
+      {opportunitiesQuery.isLoading ? <LoadingState /> : null}
 
       {opportunitiesQuery.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos cargar las oportunidades
           {opportunitiesQuery.error instanceof Error
             ? `: ${opportunitiesQuery.error.message}`
             : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {deleteOpportunityMutation.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos eliminar la oportunidad
           {deleteOpportunityMutation.error instanceof Error
             ? `: ${deleteOpportunityMutation.error.message}`
             : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {opportunitiesQuery.isSuccess && rows.length === 0 ? (
-        <p>No hay oportunidades para mostrar.</p>
+        <EmptyState>No hay oportunidades para mostrar.</EmptyState>
       ) : null}
 
+      {/* Columnas en el orden de la pantalla "Oportunidades CRM" del diseño. */}
       {opportunitiesQuery.isSuccess && rows.length > 0 ? (
-        <table>
+        <Table>
           <thead>
             <tr>
               <th>Título</th>
-              <th>Empresa</th>
-              <th>Contacto</th>
-              <th>Pipeline</th>
-              <th>Etapa</th>
-              <th>Estado</th>
+              <th>Asociado</th>
+              <th>Embudo · Etapa</th>
               <th>Monto</th>
-              {isAdmin ? <th>Owner</th> : null}
+              <th>Cierre</th>
+              {isAdmin ? <th>Propietario</th> : null}
+              <th>Estado</th>
               {isAdmin ? <th>Acciones</th> : null}
             </tr>
           </thead>
           <tbody>
-            {rows.map((opportunity) => (
-              <tr key={opportunity.id}>
-                <td>{opportunity.title}</td>
-                <td>
-                  {opportunity.companyId
-                    ? (companyNames.byId.get(opportunity.companyId)?.name ?? "—")
-                    : ""}
-                </td>
-                <td>
-                  {opportunity.contactId
-                    ? (contactNames.byId.get(opportunity.contactId) ?? "—")
-                    : ""}
-                </td>
-                <td>{pipelineNames.byId.get(opportunity.pipelineId) ?? "—"}</td>
-                <td>{stageNames.byId.get(opportunity.stageId) ?? "—"}</td>
-                <td>{opportunity.status}</td>
-                <td>{formatAmount(opportunity.amount, opportunity.currency)}</td>
-                {isAdmin ? <td>{ownerNames.byId.get(opportunity.ownerId) ?? "—"}</td> : null}
-                {isAdmin ? (
+            {rows.map((opportunity) => {
+              const companyName = opportunity.companyId
+                ? (companyNames.byId.get(opportunity.companyId)?.name ?? "—")
+                : null;
+              const contactName = opportunity.contactId
+                ? (contactNames.byId.get(opportunity.contactId) ?? "—")
+                : null;
+              const ownerName = ownerNames.byId.get(opportunity.ownerId) ?? null;
+              // Abierta → fecha estimada; cerrada (WON o LOST) → fecha real.
+              // Son los dos campos que ya existen, cada uno en su caso.
+              const isClosed = opportunity.status !== "OPEN";
+              const closeDate = isClosed
+                ? opportunity.actualCloseDate
+                : opportunity.expectedCloseDate;
+
+              return (
+                <tr key={opportunity.id}>
+                  <td>{opportunity.title}</td>
+                  {/* Empresa y Contacto son independientes en el backend y
+                      pueden coexistir; el diseño solo muestra uno pero acá
+                      no se descarta ninguno: con ambos, dos líneas apiladas;
+                      con uno, ese; sin ninguno, "—". Un id que no se pudo
+                      resolver muestra "—" en su línea, nunca el UUID. */}
                   <td>
-                    <Link to={`/opportunities/${opportunity.id}/edit`}>Editar</Link>
-                    <button type="button" onClick={() => handleDelete(opportunity.id)}>
-                      Eliminar
-                    </button>
+                    {companyName === null && contactName === null ? (
+                      "—"
+                    ) : (
+                      <span className="ds-cell-stack">
+                        {companyName !== null ? (
+                          <span className="ds-cell-with-icon">
+                            <BuildingIcon />
+                            <span>{companyName}</span>
+                          </span>
+                        ) : null}
+                        {contactName !== null ? (
+                          <span className="ds-cell-with-icon">
+                            <PersonIcon />
+                            <span>{contactName}</span>
+                          </span>
+                        ) : null}
+                      </span>
+                    )}
                   </td>
-                ) : null}
-              </tr>
-            ))}
+                  <td>
+                    <Badge variant="neutral">
+                      {`${pipelineNames.byId.get(opportunity.pipelineId) ?? "—"} · ${
+                        stageNames.byId.get(opportunity.stageId) ?? "—"
+                      }`}
+                    </Badge>
+                  </td>
+                  <td>{formatAmount(opportunity.amount, opportunity.currency)}</td>
+                  <td>
+                    <span className="ds-cell-stack">
+                      <span className="ds-cell-caption">
+                        {isClosed ? "Cierre real" : "Estimado"}
+                      </span>
+                      <span>{closeDate ? formatDate(closeDate) : "—"}</span>
+                    </span>
+                  </td>
+                  {isAdmin ? (
+                    <td>
+                      {ownerName ? (
+                        <span className="ds-person">
+                          <Avatar name={ownerName} size="sm" decorative />
+                          <span>{ownerName}</span>
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  ) : null}
+                  <td>
+                    <Badge variant={STATUS_BADGE_VARIANT[opportunity.status]}>
+                      {STATUS_LABEL[opportunity.status]}
+                    </Badge>
+                  </td>
+                  {isAdmin ? (
+                    <td>
+                      <Link to={`/opportunities/${opportunity.id}/edit`}>Editar</Link>{" "}
+                      <Button variant="danger" onClick={() => handleDelete(opportunity.id)}>
+                        Eliminar
+                      </Button>
+                    </td>
+                  ) : null}
+                </tr>
+              );
+            })}
           </tbody>
-        </table>
+        </Table>
       ) : null}
 
       {opportunitiesQuery.isSuccess ? (
-        <div>
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((current) => current - 1)}
-          >
-            Anterior
-          </button>
-          <span>
-            Página {opportunitiesQuery.data.pagination.page} de{" "}
-            {opportunitiesQuery.data.pagination.totalPages || 1}
-          </span>
-          <button
-            type="button"
-            disabled={page >= opportunitiesQuery.data.pagination.totalPages}
-            onClick={() => setPage((current) => current + 1)}
-          >
-            Siguiente
-          </button>
-        </div>
+        <Pagination
+          page={page}
+          totalPages={opportunitiesQuery.data.pagination.totalPages}
+          onPrevious={() => setPage((current) => current - 1)}
+          onNext={() => setPage((current) => current + 1)}
+        />
       ) : null}
     </div>
   );

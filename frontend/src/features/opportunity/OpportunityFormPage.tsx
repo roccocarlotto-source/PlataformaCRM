@@ -1,5 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Button } from "../../design-system/Button";
+import { Card } from "../../design-system/Card";
+import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
+import { LoadingState } from "../../design-system/LoadingState";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
 import { StageSelect } from "../stage/StageSelect";
@@ -116,8 +121,33 @@ function toFormValues(data: Opportunity): OpportunityFormValues {
   };
 }
 
+// Moneda: texto libre normalizado a 3 letras mayúsculas, que es exactamente
+// el regex del backend (^[A-Z]{3}$, opportunity.controller.ts). NO es un
+// <select> cerrado como en el diseño: el backend acepta cualquier código
+// ISO 4217 a propósito y una lista de 3 o 4 opciones inventaría una
+// restricción que no existe.
+function normalizeCurrency(raw: string): string {
+  return raw
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "")
+    .slice(0, 3);
+}
+
 // Un único componente para create y edit, mismo patrón que
 // CompanyFormPage/ContactFormPage/PipelineFormPage/StageFormPage.
+//
+// Campos agrupados en tarjetas como en "Nueva oportunidad": "Oportunidad"
+// (título y a quién se asocia) y "Embudo y valor". Estado, Motivo de pérdida
+// y Fecha real de cierre van en una tercera tarjeta SOLO en edición: el
+// diseño no los tiene en creación porque toda oportunidad nueva arranca
+// abierta (EMPTY_FORM.status es "OPEN") y el cierre se haría desde el
+// Kanban; pero el Kanban todavía no existe, así que sacarlos también de la
+// edición dejaría sin forma de cerrar una oportunidad. En edición su
+// comportamiento no cambia en nada.
+//
+// Los selectores (CompanySelect, ContactSelect, PipelineSelect, StageSelect,
+// UserSelect) se montan sueltos, sin FormField: traen su propio <label
+// htmlFor>, y FormField ES un <label>. Mismo trato que en CompanyFormPage.
 export function OpportunityFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
@@ -171,126 +201,140 @@ export function OpportunityFormPage() {
   }
 
   if (isEditMode && opportunityQuery.isLoading) {
-    return <p>Cargando…</p>;
+    return <LoadingState />;
   }
 
   if (isEditMode && opportunityQuery.isError) {
     return (
-      <p role="alert">
+      <ErrorState>
         No pudimos cargar la oportunidad
         {opportunityQuery.error instanceof Error ? `: ${opportunityQuery.error.message}` : "."}
-      </p>
+      </ErrorState>
     );
   }
 
   return (
     <form onSubmit={handleSubmit}>
       <h1>{isEditMode ? "Editar oportunidad" : "Nueva oportunidad"}</h1>
-      <label>
-        Título
-        <input
-          type="text"
-          value={values.title}
-          onChange={(event) => setValues({ ...values, title: event.target.value })}
-          required
-        />
-      </label>
-      <label>
-        Monto
-        <input
-          type="number"
-          min={0}
-          step="0.01"
-          value={values.amount}
-          onChange={(event) => setValues({ ...values, amount: event.target.value })}
-        />
-      </label>
-      <label>
-        Moneda
-        <input
-          type="text"
-          maxLength={3}
-          value={values.currency}
-          onChange={(event) => setValues({ ...values, currency: event.target.value })}
-        />
-      </label>
-      <label>
-        Estado
-        <select
-          value={values.status}
-          onChange={(event) =>
-            setValues({ ...values, status: event.target.value as OpportunityStatus })
-          }
-        >
-          <option value="OPEN">OPEN</option>
-          <option value="WON">WON</option>
-          <option value="LOST">LOST</option>
-        </select>
-      </label>
-      {/* Siempre visible y editable, sin importar status (ver
-          docs/project-overview.md: decisión de M5 corregida — el backend
-          no sincroniza lostReason con status, no se inventa esa
-          sincronización ni se oculta el campo). */}
-      <label>
-        Motivo de pérdida
-        <input
-          type="text"
-          value={values.lostReason}
-          onChange={(event) => setValues({ ...values, lostReason: event.target.value })}
-        />
-      </label>
-      <p>Especialmente relevante cuando el estado es LOST.</p>
-      <CompanySelect
-        id="opportunity-form-company"
-        label="Empresa"
-        value={values.companyId}
-        onChange={handleCompanyChange}
-      />
-      <ContactSelect
-        id="opportunity-form-contact"
-        label="Contacto"
-        value={values.contactId}
-        onChange={handleContactChange}
-      />
-      <PipelineSelect
-        id="opportunity-form-pipeline"
-        label="Pipeline"
-        value={values.pipelineId}
-        onChange={handlePipelineChange}
-      />
-      <StageSelect
-        id="opportunity-form-stage"
-        label="Etapa"
-        pipelineId={values.pipelineId}
-        value={values.stageId}
-        onChange={(stageId) => setValues({ ...values, stageId })}
-      />
-      <UserSelect
-        id="opportunity-form-owner"
-        label="Propietario"
-        value={values.ownerId}
-        onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
-      />
-      <label>
-        Fecha estimada de cierre
-        <input
-          type="date"
-          value={values.expectedCloseDate}
-          onChange={(event) => setValues({ ...values, expectedCloseDate: event.target.value })}
-        />
-      </label>
-      <label>
-        Fecha real de cierre
-        <input
-          type="date"
-          value={values.actualCloseDate}
-          onChange={(event) => setValues({ ...values, actualCloseDate: event.target.value })}
-        />
-      </label>
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={isSubmitting}>
-        {isSubmitting ? "Guardando…" : "Guardar"}
-      </button>
+      <div className="ds-stack">
+        <Card heading="Oportunidad">
+          <FormField label="Título">
+            <input
+              type="text"
+              value={values.title}
+              onChange={(event) => setValues({ ...values, title: event.target.value })}
+              required
+            />
+          </FormField>
+          <CompanySelect
+            id="opportunity-form-company"
+            label="Empresa"
+            value={values.companyId}
+            onChange={handleCompanyChange}
+          />
+          <ContactSelect
+            id="opportunity-form-contact"
+            label="Contacto"
+            value={values.contactId}
+            onChange={handleContactChange}
+          />
+        </Card>
+
+        <Card heading="Embudo y valor">
+          <PipelineSelect
+            id="opportunity-form-pipeline"
+            label="Pipeline"
+            value={values.pipelineId}
+            onChange={handlePipelineChange}
+          />
+          <StageSelect
+            id="opportunity-form-stage"
+            label="Etapa"
+            pipelineId={values.pipelineId}
+            value={values.stageId}
+            onChange={(stageId) => setValues({ ...values, stageId })}
+          />
+          <div className="ds-field-row">
+            <FormField label="Monto">
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={values.amount}
+                onChange={(event) => setValues({ ...values, amount: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Moneda">
+              <input
+                type="text"
+                maxLength={3}
+                pattern="[A-Z]{3}"
+                title="Código de 3 letras (ISO 4217), por ejemplo USD o UYU"
+                value={values.currency}
+                onChange={(event) =>
+                  setValues({ ...values, currency: normalizeCurrency(event.target.value) })
+                }
+              />
+            </FormField>
+          </div>
+          <FormField label="Fecha estimada de cierre">
+            <input
+              type="date"
+              value={values.expectedCloseDate}
+              onChange={(event) => setValues({ ...values, expectedCloseDate: event.target.value })}
+            />
+          </FormField>
+          <UserSelect
+            id="opportunity-form-owner"
+            label="Propietario"
+            value={values.ownerId}
+            onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+          />
+        </Card>
+
+        {isEditMode ? (
+          <Card heading="Estado y cierre">
+            <FormField label="Estado">
+              <select
+                value={values.status}
+                onChange={(event) =>
+                  setValues({ ...values, status: event.target.value as OpportunityStatus })
+                }
+              >
+                <option value="OPEN">OPEN</option>
+                <option value="WON">WON</option>
+                <option value="LOST">LOST</option>
+              </select>
+            </FormField>
+            {/* Siempre visible y editable, sin importar status (ver
+                docs/project-overview.md: decisión de M5 corregida — el backend
+                no sincroniza lostReason con status, no se inventa esa
+                sincronización ni se oculta el campo). */}
+            <FormField label="Motivo de pérdida">
+              <input
+                type="text"
+                value={values.lostReason}
+                onChange={(event) => setValues({ ...values, lostReason: event.target.value })}
+              />
+            </FormField>
+            <p className="ds-hint">Especialmente relevante cuando el estado es LOST.</p>
+            <FormField label="Fecha real de cierre">
+              <input
+                type="date"
+                value={values.actualCloseDate}
+                onChange={(event) => setValues({ ...values, actualCloseDate: event.target.value })}
+              />
+            </FormField>
+          </Card>
+        ) : null}
+
+        {error ? <ErrorState>{error}</ErrorState> : null}
+        <div>
+          <Button type="submit" variant="primary" disabled={isSubmitting}>
+            {isSubmitting ? "Guardando…" : "Guardar"}
+          </Button>
+        </div>
+      </div>
     </form>
   );
 }
