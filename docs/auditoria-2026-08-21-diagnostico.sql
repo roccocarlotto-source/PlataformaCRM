@@ -185,7 +185,13 @@ from (
       -- google_calendar_connections NO está acá a propósito, igual que
       -- api_keys: RLS habilitada y cero políticas (deny-all, guarda secretos).
       ('outbox_events'), ('branches'), ('resources'), ('service_types'),
-      ('working_hours'), ('bookings')
+      ('working_hours'), ('bookings'),
+      -- Fase 1 de docs/qr-integration.md, migración 20260903120000: la única
+      -- tabla del módulo QR con política de aislamiento. Las otras cuatro
+      -- (qr_payment_events, qr_subscription_status_changes,
+      -- qr_billing_exemption_changes, platform_admins) tienen RLS habilitada y
+      -- cero políticas a propósito — deny-all, como api_keys.
+      ('qr_codes')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -269,7 +275,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 11 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 14 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -317,7 +323,17 @@ from (
     ('bookings_time_range_check', 'bookings',
      'CHECK (starts_at < ends_at)'),
     ('google_calendar_connections_channel_all_or_none_check', 'google_calendar_connections',
-     'CHECK (channel_id IS NULL AND channel_resource_id IS NULL AND channel_expiration IS NULL OR channel_id IS NOT NULL AND channel_resource_id IS NOT NULL AND channel_expiration IS NOT NULL)')
+     'CHECK (channel_id IS NULL AND channel_resource_id IS NULL AND channel_expiration IS NULL OR channel_id IS NOT NULL AND channel_resource_id IS NOT NULL AND channel_expiration IS NOT NULL)'),
+    -- Módulo QR (docs/qr-integration.md, migración 20260903120000): los tres
+    -- CHECK portados de QR Reviews. El normalizador quita el cast al enum
+    -- (::"QrType", ::"QrSubscriptionChangeSource") que pg_get_constraintdef
+    -- agrega a los literales.
+    ('qr_codes_name_destination_iff_claimed', 'qr_codes',
+     'CHECK (branch_id IS NULL AND name IS NULL AND destination_url IS NULL OR branch_id IS NOT NULL AND name IS NOT NULL AND destination_url IS NOT NULL)'),
+    ('qr_codes_used_at_only_single_use', 'qr_codes',
+     'CHECK (used_at IS NULL OR qr_type = ''SINGLE_USE'')'),
+    ('qr_subscription_status_changes_changed_by_only_for_admin', 'qr_subscription_status_changes',
+     'CHECK (source = ''PLATFORM_ADMIN'' AND changed_by_platform_admin_id IS NOT NULL OR source = ''MERCADOPAGO_WEBHOOK'' AND changed_by_platform_admin_id IS NULL)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -695,7 +711,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 28 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 29 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -719,7 +735,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 28 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 29 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -746,6 +762,7 @@ from (
     ('opportunities_organization_id_owner_id_fkey|opportunities(organization_id,owner_id)->users(organization_id,id)'),
     ('opportunities_organization_id_pipeline_id_fkey|opportunities(organization_id,pipeline_id)->pipelines(organization_id,id)'),
     ('opportunities_organization_id_stage_id_fkey|opportunities(organization_id,stage_id)->stages(organization_id,id)'),
+    ('qr_codes_organization_id_branch_id_fkey|qr_codes(organization_id,branch_id)->branches(organization_id,id)'),
     ('resources_organization_id_branch_id_fkey|resources(organization_id,branch_id)->branches(organization_id,id)'),
     ('service_types_organization_id_branch_id_fkey|service_types(organization_id,branch_id)->branches(organization_id,id)'),
     ('service_types_organization_id_resource_id_fkey|service_types(organization_id,resource_id)->resources(organization_id,id)'),
