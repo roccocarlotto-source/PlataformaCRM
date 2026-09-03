@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { Badge } from "../../design-system/Badge";
+import { Button } from "../../design-system/Button";
+import { EmptyState } from "../../design-system/EmptyState";
+import { ErrorState } from "../../design-system/ErrorState";
+import { LoadingState } from "../../design-system/LoadingState";
+import { Pagination } from "../../design-system/Pagination";
+import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { useCompaniesByIds } from "../contact/companyResolution";
 import { useContactNames, useOwnerNames } from "../opportunity/relationResolution";
@@ -8,7 +15,7 @@ import { useDeleteActivity } from "./mutations";
 import { useActivities } from "./queries";
 import { useOpportunityNames } from "./relationResolution";
 import { ACTIVITY_TYPES, ACTIVITY_TYPE_LABELS } from "./types";
-import type { ActivitySortBy, ActivityType, SortOrder } from "./types";
+import type { Activity, ActivitySortBy, ActivityType, SortOrder } from "./types";
 
 const PAGE_SIZE = 20;
 
@@ -17,6 +24,21 @@ function formatDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString();
 }
 
+// "Vencida" es un hecho derivado de dos campos que ya existen: vencimiento en
+// el pasado y sin fecha de completado. No es un estado del modelo (Activity
+// no tiene status) ni un dato inventado; es lo único de la vista "Mis
+// tareas" del diseño que se trae acá. `now` se pasa por parámetro para que
+// el cálculo sea puro y el instante de comparación sea uno solo por render.
+function isOverdue(activity: Activity, now: number): boolean {
+  if (!activity.dueDate || activity.completedAt) return false;
+  return new Date(activity.dueDate).getTime() < now;
+}
+
+// Restyle conservador, decidido con el dueño del proyecto: la vista "Mis
+// tareas" del diseño (agrupada por vencimiento, solo las asignadas a vos,
+// checkbox para completar) es funcionalidad nueva y queda para una fase
+// propia. Esta página sigue listando TODAS las actividades, para ambos
+// roles, con los mismos filtros, orden y paginación de siempre.
 export function ActivityListPage() {
   const { me } = useAuth();
   // Lectura abierta a cualquier rol (activity.routes.ts: GET sin
@@ -70,6 +92,13 @@ export function ActivityListPage() {
   // para USER, enabled=false, GET /api/users nunca se dispara.
   const userNames = useOwnerNames(isAdmin);
 
+  // Instante de referencia para "Vencida", fijado una vez al montar la
+  // página (inicializador de useState, no una llamada en cada render: la
+  // regla react-hooks/purity no admite Date.now() durante el render). Una
+  // actividad que vence mientras la página sigue abierta se marca recién
+  // al volver a entrar; es una aproximación aceptable para un indicador.
+  const [now] = useState(() => Date.now());
+
   // USER nunca resuelve el nombre de otro usuario (sin acceso a GET
   // /api/users): compara contra su propio id (conocido vía useAuth, sin
   // request adicional) y muestra "Vos" en ese caso; cualquier otro id
@@ -89,19 +118,28 @@ export function ActivityListPage() {
 
   return (
     <div>
-      <h1>Actividades</h1>
-      {isAdmin ? <Link to="/activities/new">Nueva actividad</Link> : null}
+      <div className="ds-page-header">
+        <h1>Actividades</h1>
+        {isAdmin ? (
+          <Link to="/activities/new" className="ds-link-button">
+            Nueva actividad
+          </Link>
+        ) : null}
+      </div>
 
-      <div>
-        <input
-          type="search"
-          placeholder="Buscar por asunto o notas"
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setPage(1);
-          }}
-        />
+      <div className="ds-filters">
+        <label>
+          Buscar
+          <input
+            type="search"
+            placeholder="Buscar por asunto o notas"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
         <label>
           Tipo
           <select
@@ -130,15 +168,14 @@ export function ActivityListPage() {
             }}
           />
           {companyId ? (
-            <button
-              type="button"
+            <Button
               onClick={() => {
                 setCompanyId(undefined);
                 setPage(1);
               }}
             >
               Quitar filtro de empresa
-            </button>
+            </Button>
           ) : null}
         </div>
         <label>
@@ -154,39 +191,43 @@ export function ActivityListPage() {
             <option value="subject">Asunto</option>
           </select>
         </label>
-        <select
-          value={sortOrder}
-          onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-        >
-          <option value="desc">Descendente</option>
-          <option value="asc">Ascendente</option>
-        </select>
+        <label>
+          Orden
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+          >
+            <option value="desc">Descendente</option>
+            <option value="asc">Ascendente</option>
+          </select>
+        </label>
       </div>
 
-      {activitiesQuery.isLoading ? <p>Cargando…</p> : null}
+      {activitiesQuery.isLoading ? <LoadingState /> : null}
 
       {activitiesQuery.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos cargar las actividades
           {activitiesQuery.error instanceof Error ? `: ${activitiesQuery.error.message}` : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {deleteActivityMutation.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos eliminar la actividad
           {deleteActivityMutation.error instanceof Error
             ? `: ${deleteActivityMutation.error.message}`
             : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {activitiesQuery.isSuccess && rows.length === 0 ? (
-        <p>No hay actividades para mostrar.</p>
+        <EmptyState>No hay actividades para mostrar.</EmptyState>
       ) : null}
 
+      {/* Mismas columnas y mismo orden que antes del restyle. */}
       {activitiesQuery.isSuccess && rows.length > 0 ? (
-        <table>
+        <Table>
           <thead>
             <tr>
               <th>Asunto</th>
@@ -205,7 +246,9 @@ export function ActivityListPage() {
             {rows.map((activity) => (
               <tr key={activity.id}>
                 <td>{activity.subject}</td>
-                <td>{ACTIVITY_TYPE_LABELS[activity.type]}</td>
+                <td>
+                  <Badge variant="neutral">{ACTIVITY_TYPE_LABELS[activity.type]}</Badge>
+                </td>
                 <td>
                   {activity.companyId
                     ? (companyNames.byId.get(activity.companyId)?.name ?? "—")
@@ -221,43 +264,34 @@ export function ActivityListPage() {
                 </td>
                 <td>{resolveUserLabel(activity.authorId)}</td>
                 <td>{resolveUserLabel(activity.assigneeId)}</td>
-                <td>{formatDateTime(activity.dueDate)}</td>
+                <td>
+                  <span className="ds-cell-inline">
+                    <span>{formatDateTime(activity.dueDate)}</span>
+                    {isOverdue(activity, now) ? <Badge variant="danger">Vencida</Badge> : null}
+                  </span>
+                </td>
                 <td>{formatDateTime(activity.completedAt)}</td>
                 {isAdmin ? (
                   <td>
-                    <Link to={`/activities/${activity.id}/edit`}>Editar</Link>
-                    <button type="button" onClick={() => handleDelete(activity.id)}>
+                    <Link to={`/activities/${activity.id}/edit`}>Editar</Link>{" "}
+                    <Button variant="danger" onClick={() => handleDelete(activity.id)}>
                       Eliminar
-                    </button>
+                    </Button>
                   </td>
                 ) : null}
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       ) : null}
 
       {activitiesQuery.isSuccess ? (
-        <div>
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((current) => current - 1)}
-          >
-            Anterior
-          </button>
-          <span>
-            Página {activitiesQuery.data.pagination.page} de{" "}
-            {activitiesQuery.data.pagination.totalPages || 1}
-          </span>
-          <button
-            type="button"
-            disabled={page >= activitiesQuery.data.pagination.totalPages}
-            onClick={() => setPage((current) => current + 1)}
-          >
-            Siguiente
-          </button>
-        </div>
+        <Pagination
+          page={page}
+          totalPages={activitiesQuery.data.pagination.totalPages}
+          onPrevious={() => setPage((current) => current - 1)}
+          onNext={() => setPage((current) => current + 1)}
+        />
       ) : null}
     </div>
   );

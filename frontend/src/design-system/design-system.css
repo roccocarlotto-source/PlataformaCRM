@@ -859,3 +859,17 @@ a.ds-button--secondary:hover {
 .ds-field-row input {
   max-width: none;
 }
+
+/* Contenido en línea dentro de una celda (texto + badge, por ejemplo la
+   fecha de vencimiento con "Vencida" al lado). */
+.ds-cell-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+/* Botón "Quitar X" debajo de un selector dentro de un formulario. */
+.ds-field > .ds-button {
+  margin-top: var(--space-2);
+}
