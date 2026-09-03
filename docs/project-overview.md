@@ -2542,6 +2542,40 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    cobertura persistente, deliberadamente: no puede ejercitarse repetidamente
    sin arriesgar el cupo de envío de email del proyecto.
 
+   **Rate limits de INTENTO de Supabase Auth — ajustados a mano (2026-09-03,
+   V-5 de `docs/auditoria-2026-08-29.md`).** La otra mitad del mismo
+   hallazgo de origen: no el cupo de envío de email de arriba, sino los cupos
+   por IP de GoTrue sobre pedir un código y verificarlo. El registro público
+   (`src/services/onboarding.service.ts`) llama `signInWithOtp` (línea 97) y
+   `verifyOtp` (línea 160) desde el backend, y GoTrue ve siempre la IP del
+   backend, no la del usuario final: **el cupo "por IP" es en la práctica un
+   único cupo compartido por todas las organizaciones de la plataforma**.
+   Rocco subió los dos campos en `Authentication → Rate Limits`:
+
+   | Campo del dashboard | Gatilla | Default | Desde 2026-09-03 |
+   | --- | --- | --- | --- |
+   | Rate limit for sign-ups and sign-ins | `signInWithOtp` | 30 req / 5 min por IP (360/h) | 100 req / 5 min por IP (1200/h) |
+   | Rate limit for token verifications | `verifyOtp` | 30 req / 5 min por IP (360/h) | 100 req / 5 min por IP (1200/h) |
+
+   "Rate limit for sending emails" quedó en 30/hora: es el del fix del
+   2026-08-27 de arriba, no forma parte de este cambio.
+
+   **Subir el valor NO resuelve el problema de fondo, solo lo hace menos
+   probable.** El cupo sigue siendo compartido, y por dos motivos que se
+   verificaron: la sección "IP Address Forwarding" de esa misma pantalla
+   sigue apagada, y su propio texto aclara que solo aplica "when using
+   secret API keys" — y las dos llamadas usan la clave **anon**
+   (`getSupabaseAnon()`), así que activarla hoy no tendría efecto sin migrar
+   además esas llamadas a la clave de servicio, un cambio de superficie de
+   seguridad que se decidió no hacer todavía. Con 1200/hora hay margen
+   mientras el volumen es bajo; **antes de una campaña o un pico real de
+   altas hay que volver a mirar esto**, y ahí sí evaluar en serio la
+   migración a clave de servicio + IP forwarding. Detalle a tener presente
+   si el cupo se agotara: GoTrue responde `over_request_rate_limit` (429), y
+   hoy el backend lo devuelve como `502` en el paso 1 (solo el 429 de
+   envío de email pasa como 429, B-22) y como `401` "código inválido o
+   expiró" en el paso 2 — el síntoma no diría "rate limit".
+
 2. **Rate limiting a nivel de Express — ✅ resuelto (M1, 2026-07-12).**
    `POST /api/onboarding` y `POST /api/invitations/accept` ya tienen protección de
    tasa propia (`express-rate-limit`) — ver sección 7 (Seguridad) para el detalle
