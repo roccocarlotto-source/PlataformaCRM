@@ -48,8 +48,13 @@ parar cada pieza y qué falta para terminar de aplicarla.
   look de `Plataforma-QR/admin` ni se inventa uno nuevo; cuando el rediseño
   exista, se re-skinnea sin tocar la lógica de datos (queries/mutations/api
   quedan intactas).
-- [ ] **Fase 4 — Corte e infraestructura.** Cloudflare Worker, decomiso de
-  Vercel, borrado del proyecto `qr-reviews` (dashboard, manual, al final).
+- [ ] **Fase 4 — Corte e infraestructura.** Guía completa en "Fase 4 — Corte
+  e infraestructura" más abajo. Dos PRs separados, en dos repos: el gate de
+  secreto compartido en `/qr/resolve/:qrId` (`Plataforma CRM`) y el repunte
+  del Cloudflare Worker al nuevo backend (`Plataforma-QR`). Decomiso de
+  Vercel y borrado del proyecto `qr-reviews` (dashboard, manual) quedan para
+  el final, después de confirmar que el módulo QR funciona de punta a punta
+  sobre el proyecto unificado.
 - [ ] **Fase 5 — Repo.** Archivar/borrar `Plataforma-QR` una vez portado.
 
 ## Cómo aplicar Fase 1
@@ -981,3 +986,224 @@ Lo que NO cambió y conviene tener presente al revisar:
 - Los mensajes al usuario son en español, como el resto del frontend; la
   redacción de los mensajes de WhatsApp/email es el default mínimo del
   original, no una decisión de diseño aprobada.
+
+## Fase 4 — Corte e infraestructura
+
+Fuente de verdad del comportamiento: `Plataforma-QR/supabase/functions/resolve/index.ts`
+(el gate de secreto — `hasValidInternalProxySecret`, `INTERNAL_PROXY_SECRET_HEADER`,
+el comentario AUD-09 completo) y `Plataforma-QR/cloudflare/worker/src/{handler,index}.ts`
+(la lógica de proxy/rate-limit ya implementada, nunca deployada — `README.md`
+de ese directorio confirma que TF-001, el dominio, sigue sin resolver y que
+el Worker nunca llegó a un deploy real).
+
+No hay datos que migrar en esta fase (mismo punto de partida que Fase 1-3:
+piloto sin negocios reales) — es pura infraestructura y un endpoint que
+hasta ahora no tenía protección contra acceso directo.
+
+### Decisiones tomadas para esta fase (confirmadas con Rocco, no asumidas)
+
+1. **Repuntar el Worker al nuevo backend, no retirarlo.** Sigue teniendo
+   valor: rate limiting nativo de Cloudflare delante de `resolve` (10/min
+   por IP, 500/min global) antes de que la request llegue a Postgres.
+
+2. **Agregar el gate de secreto compartido al backend — no dejarlo como
+   "mejor esfuerzo".** Fase 2 portó toda la lógica de negocio de `resolve`
+   (los 6 estados, DEC-007, consumo atómico de single-use) pero **no portó
+   este gate** — quedaba fuera de esa fase a propósito, es infraestructura,
+   no negocio. Sin él, `GET/POST /qr/resolve/:qrId` sigue siendo alcanzable
+   directo aunque el Worker esté repuntado y filtrando su propio dominio —
+   exactamente el problema que el comentario AUD-09 del original documenta
+   ("verified against production"). Mismo diseño que el original: falla
+   **cerrado** (sin secreto configurado, nada lo satisface) y responde con
+   el mismo 404 genérico que un QR inexistente — nunca un 403 distinto que
+   revele que el gate existe (DEC-007 aplica también acá).
+
+3. **Gap encontrado, documentado, no resuelto en esta fase — no bloqueante,
+   mismo criterio que TF-001 en el plan original: el link público que
+   arma el frontend no pasa por el Worker.** `lib/publicUrl.ts` (Fase 3, ya
+   mergeado, decisión 6 de esa fase) construye
+   `${env.apiUrl}/qr/resolve/:qrId` — directo contra el backend, nunca
+   contra el dominio del Worker. Repuntar el Worker es necesario pero no
+   alcanza para que el rate limiting proteja el flujo real de un QR
+   escaneado: hoy, aunque el Worker esté repuntado, ningún tráfico pasa por
+   él. Arreglar esto (que `publicUrl.ts` arme el link contra el dominio del
+   Worker en vez de `env.apiUrl`) requiere que TF-001 esté resuelto primero
+   — no hay dominio propio todavía, solo el `*.workers.dev` gratuito, que
+   no es apto para imprimir en un sticker real. Como no hay QRs físicos
+   reales impresos hoy, no es urgente: el gate del punto 2 ya protege el
+   endpoint (defensa en profundidad) incluso mientras nada pasa por el
+   Worker. Queda como ítem abierto para cuando Rocco compre el dominio —
+   no forma parte de esta fase.
+
+### Backend — gate de secreto compartido (`Plataforma CRM`)
+
+1. **Env vars nuevas en `config/env.ts`** (opcionales, mismo criterio que
+   `MERCADOPAGO_WEBHOOK_SECRET` — el server tiene que poder arrancar sin
+   ellas): `QR_RESOLVE_PROXY_SECRET` y `QR_RESOLVE_PROXY_SECRET_PREVIOUS`
+   (esta última para poder rotar el secreto actualizando primero un lado —
+   Worker o backend, en cualquier orden — sin ventana de caída, mismo
+   mecanismo que el original). Agregar a `.env.example` sin valor.
+
+   **Importante para el orden de deploy, dejarlo bien visible en el PR:**
+   una vez que este middleware esté activo, `/qr/resolve/*` devuelve 404 a
+   **todo el mundo** hasta que `QR_RESOLVE_PROXY_SECRET` tenga un valor real
+   configurado en el entorno de verdad — es el mismo "falla cerrado" del
+   original, no un bug. Como hoy no hay tráfico real contra este endpoint
+   (sin negocios reales), no rompe nada productivo, pero hay que configurar
+   el secreto en el deploy real antes o junto con este cambio, no después.
+
+2. **Middleware nuevo** — nombre sugerido `requireInternalProxySecret.ts`,
+   junto a `requirePlatformAdmin.ts` en `src/middlewares/` (mismo criterio
+   de reusabilidad/testabilidad, aunque este solo tenga un consumidor hoy).
+   Lee el header `x-internal-proxy-secret` (case-insensitive, Express ya lo
+   normaliza) y lo compara en tiempo constante contra
+   `QR_RESOLVE_PROXY_SECRET`/`_PREVIOUS` — portar `hasValidInternalProxySecret`
+   casi literal (acepta el actual o el anterior; sin ninguno configurado,
+   nada satisface). Para la comparación en tiempo constante, revisar primero
+   si `src/utils/mercadopagoSignature.ts` (Fase 2) ya expone un helper
+   genérico de comparación tipo `timingSafeEqual` reusable acá antes de
+   escribir uno nuevo — mismo motivo que esa función existe: Node
+   `crypto.timingSafeEqual` tira si los buffers no tienen la misma
+   longitud, así que un uso ingenuo filtra la longitud del secreto por
+   excepción/timing; hay que igualar longitudes (o comparar hashes) antes
+   de comparar, no invocarlo directo con strings de largo variable.
+
+3. **En falla, la respuesta tiene que ser BYTE A BYTE la misma que ya arma
+   el controller para un QR inexistente** — nunca un `AppError`/403/JSON
+   nuevo, eso por sí solo revelaría que el gate existe a quien está
+   probando la URL cruda. Antes de escribir el middleware, leer
+   `qrPublic.controller.ts`/`qrPublic.service.ts`/`qrLanding.ts` reales
+   (ya mergeados en Fase 2) para confirmar el shape exacto de esa respuesta
+   (status, `Content-Type`, el HTML que arma `buildLandingHtml` o
+   equivalente) y reusar esa misma función de render directamente desde el
+   middleware — no reconstruirla a mano ni aproximarla.
+
+4. **Dónde se monta:** en `qrPublic.routes.ts`, antes del handler de
+   `GET`/`POST /qr/resolve/:qrId` — mismo criterio de orden que el original
+   (secreto se chequea antes de parsear/validar el `qrId`). No tocar
+   ninguna otra ruta pública (`/health`, etc.) — el gate es específico de
+   este endpoint.
+
+5. **Tests:** sin secreto configurado → todo 404 (incluida una request con
+   header correcto, porque no hay nada configurado contra qué comparar);
+   con secreto configurado, header ausente/incorrecto/de otro valor → mismo
+   404 que un QR inexistente, byte a byte; header con el secreto actual →
+   pasa; header con el secreto "previous" → también pasa (rotación); nunca
+   un status distinto de 404 en ningún camino de falla.
+
+### Cloudflare Worker — repunte (`Plataforma-QR`)
+
+1. **`wrangler.toml`**: reemplazar la var `SUPABASE_FUNCTIONS_BASE_URL` por
+   algo como `BACKEND_PUBLIC_BASE_URL` (el origen público del backend
+   Express — no `/functions/v1`, no `/api`: `/qr/resolve/:qrId` está
+   montado en la raíz, sin prefijo, igual que hoy). El comentario de
+   `[[ratelimits]]` no cambia — la config de rate limiting es independiente
+   del upstream.
+
+2. **`src/index.ts`**: renombrar el campo de `Env` acorde
+   (`BACKEND_PUBLIC_BASE_URL` en vez de `SUPABASE_FUNCTIONS_BASE_URL`), sin
+   tocar nada de la lógica de bindings de rate limit ni el secreto — ese
+   wiring no cambia.
+
+3. **`src/handler.ts`**: cambiar la construcción de `upstreamUrl` de
+   `` `${supabaseFunctionsBaseUrl}/resolve/${qrIdSegment}` `` a
+   `` `${backendPublicBaseUrl}/qr/resolve/${qrIdSegment}` `` — el único
+   cambio real de lógica. El resto (rate limiting primero, GET/POST,
+   `redirect: "manual"`, relay de 30x, forzar `Content-Type: text/html`
+   en las no-redirect) se mantiene igual. Sobre ese último punto: confirmar
+   al implementar si Express ya devuelve `Content-Type: text/html` correcto
+   en `qrPublic.controller.ts` (lo normal en Express con
+   `res.type("html").send(...)`) — si es así, forzarlo en el Worker es
+   redundante pero inofensivo (no hace falta sacarlo); el bug que este
+   forzado corregía (TF-007) era específico de cómo Supabase Edge Functions
+   servía HTML sin dominio propio, no necesariamente aplica acá.
+
+4. **`src/handler.test.ts`**: actualizar los mocks/asserts que referencian
+   `supabaseFunctionsBaseUrl`/la URL vieja al nuevo nombre y shape de
+   upstream — mismos 10 casos, mismo criterio de cobertura (rate limit
+   primero, método no permitido, path inválido, error de red → 502, relay
+   de redirect, relay de body con Content-Type forzado, envío del header
+   de secreto).
+
+5. **`README.md`**: actualizar el paso 1 ("Fill in your real Supabase
+   Functions URL") para reflejar `BACKEND_PUBLIC_BASE_URL` apuntando al
+   backend del CRM. El resto de los pasos manuales (cuenta de Cloudflare,
+   `wrangler login`, `wrangler deploy`, TF-001 el dominio) siguen siendo
+   los mismos y siguen siendo pasos que solo Rocco puede hacer.
+
+### Lo que Rocco tiene que hacer a mano, en su cuenta real (no en el PR)
+
+- `npx wrangler secret put INTERNAL_PROXY_SECRET` en el Worker, con un
+  valor random nuevo (nunca el mismo texto que cualquier otro secreto del
+  proyecto) — nunca en `wrangler.toml`, nunca commiteado.
+- Configurar `QR_RESOLVE_PROXY_SECRET` en el entorno real del backend
+  (Fly/Render/donde corra `Plataforma CRM` en producción — fuera del
+  alcance de este repo) con el **mismo valor exacto** que el paso anterior.
+  Los nombres de las variables no necesitan coincidir entre los dos lados;
+  el valor sí.
+- `npx wrangler deploy` desde `cloudflare/worker/` una vez que el PR de ese
+  repo esté mergeado, para probar contra la URL gratuita
+  `resea-resolve-proxy.<subdominio>.workers.dev` (sin dominio propio
+  todavía — ver decisión 3, TF-001 sigue abierto).
+- Verificar manualmente: escanear/pegar la URL del Worker con un QR de
+  prueba real y confirmar el redirect; pegar la misma URL con un secreto
+  mal puesto a mano (`curl` directo al backend sin el header) y confirmar
+  el 404 genérico.
+
+### Verificación
+
+- Backend: los tests del punto 5 de arriba en verde; `npm run typecheck`,
+  `npm run lint`, `npx prettier --check .`; `npm run verify:schema` sigue
+  en verde (esta fase no toca el esquema).
+- Worker: `deno test --allow-net handler.test.ts` (o el runner que use el
+  repo `Plataforma-QR` — confirmar contra `package.json`/CI existente) en
+  verde con los mocks actualizados.
+- Manual, end-to-end, ya con el secreto real configurado en ambos lados:
+  `GET` a la URL del Worker con un QR reclamado real → redirect correcto;
+  `GET`/`POST` directo contra `${BACKEND_PUBLIC_BASE_URL}/qr/resolve/:qrId`
+  sin el header → 404 genérico (nunca el redirect); con el header pero un
+  valor incorrecto → mismo 404; con el secreto "previous" tras rotar →
+  sigue funcionando.
+
+### Pasos de aplicación
+
+1. **Backend primero, en un worktree nuevo de `Plataforma CRM`** (mismo
+   patrón que las fases anteriores):
+   ```
+   cd "U:/Proyectos/Plataforma CRM"
+   git fetch origin
+   git worktree add ../plataforma-crm-qr-integration-fase4-backend -b feat/qr-integration-fase4-backend origin/master
+   cd ../plataforma-crm-qr-integration-fase4-backend
+   git log --oneline -3
+   git log --oneline origin/master..HEAD   # tiene que salir vacío
+   ```
+   (Si este documento ya se escribió en un worktree `-fase4` sin sufijo
+   `-backend`, confirmar primero si ese worktree tiene código de más allá
+   de la doc antes de reusarlo — si solo tiene el commit de esta guía,
+   está bien seguir ahí en vez de crear uno nuevo.)
+2. Implementar en el orden de la sección "Backend" de arriba: env vars →
+   middleware (con su comparación en tiempo constante) → montarlo en
+   `qrPublic.routes.ts` → tests.
+3. `npm run typecheck`, `npm run lint`, `npx prettier --check .`, tests.
+4. Actualizar este documento: tildar la parte de backend de Fase 4 en
+   "Estado" (dejar Fase 4 completa recién cuando el Worker también esté
+   repuntado y mergeado) y agregar la nota de desvíos si algo cambió.
+5. `gh pr create` — nunca mergear. Verificación real del diff antes del
+   merge, como siempre.
+6. **Recién después de que el PR de backend esté mergeado**, worktree
+   nuevo de `Plataforma-QR` para el Worker:
+   ```
+   cd "U:/Proyectos/Plataforma-QR"
+   git fetch origin
+   git worktree add ../plataforma-qr-worker-fase4 -b feat/worker-repoint-fase4 origin/master
+   cd ../plataforma-qr-worker-fase4/cloudflare/worker
+   git log --oneline -3
+   git log --oneline origin/master..HEAD   # tiene que salir vacío
+   ```
+7. Implementar la sección "Cloudflare Worker" de arriba, tests, `gh pr
+   create` — nunca mergear.
+8. Una vez mergeado ese segundo PR: los pasos manuales de la sección de
+   arriba (secretos reales, `wrangler deploy`, verificación manual) los
+   hace Rocco. Recién ahí se tilda Fase 4 completa en "Estado", con una
+   nota final describiendo el estado real (Worker deployado en la URL
+   gratuita, dominio propio — TF-001 — seguía pendiente al cerrar la fase).
