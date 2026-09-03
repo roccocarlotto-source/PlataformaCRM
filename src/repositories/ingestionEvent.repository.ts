@@ -93,7 +93,11 @@ export interface InsertPendingEventData {
 export interface InsertPendingEventResult {
   id: string;
   // true = ya existía un evento con ese (sourceId, externalId) y este request
-  // no escribió nada. `id` es el del evento PREEXISTENTE.
+  // no escribió nada. `id` es el del evento PREEXISTENTE. "Nada" incluye el
+  // rawPayload de ESTE request: si difiere del que ya está, se descarta sin
+  // guardarse ni compararse, sea cual sea el status de la fila existente —
+  // §9.13 de docs/ingestion-architecture.md (V-12) lo documenta para el
+  // emisor, junto con la única vía de corrección (otro externalId).
   duplicate: boolean;
 }
 
