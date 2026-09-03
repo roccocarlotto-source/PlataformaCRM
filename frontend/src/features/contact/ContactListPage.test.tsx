@@ -9,6 +9,7 @@ import { env } from "../../config/env";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makeUser } from "../../test/userFixtures";
+import { cellByHeader } from "../../test/cellByHeader";
 import { ContactListPage } from "./ContactListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { ContactListResponse } from "./types";
@@ -60,18 +61,10 @@ function renderPage() {
   );
 }
 
-// Ubica la celda de una fila por el texto de su <th>, no por índice: el orden
-// de columnas cambió al migrar al design system (Nombre | Empresa | Email |
-// Teléfono | Etapa | Origen | Propietario | Acciones) y puede volver a
+// Las celdas se ubican por cabecera (test/cellByHeader.ts), no por índice: el
+// orden de columnas cambió al migrar al design system (Nombre | Empresa |
+// Email | Teléfono | Etapa | Origen | Propietario | Acciones) y puede volver a
 // cambiar sin que estas aserciones se rompan.
-function cellByHeader(row: HTMLElement | null, header: string): HTMLElement | undefined {
-  const headers = Array.from(row?.closest("table")?.querySelectorAll("th") ?? []).map((th) =>
-    th.textContent?.trim(),
-  );
-  const index = headers.indexOf(header);
-  return index === -1 ? undefined : row?.querySelectorAll("td")[index];
-}
-
 describe("ContactListPage", () => {
   it("loading, éxito, error y empty state", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));

@@ -1,12 +1,22 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { Badge } from "../../design-system/Badge";
+import { Button } from "../../design-system/Button";
+import { EmptyState } from "../../design-system/EmptyState";
+import { ErrorState } from "../../design-system/ErrorState";
+import { LoadingState } from "../../design-system/LoadingState";
+import { Pagination } from "../../design-system/Pagination";
+import { Table } from "../../design-system/Table";
 import { useDeletePipeline } from "./mutations";
 import { usePipelines } from "./queries";
 import type { PipelineSortBy, SortOrder } from "./types";
 
 const PAGE_SIZE = 20;
 
+// Esta pantalla no tiene diseño de referencia entre las 17 exportadas
+// ("Pipeline CRM" es un Kanban de oportunidades, otra cosa): restyle genérico
+// con el sistema de diseño, mismas columnas y mismo orden que antes.
 export function PipelineListPage() {
   const { me } = useAuth();
   // Ocultar acciones de escritura para no-ADMIN es cortesía de UX: la
@@ -35,19 +45,28 @@ export function PipelineListPage() {
 
   return (
     <div>
-      <h1>Pipelines</h1>
-      {isAdmin ? <Link to="/pipelines/new">Nuevo pipeline</Link> : null}
+      <div className="ds-page-header">
+        <h1>Pipelines</h1>
+        {isAdmin ? (
+          <Link to="/pipelines/new" className="ds-link-button">
+            Nuevo pipeline
+          </Link>
+        ) : null}
+      </div>
 
-      <div>
-        <input
-          type="search"
-          placeholder="Buscar por nombre"
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setPage(1);
-          }}
-        />
+      <div className="ds-filters">
+        <label>
+          Buscar
+          <input
+            type="search"
+            placeholder="Buscar por nombre"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
         <label>
           Ordenar por
           <select
@@ -58,39 +77,42 @@ export function PipelineListPage() {
             <option value="name">Nombre</option>
           </select>
         </label>
-        <select
-          value={sortOrder}
-          onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-        >
-          <option value="desc">Descendente</option>
-          <option value="asc">Ascendente</option>
-        </select>
+        <label>
+          Orden
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+          >
+            <option value="desc">Descendente</option>
+            <option value="asc">Ascendente</option>
+          </select>
+        </label>
       </div>
 
-      {pipelinesQuery.isLoading ? <p>Cargando…</p> : null}
+      {pipelinesQuery.isLoading ? <LoadingState /> : null}
 
       {pipelinesQuery.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos cargar los pipelines
           {pipelinesQuery.error instanceof Error ? `: ${pipelinesQuery.error.message}` : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {deletePipelineMutation.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos eliminar el pipeline
           {deletePipelineMutation.error instanceof Error
             ? `: ${deletePipelineMutation.error.message}`
             : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {pipelinesQuery.isSuccess && pipelinesQuery.data.data.length === 0 ? (
-        <p>No hay pipelines para mostrar.</p>
+        <EmptyState>No hay pipelines para mostrar.</EmptyState>
       ) : null}
 
       {pipelinesQuery.isSuccess && pipelinesQuery.data.data.length > 0 ? (
-        <table>
+        <Table>
           <thead>
             <tr>
               <th>Nombre</th>
@@ -105,45 +127,31 @@ export function PipelineListPage() {
                 <td>{pipeline.name}</td>
                 {/* Sin badge inventado cuando no es default: reflejar
                     fielmente que puede haber cero defaults (ver types.ts). */}
-                <td>{pipeline.isDefault ? "Default" : ""}</td>
+                <td>{pipeline.isDefault ? <Badge variant="neutral">Default</Badge> : null}</td>
                 <td>
                   <Link to={`/pipelines/${pipeline.id}/stages`}>Ver etapas</Link>
                 </td>
                 {isAdmin ? (
                   <td>
-                    <Link to={`/pipelines/${pipeline.id}/edit`}>Editar</Link>
-                    <button type="button" onClick={() => handleDelete(pipeline.id)}>
+                    <Link to={`/pipelines/${pipeline.id}/edit`}>Editar</Link>{" "}
+                    <Button variant="danger" onClick={() => handleDelete(pipeline.id)}>
                       Eliminar
-                    </button>
+                    </Button>
                   </td>
                 ) : null}
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       ) : null}
 
       {pipelinesQuery.isSuccess ? (
-        <div>
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((current) => current - 1)}
-          >
-            Anterior
-          </button>
-          <span>
-            Página {pipelinesQuery.data.pagination.page} de{" "}
-            {pipelinesQuery.data.pagination.totalPages || 1}
-          </span>
-          <button
-            type="button"
-            disabled={page >= pipelinesQuery.data.pagination.totalPages}
-            onClick={() => setPage((current) => current + 1)}
-          >
-            Siguiente
-          </button>
-        </div>
+        <Pagination
+          page={page}
+          totalPages={pipelinesQuery.data.pagination.totalPages}
+          onPrevious={() => setPage((current) => current - 1)}
+          onNext={() => setPage((current) => current + 1)}
+        />
       ) : null}
     </div>
   );
