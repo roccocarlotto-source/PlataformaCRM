@@ -1,4 +1,8 @@
 import { useAuth } from "../../auth/AuthContext";
+import { Card } from "../../design-system/Card";
+import { EmptyState } from "../../design-system/EmptyState";
+import { ErrorState } from "../../design-system/ErrorState";
+import { LoadingState } from "../../design-system/LoadingState";
 import { useCompanyNames } from "../opportunity/relationResolution";
 import { useMyRecentOpenOpportunities } from "./queries";
 
@@ -12,6 +16,9 @@ function formatAmount(amount: string, currency: string): string {
 // AdminRoute (solo ADMIN puede abrirla) y esta sección se muestra a
 // cualquier rol — un link roto/redirigido para USER sería la misma clase de
 // error que ya se evitó en Quick Actions.
+//
+// Filas dentro de la tarjeta: título + empresa a la izquierda, monto a la
+// derecha. Sin avatar ni ícono: una oportunidad no es una persona.
 export function RecentOpenOpportunities() {
   const { me } = useAuth();
   const query = useMyRecentOpenOpportunities(me?.id);
@@ -23,37 +30,42 @@ export function RecentOpenOpportunities() {
   const companyNames = useCompanyNames(companyIds);
 
   return (
-    <section aria-label="Mis oportunidades abiertas recientes">
-      <h2>Mis oportunidades abiertas recientes</h2>
-
-      {query.isLoading ? <p>Cargando…</p> : null}
+    <Card
+      aria-label="Mis oportunidades abiertas recientes"
+      heading="Mis oportunidades abiertas recientes"
+    >
+      {query.isLoading ? <LoadingState /> : null}
 
       {query.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos cargar tus oportunidades recientes
           {query.error instanceof Error ? `: ${query.error.message}` : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {query.isSuccess && rows.length === 0 ? (
-        <p>No tenés oportunidades abiertas propias.</p>
+        <EmptyState>No tenés oportunidades abiertas propias.</EmptyState>
       ) : null}
 
       {query.isSuccess && rows.length > 0 ? (
-        <ul>
+        <ul className="ds-list">
           {rows.map((opportunity) => (
-            <li key={opportunity.id}>
-              <span>{opportunity.title}</span>
-              <span>
-                {opportunity.companyId
-                  ? (companyNames.byId.get(opportunity.companyId)?.name ?? "—")
-                  : "—"}
+            <li key={opportunity.id} className="ds-list-row">
+              <span className="ds-list-main">
+                <span className="ds-list-primary">{opportunity.title}</span>
+                <span className="ds-list-secondary">
+                  {opportunity.companyId
+                    ? (companyNames.byId.get(opportunity.companyId)?.name ?? "—")
+                    : "—"}
+                </span>
               </span>
-              <span>{formatAmount(opportunity.amount, opportunity.currency)}</span>
+              <span className="ds-list-trailing">
+                {formatAmount(opportunity.amount, opportunity.currency)}
+              </span>
             </li>
           ))}
         </ul>
       ) : null}
-    </section>
+    </Card>
   );
 }
