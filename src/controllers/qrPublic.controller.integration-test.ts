@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import express from "express";
+import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
+import { INTERNAL_PROXY_SECRET_HEADER } from "../middlewares/requireInternalProxySecret";
 import { qrPublicRouter } from "../routes/qrPublic.routes";
 import { createBranch } from "../services/branch.service";
 import { createDigitalQrCode, deleteQrCode } from "../services/qr.service";
@@ -16,8 +18,15 @@ import { createDigitalQrCode, deleteQrCode } from "../services/qr.service";
 // monta SOLO este router con la cadena real (router + notFound + errorHandler).
 //
 // Lo que este archivo fija: los 6 casos de estado del árbol de la guía para el
-// GET, el consumo atómico + fallback a lectura real para el POST, y la carrera
-// "dos POST concurrentes al mismo single-use: solo uno consume".
+// GET, el consumo atómico + fallback a lectura real para el POST, la carrera
+// "dos POST concurrentes al mismo single-use: solo uno consume", y (Fase 4) que
+// el gate de secreto compartido está montado en el router real y que su
+// respuesta de falla es byte a byte la de un QR inexistente.
+//
+// El router lleva requireInternalProxySecret (Fase 4), así que el secreto se
+// configura en `env` en el before() y get()/post() mandan el header en todos
+// los casos de negocio — igual que lo haría el Worker. Los casos del gate en sí
+// están al final, y son los únicos que piden sin header o con otro valor.
 //
 // fetch con redirect: "manual" en todos los casos: lo que se afirma es la
 // respuesta de ESTE servidor (302 + Location), nunca se sigue el destino.
@@ -25,9 +34,13 @@ import { createDigitalQrCode, deleteQrCode } from "../services/qr.service";
 
 const TZ = "America/Argentina/Buenos_Aires";
 const DESTINO = "https://g.page/r/test/review";
+const SECRETO = "secreto-de-prueba-qr-resolve";
+const SECRETO_ANTERIOR = "secreto-anterior-qr-resolve";
 
 let baseUrl: string;
 let closeApp: () => Promise<void>;
+const secretoOriginal = env.QR_RESOLVE_PROXY_SECRET;
+const secretoAnteriorOriginal = env.QR_RESOLVE_PROXY_SECRET_PREVIOUS;
 
 function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
   const app = express();
@@ -47,12 +60,16 @@ function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
 }
 
 before(async () => {
+  env.QR_RESOLVE_PROXY_SECRET = SECRETO;
+  env.QR_RESOLVE_PROXY_SECRET_PREVIOUS = SECRETO_ANTERIOR;
   const started = await startTestApp();
   baseUrl = started.url;
   closeApp = started.close;
 });
 
 after(async () => {
+  env.QR_RESOLVE_PROXY_SECRET = secretoOriginal;
+  env.QR_RESOLVE_PROXY_SECRET_PREVIOUS = secretoAnteriorOriginal;
   if (closeApp) await closeApp();
 });
 
@@ -93,12 +110,21 @@ function crear(e: Escenario, qrType: "REUSABLE" | "SINGLE_USE") {
   });
 }
 
-function get(qrId: string) {
-  return fetch(`${baseUrl}/qr/resolve/${qrId}`, { redirect: "manual" });
+// `secreto` explícito solo lo usan los casos del gate (al final); todo el
+// resto manda el actual, como el Worker. `null` = sin header.
+function get(qrId: string, secreto: string | null = SECRETO) {
+  return fetch(`${baseUrl}/qr/resolve/${qrId}`, {
+    redirect: "manual",
+    headers: secreto === null ? {} : { [INTERNAL_PROXY_SECRET_HEADER]: secreto },
+  });
 }
 
-function post(qrId: string) {
-  return fetch(`${baseUrl}/qr/resolve/${qrId}`, { method: "POST", redirect: "manual" });
+function post(qrId: string, secreto: string | null = SECRETO) {
+  return fetch(`${baseUrl}/qr/resolve/${qrId}`, {
+    method: "POST",
+    redirect: "manual",
+    headers: secreto === null ? {} : { [INTERNAL_PROXY_SECRET_HEADER]: secreto },
+  });
 }
 
 async function esLandingGenerica(res: Response) {
@@ -312,6 +338,95 @@ test("POST: dos consumos concurrentes del mismo single-use — exactamente uno r
 
     const perdedor = a.status === 200 ? a : b;
     assert.ok((await perdedor.text()).includes("Este código ya fue utilizado"));
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Gate de secreto compartido (Fase 4) — montado en el router REAL, delante de
+// los dos handlers. Lo que estos casos afirman y el unitario del middleware no
+// puede: que la respuesta de falla es byte a byte la MISMA que el controller
+// produce para un QR inexistente (la misma función, no una copia), y que sin
+// el header un QR activo de verdad NO redirige — el gate corre antes de tocar
+// la base.
+// ---------------------------------------------------------------------------
+
+test("gate: sin el header, o con otro valor, un QR ACTIVO responde el mismo 404 que uno inexistente, byte a byte — nunca el redirect ni un 401/403", async () => {
+  const e = await montar("gate-falla");
+  try {
+    const qr = await crear(e, "REUSABLE");
+
+    // Referencia: el 404 real del controller para un id que no existe, CON el
+    // secreto correcto (así lo que responde es el handler, no el gate).
+    const referencia = await get(randomUUID());
+    assert.equal(referencia.status, 404);
+    const htmlReferencia = await esLandingGenerica(referencia);
+
+    const casos: Array<[string, string | null]> = [
+      ["sin header", null],
+      ["header vacío", ""],
+      ["otro valor", "no-es-el-secreto"],
+      // Un byte de más (no un espacio: HTTP recorta el whitespace de los
+      // bordes de un header antes de que llegue a Express).
+      ["casi el secreto", `${SECRETO}x`],
+    ];
+    for (const [etiqueta, secreto] of casos) {
+      for (const pedir of [get, post]) {
+        const res = await pedir(qr.id, secreto);
+        assert.equal(res.status, 404, `${pedir.name} ${etiqueta}`);
+        assert.equal(res.headers.get("location"), null, `${pedir.name} ${etiqueta}: sin redirect`);
+        assert.equal(await res.text(), htmlReferencia, `${pedir.name} ${etiqueta}: mismo HTML`);
+      }
+    }
+
+    // Y el QR sigue activo: el gate fallando no tocó nada.
+    const ok = await get(qr.id);
+    assert.equal(ok.status, 302);
+    assert.equal(ok.headers.get("location"), DESTINO);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("gate: el secreto anterior (rotación) también pasa, en GET y en POST", async () => {
+  const e = await montar("gate-rotacion");
+  try {
+    const reusable = await crear(e, "REUSABLE");
+    const res = await get(reusable.id, SECRETO_ANTERIOR);
+    assert.equal(res.status, 302);
+    assert.equal(res.headers.get("location"), DESTINO);
+
+    const singleUse = await crear(e, "SINGLE_USE");
+    const consumo = await post(singleUse.id, SECRETO_ANTERIOR);
+    assert.equal(consumo.status, 302);
+    assert.equal(consumo.headers.get("location"), DESTINO);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("gate: sin NINGÚN secreto configurado falla cerrado — un QR activo da 404 incluso con el header que antes pasaba", async () => {
+  const e = await montar("gate-cerrado");
+  try {
+    const qr = await crear(e, "REUSABLE");
+    const referencia = await esLandingGenerica(await get(randomUUID()));
+
+    env.QR_RESOLVE_PROXY_SECRET = undefined;
+    env.QR_RESOLVE_PROXY_SECRET_PREVIOUS = undefined;
+    try {
+      for (const secreto of [SECRETO, SECRETO_ANTERIOR, null]) {
+        const res = await get(qr.id, secreto);
+        assert.equal(res.status, 404, String(secreto));
+        assert.equal(await res.text(), referencia);
+      }
+    } finally {
+      env.QR_RESOLVE_PROXY_SECRET = SECRETO;
+      env.QR_RESOLVE_PROXY_SECRET_PREVIOUS = SECRETO_ANTERIOR;
+    }
+
+    // Reconfigurado, vuelve a funcionar sin reiniciar nada: se lee por request.
+    assert.equal((await get(qr.id)).status, 302);
   } finally {
     await desmontar(e);
   }

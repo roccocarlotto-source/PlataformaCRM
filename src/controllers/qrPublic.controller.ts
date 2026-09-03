@@ -15,10 +15,9 @@ import {
 //
 // SIN authenticate, SIN AuthenticatedRequest y SIN /api: un teléfono abre esta
 // URL directo desde la cámara, no hay sesión ni JSON de negocio — misma
-// excepción que /health. Y SIN el X-Internal-Proxy-Secret del original: esa
-// gate era específica del Worker de Cloudflare (decisión de Fase 4, todavía
-// abierta); no hay Worker apuntando acá, así que no hay nada que autenticar
-// en este tramo.
+// excepción que /health. El X-Internal-Proxy-Secret del original vive en
+// middlewares/requireInternalProxySecret.ts (Fase 4), montado ANTES de estos
+// handlers en qrPublic.routes.ts: acá se llega solo con el secreto válido.
 //
 // DEC-007 (anti-enumeración): un id que no existe, uno malformado, uno borrado
 // y uno con la suscripción vencida renderizan la misma landing. La única
@@ -30,6 +29,15 @@ function sendHtml(res: Response, status: number, html: string): void {
   res.status(status).type("html").send(html);
 }
 
+// El 404 de "no existe / malformado / borrado": la landing genérica sin link
+// de claim — no tiene sentido ofrecer reclamar un id que no existe. Exportado
+// porque requireInternalProxySecret responde EXACTAMENTE esto cuando el
+// secreto falla: la misma función, no una copia, para que las dos respuestas
+// sean byte a byte indistinguibles (DEC-007).
+export function sendQrNotFoundLanding(res: Response): void {
+  sendHtml(res, 404, buildLandingHtml());
+}
+
 // Único lugar que convierte un estado público en una respuesta — compartido
 // por el GET y por el fallback del POST (un POST que no consumió nada, por el
 // motivo que sea, relee el estado real y lo muestra exactamente como un GET).
@@ -37,9 +45,7 @@ function sendHtml(res: Response, status: number, html: string): void {
 // nada de su semántica.
 function renderPublicState(res: Response, state: QrPublicState | null, qrId: string): void {
   if (!state) {
-    // No existe / malformado / borrado: 404 con la landing y sin link de
-    // claim — no tiene sentido ofrecer reclamar un id que no existe.
-    sendHtml(res, 404, buildLandingHtml());
+    sendQrNotFoundLanding(res);
     return;
   }
 

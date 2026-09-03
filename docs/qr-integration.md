@@ -55,6 +55,19 @@ parar cada pieza y qué falta para terminar de aplicarla.
   Vercel y borrado del proyecto `qr-reviews` (dashboard, manual) quedan para
   el final, después de confirmar que el módulo QR funciona de punta a punta
   sobre el proyecto unificado.
+  - [x] **Backend — gate de secreto compartido. Listo (2026-09-03).**
+    `src/middlewares/requireInternalProxySecret.ts` montado en
+    `qrPublic.routes.ts` delante de `GET`/`POST /qr/resolve/:qrId`, con
+    `QR_RESOLVE_PROXY_SECRET` y `QR_RESOLVE_PROXY_SECRET_PREVIOUS` opcionales
+    en `config/env.ts` y `.env.example`. **Falla cerrado: hasta que el
+    secreto tenga un valor real en el entorno de producción, el endpoint
+    responde el 404 genérico a todo el mundo** — configurarlo antes o junto
+    con el deploy de este cambio. Ver "Qué se desvió del plan al implementar
+    el backend de Fase 4" al final de la sección. Sin cambios de esquema.
+  - [ ] **Cloudflare Worker — repunte** (`Plataforma-QR`), después de
+    mergear el PR de backend. Fase 4 se tilda completa recién cuando el
+    Worker esté repuntado, mergeado y deployado con el secreto real en
+    ambos lados.
 - [ ] **Fase 5 — Repo.** Archivar/borrar `Plataforma-QR` una vez portado.
 
 ## Cómo aplicar Fase 1
@@ -1207,3 +1220,63 @@ hasta ahora no tenía protección contra acceso directo.
    hace Rocco. Recién ahí se tilda Fase 4 completa en "Estado", con una
    nota final describiendo el estado real (Worker deployado en la URL
    gratuita, dominio propio — TF-001 — seguía pendiente al cerrar la fase).
+
+### Qué se desvió del plan al implementar el backend de Fase 4 (2026-09-03)
+
+Mismo criterio que las notas de las fases anteriores: lo que cambió al
+ejecutar, con el porqué. Solo la mitad de backend; la del Worker tendrá la
+suya en el repo `Plataforma-QR`.
+
+- **La comparación en tiempo constante NO reusa `timingSafeEqual` de
+  `utils/mercadopagoSignature.ts`.** La guía pedía revisarlo primero; se
+  revisó, y ese helper devuelve `false` de inmediato cuando los largos
+  difieren. Para un HMAC hex está bien (el largo es público, siempre 64),
+  pero acá el largo del secreto es parte del secreto: un `return false`
+  temprano deja medir por timing cuántos bytes tiene. En vez de eso,
+  `secretsMatch` en el propio middleware hashea los dos lados con SHA-256 y
+  compara los dos digests de 32 bytes con `crypto.timingSafeEqual` — que así
+  nunca tira ni corta antes por longitud. El helper de MercadoPago queda
+  intacto, con su propio uso.
+- **El 404 de falla sale de una función exportada por el controller,
+  `sendQrNotFoundLanding(res)`**, que `renderPublicState` también usa para
+  "no existe / malformado / borrado". La guía pedía "reusar esa misma
+  función de render"; el controller no la tenía como función con nombre
+  (era una línea inline `sendHtml(res, 404, buildLandingHtml())`), así que
+  se extrajo. El integration test compara el cuerpo de la falla contra un
+  404 real del controller, byte a byte, en GET y en POST, para un QR que
+  SÍ está activo (sin el header, nunca redirige).
+- **Los tests de integración existentes de `qrPublic` ahora mandan el
+  header en todos los casos de negocio**, con el secreto configurado en
+  `env` en el `before()` y restaurado en el `after()` — como lo haría el
+  Worker. Sin eso, el gate (falla cerrado) los habría dejado todos en 404.
+  `routes/index.test.ts` no cambió de aserción: en el entorno del job
+  unitario no hay secreto, así que el 404 HTML de "está montado" ahora lo
+  produce el gate en vez del handler, y para ese test da igual cuál de los
+  dos contestó (los dos solo existen en la cadena de `qrPublicRouter`).
+- **Un header con whitespace en los bordes no es un caso de "casi el
+  secreto".** Un test lo intentó con `"<secreto> "` y pasó el gate: HTTP
+  recorta el whitespace de los bordes de un valor de header antes de que
+  llegue a Express, así que el middleware recibió el secreto exacto. No es
+  un hueco (el valor que llega ES el correcto); el caso se cambió por un
+  byte de más real.
+- **`env` se lee por request, no al cargar el módulo**, para que los tests
+  puedan cambiar el valor entre casos sin reiniciar el server. En
+  producción no cambia nada: `env` se parsea una vez.
+- **`prisma generate` hizo falta en el worktree nuevo** después de `npm ci`
+  (mismo punto que la nota de Fase 3); sin cambios de código.
+
+Lo que NO cambió y conviene tener presente al revisar:
+
+- **Orden de deploy:** con este middleware activo, `/qr/resolve/*` responde
+  404 a todo el mundo hasta que `QR_RESOLVE_PROXY_SECRET` tenga valor en el
+  entorno real. Hoy no hay tráfico real contra ese endpoint, así que no
+  rompe nada productivo, pero el secreto se configura antes o junto con el
+  deploy, nunca después.
+- El link público que arma el frontend (`lib/publicUrl.ts`) sigue apuntando
+  directo al backend, no al Worker (decisión 3 de esta fase): mientras
+  TF-001 no esté resuelto, escanear un QR generado desde el CRM va a pegar
+  contra el backend sin el header y va a ver el 404 genérico. Es el
+  comportamiento esperado por diseño (defensa en profundidad) y no hay QRs
+  físicos reales impresos; queda como ítem abierto para cuando exista el
+  dominio.
+- `/health` y el resto de las rutas públicas no llevan el gate.
