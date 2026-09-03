@@ -133,6 +133,17 @@ export async function firmarState(state: OAuthState, clave?: Uint8Array): Promis
 // AppError 400 —no 500— en todos los caminos de fallo: un state inválido o
 // vencido es un problema del request, no del servidor.
 //
+// 400 Y NO 403 COMO EL TOKEN DEL WEBHOOK, NI 401 COMO LA API KEY DE INGESTA —
+// V-1 de docs/auditoria-2026-08-29.md lo marcó como inconsistencia entre
+// "hermanos", y es una decisión por tipo de llamador (ver el bloque V-1 de
+// webhookToken.ts, que lista los tres): acá el `state` lo trae el navegador de
+// una PERSONA como parámetro del request, no es una credencial que un cliente
+// de API vaya a volver a presentar (401), ni hay una máquina a la que cerrarle
+// la puerta (403). El callback (googleCalendarConnection.controller.ts)
+// reenvía este status con el mensaje en texto legible y no despacha por su
+// valor, así que cambiarlo no rompería nada — pero tampoco le daría nada a
+// nadie. Se queda.
+//
 // EL 400 NO DISTINGUE entre "firma inválida" y "manipulado": los dos son "este
 // state no salió de acá" y darle a cada uno su mensaje solo le diría a quien
 // prueba en qué se equivocó. El vencimiento SÍ es un mensaje aparte, porque es

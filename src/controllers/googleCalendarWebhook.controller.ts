@@ -3,6 +3,7 @@ import { logger } from "../lib/logger";
 import { procesarNotificacion } from "../services/googleCalendarSync.service";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
+import { STATUS_TOKEN_DE_CANAL_INVALIDO } from "../utils/webhookToken";
 
 // ---------------------------------------------------------------------------
 // POST /api/webhooks/google-calendar — el receptor de notificaciones push.
@@ -31,15 +32,23 @@ import { asyncHandler } from "../utils/asyncHandler";
 // ---------------------------------------------------------------------------
 //
 // No hay cola propia ni reintentos propios acá, y es deliberado: Google YA
-// reintenta la entrega con backoff cuando la respuesta no es 2xx. Construir un
-// outbox para esto sería duplicar un mecanismo que el proveedor ya provee, para
-// un volumen (negocios chicos, pocos cambios por día) que no lo justifica.
+// reintenta la entrega con backoff cuando la respuesta es un error del
+// servidor. Construir un outbox para esto sería duplicar un mecanismo que el
+// proveedor ya provee, para un volumen (negocios chicos, pocos cambios por
+// día) que no lo justifica.
+//
+// LA SEMÁNTICA EXACTA, corregida en V-1 (docs/auditoria-2026-08-29.md) contra
+// la guía de push de Calendar — antes este bloque decía que Google reintentaba
+// "cuando la respuesta no es 2xx", y no es así: reintenta con backoff SOLO ante
+// 500, 502, 503 o 504; "every other return status code is considered to be a
+// message failure". Un 4xx NO se reintenta.
 //
 //   200 -> procesado, o no hay nada que hacer. Google no reintenta. Incluye
 //          DOS casos que no son "procesado" y que se responden 200 a propósito:
 //          el canal desconocido y la conexión que no está activa (abajo).
-//   403 -> el token no salió de acá. Google reintenta y va a seguir fallando,
-//          pero el canal es espurio y no queremos aceptarlo en silencio.
+//   403 -> el token no salió de acá. Google NO reintenta (es un 4xx) y la
+//          notificación queda como fallida: no se acepta un canal espurio en
+//          silencio, ni se le da a un emisor falso el reintento de un 5xx.
 //   5xx -> algo se rompió de nuestro lado (Google caído, base caída). Google
 //          reintenta, que es exactamente lo que queremos.
 //
@@ -103,9 +112,19 @@ export const googleCalendarWebhookHandler = asyncHandler<Request>(async (req, re
     res.status(200).end();
   } catch (err) {
     // 403: el token no salió de acá. No es transitorio.
-    if (err instanceof AppError && err.statusCode === 403) {
+    //
+    // SE DESPACHA POR EL VALOR NUMÉRICO DEL STATUS, y por eso el número viene
+    // de la misma constante que webhookToken.ts usa para lanzarlo (V-1 de
+    // docs/auditoria-2026-08-29.md): si aquel archivo cambiara su status y
+    // este `if` siguiera comparando contra un literal, un token FALSIFICADO
+    // dejaría de matchear acá en silencio y caería al 503 de abajo — y Google
+    // reintentaría con backoff, durante días, una notificación que nunca va a
+    // poder procesar. Los tests de integración de este controller afirman el
+    // 403 por HTTP; la constante compartida es lo que hace que no haya dos
+    // lugares que puedan divergir.
+    if (err instanceof AppError && err.statusCode === STATUS_TOKEN_DE_CANAL_INVALIDO) {
       logger.warn({ channelId }, "Notificación con token de canal inválido: se rechaza");
-      res.status(403).json({ error: { message: err.message } });
+      res.status(STATUS_TOKEN_DE_CANAL_INVALIDO).json({ error: { message: err.message } });
       return;
     }
 
