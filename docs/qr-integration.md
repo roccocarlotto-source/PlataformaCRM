@@ -34,8 +34,11 @@ parar cada pieza y qué falta para terminar de aplicarla.
   `QR_CLAIM_APP_URL`) opcionales en `config/env.ts` y `.env.example`. Ver
   "Qué se desvió del plan al implementar Fase 2" al final de la sección de
   Fase 2. Sin cambios de esquema: `verify:schema` sigue igual.
-- [ ] **Fase 3 — Frontend.** Fusionar `Plataforma-QR/admin/src/` como módulo
-  de `frontend/`.
+- [ ] **Fase 3 — Frontend.** Guía completa en "Fase 3 — Frontend" más abajo.
+  Funcional con el design-system actual del CRM — Rocco todavía no hizo el
+  rediseño, así que no se replica el look de `Plataforma-QR/admin` ni se
+  inventa uno nuevo; cuando el rediseño exista, se re-skinnea sin tocar la
+  lógica de datos (queries/mutations/api quedan intactas).
 - [ ] **Fase 4 — Corte e infraestructura.** Cloudflare Worker, decomiso de
   Vercel, borrado del proyecto `qr-reviews` (dashboard, manual, al final).
 - [ ] **Fase 5 — Repo.** Archivar/borrar `Plataforma-QR` una vez portado.
@@ -597,3 +600,264 @@ Lo que NO cambió y conviene tener presente al revisar:
 - El mapeo de estados de MercadoPago (`authorized` → ACTIVE, `cancelled` /
   `paused` → INACTIVE) es el supuesto heredado del original, todavía no
   verificado contra un sandbox real.
+
+## Fase 3 — Frontend
+
+Fuente de verdad del comportamiento: `Plataforma-QR/admin/src/pages/{Dashboard,Claim}.tsx`
+y `admin/src/lib/{qrImage,sendQr,publicUrl,validation}.ts`. Fuente de verdad
+del contrato: los endpoints ya mergeados de Fase 2
+(`src/routes/{qrPublic,qr,qrAdmin}.routes.ts` y sus controllers/services) —
+esta guía no repite ese contrato, dice qué pantalla/archivo del frontend
+llama a cada endpoint y qué cambia respecto al original.
+
+Rocco todavía no hizo el rediseño del frontend (aclarado explícitamente al
+retomar esta fase). Esta guía asume la decisión ya tomada con él: portar el
+módulo **funcional, completo, usando el design-system actual del CRM**
+(`Button`/`Modal`/`Table`/`FormField`/`Pagination`/`EmptyState`/`ErrorState`/
+`LoadingState`), sin replicar el look visual de `Plataforma-QR/admin` y sin
+inventar un estilo nuevo. Cuando el rediseño exista, se re-skinnea la
+presentación sin tocar `api.ts`/`queries.ts`/`mutations.ts` — esa es la
+razón de separar tan estrictamente datos y presentación en el plan de
+archivos de abajo.
+
+### Decisiones tomadas para esta fase (confirmadas con Rocco, no asumidas)
+
+1. **Funcional ahora, con el design-system actual — no con el look del
+   original ni con un diseño nuevo.** Ver arriba.
+
+2. **Alcance explícitamente excluido, con motivo:**
+   - El formulario de "nombre de negocio + URL de destino global" de
+     `Dashboard.tsx` no se porta: ese concepto vivía en `businesses`, que
+     Fase 1 eliminó — cada `QrCode` ya tiene su propio `destinationUrl`
+     desde Fase 2 (decisión #2 de esa fase), no hay un default a nivel
+     cuenta que editar.
+   - "Eliminar cuenta" no se porta — mismo motivo que la decisión #3 de
+     Fase 2 (no existe el endpoint, y no debería: borraría la Organization
+     entera, no solo el módulo QR).
+   - No hay pantalla de platform admin (subscription-status /
+     billing-exemption). Esos dos endpoints (`requirePlatformAdmin`) siguen
+     operándose como hoy — a mano, con `curl`/Postman autenticado como
+     Rocco — hasta que exista una necesidad real de UI para eso.
+   - **No se muestra el estado de suscripción de la propia Organization en
+     ninguna pantalla.** Ningún endpoint de Fase 2 expone
+     `Organization.qrSubscriptionStatus`/`qrBillingExempt` de lectura para
+     un `ADMIN` común (todo lo que toca esos campos vive detrás de
+     `requirePlatformAdmin`) — agregar ese endpoint de lectura es un
+     cambio de contrato que no estaba en el plan de Fase 2 y queda fuera de
+     esta fase, documentado, misma clase de gap que el punto 3 de la nota
+     de desvíos de Fase 2 (no es un olvido).
+
+3. **Ruta de claim fija e innegociable: `/claim/:qrId`.** La arma
+   `buildLandingHtml` (`src/utils/qrLanding.ts`, ya mergeado) con
+   `` `${QR_CLAIM_APP_URL}/claim/${qrId}` ``. Cualquier otro path rompe
+   todos los QR de stock físico ya impresos (si los hay) apenas
+   `QR_CLAIM_APP_URL` se configure.
+
+4. **`Claim` deja de ser "confirmar con un botón".** El original
+   (`Claim.tsx`) llama a una función que solo pide `qr_id`, porque el resto
+   salía por default de `businesses`. El contrato real de Fase 2
+   (`POST /api/qr/claim`) pide `branchId` + `name` + `destinationUrl` (+
+   `message` opcional) explícitos — mismo shape que crear un QR digital.
+   La página nueva es un formulario completo (con `BranchSelect`, ver
+   punto 5), no un botón de confirmar.
+
+5. **`features/branch` nuevo, deliberadamente mínimo.** No existe ninguna
+   feature de Branch en el frontend hoy (`branch.controller.ts` no tiene
+   consumidor todavía). Se agrega solo `api.ts` (un `listBranches` sobre
+   `GET /api/branches`) + `queries.ts` (`useBranches`) + `types.ts` +
+   `BranchSelect.tsx` — mismo patrón exacto que `UserSelect.tsx` (select
+   simple sin búsqueda, `pageSize` al máximo del contrato, sin manejo de
+   más de 100 sucursales — mismo riesgo residual documentado que ese
+   componente). **No** se agrega `BranchListPage`/`BranchFormPage`/
+   `mutations.ts` — CRUD de sucursales completo es un feature aparte, fuera
+   de este plan, si Rocco lo pide después.
+
+6. **`lib/publicUrl.ts` se simplifica al portar, no se porta literal.**
+   Original: `buildPublicResolutionUrl(domain, qrId)` = `${domain}/r/${qrId}`,
+   con `domain` viniendo de una env var propia del admin (el Edge Function
+   vivía en un dominio distinto al admin). Acá `qrPublicRouter` está montado
+   en el mismo Express app que el resto del API — no hace falta ninguna env
+   var nueva del lado del frontend. Nueva función:
+   `buildPublicResolutionUrl(qrId) = \`${env.apiUrl}/qr/resolve/${qrId}\``,
+   reusando `env.apiUrl` (`frontend/src/config/env.ts`) tal cual. Ojo:
+   `env.apiUrl` es la base de la API (`/api` se agrega dentro de
+   `lib/api.ts`'s `buildUrl()`), y `/qr/resolve/:qrId` está montado **sin**
+   `/api` (ver Fase 2) — esta función arma la URL directo sobre `env.apiUrl`,
+   sin pasar por `request()`/`buildUrl()`.
+
+7. **Qué pasa si alguien escanea un QR de stock sin sesión iniciada —
+   verificar al implementar, no resuelto en esta guía.** `ProtectedRoute`
+   hoy redirige a login a cualquiera sin sesión; hay que confirmar en el
+   código real si preserva la URL de origen para volver ahí después de
+   loguearse. Si no la preserva, `/claim/:qrId` se pierde en el camino y el
+   usuario vuelve a una pantalla genérica sin el `qrId` — en ese caso hay
+   que decidir un mecanismo (ej. guardar el `qrId` en `sessionStorage`
+   antes de que `ProtectedRoute` redirija, o agregar el `state` de retorno
+   si `ProtectedRoute` ya soporta ese patrón para otras rutas). Se deja
+   como ítem a resolver en el PR real, con la misma lógica que los puntos
+   "flag para revisión" de Fase 2: no bloquea escribir el resto del código,
+   pero hay que decidirlo antes de mergear.
+
+8. **El chequeo de rol ADMIN en `/claim/:qrId` es interno a la página, no a
+   nivel de ruta.** `AdminRoute` (route-level) redirige a un USER no-ADMIN
+   antes de que la página cargue — eso perdería el `qrId` de la URL de la
+   misma forma que el punto 7. En cambio, `ClaimPage` se monta dentro de
+   `ProtectedRoute` (fuera de `AdminRoute`) y hace el chequeo de
+   `useAuth().me.role === "ADMIN"` ella misma: si no es ADMIN, muestra un
+   mensaje claro ("Necesitás iniciar sesión como administrador de tu cuenta
+   para reclamar este QR") en vez de perder el contexto. El backend igual
+   rechaza con 403 si alguien se salta este chequeo (`authorize("ADMIN")`
+   en `POST /api/qr/claim`, Fase 2) — el chequeo del frontend es solo para
+   no mostrarle un formulario inútil a quien no puede usarlo.
+
+### Plan de archivos
+
+**Nuevo — `frontend/src/features/branch/`** (solo lectura, ver decisión 5):
+`types.ts`, `api.ts` (`listBranches`), `queries.ts` (`useBranches`),
+`BranchSelect.tsx`.
+
+**Nuevo — `frontend/src/features/qr/`** (mismo patrón que `company`/
+`apiKey`):
+- `types.ts` — `QrCode`, `QrCodeListQuery`, `QrCodeListResponse`,
+  `CreateDigitalQrInput`, `ClaimQrInput`, `UpdateQrInput`. Campos de
+  `QrCode` esperables por el modelo Prisma ya mergeado en Fase 1 (`id`,
+  `organizationId`, `branchId` nullable, `name`, `destinationUrl`,
+  `message` nullable, `qrType`, `displayNumber`, `claimedAt` nullable,
+  `usedAt` nullable, `createdAt`, `updatedAt`) — **confirmar contra
+  `qr.controller.ts`/`qr.service.ts` reales cuáles de estos campos
+  serializa el JSON de cada endpoint** antes de tipar en firme (mismo
+  criterio que el resto de este documento: la guía orienta, el código
+  mergeado de Fase 2 es la fuente de verdad final).
+- `api.ts` — `listQrCodes` (`GET /api/qr`), `createDigitalQrCode`
+  (`POST /api/qr/digital`), `updateQrCode` (`PATCH /api/qr/:id`),
+  `deleteQrCode` (`DELETE /api/qr/:id`), `claimQrCode`
+  (`POST /api/qr/claim`) — mismo `request()`/`getAccessToken` que
+  `company/api.ts`, nada de cliente Supabase directo.
+- `queries.ts` — `qrKeys` (factory `all/lists/list(query)`), `useQrCodes`.
+- `mutations.ts` — `useCreateDigitalQrCode`, `useUpdateQrCode`,
+  `useDeleteQrCode`, `useClaimQrCode` — invalidando `qrKeys.lists()` en
+  `onSuccess`, mismo patrón que `company/mutations.ts`.
+- `QrListPage.tsx` — tabla (`Table` del design-system): número de display,
+  nombre, sucursal, estado derivado, destino, tipo, acciones. Estado
+  derivado en el propio componente (sin campo nuevo en el backend): sin
+  `claimedAt` → "Sin reclamar"; con `claimedAt`, `qrType === "SINGLE_USE"`
+  y `usedAt` → "Usado"; si no, "Activo". Botón "Generar QR digital" abre
+  `QrFormPage` en modo creación (o navega a una ruta `/qr/new`, según
+  convención real de `company` — confirmar si usa modal o ruta propia al
+  implementar). Acciones por fila: Editar, Eliminar (confirmación, mismo
+  patrón que `company`), Ver imagen (`QrImageDialog`), Enviar
+  (`QrSendDialog`), Copiar link (usa `buildPublicResolutionUrl`,
+  `navigator.clipboard.writeText`, sin mutación — no hay llamada de red).
+  `Pagination`/`EmptyState`/`ErrorState`/`LoadingState` igual que
+  `CompanyListPage`.
+- `QrFormPage.tsx` — crear y editar en un componente, mismo patrón que
+  `CompanyFormPage` (`useFormDraft`, `toFormValues`/`toInput`). Crear:
+  `BranchSelect` + `name` + `destinationUrl` + `message` opcional +
+  `qrType` (radio `REUSABLE`/`SINGLE_USE`, default `REUSABLE` — mismo
+  default que el backend). Editar: sin `BranchSelect` ni `qrType`
+  (inmutables tras la creación — ninguno de los dos aparece en la nota de
+  desvíos de Fase 2 como aceptado por `PATCH`), solo `name`/
+  `destinationUrl`/`message`.
+- `QrImageDialog.tsx` — `Modal` que genera la imagen client-side (ver
+  `lib/qrImage.ts` portado) a partir de la URL pública
+  (`buildPublicResolutionUrl`) y el `message` del QR, con botón de
+  descarga (`downloadSvg`). Sin mutación de TanStack Query — es una
+  transformación pura de datos que ya están en caché de `useQrCodes`, así
+  que el hallazgo S2-4 (`.reset()` de `apiKey`) no aplica directo acá; si
+  en algún momento se agrega una llamada de red propia a este diálogo,
+  revisar ese hallazgo antes de reusar el patrón.
+- `QrSendDialog.tsx` — `Modal` con las opciones de `lib/sendQr.ts`
+  portado (WhatsApp/email), mismo criterio que arriba: sin red, sin
+  mutación.
+- `ClaimPage.tsx` — ver decisiones 4, 7 y 8. Reusa `BranchSelect` y
+  `useClaimQrCode`. Ubicación: seguir la convención real ya usada por
+  otras páginas montadas fuera de un feature CRUD (páginas públicas como
+  login) si existe una carpeta común para eso; si no hay ninguna,
+  `features/qr/ClaimPage.tsx` reusando `features/qr/api.ts` es aceptable.
+
+**Portado con cambios mínimos — `frontend/src/lib/`:**
+- `qrImage.ts` — `generateQrSvg`/`composeQrImage`/`downloadSvg` tal cual el
+  original. Requiere agregar `qrcode` a `frontend/package.json`
+  (+ `@types/qrcode` si el paquete no trae tipos propios).
+- `sendQr.ts` — `normalizeWhatsAppNumber`/`buildWhatsAppLink`/
+  `buildMailtoLink`/`buildEmailMessageForCopy`/`openPreparedMessage` tal
+  cual.
+- `publicUrl.ts` — reescrito, ver decisión 6. `looksLikeUrl` de
+  `validation.ts` se reusa si `QrFormPage` valida `destinationUrl` en el
+  cliente antes de enviar (además de la validación del backend).
+
+**Wiring:**
+- `app/router.tsx` — agregar `/claim/:qrId` dentro del árbol de
+  `ProtectedRoute` (fuera de `AdminRoute`, ver decisión 8); agregar
+  `/qr` (lista) y lo que corresponda para crear/editar dentro del árbol
+  `ProtectedRoute > AppLayout > AdminRoute` (alta de QR es `authorize("ADMIN")`
+  en el backend — mismo nivel que `company`/`apiKey`).
+- `layout/AppLayout.tsx` — agregar el link de nav "QR" al lado de los
+  existentes.
+
+### Verificación
+
+- `BranchSelect` lista solo sucursales de la propia Organization (mismo
+  aislamiento que `UserSelect`, ya lo garantiza el backend).
+- `QrFormPage` en creación: falta `name`/`destinationUrl` → error de
+  validación en el cliente antes de pegarle al backend; el mensaje de
+  error del backend (400) se muestra si igual se envía inválido.
+- `QrFormPage` en edición: `branchId`/`qrType` no aparecen en el formulario
+  ni se envían en el `PATCH`.
+- `ClaimPage`: usuario ADMIN de la Organization dueña de la sucursal
+  elegida reclama con éxito y es redirigido/ve confirmación; usuario no
+  ADMIN ve el mensaje de la decisión 8, sin intentar la mutación; QR ya
+  reclamado o inexistente → mensaje genérico (nunca distinguir "ya
+  reclamado" de "no existe" en el copy, mismo criterio DEC-007 que ya
+  aplica del lado backend).
+- `QrImageDialog`: la URL codificada en el SVG generado apunta a
+  `${env.apiUrl}/qr/resolve/:qrId`, nunca a `/r/:qrId` ni a un dominio de
+  Supabase.
+- `QrSendDialog`: número UY de 8 y 9 dígitos (con y sin 0 inicial) se
+  normalizan igual que en el `lib/sendQr.test.ts` original (portar esos
+  casos de test).
+- Copiar link: `navigator.clipboard.writeText` con fallback si el
+  navegador de test no lo soporta (mismo criterio que `buildEmailMessageForCopy`).
+- Fixtures/handlers MSW nuevos para `/api/qr*` y `/api/branches` en el
+  setup de tests ya existente (mismo archivo donde viven los handlers de
+  `company`/`apiKey`), con fixtures análogas.
+- `npm run typecheck`, `npm run lint`, `npx prettier --check .`, `npm test`
+  (frontend) en verde.
+
+### Pasos de aplicación
+
+1. Nuevo worktree limpio, mismo patrón que Fase 1/2 (confirmar primero que
+   `origin/master` ya tiene el merge del PR de esta guía y el de Fase 2):
+   ```
+   cd "U:/Proyectos/Plataforma CRM"
+   git fetch origin
+   git worktree add ../plataforma-crm-qr-integration-fase3 -b feat/qr-integration-fase3 origin/master
+   cd ../plataforma-crm-qr-integration-fase3
+   git log --oneline -3
+   git log --oneline origin/master..HEAD   # tiene que salir vacío
+   ```
+2. `cd frontend && npm install qrcode` (+ tipos si hace falta) antes de
+   escribir código contra el paquete.
+3. Implementar en orden: `features/branch` (api/queries/types/
+   `BranchSelect`) → `lib/publicUrl.ts` adaptado → `lib/qrImage.ts` y
+   `lib/sendQr.ts` portados → `features/qr/{types,api,queries,mutations}.ts`
+   → `QrListPage.tsx` → `QrFormPage.tsx` → `QrImageDialog.tsx` →
+   `QrSendDialog.tsx` → `ClaimPage.tsx` → wiring en `app/router.tsx` y
+   `layout/AppLayout.tsx`.
+4. Resolver en el código el ítem de la decisión 7 (preservar `qrId` a
+   través del redirect de login) antes de dar la fase por terminada — no
+   dejarlo para "después".
+5. Tests (ver "Verificación" arriba, incluyendo portar los casos de
+   `lib/sendQr.test.ts` del original), `npm run typecheck`, `npm run lint`,
+   `npx prettier --check .`.
+6. Verificación manual de punta a punta contra un backend real (local o el
+   de Fase 2 ya mergeado): crear un QR digital para una sucursal, ver la
+   imagen generada, escanear/abrir `GET /qr/resolve/:qrId` y confirmar el
+   redirect, reclamar un QR de stock (si existe alguno insertado a mano) o
+   simular el flujo con un QR creado a propósito para probar `claim`,
+   confirmar que un QR de otra Organization no aparece en la lista propia.
+7. Actualizar este documento: tildar Fase 3 en el checklist de "Estado" y
+   agregar la misma clase de nota "qué se desvió del plan al implementar"
+   que tienen Fase 1 y Fase 2, si algo cambió.
+8. `gh pr create` — nunca mergear. La verificación del PR real (línea por
+   línea, no el transcript pegado) y el merge quedan para después.
