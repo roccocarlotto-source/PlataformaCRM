@@ -27,6 +27,8 @@ import { IngestionEventListPage } from "../features/ingestionEvent/IngestionEven
 import { SourceFormPage } from "../features/source/SourceFormPage";
 import { SourceListPage } from "../features/source/SourceListPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { ClaimPage } from "../features/qr/ClaimPage";
+import { QrListPage } from "../features/qr/QrListPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -68,6 +70,22 @@ export const router = createBrowserRouter([
           // authorize) — a diferencia de las rutas de escritura de abajo,
           // /activities NO va dentro del AdminRoute.
           { path: "/activities", element: <ActivityListPage /> },
+          // Módulo QR (docs/qr-integration.md, Fase 3). El LISTADO va acá afuera,
+          // como /companies y /activities: GET /api/qr es lectura abierta a
+          // cualquier usuario autenticado (qr.routes.ts: solo authenticate) y las
+          // acciones de solo lectura (ver imagen, enviar, copiar link) son útiles
+          // para un USER. Las escrituras (crear/editar/eliminar) son diálogos
+          // dentro de la página, gateados por rol ahí y por authorize("ADMIN") en
+          // el backend — no hay rutas /qr/new ni /qr/:id/edit porque no existe
+          // GET /api/qr/:id para hidratarlas (ver features/qr/QrFormDialog.tsx).
+          { path: "/qr", element: <QrListPage /> },
+          // Ruta FIJA (decisión 3 de Fase 3): la arma buildLandingHtml del backend
+          // con `${QR_CLAIM_APP_URL}/claim/${qrId}`; cualquier otro path rompe los
+          // QR físicos ya impresos. Dentro de ProtectedRoute (el qrId sobrevive el
+          // redirect a login vía state.from, ver LoginPage) pero FUERA de
+          // AdminRoute, que redirigiría a /companies y perdería el qrId — el
+          // chequeo de rol lo hace la propia página (decisiones 7 y 8).
+          { path: "/claim/:qrId", element: <ClaimPage /> },
           {
             // Restricción de UX/autorización visual — ver auth/AdminRoute.tsx.
             // La autorización real de escritura sigue siendo authorize("ADMIN")
