@@ -10,6 +10,7 @@ import { errorHandler } from "./middlewares/errorHandler";
 import { notFound } from "./middlewares/notFound";
 import { routes } from "./routes";
 import { ingestRouter } from "./routes/ingest.routes";
+import { qrWebhookRouter } from "./routes/qrWebhook.routes";
 
 // Arma la instancia de Express (middlewares + rutas) sin escuchar ningún
 // puerto — eso es responsabilidad exclusiva de server.ts.
@@ -85,6 +86,18 @@ app.use(pinoHttp({ logger }));
 // test de que la clave no aparece en la línea de log necesita que esa línea
 // exista.
 app.use("/api", ingestRouter);
+
+// EL WEBHOOK DE MERCADOPAGO VA ACÁ POR EL MISMO MOTIVO EXACTO que ingestRouter
+// (docs/qr-integration.md, Fase 2): su cadena verifica la firma HMAC sobre
+// headers + query ANTES de leer el cuerpo, y recién después trae su propio
+// express.json() con su propio tope. Montado después del parser global, ese
+// orden no existiría: el stream ya estaría consumido, el tope propio no
+// limitaría nada, y un Content-Type que no fuera JSON pasaría como body vacío
+// en vez de rechazarse. Ver routes/qrWebhook.routes.ts.
+//
+// SIN /api: no es JSON de negocio de un cliente nuestro, lo llama MercadoPago
+// — misma excepción de prefijo que las rutas públicas de resolución de QR.
+app.use(qrWebhookRouter);
 
 // El mismo express.json() de siempre, con los mismos límites por default,
 // pero con sus errores traducidos a 413/400/415 en vez del 500 que producía

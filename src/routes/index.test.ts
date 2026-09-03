@@ -101,6 +101,59 @@ test("el webhook de ingesta está montado en app.ts, ANTES del express.json() gl
   assert.equal(res.status, 415);
 });
 
+// ---------------------------------------------------------------------------
+// Módulo QR (docs/qr-integration.md, Fase 2): cuatro caminos de entrada con
+// tres cadenas distintas, y cada una responde algo que solo puede venir de su
+// propia cadena. Ninguno llega a un handler que toque la base.
+// ---------------------------------------------------------------------------
+
+test("las rutas autenticadas del módulo QR están montadas bajo /api", async () => {
+  const lista = await fetch(`${baseUrl}/api/qr`);
+  assert.equal(lista.status, 401, "GET /api/qr no está montado");
+
+  for (const path of ["/api/qr/claim", "/api/qr/digital"]) {
+    const res = await fetch(`${baseUrl}${path}`, { method: "POST" });
+    assert.equal(res.status, 401, `POST ${path} no está montado`);
+  }
+
+  const patch = await fetch(`${baseUrl}/api/qr/${randomUUID()}`, { method: "PATCH" });
+  assert.equal(patch.status, 401, "PATCH /api/qr/:id no está montado");
+
+  const del = await fetch(`${baseUrl}/api/qr/${randomUUID()}`, { method: "DELETE" });
+  assert.equal(del.status, 401, "DELETE /api/qr/:id no está montado");
+
+  for (const sufijo of ["qr-subscription-status", "qr-billing-exemption"]) {
+    const res = await fetch(`${baseUrl}/api/admin/organizations/${randomUUID()}/${sufijo}`, {
+      method: "POST",
+    });
+    assert.equal(res.status, 401, `POST .../${sufijo} no está montado`);
+  }
+});
+
+test("la resolución pública de QR está montada SIN /api y sin authenticate", async () => {
+  // Un id que no es UUID se resuelve sin tocar la base: 404 con la landing
+  // HTML (DEC-007), no el 404 JSON de notFound ni un 401. Que la respuesta sea
+  // HTML es lo que distingue "montado" de "no montado".
+  for (const method of ["GET", "POST"]) {
+    const res = await fetch(`${baseUrl}/qr/resolve/no-es-un-uuid`, { method });
+    assert.equal(res.status, 404, `${method} /qr/resolve/:qrId no está montado`);
+    assert.ok(
+      res.headers.get("content-type")?.startsWith("text/html"),
+      `${method}: respondió la landing HTML, no el notFound genérico`,
+    );
+  }
+});
+
+test("el webhook de MercadoPago está montado en app.ts, ANTES del express.json() global, sin /api", async () => {
+  // Sin data.id la cadena corta con 400 desde verifyMercadopagoSignature (o
+  // con 500 si el entorno no tiene los secretos de MercadoPago, que es el caso
+  // del job unitario del CI). Cualquiera de los dos prueba que el request lo
+  // atendió SU cadena y no notFound.
+  const res = await fetch(`${baseUrl}/webhooks/mercadopago`, { method: "POST" });
+  assert.ok([400, 500].includes(res.status), `status inesperado: ${res.status}`);
+  assert.notEqual(res.status, 404);
+});
+
 test("montar la capa de ingesta no desmontó nada de lo anterior", async () => {
   // Barrido de una ruta por router de negocio. El costo es una llamada HTTP
   // local por línea y evita que el próximo `routes.use` mal puesto tire una
