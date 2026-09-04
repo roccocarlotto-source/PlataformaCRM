@@ -12,6 +12,20 @@ parar cada pieza y qué falta para terminar de aplicarla.
 
 ## Estado
 
+> **PIVOT DE PRODUCTO, 2026-09-04 — leé esto antes que el resto de la sección.**
+> Rocco decidió abandonar el QR físico (claim) y el QR de un solo uso por
+> completo: la fidelización automatizada se resuelve mandando un link
+> (de reseñas, o su propio linktree) con un mensaje directo desde el CRM, no
+> con algo para escanear. Los dos se **eliminaron a fondo** (columnas y enum
+> incluidos, no solo UI/endpoints) en la migración
+> `20260904120000_remove_qr_claim_and_single_use` — ver
+> "Qué se elimina: QR físico y QR de un solo uso (2026-09-04)" al final de
+> este documento para el detalle completo y por qué. Las Fases 1-4 de abajo
+> describen el módulo TAL COMO SE IMPLEMENTÓ EN SU MOMENTO — son historia, no
+> el estado actual — y quedan sin reescribir a propósito, salvo los ítems que
+> se marcaron explícitamente como eliminados. El módulo QR que queda en pie es
+> solo el QR digital reusable (crear/listar/editar/borrar/enviar/copiar link).
+
 - [x] **Fase 1 — Esquema. Completa (2026-09-02).** `prisma/schema.prisma`
   tiene los modelos nuevos (`QrCode`, `PaymentEvent`,
   `QrSubscriptionStatusChange`, `QrBillingExemptionChange`,
@@ -47,7 +61,14 @@ parar cada pieza y qué falta para terminar de aplicarla.
   de Fase 3. Rocco todavía no hizo el rediseño, así que no se replica el
   look de `Plataforma-QR/admin` ni se inventa uno nuevo; cuando el rediseño
   exista, se re-skinnea sin tocar la lógica de datos (queries/mutations/api
-  quedan intactas).
+  quedan intactas). **(2026-09-04: ese rediseño ya está en curso**, en el
+  worktree `feat/qr-integration-fase3`/`plataforma-crm-qr-integration-fase3`
+  — aplica el mismo design-system que ya se usó para restylear
+  Activities/Opportunities/Pipelines-Stages/Contacts/Dashboard, sin tocar
+  `api.ts`/`queries.ts`/`mutations.ts`/`types.ts`. Todavía sin PR — Rocco lo
+  está trabajando en paralelo. No confundir con un "Fase 3 sigue abierta":
+  la implementación funcional de Fase 3 ya está mergeada y verificada; esto
+  es una pasada de estilo posterior e independiente.)**
 - [ ] **Fase 4 — Corte e infraestructura.** Guía completa en "Fase 4 — Corte
   e infraestructura" más abajo. Dos PRs separados, en dos repos: el gate de
   secreto compartido en `/qr/resolve/:qrId` (`Plataforma CRM`) y el repunte
@@ -64,10 +85,55 @@ parar cada pieza y qué falta para terminar de aplicarla.
     responde el 404 genérico a todo el mundo** — configurarlo antes o junto
     con el deploy de este cambio. Ver "Qué se desvió del plan al implementar
     el backend de Fase 4" al final de la sección. Sin cambios de esquema.
-  - [ ] **Cloudflare Worker — repunte** (`Plataforma-QR`), después de
-    mergear el PR de backend. Fase 4 se tilda completa recién cuando el
-    Worker esté repuntado, mergeado y deployado con el secreto real en
-    ambos lados.
+  - [x] **Cloudflare Worker — repunte. Mergeado y deployado (2026-09-04, dos
+    PRs en `Plataforma-QR`).** `wrangler.toml`/`src/index.ts`/`src/handler.ts`
+    apuntan a `BACKEND_PUBLIC_BASE_URL=https://plataformacrm.onrender.com`
+    (segundo PR: reemplaza el placeholder por el origen real, verificado con
+    `GET /health` antes de cambiarlo). El bloque `routes` de `wrangler.toml`
+    quedó completo con `nexoraqrs.com/r/*` — **TF-001 (dominio propio) está
+    cerrado**: el dominio ya estaba comprado y la ruta ya existía en el
+    dashboard de Cloudflare desde el cierre de TF-001 (commit `cbeb286`,
+    previo a estos PRs); el primer PR solo hizo que `wrangler.toml`
+    versionado dejara de mentir al respecto. Confirmado a mano el
+    2026-09-04, mirando los dos dashboards (no los valores, nunca
+    comparados ni pegados en chat): `INTERNAL_PROXY_SECRET` existe en
+    Cloudflare (Worker `resea-resolve-proxy` → Settings → Variables and
+    secrets, tipo `Secret`; confirmado también con
+    `npx wrangler secret list` desde `Plataforma-QR/cloudflare/worker`) y
+    `QR_RESOLVE_PROXY_SECRET` existe en Render (Environment del servicio
+    `PlataformaCRM`). Los *nombres* coinciden con lo que espera el código en
+    los dos lados; que el *valor* sea idéntico en ambos solo lo confirma una
+    prueba real end-to-end (ver el ítem de abajo), no la sola presencia de
+    la variable.
+  - [ ] **Gap encontrado el 2026-09-04, sin resolver: `lib/publicUrl.ts`
+    sigue sin apuntar al Worker, y ya no tiene excusa de TF-001 para seguir
+    así.** La decisión 3 de esta fase (más abajo) daba este ítem por
+    bloqueado porque no existía dominio propio; con TF-001 cerrado, ese
+    bloqueo ya no aplica, pero el código no se tocó. Hoy
+    `buildPublicResolutionUrl` arma `${env.apiUrl}/qr/resolve/:qrId` —
+    directo contra `https://plataformacrm.onrender.com`, nunca contra
+    `https://nexoraqrs.com`. Consecuencia concreta: **todo link que el CRM
+    genera hoy para un QR (la imagen, "Copiar link", WhatsApp, email)
+    esquiva el Worker por completo**, llega al backend sin el header
+    `x-internal-proxy-secret`, y `requireInternalProxySecret` lo rechaza con
+    el 404 genérico — **como si el QR no existiera, aunque esté activo.**
+    (Antes decía "aunque esté reclamado y activo" — desde el 2026-09-04 ya
+    no hay "reclamado": todo QR nace digital, ver la nota de pivot arriba.)
+    Con el código actual, ninguna verificación end-to-end real puede pasar
+    todavía. Arreglo: cambiar `publicUrl.ts` para construir la URL contra el
+    dominio del Worker (`https://nexoraqrs.com/r/:qrId`, a confirmar el path
+    exacto contra la ruta configurada) en vez de `env.apiUrl`. SIGUE
+    PENDIENTE tras la limpieza de QR físico/single-use — no se tocó en esa
+    limpieza porque no era su alcance.
+  - [ ] **Verificación end-to-end pendiente**, bloqueada por el gap de
+    arriba: abrir el link público de un QR digital real (uno inventado no
+    sirve — un secreto mal puesto y un QR inexistente dan a propósito la
+    misma respuesta, DEC-007) y confirmar que redirige a su
+    `destinationUrl`.
+  - [ ] **Decomiso** (deployment de Vercel del admin viejo, borrado manual
+    del proyecto `qr-reviews` desde el dashboard de Supabase) — sin
+    empezar, correctamente: es lo último, después de la verificación
+    end-to-end real.
 - [ ] **Fase 5 — Repo.** Archivar/borrar `Plataforma-QR` una vez portado.
 
 ## Cómo aplicar Fase 1
@@ -1031,22 +1097,26 @@ hasta ahora no tenía protección contra acceso directo.
    el mismo 404 genérico que un QR inexistente — nunca un 403 distinto que
    revele que el gate existe (DEC-007 aplica también acá).
 
-3. **Gap encontrado, documentado, no resuelto en esta fase — no bloqueante,
-   mismo criterio que TF-001 en el plan original: el link público que
-   arma el frontend no pasa por el Worker.** `lib/publicUrl.ts` (Fase 3, ya
-   mergeado, decisión 6 de esa fase) construye
+3. **Gap encontrado, documentado, no resuelto en esta fase — el link público
+   que arma el frontend no pasa por el Worker.** `lib/publicUrl.ts` (Fase 3,
+   ya mergeado, decisión 6 de esa fase) construye
    `${env.apiUrl}/qr/resolve/:qrId` — directo contra el backend, nunca
    contra el dominio del Worker. Repuntar el Worker es necesario pero no
    alcanza para que el rate limiting proteja el flujo real de un QR
-   escaneado: hoy, aunque el Worker esté repuntado, ningún tráfico pasa por
-   él. Arreglar esto (que `publicUrl.ts` arme el link contra el dominio del
-   Worker en vez de `env.apiUrl`) requiere que TF-001 esté resuelto primero
-   — no hay dominio propio todavía, solo el `*.workers.dev` gratuito, que
-   no es apto para imprimir en un sticker real. Como no hay QRs físicos
-   reales impresos hoy, no es urgente: el gate del punto 2 ya protege el
-   endpoint (defensa en profundidad) incluso mientras nada pasa por el
-   Worker. Queda como ítem abierto para cuando Rocco compre el dominio —
-   no forma parte de esta fase.
+   escaneado: mientras `publicUrl.ts` no cambie, ningún tráfico real pasa
+   por él. **Actualización 2026-09-04: la condición que bloqueaba este ítem
+   ya no existe.** Cuando se escribió esta decisión no había dominio propio
+   (solo el `*.workers.dev` gratuito, no apto para imprimir en un sticker) y
+   quedaba pendiente "para cuando Rocco compre el dominio". TF-001 se cerró
+   con `nexoraqrs.com` (commit `cbeb286`, confirmado también en el primer PR
+   de repunte del Worker), así que ya no es un ítem bloqueado — es un ítem
+   pendiente sin excusa, y ahora sí bloquea la verificación end-to-end real
+   de Fase 4 (ver "Estado" y el checklist de Cloudflare Worker más abajo).
+   El gate del punto 2 lo sigue protegiendo mientras tanto (defensa en
+   profundidad: aunque `publicUrl.ts` esquive al Worker, nadie pasa el gate
+   sin el secreto) — pero con el efecto colateral de que, hoy, ningún link
+   generado por el CRM resuelve: todos pegan al backend sin el header y
+   reciben el 404 genérico.
 
 ### Backend — gate de secreto compartido (`Plataforma CRM`)
 
@@ -1146,22 +1216,31 @@ hasta ahora no tenía protección contra acceso directo.
 
 ### Lo que Rocco tiene que hacer a mano, en su cuenta real (no en el PR)
 
-- `npx wrangler secret put INTERNAL_PROXY_SECRET` en el Worker, con un
-  valor random nuevo (nunca el mismo texto que cualquier otro secreto del
-  proyecto) — nunca en `wrangler.toml`, nunca commiteado.
-- Configurar `QR_RESOLVE_PROXY_SECRET` en el entorno real del backend
-  (Fly/Render/donde corra `Plataforma CRM` en producción — fuera del
-  alcance de este repo) con el **mismo valor exacto** que el paso anterior.
-  Los nombres de las variables no necesitan coincidir entre los dos lados;
-  el valor sí.
-- `npx wrangler deploy` desde `cloudflare/worker/` una vez que el PR de ese
-  repo esté mergeado, para probar contra la URL gratuita
-  `resea-resolve-proxy.<subdominio>.workers.dev` (sin dominio propio
-  todavía — ver decisión 3, TF-001 sigue abierto).
-- Verificar manualmente: escanear/pegar la URL del Worker con un QR de
-  prueba real y confirmar el redirect; pegar la misma URL con un secreto
-  mal puesto a mano (`curl` directo al backend sin el header) y confirmar
-  el 404 genérico.
+- [x] `npx wrangler secret put INTERNAL_PROXY_SECRET` en el Worker — hecho,
+  confirmado el 2026-09-04 (`npx wrangler secret list` desde
+  `Plataforma-QR/cloudflare/worker` lo lista como `secret_text`; nunca en
+  `wrangler.toml`, nunca commiteado).
+- [x] Configurar `QR_RESOLVE_PROXY_SECRET` en el entorno real del backend
+  (Render, servicio `PlataformaCRM` → Environment) con el **mismo valor
+  exacto** que el paso anterior — hecho, confirmado el 2026-09-04 (la
+  variable está en el dashboard de Render; los nombres de las variables no
+  necesitan coincidir entre los dos lados, el valor sí, y eso solo lo
+  confirma la prueba end-to-end de abajo, no la sola presencia de la var).
+- [x] `npx wrangler deploy` desde `cloudflare/worker/` — ya deployado: el
+  dashboard de Cloudflare muestra `BACKEND_PUBLIC_BASE_URL` e
+  `INTERNAL_PROXY_SECRET` como runtime vars activas del Worker en
+  producción. TF-001 ya no aplica como bloqueo: el Worker corre sobre la
+  ruta `nexoraqrs.com/r/*`, no sobre el `*.workers.dev` gratuito.
+- [ ] **Pendiente, y ahora es el paso que falta para todo lo demás:**
+  actualizar `lib/publicUrl.ts` en el frontend del CRM para que arme el
+  link público contra `nexoraqrs.com` en vez de `env.apiUrl` (ver el gap de
+  2026-09-04 en "Estado" y en la decisión 3 de arriba) — sin esto, el resto
+  de los pasos de abajo no puede pasar.
+- [ ] Verificar manualmente, recién después del punto anterior: abrir la
+  URL pública de un QR reclamado real (creado desde el módulo QR del CRM) y
+  confirmar el redirect a su `destinationUrl`; pegarle a
+  `${BACKEND_PUBLIC_BASE_URL}/qr/resolve/:qrId` directo, sin el header, y
+  confirmar el 404 genérico (nunca el redirect).
 
 ### Verificación
 
@@ -1273,10 +1352,190 @@ Lo que NO cambió y conviene tener presente al revisar:
   rompe nada productivo, pero el secreto se configura antes o junto con el
   deploy, nunca después.
 - El link público que arma el frontend (`lib/publicUrl.ts`) sigue apuntando
-  directo al backend, no al Worker (decisión 3 de esta fase): mientras
-  TF-001 no esté resuelto, escanear un QR generado desde el CRM va a pegar
-  contra el backend sin el header y va a ver el 404 genérico. Es el
-  comportamiento esperado por diseño (defensa en profundidad) y no hay QRs
-  físicos reales impresos; queda como ítem abierto para cuando exista el
-  dominio.
+  directo al backend, no al Worker (decisión 3 de esta fase, actualizada
+  2026-09-04 — TF-001 ya no bloquea este ítem, ver esa decisión): hoy
+  escanear un QR generado desde el CRM pega contra el backend sin el header
+  y ve el 404 genérico, para cualquier QR, real o no. Es el comportamiento
+  esperado por diseño (defensa en profundidad — nadie pasa sin el secreto),
+  pero con el efecto colateral de que nada resuelve todavía. Sigue siendo
+  el próximo paso, ahora sin ninguna dependencia externa pendiente.
 - `/health` y el resto de las rutas públicas no llevan el gate.
+
+### Qué se desvió del plan al implementar el Worker de Fase 4 (2026-09-04)
+
+Mismo criterio que las notas anteriores: lo que cambió al ejecutar, con el
+porqué. Esta parte corresponde al repo `Plataforma-QR`, en dos PRs en vez
+de uno.
+
+- **Se dividió en dos PRs en vez de uno, por una razón real: el origen
+  público del backend no estaba documentado en ningún lado del repo
+  `Plataforma-QR` al momento de escribir el primer PR.** El primero
+  (`fix(rateLimit)`-style, título "Fase 4 de `docs/qr-integration.md`
+  (Plataforma CRM), mitad del Worker") hace todo el repunte de código
+  (`wrangler.toml`, `src/index.ts`, `src/handler.ts`, `src/handler.test.ts`,
+  `README.md`) con `BACKEND_PUBLIC_BASE_URL` como **placeholder
+  deliberado** — deployar ese PR solo, sin más, proxea a un host inexistente
+  y da 502. El segundo PR reemplaza el placeholder por el origen real
+  (`https://plataformacrm.onrender.com`), verificado antes con `GET
+  /health`, y renumera los pasos del `README.md`. Ninguno de los dos
+  deploya nada por sí solo — eso lo sigue haciendo Rocco a mano
+  (`wrangler login` / `wrangler secret put` / `wrangler deploy`), como ya
+  documentaba esta guía.
+- **TF-001 (dominio propio) ya estaba cerrado antes de estos PRs, y la guía
+  original no lo reflejaba.** El primer PR lo corrige: el bloque `routes`
+  de `wrangler.toml` estaba comentado/incompleto en el repo versionado
+  aunque la ruta `nexoraqrs.com/r/*` ya existía de verdad en el dashboard de
+  Cloudflare desde el cierre de TF-001 (commit `cbeb286`, creado a mano,
+  fuera de este PR). El cambio es documental/de config versionada, no de
+  infraestructura nueva. Esto es lo que reabre el gap de `publicUrl.ts`
+  documentado arriba: la excusa original para no arreglarlo ("no hay
+  dominio todavía") dejó de ser cierta antes incluso de que estos dos PRs
+  existieran.
+- **El forzado de `Content-Type: text/html` en `handler.ts` se mantuvo, pero
+  quedó documentado como redundante.** TF-007 (el bug que ese forzado
+  corregía) era específico de cómo Supabase Edge Functions servía HTML sin
+  dominio propio; el backend Express de Fase 2 ya manda `text/html`
+  correcto (`res.type("html")`), así que forzarlo en el Worker no hace
+  nada hoy — se deja de todos modos porque sigue sirviendo para no dejar
+  pasar headers inesperados del upstream, y sacarlo no aportaba nada a
+  cambio del riesgo de tocar código que no hacía falta tocar.
+- **Verificación de los dos PRs:** `deno test --allow-net handler.test.ts`
+  (26/26, no 25 — se sumó un caso que fija el path exacto del repunte, sin
+  `/functions/` ni `/api/`, en GET y POST) y `npx wrangler deploy --dry-run`
+  sin login (compila y lista los bindings esperados: `RATE_LIMITER_IP`,
+  `RATE_LIMITER_GLOBAL`, `BACKEND_PUBLIC_BASE_URL`); un `git grep` de
+  `SUPABASE_FUNCTIONS_BASE_URL`/`supabaseFunctionsBaseUrl` en archivos
+  versionados fuera de `state/` dio cero resultados.
+- **Verificación manual, 2026-09-04, ya con el código deployado:**
+  confirmado por captura de pantalla que `BACKEND_PUBLIC_BASE_URL` (Text) e
+  `INTERNAL_PROXY_SECRET` (Secret) están cargadas como runtime vars del
+  Worker en Cloudflare, que `QR_RESOLVE_PROXY_SECRET`/`QR_CLAIM_APP_URL`
+  están cargadas en el Environment de Render, y que
+  `npx wrangler secret list` (desde `Plataforma-QR/cloudflare/worker`, tras
+  corregir estar parado en la carpeta equivocada — un worktree de
+  `Plataforma CRM`, no de `Plataforma-QR`) lista `INTERNAL_PROXY_SECRET`.
+  Ninguno de estos chequeos confirma que el *valor* de los dos secretos sea
+  el mismo — por diseño, esa comparación nunca se hace a la vista (ver la
+  nota de privacidad más arriba) — y **el flujo real todavía no se probó de
+  punta a punta**, porque el gap de `publicUrl.ts` documentado arriba se lo
+  impide: con el código actual, cualquier QR real que se abra hoy va a dar
+  "no encontrado".
+
+## Qué se elimina: QR físico y QR de un solo uso (2026-09-04)
+
+**Contexto del pivot.** Rocco: *"Estuve pensando y el propósito del generador
+de qr como tal es automatizar la fidelización, es un link automático
+acompañado de un mensaje... no sería mejor simplemente hacer que se envíe el
+link con un mensaje y listo? No es necesario que sea un qr como tal."* — y
+después, explícito: *"el qr físico olvidate para esto... Quiero que se
+elimine eso de qr físico y qr de un solo uso y tal."* La nueva dirección
+("enlaces de fidelización": mandar el link de reseñas o un linktree propio,
+con un mensaje por plantilla o por IA, automatizado según reglas del usuario,
+apoyado en el motor de outbox que ya existe) es una feature aparte, todavía
+sin planear ni construir — este cambio es solo el prerrequisito de limpieza
+que Rocco pidió hacer primero: *"1) B- Vamos a fondo, 2) Vamos a limpiar
+primero, luego seguimos con el restyle."* "A fondo" significa columnas y enum
+eliminados de la base, no solo UI/endpoints ocultos.
+
+**Alcance de lo eliminado:**
+
+- El claim de un QR físico (INSERT con un id ya impreso en un sticker,
+  `POST /qr/claim`, decisión 4 original) — ya no existe ningún camino de
+  creación con id explícito. Todo QR nace digital, con id generado.
+- El QR de un solo uso (`qrType SINGLE_USE`, consumo atómico en
+  `POST /qr/resolve/:qrId`, las páginas de confirmación/"ya usado") — todo QR
+  que queda es reusable por construcción, así que `qrType` deja de tener
+  sentido y se elimina también para el `REUSABLE` que sobrevive.
+- Las columnas `qr_type` (y el enum `QrType`), `used_at` y `claimed_at` de
+  `qr_codes`, vía la migración
+  `prisma/migrations/20260904120000_remove_qr_claim_and_single_use`.
+  `branch_id`, `name` y `destination_url` pasan a `NOT NULL` en la misma
+  migración: con `qrType`/claim fuera, el único estado válido de una fila es
+  "reclamada" — no hace falta backfill porque QR Reviews sigue en piloto sin
+  negocios reales (nunca existió una fila con `branch_id` null). La FK
+  compuesta `qr_codes -> branches` pasa de `ON DELETE NO ACTION` (regla de
+  `20260821140200` para columna referenciante nullable) a `ON DELETE
+  RESTRICT` (misma regla, ahora que `branch_id` es `NOT NULL` — mismo
+  criterio que `resources`/`service_types` en `20260828160000`).
+
+**Backend (`Plataforma CRM`, checkout principal, sin PR propio todavía —
+mismo mecanismo de Fase 0: los archivos quedan editados en tu carpeta, el
+commit/PR lo hacés vos):**
+
+- `qr.controller.ts`/`qr.routes.ts`/`qr.service.ts`: sin `claimQrHandler`,
+  `claimQrSchema`, `qrTypeSchema`, `claimQrCode`, `ClaimQrCodeInput`,
+  `QR_YA_RECLAMADO`, ni la ruta `POST /qr/claim`. `createDigitalQrSchema` y
+  `CreateDigitalQrCodeInput` pierden `qrType`.
+- `qrPublic.controller.ts`/`qrPublic.routes.ts`/`qrPublic.service.ts`: sin
+  `consumeQrHandler`/`consumeSingleUseQr`, ni la ruta `POST
+  /qr/resolve/:qrId` (el árbol de estados de `renderPublicState` se
+  simplifica a "puede redirigir" / landing genérica — ya no hay
+  `qrType`/`isUsed` que ramificar).
+- `qrCode.repository.ts`: `CreateQrCodeData` sin `id?`/`qrType`;
+  `QrPublicState` sin `qrType`/`isUsed`; sin `consumeSingleUseQrCode` (el
+  `UPDATE` atómico de consumo).
+- `qrLanding.ts`: sin `buildSingleUseConfirmHtml`/`buildSingleUseUsedHtml`;
+  `buildLandingHtml` deja de aceptar `qrId`/`claimAppUrl` — sin QR físico, no
+  hay a dónde mandar el link "¿Sos el dueño...?", así que esa landing deja de
+  ofrecerlo (queda solo el mensaje genérico).
+- `config/env.ts`: sin `QR_CLAIM_APP_URL` (nunca llegó a apuntar a nada — ver
+  el ítem de Fase 3 de más arriba).
+- Tests actualizados en el mismo sentido en los seis archivos de test del
+  módulo (`qr.controller.test.ts`, `qr.integration-test.ts`,
+  `qrPublic.controller.integration-test.ts`, `qrLanding.test.ts`,
+  `routes/index.test.ts`); `qrBilling.*`, `qrWebhook.*`, `qrAdmin.*`,
+  `tenant-isolation.integration-test.ts`,
+  `soft-delete-restrict.integration-test.ts` y
+  `schema-diagnostic.integration-test.ts` no referencian nada de esto y
+  quedan intactos.
+
+**Frontend, en el worktree `plataforma-crm-qr-integration-fase3` (por pedido
+explícito de Rocco: la limpieza va ahí, antes de retomar el restyle en curso
+en esa misma rama — no en el checkout principal):**
+
+- `router.tsx`: sin la ruta `/claim/:qrId` ni el import de `ClaimPage`.
+- `ClaimPage.tsx`/`ClaimPage.test.tsx` quedaron **vacíos, no borrados**: esta
+  sesión no tiene forma de borrar archivos en tu carpeta (sin acceso a una
+  terminal en tu máquina ni permiso de borrado en este momento) — correlo vos
+  con `git rm frontend/src/features/qr/ClaimPage.tsx
+  frontend/src/features/qr/ClaimPage.test.tsx` antes de commitear, o el PR va
+  a traer dos archivos-comentario sueltos que no aportan nada.
+- `types.ts`: `QrCode` sin `qrType`/`usedAt`/`claimedAt`, y `branchId`/`name`/
+  `destinationUrl` pasan a no-nulables (reflejan el `NOT NULL` del schema).
+  Sin `QrType`, `ClaimQrInput`, `QrCodeStatus`, `estadoDeQr`.
+- `api.ts`/`mutations.ts`: sin `claimQrCode`/`useClaimQrCode`.
+- `QrFormDialog.tsx`: sin el radio "Reusable / Un solo uso" al crear.
+- `QrListPage.tsx`: la tabla pierde las columnas "Estado" (era
+  `estadoDeQr`/`SIN_RECLAMAR`/`USADO`/`ACTIVO`, ya no aplica) y "Tipo"
+  (Reusable/Un solo uso).
+- Fixtures y tests (`qrFixtures.ts`, `branchFixtures.ts`, `api.test.ts`,
+  `QrFormDialog.test.tsx`, `QrListPage.test.tsx`, `router.test.tsx`)
+  actualizados en el mismo sentido.
+- **`QrSendDialog.tsx`/`QrSendDialog.test.tsx` no se tocaron**: no referencian
+  claim ni `qrType` en ningún lado — "enviar" ya era agnóstico del tipo de QR.
+- El `docs/qr-integration.md` que vive DENTRO de ese worktree quedó
+  desactualizado respecto de este archivo (no se tocó en esta limpieza,
+  solo el código) — reconciliarlo es parte de mergear esa rama, no de esta
+  tarea.
+
+**Lo que NO se tocó y sigue pendiente, sin relación con esta limpieza:**
+
+- El gap de `lib/publicUrl.ts` (ver el ítem de Fase 4 más arriba): sigue
+  apuntando directo a Render en vez del Worker/`nexoraqrs.com`, para
+  cualquier QR digital reusable — este pivot no lo resuelve ni lo empeora,
+  solo saca "reclamado" del vocabulario del bug.
+- **Orden de deploy:** el frontend que hoy corre en producción (el mergeado
+  de Fase 3 original, no el worktree de restyle) todavía tiene la UI de
+  claim/single-use — va a llamar a endpoints que este cambio borra
+  (`POST /qr/claim`, `POST /qr/resolve/:qrId`) en cuanto el backend se
+  despliegue con esta limpieza, antes de que el worktree de restyle (que ya
+  incluye esta misma limpieza del lado frontend) se mergee y despliegue.
+  Riesgo bajo en la práctica — QR Reviews sigue en piloto sin negocios
+  reales — pero es la secuencia a tener en cuenta al mergear/deployar los
+  dos lados.
+- La feature nueva de "enlaces de fidelización" (link + mensaje por plantilla
+  o IA, automatizado por reglas del usuario, apoyado en el motor de outbox)
+  — confirmada en principio con Rocco, todavía sin planear ni empezar. El
+  módulo de "Agentes de IA" (`docs/roadmap-implementacion.md` §2.2, WhatsApp
+  Business Platform vía Meta/Twilio) queda explícitamente fuera de alcance
+  por ahora: *"el tema de agentes de ia no lo vamos a tocar por ahora."*

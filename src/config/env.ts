@@ -271,17 +271,15 @@ const envSchema = z.object({
   // MERCADOPAGO_ACCESS_TOKEN: el access token con el que el webhook vuelve a
   //   pedir el preapproval a la API de MercadoPago — nunca se confía en el
   //   `status` del payload, porque la firma no lo cubre.
-  // QR_CLAIM_APP_URL: base del frontend a la que apunta el link "¿Sos el
-  //   dueño...?" de la landing pública. HOY NO APUNTA A NINGÚN LADO: se
-  //   completa en Fase 3, cuando el módulo QR del frontend tenga una ruta de
-  //   claim real. Sin ella, el link simplemente no se renderiza.
+  // QR_CLAIM_APP_URL EXISTIÓ acá y se eliminó en
+  // 20260904120000_remove_qr_claim_and_single_use junto con el claim físico
+  // (nunca llegó a apuntar a ningún lado — Fase 3 nunca la completó).
   //
   // Opcionales por el mismo criterio que SECRET_ENCRYPTION_KEY y las GOOGLE_*:
   // el servidor arranca sin ellas, y un webhook real sin las dos de MercadoPago
   // configuradas falla con un 500 que dice exactamente qué falta (en el log).
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
-  QR_CLAIM_APP_URL: z.string().optional(),
 
   // Gate de secreto compartido de /qr/resolve/:qrId (Fase 4, backend — ver
   // src/middlewares/requireInternalProxySecret.ts). El Cloudflare Worker que

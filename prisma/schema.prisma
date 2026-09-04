@@ -158,15 +158,15 @@ enum BookingStatus {
 // ---------------------------------------------------------------------------
 // QrType / QrSubscriptionStatus / QrSubscriptionChangeSource — módulo QR
 // (integración de QR Reviews, ver docs/qr-integration.md). Portados 1:1 de
-// los enums `qr_type` / `subscription_status` / `subscription_change_source`
-// del proyecto Supabase original de QR Reviews
-// (Plataforma-QR/supabase/migrations/0001_init.sql, 0015_single_use_qr.sql).
+// los enums `subscription_status` / `subscription_change_source` del proyecto
+// Supabase original de QR Reviews (Plataforma-QR/supabase/migrations/0001_init.sql).
+//
+// QrType (REUSABLE/SINGLE_USE, de 0015_single_use_qr.sql) EXISTIÓ acá y se
+// eliminó en 20260904120000_remove_qr_claim_and_single_use: Rocco descartó el
+// QR físico/de un solo uso a favor de mandar el link directo por CRM (ver
+// docs/qr-integration.md, sección "Qué se desvió"). No lo reintroduzcas sin
+// leer esa sección primero.
 // ---------------------------------------------------------------------------
-
-enum QrType {
-  REUSABLE
-  SINGLE_USE
-}
 
 enum QrSubscriptionStatus {
   ACTIVE
@@ -915,8 +915,7 @@ model Branch {
 
   bookings Booking[]
 
-  // Módulo QR: los QR de esta sucursal. Nullable del otro lado (QrCode.branchId)
-  // — un QR "Stock" todavía no está asociado a ninguna branch.
+  // Módulo QR: los QR digitales de esta sucursal.
   qrCodes QrCode[]
 
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3).
@@ -1327,50 +1326,47 @@ model Booking {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ---------------------------------------------------------------------------
-// QrCode — un QR físico o digital. id es el valor codificado en el QR
-// impreso/mostrado (uuid random, nunca secuencial — DEC-011 original, no
-// cambia). branchId null = Stock (sin reclamar todavía); mismo significado
-// que qr_codes.business_id null en el original.
+// QrCode — un QR digital, siempre reusable. id es el valor codificado en el QR
+// mostrado (uuid random, nunca secuencial — DEC-011 original, no cambia).
 //
-// CHECK constraints que Prisma no expresa en su DSL (ver
-// prisma/sql/manual_constraints.sql para el porqué de este split) — agregar a
-// mano en la migración generada, ver docs/qr-integration.md:
-//   - name/destination_url NOT NULL sii branchId IS NOT NULL (equivalente a
-//     qr_codes_name_destination_iff_claimed del original, 0008_qr_own_destination.sql)
-//   - usedAt solo puede ser no-null cuando qrType = SINGLE_USE (equivalente a
-//     qr_codes_used_at_only_single_use, 0015_single_use_qr.sql)
+// HASTA 20260904120000_remove_qr_claim_and_single_use este modelo también
+// cubría el QR físico (claim, branchId nullable = "Stock sin reclamar") y el
+// de un solo uso (qrType, usedAt, claimedAt). Los tres se eliminaron: Rocco
+// decidió que el módulo QR solo sirve para un link digital reusable por
+// sucursal, y que la fidelización automatizada se resuelve mandando el link
+// directo desde el CRM, no con algo para escanear. Ver docs/qr-integration.md,
+// sección "Qué se desvió", para el porqué completo. branchId/name/
+// destinationUrl son NOT NULL desde esa migración porque ya no existe el
+// concepto de "Stock" (nunca hubo una fila real con branchId null — no hay
+// negocios reales en piloto, decisión 4 original — así que no hizo falta
+// backfill).
 // ---------------------------------------------------------------------------
 
 model QrCode {
-  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
-  branchId       String? @map("branch_id") @db.Uuid
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  branchId       String @map("branch_id") @db.Uuid
 
   // Etiqueta amigable para el Dashboard ("QR 1", "QR 2"...). Dashboard-only,
   // nunca parte del routing de resolución (DEC-064/065/066 original) — el
   // contador vive en Organization.nextQrDisplayNumber.
   displayNumber Int? @map("display_number")
 
-  name           String? @db.VarChar(255)
+  name           String @db.VarChar(255)
   message        String?
-  destinationUrl String? @map("destination_url")
+  destinationUrl String @map("destination_url")
 
-  qrType QrType    @default(REUSABLE) @map("qr_type")
-  // Solo se escribe una vez, atómicamente, por el endpoint de resolve cuando
-  // qrType = SINGLE_USE (equivalente a consume_single_use_qr() original).
-  usedAt DateTime? @map("used_at")
-
-  claimedAt DateTime? @map("claimed_at")
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
-  // onDelete: NoAction explícito, no el SET NULL que Prisma pone por defecto
-  // en una relación opcional: regla de 20260821140200 (columna referenciante
-  // nullable -> NO ACTION), que la fila 14 del diagnóstico afirma en CI.
-  // Borrar una Branch con QRs asociados falla en vez de desreclamarlos en
-  // silencio — las sucursales se borran en soft delete de todas formas.
-  branch       Branch?      @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: NoAction)
+  // onDelete: RESTRICT explícito, no el default de Prisma: regla de
+  // 20260821140200 (columna referenciante NOT NULL -> RESTRICT), mismo
+  // criterio que resources/service_types en 20260828160000. Antes de esta
+  // migración branchId era nullable y llevaba NoAction; con NOT NULL le toca
+  // RESTRICT — borrar una Branch con QRs asociados falla en vez de dejar una
+  // fila sin sucursal, que ya no es una forma válida de la tabla.
+  branch Branch @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict)
 
   @@index([organizationId, branchId])
   @@map("qr_codes")

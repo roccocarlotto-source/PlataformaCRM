@@ -5,7 +5,6 @@ import {
   QR_DESTINATION_URL_MAX_LENGTH,
   QR_MESSAGE_MAX_LENGTH,
   QR_NAME_MAX_LENGTH,
-  claimQrSchema,
   createDigitalQrSchema,
   listQrQuerySchema,
   updateQrSchema,
@@ -16,7 +15,6 @@ import {
 // create_digital_qr_code / update_qr_code del original (0008/0015): name <= 80,
 // destinationUrl http(s) y <= 2048, message <= 500, todos con trim.
 
-const QR_ID = "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11";
 const BRANCH_ID = "0a3f0d9c-1b2e-4c5d-8e7f-9a0b1c2d3e4f";
 
 const base = {
@@ -25,7 +23,7 @@ const base = {
   destinationUrl: " https://g.page/r/xyz/review ",
 };
 
-test("digital: camino feliz — trim, message null por default y qrType REUSABLE por default", () => {
+test("digital: camino feliz — trim y message null por default", () => {
   const r = createDigitalQrSchema.safeParse(base);
   assert.equal(r.success, true);
   assert.deepEqual(r.success && r.data, {
@@ -33,28 +31,7 @@ test("digital: camino feliz — trim, message null por default y qrType REUSABLE
     name: "Mostrador",
     destinationUrl: "https://g.page/r/xyz/review",
     message: null,
-    qrType: "REUSABLE",
   });
-});
-
-test("digital: qrType SINGLE_USE se acepta; cualquier otro valor no", () => {
-  assert.equal(createDigitalQrSchema.safeParse({ ...base, qrType: "SINGLE_USE" }).success, true);
-  assert.equal(createDigitalQrSchema.safeParse({ ...base, qrType: "single_use" }).success, false);
-  assert.equal(createDigitalQrSchema.safeParse({ ...base, qrType: "OTRO" }).success, false);
-});
-
-test("claim: exige qrId UUID y NO acepta elegir qrType (un físico es siempre REUSABLE)", () => {
-  assert.equal(claimQrSchema.safeParse({ ...base, qrId: QR_ID }).success, true);
-  assert.equal(claimQrSchema.safeParse({ ...base, qrId: "no-es-uuid" }).success, false);
-  assert.equal(claimQrSchema.safeParse(base).success, false);
-
-  const conTipo = claimQrSchema.safeParse({ ...base, qrId: QR_ID, qrType: "SINGLE_USE" });
-  assert.equal(conTipo.success, true);
-  assert.equal(
-    conTipo.success && "qrType" in conTipo.data,
-    false,
-    "qrType se descarta, no se acepta",
-  );
 });
 
 test("name: requerido, no vacío tras trim, máximo 80", () => {
@@ -119,7 +96,7 @@ test("message: opcional, vacío -> null, null -> null, máximo 500", () => {
   );
 });
 
-test("PATCH: parcial, exige al menos un campo, message admite null, y no acepta qrType ni branchId", () => {
+test("PATCH: parcial, exige al menos un campo, message admite null, y no acepta branchId", () => {
   assert.equal(updateQrSchema.safeParse({}).success, false);
   assert.equal(updateQrSchema.safeParse({ name: "Nuevo" }).success, true);
 
@@ -128,16 +105,12 @@ test("PATCH: parcial, exige al menos un campo, message admite null, y no acepta 
   assert.equal(limpiar.success && limpiar.data.message, null);
 
   // Campos desconocidos se descartan (strip): no llegan al service.
-  const conTipo = updateQrSchema.safeParse({
-    name: "x",
-    qrType: "SINGLE_USE",
-    branchId: BRANCH_ID,
-  });
-  assert.equal(conTipo.success, true);
-  assert.deepEqual(conTipo.success && Object.keys(conTipo.data), ["name"]);
+  const conBranch = updateQrSchema.safeParse({ name: "x", branchId: BRANCH_ID });
+  assert.equal(conBranch.success, true);
+  assert.deepEqual(conBranch.success && Object.keys(conBranch.data), ["name"]);
 
   // Solo campos desconocidos = ningún campo para actualizar.
-  assert.equal(updateQrSchema.safeParse({ qrType: "SINGLE_USE" }).success, false);
+  assert.equal(updateQrSchema.safeParse({ branchId: BRANCH_ID }).success, false);
 });
 
 test("listado: defaults y tope de pageSize, branchId opcional y UUID", () => {

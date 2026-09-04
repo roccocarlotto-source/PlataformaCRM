@@ -1,6 +1,5 @@
 import { Router } from "express";
 import {
-  claimQrHandler,
   createDigitalQrHandler,
   deleteQrHandler,
   listQrHandler,
@@ -20,18 +19,12 @@ export const qrRouter = Router();
 // businessWriteRateLimiter va después de authenticate —necesita
 // req.auth.userId— y antes de authorize. Mismo orden que branch.routes.ts.
 //
-// /qr/claim y /qr/digital son POST y /qr/:id es PATCH/DELETE, así que no
-// compiten entre sí aunque "claim" y "digital" parezcan un :id.
+// /qr/claim existió acá hasta 20260904120000_remove_qr_claim_and_single_use:
+// el QR físico se eliminó, así que /qr/digital es hoy el único POST de
+// creación (y /qr/:id sigue siendo PATCH/DELETE, sin competir con "digital").
 // ---------------------------------------------------------------------------
 qrRouter.get("/qr", authenticate, listQrHandler);
 
-qrRouter.post(
-  "/qr/claim",
-  authenticate,
-  businessWriteRateLimiter,
-  authorize("ADMIN"),
-  claimQrHandler,
-);
 qrRouter.post(
   "/qr/digital",
   authenticate,

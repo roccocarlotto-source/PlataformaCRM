@@ -11,7 +11,7 @@
 -- Responde las verificaciones pendientes de la sección 8 de
 -- docs/auditoria-2026-08-21.md:
 --   V-1 → ¿C-1 es explotable hoy?
---   V-2 → ¿cuáles de los 36 objetos de DDL existen en la base real?
+--   V-2 → ¿cuáles de los 34 objetos de DDL existen en la base real?
 --   V-3 → ¿el rol de la app realmente bypassea RLS?
 --
 -- ---------------------------------------------------------------------------
@@ -275,7 +275,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 14 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 12 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -324,14 +324,19 @@ from (
      'CHECK (starts_at < ends_at)'),
     ('google_calendar_connections_channel_all_or_none_check', 'google_calendar_connections',
      'CHECK (channel_id IS NULL AND channel_resource_id IS NULL AND channel_expiration IS NULL OR channel_id IS NOT NULL AND channel_resource_id IS NOT NULL AND channel_expiration IS NOT NULL)'),
-    -- Módulo QR (docs/qr-integration.md, migración 20260903120000): los tres
-    -- CHECK portados de QR Reviews. El normalizador quita el cast al enum
-    -- (::"QrType", ::"QrSubscriptionChangeSource") que pg_get_constraintdef
-    -- agrega a los literales.
-    ('qr_codes_name_destination_iff_claimed', 'qr_codes',
-     'CHECK (branch_id IS NULL AND name IS NULL AND destination_url IS NULL OR branch_id IS NOT NULL AND name IS NOT NULL AND destination_url IS NOT NULL)'),
-    ('qr_codes_used_at_only_single_use', 'qr_codes',
-     'CHECK (used_at IS NULL OR qr_type = ''SINGLE_USE'')'),
+    -- Módulo QR (docs/qr-integration.md, migración 20260903120000): el CHECK
+    -- portado de QR Reviews que sigue en pie. El normalizador quita el cast
+    -- al enum (::"QrSubscriptionChangeSource") que pg_get_constraintdef
+    -- agrega al literal.
+    --
+    -- qr_codes_name_destination_iff_claimed y qr_codes_used_at_only_single_use
+    -- ESTUVIERON acá y se sacaron en 20260904120000_remove_qr_claim_and_single_use
+    -- (Rocco eliminó el QR físico y el de un solo uso — ver
+    -- docs/qr-integration.md, sección "Qué se elimina"): esa migración las
+    -- dropea junto con las columnas que chequeaban (qr_type, used_at,
+    -- claimed_at), así que dejarlas acá haría fallar esta fila con FALTA en
+    -- cuanto la migración se aplique. No las reintroduzcas sin leer esa
+    -- sección primero.
     ('qr_subscription_status_changes_changed_by_only_for_admin', 'qr_subscription_status_changes',
      'CHECK (source = ''PLATFORM_ADMIN'' AND changed_by_platform_admin_id IS NOT NULL OR source = ''MERCADOPAGO_WEBHOOK'' AND changed_by_platform_admin_id IS NULL)')
   ) as e(nombre, tabla, esperado)

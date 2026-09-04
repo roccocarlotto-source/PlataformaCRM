@@ -97,11 +97,11 @@ routes.use("/api", ingestionEventRouter);
 
 // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
 //
-//   - qrPublicRouter: GET/POST /qr/resolve/:qrId, SIN /api y sin
-//     authenticate — misma excepción que /health. Es la URL impresa en el
-//     sticker: un teléfono la abre desde la cámara, no hay sesión ni JSON.
-//   - qrRouter: gestión de los QRs de la organización (claim/digital/listar/
-//     editar/borrar). Misma forma que branchRouter: authenticate para leer,
+//   - qrPublicRouter: GET /qr/resolve/:qrId, SIN /api y sin authenticate —
+//     misma excepción que /health. Es la URL detrás del QR/link que se
+//     comparte: se abre directo, no hay sesión ni JSON.
+//   - qrRouter: gestión de los QRs de la organización (digital/listar/editar/
+//     borrar). Misma forma que branchRouter: authenticate para leer,
 //     + authorize("ADMIN") para escribir.
 //   - qrAdminRouter: activación manual por un platform admin. authenticate +
 //     requirePlatformAdmin, NO authorize("ADMIN") — ver ese middleware.

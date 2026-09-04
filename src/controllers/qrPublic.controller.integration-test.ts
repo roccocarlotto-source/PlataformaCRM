@@ -13,23 +13,27 @@ import { createBranch } from "../services/branch.service";
 import { createDigitalQrCode, deleteQrCode } from "../services/qr.service";
 
 // ---------------------------------------------------------------------------
-// GET/POST /qr/resolve/:qrId por HTTP real, contra Postgres real, sin mocks —
+// GET /qr/resolve/:qrId por HTTP real, contra Postgres real, sin mocks —
 // mismo criterio que googleCalendarWebhook.controller.integration-test. La app
 // monta SOLO este router con la cadena real (router + notFound + errorHandler).
 //
-// Lo que este archivo fija: los 6 casos de estado del árbol de la guía para el
-// GET, el consumo atómico + fallback a lectura real para el POST, la carrera
-// "dos POST concurrentes al mismo single-use: solo uno consume", y (Fase 4) que
+// Lo que este archivo fija: los 3 casos de estado del árbol de la guía para el
+// GET (no encontrado, activo -> redirect, inactivo -> landing), y (Fase 4) que
 // el gate de secreto compartido está montado en el router real y que su
 // respuesta de falla es byte a byte la de un QR inexistente.
 //
 // El router lleva requireInternalProxySecret (Fase 4), así que el secreto se
-// configura en `env` en el before() y get()/post() mandan el header en todos
-// los casos de negocio — igual que lo haría el Worker. Los casos del gate en sí
-// están al final, y son los únicos que piden sin header o con otro valor.
+// configura en `env` en el before() y get() manda el header en todos los casos
+// de negocio — igual que lo haría el Worker. Los casos del gate en sí están al
+// final, y son los únicos que piden sin header o con otro valor.
 //
 // fetch con redirect: "manual" en todos los casos: lo que se afirma es la
 // respuesta de ESTE servidor (302 + Location), nunca se sigue el destino.
+//
+// HASTA 20260904120000_remove_qr_claim_and_single_use este archivo también
+// probaba el POST de consumo de un single-use (y el GET tenía 6 casos, no 3)
+// — se eliminaron junto con esa funcionalidad. Ver docs/qr-integration.md,
+// sección "Qué se desvió".
 // ---------------------------------------------------------------------------
 
 const TZ = "America/Argentina/Buenos_Aires";
@@ -100,13 +104,12 @@ async function desmontar(e: Escenario) {
   await prisma.organization.delete({ where: { id: e.organizationId } });
 }
 
-function crear(e: Escenario, qrType: "REUSABLE" | "SINGLE_USE") {
+function crear(e: Escenario) {
   return createDigitalQrCode(e.organizationId, {
     branchId: e.branchId,
     name: "Mostrador",
     destinationUrl: DESTINO,
     message: null,
-    qrType,
   });
 }
 
@@ -114,14 +117,6 @@ function crear(e: Escenario, qrType: "REUSABLE" | "SINGLE_USE") {
 // resto manda el actual, como el Worker. `null` = sin header.
 function get(qrId: string, secreto: string | null = SECRETO) {
   return fetch(`${baseUrl}/qr/resolve/${qrId}`, {
-    redirect: "manual",
-    headers: secreto === null ? {} : { [INTERNAL_PROXY_SECRET_HEADER]: secreto },
-  });
-}
-
-function post(qrId: string, secreto: string | null = SECRETO) {
-  return fetch(`${baseUrl}/qr/resolve/${qrId}`, {
-    method: "POST",
     redirect: "manual",
     headers: secreto === null ? {} : { [INTERNAL_PROXY_SECRET_HEADER]: secreto },
   });
@@ -135,13 +130,13 @@ async function esLandingGenerica(res: Response) {
 }
 
 // ---------------------------------------------------------------------------
-// GET — los 6 casos de estado
+// GET — los 3 casos de estado
 // ---------------------------------------------------------------------------
 
-test("GET: no encontrado, malformado y borrado -> 404 con la MISMA landing y sin link de claim (DEC-007)", async () => {
+test("no encontrado, malformado y borrado -> 404 con la MISMA landing (DEC-007)", async () => {
   const e = await montar("404");
   try {
-    const borrado = await crear(e, "REUSABLE");
+    const borrado = await crear(e);
     await deleteQrCode(e.organizationId, borrado.id);
 
     const htmls: string[] = [];
@@ -151,16 +146,15 @@ test("GET: no encontrado, malformado y borrado -> 404 con la MISMA landing y sin
       htmls.push(await esLandingGenerica(res));
     }
     assert.equal(new Set(htmls).size, 1, "las tres respuestas son byte a byte idénticas");
-    assert.equal(htmls[0].includes("¿Sos el dueño"), false);
   } finally {
     await desmontar(e);
   }
 });
 
-test("GET: reusable con organización activa -> 302 al destino", async () => {
-  const e = await montar("reusable-activo");
+test("con organización activa -> 302 al destino", async () => {
+  const e = await montar("activo");
   try {
-    const qr = await crear(e, "REUSABLE");
+    const qr = await crear(e);
     const res = await get(qr.id);
     assert.equal(res.status, 302);
     assert.equal(res.headers.get("location"), DESTINO);
@@ -169,19 +163,19 @@ test("GET: reusable con organización activa -> 302 al destino", async () => {
   }
 });
 
-test("GET: reusable con organización inactiva -> 200 landing genérica; con billing exempt -> 302 igual", async () => {
-  const inactiva = await montar("reusable-inactivo", { qrSubscriptionStatus: "INACTIVE" });
-  const exenta = await montar("reusable-exento", {
+test("con organización inactiva -> 200 landing genérica; con billing exempt -> 302 igual", async () => {
+  const inactiva = await montar("inactivo", { qrSubscriptionStatus: "INACTIVE" });
+  const exenta = await montar("exento", {
     qrSubscriptionStatus: "INACTIVE",
     qrBillingExempt: true,
   });
   try {
-    const qrInactivo = await crear(inactiva, "REUSABLE");
+    const qrInactivo = await crear(inactiva);
     const res = await get(qrInactivo.id);
     assert.equal(res.status, 200);
     await esLandingGenerica(res);
 
-    const qrExento = await crear(exenta, "REUSABLE");
+    const qrExento = await crear(exenta);
     const res2 = await get(qrExento.id);
     assert.equal(res2.status, 302);
     assert.equal(res2.headers.get("location"), DESTINO);
@@ -191,171 +185,19 @@ test("GET: reusable con organización inactiva -> 200 landing genérica; con bil
   }
 });
 
-test("GET: single-use sin usar y activo -> 200 con el form de Continuar, sin la URL de destino, y NUNCA consume", async () => {
-  const e = await montar("single-confirm");
-  try {
-    const qr = await crear(e, "SINGLE_USE");
-
-    for (let i = 0; i < 3; i++) {
-      const res = await get(qr.id);
-      assert.equal(res.status, 200);
-      const html = await res.text();
-      assert.ok(html.includes('<form method="POST">'));
-      assert.equal(
-        html.includes(DESTINO),
-        false,
-        "la página no revela el destino antes del consumo",
-      );
-    }
-
-    const fila = await prisma.qrCode.findUnique({ where: { id: qr.id } });
-    assert.equal(fila?.usedAt, null, "tres GET seguidos no consumieron nada");
-  } finally {
-    await desmontar(e);
-  }
-});
-
-test("GET: single-use sin usar con organización inactiva -> landing genérica (NO 'ya usado')", async () => {
-  const e = await montar("single-inactivo", { qrSubscriptionStatus: "INACTIVE" });
-  try {
-    const qr = await crear(e, "SINGLE_USE");
-    const res = await get(qr.id);
-    assert.equal(res.status, 200);
-    const html = await esLandingGenerica(res);
-    assert.equal(html.includes("ya fue utilizado"), false);
-    assert.equal(html.includes("Continuar"), false);
-  } finally {
-    await desmontar(e);
-  }
-});
-
-test("GET: single-use ya usado -> 200 'ya fue utilizado' — la única excepción a DEC-007", async () => {
-  const e = await montar("single-usado");
-  try {
-    const qr = await crear(e, "SINGLE_USE");
-    await prisma.qrCode.update({ where: { id: qr.id }, data: { usedAt: new Date() } });
-    const res = await get(qr.id);
-    assert.equal(res.status, 200);
-    const html = await res.text();
-    assert.ok(html.includes("Este código ya fue utilizado"));
-    assert.equal(html.includes("<form"), false);
-  } finally {
-    await desmontar(e);
-  }
-});
-
 // ---------------------------------------------------------------------------
-// POST — consumo atómico + fallback a lectura real
-// ---------------------------------------------------------------------------
-
-test("POST: el primer consumo redirige y setea usedAt; el segundo y el tercero muestran 'ya usado' sin mover usedAt", async () => {
-  const e = await montar("consume");
-  try {
-    const qr = await crear(e, "SINGLE_USE");
-
-    const primero = await post(qr.id);
-    assert.equal(primero.status, 302);
-    assert.equal(primero.headers.get("location"), DESTINO);
-
-    const despues = await prisma.qrCode.findUnique({ where: { id: qr.id } });
-    assert.notEqual(despues?.usedAt, null);
-
-    for (let i = 0; i < 2; i++) {
-      const otra = await post(qr.id);
-      assert.equal(otra.status, 200);
-      assert.ok((await otra.text()).includes("Este código ya fue utilizado"));
-    }
-    const final = await prisma.qrCode.findUnique({ where: { id: qr.id } });
-    assert.equal(final?.usedAt?.getTime(), despues?.usedAt?.getTime());
-  } finally {
-    await desmontar(e);
-  }
-});
-
-test("POST: con la organización inactiva NO consume (usedAt sigue null) y muestra la landing genérica", async () => {
-  const e = await montar("consume-inactivo", { qrSubscriptionStatus: "INACTIVE" });
-  try {
-    const qr = await crear(e, "SINGLE_USE");
-    const res = await post(qr.id);
-    assert.equal(res.status, 200);
-    await esLandingGenerica(res);
-
-    const fila = await prisma.qrCode.findUnique({ where: { id: qr.id } });
-    assert.equal(fila?.usedAt, null);
-
-    // Reactivada, el mismo QR se puede consumir: nada se perdió en el intento.
-    await prisma.organization.update({
-      where: { id: e.organizationId },
-      data: { qrSubscriptionStatus: "ACTIVE" },
-    });
-    const ahora = await post(qr.id);
-    assert.equal(ahora.status, 302);
-  } finally {
-    await desmontar(e);
-  }
-});
-
-test("POST: sobre un reusable es un no-op seguro — responde exactamente como el GET y no escribe nada", async () => {
-  const e = await montar("consume-reusable");
-  try {
-    const qr = await crear(e, "REUSABLE");
-    const res = await post(qr.id);
-    assert.equal(res.status, 302);
-    assert.equal(res.headers.get("location"), DESTINO);
-
-    const fila = await prisma.qrCode.findUnique({ where: { id: qr.id } });
-    assert.equal(fila?.usedAt, null);
-  } finally {
-    await desmontar(e);
-  }
-});
-
-test("POST: no encontrado / malformado / borrado -> 404 landing, igual que el GET", async () => {
-  const e = await montar("consume-404");
-  try {
-    const borrado = await crear(e, "SINGLE_USE");
-    await deleteQrCode(e.organizationId, borrado.id);
-    for (const id of [randomUUID(), "no-es-un-uuid", borrado.id]) {
-      const res = await post(id);
-      assert.equal(res.status, 404, id);
-      await esLandingGenerica(res);
-    }
-    const fila = await prisma.qrCode.findUnique({ where: { id: borrado.id } });
-    assert.equal(fila?.usedAt, null, "un borrado no se consume");
-  } finally {
-    await desmontar(e);
-  }
-});
-
-test("POST: dos consumos concurrentes del mismo single-use — exactamente uno redirige, nunca los dos", async () => {
-  const e = await montar("consume-carrera");
-  try {
-    const qr = await crear(e, "SINGLE_USE");
-
-    const [a, b] = await Promise.all([post(qr.id), post(qr.id)]);
-    const statuses = [a.status, b.status].sort();
-    assert.deepEqual(statuses, [200, 302], "uno consume (302), el otro ve 'ya usado' (200)");
-
-    const perdedor = a.status === 200 ? a : b;
-    assert.ok((await perdedor.text()).includes("Este código ya fue utilizado"));
-  } finally {
-    await desmontar(e);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Gate de secreto compartido (Fase 4) — montado en el router REAL, delante de
-// los dos handlers. Lo que estos casos afirman y el unitario del middleware no
-// puede: que la respuesta de falla es byte a byte la MISMA que el controller
-// produce para un QR inexistente (la misma función, no una copia), y que sin
-// el header un QR activo de verdad NO redirige — el gate corre antes de tocar
-// la base.
+// Gate de secreto compartido (Fase 4) — montado en el router REAL, delante del
+// handler. Lo que estos casos afirman y el unitario del middleware no puede:
+// que la respuesta de falla es byte a byte la MISMA que el controller produce
+// para un QR inexistente (la misma función, no una copia), y que sin el
+// header un QR activo de verdad NO redirige — el gate corre antes de tocar la
+// base.
 // ---------------------------------------------------------------------------
 
 test("gate: sin el header, o con otro valor, un QR ACTIVO responde el mismo 404 que uno inexistente, byte a byte — nunca el redirect ni un 401/403", async () => {
   const e = await montar("gate-falla");
   try {
-    const qr = await crear(e, "REUSABLE");
+    const qr = await crear(e);
 
     // Referencia: el 404 real del controller para un id que no existe, CON el
     // secreto correcto (así lo que responde es el handler, no el gate).
@@ -372,12 +214,10 @@ test("gate: sin el header, o con otro valor, un QR ACTIVO responde el mismo 404 
       ["casi el secreto", `${SECRETO}x`],
     ];
     for (const [etiqueta, secreto] of casos) {
-      for (const pedir of [get, post]) {
-        const res = await pedir(qr.id, secreto);
-        assert.equal(res.status, 404, `${pedir.name} ${etiqueta}`);
-        assert.equal(res.headers.get("location"), null, `${pedir.name} ${etiqueta}: sin redirect`);
-        assert.equal(await res.text(), htmlReferencia, `${pedir.name} ${etiqueta}: mismo HTML`);
-      }
+      const res = await get(qr.id, secreto);
+      assert.equal(res.status, 404, etiqueta);
+      assert.equal(res.headers.get("location"), null, `${etiqueta}: sin redirect`);
+      assert.equal(await res.text(), htmlReferencia, `${etiqueta}: mismo HTML`);
     }
 
     // Y el QR sigue activo: el gate fallando no tocó nada.
@@ -389,18 +229,13 @@ test("gate: sin el header, o con otro valor, un QR ACTIVO responde el mismo 404 
   }
 });
 
-test("gate: el secreto anterior (rotación) también pasa, en GET y en POST", async () => {
+test("gate: el secreto anterior (rotación) también pasa", async () => {
   const e = await montar("gate-rotacion");
   try {
-    const reusable = await crear(e, "REUSABLE");
-    const res = await get(reusable.id, SECRETO_ANTERIOR);
+    const qr = await crear(e);
+    const res = await get(qr.id, SECRETO_ANTERIOR);
     assert.equal(res.status, 302);
     assert.equal(res.headers.get("location"), DESTINO);
-
-    const singleUse = await crear(e, "SINGLE_USE");
-    const consumo = await post(singleUse.id, SECRETO_ANTERIOR);
-    assert.equal(consumo.status, 302);
-    assert.equal(consumo.headers.get("location"), DESTINO);
   } finally {
     await desmontar(e);
   }
@@ -409,7 +244,7 @@ test("gate: el secreto anterior (rotación) también pasa, en GET y en POST", as
 test("gate: sin NINGÚN secreto configurado falla cerrado — un QR activo da 404 incluso con el header que antes pasaba", async () => {
   const e = await montar("gate-cerrado");
   try {
-    const qr = await crear(e, "REUSABLE");
+    const qr = await crear(e);
     const referencia = await esLandingGenerica(await get(randomUUID()));
 
     env.QR_RESOLVE_PROXY_SECRET = undefined;
