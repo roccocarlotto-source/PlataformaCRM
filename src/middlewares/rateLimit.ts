@@ -131,7 +131,7 @@ function crearKeyingPorEmail<T extends { email: string }>(
         // No debería poder pasar nunca: la librería llama a skip() antes que a
         // keyGenerator() sobre el mismo request, y skip() solo deja pasar los
         // requests para los que guardó el email. Mismo criterio que los otros
-        // keyGenerator de este archivo: fallar ruidoso, nunca caer a req.ip.
+        // keyGenerator de este archivo: fallar ruidoso, nunca caer a la IP del request.
         throw new Error(
           `${limiterName}: falta el email parseado por skip() — la librería cambió el orden de sus callbacks`,
         );
