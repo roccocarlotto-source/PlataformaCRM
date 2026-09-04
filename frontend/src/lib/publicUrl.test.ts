@@ -5,11 +5,14 @@ import { buildPublicResolutionUrl } from "./publicUrl";
 const QR_ID = "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11";
 
 describe("buildPublicResolutionUrl", () => {
-  it("arma la URL sobre env.apiUrl, con /qr/resolve y SIN /api", () => {
-    expect(buildPublicResolutionUrl(QR_ID)).toBe(`${env.apiUrl}/qr/resolve/${QR_ID}`);
+  it("arma la URL sobre env.qrPublicBaseUrl (el Worker), con /r y SIN /api ni /qr/resolve", () => {
+    expect(buildPublicResolutionUrl(QR_ID)).toBe(`${env.qrPublicBaseUrl}/r/${QR_ID}`);
     expect(buildPublicResolutionUrl(QR_ID)).not.toContain("/api/");
-    // Nunca el path del original ni un dominio de Supabase.
-    expect(buildPublicResolutionUrl(QR_ID)).not.toContain("/r/");
+    // Ya NO pega directo contra el backend: ese camino esquivaba el Worker
+    // (gap de Fase 4, docs/qr-integration.md) y el backend lo rechaza sin el
+    // header del secreto compartido.
+    expect(buildPublicResolutionUrl(QR_ID)).not.toContain("/qr/resolve/");
+    expect(buildPublicResolutionUrl(QR_ID)).not.toContain(env.apiUrl);
     expect(buildPublicResolutionUrl(QR_ID)).not.toContain("supabase");
   });
 

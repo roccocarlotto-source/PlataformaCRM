@@ -10,13 +10,16 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
-    // config/env.ts exige estas 3 variables al importarse (fail-fast) — no
+    // config/env.ts exige estas 4 variables al importarse (fail-fast) — no
     // hay .env local en este repo, así que los tests necesitan valores
     // dummy propios, nunca reales.
     env: {
       VITE_SUPABASE_URL: "http://localhost:54321",
       VITE_SUPABASE_ANON_KEY: "test-anon-key",
       VITE_API_URL: "http://localhost:4000",
+      // Deliberadamente sin overlap de substring con VITE_API_URL de arriba:
+      // publicUrl.test.ts afirma que el link del QR NO contiene env.apiUrl.
+      VITE_QR_PUBLIC_BASE_URL: "https://qr.test.local",
     },
   },
 });

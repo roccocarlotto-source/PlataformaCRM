@@ -280,7 +280,7 @@ describe("QrListPage — eliminar", () => {
 });
 
 describe("QrListPage — copiar link", () => {
-  it("copia la URL pública de resolución (${env.apiUrl}/qr/resolve/:id, sin /api) y confirma", async () => {
+  it("copia la URL pública de resolución (${env.qrPublicBaseUrl}/r/:id, contra el Worker) y confirma", async () => {
     server.use(
       branchesHandler(),
       http.get(qrUrl, () => HttpResponse.json(listResponse())),
@@ -294,7 +294,7 @@ describe("QrListPage — copiar link", () => {
 
     expect(await screen.findByRole("button", { name: "¡Copiado!" })).toBeInTheDocument();
     expect(await navigator.clipboard.readText()).toBe(
-      `${env.apiUrl}/qr/resolve/d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11`,
+      `${env.qrPublicBaseUrl}/r/d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11`,
     );
   });
 
@@ -312,7 +312,7 @@ describe("QrListPage — copiar link", () => {
 
     expect(await screen.findByText(/Copialo a mano/)).toBeInTheDocument();
     expect(
-      screen.getByText(`${env.apiUrl}/qr/resolve/d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11`),
+      screen.getByText(`${env.qrPublicBaseUrl}/r/d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11`),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "¡Copiado!" })).not.toBeInTheDocument();
   });

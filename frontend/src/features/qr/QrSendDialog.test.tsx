@@ -6,7 +6,10 @@ import { makeQrCode } from "../../test/qrFixtures";
 import { QrSendDialog } from "./QrSendDialog";
 
 const QR_ID = "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11";
-const PUBLIC_URL = `${env.apiUrl}/qr/resolve/${QR_ID}`;
+// Corregido 2026-09-04: el link público sale contra el Worker
+// (env.qrPublicBaseUrl + /r/), no contra el backend directo — ver
+// docs/qr-integration.md, "Qué se corrigió: publicUrl.ts apunta al Worker".
+const PUBLIC_URL = `${env.qrPublicBaseUrl}/r/${QR_ID}`;
 
 // openPreparedMessage clickea un <a target=_blank>; se captura el href en
 // vez de dejar que jsdom intente navegar.
