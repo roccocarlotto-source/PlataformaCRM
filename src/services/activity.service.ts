@@ -13,6 +13,7 @@ import {
 } from "../repositories/activity.repository";
 import { findOpportunityById } from "../repositories/opportunity.repository";
 import { findUserByIdInOrganization } from "../repositories/user.repository";
+import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
 
 export interface ListActivitiesParams {
@@ -29,6 +30,11 @@ export interface ListActivitiesParams {
   dueDateTo?: Date;
   completedAtFrom?: Date;
   completedAtTo?: Date;
+  // "Mis tareas": pendientes (false → completedAt null) o completadas (true
+  // → completedAt not null). completedAtFrom/To son rangos y no pueden
+  // expresar "es null"; sin este filtro, la vista tendría que traer TODO el
+  // historial de una persona para descartar casi todo del lado del cliente.
+  completed?: boolean;
   sortBy: ActivitySortBy;
   sortOrder: SortOrder;
 }
@@ -195,15 +201,60 @@ export interface UpdateActivityInput {
   opportunityId?: string | null;
 }
 
+export interface ActivityActor {
+  userId: string;
+  role: RoleName;
+}
+
+// ---------------------------------------------------------------------------
+// Quién puede PATCHear una actividad. Antes era authorize("ADMIN") en la
+// ruta; ahora la regla depende del RECURSO, así que vive acá:
+//
+//   - ADMIN: cualquier campo de cualquier actividad, exactamente como hoy.
+//   - USER: self-service ACOTADO, decidido con el dueño del proyecto —
+//     puede PATCHear si y solo si (a) es su propio assigneeId, Y (b) el
+//     ÚNICO campo del body es completedAt (tildar o destildar en "Mis
+//     tareas"). No puede tocar subject/type/relaciones ni reasignarse.
+//
+// El motivo: el checkbox de "Mis tareas" lo usa quien tiene la tarea
+// asignada, que casi nunca es ADMIN (quien asigna sí lo es: el selector
+// "Asignado a" sale de GET /api/users, ADMIN-only). Sin esto, ese checkbox
+// devolvería 403 a cualquier USER.
+//
+// Función pura a propósito (no toca la base): se prueba sola, sin DB —
+// mismo criterio que normalizeEmail/rethrowAsConflict en contact.service.ts.
+// Un body vacío es false: nada que autorizar (el schema ya lo rechaza
+// antes, esto es defensa en profundidad).
+// ---------------------------------------------------------------------------
+export function canSelfServiceCompleteActivity(
+  actor: ActivityActor,
+  activity: { assigneeId: string | null },
+  input: UpdateActivityInput,
+): boolean {
+  if (actor.role === "ADMIN") return true;
+
+  const fields = Object.keys(input);
+  const onlyCompletedAt = fields.length > 0 && fields.every((field) => field === "completedAt");
+  return onlyCompletedAt && activity.assigneeId === actor.userId;
+}
+
 // authorId no es un parámetro de esta función a propósito: no existe forma
-// de modificarlo vía PATCH (ver createActivity).
+// de modificarlo vía PATCH (ver createActivity). `actor` es quien hace el
+// PATCH (req.auth): decide la autorización a nivel de recurso de arriba.
 export async function updateActivity(
   organizationId: string,
   id: string,
   input: UpdateActivityInput,
+  actor: ActivityActor,
 ) {
   // 404 si no existe, no es de esta organización, o ya está eliminada.
   const activity = await getActivityById(organizationId, id);
+
+  // Autorización ANTES de tocar nada más: mismo mensaje y status que
+  // authorize("ADMIN"), para que un USER sin permiso vea lo mismo que veía.
+  if (!canSelfServiceCompleteActivity(actor, activity, input)) {
+    throw new AppError("No tenés permisos para realizar esta acción", 403);
+  }
 
   const data: UpdateActivityInput = { ...input };
 

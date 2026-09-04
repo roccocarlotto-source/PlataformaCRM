@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -154,9 +154,19 @@ export function ActivityFormPage() {
   const createActivityMutation = useCreateActivity();
   const updateActivityMutation = useUpdateActivity(id ?? "");
 
+  // Solo en creación: "+ Nueva tarea" de "Mis tareas" llega con assigneeId
+  // en la query string para que la tarea nazca asignada a quien la pidió.
+  // Valor inicial derivado, igual que EMPTY_FORM (mismo patrón que
+  // pipelineId/stageId en OpportunityFormPage): sigue editable, y un id
+  // inexistente lo rechaza el backend como siempre. En edición se ignora.
+  const [searchParams] = useSearchParams();
+  const initialValues: ActivityFormValues = isEditMode
+    ? EMPTY_FORM
+    : { ...EMPTY_FORM, assigneeId: searchParams.get("assigneeId") };
+
   const [values, setValues] = useFormDraft<ActivityFormValues>(
     activityQuery.data?.id,
-    activityQuery.data ? toFormValues(activityQuery.data) : EMPTY_FORM,
+    activityQuery.data ? toFormValues(activityQuery.data) : initialValues,
   );
   const originalRelations: RelationState = activityQuery.data
     ? relationsOf(activityQuery.data)

@@ -1117,3 +1117,147 @@ a.ds-button--secondary:hover {
   color: var(--color-text);
   font-variant-numeric: tabular-nums;
 }
+
+/* Subtítulo debajo del h1 de una página ("Actividades asignadas a vos, con
+   o sin vencimiento."). Primer consumidor: features/activity/MyTasksPage.tsx. */
+.ds-page-subtitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Lista de tareas agrupada por vencimiento — features/activity/
+   MyTasksPage.tsx, diseño "Mis tareas". Un bloque por grupo (título en
+   mayúsculas chicas + pill de conteo), filas con checkbox circular, tipo,
+   asunto, línea de relacionados y la fecha a la derecha; pie con el total.
+   --------------------------------------------------------------------------- */
+.ds-task-group {
+  margin: var(--space-5) 0 0;
+}
+
+.ds-task-group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.ds-task-group-title .ds-task-count {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.ds-task-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.ds-task-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ds-task-row:last-child {
+  border-bottom: none;
+}
+
+.ds-task-row:hover {
+  background: var(--color-surface-muted);
+}
+
+/* Checkbox circular, sin marcar: tildarlo completa la tarea y la fila se
+   va, así que nunca se ve el estado "marcado". */
+.ds-task-check {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex-shrink: 0;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.ds-task-check:hover {
+  border-color: var(--color-text-muted);
+}
+
+.ds-task-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ds-task-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.ds-task-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ds-task-title a:hover {
+  text-decoration: underline;
+}
+
+.ds-task-related {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.ds-task-due {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ds-task-due--overdue {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.ds-task-footer {
+  margin: var(--space-4) 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

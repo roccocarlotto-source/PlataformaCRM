@@ -102,6 +102,30 @@ describe("ActivityFormPage — create", () => {
     expect(optionValues).toEqual(["CALL", "MEETING", "EMAIL", "TASK", "NOTE"]);
   });
 
+  // "+ Nueva tarea" de "Mis tareas" llega con ?assigneeId=<yo>: el
+  // formulario lo toma como valor inicial de "Asignado a" en creación.
+  it("create: ?assigneeId preselecciona 'Asignado a' y viaja en el payload", async () => {
+    server.use(...baseHandlers());
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      http.post(activitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeActivity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/activities/new?assigneeId=u2");
+
+    await waitFor(() => expect(screen.getByLabelText("Asignado a")).toHaveValue("u2"));
+
+    await user.type(screen.getByLabelText("Asunto"), "Desde Mis tareas");
+    await selectCompany(user, "Acme Corp", "co1");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("lista de actividades")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({ subject: "Desde Mis tareas", assigneeId: "u2" });
+  });
+
   it("41. create con una relación (Company): payload correcto, navega tras éxito", async () => {
     server.use(...baseHandlers());
     let postedBody: Record<string, unknown> | undefined;

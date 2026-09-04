@@ -58,6 +58,12 @@ interface Fixture {
   orgId: string;
   userId: string;
   authUserId: string;
+  // Dos USER reales (rol USER, no ADMIN) para los tests de self-service:
+  // el assignee y otra persona de la misma organización.
+  assigneeUserId: string;
+  assigneeAuthUserId: string;
+  otherUserId: string;
+  otherAuthUserId: string;
   companyId: string;
   contactId: string;
 }
@@ -66,8 +72,9 @@ let fx: Fixture;
 
 before(async () => {
   const adminRole = await findRoleByName("ADMIN");
-  if (!adminRole) {
-    throw new Error("No está sembrado el rol ADMIN. Abortando.");
+  const userRole = await findRoleByName("USER");
+  if (!adminRole || !userRole) {
+    throw new Error("No están sembrados los roles ADMIN/USER. Abortando.");
   }
 
   const org = await prisma.organization.create({
@@ -83,6 +90,26 @@ before(async () => {
       fullName: "T1 Author",
     },
   });
+  const assigneeAuth = await createRealAuthUser("assignee");
+  const assignee = await prisma.user.create({
+    data: {
+      id: assigneeAuth.id,
+      organizationId: org.id,
+      roleId: userRole.id,
+      email: assigneeAuth.email,
+      fullName: "T1 Assignee",
+    },
+  });
+  const otherAuth = await createRealAuthUser("other");
+  const other = await prisma.user.create({
+    data: {
+      id: otherAuth.id,
+      organizationId: org.id,
+      roleId: userRole.id,
+      email: otherAuth.email,
+      fullName: "T1 Other",
+    },
+  });
   const company = await prisma.company.create({
     data: { organizationId: org.id, name: "T1 Company" },
   });
@@ -94,6 +121,10 @@ before(async () => {
     orgId: org.id,
     userId: user.id,
     authUserId: authUser.id,
+    assigneeUserId: assignee.id,
+    assigneeAuthUserId: assigneeAuth.id,
+    otherUserId: other.id,
+    otherAuthUserId: otherAuth.id,
     companyId: company.id,
     contactId: contact.id,
   };
@@ -106,7 +137,112 @@ after(async () => {
   await prisma.company.deleteMany({ where: { organizationId: fx.orgId } });
   await prisma.user.deleteMany({ where: { organizationId: fx.orgId } });
   await prisma.organization.delete({ where: { id: fx.orgId } });
-  await getSupabaseAdmin().auth.admin.deleteUser(fx.authUserId);
+  for (const authUserId of [fx.authUserId, fx.assigneeAuthUserId, fx.otherAuthUserId]) {
+    await getSupabaseAdmin().auth.admin.deleteUser(authUserId);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Self-service acotado de "Mis tareas": un USER puede completar (y
+// destildar) SU actividad mandando solo completedAt; cualquier otra cosa es
+// 403 y no escribe nada. La matriz completa de la regla pura está en
+// activity.service.test.ts; acá se prueba con roles y filas reales que el
+// service la aplica antes de tocar la base.
+// ---------------------------------------------------------------------------
+
+test("USER real completa su propia actividad mandando solo completedAt: persiste", async () => {
+  const activity = await prisma.activity.create({
+    data: {
+      organizationId: fx.orgId,
+      authorId: fx.userId,
+      assigneeId: fx.assigneeUserId,
+      type: "TASK",
+      subject: "Mis tareas: propia",
+      companyId: fx.companyId,
+    },
+  });
+  const completedAt = new Date("2026-09-04T15:00:00.000Z");
+
+  const updated = await updateActivity(
+    fx.orgId,
+    activity.id,
+    { completedAt },
+    { userId: fx.assigneeUserId, role: "USER" },
+  );
+  assert.equal(updated.completedAt?.toISOString(), completedAt.toISOString());
+
+  const raw = await prisma.activity.findUnique({ where: { id: activity.id } });
+  assert.equal(raw?.completedAt?.toISOString(), completedAt.toISOString());
+
+  // Y la puede destildar (completedAt: null) con la misma regla.
+  const reopened = await updateActivity(
+    fx.orgId,
+    activity.id,
+    { completedAt: null },
+    { userId: fx.assigneeUserId, role: "USER" },
+  );
+  assert.equal(reopened.completedAt, null);
+});
+
+test("USER real intentando completar la actividad de OTRO assignee: AppError 403 y nada escrito", async () => {
+  const activity = await prisma.activity.create({
+    data: {
+      organizationId: fx.orgId,
+      authorId: fx.userId,
+      assigneeId: fx.assigneeUserId,
+      type: "TASK",
+      subject: "Mis tareas: ajena",
+      companyId: fx.companyId,
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      updateActivity(
+        fx.orgId,
+        activity.id,
+        { completedAt: new Date() },
+        { userId: fx.otherUserId, role: "USER" },
+      ),
+    (err: unknown) => {
+      assert.ok(err instanceof AppError, "debe ser AppError");
+      assert.equal(err.statusCode, 403);
+      assert.equal(err.message, "No tenés permisos para realizar esta acción");
+      return true;
+    },
+  );
+
+  const raw = await prisma.activity.findUnique({ where: { id: activity.id } });
+  assert.equal(raw?.completedAt, null, "no debe haberse escrito nada");
+  assert.equal(raw?.updatedAt.toISOString(), activity.updatedAt.toISOString());
+});
+
+test("USER real que es el assignee pero manda otro campo además de completedAt: 403, nada escrito", async () => {
+  const activity = await prisma.activity.create({
+    data: {
+      organizationId: fx.orgId,
+      authorId: fx.userId,
+      assigneeId: fx.assigneeUserId,
+      type: "TASK",
+      subject: "Mis tareas: sobrepaso",
+      companyId: fx.companyId,
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      updateActivity(
+        fx.orgId,
+        activity.id,
+        { completedAt: new Date(), subject: "Cambiado" },
+        { userId: fx.assigneeUserId, role: "USER" },
+      ),
+    (err: unknown) => err instanceof AppError && err.statusCode === 403,
+  );
+
+  const raw = await prisma.activity.findUnique({ where: { id: activity.id } });
+  assert.equal(raw?.subject, "Mis tareas: sobrepaso");
+  assert.equal(raw?.completedAt, null);
 });
 
 test("updateActivity: carrera real limpiando companyId y contactId a la vez nunca deja las tres relaciones en null, y el perdedor recibe AppError(400) traducido del CHECK, no un error crudo", async () => {
@@ -161,7 +297,14 @@ test("updateActivity: carrera real limpiando companyId y contactId a la vez nunc
 
   // Arranco el service real, sin esperarlo todavía — su escritura, si
   // llega, va a quedar bloqueada por el lock de A.
-  const servicePromise = updateActivity(fx.orgId, activity.id, { contactId: null });
+  // fx.userId tiene rol ADMIN: este test es sobre la carrera del CHECK, no
+  // sobre la autorización por recurso (esa tiene sus propios tests abajo).
+  const servicePromise = updateActivity(
+    fx.orgId,
+    activity.id,
+    { contactId: null },
+    { userId: fx.userId, role: "ADMIN" },
+  );
   // Evita un unhandledRejection mientras el polling de abajo mantiene la
   // promesa pendiente de resolución explícita más abajo (igual se
   // consume el resultado real con el try/catch de más abajo).

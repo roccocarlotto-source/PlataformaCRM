@@ -63,6 +63,19 @@ describe("AppLayout — nav gateado por rol (M7)", () => {
     expect(screen.getByText("Actividades")).toBeInTheDocument();
   });
 
+  it("'Mis tareas' se muestra para ambos roles: leer y completar lo propio es de cualquier rol", () => {
+    for (const role of ["USER", "ADMIN"] as const) {
+      useAuthMock.mockReturnValue(mockAuth(role));
+      const { unmount } = render(
+        <MemoryRouter>
+          <AppLayout />
+        </MemoryRouter>,
+      );
+      expect(screen.getByText("Mis tareas")).toHaveAttribute("href", "/tasks");
+      unmount();
+    }
+  });
+
   it("muestra el nombre del usuario autenticado", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout();
