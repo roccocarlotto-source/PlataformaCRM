@@ -13,6 +13,9 @@ export interface ActivityFilters {
   dueDateTo?: Date;
   completedAtFrom?: Date;
   completedAtTo?: Date;
+  // true → completedAt not null; false → completedAt null; undefined → sin
+  // filtro. Ver ListActivitiesParams en activity.service.ts.
+  completed?: boolean;
 }
 
 export type ActivitySortBy = "createdAt" | "updatedAt" | "dueDate" | "completedAt" | "subject";
@@ -55,6 +58,13 @@ function buildWhere(organizationId: string, filters: ActivityFilters): Prisma.Ac
             ...(filters.completedAtTo !== undefined ? { lte: filters.completedAtTo } : {}),
           },
         }
+      : {}),
+    // Va DESPUÉS del rango: si alguien manda completed y completedAtFrom/To a
+    // la vez, gana el booleano (una clave pisa a la otra en el spread). No
+    // hay caller que combine los dos hoy; se deja explícito para que el
+    // orden no sea accidental.
+    ...(filters.completed !== undefined
+      ? { completedAt: filters.completed ? { not: null } : null }
       : {}),
   };
 }

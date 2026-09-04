@@ -88,6 +88,13 @@ const listQuerySchema = z
     dueDateTo: z.coerce.date().optional(),
     completedAtFrom: z.coerce.date().optional(),
     completedAtTo: z.coerce.date().optional(),
+    // "true"/"false" explícitos, NO z.coerce.boolean(): Boolean("false") es
+    // true, así que ?completed=false pediría las completadas. Mismo helper
+    // que isActive en user.controller.ts.
+    completed: z
+      .enum(["true", "false"])
+      .transform((value) => value === "true")
+      .optional(),
     sortBy: z
       .enum(["createdAt", "updatedAt", "dueDate", "completedAt", "subject"])
       .default("createdAt"),
@@ -132,7 +139,12 @@ export const updateActivityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const input = parseOrThrow(updateActivitySchema, req.body);
-    const activity = await updateActivity(req.auth.organizationId, id, input);
+    // El actor real decide la autorización a nivel de recurso en el service
+    // (ver activity.routes.ts: PATCH ya no lleva authorize("ADMIN")).
+    const activity = await updateActivity(req.auth.organizationId, id, input, {
+      userId: req.auth.userId,
+      role: req.auth.role,
+    });
     res.status(200).json(activity);
   },
 );

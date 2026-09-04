@@ -15,6 +15,7 @@ import { OpportunityFormPage } from "../features/opportunity/OpportunityFormPage
 import { OpportunityListPage } from "../features/opportunity/OpportunityListPage";
 import { ActivityFormPage } from "../features/activity/ActivityFormPage";
 import { ActivityListPage } from "../features/activity/ActivityListPage";
+import { MyTasksPage } from "../features/activity/MyTasksPage";
 import { UserListPage } from "../features/user/UserListPage";
 import { InvitationFormPage } from "../features/invitation/InvitationFormPage";
 import { InvitationListPage } from "../features/invitation/InvitationListPage";
@@ -70,6 +71,11 @@ export const router = createBrowserRouter([
           // authorize) — a diferencia de las rutas de escritura de abajo,
           // /activities NO va dentro del AdminRoute.
           { path: "/activities", element: <ActivityListPage /> },
+          // "Mis tareas": mismo motivo que /activities, y además la acción
+          // principal (tildar la propia tarea) es PATCH de solo completedAt
+          // sobre la propia actividad, permitido a cualquier rol desde esta
+          // fase (activity.routes.ts) — así que tampoco va en AdminRoute.
+          { path: "/tasks", element: <MyTasksPage /> },
           // Módulo QR (docs/qr-integration.md, Fase 3). El LISTADO va acá afuera,
           // como /companies y /activities: GET /api/qr es lectura abierta a
           // cualquier usuario autenticado (qr.routes.ts: solo authenticate) y las
@@ -91,7 +97,12 @@ export const router = createBrowserRouter([
             // La autorización real de escritura sigue siendo authorize("ADMIN")
             // en el backend. Un único AdminRoute cubre las rutas de escritura
             // de Company, Contact, Pipeline, Stage, Opportunity y Activity — el
-            // componente no sabe ni le importa qué ruta envuelve. M7 (Users,
+            // componente no sabe ni le importa qué ruta envuelve. Una sola
+            // excepción, y no cambia este bloque: PATCH /api/activities/:id
+            // admite que un USER complete SU propia actividad mandando solo
+            // completedAt (activity.service.ts) — eso lo usa /tasks, arriba;
+            // /activities/:id/edit manda todos los campos y sigue siendo
+            // ADMIN-only, así que sigue acá adentro. M7 (Users,
             // Invitations) también entra acá, con una diferencia real: a
             // diferencia de todos los módulos anteriores, GET /api/users y
             // GET /api/invitations son TAMBIÉN ADMIN-only (verificado en

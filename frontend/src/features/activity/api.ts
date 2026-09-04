@@ -26,6 +26,8 @@ function buildListQueryString(query: ActivityListQuery): string {
   if (query.dueDateTo) params.set("dueDateTo", query.dueDateTo);
   if (query.completedAtFrom) params.set("completedAtFrom", query.completedAtFrom);
   if (query.completedAtTo) params.set("completedAtTo", query.completedAtTo);
+  // !== undefined, no truthy: `false` es un valor real acá (solo pendientes).
+  if (query.completed !== undefined) params.set("completed", String(query.completed));
   if (query.sortBy) params.set("sortBy", query.sortBy);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);
   const queryString = params.toString();

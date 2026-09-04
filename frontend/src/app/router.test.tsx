@@ -64,6 +64,13 @@ describe("router.tsx — wiring real de Activity", () => {
     expect(findRoute(router.routes, "/activities/new")).toBeDefined();
     expect(findRoute(router.routes, "/activities/:id/edit")).toBeDefined();
   });
+
+  it("/tasks (Mis tareas) existe, bajo AppLayout y NO bajo AdminRoute — leer y completar lo propio es de cualquier rol", () => {
+    expect(findRoute(router.routes, "/tasks")).toBeDefined();
+    const parent = findParentElement(router.routes, "/tasks") as { type: unknown } | undefined;
+    expect(parent?.type).toBe(AppLayout);
+    expect(parent?.type).not.toBe(AdminRoute);
+  });
 });
 
 describe("router.tsx — wiring real de M7 (Users, Invitations, Accept)", () => {

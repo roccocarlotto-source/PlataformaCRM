@@ -71,6 +71,10 @@ export interface ActivityListQuery {
   dueDateTo?: string;
   completedAtFrom?: string;
   completedAtTo?: string;
+  // false → solo pendientes (completedAt null); true → solo completadas.
+  // Filtro real del backend (listQuerySchema), agregado para "Mis tareas":
+  // los rangos completedAtFrom/To no pueden expresar "es null".
+  completed?: boolean;
   sortBy?: ActivitySortBy;
   sortOrder?: SortOrder;
 }

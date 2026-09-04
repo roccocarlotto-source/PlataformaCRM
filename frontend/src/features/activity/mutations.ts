@@ -30,6 +30,26 @@ export function useUpdateActivity(id: string) {
   });
 }
 
+// Completar / destildar desde "Mis tareas". El id viaja en cada llamada en
+// vez de fijarse al montar el hook — mismo motivo exacto que
+// useMoveOpportunity (opportunity/mutations.ts): una sola vista con muchas
+// filas y un solo handler de click, no se puede montar un hook por
+// actividad. El body es SOLO completedAt a propósito: es lo único que un
+// USER (no-ADMIN) tiene permitido PATCHear sobre su propia actividad
+// (activity.service.ts, canSelfServiceCompleteActivity). Invalida lo mismo
+// que useUpdateActivity.
+export function useCompleteActivity() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, completedAt }: { id: string; completedAt: string | null }) =>
+      updateActivity(id, { completedAt }),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: activityKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: activityKeys.detail(id) });
+    },
+  });
+}
+
 export function useDeleteActivity() {
   const queryClient = useQueryClient();
   return useMutation({
