@@ -40,4 +40,11 @@ export const env = {
   // siempre, y no hay ninguna necesidad concreta hoy de acoplarse a eso.
   supabaseAnonKey: required("VITE_SUPABASE_ANON_KEY"),
   apiUrl: stripTrailingSlash(requiredAbsoluteUrl("VITE_API_URL")),
+  // Dominio público del Cloudflare Worker (docs/qr-integration.md, Fase 4)
+  // que hace de gate delante de /qr/resolve/:qrId: rate limiting + el header
+  // x-internal-proxy-secret que el backend exige. Es la única base válida
+  // para un link de QR pensado para que alguien lo abra desde afuera —
+  // lib/publicUrl.ts la usa en vez de apiUrl a propósito, ver el comentario
+  // ahí.
+  qrPublicBaseUrl: stripTrailingSlash(requiredAbsoluteUrl("VITE_QR_PUBLIC_BASE_URL")),
 };

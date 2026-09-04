@@ -105,31 +105,29 @@ parar cada pieza y qué falta para terminar de aplicarla.
     los dos lados; que el *valor* sea idéntico en ambos solo lo confirma una
     prueba real end-to-end (ver el ítem de abajo), no la sola presencia de
     la variable.
-  - [ ] **Gap encontrado el 2026-09-04, sin resolver: `lib/publicUrl.ts`
-    sigue sin apuntar al Worker, y ya no tiene excusa de TF-001 para seguir
-    así.** La decisión 3 de esta fase (más abajo) daba este ítem por
-    bloqueado porque no existía dominio propio; con TF-001 cerrado, ese
-    bloqueo ya no aplica, pero el código no se tocó. Hoy
-    `buildPublicResolutionUrl` arma `${env.apiUrl}/qr/resolve/:qrId` —
-    directo contra `https://plataformacrm.onrender.com`, nunca contra
-    `https://nexoraqrs.com`. Consecuencia concreta: **todo link que el CRM
-    genera hoy para un QR (la imagen, "Copiar link", WhatsApp, email)
-    esquiva el Worker por completo**, llega al backend sin el header
-    `x-internal-proxy-secret`, y `requireInternalProxySecret` lo rechaza con
-    el 404 genérico — **como si el QR no existiera, aunque esté activo.**
-    (Antes decía "aunque esté reclamado y activo" — desde el 2026-09-04 ya
-    no hay "reclamado": todo QR nace digital, ver la nota de pivot arriba.)
-    Con el código actual, ninguna verificación end-to-end real puede pasar
-    todavía. Arreglo: cambiar `publicUrl.ts` para construir la URL contra el
-    dominio del Worker (`https://nexoraqrs.com/r/:qrId`, a confirmar el path
-    exacto contra la ruta configurada) en vez de `env.apiUrl`. SIGUE
-    PENDIENTE tras la limpieza de QR físico/single-use — no se tocó en esa
-    limpieza porque no era su alcance.
-  - [ ] **Verificación end-to-end pendiente**, bloqueada por el gap de
-    arriba: abrir el link público de un QR digital real (uno inventado no
-    sirve — un secreto mal puesto y un QR inexistente dan a propósito la
-    misma respuesta, DEC-007) y confirmar que redirige a su
-    `destinationUrl`.
+  - [x] **Gap encontrado el 2026-09-04, resuelto el mismo día: `lib/publicUrl.ts`
+    ya apunta al Worker.** `buildPublicResolutionUrl` armaba
+    `${env.apiUrl}/qr/resolve/:qrId` — directo contra
+    `https://plataformacrm.onrender.com`, nunca contra
+    `https://nexoraqrs.com`. Consecuencia concreta que tenía esto: **todo
+    link que el CRM generaba para un QR (la imagen, "Copiar link", WhatsApp,
+    email) esquivaba el Worker por completo**, llegaba al backend sin el
+    header `x-internal-proxy-secret`, y `requireInternalProxySecret` lo
+    rechazaba con el 404 genérico — como si el QR no existiera, aunque
+    estuviera activo. Arreglado: nueva env var `VITE_QR_PUBLIC_BASE_URL`
+    (`frontend/src/config/env.ts`, `.env`/`.env.example`) con el dominio del
+    Worker, y `buildPublicResolutionUrl` ahora arma
+    `${env.qrPublicBaseUrl}/r/${qrId}` — mismo formato de path que el
+    original de `Plataforma-QR` (la decisión 6 de Fase 3, más abajo, quedó
+    obsoleta por este cambio, se deja sin reescribir como registro
+    histórico). Ver "Qué se corrigió: publicUrl.ts apunta al Worker
+    (2026-09-04)" al final del documento.
+  - [ ] **Verificación end-to-end pendiente**, ya NO bloqueada por el gap de
+    arriba (resuelto): abrir el link público de un QR digital real (uno
+    inventado no sirve — un secreto mal puesto y un QR inexistente dan a
+    propósito la misma respuesta, DEC-007) y confirmar que redirige a su
+    `destinationUrl`. Esto es manual, contra el Worker y el backend reales —
+    no se puede confirmar desde acá.
   - [ ] **Decomiso** (deployment de Vercel del admin viejo, borrado manual
     del proyecto `qr-reviews` desde el dashboard de Supabase) — sin
     empezar, correctamente: es lo último, después de la verificación
@@ -1118,6 +1116,10 @@ hasta ahora no tenía protección contra acceso directo.
    generado por el CRM resuelve: todos pegan al backend sin el header y
    reciben el 404 genérico.
 
+   **Resuelto el mismo 2026-09-04** — ver "Qué se corrigió: publicUrl.ts
+   apunta al Worker (2026-09-04)" al final del documento. Se deja el párrafo
+   de arriba sin reescribir como registro de por qué existía el gap.
+
 ### Backend — gate de secreto compartido (`Plataforma CRM`)
 
 1. **Env vars nuevas en `config/env.ts`** (opcionales, mismo criterio que
@@ -1231,14 +1233,15 @@ hasta ahora no tenía protección contra acceso directo.
   `INTERNAL_PROXY_SECRET` como runtime vars activas del Worker en
   producción. TF-001 ya no aplica como bloqueo: el Worker corre sobre la
   ruta `nexoraqrs.com/r/*`, no sobre el `*.workers.dev` gratuito.
-- [ ] **Pendiente, y ahora es el paso que falta para todo lo demás:**
-  actualizar `lib/publicUrl.ts` en el frontend del CRM para que arme el
-  link público contra `nexoraqrs.com` en vez de `env.apiUrl` (ver el gap de
-  2026-09-04 en "Estado" y en la decisión 3 de arriba) — sin esto, el resto
-  de los pasos de abajo no puede pasar.
-- [ ] Verificar manualmente, recién después del punto anterior: abrir la
-  URL pública de un QR reclamado real (creado desde el módulo QR del CRM) y
-  confirmar el redirect a su `destinationUrl`; pegarle a
+- [x] **`lib/publicUrl.ts` actualizado (2026-09-04)** para que arme el link
+  público contra `VITE_QR_PUBLIC_BASE_URL` (`https://nexoraqrs.com` en
+  producción) en vez de `env.apiUrl` (ver el gap de 2026-09-04 en "Estado" y
+  en la decisión 3 de arriba, y "Qué se corrigió: publicUrl.ts apunta al
+  Worker (2026-09-04)" al final del documento). Falta desplegar este cambio
+  a producción antes de que el punto de abajo tenga sentido.
+- [ ] Verificar manualmente, recién después del deploy del punto anterior:
+  abrir la URL pública de un QR digital real (creado desde el módulo QR del
+  CRM) y confirmar el redirect a su `destinationUrl`; pegarle a
   `${BACKEND_PUBLIC_BASE_URL}/qr/resolve/:qrId` directo, sin el header, y
   confirmar el 404 genérico (nunca el redirect).
 
@@ -1539,3 +1542,66 @@ en esa misma rama — no en el checkout principal):**
   módulo de "Agentes de IA" (`docs/roadmap-implementacion.md` §2.2, WhatsApp
   Business Platform vía Meta/Twilio) queda explícitamente fuera de alcance
   por ahora: *"el tema de agentes de ia no lo vamos a tocar por ahora."*
+
+## Qué se corrigió: publicUrl.ts apunta al Worker (2026-09-04)
+
+**Contexto.** Después de mergear la limpieza de QR físico/single-use (PR
+#154), Rocco preguntó si ya se podía borrar el proyecto `qr-reviews` de
+Supabase. Repasando el checklist de Fase 4 para responder, el gap de
+`lib/publicUrl.ts` documentado ahí (ver "Estado" y la decisión 3 de Fase 4)
+seguía sin excusa desde que TF-001 se cerró: el Worker de Cloudflare estaba
+deployado y apuntando al backend real, pero el frontend nunca armaba los
+links contra él. Se decidió resolverlo en el momento, en vez de dejarlo para
+después del restyle de Fase 3, porque era el único bloqueante real para
+poder decomisar `qr-reviews`.
+
+**El bug, concreto.** `buildPublicResolutionUrl` (`frontend/src/lib/publicUrl.ts`)
+armaba `${env.apiUrl}/qr/resolve/${qrId}` — la URL del backend Express
+directo, sin pasar por el Worker. El backend, desde el gate de secreto
+compartido de Fase 4 (`requireInternalProxySecret`, falla cerrado), rechaza
+con el 404 genérico cualquier request a `/qr/resolve/:qrId` que no traiga el
+header `x-internal-proxy-secret` — y ese header solo lo agrega el Worker.
+Resultado: **todo QR digital creado desde el CRM tenía un link roto**, sin
+excepción — la imagen, "Copiar link", y lo que mandara `QrSendDialog` por
+WhatsApp/email apuntaban todos a una URL que siempre devolvía 404, desde que
+el gate de Fase 4 se deployó.
+
+**El arreglo.**
+- Nueva env var `VITE_QR_PUBLIC_BASE_URL`: el dominio público del Worker
+  (`https://nexoraqrs.com` en producción — mismo valor en desarrollo local,
+  porque el Worker ya apunta al backend de producción, no hay forma de que
+  apunte a un backend local). Agregada a `frontend/.env`,
+  `frontend/.env.example` y como var dummy (`https://qr.test.local`,
+  deliberadamente sin overlap de substring con la de `VITE_API_URL` de los
+  tests) en el bloque `test.env` de `frontend/vite.config.ts`.
+- `frontend/src/config/env.ts`: nuevo campo `qrPublicBaseUrl`, mismo patrón
+  (`requiredAbsoluteUrl` + `stripTrailingSlash`) que `apiUrl`.
+- `frontend/src/lib/publicUrl.ts`: `buildPublicResolutionUrl` ahora arma
+  `${env.qrPublicBaseUrl}/r/${qrId}` — recuperando el path `/r/:qrId` del
+  `Plataforma-QR` original (la decisión 6 de Fase 3 lo había cambiado a
+  `/qr/resolve/:qrId` sobre `env.apiUrl` porque en ese momento el Worker
+  todavía no estaba repuntado; ese párrafo se deja sin reescribir como
+  registro de esa decisión, ya obsoleta). Comentario del archivo actualizado
+  para explicar el porqué completo.
+- `frontend/src/lib/publicUrl.test.ts`: actualizado — afirma que el link sale
+  sobre `env.qrPublicBaseUrl`, con `/r/`, y que NO contiene `/qr/resolve/`
+  ni `env.apiUrl`.
+
+**Qué NO se tocó, a propósito.**
+- El backend (`qrPublic.controller.ts`, `requireInternalProxySecret`, el
+  Worker mismo) — el gate ya estaba bien, el bug era enteramente del lado
+  del frontend armando la URL equivocada.
+- El worktree de restyle de Fase 3
+  (`plataforma-crm-qr-integration-fase3`) — capítulo aparte, sin tocar acá;
+  cuando se mergee va a traer su propia copia de `publicUrl.ts` que hay que
+  reconciliar con este fix (mismo criterio que la nota de la limpieza de QR
+  físico/single-use, más arriba).
+
+**Lo que sigue pendiente, y por qué no se puede cerrar desde acá.**
+- Desplegar este cambio a producción (Render/Vercel/lo que sirva el
+  frontend) — build y deploy, fuera del alcance de esta sesión.
+- La verificación end-to-end manual: abrir el link público de un QR digital
+  real ya creado y confirmar que redirige a su `destinationUrl` a través del
+  Worker. Recién con eso confirmado tiene sentido decomisar `qr-reviews`
+  (deployment de Vercel del admin viejo + borrado del proyecto de Supabase
+  desde el dashboard) — ver el checklist de Fase 4 en "Estado".

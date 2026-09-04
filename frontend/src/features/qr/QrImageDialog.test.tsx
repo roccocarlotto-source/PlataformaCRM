@@ -6,9 +6,11 @@ import { makeQrCode } from "../../test/qrFixtures";
 import { QrImageDialog } from "./QrImageDialog";
 
 // Se mockea solo generateQrSvg para poder afirmar QUÉ URL se codifica —
-// que es el punto de verificación de la guía ("la URL codificada apunta a
-// ${env.apiUrl}/qr/resolve/:qrId, nunca a /r/ ni a Supabase"). composeQrImage
-// y downloadSvg son los reales.
+// que es el punto de verificación de la guía ("la URL codificada apunta al
+// Worker, ${env.qrPublicBaseUrl}/r/:qrId, nunca directo al backend ni a
+// Supabase" — corregido 2026-09-04, ver docs/qr-integration.md, "Qué se
+// corrigió: publicUrl.ts apunta al Worker"). composeQrImage y downloadSvg
+// son los reales.
 const generateQrSvgMock = vi.hoisted(() =>
   vi.fn(
     async () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><path d="M0 0"/></svg>',
@@ -20,7 +22,7 @@ vi.mock("../../lib/qrImage", async (importOriginal) => {
 });
 
 const QR_ID = "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11";
-const PUBLIC_URL = `${env.apiUrl}/qr/resolve/${QR_ID}`;
+const PUBLIC_URL = `${env.qrPublicBaseUrl}/r/${QR_ID}`;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -28,7 +30,7 @@ afterEach(() => {
 });
 
 describe("QrImageDialog", () => {
-  it("codifica la URL pública de resolución (sin /api, sin /r/) y muestra el SVG con el mensaje debajo", async () => {
+  it("codifica la URL pública de resolución (contra el Worker, /r/, sin /api ni /qr/resolve/) y muestra el SVG con el mensaje debajo", async () => {
     render(<QrImageDialog qr={makeQrCode({ message: "Gracias <3" })} onClose={vi.fn()} />);
 
     await waitFor(() => expect(generateQrSvgMock).toHaveBeenCalledWith(PUBLIC_URL));
@@ -37,7 +39,9 @@ describe("QrImageDialog", () => {
     expect(imagen.innerHTML).toContain("Gracias &lt;3");
     expect(imagen.innerHTML).toContain("foreignObject");
     expect(PUBLIC_URL).not.toContain("/api/");
-    expect(PUBLIC_URL).not.toContain("/r/");
+    expect(PUBLIC_URL).not.toContain("/qr/resolve/");
+    expect(PUBLIC_URL).not.toContain(env.apiUrl);
+    expect(PUBLIC_URL).toContain("/r/");
   });
 
   it("sin mensaje, no agrega el bloque de texto", async () => {
