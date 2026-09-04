@@ -513,3 +513,83 @@ test("B-22: cualquier otro error de signInWithOtp sigue en el 502 genérico, sin
       ),
   );
 });
+
+// ---------------------------------------------------------------------------
+// V-5 (docs/verificacion-v1-v14-estado.md) — el espejo de B-22 del lado de
+// verifyOtp. onboardOrganization aplastaba TODO error de verifyOtp en el 401
+// genérico "inválido o expiró", incluido over_request_rate_limit: el 429 por
+// IP de /verify, que —como el registro entero pasa server-side— es la IP del
+// backend y un cupo compartido por toda la plataforma. Quien lo recibía leía
+// "tu código está mal" y pedía otro código, en vez de esperar.
+//
+// Ojo, son dos códigos distintos: over_email_send_rate_limit es del envío
+// (signInWithOtp, B-22 arriba); over_request_rate_limit es de la verificación
+// (verifyOtp, esto). Mismo mecanismo de doble que conSignInWithOtpDoblado, y
+// por la misma razón: gatillar el rate limit real de GoTrue sería lento y no
+// determinístico, compartido por toda la suite.
+// ---------------------------------------------------------------------------
+
+async function conVerifyOtpDoblado<T>(error: unknown, fn: () => Promise<T>): Promise<T> {
+  const auth = getSupabaseAnon().auth as unknown as { verifyOtp: unknown };
+  const original = auth.verifyOtp;
+  auth.verifyOtp = async () => ({ data: { user: null, session: null }, error });
+  try {
+    return await fn();
+  } finally {
+    auth.verifyOtp = original;
+  }
+}
+
+function intentoDeRegistro(etiqueta: string) {
+  return onboardOrganization({
+    organizationName: `V-5 ${etiqueta} ${randomUUID()}`,
+    fullName: "Quien Sea",
+    email: emailDePrueba(etiqueta),
+    password: PASSWORD,
+    otp: "000000",
+  });
+}
+
+test("V-5: over_request_rate_limit en verifyOtp → 429 con mensaje de backoff, no el 401 genérico", async () => {
+  await conVerifyOtpDoblado(
+    {
+      code: "over_request_rate_limit",
+      status: 429,
+      message: "Request rate limit reached",
+    },
+    () =>
+      assert.rejects(
+        () => intentoDeRegistro("v5-rate-limit"),
+        (err) => {
+          assert.ok(err instanceof AppError, "debe ser AppError, no un error crudo");
+          assert.equal(err.statusCode, 429, "antes del fix: el 401 genérico");
+          assert.equal(
+            err.message,
+            "Demasiados intentos de verificación. Esperá antes de volver a intentar.",
+          );
+          return true;
+        },
+      ),
+  );
+});
+
+// El test "rechaza con 401 un código incorrecto" de arriba ya cubre el error
+// REAL de GoTrue para un código malo. Este cubre lo que aquel no puede: que un
+// error de verifyOtp con cualquier OTRO código —incluso uno que no habla de
+// códigos— siga cayendo en el 401 genérico, sin filtrar el motivo. Es la rama
+// que el chequeo nuevo de V-5 tiene que dejar intacta.
+test("V-5: cualquier otro error de verifyOtp sigue en el 401 genérico, sin filtrar el motivo real", async () => {
+  await conVerifyOtpDoblado(
+    { code: "unexpected_failure", status: 500, message: "Database error finding user" },
+    () =>
+      assert.rejects(
+        () => intentoDeRegistro("v5-otro-error"),
+        (err) => {
+          assert.ok(err instanceof AppError, "debe ser AppError, no un error crudo");
+          assert.equal(err.statusCode, 401);
+          assert.equal(err.message, "El código de verificación es inválido o expiró");
+          return true;
+        },
+      ),
+  );
+});

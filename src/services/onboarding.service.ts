@@ -163,6 +163,26 @@ export async function onboardOrganization(input: OnboardingInput): Promise<Onboa
     type: "email",
   });
 
+  // V-5: el rate limit de /verify es la única excepción al 401 genérico de
+  // abajo — espejo exacto de B-22 en requestOnboardingOtp, pero con OTRO
+  // código: over_email_send_rate_limit es del envío (paso 1);
+  // over_request_rate_limit es el límite por IP de las llamadas a /verify
+  // (paso 2). Como todo el registro pasa server-side, esa IP es la del
+  // backend y el cupo lo comparte toda la plataforma: cuando se agota, decirle
+  // a una persona real "tu código es inválido o expiró" la manda a pedir otro
+  // código en vez de a esperar. No abre el oráculo que protege el comentario
+  // de abajo: es un estado global de infraestructura, no un dato por email.
+  if (otpError?.code === "over_request_rate_limit") {
+    logger.warn(
+      { err: otpError },
+      "Rate limit de Supabase Auth al verificar el código de registro",
+    );
+    throw new AppError(
+      "Demasiados intentos de verificación. Esperá antes de volver a intentar.",
+      429,
+    );
+  }
+
   if (otpError || !verificado.user) {
     // No se distingue "código incorrecto" de "código vencido" de "nunca se
     // pidió un código para ese email": los tres son la misma respuesta para
