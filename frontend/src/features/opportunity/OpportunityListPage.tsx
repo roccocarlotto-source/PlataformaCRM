@@ -11,7 +11,10 @@ import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
+import { formatAmount, formatDate } from "./format";
 import { useDeleteOpportunity } from "./mutations";
+import { OpportunityAssociation } from "./OpportunityAssociation";
+import { OpportunityBoardView } from "./OpportunityBoardView";
 import { useOpportunities } from "./queries";
 import {
   useCompanyNames,
@@ -39,61 +42,42 @@ const STATUS_BADGE_VARIANT: Record<OpportunityStatus, BadgeVariant> = {
   LOST: "danger",
 };
 
-// amount siempre llega como string desde la API (Prisma.Decimal, ver
-// types.ts) — Number() antes de formatear, nunca .toFixed() directo sobre
-// el string crudo.
-function formatAmount(amount: string, currency: string): string {
-  return `${Number(amount).toFixed(2)} ${currency}`;
-}
-
-// Fecha sola (sin hora) a partir del ISO de la API. Se toma solo la parte
-// YYYY-MM-DD y se formatea en UTC: mismo criterio que el slice(0,10) del
-// formulario, para que un "2026-08-15T00:00:00.000Z" no se corra al 14 en
-// una zona horaria negativa.
-function formatDate(iso: string): string {
-  const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("es", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
-
-// Íconos de la columna Asociado (edificio = empresa, persona = contacto).
-// Son puramente cosméticos —el nombre al lado es el dato—, por eso van
-// aria-hidden y viven acá y no en design-system/: único consumidor.
-function BuildingIcon() {
-  return (
-    <svg className="ds-cell-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M3 14V3.5A1.5 1.5 0 0 1 4.5 2h4A1.5 1.5 0 0 1 10 3.5V14M10 6h2.5A1.5 1.5 0 0 1 14 7.5V14M2 14h13M5.5 5h2M5.5 8h2M5.5 11h2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function PersonIcon() {
-  return (
-    <svg className="ds-cell-icon" viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="8" cy="5" r="2.75" fill="none" stroke="currentColor" strokeWidth="1.3" />
-      <path
-        d="M2.75 14a5.25 5.25 0 0 1 10.5 0"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
+// La misma entidad vista de dos formas — decidido así con el dueño del
+// proyecto: un toggle dentro de esta página, no una ruta ni un link de nav
+// nuevos. "table" es el default para no cambiar el comportamiento que ya
+// tenía la página. Con "table" se renderiza exactamente lo de siempre
+// (filtros, tabla, paginación); con "board", OpportunityBoardView, que trae
+// su propio encabezado (selector de pipeline y buscador) y por eso los
+// filtros de tabla no se muestran.
+type View = "table" | "board";
 
 export function OpportunityListPage() {
+  const [view, setView] = useState<View>("table");
+
+  return (
+    <div>
+      <div className="ds-page-header">
+        <h1>Oportunidades</h1>
+        <div className="ds-segmented" role="group" aria-label="Vista">
+          <Button aria-pressed={view === "table"} onClick={() => setView("table")}>
+            Vista de tabla
+          </Button>
+          <Button aria-pressed={view === "board"} onClick={() => setView("board")}>
+            Vista de embudo
+          </Button>
+        </div>
+      </div>
+
+      {view === "table" ? <OpportunityTableView /> : <OpportunityBoardView />}
+    </div>
+  );
+}
+
+// La vista de tabla, tal cual existía antes del toggle: mismo estado, mismos
+// filtros, mismas columnas. Solo cambió el lugar del título (ahora lo pone
+// OpportunityListPage, junto al toggle) y que el botón "Nueva oportunidad"
+// vive acá arriba de los filtros.
+function OpportunityTableView() {
   const { me } = useAuth();
   // Ocultar acciones de escritura y la columna Propietario para no-ADMIN es
   // cortesía de UX / respeto al contrato de autorización real: GET
@@ -154,14 +138,11 @@ export function OpportunityListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Oportunidades</h1>
-        {isAdmin ? (
-          <Link to="/opportunities/new" className="ds-link-button">
-            Nueva oportunidad
-          </Link>
-        ) : null}
-      </div>
+      {isAdmin ? (
+        <Link to="/opportunities/new" className="ds-link-button">
+          Nueva oportunidad
+        </Link>
+      ) : null}
 
       {/* Los mismos filtros que ya existían, con el look del sistema. El
           diseño muestra además Etapa y Propietario, y no muestra el orden:
@@ -321,30 +302,10 @@ export function OpportunityListPage() {
               return (
                 <tr key={opportunity.id}>
                   <td>{opportunity.title}</td>
-                  {/* Empresa y Contacto son independientes en el backend y
-                      pueden coexistir; el diseño solo muestra uno pero acá
-                      no se descarta ninguno: con ambos, dos líneas apiladas;
-                      con uno, ese; sin ninguno, "—". Un id que no se pudo
-                      resolver muestra "—" en su línea, nunca el UUID. */}
+                  {/* Empresa y/o Contacto, con el criterio de
+                      OpportunityAssociation (compartido con el embudo). */}
                   <td>
-                    {companyName === null && contactName === null ? (
-                      "—"
-                    ) : (
-                      <span className="ds-cell-stack">
-                        {companyName !== null ? (
-                          <span className="ds-cell-with-icon">
-                            <BuildingIcon />
-                            <span>{companyName}</span>
-                          </span>
-                        ) : null}
-                        {contactName !== null ? (
-                          <span className="ds-cell-with-icon">
-                            <PersonIcon />
-                            <span>{contactName}</span>
-                          </span>
-                        ) : null}
-                      </span>
-                    )}
+                    <OpportunityAssociation companyName={companyName} contactName={contactName} />
                   </td>
                   <td>
                     <Badge variant="neutral">

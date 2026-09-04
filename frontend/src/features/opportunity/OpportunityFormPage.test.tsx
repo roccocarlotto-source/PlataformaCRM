@@ -131,6 +131,31 @@ describe("OpportunityFormPage", () => {
     });
   });
 
+  // El "+ Añadir" de una columna del embudo llega con pipelineId y stageId
+  // en la query string (OpportunityBoardView): el formulario los toma como
+  // valor inicial en creación, y siguen siendo editables.
+  it("create: ?pipelineId&stageId preseleccionan Pipeline y Etapa", async () => {
+    let postedBody: unknown;
+    server.use(
+      ...baseHandlers(),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new?pipelineId=pl2&stageId=st2");
+
+    await waitFor(() => expect(screen.getByLabelText("Pipeline")).toHaveValue("pl2"));
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("st2"));
+
+    await user.type(screen.getByLabelText("Título"), "Desde el embudo");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("lista de oportunidades")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({ pipelineId: "pl2", stageId: "st2" });
+  });
+
   it("create: falta Company y Contact → se muestra el mensaje real del backend, no navega", async () => {
     server.use(
       ...baseHandlers(),
