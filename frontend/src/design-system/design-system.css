@@ -873,3 +873,247 @@ a.ds-button--secondary:hover {
 .ds-field > .ds-button {
   margin-top: var(--space-2);
 }
+
+/* ---------------------------------------------------------------------------
+   Segmented control — dos o tres opciones excluyentes en una misma pieza
+   (Vista de tabla / Vista de embudo). Son <button aria-pressed>, no radios:
+   cambian una vista, no un dato de formulario. La opción activa lleva el
+   tratamiento de la acción primaria (monocromática), como el ítem de nav
+   activo. Primer consumidor: features/opportunity/OpportunityListPage.tsx.
+   --------------------------------------------------------------------------- */
+.ds-segmented {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.ds-segmented .ds-button {
+  height: var(--control-height-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.ds-segmented .ds-button:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+}
+
+.ds-segmented .ds-button[aria-pressed="true"] {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+   Tablero (embudo de oportunidades) — features/opportunity/
+   OpportunityBoardView.tsx. Medidas del export "Pipeline CRM": columnas de
+   296px con scroll horizontal, una barra de 2px arriba de cada columna
+   (neutra, o verde/roja en las etapas ganada/perdida), pill de conteo al
+   lado del nombre, footer "Total" sobre superficie hundida y tarjetas con
+   la sombra suave del sistema. El color de la barra sale de isWon/isLost
+   de la etapa real, nunca de su nombre.
+   --------------------------------------------------------------------------- */
+.ds-board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+
+.ds-board-toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.ds-board-toolbar label {
+  margin-bottom: 0;
+}
+
+.ds-board-toolbar input,
+.ds-board-toolbar select {
+  margin-top: var(--space-1);
+  max-width: 16rem;
+}
+
+.ds-board-summary {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.ds-board {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  overflow-x: auto;
+  padding-bottom: var(--space-3);
+}
+
+.ds-board-column {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: 296px;
+  min-height: 240px;
+  border-radius: var(--radius-md);
+}
+
+/* Columna que está recibiendo un arrastre. */
+.ds-board-column--over {
+  background: var(--color-accent-soft);
+}
+
+.ds-board-column-bar {
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-border-strong);
+  flex: none;
+}
+
+.ds-board-column--won .ds-board-column-bar {
+  background: var(--color-success);
+}
+
+.ds-board-column--lost .ds-board-column-bar {
+  background: var(--color-danger);
+}
+
+.ds-board-column-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 2px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.ds-board-column-title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+.ds-board-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-board-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 2px var(--space-1);
+  flex: 1;
+}
+
+.ds-board-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  cursor: grab;
+  touch-action: none;
+  transition:
+    box-shadow 180ms ease,
+    border-color 120ms ease;
+}
+
+.ds-board-card:hover {
+  box-shadow: 0 6px 16px rgba(27, 27, 24, 0.1);
+  border-color: var(--color-border-strong);
+}
+
+.ds-board-card--dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-overlay);
+  position: relative;
+  z-index: 1;
+}
+
+.ds-board-card-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ds-board-card-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.ds-board-card-title a:hover {
+  text-decoration: underline;
+}
+
+.ds-board-card-meta {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.ds-board-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.ds-board-card-amount {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-board-add {
+  margin: var(--space-2) 2px 0;
+  height: var(--control-height-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  border-style: dashed;
+  text-decoration: none;
+}
+
+.ds-board-column-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: 10px;
+  padding: 10px var(--space-3);
+  background: var(--color-surface-muted);
+  border-top: 1px solid var(--color-border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.ds-board-column-total strong {
+  font-family: var(--font-display);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}

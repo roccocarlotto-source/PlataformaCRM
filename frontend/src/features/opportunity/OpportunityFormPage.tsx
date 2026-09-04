@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -157,9 +157,23 @@ export function OpportunityFormPage() {
   const createOpportunityMutation = useCreateOpportunity();
   const updateOpportunityMutation = useUpdateOpportunity(id ?? "");
 
+  // Solo en creación: el "+ Añadir" de una columna del embudo llega con
+  // pipelineId y stageId en la query string para no tener que elegirlos
+  // de nuevo. Son un valor inicial derivado, igual que EMPTY_FORM — el
+  // usuario puede cambiarlos, y un id que no exista lo rechaza el backend
+  // con su propio mensaje, como cualquier otro. En edición se ignoran.
+  const [searchParams] = useSearchParams();
+  const initialValues: OpportunityFormValues = isEditMode
+    ? EMPTY_FORM
+    : {
+        ...EMPTY_FORM,
+        pipelineId: searchParams.get("pipelineId") ?? undefined,
+        stageId: searchParams.get("stageId") ?? undefined,
+      };
+
   const [values, setValues] = useFormDraft<OpportunityFormValues>(
     opportunityQuery.data?.id,
-    opportunityQuery.data ? toFormValues(opportunityQuery.data) : EMPTY_FORM,
+    opportunityQuery.data ? toFormValues(opportunityQuery.data) : initialValues,
   );
   const [error, setError] = useState<string | null>(null);
 

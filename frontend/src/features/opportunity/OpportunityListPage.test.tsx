@@ -362,4 +362,62 @@ describe("OpportunityListPage", () => {
     expect(screen.queryByText("Editar")).not.toBeInTheDocument();
     expect(screen.queryByText("Eliminar")).not.toBeInTheDocument();
   });
+
+  // El toggle Tabla/Embudo. La vista de embudo en sí (columnas, drag & drop,
+  // PATCH) se prueba en OpportunityBoardView.test.tsx; acá solo que el
+  // toggle cambia de vista sin romper la tabla: arranca en "Tabla" (los
+  // tests de arriba no cambiaron en nada por el toggle), al pasar a
+  // "Embudo" desaparecen los filtros de tabla y aparece el encabezado del
+  // tablero, y al volver la tabla vuelve con sus filtros.
+  it("el toggle pasa de la vista de tabla a la de embudo y vuelve, sin romper la tabla", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(opportunitiesUrl, () =>
+        HttpResponse.json({
+          data: [makeOpportunity({ pipelineId: "pl1", stageId: "st1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      // El tablero pide las etapas del pipeline autoseleccionado.
+      http.get(stagesUrl, () =>
+        HttpResponse.json({
+          data: [makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+      usersHandler(),
+      ...relationHandlers(),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+
+    // Default: tabla, con sus filtros.
+    await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Vista de tabla" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByLabelText("Estado")).toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Vista de embudo" }));
+
+    expect(screen.getByRole("button", { name: "Vista de embudo" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.queryByLabelText("Estado")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Buscar oportunidad…")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "Prospecto" })).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Vista de tabla" }));
+
+    expect(screen.getByLabelText("Estado")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
+    expect(screen.getByText("Renovación anual")).toBeInTheDocument();
+  });
 });
