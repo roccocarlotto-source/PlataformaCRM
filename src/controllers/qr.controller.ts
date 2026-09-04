@@ -1,7 +1,6 @@
 import type { Response } from "express";
 import { z } from "zod";
 import {
-  claimQrCode,
   createDigitalQrCode,
   deleteQrCode,
   listQrCodes,
@@ -50,8 +49,6 @@ const messageSchema = z
   .nullable()
   .transform((valor) => (valor === null || valor.length === 0 ? null : valor));
 
-const qrTypeSchema = z.enum(["REUSABLE", "SINGLE_USE"]);
-
 const createFields = {
   branchId: z.string().uuid("branchId inválido"),
   name: nameSchema,
@@ -59,22 +56,14 @@ const createFields = {
   message: messageSchema.optional().default(null),
 };
 
-export const claimQrSchema = z.object({
-  qrId: z.string().uuid("qrId inválido"),
-  ...createFields,
-});
+// Único camino de creación desde 20260904120000_remove_qr_claim_and_single_use:
+// ya no existe el claim de un QR físico ni la elección de qrType — todo QR
+// nace digital y reusable.
+export const createDigitalQrSchema = z.object(createFields);
 
-// qrType solo acá: un QR digital es el único camino por el que puede nacer un
-// SINGLE_USE (0015 original). El default REUSABLE conserva el comportamiento
-// de todo caller que no lo pase.
-export const createDigitalQrSchema = z.object({
-  ...createFields,
-  qrType: qrTypeSchema.default("REUSABLE"),
-});
-
-// PATCH parcial: cada campo opcional, message además anulable. qrType no está
-// — es inmutable por construcción. branchId tampoco: mover un QR de sucursal
-// no es una operación del original ni de esta fase.
+// PATCH parcial: cada campo opcional, message además anulable. branchId no
+// está: mover un QR de sucursal no es una operación del original ni de esta
+// fase.
 export const updateQrSchema = z
   .object({
     name: nameSchema,
@@ -93,12 +82,6 @@ export const listQrQuerySchema = z.object({
   branchId: z.string().uuid("branchId inválido").optional(),
   sortBy: z.enum(["createdAt", "displayNumber"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
-});
-
-export const claimQrHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
-  const input = parseOrThrow(claimQrSchema, req.body);
-  const qrCode = await claimQrCode(req.auth.organizationId, input);
-  res.status(201).json(qrCode);
 });
 
 export const createDigitalQrHandler = asyncHandler<AuthenticatedRequest>(

@@ -6,22 +6,20 @@ import { prisma } from "../lib/prisma";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
 import { createBranch } from "./branch.service";
-import {
-  claimQrCode,
-  createDigitalQrCode,
-  deleteQrCode,
-  listQrCodes,
-  updateQrCode,
-} from "./qr.service";
+import { createDigitalQrCode, deleteQrCode, listQrCodes, updateQrCode } from "./qr.service";
 
 // ---------------------------------------------------------------------------
-// claim / digital / listar / editar / borrar contra Postgres real
+// digital / listar / editar / borrar contra Postgres real
 // (docs/qr-integration.md, Fase 2 — "Verificación"). Lo que no se puede probar
-// sin base: el aislamiento entre organizaciones, el 409 del id ya reclamado, el
-// contador de display_number bajo concurrencia real y su rollback, y la
-// anti-enumeración de PATCH/DELETE.
+// sin base: el aislamiento entre organizaciones, el contador de display_number
+// bajo concurrencia real y su rollback, y la anti-enumeración de PATCH/DELETE.
 //
 // CADA TEST TRAE SU PROPIA ORGANIZACIÓN, igual que booking-config.
+//
+// HASTA 20260904120000_remove_qr_claim_and_single_use este archivo también
+// probaba claimQrCode (el claim de un QR físico) y qrType — se eliminaron
+// junto con esas funcionalidades. Ver docs/qr-integration.md, sección "Qué se
+// desvió".
 // ---------------------------------------------------------------------------
 
 const TZ = "America/Argentina/Buenos_Aires";
@@ -72,77 +70,15 @@ function digital(e: Escenario, extra: Partial<Parameters<typeof createDigitalQrC
     name: "Mostrador",
     destinationUrl: DESTINO,
     message: null,
-    qrType: "REUSABLE",
     ...extra,
   });
 }
 
-// ---------------------------------------------------------------------------
-// Claim de un QR físico (decisión 4: INSERT con el id del sticker)
-// ---------------------------------------------------------------------------
-
-test("claim: la fila nace en el claim con el id del sticker, ya reclamada, REUSABLE y con display_number 1", async () => {
-  const e = await montar("claim");
-  try {
-    const qrId = randomUUID();
-    const qr = await claimQrCode(e.organizationId, {
-      qrId,
-      branchId: e.branchId,
-      name: "Mesa 1",
-      destinationUrl: DESTINO,
-      message: null,
-    });
-    assert.equal(qr.id, qrId);
-    assert.equal(qr.organizationId, e.organizationId);
-    assert.equal(qr.branchId, e.branchId);
-    assert.equal(qr.qrType, "REUSABLE");
-    assert.equal(qr.displayNumber, 1);
-    assert.notEqual(qr.claimedAt, null);
-    assert.equal(qr.usedAt, null);
-  } finally {
-    await desmontar(e);
-  }
-});
-
-test("claim: un id ya reclamado -> 409 genérico, aunque lo intente OTRA organización", async () => {
-  const a = await montar("claim-a");
-  const b = await montar("claim-b");
-  try {
-    const qrId = randomUUID();
-    const datos = { qrId, name: "Mesa", destinationUrl: DESTINO, message: null };
-    await claimQrCode(a.organizationId, { ...datos, branchId: a.branchId });
-
-    const mismaOrg = await capturar(() =>
-      claimQrCode(a.organizationId, { ...datos, branchId: a.branchId }),
-    );
-    assertAppError(mismaOrg, 409, "QR ya reclamado o no existe");
-
-    const otraOrg = await capturar(() =>
-      claimQrCode(b.organizationId, { ...datos, branchId: b.branchId }),
-    );
-    assertAppError(otraOrg, 409, "QR ya reclamado o no existe");
-
-    // Y sigue siendo de A, intacto.
-    const fila = await prisma.qrCode.findUnique({ where: { id: qrId } });
-    assert.equal(fila?.organizationId, a.organizationId);
-  } finally {
-    await desmontar(a, b);
-  }
-});
-
-test("claim/digital: no se puede asociar a una Branch ajena — mismo 400 que resource.service, sin confirmar que exista", async () => {
+test("digital: no se puede asociar a una Branch ajena o inexistente — mismo 400 que resource.service, sin confirmar que exista", async () => {
   const a = await montar("branch-a");
   const b = await montar("branch-b");
   try {
-    const ajena = await capturar(() =>
-      claimQrCode(a.organizationId, {
-        qrId: randomUUID(),
-        branchId: b.branchId,
-        name: "Mesa",
-        destinationUrl: DESTINO,
-        message: null,
-      }),
-    );
+    const ajena = await capturar(() => digital(a, { branchId: b.branchId }));
     assertAppError(ajena, 400, "La sucursal indicada no existe o no pertenece a tu organización");
 
     const inexistente = await capturar(() => digital(a, { branchId: randomUUID() }));
@@ -162,48 +98,30 @@ test("claim/digital: no se puede asociar a una Branch ajena — mismo 400 que re
 // display_number (DEC-064/066)
 // ---------------------------------------------------------------------------
 
-test("display_number: secuencial por organización, no global; digital y claim comparten el contador", async () => {
+test("display_number: secuencial por organización, no global", async () => {
   const a = await montar("num-a");
   const b = await montar("num-b");
   try {
     const a1 = await digital(a);
-    const a2 = await claimQrCode(a.organizationId, {
-      qrId: randomUUID(),
-      branchId: a.branchId,
-      name: "Físico",
-      destinationUrl: DESTINO,
-      message: null,
-    });
     const b1 = await digital(b);
-    const a3 = await digital(a);
+    const a2 = await digital(a);
 
-    assert.deepEqual([a1.displayNumber, a2.displayNumber, a3.displayNumber], [1, 2, 3]);
+    assert.deepEqual([a1.displayNumber, a2.displayNumber], [1, 2]);
     assert.equal(b1.displayNumber, 1, "el contador es por organización");
 
     const org = await prisma.organization.findUnique({ where: { id: a.organizationId } });
-    assert.equal(org?.nextQrDisplayNumber, 4);
+    assert.equal(org?.nextQrDisplayNumber, 3);
   } finally {
     await desmontar(a, b);
   }
 });
 
-test("display_number: un claim que falla NO quema el número (la transacción revierte el incremento)", async () => {
+test("display_number: una creación que falla por sucursal ajena NO quema el número (la transacción revierte el incremento)", async () => {
   const e = await montar("num-rollback");
   try {
     const primero = await digital(e);
     assert.equal(primero.displayNumber, 1);
 
-    // Falla por id ya reclamado (409) y por sucursal ajena (400): ninguna de las
-    // dos tiene que mover el contador.
-    await capturar(() =>
-      claimQrCode(e.organizationId, {
-        qrId: primero.id,
-        branchId: e.branchId,
-        name: "x",
-        destinationUrl: DESTINO,
-        message: null,
-      }),
-    );
     await capturar(() => digital(e, { branchId: randomUUID() }));
 
     const org = await prisma.organization.findUnique({ where: { id: e.organizationId } });
@@ -303,10 +221,10 @@ test("listar: solo los QRs de la organización, sin los borrados, con filtro por
   }
 });
 
-test("editar: cambia name/destinationUrl/message, message se puede vaciar, qrType no se toca", async () => {
+test("editar: cambia name/destinationUrl/message, message se puede vaciar", async () => {
   const e = await montar("update");
   try {
-    const qr = await digital(e, { message: "hola", qrType: "SINGLE_USE" });
+    const qr = await digital(e, { message: "hola" });
 
     const editado = await updateQrCode(e.organizationId, qr.id, {
       name: "Caja",
@@ -315,7 +233,6 @@ test("editar: cambia name/destinationUrl/message, message se puede vaciar, qrTyp
     assert.equal(editado.name, "Caja");
     assert.equal(editado.destinationUrl, "https://instagram.com/x");
     assert.equal(editado.message, "hola", "un campo no enviado no cambia");
-    assert.equal(editado.qrType, "SINGLE_USE");
 
     const sinMensaje = await updateQrCode(e.organizationId, qr.id, { message: null });
     assert.equal(sinMensaje.message, null);

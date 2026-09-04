@@ -1,4 +1,4 @@
-import type { Prisma, QrType } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
@@ -12,7 +12,7 @@ import { prisma, type Db } from "../lib/prisma";
 //
 // Lo único que NO está scoped por organización es la lectura PÚBLICA de
 // resolución (findQrCodePublicState): ahí el id del QR es la única clave, por
-// construcción — un teléfono que escanea el sticker no pertenece a ninguna
+// construcción — un link que se abre desde afuera no pertenece a ninguna
 // organización. Esa función devuelve solo lo que el endpoint público necesita
 // para decidir, nunca la fila entera.
 // ---------------------------------------------------------------------------
@@ -69,21 +69,16 @@ export function findQrCodeById(id: string, organizationId: string, db: Db = pris
 }
 
 export interface CreateQrCodeData {
-  // Solo para el claim de un QR físico: es el id que ya está impreso en el
-  // sticker (decisión 4 de docs/qr-integration.md). Un QR digital no lo pasa y
-  // toma el gen_random_uuid() del default.
-  id?: string;
   organizationId: string;
   branchId: string;
   displayNumber: number;
   name: string;
   destinationUrl: string;
   message: string | null;
-  qrType: QrType;
 }
 
 export function createQrCode(data: CreateQrCodeData, db: Db = prisma) {
-  return db.qrCode.create({ data: { ...data, claimedAt: new Date() } });
+  return db.qrCode.create({ data });
 }
 
 export interface UpdateQrCodeData {
@@ -116,18 +111,15 @@ export function softDeleteQrCode(id: string, organizationId: string, db: Db = pr
 // ---------------------------------------------------------------------------
 // Lectura pública — equivalente a get_qr_public_state (0015 original).
 //
-// Devuelve null para "no existe" / "sin branch" / "borrado", indistinguibles
-// entre sí (DEC-007). destinationUrl se devuelve solo para un REUSABLE: el GET
-// público no tiene ningún motivo legítimo para tener ese valor antes del
-// consentimiento de un single-use, así que esta función no lo entrega aunque
-// el controller tuviera un bug en su branching (defensa en profundidad).
+// Devuelve null para "no existe" / "borrado", indistinguibles entre sí
+// (DEC-007). Desde 20260904120000_remove_qr_claim_and_single_use ya no hay
+// single-use ni "Stock" (branchId es NOT NULL): todo QR encontrado es
+// reusable, así que el único estado que queda es "puede redirigir" o no.
 // ---------------------------------------------------------------------------
 
 export interface QrPublicState {
-  qrType: QrType;
-  isUsed: boolean;
   canRedirect: boolean;
-  destinationUrl: string | null;
+  destinationUrl: string;
 }
 
 export async function findQrCodePublicState(
@@ -137,57 +129,19 @@ export async function findQrCodePublicState(
   const row = await db.qrCode.findUnique({
     where: { id },
     select: {
-      branchId: true,
       deletedAt: true,
-      qrType: true,
-      usedAt: true,
       destinationUrl: true,
       organization: { select: { qrSubscriptionStatus: true, qrBillingExempt: true } },
     },
   });
 
-  if (!row || row.branchId === null || row.deletedAt !== null) {
+  if (!row || row.deletedAt !== null) {
     return null;
   }
 
   return {
-    qrType: row.qrType,
-    isUsed: row.usedAt !== null,
     canRedirect:
       row.organization.qrSubscriptionStatus === "ACTIVE" || row.organization.qrBillingExempt,
-    destinationUrl: row.qrType === "REUSABLE" ? row.destinationUrl : null,
+    destinationUrl: row.destinationUrl,
   };
-}
-
-// ---------------------------------------------------------------------------
-// Consumo atómico de un single-use — equivalente a consume_single_use_qr
-// (0015 original). UN solo UPDATE, sin ventana SELECT-then-UPDATE: el chequeo
-// de suscripción vive en el mismo WHERE que el de usedAt, así que "inactiva" y
-// "ya usado" se resuelven en la misma operación atómica — un intento con la
-// organización inactiva NO consume el QR (0 filas, igual que ya usado; el
-// llamador no puede distinguir cuál falló desde acá, a propósito: relee el
-// estado real con findQrCodePublicState).
-//
-// Dos POST concurrentes al mismo id: el row lock del UPDATE los serializa — el
-// segundo, cuando puede seguir, reevalúa `used_at IS NULL` contra el resultado
-// ya commiteado del primero y no matchea ninguna fila.
-//
-// Los literales del enum ('SINGLE_USE', 'ACTIVE') se castean solos al tipo de
-// la columna — mismo criterio que los CHECK de 20260903120000.
-// ---------------------------------------------------------------------------
-export async function consumeSingleUseQrCode(id: string, db: Db = prisma): Promise<string | null> {
-  const filas = await db.$queryRaw<{ destination_url: string | null }[]>`
-    UPDATE qr_codes qc
-    SET used_at = now()
-    FROM organizations o
-    WHERE qc.id = ${id}::uuid
-      AND o.id = qc.organization_id
-      AND qc.branch_id IS NOT NULL
-      AND qc.qr_type = 'SINGLE_USE'
-      AND qc.deleted_at IS NULL
-      AND qc.used_at IS NULL
-      AND (o.qr_subscription_status = 'ACTIVE' OR o.qr_billing_exempt)
-    RETURNING qc.destination_url
-  `;
-  return filas.length > 0 ? filas[0].destination_url : null;
 }

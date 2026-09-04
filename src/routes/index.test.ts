@@ -111,10 +111,8 @@ test("las rutas autenticadas del módulo QR están montadas bajo /api", async ()
   const lista = await fetch(`${baseUrl}/api/qr`);
   assert.equal(lista.status, 401, "GET /api/qr no está montado");
 
-  for (const path of ["/api/qr/claim", "/api/qr/digital"]) {
-    const res = await fetch(`${baseUrl}${path}`, { method: "POST" });
-    assert.equal(res.status, 401, `POST ${path} no está montado`);
-  }
+  const digital = await fetch(`${baseUrl}/api/qr/digital`, { method: "POST" });
+  assert.equal(digital.status, 401, "POST /api/qr/digital no está montado");
 
   const patch = await fetch(`${baseUrl}/api/qr/${randomUUID()}`, { method: "PATCH" });
   assert.equal(patch.status, 401, "PATCH /api/qr/:id no está montado");
@@ -138,14 +136,12 @@ test("la resolución pública de QR está montada SIN /api y sin authenticate", 
   // entorno, falla cerrado) con la MISMA landing que el controller usa para un
   // id malformado — para este test da igual cuál de los dos contestó: ambos
   // solo existen en la cadena de qrPublicRouter.
-  for (const method of ["GET", "POST"]) {
-    const res = await fetch(`${baseUrl}/qr/resolve/no-es-un-uuid`, { method });
-    assert.equal(res.status, 404, `${method} /qr/resolve/:qrId no está montado`);
-    assert.ok(
-      res.headers.get("content-type")?.startsWith("text/html"),
-      `${method}: respondió la landing HTML, no el notFound genérico`,
-    );
-  }
+  const res = await fetch(`${baseUrl}/qr/resolve/no-es-un-uuid`);
+  assert.equal(res.status, 404, "GET /qr/resolve/:qrId no está montado");
+  assert.ok(
+    res.headers.get("content-type")?.startsWith("text/html"),
+    "respondió la landing HTML, no el notFound genérico",
+  );
 });
 
 test("el webhook de MercadoPago está montado en app.ts, ANTES del express.json() global, sin /api", async () => {

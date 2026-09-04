@@ -1,18 +1,17 @@
-import {
-  consumeSingleUseQrCode,
-  findQrCodePublicState,
-  type QrPublicState,
-} from "../repositories/qrCode.repository";
+import { findQrCodePublicState, type QrPublicState } from "../repositories/qrCode.repository";
 
 // ---------------------------------------------------------------------------
-// Resolución pública de un QR — la lógica detrás de GET/POST /qr/resolve/:qrId
-// (puerto de resolve/index.ts + get_qr_public_state + consume_single_use_qr
-// del original; docs/qr-integration.md, Fase 2).
+// Resolución pública de un QR — la lógica detrás de GET /qr/resolve/:qrId
+// (puerto de resolve/index.ts + get_qr_public_state del original;
+// docs/qr-integration.md, Fase 2).
 //
 // Este service no sabe de HTML ni de HTTP: devuelve un estado y el controller
-// decide qué página o qué redirect corresponde. Así el "árbol de estados" que
-// la guía enumera vive en UN lugar (renderizado) y la lectura/escritura contra
-// la base en otro.
+// decide qué página o qué redirect corresponde.
+//
+// HASTA 20260904120000_remove_qr_claim_and_single_use este archivo también
+// tenía consumeSingleUseQr (el POST del botón "Continuar" de un QR de un solo
+// uso). Se eliminó junto con el resto del single-use — ver
+// docs/qr-integration.md, sección "Qué se desvió".
 // ---------------------------------------------------------------------------
 
 // Mismo regex que _shared/validation.ts del original. Un id que no es UUID se
@@ -34,16 +33,4 @@ export async function getQrPublicState(qrId: string): Promise<QrPublicState | nu
     return null;
   }
   return findQrCodePublicState(qrId);
-}
-
-// Consumo de un single-use (el POST del botón "Continuar"). Devuelve la URL de
-// destino si consumió, o null si no había nada que consumir — reusable, ya
-// usado, organización inactiva, borrado o inexistente, todos iguales: el
-// controller relee el estado real con getQrPublicState para renderizar lo que
-// corresponda, exactamente como el original.
-export async function consumeSingleUseQr(qrId: string): Promise<string | null> {
-  if (!isUuid(qrId)) {
-    return null;
-  }
-  return consumeSingleUseQrCode(qrId);
 }
