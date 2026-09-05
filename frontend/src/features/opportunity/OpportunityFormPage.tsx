@@ -227,123 +227,166 @@ export function OpportunityFormPage() {
     );
   }
 
+  // Restyle según "Nueva oportunidad" de Claude Design con las piezas del
+  // restyle de Empresas (.ds-form, .ds-field-grid, .ds-required): las mismas
+  // tarjetas de antes, con los campos de a pares como en el export — Título a
+  // lo ancho, Empresa + Contacto; Pipeline + Etapa, (Monto + Moneda) + Fecha
+  // estimada, Propietario solo a media columna. El "*" va SOLO en Título, el
+  // único input con `required` real: el diseño también marca Embudo, Etapa,
+  // Monto y Propietario, pero acá esa validación la hace el backend a
+  // propósito (ver toCreateInput) y un asterisco sin validación en el cliente
+  // mentiría sobre qué pasa al dejarlos vacíos.
+  //
+  // Los dos textos de ayuda son del export y describen comportamiento real
+  // (EMPTY_FORM.status es "OPEN"; ganada/perdida se asignan desde el
+  // embudo), pero solo en creación: en edición la tarjeta "Estado y cierre"
+  // sí permite cerrar desde acá, y ahí serían falsos.
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="ds-form">
       <h1>{isEditMode ? "Editar oportunidad" : "Nueva oportunidad"}</h1>
+      {isEditMode ? null : (
+        <p className="ds-hint">Se crea abierta en la etapa elegida del embudo.</p>
+      )}
       <div className="ds-stack">
         <Card heading="Oportunidad">
-          <FormField label="Título">
-            <input
-              type="text"
-              value={values.title}
-              onChange={(event) => setValues({ ...values, title: event.target.value })}
-              required
+          <div className="ds-field-grid">
+            <div className="ds-field-grid--full">
+              <FormField label={<span className="ds-required">Título</span>}>
+                <input
+                  type="text"
+                  value={values.title}
+                  onChange={(event) => setValues({ ...values, title: event.target.value })}
+                  required
+                />
+              </FormField>
+            </div>
+            <CompanySelect
+              id="opportunity-form-company"
+              label="Empresa"
+              value={values.companyId}
+              onChange={handleCompanyChange}
             />
-          </FormField>
-          <CompanySelect
-            id="opportunity-form-company"
-            label="Empresa"
-            value={values.companyId}
-            onChange={handleCompanyChange}
-          />
-          <ContactSelect
-            id="opportunity-form-contact"
-            label="Contacto"
-            value={values.contactId}
-            onChange={handleContactChange}
-          />
+            <ContactSelect
+              id="opportunity-form-contact"
+              label="Contacto"
+              value={values.contactId}
+              onChange={handleContactChange}
+            />
+          </div>
         </Card>
 
         <Card heading="Embudo y valor">
-          <PipelineSelect
-            id="opportunity-form-pipeline"
-            label="Pipeline"
-            value={values.pipelineId}
-            onChange={handlePipelineChange}
-          />
-          <StageSelect
-            id="opportunity-form-stage"
-            label="Etapa"
-            pipelineId={values.pipelineId}
-            value={values.stageId}
-            onChange={(stageId) => setValues({ ...values, stageId })}
-          />
-          <div className="ds-field-row">
-            <FormField label="Monto">
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={values.amount}
-                onChange={(event) => setValues({ ...values, amount: event.target.value })}
-              />
-            </FormField>
-            <FormField label="Moneda">
-              <input
-                type="text"
-                maxLength={3}
-                pattern="[A-Z]{3}"
-                title="Código de 3 letras (ISO 4217), por ejemplo USD o UYU"
-                value={values.currency}
-                onChange={(event) =>
-                  setValues({ ...values, currency: normalizeCurrency(event.target.value) })
-                }
-              />
-            </FormField>
-          </div>
-          <FormField label="Fecha estimada de cierre">
-            <input
-              type="date"
-              value={values.expectedCloseDate}
-              onChange={(event) => setValues({ ...values, expectedCloseDate: event.target.value })}
+          <div className="ds-field-grid">
+            <PipelineSelect
+              id="opportunity-form-pipeline"
+              label="Pipeline"
+              value={values.pipelineId}
+              onChange={handlePipelineChange}
             />
-          </FormField>
-          <UserSelect
-            id="opportunity-form-owner"
-            label="Propietario"
-            value={values.ownerId}
-            onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
-          />
-        </Card>
-
-        {isEditMode ? (
-          <Card heading="Estado y cierre">
-            <FormField label="Estado">
-              <select
-                value={values.status}
-                onChange={(event) =>
-                  setValues({ ...values, status: event.target.value as OpportunityStatus })
-                }
-              >
-                <option value="OPEN">OPEN</option>
-                <option value="WON">WON</option>
-                <option value="LOST">LOST</option>
-              </select>
-            </FormField>
-            {/* Siempre visible y editable, sin importar status (ver
-                docs/project-overview.md: decisión de M5 corregida — el backend
-                no sincroniza lostReason con status, no se inventa esa
-                sincronización ni se oculta el campo). */}
-            <FormField label="Motivo de pérdida">
-              <input
-                type="text"
-                value={values.lostReason}
-                onChange={(event) => setValues({ ...values, lostReason: event.target.value })}
-              />
-            </FormField>
-            <p className="ds-hint">Especialmente relevante cuando el estado es LOST.</p>
-            <FormField label="Fecha real de cierre">
+            <StageSelect
+              id="opportunity-form-stage"
+              label="Etapa"
+              pipelineId={values.pipelineId}
+              value={values.stageId}
+              onChange={(stageId) => setValues({ ...values, stageId })}
+            />
+            {/* Monto + Moneda siguen en su .ds-field-row, que acá es una
+                celda de la grilla: la fila queda (Monto | Moneda) | Fecha. */}
+            <div className="ds-field-row">
+              <FormField label="Monto">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={values.amount}
+                  onChange={(event) => setValues({ ...values, amount: event.target.value })}
+                />
+              </FormField>
+              <FormField label="Moneda">
+                <input
+                  type="text"
+                  maxLength={3}
+                  pattern="[A-Z]{3}"
+                  title="Código de 3 letras (ISO 4217), por ejemplo USD o UYU"
+                  value={values.currency}
+                  onChange={(event) =>
+                    setValues({ ...values, currency: normalizeCurrency(event.target.value) })
+                  }
+                />
+              </FormField>
+            </div>
+            <FormField label="Fecha estimada de cierre">
               <input
                 type="date"
-                value={values.actualCloseDate}
-                onChange={(event) => setValues({ ...values, actualCloseDate: event.target.value })}
+                value={values.expectedCloseDate}
+                onChange={(event) =>
+                  setValues({ ...values, expectedCloseDate: event.target.value })
+                }
               />
             </FormField>
+            <UserSelect
+              id="opportunity-form-owner"
+              label="Propietario"
+              value={values.ownerId}
+              onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+            />
+          </div>
+        </Card>
+
+        {/* Sin mockup: el diseño cierra desde el embudo. Misma grilla por
+            criterio propio — Estado + Motivo de pérdida como par, el hint a
+            lo ancho debajo de los dos (suelto ocuparía una celda), Fecha real
+            sola. */}
+        {isEditMode ? (
+          <Card heading="Estado y cierre">
+            <div className="ds-field-grid">
+              <FormField label="Estado">
+                <select
+                  value={values.status}
+                  onChange={(event) =>
+                    setValues({ ...values, status: event.target.value as OpportunityStatus })
+                  }
+                >
+                  <option value="OPEN">OPEN</option>
+                  <option value="WON">WON</option>
+                  <option value="LOST">LOST</option>
+                </select>
+              </FormField>
+              {/* Siempre visible y editable, sin importar status (ver
+                  docs/project-overview.md: decisión de M5 corregida — el backend
+                  no sincroniza lostReason con status, no se inventa esa
+                  sincronización ni se oculta el campo). */}
+              <FormField label="Motivo de pérdida">
+                <input
+                  type="text"
+                  value={values.lostReason}
+                  onChange={(event) => setValues({ ...values, lostReason: event.target.value })}
+                />
+              </FormField>
+              <p className="ds-hint ds-field-grid--full">
+                Especialmente relevante cuando el estado es LOST.
+              </p>
+              <FormField label="Fecha real de cierre">
+                <input
+                  type="date"
+                  value={values.actualCloseDate}
+                  onChange={(event) =>
+                    setValues({ ...values, actualCloseDate: event.target.value })
+                  }
+                />
+              </FormField>
+            </div>
           </Card>
         ) : null}
 
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
+          {isEditMode ? null : (
+            <p className="ds-hint">
+              La oportunidad arranca abierta. Cerrarla como ganada o perdida se hace desde el
+              embudo.
+            </p>
+          )}
           <Button type="submit" variant="primary" disabled={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
