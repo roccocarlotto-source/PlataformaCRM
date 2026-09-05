@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
+import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -142,83 +143,102 @@ export function ContactFormPage() {
     );
   }
 
+  // Restyle según "Nuevo contacto CRM" de Claude Design, con las piezas que
+  // dejó el restyle de Empresas (Card, .ds-form, .ds-field-grid,
+  // .ds-required): una tarjeta con los campos de a pares en el orden del
+  // diseño — Nombre + Apellido, Email + Teléfono, Puesto + Empresa, Fuente +
+  // Etapa, Propietario solo en la última fila (a media columna, como en el
+  // export). El "*" va SOLO en los dos campos que de verdad llevan `required`
+  // (Nombre, Apellido); el diseño también marca Email pero el formulario no
+  // lo exige y no se inventa esa validación. Fuente sigue siendo texto libre
+  // aunque el diseño lo dibuje como desplegable: no hay opciones reales que
+  // ofrecer. La segunda tarjeta "Campos personalizados" del export no existe
+  // en Contact. Guardar sigue al pie, como en el resto de los módulos.
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="ds-form">
       <h1>{isEditMode ? "Editar contacto" : "Nuevo contacto"}</h1>
-      <FormField label="Nombre">
-        <input
-          type="text"
-          value={values.firstName}
-          onChange={(event) => setValues({ ...values, firstName: event.target.value })}
-          required
-        />
-      </FormField>
-      <FormField label="Apellido">
-        <input
-          type="text"
-          value={values.lastName}
-          onChange={(event) => setValues({ ...values, lastName: event.target.value })}
-          required
-        />
-      </FormField>
-      <FormField label="Email">
-        <input
-          type="email"
-          value={values.email}
-          onChange={(event) => setValues({ ...values, email: event.target.value })}
-        />
-      </FormField>
-      <FormField label="Teléfono">
-        <input
-          type="text"
-          value={values.phone}
-          onChange={(event) => setValues({ ...values, phone: event.target.value })}
-        />
-      </FormField>
-      <FormField label="Puesto">
-        <input
-          type="text"
-          value={values.jobTitle}
-          onChange={(event) => setValues({ ...values, jobTitle: event.target.value })}
-        />
-      </FormField>
-      <FormField label="Etapa">
-        <select
-          value={values.lifecycleStage}
-          onChange={(event) =>
-            setValues({ ...values, lifecycleStage: event.target.value as LifecycleStage })
-          }
-        >
-          <option value="LEAD">LEAD</option>
-          <option value="MQL">MQL</option>
-          <option value="SQL">SQL</option>
-          <option value="CUSTOMER">CUSTOMER</option>
-          <option value="CHURNED">CHURNED</option>
-        </select>
-      </FormField>
-      <FormField label="Fuente">
-        <input
-          type="text"
-          value={values.source}
-          onChange={(event) => setValues({ ...values, source: event.target.value })}
-        />
-      </FormField>
-      <CompanySelect
-        id="contact-form-company"
-        label="Empresa"
-        value={values.companyId}
-        onChange={(companyId) => setValues({ ...values, companyId })}
-      />
-      <UserSelect
-        id="contact-form-owner"
-        label="Propietario"
-        value={values.ownerId}
-        onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
-      />
-      {error ? <ErrorState>{error}</ErrorState> : null}
-      <Button type="submit" variant="primary" disabled={isSubmitting}>
-        {isSubmitting ? "Guardando…" : "Guardar"}
-      </Button>
+      <div className="ds-stack">
+        <Card heading="Datos del contacto">
+          <div className="ds-field-grid">
+            <FormField label={<span className="ds-required">Nombre</span>}>
+              <input
+                type="text"
+                value={values.firstName}
+                onChange={(event) => setValues({ ...values, firstName: event.target.value })}
+                required
+              />
+            </FormField>
+            <FormField label={<span className="ds-required">Apellido</span>}>
+              <input
+                type="text"
+                value={values.lastName}
+                onChange={(event) => setValues({ ...values, lastName: event.target.value })}
+                required
+              />
+            </FormField>
+            <FormField label="Email">
+              <input
+                type="email"
+                value={values.email}
+                onChange={(event) => setValues({ ...values, email: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Teléfono">
+              <input
+                type="text"
+                value={values.phone}
+                onChange={(event) => setValues({ ...values, phone: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Puesto">
+              <input
+                type="text"
+                value={values.jobTitle}
+                onChange={(event) => setValues({ ...values, jobTitle: event.target.value })}
+              />
+            </FormField>
+            <CompanySelect
+              id="contact-form-company"
+              label="Empresa"
+              value={values.companyId}
+              onChange={(companyId) => setValues({ ...values, companyId })}
+            />
+            <FormField label="Fuente">
+              <input
+                type="text"
+                value={values.source}
+                onChange={(event) => setValues({ ...values, source: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Etapa">
+              <select
+                value={values.lifecycleStage}
+                onChange={(event) =>
+                  setValues({ ...values, lifecycleStage: event.target.value as LifecycleStage })
+                }
+              >
+                <option value="LEAD">LEAD</option>
+                <option value="MQL">MQL</option>
+                <option value="SQL">SQL</option>
+                <option value="CUSTOMER">CUSTOMER</option>
+                <option value="CHURNED">CHURNED</option>
+              </select>
+            </FormField>
+            <UserSelect
+              id="contact-form-owner"
+              label="Propietario"
+              value={values.ownerId}
+              onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+            />
+          </div>
+        </Card>
+        {error ? <ErrorState>{error}</ErrorState> : null}
+        <div>
+          <Button type="submit" variant="primary" disabled={isSubmitting}>
+            {isSubmitting ? "Guardando…" : "Guardar"}
+          </Button>
+        </div>
+      </div>
     </form>
   );
 }
