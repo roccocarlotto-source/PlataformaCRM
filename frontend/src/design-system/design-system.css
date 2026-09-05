@@ -338,51 +338,184 @@ button:disabled {
   margin-bottom: 0;
 }
 
-/* ---------------------------------------------------------------------- */
-/* AppLayout — el shell que envuelve toda pantalla autenticada.            */
-/* ---------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   AppLayout — el shell que envuelve toda pantalla autenticada. Sidebar fija
+   a la izquierda + contenido a la derecha, en vez del header horizontal
+   anterior. Valores tomados de los estilos COMPUTADOS del sidebar de
+   Dashboard CRM.html (ancho 248px, ítem activo 36px/radius 10/bg
+   --color-primary, ítems 14px, rótulo de grupo 12px/600/letter-spacing
+   0.06em) — mismos tokens que ya usa el resto del sistema, ninguno nuevo.
+   El diseño original agrupa Contactos/Empresas/Embudo bajo un rótulo "CRM" y
+   tiene una segunda sección "Automatización"; acá los grupos son propios
+   (CRM / Actividad / QR / Administración) porque las secciones del mockup
+   corresponden a funciones que este producto no tiene — Rocco pidió que el
+   nav muestre solo lo que existe hoy (ver bitácora), nunca placeholders de
+   Conversaciones/Agentes IA/Calendario/etc. Los textos de cada link son los
+   mismos que ya cubre AppLayout.test.tsx: solo cambia la presentación.
+   ---------------------------------------------------------------------------*/
 
-.ds-app-header {
+.ds-shell {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-5);
+  height: 100%;
+  min-height: 100%;
+}
+
+.ds-sidebar {
+  width: 248px;
+  flex: 0 0 auto;
+  height: 100%;
   background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.ds-app-nav {
+  border-right: 1px solid var(--color-border);
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4);
+  flex-direction: column;
+  overflow-y: auto;
 }
 
-.ds-app-nav a {
+.ds-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text) !important;
+  text-decoration: none;
+}
+
+.ds-sidebar-brand-mark {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ds-sidebar-brand-name {
+  font-family: var(--font-display);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-sidebar-nav {
+  flex: 1 1 auto;
+  padding: var(--space-2) var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ds-sidebar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ds-sidebar-group-label {
+  padding: var(--space-4) var(--space-2) var(--space-1);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
+.ds-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
   color: var(--color-text-muted);
   text-decoration: none;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
+  font-size: var(--font-size-base);
+  font-weight: 400;
 }
 
-.ds-app-nav a:hover {
+.ds-sidebar-link svg {
+  flex: 0 0 auto;
+}
+
+.ds-sidebar-link:hover {
+  background: var(--color-surface-muted);
   color: var(--color-text);
 }
 
-.ds-app-brand {
-  font-weight: 700;
-  font-size: var(--font-size-base);
-  color: var(--color-text) !important;
+.ds-sidebar-link.is-active {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast) !important;
+  font-weight: 600;
 }
 
-.ds-app-account {
+.ds-sidebar-account {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.ds-sidebar-account-top {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  font-size: var(--font-size-sm);
+  gap: var(--space-2);
+}
+
+.ds-sidebar-account button {
+  width: 100%;
+}
+
+/* Círculo decorativo del pie de sidebar. A diferencia de Avatar.tsx (que
+   muestra iniciales como texto), acá es un ícono puramente decorativo: el
+   nombre real ya se muestra al lado en .ds-sidebar-account-name, y
+   duplicarlo como texto en el círculo rompería getByText en los tests
+   existentes de AppLayout cuando el nombre mockeado es una sola letra. */
+.ds-sidebar-account-mark {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
   color: var(--color-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ds-sidebar-account-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ds-sidebar-account-name {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-sidebar-account-role {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
+
+.ds-shell-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
 }
 
 /* ---------------------------------------------------------------------------
