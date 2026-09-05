@@ -1,5 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Badge, type BadgeVariant } from "../../design-system/Badge";
+import { Button } from "../../design-system/Button";
+import { EmptyState } from "../../design-system/EmptyState";
+import { ErrorState } from "../../design-system/ErrorState";
+import { LoadingState } from "../../design-system/LoadingState";
+import { Pagination } from "../../design-system/Pagination";
+import { Table } from "../../design-system/Table";
 import { useOwnerNames } from "../opportunity/relationResolution";
 import { useRevokeInvitation } from "./mutations";
 import { useInvitations } from "./queries";
@@ -8,6 +15,17 @@ import type { InvitationSortBy, InvitationStatus, SortOrder } from "./types";
 
 const PAGE_SIZE = 20;
 
+// Color del badge de estado, decidido acá y no en Badge (ver Badge.tsx):
+// Pendiente espera una acción (info, el acento), Aceptada salió bien
+// (success), Revocada fue cortada a propósito (danger), Vencida es un estado
+// inerte, no un error activo (neutral).
+const STATUS_BADGE: Record<InvitationStatus, BadgeVariant> = {
+  PENDING: "info",
+  ACCEPTED: "success",
+  REVOKED: "danger",
+  EXPIRED: "neutral",
+};
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString();
 }
@@ -15,6 +33,10 @@ function formatDate(iso: string): string {
 // Esta página es siempre ADMIN (AdminRoute la envuelve, ver router.tsx) —
 // GET /invitations es ADMIN-only en el propio contrato, a diferencia de
 // Activity. useOwnerNames(true) es seguro sin gating condicional acá.
+//
+// Restyle con criterio propio (sin export de referencia): mismas piezas que
+// PipelineListPage. Textos, rótulos y condiciones (Revocar solo en PENDING,
+// "—" para el rol, nombre resuelto del invitador) no cambian.
 export function InvitationListPage() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<InvitationStatus | "">("");
@@ -46,10 +68,14 @@ export function InvitationListPage() {
 
   return (
     <div>
-      <h1>Invitaciones</h1>
-      <Link to="/invitations/new">Invitar</Link>
+      <div className="ds-page-header">
+        <h1>Invitaciones</h1>
+        <Link to="/invitations/new" className="ds-link-button">
+          Invitar
+        </Link>
+      </div>
 
-      <div>
+      <div className="ds-filters">
         <label>
           Estado
           <select
@@ -77,39 +103,44 @@ export function InvitationListPage() {
             <option value="expiresAt">Vencimiento</option>
           </select>
         </label>
-        <select
-          value={sortOrder}
-          onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-        >
-          <option value="desc">Descendente</option>
-          <option value="asc">Ascendente</option>
-        </select>
+        {/* Antes era un <select> suelto sin rótulo; ahora lleva "Orden" como
+            en el resto de los listados. */}
+        <label>
+          Orden
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+          >
+            <option value="desc">Descendente</option>
+            <option value="asc">Ascendente</option>
+          </select>
+        </label>
       </div>
 
-      {invitationsQuery.isLoading ? <p>Cargando…</p> : null}
+      {invitationsQuery.isLoading ? <LoadingState /> : null}
 
       {invitationsQuery.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos cargar las invitaciones
           {invitationsQuery.error instanceof Error ? `: ${invitationsQuery.error.message}` : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {revokeInvitationMutation.isError ? (
-        <p role="alert">
+        <ErrorState>
           No pudimos revocar la invitación
           {revokeInvitationMutation.error instanceof Error
             ? `: ${revokeInvitationMutation.error.message}`
             : "."}
-        </p>
+        </ErrorState>
       ) : null}
 
       {invitationsQuery.isSuccess && rows.length === 0 ? (
-        <p>No hay invitaciones para mostrar.</p>
+        <EmptyState>No hay invitaciones para mostrar.</EmptyState>
       ) : null}
 
       {invitationsQuery.isSuccess && rows.length > 0 ? (
-        <table>
+        <Table>
           <thead>
             <tr>
               <th>Email</th>
@@ -124,54 +155,49 @@ export function InvitationListPage() {
           <tbody>
             {rows.map((invitation) => (
               <tr key={invitation.id}>
-                <td>{invitation.email}</td>
+                <td className="ds-cell-primary">{invitation.email}</td>
                 {/* roleId nunca se resuelve a nombre: no existe GET
                     /api/roles ni include en el contrato real (ver
                     types.ts) — "—" en vez de inventar un mapeo o mostrar
                     el UUID crudo. */}
-                <td>—</td>
-                <td>{INVITATION_STATUS_LABELS[invitation.status]}</td>
+                <td className="ds-cell-muted">—</td>
+                <td>
+                  <Badge variant={STATUS_BADGE[invitation.status]}>
+                    {INVITATION_STATUS_LABELS[invitation.status]}
+                  </Badge>
+                </td>
                 <td>{inviterNames.byId.get(invitation.invitedById) ?? "—"}</td>
-                <td>{formatDate(invitation.createdAt)}</td>
-                <td>{formatDate(invitation.expiresAt)}</td>
+                <td className="ds-cell-muted">{formatDate(invitation.createdAt)}</td>
+                <td className="ds-cell-muted">{formatDate(invitation.expiresAt)}</td>
                 <td>
                   {invitation.status === "PENDING" ? (
-                    <button
-                      type="button"
+                    <Button
+                      variant="danger"
                       onClick={() => handleRevoke(invitation.id)}
                       disabled={revokeInvitationMutation.isPending}
                     >
                       Revocar
-                    </button>
+                    </Button>
                   ) : null}
                 </td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       ) : null}
 
+      {/* Pagination renderiza los mismos textos ("Anterior", "Página X de
+          Y" con el mismo `|| 1`, "Siguiente") y el mismo disabled en los
+          extremos que la paginación a mano que había acá; el número de
+          página sale del estado local en vez de la respuesta, que es el
+          mismo valor porque la query se pide con ese `page`. */}
       {invitationsQuery.isSuccess ? (
-        <div>
-          <button
-            type="button"
-            disabled={page <= 1}
-            onClick={() => setPage((current) => current - 1)}
-          >
-            Anterior
-          </button>
-          <span>
-            Página {invitationsQuery.data.pagination.page} de{" "}
-            {invitationsQuery.data.pagination.totalPages || 1}
-          </span>
-          <button
-            type="button"
-            disabled={page >= invitationsQuery.data.pagination.totalPages}
-            onClick={() => setPage((current) => current + 1)}
-          >
-            Siguiente
-          </button>
-        </div>
+        <Pagination
+          page={page}
+          totalPages={invitationsQuery.data.pagination.totalPages}
+          onPrevious={() => setPage((current) => current - 1)}
+          onNext={() => setPage((current) => current + 1)}
+        />
       ) : null}
     </div>
   );
