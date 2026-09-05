@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { Avatar } from "../../design-system/Avatar";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -63,11 +65,18 @@ export function CompanyListPage() {
         <h1>Empresas</h1>
         {isAdmin ? (
           <Link to="/companies/new" className="ds-link-button">
+            {/* Ícono decorativo (16px/1.5, como los del sidebar): el texto
+                del link sigue siendo exactamente "Nueva empresa". */}
+            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
             Nueva empresa
           </Link>
         ) : null}
       </div>
 
+      {/* Filtros inline, mismo patrón que ContactListPage. El diseño mete la
+          búsqueda y un único filtro dentro de la misma tarjeta que la tabla;
+          acá hay cuatro controles y el patrón compartido por todos los
+          listados es esta barra, así que queda igual. */}
       <div className="ds-filters">
         <label>
           Buscar
@@ -140,6 +149,11 @@ export function CompanyListPage() {
         <EmptyState>No hay empresas para mostrar.</EmptyState>
       ) : null}
 
+      {/* Mismas columnas y mismo orden de siempre (Nombre | Industria |
+          Dominio | Owner | Acciones): CompanyListPage.test.tsx ubica Owner por
+          posición. El diseño muestra otro set de columnas (Teléfono, Ciudad,
+          País, sin Dominio ni Acciones); cambiarlo toca datos, no es parte de
+          este restyle. */}
       {companiesQuery.isSuccess && companiesQuery.data.data.length > 0 ? (
         <Table>
           <thead>
@@ -152,30 +166,47 @@ export function CompanyListPage() {
             </tr>
           </thead>
           <tbody>
-            {companiesQuery.data.data.map((company) => (
-              <tr key={company.id}>
-                <td>{company.name}</td>
-                <td>{company.industry ?? ""}</td>
-                <td>{company.domain ?? ""}</td>
-                {/* ownerId es nullable acá (a diferencia de Opportunity), así
-                    que el guard no es defensivo de más: sin él, un owner sin
-                    asignar entraría a byId.get(null). Sin dueño y dueño que no
-                    se pudo resolver muestran lo mismo — "—" —, y es correcto:
-                    para quien lee la tabla, las dos cosas son "no hay nombre
-                    que mostrar acá". */}
-                {isAdmin ? (
-                  <td>{company.ownerId ? (ownerNames.byId.get(company.ownerId) ?? "—") : "—"}</td>
-                ) : null}
-                {isAdmin ? (
-                  <td>
-                    <Link to={`/companies/${company.id}/edit`}>Editar</Link>{" "}
-                    <Button variant="danger" onClick={() => handleDelete(company.id)}>
-                      Eliminar
-                    </Button>
-                  </td>
-                ) : null}
-              </tr>
-            ))}
+            {companiesQuery.data.data.map((company) => {
+              // ownerId es nullable acá (a diferencia de Opportunity), así
+              // que el guard no es defensivo de más: sin él, un owner sin
+              // asignar entraría a byId.get(null). Sin dueño y dueño que no
+              // se pudo resolver muestran lo mismo — "—" —, y es correcto:
+              // para quien lee la tabla, las dos cosas son "no hay nombre
+              // que mostrar acá". Y sin nombre no hay avatar: un círculo
+              // con "—" adentro no representa a nadie.
+              const ownerName = company.ownerId
+                ? (ownerNames.byId.get(company.ownerId) ?? null)
+                : null;
+              return (
+                <tr key={company.id}>
+                  <td className="ds-cell-primary">{company.name}</td>
+                  <td className="ds-cell-muted">{company.industry ?? ""}</td>
+                  <td className="ds-cell-muted">{company.domain ?? ""}</td>
+                  {isAdmin ? (
+                    <td>
+                      {ownerName ? (
+                        <span className="ds-person">
+                          {/* decorative: el nombre completo ya está al lado,
+                              el avatar no tiene que anunciarse dos veces. */}
+                          <Avatar name={ownerName} size="sm" decorative />
+                          <span>{ownerName}</span>
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  ) : null}
+                  {isAdmin ? (
+                    <td>
+                      <Link to={`/companies/${company.id}/edit`}>Editar</Link>{" "}
+                      <Button variant="danger" onClick={() => handleDelete(company.id)}>
+                        Eliminar
+                      </Button>
+                    </td>
+                  ) : null}
+                </tr>
+              );
+            })}
           </tbody>
         </Table>
       ) : null}

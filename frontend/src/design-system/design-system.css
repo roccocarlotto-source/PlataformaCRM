@@ -174,6 +174,7 @@ button:disabled {
 .ds-link-button {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-2);
   height: var(--control-height);
   font-size: var(--font-size-base);
   font-weight: 600;
@@ -198,9 +199,27 @@ button:disabled {
   margin-bottom: var(--space-4);
 }
 
+/* Rótulo de campo: 13px/600 en el gris mutado, medido en los formularios de
+   Claude Design ("Nueva empresa"): el rótulo es un dato secundario, el valor
+   del control es el dato. Antes heredaba el 14px/500 del label base, por eso
+   el fix va acá y no en cada formulario. */
 .ds-field-label {
   display: block;
   margin-bottom: var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* Marca de campo obligatorio, generada por CSS a propósito: el "*" no forma
+   parte del textContent del label, así el nombre accesible sigue siendo
+   "Nombre" (getByLabelText exacto en los tests) y los lectores de pantalla
+   igual lo anuncian porque el contenido generado sí entra en el cálculo del
+   nombre. Se aplica al texto del rótulo: <FormField label={<span
+   className="ds-required">Nombre</span>}>. */
+.ds-required::after {
+  content: " *";
+  color: var(--color-accent);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1392,5 +1411,68 @@ a.ds-button--secondary:hover {
 .ds-task-footer {
   margin: var(--space-4) 0;
   font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Formulario en tarjeta — medidas del export "Nueva empresa": el contenido
+   no pasa de 920px de ancho y los campos van en una grilla de dos columnas
+   iguales (gap 16px entre filas, 20px entre columnas), con el campo
+   principal ocupando el ancho completo. Primer consumidor:
+   features/company/CompanyFormPage.tsx.
+   --------------------------------------------------------------------------- */
+.ds-form {
+  max-width: 920px;
+}
+
+/* Dos columnas: con el mínimo de 320px entran dos (no tres) en los 870px
+   útiles de la tarjeta, y colapsan a una sola por debajo sin media query.
+   Los hijos son campos (FormField, o un *Select suelto que trae su propio
+   <label htmlFor>): adentro de la grilla ninguno lleva margen propio, del
+   espacio se encarga el gap, y todo rótulo se ve como rótulo de campo
+   (13px/600/mutado, mismo trato que .ds-field-label) para que un par
+   País + Propietario quede parejo aunque uno use FormField y el otro no. */
+.ds-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: var(--space-4) 20px;
+}
+
+.ds-field-grid > * {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.ds-field-grid label {
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.ds-field-grid .ds-field {
+  margin-bottom: 0;
+}
+
+.ds-field-grid input,
+.ds-field-grid select {
+  max-width: none;
+}
+
+.ds-field-grid--full {
+  grid-column: 1 / -1;
+}
+
+/* ---------------------------------------------------------------------------
+   Énfasis de celda: la columna principal del listado (Nombre) va en 600 y las
+   columnas de detalle en el gris mutado, como en "Empresas CRM". Son
+   utilidades de una celda, no reglas globales de .ds-table, para que cada
+   listado decida cuál es su columna principal.
+   --------------------------------------------------------------------------- */
+.ds-cell-primary {
+  font-weight: 600;
+}
+
+.ds-cell-muted {
   color: var(--color-text-muted);
 }

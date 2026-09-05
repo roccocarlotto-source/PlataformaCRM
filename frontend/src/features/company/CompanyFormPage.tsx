@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
+import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -129,62 +130,79 @@ export function CompanyFormPage() {
     );
   }
 
+  // Restyle según "Nueva empresa" de Claude Design: una tarjeta con los
+  // campos en grilla de dos columnas (Nombre a lo ancho, después de a pares
+  // en el mismo orden de siempre). El "*" de Nombre lo genera CSS
+  // (.ds-required), así el nombre accesible sigue siendo "Nombre" exacto.
+  // Guardar sigue abajo del formulario como en el resto de los módulos; el
+  // diseño lo pone en la cabecera junto a un "Cancelar" que sería navegación
+  // nueva, fuera de este restyle.
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="ds-form">
       <h1>{isEditMode ? "Editar empresa" : "Nueva empresa"}</h1>
-      <FormField label="Nombre">
-        <input
-          type="text"
-          value={values.name}
-          onChange={(event) => setValues({ ...values, name: event.target.value })}
-          required
-        />
-      </FormField>
-      <FormField label="Dominio">
-        <input
-          type="text"
-          value={values.domain}
-          onChange={(event) => setValues({ ...values, domain: event.target.value })}
-        />
-      </FormField>
-      <FormField label="Industria">
-        <input
-          type="text"
-          value={values.industry}
-          onChange={(event) => setValues({ ...values, industry: event.target.value })}
-        />
-      </FormField>
-      <FormField label="Teléfono">
-        <input
-          type="text"
-          value={values.phone}
-          onChange={(event) => setValues({ ...values, phone: event.target.value })}
-        />
-      </FormField>
-      <FormField label="Ciudad">
-        <input
-          type="text"
-          value={values.city}
-          onChange={(event) => setValues({ ...values, city: event.target.value })}
-        />
-      </FormField>
-      <FormField label="País">
-        <input
-          type="text"
-          value={values.country}
-          onChange={(event) => setValues({ ...values, country: event.target.value })}
-        />
-      </FormField>
-      <UserSelect
-        id="company-form-owner"
-        label="Propietario"
-        value={values.ownerId}
-        onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
-      />
-      {error ? <ErrorState>{error}</ErrorState> : null}
-      <Button type="submit" variant="primary" disabled={isSubmitting}>
-        {isSubmitting ? "Guardando…" : "Guardar"}
-      </Button>
+      <div className="ds-stack">
+        <Card heading="Datos de la empresa">
+          <div className="ds-field-grid">
+            <div className="ds-field-grid--full">
+              <FormField label={<span className="ds-required">Nombre</span>}>
+                <input
+                  type="text"
+                  value={values.name}
+                  onChange={(event) => setValues({ ...values, name: event.target.value })}
+                  required
+                />
+              </FormField>
+            </div>
+            <FormField label="Dominio">
+              <input
+                type="text"
+                value={values.domain}
+                onChange={(event) => setValues({ ...values, domain: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Industria">
+              <input
+                type="text"
+                value={values.industry}
+                onChange={(event) => setValues({ ...values, industry: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Teléfono">
+              <input
+                type="text"
+                value={values.phone}
+                onChange={(event) => setValues({ ...values, phone: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Ciudad">
+              <input
+                type="text"
+                value={values.city}
+                onChange={(event) => setValues({ ...values, city: event.target.value })}
+              />
+            </FormField>
+            <FormField label="País">
+              <input
+                type="text"
+                value={values.country}
+                onChange={(event) => setValues({ ...values, country: event.target.value })}
+              />
+            </FormField>
+            <UserSelect
+              id="company-form-owner"
+              label="Propietario"
+              value={values.ownerId}
+              onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+            />
+          </div>
+        </Card>
+        {error ? <ErrorState>{error}</ErrorState> : null}
+        <div>
+          <Button type="submit" variant="primary" disabled={isSubmitting}>
+            {isSubmitting ? "Guardando…" : "Guardar"}
+          </Button>
+        </div>
+      </div>
     </form>
   );
 }
