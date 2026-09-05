@@ -1476,3 +1476,105 @@ a.ds-button--secondary:hover {
 .ds-cell-muted {
   color: var(--color-text-muted);
 }
+
+/* ---------------------------------------------------------------------------
+   Acciones de una fila de tabla — varios botones chicos de texto + ícono en
+   línea (Ver imagen, Enviar, Copiar link, Editar, Eliminar). Medidas del
+   export "Reseñas QR": 32px de alto, 13px, sin borde ni fondo hasta el hover,
+   ícono de 15px delante del texto, 6px entre botones. Es la misma clase
+   .ds-button de siempre, solo cambia el tratamiento dentro del contenedor
+   (mismo criterio que .ds-pagination y .ds-segmented): el rol, el nombre
+   accesible y las variantes no cambian. Primer consumidor:
+   features/qr/QrListPage.tsx; los demás listados pueden adoptarla cuando les
+   toque su pasada.
+   --------------------------------------------------------------------------- */
+/* Sin wrap a propósito: la celda de tabla ya es nowrap y una tabla ancha
+   hace scroll horizontal en .ds-table-wrap; partir las acciones en dos o
+   tres líneas haría crecer cada fila. */
+.ds-row-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ds-row-actions .ds-button {
+  height: var(--control-height-sm);
+  padding: 0 10px;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-muted);
+}
+
+.ds-row-actions .ds-button:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.ds-row-actions .ds-button--danger {
+  color: var(--color-danger);
+}
+
+.ds-row-actions .ds-button--danger:hover:not(:disabled) {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.ds-row-actions svg {
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Radio en tarjeta — cada opción de un radiogroup como una tarjeta con título
+   y una línea de ayuda debajo, la elegida resaltada con el acento. Medidas
+   del panel "Generar QR digital" del export "Reseñas QR": padding 12, radio
+   10, título 14/600, ayuda 12px tenue, 8px entre tarjetas.
+
+   La ayuda (.ds-radio-card-hint) va como HERMANA del <label>, nunca adentro:
+   si entrara en el label formaría parte del nombre accesible del radio
+   ("Un solo uso Deja de redirigir…") y rompería getByRole("radio", { name })
+   en los tests. Primeros consumidores: features/qr/QrFormDialog.tsx y
+   QrSendDialog.tsx.
+   --------------------------------------------------------------------------- */
+.ds-radio-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ds-radio-card {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.ds-radio-card:has(input:checked) {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.ds-radio-card label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.ds-radio-card input[type="radio"] {
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+/* 26px = 16px del radio + 10px de gap: la ayuda alinea con el título. */
+.ds-radio-card-hint {
+  margin: 2px 0 0 26px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-faint);
+}
