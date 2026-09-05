@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { Check, Eye, Link2, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -34,6 +36,20 @@ const ESTADO_LABEL: Record<QrCodeStatus, string> = {
   USADO: "Usado",
   ACTIVO: "Activo",
 };
+
+// Color del badge de estado, decidido acá y no en Badge (ver Badge.tsx). Sin
+// reclamar es el único estado en que el QR no redirige a nadie: es el que
+// tiene que llamar la atención.
+const ESTADO_BADGE: Record<QrCodeStatus, BadgeVariant> = {
+  SIN_RECLAMAR: "danger",
+  USADO: "neutral",
+  ACTIVO: "success",
+};
+
+// Tamaño de los íconos de las acciones de fila (export "Reseñas QR": 15px,
+// trazo 1.5). Son decorativos: el nombre accesible del botón sigue siendo
+// solo su texto.
+const ICONO = { size: 15, strokeWidth: 1.5, "aria-hidden": true } as const;
 
 // Qué diálogo está abierto y sobre qué QR. Uno solo a la vez: los cuatro
 // (crear, editar, imagen, enviar) son Modal, y dos superpuestos no tienen
@@ -120,6 +136,7 @@ export function QrListPage() {
         <h1>Códigos QR</h1>
         {isAdmin ? (
           <Button variant="primary" onClick={() => setDialogo({ kind: "crear" })}>
+            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
             Generar QR digital
           </Button>
         ) : null}
@@ -202,27 +219,53 @@ export function QrListPage() {
             {qrCodesQuery.data.data.map((qr) => (
               <tr key={qr.id}>
                 <td>{qr.displayNumber ?? SIN_RESOLVER}</td>
-                <td>{qr.name ?? SIN_RESOLVER}</td>
+                <td className="ds-cell-primary">{qr.name ?? SIN_RESOLVER}</td>
                 <td>
                   {qr.branchId ? (nombreDeSucursal.get(qr.branchId) ?? SIN_RESOLVER) : SIN_RESOLVER}
                 </td>
-                <td>{ESTADO_LABEL[estadoDeQr(qr)]}</td>
-                <td>{qr.destinationUrl ?? SIN_RESOLVER}</td>
-                <td>{qr.qrType === "SINGLE_USE" ? "Un solo uso" : "Reusable"}</td>
                 <td>
-                  <Button onClick={() => setDialogo({ kind: "imagen", qr })}>Ver imagen</Button>{" "}
-                  <Button onClick={() => setDialogo({ kind: "enviar", qr })}>Enviar</Button>{" "}
-                  <Button onClick={() => void handleCopyLink(qr)}>
-                    {copiadoId === qr.id ? "¡Copiado!" : "Copiar link"}
-                  </Button>{" "}
-                  {isAdmin ? (
-                    <>
-                      <Button onClick={() => setDialogo({ kind: "editar", qr })}>Editar</Button>{" "}
-                      <Button variant="danger" onClick={() => handleDelete(qr.id)}>
-                        Eliminar
-                      </Button>
-                    </>
-                  ) : null}
+                  <Badge variant={ESTADO_BADGE[estadoDeQr(qr)]}>
+                    {ESTADO_LABEL[estadoDeQr(qr)]}
+                  </Badge>
+                </td>
+                <td className="ds-cell-muted">{qr.destinationUrl ?? SIN_RESOLVER}</td>
+                <td>
+                  {qr.qrType === "SINGLE_USE" ? (
+                    <Badge variant="info">Un solo uso</Badge>
+                  ) : (
+                    <Badge variant="neutral">Reusable</Badge>
+                  )}
+                </td>
+                <td>
+                  {/* Mismos botones, mismos textos y mismo nombre accesible que
+                      antes; solo cambia el contenedor (.ds-row-actions) y el
+                      ícono decorativo delante de cada uno. */}
+                  <div className="ds-row-actions">
+                    <Button onClick={() => setDialogo({ kind: "imagen", qr })}>
+                      <Eye {...ICONO} />
+                      Ver imagen
+                    </Button>
+                    <Button onClick={() => setDialogo({ kind: "enviar", qr })}>
+                      <Send {...ICONO} />
+                      Enviar
+                    </Button>
+                    <Button onClick={() => void handleCopyLink(qr)}>
+                      {copiadoId === qr.id ? <Check {...ICONO} /> : <Link2 {...ICONO} />}
+                      {copiadoId === qr.id ? "¡Copiado!" : "Copiar link"}
+                    </Button>
+                    {isAdmin ? (
+                      <>
+                        <Button onClick={() => setDialogo({ kind: "editar", qr })}>
+                          <Pencil {...ICONO} />
+                          Editar
+                        </Button>
+                        <Button variant="danger" onClick={() => handleDelete(qr.id)}>
+                          <Trash2 {...ICONO} />
+                          Eliminar
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             ))}

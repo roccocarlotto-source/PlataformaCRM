@@ -174,26 +174,40 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
           // Un solo uso solo al crear un QR digital, exactamente en este
           // formulario (Cycle 28 del original): reusable es el default, el
           // mismo que el backend.
-          <div className="ds-field" role="radiogroup" aria-label="Tipo de QR">
+          //
+          // Radios en tarjeta (.ds-radio-card), como el "Tipo" del panel del
+          // diseño. La línea de ayuda va como HERMANA del <label>, nunca
+          // adentro: si no, entraría en el nombre accesible del radio y
+          // getByRole("radio", { name: "Un solo uso" }) dejaría de
+          // encontrarlo. Los textos de los radios son los de siempre.
+          <div className="ds-field">
             <span className="ds-field-label">Tipo de QR</span>
-            <label>
-              <input
-                type="radio"
-                name="qr-form-type"
-                checked={values.qrType === "REUSABLE"}
-                onChange={() => setValues({ ...values, qrType: "REUSABLE" })}
-              />{" "}
-              Reusable (usos ilimitados)
-            </label>
-            <label>
-              <input
-                type="radio"
-                name="qr-form-type"
-                checked={values.qrType === "SINGLE_USE"}
-                onChange={() => setValues({ ...values, qrType: "SINGLE_USE" })}
-              />{" "}
-              Un solo uso
-            </label>
+            <div className="ds-radio-cards" role="radiogroup" aria-label="Tipo de QR">
+              <div className="ds-radio-card">
+                <label>
+                  <input
+                    type="radio"
+                    name="qr-form-type"
+                    checked={values.qrType === "REUSABLE"}
+                    onChange={() => setValues({ ...values, qrType: "REUSABLE" })}
+                  />{" "}
+                  Reusable (usos ilimitados)
+                </label>
+                <p className="ds-radio-card-hint">Se puede escanear las veces que haga falta.</p>
+              </div>
+              <div className="ds-radio-card">
+                <label>
+                  <input
+                    type="radio"
+                    name="qr-form-type"
+                    checked={values.qrType === "SINGLE_USE"}
+                    onChange={() => setValues({ ...values, qrType: "SINGLE_USE" })}
+                  />{" "}
+                  Un solo uso
+                </label>
+                <p className="ds-radio-card-hint">Deja de redirigir después del primer escaneo.</p>
+              </div>
+            </div>
           </div>
         )}
         {error ? <ErrorState>{error}</ErrorState> : null}

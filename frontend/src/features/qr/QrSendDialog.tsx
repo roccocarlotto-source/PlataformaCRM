@@ -95,26 +95,41 @@ export function QrSendDialog({ qr, onClose }: QrSendDialogProps) {
 
   return (
     <Modal title={titulo} onClose={onClose} closeLabel="Cancelar">
-      <div className="ds-field" role="radiogroup" aria-label="Canal de envío">
+      {/* Radios en tarjeta (.ds-radio-card, mismo trato que "Tipo de QR" en
+          QrFormDialog). La línea de ayuda va como HERMANA del <label>, nunca
+          adentro: si no, entraría en el nombre accesible del radio y
+          getByRole("radio", { name: "Email" }) dejaría de encontrarlo. Cada
+          ayuda describe lo que handleSend hace de verdad con ese canal. */}
+      <div className="ds-field">
         <span className="ds-field-label">Canal</span>
-        <label>
-          <input
-            type="radio"
-            name="qr-send-channel"
-            checked={canal === "whatsapp"}
-            onChange={() => cambiarCanal("whatsapp")}
-          />{" "}
-          WhatsApp
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="qr-send-channel"
-            checked={canal === "email"}
-            onChange={() => cambiarCanal("email")}
-          />{" "}
-          Email
-        </label>
+        <div className="ds-radio-cards" role="radiogroup" aria-label="Canal de envío">
+          <div className="ds-radio-card">
+            <label>
+              <input
+                type="radio"
+                name="qr-send-channel"
+                checked={canal === "whatsapp"}
+                onChange={() => cambiarCanal("whatsapp")}
+              />{" "}
+              WhatsApp
+            </label>
+            <p className="ds-radio-card-hint">Se abre WhatsApp con el mensaje ya armado.</p>
+          </div>
+          <div className="ds-radio-card">
+            <label>
+              <input
+                type="radio"
+                name="qr-send-channel"
+                checked={canal === "email"}
+                onChange={() => cambiarCanal("email")}
+              />{" "}
+              Email
+            </label>
+            <p className="ds-radio-card-hint">
+              Se abre tu cliente de correo con el mensaje ya armado.
+            </p>
+          </div>
+        </div>
       </div>
       <FormField label={canal === "whatsapp" ? "Número de WhatsApp (con código de país)" : "Email"}>
         <input

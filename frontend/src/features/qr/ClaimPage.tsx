@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
+import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { looksLikeUrl } from "../../lib/validation";
@@ -128,49 +129,68 @@ export function ClaimPage() {
     }
   }
 
+  // Sin mockup propio (el "Activar QR físico" del diseño es otro flujo, que
+  // no existe): mismo tratamiento que los formularios de página completa ya
+  // migrados — .ds-form, Card y grilla de a pares (Sucursal + Nombre; Enlace
+  // de destino y Mensaje a lo ancho). El "*" va en Nombre y Enlace de
+  // destino, obligatorios en validar(); Sucursal también lo es, pero
+  // BranchSelect solo acepta un label de texto y es un componente compartido,
+  // así que su asterisco queda para cuando ese componente tenga su pasada.
   return (
-    <form onSubmit={handleSubmit} noValidate>
+    <form onSubmit={handleSubmit} noValidate className="ds-form">
       <h1>Reclamar código QR</h1>
-      <p>
+      <p className="ds-hint">
         Vas a vincular este código QR a una sucursal de tu cuenta. Elegí la sucursal y a dónde tiene
         que llevar cuando alguien lo escanee.
       </p>
-      <BranchSelect
-        id="claim-branch"
-        label="Sucursal"
-        value={values.branchId}
-        onChange={(branchId) => setValues({ ...values, branchId: branchId || undefined })}
-      />
-      <FormField label="Nombre">
-        <input
-          type="text"
-          value={values.name}
-          onChange={(event) => setValues({ ...values, name: event.target.value })}
-          placeholder="Reseñas Google"
-          maxLength={80}
-        />
-      </FormField>
-      <FormField label="Enlace de destino">
-        <input
-          type="url"
-          value={values.destinationUrl}
-          onChange={(event) => setValues({ ...values, destinationUrl: event.target.value })}
-          placeholder="https://search.google.com/local/writereview?placeid=..."
-          maxLength={2048}
-        />
-      </FormField>
-      <FormField label="Mensaje (opcional)">
-        <textarea
-          value={values.message}
-          onChange={(event) => setValues({ ...values, message: event.target.value })}
-          placeholder="¡Gracias por elegirnos! Nos ayudaría mucho conocer tu opinión."
-          maxLength={500}
-        />
-      </FormField>
-      {error ? <ErrorState>{error}</ErrorState> : null}
-      <Button type="submit" variant="primary" disabled={claimMutation.isPending}>
-        {claimMutation.isPending ? "Reclamando…" : "Reclamar QR"}
-      </Button>
+      <div className="ds-stack">
+        <Card heading="Datos del QR">
+          <div className="ds-field-grid">
+            <BranchSelect
+              id="claim-branch"
+              label="Sucursal"
+              value={values.branchId}
+              onChange={(branchId) => setValues({ ...values, branchId: branchId || undefined })}
+            />
+            <FormField label={<span className="ds-required">Nombre</span>}>
+              <input
+                type="text"
+                value={values.name}
+                onChange={(event) => setValues({ ...values, name: event.target.value })}
+                placeholder="Reseñas Google"
+                maxLength={80}
+              />
+            </FormField>
+            <div className="ds-field-grid--full">
+              <FormField label={<span className="ds-required">Enlace de destino</span>}>
+                <input
+                  type="url"
+                  value={values.destinationUrl}
+                  onChange={(event) => setValues({ ...values, destinationUrl: event.target.value })}
+                  placeholder="https://search.google.com/local/writereview?placeid=..."
+                  maxLength={2048}
+                />
+              </FormField>
+            </div>
+            <div className="ds-field-grid--full">
+              <FormField label="Mensaje (opcional)">
+                <textarea
+                  value={values.message}
+                  onChange={(event) => setValues({ ...values, message: event.target.value })}
+                  placeholder="¡Gracias por elegirnos! Nos ayudaría mucho conocer tu opinión."
+                  maxLength={500}
+                />
+              </FormField>
+            </div>
+          </div>
+        </Card>
+        {error ? <ErrorState>{error}</ErrorState> : null}
+        <div>
+          <Button type="submit" variant="primary" disabled={claimMutation.isPending}>
+            {claimMutation.isPending ? "Reclamando…" : "Reclamar QR"}
+          </Button>
+        </div>
+      </div>
     </form>
   );
 }
