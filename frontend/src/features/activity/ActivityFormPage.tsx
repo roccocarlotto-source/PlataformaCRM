@@ -213,104 +213,123 @@ export function ActivityFormPage() {
     );
   }
 
+  // Grilla de a pares (.ds-field-grid, del restyle de Empresas) en el orden
+  // del export: Tipo, Asunto y Notas a lo ancho; las tres relaciones a lo
+  // ancho con su "Quitar" y el hint debajo (en el diseño es un único control
+  // "Relacionado con", ver arriba; a dos columnas quedaban irregulares porque
+  // cada una crece con "Seleccionada" y "Quitar"); Asignado a + Vencimiento
+  // como par (el diseño los llama "Responsable" y "Fecha de vencimiento", los
+  // rótulos reales no cambian); Completada sola a media columna, donde el
+  // diseño pone "Marcar como completada". El "*" va SOLO en Asunto, el único
+  // input con `required`: el diseño también marca Tipo y Responsable, pero
+  // assigneeId es opcional (toCreateInput) y Tipo siempre tiene un valor, así
+  // que un asterisco ahí mentiría.
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="ds-form">
       <h1>{isEditMode ? "Editar actividad" : "Nueva actividad"}</h1>
       <div className="ds-stack">
         <Card heading="Datos de la actividad">
-          <FormField label="Tipo">
-            <select
-              value={values.type}
-              onChange={(event) =>
-                setValues({ ...values, type: event.target.value as ActivityType })
-              }
-            >
-              {ACTIVITY_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {ACTIVITY_TYPE_LABELS[type]}
-                </option>
-              ))}
-            </select>
-          </FormField>
-          <FormField label="Asunto">
-            <input
-              type="text"
-              value={values.subject}
-              onChange={(event) => setValues({ ...values, subject: event.target.value })}
-              required
+          <div className="ds-field-grid">
+            <div className="ds-field-grid--full">
+              <FormField label="Tipo">
+                <select
+                  value={values.type}
+                  onChange={(event) =>
+                    setValues({ ...values, type: event.target.value as ActivityType })
+                  }
+                >
+                  {ACTIVITY_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {ACTIVITY_TYPE_LABELS[type]}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+            </div>
+            <div className="ds-field-grid--full">
+              <FormField label={<span className="ds-required">Asunto</span>}>
+                <input
+                  type="text"
+                  value={values.subject}
+                  onChange={(event) => setValues({ ...values, subject: event.target.value })}
+                  required
+                />
+              </FormField>
+            </div>
+            <div className="ds-field-grid--full">
+              <FormField label="Notas">
+                <textarea
+                  value={values.body}
+                  onChange={(event) => setValues({ ...values, body: event.target.value })}
+                />
+              </FormField>
+            </div>
+            <div className="ds-field ds-field-grid--full">
+              <CompanySelect
+                id="activity-form-company"
+                label="Empresa"
+                value={values.companyId ?? undefined}
+                onChange={(companyId) => setValues({ ...values, companyId })}
+              />
+              {values.companyId ? (
+                <Button onClick={() => setValues({ ...values, companyId: null })}>
+                  Quitar empresa
+                </Button>
+              ) : null}
+            </div>
+            <div className="ds-field ds-field-grid--full">
+              <ContactSelect
+                id="activity-form-contact"
+                label="Contacto"
+                value={values.contactId ?? undefined}
+                onChange={(contactId) => setValues({ ...values, contactId })}
+              />
+              {values.contactId ? (
+                <Button onClick={() => setValues({ ...values, contactId: null })}>
+                  Quitar contacto
+                </Button>
+              ) : null}
+            </div>
+            <div className="ds-field ds-field-grid--full">
+              <OpportunitySelect
+                id="activity-form-opportunity"
+                label="Oportunidad"
+                value={values.opportunityId ?? undefined}
+                onChange={(opportunityId) => setValues({ ...values, opportunityId })}
+              />
+              {values.opportunityId ? (
+                <Button onClick={() => setValues({ ...values, opportunityId: null })}>
+                  Quitar oportunidad
+                </Button>
+              ) : null}
+            </div>
+            <p className="ds-hint ds-field-grid--full">
+              Debe indicar Empresa, Contacto, Oportunidad, o una combinación de estos.
+            </p>
+            {/* assigneeId nunca se autoasigna al omitirse (a diferencia de
+                ownerId en Opportunity) — emptyOptionLabel refleja eso. */}
+            <UserSelect
+              id="activity-form-assignee"
+              label="Asignado a"
+              value={values.assigneeId ?? undefined}
+              onChange={(assigneeId) => setValues({ ...values, assigneeId: assigneeId || null })}
+              emptyOptionLabel="Sin asignar"
             />
-          </FormField>
-          <FormField label="Notas">
-            <textarea
-              value={values.body}
-              onChange={(event) => setValues({ ...values, body: event.target.value })}
-            />
-          </FormField>
-          <FormField label="Vencimiento">
-            <input
-              type="datetime-local"
-              value={values.dueDate}
-              onChange={(event) => setValues({ ...values, dueDate: event.target.value })}
-            />
-          </FormField>
-          <FormField label="Completada">
-            <input
-              type="datetime-local"
-              value={values.completedAt}
-              onChange={(event) => setValues({ ...values, completedAt: event.target.value })}
-            />
-          </FormField>
-          {/* assigneeId nunca se autoasigna al omitirse (a diferencia de
-              ownerId en Opportunity) — emptyOptionLabel refleja eso. */}
-          <UserSelect
-            id="activity-form-assignee"
-            label="Asignado a"
-            value={values.assigneeId ?? undefined}
-            onChange={(assigneeId) => setValues({ ...values, assigneeId: assigneeId || null })}
-            emptyOptionLabel="Sin asignar"
-          />
-          <div className="ds-field">
-            <CompanySelect
-              id="activity-form-company"
-              label="Empresa"
-              value={values.companyId ?? undefined}
-              onChange={(companyId) => setValues({ ...values, companyId })}
-            />
-            {values.companyId ? (
-              <Button onClick={() => setValues({ ...values, companyId: null })}>
-                Quitar empresa
-              </Button>
-            ) : null}
+            <FormField label="Vencimiento">
+              <input
+                type="datetime-local"
+                value={values.dueDate}
+                onChange={(event) => setValues({ ...values, dueDate: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Completada">
+              <input
+                type="datetime-local"
+                value={values.completedAt}
+                onChange={(event) => setValues({ ...values, completedAt: event.target.value })}
+              />
+            </FormField>
           </div>
-          <div className="ds-field">
-            <ContactSelect
-              id="activity-form-contact"
-              label="Contacto"
-              value={values.contactId ?? undefined}
-              onChange={(contactId) => setValues({ ...values, contactId })}
-            />
-            {values.contactId ? (
-              <Button onClick={() => setValues({ ...values, contactId: null })}>
-                Quitar contacto
-              </Button>
-            ) : null}
-          </div>
-          <div className="ds-field">
-            <OpportunitySelect
-              id="activity-form-opportunity"
-              label="Oportunidad"
-              value={values.opportunityId ?? undefined}
-              onChange={(opportunityId) => setValues({ ...values, opportunityId })}
-            />
-            {values.opportunityId ? (
-              <Button onClick={() => setValues({ ...values, opportunityId: null })}>
-                Quitar oportunidad
-              </Button>
-            ) : null}
-          </div>
-          <p className="ds-hint">
-            Debe indicar Empresa, Contacto, Oportunidad, o una combinación de estos.
-          </p>
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
