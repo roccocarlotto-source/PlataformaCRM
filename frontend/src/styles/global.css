@@ -19,10 +19,13 @@ body {
 }
 
 /* R1.1 — el contenido de cada pantalla vive dentro de <main><Outlet/></main>
-   (ver AppLayout.tsx); un ancho máximo + padding acá evita que cada
-   ListPage/FormPage tenga que repetir su propio contenedor. */
+   (ver AppLayout.tsx); el padding acá evita que cada ListPage/FormPage tenga
+   que repetir su propio contenedor. Sin ancho máximo: el contenido usa todo
+   el ancho disponible al lado de la sidebar, como el export de Claude Design
+   (medido: max-width none). El tope anterior de 72rem dejaba aire de sobra a
+   los costados en monitores anchos. Los formularios no se estiran: tienen su
+   propio tope en .ds-form (920px). */
 main {
-  max-width: 72rem;
   margin: 0 auto;
   padding: var(--space-5) var(--space-5) var(--space-6);
 }
