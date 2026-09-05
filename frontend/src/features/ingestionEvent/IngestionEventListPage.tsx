@@ -211,7 +211,9 @@ export function IngestionEventListPage() {
                 <td>{ETIQUETA_DE_ESTADO[evento.status]}</td>
                 {/* errorMessage solo tiene contenido en FAILED: en el resto es
                     null y no hay nada que decir. */}
-                <td>{evento.errorMessage ?? SIN_RESOLVER}</td>
+                <td className="ds-cell-truncate" title={evento.errorMessage ?? undefined}>
+                  {evento.errorMessage ?? SIN_RESOLVER}
+                </td>
                 <td>{new Date(evento.createdAt).toLocaleString()}</td>
                 <td>{new Date(evento.updatedAt).toLocaleString()}</td>
                 <td>

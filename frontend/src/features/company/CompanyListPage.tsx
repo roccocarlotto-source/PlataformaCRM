@@ -181,7 +181,12 @@ export function CompanyListPage() {
                 <tr key={company.id}>
                   <td className="ds-cell-primary">{company.name}</td>
                   <td className="ds-cell-muted">{company.industry ?? ""}</td>
-                  <td className="ds-cell-muted">{company.domain ?? ""}</td>
+                  <td
+                    className="ds-cell-muted ds-cell-truncate"
+                    title={company.domain ?? undefined}
+                  >
+                    {company.domain ?? ""}
+                  </td>
                   {isAdmin ? (
                     <td>
                       {ownerName ? (

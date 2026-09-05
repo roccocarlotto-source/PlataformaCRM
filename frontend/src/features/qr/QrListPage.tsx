@@ -228,7 +228,12 @@ export function QrListPage() {
                     {ESTADO_LABEL[estadoDeQr(qr)]}
                   </Badge>
                 </td>
-                <td className="ds-cell-muted">{qr.destinationUrl ?? SIN_RESOLVER}</td>
+                <td
+                  className="ds-cell-muted ds-cell-truncate"
+                  title={qr.destinationUrl ?? undefined}
+                >
+                  {qr.destinationUrl ?? SIN_RESOLVER}
+                </td>
                 <td>
                   {qr.qrType === "SINGLE_USE" ? (
                     <Badge variant="info">Un solo uso</Badge>
