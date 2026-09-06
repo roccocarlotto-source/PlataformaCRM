@@ -785,8 +785,15 @@ fieldset.ds-field {
 }
 
 /* ---------------------------------------------------------------------------
-   Modal — primer diálogo del proyecto (design-system/Modal.tsx).
-   El overlay no captura clicks a propósito: el cierre es siempre el botón
+   Modal — el diálogo del proyecto (design-system/Modal.tsx), como PANEL
+   deslizante pegado al borde derecho y no como caja centrada. Medido en el
+   export "Reseñas QR" (panel "Activar QR físico"): 360px de ancho, alto
+   completo, overlay rgba(27,27,24,.32) —más tenue que el .55 de la caja
+   porque el panel no tapa el centro de atención—, sombra 0 12px 32px al 12%,
+   borde izquierdo, encabezado y pie separados del cuerpo por un borde,
+   padding 24px en encabezado/cuerpo y 16px 24px en el pie, título 18px/600.
+   El panel es una columna flex: encabezado y pie fijos, el cuerpo scrollea.
+   El overlay no captura clicks a propósito: el cierre es siempre un botón
    explícito, ver el comentario del componente.
    --------------------------------------------------------------------------- */
 .ds-modal-overlay {
@@ -794,43 +801,83 @@ fieldset.ds-field {
   inset: 0;
   z-index: 100;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-  background: rgba(27, 27, 24, 0.55);
+  justify-content: flex-end;
+  align-items: stretch;
+  background: rgba(27, 27, 24, 0.32);
 }
 
 .ds-modal {
-  width: 100%;
-  max-width: 520px;
-  max-height: 90vh;
-  overflow-y: auto;
-  padding: var(--space-5);
+  width: 360px;
+  max-width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-overlay);
+  border-left: 1px solid var(--color-border);
+  box-shadow: 0 12px 32px rgba(27, 27, 24, 0.12);
 }
 
 .ds-modal:focus {
   outline: none;
 }
 
+.ds-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
 .ds-modal-title {
-  margin: 0 0 var(--space-3);
+  margin: 0;
   font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+/* Botón "×": 32px de área de click, sin borde ni fondo hasta el hover, en el
+   gris mutado para no competir con el título. El hover usa el mismo token que
+   las filas y los botones secundarios (--color-surface-muted). */
+.ds-modal-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.ds-modal-close:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
 }
 
 .ds-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  padding: var(--space-5);
 }
 
 .ds-modal-actions {
-  margin-top: var(--space-4);
+  flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border);
 }
 
 /* Campo de solo lectura con un secreto: monoespaciado para poder leer carácter
