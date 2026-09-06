@@ -1,6 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { Button } from "../../design-system/Button";
+import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
+import { AuthShell } from "./AuthShell";
 
 interface LoginLocationState {
   from?: { pathname: string };
@@ -38,36 +42,38 @@ export function LoginPage() {
     }
   }
 
+  // Restyle con criterio propio (sin export): tarjeta centrada (AuthShell) con
+  // las piezas del sistema. Rótulos, textos y el redirect de arriba no cambian.
   return (
-    <form onSubmit={handleSubmit}>
-      <h1>Iniciar sesión</h1>
-      <label>
-        Email
-        <input
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          required
-          autoComplete="email"
-        />
-      </label>
-      <label>
-        Contraseña
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          required
-          autoComplete="current-password"
-        />
-      </label>
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={isSubmitting}>
-        {isSubmitting ? "Ingresando…" : "Ingresar"}
-      </button>
-      <p>
-        <Link to="/forgot-password">¿Olvidaste tu contraseña?</Link>
-      </p>
-    </form>
+    <AuthShell>
+      <form onSubmit={handleSubmit}>
+        <h1>Iniciar sesión</h1>
+        <FormField label="Email">
+          <input
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            autoComplete="email"
+          />
+        </FormField>
+        <FormField label="Contraseña">
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            autoComplete="current-password"
+          />
+        </FormField>
+        {error ? <ErrorState>{error}</ErrorState> : null}
+        <Button type="submit" variant="primary" disabled={isSubmitting}>
+          {isSubmitting ? "Ingresando…" : "Ingresar"}
+        </Button>
+        <p className="ds-auth-links">
+          <Link to="/forgot-password">¿Olvidaste tu contraseña?</Link>
+        </p>
+      </form>
+    </AuthShell>
   );
 }

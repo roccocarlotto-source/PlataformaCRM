@@ -1,10 +1,18 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { Button } from "../../design-system/Button";
+import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
 import { supabase } from "../../lib/supabase";
+import { AuthShell } from "./AuthShell";
 
 // R1.3 — solicita el link de recuperación vía Supabase Auth. Sin backend
 // propio: mismo criterio ya establecido en el proyecto de no tener un
 // endpoint de login/password propio (ver docs/authentication-architecture.md).
+//
+// Restyle con criterio propio (sin export): las dos vistas (formulario y
+// "enviado") en la misma tarjeta centrada (AuthShell). Textos y rótulos no
+// cambian; "Volver a iniciar sesión" sigue en las dos.
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -36,37 +44,44 @@ export function ForgotPasswordPage() {
 
   if (sent) {
     return (
-      <div>
-        <h1>Revisá tu email</h1>
-        <p>
-          Si existe una cuenta con ese email, te enviamos un link para restablecer tu contraseña.
-        </p>
-        <Link to="/login">Volver a iniciar sesión</Link>
-      </div>
+      <AuthShell>
+        <div>
+          <h1>Revisá tu email</h1>
+          <p className="ds-auth-text">
+            Si existe una cuenta con ese email, te enviamos un link para restablecer tu contraseña.
+          </p>
+          <p className="ds-auth-links">
+            <Link to="/login">Volver a iniciar sesión</Link>
+          </p>
+        </div>
+      </AuthShell>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h1>Recuperar contraseña</h1>
-      <p>Ingresá tu email y te enviamos un link para elegir una nueva contraseña.</p>
-      <label>
-        Email
-        <input
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          required
-          autoComplete="email"
-        />
-      </label>
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={isSubmitting}>
-        {isSubmitting ? "Enviando…" : "Enviar link"}
-      </button>
-      <p>
-        <Link to="/login">Volver a iniciar sesión</Link>
-      </p>
-    </form>
+    <AuthShell>
+      <form onSubmit={handleSubmit}>
+        <h1>Recuperar contraseña</h1>
+        <p className="ds-auth-text">
+          Ingresá tu email y te enviamos un link para elegir una nueva contraseña.
+        </p>
+        <FormField label="Email">
+          <input
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            autoComplete="email"
+          />
+        </FormField>
+        {error ? <ErrorState>{error}</ErrorState> : null}
+        <Button type="submit" variant="primary" disabled={isSubmitting}>
+          {isSubmitting ? "Enviando…" : "Enviar link"}
+        </Button>
+        <p className="ds-auth-links">
+          <Link to="/login">Volver a iniciar sesión</Link>
+        </p>
+      </form>
+    </AuthShell>
   );
 }

@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { Button } from "../../design-system/Button";
+import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
+import { LoadingState } from "../../design-system/LoadingState";
 import { supabase } from "../../lib/supabase";
 import { acceptInvitation } from "./acceptInvitationApi";
+import { AuthShell } from "./AuthShell";
 
 // Misma regla real que existe hoy en el proyecto para "elegir una
 // contraseña" (onboarding.schema.ts: password mínimo 8 — no existe un
@@ -234,26 +239,39 @@ export function AcceptInvitationPage() {
   const isBusy =
     step === "accepting" || step === "setting-password" || step === "resolving-profile";
 
+  // RESTYLE (criterio propio, sin export): de acá hasta el final cada rama de
+  // render se envuelve en AuthShell (tarjeta centrada) y cambia los elementos
+  // nativos por los del sistema (ErrorState, Button, FormField, LoadingState).
+  // Las condiciones, el orden de las ramas, los textos y los handlers son
+  // exactamente los de antes: es un cambio de envoltorio, rama por rama.
   if (status === "initializing" || status === "loading-profile") {
-    return <p>Cargando…</p>;
+    return (
+      <AuthShell>
+        <LoadingState />
+      </AuthShell>
+    );
   }
 
   if (status === "unauthenticated") {
     return (
-      <p role="alert">
-        Este enlace no es válido o expiró. Pedile a tu administrador que te reinvite.
-      </p>
+      <AuthShell>
+        <ErrorState>
+          Este enlace no es válido o expiró. Pedile a tu administrador que te reinvite.
+        </ErrorState>
+      </AuthShell>
     );
   }
 
   if (status === "profile-error" && step === "form") {
     return (
-      <div>
-        <p role="alert">No pudimos verificar tu sesión.</p>
-        <button type="button" onClick={handleRetryProfile}>
-          Reintentar
-        </button>
-      </div>
+      <AuthShell>
+        <div>
+          <ErrorState>No pudimos verificar tu sesión.</ErrorState>
+          <Button variant="primary" onClick={handleRetryProfile}>
+            Reintentar
+          </Button>
+        </div>
+      </AuthShell>
     );
   }
 
@@ -271,43 +289,43 @@ export function AcceptInvitationPage() {
     // flujo (supabase.auth.updateUser), sin nuevo endpoint ni heurística
     // sobre si ya tiene contraseña.
     return (
-      <div>
-        <p>
-          Ya iniciaste sesión como {alreadyLoggedInEmail}. Si esta invitación es para otra cuenta,
-          cerrá sesión primero.
-        </p>
-        <p>
-          Si cerraste el navegador antes de terminar de configurar tu contraseña, podés hacerlo
-          ahora sin perder tu cuenta.
-        </p>
-        <form onSubmit={handlePasswordOnlySubmit}>
-          <label>
-            Contraseña
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              minLength={MIN_PASSWORD_LENGTH}
-              autoComplete="new-password"
-            />
-          </label>
-          <label>
-            Confirmar contraseña
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              required
-              autoComplete="new-password"
-            />
-          </label>
-          {error ? <p role="alert">{error}</p> : null}
-          <button type="submit" disabled={isBusy}>
-            {isBusy ? "Procesando…" : "Configurar contraseña"}
-          </button>
-        </form>
-      </div>
+      <AuthShell>
+        <div>
+          <p className="ds-auth-text">
+            Ya iniciaste sesión como {alreadyLoggedInEmail}. Si esta invitación es para otra cuenta,
+            cerrá sesión primero.
+          </p>
+          <p className="ds-auth-text">
+            Si cerraste el navegador antes de terminar de configurar tu contraseña, podés hacerlo
+            ahora sin perder tu cuenta.
+          </p>
+          <form onSubmit={handlePasswordOnlySubmit}>
+            <FormField label="Contraseña">
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                minLength={MIN_PASSWORD_LENGTH}
+                autoComplete="new-password"
+              />
+            </FormField>
+            <FormField label="Confirmar contraseña">
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+                autoComplete="new-password"
+              />
+            </FormField>
+            {error ? <ErrorState>{error}</ErrorState> : null}
+            <Button type="submit" variant="primary" disabled={isBusy}>
+              {isBusy ? "Procesando…" : "Configurar contraseña"}
+            </Button>
+          </form>
+        </div>
+      </AuthShell>
     );
   }
 
@@ -317,45 +335,97 @@ export function AcceptInvitationPage() {
 
   if (step === "accept-failed") {
     return (
-      <div>
-        <p role="alert">{error}</p>
-        <button type="button" onClick={() => void runAccept()}>
-          Reintentar
-        </button>
-      </div>
+      <AuthShell>
+        <div>
+          <ErrorState>{error}</ErrorState>
+          <Button variant="primary" onClick={() => void runAccept()}>
+            Reintentar
+          </Button>
+        </div>
+      </AuthShell>
     );
   }
 
   if (step === "password-failed") {
     return (
-      <div>
-        <p role="alert">{error}</p>
-        <p>Tu cuenta ya fue creada. Solo falta configurar tu contraseña.</p>
-        <button type="button" onClick={() => void runSetPassword()}>
-          Reintentar
-        </button>
-      </div>
+      <AuthShell>
+        <div>
+          <ErrorState>{error}</ErrorState>
+          <p className="ds-auth-text">
+            Tu cuenta ya fue creada. Solo falta configurar tu contraseña.
+          </p>
+          <Button variant="primary" onClick={() => void runSetPassword()}>
+            Reintentar
+          </Button>
+        </div>
+      </AuthShell>
     );
   }
 
   if (step === "profile-failed") {
     return (
-      <div>
-        <p role="alert">No pudimos confirmar tu perfil{error ? `: ${error}` : "."}</p>
-        <button type="button" onClick={handleRetryProfile}>
-          Reintentar
-        </button>
-      </div>
+      <AuthShell>
+        <div>
+          <ErrorState>No pudimos confirmar tu perfil{error ? `: ${error}` : "."}</ErrorState>
+          <Button variant="primary" onClick={handleRetryProfile}>
+            Reintentar
+          </Button>
+        </div>
+      </AuthShell>
     );
   }
 
   if (step === "password-only") {
     return (
-      <form onSubmit={handlePasswordOnlySubmit}>
-        <h1>Configurá tu contraseña</h1>
-        <p>Tu cuenta ya fue creada. Solo falta que definas una contraseña.</p>
-        <label>
-          Contraseña
+      <AuthShell>
+        <form onSubmit={handlePasswordOnlySubmit}>
+          <h1>Configurá tu contraseña</h1>
+          <p className="ds-auth-text">
+            Tu cuenta ya fue creada. Solo falta que definas una contraseña.
+          </p>
+          <FormField label="Contraseña">
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+              minLength={MIN_PASSWORD_LENGTH}
+              autoComplete="new-password"
+            />
+          </FormField>
+          <FormField label="Confirmar contraseña">
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              required
+              autoComplete="new-password"
+            />
+          </FormField>
+          {error ? <ErrorState>{error}</ErrorState> : null}
+          <Button type="submit" variant="primary" disabled={isBusy}>
+            {isBusy ? "Procesando…" : "Guardar contraseña"}
+          </Button>
+        </form>
+      </AuthShell>
+    );
+  }
+
+  // step: "form" | "accepting" | "setting-password" | "resolving-profile"
+  return (
+    <AuthShell>
+      <form onSubmit={handleFormSubmit}>
+        <h1>Completá tu cuenta</h1>
+        <FormField label="Nombre completo">
+          <input
+            type="text"
+            value={fullName}
+            onChange={(event) => setFullName(event.target.value)}
+            required
+            maxLength={255}
+          />
+        </FormField>
+        <FormField label="Contraseña">
           <input
             type="password"
             value={password}
@@ -364,9 +434,8 @@ export function AcceptInvitationPage() {
             minLength={MIN_PASSWORD_LENGTH}
             autoComplete="new-password"
           />
-        </label>
-        <label>
-          Confirmar contraseña
+        </FormField>
+        <FormField label="Confirmar contraseña">
           <input
             type="password"
             value={confirmPassword}
@@ -374,54 +443,12 @@ export function AcceptInvitationPage() {
             required
             autoComplete="new-password"
           />
-        </label>
-        {error ? <p role="alert">{error}</p> : null}
-        <button type="submit" disabled={isBusy}>
-          {isBusy ? "Procesando…" : "Guardar contraseña"}
-        </button>
+        </FormField>
+        {error ? <ErrorState>{error}</ErrorState> : null}
+        <Button type="submit" variant="primary" disabled={isBusy}>
+          {isBusy ? "Procesando…" : "Completar registro"}
+        </Button>
       </form>
-    );
-  }
-
-  // step: "form" | "accepting" | "setting-password" | "resolving-profile"
-  return (
-    <form onSubmit={handleFormSubmit}>
-      <h1>Completá tu cuenta</h1>
-      <label>
-        Nombre completo
-        <input
-          type="text"
-          value={fullName}
-          onChange={(event) => setFullName(event.target.value)}
-          required
-          maxLength={255}
-        />
-      </label>
-      <label>
-        Contraseña
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          required
-          minLength={MIN_PASSWORD_LENGTH}
-          autoComplete="new-password"
-        />
-      </label>
-      <label>
-        Confirmar contraseña
-        <input
-          type="password"
-          value={confirmPassword}
-          onChange={(event) => setConfirmPassword(event.target.value)}
-          required
-          autoComplete="new-password"
-        />
-      </label>
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={isBusy}>
-        {isBusy ? "Procesando…" : "Completar registro"}
-      </button>
-    </form>
+    </AuthShell>
   );
 }
