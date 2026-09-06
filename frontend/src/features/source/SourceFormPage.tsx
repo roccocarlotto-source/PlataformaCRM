@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
+import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -147,82 +148,102 @@ export function SourceFormPage() {
     );
   }
 
+  // Restyle con criterio propio (sin export): el esqueleto de los formularios
+  // migrados (.ds-form + Card + .ds-field-grid). Nombre + Tipo como par, el
+  // hint de edición y "Activa" a lo ancho; la sugerencia y el editor de mapeo
+  // van después de la grilla, dentro de la misma tarjeta, tal cual estaban;
+  // grilla y bloques de mapeo comparten un .ds-stack para que haya aire entre
+  // ellos (la grilla no deja margen abajo y los subcomponentes no traen margen
+  // arriba). Los subcomponentes no cambian: solo el contenedor alrededor.
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="ds-form">
       <h1>{isEditMode ? "Editar fuente" : "Nueva fuente"}</h1>
+      <div className="ds-stack">
+        <Card heading="Datos de la fuente">
+          <div className="ds-stack">
+            <div className="ds-field-grid">
+              <FormField label="Nombre">
+                <input
+                  type="text"
+                  value={values.name}
+                  onChange={(event) => setValues({ ...values, name: event.target.value })}
+                  required
+                />
+              </FormField>
 
-      <FormField label="Nombre">
-        <input
-          type="text"
-          value={values.name}
-          onChange={(event) => setValues({ ...values, name: event.target.value })}
-          required
-        />
-      </FormField>
+              <FormField label="Tipo">
+                <select
+                  value={values.type}
+                  disabled={isEditMode}
+                  onChange={(event) =>
+                    setValues({ ...values, type: event.target.value as SourceType })
+                  }
+                >
+                  {/* Falta EXTERNAL_DB del enum a propósito, no es un olvido: el ítem 6
+                    (bases de datos externas) sigue pospuesto —ver docs/project-overview.md
+                    §8— y no hay ninguna forma de ingesta que lo consuma. Crear una
+                    fuente de ese tipo hoy no rompe nada, pero tampoco hace nada.
+                    `SourceType` en types.ts SÍ lo incluye: el backend lo acepta, así
+                    que el tipo tiene que poder representar una fuente existente que
+                    llegue por otro camino. Esto es solo no ofrecer la opción. */}
+                  <option value="WEBHOOK">Webhook</option>
+                  <option value="FILE_IMPORT">Importación de archivo</option>
+                </select>
+              </FormField>
+              {isEditMode ? (
+                <p className="ds-hint ds-field-grid--full">
+                  El tipo no se puede cambiar: una integración de webhook no se convierte en una
+                  importación de archivo. Si necesitás otro tipo, creá una fuente nueva.
+                </p>
+              ) : null}
 
-      <FormField label="Tipo">
-        <select
-          value={values.type}
-          disabled={isEditMode}
-          onChange={(event) => setValues({ ...values, type: event.target.value as SourceType })}
-        >
-          {/* Falta EXTERNAL_DB del enum a propósito, no es un olvido: el ítem 6
-              (bases de datos externas) sigue pospuesto —ver docs/project-overview.md
-              §8— y no hay ninguna forma de ingesta que lo consuma. Crear una
-              fuente de ese tipo hoy no rompe nada, pero tampoco hace nada.
-              `SourceType` en types.ts SÍ lo incluye: el backend lo acepta, así
-              que el tipo tiene que poder representar una fuente existente que
-              llegue por otro camino. Esto es solo no ofrecer la opción. */}
-          <option value="WEBHOOK">Webhook</option>
-          <option value="FILE_IMPORT">Importación de archivo</option>
-        </select>
-      </FormField>
-      {isEditMode ? (
-        <p className="ds-hint">
-          El tipo no se puede cambiar: una integración de webhook no se convierte en una importación
-          de archivo. Si necesitás otro tipo, creá una fuente nueva.
-        </p>
-      ) : null}
+              <div className="ds-field-grid--full">
+                <FormField label="Activa">
+                  <input
+                    type="checkbox"
+                    checked={values.isActive}
+                    onChange={(event) => setValues({ ...values, isActive: event.target.checked })}
+                  />
+                </FormField>
+              </div>
+            </div>
 
-      <FormField label="Activa">
-        <input
-          type="checkbox"
-          checked={values.isActive}
-          onChange={(event) => setValues({ ...values, isActive: event.target.checked })}
-        />
-      </FormField>
+            {usaMapeo ? (
+              <>
+                {/* La sugerencia va ANTES del editor: el orden natural es traer las
+                  columnas y después ajustarlas, no al revés. Solo aparece con
+                  FILE_IMPORT, igual que el editor — el backend rechaza fieldMapping
+                  en cualquier otro tipo. */}
+                <SugerirMapeoDesdeArchivo
+                  disabled={isSubmitting}
+                  onSugerir={(encabezados) =>
+                    setValues({
+                      ...values,
+                      // MERGE, no reemplazo: agregarFilasSugeridas deja intactas las
+                      // filas que ya estaban. Alguien que configuró un mapeo a mano no
+                      // puede perderlo por subir un archivo de muestra.
+                      mappingRows: agregarFilasSugeridas(values.mappingRows, encabezados),
+                    })
+                  }
+                />
+                <FieldMappingEditor
+                  rows={values.mappingRows}
+                  disabled={isSubmitting}
+                  onChange={(mappingRows) => setValues({ ...values, mappingRows })}
+                />
+              </>
+            ) : null}
+          </div>
+        </Card>
 
-      {usaMapeo ? (
-        <>
-          {/* La sugerencia va ANTES del editor: el orden natural es traer las
-              columnas y después ajustarlas, no al revés. Solo aparece con
-              FILE_IMPORT, igual que el editor — el backend rechaza fieldMapping
-              en cualquier otro tipo. */}
-          <SugerirMapeoDesdeArchivo
-            disabled={isSubmitting}
-            onSugerir={(encabezados) =>
-              setValues({
-                ...values,
-                // MERGE, no reemplazo: agregarFilasSugeridas deja intactas las
-                // filas que ya estaban. Alguien que configuró un mapeo a mano no
-                // puede perderlo por subir un archivo de muestra.
-                mappingRows: agregarFilasSugeridas(values.mappingRows, encabezados),
-              })
-            }
-          />
-          <FieldMappingEditor
-            rows={values.mappingRows}
-            disabled={isSubmitting}
-            onChange={(mappingRows) => setValues({ ...values, mappingRows })}
-          />
-        </>
-      ) : null}
+        {error ? <ErrorState>{error}</ErrorState> : null}
 
-      {error ? <ErrorState>{error}</ErrorState> : null}
-
-      <Button type="submit" variant="primary" disabled={isSubmitting}>
-        {isSubmitting ? "Guardando…" : "Guardar"}
-      </Button>
+        <div>
+          <Button type="submit" variant="primary" disabled={isSubmitting}>
+            {isSubmitting ? "Guardando…" : "Guardar"}
+          </Button>
+        </div>
+      </div>
     </form>
   );
 }
