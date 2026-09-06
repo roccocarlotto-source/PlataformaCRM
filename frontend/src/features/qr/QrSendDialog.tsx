@@ -94,7 +94,18 @@ export function QrSendDialog({ qr, onClose }: QrSendDialogProps) {
   const titulo = `Enviar QR ${qr.displayNumber ?? "—"}${qr.name ? ` — ${qr.name}` : ""}`;
 
   return (
-    <Modal title={titulo} onClose={onClose} closeLabel="Cancelar">
+    // La acción principal va en el pie del panel: no hay <form> acá, handleSend
+    // se dispara por onClick directo. "Copiar mensaje" (solo email) se queda en
+    // el cuerpo: es el respaldo de la acción, no la acción.
+    <Modal
+      title={titulo}
+      onClose={onClose}
+      closeLabel="Cancelar"
+      primaryAction={{
+        label: canal === "whatsapp" ? "Abrir WhatsApp" : "Abrir email",
+        onClick: handleSend,
+      }}
+    >
       {/* Radios en tarjeta (.ds-radio-card, mismo trato que "Tipo de QR" en
           QrFormDialog). La línea de ayuda va como HERMANA del <label>, nunca
           adentro: si no, entraría en el nombre accesible del radio y
@@ -140,9 +151,6 @@ export function QrSendDialog({ qr, onClose }: QrSendDialogProps) {
         />
       </FormField>
       {error ? <ErrorState>{error}</ErrorState> : null}
-      <Button variant="primary" onClick={handleSend}>
-        {canal === "whatsapp" ? "Abrir WhatsApp" : "Abrir email"}
-      </Button>{" "}
       {canal === "email" ? (
         <Button onClick={() => void handleCopyMessage()}>
           {copiado ? "¡Copiado!" : "Copiar mensaje"}

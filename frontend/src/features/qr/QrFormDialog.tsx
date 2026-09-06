@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from "react";
-import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { Modal } from "../../design-system/Modal";
@@ -130,12 +129,22 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
   }
 
   return (
+    // El submit vive en el pie del panel, fuera del <form> en el DOM: el botón
+    // primario del Modal lleva form="qr-form" (atributo HTML nativo) y con eso
+    // dispara el onSubmit de este form igual que si estuviera adentro, pasando
+    // por el mismo handleSubmit y respetando el noValidate. El id es fijo
+    // porque QrListPage abre un solo diálogo a la vez.
     <Modal
       title={isEditMode ? "Editar QR" : "Generar QR digital"}
       onClose={onClose}
       closeLabel="Cancelar"
+      primaryAction={{
+        label: isSubmitting ? "Guardando…" : isEditMode ? "Guardar" : "Crear QR",
+        formId: "qr-form",
+        disabled: isSubmitting,
+      }}
     >
-      <form onSubmit={handleSubmit} noValidate>
+      <form id="qr-form" onSubmit={handleSubmit} noValidate>
         {isEditMode ? null : (
           <BranchSelect
             id="qr-form-branch"
@@ -211,9 +220,6 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
           </div>
         )}
         {error ? <ErrorState>{error}</ErrorState> : null}
-        <Button type="submit" variant="primary" disabled={isSubmitting}>
-          {isSubmitting ? "Guardando…" : isEditMode ? "Guardar" : "Crear QR"}
-        </Button>
       </form>
     </Modal>
   );
