@@ -142,150 +142,154 @@ export function QrListPage() {
         ) : null}
       </div>
 
-      <div className="ds-filters">
-        <BranchSelect
-          id="qr-list-branch"
-          label="Sucursal"
-          value={branchId}
-          emptyOptionLabel="Todas"
-          onChange={(nuevo) => {
-            setBranchId(nuevo || undefined);
-            setPage(1);
-          }}
-        />
-        <label>
-          Ordenar por
-          <select
-            value={sortBy}
-            onChange={(event) => setSortBy(event.target.value as QrCodeSortBy)}
-          >
-            <option value="createdAt">Fecha de creación</option>
-            <option value="displayNumber">Número</option>
-          </select>
-        </label>
-        <label>
-          Orden
-          <select
-            value={sortOrder}
-            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-          >
-            <option value="desc">Descendente</option>
-            <option value="asc">Ascendente</option>
-          </select>
-        </label>
-      </div>
+      <div className="ds-list-card">
+        <div className="ds-filters">
+          <BranchSelect
+            id="qr-list-branch"
+            label="Sucursal"
+            value={branchId}
+            emptyOptionLabel="Todas"
+            onChange={(nuevo) => {
+              setBranchId(nuevo || undefined);
+              setPage(1);
+            }}
+          />
+          <label>
+            Ordenar por
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as QrCodeSortBy)}
+            >
+              <option value="createdAt">Fecha de creación</option>
+              <option value="displayNumber">Número</option>
+            </select>
+          </label>
+          <label>
+            Orden
+            <select
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+            >
+              <option value="desc">Descendente</option>
+              <option value="asc">Ascendente</option>
+            </select>
+          </label>
+        </div>
 
-      {qrCodesQuery.isLoading ? <LoadingState /> : null}
+        {qrCodesQuery.isLoading ? <LoadingState /> : null}
 
-      {qrCodesQuery.isError ? (
-        <ErrorState>
-          No pudimos cargar los códigos QR
-          {qrCodesQuery.error instanceof Error ? `: ${qrCodesQuery.error.message}` : "."}
-        </ErrorState>
-      ) : null}
+        {qrCodesQuery.isError ? (
+          <ErrorState>
+            No pudimos cargar los códigos QR
+            {qrCodesQuery.error instanceof Error ? `: ${qrCodesQuery.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
-      {deleteMutation.isError ? (
-        <ErrorState>
-          No pudimos eliminar el QR
-          {deleteMutation.error instanceof Error ? `: ${deleteMutation.error.message}` : "."}
-        </ErrorState>
-      ) : null}
+        {deleteMutation.isError ? (
+          <ErrorState>
+            No pudimos eliminar el QR
+            {deleteMutation.error instanceof Error ? `: ${deleteMutation.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
-      {linkParaCopiarAMano ? (
-        <p className="ds-hint">
-          No pudimos copiar el link automáticamente. Copialo a mano:{" "}
-          <code>{linkParaCopiarAMano}</code>
-        </p>
-      ) : null}
+        {linkParaCopiarAMano ? (
+          <p className="ds-hint">
+            No pudimos copiar el link automáticamente. Copialo a mano:{" "}
+            <code>{linkParaCopiarAMano}</code>
+          </p>
+        ) : null}
 
-      {qrCodesQuery.isSuccess && qrCodesQuery.data.data.length === 0 ? (
-        <EmptyState>Todavía no hay códigos QR para mostrar.</EmptyState>
-      ) : null}
+        {qrCodesQuery.isSuccess && qrCodesQuery.data.data.length === 0 ? (
+          <EmptyState>Todavía no hay códigos QR para mostrar.</EmptyState>
+        ) : null}
 
-      {qrCodesQuery.isSuccess && qrCodesQuery.data.data.length > 0 ? (
-        <Table>
-          <thead>
-            <tr>
-              <th>N°</th>
-              <th>Nombre</th>
-              <th>Sucursal</th>
-              <th>Estado</th>
-              <th>Destino</th>
-              <th>Tipo</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {qrCodesQuery.data.data.map((qr) => (
-              <tr key={qr.id}>
-                <td>{qr.displayNumber ?? SIN_RESOLVER}</td>
-                <td className="ds-cell-primary">{qr.name ?? SIN_RESOLVER}</td>
-                <td>
-                  {qr.branchId ? (nombreDeSucursal.get(qr.branchId) ?? SIN_RESOLVER) : SIN_RESOLVER}
-                </td>
-                <td>
-                  <Badge variant={ESTADO_BADGE[estadoDeQr(qr)]}>
-                    {ESTADO_LABEL[estadoDeQr(qr)]}
-                  </Badge>
-                </td>
-                <td
-                  className="ds-cell-muted ds-cell-truncate"
-                  title={qr.destinationUrl ?? undefined}
-                >
-                  {qr.destinationUrl ?? SIN_RESOLVER}
-                </td>
-                <td>
-                  {qr.qrType === "SINGLE_USE" ? (
-                    <Badge variant="info">Un solo uso</Badge>
-                  ) : (
-                    <Badge variant="neutral">Reusable</Badge>
-                  )}
-                </td>
-                <td>
-                  {/* Mismos botones, mismos textos y mismo nombre accesible que
+        {qrCodesQuery.isSuccess && qrCodesQuery.data.data.length > 0 ? (
+          <Table>
+            <thead>
+              <tr>
+                <th>N°</th>
+                <th>Nombre</th>
+                <th>Sucursal</th>
+                <th>Estado</th>
+                <th>Destino</th>
+                <th>Tipo</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {qrCodesQuery.data.data.map((qr) => (
+                <tr key={qr.id}>
+                  <td>{qr.displayNumber ?? SIN_RESOLVER}</td>
+                  <td className="ds-cell-primary">{qr.name ?? SIN_RESOLVER}</td>
+                  <td>
+                    {qr.branchId
+                      ? (nombreDeSucursal.get(qr.branchId) ?? SIN_RESOLVER)
+                      : SIN_RESOLVER}
+                  </td>
+                  <td>
+                    <Badge variant={ESTADO_BADGE[estadoDeQr(qr)]}>
+                      {ESTADO_LABEL[estadoDeQr(qr)]}
+                    </Badge>
+                  </td>
+                  <td
+                    className="ds-cell-muted ds-cell-truncate"
+                    title={qr.destinationUrl ?? undefined}
+                  >
+                    {qr.destinationUrl ?? SIN_RESOLVER}
+                  </td>
+                  <td>
+                    {qr.qrType === "SINGLE_USE" ? (
+                      <Badge variant="info">Un solo uso</Badge>
+                    ) : (
+                      <Badge variant="neutral">Reusable</Badge>
+                    )}
+                  </td>
+                  <td>
+                    {/* Mismos botones, mismos textos y mismo nombre accesible que
                       antes; solo cambia el contenedor (.ds-row-actions) y el
                       ícono decorativo delante de cada uno. */}
-                  <div className="ds-row-actions">
-                    <Button onClick={() => setDialogo({ kind: "imagen", qr })}>
-                      <Eye {...ICONO} />
-                      Ver imagen
-                    </Button>
-                    <Button onClick={() => setDialogo({ kind: "enviar", qr })}>
-                      <Send {...ICONO} />
-                      Enviar
-                    </Button>
-                    <Button onClick={() => void handleCopyLink(qr)}>
-                      {copiadoId === qr.id ? <Check {...ICONO} /> : <Link2 {...ICONO} />}
-                      {copiadoId === qr.id ? "¡Copiado!" : "Copiar link"}
-                    </Button>
-                    {isAdmin ? (
-                      <>
-                        <Button onClick={() => setDialogo({ kind: "editar", qr })}>
-                          <Pencil {...ICONO} />
-                          Editar
-                        </Button>
-                        <Button variant="danger" onClick={() => handleDelete(qr.id)}>
-                          <Trash2 {...ICONO} />
-                          Eliminar
-                        </Button>
-                      </>
-                    ) : null}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      ) : null}
+                    <div className="ds-row-actions">
+                      <Button onClick={() => setDialogo({ kind: "imagen", qr })}>
+                        <Eye {...ICONO} />
+                        Ver imagen
+                      </Button>
+                      <Button onClick={() => setDialogo({ kind: "enviar", qr })}>
+                        <Send {...ICONO} />
+                        Enviar
+                      </Button>
+                      <Button onClick={() => void handleCopyLink(qr)}>
+                        {copiadoId === qr.id ? <Check {...ICONO} /> : <Link2 {...ICONO} />}
+                        {copiadoId === qr.id ? "¡Copiado!" : "Copiar link"}
+                      </Button>
+                      {isAdmin ? (
+                        <>
+                          <Button onClick={() => setDialogo({ kind: "editar", qr })}>
+                            <Pencil {...ICONO} />
+                            Editar
+                          </Button>
+                          <Button variant="danger" onClick={() => handleDelete(qr.id)}>
+                            <Trash2 {...ICONO} />
+                            Eliminar
+                          </Button>
+                        </>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        ) : null}
 
-      {qrCodesQuery.isSuccess ? (
-        <Pagination
-          page={page}
-          totalPages={qrCodesQuery.data.pagination.totalPages}
-          onPrevious={() => setPage((current) => current - 1)}
-          onNext={() => setPage((current) => current + 1)}
-        />
-      ) : null}
+        {qrCodesQuery.isSuccess ? (
+          <Pagination
+            page={page}
+            totalPages={qrCodesQuery.data.pagination.totalPages}
+            onPrevious={() => setPage((current) => current - 1)}
+            onNext={() => setPage((current) => current + 1)}
+          />
+        ) : null}
+      </div>
 
       {dialogo?.kind === "crear" ? (
         <QrFormDialog

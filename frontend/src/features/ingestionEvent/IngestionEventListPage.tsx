@@ -119,111 +119,112 @@ export function IngestionEventListPage() {
         </p>
       ) : null}
 
-      <div className="ds-filters">
-        <label>
-          Fuente
-          <select
-            value={sourceIdFiltro}
-            onChange={(event) => cambiarFiltroDeFuente(event.target.value)}
-          >
-            <option value="">Todas</option>
-            {fuentes.map((source) => (
-              <option key={source.id} value={source.id}>
-                {source.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Estado
-          <select
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value as IngestionStatus | "");
-              setPage(1);
-            }}
-          >
-            <option value="">Todos</option>
-            {ESTADOS.map((estado) => (
-              <option key={estado} value={estado}>
-                {ETIQUETA_DE_ESTADO[estado]}
-              </option>
-            ))}
-          </select>
-        </label>
-        {/* Sin selector de "Ordenar por": el backend solo acepta createdAt. Un
+      <div className="ds-list-card">
+        <div className="ds-filters">
+          <label>
+            Fuente
+            <select
+              value={sourceIdFiltro}
+              onChange={(event) => cambiarFiltroDeFuente(event.target.value)}
+            >
+              <option value="">Todas</option>
+              {fuentes.map((source) => (
+                <option key={source.id} value={source.id}>
+                  {source.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Estado
+            <select
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value as IngestionStatus | "");
+                setPage(1);
+              }}
+            >
+              <option value="">Todos</option>
+              {ESTADOS.map((estado) => (
+                <option key={estado} value={estado}>
+                  {ETIQUETA_DE_ESTADO[estado]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {/* Sin selector de "Ordenar por": el backend solo acepta createdAt. Un
             select con una sola opción sería ofrecer una elección que no existe. */}
-        <label>
-          Orden
-          <select
-            value={sortOrder}
-            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-          >
-            <option value="desc">Más recientes primero</option>
-            <option value="asc">Más antiguos primero</option>
-          </select>
-        </label>
-      </div>
+          <label>
+            Orden
+            <select
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+            >
+              <option value="desc">Más recientes primero</option>
+              <option value="asc">Más antiguos primero</option>
+            </select>
+          </label>
+        </div>
 
-      {sourcesQuery.isSuccess && sourcesQuery.data.pagination.total > SOURCES_PARA_SELECT ? (
-        <p className="ds-hint">
-          Se muestran las primeras {SOURCES_PARA_SELECT} fuentes de{" "}
-          {sourcesQuery.data.pagination.total} en el filtro.
-        </p>
-      ) : null}
+        {sourcesQuery.isSuccess && sourcesQuery.data.pagination.total > SOURCES_PARA_SELECT ? (
+          <p className="ds-hint">
+            Se muestran las primeras {SOURCES_PARA_SELECT} fuentes de{" "}
+            {sourcesQuery.data.pagination.total} en el filtro.
+          </p>
+        ) : null}
 
-      {eventsQuery.isLoading ? <LoadingState /> : null}
+        {eventsQuery.isLoading ? <LoadingState /> : null}
 
-      {eventsQuery.isError ? (
-        <ErrorState>
-          No pudimos cargar los eventos
-          {eventsQuery.error instanceof Error ? `: ${eventsQuery.error.message}` : "."}
-        </ErrorState>
-      ) : null}
+        {eventsQuery.isError ? (
+          <ErrorState>
+            No pudimos cargar los eventos
+            {eventsQuery.error instanceof Error ? `: ${eventsQuery.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
-      {retryMutation.isError ? (
-        <ErrorState>
-          No pudimos reprocesar el evento
-          {retryMutation.error instanceof Error ? `: ${retryMutation.error.message}` : "."}
-        </ErrorState>
-      ) : null}
+        {retryMutation.isError ? (
+          <ErrorState>
+            No pudimos reprocesar el evento
+            {retryMutation.error instanceof Error ? `: ${retryMutation.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
-      {eventsQuery.isSuccess && eventsQuery.data.data.length === 0 ? (
-        <EmptyState>No hay eventos para mostrar.</EmptyState>
-      ) : null}
+        {eventsQuery.isSuccess && eventsQuery.data.data.length === 0 ? (
+          <EmptyState>No hay eventos para mostrar.</EmptyState>
+        ) : null}
 
-      {eventsQuery.isSuccess && eventsQuery.data.data.length > 0 ? (
-        <Table>
-          <thead>
-            <tr>
-              <th>Fuente</th>
-              <th>Estado</th>
-              <th>Motivo</th>
-              <th>Creado</th>
-              <th>Actualizado</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {eventsQuery.data.data.map((evento) => (
-              <tr key={evento.id}>
-                <td>{nombreDeFuente(evento.sourceId)}</td>
-                <td>{ETIQUETA_DE_ESTADO[evento.status]}</td>
-                {/* errorMessage solo tiene contenido en FAILED: en el resto es
+        {eventsQuery.isSuccess && eventsQuery.data.data.length > 0 ? (
+          <Table>
+            <thead>
+              <tr>
+                <th>Fuente</th>
+                <th>Estado</th>
+                <th>Motivo</th>
+                <th>Creado</th>
+                <th>Actualizado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {eventsQuery.data.data.map((evento) => (
+                <tr key={evento.id}>
+                  <td>{nombreDeFuente(evento.sourceId)}</td>
+                  <td>{ETIQUETA_DE_ESTADO[evento.status]}</td>
+                  {/* errorMessage solo tiene contenido en FAILED: en el resto es
                     null y no hay nada que decir. */}
-                <td className="ds-cell-truncate" title={evento.errorMessage ?? undefined}>
-                  {evento.errorMessage ?? SIN_RESOLVER}
-                </td>
-                <td>{new Date(evento.createdAt).toLocaleString()}</td>
-                <td>{new Date(evento.updatedAt).toLocaleString()}</td>
-                <td>
-                  {/* Cierra el círculo: esta fila se convirtió en este contacto.
+                  <td className="ds-cell-truncate" title={evento.errorMessage ?? undefined}>
+                    {evento.errorMessage ?? SIN_RESOLVER}
+                  </td>
+                  <td>{new Date(evento.createdAt).toLocaleString()}</td>
+                  <td>{new Date(evento.updatedAt).toLocaleString()}</td>
+                  <td>
+                    {/* Cierra el círculo: esta fila se convirtió en este contacto.
                       Solo cuando hay uno — promotedContactId es null salvo en
                       PROCESSED. La ruta de edición ya existe. */}
-                  {evento.promotedContactId ? (
-                    <Link to={`/contacts/${evento.promotedContactId}/edit`}>Ver contacto</Link>
-                  ) : null}{" "}
-                  {/* Reintentar SOLO en FAILED, mismo criterio que "Revocar" en
+                    {evento.promotedContactId ? (
+                      <Link to={`/contacts/${evento.promotedContactId}/edit`}>Ver contacto</Link>
+                    ) : null}{" "}
+                    {/* Reintentar SOLO en FAILED, mismo criterio que "Revocar" en
                       ApiKeyListPage: el backend rechaza con 409 cualquier otro
                       estado, y ofrecer una acción que solo puede fallar es peor
                       que no ofrecerla.
@@ -232,35 +233,36 @@ export function IngestionEventListPage() {
                       reintentar no es destructivo. Como mucho vuelve a fallar, y
                       el motivo anterior no se pierde para siempre — se reescribe
                       con el del intento nuevo. */}
-                  {evento.status === "FAILED" ? (
-                    /* SOLO LA FILA EN VUELO — hallazgo E2-4 de
+                    {evento.status === "FAILED" ? (
+                      /* SOLO LA FILA EN VUELO — hallazgo E2-4 de
                        docs/review-fase2-2026-08-28.md. `isPending` es un solo
                        booleano para toda la mutación, así que reintentar una
                        fila deshabilitaba el botón de las otras diecinueve.
                        `variables` es el argumento del mutate() en curso, o sea
                        el id del evento que realmente se está reintentando. */
-                    <Button
-                      disabled={retryMutation.isPending && retryMutation.variables === evento.id}
-                      onClick={() => retryMutation.mutate(evento.id)}
-                    >
-                      Reintentar
-                    </Button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      ) : null}
+                      <Button
+                        disabled={retryMutation.isPending && retryMutation.variables === evento.id}
+                        onClick={() => retryMutation.mutate(evento.id)}
+                      >
+                        Reintentar
+                      </Button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        ) : null}
 
-      {eventsQuery.isSuccess ? (
-        <Pagination
-          page={page}
-          totalPages={eventsQuery.data.pagination.totalPages}
-          onPrevious={() => setPage((current) => current - 1)}
-          onNext={() => setPage((current) => current + 1)}
-        />
-      ) : null}
+        {eventsQuery.isSuccess ? (
+          <Pagination
+            page={page}
+            totalPages={eventsQuery.data.pagination.totalPages}
+            onPrevious={() => setPage((current) => current - 1)}
+            onNext={() => setPage((current) => current + 1)}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

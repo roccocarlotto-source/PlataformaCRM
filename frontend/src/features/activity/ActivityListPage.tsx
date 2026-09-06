@@ -127,172 +127,174 @@ export function ActivityListPage() {
         ) : null}
       </div>
 
-      <div className="ds-filters">
-        <label>
-          Buscar
-          <input
-            type="search"
-            placeholder="Buscar por asunto o notas"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-          />
-        </label>
-        <label>
-          Tipo
-          <select
-            value={type}
-            onChange={(event) => {
-              setType(event.target.value as ActivityType | "");
-              setPage(1);
-            }}
-          >
-            <option value="">Todos</option>
-            {ACTIVITY_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {ACTIVITY_TYPE_LABELS[t]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div>
-          <CompanySelect
-            id="activity-filter-company"
-            label="Filtrar por empresa"
-            value={companyId}
-            onChange={(id) => {
-              setCompanyId(id);
-              setPage(1);
-            }}
-          />
-          {companyId ? (
-            <Button
-              onClick={() => {
-                setCompanyId(undefined);
+      <div className="ds-list-card">
+        <div className="ds-filters">
+          <label>
+            Buscar
+            <input
+              type="search"
+              placeholder="Buscar por asunto o notas"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+          <label>
+            Tipo
+            <select
+              value={type}
+              onChange={(event) => {
+                setType(event.target.value as ActivityType | "");
                 setPage(1);
               }}
             >
-              Quitar filtro de empresa
-            </Button>
-          ) : null}
+              <option value="">Todos</option>
+              {ACTIVITY_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {ACTIVITY_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <CompanySelect
+              id="activity-filter-company"
+              label="Filtrar por empresa"
+              value={companyId}
+              onChange={(id) => {
+                setCompanyId(id);
+                setPage(1);
+              }}
+            />
+            {companyId ? (
+              <Button
+                onClick={() => {
+                  setCompanyId(undefined);
+                  setPage(1);
+                }}
+              >
+                Quitar filtro de empresa
+              </Button>
+            ) : null}
+          </div>
+          <label>
+            Ordenar por
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as ActivitySortBy)}
+            >
+              <option value="createdAt">Fecha de creación</option>
+              <option value="updatedAt">Última actualización</option>
+              <option value="dueDate">Vencimiento</option>
+              <option value="completedAt">Completada</option>
+              <option value="subject">Asunto</option>
+            </select>
+          </label>
+          <label>
+            Orden
+            <select
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+            >
+              <option value="desc">Descendente</option>
+              <option value="asc">Ascendente</option>
+            </select>
+          </label>
         </div>
-        <label>
-          Ordenar por
-          <select
-            value={sortBy}
-            onChange={(event) => setSortBy(event.target.value as ActivitySortBy)}
-          >
-            <option value="createdAt">Fecha de creación</option>
-            <option value="updatedAt">Última actualización</option>
-            <option value="dueDate">Vencimiento</option>
-            <option value="completedAt">Completada</option>
-            <option value="subject">Asunto</option>
-          </select>
-        </label>
-        <label>
-          Orden
-          <select
-            value={sortOrder}
-            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-          >
-            <option value="desc">Descendente</option>
-            <option value="asc">Ascendente</option>
-          </select>
-        </label>
-      </div>
 
-      {activitiesQuery.isLoading ? <LoadingState /> : null}
+        {activitiesQuery.isLoading ? <LoadingState /> : null}
 
-      {activitiesQuery.isError ? (
-        <ErrorState>
-          No pudimos cargar las actividades
-          {activitiesQuery.error instanceof Error ? `: ${activitiesQuery.error.message}` : "."}
-        </ErrorState>
-      ) : null}
+        {activitiesQuery.isError ? (
+          <ErrorState>
+            No pudimos cargar las actividades
+            {activitiesQuery.error instanceof Error ? `: ${activitiesQuery.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
-      {deleteActivityMutation.isError ? (
-        <ErrorState>
-          No pudimos eliminar la actividad
-          {deleteActivityMutation.error instanceof Error
-            ? `: ${deleteActivityMutation.error.message}`
-            : "."}
-        </ErrorState>
-      ) : null}
+        {deleteActivityMutation.isError ? (
+          <ErrorState>
+            No pudimos eliminar la actividad
+            {deleteActivityMutation.error instanceof Error
+              ? `: ${deleteActivityMutation.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
 
-      {activitiesQuery.isSuccess && rows.length === 0 ? (
-        <EmptyState>No hay actividades para mostrar.</EmptyState>
-      ) : null}
+        {activitiesQuery.isSuccess && rows.length === 0 ? (
+          <EmptyState>No hay actividades para mostrar.</EmptyState>
+        ) : null}
 
-      {/* Mismas columnas y mismo orden que antes del restyle. */}
-      {activitiesQuery.isSuccess && rows.length > 0 ? (
-        <Table>
-          <thead>
-            <tr>
-              <th>Asunto</th>
-              <th>Tipo</th>
-              <th>Empresa</th>
-              <th>Contacto</th>
-              <th>Oportunidad</th>
-              <th>Autor</th>
-              <th>Asignado a</th>
-              <th>Vencimiento</th>
-              <th>Completada</th>
-              {isAdmin ? <th>Acciones</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((activity) => (
-              <tr key={activity.id}>
-                <td>{activity.subject}</td>
-                <td>
-                  <Badge variant="neutral">{ACTIVITY_TYPE_LABELS[activity.type]}</Badge>
-                </td>
-                <td>
-                  {activity.companyId
-                    ? (companyNames.byId.get(activity.companyId)?.name ?? "—")
-                    : ""}
-                </td>
-                <td>
-                  {activity.contactId ? (contactNames.byId.get(activity.contactId) ?? "—") : ""}
-                </td>
-                <td>
-                  {activity.opportunityId
-                    ? (opportunityNames.byId.get(activity.opportunityId) ?? "—")
-                    : ""}
-                </td>
-                <td>{resolveUserLabel(activity.authorId)}</td>
-                <td>{resolveUserLabel(activity.assigneeId)}</td>
-                <td>
-                  <span className="ds-cell-inline">
-                    <span>{formatDateTime(activity.dueDate)}</span>
-                    {isOverdue(activity, now) ? <Badge variant="danger">Vencida</Badge> : null}
-                  </span>
-                </td>
-                <td>{formatDateTime(activity.completedAt)}</td>
-                {isAdmin ? (
-                  <td>
-                    <Link to={`/activities/${activity.id}/edit`}>Editar</Link>{" "}
-                    <Button variant="danger" onClick={() => handleDelete(activity.id)}>
-                      Eliminar
-                    </Button>
-                  </td>
-                ) : null}
+        {/* Mismas columnas y mismo orden que antes del restyle. */}
+        {activitiesQuery.isSuccess && rows.length > 0 ? (
+          <Table>
+            <thead>
+              <tr>
+                <th>Asunto</th>
+                <th>Tipo</th>
+                <th>Empresa</th>
+                <th>Contacto</th>
+                <th>Oportunidad</th>
+                <th>Autor</th>
+                <th>Asignado a</th>
+                <th>Vencimiento</th>
+                <th>Completada</th>
+                {isAdmin ? <th>Acciones</th> : null}
               </tr>
-            ))}
-          </tbody>
-        </Table>
-      ) : null}
+            </thead>
+            <tbody>
+              {rows.map((activity) => (
+                <tr key={activity.id}>
+                  <td>{activity.subject}</td>
+                  <td>
+                    <Badge variant="neutral">{ACTIVITY_TYPE_LABELS[activity.type]}</Badge>
+                  </td>
+                  <td>
+                    {activity.companyId
+                      ? (companyNames.byId.get(activity.companyId)?.name ?? "—")
+                      : ""}
+                  </td>
+                  <td>
+                    {activity.contactId ? (contactNames.byId.get(activity.contactId) ?? "—") : ""}
+                  </td>
+                  <td>
+                    {activity.opportunityId
+                      ? (opportunityNames.byId.get(activity.opportunityId) ?? "—")
+                      : ""}
+                  </td>
+                  <td>{resolveUserLabel(activity.authorId)}</td>
+                  <td>{resolveUserLabel(activity.assigneeId)}</td>
+                  <td>
+                    <span className="ds-cell-inline">
+                      <span>{formatDateTime(activity.dueDate)}</span>
+                      {isOverdue(activity, now) ? <Badge variant="danger">Vencida</Badge> : null}
+                    </span>
+                  </td>
+                  <td>{formatDateTime(activity.completedAt)}</td>
+                  {isAdmin ? (
+                    <td>
+                      <Link to={`/activities/${activity.id}/edit`}>Editar</Link>{" "}
+                      <Button variant="danger" onClick={() => handleDelete(activity.id)}>
+                        Eliminar
+                      </Button>
+                    </td>
+                  ) : null}
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        ) : null}
 
-      {activitiesQuery.isSuccess ? (
-        <Pagination
-          page={page}
-          totalPages={activitiesQuery.data.pagination.totalPages}
-          onPrevious={() => setPage((current) => current - 1)}
-          onNext={() => setPage((current) => current + 1)}
-        />
-      ) : null}
+        {activitiesQuery.isSuccess ? (
+          <Pagination
+            page={page}
+            totalPages={activitiesQuery.data.pagination.totalPages}
+            onPrevious={() => setPage((current) => current - 1)}
+            onNext={() => setPage((current) => current + 1)}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

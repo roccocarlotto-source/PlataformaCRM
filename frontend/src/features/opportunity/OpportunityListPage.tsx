@@ -148,221 +148,223 @@ function OpportunityTableView() {
           diseño muestra además Etapa y Propietario, y no muestra el orden:
           agregar filtros es funcionalidad nueva y sacar los que funcionan
           sería una regresión, así que ni una cosa ni la otra. */}
-      <div className="ds-filters">
-        <label>
-          Buscar
-          <input
-            type="search"
-            placeholder="Buscar por título"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-          />
-        </label>
-        <label>
-          Estado
-          <select
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value as OpportunityStatus | "");
-              setPage(1);
-            }}
-          >
-            <option value="">Todos</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div>
-          <CompanySelect
-            id="opportunity-filter-company"
-            label="Filtrar por empresa"
-            value={companyId}
-            onChange={(id) => {
-              setCompanyId(id);
-              setPage(1);
-            }}
-          />
-          {companyId ? (
-            <Button
-              onClick={() => {
-                setCompanyId(undefined);
+      <div className="ds-list-card">
+        <div className="ds-filters">
+          <label>
+            Buscar
+            <input
+              type="search"
+              placeholder="Buscar por título"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+          <label>
+            Estado
+            <select
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value as OpportunityStatus | "");
                 setPage(1);
               }}
             >
-              Quitar filtro de empresa
-            </Button>
-          ) : null}
-        </div>
-        <div>
-          <PipelineSelect
-            id="opportunity-filter-pipeline"
-            label="Filtrar por pipeline"
-            value={pipelineId}
-            onChange={(id) => {
-              setPipelineId(id);
-              setPage(1);
-            }}
-          />
-          {pipelineId ? (
-            <Button
-              onClick={() => {
-                setPipelineId(undefined);
+              <option value="">Todos</option>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABEL[s]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <CompanySelect
+              id="opportunity-filter-company"
+              label="Filtrar por empresa"
+              value={companyId}
+              onChange={(id) => {
+                setCompanyId(id);
                 setPage(1);
               }}
+            />
+            {companyId ? (
+              <Button
+                onClick={() => {
+                  setCompanyId(undefined);
+                  setPage(1);
+                }}
+              >
+                Quitar filtro de empresa
+              </Button>
+            ) : null}
+          </div>
+          <div>
+            <PipelineSelect
+              id="opportunity-filter-pipeline"
+              label="Filtrar por pipeline"
+              value={pipelineId}
+              onChange={(id) => {
+                setPipelineId(id);
+                setPage(1);
+              }}
+            />
+            {pipelineId ? (
+              <Button
+                onClick={() => {
+                  setPipelineId(undefined);
+                  setPage(1);
+                }}
+              >
+                Quitar filtro de pipeline
+              </Button>
+            ) : null}
+          </div>
+          <label>
+            Ordenar por
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as OpportunitySortBy)}
             >
-              Quitar filtro de pipeline
-            </Button>
-          ) : null}
+              <option value="createdAt">Fecha de creación</option>
+              <option value="updatedAt">Última actualización</option>
+              <option value="amount">Monto</option>
+              <option value="title">Título</option>
+            </select>
+          </label>
+          <label>
+            Orden
+            <select
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+            >
+              <option value="desc">Descendente</option>
+              <option value="asc">Ascendente</option>
+            </select>
+          </label>
         </div>
-        <label>
-          Ordenar por
-          <select
-            value={sortBy}
-            onChange={(event) => setSortBy(event.target.value as OpportunitySortBy)}
-          >
-            <option value="createdAt">Fecha de creación</option>
-            <option value="updatedAt">Última actualización</option>
-            <option value="amount">Monto</option>
-            <option value="title">Título</option>
-          </select>
-        </label>
-        <label>
-          Orden
-          <select
-            value={sortOrder}
-            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-          >
-            <option value="desc">Descendente</option>
-            <option value="asc">Ascendente</option>
-          </select>
-        </label>
-      </div>
 
-      {opportunitiesQuery.isLoading ? <LoadingState /> : null}
+        {opportunitiesQuery.isLoading ? <LoadingState /> : null}
 
-      {opportunitiesQuery.isError ? (
-        <ErrorState>
-          No pudimos cargar las oportunidades
-          {opportunitiesQuery.error instanceof Error
-            ? `: ${opportunitiesQuery.error.message}`
-            : "."}
-        </ErrorState>
-      ) : null}
+        {opportunitiesQuery.isError ? (
+          <ErrorState>
+            No pudimos cargar las oportunidades
+            {opportunitiesQuery.error instanceof Error
+              ? `: ${opportunitiesQuery.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
 
-      {deleteOpportunityMutation.isError ? (
-        <ErrorState>
-          No pudimos eliminar la oportunidad
-          {deleteOpportunityMutation.error instanceof Error
-            ? `: ${deleteOpportunityMutation.error.message}`
-            : "."}
-        </ErrorState>
-      ) : null}
+        {deleteOpportunityMutation.isError ? (
+          <ErrorState>
+            No pudimos eliminar la oportunidad
+            {deleteOpportunityMutation.error instanceof Error
+              ? `: ${deleteOpportunityMutation.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
 
-      {opportunitiesQuery.isSuccess && rows.length === 0 ? (
-        <EmptyState>No hay oportunidades para mostrar.</EmptyState>
-      ) : null}
+        {opportunitiesQuery.isSuccess && rows.length === 0 ? (
+          <EmptyState>No hay oportunidades para mostrar.</EmptyState>
+        ) : null}
 
-      {/* Columnas en el orden de la pantalla "Oportunidades CRM" del diseño. */}
-      {opportunitiesQuery.isSuccess && rows.length > 0 ? (
-        <Table>
-          <thead>
-            <tr>
-              <th>Título</th>
-              <th>Asociado</th>
-              <th>Embudo · Etapa</th>
-              <th>Monto</th>
-              <th>Cierre</th>
-              {isAdmin ? <th>Propietario</th> : null}
-              <th>Estado</th>
-              {isAdmin ? <th>Acciones</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((opportunity) => {
-              const companyName = opportunity.companyId
-                ? (companyNames.byId.get(opportunity.companyId)?.name ?? "—")
-                : null;
-              const contactName = opportunity.contactId
-                ? (contactNames.byId.get(opportunity.contactId) ?? "—")
-                : null;
-              const ownerName = ownerNames.byId.get(opportunity.ownerId) ?? null;
-              // Abierta → fecha estimada; cerrada (WON o LOST) → fecha real.
-              // Son los dos campos que ya existen, cada uno en su caso.
-              const isClosed = opportunity.status !== "OPEN";
-              const closeDate = isClosed
-                ? opportunity.actualCloseDate
-                : opportunity.expectedCloseDate;
+        {/* Columnas en el orden de la pantalla "Oportunidades CRM" del diseño. */}
+        {opportunitiesQuery.isSuccess && rows.length > 0 ? (
+          <Table>
+            <thead>
+              <tr>
+                <th>Título</th>
+                <th>Asociado</th>
+                <th>Embudo · Etapa</th>
+                <th>Monto</th>
+                <th>Cierre</th>
+                {isAdmin ? <th>Propietario</th> : null}
+                <th>Estado</th>
+                {isAdmin ? <th>Acciones</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((opportunity) => {
+                const companyName = opportunity.companyId
+                  ? (companyNames.byId.get(opportunity.companyId)?.name ?? "—")
+                  : null;
+                const contactName = opportunity.contactId
+                  ? (contactNames.byId.get(opportunity.contactId) ?? "—")
+                  : null;
+                const ownerName = ownerNames.byId.get(opportunity.ownerId) ?? null;
+                // Abierta → fecha estimada; cerrada (WON o LOST) → fecha real.
+                // Son los dos campos que ya existen, cada uno en su caso.
+                const isClosed = opportunity.status !== "OPEN";
+                const closeDate = isClosed
+                  ? opportunity.actualCloseDate
+                  : opportunity.expectedCloseDate;
 
-              return (
-                <tr key={opportunity.id}>
-                  <td>{opportunity.title}</td>
-                  {/* Empresa y/o Contacto, con el criterio de
+                return (
+                  <tr key={opportunity.id}>
+                    <td>{opportunity.title}</td>
+                    {/* Empresa y/o Contacto, con el criterio de
                       OpportunityAssociation (compartido con el embudo). */}
-                  <td>
-                    <OpportunityAssociation companyName={companyName} contactName={contactName} />
-                  </td>
-                  <td>
-                    <Badge variant="neutral">
-                      {`${pipelineNames.byId.get(opportunity.pipelineId) ?? "—"} · ${
-                        stageNames.byId.get(opportunity.stageId) ?? "—"
-                      }`}
-                    </Badge>
-                  </td>
-                  <td>{formatAmount(opportunity.amount, opportunity.currency)}</td>
-                  <td>
-                    <span className="ds-cell-stack">
-                      <span className="ds-cell-caption">
-                        {isClosed ? "Cierre real" : "Estimado"}
-                      </span>
-                      <span>{closeDate ? formatDate(closeDate) : "—"}</span>
-                    </span>
-                  </td>
-                  {isAdmin ? (
                     <td>
-                      {ownerName ? (
-                        <span className="ds-person">
-                          <Avatar name={ownerName} size="sm" decorative />
-                          <span>{ownerName}</span>
+                      <OpportunityAssociation companyName={companyName} contactName={contactName} />
+                    </td>
+                    <td>
+                      <Badge variant="neutral">
+                        {`${pipelineNames.byId.get(opportunity.pipelineId) ?? "—"} · ${
+                          stageNames.byId.get(opportunity.stageId) ?? "—"
+                        }`}
+                      </Badge>
+                    </td>
+                    <td>{formatAmount(opportunity.amount, opportunity.currency)}</td>
+                    <td>
+                      <span className="ds-cell-stack">
+                        <span className="ds-cell-caption">
+                          {isClosed ? "Cierre real" : "Estimado"}
                         </span>
-                      ) : (
-                        "—"
-                      )}
+                        <span>{closeDate ? formatDate(closeDate) : "—"}</span>
+                      </span>
                     </td>
-                  ) : null}
-                  <td>
-                    <Badge variant={STATUS_BADGE_VARIANT[opportunity.status]}>
-                      {STATUS_LABEL[opportunity.status]}
-                    </Badge>
-                  </td>
-                  {isAdmin ? (
+                    {isAdmin ? (
+                      <td>
+                        {ownerName ? (
+                          <span className="ds-person">
+                            <Avatar name={ownerName} size="sm" decorative />
+                            <span>{ownerName}</span>
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    ) : null}
                     <td>
-                      <Link to={`/opportunities/${opportunity.id}/edit`}>Editar</Link>{" "}
-                      <Button variant="danger" onClick={() => handleDelete(opportunity.id)}>
-                        Eliminar
-                      </Button>
+                      <Badge variant={STATUS_BADGE_VARIANT[opportunity.status]}>
+                        {STATUS_LABEL[opportunity.status]}
+                      </Badge>
                     </td>
-                  ) : null}
-                </tr>
-              );
-            })}
-          </tbody>
-        </Table>
-      ) : null}
+                    {isAdmin ? (
+                      <td>
+                        <Link to={`/opportunities/${opportunity.id}/edit`}>Editar</Link>{" "}
+                        <Button variant="danger" onClick={() => handleDelete(opportunity.id)}>
+                          Eliminar
+                        </Button>
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        ) : null}
 
-      {opportunitiesQuery.isSuccess ? (
-        <Pagination
-          page={page}
-          totalPages={opportunitiesQuery.data.pagination.totalPages}
-          onPrevious={() => setPage((current) => current - 1)}
-          onNext={() => setPage((current) => current + 1)}
-        />
-      ) : null}
+        {opportunitiesQuery.isSuccess ? (
+          <Pagination
+            page={page}
+            totalPages={opportunitiesQuery.data.pagination.totalPages}
+            onPrevious={() => setPage((current) => current - 1)}
+            onNext={() => setPage((current) => current + 1)}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
