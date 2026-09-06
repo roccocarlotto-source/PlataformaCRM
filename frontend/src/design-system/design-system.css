@@ -1710,3 +1710,61 @@ a.ds-button--secondary:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---------------------------------------------------------------------------
+   Pantallas de autenticación (login, recuperar/restablecer contraseña,
+   aceptar invitación). Viven fuera de AppLayout: sin sidebar ni <main>, así
+   que traen su propio contenedor, que centra una tarjeta angosta en la
+   página. Sin export de referencia: criterio propio con las piezas del
+   sistema (Card, FormField, Button, ErrorState). Consumidor:
+   features/auth/AuthShell.tsx, que envuelve cada rama de las cuatro
+   pantallas.
+   --------------------------------------------------------------------------- */
+.ds-auth-shell {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4);
+  background: var(--color-bg);
+}
+
+.ds-auth-shell > .ds-card {
+  width: 100%;
+  max-width: 400px;
+}
+
+/* El h1 de la pantalla es el título de la tarjeta (va adentro, primero):
+   un paso menos que el título de página normal, que acá no compite con
+   nada más. */
+.ds-auth-shell h1 {
+  font-size: var(--font-size-lg);
+  margin-bottom: var(--space-4);
+}
+
+/* Párrafos de texto corrido (instrucciones, avisos). Clase y no selector de
+   elemento para no pisar el color de .ds-error, que también es un <p>. */
+.ds-auth-text {
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+}
+
+/* La acción principal ocupa todo el ancho de la tarjeta. */
+.ds-auth-shell .ds-button--primary {
+  width: 100%;
+}
+
+/* Link secundario debajo de la acción ("¿Olvidaste tu contraseña?",
+   "Volver a iniciar sesión"). */
+.ds-auth-links {
+  margin-top: var(--space-4);
+  text-align: center;
+  font-size: var(--font-size-sm);
+}
+
+/* Dentro de una Card el error va sin márgenes (.ds-card .ds-error); acá va
+   entre campos y botón, y necesita aire hacia abajo. */
+.ds-auth-shell .ds-error {
+  margin: 0 0 var(--space-3);
+}

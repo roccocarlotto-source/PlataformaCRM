@@ -1,7 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { Button } from "../../design-system/Button";
+import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
+import { LoadingState } from "../../design-system/LoadingState";
 import { supabase } from "../../lib/supabase";
+import { AuthShell } from "./AuthShell";
 
 // Misma regla real que AcceptInvitationPage.tsx (password mínimo 8) — sin
 // schema propio de backend porque esta contraseña nunca pasa por Express,
@@ -17,6 +22,10 @@ const MIN_PASSWORD_LENGTH = 8;
 // `status`: solo hace falta ALGUNA sesión (no que /api/me ya haya resuelto)
 // para poder llamar a updateUser({ password }) — a diferencia de
 // AcceptInvitationPage, acá no hay accept ni perfil que crear.
+//
+// Restyle con criterio propio (sin export): los tres estados de render
+// (cargando, link inválido, formulario) en la misma tarjeta centrada
+// (AuthShell). Condiciones, textos y rótulos no cambian.
 export function ResetPasswordPage() {
   const { status } = useAuth();
 
@@ -61,46 +70,54 @@ export function ResetPasswordPage() {
   }
 
   if (status === "initializing" || status === "loading-profile") {
-    return <p>Cargando…</p>;
+    return (
+      <AuthShell>
+        <LoadingState />
+      </AuthShell>
+    );
   }
 
   if (status === "unauthenticated") {
     return (
-      <div>
-        <p role="alert">Este enlace no es válido o expiró.</p>
-        <Link to="/forgot-password">Solicitar un nuevo link</Link>
-      </div>
+      <AuthShell>
+        <div>
+          <ErrorState>Este enlace no es válido o expiró.</ErrorState>
+          <p className="ds-auth-links">
+            <Link to="/forgot-password">Solicitar un nuevo link</Link>
+          </p>
+        </div>
+      </AuthShell>
     );
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h1>Elegí una nueva contraseña</h1>
-      <label>
-        Contraseña
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          required
-          minLength={MIN_PASSWORD_LENGTH}
-          autoComplete="new-password"
-        />
-      </label>
-      <label>
-        Confirmar contraseña
-        <input
-          type="password"
-          value={confirmPassword}
-          onChange={(event) => setConfirmPassword(event.target.value)}
-          required
-          autoComplete="new-password"
-        />
-      </label>
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={isSubmitting}>
-        {isSubmitting ? "Guardando…" : "Guardar contraseña"}
-      </button>
-    </form>
+    <AuthShell>
+      <form onSubmit={handleSubmit}>
+        <h1>Elegí una nueva contraseña</h1>
+        <FormField label="Contraseña">
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            minLength={MIN_PASSWORD_LENGTH}
+            autoComplete="new-password"
+          />
+        </FormField>
+        <FormField label="Confirmar contraseña">
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            required
+            autoComplete="new-password"
+          />
+        </FormField>
+        {error ? <ErrorState>{error}</ErrorState> : null}
+        <Button type="submit" variant="primary" disabled={isSubmitting}>
+          {isSubmitting ? "Guardando…" : "Guardar contraseña"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }
