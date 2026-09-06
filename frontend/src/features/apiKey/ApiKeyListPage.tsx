@@ -179,130 +179,132 @@ export function ApiKeyListPage() {
         </ErrorState>
       ) : null}
 
-      <div className="ds-filters">
-        <label>
-          Fuente
-          <select
-            value={sourceIdFiltro}
-            onChange={(event) => cambiarFiltroDeFuente(event.target.value)}
-          >
-            <option value="">Todas</option>
-            {fuentes.map((source) => (
-              <option key={source.id} value={source.id}>
-                {source.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Estado
-          <select
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value as ApiKeyStatus | "");
-              setPage(1);
-            }}
-          >
-            <option value="">Todas</option>
-            <option value="ACTIVE">Activas</option>
-            <option value="REVOKED">Revocadas</option>
-          </select>
-        </label>
-        <label>
-          Ordenar por
-          <select
-            value={sortBy}
-            onChange={(event) => setSortBy(event.target.value as ApiKeySortBy)}
-          >
-            <option value="createdAt">Fecha de creación</option>
-            <option value="lastUsedAt">Último uso</option>
-          </select>
-        </label>
-        <label>
-          Orden
-          <select
-            value={sortOrder}
-            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-          >
-            <option value="desc">Descendente</option>
-            <option value="asc">Ascendente</option>
-          </select>
-        </label>
-      </div>
+      <div className="ds-list-card">
+        <div className="ds-filters">
+          <label>
+            Fuente
+            <select
+              value={sourceIdFiltro}
+              onChange={(event) => cambiarFiltroDeFuente(event.target.value)}
+            >
+              <option value="">Todas</option>
+              {fuentes.map((source) => (
+                <option key={source.id} value={source.id}>
+                  {source.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Estado
+            <select
+              value={status}
+              onChange={(event) => {
+                setStatus(event.target.value as ApiKeyStatus | "");
+                setPage(1);
+              }}
+            >
+              <option value="">Todas</option>
+              <option value="ACTIVE">Activas</option>
+              <option value="REVOKED">Revocadas</option>
+            </select>
+          </label>
+          <label>
+            Ordenar por
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as ApiKeySortBy)}
+            >
+              <option value="createdAt">Fecha de creación</option>
+              <option value="lastUsedAt">Último uso</option>
+            </select>
+          </label>
+          <label>
+            Orden
+            <select
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+            >
+              <option value="desc">Descendente</option>
+              <option value="asc">Ascendente</option>
+            </select>
+          </label>
+        </div>
 
-      {apiKeysQuery.isLoading ? <LoadingState /> : null}
+        {apiKeysQuery.isLoading ? <LoadingState /> : null}
 
-      {apiKeysQuery.isError ? (
-        <ErrorState>
-          No pudimos cargar las claves
-          {apiKeysQuery.error instanceof Error ? `: ${apiKeysQuery.error.message}` : "."}
-        </ErrorState>
-      ) : null}
+        {apiKeysQuery.isError ? (
+          <ErrorState>
+            No pudimos cargar las claves
+            {apiKeysQuery.error instanceof Error ? `: ${apiKeysQuery.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
-      {revokeApiKeyMutation.isError ? (
-        <ErrorState>
-          No pudimos revocar la clave
-          {revokeApiKeyMutation.error instanceof Error
-            ? `: ${revokeApiKeyMutation.error.message}`
-            : "."}
-        </ErrorState>
-      ) : null}
+        {revokeApiKeyMutation.isError ? (
+          <ErrorState>
+            No pudimos revocar la clave
+            {revokeApiKeyMutation.error instanceof Error
+              ? `: ${revokeApiKeyMutation.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
 
-      {apiKeysQuery.isSuccess && apiKeysQuery.data.data.length === 0 ? (
-        <EmptyState>No hay claves para mostrar.</EmptyState>
-      ) : null}
+        {apiKeysQuery.isSuccess && apiKeysQuery.data.data.length === 0 ? (
+          <EmptyState>No hay claves para mostrar.</EmptyState>
+        ) : null}
 
-      {apiKeysQuery.isSuccess && apiKeysQuery.data.data.length > 0 ? (
-        <Table>
-          <thead>
-            <tr>
-              <th>Fuente</th>
-              <th>Prefijo</th>
-              <th>Estado</th>
-              <th>Último uso</th>
-              <th>Creada</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {apiKeysQuery.data.data.map((apiKey) => {
-              const estado = estadoDeClave(apiKey);
-              return (
-                <tr key={apiKey.id}>
-                  <td>{nombreDeFuente(apiKey.sourceId)}</td>
-                  <td>
-                    <code>{apiKey.keyPrefix}…</code>
-                  </td>
-                  <td>{estado === "ACTIVE" ? "Activa" : "Revocada"}</td>
-                  <td>
-                    {apiKey.lastUsedAt ? new Date(apiKey.lastUsedAt).toLocaleString() : "Nunca"}
-                  </td>
-                  <td>{new Date(apiKey.createdAt).toLocaleDateString()}</td>
-                  <td>
-                    {/* Una clave revocada no ofrece revocar de nuevo. El backend
+        {apiKeysQuery.isSuccess && apiKeysQuery.data.data.length > 0 ? (
+          <Table>
+            <thead>
+              <tr>
+                <th>Fuente</th>
+                <th>Prefijo</th>
+                <th>Estado</th>
+                <th>Último uso</th>
+                <th>Creada</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {apiKeysQuery.data.data.map((apiKey) => {
+                const estado = estadoDeClave(apiKey);
+                return (
+                  <tr key={apiKey.id}>
+                    <td>{nombreDeFuente(apiKey.sourceId)}</td>
+                    <td>
+                      <code>{apiKey.keyPrefix}…</code>
+                    </td>
+                    <td>{estado === "ACTIVE" ? "Activa" : "Revocada"}</td>
+                    <td>
+                      {apiKey.lastUsedAt ? new Date(apiKey.lastUsedAt).toLocaleString() : "Nunca"}
+                    </td>
+                    <td>{new Date(apiKey.createdAt).toLocaleDateString()}</td>
+                    <td>
+                      {/* Una clave revocada no ofrece revocar de nuevo. El backend
                         lo maneja con un 409, pero ofrecer una acción que solo
                         puede fallar es peor que no ofrecerla. */}
-                    {estado === "ACTIVE" ? (
-                      <Button variant="danger" onClick={() => handleRevoke(apiKey.id)}>
-                        Revocar
-                      </Button>
-                    ) : null}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </Table>
-      ) : null}
+                      {estado === "ACTIVE" ? (
+                        <Button variant="danger" onClick={() => handleRevoke(apiKey.id)}>
+                          Revocar
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        ) : null}
 
-      {apiKeysQuery.isSuccess ? (
-        <Pagination
-          page={page}
-          totalPages={apiKeysQuery.data.pagination.totalPages}
-          onPrevious={() => setPage((current) => current - 1)}
-          onNext={() => setPage((current) => current + 1)}
-        />
-      ) : null}
+        {apiKeysQuery.isSuccess ? (
+          <Pagination
+            page={page}
+            totalPages={apiKeysQuery.data.pagination.totalPages}
+            onPrevious={() => setPage((current) => current - 1)}
+            onNext={() => setPage((current) => current + 1)}
+          />
+        ) : null}
+      </div>
 
       {secreto ? (
         <ApiKeySecretDialog

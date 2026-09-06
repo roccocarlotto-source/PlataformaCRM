@@ -111,139 +111,143 @@ export function StageListPage() {
         ) : null}
       </div>
 
-      <div className="ds-filters">
-        <label>
-          Buscar
-          <input
-            type="search"
-            placeholder="Buscar por nombre"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-          />
-        </label>
-      </div>
+      <div className="ds-list-card">
+        <div className="ds-filters">
+          <label>
+            Buscar
+            <input
+              type="search"
+              placeholder="Buscar por nombre"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+        </div>
 
-      {stagesQuery.isLoading ? <LoadingState /> : null}
+        {stagesQuery.isLoading ? <LoadingState /> : null}
 
-      {stagesQuery.isError ? (
-        <ErrorState>
-          No pudimos cargar las etapas
-          {stagesQuery.error instanceof Error ? `: ${stagesQuery.error.message}` : "."}
-        </ErrorState>
-      ) : null}
+        {stagesQuery.isError ? (
+          <ErrorState>
+            No pudimos cargar las etapas
+            {stagesQuery.error instanceof Error ? `: ${stagesQuery.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
-      {deleteStageMutation.isError ? (
-        <ErrorState>
-          No pudimos eliminar la etapa
-          {deleteStageMutation.error instanceof Error
-            ? `: ${deleteStageMutation.error.message}`
-            : "."}
-        </ErrorState>
-      ) : null}
+        {deleteStageMutation.isError ? (
+          <ErrorState>
+            No pudimos eliminar la etapa
+            {deleteStageMutation.error instanceof Error
+              ? `: ${deleteStageMutation.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
 
-      {updateStageMutation.isError ? (
-        <ErrorState>
-          No pudimos mover la etapa
-          {updateStageMutation.error instanceof Error
-            ? `: ${updateStageMutation.error.message}`
-            : "."}
-        </ErrorState>
-      ) : null}
+        {updateStageMutation.isError ? (
+          <ErrorState>
+            No pudimos mover la etapa
+            {updateStageMutation.error instanceof Error
+              ? `: ${updateStageMutation.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
 
-      {stagesQuery.isSuccess && stagesQuery.data.data.length === 0 ? (
-        <EmptyState>No hay etapas para mostrar.</EmptyState>
-      ) : null}
+        {stagesQuery.isSuccess && stagesQuery.data.data.length === 0 ? (
+          <EmptyState>No hay etapas para mostrar.</EmptyState>
+        ) : null}
 
-      {stagesQuery.isSuccess && stagesQuery.data.data.length > 0 ? (
-        <Table>
-          <thead>
-            <tr>
-              <th>Orden</th>
-              <th>Nombre</th>
-              <th>Probabilidad</th>
-              {/* Ganada y Perdida eran dos columnas booleanas ("Sí"/""); en el
+        {stagesQuery.isSuccess && stagesQuery.data.data.length > 0 ? (
+          <Table>
+            <thead>
+              <tr>
+                <th>Orden</th>
+                <th>Nombre</th>
+                <th>Probabilidad</th>
+                {/* Ganada y Perdida eran dos columnas booleanas ("Sí"/""); en el
                   diseño es un solo badge inline, y como el backend garantiza
                   que una etapa no es ambas a la vez (409/CHECK), una columna
                   alcanza. Los tests ubican la celda por cabecera. */}
-              <th>Estado</th>
-              {isAdmin ? <th>Acciones</th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {stagesQuery.data.data.map((stage, index) => {
-              // R1.10 — antes de paginar, index===0/length-1 SÍ era "primera/
-              // última etapa del pipeline". Con páginas de 20, el primer o
-              // último elemento de una página intermedia ya no lo es —
-              // "Subir"/"Bajar" deben deshabilitarse solo en el borde real
-              // (primera página / última página), no en el borde de la
-              // página actual.
-              const { page: currentPage, totalPages } = stagesQuery.data.pagination;
-              const isFirstOverall = currentPage === 1 && index === 0;
-              const isLastOverall =
-                currentPage === totalPages && index === stagesQuery.data.data.length - 1;
+                <th>Estado</th>
+                {isAdmin ? <th>Acciones</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {stagesQuery.data.data.map((stage, index) => {
+                // R1.10 — antes de paginar, index===0/length-1 SÍ era "primera/
+                // última etapa del pipeline". Con páginas de 20, el primer o
+                // último elemento de una página intermedia ya no lo es —
+                // "Subir"/"Bajar" deben deshabilitarse solo en el borde real
+                // (primera página / última página), no en el borde de la
+                // página actual.
+                const { page: currentPage, totalPages } = stagesQuery.data.pagination;
+                const isFirstOverall = currentPage === 1 && index === 0;
+                const isLastOverall =
+                  currentPage === totalPages && index === stagesQuery.data.data.length - 1;
 
-              return (
-                <tr key={stage.id}>
-                  <td>{stage.order}</td>
-                  <td>{stage.name}</td>
-                  <td>
-                    {/* La barra es decorativa: el porcentaje de al lado ya es
-                        el dato. Ancho = probability real, 0–100. */}
-                    <span className="ds-meter-inline">
-                      <span className="ds-meter-track" aria-hidden="true">
-                        <span
-                          className="ds-meter-fill"
-                          style={{ width: `${probabilityWidth(stage.probability)}%` }}
-                        />
-                      </span>
-                      <span className="ds-meter-value">{formatProbability(stage.probability)}</span>
-                    </span>
-                  </td>
-                  <td>
-                    {stage.isWon ? <Badge variant="success">Etapa de Ganada</Badge> : null}
-                    {stage.isLost ? <Badge variant="danger">Etapa de Perdida</Badge> : null}
-                  </td>
-                  {isAdmin ? (
+                return (
+                  <tr key={stage.id}>
+                    <td>{stage.order}</td>
+                    <td>{stage.name}</td>
                     <td>
-                      {/* Los tres botones siguen siendo hermanos directos y en
+                      {/* La barra es decorativa: el porcentaje de al lado ya es
+                        el dato. Ancho = probability real, 0–100. */}
+                      <span className="ds-meter-inline">
+                        <span className="ds-meter-track" aria-hidden="true">
+                          <span
+                            className="ds-meter-fill"
+                            style={{ width: `${probabilityWidth(stage.probability)}%` }}
+                          />
+                        </span>
+                        <span className="ds-meter-value">
+                          {formatProbability(stage.probability)}
+                        </span>
+                      </span>
+                    </td>
+                    <td>
+                      {stage.isWon ? <Badge variant="success">Etapa de Ganada</Badge> : null}
+                      {stage.isLost ? <Badge variant="danger">Etapa de Perdida</Badge> : null}
+                    </td>
+                    {isAdmin ? (
+                      <td>
+                        {/* Los tres botones siguen siendo hermanos directos y en
                           este orden: los tests ubican "Subir" como el segundo
                           <button> de la fila. */}
-                      <Link to={`/pipelines/${pipelineId}/stages/${stage.id}/edit`}>Editar</Link>{" "}
-                      <Button variant="danger" onClick={() => handleDelete(stage.id)}>
-                        Eliminar
-                      </Button>{" "}
-                      <Button
-                        disabled={isFirstOverall}
-                        onClick={() => handleMove(stage.id, stage.order - 1)}
-                      >
-                        Subir
-                      </Button>{" "}
-                      <Button
-                        disabled={isLastOverall}
-                        onClick={() => handleMove(stage.id, stage.order + 1)}
-                      >
-                        Bajar
-                      </Button>
-                    </td>
-                  ) : null}
-                </tr>
-              );
-            })}
-          </tbody>
-        </Table>
-      ) : null}
+                        <Link to={`/pipelines/${pipelineId}/stages/${stage.id}/edit`}>Editar</Link>{" "}
+                        <Button variant="danger" onClick={() => handleDelete(stage.id)}>
+                          Eliminar
+                        </Button>{" "}
+                        <Button
+                          disabled={isFirstOverall}
+                          onClick={() => handleMove(stage.id, stage.order - 1)}
+                        >
+                          Subir
+                        </Button>{" "}
+                        <Button
+                          disabled={isLastOverall}
+                          onClick={() => handleMove(stage.id, stage.order + 1)}
+                        >
+                          Bajar
+                        </Button>
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        ) : null}
 
-      {stagesQuery.isSuccess ? (
-        <Pagination
-          page={page}
-          totalPages={stagesQuery.data.pagination.totalPages}
-          onPrevious={() => setPage((current) => current - 1)}
-          onNext={() => setPage((current) => current + 1)}
-        />
-      ) : null}
+        {stagesQuery.isSuccess ? (
+          <Pagination
+            page={page}
+            totalPages={stagesQuery.data.pagination.totalPages}
+            onPrevious={() => setPage((current) => current - 1)}
+            onNext={() => setPage((current) => current + 1)}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

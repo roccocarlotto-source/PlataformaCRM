@@ -472,6 +472,59 @@ button:disabled {
   min-width: 160px;
 }
 
+/* ---------------------------------------------------------------------------
+   Tarjeta de listado — filtros, estados, tabla y paginación en UNA tarjeta,
+   como en el export "Empresas CRM" (medido: tarjeta con el mismo borde/radio/
+   sombra que .ds-table-wrap; fila de filtros 16px 24px con borde inferior;
+   tabla al ras; paginación 14px 24px con borde superior y los extremos
+   separados). Antes los filtros iban sueltos arriba y la tabla traía su
+   propia tarjeta; acá la tarjeta la pone el contenedor y la tabla deja el
+   suyo. Envuelve desde .ds-filters hasta Pagination, nada más: el
+   .ds-page-header queda afuera, y los diálogos que siguen a la paginación
+   también. Los 14px verticales de la paginación se redondean a --space-4
+   para no meter un valor fuera de la escala.
+   El margen superior conserva la separación que .ds-filters ya dejaba
+   respecto del encabezado (16px) al pasar a margin: 0 adentro de la
+   tarjeta. */
+.ds-list-card {
+  margin-top: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.ds-list-card > .ds-filters {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ds-list-card .ds-table-wrap {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+}
+
+.ds-list-card > .ds-loading,
+.ds-list-card > .ds-empty {
+  padding-left: var(--space-5);
+  padding-right: var(--space-5);
+}
+
+.ds-list-card > .ds-error {
+  margin-left: var(--space-5);
+  margin-right: var(--space-5);
+}
+
+.ds-list-card .ds-pagination {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border);
+  justify-content: space-between;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Layout de página — header con título + acción primaria.                 */
 /* ---------------------------------------------------------------------- */
