@@ -199,6 +199,19 @@ button:disabled {
   margin-bottom: var(--space-4);
 }
 
+/* Un <fieldset> que hace de campo (único consumidor:
+   features/source/FieldMappingEditor.tsx) no debe verse como el fieldset del
+   navegador: sin el borde "groove" que la leyenda corta, y sin el ancho mínimo
+   min-content que le impide encogerse dentro de una Card. El reset universal de
+   global.css ya deja margin y padding en 0 (también los del <legend>), así que
+   acá solo se pisa lo que ese reset no toca. Acotado con el elemento a
+   propósito: los demás .ds-field son <div>/<label> y no tienen nada que
+   resetear. */
+fieldset.ds-field {
+  border: 0;
+  min-inline-size: 0;
+}
+
 /* Rótulo de campo: 13px/600 en el gris mutado, medido en los formularios de
    Claude Design ("Nueva empresa"): el rótulo es un dato secundario, el valor
    del control es el dato. Antes heredaba el 14px/500 del label base, por eso
