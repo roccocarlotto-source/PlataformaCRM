@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
+import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -116,53 +117,75 @@ export function StageFormPage() {
     );
   }
 
+  // Restyle con criterio propio (sin export): el esqueleto de los formularios
+  // migrados (.ds-form + Card + .ds-field-grid). Nombre + Orden como par, el
+  // hint de creación y Probabilidad a lo ancho, Ganada + Perdida como par de
+  // casillas al final. Rótulos, condiciones y handlers no cambian.
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="ds-form">
       <h1>{isEditMode ? "Editar etapa" : "Nueva etapa"}</h1>
-      <FormField label="Nombre">
-        <input
-          type="text"
-          value={values.name}
-          onChange={(event) => setValues({ ...values, name: event.target.value })}
-          required
-        />
-      </FormField>
-      <FormField label="Orden">
-        <input
-          type="number"
-          min={1}
-          value={values.order}
-          onChange={(event) => setValues({ ...values, order: event.target.value })}
-        />
-      </FormField>
-      {!isEditMode ? <p className="ds-hint">Si se omite, la etapa se agrega al final.</p> : null}
-      <FormField label="Probabilidad (%)">
-        <input
-          type="number"
-          min={0}
-          max={100}
-          value={values.probability}
-          onChange={(event) => setValues({ ...values, probability: event.target.value })}
-        />
-      </FormField>
-      <FormField label="Ganada">
-        <input
-          type="checkbox"
-          checked={values.isWon}
-          onChange={(event) => setValues({ ...values, isWon: event.target.checked, isLost: false })}
-        />
-      </FormField>
-      <FormField label="Perdida">
-        <input
-          type="checkbox"
-          checked={values.isLost}
-          onChange={(event) => setValues({ ...values, isLost: event.target.checked, isWon: false })}
-        />
-      </FormField>
-      {error ? <ErrorState>{error}</ErrorState> : null}
-      <Button type="submit" variant="primary" disabled={isSubmitting}>
-        {isSubmitting ? "Guardando…" : "Guardar"}
-      </Button>
+      <div className="ds-stack">
+        <Card heading="Datos de la etapa">
+          <div className="ds-field-grid">
+            <FormField label="Nombre">
+              <input
+                type="text"
+                value={values.name}
+                onChange={(event) => setValues({ ...values, name: event.target.value })}
+                required
+              />
+            </FormField>
+            <FormField label="Orden">
+              <input
+                type="number"
+                min={1}
+                value={values.order}
+                onChange={(event) => setValues({ ...values, order: event.target.value })}
+              />
+            </FormField>
+            {!isEditMode ? (
+              <p className="ds-hint ds-field-grid--full">
+                Si se omite, la etapa se agrega al final.
+              </p>
+            ) : null}
+            <div className="ds-field-grid--full">
+              <FormField label="Probabilidad (%)">
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={values.probability}
+                  onChange={(event) => setValues({ ...values, probability: event.target.value })}
+                />
+              </FormField>
+            </div>
+            <FormField label="Ganada">
+              <input
+                type="checkbox"
+                checked={values.isWon}
+                onChange={(event) =>
+                  setValues({ ...values, isWon: event.target.checked, isLost: false })
+                }
+              />
+            </FormField>
+            <FormField label="Perdida">
+              <input
+                type="checkbox"
+                checked={values.isLost}
+                onChange={(event) =>
+                  setValues({ ...values, isLost: event.target.checked, isWon: false })
+                }
+              />
+            </FormField>
+          </div>
+        </Card>
+        {error ? <ErrorState>{error}</ErrorState> : null}
+        <div>
+          <Button type="submit" variant="primary" disabled={isSubmitting}>
+            {isSubmitting ? "Guardando…" : "Guardar"}
+          </Button>
+        </div>
+      </div>
     </form>
   );
 }
