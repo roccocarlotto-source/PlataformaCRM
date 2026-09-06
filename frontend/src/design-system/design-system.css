@@ -531,6 +531,13 @@ fieldset.ds-field {
   margin-right: var(--space-5);
 }
 
+/* Un aviso (.ds-hint) que queda dentro de la tarjeta, entre los filtros y el
+   contenido (Ingesta: "primeras 100 fuentes"; QR: "copiá el link a mano"),
+   toma el mismo aire lateral que los estados; sin esto fluía pegado al borde. */
+.ds-list-card > .ds-hint {
+  padding: 0 var(--space-5);
+}
+
 .ds-list-card .ds-pagination {
   margin: 0;
   padding: var(--space-4) var(--space-5);
@@ -1639,7 +1646,8 @@ a.ds-button--secondary:hover {
 }
 
 .ds-field-grid input,
-.ds-field-grid select {
+.ds-field-grid select,
+.ds-field-grid textarea {
   max-width: none;
 }
 
