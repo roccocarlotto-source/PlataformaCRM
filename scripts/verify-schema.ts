@@ -122,17 +122,18 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // information_schema que se consultaba antes.
   [1, { descripcion: "C-1 · anon/authenticated sin escritura sobre public", esperado: "ninguno" }],
   [2, { descripcion: "C-1 · anon/authenticated sin lectura sobre public", esperado: "ninguno" }],
-  // Las 19 políticas de RLS comparadas por definición (cmd, permissive, roles,
+  // Las 23 políticas de RLS comparadas por definición (cmd, permissive, roles,
   // USING y WITH CHECK), con FULL OUTER JOIN para atrapar tanto la que falta
-  // como la que sobra: 17 de aislamiento uniforme (10 originales + las 6 del
+  // como la que sobra: 20 de aislamiento uniforme (10 originales + las 6 del
   // outbox y de agenda que agregó 20260901120000, M-5 + qr_codes, que agregó
-  // 20260903120000) más las 2 especiales (organizations solo SELECT, roles
+  // 20260903120000 + las 3 del módulo de stock de vehículos, 20260907120000)
+  // más las 3 especiales (organizations solo SELECT; roles y exchange_rates
   // lectura para autenticados). api_keys, google_calendar_connections y las
   // cuatro tablas internas del módulo QR no tienen política a propósito
   // (deny-all).
   [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
-  [7, { descripcion: "Los 9 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
-  [8, { descripcion: "Los 14 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
+  [7, { descripcion: "Los 10 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
+  [8, { descripcion: "Los 20 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
   [9, { descripcion: "Los 2 triggers de email, por pg_get_triggerdef", esperado: "ninguno" }],
   [
     10,
@@ -149,7 +150,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   [
     11,
     {
-      descripcion: "ALTO-6 · los 6 índices (organization_id, deleted_at, created_at)",
+      descripcion: "ALTO-6 · los 7 índices (organization_id, deleted_at, created_at)",
       esperado: "ninguno",
     },
   ],
@@ -198,7 +199,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   [
     16,
     {
-      descripcion: "C-3 · las 29 FKs conocidas siguen apuntando a la tabla padre de su diseño",
+      descripcion: "C-3 · las 35 FKs conocidas siguen apuntando a la tabla padre de su diseño",
       esperado: "ninguna",
     },
   ],
