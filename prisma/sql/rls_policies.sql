@@ -130,3 +130,39 @@ create policy invitations_isolation on public.invitations
   for all
   using (organization_id = public.current_organization_id())
   with check (organization_id = public.current_organization_id());
+
+-- ---------------------------------------------------------------------------
+-- Módulo de stock de vehículos (migración 20260907120000) — las tres tablas
+-- con organization_id siguen el patrón uniforme.
+-- ---------------------------------------------------------------------------
+alter table public.vehicles enable row level security;
+drop policy if exists vehicles_isolation on public.vehicles;
+create policy vehicles_isolation on public.vehicles
+  for all
+  using (organization_id = public.current_organization_id())
+  with check (organization_id = public.current_organization_id());
+
+alter table public.vehicle_photos enable row level security;
+drop policy if exists vehicle_photos_isolation on public.vehicle_photos;
+create policy vehicle_photos_isolation on public.vehicle_photos
+  for all
+  using (organization_id = public.current_organization_id())
+  with check (organization_id = public.current_organization_id());
+
+alter table public.vehicle_change_logs enable row level security;
+drop policy if exists vehicle_change_logs_isolation on public.vehicle_change_logs;
+create policy vehicle_change_logs_isolation on public.vehicle_change_logs
+  for all
+  using (organization_id = public.current_organization_id())
+  with check (organization_id = public.current_organization_id());
+
+-- exchange_rates — la única tabla de negocio SIN organization_id (una
+-- cotización USD -> moneda local es un dato público, igual para todas las
+-- cuentas; ver schema.prisma). Mismo patrón que roles: lectura para cualquier
+-- usuario autenticado, sin política de escritura — la escribe un job del
+-- backend con la conexión de la app (BYPASSRLS).
+alter table public.exchange_rates enable row level security;
+drop policy if exists exchange_rates_read_all on public.exchange_rates;
+create policy exchange_rates_read_all on public.exchange_rates
+  for select
+  using (auth.role() = 'authenticated');

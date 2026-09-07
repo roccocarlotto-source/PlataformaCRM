@@ -191,12 +191,21 @@ from (
       -- (qr_payment_events, qr_subscription_status_changes,
       -- qr_billing_exemption_changes, platform_admins) tienen RLS habilitada y
       -- cero políticas a propósito — deny-all, como api_keys.
-      ('qr_codes')
+      ('qr_codes'),
+      -- Fase 1 del módulo de stock de vehículos, migración 20260907120000:
+      -- las tres tablas con organization_id. exchange_rates no tiene
+      -- organization_id (dato público) y va abajo como firma especial, al
+      -- lado de roles.
+      ('vehicles'), ('vehicle_photos'), ('vehicle_change_logs')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
     union all
     select 'roles.roles_read_all/SELECT/PERMISSIVE/{public}/(auth.role() = ''authenticated'')/-'
+    union all
+    -- exchange_rates: la única tabla de negocio sin organization_id (ver
+    -- schema.prisma). Mismo patrón que roles: solo lectura para autenticados.
+    select 'exchange_rates.exchange_rates_read_all/SELECT/PERMISSIVE/{public}/(auth.role() = ''authenticated'')/-'
   ) as e(firma)
   full outer join (
     select p.tablename || '.' || p.policyname || '/' || p.cmd || '/' || p.permissive
@@ -221,7 +230,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 9 índices únicos parciales, comparados por DEFINICIÓN COMPLETA.
+  -- V-2 ─ Los 10 índices únicos parciales, comparados por DEFINICIÓN COMPLETA.
   --
   -- Antes esto buscaba el NOMBRE en pg_indexes y nada más. Los tres agujeros que
   -- eso dejaba, todos con historia en este proyecto:
@@ -261,7 +270,13 @@ from (
     -- Sin UNIQUE, findFirst + markBookingCancelled podrían cancelar la reserva
     -- equivocada si dos calendarios de la misma organización repitieran un id.
     ('bookings_org_google_event_unique',
-     'CREATE UNIQUE INDEX bookings_org_google_event_unique ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)')
+     'CREATE UNIQUE INDEX bookings_org_google_event_unique ON public.bookings USING btree (organization_id, google_event_id) WHERE (google_event_id IS NOT NULL)'),
+    -- Módulo de stock de vehículos (migración 20260907120000): a lo sumo una
+    -- foto de portada por unidad. Sin el predicado, una unidad no podría tener
+    -- más de una foto; sin el UNIQUE, dos escrituras concurrentes dejarían dos
+    -- portadas y el listado mostraría una cualquiera.
+    ('vehicle_photos_vehicle_cover_unique',
+     'CREATE UNIQUE INDEX vehicle_photos_vehicle_cover_unique ON public.vehicle_photos USING btree (organization_id, vehicle_id) WHERE (is_cover = true)')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def
@@ -275,7 +290,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 12 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 20 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -338,7 +353,39 @@ from (
     -- cuanto la migración se aplique. No las reintroduzcas sin leer esa
     -- sección primero.
     ('qr_subscription_status_changes_changed_by_only_for_admin', 'qr_subscription_status_changes',
-     'CHECK (source = ''PLATFORM_ADMIN'' AND changed_by_platform_admin_id IS NOT NULL OR source = ''MERCADOPAGO_WEBHOOK'' AND changed_by_platform_admin_id IS NULL)')
+     'CHECK (source = ''PLATFORM_ADMIN'' AND changed_by_platform_admin_id IS NOT NULL OR source = ''MERCADOPAGO_WEBHOOK'' AND changed_by_platform_admin_id IS NULL)'),
+    -- Módulo de stock de vehículos (migración 20260907120000): los ocho CHECK
+    -- que sostienen el modo borrador sin dejar pasar datos imposibles. Las
+    -- expectativas se transcribieron de pg_get_constraintdef después de aplicar
+    -- la migración (regla del encabezado); el normalizador quita los
+    -- `(0)::numeric` de las comparaciones con Decimal y el cast al enum
+    -- (::"VehicleOrigin") del literal de consignación.
+    --
+    -- vehicles_consignment_fields_require_origin_check tiene la forma
+    -- A OR (B AND C AND ...), el mismo límite conocido que
+    -- google_calendar_connections_channel_all_or_none_check: esta fila no
+    -- distingue esa parentización de otra con los mismos operandos. Se acepta a
+    -- sabiendas, igual que allá.
+    --
+    -- vehicle_photos_position_non_negative_check lleva "position" entre
+    -- comillas porque pg_get_constraintdef lo devuelve así (palabra clave), y
+    -- el normalizador no toca las comillas dobles fuera de un cast.
+    ('vehicles_year_range_check', 'vehicles',
+     'CHECK (year >= 1900 AND year <= 2100)'),
+    ('vehicles_amounts_non_negative_check', 'vehicles',
+     'CHECK (price_list_usd >= 0 AND price_list_local >= 0 AND min_acceptable_price_usd >= 0 AND acquisition_cost_usd >= 0 AND consignment_agreed_price_usd >= 0 AND license_plate_debt_local >= 0)'),
+    ('vehicles_consignment_commission_range_check', 'vehicles',
+     'CHECK (consignment_commission_percent >= 0 AND consignment_commission_percent <= 100)'),
+    ('vehicles_specs_positive_check', 'vehicles',
+     'CHECK (mileage >= 0 AND doors > 0 AND seats > 0 AND power_hp > 0 AND cylinder_capacity_liters > 0 AND declared_consumption_km_l > 0)'),
+    ('vehicles_consignment_fields_require_origin_check', 'vehicles',
+     'CHECK (NOT (origin IS DISTINCT FROM ''CONSIGNMENT'') OR consignor_name IS NULL AND consignor_document IS NULL AND consignor_phone IS NULL AND consignor_email IS NULL AND consignment_agreed_price_usd IS NULL AND consignment_commission_percent IS NULL AND consignment_agreement_expires_at IS NULL AND consignment_contract_number IS NULL)'),
+    ('vehicle_photos_position_non_negative_check', 'vehicle_photos',
+     'CHECK ("position" >= 0)'),
+    ('exchange_rates_rate_positive_check', 'exchange_rates',
+     'CHECK (rate > 0)'),
+    ('exchange_rates_currencies_differ_check', 'exchange_rates',
+     'CHECK (base_currency <> target_currency)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -450,7 +497,7 @@ from (
   -- Postgres y no distingue la posición de las columnas clave, que es
   -- justamente lo único que decide si el índice sirve para este plan.
   select 11,
-    'ALTO-6 · Los 6 índices (organization_id, deleted_at, created_at) de las entidades listables',
+    'ALTO-6 · Los 7 índices (organization_id, deleted_at, created_at) de las entidades listables',
     coalesce(string_agg('FALTA sobre ' || e.tabla, ' ;; ' order by e.tabla), 'ninguno'),
     'ninguno'
   from (values
@@ -459,7 +506,11 @@ from (
     ('opportunities'),
     ('activities'),
     ('pipelines'),
-    ('stages')
+    ('stages'),
+    -- Módulo de stock de vehículos (migración 20260907120000): la séptima
+    -- entidad con soft delete y listado por defecto, y la primera que nace CON
+    -- el índice en vez de recibirlo tres meses después.
+    ('vehicles')
   ) as e(tabla)
   where not exists (
     select 1
@@ -740,7 +791,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 29 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 35 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -767,11 +818,21 @@ from (
     ('opportunities_organization_id_owner_id_fkey|opportunities(organization_id,owner_id)->users(organization_id,id)'),
     ('opportunities_organization_id_pipeline_id_fkey|opportunities(organization_id,pipeline_id)->pipelines(organization_id,id)'),
     ('opportunities_organization_id_stage_id_fkey|opportunities(organization_id,stage_id)->stages(organization_id,id)'),
+    ('opportunities_organization_id_vehicle_id_fkey|opportunities(organization_id,vehicle_id)->vehicles(organization_id,id)'),
     ('qr_codes_organization_id_branch_id_fkey|qr_codes(organization_id,branch_id)->branches(organization_id,id)'),
     ('resources_organization_id_branch_id_fkey|resources(organization_id,branch_id)->branches(organization_id,id)'),
     ('service_types_organization_id_branch_id_fkey|service_types(organization_id,branch_id)->branches(organization_id,id)'),
     ('service_types_organization_id_resource_id_fkey|service_types(organization_id,resource_id)->resources(organization_id,id)'),
     ('stages_organization_id_pipeline_id_fkey|stages(organization_id,pipeline_id)->pipelines(organization_id,id)'),
+    -- Módulo de stock de vehículos (migración 20260907120000). El caso que
+    -- esta fila existe para atrapar tiene acá dos candidatos nuevos:
+    -- vehicles.assigned_salesperson_id y vehicle_change_logs.changed_by_id
+    -- apuntan a users, y una FK bien formada hacia contacts pasaría la 14.
+    ('vehicle_change_logs_organization_id_changed_by_id_fkey|vehicle_change_logs(organization_id,changed_by_id)->users(organization_id,id)'),
+    ('vehicle_change_logs_organization_id_vehicle_id_fkey|vehicle_change_logs(organization_id,vehicle_id)->vehicles(organization_id,id)'),
+    ('vehicle_photos_organization_id_vehicle_id_fkey|vehicle_photos(organization_id,vehicle_id)->vehicles(organization_id,id)'),
+    ('vehicles_organization_id_assigned_salesperson_id_fkey|vehicles(organization_id,assigned_salesperson_id)->users(organization_id,id)'),
+    ('vehicles_organization_id_branch_id_fkey|vehicles(organization_id,branch_id)->branches(organization_id,id)'),
     ('working_hours_organization_id_resource_id_fkey|working_hours(organization_id,resource_id)->resources(organization_id,id)')
   ) as e(firma)
   where not exists (

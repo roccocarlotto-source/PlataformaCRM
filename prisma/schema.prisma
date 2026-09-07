@@ -179,6 +179,144 @@ enum QrSubscriptionChangeSource {
 }
 
 // ---------------------------------------------------------------------------
+// Enums del módulo de stock de vehículos (Fase 1: solo esquema). Los modelos
+// están al final del archivo, en la sección "Módulo de stock de vehículos".
+//
+// CRITERIO PARA DECIDIR ENUM vs. TEXTO LIBRE, aplicado campo por campo: es enum
+// lo que tiene un dominio cerrado y estable que además se FILTRA (condición,
+// estado, combustible, caja); es VarChar lo que cambia con cada fabricante y
+// cada año (exteriorColor, upholstery, trim) — un enum ahí obligaría a una
+// migración por cada color nuevo de catálogo.
+//
+// NINGUNO DE ESTOS ENUMS LLEVA VALOR "UNKNOWN"/"OTHER": la ficha tiene modo
+// borrador y la columna es nullable, así que "todavía no se cargó" es NULL, no
+// un valor más que después haya que filtrar en cada consulta.
+// ---------------------------------------------------------------------------
+
+// 0 km o usado. Obligatorio incluso en borrador: es el primer filtro del
+// listado y decide qué campos tienen sentido (mileage, singleOwner, etc.).
+enum VehicleCondition {
+  NEW
+  USED
+}
+
+enum VehicleBodyType {
+  SEDAN
+  HATCHBACK
+  SUV
+  PICKUP
+  COUPE
+  WAGON
+  VAN
+  UTILITY
+  MINIVAN
+}
+
+// Ciclo de vida comercial de la unidad. NO es un flujo lineal: una unidad va
+// y vuelve entre AVAILABLE/RESERVED/IN_PREPARATION según lo que pase con la
+// venta; SOLD es el único terminal en la práctica. Independiente de
+// visibleInListing y de publishOnWebsite: una unidad SOLD puede seguir
+// publicada como "vendida" y una AVAILABLE puede estar oculta.
+enum VehicleStatus {
+  AVAILABLE
+  RESERVED
+  IN_PREPARATION
+  IN_TRANSIT
+  SOLD
+}
+
+// Cómo entró la unidad al stock. CONSIGNMENT es el único valor con campos
+// propios (consignor* / consignment* en Vehicle) y el CHECK de la migración
+// solo los admite con este origen.
+enum VehicleOrigin {
+  DIRECT_PURCHASE
+  TRADE_IN
+  CONSIGNMENT
+  IMPORT
+  BRANCH_TRANSFER
+}
+
+// En qué moneda se muestra el precio al público. BOTH es el default porque en
+// el mercado de origen (Argentina) el usado se cotiza en USD y se paga en
+// pesos: mostrar los dos es lo normal, no la excepción. Se guardan LOS DOS
+// precios (priceListUsd / priceListLocal) y esto solo decide cuál se exhibe.
+enum VehiclePublicationCurrency {
+  BOTH
+  USD_ONLY
+  LOCAL_ONLY
+}
+
+enum VehicleTransmission {
+  MANUAL
+  AUTOMATIC
+  AUTOMATIC_SEQUENTIAL
+  CVT
+}
+
+// GASOLINE_CNG es aparte de CNG a propósito: un auto con equipo de GNC sigue
+// siendo naftero y se busca como tal; uno CNG "puro" (de fábrica) es otra cosa
+// para el comprador y para la documentación.
+enum VehicleFuelType {
+  GASOLINE
+  DIESEL
+  HYBRID
+  ELECTRIC
+  CNG
+  GASOLINE_CNG
+}
+
+// Terminación de la pintura. Es el complemento de exteriorColor (texto libre):
+// el color cambia con cada catálogo, la terminación no.
+enum VehicleColorFinish {
+  SOLID
+  METALLIC
+  PEARL
+  MATTE
+}
+
+// FOUR_BY_FOUR y AWD son distintos para el comprador (4x4 con reductora vs.
+// tracción integral permanente) aunque los dos muevan las cuatro ruedas.
+enum VehicleDrivetrain {
+  FRONT
+  REAR
+  FOUR_BY_FOUR
+  AWD
+}
+
+// Garantía que se ofrece con la unidad. DEALER_6M/DEALER_12M son las dos
+// duraciones que ofrece una agencia sobre un usado; FACTORY es la del 0 km.
+enum VehicleWarranty {
+  NONE
+  FACTORY
+  DEALER_6M
+  DEALER_12M
+}
+
+// Los dos enums siguientes van en Opportunity, no en Vehicle: describen la
+// VENTA (cómo se financia, por dónde llegó el interesado), no la unidad.
+//
+// leadSource es una ETIQUETA MANUAL que elige la persona al cargar la
+// oportunidad. No tiene ninguna relación con el modelo Source de la capa de
+// ingesta: aquello es una integración automatizada (webhook, importación de
+// archivo) que produce IngestionEvents; esto es un dato de clasificación
+// comercial que se completa a mano. Son dos conceptos distintos con nombres
+// parecidos, y por eso este enum lleva el prefijo Opportunity.
+enum OpportunityFinancingType {
+  NONE
+  INSTALLMENT_24M
+  INSTALLMENT_36M
+  OWN_FINANCING
+}
+
+enum OpportunityLeadSource {
+  PORTAL_MERCADOLIBRE
+  WEBSITE
+  SHOWROOM
+  REFERRAL
+  WHATSAPP
+}
+
+// ---------------------------------------------------------------------------
 // Organization — raíz del aislamiento multi-tenant
 // ---------------------------------------------------------------------------
 
@@ -214,6 +352,27 @@ model Organization {
   // quemaría un número aunque la transacción que lo pidió haga rollback.
   nextQrDisplayNumber         Int                  @default(1) @map("next_qr_display_number")
 
+  // ---------------------------------------------------------------------
+  // Módulo de stock de vehículos (ver la sección al final del archivo).
+  // ---------------------------------------------------------------------
+  // Moneda principal y secundaria con las que la cuenta expresa sus precios
+  // (códigos ISO 4217, "USD"/"ARS"/"UYU"). Nullable y sin default a
+  // propósito: una organización que no usa el módulo no tiene por qué
+  // declararlas, y un default "USD" haría indistinguible "eligió USD" de
+  // "nunca lo configuró". VarChar(3) replica Opportunity.currency, para que
+  // el mismo dato se describa de la misma forma en las dos tablas.
+  preferredCurrency      String? @map("preferred_currency") @db.VarChar(3)
+  alternateCurrency      String? @map("alternate_currency") @db.VarChar(3)
+  // Contador durable del próximo internalCode a asignar a un Vehicle de esta
+  // cuenta — réplica exacta del patrón de nextQrDisplayNumber, por las mismas
+  // razones: sobrevive al soft delete de la unidad (un código nunca se
+  // reusa, así que el @@unique de vehicles no necesita predicado parcial) y
+  // se incrementa dentro de la misma transacción con lock que el INSERT (Fase
+  // 2). No es una sequence de Postgres porque nextval() no es transaccional:
+  // quemaría un número aunque la transacción que lo pidió haga rollback, y
+  // el código interno de una automotora tiene que ser correlativo.
+  nextVehicleStockNumber Int     @default(1) @map("next_vehicle_stock_number")
+
   users         User[]
   companies     Company[]
   contacts      Contact[]
@@ -241,6 +400,10 @@ model Organization {
   qrPaymentEvents             PaymentEvent[]
   qrSubscriptionStatusChanges QrSubscriptionStatusChange[]
   qrBillingExemptionChanges   QrBillingExemptionChange[]
+
+  vehicles          Vehicle[]
+  vehiclePhotos     VehiclePhoto[]
+  vehicleChangeLogs VehicleChangeLog[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -302,6 +465,11 @@ model User {
   authoredActivities Activity[]    @relation("ActivityAuthor")
   assignedActivities Activity[]    @relation("ActivityAssignee")
   invitationsSent    Invitation[]  @relation("InvitationInvitedBy")
+
+  // Módulo de stock de vehículos: las unidades que este vendedor tiene
+  // asignadas y los cambios de ficha que registró.
+  assignedVehicles Vehicle[]          @relation("VehicleAssignedSalesperson")
+  vehicleChanges   VehicleChangeLog[] @relation("VehicleChangeLogChangedBy")
 
   @@unique([organizationId, id])
   @@index([organizationId])
@@ -523,12 +691,29 @@ model Opportunity {
   updatedAt         DateTime          @updatedAt @map("updated_at")
   deletedAt         DateTime?         @map("deleted_at")
 
+  // -------------------------------------------------------------------------
+  // Módulo de stock de vehículos. Los tres son nullables y sin default: una
+  // oportunidad de un CRM que no vende autos no los completa nunca, y para
+  // una automotora la oportunidad puede nacer antes de saber por qué unidad
+  // se interesó el cliente. No hay CHECK "vehicleId obligatorio si la
+  // organización usa el módulo" — la base no sabe qué organización usa qué.
+  // -------------------------------------------------------------------------
+  // La unidad por la que se interesó el cliente. FK compuesta y NO ACTION,
+  // el mismo par que companyId/contactId: nullable -> NO ACTION por la regla
+  // de 20260821140200, y vehicles usa soft delete, así que la acción nunca se
+  // dispara en la práctica.
+  vehicleId     String?                   @map("vehicle_id") @db.Uuid
+  financingType OpportunityFinancingType? @map("financing_type")
+  // Etiqueta manual, sin relación con Source (ver el comentario del enum).
+  leadSource    OpportunityLeadSource?    @map("lead_source")
+
   organization Organization @relation(fields: [organizationId], references: [id])
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
   contact      Contact?     @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)
   owner        User         @relation("OpportunityOwner", fields: [organizationId, ownerId], references: [organizationId, id])
   pipeline     Pipeline     @relation(fields: [organizationId, pipelineId], references: [organizationId, id])
   stage        Stage        @relation(fields: [organizationId, stageId], references: [organizationId, id])
+  vehicle      Vehicle?     @relation(fields: [organizationId, vehicleId], references: [organizationId, id], onDelete: NoAction)
 
   activities Activity[]
   bookings   Booking[]
@@ -546,6 +731,10 @@ model Opportunity {
   @@index([organizationId, status])
   @@index([organizationId, stageId])
   @@index([organizationId, pipelineId])
+  // "Las oportunidades de esta unidad" — la pestaña de interesados de la ficha
+  // del vehículo (Fase 2). Compuesto con organization_id y no (vehicle_id)
+  // suelto, como los índices que nacieron después de A-6.
+  @@index([organizationId, vehicleId])
   // ALTO-6 — sirve al patrón de listado real de esta entidad:
   // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
   // No parcial a propósito: ver la migración 20260828120000.
@@ -917,6 +1106,12 @@ model Branch {
 
   // Módulo QR: los QR digitales de esta sucursal.
   qrCodes QrCode[]
+
+  // Módulo de stock de vehículos: las unidades que están en esta sucursal.
+  // Es la SEGUNDA entidad fuera de Booking que cuelga de Branch (la primera
+  // fue QrCode), y sigue sin cambiar el alcance acotado de arriba: Contact,
+  // Company, Opportunity y Activity siguen sin branchId.
+  vehicles Vehicle[]
 
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3).
   @@unique([organizationId, id])
@@ -1352,9 +1547,9 @@ model QrCode {
   // contador vive en Organization.nextQrDisplayNumber.
   displayNumber Int? @map("display_number")
 
-  name           String @db.VarChar(255)
+  name           String  @db.VarChar(255)
   message        String?
-  destinationUrl String @map("destination_url")
+  destinationUrl String  @map("destination_url")
 
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
@@ -1366,7 +1561,7 @@ model QrCode {
   // migración branchId era nullable y llevaba NoAction; con NOT NULL le toca
   // RESTRICT — borrar una Branch con QRs asociados falla en vez de dejar una
   // fila sin sucursal, que ya no es una forma válida de la tabla.
-  branch Branch @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict)
 
   @@index([organizationId, branchId])
   @@map("qr_codes")
@@ -1459,4 +1654,463 @@ model PlatformAdmin {
   billingExemptionChanges   QrBillingExemptionChange[]
 
   @@map("platform_admins")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Módulo de stock de vehículos — Fase 1: SOLO ESQUEMA.
+//
+// Lo que convierte a Plataforma CRM en un SaaS para automotoras: el inventario
+// de unidades (Vehicle), su galería (VehiclePhoto), la auditoría de cambios de
+// ficha (VehicleChangeLog) y la cotización USD/moneda local (ExchangeRate). Sin
+// endpoints, sin service, sin frontend — todo eso es Fase 2; la página pública
+// de publicación, Fase 3.
+//
+// LA DECISIÓN QUE GOBIERNA TODAS LAS COLUMNAS DE Vehicle: LA FICHA TIENE MODO
+// BORRADOR. Se puede guardar incompleta y recién al querer PUBLICARLA se exige
+// que ciertos campos estén completos. Por eso casi todo es nullable a nivel
+// base, y "completa para publicar" es una regla de negocio del service de la
+// Fase 2, NO un NOT NULL de esquema — un NOT NULL haría imposible el borrador.
+// Lo único NOT NULL es lo que una fila necesita para SER un vehículo (marca,
+// modelo, año, condición) más lo que el sistema asigna solo (internalCode,
+// status, sucursal). No confundir "nullable en la base" con "opcional para el
+// negocio": son dos preguntas distintas y acá solo se responde la primera.
+//
+// Aislamiento: FK compuestas por organización (C-3) en todas las relaciones
+// cruzadas, índices (organization_id, ...) desde el arranque (ALTO-6), RLS de
+// defensa en profundidad para cada tabla nueva (migración
+// 20260907120000_vehicle_inventory_schema). La única excepción es
+// ExchangeRate, y está explicada en su propio bloque.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ---------------------------------------------------------------------------
+// Vehicle — una unidad del stock. Una fila por auto físico, no por modelo:
+// dos Corolla 2022 iguales son dos filas con dos internalCode distintos.
+//
+// Las columnas van agrupadas como las secciones de la ficha (identificación,
+// comercial, consignación, características, documentación, operativo,
+// multimedia, publicación, contenido). El orden en la tabla no significa nada
+// para Postgres; es para que el schema se lea como se lee la ficha.
+//
+// CAMPOS INTERNOS que NUNCA salen por una respuesta pública de la API:
+// minAcceptablePriceUsd, acquisitionCostUsd, internalNotes, y toda la sección
+// de consignación (datos personales del consignante). El service de la Fase 2
+// tiene que hacer el `select` explícito en la página pública de la Fase 3 —
+// mismo patrón que GoogleCalendarConnection.refreshToken, que Express sirve
+// con un select que lo excluye. No hay ningún mecanismo de base que lo
+// garantice (sería una vista o una política por columna que hoy nadie usa), así
+// que la disciplina está en el código y en la revisión.
+//
+// Lo que la base SÍ sostiene, por CHECK en la migración (Zod los repetirá en
+// el borde HTTP de la Fase 2, pero el CHECK sobrevive a un script o un seed):
+//   - montos >= 0 (los seis Decimal de dinero);
+//   - 0 <= consignmentCommissionPercent <= 100;
+//   - mileage >= 0 y las cinco magnitudes técnicas > 0;
+//   - 1900 <= year <= 2100;
+//   - los ocho campos de consignación son todos NULL salvo que
+//     origin = CONSIGNMENT (con NULL en origin también son NULL: un borrador
+//     sin origen todavía no puede llevar datos de consignante).
+// ---------------------------------------------------------------------------
+
+model Vehicle {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  // ----- Identificación --------------------------------------------------
+
+  // Código interno correlativo por organización, asignado por el service en
+  // la misma transacción que el INSERT a partir de
+  // Organization.nextVehicleStockNumber (patrón de nextQrDisplayNumber). Es
+  // VarChar y no Int porque lo que se muestra y se busca es el código
+  // formateado ("STK-000123"); el formato lo decide la Fase 2 y la base no lo
+  // impone. NOT NULL aunque la ficha sea borrador: no lo carga la persona,
+  // lo pone el sistema, y una fila sin código no es localizable en el
+  // salón. Único por organización SIN predicado parcial: el contador nunca
+  // reusa un número, así que una unidad soft-deleted sigue ocupando el suyo
+  // — es lo correcto, ese código puede estar escrito en un remito.
+  internalCode String           @map("internal_code") @db.VarChar(30)
+  condition    VehicleCondition
+  // Nullables los tres: un 0 km no tiene patente hasta que se vende, y el
+  // VIN/número de motor se completan cuando la unidad está físicamente en la
+  // agencia. VarChar(30) para vin y no (17): el estándar ISO 3779 es de 17
+  // caracteres, pero una unidad anterior a 1981 o importada de un mercado sin
+  // ese estándar puede traer otra cosa, y rechazarla en la base sería un
+  // error que nadie ve hasta que aparece ese auto. Sin @unique en ninguno de
+  // los tres: dos agencias (dos organizaciones) pueden tener cargada la misma
+  // unidad, y dentro de una misma organización la unicidad de patente/VIN es
+  // una regla de negocio de la Fase 2 (con soft delete y unidades que
+  // vuelven al stock de por medio) antes que un índice.
+  licensePlate String?          @map("license_plate") @db.VarChar(20)
+  vin          String?          @db.VarChar(30)
+  engineNumber String?          @map("engine_number") @db.VarChar(50)
+  bodyType     VehicleBodyType? @map("body_type")
+  // make/model/year: lo mínimo para que una fila signifique "un auto" — sin
+  // ellos ni el listado ni el borrador tienen un título que mostrar. trim es
+  // la versión ("XEI", "Highline") y es texto libre por la misma razón que
+  // el color: cambia con cada catálogo.
+  make         String           @db.VarChar(100)
+  model        String           @db.VarChar(100)
+  trim         String?          @db.VarChar(100)
+  year         Int
+
+  // ----- Comercial -------------------------------------------------------
+
+  // Los DOS precios de lista se guardan, ninguno se calcula del otro. Es una
+  // decisión y no redundancia: el precio en pesos de un usado no es "USD por
+  // la cotización del día" sino un número redondo que la agencia elige, y
+  // que cambia cuando ELLA decide, no cuando cambia el dólar. ExchangeRate
+  // existe para convertir al vuelo lo que no tiene precio local, no para
+  // derivar esta columna. Decimal(14, 2) replica Opportunity.amount.
+  priceListUsd          Decimal?                   @map("price_list_usd") @db.Decimal(14, 2)
+  priceListLocal        Decimal?                   @map("price_list_local") @db.Decimal(14, 2)
+  // INTERNOS: piso de negociación y costo de adquisición. Nunca en una
+  // respuesta pública (ver la cabecera). Solo en USD: son números de gestión,
+  // no de exhibición, y la agencia los piensa en dólares.
+  minAcceptablePriceUsd Decimal?                   @map("min_acceptable_price_usd") @db.Decimal(14, 2)
+  acquisitionCostUsd    Decimal?                   @map("acquisition_cost_usd") @db.Decimal(14, 2)
+  // NOT NULL con default: una unidad recién cargada está disponible salvo
+  // que se diga otra cosa, y el listado filtra por esto en todos los
+  // estados, incluido el borrador.
+  status                VehicleStatus              @default(AVAILABLE)
+  // Visible en el LISTADO INTERNO del CRM. Distinto de publishOnWebsite (que
+  // es hacia afuera) y de status: sirve para sacar de la vista diaria una
+  // unidad que sigue en stock (en el taller, prestada) sin cambiarle el
+  // estado ni borrarla.
+  visibleInListing      Boolean                    @default(true) @map("visible_in_listing")
+  origin                VehicleOrigin?
+  // Fecha (sin hora) en que la unidad entró al stock. NO es createdAt: la
+  // ficha se puede cargar días después de que el auto llegó, y la
+  // antigüedad en stock —un número que a una automotora le importa— se
+  // calcula desde acá. @db.Date como expectedCloseDate en Opportunity: un
+  // día del calendario, no un instante.
+  stockEnteredAt        DateTime?                  @map("stock_entered_at") @db.Date
+  publicationCurrency   VehiclePublicationCurrency @default(BOTH) @map("publication_currency")
+  acceptsTradeIn        Boolean                    @default(false) @map("accepts_trade_in")
+  financingAvailable    Boolean                    @default(false) @map("financing_available")
+  // "Consultar precio": se publica sin mostrar el número. Independiente de
+  // que priceListUsd esté cargado — la agencia puede tener el precio y no
+  // querer exhibirlo.
+  priceOnRequest        Boolean                    @default(false) @map("price_on_request")
+
+  // ----- Consignación ----------------------------------------------------
+  // Datos del dueño que dejó la unidad en consignación. Los ocho son
+  // nullables y el CHECK de la migración exige que sean NULL salvo con
+  // origin = CONSIGNMENT — cambiar el origen de una unidad consignada obliga
+  // al service a vaciar esta sección en la misma escritura, que es lo que
+  // corresponde: los datos personales de un consignante no tienen por qué
+  // sobrevivir a que la unidad deje de serlo. Son datos PERSONALES de un
+  // tercero (nombre, documento, teléfono, email): entran en el criterio de
+  // docs/data-classification.md y nunca salen por la API pública.
+  //
+  // consignorPhone VarChar(30) y consignorEmail VarChar(255) replican
+  // Contact.phone / Contact.email. No se modela al consignante como Contact
+  // a propósito: no es un prospecto ni un cliente, es la contraparte de un
+  // contrato, y mezclarlo con el pipeline comercial contaminaría el listado
+  // de contactos con gente a la que nadie le va a vender nada.
+  consignorName                 String?   @map("consignor_name") @db.VarChar(255)
+  consignorDocument             String?   @map("consignor_document") @db.VarChar(50)
+  consignorPhone                String?   @map("consignor_phone") @db.VarChar(30)
+  consignorEmail                String?   @map("consignor_email") @db.VarChar(255)
+  consignmentAgreedPriceUsd     Decimal?  @map("consignment_agreed_price_usd") @db.Decimal(14, 2)
+  // Porcentaje 0..100 con dos decimales, mismo tipo que Stage.probability.
+  consignmentCommissionPercent  Decimal?  @map("consignment_commission_percent") @db.Decimal(5, 2)
+  consignmentAgreementExpiresAt DateTime? @map("consignment_agreement_expires_at") @db.Date
+  consignmentContractNumber     String?   @map("consignment_contract_number") @db.VarChar(50)
+
+  // ----- Características -------------------------------------------------
+  mileage                Int?
+  transmission           VehicleTransmission?
+  fuelType               VehicleFuelType?     @map("fuel_type")
+  // Texto libre, no enum (ver la cabecera de los enums): "Gris Plata
+  // Metalizado" es de un catálogo y de un año. La terminación sí es enum.
+  exteriorColor          String?              @map("exterior_color") @db.VarChar(50)
+  colorFinish            VehicleColorFinish?  @map("color_finish")
+  // Cilindrada en litros con dos decimales ("1.6", "2.0", "1.25"). Decimal y
+  // no Float: se muestra tal cual se cargó y un Float lo devolvería como
+  // 1.6000000000000001.
+  cylinderCapacityLiters Decimal?             @map("cylinder_capacity_liters") @db.Decimal(4, 2)
+  drivetrain             VehicleDrivetrain?
+  doors                  Int?
+  upholstery             String?              @db.VarChar(100)
+  powerHp                Int?                 @map("power_hp")
+  seats                  Int?
+  // Consumo declarado por el fabricante, km por litro. Decimal por lo mismo
+  // que la cilindrada.
+  declaredConsumptionKmL Decimal?             @map("declared_consumption_km_l") @db.Decimal(5, 2)
+  // Códigos del multi-select de equipamiento ("ABS", "AIRBAG_LATERAL",
+  // "CLIMATIZADOR"...), text[] de Postgres con default vacío. Array y no
+  // tabla intermedia a propósito: el equipamiento no se filtra ni se agrega
+  // por ítem en ninguna consulta prevista, solo se muestra en la ficha, y
+  // una tabla VehicleEquipment sería un join que nadie usa. El catálogo de
+  // códigos válidos vive en la aplicación (Fase 2), no en un enum de base:
+  // agregar un ítem de equipamiento no debería requerir una migración.
+  equipment              String[]             @default([])
+
+  // ----- Documentación / garantía ----------------------------------------
+  warranty                  VehicleWarranty?
+  // Deuda de patentes en moneda local: es una deuda ante un fisco local, no
+  // tiene sentido en USD.
+  licensePlateDebtLocal     Decimal?         @map("license_plate_debt_local") @db.Decimal(14, 2)
+  lastTechnicalInspectionAt DateTime?        @map("last_technical_inspection_at") @db.Date
+  titleHolder               String?          @map("title_holder") @db.VarChar(255)
+  // Cuatro booleanos con default false y no nullables, a diferencia del
+  // resto de la sección: son casillas de la ficha, y "no marcada" es un
+  // estado con significado (no se afirma), no un dato faltante. Un Boolean?
+  // agregaría un tercer valor que la UI no puede mostrar.
+  singleOwner               Boolean          @default(false) @map("single_owner")
+  officialServiceUpToDate   Boolean          @default(false) @map("official_service_up_to_date")
+  hasManualAndSpareKey      Boolean          @default(false) @map("has_manual_and_spare_key")
+  titleReportRequested      Boolean          @default(false) @map("title_report_requested")
+
+  // ----- Operativo -------------------------------------------------------
+  // Sucursal NOT NULL: una unidad está en algún lugar físico desde el día
+  // que entra, y el listado de una automotora con varias sucursales se
+  // filtra por esto antes que por cualquier otra cosa. FK compuesta y
+  // RESTRICT (columna referenciante NOT NULL, regla de 20260821140200),
+  // igual que QrCode.branchId.
+  branchId              String    @map("branch_id") @db.Uuid
+  // Vendedor asignado. Nullable -> NO ACTION, el mismo par que
+  // Company.ownerId / Contact.ownerId.
+  assignedSalespersonId String?   @map("assigned_salesperson_id") @db.Uuid
+  // Dónde está dentro de la sucursal ("playa 2", "salón, fila 3"). Texto
+  // libre: cada agencia nombra sus lugares como quiere.
+  physicalLocation      String?   @map("physical_location") @db.VarChar(255)
+  // Desde cuándo se puede entregar. Distinto de stockEnteredAt: una unidad
+  // puede estar en stock y no disponible (en preparación, esperando
+  // documentación).
+  availableSince        DateTime? @map("available_since") @db.Date
+
+  // ----- Multimedia ------------------------------------------------------
+  // Las fotos van en VehiclePhoto (tienen orden, slot y portada). Acá solo
+  // los dos enlaces externos. VarChar(2048): el largo práctico de una URL.
+  videoUrl   String? @map("video_url") @db.VarChar(2048)
+  tour360Url String? @map("tour_360_url") @db.VarChar(2048)
+
+  // ----- Publicación -----------------------------------------------------
+  // publishOnWebsite alimenta la página pública de la Fase 3 — sin login,
+  // mismo patrón que la resolución de un QR. Es la bandera que hace real la
+  // regla de "completa para publicar": el service de la Fase 2 rechaza
+  // ponerla en true si faltan campos, y es la ÚNICA puerta por la que una
+  // unidad sale hacia afuera.
+  //
+  // publishOnPortals es SOLO INTENCIÓN MANUAL: registra que alguien la
+  // publicó (o piensa publicarla) en un portal externo. No hay ni habrá en
+  // esta fase integración con ningún portal; es una casilla, no un trigger.
+  //
+  // SIN índice parcial sobre publish_on_website todavía: la consulta de la
+  // página pública no existe hasta la Fase 3, y un índice se agrega cuando
+  // hay una consulta que lo use (criterio de service_types / outbox). El día
+  // que se agregue, entra a la fila 17 del diagnóstico.
+  publishOnWebsite   Boolean @default(false) @map("publish_on_website")
+  publishOnPortals   Boolean @default(false) @map("publish_on_portals")
+  featuredOnHomepage Boolean @default(false) @map("featured_on_homepage")
+
+  // ----- Contenido -------------------------------------------------------
+  // Sin límite de largo los dos (text). publicDescription es lo que se
+  // exhibe; internalNotes es INTERNO y nunca sale por la API pública.
+  publicDescription String? @map("public_description")
+  internalNotes     String? @map("internal_notes")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  // Soft delete, mismo criterio que Company/Contact/Opportunity: una unidad
+  // que se saca del stock es historia (tuvo oportunidades, tuvo cambios de
+  // ficha) y Opportunity.vehicleId la sigue referenciando.
+  deletedAt DateTime? @map("deleted_at")
+
+  organization        Organization @relation(fields: [organizationId], references: [id])
+  branch              Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict)
+  assignedSalesperson User?        @relation("VehicleAssignedSalesperson", fields: [organizationId, assignedSalespersonId], references: [organizationId, id], onDelete: NoAction)
+
+  photos        VehiclePhoto[]
+  changeLog     VehicleChangeLog[]
+  opportunities Opportunity[]
+
+  // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3): photos,
+  // change log y opportunities.vehicle_id.
+  @@unique([organizationId, id])
+  // Ver el comentario de internalCode: sin predicado parcial a propósito.
+  @@unique([organizationId, internalCode])
+  // ALTO-6 — sirve al patrón de listado real de esta entidad:
+  // WHERE organization_id = ? AND deleted_at IS NULL ORDER BY created_at DESC.
+  // No parcial a propósito: ver la migración 20260828120000. Es el séptimo
+  // índice que afirma la fila 11 del diagnóstico.
+  @@index([organizationId, deletedAt, createdAt])
+  // Los filtros del listado, uno por índice y cada uno con organization_id
+  // adelante (el listado nunca cruza organizaciones): sucursal, estado,
+  // marca, condición y rango de precio. Sin índices de una sola columna
+  // (branch_id, status...) como tienen las 6 entidades originales: aquellos
+  // son herencia de antes de A-6, y un btree compuesto ya sirve cualquier
+  // WHERE organization_id = ?. El de precio es el único que se consulta por
+  // RANGO, y por eso la columna de rango va última — un btree resuelve el
+  // rango en la última posición, igual que (status, channel_expiration) en
+  // google_calendar_connections.
+  @@index([organizationId, branchId])
+  @@index([organizationId, status])
+  @@index([organizationId, make])
+  @@index([organizationId, condition])
+  @@index([organizationId, priceListUsd])
+  // Lado referenciante de la FK a users: "las unidades de este vendedor".
+  @@index([organizationId, assignedSalespersonId])
+  @@map("vehicles")
+}
+
+// ---------------------------------------------------------------------------
+// VehiclePhoto — una foto de la galería de una unidad.
+//
+// storagePath es la RUTA dentro del bucket de Supabase Storage
+// ("<organization_id>/<vehicle_id>/<uuid>.jpg"), NUNCA una URL completa: la
+// URL pública depende del proyecto, del bucket y de si se sirve firmada o no,
+// y todo eso puede cambiar sin que cambie la foto. La URL se arma en el
+// service al responder. El bucket y su política de acceso se definen en la
+// Fase 2.
+//
+// slot es el ángulo que la ficha le pide al usuario ("frente", "perfil",
+// "trasera", "interior", "tablero", "motor", "baul", "detalle") y es VarChar,
+// no enum: la lista la decide la UI de la Fase 2 y puede crecer sin migración.
+// NULL es una foto suelta sin ángulo asignado, y es un estado normal. Sin
+// unique sobre (vehicle_id, slot): dos fotos de "detalle" son válidas.
+//
+// position es el orden de la galería. SIN unique sobre (vehicle_id, position)
+// a propósito: reordenar con un unique obliga a pasar por valores temporales
+// para no chocar en el medio del UPDATE, y el orden se reescribe entero desde
+// el service (mismo criterio con el que WorkingHours se reemplaza entera).
+//
+// isCover: la portada del listado. A LO SUMO UNA POR UNIDAD, y eso sí lo
+// sostiene la base: índice único parcial (organization_id, vehicle_id) WHERE
+// is_cover = true, en la migración porque el DSL no expresa el predicado
+// (fila 7 del diagnóstico). Sin él, dos escrituras concurrentes dejarían dos
+// portadas y el listado mostraría una cualquiera.
+//
+// SIN deletedAt: borrar una foto es borrarla, no archivarla. No tiene
+// historia que conservar (la tiene el vehículo) y una foto "borrada" que
+// sigue ocupando espacio en Storage es un costo sin ningún uso. El DELETE
+// físico es el camino previsto, igual que en WorkingHours. Sin updatedAt por
+// lo mismo: una foto no se edita, se reemplaza.
+// ---------------------------------------------------------------------------
+
+model VehiclePhoto {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  vehicleId      String   @map("vehicle_id") @db.Uuid
+  storagePath    String   @map("storage_path") @db.VarChar(1024)
+  slot           String?  @db.VarChar(30)
+  // >= 0 por CHECK en la migración.
+  position       Int
+  isCover        Boolean  @default(false) @map("is_cover")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  // RESTRICT (NOT NULL -> RESTRICT, regla de 20260821140200), no CASCADE:
+  // vehicles usa soft delete y nunca se borra físicamente, así que la acción
+  // no se dispara; y si alguien introduce un borrado físico, que falle acá
+  // antes que dejar filas en Storage sin dueño en la base.
+  vehicle      Vehicle      @relation(fields: [organizationId, vehicleId], references: [organizationId, id])
+
+  // La única consulta que existe: "la galería de esta unidad, en orden". Un
+  // solo índice sirve el lado referenciante de la FK compuesta y el ORDER BY,
+  // mismo criterio que api_keys (organization_id, source_id, created_at).
+  // Sin @@unique([organizationId, id]): nada referencia a una foto.
+  @@index([organizationId, vehicleId, position])
+  @@map("vehicle_photos")
+}
+
+// ---------------------------------------------------------------------------
+// VehicleChangeLog — auditoría de cada cambio de campo en la ficha de una
+// unidad: quién cambió qué, de qué valor a cuál, cuándo.
+//
+// UNA FILA POR CAMPO CAMBIADO, no una por edición: editar tres campos en un
+// PATCH produce tres filas con el mismo changedAt. Es lo que permite
+// responder "¿quién bajó el precio?" sin parsear un JSON de diff.
+//
+// oldValue/newValue son TEXT y nullables: el service serializa cualquier tipo
+// a texto (un Decimal, un Date, un enum, un array) y NULL significa "no había
+// valor" / "se vació". Guardar el tipo original no aporta nada a una
+// auditoría que se lee, no se recalcula.
+//
+// SE LLENA EN EL SERVICE al guardar una edición (Fase 2), NO por trigger. Un
+// trigger de base no sabe quién es el usuario (la app se conecta con un solo
+// rol) y tendría que reconstruir el diff columna por columna en PL/pgSQL; el
+// service ya tiene el antes y el después en memoria y sabe quién es. Es la
+// misma división que QrSubscriptionStatusChange, que también se escribe desde
+// código.
+//
+// APPEND-ONLY: sin updatedAt ni deletedAt, mismo criterio que IngestionEvent
+// y OutboxEvent. Una fila de auditoría que se edita o se borra lógicamente
+// deja de ser auditoría.
+//
+// changedById NOT NULL -> RESTRICT: un User referenciado por un cambio de
+// ficha no se puede borrar físicamente, igual que Opportunity.ownerId y
+// Activity.authorId (ver el comentario de User).
+// ---------------------------------------------------------------------------
+
+model VehicleChangeLog {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  vehicleId      String   @map("vehicle_id") @db.Uuid
+  changedById    String   @map("changed_by_id") @db.Uuid
+  // El nombre del campo del MODELO ("priceListUsd"), no de la columna: es lo
+  // que el frontend muestra y lo que el service conoce.
+  fieldName      String   @map("field_name") @db.VarChar(100)
+  oldValue       String?  @map("old_value")
+  newValue       String?  @map("new_value")
+  changedAt      DateTime @default(now()) @map("changed_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  vehicle      Vehicle      @relation(fields: [organizationId, vehicleId], references: [organizationId, id])
+  changedBy    User         @relation("VehicleChangeLogChangedBy", fields: [organizationId, changedById], references: [organizationId, id])
+
+  // "El historial de esta unidad, más reciente primero" — la única consulta
+  // prevista. Cubre además el lado referenciante de la FK a vehicles. Sin
+  // índice sobre changed_by_id: no hay vista "todo lo que cambió este
+  // usuario", y si aparece se agrega con ella.
+  @@index([organizationId, vehicleId, changedAt])
+  @@map("vehicle_change_logs")
+}
+
+// ---------------------------------------------------------------------------
+// ExchangeRate — cotización de una moneda en otra para un día dado.
+//
+// DELIBERADAMENTE SIN organizationId. Es la ÚNICA tabla de negocio de todo el
+// schema sin aislamiento por organización, y NO es un olvido: una cotización
+// USD -> ARS es un dato público, igual para todas las cuentas, y guardarla una
+// vez por tenant sería duplicar N veces el mismo número que un job trae de la
+// misma fuente. Está en la misma categoría que Role y PlatformAdmin —tablas
+// globales— y no en la de las entidades tenant-scoped. La fila 14 del
+// diagnóstico (FKs compuestas) no la alcanza porque no tiene organization_id,
+// y es correcto que no la alcance.
+//
+// RLS: habilitada, con una política de SOLO LECTURA para cualquier usuario
+// autenticado — el mismo patrón que roles (roles_read_all), que es la otra
+// tabla global legible. Sin política de escritura: la escribe un job del
+// backend con la conexión de la app (BYPASSRLS), nunca un cliente.
+//
+// UNA FILA POR (base, destino, día): el @@unique de abajo. No es parcial ni
+// vive en la migración porque no tiene predicado —las tres columnas son NOT
+// NULL— y el DSL lo expresa completo; un unique parcial sin predicado sería
+// el mismo índice escrito donde Prisma no lo ve. rateDate es @db.Date: la
+// cotización es "la del 7 de septiembre", no la de un instante. fetchedAt es
+// cuándo se consultó la fuente, para distinguir la cotización "de hoy"
+// tomada a las 9 de la tomada a las 17 si un job vuelve a correr (el UPSERT
+// sobre el unique pisa rate y fetchedAt).
+//
+// rate Decimal(18, 6): una cotización puede ser muy grande (USD -> ARS ya
+// pasa los cuatro dígitos) o muy chica (la inversa), y seis decimales cubren
+// las dos sin redondeo visible. Decimal y no Float por lo mismo que los
+// precios de Vehicle. > 0 por CHECK, y base <> destino también.
+//
+// baseCurrency/targetCurrency VarChar(3) como Organization.preferredCurrency:
+// son códigos ISO 4217, y el service convierte usando el par que la
+// organización configuró en preferredCurrency/alternateCurrency.
+// ---------------------------------------------------------------------------
+
+model ExchangeRate {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  baseCurrency   String   @map("base_currency") @db.VarChar(3)
+  targetCurrency String   @map("target_currency") @db.VarChar(3)
+  rate           Decimal  @db.Decimal(18, 6)
+  rateDate       DateTime @map("rate_date") @db.Date
+  fetchedAt      DateTime @map("fetched_at")
+
+  @@unique([baseCurrency, targetCurrency, rateDate])
+  @@map("exchange_rates")
 }
