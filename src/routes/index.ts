@@ -25,6 +25,7 @@ import { qrPublicRouter } from "./qrPublic.routes";
 import { sourceRouter } from "./source.routes";
 import { stageRouter } from "./stage.routes";
 import { userRouter } from "./user.routes";
+import { vehicleRouter } from "./vehicle.routes";
 
 // Agrega acá cada router nuevo a medida que se implementen entidades del CRM.
 // /health queda sin prefijo (convención de health checks); las rutas de
@@ -113,3 +114,9 @@ routes.use("/api", ingestionEventRouter);
 routes.use(qrPublicRouter);
 routes.use("/api", qrRouter);
 routes.use("/api", qrAdminRouter);
+
+// Módulo de stock de vehículos (Fase 2a): CRUD, historial y completitud para
+// publicar. Misma forma que qrRouter: authenticate para leer, + authorize
+// ("ADMIN") para escribir. La página pública sin login es Fase 3 y, cuando
+// exista, irá junto a qrPublicRouter (sin /api, sin authenticate).
+routes.use("/api", vehicleRouter);

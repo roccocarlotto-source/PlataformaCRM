@@ -78,6 +78,10 @@ export function errorHandler(err: unknown, req: Request, res: Response, next: Ne
   res.status(statusCode).json({
     error: {
       message,
+      // Detalle estructurado (AppError.details), solo cuando el cliente ve el
+      // mensaje real: un error no operacional no expone nada más que el
+      // genérico.
+      ...(isAppError && appError.isOperational && appError.details ? appError.details : {}),
       ...(env.isDevelopment && err instanceof Error && (!isAppError || !appError.isOperational)
         ? { stack: err.stack }
         : {}),
