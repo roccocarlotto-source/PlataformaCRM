@@ -229,3 +229,27 @@ test("S2-6: el camino de ingesta, montado aparte, también lleva el header", asy
   const res = await fetch(`${baseUrl}/api/ingest`, { method: "POST" });
   assert.equal(res.headers.get("cache-control"), "no-store");
 });
+
+// ---------------------------------------------------------------------------
+// Módulo de stock de vehículos (Fase 2a): seis caminos de entrada bajo /api,
+// todos detrás de authenticate. Un 401 en cada uno prueba el montaje; la
+// regla ADMIN de los tres de escritura vive en vehicle.routes.ts y no se puede
+// distinguir sin un token real, así que acá se afirma solo que la cadena
+// propia del router es la que atiende.
+// ---------------------------------------------------------------------------
+
+test("las rutas del módulo de stock de vehículos están montadas bajo /api", async () => {
+  const id = randomUUID();
+  const casos: [string, string][] = [
+    ["GET", "/api/vehicles"],
+    ["GET", `/api/vehicles/${id}`],
+    ["GET", `/api/vehicles/${id}/change-log`],
+    ["POST", "/api/vehicles"],
+    ["PATCH", `/api/vehicles/${id}`],
+    ["DELETE", `/api/vehicles/${id}`],
+  ];
+  for (const [method, path] of casos) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+  }
+});
