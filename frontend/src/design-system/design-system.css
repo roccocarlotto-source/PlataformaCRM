@@ -1237,6 +1237,27 @@ a.ds-button--secondary:hover {
   color: var(--color-text-faint);
 }
 
+/* Miniatura de tabla, ancho fijo y recorte centrado: la portada de una unidad
+   en el listado de stock (features/vehicle/VehicleListPage.tsx). La variante
+   --empty es el placeholder para una fila sin imagen (un ícono outline sobre
+   fondo hundido), del mismo tamaño para que la columna no baile. */
+.ds-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  vertical-align: middle;
+}
+
+.ds-thumb--empty {
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-faint);
+}
+
 .ds-cell-with-icon {
   display: inline-flex;
   align-items: center;

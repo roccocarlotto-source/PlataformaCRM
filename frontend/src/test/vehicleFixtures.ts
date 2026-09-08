@@ -2,6 +2,7 @@ import type {
   Vehicle,
   VehicleChangeLogEntry,
   VehicleDetail,
+  VehicleListItem,
   VehiclePhoto,
 } from "../features/vehicle/types";
 
@@ -79,6 +80,12 @@ export function makeVehicle(overrides: Partial<Vehicle> = {}): Vehicle {
     deletedAt: null,
     ...overrides,
   };
+}
+
+// Una fila del listado: la unidad más coverPhotoUrl (null por default, como
+// una unidad recién dada de alta sin fotos).
+export function makeVehicleListItem(overrides: Partial<VehicleListItem> = {}): VehicleListItem {
+  return { coverPhotoUrl: null, ...makeVehicle(overrides), ...overrides };
 }
 
 export function makeVehiclePhoto(overrides: Partial<VehiclePhoto> = {}): VehiclePhoto {

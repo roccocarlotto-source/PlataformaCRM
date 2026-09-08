@@ -134,10 +134,17 @@ export interface VehiclePhoto {
 }
 
 // GET /vehicles/:id devuelve la ficha con su galería (getVehicleHandler:
-// `{ ...vehicle, photos }`). El LISTADO no la trae: findManyVehicles es un
-// findMany sin include, así que las filas del listado son `Vehicle` a secas.
+// `{ ...vehicle, photos }`).
 export interface VehicleDetail extends Vehicle {
   photos: VehiclePhoto[];
+}
+
+// GET /vehicles devuelve filas de Vehicle más `coverPhotoUrl` (Fase 3b,
+// listVehiclesHandler): la URL firmada de la portada resuelta en lote para la
+// página, o null si la unidad no tiene fotos o el objeto no se pudo firmar.
+// Solo la URL, no la fila VehiclePhoto: el listado no edita la galería.
+export interface VehicleListItem extends Vehicle {
+  coverPhotoUrl: string | null;
 }
 
 export interface VehicleListPagination {
@@ -148,7 +155,7 @@ export interface VehicleListPagination {
 }
 
 export interface VehicleListResponse {
-  data: Vehicle[];
+  data: VehicleListItem[];
   pagination: VehicleListPagination;
 }
 

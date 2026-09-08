@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
+import { listVehiclesHandler } from "../controllers/vehicle.controller";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { type DetectedImage } from "../utils/vehiclePhoto";
@@ -8,6 +9,7 @@ import { updateVehicle } from "./vehicle.service";
 import {
   VEHICLE_PHOTO_BUCKET,
   deleteVehiclePhoto,
+  getVehicleCoverPhotos,
   getVehiclePhotos,
   reorderVehiclePhotos,
   updateVehiclePhoto,
@@ -341,4 +343,84 @@ test("anti-enumeración: unidad ajena, inexistente o dada de baja es 404 en toda
   // Las fotos de una unidad ajena, leídas desde la otra organización, son
   // una lista vacía (el WHERE), nunca las de la otra.
   assert.deepEqual(await getVehiclePhotos(a.organizationId, ajena.id), []);
+});
+
+// ---------------------------------------------------------------------------
+// Portadas en lote para el listado (Fase 3b)
+// ---------------------------------------------------------------------------
+
+test("portadas en lote: el Map trae SOLO la portada de cada unidad con su URL firmada, omite las unidades sin fotos y las ajenas, y con ids vacíos no consulta nada", async () => {
+  const conGaleria = await borrador(a, { make: "Portada3b", model: "Con galería" });
+  const [primera] = await uploadVehiclePhoto(a.organizationId, conGaleria.id, {
+    buffer: jpegBytes("primera"),
+    image: JPEG,
+  });
+  const [, segunda] = await uploadVehiclePhoto(a.organizationId, conGaleria.id, {
+    buffer: pngBytes("segunda"),
+    image: PNG,
+    isCover: true,
+  });
+  assert.equal(segunda.isCover, true);
+  const sinFotos = await borrador(a, { make: "Portada3b", model: "Sin fotos" });
+  const ajena = await borrador(b, { make: "Portada3b", model: "Ajena" });
+  await uploadVehiclePhoto(b.organizationId, ajena.id, { buffer: jpegBytes("ajena"), image: JPEG });
+
+  const covers = await getVehicleCoverPhotos(a.organizationId, [
+    conGaleria.id,
+    sinFotos.id,
+    ajena.id,
+    randomUUID(),
+  ]);
+  assert.deepEqual([...covers.keys()], [conGaleria.id]);
+  const portada = covers.get(conGaleria.id);
+  assert.ok(portada);
+  assert.equal(portada.id, segunda.id, "la portada es la marcada, no la primera subida");
+  assert.notEqual(portada.id, primera.id);
+  assert.ok(portada.url?.includes("token="), "la url tiene que estar firmada");
+  const res = await fetch(portada.url as string);
+  assert.equal(res.status, 200);
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), pngBytes("segunda"));
+
+  assert.equal((await getVehicleCoverPhotos(a.organizationId, [])).size, 0);
+
+  // Y lo que ve el cliente: el handler real del listado pega coverPhotoUrl a
+  // cada fila — la URL firmada en la unidad con portada, null en la que no
+  // tiene fotos — sin cambiar la forma del resto de la respuesta.
+  const req = {
+    auth: { organizationId: a.organizationId, userId: a.userId },
+    query: { make: "Portada3b", sortBy: "createdAt", sortOrder: "asc" },
+  };
+  // asyncHandler solo llama a next con error: el éxito se ve en res.json.
+  const respuesta = await new Promise<{ statusCode?: number; body: unknown }>((resolve, reject) => {
+    let statusCode: number | undefined;
+    const res2 = {
+      status(code: number) {
+        statusCode = code;
+        return this;
+      },
+      json(body: unknown) {
+        resolve({ statusCode, body });
+      },
+    };
+    listVehiclesHandler(req as never, res2 as never, (err?: unknown) =>
+      reject(err ?? new Error("next() sin error")),
+    );
+  });
+  assert.equal(respuesta.statusCode, 200);
+  const listado = respuesta.body as {
+    data: { id: string; coverPhotoUrl: string | null }[];
+    pagination: { total: number };
+  };
+  assert.equal(listado.pagination.total, 2);
+  assert.deepEqual(
+    listado.data.map((fila) => fila.id),
+    [conGaleria.id, sinFotos.id],
+  );
+  // Firmada en ESTA respuesta (el token cambia entre firmas, así que no se
+  // compara con la URL de arriba), apuntando al objeto de la portada.
+  const [conPortada, sinPortada] = listado.data;
+  assert.ok(conPortada.coverPhotoUrl, "la unidad con portada tiene que traer coverPhotoUrl");
+  assert.ok(conPortada.coverPhotoUrl.includes("token="), "coverPhotoUrl tiene que estar firmada");
+  assert.ok(conPortada.coverPhotoUrl.includes(portada.storagePath));
+  assert.equal(sinPortada.coverPhotoUrl, null);
 });
