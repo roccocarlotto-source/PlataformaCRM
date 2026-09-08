@@ -232,14 +232,17 @@ test("S2-6: el camino de ingesta, montado aparte, también lleva el header", asy
 
 // ---------------------------------------------------------------------------
 // Módulo de stock de vehículos (Fase 2a): seis caminos de entrada bajo /api,
-// todos detrás de authenticate. Un 401 en cada uno prueba el montaje; la
-// regla ADMIN de los tres de escritura vive en vehicle.routes.ts y no se puede
-// distinguir sin un token real, así que acá se afirma solo que la cadena
-// propia del router es la que atiende.
+// más los cuatro de la galería (Fase 2b), todos detrás de authenticate. Un
+// 401 en cada uno prueba el montaje; la regla ADMIN de los de escritura vive
+// en vehicle.routes.ts y no se puede distinguir sin un token real, así que
+// acá se afirma solo que la cadena propia del router es la que atiende. Para
+// el POST de fotos el 401 prueba además que el multipart no se parsea antes
+// de autenticar: vehiclePhotoUpload va después de authorize.
 // ---------------------------------------------------------------------------
 
 test("las rutas del módulo de stock de vehículos están montadas bajo /api", async () => {
   const id = randomUUID();
+  const photoId = randomUUID();
   const casos: [string, string][] = [
     ["GET", "/api/vehicles"],
     ["GET", `/api/vehicles/${id}`],
@@ -247,6 +250,10 @@ test("las rutas del módulo de stock de vehículos están montadas bajo /api", a
     ["POST", "/api/vehicles"],
     ["PATCH", `/api/vehicles/${id}`],
     ["DELETE", `/api/vehicles/${id}`],
+    ["POST", `/api/vehicles/${id}/photos`],
+    ["PUT", `/api/vehicles/${id}/photos/reorder`],
+    ["PATCH", `/api/vehicles/${id}/photos/${photoId}`],
+    ["DELETE", `/api/vehicles/${id}/photos/${photoId}`],
   ];
   for (const [method, path] of casos) {
     const res = await fetch(`${baseUrl}${path}`, { method });

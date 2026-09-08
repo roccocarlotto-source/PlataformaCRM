@@ -279,13 +279,17 @@ jobs:
         run: npm run gen:signing-key
 
       # Se excluye todo lo que la suite no toca. Quedan postgres, gotrue (la
-      # Admin API), kong (el gateway que gotrue expone en SUPABASE_URL) y
-      # mailpit (destino SMTP local, necesario para inviteUserByEmail).
+      # Admin API), kong (el gateway que gotrue expone en SUPABASE_URL),
+      # mailpit (destino SMTP local, necesario para inviteUserByEmail) y
+      # storage-api (Supabase Storage: vehiclePhoto.integration-test.ts sube,
+      # firma y borra objetos de verdad; el bucket lo crea el propio código).
+      # imgproxy sigue excluido: es solo la transformación de imágenes, que
+      # nadie usa.
       - name: Levantar el stack local de Supabase
         run: |
           inicio=$(date +%s)
           supabase start \
-            -x realtime,storage-api,imgproxy,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+            -x realtime,imgproxy,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
           echo "::notice title=supabase start::tardó $(( $(date +%s) - inicio ))s"
 
       # Los valores son locales (127.0.0.1) y no son secretos: se imprimen a

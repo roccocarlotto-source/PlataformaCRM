@@ -2,18 +2,22 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
-import { getSupabaseAdmin } from "../lib/supabaseAdmin";
-import { findRoleByName } from "../repositories/role.repository";
-import { AppError } from "../utils/AppError";
-import { createBranch } from "./branch.service";
 import {
-  createVehicle,
+  assertAppError,
+  borrador,
+  capturar,
+  completoUsado,
+  desmontar,
+  fotoSinStorage,
+  montar,
+  type Escenario,
+} from "./vehicle.test-helper";
+import {
   deleteVehicle,
   getVehicleById,
   getVehicleChangeLog,
   listVehicles,
   updateVehicle,
-  type CreateVehicleInput,
 } from "./vehicle.service";
 
 // ---------------------------------------------------------------------------
@@ -25,110 +29,13 @@ import {
 //
 // Las reglas puras están en vehicle.service.test.ts; acá se prueba que el
 // service las aplica sobre filas reales. Dos organizaciones, cada una con su
-// sucursal y su ADMIN (usuarios reales de Supabase Auth, como en
-// activity.service.integration-test.ts).
+// sucursal y su ADMIN (usuarios reales de Supabase Auth), montadas por
+// vehicle.test-helper.ts, que comparte con vehiclePhoto.integration-test.ts.
+//
+// Sin Storage: donde una unidad necesita "tener una foto" (la regla de
+// completitud desde 2b) se inserta la fila directamente (fotoSinStorage). Lo
+// que habla con Storage de verdad está en vehiclePhoto.integration-test.ts.
 // ---------------------------------------------------------------------------
-
-const TZ = "America/Argentina/Buenos_Aires";
-
-interface Escenario {
-  organizationId: string;
-  branchId: string;
-  userId: string;
-  authUserId: string;
-}
-
-async function createRealAuthUser(label: string) {
-  const email = `veh-${label}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
-  const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
-    email,
-    email_confirm: true,
-  });
-  if (error || !data.user) {
-    throw new Error(`No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`);
-  }
-  return { id: data.user.id, email };
-}
-
-async function montar(etiqueta: string): Promise<Escenario> {
-  const adminRole = await findRoleByName("ADMIN");
-  if (!adminRole) {
-    throw new Error("No está sembrado el rol ADMIN. Abortando.");
-  }
-  const org = await prisma.organization.create({
-    data: {
-      name: `Vehicle ${etiqueta} ${randomUUID()}`,
-      slug: `veh-${etiqueta}-${Date.now()}-${randomUUID().slice(0, 8)}`,
-    },
-  });
-  const branch = await createBranch(org.id, { name: "Casa central", timezone: TZ });
-  const auth = await createRealAuthUser(etiqueta);
-  const user = await prisma.user.create({
-    data: {
-      id: auth.id,
-      organizationId: org.id,
-      roleId: adminRole.id,
-      email: auth.email,
-      fullName: `Admin ${etiqueta}`,
-    },
-  });
-  return { organizationId: org.id, branchId: branch.id, userId: user.id, authUserId: auth.id };
-}
-
-async function desmontar(...escenarios: Escenario[]) {
-  for (const e of escenarios) {
-    await prisma.vehicleChangeLog.deleteMany({ where: { organizationId: e.organizationId } });
-    await prisma.vehicle.deleteMany({ where: { organizationId: e.organizationId } });
-    await prisma.branch.deleteMany({ where: { organizationId: e.organizationId } });
-    await prisma.user.deleteMany({ where: { organizationId: e.organizationId } });
-    await prisma.organization.delete({ where: { id: e.organizationId } });
-    await getSupabaseAdmin().auth.admin.deleteUser(e.authUserId);
-  }
-}
-
-function assertAppError(err: unknown, statusCode: number, messageIncludes: string) {
-  assert.ok(err instanceof AppError, `debe ser AppError, no un error crudo. Fue: ${String(err)}`);
-  assert.equal(err.statusCode, statusCode);
-  assert.ok(
-    err.message.includes(messageIncludes),
-    `"${err.message}" no contiene "${messageIncludes}"`,
-  );
-  return err;
-}
-
-async function capturar(fn: () => Promise<unknown>): Promise<unknown> {
-  try {
-    await fn();
-  } catch (err) {
-    return err;
-  }
-  assert.fail("se esperaba un error y no hubo ninguno");
-}
-
-function borrador(e: Escenario, extra: Partial<CreateVehicleInput> = {}) {
-  return createVehicle(e.organizationId, {
-    condition: "USED",
-    make: "Toyota",
-    model: "Corolla",
-    year: 2022,
-    branchId: e.branchId,
-    ...extra,
-  });
-}
-
-// Una ficha que cumple los diez campos siempre exigidos más los tres de usado.
-const completoUsado: Partial<CreateVehicleInput> = {
-  bodyType: "SEDAN",
-  priceListUsd: 25_000,
-  priceListLocal: 30_000_000,
-  transmission: "CVT",
-  fuelType: "GASOLINE",
-  exteriorColor: "Blanco",
-  vin: "9BR53ZEC2P0000001",
-  licensePlate: "AB123CD",
-  mileage: 45_000,
-  titleHolder: "Juan Pérez",
-};
 
 let a: Escenario;
 let b: Escenario;
@@ -183,7 +90,7 @@ test("crear: una transacción que falla revierte el contador — el código no s
   assert.equal(conVendedor.assignedSalespersonId, a.userId);
 });
 
-test("crear publicando: 422 con la lista de faltantes en details; completa, se publica", async () => {
+test("crear publicando: 422 con la lista de faltantes en details, con 'photos' al final; una unidad nueva no tiene fotos, así que completa también es 422", async () => {
   const err = await capturar(() => borrador(a, { publishOnWebsite: true, vin: "VINPUB1" }));
   const appErr = assertAppError(err, 422, "no está completa para publicar");
   assert.deepEqual(appErr.details, {
@@ -197,13 +104,38 @@ test("crear publicando: 422 con la lista de faltantes en details; completa, se p
       "licensePlate",
       "mileage",
       "titleHolder",
+      "photos",
     ],
   });
 
-  const publicado = await borrador(a, {
-    ...completoUsado,
-    vin: "VINPUB2",
-    licensePlate: "PUB002",
+  // Ficha completa en el POST: el único faltante es la foto (Fase 2b), y no
+  // hay forma de subirla antes de que la unidad exista. Se crea en borrador.
+  const completa = await capturar(() =>
+    borrador(a, {
+      ...completoUsado,
+      vin: "VINPUB2",
+      licensePlate: "PUB002",
+      publishOnWebsite: true,
+    }),
+  );
+  assert.deepEqual(assertAppError(completa, 422, "photos").details, { missingFields: ["photos"] });
+  assert.equal(
+    (
+      await listVehicles(a.organizationId, {
+        page: 1,
+        pageSize: 50,
+        sortBy: "createdAt",
+        sortOrder: "asc",
+        q: "VINPUB2",
+      })
+    ).pagination.total,
+    0,
+  );
+
+  // Con la unidad creada y una foto cargada, el PATCH la publica.
+  const v = await borrador(a, { ...completoUsado, vin: "VINPUB2", licensePlate: "PUB002" });
+  await fotoSinStorage(a, v.id);
+  const publicado = await updateVehicle(a.organizationId, a.userId, v.id, {
     publishOnWebsite: true,
   });
   assert.equal(publicado.publishOnWebsite, true);
@@ -317,8 +249,15 @@ test("consignación: datos de consignante sin quedar en CONSIGNMENT son 400 — 
   assert.equal(consignada.consignorName, "Pedro");
 });
 
-test("editar publicando: 422 si falta algo; y una unidad publicada no puede quedar incompleta por un PATCH", async () => {
+test("editar publicando: 422 si falta algo (la foto incluida); y una unidad publicada no puede quedar incompleta por un PATCH", async () => {
   const v = await borrador(a, { ...completoUsado, vin: "VINED1", licensePlate: "ED0001" });
+
+  // Sin fotos: el faltante es la foto, y se cuenta de verdad contra la base.
+  const sinFoto = await capturar(() =>
+    updateVehicle(a.organizationId, a.userId, v.id, { publishOnWebsite: true }),
+  );
+  assert.deepEqual(assertAppError(sinFoto, 422, "photos").details, { missingFields: ["photos"] });
+  await fotoSinStorage(a, v.id);
 
   const incompleta = await capturar(() =>
     updateVehicle(a.organizationId, a.userId, v.id, { publishOnWebsite: true, vin: null }),

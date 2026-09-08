@@ -6,6 +6,7 @@ import {
   CONSIGNMENT_FIELDS,
   PUBLISH_REQUIRED_FIELDS,
   PUBLISH_REQUIRED_FIELDS_USED,
+  PUBLISH_REQUIRED_PHOTOS,
   applyConsignmentRule,
   assertIdentifiersAvailable,
   computeChangeLogEntries,
@@ -64,57 +65,93 @@ const completoNuevo = {
   vin: "9BR53ZEC2P0000001",
 };
 
-test("publicar: un 0 km con los diez campos siempre exigidos no tiene faltantes", () => {
-  assert.deepEqual(computeMissingFieldsForPublish(completoNuevo), []);
+// La galería con la que la unidad queda. Desde la Fase 2b es el segundo
+// argumento: sin foto no se publica.
+const conFoto = { photoCount: 1 };
+const sinFoto = { photoCount: 0 };
+
+test("publicar: un 0 km con los diez campos siempre exigidos y una foto no tiene faltantes", () => {
+  assert.deepEqual(computeMissingFieldsForPublish(completoNuevo, conFoto), []);
 });
 
 test("publicar: un usado exige además patente, kilometraje y titular registral", () => {
-  assert.deepEqual(computeMissingFieldsForPublish({ ...completoNuevo, condition: "USED" }), [
-    ...PUBLISH_REQUIRED_FIELDS_USED,
-  ]);
+  assert.deepEqual(
+    computeMissingFieldsForPublish({ ...completoNuevo, condition: "USED" }, conFoto),
+    [...PUBLISH_REQUIRED_FIELDS_USED],
+  );
 
   assert.deepEqual(
-    computeMissingFieldsForPublish({
-      ...completoNuevo,
-      condition: "USED",
-      licensePlate: "AB123CD",
-      mileage: 0,
-      titleHolder: "Juan Pérez",
-    }),
+    computeMissingFieldsForPublish(
+      {
+        ...completoNuevo,
+        condition: "USED",
+        licensePlate: "AB123CD",
+        mileage: 0,
+        titleHolder: "Juan Pérez",
+      },
+      conFoto,
+    ),
     [],
   );
 });
 
 test("publicar: mileage 0 cuenta como cargado (un 0 km tiene cero kilómetros)", () => {
-  const faltantes = computeMissingFieldsForPublish({
-    ...completoNuevo,
-    condition: "USED",
-    licensePlate: "AB123CD",
-    mileage: 0,
-    titleHolder: "x",
-  });
+  const faltantes = computeMissingFieldsForPublish(
+    {
+      ...completoNuevo,
+      condition: "USED",
+      licensePlate: "AB123CD",
+      mileage: 0,
+      titleHolder: "x",
+    },
+    conFoto,
+  );
   assert.deepEqual(faltantes, []);
 });
 
 test("publicar: null, undefined y texto en blanco son 'falta'; se listan en el orden de la regla", () => {
-  const faltantes = computeMissingFieldsForPublish({
-    condition: "NEW",
-    bodyType: null,
-    make: "Toyota",
-    model: "   ",
-    year: 2024,
-    priceListUsd: undefined,
-    priceListLocal: 0,
-    transmission: "CVT",
-    fuelType: null,
-    exteriorColor: "",
-    vin: "X",
-  });
+  const faltantes = computeMissingFieldsForPublish(
+    {
+      condition: "NEW",
+      bodyType: null,
+      make: "Toyota",
+      model: "   ",
+      year: 2024,
+      priceListUsd: undefined,
+      priceListLocal: 0,
+      transmission: "CVT",
+      fuelType: null,
+      exteriorColor: "",
+      vin: "X",
+    },
+    conFoto,
+  );
   assert.deepEqual(faltantes, ["bodyType", "model", "priceListUsd", "fuelType", "exteriorColor"]);
 
   // Una ficha vacía lista los diez, en el orden de PUBLISH_REQUIRED_FIELDS.
-  assert.deepEqual(computeMissingFieldsForPublish({ condition: "NEW" }), [
+  assert.deepEqual(computeMissingFieldsForPublish({ condition: "NEW" }, conFoto), [
     ...PUBLISH_REQUIRED_FIELDS,
+  ]);
+});
+
+test("publicar: sin fotos falta 'photos', siempre al final de la lista, y con una alcanza", () => {
+  // Ficha completa, galería vacía: el único faltante es la foto.
+  assert.deepEqual(computeMissingFieldsForPublish(completoNuevo, sinFoto), [
+    PUBLISH_REQUIRED_PHOTOS,
+  ]);
+  assert.equal(PUBLISH_REQUIRED_PHOTOS, "photos");
+
+  // Ficha vacía y sin fotos: los diez campos y después la foto, en ese orden.
+  assert.deepEqual(computeMissingFieldsForPublish({ condition: "NEW" }, sinFoto), [
+    ...PUBLISH_REQUIRED_FIELDS,
+    PUBLISH_REQUIRED_PHOTOS,
+  ]);
+
+  // Una foto o más: no falta. Un valor negativo sería un bug del caller y
+  // cuenta como "sin fotos".
+  assert.deepEqual(computeMissingFieldsForPublish(completoNuevo, { photoCount: 3 }), []);
+  assert.deepEqual(computeMissingFieldsForPublish(completoNuevo, { photoCount: -1 }), [
+    PUBLISH_REQUIRED_PHOTOS,
   ]);
 });
 

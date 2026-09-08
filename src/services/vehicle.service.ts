@@ -15,6 +15,7 @@ import { prisma, type Db } from "../lib/prisma";
 import { findBranchById } from "../repositories/branch.repository";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { findUserByIdInOrganization } from "../repositories/user.repository";
+import { countPhotosByVehicle } from "../repositories/vehiclePhoto.repository";
 import {
   assignNextVehicleStockNumber,
   countVehicleChangeLog,
@@ -39,9 +40,11 @@ import { AppError } from "../utils/AppError";
 // stock de vehículos, Fase 2a). Molde: qr.service.ts — una unidad cuelga de
 // una Branch de la Organization del caller, elegida explícitamente.
 //
-// FUERA DE ESTA FASE, aunque los campos ya existan en el schema: fotos y
-// Storage (2b), tipo de cambio / moneda de la organización / vínculo con
-// Opportunity (2c), y la página pública sin login (Fase 3).
+// Las fotos y Storage son de vehiclePhoto.service.ts (2b); de ellas acá solo
+// entra la cuenta, para la regla "al menos una foto para publicar". FUERA DE
+// ESTA FASE, aunque los campos ya existan en el schema: tipo de cambio /
+// moneda de la organización / vínculo con Opportunity (2c), y la página
+// pública sin login (Fase 3).
 //
 // TODA ESCRITURA VA EN UNA TRANSACCIÓN CON lockOrganizationForUpdate, no solo
 // la creación. En QR el lock protegía únicamente el contador; acá protege
@@ -295,12 +298,15 @@ export function applyConsignmentRule<T extends Partial<VehicleWritableFields>>(
 // ---------------------------------------------------------------------------
 // Completitud para publicar. publishOnWebsite solo puede quedar en true si la
 // ficha tiene estos campos; un usado exige además patente, kilometraje y
-// titular registral. La lista de faltantes viaja en el 422 (error.details
-// .missingFields) para que el frontend pinte el checklist "Falta completar".
+// titular registral; y desde la Fase 2b, al menos una foto. La lista de
+// faltantes viaja en el 422 (error.details.missingFields) para que el
+// frontend pinte el checklist "Falta completar"; la foto aparece ahí como
+// "photos", al final.
 //
-// SIN la regla "al menos una foto" todavía: el mecanismo para cargar una foto
-// no existe hasta la Fase 2b, y una regla imposible de cumplir bloquearía
-// publicar cualquier unidad. Se suma en 2b.
+// La cuenta de fotos la trae el caller (`gallery.photoCount`), no la lee esta
+// función: es pura, y quien la llama sabe si está creando (cero fotos, una
+// unidad nueva no puede tenerlas), editando (se cuentan bajo el lock) o
+// borrando una foto (las que quedarían).
 // ---------------------------------------------------------------------------
 
 export const PUBLISH_REQUIRED_FIELDS = [
@@ -318,8 +324,18 @@ export const PUBLISH_REQUIRED_FIELDS = [
 
 export const PUBLISH_REQUIRED_FIELDS_USED = ["licensePlate", "mileage", "titleHolder"] as const;
 
+export const PUBLISH_REQUIRED_PHOTOS = "photos";
+
 export type PublishRequiredField =
-  (typeof PUBLISH_REQUIRED_FIELDS)[number] | (typeof PUBLISH_REQUIRED_FIELDS_USED)[number];
+  | (typeof PUBLISH_REQUIRED_FIELDS)[number]
+  | (typeof PUBLISH_REQUIRED_FIELDS_USED)[number]
+  | typeof PUBLISH_REQUIRED_PHOTOS;
+
+type PublishRequiredVehicleField = Exclude<PublishRequiredField, typeof PUBLISH_REQUIRED_PHOTOS>;
+
+export interface PublishGallery {
+  photoCount: number;
+}
 
 function isPresent(value: unknown): boolean {
   if (value === null || value === undefined) {
@@ -332,29 +348,40 @@ function isPresent(value: unknown): boolean {
 }
 
 // Recibe la ficha CON LA QUE LA FILA QUEDA (la actual con el body aplicado),
-// no el body solo. Exportada para probarla sin base.
+// no el body solo, y la cantidad de fotos con la que queda la galería.
+// Exportada para probarla sin base.
 export function computeMissingFieldsForPublish(
-  vehicle: Partial<Record<PublishRequiredField, unknown>> & { condition: VehicleCondition },
+  vehicle: Partial<Record<PublishRequiredVehicleField, unknown>> & {
+    condition: VehicleCondition;
+  },
+  gallery: PublishGallery,
 ): PublishRequiredField[] {
-  const required: PublishRequiredField[] = [...PUBLISH_REQUIRED_FIELDS];
+  const required: PublishRequiredVehicleField[] = [...PUBLISH_REQUIRED_FIELDS];
   if (vehicle.condition === "USED") {
     required.push(...PUBLISH_REQUIRED_FIELDS_USED);
   }
-  return required.filter((field) => !isPresent(vehicle[field]));
+  const missing: PublishRequiredField[] = required.filter((field) => !isPresent(vehicle[field]));
+  if (gallery.photoCount < 1) {
+    missing.push(PUBLISH_REQUIRED_PHOTOS);
+  }
+  return missing;
 }
 
 export const VEHICULO_INCOMPLETO_PARA_PUBLICAR = "La unidad no está completa para publicar";
 
-function assertCompleteForPublish(
-  vehicle: Partial<Record<PublishRequiredField, unknown>> & {
+// Exportada porque también la aplica vehiclePhoto.service al borrar la última
+// foto de una unidad publicada.
+export function assertCompleteForPublish(
+  vehicle: Partial<Record<PublishRequiredVehicleField, unknown>> & {
     condition: VehicleCondition;
     publishOnWebsite?: boolean;
   },
+  gallery: PublishGallery,
 ) {
   if (vehicle.publishOnWebsite !== true) {
     return;
   }
-  const missingFields = computeMissingFieldsForPublish(vehicle);
+  const missingFields = computeMissingFieldsForPublish(vehicle, gallery);
   if (missingFields.length > 0) {
     throw new AppError(
       `${VEHICULO_INCOMPLETO_PARA_PUBLICAR}: faltan ${missingFields.join(", ")}`,
@@ -480,16 +507,21 @@ async function validateAssignedSalespersonId(organizationId: string, userId: str
 
 // ---------------------------------------------------------------------------
 // Crear: siempre en modo borrador salvo que el body pida publicar (y entonces
-// la ficha tiene que estar completa). El lock de organización serializa el
-// contador y la unicidad; una transacción que falla revierte el incremento,
-// así que un código nunca se quema sin usarse (igual que displayNumber).
+// la ficha tiene que estar completa). Desde la Fase 2b eso incluye una foto,
+// y una unidad recién creada no puede tener ninguna: publishOnWebsite: true
+// en el POST es siempre 422 con "photos" entre los faltantes. Se crea, se
+// suben las fotos y se publica con un PATCH.
+//
+// El lock de organización serializa el contador y la unicidad; una
+// transacción que falla revierte el incremento, así que un código nunca se
+// quema sin usarse (igual que displayNumber).
 // ---------------------------------------------------------------------------
 
 export function createVehicle(organizationId: string, input: CreateVehicleInput) {
   // Reglas puras primero: un body contradictorio o incompleto se rechaza
   // antes de abrir una transacción.
   const data = applyConsignmentRule(input.origin ?? null, input);
-  assertCompleteForPublish(data);
+  assertCompleteForPublish(data, { photoCount: 0 });
 
   return prisma.$transaction(async (tx) => {
     await lockOrganizationForUpdate(organizationId, tx);
@@ -539,8 +571,13 @@ export async function updateVehicle(
     const data: UpdateVehicleInput = applyConsignmentRule(effectiveOrigin, input);
 
     // La ficha con la que la fila queda, para las reglas que miran el todo.
+    // Las fotos se cuentan solo si hace falta (la fila queda publicada), y
+    // bajo el lock: un DELETE de foto concurrente espera a este PATCH.
     const effective = { ...current, ...data };
-    assertCompleteForPublish(effective);
+    const photoCount = effective.publishOnWebsite
+      ? await countPhotosByVehicle(id, organizationId, tx)
+      : 0;
+    assertCompleteForPublish(effective, { photoCount });
 
     if (data.branchId !== undefined) {
       await validateBranchId(organizationId, data.branchId, tx);
