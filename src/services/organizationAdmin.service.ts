@@ -215,7 +215,11 @@ export async function createOrganizationWithFoundingAdmin(
       admin: { id: user.id, email: user.email, fullName: user.fullName, role: "ADMIN" },
     };
   } catch (err) {
-    await revertirIdentidad(supabaseAdmin, authUserId, "el alta de organización por platform admin");
+    await revertirIdentidad(
+      supabaseAdmin,
+      authUserId,
+      "el alta de organización por platform admin",
+    );
 
     if (err instanceof AppError) {
       throw err;

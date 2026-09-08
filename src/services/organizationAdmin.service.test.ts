@@ -83,7 +83,8 @@ function armar(opciones: Opciones = {}): Escenario {
     frontendOrigin: "https://app.test",
     findUserByEmail: async () => (opciones.usuarioExistente ? { id: "otro" } : null),
     findPendingInvitationByEmail: async () => (opciones.invitacionPendiente ? { id: "inv" } : null),
-    findOrganizationBySlug: async () => (opciones.organizacionExistente ? { id: "org-vieja" } : null),
+    findOrganizationBySlug: async () =>
+      opciones.organizacionExistente ? { id: "org-vieja" } : null,
     findRoleByName: async () => ROLE_ADMIN,
     createOrganization: async (data) => {
       registro.organizationsCreated.push(data);
@@ -215,7 +216,10 @@ test("si Supabase falla al invitar: no se creó nada en Postgres y no hay nada q
 
 test("si Supabase rechaza el email por duplicado (email_exists): 409, no 502", async () => {
   const { deps } = armar({
-    inviteError: { code: "email_exists", message: "A user with this email address has already been registered" },
+    inviteError: {
+      code: "email_exists",
+      message: "A user with this email address has already been registered",
+    },
   });
 
   const err = await esperarAppError(() => createOrganizationWithFoundingAdmin(INPUT, deps), 409);
@@ -278,8 +282,5 @@ test("si además falla el borrado de la identidad: el error que sube es el origi
 
 test("primaryCorsOrigin toma el primer origen de la lista separada por comas, sin espacios", () => {
   assert.equal(primaryCorsOrigin("https://app.test"), "https://app.test");
-  assert.equal(
-    primaryCorsOrigin(" https://app.test , http://localhost:5173"),
-    "https://app.test",
-  );
+  assert.equal(primaryCorsOrigin(" https://app.test , http://localhost:5173"), "https://app.test");
 });

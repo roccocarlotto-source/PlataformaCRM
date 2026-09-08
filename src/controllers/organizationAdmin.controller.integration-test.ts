@@ -141,7 +141,11 @@ test("un ADMIN de organización común (no platform admin) -> 403 con el mensaje
 
 test("sin identidad -> 401 (la ruta sigue detrás de authenticate)", async () => {
   identidad = undefined;
-  const res = await post({ organizationName: "x", adminFullName: "y", adminEmail: "z@example.test" });
+  const res = await post({
+    organizationName: "x",
+    adminFullName: "y",
+    adminEmail: "z@example.test",
+  });
   assert.equal(res.status, 401);
 });
 
@@ -204,7 +208,11 @@ test("platform admin: mismo nombre -> 409 por slug; mismo email -> 409 por email
     const nombre = `Automotora Conflicto ${Date.now()}`;
     let creado: Creado | undefined;
     try {
-      const primera = await post({ organizationName: nombre, adminFullName: "Uno", adminEmail: email });
+      const primera = await post({
+        organizationName: nombre,
+        adminFullName: "Uno",
+        adminEmail: email,
+      });
       const texto = await primera.text();
       assert.equal(primera.status, 201, texto);
       creado = JSON.parse(texto) as Creado;
@@ -233,9 +241,18 @@ test("platform admin: mismo nombre -> 409 por slug; mismo email -> 409 por email
         ((await porEmail.json()) as { error: { message: string } }).error.message,
         "Ya existe una cuenta con ese email",
       );
-      assert.equal(await prisma.organization.findUnique({ where: { slug: `${creado.organization.slug}-bis` } }), null);
+      assert.equal(
+        await prisma.organization.findUnique({
+          where: { slug: `${creado.organization.slug}-bis` },
+        }),
+        null,
+      );
 
-      const invalido = await post({ organizationName: "", adminFullName: "x", adminEmail: "no-es-email" });
+      const invalido = await post({
+        organizationName: "",
+        adminFullName: "x",
+        adminEmail: "no-es-email",
+      });
       assert.equal(invalido.status, 400);
     } finally {
       identidad = undefined;

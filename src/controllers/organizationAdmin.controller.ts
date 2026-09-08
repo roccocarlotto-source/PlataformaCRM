@@ -27,7 +27,10 @@ export const createOrganizationSchema = z.object({
     .trim()
     .min(1, "adminFullName es requerido")
     .max(255, "adminFullName no puede superar los 255 caracteres"),
-  adminEmail: z.string({ required_error: "adminEmail es requerido" }).trim().email("adminEmail inválido"),
+  adminEmail: z
+    .string({ required_error: "adminEmail es requerido" })
+    .trim()
+    .email("adminEmail inválido"),
 });
 
 export const createOrganizationHandler = asyncHandler<AuthenticatedRequest>(

@@ -64,8 +64,8 @@ export function NewOrganizationPage() {
               Identificador: <code>{created.organization.slug}</code>
             </p>
             <p>
-              Se envió una invitación a <strong>{created.admin.email}</strong> para que configure
-              su contraseña. Cuando la complete, entra como administrador de la organización.
+              Se envió una invitación a <strong>{created.admin.email}</strong> para que configure su
+              contraseña. Cuando la complete, entra como administrador de la organización.
             </p>
           </Card>
           <div>
