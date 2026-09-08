@@ -8,6 +8,7 @@ import {
   listVehicles,
   updateVehicle,
 } from "../services/vehicle.service";
+import { getVehiclePhotos } from "../services/vehiclePhoto.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -320,10 +321,16 @@ export const listVehiclesHandler = asyncHandler<AuthenticatedRequest>(
 // costo, consignante, notas): este endpoint es autenticado y de la propia
 // organización. La restricción de "nunca en una respuesta pública" del schema
 // es sobre la página sin login de la Fase 3, no sobre este.
+//
+// Desde la Fase 2b trae `photos`: la galería en orden, cada una con una URL
+// firmada de lectura de corta duración generada en este momento (nunca una
+// URL guardada). Se compone acá y no en vehicle.service para que ese módulo
+// no importe al de fotos, que ya lo importa a él.
 export const getVehicleHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
   const vehicle = await getVehicleById(req.auth.organizationId, id);
-  res.status(200).json(vehicle);
+  const photos = await getVehiclePhotos(req.auth.organizationId, id);
+  res.status(200).json({ ...vehicle, photos });
 });
 
 export const getVehicleChangeLogHandler = asyncHandler<AuthenticatedRequest>(
