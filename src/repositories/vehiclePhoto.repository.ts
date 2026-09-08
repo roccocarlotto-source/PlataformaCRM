@@ -23,6 +23,20 @@ export function findPhotosByVehicle(vehicleId: string, organizationId: string, d
   });
 }
 
+// La portada de cada unidad de una página del listado, en UNA consulta (Fase
+// 3b): a lo sumo una fila por unidad (índice único parcial
+// vehicle_photos_vehicle_cover_unique), así que sin paginar — el tope real es
+// el pageSize del listado, que ya está acotado a 100 en el controller.
+export function findCoverPhotosByVehicleIds(
+  vehicleIds: string[],
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.vehiclePhoto.findMany({
+    where: { organizationId, vehicleId: { in: vehicleIds }, isCover: true },
+  });
+}
+
 export function countPhotosByVehicle(vehicleId: string, organizationId: string, db: Db = prisma) {
   return db.vehiclePhoto.count({ where: { organizationId, vehicleId } });
 }

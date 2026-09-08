@@ -5,6 +5,14 @@
 
 export type OpportunityStatus = "OPEN" | "WON" | "LOST";
 
+// Módulo de stock de vehículos (Fase 2c): enums de prisma/schema.prisma
+// (OpportunityFinancingType / OpportunityLeadSource), los rótulos están en
+// labels.ts.
+export type OpportunityFinancingType =
+  "NONE" | "INSTALLMENT_24M" | "INSTALLMENT_36M" | "OWN_FINANCING";
+export type OpportunityLeadSource =
+  "PORTAL_MERCADOLIBRE" | "WEBSITE" | "SHOWROOM" | "REFERRAL" | "WHATSAPP";
+
 // ⚠️ amount es Decimal(14,2) en Prisma — mismo caso verificado empíricamente
 // que Stage.probability (M4): Prisma.Decimal.toJSON() devuelve STRING. La
 // API siempre devuelve amount como string en lectura, aunque la escritura
@@ -26,6 +34,13 @@ export interface Opportunity {
   actualCloseDate: string | null;
   status: OpportunityStatus;
   lostReason: string | null;
+  // Unidad de stock vinculada (Fase 2c). Al vincular una, el backend le copia
+  // el precio a amount/currency SOLO si el body no los manda (ver
+  // OpportunityFormPage), y sincroniza el estado de la unidad con el de la
+  // oportunidad (RESERVED mientras está abierta, SOLD al ganarla).
+  vehicleId: string | null;
+  financingType: OpportunityFinancingType | null;
+  leadSource: OpportunityLeadSource | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -89,6 +104,10 @@ export interface CreateOpportunityInput {
   expectedCloseDate?: string;
   actualCloseDate?: string;
   lostReason?: string;
+  // Solo una unidad AVAILABLE se puede vincular (409 si no lo está).
+  vehicleId?: string;
+  financingType?: OpportunityFinancingType;
+  leadSource?: OpportunityLeadSource;
 }
 
 // A diferencia de create: expectedCloseDate/actualCloseDate/lostReason
@@ -111,4 +130,11 @@ export interface UpdateOpportunityInput {
   expectedCloseDate?: string | null;
   actualCloseDate?: string | null;
   lostReason?: string | null;
+  // vehicleId: null desvincula la unidad (vuelve a AVAILABLE si seguía
+  // RESERVED por este vínculo); un id distinto la reemplaza. Cambiar de
+  // unidad SIN mandar amount/currency hace que la oportunidad tome el precio
+  // de la nueva; mandarlos gana sobre ese default.
+  vehicleId?: string | null;
+  financingType?: OpportunityFinancingType | null;
+  leadSource?: OpportunityLeadSource | null;
 }

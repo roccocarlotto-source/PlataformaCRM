@@ -8,7 +8,7 @@ import {
   listVehicles,
   updateVehicle,
 } from "../services/vehicle.service";
-import { getVehiclePhotos } from "../services/vehiclePhoto.service";
+import { getVehicleCoverPhotos, getVehiclePhotos } from "../services/vehiclePhoto.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -309,11 +309,26 @@ export const createVehicleHandler = asyncHandler<AuthenticatedRequest>(
   },
 );
 
+// Desde la Fase 3b cada fila trae `coverPhotoUrl`: la URL firmada de su
+// portada, o null si no tiene fotos o el objeto no se pudo firmar. Se compone
+// acá, como `photos` en getVehicleHandler, y en lote para toda la página
+// (getVehicleCoverPhotos): vehicle.service sigue devolviendo filas de Vehicle
+// a secas y sin importar al módulo de fotos, que ya lo importa a él.
 export const listVehiclesHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(listVehiclesQuerySchema, req.query);
     const result = await listVehicles(req.auth.organizationId, query);
-    res.status(200).json(result);
+    const covers = await getVehicleCoverPhotos(
+      req.auth.organizationId,
+      result.data.map((vehicle) => vehicle.id),
+    );
+    res.status(200).json({
+      ...result,
+      data: result.data.map((vehicle) => ({
+        ...vehicle,
+        coverPhotoUrl: covers.get(vehicle.id)?.url ?? null,
+      })),
+    });
   },
 );
 

@@ -9,10 +9,10 @@ import { env } from "../../config/env";
 import { cellByHeader } from "../../test/cellByHeader";
 import { makeBranch } from "../../test/branchFixtures";
 import { makeUser } from "../../test/userFixtures";
-import { makeVehicle } from "../../test/vehicleFixtures";
+import { makeVehicleListItem } from "../../test/vehicleFixtures";
 import { VehicleListPage } from "./VehicleListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
-import type { Vehicle } from "./types";
+import type { VehicleListItem } from "./types";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -65,7 +65,7 @@ function usersHandler() {
 // KPI (pageSize=1, con y sin status). Distingue por la query, como haría el
 // backend real.
 function vehiclesHandler(
-  vehicles: Vehicle[],
+  vehicles: VehicleListItem[],
   options: { totalPages?: number; inStock?: number; available?: number; capture?: URL[] } = {},
 ) {
   return http.get(baseUrl, ({ request }) => {
@@ -109,7 +109,7 @@ describe("VehicleListPage", () => {
     let usersRequestCount = 0;
     server.use(
       branchesHandler(),
-      vehiclesHandler([makeVehicle({ assignedSalespersonId: "u1" })]),
+      vehiclesHandler([makeVehicleListItem({ assignedSalespersonId: "u1" })]),
       http.get(usersUrl, () => {
         usersRequestCount += 1;
         return HttpResponse.json({
@@ -136,7 +136,7 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([makeVehicle({ assignedSalespersonId: "u1", trim: "XEi" })]),
+      vehiclesHandler([makeVehicleListItem({ assignedSalespersonId: "u1", trim: "XEi" })]),
     );
 
     renderPage();
@@ -158,7 +158,7 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([makeVehicle({ assignedSalespersonId: null })]),
+      vehiclesHandler([makeVehicleListItem({ assignedSalespersonId: null })]),
     );
 
     renderPage();
@@ -174,7 +174,7 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([makeVehicle()], { inStock: 42, available: 17 }),
+      vehiclesHandler([makeVehicleListItem()], { inStock: 42, available: 17 }),
     );
 
     renderPage();
@@ -194,9 +194,14 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       vehiclesHandler([
-        makeVehicle({ id: "v1", make: "Toyota", priceListUsd: "25000.00" }),
-        makeVehicle({ id: "v2", make: "Ford", priceListUsd: "30000", priceOnRequest: true }),
-        makeVehicle({ id: "v3", make: "Fiat", priceListUsd: null }),
+        makeVehicleListItem({ id: "v1", make: "Toyota", priceListUsd: "25000.00" }),
+        makeVehicleListItem({
+          id: "v2",
+          make: "Ford",
+          priceListUsd: "30000",
+          priceOnRequest: true,
+        }),
+        makeVehicleListItem({ id: "v3", make: "Fiat", priceListUsd: null }),
       ]),
     );
 
@@ -214,14 +219,45 @@ describe("VehicleListPage", () => {
     ).toHaveTextContent("—");
   });
 
+  it("Foto: miniatura con la portada firmada que trae el listado; placeholder 'Sin foto' (sin <img>) cuando coverPhotoUrl es null", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      branchesHandler(),
+      vehiclesHandler([
+        makeVehicleListItem({
+          id: "v1",
+          make: "Toyota",
+          coverPhotoUrl: "https://storage.test.local/signed/p1.jpg?token=abc",
+        }),
+        makeVehicleListItem({ id: "v2", make: "Ford", coverPhotoUrl: null }),
+      ]),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Toyota Corolla 2020")).toBeInTheDocument());
+    const fotoDe = (unidad: string) => cellByHeader(screen.getByText(unidad).closest("tr"), "Foto");
+
+    const conPortada = fotoDe("Toyota Corolla 2020");
+    expect(conPortada?.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://storage.test.local/signed/p1.jpg?token=abc",
+    );
+    expect(conPortada?.querySelector("img")).toHaveClass("ds-thumb");
+
+    const sinFotos = fotoDe("Ford Corolla 2020");
+    expect(sinFotos?.querySelector("img")).toBeNull();
+    expect(sinFotos?.querySelector('[role="img"]')).toHaveAccessibleName("Sin foto");
+  });
+
   it("Estado: badge con el rótulo en español y el color que decide el feature", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       branchesHandler(),
       vehiclesHandler([
-        makeVehicle({ id: "v1", make: "Toyota", status: "AVAILABLE" }),
-        makeVehicle({ id: "v2", make: "Ford", status: "RESERVED" }),
-        makeVehicle({ id: "v3", make: "Fiat", status: "SOLD" }),
+        makeVehicleListItem({ id: "v1", make: "Toyota", status: "AVAILABLE" }),
+        makeVehicleListItem({ id: "v2", make: "Ford", status: "RESERVED" }),
+        makeVehicleListItem({ id: "v3", make: "Fiat", status: "SOLD" }),
       ]),
     );
 
@@ -271,7 +307,7 @@ describe("VehicleListPage", () => {
     const captured: URL[] = [];
     server.use(
       branchesHandler(),
-      vehiclesHandler([makeVehicle()], { totalPages: 5, capture: captured }),
+      vehiclesHandler([makeVehicleListItem()], { totalPages: 5, capture: captured }),
     );
     const user = userEvent.setup();
 
@@ -326,7 +362,7 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([makeVehicle()]),
+      vehiclesHandler([makeVehicleListItem()]),
       http.delete(`${baseUrl}/:id`, () => {
         deleteCalled = true;
         return new HttpResponse(null, { status: 204 });
@@ -350,7 +386,7 @@ describe("VehicleListPage", () => {
     server.use(
       branchesHandler(),
       usersHandler(),
-      vehiclesHandler([makeVehicle({ id: "v-target" })]),
+      vehiclesHandler([makeVehicleListItem({ id: "v-target" })]),
       http.delete(`${baseUrl}/:id`, ({ params }) => {
         deletedId = params.id as string;
         return HttpResponse.json({ error: { message: "no se pudo dar de baja" } }, { status: 500 });

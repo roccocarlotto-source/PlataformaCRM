@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -36,6 +36,23 @@ const companiesUrl = `${env.apiUrl}/api/companies`;
 const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
 const stagesUrl = `${env.apiUrl}/api/stages`;
 const usersUrl = `${env.apiUrl}/api/users`;
+const vehiclesUrl = `${env.apiUrl}/api/vehicles`;
+
+// VehicleSummaryCards (Fase 3b del módulo de vehículos) se monta siempre y
+// dispara dos GET /vehicles?pageSize=1 (sin y con status=AVAILABLE) — igual
+// que en VehicleListPage.test.tsx, el handler distingue por la query. Va en
+// un beforeEach porque ningún test de este archivo trata sobre el stock:
+// sin él, onUnhandledRequest:"error" dejaría a las dos cards en error.
+function vehiclesSummaryHandler(totals = { inStock: 12, available: 5 }) {
+  return http.get(vehiclesUrl, ({ request }) => {
+    const url = new URL(request.url);
+    const total = url.searchParams.has("status") ? totals.available : totals.inStock;
+    return HttpResponse.json({
+      data: [],
+      pagination: { page: 1, pageSize: 1, total, totalPages: total },
+    });
+  });
+}
 
 // Un único handler para /opportunities: distingue la card de resumen
 // (pageSize=1, sin ownerId) de la lista personal reciente (ownerId+pageSize=5)
@@ -110,7 +127,11 @@ function renderDashboard() {
 }
 
 describe("DashboardPage — render general y estados", () => {
-  it("renderiza las 4 secciones para ADMIN con datos exactos, sin UUIDs crudos", async () => {
+  beforeEach(() => {
+    server.use(vehiclesSummaryHandler());
+  });
+
+  it("renderiza las 5 secciones para ADMIN con datos exactos, sin UUIDs crudos", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(opportunitiesHandler(), ...defaultPipelineHandlers(), companyHandler());
 
@@ -120,6 +141,16 @@ describe("DashboardPage — render general y estados", () => {
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
     expect(await screen.findByText("Acme Corp")).toBeInTheDocument();
+
+    // KPIs de stock (Fase 3b): conteos exactos de pagination.total, y la
+    // sección va ARRIBA del resumen comercial, como en el mockup.
+    const stock = screen.getByLabelText("Resumen de stock");
+    await waitFor(() => expect(within(stock).getByText("12")).toBeInTheDocument());
+    expect(within(stock).getByText("5")).toBeInTheDocument();
+    expect(
+      stock.compareDocumentPosition(screen.getByLabelText("Resumen comercial")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
     const summary = screen.getByLabelText("Resumen comercial");
     await waitFor(() => expect(within(summary).getByText("3")).toBeInTheDocument());
@@ -145,6 +176,7 @@ describe("DashboardPage — render general y estados", () => {
     renderDashboard();
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
+    expect(screen.getByLabelText("Resumen de stock")).toBeInTheDocument();
     expect(screen.getByLabelText("Resumen comercial")).toBeInTheDocument();
     expect(screen.getByLabelText("Pipeline")).toBeInTheDocument();
     expect(screen.queryByLabelText("Acciones rápidas")).not.toBeInTheDocument();

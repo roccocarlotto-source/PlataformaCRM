@@ -9,12 +9,16 @@ import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
 import { StageSelect } from "../stage/StageSelect";
 import { UserSelect } from "../user/UserSelect";
+import { VehicleSelect } from "../vehicle/VehicleSelect";
 import { ContactSelect } from "./ContactSelect";
+import { FINANCING_TYPE_LABELS, LEAD_SOURCE_LABELS } from "./labels";
 import { useCreateOpportunity, useUpdateOpportunity } from "./mutations";
 import { useOpportunity } from "./queries";
 import type {
   CreateOpportunityInput,
   Opportunity,
+  OpportunityFinancingType,
+  OpportunityLeadSource,
   OpportunityStatus,
   UpdateOpportunityInput,
 } from "./types";
@@ -33,6 +37,9 @@ interface OpportunityFormValues {
   ownerId: string | undefined;
   expectedCloseDate: string;
   actualCloseDate: string;
+  vehicleId: string | undefined;
+  financingType: OpportunityFinancingType | "";
+  leadSource: OpportunityLeadSource | "";
 }
 
 const EMPTY_FORM: OpportunityFormValues = {
@@ -48,7 +55,13 @@ const EMPTY_FORM: OpportunityFormValues = {
   ownerId: undefined,
   expectedCloseDate: "",
   actualCloseDate: "",
+  vehicleId: undefined,
+  financingType: "",
+  leadSource: "",
 };
+
+const FINANCING_TYPE_OPTIONS = Object.keys(FINANCING_TYPE_LABELS) as OpportunityFinancingType[];
+const LEAD_SOURCE_OPTIONS = Object.keys(LEAD_SOURCE_LABELS) as OpportunityLeadSource[];
 
 // Create: campos vacíos se omiten (undefined) — el backend NO admite null
 // en create para expectedCloseDate/actualCloseDate/lostReason (a diferencia
@@ -70,6 +83,9 @@ function toCreateInput(values: OpportunityFormValues): CreateOpportunityInput {
     ownerId: values.ownerId || undefined,
     expectedCloseDate: values.expectedCloseDate || undefined,
     actualCloseDate: values.actualCloseDate || undefined,
+    vehicleId: values.vehicleId,
+    financingType: values.financingType || undefined,
+    leadSource: values.leadSource || undefined,
   };
 }
 
@@ -78,7 +94,10 @@ function toCreateInput(values: OpportunityFormValues): CreateOpportunityInput {
 // datos de un cierre anterior). companyId/contactId/pipelineId/stageId/
 // ownerId permanecen `string | undefined` (nunca null): el backend los
 // trata con chequeo truthy (opportunity.service.ts), no se pueden limpiar
-// vía PATCH.
+// vía PATCH. vehicleId/financingType/leadSource siguen el patrón de
+// expectedCloseDate: vacío es null explícito, y en vehicleId ese null es
+// "quitar el vínculo" (mandar el mismo id que ya tenía es un no-op para el
+// backend, que compara contra el vínculo vigente).
 function toUpdateInput(values: OpportunityFormValues): UpdateOpportunityInput {
   return {
     title: values.title,
@@ -93,6 +112,9 @@ function toUpdateInput(values: OpportunityFormValues): UpdateOpportunityInput {
     ownerId: values.ownerId || undefined,
     expectedCloseDate: values.expectedCloseDate || null,
     actualCloseDate: values.actualCloseDate || null,
+    vehicleId: values.vehicleId ?? null,
+    financingType: values.financingType || null,
+    leadSource: values.leadSource || null,
   };
 }
 
@@ -118,6 +140,9 @@ function toFormValues(data: Opportunity): OpportunityFormValues {
     // (evita corrimiento de día por timezone).
     expectedCloseDate: data.expectedCloseDate?.slice(0, 10) ?? "",
     actualCloseDate: data.actualCloseDate?.slice(0, 10) ?? "",
+    vehicleId: data.vehicleId ?? undefined,
+    financingType: data.financingType ?? "",
+    leadSource: data.leadSource ?? "",
   };
 }
 
@@ -137,7 +162,10 @@ function normalizeCurrency(raw: string): string {
 // CompanyFormPage/ContactFormPage/PipelineFormPage/StageFormPage.
 //
 // Campos agrupados en tarjetas como en "Nueva oportunidad": "Oportunidad"
-// (título y a quién se asocia) y "Embudo y valor". Estado, Motivo de pérdida
+// (título y a quién se asocia), "Embudo y valor" y, desde la Fase 3b del
+// módulo de stock, "Vehículo vinculado" (unidad, financiación y origen del
+// lead — ver handleVehicleChange por la interacción con Monto/Moneda). Estado,
+// Motivo de pérdida
 // y Fecha real de cierre van en una tercera tarjeta SOLO en edición: el
 // diseño no los tiene en creación porque toda oportunidad nueva arranca
 // abierta (EMPTY_FORM.status es "OPEN") y el cierre se haría desde el
@@ -197,6 +225,35 @@ export function OpportunityFormPage() {
 
   function handleContactChange(contactId: string) {
     setValues((current) => ({ ...current, contactId }));
+  }
+
+  // La unidad con la que el formulario ARRANCÓ (la persistida en edición,
+  // ninguna en creación). Contra esto se decide si un vehicleId es "nuevo".
+  const initialVehicleId = opportunityQuery.data?.vehicleId ?? undefined;
+  const hasNewVehicle = values.vehicleId !== undefined && values.vehicleId !== initialVehicleId;
+
+  // EL PUNTO DELICADO del vínculo con stock: "al vincular una unidad, la
+  // oportunidad toma su precio" (Fase 2c) — pero el backend aplica ese precio
+  // SOLO cuando el body no manda amount ni currency (opportunity.service.ts,
+  // priceFromVehicle: el body explícito gana). Como este formulario manda
+  // siempre lo que tienen Monto/Moneda, vincular nunca tomaría el precio: se
+  // pisaría con lo cargado ("USD" y vacío en creación, el valor persistido en
+  // edición). Por eso, al vincular por primera vez o cambiar de unidad, se
+  // VACÍAN Monto y Moneda en el mismo setValues: toCreateInput/toUpdateInput
+  // ya convierten "" en undefined, y el backend completa los dos con el
+  // precio de la unidad. Si después la persona tipea un monto, es un override
+  // explícito y viaja tal cual — el comportamiento que el formulario ya tenía.
+  //
+  // No pasa nada al desvincular (null) ni al volver a la unidad con la que el
+  // formulario arrancó: ahí no hay precio nuevo que tomar.
+  function handleVehicleChange(vehicleId: string | null) {
+    setValues((current) => {
+      const next = { ...current, vehicleId: vehicleId ?? undefined };
+      if (vehicleId !== null && vehicleId !== initialVehicleId) {
+        return { ...next, amount: "", currency: "" };
+      }
+      return next;
+    });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -292,28 +349,39 @@ export function OpportunityFormPage() {
             />
             {/* Monto + Moneda siguen en su .ds-field-row, que acá es una
                 celda de la grilla: la fila queda (Monto | Moneda) | Fecha. */}
-            <div className="ds-field-row">
-              <FormField label="Monto">
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={values.amount}
-                  onChange={(event) => setValues({ ...values, amount: event.target.value })}
-                />
-              </FormField>
-              <FormField label="Moneda">
-                <input
-                  type="text"
-                  maxLength={3}
-                  pattern="[A-Z]{3}"
-                  title="Código de 3 letras (ISO 4217), por ejemplo USD o UYU"
-                  value={values.currency}
-                  onChange={(event) =>
-                    setValues({ ...values, currency: normalizeCurrency(event.target.value) })
-                  }
-                />
-              </FormField>
+            <div>
+              <div className="ds-field-row">
+                <FormField label="Monto">
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={values.amount}
+                    onChange={(event) => setValues({ ...values, amount: event.target.value })}
+                  />
+                </FormField>
+                <FormField label="Moneda">
+                  <input
+                    type="text"
+                    maxLength={3}
+                    pattern="[A-Z]{3}"
+                    title="Código de 3 letras (ISO 4217), por ejemplo USD o UYU"
+                    value={values.currency}
+                    onChange={(event) =>
+                      setValues({ ...values, currency: normalizeCurrency(event.target.value) })
+                    }
+                  />
+                </FormField>
+              </div>
+              {/* Explica por qué los dos quedaron vacíos al vincular una
+                  unidad (ver handleVehicleChange), para que no parezca un
+                  bug. Desaparece apenas se tipea algo en cualquiera de los
+                  dos: ahí ya es un monto explícito. */}
+              {hasNewVehicle && !values.amount && !values.currency ? (
+                <p className="ds-hint">
+                  Se completa con el precio de la unidad al guardar, salvo que cargues un monto acá.
+                </p>
+              ) : null}
             </div>
             <FormField label="Fecha estimada de cierre">
               <input
@@ -330,6 +398,61 @@ export function OpportunityFormPage() {
               value={values.ownerId}
               onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
             />
+          </div>
+        </Card>
+
+        {/* Módulo de stock (Fase 3b). Card aparte y no dentro de "Embudo y
+            valor": la unidad, la financiación y el origen del lead son datos
+            de ESTA venta, no del embudo. Los tres opcionales, sin required —
+            una oportunidad sin unidad vinculada sigue siendo válida. El
+            selector va a lo ancho: su resultado (unidad + precio + estado +
+            "Quitar vínculo") no entra en media columna. */}
+        <Card heading="Vehículo vinculado">
+          <div className="ds-field-grid">
+            <div className="ds-field-grid--full">
+              <VehicleSelect
+                id="opportunity-form-vehicle"
+                label="Unidad de stock"
+                value={values.vehicleId}
+                onChange={handleVehicleChange}
+              />
+            </div>
+            <FormField label="Financiación">
+              <select
+                value={values.financingType}
+                onChange={(event) =>
+                  setValues({
+                    ...values,
+                    financingType: event.target.value as OpportunityFinancingType | "",
+                  })
+                }
+              >
+                <option value="">Sin especificar</option>
+                {FINANCING_TYPE_OPTIONS.map((financingType) => (
+                  <option key={financingType} value={financingType}>
+                    {FINANCING_TYPE_LABELS[financingType]}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Origen del lead">
+              <select
+                value={values.leadSource}
+                onChange={(event) =>
+                  setValues({
+                    ...values,
+                    leadSource: event.target.value as OpportunityLeadSource | "",
+                  })
+                }
+              >
+                <option value="">Sin especificar</option>
+                {LEAD_SOURCE_OPTIONS.map((leadSource) => (
+                  <option key={leadSource} value={leadSource}>
+                    {LEAD_SOURCE_LABELS[leadSource]}
+                  </option>
+                ))}
+              </select>
+            </FormField>
           </div>
         </Card>
 

@@ -10,6 +10,7 @@ import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { makeUser } from "../../test/userFixtures";
+import { makeVehicleDetail, makeVehicleListItem } from "../../test/vehicleFixtures";
 import { OpportunityFormPage } from "./OpportunityFormPage";
 
 vi.mock("../../auth/getAccessToken", () => ({
@@ -56,6 +57,40 @@ function baseHandlers() {
     }),
   ];
 }
+
+const vehiclesUrl = `${env.apiUrl}/api/vehicles`;
+
+// VehicleSelect (Fase 3b): la búsqueda (GET /vehicles?q=...) devuelve dos
+// unidades disponibles; la resolución por id (GET /vehicles/:id) devuelve la
+// ficha con el estado que se pida — RESERVED es el caso normal de una
+// oportunidad abierta con unidad vinculada.
+function vehicleHandlers(selectedStatus: "AVAILABLE" | "RESERVED" = "RESERVED") {
+  return [
+    http.get(vehiclesUrl, () =>
+      HttpResponse.json({
+        data: [
+          makeVehicleListItem({ id: "v1", priceListUsd: "25000.00" }),
+          makeVehicleListItem({ id: "v2", make: "Ford", model: "Ranger", priceListUsd: "40000" }),
+        ],
+        pagination: { page: 1, pageSize: 20, total: 2, totalPages: 1 },
+      }),
+    ),
+    http.get(`${vehiclesUrl}/:id`, ({ params }) =>
+      HttpResponse.json(
+        makeVehicleDetail({
+          id: params.id as string,
+          make: params.id === "v2" ? "Ford" : "Toyota",
+          model: params.id === "v2" ? "Ranger" : "Corolla",
+          status: selectedStatus,
+          priceListUsd: params.id === "v2" ? "40000" : "25000.00",
+        }),
+      ),
+    ),
+  ];
+}
+
+const VEHICLE_PLACEHOLDER = "Buscar unidad disponible por marca, modelo, patente, VIN o código…";
+const PRICE_HINT = /Se completa con el precio de la unidad al guardar/;
 
 function renderForm(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -578,5 +613,184 @@ describe("OpportunityFormPage", () => {
       ),
     );
     expect(screen.queryByText("lista de oportunidades")).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Vehículo vinculado (Fase 3b). EL PUNTO DELICADO: el backend copia el
+  // precio de la unidad SOLO si el body no manda amount ni currency, así que
+  // vincular tiene que vaciar Monto/Moneda y el submit tiene que omitirlos.
+  // -------------------------------------------------------------------------
+
+  it("create: vincular una unidad vacía Monto y Moneda, muestra el aviso, y el POST manda vehicleId (más financiación y origen) SIN amount ni currency", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      ...vehicleHandlers("AVAILABLE"),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new");
+
+    // Antes de vincular: Moneda arranca en USD y no hay aviso.
+    expect(screen.getByLabelText("Moneda")).toHaveValue("USD");
+    expect(screen.queryByText(PRICE_HINT)).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Título"), "Corolla para Ana");
+    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+
+    await user.type(screen.getByPlaceholderText(VEHICLE_PLACEHOLDER), "corolla");
+    await user.click(
+      await screen.findByRole("button", { name: "Toyota Corolla 2020 · 25000.00 USD" }),
+    );
+
+    expect(screen.getByLabelText("Monto")).toHaveValue(null);
+    expect(screen.getByLabelText("Moneda")).toHaveValue("");
+    expect(screen.getByText(PRICE_HINT)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Financiación"), "INSTALLMENT_24M");
+    await user.selectOptions(screen.getByLabelText("Origen del lead"), "WHATSAPP");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(postedBody).toBeDefined());
+    expect(postedBody).toMatchObject({
+      vehicleId: "v1",
+      financingType: "INSTALLMENT_24M",
+      leadSource: "WHATSAPP",
+    });
+    expect(postedBody).not.toHaveProperty("amount");
+    expect(postedBody).not.toHaveProperty("currency");
+  });
+
+  it("create: tipear Monto y Moneda DESPUÉS de vincular es un override explícito — el aviso desaparece y el POST los manda", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      ...vehicleHandlers("AVAILABLE"),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new");
+
+    await user.type(screen.getByLabelText("Título"), "Con precio propio");
+    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await user.type(screen.getByPlaceholderText(VEHICLE_PLACEHOLDER), "corolla");
+    await user.click(
+      await screen.findByRole("button", { name: "Toyota Corolla 2020 · 25000.00 USD" }),
+    );
+    expect(screen.getByText(PRICE_HINT)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Monto"), "23500");
+    expect(screen.queryByText(PRICE_HINT)).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Moneda"), "ars");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(postedBody).toBeDefined());
+    expect(postedBody).toMatchObject({ vehicleId: "v1", amount: 23500, currency: "ARS" });
+  });
+
+  it("edit: arranca con la unidad persistida (RESERVED, con badge) SIN vaciar Monto/Moneda; 'Quitar vínculo' manda vehicleId: null y conserva el monto", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      ...vehicleHandlers("RESERVED"),
+      http.get(`${opportunitiesUrl}/:id`, () =>
+        HttpResponse.json(
+          makeOpportunity({
+            id: "op1",
+            amount: "1234.50",
+            currency: "ARS",
+            pipelineId: "pl1",
+            stageId: "st1",
+            vehicleId: "v1",
+            financingType: "OWN_FINANCING",
+            leadSource: "SHOWROOM",
+          }),
+        ),
+      ),
+      http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity());
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/op1/edit");
+
+    await waitFor(() =>
+      expect(screen.getByText(/Toyota Corolla 2020 · 25000.00 USD/)).toBeVisible(),
+    );
+    expect(screen.getByText("Reservado")).toHaveClass("ds-badge--info");
+    // La unidad con la que arrancó el form no es "nueva": nada se vacía y no
+    // hay aviso.
+    expect(screen.getByLabelText("Monto")).toHaveValue(1234.5);
+    expect(screen.getByLabelText("Moneda")).toHaveValue("ARS");
+    expect(screen.queryByText(PRICE_HINT)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Financiación")).toHaveValue("OWN_FINANCING");
+    expect(screen.getByLabelText("Origen del lead")).toHaveValue("SHOWROOM");
+
+    await user.click(screen.getByRole("button", { name: "Quitar vínculo" }));
+    expect(screen.queryByText("Quitar vínculo")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(patchedBody).toBeDefined());
+    expect(patchedBody?.vehicleId).toBeNull();
+    expect(patchedBody).toMatchObject({
+      amount: 1234.5,
+      currency: "ARS",
+      financingType: "OWN_FINANCING",
+      leadSource: "SHOWROOM",
+    });
+  });
+
+  it("edit: cambiar de unidad vacía Monto/Moneda y el PATCH manda el vehicleId nuevo sin amount ni currency; financiación y origen vacíos van como null", async () => {
+    const patched: Record<string, unknown>[] = [];
+    server.use(
+      ...baseHandlers(),
+      ...vehicleHandlers("RESERVED"),
+      http.get(`${opportunitiesUrl}/:id`, () =>
+        HttpResponse.json(
+          makeOpportunity({
+            id: "op1",
+            amount: "1234.50",
+            currency: "ARS",
+            pipelineId: "pl1",
+            stageId: "st1",
+            vehicleId: "v1",
+          }),
+        ),
+      ),
+      http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
+        patched.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeOpportunity());
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/op1/edit");
+
+    await waitFor(() => expect(screen.getByText(/Toyota Corolla 2020/)).toBeVisible());
+    await user.type(screen.getByPlaceholderText(VEHICLE_PLACEHOLDER), "ranger");
+    await user.click(
+      await screen.findByRole("button", { name: "Ford Ranger 2020 · 40000.00 USD" }),
+    );
+
+    expect(screen.getByLabelText("Monto")).toHaveValue(null);
+    expect(screen.getByLabelText("Moneda")).toHaveValue("");
+    expect(screen.getByText(PRICE_HINT)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Ford Ranger 2020 · 40000.00 USD/)).toBeVisible());
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(patched.length).toBe(1));
+    expect(patched[0]).toMatchObject({ vehicleId: "v2", financingType: null, leadSource: null });
+    expect(patched[0]).not.toHaveProperty("amount");
+    expect(patched[0]).not.toHaveProperty("currency");
   });
 });

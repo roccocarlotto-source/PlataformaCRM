@@ -14,6 +14,7 @@ import {
   clearCover,
   createPhoto,
   deletePhoto as deletePhotoRepo,
+  findCoverPhotosByVehicleIds,
   findPhotoById,
   findPhotosByVehicle,
   updatePhoto,
@@ -177,6 +178,29 @@ export async function getVehiclePhotos(
 ): Promise<VehiclePhotoWithUrl[]> {
   const photos = await findPhotosByVehicle(vehicleId, organizationId, db);
   return attachSignedUrls(photos);
+}
+
+// La portada de cada unidad de una página del listado (Fase 3b), como Map por
+// vehicleId: el controller la pega a cada fila sin buscar por elemento. Una
+// unidad sin fotos simplemente no está en el Map. Dos viajes en total, no dos
+// por unidad: un findMany con `in` y UNA firma en lote (createSignedReadUrls
+// ya recibe un array — resolver la portada con un GET por fila serían veinte
+// requests con URL firmada por página, que es exactamente lo que esto evita).
+// Sin ids no se consulta nada.
+export async function getVehicleCoverPhotos(
+  organizationId: string,
+  vehicleIds: string[],
+  db: Db = prisma,
+): Promise<Map<string, VehiclePhotoWithUrl>> {
+  const covers = new Map<string, VehiclePhotoWithUrl>();
+  if (vehicleIds.length === 0) {
+    return covers;
+  }
+  const photos = await findCoverPhotosByVehicleIds(vehicleIds, organizationId, db);
+  for (const photo of await attachSignedUrls(photos)) {
+    covers.set(photo.vehicleId, photo);
+  }
+  return covers;
 }
 
 const FOTO_NO_ENCONTRADA = "Foto no encontrada";

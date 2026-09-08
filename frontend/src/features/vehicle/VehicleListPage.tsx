@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Car, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge } from "../../design-system/Badge";
@@ -11,42 +11,23 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { BranchSelect } from "../branch/BranchSelect";
-import { formatAmount } from "../opportunity/format";
 import { useOwnerNames } from "../opportunity/relationResolution";
+import { priceCell, unitTitle } from "./format";
 import { CONDITION_LABELS, STATUS_BADGE_VARIANT, STATUS_LABELS } from "./labels";
 import { useDeleteVehicle } from "./mutations";
 import { useVehicles } from "./queries";
-import type { Vehicle, VehicleCondition, VehicleSortBy, VehicleStatus, SortOrder } from "./types";
+import type { VehicleCondition, VehicleSortBy, VehicleStatus, SortOrder } from "./types";
 import { VehicleSummaryCards } from "./VehicleSummaryCards";
 
 const PAGE_SIZE = 20;
 
 const STATUS_OPTIONS = Object.keys(STATUS_LABELS) as VehicleStatus[];
 
-// "Toyota Corolla 2020 XEi": marca, modelo, año y versión (si hay) en una
-// línea; el código interno chico debajo (ds-cell-caption).
-function unitTitle(vehicle: Vehicle): string {
-  return [vehicle.make, vehicle.model, String(vehicle.year), vehicle.trim]
-    .filter(Boolean)
-    .join(" ");
-}
-
-// Precio: "Consultar precio" manda sobre cualquier número si la unidad está
-// marcada así; sin precio de lista y sin esa marca, "—". El formato es el
-// mismo de Oportunidades (formatAmount), no uno propio.
-function priceCell(vehicle: Vehicle): string {
-  if (vehicle.priceOnRequest) return "Consultar precio";
-  if (vehicle.priceListUsd === null) return "—";
-  return formatAmount(vehicle.priceListUsd, "USD");
-}
-
-// Listado de stock (Fase 3a del módulo de vehículos). Plantilla:
+// Listado de stock (Fase 3a del módulo de vehículos; la columna Foto y la
+// unidad/precio compartidos con VehicleSelect en format.ts son de la 3b).
+// Columna Unidad: unitTitle en una línea, el código interno chico debajo
+// (ds-cell-caption). Plantilla:
 // CompanyListPage. Lo que NO tiene, y por qué:
-//   - Columna Foto: el listado del backend (findManyVehicles) no incluye la
-//     galería ni la portada, y resolverla con un GET /vehicles/:id por fila
-//     serían 20 requests con URLs firmadas por página. Cuando el listado
-//     traiga la portada, la columna se agrega acá; hoy sería un placeholder
-//     permanente.
 //   - "Reservar/Liberar" por fila: el estado de una unidad vinculada a una
 //     Oportunidad lo controla ese vínculo (Fase 2c,
 //     setVehicleStatusForOpportunityLink); un PATCH de status al lado
@@ -269,6 +250,7 @@ export function VehicleListPage() {
           <Table>
             <thead>
               <tr>
+                <th>Foto</th>
                 <th>Unidad</th>
                 <th>Precio</th>
                 <th>Estado</th>
@@ -286,6 +268,20 @@ export function VehicleListPage() {
                   : null;
                 return (
                   <tr key={vehicle.id}>
+                    {/* La portada viene resuelta en lote con el listado
+                        (coverPhotoUrl, Fase 3b); null es "sin fotos" o un
+                        objeto que no se pudo firmar, y las dos se ven igual:
+                        un placeholder, no una imagen rota. alt vacío: la
+                        columna Unidad ya nombra la fila. */}
+                    <td>
+                      {vehicle.coverPhotoUrl ? (
+                        <img src={vehicle.coverPhotoUrl} alt="" className="ds-thumb" />
+                      ) : (
+                        <span className="ds-thumb ds-thumb--empty" role="img" aria-label="Sin foto">
+                          <Car size={20} strokeWidth={1.5} aria-hidden="true" />
+                        </span>
+                      )}
+                    </td>
                     <td>
                       <span className="ds-cell-stack">
                         <span className="ds-cell-primary">{unitTitle(vehicle)}</span>
