@@ -21,6 +21,7 @@ import { findRoleByName } from "../repositories/role.repository";
 import { createUser, findUserByEmail } from "../repositories/user.repository";
 import type { InvitationAcceptIdentity, RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { esErrorDeEmailDuplicado } from "./authIdentity.service";
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -163,21 +164,11 @@ export async function createInvitation(
     // invitación en curso no falla: GoTrue reenvía el invite y devuelve
     // éxito — verificado contra GoTrue real (B-22).
     //
-    // B-22: la señal primaria es error.code — "email_exists" es lo que
-    // devuelve GoTrue real para este caso (verificado empíricamente, 2.x).
-    // Antes se decidía por status === 422, pero GoTrue responde 422 para
-    // varias validaciones que no son duplicado, y cualquiera de ellas se
-    // convertía en un 409 falso para el ADMIN. El regex sobre message queda
-    // como señal secundaria conservadora, por si algún GoTrue viejo no
-    // mandara code en este camino — con el "been" opcional, porque el
-    // mensaje real es "already been registered" y el regex heredado, sin
-    // esa palabra, no lo matcheaba nunca: la señal de mensaje estaba
-    // muerta y solo decidía el status.
-    const isDuplicate =
-      authError?.code === "email_exists" ||
-      /already (been )?registered|already exists/i.test(authError?.message ?? "");
-
-    if (isDuplicate) {
+    // B-22: cómo se reconoce el duplicado (error.code "email_exists", con el
+    // regex sobre message como señal secundaria) vive en
+    // authIdentity.service.ts, compartido con el alta de organizaciones por
+    // platform admin, que invita exactamente igual.
+    if (esErrorDeEmailDuplicado(authError)) {
       throw new AppError("Ese email ya está registrado en la plataforma", 409);
     }
 

@@ -18,7 +18,14 @@ vi.mock("../auth/AuthContext", () => ({ useAuth: useAuthMock }));
 function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   return {
     status: "authenticated",
-    me: { id: "u1", email: "a@x.com", fullName: "A", organizationId: "org-1", role },
+    me: {
+      id: "u1",
+      email: "a@x.com",
+      fullName: "A",
+      organizationId: "org-1",
+      role,
+      isPlatformAdmin: false,
+    },
     accountUnavailableReason: null,
     profileError: null,
     login: vi.fn(),
@@ -89,5 +96,29 @@ describe("AppLayout — nav del módulo QR (Fase 3)", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     renderLayout();
     expect(screen.getByRole("link", { name: "QR" })).toHaveAttribute("href", "/qr");
+  });
+});
+
+describe("AppLayout — nav de platform admin (Fase 4a del módulo SaaS)", () => {
+  function mockPlatformAdmin(role: "ADMIN" | "USER"): AuthContextValue {
+    const base = mockAuth(role);
+    return { ...base, me: { ...base.me!, isPlatformAdmin: true } };
+  }
+
+  it("un platform admin ve 'Nueva organización', aunque su rol en su organización sea USER", () => {
+    useAuthMock.mockReturnValue(mockPlatformAdmin("USER"));
+    renderLayout();
+
+    expect(screen.getByRole("link", { name: "Nueva organización" })).toHaveAttribute(
+      "href",
+      "/admin/organizations/new",
+    );
+  });
+
+  it("un ADMIN de organización que no es platform admin NO ve 'Nueva organización'", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+
+    expect(screen.queryByText("Nueva organización")).not.toBeInTheDocument();
   });
 });

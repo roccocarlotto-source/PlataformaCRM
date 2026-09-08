@@ -72,6 +72,7 @@ const profileA: MeResponse = {
   fullName: "Usuario A",
   organizationId: "org-a",
   role: "ADMIN",
+  isPlatformAdmin: false,
 };
 
 const profileB: MeResponse = {
@@ -80,6 +81,7 @@ const profileB: MeResponse = {
   fullName: "Usuario B",
   organizationId: "org-b",
   role: "USER",
+  isPlatformAdmin: false,
 };
 
 // Consumidor mínimo de prueba. El manejo de logout (try/catch + estado local

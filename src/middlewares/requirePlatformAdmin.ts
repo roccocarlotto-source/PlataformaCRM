@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { findPlatformAdminByUserId } from "../repositories/qrBilling.repository";
+import { findPlatformAdminByUserId } from "../repositories/platformAdmin.repository";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
 

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { AdminRoute } from "../auth/AdminRoute";
+import { PlatformAdminRoute } from "../auth/PlatformAdminRoute";
 import { ProtectedRoute } from "../auth/ProtectedRoute";
 import { AppLayout } from "../layout/AppLayout";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
 import { router } from "./router";
@@ -192,5 +194,34 @@ describe("router.tsx — wiring real de Fase 3 (módulo QR)", () => {
   it("no hay rutas /qr/new ni /qr/:id/edit: crear y editar son diálogos dentro de /qr", () => {
     expect(findRoute(router.routes, "/qr/new")).toBeUndefined();
     expect(findRoute(router.routes, "/qr/:id/edit")).toBeUndefined();
+  });
+});
+
+describe("router.tsx — wiring real de platform admin (Fase 4a del módulo SaaS)", () => {
+  it("/admin/organizations/new está anidada bajo PlatformAdminRoute, no bajo AdminRoute", () => {
+    const parent = findParentElement(router.routes, "/admin/organizations/new") as {
+      type: unknown;
+    };
+    expect(parent?.type).toBe(PlatformAdminRoute);
+  });
+
+  it("/admin/organizations/new renderiza NewOrganizationPage dentro de ProtectedRoute → AppLayout", () => {
+    const route = findRoute(router.routes, "/admin/organizations/new") as {
+      element?: { type?: unknown };
+    };
+    expect(route?.element?.type).toBe(NewOrganizationPage);
+
+    const protectedRouteEntry = router.routes.find(
+      (entry) => (entry.element as { type?: unknown } | undefined)?.type === ProtectedRoute,
+    );
+    const appLayoutEntry = protectedRouteEntry?.children?.find(
+      (entry) => (entry.element as { type?: unknown } | undefined)?.type === AppLayout,
+    );
+    const platformAdminEntry = appLayoutEntry?.children?.find(
+      (entry) => (entry.element as { type?: unknown } | undefined)?.type === PlatformAdminRoute,
+    );
+    expect(
+      platformAdminEntry?.children?.some((entry) => entry.path === "/admin/organizations/new"),
+    ).toBe(true);
   });
 });

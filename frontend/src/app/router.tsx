@@ -1,5 +1,6 @@
 import { createBrowserRouter } from "react-router-dom";
 import { AdminRoute } from "../auth/AdminRoute";
+import { PlatformAdminRoute } from "../auth/PlatformAdminRoute";
 import { ProtectedRoute } from "../auth/ProtectedRoute";
 import { LoginPage } from "../features/auth/LoginPage";
 import { AppLayout } from "../layout/AppLayout";
@@ -32,6 +33,7 @@ import { ClaimPage } from "../features/qr/ClaimPage";
 import { QrListPage } from "../features/qr/QrListPage";
 import { VehicleFormPage } from "../features/vehicle/VehicleFormPage";
 import { VehicleListPage } from "../features/vehicle/VehicleListPage";
+import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -166,6 +168,17 @@ export const router = createBrowserRouter([
               { path: "/vehicles/new", element: <VehicleFormPage /> },
               { path: "/vehicles/:id/edit", element: <VehicleFormPage /> },
             ],
+          },
+          {
+            // Herramienta de platform admin (Fase 4a del módulo SaaS): alta
+            // de una organización nueva con su primer ADMIN. Va bajo
+            // PlatformAdminRoute y NO bajo AdminRoute: la pregunta es la
+            // allowlist global de platform_admins (isPlatformAdmin de /me),
+            // no el rol dentro de la organización — un platform admin con rol
+            // USER en la suya tiene que poder entrar, y un ADMIN común no. La
+            // autorización real es requirePlatformAdmin en el backend.
+            element: <PlatformAdminRoute />,
+            children: [{ path: "/admin/organizations/new", element: <NewOrganizationPage /> }],
           },
         ],
       },

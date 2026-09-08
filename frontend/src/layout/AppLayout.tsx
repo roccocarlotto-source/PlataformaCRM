@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import {
   Activity,
+  Building,
   Building2,
   Car,
   CheckSquare,
@@ -70,6 +71,10 @@ export function AppLayout() {
   // link solo para que rebote siempre a un USER sería mala UX. No es un
   // RBAC genérico, es un booleano ya expuesto por AuthContext.
   const isAdmin = me?.role === "ADMIN";
+  // Fase 4a del módulo SaaS: el link a la herramienta de platform admin se
+  // gatea por la allowlist global (isPlatformAdmin de /me), no por el rol —
+  // mismo criterio de renderizado condicional que el grupo Administración.
+  const isPlatformAdmin = me?.isPlatformAdmin === true;
 
   async function handleLogout() {
     setIsLoggingOut(true);
@@ -158,6 +163,14 @@ export function AppLayout() {
               </SidebarLink>
               <SidebarLink to="/ingestion-events" icon={History}>
                 Eventos
+              </SidebarLink>
+            </div>
+          ) : null}
+          {isPlatformAdmin ? (
+            <div className="ds-sidebar-group">
+              <span className="ds-sidebar-group-label">Plataforma</span>
+              <SidebarLink to="/admin/organizations/new" icon={Building}>
+                Nueva organización
               </SidebarLink>
             </div>
           ) : null}

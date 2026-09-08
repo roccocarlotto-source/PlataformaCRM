@@ -15,6 +15,7 @@ import { meRouter } from "./me.routes";
 import { onboardingRouter } from "./onboarding.routes";
 import { opportunityRouter } from "./opportunity.routes";
 import { organizationRouter } from "./organization.routes";
+import { organizationAdminRouter } from "./organizationAdmin.routes";
 
 import { resourceRouter } from "./resource.routes";
 
@@ -128,3 +129,9 @@ routes.use("/api", vehicleRouter);
 // QR, porque es parte de este módulo aunque la ruta se llame /organization —
 // hoy es lo único que la API expone de la organización más allá de /me.
 routes.use("/api", organizationRouter);
+
+// Alta de organizaciones por un platform admin (Fase 4a del módulo SaaS):
+// POST /api/admin/organizations. Misma gate que qrAdminRouter (authenticate +
+// requirePlatformAdmin, sin authorize("ADMIN")) en un router propio, porque
+// qrAdmin.routes.ts es específico del módulo QR.
+routes.use("/api", organizationAdminRouter);

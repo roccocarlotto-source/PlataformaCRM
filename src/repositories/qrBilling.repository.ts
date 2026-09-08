@@ -102,7 +102,3 @@ export function createQrBillingExemptionChange(
 ) {
   return db.qrBillingExemptionChange.create({ data });
 }
-
-export function findPlatformAdminByUserId(userId: string, db: Db = prisma) {
-  return db.platformAdmin.findUnique({ where: { userId } });
-}
