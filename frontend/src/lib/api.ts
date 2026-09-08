@@ -2,18 +2,28 @@ import { env } from "../config/env";
 
 export class ApiError extends Error {
   readonly status: number;
+  // Detalle estructurado que el backend adjunta al mensaje en algunos errores
+  // operacionales (AppError.details, errorHandler.ts): errorHandler hace
+  // spread de ese objeto DENTRO de `error`, junto a `message`, así que el body
+  // de un 422 de completitud es `{ error: { message, missingFields: [...] } }`,
+  // no `{ error: { message, details: {...} } }`. Acá queda todo lo que vino en
+  // `error` además de `message`. Opcional y aditivo: los ~40 call sites que
+  // solo leen status/message no cambian.
+  readonly details?: Record<string, unknown>;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, details?: Record<string, unknown>) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.details = details;
   }
 }
 
 type GetAccessToken = () => Promise<string | null>;
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  // PUT entró con el reorden de fotos de Vehicle (PUT /vehicles/:id/photos/reorder).
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   getAccessToken?: GetAccessToken;
   signal?: AbortSignal;
@@ -48,7 +58,9 @@ function buildUrl(path: string): string {
   return `${env.apiUrl}/api${path}`;
 }
 
-function isErrorBody(value: unknown): value is { error: { message: string } } {
+function isErrorBody(
+  value: unknown,
+): value is { error: { message: string } & Record<string, unknown> } {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -56,11 +68,20 @@ function isErrorBody(value: unknown): value is { error: { message: string } } {
   );
 }
 
+interface ExtractedError {
+  message: string;
+  details?: Record<string, unknown>;
+}
+
 // Solo para la rama !res.ok: el status ya es una verdad conocida y
 // confiable (vino de una respuesta HTTP real). Este helper nunca le quita
 // el ApiError al llamador — como mucho degrada el mensaje a un fallback.
-async function extractErrorMessage(res: Response): Promise<string> {
-  const fallback = res.statusText || `Error ${res.status} inesperado`;
+//
+// `details` es lo que `error` trae además de `message` (ver ApiError). Se
+// omite cuando no hay nada más, así un error común sigue siendo un ApiError
+// sin details, igual que antes.
+async function extractError(res: Response): Promise<ExtractedError> {
+  const fallback = { message: res.statusText || `Error ${res.status} inesperado` };
 
   // Si la LECTURA del stream falla (conexión cortada a mitad de la
   // respuesta), eso se propaga tal cual, sin atraparlo acá — es un fallo
@@ -70,7 +91,9 @@ async function extractErrorMessage(res: Response): Promise<string> {
 
   try {
     const payload: unknown = JSON.parse(text);
-    return isErrorBody(payload) ? payload.error.message : fallback;
+    if (!isErrorBody(payload)) return fallback;
+    const { message, ...rest } = payload.error;
+    return Object.keys(rest).length > 0 ? { message, details: rest } : { message };
   } catch {
     return fallback; // body no-JSON (ej. página de error de un proxy)
   }
@@ -120,7 +143,8 @@ async function handleResponse<T>(res: Response): Promise<T> {
     if (res.status === 401) {
       unauthorizedHandler?.();
     }
-    throw new ApiError(res.status, await extractErrorMessage(res));
+    const { message, details } = await extractError(res);
+    throw new ApiError(res.status, message, details);
   }
 
   if (res.status === 204) {
