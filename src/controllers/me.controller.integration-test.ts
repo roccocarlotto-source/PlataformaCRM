@@ -159,7 +159,7 @@ async function createOrphanAuthUser(label: string) {
   return { accessToken: signInData.session.access_token, authUserId: data.user.id };
 }
 
-test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/fullName/organizationId/role", async () => {
+test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/fullName/organizationId/role/isPlatformAdmin", async () => {
   const fx = await createFixtureUser("happy", "ADMIN");
   const { url, close } = await startTestApp();
   try {
@@ -171,7 +171,7 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     const body = (await res.json()) as Record<string, unknown>;
     assert.deepEqual(
       Object.keys(body).sort(),
-      ["email", "fullName", "id", "organizationId", "role"],
+      ["email", "fullName", "id", "isPlatformAdmin", "organizationId", "role"],
       "el body no debe incluir isActive/createdAt/updatedAt ni ningún otro campo",
     );
     assert.equal(body.id, fx.authUserId);
@@ -179,8 +179,37 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     assert.equal(body.fullName, fx.fullName);
     assert.equal(body.organizationId, fx.organizationId);
     assert.equal(body.role, fx.role);
+    // Un ADMIN de organización común NO es platform admin: el rol dentro de
+    // la organización y la allowlist global son cosas distintas.
+    assert.equal(body.isPlatformAdmin, false);
   } finally {
     await close();
+    await prisma.user.delete({ where: { id: fx.authUserId } });
+    await prisma.organization.delete({ where: { id: fx.organizationId } });
+    await getSupabaseAdmin().auth.admin.deleteUser(fx.authUserId);
+  }
+});
+
+test("GET /api/me — usuario presente en platform_admins: isPlatformAdmin true (Fase 4a)", async () => {
+  const fx = await createFixtureUser("platform-admin", "USER");
+  const { url, close } = await startTestApp();
+  try {
+    // El único write path de la allowlist es directo a la tabla, a propósito
+    // (ver platformAdmin.repository.ts). Con rol USER adrede: la allowlist es
+    // independiente del rol dentro de la organización.
+    await prisma.platformAdmin.create({ data: { userId: fx.authUserId } });
+
+    const res = await fetch(`${url}/api/me`, {
+      headers: { authorization: `Bearer ${fx.accessToken}` },
+    });
+    assert.equal(res.status, 200);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    assert.equal(body.isPlatformAdmin, true);
+    assert.equal(body.role, "USER");
+  } finally {
+    await close();
+    await prisma.platformAdmin.deleteMany({ where: { userId: fx.authUserId } });
     await prisma.user.delete({ where: { id: fx.authUserId } });
     await prisma.organization.delete({ where: { id: fx.organizationId } });
     await getSupabaseAdmin().auth.admin.deleteUser(fx.authUserId);

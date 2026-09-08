@@ -12,6 +12,7 @@ import { findRoleByName } from "../repositories/role.repository";
 import { createUser, findUserByEmail } from "../repositories/user.repository";
 import { AppError } from "../utils/AppError";
 import { slugify } from "../utils/slug";
+import { revertirIdentidad } from "./authIdentity.service";
 
 export interface OnboardingInput {
   organizationName: string;
@@ -259,7 +260,7 @@ export async function onboardOrganization(input: OnboardingInput): Promise<Onboa
   });
 
   if (updateError) {
-    await revertirIdentidad(authUserId);
+    await revertirIdentidad(supabaseAdmin, authUserId, "el onboarding");
     logger.error({ err: updateError }, "Error fijando la contraseña del usuario de Supabase Auth");
     throw new AppError("No se pudo crear la cuenta", 500);
   }
@@ -317,7 +318,7 @@ export async function onboardOrganization(input: OnboardingInput): Promise<Onboa
     // invitación pendiente. Sin esos chequeos, esta línea podría destruir la
     // cuenta real de otra persona — el riesgo que el `admin.createUser` con
     // 422 cubría de arriba y que el OTP se llevó puesto.
-    await revertirIdentidad(authUserId);
+    await revertirIdentidad(supabaseAdmin, authUserId, "el onboarding");
 
     if (err instanceof AppError) {
       throw err;
@@ -339,16 +340,5 @@ export async function onboardOrganization(input: OnboardingInput): Promise<Onboa
 
     logger.error({ err }, "Error inesperado en la transacción de onboarding");
     throw new AppError("No se pudo completar el registro", 500);
-  }
-}
-
-async function revertirIdentidad(authUserId: string): Promise<void> {
-  try {
-    await getSupabaseAdmin().auth.admin.deleteUser(authUserId);
-  } catch (cleanupErr) {
-    logger.error(
-      { err: cleanupErr, orphanedAuthUserId: authUserId },
-      "No se pudo revertir el usuario de Supabase Auth tras un fallo en el onboarding — requiere limpieza manual",
-    );
   }
 }

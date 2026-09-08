@@ -20,7 +20,7 @@ vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
 function mockAuth(meId = "self1"): AuthContextValue {
   return {
     status: "authenticated",
-    me: { id: meId, email: "a@x.com", fullName: "A", organizationId: "org-1", role: "ADMIN" },
+    me: { id: meId, email: "a@x.com", fullName: "A", organizationId: "org-1", role: "ADMIN", isPlatformAdmin: false },
     accountUnavailableReason: null,
     profileError: null,
     login: vi.fn(),

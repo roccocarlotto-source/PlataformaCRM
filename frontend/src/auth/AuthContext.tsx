@@ -21,6 +21,11 @@ export interface MeResponse {
   fullName: string;
   organizationId: string;
   role: "ADMIN" | "USER";
+  // Fase 4a del módulo SaaS: si el usuario está en la allowlist global de
+  // platform_admins. Independiente de `role` (que es el rol DENTRO de su
+  // organización). Solo decide qué se muestra — la autorización real la
+  // hace requirePlatformAdmin en el backend, en cada request.
+  isPlatformAdmin: boolean;
 }
 
 export type AuthStatus =
