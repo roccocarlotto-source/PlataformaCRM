@@ -9,21 +9,22 @@ import {
 } from "../services/opportunity.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
-import { parseOrThrow } from "../utils/validation";
+import { currencySchema, parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
 
 const statusSchema = z.enum(["OPEN", "WON", "LOST"]);
 
-// No hay enum de moneda en el schema (currency es VarChar(3) libre, a
-// propósito: ISO 4217 tiene ~180 códigos, no es un conjunto chico de
-// estados de negocio como sí lo son LifecycleStage/OpportunityStatus) — se
-// valida el formato, no una lista cerrada.
-const currencySchema = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[A-Z]{3}$/, "currency debe ser un código ISO 4217 de 3 letras");
+// Enums de Prisma del módulo de stock de vehículos (Fase 2c), como z.enum
+// con los valores a la vista — misma convención que vehicle.controller.ts.
+const financingTypeSchema = z.enum(["NONE", "INSTALLMENT_24M", "INSTALLMENT_36M", "OWN_FINANCING"]);
+const leadSourceSchema = z.enum([
+  "PORTAL_MERCADOLIBRE",
+  "WEBSITE",
+  "SHOWROOM",
+  "REFERRAL",
+  "WHATSAPP",
+]);
 
 const opportunityFields = {
   title: z
@@ -48,6 +49,12 @@ const opportunityFields = {
   pipelineId: z.string().uuid("pipelineId inválido"),
   stageId: z.string().uuid("stageId inválido"),
   ownerId: z.string().uuid("ownerId inválido").optional(),
+  // Módulo de stock de vehículos (Fase 2c). En create vehicleId NO es
+  // nullable ("crear vinculada a null" no tiene sentido); en update los tres
+  // se sobreescriben como .nullable() abajo.
+  vehicleId: z.string().uuid("vehicleId inválido").optional(),
+  financingType: financingTypeSchema.optional(),
+  leadSource: leadSourceSchema.optional(),
 };
 
 // Exportado para poder fijar con tests unitarios (sin base) qué rechaza el
@@ -72,6 +79,10 @@ export const createOpportunitySchema = z
 // reabrir una oportunidad WON/LOST de vuelta a OPEN sin arrastrar datos de un
 // cierre anterior. Sin .nullable(), z.coerce.date() convertía un `null`
 // explícito en 1970-01-01 en vez de rechazarlo o limpiarlo.
+//
+// vehicleId/financingType/leadSource (Fase 2c) igual: vehicleId: null es
+// "desvincular la unidad" y libera la reserva si sigue vigente (ver
+// opportunity.service.ts).
 export const updateOpportunitySchema = z
   .object({
     ...opportunityFields,
@@ -83,6 +94,9 @@ export const updateOpportunitySchema = z
       .max(255, "lostReason no puede superar los 255 caracteres")
       .nullable()
       .optional(),
+    vehicleId: z.string().uuid("vehicleId inválido").nullable().optional(),
+    financingType: financingTypeSchema.nullable().optional(),
+    leadSource: leadSourceSchema.nullable().optional(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
@@ -148,7 +162,7 @@ export const updateOpportunityHandler = asyncHandler<AuthenticatedRequest>(
 export const deleteOpportunityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
-    await deleteOpportunity(req.auth.organizationId, id);
+    await deleteOpportunity(req.auth.organizationId, req.auth.userId, id);
     res.status(204).send();
   },
 );

@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import { z } from "zod";
 import { AppError } from "./AppError";
 
 // Parsea `data` con un schema de Zod; si falla, lanza el mismo AppError(400)
@@ -28,3 +28,16 @@ export function parseOrThrow<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, dat
 
   return parsed.data;
 }
+
+// Código ISO 4217 de tres letras en mayúsculas. No hay enum de moneda en el
+// schema (currency es VarChar(3) libre, a propósito: ISO 4217 tiene ~180
+// códigos, no es un conjunto chico de estados de negocio como sí lo son
+// LifecycleStage/OpportunityStatus) — se valida el formato, no una lista
+// cerrada. Compartido entre Opportunity.currency y la configuración de
+// moneda de la organización (Fase 2c), para que el mismo dato se valide de
+// la misma forma en los dos lugares.
+export const currencySchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z]{3}$/, "currency debe ser un código ISO 4217 de 3 letras");

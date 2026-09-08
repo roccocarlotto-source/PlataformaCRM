@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { env } from "../config/env";
+import { iniciarWorkerDeCotizaciones } from "./exchangeRateWorker";
 import { iniciarWorkerDeCanales } from "./googleCalendarChannelWorker";
 import { iniciarWorkerDeIngesta } from "./ingestionWorker";
 import { iniciarWorkerDeOutbox } from "./outboxWorker";
@@ -13,7 +14,7 @@ import { iniciarWorkerDeOutbox } from "./outboxWorker";
 // worker es una promesa que el test resuelve a mano, así que el orden de los
 // eventos lo decide el test, no el scheduler.
 //
-// Los tres workers comparten el patrón y el bug, y por eso se prueban con la
+// Los cuatro workers comparten el patrón y el bug, y por eso se prueban con la
 // misma tabla: si alguno se desviara del patrón, este archivo lo vería.
 // ---------------------------------------------------------------------------
 
@@ -61,6 +62,19 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
         env.GOOGLE_WEBHOOK_URL = original;
       };
     },
+  },
+  {
+    // Fase 2c del módulo de stock de vehículos: mismo patrón, misma tabla.
+    // Sin precondición de entorno (ver la cabecera del worker).
+    nombre: "cotizaciones",
+    iniciar: ({ pollMs, pasada }) =>
+      iniciarWorkerDeCotizaciones({
+        pollMs,
+        actualizar: async () => {
+          await pasada();
+          return { actualizadas: 0, fallidas: 0 };
+        },
+      }),
   },
 ];
 

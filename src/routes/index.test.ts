@@ -260,3 +260,11 @@ test("las rutas del módulo de stock de vehículos están montadas bajo /api", a
     assert.equal(res.status, 401, `${method} ${path} no está montado`);
   }
 });
+
+test("la configuración de moneda de la organización (Fase 2c) está montada bajo /api", async () => {
+  const get = await fetch(`${baseUrl}/api/organization`);
+  assert.equal(get.status, 401, "GET /api/organization no está montado");
+
+  const patch = await fetch(`${baseUrl}/api/organization`, { method: "PATCH" });
+  assert.equal(patch.status, 401, "PATCH /api/organization no está montado");
+});

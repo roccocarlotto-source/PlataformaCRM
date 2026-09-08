@@ -1,4 +1,9 @@
-import type { OpportunityStatus, Prisma } from "@prisma/client";
+import type {
+  OpportunityFinancingType,
+  OpportunityLeadSource,
+  OpportunityStatus,
+  Prisma,
+} from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 export interface OpportunityFilters {
@@ -103,6 +108,11 @@ export interface CreateOpportunityData {
   actualCloseDate?: Date;
   status?: OpportunityStatus;
   lostReason?: string;
+  // Módulo de stock de vehículos (Fase 2c). Los tres nullables en el schema;
+  // el service ya validó la unidad y tomó el lock cuando vehicleId viene.
+  vehicleId?: string;
+  financingType?: OpportunityFinancingType;
+  leadSource?: OpportunityLeadSource;
 }
 
 export function createOpportunity(data: CreateOpportunityData, db: Db = prisma) {
@@ -122,6 +132,10 @@ export interface UpdateOpportunityData {
   actualCloseDate?: Date | null;
   status?: OpportunityStatus;
   lostReason?: string | null;
+  // null = desvincular / limpiar; undefined = no tocar la columna.
+  vehicleId?: string | null;
+  financingType?: OpportunityFinancingType | null;
+  leadSource?: OpportunityLeadSource | null;
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir

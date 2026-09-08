@@ -4,6 +4,7 @@ import { logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
 import { crearShutdown } from "./shutdown";
 import { iniciarWorkerDeIngesta } from "./workers/ingestionWorker";
+import { iniciarWorkerDeCotizaciones } from "./workers/exchangeRateWorker";
 import { iniciarWorkerDeCanales } from "./workers/googleCalendarChannelWorker";
 import { iniciarWorkerDeOutbox } from "./workers/outboxWorker";
 
@@ -32,6 +33,13 @@ const detenerWorkerDeOutbox = iniciarWorkerDeOutbox();
 // tres cuyo tick normal no hace nada.
 const detenerWorkerDeCanales = iniciarWorkerDeCanales();
 
+// El worker de cotizaciones (Fase 2c del módulo de stock de vehículos), por el
+// mismo motivo que los otros tres: vive con el proceso servidor, no con la
+// instancia de Express — los tests de integración que importan rutas no deben
+// encender un timer real ni salir a una API pública. Cadencia de 24 horas con
+// primera pasada inmediata.
+const detenerWorkerDeCotizaciones = iniciarWorkerDeCotizaciones();
+
 // El apagado ordenado (M-12 de docs/auditoria-2026-08-29.md). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
@@ -45,11 +53,16 @@ const shutdown = crearShutdown({
       // dejan terminar solas, que es lo correcto.
       server.closeIdleConnections();
     }),
-  // Los tres stops esperan a la pasada en curso de su worker (M-12 c): cada
+  // Los cuatro stops esperan a la pasada en curso de su worker (M-12 c): cada
   // evento va en su propia transacción y ninguna queda a medias, y los que no
   // llegó a tocar siguen en PENDING para el próximo arranque.
   detenerWorkers: async () => {
-    await Promise.all([detenerWorker(), detenerWorkerDeOutbox(), detenerWorkerDeCanales()]);
+    await Promise.all([
+      detenerWorker(),
+      detenerWorkerDeOutbox(),
+      detenerWorkerDeCanales(),
+      detenerWorkerDeCotizaciones(),
+    ]);
   },
   desconectarPrisma: () => prisma.$disconnect(),
   salir: (codigo) => process.exit(codigo),
