@@ -41,10 +41,12 @@ import { AppError } from "../utils/AppError";
 // una Branch de la Organization del caller, elegida explícitamente.
 //
 // Las fotos y Storage son de vehiclePhoto.service.ts (2b); de ellas acá solo
-// entra la cuenta, para la regla "al menos una foto para publicar". FUERA DE
-// ESTA FASE, aunque los campos ya existan en el schema: tipo de cambio /
-// moneda de la organización / vínculo con Opportunity (2c), y la página
-// pública sin login (Fase 3).
+// entra la cuenta, para la regla "al menos una foto para publicar". El vínculo
+// con Opportunity (2c) vive en opportunity.service.ts; de él acá entra solo
+// setVehicleStatusForOpportunityLink, al final del archivo. Tipo de cambio y
+// moneda de la organización (2c) son de exchangeRate.service.ts y
+// organization.service.ts. FUERA DE ESTA FASE: la página pública sin login
+// (Fase 3).
 //
 // TODA ESCRITURA VA EN UNA TRANSACCIÓN CON lockOrganizationForUpdate, no solo
 // la creación. En QR el lock protegía únicamente el contador; acá protege
@@ -626,5 +628,55 @@ export async function deleteVehicle(organizationId: string, id: string) {
   const result = await softDeleteVehicle(id, organizationId);
   if (result.count === 0) {
     throw new AppError(VEHICULO_NO_ENCONTRADO, 404);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Vínculo con Opportunity (Fase 2c). "Al vincular una unidad del stock, la
+// oportunidad toma su precio y su estado": el ESTADO de la unidad es quien
+// manda, y esta función es la única puerta por la que opportunity.service.ts
+// lo mueve —a RESERVED al vincular, a SOLD al ganar, a AVAILABLE al liberar—.
+// Cambia SOLO status, DENTRO de la transacción del caller (nunca abre la
+// suya, a diferencia de updateVehicle), con el lock de organización ya
+// tomado por ese caller.
+//
+// Escribe el historial igual que un PATCH directo a /vehicles/:id: la ficha
+// muestra "RESERVED → SOLD" venga de donde venga. Deliberadamente NO pasa por
+// applyConsignmentRule ni por assertCompleteForPublish: tocar solo status
+// nunca deja una ficha publicada incompleta (publishOnWebsite no se toca) ni
+// afecta la regla de consignación (origin no se toca).
+// ---------------------------------------------------------------------------
+
+export async function setVehicleStatusForOpportunityLink(
+  organizationId: string,
+  actorUserId: string,
+  vehicleId: string,
+  newStatus: VehicleStatus,
+  tx: Db,
+): Promise<void> {
+  // 404 defensivo: el caller ya validó existencia bajo el mismo lock.
+  const current = await getVehicleById(organizationId, vehicleId, tx);
+  if (current.status === newStatus) {
+    return;
+  }
+
+  const entries = computeChangeLogEntries(current as unknown as Record<string, unknown>, {
+    status: newStatus,
+  });
+  const result = await updateVehicleRepo(vehicleId, organizationId, { status: newStatus }, tx);
+  if (result.count === 0) {
+    // Se leyó la fila un instante antes, bajo el mismo lock: cero filas acá
+    // es un bug del caller, no un 404 — mismo criterio que
+    // lockStageForUpdate con cero filas.
+    throw new Error(
+      `setVehicleStatusForOpportunityLink: el UPDATE de ${vehicleId} no afectó ninguna fila`,
+    );
+  }
+  if (entries.length > 0) {
+    await createVehicleChangeLogs(
+      { organizationId, vehicleId, changedById: actorUserId },
+      entries,
+      tx,
+    );
   }
 }

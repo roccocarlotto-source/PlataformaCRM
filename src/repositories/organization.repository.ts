@@ -36,3 +36,50 @@ export async function lockOrganizationForUpdate(organizationId: string, db: Db):
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Configuración de moneda del módulo de stock de vehículos (Fase 2c). Las
+// lecturas devuelven el row completo de Organization para el service; es el
+// SERVICE el que recorta a la forma pública (ver organization.service.ts —
+// el row tiene campos de billing/QR que nunca salen por la API).
+// ---------------------------------------------------------------------------
+
+export function findOrganizationById(id: string, db: Db = prisma) {
+  return db.organization.findUnique({ where: { id } });
+}
+
+export function updateOrganizationCurrency(
+  id: string,
+  data: { preferredCurrency?: string | null; alternateCurrency?: string | null },
+  db: Db = prisma,
+) {
+  return db.organization.update({ where: { id }, data });
+}
+
+// Las monedas configuradas de TODAS las organizaciones — lo que el worker de
+// cotizaciones tiene que buscar. Sin deduplicar a propósito: eso es del
+// caller (fetchAndStoreExchangeRates), que además excluye USD.
+export function findOrganizationsWithConfiguredCurrency(db: Db = prisma) {
+  return db.organization.findMany({
+    where: {
+      OR: [{ preferredCurrency: { not: null } }, { alternateCurrency: { not: null } }],
+    },
+    select: { preferredCurrency: true, alternateCurrency: true },
+  });
+}
+
+// La cotización MÁS RECIENTE (mayor rateDate) por cada moneda destino, base
+// USD. `distinct` + `orderBy` es el idiom de Prisma para "última fila por
+// grupo": el orderBy tiene que empezar por el campo del distinct, y dentro de
+// cada grupo la primera fila que ve es la de rateDate más alto. Devuelve []
+// sin consultar si no hay monedas que buscar.
+export function findLatestExchangeRates(targetCurrencies: string[], db: Db = prisma) {
+  if (targetCurrencies.length === 0) {
+    return Promise.resolve([]);
+  }
+  return db.exchangeRate.findMany({
+    where: { baseCurrency: "USD", targetCurrency: { in: targetCurrencies } },
+    distinct: ["targetCurrency"],
+    orderBy: [{ targetCurrency: "asc" }, { rateDate: "desc" }],
+  });
+}

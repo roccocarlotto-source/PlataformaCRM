@@ -263,6 +263,27 @@ const envSchema = z.object({
     .default(7 * 24 * 60 * 60),
 
   // -------------------------------------------------------------------------
+  // Worker de cotizaciones (Fase 2c del módulo de stock de vehículos, ver
+  // src/workers/exchangeRateWorker.ts).
+  //
+  // Mismo enum explícito que INGEST_WORKER_ENABLED y por el mismo motivo:
+  // z.coerce.boolean() coacciona cualquier string no vacío a true, así que
+  // EXCHANGE_RATE_WORKER_ENABLED=false lo habilitaría.
+  EXCHANGE_RATE_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+
+  // 24 HORAS. Es una cotización que la agencia usa para redondear precios de
+  // exhibición, no para operar con margen de segundos: una vez al día alcanza
+  // de sobra, y la primera pasada es inmediata al arrancar.
+  EXCHANGE_RATE_WORKER_POLL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(24 * 60 * 60 * 1000),
+
+  // -------------------------------------------------------------------------
   // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
   //
   // MERCADOPAGO_WEBHOOK_SECRET: el secreto con el que MercadoPago firma cada

@@ -14,6 +14,7 @@ import { invitationRouter } from "./invitation.routes";
 import { meRouter } from "./me.routes";
 import { onboardingRouter } from "./onboarding.routes";
 import { opportunityRouter } from "./opportunity.routes";
+import { organizationRouter } from "./organization.routes";
 
 import { resourceRouter } from "./resource.routes";
 
@@ -120,3 +121,10 @@ routes.use("/api", qrAdminRouter);
 // ("ADMIN") para escribir. La página pública sin login es Fase 3 y, cuando
 // exista, irá junto a qrPublicRouter (sin /api, sin authenticate).
 routes.use("/api", vehicleRouter);
+
+// Configuración de moneda de la organización (Fase 2c del módulo de stock de
+// vehículos): preferredCurrency/alternateCurrency y la última cotización de
+// cada una. Va acá, al lado de vehicleRouter y no con el bloque de agenda o
+// QR, porque es parte de este módulo aunque la ruta se llame /organization —
+// hoy es lo único que la API expone de la organización más allá de /me.
+routes.use("/api", organizationRouter);

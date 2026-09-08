@@ -57,3 +57,43 @@ test("M-9: amount ausente sigue siendo opcional; negativo sigue rechazándose", 
   assert.equal(createOpportunitySchema.safeParse(BASE_CREATE).success, true);
   assert.equal(updateOpportunitySchema.safeParse({ amount: -1 }).success, false);
 });
+
+// ---------------------------------------------------------------------------
+// Fase 2c del módulo de stock de vehículos: vehicleId/financingType/leadSource.
+// En PATCH los tres admiten null (desvincular / limpiar); en POST vehicleId
+// no — "crear vinculada a null" no significa nada.
+// ---------------------------------------------------------------------------
+
+test("2c: vehicleId: null se acepta en PATCH (desvincular) y se rechaza en POST", () => {
+  const actualizado = updateOpportunitySchema.safeParse({ vehicleId: null });
+  assert.equal(actualizado.success, true);
+  assert.equal(actualizado.success && actualizado.data.vehicleId, null);
+
+  const creado = createOpportunitySchema.safeParse({ ...BASE_CREATE, vehicleId: null });
+  assert.equal(creado.success, false);
+});
+
+test("2c: vehicleId tiene que ser un uuid; financingType/leadSource, valores del enum", () => {
+  assert.equal(updateOpportunitySchema.safeParse({ vehicleId: "STK-000001" }).success, false);
+  assert.equal(
+    createOpportunitySchema.safeParse({ ...BASE_CREATE, financingType: "LEASING" }).success,
+    false,
+  );
+  assert.equal(updateOpportunitySchema.safeParse({ leadSource: "TIKTOK" }).success, false);
+
+  const ok = createOpportunitySchema.safeParse({
+    ...BASE_CREATE,
+    vehicleId: randomUUID(),
+    financingType: "INSTALLMENT_24M",
+    leadSource: "SHOWROOM",
+  });
+  assert.equal(ok.success, true);
+  assert.equal(ok.success && ok.data.financingType, "INSTALLMENT_24M");
+  assert.equal(ok.success && ok.data.leadSource, "SHOWROOM");
+});
+
+test("2c: financingType/leadSource: null limpian en PATCH", () => {
+  const parsed = updateOpportunitySchema.safeParse({ financingType: null, leadSource: null });
+  assert.equal(parsed.success, true);
+  assert.deepEqual(parsed.success && parsed.data, { financingType: null, leadSource: null });
+});
