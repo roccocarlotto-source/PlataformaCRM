@@ -30,6 +30,8 @@ import { SourceListPage } from "../features/source/SourceListPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { ClaimPage } from "../features/qr/ClaimPage";
 import { QrListPage } from "../features/qr/QrListPage";
+import { VehicleFormPage } from "../features/vehicle/VehicleFormPage";
+import { VehicleListPage } from "../features/vehicle/VehicleListPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -92,6 +94,12 @@ export const router = createBrowserRouter([
           // AdminRoute, que redirigiría a /companies y perdería el qrId — el
           // chequeo de rol lo hace la propia página (decisiones 7 y 8).
           { path: "/claim/:qrId", element: <ClaimPage /> },
+          // Stock de vehículos (Fase 3a). El LISTADO va acá afuera, como
+          // /companies: GET /api/vehicles y GET /api/vehicles/:id son lectura
+          // abierta a cualquier autenticado (vehicle.routes.ts: solo
+          // authenticate). Las rutas de creación/edición van dentro del
+          // AdminRoute de abajo, mismo patrón que Activity/Opportunity.
+          { path: "/vehicles", element: <VehicleListPage /> },
           {
             // Restricción de UX/autorización visual — ver auth/AdminRoute.tsx.
             // La autorización real de escritura sigue siendo authorize("ADMIN")
@@ -153,6 +161,10 @@ export const router = createBrowserRouter([
               { path: "/opportunities/:id/edit", element: <OpportunityFormPage /> },
               { path: "/activities/new", element: <ActivityFormPage /> },
               { path: "/activities/:id/edit", element: <ActivityFormPage /> },
+              // Ficha de vehículo: POST/PATCH /api/vehicles son ADMIN-only, y la
+              // ficha es toda escritura (incluida la galería de fotos).
+              { path: "/vehicles/new", element: <VehicleFormPage /> },
+              { path: "/vehicles/:id/edit", element: <VehicleFormPage /> },
             ],
           },
         ],

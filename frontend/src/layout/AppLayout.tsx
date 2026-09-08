@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet } from "react-router-dom";
 import {
   Activity,
   Building2,
+  Car,
   CheckSquare,
   Columns3,
   Database,
@@ -111,6 +112,11 @@ export function AppLayout() {
             </SidebarLink>
             <SidebarLink to="/opportunities" icon={Target}>
               Oportunidades
+            </SidebarLink>
+            {/* Stock de vehículos (Fase 3a): visible para ambos roles, como
+                /companies — GET /api/vehicles es lectura abierta. */}
+            <SidebarLink to="/vehicles" icon={Car}>
+              Stock
             </SidebarLink>
           </div>
           <div className="ds-sidebar-group">

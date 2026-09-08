@@ -134,3 +134,53 @@ describe("handleResponse — compartido por request() y uploadFile()", () => {
     });
   }
 });
+
+describe("ApiError.details — el detalle estructurado de un error operacional", () => {
+  // errorHandler.ts hace spread de AppError.details DENTRO de `error`, al lado
+  // de `message` (no anidado en `details`): el 422 de completitud de Vehicle
+  // llega como { error: { message, missingFields: [...] } }.
+  it("guarda en details todo lo que `error` trae además de message", async () => {
+    server.use(
+      http.post(url, () =>
+        HttpResponse.json(
+          { error: { message: "La unidad no está completa", missingFields: ["vin", "photos"] } },
+          { status: 422 },
+        ),
+      ),
+    );
+
+    await expect(request("/cosa", { method: "POST", body: {} })).rejects.toMatchObject({
+      status: 422,
+      message: "La unidad no está completa",
+      details: { missingFields: ["vin", "photos"] },
+    });
+  });
+
+  it("un error con solo message no tiene details (undefined, no {})", async () => {
+    server.use(
+      http.post(url, () => HttpResponse.json({ error: { message: "boom" } }, { status: 400 })),
+    );
+
+    let capturado: unknown;
+    try {
+      await request("/cosa", { method: "POST", body: {} });
+    } catch (err) {
+      capturado = err;
+    }
+    expect(capturado).toBeInstanceOf(ApiError);
+    expect((capturado as ApiError).details).toBeUndefined();
+  });
+
+  it("request() acepta PUT (reorden de fotos)", async () => {
+    let method: string | undefined;
+    server.use(
+      http.put(url, ({ request: req }) => {
+        method = req.method;
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    await request("/cosa", { method: "PUT", body: { photoIds: [] } });
+    expect(method).toBe("PUT");
+  });
+});
