@@ -299,25 +299,25 @@ Nada de esto está automatizado hoy: el CI valida (`ci.yml`), no despliega.
 
 ## 6. Cómo se desplegó la primera vez
 
-_(Pendiente — completar con los datos reales cuando exista el despliegue.)_
+_(Completado el 2026-09-09, a partir de lo que se pudo confirmar por el propio código del repo, las URLs públicas y lo que confirmó Rocco. Los campos marcados "sin verificar" no se pudieron confirmar desde acá — revisarlos en el dashboard correspondiente.)_
 
 | Dato | Valor |
 |---|---|
-| Fecha | |
-| Supabase: nombre del proyecto / `ref` / región | |
-| Supabase: SMTP configurado (proveedor) | |
-| Backend: proveedor / nombre del servicio / URL pública | |
-| Backend: plan / región / grace period de apagado | |
-| Backend: variables cargadas (nombres, no valores) | |
-| Backend: `trust proxy` configurado a | |
-| Frontend: proveedor / nombre del proyecto / dominio | |
-| Frontend: Root Directory / comando de build | |
-| Frontend: `VITE_*` cargadas en Production y Preview | |
-| `CORS_ORIGIN` final (orden) | |
-| Site URL / Redirect URLs finales en Supabase | |
-| Platform admin dado de alta (email; nunca el id acá) | |
-| Verificación del paso 5.8: qué se probó y resultado | |
-| Desvíos respecto de este documento | |
+| Fecha | No quedó registrada con precisión — al revisar el 2026-09-09 el frontend ya estaba desplegado desde antes |
+| Supabase: nombre del proyecto / `ref` / región | CRM-saas / `xfnywkwocszfcrukikkb` / sin verificar |
+| Supabase: SMTP configurado (proveedor) | Sin verificar — revisar Authentication → Emails → SMTP Settings en el dashboard de Supabase |
+| Backend: proveedor / nombre del servicio / URL pública | Render / `plataformacrm` / `https://plataformacrm.onrender.com` |
+| Backend: plan / región / grace period de apagado | Free — el servicio se duerme tras ~15 min de inactividad; el primer request posterior tarda por el cold start. Región sin verificar |
+| Backend: variables cargadas (nombres, no valores) | Grupo A (imprescindibles) en uso: `CORS_ORIGIN`, `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Cuáles del grupo C (Google Calendar, MercadoPago, `QR_RESOLVE_PROXY_SECRET`) están cargadas: sin verificar |
+| Backend: `trust proxy` configurado a | No configurado — es deliberado, ver 2.4 y `rateLimit.ts` |
+| Frontend: proveedor / nombre del proyecto / dominio | Vercel / `plataforma-crm` / `plataforma-crm-chi.vercel.app` |
+| Frontend: Root Directory / comando de build | `frontend` / build de Vite por defecto (autodetectado por Vercel; `frontend/vercel.json` solo define el rewrite de la SPA) |
+| Frontend: `VITE_*` cargadas en Production y Preview | Sin verificar — revisar Vercel → Settings → Environment Variables |
+| `CORS_ORIGIN` final (orden) | Sin verificar (valor cargado en Render, no vive en el repo) |
+| Site URL / Redirect URLs finales en Supabase | Sin verificar — revisar Authentication → URL Configuration |
+| Platform admin dado de alta (email; nunca el id acá) | roccocarlotto@gmail.com |
+| Verificación del paso 5.8: qué se probó y resultado | Parcial, en la sesión del 2026-09-09: se probó `POST /api/onboarding/otp` con un email real y se confirmó que Supabase manda el código de verificación con el template correcto (`{{ .Token }}`, asunto en español). No se completó en esa verificación el flujo entero de alta de organización por platform admin (`/companies`, invitación, `GET /api/me` con `isPlatformAdmin: true`) |
+| Desvíos respecto de este documento | El frontend ya estaba desplegado en Vercel antes de esta revisión, aunque esta sección decía "nada desplegado todavía". No se pudo reconstruir la fecha real del primer despliegue |
 
 ---
 
