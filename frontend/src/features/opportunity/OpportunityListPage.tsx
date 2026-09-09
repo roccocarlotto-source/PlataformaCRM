@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
@@ -140,6 +141,7 @@ function OpportunityTableView() {
     <div>
       {isAdmin ? (
         <Link to="/opportunities/new" className="ds-link-button">
+          <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
           Nueva oportunidad
         </Link>
       ) : null}

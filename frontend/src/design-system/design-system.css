@@ -485,6 +485,112 @@ fieldset.ds-field {
   min-width: 160px;
 }
 
+/* El input de un selector de búsqueda no puede ser más angosto que su
+   placeholder. Sin esto quedaba en su ancho intrínseco (el de size=20, 171px
+   medidos con Public Sans 14px), más corto que cualquiera de los placeholders
+   que hoy se usan como filtro: "Buscar empresa por nombre…" 194px, "Buscar
+   oportunidad por título…" 201px, "Buscar contacto por nombre o email…"
+   244px. Se veía "Buscar empresa por nomb…" siempre, no solo con la fila
+   apretada. El mínimo va en el input y no en la píldora: la píldora reparte
+   su ancho entre rótulo e input, y el rótulo cambia por pantalla ("Filtrar
+   por empresa", "Filtrar por contacto"…), así que un mínimo en ella no
+   garantiza nada para el texto. Con el input fijo la píldora crece a rótulo
+   + input y es la fila (.ds-filters, flex-wrap: wrap) la que pasa la píldora
+   a la línea siguiente si no entra. 260px cubre el placeholder más largo con
+   aire para el cursor; un selector nuevo con uno más largo lo sube acá. Los
+   <select> de la misma píldora (BranchSelect, PipelineSelect) no se tocan. */
+.ds-filters div:has(> label[for]) > input,
+.ds-board-toolbar div:has(> label[for]) > input {
+  min-width: 260px;
+}
+
+/* ---------------------------------------------------------------------------
+   MultiSelect (design-system/MultiSelect.tsx) — desplegable de selección
+   múltiple con checkboxes, pensado para vivir dentro de la píldora de
+   filtros: su raíz es div > label[for] + button, así que la píldora lo
+   detecta sola y acá solo se resetea el botón (que no es input ni select y
+   no entra en el reset de arriba) y se dibuja la lista abierta.
+   --------------------------------------------------------------------------- */
+.ds-multiselect {
+  /* La lista abierta se posiciona respecto de la píldora. */
+  position: relative;
+}
+
+/* El botón cerrado se ve como el <select> de la píldora de al lado: sin
+   borde ni fondo propios, texto 14px del color de texto, con el chevron a
+   la derecha como indicio de que despliega. */
+.ds-multiselect-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* El foco lo muestra la píldora (:focus-within), como con los otros
+   controles. */
+.ds-multiselect-trigger:focus-visible {
+  outline: none;
+}
+
+/* La lista abierta flota debajo de la píldora, sin empujar la fila de
+   filtros. min-width: 100% para que nunca sea más angosta que la píldora. */
+.ds-multiselect-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 10;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1) 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+}
+
+/* Cada opción es un <label> con su checkbox. Dentro de .ds-filters, la regla
+   genérica ".ds-filters label" convertiría cada uno en una píldora (borde,
+   40px de alto, fondo): estos selectores son más específicos y la deshacen.
+   El checkbox recupera su tamaño natural, que ".ds-filters label input"
+   también pisaba con flex: 1 1 auto. */
+.ds-multiselect .ds-multiselect-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ds-multiselect .ds-multiselect-option:hover {
+  background: var(--color-surface-muted);
+}
+
+.ds-multiselect .ds-multiselect-option input {
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+
 /* ---------------------------------------------------------------------------
    Tarjeta de listado — filtros, estados, tabla y paginación en UNA tarjeta,
    como en el export "Empresas CRM" (medido: tarjeta con el mismo borde/radio/
