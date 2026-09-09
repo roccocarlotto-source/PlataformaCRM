@@ -104,6 +104,7 @@ export function VehicleListPage() {
             nativo se renderiza como una lista siempre abierta y desentonaba
             con los demás filtros de la fila (docs/frontend-cambios-pendientes.md
             §1). Lo que se puede filtrar no cambió. */}
+        <h2 className="ds-filters-title">Filtros</h2>
         <div className="ds-filters">
           <BranchSelect
             id="vehicle-filter-branch"

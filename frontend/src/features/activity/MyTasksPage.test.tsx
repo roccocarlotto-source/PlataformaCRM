@@ -168,7 +168,11 @@ describe("MyTasksPage", () => {
     expect(request?.searchParams.get("pageSize")).toBe("100");
     expect(request?.searchParams.get("sortBy")).toBe("dueDate");
 
-    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    // Solo los encabezados de los grupos (el <h2> que nombra cada region), no
+    // todos los <h2> de la página: la fila de filtros también tiene el suyo.
+    const headings = screen
+      .getAllByRole("region")
+      .map((region) => within(region).getByRole("heading", { level: 2 }).textContent);
     // "Esta semana" no tiene tareas en la muestra → no se renderiza.
     expect(headings).toEqual(["Vencidas1", "Hoy1", "Más adelante1", "Sin fecha1"]);
 

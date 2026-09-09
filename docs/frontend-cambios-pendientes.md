@@ -73,7 +73,7 @@ Se mantiene la multi-selección actual (no se resigna esa funcionalidad) — el 
 
 ## 4. Encabezado "Filtros" en la fila de filtros, y sacar la palabra repetida en el campo "Buscar"
 
-**Estado:** pendiente
+**Estado:** hecho
 
 **Dónde se vio:** capturas de `/companies`, `/contacts`, `/pipelines`, `/opportunities`, `/activities`, `/tasks` (Mis tareas), `/vehicles`, `/qr`, `/users`, `/sources`. El patrón se repite en casi todos los listados.
 

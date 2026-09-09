@@ -180,6 +180,7 @@ export function ApiKeyListPage() {
       ) : null}
 
       <div className="ds-list-card">
+        <h2 className="ds-filters-title">Filtros</h2>
         <div className="ds-filters">
           <label>
             Fuente

@@ -75,6 +75,7 @@ export function InvitationListPage() {
         </Link>
       </div>
 
+      <h2 className="ds-filters-title">Filtros</h2>
       <div className="ds-filters">
         <label>
           Estado

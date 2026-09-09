@@ -152,9 +152,12 @@ export function MyTasksPage() {
         ) : null}
       </div>
 
+      <h2 className="ds-filters-title">Filtros</h2>
       <div className="ds-filters">
         <label>
-          Buscar
+          {/* Solo para lectores de pantalla: el placeholder ya dice "Buscar…" y el
+              rótulo visible lo repetía (docs/frontend-cambios-pendientes.md §4.b). */}
+          <span className="ds-sr-only">Buscar</span>
           <input
             type="search"
             placeholder="Buscar tarea…"
