@@ -11,6 +11,7 @@ import {
   type SortOrder,
 } from "../repositories/branch.repository";
 import { countConnectionsWithSecretByBranch } from "../repositories/googleCalendarConnection.repository";
+import { countActiveQrCodesByBranch } from "../repositories/qrCode.repository";
 import { countActiveResourcesByBranch } from "../repositories/resource.repository";
 import { countActiveServiceTypesByBranch } from "../repositories/serviceType.repository";
 import { AppError } from "../utils/AppError";
@@ -92,9 +93,9 @@ export async function updateBranch(organizationId: string, id: string, input: Up
 }
 
 // RESTRICT lógico, el criterio ya establecido en ALTO-8: no se borra una
-// sucursal que tiene recursos o servicios activos colgando. Mismo formato de
-// error que "el último pipeline" y que los dos RESTRICT de ALTO-8: AppError con
-// 400.
+// sucursal que tiene recursos, servicios o QRs activos colgando, ni Google
+// Calendar todavía conectado. Mismo formato de error que "el último pipeline"
+// y que los dos RESTRICT de ALTO-8: AppError con 400.
 //
 // Y CON EL LOCK, que es la mitad que el chequeo solo no cubre. Un RESTRICT es
 // una decisión sobre un conteo: sin serializar contra createResource /
@@ -137,7 +138,31 @@ export async function deleteBranch(organizationId: string, id: string) {
       );
     }
 
-    // TERCER RESTRICT (P2.1, paso 2): no se borra una sucursal que todavía tiene
+    // TERCER RESTRICT: no se borra una sucursal que todavía tiene QRs activos
+    // colgando. Un QrCode NO cambia de sucursal — UpdateQrCodeInput
+    // (qr.service.ts) no acepta branchId, es inmutable como Resource— así que
+    // sin este chequeo el soft delete de la sucursal deja el QR apuntando a un
+    // branchId que ya no resuelve para el resto de la API (findBranchById
+    // filtra deletedAt: null): un QR "huérfano", listado y editable, pero cuya
+    // sucursal ya no existe desde ningún otro endpoint. El link público en sí
+    // seguiría redirigiendo igual —findQrCodePublicState no depende de la
+    // sucursal, solo del propio QR y de la organización— así que esto no es un
+    // 404 en producción; es el mismo tipo de inconsistencia de datos que
+    // recursos/servicios huérfanos, y se cierra con el mismo criterio.
+    //
+    // Para destrabar, el ADMIN tiene que borrar cada QR de la sucursal (DELETE
+    // /api/qr/:id) — no hay forma de reasignarlo a otra sucursal. Por eso va
+    // junto a recursos y servicios (datos que hay que limpiar a mano) y antes
+    // de Google Calendar, que se destraba con un solo click.
+    const qrsActivos = await countActiveQrCodesByBranch(id, organizationId, tx);
+    if (qrsActivos > 0) {
+      throw new AppError(
+        "No se puede eliminar una sucursal que tiene QRs activos. Eliminá primero sus QRs.",
+        400,
+      );
+    }
+
+    // CUARTO RESTRICT (P2.1, paso 2): no se borra una sucursal que todavía tiene
     // Google Calendar conectado. La conexión guarda una credencial viva sobre la
     // cuenta de Google del negocio, y borrar la sucursal la dejaría huérfana:
     // sin fila que consultar, nadie podría revocarla nunca más desde el CRM.
@@ -154,12 +179,13 @@ export async function deleteBranch(organizationId: string, id: string) {
     // desconectar() acepta una conexión en ERROR (solo rechaza REVOKED) y pone
     // el token en NULL; después de eso, el borrado procede.
     //
-    // VA ÚLTIMO, después de recursos y servicios, y no es indiferente: los tres
-    // mensajes son excluyentes —se devuelve el primero que dispara— así que el
-    // orden decide cuál ve el ADMIN. Recursos y servicios son datos que hay que
-    // migrar o borrar a mano; desconectar Google es un click. Empezar por lo
-    // caro deja el trámite corto para el final, en vez de hacerle desconectar
-    // Google para descubrir recién ahí que igual no puede borrar la sucursal.
+    // VA ÚLTIMO, después de recursos, servicios y QRs, y no es indiferente: los
+    // cuatro mensajes son excluyentes —se devuelve el primero que dispara— así
+    // que el orden decide cuál ve el ADMIN. Recursos, servicios y QRs son datos
+    // que hay que migrar o borrar a mano; desconectar Google es un click.
+    // Empezar por lo caro deja el trámite corto para el final, en vez de
+    // hacerle desconectar Google para descubrir recién ahí que igual no puede
+    // borrar la sucursal.
     const conexionesConSecreto = await countConnectionsWithSecretByBranch(id, organizationId, tx);
     if (conexionesConSecreto > 0) {
       throw new AppError(

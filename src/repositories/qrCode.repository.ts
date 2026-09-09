@@ -68,6 +68,19 @@ export function findQrCodeById(id: string, organizationId: string, db: Db = pris
   return db.qrCode.findFirst({ where: { id, organizationId, deletedAt: null } });
 }
 
+// QRs activos de una sucursal — el conteo sobre el que decide el RESTRICT de
+// deleteBranch contra QRs huérfanos. Mismo criterio que
+// countActiveResourcesByBranch: organizationId además de branchId porque esto
+// decide si una escritura procede, así que el aislamiento va en el propio
+// WHERE y no en el del caller.
+export function countActiveQrCodesByBranch(
+  branchId: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.qrCode.count({ where: { branchId, organizationId, deletedAt: null } });
+}
+
 export interface CreateQrCodeData {
   organizationId: string;
   branchId: string;
