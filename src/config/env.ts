@@ -1,5 +1,26 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import { z } from "zod";
+
+// Qué .env cargar. Por defecto ".env" (mismo comportamiento de siempre, el que
+// tenía "dotenv/config"), salvo que el propio proceso ya traiga NODE_ENV=test
+// en su entorno — lo hace "test:integration" en package.json — en cuyo caso
+// carga ".env.test" en su lugar y NO ".env": dotenv.config({ path }) con un
+// path explícito reemplaza la búsqueda por default, no se combina con ella.
+//
+// Es la contraparte local de B-35 (docs/auditoria-2026-08-29.md): ahí el fix
+// fue que el job de integración del CI declare NODE_ENV=test para no correr
+// con el nivel de log de "development" contra un Postgres real. Acá el motivo
+// es más fuerte que el logging — separa la base contra la que corre la suite
+// de integración (".env.test", el stack local que levanta `supabase start`)
+// de la que usa `npm run dev` (".env", hoy apuntando al proyecto real de
+// Supabase). Sin esto, "test:integration" corría contra la base de
+// PRODUCCIÓN: mismo archivo para todo, sin ninguna served que los separe.
+//
+// process.env.NODE_ENV tiene que estar seteado ANTES de esta línea para que
+// la elección funcione — lo está, porque "test:integration" lo antepone al
+// propio comando de tsx, así que ya es parte del entorno del proceso cuando
+// Node ejecuta este módulo.
+dotenv.config({ path: process.env.NODE_ENV === "test" ? ".env.test" : ".env" });
 
 // DATABASE_URL, DIRECT_URL y las variables SUPABASE_* quedaron opcionales acá
 // a propósito (ver src/lib/*.ts): cada consumidor valida su propia presencia

@@ -5,7 +5,7 @@ import { esperarBloqueadoPor, sostenerTransaccion } from "../lib/carreras.test-h
 import { prisma } from "../lib/prisma";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
-import { createBranch } from "./branch.service";
+import { createBranch, deleteBranch } from "./branch.service";
 import { createDigitalQrCode, deleteQrCode, listQrCodes, updateQrCode } from "./qr.service";
 
 // ---------------------------------------------------------------------------
@@ -277,6 +277,53 @@ test("borrar: soft delete — deletedAt se setea y name/destinationUrl/message/d
     assert.equal(fila?.destinationUrl, DESTINO);
     assert.equal(fila?.message, "m");
     assert.equal(fila?.displayNumber, 1);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// RESTRICT nuevo de deleteBranch — QRs huérfanos
+//
+// Un QrCode no cambia de sucursal (updateQrCode no acepta branchId), así que
+// sin este chequeo el soft delete de la sucursal deja un QR activo apuntando
+// a un branchId que findBranchById ya no resuelve — el mismo tipo de
+// inconsistencia que ALTO-8 cerró para recursos/servicios y que P2.1 paso 2
+// cerró para Google Calendar. Mismo criterio: BLOQUEAR, no cascadear.
+// ---------------------------------------------------------------------------
+
+test("no se puede borrar una sucursal con QRs activos, y la sucursal sigue viva", async () => {
+  const e = await montar("branch-restrict");
+  try {
+    const qr = await digital(e);
+
+    const err = await capturar(() => deleteBranch(e.organizationId, e.branchId));
+    assertAppError(
+      err,
+      400,
+      "No se puede eliminar una sucursal que tiene QRs activos. Eliminá primero sus QRs.",
+    );
+
+    const persistida = await prisma.branch.findUniqueOrThrow({ where: { id: e.branchId } });
+    assert.equal(persistida.deletedAt, null, "la sucursal no debe quedar borrada tras el rechazo");
+
+    const filaQr = await prisma.qrCode.findUniqueOrThrow({ where: { id: qr.id } });
+    assert.equal(filaQr.deletedAt, null);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("deleteBranch procede cuando el único QR de la sucursal ya está borrado — el bloqueo mira deletedAt, no la existencia", async () => {
+  const e = await montar("branch-permite");
+  try {
+    const qr = await digital(e);
+    await deleteQrCode(e.organizationId, qr.id);
+
+    await deleteBranch(e.organizationId, e.branchId);
+
+    const persistida = await prisma.branch.findUniqueOrThrow({ where: { id: e.branchId } });
+    assert.notEqual(persistida.deletedAt, null, "la sucursal debía poder borrarse");
   } finally {
     await desmontar(e);
   }

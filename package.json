@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "test:integration": "tsx --test \"src/**/*.integration-test.ts\"",
+    "test:integration": "cross-env NODE_ENV=test tsx --test \"src/**/*.integration-test.ts\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -25,7 +25,10 @@
     "audit:gate": "tsx scripts/audit-gate.ts",
     "audit:gate:frontend": "tsx scripts/audit-gate.ts frontend/npm-audit.json --workspace=frontend",
     "gen:signing-key": "tsx scripts/gen-signing-key.ts",
-    "gen:encryption-key": "tsx scripts/gen-encryption-key.ts"
+    "gen:encryption-key": "tsx scripts/gen-encryption-key.ts",
+    "supabase:start": "supabase start -x realtime,imgproxy,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor",
+    "supabase:stop": "supabase stop",
+    "supabase:status": "supabase status -o env"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -56,12 +59,14 @@
     "@types/luxon": "^3.7.5",
     "@types/multer": "^2.2.0",
     "@types/node": "^22.5.4",
+    "cross-env": "^10.1.0",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.11.0",
     "pino-pretty": "^11.2.2",
     "prettier": "^3.9.6",
     "prisma": "^5.20.0",
+    "supabase": "2.115.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.2",
     "typescript-eslint": "^8.68.0"

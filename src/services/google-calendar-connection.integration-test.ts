@@ -12,6 +12,7 @@ import { AppError } from "../utils/AppError";
 import { deriveKey, getCifrador, parseMasterKey } from "../utils/encryption";
 import { firmarState, verificarState } from "../utils/oauthState";
 import { createBranch, deleteBranch } from "./branch.service";
+import { createDigitalQrCode } from "./qr.service";
 import { createResource } from "./resource.service";
 import {
   completarConexion,
@@ -73,6 +74,7 @@ async function desmontar(escenario: Escenario) {
   await prisma.googleCalendarConnection.deleteMany({
     where: { organizationId: escenario.organizationId },
   });
+  await prisma.qrCode.deleteMany({ where: { organizationId: escenario.organizationId } });
   await prisma.serviceType.deleteMany({ where: { organizationId: escenario.organizationId } });
   await prisma.resource.deleteMany({ where: { organizationId: escenario.organizationId } });
   await prisma.branch.deleteMany({ where: { organizationId: escenario.organizationId } });
@@ -879,6 +881,31 @@ test("el RESTRICT de recursos sigue disparando ANTES que el de Google Calendar",
 
     assertAppError(err, 400);
     assert.ok((err as AppError).message.includes("recursos activos"));
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("el RESTRICT de QRs sigue disparando ANTES que el de Google Calendar", async () => {
+  // Mismo razonamiento que el de recursos: los mensajes son excluyentes, y
+  // borrar cada QR (DELETE /api/qr/:id, sin forma de reasignarlo de sucursal)
+  // es un trámite de datos, no un click — por eso va antes que desconectar
+  // Google en el orden que fija branch.service.ts.
+  const escenario = await montar("restrict-orden-qr");
+  try {
+    const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
+    await createDigitalQrCode(escenario.organizationId, {
+      branchId: branch.id,
+      name: "Mostrador",
+      destinationUrl: "https://g.page/r/test/review",
+      message: null,
+    });
+    await conectar(escenario.organizationId, branch.id, doblarGoogle());
+
+    const err = await capturar(() => deleteBranch(escenario.organizationId, branch.id));
+
+    assertAppError(err, 400);
+    assert.ok((err as AppError).message.includes("QRs activos"));
   } finally {
     await desmontar(escenario);
   }
