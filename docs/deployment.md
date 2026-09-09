@@ -321,15 +321,10 @@ _(Completado el 2026-09-09, a partir de lo que se pudo confirmar por el propio c
 
 ---
 
-## 7. Pendiente: revisar archivos sin trackear en docs/
+## 7. Archivos sin trackear en docs/ — revisado (2026-09-09)
 
-Al hacer la limpieza de fin de línea (2026-09-09) aparecieron varios archivos
-en `docs/` sin trackear en git, de origen no confirmado. Revisar antes de
-commitear o descartar:
-
-- `docs/auditoria-2026-08-29.md`
-- `docs/bitacora-2026-09-05.md`
-- `docs/integracion-resea-crm.md`
-- `docs/prompt-continuar-integracion-resea.md`
-- `docs/tmp-pr-export.json`
-- `docs/verificacion-v1-v14-estado.md`
+Los que aparecieron sin trackear tras la limpieza de fin de línea eran
+documentación real de sesiones anteriores (auditoría, bitácora, análisis de
+la integración con Resea, tablero de verificación V-1..V-14): commiteados.
+`docs/tmp-pr-export.json` era un volcado de datos crudo (`gh pr list`), no
+documentación — se descartó.
