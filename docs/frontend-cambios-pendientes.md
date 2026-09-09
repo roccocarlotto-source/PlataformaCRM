@@ -68,3 +68,56 @@ Se mantiene la multi-selección actual (no se resigna esa funcionalidad) — el 
 
 **Nota aparte (no pedida en las capturas, mencionar al implementar):** `frontend/src/features/invitation/InvitationListPage.tsx` (línea ~73) tiene el mismo problema de fondo — el botón dice "Invitar" y tampoco tiene el ícono — pero como el texto no sigue el patrón "Nuevo/Nueva X" y no estaba en las capturas, no se incluye en el alcance de este ítem a menos que Rocco confirme que también se agregue ahí.
 
+
+---
+
+## 4. Encabezado "Filtros" en la fila de filtros, y sacar la palabra repetida en el campo "Buscar"
+
+**Estado:** pendiente
+
+**Dónde se vio:** capturas de `/companies`, `/contacts`, `/pipelines`, `/opportunities`, `/activities`, `/tasks` (Mis tareas), `/vehicles`, `/qr`, `/users`, `/sources`. El patrón se repite en casi todos los listados.
+
+**Dos cambios relacionados, decididos juntos:**
+
+**4.a — Encabezado `<h2>Filtros</h2>`** arriba de la fila de filtros (`.ds-filters`) en cada pantalla de listado, para dar contexto visual sin que cada control individual tenga que aclarar "esto es un filtro". Se eligió "Filtros" (no "Búsqueda") porque la fila combina texto libre con selects de filtro/orden, no es solo búsqueda.
+
+Archivos y línea donde insertar el `<h2>Filtros</h2>` (inmediatamente antes de `<div className="ds-filters">`; en las pantallas donde esa fila está dentro de `.ds-list-card`, el `<h2>` va dentro de la tarjeta, antes de `.ds-filters`):
+
+| Archivo | Línea de `.ds-filters` | Dentro de `.ds-list-card` |
+|---|---|---|
+| `frontend/src/features/company/CompanyListPage.tsx` | 81 | sí |
+| `frontend/src/features/contact/ContactListPage.tsx` | 104 | sí |
+| `frontend/src/features/pipeline/PipelineListPage.tsx` | 58 | sí |
+| `frontend/src/features/opportunity/OpportunityListPage.tsx` | 152 | sí |
+| `frontend/src/features/activity/ActivityListPage.tsx` | 131 | sí |
+| `frontend/src/features/activity/MyTasksPage.tsx` | 155 | no (fila suelta, sin `.ds-list-card`) |
+| `frontend/src/features/source/SourceListPage.tsx` | 75 | sí |
+| `frontend/src/features/stage/StageListPage.tsx` | 115 | sí |
+| `frontend/src/features/vehicle/VehicleListPage.tsx` | 98 | sí |
+| `frontend/src/features/qr/QrListPage.tsx` | 146 | sí |
+| `frontend/src/features/user/UserListPage.tsx` | 134 | no |
+| `frontend/src/features/invitation/InvitationListPage.tsx` | 78 | no |
+| `frontend/src/features/ingestionEvent/IngestionEventListPage.tsx` | 123 | sí |
+| `frontend/src/features/apiKey/ApiKeyListPage.tsx` | 183 (la **segunda** `.ds-filters` de este archivo) | sí |
+
+**Ojo con `ApiKeyListPage.tsx`:** tiene DOS `.ds-filters` en el archivo. La primera (línea ~141, "Fuente para la clave nueva" + botón "Crear clave") no es un filtro, es el formulario de alta de una clave nueva — no le corresponde el `<h2>Filtros</h2>`. Solo la segunda (línea 183, la que sí filtra el listado de claves) lo lleva.
+
+**4.b — Ocultar visualmente el rótulo "Buscar"** del campo de texto libre (queda solo para lectores de pantalla — el campo sigue necesitando un nombre accesible, así que el `<label>` no se borra del HTML, se oculta con una clase de utilidad tipo `.ds-sr-only` que hoy no existe en `design-system.css` y hay que crear, patrón estándar: `position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;`). El placeholder ("Buscar por nombre", "Buscar por asunto o notas", "Buscar tarea…", etc.) no cambia — sigue mostrando el texto completo, ahora sin el rótulo repetido al lado.
+
+Archivos y línea del `<label>Buscar` a tratar:
+
+| Archivo | Línea |
+|---|---|
+| `frontend/src/features/company/CompanyListPage.tsx` | 83 |
+| `frontend/src/features/contact/ContactListPage.tsx` | 106 |
+| `frontend/src/features/pipeline/PipelineListPage.tsx` | 60 |
+| `frontend/src/features/opportunity/OpportunityListPage.tsx` | 154 |
+| `frontend/src/features/activity/ActivityListPage.tsx` | 133 |
+| `frontend/src/features/activity/MyTasksPage.tsx` | 157 |
+| `frontend/src/features/source/SourceListPage.tsx` | 77 |
+| `frontend/src/features/stage/StageListPage.tsx` | 117 |
+
+(`VehicleListPage`, `QrListPage`, `UserListPage`, `InvitationListPage`, `IngestionEventListPage` y la segunda fila de `ApiKeyListPage` no tienen campo "Buscar" de texto libre, así que no aplica el 4.b ahí — sí les toca el 4.a.)
+
+**Nota aparte (no pedida en las capturas, mencionar al implementar):** `frontend/src/features/opportunity/OpportunityBoardView.tsx` (línea ~218, rótulo "Buscar" con placeholder "Buscar oportunidad…") tiene el mismo problema de fondo, pero vive en `.ds-board-toolbar` — la barra compacta arriba del tablero kanban de Oportunidades, no en la fila de filtros de un listado. No se incluye el `<h2>Filtros</h2>` ahí (quedaría raro en una barra angosta al lado de "Vista de tabla / Vista de embudo"), pero el tratamiento 4.b (ocultar el rótulo) sí podría aplicarse igual si Rocco lo confirma.
+
