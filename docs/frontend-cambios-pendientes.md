@@ -6,7 +6,7 @@ Lista de cambios de UI/UX pedidos por Rocco durante el testeo del flujo real de 
 
 ## 1. Filtro "Estado" en Stock de vehículos no se ve como un desplegable
 
-**Estado:** pendiente
+**Estado:** hecho
 
 **Dónde:** `/vehicles` (Stock de vehículos), filtro "Estado", primero de la fila de filtros.
 
@@ -27,7 +27,7 @@ Se mantiene la multi-selección actual (no se resigna esa funcionalidad) — el 
 
 ## 2. Placeholder cortado en los buscadores de "filtro por empresa/contacto/etc." (píldora de filtros)
 
-**Estado:** pendiente
+**Estado:** hecho
 
 **Dónde se vio:** `/activities` (Actividades), filtro "Filtrar por empresa". Se muestra "Buscar empresa por nomb..." en vez del texto completo "Buscar empresa por nombre…".
 
@@ -44,7 +44,7 @@ Se mantiene la multi-selección actual (no se resigna esa funcionalidad) — el 
 
 ## 3. Ícono "+" faltante en el botón "Nueva X" de varias pantallas de listado
 
-**Estado:** pendiente
+**Estado:** hecho
 
 **Dónde se vio (capturas):** botón superior derecho en `/contacts` ("Nuevo contacto"), `/pipelines` ("Nuevo pipeline"), `/opportunities` ("Nueva oportunidad"), `/activities` ("Nueva actividad") y `/sources` ("Nueva fuente"). En las cinco falta el ícono "+" a la izquierda del texto.
 

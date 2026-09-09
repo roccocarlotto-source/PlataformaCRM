@@ -270,8 +270,9 @@ describe("VehicleListPage", () => {
 
     renderPage();
 
-    // Por fila y por cabecera: el filtro Estado también dice "Disponible"
-    // (como <option>), así que un getByText suelto no alcanza.
+    // Por fila y por cabecera: el filtro Estado también puede decir
+    // "Disponible" (en el botón cerrado o en sus opciones), así que un
+    // getByText suelto no alcanza.
     await waitFor(() => expect(screen.getByText("Toyota Corolla 2020")).toBeInTheDocument());
     const badgeDe = (unidad: string) =>
       cellByHeader(screen.getByText(unidad).closest("tr"), "Estado")?.querySelector(".ds-badge");
@@ -328,13 +329,21 @@ describe("VehicleListPage", () => {
     await user.click(screen.getByText("Siguiente"));
     await waitFor(() => expect(lastListQuery()?.get("page")).toBe("2"));
 
-    // status es multi-selección: dos valores -> dos parámetros repetidos, y la
-    // página vuelve a 1.
-    await user.selectOptions(screen.getByLabelText("Estado"), ["AVAILABLE", "RESERVED"]);
+    // status es multi-selección (MultiSelect: se abre el botón y se tildan
+    // checkboxes): dos valores -> dos parámetros repetidos, y la página vuelve
+    // a 1. Se tildan al revés del orden del enum a propósito: la query sale
+    // en el orden de las opciones, no en el de los clicks.
+    await user.click(screen.getByLabelText("Estado", { selector: "button" }));
+    await user.click(screen.getByRole("checkbox", { name: "Reservado" }));
+    await user.click(screen.getByRole("checkbox", { name: "Disponible" }));
     await waitFor(() =>
       expect(lastListQuery()?.getAll("status")).toEqual(["AVAILABLE", "RESERVED"]),
     );
     expect(lastListQuery()?.get("page")).toBe("1");
+    expect(screen.getByLabelText("Estado", { selector: "button" })).toHaveTextContent(
+      "2 seleccionados",
+    );
+    await user.keyboard("{Escape}");
 
     await waitFor(() => expect(screen.getByLabelText("Sucursal")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Sucursal"), "b1");

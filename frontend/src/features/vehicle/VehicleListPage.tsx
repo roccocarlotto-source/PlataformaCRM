@@ -8,6 +8,7 @@ import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { MultiSelect } from "../../design-system/MultiSelect";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { BranchSelect } from "../branch/BranchSelect";
@@ -21,7 +22,12 @@ import { VehicleSummaryCards } from "./VehicleSummaryCards";
 
 const PAGE_SIZE = 20;
 
-const STATUS_OPTIONS = Object.keys(STATUS_LABELS) as VehicleStatus[];
+// Opciones del filtro Estado, en el orden del enum; MultiSelect devuelve la
+// selección en ese mismo orden.
+const STATUS_OPTIONS = (Object.keys(STATUS_LABELS) as VehicleStatus[]).map((status) => ({
+  value: status,
+  label: STATUS_LABELS[status],
+}));
 
 // Listado de stock (Fase 3a del módulo de vehículos; la columna Foto y la
 // unidad/precio compartidos con VehicleSelect en format.ts son de la 3b).
@@ -93,8 +99,11 @@ export function VehicleListPage() {
 
       <div className="ds-list-card">
         {/* Cada filtro resetea page a 1, como en CompanyListPage. El estado es
-            un <select multiple> simple: statusListSchema del backend acepta la
-            query repetida y un componente propio no aporta nada acá. */}
+            multi-selección (statusListSchema del backend acepta la query
+            repetida) y va en un MultiSelect y no en un <select multiple>: el
+            nativo se renderiza como una lista siempre abierta y desentonaba
+            con los demás filtros de la fila (docs/frontend-cambios-pendientes.md
+            §1). Lo que se puede filtrar no cambió. */}
         <div className="ds-filters">
           <BranchSelect
             id="vehicle-filter-branch"
@@ -106,28 +115,16 @@ export function VehicleListPage() {
             }}
             emptyOptionLabel="Todas"
           />
-          <label>
-            Estado
-            <select
-              multiple
-              value={statuses}
-              onChange={(event) => {
-                setStatuses(
-                  Array.from(
-                    event.target.selectedOptions,
-                    (option) => option.value as VehicleStatus,
-                  ),
-                );
-                setPage(1);
-              }}
-            >
-              {STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>
-                  {STATUS_LABELS[status]}
-                </option>
-              ))}
-            </select>
-          </label>
+          <MultiSelect
+            id="vehicle-filter-status"
+            label="Estado"
+            options={STATUS_OPTIONS}
+            value={statuses}
+            onChange={(value) => {
+              setStatuses(value);
+              setPage(1);
+            }}
+          />
           <label>
             Condición
             <select

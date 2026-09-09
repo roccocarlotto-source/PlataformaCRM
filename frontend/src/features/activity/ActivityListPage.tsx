@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -122,6 +123,7 @@ export function ActivityListPage() {
         <h1>Actividades</h1>
         {isAdmin ? (
           <Link to="/activities/new" className="ds-link-button">
+            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
             Nueva actividad
           </Link>
         ) : null}
