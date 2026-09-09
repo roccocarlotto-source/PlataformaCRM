@@ -318,3 +318,18 @@ _(Pendiente — completar con los datos reales cuando exista el despliegue.)_
 | Platform admin dado de alta (email; nunca el id acá) | |
 | Verificación del paso 5.8: qué se probó y resultado | |
 | Desvíos respecto de este documento | |
+
+---
+
+## 7. Pendiente: revisar archivos sin trackear en docs/
+
+Al hacer la limpieza de fin de línea (2026-09-09) aparecieron varios archivos
+en `docs/` sin trackear en git, de origen no confirmado. Revisar antes de
+commitear o descartar:
+
+- `docs/auditoria-2026-08-29.md`
+- `docs/bitacora-2026-09-05.md`
+- `docs/integracion-resea-crm.md`
+- `docs/prompt-continuar-integracion-resea.md`
+- `docs/tmp-pr-export.json`
+- `docs/verificacion-v1-v14-estado.md`
