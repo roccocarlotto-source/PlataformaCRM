@@ -131,6 +131,7 @@ export function UserListPage() {
         <h1>Usuarios</h1>
       </div>
 
+      <h2 className="ds-filters-title">Filtros</h2>
       <div className="ds-filters">
         <label>
           Rol
