@@ -27,7 +27,7 @@ const MIN_PASSWORD_LENGTH = 8;
 // (cargando, link inválido, formulario) en la misma tarjeta centrada
 // (AuthShell). Condiciones, textos y rótulos no cambian.
 export function ResetPasswordPage() {
-  const { status } = useAuth();
+  const { status, logout } = useAuth();
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -57,6 +57,24 @@ export function ResetPasswordPage() {
       if (updateError) {
         throw updateError;
       }
+      // Contraseña ya guardada en Supabase: lo que sigue es best-effort, no
+      // vuelve a fallar la operación si algo de esto no sale perfecto. La
+      // sesión de recuperación (la misma que detectSessionInUrl estableció
+      // al abrir el link, ver comentario de arriba) sigue activa acá — sin
+      // este logout, el <Navigate> de abajo llevaría a "/" con esa sesión
+      // todavía válida y el usuario entraría a la app sin haber vuelto a
+      // loguearse. Mismo signOut({ scope: "local" }) que expone
+      // AuthContext.logout(); si Supabase no confirma el cierre (offline,
+      // error de red), no lo tratamos como fallo de la pantalla — la
+      // contraseña ya cambió — pero tampoco lo silenciamos: si la sesión
+      // sigue activa, LoginPage() ya sabe redirigir a "/" sola (mismo
+      // camino que si el usuario hubiera entrado ahí con sesión válida).
+      try {
+        await logout();
+      } catch {
+        // Sesión de recuperación no se pudo cerrar server-side; se ignora
+        // a propósito, ver comentario de arriba.
+      }
       setDone(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo actualizar la contraseña");
@@ -66,7 +84,11 @@ export function ResetPasswordPage() {
   }
 
   if (done) {
-    return <Navigate to="/" replace />;
+    // A /login y no a "/": que el usuario vuelva a loguearse con la
+    // contraseña nueva en vez de quedar autenticado automáticamente con la
+    // sesión de recuperación (pedido explícito, 2026-09-09 — antes entraba
+    // directo a la app sin volver a probar la contraseña).
+    return <Navigate to="/login" replace />;
   }
 
   if (status === "initializing" || status === "loading-profile") {

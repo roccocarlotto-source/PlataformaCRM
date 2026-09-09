@@ -44,6 +44,7 @@ function renderPage() {
       <Routes>
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/" element={<div>home-ok</div>} />
+        <Route path="/login" element={<div>login-ok</div>} />
         <Route path="/forgot-password" element={<div>forgot-ok</div>} />
       </Routes>
     </MemoryRouter>,
@@ -84,8 +85,12 @@ describe("ResetPasswordPage — R1.3", () => {
     expect(updateUser).not.toHaveBeenCalled();
   });
 
-  it("submit exitoso llama a updateUser({ password }) y redirige a '/'", async () => {
-    useAuthMock.mockReturnValue(mockAuth({ status: "authenticated" }));
+  it("submit exitoso llama a updateUser({ password }), cierra la sesión de recuperación y redirige a /login", async () => {
+    // No a "/": el pedido explícito (2026-09-09) es que la sesión de
+    // recuperación no deje al usuario adentro de la app sin volver a
+    // loguearse con la contraseña nueva.
+    const logout = vi.fn().mockResolvedValue(undefined);
+    useAuthMock.mockReturnValue(mockAuth({ status: "authenticated", logout }));
     const user = userEvent.setup();
     renderPage();
 
@@ -94,7 +99,28 @@ describe("ResetPasswordPage — R1.3", () => {
     await user.click(screen.getByRole("button", { name: /guardar contraseña/i }));
 
     await waitFor(() => expect(updateUser).toHaveBeenCalledWith({ password: "password123" }));
-    await waitFor(() => expect(screen.getByText("home-ok")).toBeInTheDocument());
+    expect(logout).toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByText("login-ok")).toBeInTheDocument());
+    expect(screen.queryByText("home-ok")).not.toBeInTheDocument();
+  });
+
+  it("si logout() falla (Supabase no confirma el cierre), igual redirige a /login — la contraseña ya cambió", async () => {
+    // Mismo criterio que AuthContext.test.tsx (escenario 8, signOut
+    // fallido): no forzar un logout local falso. Acá no hay estado local
+    // de sesión que tocar — el resultado observable es que done igual pasa
+    // a true, porque updateUser ya tuvo éxito.
+    const logout = vi.fn().mockRejectedValue(new Error("network down"));
+    useAuthMock.mockReturnValue(mockAuth({ status: "authenticated", logout }));
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByLabelText("Contraseña"), "password123");
+    await user.type(screen.getByLabelText("Confirmar contraseña"), "password123");
+    await user.click(screen.getByRole("button", { name: /guardar contraseña/i }));
+
+    await waitFor(() => expect(logout).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText("login-ok")).toBeInTheDocument());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("un error de updateUser se muestra y no redirige", async () => {
