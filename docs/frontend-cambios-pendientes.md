@@ -39,3 +39,32 @@ Se mantiene la multi-selección actual (no se resigna esa funcionalidad) — el 
 
 **Decisión ya tomada (alcance):** el arreglo es general, en el CSS compartido — no puntual a la pantalla de Actividades. Hay que darle un `min-width` razonable a la píldora de este tipo de selector de búsqueda (`.ds-filters div:has(> label[for])`, o una variante más específica si tocar la regla genérica afecta también a los `<select>` normales de forma no deseada — a evaluar al implementar) para que el placeholder nunca se corte, dejando que sea la fila la que haga wrap a una línea nueva si no entra, no la píldora la que se achique por debajo de su contenido. Esto debería corregir el mismo problema en cualquier otra pantalla que use CompanySelect (o selectores análogos) como filtro, sin tener que pedirlo pantalla por pantalla.
 
+
+---
+
+## 3. Ícono "+" faltante en el botón "Nueva X" de varias pantallas de listado
+
+**Estado:** pendiente
+
+**Dónde se vio (capturas):** botón superior derecho en `/contacts` ("Nuevo contacto"), `/pipelines` ("Nuevo pipeline"), `/opportunities` ("Nueva oportunidad"), `/activities` ("Nueva actividad") y `/sources` ("Nueva fuente"). En las cinco falta el ícono "+" a la izquierda del texto.
+
+**Referencia de cómo se ve bien:** `/companies` ("Nueva empresa"), `/vehicles` ("Nueva unidad") y el botón de nueva QR en `/qr` sí tienen el ícono. Ahí el patrón correcto es:
+```tsx
+<Link to="/companies/new" className="ds-link-button">
+  <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+  Nueva empresa
+</Link>
+```
+(`Plus` importado de `lucide-react`, mismo ícono que usa el sidebar).
+
+**Archivos a corregir (les falta el `<Plus .../>` que sí tienen las páginas de referencia):**
+- `frontend/src/features/contact/ContactListPage.tsx` (línea ~93, botón "Nuevo contacto")
+- `frontend/src/features/pipeline/PipelineListPage.tsx` (línea ~51, botón "Nuevo pipeline")
+- `frontend/src/features/opportunity/OpportunityListPage.tsx` (línea ~142, botón "Nueva oportunidad")
+- `frontend/src/features/activity/ActivityListPage.tsx` (línea ~124, botón "Nueva actividad")
+- `frontend/src/features/source/SourceListPage.tsx` (línea ~69, botón "Nueva fuente")
+
+**Comportamiento deseado:** agregar `<Plus size={16} strokeWidth={1.5} aria-hidden="true" />` antes del texto en cada uno de esos cinco `Link` (mismo ícono, mismo tamaño, mismo estilo que ya usan `CompanyListPage` y `VehicleListPage`), sin cambiar el texto de ningún botón.
+
+**Nota aparte (no pedida en las capturas, mencionar al implementar):** `frontend/src/features/invitation/InvitationListPage.tsx` (línea ~73) tiene el mismo problema de fondo — el botón dice "Invitar" y tampoco tiene el ícono — pero como el texto no sigue el patrón "Nuevo/Nueva X" y no estaba en las capturas, no se incluye en el alcance de este ítem a menos que Rocco confirme que también se agregue ahí.
+
