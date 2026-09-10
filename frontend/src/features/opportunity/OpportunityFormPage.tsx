@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -180,6 +181,7 @@ export function OpportunityFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  const { me } = useAuth();
 
   const opportunityQuery = useOpportunity(isEditMode ? id : undefined);
   const createOpportunityMutation = useCreateOpportunity();
@@ -190,6 +192,12 @@ export function OpportunityFormPage() {
   // de nuevo. Son un valor inicial derivado, igual que EMPTY_FORM — el
   // usuario puede cambiarlos, y un id que no exista lo rechaza el backend
   // con su propio mensaje, como cualquier otro. En edición se ignoran.
+  //
+  // ownerId arranca en quien crea (ítem 7 de
+  // docs/frontend-cambios-pendientes.md), mismo criterio que Company y
+  // Contact: resolveOwnerId autoasignaría igual si no se mandara nada, pero
+  // la opción "Asignado a quien crea (por defecto)" al lado del mismo usuario
+  // en la lista era redundante. En edición el valor viene del registro.
   const [searchParams] = useSearchParams();
   const initialValues: OpportunityFormValues = isEditMode
     ? EMPTY_FORM
@@ -197,6 +205,7 @@ export function OpportunityFormPage() {
         ...EMPTY_FORM,
         pipelineId: searchParams.get("pipelineId") ?? undefined,
         stageId: searchParams.get("stageId") ?? undefined,
+        ownerId: me?.id,
       };
 
   const [values, setValues] = useFormDraft<OpportunityFormValues>(
@@ -392,11 +401,19 @@ export function OpportunityFormPage() {
                 }
               />
             </FormField>
+            {/* "Sin asignar" solo aparece si el registro no tiene dueño
+                (Opportunity.ownerId no es nullable en la API, así que en la
+                práctica solo con datos viejos): con clearable={false} y un
+                valor real, UserSelect no renderiza opción vacía — el PATCH
+                no puede limpiar ownerId (chequeo truthy en
+                opportunity.service.ts). */}
             <UserSelect
               id="opportunity-form-owner"
               label="Propietario"
               value={values.ownerId}
               onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+              emptyOptionLabel="Sin asignar"
+              clearable={false}
             />
           </div>
         </Card>

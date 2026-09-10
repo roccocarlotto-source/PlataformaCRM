@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
+import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { CompanyFormPage } from "./CompanyFormPage";
@@ -14,6 +15,36 @@ import { CompanyFormPage } from "./CompanyFormPage";
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
+
+// El formulario preselecciona a quien crea a partir de useAuth().me (ítem 7
+// de docs/frontend-cambios-pendientes.md). Se mockea por ruta de módulo, como
+// en CompanyListPage.test.tsx: "u1" es Ana Pérez en usersHandler(), así que
+// el select puede mostrarla como seleccionada.
+const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
+vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+function mockAuth(): AuthContextValue {
+  return {
+    status: "authenticated",
+    me: {
+      id: "u1",
+      email: "ana@x.com",
+      fullName: "Ana Pérez",
+      organizationId: "org-1",
+      role: "ADMIN",
+      isPlatformAdmin: false,
+    },
+    accountUnavailableReason: null,
+    profileError: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    retryProfile: vi.fn(),
+  };
+}
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth());
+});
 
 const baseUrl = `${env.apiUrl}/api/companies`;
 const usersUrl = `${env.apiUrl}/api/users`;
@@ -78,7 +109,9 @@ describe("CompanyFormPage", () => {
 
     await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
     expect(getDetailCalled).toBe(false);
-    expect(postedBody).toEqual({ name: "Acme Nueva" });
+    // ownerId viaja siempre en creación: es el usuario actual, preseleccionado
+    // (ver el bloque ownerId más abajo).
+    expect(postedBody).toEqual({ name: "Acme Nueva", ownerId: "u1" });
   });
 
   it("D.16 edit mode: carga detail, hidrata el form, submit usa update sobre el id correcto, navega tras el éxito", async () => {
@@ -171,8 +204,9 @@ describe("CompanyFormPage", () => {
     await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
     // Si domain/industria/etc. viajaran como "" en vez de ausentes, este
     // toEqual fallaría — protege la semántica que toInput() ya implementaba
-    // de un cambio incidental.
-    expect(postedBody).toEqual({ name: "Acme" });
+    // de un cambio incidental. ownerId no es un opcional vacío: es el
+    // usuario actual, preseleccionado en creación.
+    expect(postedBody).toEqual({ name: "Acme", ownerId: "u1" });
   });
 
   // -------------------------------------------------------------------------
@@ -203,7 +237,7 @@ describe("CompanyFormPage", () => {
     expect(postedBody).toEqual({ name: "Acme Owner", ownerId: "u2" });
   });
 
-  it("create: NO elegir propietario omite ownerId del payload, lo asigna el backend", async () => {
+  it("create: el propietario arranca preseleccionado en quien crea, sin opción 'por defecto', y viaja en el POST", async () => {
     let postedBody: unknown;
     server.use(
       usersHandler(),
@@ -216,25 +250,25 @@ describe("CompanyFormPage", () => {
     const user = userEvent.setup();
     renderForm("/companies/new");
 
-    await user.type(screen.getByLabelText("Nombre"), "Acme Sin Owner");
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
-    // El texto de la opcion vacia no es decorativo: afirma lo que realmente
-    // hace createCompany (resolveOwnerId devuelve actorUserId si no se manda
-    // nada). Si algun dia dejara de autoasignar, ese texto seria mentira y
-    // este assert es lo unico que lo diria.
-    expect(screen.getByLabelText("Propietario")).toHaveTextContent(
-      "Asignado a quien crea (por defecto)",
-    );
+    await user.type(screen.getByLabelText("Nombre"), "Acme Owner Actual");
+    // Ítem 7 de docs/frontend-cambios-pendientes.md: el usuario actual ("u1",
+    // Ana Pérez) ya está marcado, y la antigua opción "Asignado a quien crea
+    // (por defecto)" —que decía lo mismo que elegirse a uno mismo— no existe
+    // más. Tampoco hay opción vacía de ningún tipo mientras haya un valor.
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u1"));
+    const select = screen.getByLabelText("Propietario");
+    expect(select).not.toHaveTextContent("Asignado a quien crea (por defecto)");
+    expect(select).not.toHaveTextContent("Sin asignar");
+    expect(select.querySelector('option[value=""]')).toBeNull();
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
-    // La CLAVE no viaja: ni ownerId vacio ni null. El backend trataria el
-    // string vacio como ausente igual, pero mandarlo seria afirmar una
-    // eleccion que nadie hizo.
-    expect(postedBody).toEqual({ name: "Acme Sin Owner" });
+    // El id viaja explícito. Es lo mismo que resolveOwnerId haría si no se
+    // mandara nada (actorUserId), pero ahora es una elección visible.
+    expect(postedBody).toEqual({ name: "Acme Owner Actual", ownerId: "u1" });
   });
 
-  it("edit: hidrata el propietario existente en el selector", async () => {
+  it("edit: hidrata el propietario existente en el selector, sin opción vacía", async () => {
     server.use(
       usersHandler(),
       http.get(`${baseUrl}/:id`, ({ params }) =>
@@ -245,14 +279,22 @@ describe("CompanyFormPage", () => {
     renderForm("/companies/c1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u2"));
+    // Con un dueño real, "Sin asignar" no se ofrece: el PATCH no podría
+    // limpiar ownerId de todos modos (chequeo truthy en company.service.ts).
+    expect(screen.getByLabelText("Propietario")).not.toHaveTextContent("Sin asignar");
   });
 
-  it("edit: una empresa SIN propietario deja el selector vacio, no en un valor inventado", async () => {
+  it("edit: una empresa SIN propietario muestra 'Sin asignar', no al usuario actual ni un valor inventado", async () => {
     // Company.ownerId es nullable, a diferencia de Opportunity.ownerId, y por
     // eso la hidratacion hace ?? undefined. Sin eso, un null llegaria al
     // select como value={null} y React lo pasaria a no controlado, con la
     // primera opcion de la lista seleccionada de hecho: el formulario
     // mostraria un dueno que la empresa no tiene.
+    //
+    // Y a diferencia de crear, acá NO se preselecciona a quien edita: el
+    // backend solo autoasigna al crear, nunca al editar (el update toca
+    // ownerId solo si viene truthy), así que guardar sin tocar el campo deja
+    // la empresa sin dueño — "Sin asignar" es literal.
     server.use(
       usersHandler(),
       http.get(`${baseUrl}/:id`, ({ params }) =>
@@ -270,6 +312,10 @@ describe("CompanyFormPage", () => {
     // la query de usuarios llegara a resolver. UserSelect no renderiza el
     // <select> hasta isSuccess, así que hay que esperarlo explícitamente.
     await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
+    expect(screen.getByRole("option", { name: "Sin asignar" })).toHaveValue("");
+    expect(screen.getByLabelText("Propietario")).not.toHaveTextContent(
+      "Asignado a quien crea (por defecto)",
+    );
   });
 
   // ---------------------------------------------------------------------------

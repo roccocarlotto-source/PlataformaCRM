@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -14,14 +15,36 @@ vi.mock("../../auth/getAccessToken", () => ({
 
 const baseUrl = `${env.apiUrl}/api/users`;
 
-function renderSelect(value: string | undefined, onChange = vi.fn()) {
+function renderSelect(
+  value: string | undefined,
+  onChange = vi.fn(),
+  props: Partial<Pick<ComponentProps<typeof UserSelect>, "clearable">> = {},
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <UserSelect id="opp-owner" label="Propietario" value={value} onChange={onChange} />
+      <UserSelect id="opp-owner" label="Propietario" value={value} onChange={onChange} {...props} />
     </QueryClientProvider>,
   );
   return onChange;
+}
+
+function twoUsersHandler() {
+  return http.get(baseUrl, () =>
+    HttpResponse.json({
+      data: [
+        makeUser({ id: "u1", fullName: "Ana Pérez" }),
+        makeUser({ id: "u2", fullName: "Beto Gómez" }),
+      ],
+      pagination: { page: 1, pageSize: 100, total: 2, totalPages: 1 },
+    }),
+  );
+}
+
+function renderedOptions() {
+  return screen
+    .getAllByRole("option")
+    .map((option) => [(option as HTMLOptionElement).value, option.textContent]);
 }
 
 describe("UserSelect", () => {
@@ -99,11 +122,15 @@ describe("UserSelect", () => {
     );
   });
 
-  // Regresión M6: emptyOptionLabel es un prop nuevo (Activity lo necesita
-  // para assigneeId, que nunca se autoasigna — a diferencia de ownerId de
-  // Opportunity). Si se omite, OpportunityFormPage debe seguir viendo
-  // exactamente el mismo texto que antes de M6.
-  it("sin emptyOptionLabel, conserva el texto default anterior a M6 (regresión de Opportunity)", async () => {
+  // Regresión M6: emptyOptionLabel nació como prop opcional para que Activity
+  // (assigneeId, que nunca se autoasigna) pudiera decir "Sin asignar" sin
+  // tocar el texto que Opportunity veía entonces. Desde el ítem 7 de
+  // docs/frontend-cambios-pendientes.md ningún caller omite el prop (los
+  // cinco pasan "Sin asignar"), así que este test ya no protege a un
+  // formulario real: fija que el default del componente sigue siendo el
+  // histórico, y nada más. Se mantiene con value=undefined: es el único caso
+  // en que la opción vacía se ve con cualquier clearable (tests de abajo).
+  it("sin emptyOptionLabel, conserva el texto default anterior a M6", async () => {
     server.use(
       http.get(baseUrl, () =>
         HttpResponse.json({
@@ -144,5 +171,61 @@ describe("UserSelect", () => {
 
     await waitFor(() => expect(screen.getByText("Sin asignar")).toBeInTheDocument());
     expect(screen.queryByText("Asignado a quien crea (por defecto)")).not.toBeInTheDocument();
+  });
+
+  // Ítem 7 de docs/frontend-cambios-pendientes.md: para ownerId (que el
+  // PATCH no puede limpiar) los formularios pasan clearable={false}. Con un
+  // valor real seleccionado (el creador preseleccionado, o el dueño de un
+  // registro en edición) la opción vacía no se ofrece — solo la lista de
+  // usuarios, con el correcto marcado. Sin esto, "Sin asignar" competiría con
+  // el usuario ya elegido y volvería la redundancia que motivó el ítem.
+  it("clearable={false} con un value real: no renderiza la opción vacía, solo los usuarios con el elegido marcado", async () => {
+    server.use(twoUsersHandler());
+
+    renderSelect("u2", vi.fn(), { clearable: false });
+
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u2"));
+    expect(renderedOptions()).toEqual([
+      ["u1", "Ana Pérez"],
+      ["u2", "Beto Gómez"],
+    ]);
+    expect(screen.queryByText("Asignado a quien crea (por defecto)")).not.toBeInTheDocument();
+  });
+
+  // ...pero sin valor (editar un registro viejo sin dueño) la opción vacía sí
+  // está, porque es lo único que hay para mostrar y desde ahí se puede elegir
+  // a alguien.
+  it("clearable={false} sin value: la opción vacía sí se renderiza, sin nada marcado", async () => {
+    server.use(twoUsersHandler());
+
+    renderSelect(undefined, vi.fn(), { clearable: false });
+
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
+    expect(renderedOptions()).toEqual([
+      ["", "Asignado a quien crea (por defecto)"],
+      ["u1", "Ana Pérez"],
+      ["u2", "Beto Gómez"],
+    ]);
+  });
+
+  // Regresión de Activity/Vehicle: assigneeId y assignedSalespersonId SÍ se
+  // pueden limpiar (null en el PATCH), y elegir la opción vacía es la única
+  // forma de desasignar. El default (clearable=true) tiene que seguir
+  // ofreciéndola aunque haya un usuario seleccionado — ActivityFormPage.test
+  // "limpiar assigneeId envía null explícito" depende de esto.
+  it("clearable por default con un value real: la opción vacía sigue disponible para desasignar", async () => {
+    server.use(twoUsersHandler());
+    const user = userEvent.setup();
+    const onChange = renderSelect("u2");
+
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u2"));
+    expect(renderedOptions()).toEqual([
+      ["", "Asignado a quien crea (por defecto)"],
+      ["u1", "Ana Pérez"],
+      ["u2", "Beto Gómez"],
+    ]);
+
+    await user.selectOptions(screen.getByLabelText("Propietario"), "");
+    expect(onChange).toHaveBeenCalledWith("");
   });
 });

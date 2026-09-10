@@ -204,6 +204,41 @@ Como consecuencia, en esa misma rama:
 
 ---
 
+## 7. Select de Propietario: sacar la opción redundante "Asignado a quien crea (por defecto)", preseleccionar directamente a quien crea
+
+**Estado:** hecho
+
+**Dónde se vio:** formulario "Nueva empresa" (`/companies/new`), campo "Propietario". Aplica igual a "Nuevo contacto" y "Nueva oportunidad".
+
+**Contexto:** el select de "Propietario" (componente compartido `frontend/src/features/user/UserSelect.tsx`) mostraba siempre una primera opción "Asignado a quien crea (por defecto)" además de la lista real de usuarios — incluyendo al propio usuario que estaba creando el registro, que ya aparecía en la lista. Quedaba redundante: la opción "por defecto" y elegirse a uno mismo en la lista dicen literalmente lo mismo. Se pidió sacar esa opción y, en su lugar, preseleccionar directamente al usuario actual, sin ningún texto de "por defecto".
+
+Este select se usa en tres formularios con la **misma semántica de backend** (`resolveOwnerId` en `src/services/ownership.service.ts`: si no se manda `ownerId`, el registro queda asignado a quien lo crea): `CompanyFormPage.tsx`, `ContactFormPage.tsx` y `OpportunityFormPage.tsx`, campo "Propietario" en los tres. Los tres se arreglaron igual, en este mismo ítem.
+
+**Fuera de alcance, sin cambios:** `ActivityFormPage.tsx` (campo "Asignado a", `assigneeId`) y `VehicleFormPage.tsx` (campo "Asignado a", `assignedSalespersonId`) usan el mismo `UserSelect` pero con semántica distinta — el backend **nunca** autoasigna esos campos al creador (pueden quedar genuinamente sin asignar) y ya pasaban `emptyOptionLabel="Sin asignar"` explícito, que es correcto tal cual. Además, y esto es lo que decidió la forma de la Parte A: en esos dos formularios la opción "Sin asignar" **sirve para desasignar** — el PATCH de Activity acepta `assigneeId: null` y el de Vehicle `assignedSalespersonId: null` — así que tiene que seguir apareciendo aunque haya un usuario seleccionado. Ninguno de los dos archivos se tocó.
+
+**El cambio, en tres partes:**
+
+- **Parte A — `UserSelect.tsx`:** renderizaba siempre `<option value="">{emptyOptionLabel}</option>`, sin importar si `value` tenía un valor real. Se agregó un prop `clearable?: boolean` (default `true`, que conserva el comportamiento anterior para todo caller que no lo pase). Con `clearable={false}`, la opción vacía solo se renderiza cuando **no** hay `value` (`undefined` o `""`); con un valor real seleccionado (el creador preseleccionado, o el dueño real de un registro en edición) el `<select>` muestra únicamente la lista de usuarios, con el correcto marcado. El prop refleja lo que el backend acepta en el PATCH, no una preferencia de UI: `ownerId` no se puede limpiar (Company/Contact/Opportunity pasan `false`), `assigneeId`/`assignedSalespersonId` sí (Activity/Vehicle quedan en el default). Se actualizó el comentario del componente para describir el comportamiento real y los cinco callers actuales.
+
+  *Por qué no fue incondicional:* la primera versión escondía la opción vacía siempre que hubiera valor, sin prop. Rompió el test de `ActivityFormPage.test.tsx` "limpiar body/dueDate/completedAt/assigneeId envía null explícito": en Actividad, elegir "Sin asignar" con alguien ya asignado es la única forma de desasignar, y sin esa opción el campo quedaba imposible de limpiar. El prop es la forma mínima de darles a los tres formularios de `ownerId` el comportamiento pedido sin cambiar nada en los otros dos.
+
+- **Parte B — `CompanyFormPage.tsx`, `ContactFormPage.tsx`, `OpportunityFormPage.tsx`:** cada uno importa `useAuth` desde `../../auth/AuthContext` (mismo patrón que `OpportunityListPage.tsx`) y toma `me`. En modo creación, el valor inicial de `ownerId` es `me?.id` en vez de `undefined`: Company y Contact ganaron un `initialValues` (`isEditMode ? EMPTY_FORM : { ...EMPTY_FORM, ownerId: me?.id }`) con la misma forma que el que Opportunity ya tenía para `pipelineId`/`stageId` de la query string, y Opportunity sumó `ownerId: me?.id` a ese objeto. En edición sigue mostrando el propietario real del registro vía `toFormValues(...)`. Los tres `<UserSelect>` de "Propietario" pasan ahora `emptyOptionLabel="Sin asignar"` y `clearable={false}` explícitos, y se reescribieron los comentarios de Company y Contact que justificaban *no* pasar `emptyOptionLabel` ("Sin emptyOptionLabel: el default del componente…"), que dejaron de ser ciertos.
+
+- **Parte C — caso de borde en edición (sin código adicional):** un registro existente puede tener `ownerId` null en la base (dato viejo). A diferencia de crear, guardar el formulario sin tocar el campo **no** asigna al creador: el backend solo autoasigna al crear, nunca al editar (`company.service.ts`, `contact.service.ts`, `opportunity.service.ts`: en el update, `ownerId` solo se toca si viene truthy). Para ese caso el select muestra "Sin asignar" (la opción de la Parte A, que aparece porque `value` es `undefined`), sin nada preseleccionado. Sale así solo con las Partes A y B: en edición con `ownerId` null, `toFormValues(...)` sigue devolviendo `ownerId: undefined` como antes.
+
+**Decisiones ya tomadas:**
+
+- **El id del creador viaja explícito en el POST.** Antes el payload de creación omitía `ownerId` y el backend lo resolvía; ahora manda `me.id`. El resultado es el mismo (`resolveOwnerId` devuelve `actorUserId` si no se manda nada, y valida el id si se manda — el creador es un usuario activo de su propia organización, así que pasa), pero la elección queda visible en el formulario en vez de implícita en un texto.
+- **No se cambia el default del prop `emptyOptionLabel`.** Sigue siendo el texto histórico ("Asignado a quien crea (por defecto)"), aunque desde este ítem ningún caller lo usa: los cinco formularios pasan "Sin asignar". Se conservó como red de seguridad del test de regresión de `UserSelect.test.tsx`, cuyo comentario se reescribió porque ya no protege a Opportunity. Si en algún momento se quiere eliminar el default, es un cambio aparte y menor.
+- **No se agrega forma de "quitar" el propietario desde un valor real.** Con `clearable={false}`, ya no se puede volver a `""` desde un usuario elegido en los tres formularios de `ownerId`. No se pierde nada: el PATCH nunca pudo limpiar `ownerId` (chequeo truthy en los tres services), así que esa opción antes tampoco hacía nada en edición.
+
+**Tests:** `CompanyFormPage.test.tsx` y `ContactFormPage.test.tsx` ahora mockean `useAuth` por ruta de módulo (mismo patrón que sus `*ListPage.test.tsx`, `AuthContextValue` importado como tipo), con `me.id = "u1"` que coincide con "Ana Pérez" del handler de usuarios. Los tests "NO elegir propietario omite ownerId del payload" se reemplazaron por "el propietario arranca preseleccionado en quien crea, sin opción 'por defecto', y viaja en el POST" (valor `u1`, sin texto viejo, sin `option[value=""]`, `ownerId: "u1"` en el body); los de edición con dueño afirman que no se ofrece "Sin asignar", y los de edición sin dueño afirman que "Sin asignar" está y nada está marcado. Los asserts de payload de creación de esos dos archivos suman `ownerId: "u1"`. `OpportunityFormPage.test.tsx` sumó el mismo mock y un test de creación equivalente (sus asserts de payload usan `toMatchObject`, así que no rompieron). `UserSelect.test.tsx` conserva el test del default (con comentario corregido) y suma tres: `clearable={false}` con valor (solo los usuarios), `clearable={false}` sin valor (la opción vacía está, nada marcado) y `clearable` por default con valor (la opción vacía sigue ahí y elegirla llama a `onChange("")` — la regresión de Activity/Vehicle). `ActivityFormPage.test.tsx` y `VehicleFormPage.test.tsx` no se tocaron y siguen en verde.
+
+**Por arrastre:** `docs/project-overview.md` (párrafo de M6 sobre `assigneeId` y el prop `emptyOptionLabel`) describía el default como el texto que Opportunity veía; se le agregó una nota de "superado" apuntando a este ítem, sin reescribir el histórico.
+
+
+---
+
 ## 9. Traducir las etapas del ciclo de vida de Contacto (Etapa)
 
 **Estado:** hecho

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
+import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
@@ -16,6 +17,36 @@ import { OpportunityFormPage } from "./OpportunityFormPage";
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
+
+// El formulario preselecciona a quien crea a partir de useAuth().me (ítem 7
+// de docs/frontend-cambios-pendientes.md). Se mockea por ruta de módulo, como
+// en OpportunityListPage.test.tsx: "u1" es Ana Pérez en baseHandlers(), así
+// que el select puede mostrarla como seleccionada.
+const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
+vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+function mockAuth(): AuthContextValue {
+  return {
+    status: "authenticated",
+    me: {
+      id: "u1",
+      email: "ana@x.com",
+      fullName: "Ana Pérez",
+      organizationId: "org-1",
+      role: "ADMIN",
+      isPlatformAdmin: false,
+    },
+    accountUnavailableReason: null,
+    profileError: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    retryProfile: vi.fn(),
+  };
+}
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth());
+});
 
 const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
 const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
@@ -189,6 +220,35 @@ describe("OpportunityFormPage", () => {
 
     await waitFor(() => expect(screen.getByText("lista de oportunidades")).toBeInTheDocument());
     expect(postedBody).toMatchObject({ pipelineId: "pl2", stageId: "st2" });
+  });
+
+  // Ítem 7 de docs/frontend-cambios-pendientes.md: mismo contrato que
+  // Company y Contact — el usuario actual ya está marcado, la antigua opción
+  // "Asignado a quien crea (por defecto)" no existe más, y el id viaja
+  // explícito en el POST (resolveOwnerId haría lo mismo si no se mandara).
+  it("create: Propietario arranca preseleccionado en quien crea, sin opción 'por defecto', y viaja en el POST", async () => {
+    let postedBody: unknown;
+    server.use(
+      ...baseHandlers(),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new?pipelineId=pl1&stageId=st1");
+
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u1"));
+    const select = screen.getByLabelText("Propietario");
+    expect(select).not.toHaveTextContent("Asignado a quien crea (por defecto)");
+    expect(select).not.toHaveTextContent("Sin asignar");
+    expect(select.querySelector('option[value=""]')).toBeNull();
+
+    await user.type(screen.getByLabelText("Título"), "Con dueño actual");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("lista de oportunidades")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({ title: "Con dueño actual", ownerId: "u1" });
   });
 
   it("create: falta Company y Contact → se muestra el mensaje real del backend, no navega", async () => {

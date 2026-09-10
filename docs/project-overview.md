@@ -1860,6 +1860,17 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   confirmando que Opportunity conserva el texto anterior sin tocar su
   caller.
 
+  **Superado (2026-09-10, ítem 7 de `docs/frontend-cambios-pendientes.md`):**
+  Company, Contact y Opportunity ya no muestran la opción "Asignado a
+  quien crea (por defecto)": en creación preseleccionan a quien crea
+  (`me.id` de `useAuth`) y pasan `emptyOptionLabel="Sin asignar"`, que
+  solo aparece al editar un registro viejo sin dueño. `UserSelect` ganó un
+  prop `clearable` (default `true`): con `false` no renderiza la opción
+  vacía cuando hay un valor real seleccionado — Activity y Vehicle, cuyo
+  campo sí se puede limpiar a `null`, quedan en el default y no cambian. El
+  default histórico de `emptyOptionLabel` se conserva únicamente como red
+  de seguridad del test de regresión; ningún caller lo usa.
+
   **`authorId`/`assigneeId` en el listado — USER sin `GET /api/users`,
   con "Vos" para su propio id**: `useOwnerNames(isAdmin)`
   (`opportunity/relationResolution.ts`, reutilizado sin modificar) resuelve
