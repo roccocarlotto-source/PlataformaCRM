@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -22,7 +23,8 @@ interface ContactFormValues {
   lifecycleStage: LifecycleStage;
   source: string;
   companyId: string | undefined;
-  // Mismo criterio que companyId: undefined = "no elegido". Nunca null — el
+  // Mismo criterio que companyId: undefined = "no elegido". En creación
+  // arranca en el id de quien crea (ver initialValues). Nunca null — el
   // PATCH no puede limpiar ownerId (chequeo truthy en contact.service.ts).
   ownerId: string | undefined;
 }
@@ -84,12 +86,16 @@ function toFormValues(data: Contact): ContactFormValues {
 // de M3 era que no había GET /api/users consumido y un UUID crudo no es un
 // control aceptable. M5 lo consumió y dejó UserSelect listo.
 //
-// Sin emptyOptionLabel: createContact llama al MISMO resolveOwnerId que
-// createCompany (ownership.service.ts), que devuelve actorUserId cuando no se
-// manda nada — así que el default del componente ("Asignado a quien crea (por
-// defecto)") es literal acá también. Verificado en el service, no asumido por
-// analogía: Activity comparte la forma del campo pero NO el comportamiento, y
-// por eso pasa un label propio.
+// Propietario arranca preseleccionado en quien crea, igual que en Company
+// (ítem 7 de docs/frontend-cambios-pendientes.md): createContact llama al
+// MISMO resolveOwnerId que createCompany (ownership.service.ts) y
+// autoasignaría igual si no se mandara nada, pero la opción "Asignado a quien
+// crea (por defecto)" al lado del mismo usuario en la lista era redundante.
+// Con clearable={false}, UserSelect no renderiza opción vacía mientras haya
+// un valor (el PATCH no puede limpiar ownerId: chequeo truthy en
+// contact.service.ts); emptyOptionLabel="Sin asignar" solo se ve al editar un
+// contacto viejo con ownerId null, donde guardar sin tocar el campo NO asigna
+// a nadie. Verificado en el service, no asumido por analogía.
 //
 // CompanySelect y UserSelect se montan sueltos, sin envolverlos en FormField:
 // traen su propio <label htmlFor>, y FormField ES un <label>, así que
@@ -103,14 +109,22 @@ export function ContactFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  const { me } = useAuth();
 
   const contactQuery = useContact(isEditMode ? id : undefined);
   const createContactMutation = useCreateContact();
   const updateContactMutation = useUpdateContact(id ?? "");
 
+  // Solo en creación: el propietario inicial es quien está creando. En
+  // edición el valor viene del registro (toFormValues), y si no tiene dueño
+  // queda undefined — no se inventa uno.
+  const initialValues: ContactFormValues = isEditMode
+    ? EMPTY_FORM
+    : { ...EMPTY_FORM, ownerId: me?.id };
+
   const [values, setValues] = useFormDraft<ContactFormValues>(
     contactQuery.data?.id,
-    contactQuery.data ? toFormValues(contactQuery.data) : EMPTY_FORM,
+    contactQuery.data ? toFormValues(contactQuery.data) : initialValues,
   );
   const [error, setError] = useState<string | null>(null);
 
@@ -230,6 +244,8 @@ export function ContactFormPage() {
               label="Propietario"
               value={values.ownerId}
               onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+              emptyOptionLabel="Sin asignar"
+              clearable={false}
             />
           </div>
         </Card>

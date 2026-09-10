@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -18,9 +19,10 @@ interface CompanyFormValues {
   phone: string;
   city: string;
   country: string;
-  // undefined = "no elegido", que es lo que el backend interpreta como
-  // "asignar a quien crea". Nunca null: el PATCH no puede limpiar ownerId
-  // (chequeo truthy en company.service.ts, ver types.ts).
+  // undefined = "no elegido". En creación arranca en el id de quien crea
+  // (ver initialValues), que es lo mismo que el backend haría si no se
+  // mandara nada. Nunca null: el PATCH no puede limpiar ownerId (chequeo
+  // truthy en company.service.ts, ver types.ts).
   ownerId: string | undefined;
 }
 
@@ -81,22 +83,36 @@ function toInput(values: CompanyFormValues): CreateCompanyInput {
 // OpportunityFormPage. Mantener el resto del formulario en FormField no es
 // inconsistencia: es que este control ya viene resuelto.
 //
-// Sin emptyOptionLabel: el default del componente ("Asignado a quien crea (por
-// defecto)") describe exactamente lo que hace createCompany —resolveOwnerId
-// devuelve actorUserId si no se manda nada—, a diferencia de Activity, que
-// nunca autoasigna y por eso sí pasa un label propio.
+// Propietario arranca preseleccionado en quien crea (ítem 7 de
+// docs/frontend-cambios-pendientes.md): createCompany autoasignaría igual
+// —resolveOwnerId devuelve actorUserId si no se manda nada—, pero mostrar
+// una opción "Asignado a quien crea (por defecto)" al lado del mismo usuario
+// en la lista era redundante. Ahora se manda el id explícito y, con
+// clearable={false}, UserSelect no renderiza opción vacía mientras haya un
+// valor (el PATCH no puede limpiar ownerId: chequeo truthy en
+// company.service.ts). emptyOptionLabel="Sin asignar" solo se ve al editar
+// una empresa vieja con ownerId null: ahí guardar sin tocar el campo NO
+// asigna a nadie, así que "Sin asignar" es literal.
 export function CompanyFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  const { me } = useAuth();
 
   const companyQuery = useCompany(isEditMode ? id : undefined);
   const createCompanyMutation = useCreateCompany();
   const updateCompanyMutation = useUpdateCompany(id ?? "");
 
+  // Solo en creación: el propietario inicial es quien está creando. En
+  // edición el valor viene del registro (toFormValues), y si no tiene dueño
+  // queda undefined — no se inventa uno.
+  const initialValues: CompanyFormValues = isEditMode
+    ? EMPTY_FORM
+    : { ...EMPTY_FORM, ownerId: me?.id };
+
   const [values, setValues] = useFormDraft<CompanyFormValues>(
     companyQuery.data?.id,
-    companyQuery.data ? toFormValues(companyQuery.data) : EMPTY_FORM,
+    companyQuery.data ? toFormValues(companyQuery.data) : initialValues,
   );
   const [error, setError] = useState<string | null>(null);
 
@@ -193,6 +209,8 @@ export function CompanyFormPage() {
               label="Propietario"
               value={values.ownerId}
               onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+              emptyOptionLabel="Sin asignar"
+              clearable={false}
             />
           </div>
         </Card>

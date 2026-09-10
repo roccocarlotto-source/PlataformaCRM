@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
+import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makeUser } from "../../test/userFixtures";
@@ -14,6 +15,36 @@ import { ContactFormPage } from "./ContactFormPage";
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
+
+// El formulario preselecciona a quien crea a partir de useAuth().me (ítem 7
+// de docs/frontend-cambios-pendientes.md). Se mockea por ruta de módulo, como
+// en ContactListPage.test.tsx: "u1" es Ana Pérez en usersHandler(), así que
+// el select puede mostrarla como seleccionada.
+const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
+vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+function mockAuth(): AuthContextValue {
+  return {
+    status: "authenticated",
+    me: {
+      id: "u1",
+      email: "ana@x.com",
+      fullName: "Ana Pérez",
+      organizationId: "org-1",
+      role: "ADMIN",
+      isPlatformAdmin: false,
+    },
+    accountUnavailableReason: null,
+    profileError: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    retryProfile: vi.fn(),
+  };
+}
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth());
+});
 
 const contactsUrl = `${env.apiUrl}/api/contacts`;
 const companiesUrl = `${env.apiUrl}/api/companies`;
@@ -80,10 +111,13 @@ describe("ContactFormPage", () => {
 
     await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
     expect(getDetailCalled).toBe(false);
+    // ownerId viaja siempre en creación: es el usuario actual, preseleccionado
+    // (ver el bloque ownerId más abajo).
     expect(postedBody).toEqual({
       firstName: "Nueva",
       lastName: "Persona",
       lifecycleStage: "LEAD",
+      ownerId: "u1",
     });
   });
 
@@ -124,6 +158,7 @@ describe("ContactFormPage", () => {
       firstName: "Nueva",
       lastName: "Persona",
       lifecycleStage: "CUSTOMER",
+      ownerId: "u1",
     });
   });
 
@@ -285,7 +320,7 @@ describe("ContactFormPage", () => {
     });
   });
 
-  it("create: NO elegir propietario omite ownerId del payload, lo asigna el backend", async () => {
+  it("create: el propietario arranca preseleccionado en quien crea, sin opción 'por defecto', y viaja en el POST", async () => {
     let postedBody: unknown;
     server.use(
       usersHandler(),
@@ -298,27 +333,31 @@ describe("ContactFormPage", () => {
     const user = userEvent.setup();
     renderForm("/contacts/new");
 
-    await user.type(screen.getByLabelText("Nombre"), "Sin");
+    await user.type(screen.getByLabelText("Nombre"), "Con");
     await user.type(screen.getByLabelText("Apellido"), "Duenio");
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
-    // createContact llama al MISMO resolveOwnerId que createCompany, asi que
-    // el texto por defecto de UserSelect es literal tambien aca. Verificado en
-    // ownership.service.ts, no asumido por analogia: Activity comparte el
-    // componente pero NO el comportamiento, y por eso pasa un label propio.
-    expect(screen.getByLabelText("Propietario")).toHaveTextContent(
-      "Asignado a quien crea (por defecto)",
-    );
+    // Ítem 7 de docs/frontend-cambios-pendientes.md: el usuario actual ("u1",
+    // Ana Pérez) ya está marcado, y la antigua opción "Asignado a quien crea
+    // (por defecto)" —que decía lo mismo que elegirse a uno mismo— no existe
+    // más. Tampoco hay opción vacía de ningún tipo mientras haya un valor.
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u1"));
+    const select = screen.getByLabelText("Propietario");
+    expect(select).not.toHaveTextContent("Asignado a quien crea (por defecto)");
+    expect(select).not.toHaveTextContent("Sin asignar");
+    expect(select.querySelector('option[value=""]')).toBeNull();
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
+    // El id viaja explícito. createContact llama al MISMO resolveOwnerId que
+    // createCompany y haría lo mismo (actorUserId) si no se mandara nada.
     expect(postedBody).toEqual({
-      firstName: "Sin",
+      firstName: "Con",
       lastName: "Duenio",
       lifecycleStage: "LEAD",
+      ownerId: "u1",
     });
   });
 
-  it("edit: hidrata el propietario existente en el selector", async () => {
+  it("edit: hidrata el propietario existente en el selector, sin opción vacía", async () => {
     server.use(
       usersHandler(),
       http.get(`${contactsUrl}/:id`, ({ params }) =>
@@ -329,14 +368,22 @@ describe("ContactFormPage", () => {
     renderForm("/contacts/ct1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u2"));
+    // Con un dueño real, "Sin asignar" no se ofrece: el PATCH no podría
+    // limpiar ownerId de todos modos (chequeo truthy en contact.service.ts).
+    expect(screen.getByLabelText("Propietario")).not.toHaveTextContent("Sin asignar");
   });
 
-  it("edit: un contacto SIN propietario deja el selector vacio, no en un valor inventado", async () => {
+  it("edit: un contacto SIN propietario muestra 'Sin asignar', no al usuario actual ni un valor inventado", async () => {
     // Contact.ownerId es nullable, a diferencia de Opportunity.ownerId, y por
     // eso la hidratacion hace ?? undefined. Sin eso, un null llegaria al
     // select como value={null} y React lo pasaria a no controlado, con la
     // primera opcion de la lista seleccionada de hecho: el formulario
     // mostraria un dueno que el contacto no tiene.
+    //
+    // Y a diferencia de crear, acá NO se preselecciona a quien edita: el
+    // backend solo autoasigna al crear, nunca al editar (el update toca
+    // ownerId solo si viene truthy), así que guardar sin tocar el campo deja
+    // el contacto sin dueño — "Sin asignar" es literal.
     server.use(
       usersHandler(),
       http.get(`${contactsUrl}/:id`, ({ params }) =>
@@ -354,5 +401,9 @@ describe("ContactFormPage", () => {
     // usuarios llegara a resolver. UserSelect no renderiza el <select> hasta
     // isSuccess, así que hay que esperarlo explícitamente.
     await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
+    expect(screen.getByRole("option", { name: "Sin asignar" })).toHaveValue("");
+    expect(screen.getByLabelText("Propietario")).not.toHaveTextContent(
+      "Asignado a quien crea (por defecto)",
+    );
   });
 });
