@@ -635,3 +635,77 @@ definidos en `prisma/sql/manual_constraints.sql` (líneas ~110-120) y ya aplicad
 - **`StageListPage.tsx` intacto,** según lo decidido arriba.
 
 **Tests:** `PipelineFormPage.test.tsx`, describe "editor de etapas integrado": test nuevo con tres etapas que retiene la respuesta del PATCH con una promesa que el propio test libera (mismo patrón que E2-4 de `IngestionEventListPage.test.tsx`). Con la request pendiente afirma que los seis botones Subir/Bajar están deshabilitados (incluidos los de las filas no clickeadas) y que la tabla todavía no se reordenó; tras liberar el PATCH, que la fila cambió de lugar, que cada botón volvió a responder solo a su posición y que salió un único PATCH con el order del vecino. Verificado que el test falla sin el fix. El handler que retiene devuelve `undefined` para que msw siga con el de `mockStagesServer`, así el refetch refleja el intercambio real de order. Suite completa de frontend 898/898, typecheck, lint y Prettier limpios.
+
+---
+
+## 16. Rendimiento de red al mover una etapa: batching de `reindexStages`, `Access-Control-Max-Age` en CORS y `staleTime` en `/api/me`
+
+**Estado:** hecho
+
+**Dónde se vio:** `/pipelines/:id/edit`, editor de etapas integrado (§11), botones "Subir"/"Bajar" — el mismo flujo que §15 diagnosticó en vivo. §15 resolvió el *feedback* (los botones se deshabilitan mientras la request está en vuelo); este ítem ataca una parte del *tiempo* que esa request tarda.
+
+**Este ítem toca BACKEND y FRONTEND, y a diferencia de §13 no cambia ningún comportamiento observable:** ni el contrato de la API, ni qué se guarda, ni la política de CORS, ni cuándo la sesión se invalida. Lo único que cambia es la **cantidad de round trips de red** (entre el backend y Postgres, y entre el navegador y el backend). Todo lo que hoy funciona tiene que seguir funcionando exactamente igual, y todos los tests existentes tienen que seguir pasando **sin modificarlos**.
+
+**Origen:** mover una etapa tarda varios segundos. Parte de eso es infraestructura (cold start del backend en Render, fuera del alcance de este ítem), pero al mirar el flujo completo aparecieron tres fuentes de round trips innecesarios que se pueden eliminar sin tocar infraestructura:
+
+### Parte A — `reindexStages` hace 2×N consultas donde alcanzan 2
+
+**Archivo:** `src/repositories/stage.repository.ts`, función `reindexStages` (líneas ~235-263).
+
+**Comportamiento actual:** en cada movimiento, `updateStage` (`src/services/stage.service.ts`) arma la lista final de ids de **todas** las etapas activas del pipeline y llama a `reindexStages`, que les asigna `1..N` en dos pasadas: primero a valores negativos (`-1..-N`) y después a los finales (`1..N`). Cada pasada es un `for` con un `updateMany` **por fila**, `await` uno atrás del otro: con un pipeline de 8 etapas son 16 consultas secuenciales a Postgres solo para el reindexado, cada una con su latencia de ida y vuelta.
+
+**Lo que hay que conservar, y por qué:** las **dos pasadas** existen por una razón real. Hay un índice único parcial `(pipeline_id, "order") WHERE deleted_at IS NULL` (ver el comentario del modelo `Stage` en `prisma/schema.prisma`), y Postgres evalúa la unicidad **por sentencia**, no al final de la transacción. Sin el paso intermedio a negativos, escribir los valores finales de a una fila chocaría contra ese índice en cuanto dos etapas necesiten intercambiarse (la primera toma un `order` que la segunda todavía ocupa). También hay que conservar la **validación de pertenencia**: si algún id de `orderedStageIds` no pertenece a `pipelineId` (bug del caller, condición de carrera, id ajeno de otra organización), la función tiene que abortar la transacción con un error en vez de reindexar en silencio — hoy lo garantiza el `count !== 1` de cada `updateMany`, y `tenant-isolation.integration-test.ts` lo fija.
+
+**Comportamiento deseado:** las mismas dos pasadas, pero cada una como **UNA sola sentencia SQL** que actualiza todas las filas de `orderedStageIds` de una vez — un `UPDATE stages SET "order" = CASE id WHEN ... END WHERE pipeline_id = $1 AND id = ANY($2)` vía `$executeRaw` con `Prisma.sql`/`Prisma.join`, con los casts `::uuid` que ya usa el resto del repo (referencia: `lockStageForUpdate` en el mismo archivo, y los `Prisma.join` de `ingestionEvent.repository.ts`). La validación de pertenencia se mantiene comparando la cantidad de filas afectadas de cada pasada contra `orderedStageIds.length`: si no coincide, se lanza el mismo error que hoy (el mensaje se generaliza, porque sin loop ya no se sabe *qué* id falló, pero tiene que seguir siendo igual de claro y conservar la frase "no pertenece al pipeline" que el test de aislamiento afirma). **La firma no cambia** (`reindexStages(pipelineId, orderedStageIds, db)`).
+
+**Round trips a Postgres por movimiento (solo `reindexStages`):** 2×N → 2. Con 8 etapas: 16 → 2.
+
+### Parte B — el navegador manda un preflight `OPTIONS` antes de cada request mutante
+
+**Archivo:** `src/app.ts`, el `app.use(cors({...}))` (líneas ~54-59).
+
+**Comportamiento actual:** el middleware de CORS no configura `maxAge`, así que la respuesta al preflight no lleva `Access-Control-Max-Age` y el navegador **no cachea** la decisión: manda un `OPTIONS` nuevo antes de cada `PATCH`/`POST`/`DELETE`, aunque repita el mismo origen, método y headers segundos después. En el Network tab de §15 se ve exactamente eso: cada "Bajar" es `OPTIONS` (204) + `PATCH` (200) + `GET` del listado.
+
+**Comportamiento deseado:** agregar `maxAge: 600` (10 minutos, un valor conservador y estándar) a las opciones de `cors()`. El navegador reutiliza la decisión del preflight durante esa ventana. **La política de CORS no cambia en absoluto:** mismos orígenes permitidos (`CORS_ORIGIN`), mismas credenciales, mismos métodos y headers — solo se le dice al navegador por cuánto tiempo puede recordar la respuesta.
+
+**Round trips HTTP por movimiento (después del primero de cada ventana de 10 minutos):** 3 → 2 (`OPTIONS` + `PATCH` + `GET` → `PATCH` + `GET`).
+
+### Parte C — `/api/me` se vuelve a pedir demasiado seguido
+
+**Archivo:** `frontend/src/auth/AuthContext.tsx`, el `useQuery` de `meQuery` (líneas ~143-152).
+
+**Comportamiento actual:** esa query no define `staleTime` propio, así que hereda el default global de `frontend/src/lib/queryClient.ts` (`staleTime: 30_000`, con `refetchOnWindowFocus: true`). Es decir, no es que se refetchee en *cada* remount o foco de ventana — lo hace cuando pasaron más de 30 segundos desde la última respuesta, que en la práctica es casi siempre al volver a la pestaña. El rol y la organización del usuario casi nunca cambian durante una sesión, así que esos refetches de fondo son trabajo (y un round trip, con su preflight si cambió algo del preflight cacheado) que no aporta nada.
+
+**Comportamiento deseado:** `staleTime: 5 * 60 * 1000` (5 minutos) en la config de `meQuery`. **No afecta** el circuito de logout por 401 (`registerUnauthorizedHandler`, que ya maneja el caso de sesión realmente inválida a partir de cualquier request, sin depender de este refetch), ni el `queryClient.clear()` que ya corre en cada cambio real de identidad, ni `retryProfile()` (que llama a `refetch()`, y `refetch()` ignora `staleTime` por diseño).
+
+**Round trips por foco de ventana:** a lo sumo uno cada 30 segundos → a lo sumo uno cada 5 minutos.
+
+**Decisiones ya tomadas:**
+
+- **Ninguna de las tres partes cambia comportamiento observable.** Es un cambio de rendimiento puro: menos consultas a Postgres, menos requests del navegador. Si implementar alguna parte obligara a cambiar un test existente, eso sería señal de que se está cambiando comportamiento y hay que frenar y revisar, no adaptar el test.
+- **Parte A conserva las dos pasadas y la validación de pertenencia**; solo colapsa cada pasada de N consultas a 1. Los tests de concurrencia de `stage.service.integration-test.ts` (que dependen del comportamiento exacto de `reindexStages`, incluido *dónde* se bloquea un reorden concurrente) y el de `tenant-isolation.integration-test.ts` tienen que seguir pasando tal cual.
+- **Parte B es una línea.** Si el patrón de test contra la app real que ya existe (`errorHandler.integration-test.ts`: `app.listen(0)` + `fetch`) alcanza para afirmar el header, se agrega un test; si no, se verifica a mano con un `curl -i -X OPTIONS` y se documenta en el PR.
+- **Parte C es una línea.** Se corre `AuthContext.test.tsx` completo para confirmar que ningún test dependía implícitamente del `staleTime` heredado — en particular "5. Evento repetido no refetchea" y "9. TOKEN_REFRESHED no refetchea". Si alguno dependiera de él, se frena y se decide en conversación, no se cambia a ciegas.
+
+**Hallazgos al implementar (verificado contra el código):** las referencias de líneas eran exactas. Dos cosas que el diagnóstico original no decía del todo bien: (1) **la query de `/api/me` no estaba en `staleTime: 0`** — heredaba los 30 segundos del `queryClient` global, así que el problema real era "un refetch por cada foco de ventana pasados 30 s", no "en cada remount"; la solución (5 minutos) es la misma, pero la mejora es 30 s → 5 min, no 0 → 5 min. (2) **Las dos pasadas de `reindexStages` son obligatorias incluso colapsadas en una sentencia cada una**, no solo "preferibles": un índice único no diferible (y un índice parcial nunca puede ser `DEFERRABLE`) se verifica fila por fila también dentro de un mismo `UPDATE`, así que el clásico `SET "order" = CASE ...` que intercambia dos posiciones falla con `duplicate key` a mitad de camino. El paso intermedio a negativos sigue siendo exactamente lo que lo evita; el comentario de la función lo explica.
+
+**Decisiones tomadas al implementar:**
+
+- **`reindexStages` (`stage.repository.ts`): misma firma, mismas dos fases, cada fase un solo `$executeRaw`** delegado a una función privada `asignarOrden(pipelineId, orderedStageIds, orderDe, db)` que recibe cómo calcular el `order` de cada índice (`-(i + 1)` en la primera fase, `i + 1` en la segunda). El SQL es `UPDATE stages SET "order" = CASE id WHEN $id::uuid THEN $n::int ... END, updated_at = now() WHERE pipeline_id = $1::uuid AND id = ANY($2::uuid[])`, armado con `Prisma.sql`/`Prisma.join` como los `INSERT` por tandas de `ingestionEvent.repository.ts` (el `import type { Prisma }` pasó a import de valor). El `id = ANY(...)` no es redundante con el `CASE`: sin él, las filas del pipeline que no están en la lista caerían en el `ELSE` implícito (`NULL`) y el `NOT NULL` de `order` las rechazaría.
+- **`updated_at = now()` a mano.** `updateMany` lo bumpeaba solo por el `@updatedAt` del schema; `$executeRaw` no pasa por Prisma, y dejar de tocar `updatedAt` en un reorden sí habría sido un cambio observable en la respuesta de la API. Es el único detalle que había que reproducir explícitamente.
+- **Validación de pertenencia: `count !== orderedStageIds.length` → `throw`.** Mismo criterio que el `count !== 1` por fila que había antes, con el mensaje generalizado ("al menos un stage de los N recibidos no pertenece al pipeline X (se actualizaron M)") — conserva la frase "no pertenece al pipeline" que `tenant-isolation.integration-test.ts` afirma con regex. Lo que se pierde es saber *qué* id falló, que ninguna capa de arriba usaba. Efecto colateral menor y para mejor: una lista con ids duplicados (que ningún caller produce) antes pasaba en silencio con numeración no contigua; ahora el `CASE` la actualiza una sola vez, el `count` no cuadra y aborta.
+- **Lista vacía: retorno temprano.** `Prisma.join` rechaza un array vacío; el `for` anterior lo toleraba (cero iteraciones) y ningún caller llega con la lista vacía, pero la función no tiene por qué dejar de tolerarlo.
+- **CORS (`app.ts`): `maxAge: 600`** y un comentario al lado del bloque de CORS que ya existía. Nada más de la política cambió.
+- **Test nuevo `src/app.test.ts` (suite unitaria, sin base):** contra la app REAL de `app.ts` con el mismo patrón `app.listen(0)` + `fetch` de `errorHandler.integration-test.ts`. Va en la suite unitaria y no en la de integración porque un preflight lo responde el middleware antes de cualquier router, no toca la base ni necesita identidad — `CORS_ORIGIN` es la única variable que hace falta y el job unitario de CI ya la tiene. Verificado localmente también sin `.env` (solo `CORS_ORIGIN` en el entorno), que es exactamente lo que tiene ese job. Toma el primer origen de `CORS_ORIGIN` en vez de hardcodear `localhost:5173`, así vale con cualquier configuración. Como el test cubre el header contra la app real, no hizo falta la verificación manual con `curl`.
+- **`AuthContext.tsx`: `staleTime: 5 * 60 * 1000`** en la config de `meQuery`, con un comentario que apunta al default global que pisa y a los tres mecanismos de invalidación que NO dependen de él (401 → `registerUnauthorizedHandler`, cambio de identidad → `queryClient.clear()`, `retryProfile()` → `refetch()`, que ignora `staleTime`).
+- **Ningún test existente se modificó.** Era la condición de la decisión de arriba, y se cumplió: los de concurrencia de `stage.service.integration-test.ts` (incluido el que afirma *dónde* se bloquea el segundo reorden, contra `pg_locks`), el de aislamiento de `reindexStages` y los 13 de `AuthContext.test.tsx` pasaron tal cual. Sobre estos últimos: ninguno dependía implícitamente del `staleTime` de 30 s — el "5" afirma sobre `queryClient.clear()` y un evento repetido para la misma identidad no cambia la `queryKey`; el "9" corta antes de tocar la identidad por el `return` de `TOKEN_REFRESHED`; el "13" usa `refetch()`, que fuerza el fetch sin mirar `staleTime`; y los de cambio de identidad (6, 10) trabajan con `queryKey` distintas.
+
+**Round trips, antes → después (contados sobre el código, un movimiento de etapa con un pipeline de 8 etapas):**
+
+| Tramo | Antes | Después |
+|---|---|---|
+| Consultas a Postgres en `updateStage` para un `PATCH` que trae solo `order` (lectura previa + lock del pipeline + relectura + hermanos + `reindexStages` + relectura final; sin contar `BEGIN`/`COMMIT`) | 5 + 16 = 21 | 5 + 2 = 7 |
+| Requests HTTP del navegador por movimiento, después del primer preflight de cada ventana de 10 minutos (`OPTIONS` + `PATCH` + `GET` del listado) | 3 | 2 |
+| Refetches de fondo de `/api/me` al volver a la pestaña | a lo sumo 1 cada 30 s | a lo sumo 1 cada 5 min |
+
+**Tests:** backend — `src/app.test.ts` nuevo (2 tests: preflight de origen permitido responde 204 con `Access-Control-Max-Age: 600`, origen reflejado, credenciales y `PATCH` permitido; un origen no permitido sigue sin `Access-Control-Allow-Origin`). Suite unitaria 600/600, suite de integración 562/562 contra el Supabase local, typecheck, lint y Prettier limpios. Frontend — sin tests nuevos (el cambio es una opción de cache; los 13 de `AuthContext.test.tsx` cubren cuándo sí y cuándo no se pide `/api/me`), suite completa 903/903, typecheck, lint y Prettier limpios.
