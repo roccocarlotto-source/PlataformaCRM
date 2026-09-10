@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -214,25 +215,39 @@ export function StageListPage() {
                     </td>
                     {isAdmin ? (
                       <td>
-                        {/* Los tres botones siguen siendo hermanos directos y en
-                          este orden: los tests ubican "Subir" como el segundo
-                          <button> de la fila. */}
-                        <Link to={`/pipelines/${pipelineId}/stages/${stage.id}/edit`}>Editar</Link>{" "}
-                        <Button variant="danger" onClick={() => handleDelete(stage.id)}>
-                          Eliminar
-                        </Button>{" "}
-                        <Button
-                          disabled={isFirstOverall}
-                          onClick={() => handleMove(stage.id, stage.order - 1)}
-                        >
-                          Subir
-                        </Button>{" "}
-                        <Button
-                          disabled={isLastOverall}
-                          onClick={() => handleMove(stage.id, stage.order + 1)}
-                        >
-                          Bajar
-                        </Button>
+                        {/* Subir/Bajar quedan AFUERA del menú a propósito: reordenar
+                          suele ser varios clicks seguidos (abrir el menú cada vez lo
+                          haría tedioso) y su disabled —primera/última etapa— se ve
+                          de un vistazo. Editar/Eliminar sí van al menú
+                          (docs/frontend-cambios-pendientes.md §8). Los tests ubican
+                          Subir/Bajar por nombre accesible dentro de la fila. */}
+                        <div className="ds-row-actions">
+                          <Button
+                            disabled={isFirstOverall}
+                            onClick={() => handleMove(stage.id, stage.order - 1)}
+                          >
+                            Subir
+                          </Button>
+                          <Button
+                            disabled={isLastOverall}
+                            onClick={() => handleMove(stage.id, stage.order + 1)}
+                          >
+                            Bajar
+                          </Button>
+                          <ActionsMenu
+                            actions={[
+                              {
+                                label: "Editar",
+                                to: `/pipelines/${pipelineId}/stages/${stage.id}/edit`,
+                              },
+                              {
+                                label: "Eliminar",
+                                onClick: () => handleDelete(stage.id),
+                                destructive: true,
+                              },
+                            ]}
+                          />
+                        </div>
                       </td>
                     ) : null}
                   </tr>

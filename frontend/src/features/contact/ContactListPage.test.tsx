@@ -10,6 +10,7 @@ import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { cellByHeader } from "../../test/cellByHeader";
+import { openActionsMenu } from "../../test/openActionsMenu";
 import { ContactListPage } from "./ContactListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { ContactListResponse } from "./types";
@@ -268,6 +269,8 @@ describe("ContactListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
     expect(screen.getByText("Nuevo contacto")).toBeInTheDocument();
+    // Editar/Eliminar viven en el menú de 3 puntos de la fila (§8).
+    await openActionsMenu(userEvent.setup());
     expect(screen.getByText("Editar")).toBeInTheDocument();
     expect(screen.getByText("Eliminar")).toBeInTheDocument();
   });
@@ -293,6 +296,7 @@ describe("ContactListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     expect(window.confirm).toHaveBeenCalled();
@@ -320,6 +324,7 @@ describe("ContactListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     await waitFor(() => expect(deletedId).toBe("ct-target"));
@@ -345,6 +350,7 @@ describe("ContactListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"));

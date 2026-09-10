@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -275,10 +276,16 @@ export function ContactListPage() {
                     ) : null}
                     {isAdmin ? (
                       <td>
-                        <Link to={`/contacts/${contact.id}/edit`}>Editar</Link>{" "}
-                        <Button variant="danger" onClick={() => handleDelete(contact.id)}>
-                          Eliminar
-                        </Button>
+                        <ActionsMenu
+                          actions={[
+                            { label: "Editar", to: `/contacts/${contact.id}/edit` },
+                            {
+                              label: "Eliminar",
+                              onClick: () => handleDelete(contact.id),
+                              destructive: true,
+                            },
+                          ]}
+                        />
                       </td>
                     ) : null}
                   </tr>

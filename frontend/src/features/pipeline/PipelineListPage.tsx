@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
-import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -139,10 +139,16 @@ export function PipelineListPage() {
                   </td>
                   {isAdmin ? (
                     <td>
-                      <Link to={`/pipelines/${pipeline.id}/edit`}>Editar</Link>{" "}
-                      <Button variant="danger" onClick={() => handleDelete(pipeline.id)}>
-                        Eliminar
-                      </Button>
+                      <ActionsMenu
+                        actions={[
+                          { label: "Editar", to: `/pipelines/${pipeline.id}/edit` },
+                          {
+                            label: "Eliminar",
+                            onClick: () => handleDelete(pipeline.id),
+                            destructive: true,
+                          },
+                        ]}
+                      />
                     </td>
                   ) : null}
                 </tr>

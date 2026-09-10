@@ -10,6 +10,7 @@ import { cellByHeader } from "../../test/cellByHeader";
 import { makeBranch } from "../../test/branchFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { makeVehicleListItem } from "../../test/vehicleFixtures";
+import { openActionsMenu } from "../../test/openActionsMenu";
 import { VehicleListPage } from "./VehicleListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { VehicleListItem } from "./types";
@@ -150,6 +151,9 @@ describe("VehicleListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Toyota Corolla 2020 XEi")).toBeInTheDocument());
     expect(screen.getByText("Nueva unidad")).toHaveAttribute("href", "/vehicles/new");
+    // Editar/Eliminar viven en el menú de 3 puntos de la fila (§8); Editar
+    // sigue siendo un link con href real.
+    await openActionsMenu(userEvent.setup());
     expect(screen.getByText("Editar")).toHaveAttribute("href", "/vehicles/v1/edit");
     expect(screen.getByText("Eliminar")).toBeInTheDocument();
     // El código interno va chico debajo del título de la unidad.
@@ -389,7 +393,7 @@ describe("VehicleListPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Eliminar")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     expect(window.confirm).toHaveBeenCalled();
@@ -413,7 +417,7 @@ describe("VehicleListPage", () => {
     const user = userEvent.setup();
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Eliminar")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     await waitFor(() => expect(deletedId).toBe("v-target"));

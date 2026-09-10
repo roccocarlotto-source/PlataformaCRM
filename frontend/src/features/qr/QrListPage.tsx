@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, Eye, Link2, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -246,35 +247,47 @@ export function QrListPage() {
                     )}
                   </td>
                   <td>
-                    {/* Mismos botones, mismos textos y mismo nombre accesible que
-                      antes; solo cambia el contenedor (.ds-row-actions) y el
-                      ícono decorativo delante de cada uno. */}
-                    <div className="ds-row-actions">
-                      <Button onClick={() => setDialogo({ kind: "imagen", qr })}>
-                        <Eye {...ICONO} />
-                        Ver imagen
-                      </Button>
-                      <Button onClick={() => setDialogo({ kind: "enviar", qr })}>
-                        <Send {...ICONO} />
-                        Enviar
-                      </Button>
-                      <Button onClick={() => void handleCopyLink(qr)}>
-                        {copiadoId === qr.id ? <Check {...ICONO} /> : <Link2 {...ICONO} />}
-                        {copiadoId === qr.id ? "¡Copiado!" : "Copiar link"}
-                      </Button>
-                      {isAdmin ? (
-                        <>
-                          <Button onClick={() => setDialogo({ kind: "editar", qr })}>
-                            <Pencil {...ICONO} />
-                            Editar
-                          </Button>
-                          <Button variant="danger" onClick={() => handleDelete(qr.id)}>
-                            <Trash2 {...ICONO} />
-                            Eliminar
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
+                    {/* Mismas acciones, mismos textos y mismos íconos que antes;
+                      solo cambia el contenedor: un menú de 3 puntos en vez de la
+                      fila de botones (docs/frontend-cambios-pendientes.md §8).
+                      "Copiar link" lleva keepOpen porque su confirmación es el
+                      propio ítem pasando a decir "¡Copiado!": cerrar el menú al
+                      elegirla la escondería. */}
+                    <ActionsMenu
+                      actions={[
+                        {
+                          label: "Ver imagen",
+                          icon: <Eye {...ICONO} />,
+                          onClick: () => setDialogo({ kind: "imagen", qr }),
+                        },
+                        {
+                          label: "Enviar",
+                          icon: <Send {...ICONO} />,
+                          onClick: () => setDialogo({ kind: "enviar", qr }),
+                        },
+                        {
+                          label: copiadoId === qr.id ? "¡Copiado!" : "Copiar link",
+                          icon: copiadoId === qr.id ? <Check {...ICONO} /> : <Link2 {...ICONO} />,
+                          onClick: () => void handleCopyLink(qr),
+                          keepOpen: true,
+                        },
+                        ...(isAdmin
+                          ? [
+                              {
+                                label: "Editar",
+                                icon: <Pencil {...ICONO} />,
+                                onClick: () => setDialogo({ kind: "editar", qr }),
+                              },
+                              {
+                                label: "Eliminar",
+                                icon: <Trash2 {...ICONO} />,
+                                onClick: () => handleDelete(qr.id),
+                                destructive: true,
+                              },
+                            ]
+                          : []),
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}
