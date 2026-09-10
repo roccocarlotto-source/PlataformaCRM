@@ -588,6 +588,23 @@ definidos en `prisma/sql/manual_constraints.sql` (líneas ~110-120) y ya aplicad
 
 **Tests:** backend — `stage.service.test.ts` sin los dos tests de P2002 won/lost (quedan nombre, target string, genérico, CHECK y relanzado); `stage.service.integration-test.ts` con el test nuevo de §13 (6/6 en local contra el Supabase local). Frontend — `StageFormPage.test.tsx`: S22 afirma además que no hay botón cuando el campo arranca visible; S24 pasa a ejemplificar el 409 con el nombre duplicado (el mensaje de "segunda ganada" ya no existe); nuevos S26 (segunda Ganada se guarda y navega sin error), S27 (creación: oculta, revela con foco y `step="any"`, el botón desaparece, el valor viaja en el POST) y S28 (edición con probabilidad 0 arranca oculta). `PipelineFormPage.test.tsx`: "Agregar etapa" ahora revela el campo antes de tipear y afirma que queda visible y vacío tras guardar; nuevos: "Nueva etapa" oculta y POST sin `probability` (la fila muestra 0%); revelar con foco; Editar oculta con 0 y visible con 25.5 (dentro de la fila, con el foco en el nombre); segunda Ganada con badge en las dos filas, sin alert y con toast. `mockStagesServer` ahora copia `isWon`/`isLost` en POST y PATCH, sin ninguna regla de exclusividad, como el backend.
 
+---
+
+## 14. Columna Probabilidad: mostrar un guión en vez de "0%" cuando no se cargó ningún valor
+
+**Estado:** hecho
+
+**Dónde se vio:** `/pipelines/:id/edit` (editor de etapas integrado, §11) y `/pipelines/:id/stages` (la pantalla de etapas de siempre) — la columna "Probabilidad" de la tabla de etapas en las dos.
+
+**Origen:** desde que Probabilidad quedó oculta por defecto detrás de "+ Agregar probabilidad" (ítem 13), una etapa donde nunca se abrió ese campo se guarda con probabilidad 0 (el default del backend) y hoy se ve en la tabla como "0%", indistinguible visualmente de una etapa donde alguien deliberadamente puso 0%. Se pidió mostrar un guión ("-") en la columna Probabilidad cuando el valor es 0, para no confundirlo con un 0% real cargado a propósito.
+
+**Confirmado — limitación real a documentar, no a resolver acá:** el modelo de datos no distingue "nunca se tocó el campo" de "se cargó 0 a propósito" — las dos situaciones guardan `probability: 0` en la base, sin ningún flag que las diferencie. Así que el guión va a aparecer siempre que el valor sea 0, sin importar si alguien lo puso a propósito o nunca lo tocó. Es una limitación aceptada, no un bug a arreglar en este ítem — si en el futuro hace falta distinguir los dos casos, sería un cambio de modelo de datos aparte.
+
+**Archivo:** `frontend/src/features/stage/probability.ts`, función `formatProbability` (compartida por `StageListPage.tsx` y `StageEditor.tsx`, así que el cambio aplica a las dos pantallas con un solo edit).
+
+**Verificado al implementar:** `formatProbability` sigue siendo el único lugar que arma el texto "N%" de la columna en las dos pantallas (`StageListPage.tsx` y `StageEditor.tsx`); `probabilityWidth` solo alimenta el ancho de la barra y no se tocó — con 0 la barra sigue vacía, que es lo esperado. El cambio es de una línea de decisión: `Number(probability) === 0` devuelve `"-"`, cualquier otro valor sigue como `"N%"`. Ningún otro texto de la app cambia.
+
+**Tests:** nuevo `probability.test.ts` (función pura: "0", "0.0", "0.00" → guión; 37.5, 25.50, 100, 0.5 → "N%"; y `probabilityWidth` con 0 sigue en 0). `StageListPage.test.tsx`: nuevo S13b (fila con probabilidad 0 muestra guión y no "0%"). `PipelineFormPage.test.tsx`: la aserción de "Nueva etapa sin abrir Probabilidad" pasa de esperar "0%" a esperar el guión y afirmar que "0%" no aparece.
 
 ---
 

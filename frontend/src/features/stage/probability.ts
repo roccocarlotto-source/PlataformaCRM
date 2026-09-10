@@ -7,8 +7,17 @@
 // probability siempre llega como string desde la API (Prisma.Decimal,
 // ver types.ts) — Number() antes de formatear, nunca .toFixed() directo
 // sobre el valor crudo.
+//
+// Un 0 se muestra como guión, no como "0%" (docs/frontend-cambios-pendientes.md
+// §14): desde que el campo está oculto por defecto (§13), la mayoría de los 0
+// son etapas donde nunca se abrió Probabilidad, no un 0% cargado a propósito.
+// Limitación aceptada: el modelo de datos no distingue los dos casos (los dos
+// guardan probability: 0), así que el guión aplica a cualquier 0. Solo cambia
+// el texto; la barra (probabilityWidth) sigue dibujándose vacía con 0.
 export function formatProbability(probability: string): string {
-  return `${Number(probability)}%`;
+  const value = Number(probability);
+  if (value === 0) return "-";
+  return `${value}%`;
 }
 
 // Ancho de la barra de probabilidad: el dato real acotado a 0–100. El
