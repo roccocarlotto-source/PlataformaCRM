@@ -16,6 +16,7 @@ import { ProtectedRoute } from "./ProtectedRoute";
 import { CompanyFormPage } from "../features/company/CompanyFormPage";
 import { ContactFormPage } from "../features/contact/ContactFormPage";
 import { PipelineFormPage } from "../features/pipeline/PipelineFormPage";
+import { ToastProvider } from "../design-system/Toast";
 import { StageFormPage } from "../features/stage/StageFormPage";
 import { OpportunityFormPage } from "../features/opportunity/OpportunityFormPage";
 import { ActivityFormPage } from "../features/activity/ActivityFormPage";
@@ -204,22 +205,26 @@ describe("AdminRoute — protección visual de rutas de escritura de Contact", (
 // específico de Pipeline, no solo el mecanismo genérico.
 const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
 
+// ToastProvider como en App.tsx: PipelineFormPage llama a useToast() (ítem 12
+// de docs/frontend-cambios-pendientes.md) y sin el provider falla ruidosamente.
 function renderPipelineRouteAt(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialPath]}>
-        <Routes>
-          <Route element={<ProtectedRoute />}>
-            <Route path="/companies" element={<div>lista de empresas</div>} />
-            <Route path="/pipelines" element={<div>lista de pipelines</div>} />
-            <Route element={<AdminRoute />}>
-              <Route path="/pipelines/new" element={<PipelineFormPage />} />
-              <Route path="/pipelines/:id/edit" element={<PipelineFormPage />} />
+      <ToastProvider>
+        <MemoryRouter initialEntries={[initialPath]}>
+          <Routes>
+            <Route element={<ProtectedRoute />}>
+              <Route path="/companies" element={<div>lista de empresas</div>} />
+              <Route path="/pipelines" element={<div>lista de pipelines</div>} />
+              <Route element={<AdminRoute />}>
+                <Route path="/pipelines/new" element={<PipelineFormPage />} />
+                <Route path="/pipelines/:id/edit" element={<PipelineFormPage />} />
+              </Route>
             </Route>
-          </Route>
-        </Routes>
-      </MemoryRouter>
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -261,7 +266,17 @@ describe("AdminRoute — protección visual de rutas de escritura de Pipeline", 
 
   it("ADMIN sí accede a /pipelines/:id/edit", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    server.use(http.get(`${pipelinesUrl}/:id`, () => HttpResponse.json(makePipeline())));
+    server.use(
+      http.get(`${pipelinesUrl}/:id`, () => HttpResponse.json(makePipeline())),
+      // En edición la página monta el editor de etapas integrado (ítem 11),
+      // que pide el listado de etapas del pipeline.
+      http.get(`${env.apiUrl}/api/stages`, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        }),
+      ),
+    );
 
     renderPipelineRouteAt("/pipelines/pl1/edit");
 
