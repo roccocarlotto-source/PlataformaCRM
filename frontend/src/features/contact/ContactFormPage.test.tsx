@@ -87,6 +87,46 @@ describe("ContactFormPage", () => {
     });
   });
 
+  it("create: el select Etapa muestra los rótulos traducidos y manda el valor interno del enum", async () => {
+    // Ítem 9 de docs/frontend-cambios-pendientes.md: el texto de cada opción
+    // sale de labels.ts, pero el value sigue siendo el enum crudo — es lo que
+    // viaja en el payload.
+    let postedBody: unknown;
+    server.use(
+      usersHandler(),
+      http.post(contactsUrl, async ({ request }) => {
+        postedBody = await request.json();
+        return HttpResponse.json(makeContact(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/contacts/new");
+
+    const options = Array.from(screen.getByLabelText("Etapa").querySelectorAll("option")).map(
+      (option) => [option.value, option.textContent],
+    );
+    expect(options).toEqual([
+      ["LEAD", "Nuevo"],
+      ["MQL", "Calificado (Marketing)"],
+      ["SQL", "Calificado (Ventas)"],
+      ["CUSTOMER", "Cliente"],
+      ["CHURNED", "Perdido"],
+    ]);
+
+    await user.type(screen.getByLabelText("Nombre"), "Nueva");
+    await user.type(screen.getByLabelText("Apellido"), "Persona");
+    await user.selectOptions(screen.getByLabelText("Etapa"), "Cliente");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
+    expect(postedBody).toEqual({
+      firstName: "Nueva",
+      lastName: "Persona",
+      lifecycleStage: "CUSTOMER",
+    });
+  });
+
   it("edit mode: carga detail, hidrata companyId real, submit usa update sobre el id correcto, navega tras el éxito", async () => {
     let patchedId: string | undefined;
     let patchedBody: unknown;

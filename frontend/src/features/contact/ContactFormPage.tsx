@@ -7,6 +7,7 @@ import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { CompanySelect } from "../company/CompanySelect";
 import { UserSelect } from "../user/UserSelect";
+import { LIFECYCLE_STAGE_LABELS, LIFECYCLE_STAGES } from "./labels";
 import { useCreateContact, useUpdateContact } from "./mutations";
 import { useContact } from "./queries";
 import type { Contact, CreateContactInput, LifecycleStage } from "./types";
@@ -217,11 +218,11 @@ export function ContactFormPage() {
                   setValues({ ...values, lifecycleStage: event.target.value as LifecycleStage })
                 }
               >
-                <option value="LEAD">LEAD</option>
-                <option value="MQL">MQL</option>
-                <option value="SQL">SQL</option>
-                <option value="CUSTOMER">CUSTOMER</option>
-                <option value="CHURNED">CHURNED</option>
+                {LIFECYCLE_STAGES.map((stage) => (
+                  <option key={stage} value={stage}>
+                    {LIFECYCLE_STAGE_LABELS[stage]}
+                  </option>
+                ))}
               </select>
             </FormField>
             <UserSelect

@@ -200,3 +200,48 @@ Como consecuencia, en esa misma rama:
 - se ajustó el comentario de `AcceptInvitationPage.test.tsx` (líneas ~192-198) que justificaba el test de esa rama con la persistencia en `localStorage`. El test en sí sigue pasando sin cambios: usa mocks de auth, no depende de `localStorage`/`sessionStorage` real.
 
 **Por arrastre:** `docs/project-overview.md` (sección 4, párrafo "Cierre del navegador entre accept exitoso y password pendiente") describía la persistencia en `localStorage` como hecho vigente; se le agregó una nota de "superado" apuntando a este ítem, sin reescribir el histórico.
+
+
+---
+
+## 9. Traducir las etapas del ciclo de vida de Contacto (Etapa)
+
+**Estado:** hecho
+
+**Dónde se vio:** formulario "Nuevo contacto" / "Editar contacto" (`/contacts/new`, `/contacts/:id/edit`), campo "Etapa"; y en `/contacts`, el filtro "Etapa" de la fila de filtros y la columna "Etapa" de la tabla.
+
+**Contexto:** el campo "Etapa" de Contacto (`lifecycleStage`) mostraba en el select del formulario, en el filtro y en el badge de la columna del listado los valores crudos del enum, en inglés/siglas de marketing: `LEAD`, `MQL`, `SQL`, `CUSTOMER`, `CHURNED` — sin ninguna explicación. Ni Rocco mismo sabía qué significaban al verlos en el formulario "Nuevo contacto". Son las etapas clásicas de un embudo de marketing/ventas:
+
+- `LEAD`: contacto sin calificar todavía.
+- `MQL` ("Marketing Qualified Lead"): lo calificó marketing.
+- `SQL` ("Sales Qualified Lead"): lo calificó/confirmó ventas como oportunidad real.
+- `CUSTOMER`: ya es cliente.
+- `CHURNED`: fue cliente y se perdió.
+
+Este campo es **exclusivo de Contact**: verificado que `LifecycleStage` (`frontend/src/features/contact/types.ts`, línea 5) no se usa en ningún otro feature de la app. Oportunidad tiene su propio concepto de "Stage" (`Stage`, ligado a `Pipeline`), que es algo completamente distinto y no se toca acá.
+
+**Traducciones:**
+
+| Valor interno (sin cambios: sigue siendo esto en la API y en la base) | Texto nuevo en la UI |
+|---|---|
+| `LEAD` | Nuevo |
+| `MQL` | Calificado (Marketing) |
+| `SQL` | Calificado (Ventas) |
+| `CUSTOMER` | Cliente |
+| `CHURNED` | Perdido |
+
+**Decisiones ya tomadas:**
+
+- **No cambia el valor interno del enum.** Lo que se manda a la API y se guarda en la base sigue siendo `LEAD`/`MQL`/etc.; solo cambia el texto que ve la persona. El `value` de cada `<option>` sigue siendo el valor interno.
+- **No cambian los colores de los badges.** `LIFECYCLE_BADGE_VARIANT` en `ContactListPage.tsx` (LEAD/MQL neutral, SQL info, CUSTOMER success, CHURNED danger) se mantiene tal cual; solo cambia el texto que va adentro del badge.
+- **Un único mapeo, definido una sola vez.** Se creó `frontend/src/features/contact/labels.ts` con `LIFECYCLE_STAGE_LABELS: Record<LifecycleStage, string>`, siguiendo el mismo patrón que ya existe en `features/opportunity/labels.ts` (`LEAD_SOURCE_LABELS`, `FINANCING_TYPE_LABELS`) y `features/vehicle/labels.ts` — el archivo `labels.ts` por feature es el precedente más cercano, por eso se eligió ese lugar y ese nombre (plural, como los demás mapas) en vez de `ETIQUETA_DE_TIPO` de `SourceListPage.tsx` o de meterlo en `types.ts`. `Record<Enum, string>` hace que un valor nuevo del enum sin rótulo no compile. El mismo archivo exporta `LIFECYCLE_STAGES` (las claves del mapa, en el orden del embudo), que reemplaza al array literal que `ContactListPage.tsx` tenía para el filtro: agregar un valor al mapa es agregar la opción en el form y en el filtro a la vez.
+
+**Dónde se aplica (3 lugares, mismo mapeo importado, sin duplicar):**
+
+| Archivo | Lugar | Antes | Después |
+|---|---|---|---|
+| `frontend/src/features/contact/ContactFormPage.tsx` | select "Etapa" (~línea 220) | cinco `<option value="LEAD">LEAD</option>` literales | `LIFECYCLE_STAGES.map(...)` con `value={stage}` y texto `LIFECYCLE_STAGE_LABELS[stage]` |
+| `frontend/src/features/contact/ContactListPage.tsx` | filtro "Etapa" (~línea 131) | `{stage}` crudo como texto de la opción | `LIFECYCLE_STAGE_LABELS[stage]`, `value={stage}` sin cambios |
+| `frontend/src/features/contact/ContactListPage.tsx` | Badge de la columna "Etapa" (~línea 259) | `{contact.lifecycleStage}` crudo | `LIFECYCLE_STAGE_LABELS[contact.lifecycleStage]` |
+
+**Tests:** los tests existentes de `ContactListPage.test.tsx`, `ContactFormPage.test.tsx` y `api.test.ts` referencian `LEAD`/`MQL`/`CUSTOMER` únicamente como valor de datos (mocks, payloads esperados, query params, `selectOptions` por `value`), no como texto visible en pantalla — siguen siendo correctos tal cual y no se tocaron. Se agregaron dos tests nuevos que fijan el contrato de este ítem: en el listado, que la columna y el filtro muestran el rótulo traducido y que elegir "Calificado (Ventas)" manda `lifecycleStage=SQL`; en el formulario, que las opciones son `[value interno, rótulo]` en el orden del embudo y que elegir "Cliente" manda `lifecycleStage: "CUSTOMER"` en el payload.

@@ -123,6 +123,48 @@ describe("ContactListPage", () => {
     );
   });
 
+  it("la etapa se muestra traducida (columna y filtro) y el valor interno del enum viaja intacto a la API", async () => {
+    // Ítem 9 de docs/frontend-cambios-pendientes.md: la UI muestra el rótulo
+    // en español (labels.ts), pero el value de cada <option> y lo que se manda
+    // como lifecycleStage siguen siendo los valores crudos del enum.
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const captured: URL[] = [];
+    const listResponse: ContactListResponse = {
+      data: [makeContact({ lifecycleStage: "CHURNED" })],
+      pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+    };
+    server.use(
+      usersHandler(),
+      http.get(contactsUrl, ({ request }) => {
+        captured.push(new URL(request.url));
+        return HttpResponse.json(listResponse);
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
+
+    const row = screen.getByText("Juana Pérez").closest("tr");
+    expect(cellByHeader(row, "Etapa")).toHaveTextContent("Perdido");
+    expect(cellByHeader(row, "Etapa")).not.toHaveTextContent("CHURNED");
+
+    const options = Array.from(screen.getByLabelText("Etapa").querySelectorAll("option")).map(
+      (option) => [option.value, option.textContent],
+    );
+    expect(options).toEqual([
+      ["", "Todas"],
+      ["LEAD", "Nuevo"],
+      ["MQL", "Calificado (Marketing)"],
+      ["SQL", "Calificado (Ventas)"],
+      ["CUSTOMER", "Cliente"],
+      ["CHURNED", "Perdido"],
+    ]);
+
+    await user.selectOptions(screen.getByLabelText("Etapa"), "Calificado (Ventas)");
+    await waitFor(() => expect(captured.at(-1)?.searchParams.get("lifecycleStage")).toBe("SQL"));
+  });
+
   it("search/lifecycleStage/orden/paginación producen la query esperada", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const captured: URL[] = [];
