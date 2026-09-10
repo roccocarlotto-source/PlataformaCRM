@@ -504,18 +504,21 @@ fieldset.ds-field {
 
 /* El input de un selector de búsqueda no puede ser más angosto que su
    placeholder. Sin esto quedaba en su ancho intrínseco (el de size=20, 171px
-   medidos con Public Sans 14px), más corto que cualquiera de los placeholders
-   que hoy se usan como filtro: "Buscar empresa por nombre…" 194px, "Buscar
+   medidos con Public Sans 14px), más corto que los placeholders que en ese
+   momento se usaban como filtro ("Buscar empresa por nombre…" 194px, "Buscar
    oportunidad por título…" 201px, "Buscar contacto por nombre o email…"
-   244px. Se veía "Buscar empresa por nomb…" siempre, no solo con la fila
-   apretada. El mínimo va en el input y no en la píldora: la píldora reparte
-   su ancho entre rótulo e input, y el rótulo cambia por pantalla ("Filtrar
-   por empresa", "Filtrar por contacto"…), así que un mínimo en ella no
-   garantiza nada para el texto. Con el input fijo la píldora crece a rótulo
-   + input y es la fila (.ds-filters, flex-wrap: wrap) la que pasa la píldora
-   a la línea siguiente si no entra. 260px cubre el placeholder más largo con
-   aire para el cursor; un selector nuevo con uno más largo lo sube acá. Los
-   <select> de la misma píldora (BranchSelect, PipelineSelect) no se tocan. */
+   244px; §5 de docs/frontend-cambios-pendientes.md los acortó después a
+   "Buscar por nombre…", "Buscar por título…" y "Buscar por nombre o email…",
+   que entran de sobra en el mismo mínimo). Se veía "Buscar empresa por
+   nomb…" siempre, no solo con la fila apretada. El mínimo va en el input y
+   no en la píldora: la píldora reparte su ancho entre rótulo e input, y el
+   rótulo cambia por pantalla ("Empresa", "Pipeline"…), así que un mínimo en
+   ella no garantiza nada para el texto. Con el input fijo la píldora crece a
+   rótulo + input y es la fila (.ds-filters, flex-wrap: wrap) la que pasa la
+   píldora a la línea siguiente si no entra. 260px cubre el placeholder más
+   largo con aire para el cursor; un selector nuevo con uno más largo lo sube
+   acá. Los <select> de la misma píldora (BranchSelect, PipelineSelect) no se
+   tocan. */
 .ds-filters div:has(> label[for]) > input,
 .ds-board-toolbar div:has(> label[for]) > input {
   min-width: 260px;

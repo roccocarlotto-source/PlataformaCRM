@@ -166,7 +166,7 @@ export function ActivityListPage() {
           <div>
             <CompanySelect
               id="activity-filter-company"
-              label="Filtrar por empresa"
+              label="Empresa"
               value={companyId}
               onChange={(id) => {
                 setCompanyId(id);

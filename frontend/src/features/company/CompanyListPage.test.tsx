@@ -153,7 +153,7 @@ describe("CompanyListPage", () => {
     await user.type(screen.getByPlaceholderText("Buscar por nombre"), "acme");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("search")).toBe("acme"));
 
-    await user.type(screen.getByPlaceholderText("Filtrar por industria"), "tech");
+    await user.type(screen.getByLabelText("Industria"), "tech");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("industry")).toBe("tech"));
 
     await user.selectOptions(screen.getByLabelText("Ordenar por"), "name");

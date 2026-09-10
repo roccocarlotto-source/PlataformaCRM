@@ -30,7 +30,7 @@ export function PipelineSelect({ id, label, value, onChange }: PipelineSelectPro
       {pipelinesQuery.isSuccess ? (
         <select id={id} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
           <option value="" disabled>
-            Elegí un pipeline…
+            Elegí uno…
           </option>
           {pipelinesQuery.data.data.map((pipeline) => (
             <option key={pipeline.id} value={pipeline.id}>

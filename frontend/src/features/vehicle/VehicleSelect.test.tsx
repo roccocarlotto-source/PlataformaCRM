@@ -13,7 +13,7 @@ vi.mock("../../auth/getAccessToken", () => ({
 }));
 
 const baseUrl = `${env.apiUrl}/api/vehicles`;
-const PLACEHOLDER = "Buscar unidad disponible por marca, modelo, patente, VIN o código…";
+const PLACEHOLDER = "Buscar disponible por marca, modelo, patente, VIN o código…";
 
 function renderSelect(value: string | undefined, onChange = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

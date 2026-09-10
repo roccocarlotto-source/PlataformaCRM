@@ -179,7 +179,7 @@ describe("ContactListPage", () => {
     renderPage();
     await waitFor(() => expect(capturedContacts.length).toBeGreaterThan(0));
 
-    await user.type(screen.getByPlaceholderText("Buscar empresa por nombre…"), "acme");
+    await user.type(screen.getByPlaceholderText("Buscar por nombre…"), "acme");
     await waitFor(() => expect(screen.getByText("Acme Corp")).toBeInTheDocument());
     await user.click(screen.getByText("Acme Corp"));
 

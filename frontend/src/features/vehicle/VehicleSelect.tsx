@@ -81,7 +81,7 @@ export function VehicleSelect({ id, label, value, onChange }: VehicleSelectProps
         type="text"
         value={term}
         onChange={(event) => setTerm(event.target.value)}
-        placeholder="Buscar unidad disponible por marca, modelo, patente, VIN o código…"
+        placeholder="Buscar disponible por marca, modelo, patente, VIN o código…"
       />
       {debouncedTerm ? (
         <ul>

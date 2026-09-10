@@ -59,7 +59,7 @@ describe("ContactSelect", () => {
     const user = userEvent.setup();
 
     renderSelect(queryClient, undefined);
-    await user.type(screen.getByPlaceholderText("Buscar contacto por nombre o email…"), "ana");
+    await user.type(screen.getByPlaceholderText("Buscar por nombre o email…"), "ana");
 
     await waitFor(() => expect(captured.length).toBeGreaterThan(0));
     expect(captured[0].searchParams.get("search")).toBe("ana");
@@ -82,7 +82,7 @@ describe("ContactSelect", () => {
     const user = userEvent.setup();
     const onChange = renderSelect(queryClient, undefined);
 
-    await user.type(screen.getByPlaceholderText("Buscar contacto por nombre o email…"), "ana");
+    await user.type(screen.getByPlaceholderText("Buscar por nombre o email…"), "ana");
     await waitFor(() => expect(screen.getByText("Ana Pérez")).toBeInTheDocument());
     await user.click(screen.getByText("Ana Pérez"));
 
@@ -102,7 +102,7 @@ describe("ContactSelect", () => {
     const user = userEvent.setup();
 
     renderSelect(queryClient, undefined);
-    await user.type(screen.getByPlaceholderText("Buscar contacto por nombre o email…"), "ana");
+    await user.type(screen.getByPlaceholderText("Buscar por nombre o email…"), "ana");
     await waitFor(() => expect(screen.getByText("Ana Pérez")).toBeInTheDocument());
 
     await waitFor(() =>
@@ -149,7 +149,7 @@ describe("ContactSelect", () => {
     const user = userEvent.setup();
     const onChange = renderSelect(queryClient, undefined);
 
-    await user.type(screen.getByPlaceholderText("Buscar contacto por nombre o email…"), "carla");
+    await user.type(screen.getByPlaceholderText("Buscar por nombre o email…"), "carla");
     await waitFor(() => expect(screen.getByText("Carla Núñez")).toBeInTheDocument());
     await user.click(screen.getByText("Carla Núñez"));
 

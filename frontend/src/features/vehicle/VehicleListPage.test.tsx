@@ -352,10 +352,10 @@ describe("VehicleListPage", () => {
     await user.selectOptions(screen.getByLabelText("Condición"), "NEW");
     await waitFor(() => expect(lastListQuery()?.get("condition")).toBe("NEW"));
 
-    await user.type(screen.getByPlaceholderText("Filtrar por marca"), "Toyota");
+    await user.type(screen.getByLabelText("Marca"), "Toyota");
     await waitFor(() => expect(lastListQuery()?.get("make")).toBe("Toyota"));
 
-    await user.type(screen.getByPlaceholderText("Filtrar por modelo"), "Corolla");
+    await user.type(screen.getByLabelText("Modelo"), "Corolla");
     await waitFor(() => expect(lastListQuery()?.get("model")).toBe("Corolla"));
 
     await user.type(screen.getByLabelText("Precio mín. (USD)"), "1000");

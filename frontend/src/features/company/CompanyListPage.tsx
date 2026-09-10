@@ -98,7 +98,6 @@ export function CompanyListPage() {
             Industria
             <input
               type="text"
-              placeholder="Filtrar por industria"
               value={industry}
               onChange={(event) => {
                 setIndustry(event.target.value);
