@@ -151,6 +151,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // mismo criterio que el resto de los módulos, ya no un caso especial.
     queryFn: ({ signal }) => request<MeResponse>("/me", { getAccessToken, signal }),
     enabled: identityKey != null,
+    // 5 minutos en vez de los 30 s del default global (lib/queryClient.ts,
+    // docs/frontend-cambios-pendientes.md §16 Parte C): rol y organización
+    // casi nunca cambian durante una sesión, y cada refetch de fondo por foco
+    // de ventana era un round trip que no aportaba nada. La invalidación real
+    // no depende de esto: un 401 en cualquier request dispara el logout
+    // (registerUnauthorizedHandler), un cambio de identidad limpia el cache
+    // (queryClient.clear()) y retryProfile() usa refetch(), que ignora
+    // staleTime.
+    staleTime: 5 * 60 * 1000,
   });
 
   const status: AuthStatus =

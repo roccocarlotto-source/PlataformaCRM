@@ -51,10 +51,19 @@ app.use((_req, res, next) => {
 // y encima expondría la clave de ingesta a vivir en JavaScript de cara al
 // público, que es un problema bastante peor que un preflight fallado.
 // Documentado en §9.7 de docs/ingestion-architecture.md.
+//
+// maxAge (docs/frontend-cambios-pendientes.md §16 Parte B): sin él la
+// respuesta al preflight no lleva Access-Control-Max-Age y el navegador manda
+// un OPTIONS nuevo antes de CADA request mutante, aunque repita el mismo
+// origen/método/headers segundos después. 600 s (10 minutos) es el valor
+// conservador de siempre. No cambia la política: mismos orígenes, mismas
+// credenciales — solo por cuánto tiempo el navegador puede recordar la
+// decisión.
 app.use(
   cors({
     origin: env.CORS_ORIGIN.split(",").map((origin) => origin.trim()),
     credentials: true,
+    maxAge: 600,
   }),
 );
 app.use(compression());

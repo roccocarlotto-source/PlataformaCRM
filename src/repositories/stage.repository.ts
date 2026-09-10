@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 export interface StageFilters {
@@ -219,46 +219,81 @@ export async function shiftDownAfter(
 // final de la transacción — un solo UPDATE con el order "final" de otro
 // stage todavía ocupado la rechazaría.
 //
+// CADA FASE ES UNA SOLA SENTENCIA, no N (docs/frontend-cambios-pendientes.md
+// §16 Parte A): antes cada fase era un `for` con un updateMany por fila,
+// awaited uno atrás del otro — 2×N round trips a Postgres por movimiento,
+// 16 con un pipeline de 8 etapas. Ahora cada fase es un UPDATE con un CASE
+// por id, así que el reindexado cuesta 2 round trips sin importar N. Las dos
+// fases NO se pueden fundir en un solo UPDATE: un índice único no diferible
+// (y un índice parcial nunca puede ser DEFERRABLE) se verifica fila por fila
+// también dentro de una misma sentencia, así que el clásico
+// `SET "order" = CASE ...` que intercambia dos posiciones falla con
+// duplicate key a mitad de camino. El paso intermedio a negativos sigue
+// siendo lo que lo evita.
+//
 // pipelineId en el WHERE de cada escritura (M4): a diferencia de
 // shiftUpFrom/shiftDownAfter, esta función no hace ninguna query propia
 // para derivar el set de filas a tocar — recibe orderedStageIds ya armado
-// por el caller y escribía directo por id. organizationId no es la
+// por el caller y escribe directo por id. organizationId no es la
 // frontera correcta acá: Stage.organizationId está denormalizado desde
 // pipeline.organizationId y un stage nunca cambia de pipeline vía la API
 // (ver docs/project-overview.md sección 4), así que pipelineId ya es el
 // scope mínimo y suficiente — agregar organizationId además no angostaría
 // nada, sería estético. Si algún id de orderedStageIds no pertenece
 // realmente a pipelineId (bug del caller, condición de carrera, o un id
-// ajeno), la escritura de esa fila afecta 0 filas — count !== 1 aborta la
-// transacción con un error, en vez de reindexar en silencio el pipeline
-// (potencialmente de otra organización) al que ese id sí pertenece.
+// ajeno), esa fila no entra en el WHERE y la sentencia afecta menos filas
+// que ids recibió — count !== orderedStageIds.length aborta la transacción
+// con un error, en vez de reindexar en silencio el pipeline (potencialmente
+// de otra organización) al que ese id sí pertenece. Mismo criterio que el
+// count !== 1 por fila que había antes; lo que se pierde es saber QUÉ id
+// falló, que ninguna capa de arriba usaba.
+//
+// updated_at = now() a mano: updateMany lo bumpeaba solo por el @updatedAt
+// del schema, y $executeRaw no pasa por Prisma — sin esto, el reindexado
+// dejaría de tocar updatedAt y eso sí sería un cambio observable en la API.
 export async function reindexStages(
   pipelineId: string,
   orderedStageIds: string[],
   db: Db,
 ): Promise<void> {
-  for (let i = 0; i < orderedStageIds.length; i++) {
-    const result = await db.stage.updateMany({
-      where: { id: orderedStageIds[i], pipelineId },
-      data: { order: -(i + 1) },
-    });
-    if (result.count !== 1) {
-      throw new Error(
-        `reindexStages: el stage ${orderedStageIds[i]} no pertenece al pipeline ${pipelineId}`,
-      );
-    }
-  }
+  // Sin ids no hay nada que escribir (y Prisma.join rechaza una lista
+  // vacía). Ningún caller llega acá con la lista vacía —updateStage siempre
+  // incluye al menos a la etapa que se mueve—, pero el `for` anterior lo
+  // toleraba y la función no tiene por qué dejar de hacerlo.
+  if (orderedStageIds.length === 0) return;
 
-  for (let i = 0; i < orderedStageIds.length; i++) {
-    const result = await db.stage.updateMany({
-      where: { id: orderedStageIds[i], pipelineId },
-      data: { order: i + 1 },
-    });
-    if (result.count !== 1) {
-      throw new Error(
-        `reindexStages: el stage ${orderedStageIds[i]} no pertenece al pipeline ${pipelineId}`,
-      );
-    }
+  await asignarOrden(pipelineId, orderedStageIds, (i) => -(i + 1), db);
+  await asignarOrden(pipelineId, orderedStageIds, (i) => i + 1, db);
+}
+
+// Una fase de reindexStages: UN solo UPDATE que le asigna a cada id de
+// `orderedStageIds` el order que devuelve `orderDe(índice)`.
+async function asignarOrden(
+  pipelineId: string,
+  orderedStageIds: string[],
+  orderDe: (indice: number) => number,
+  db: Db,
+): Promise<void> {
+  const ramas = orderedStageIds.map(
+    (id, i) => Prisma.sql`WHEN ${id}::uuid THEN ${orderDe(i)}::int`,
+  );
+
+  // El `id = ANY(...)` no es redundante con el CASE: sin él, las filas del
+  // pipeline que no están en la lista caerían en el ELSE implícito (NULL) y
+  // el NOT NULL de "order" las rechazaría. Y el pipeline_id es la frontera
+  // de pertenencia — un id ajeno no matchea y no se cuenta.
+  const count = await db.$executeRaw`
+    UPDATE stages
+    SET "order" = CASE id ${Prisma.join(ramas, " ")} END,
+        updated_at = now()
+    WHERE pipeline_id = ${pipelineId}::uuid
+      AND id = ANY(${orderedStageIds}::uuid[])
+  `;
+
+  if (count !== orderedStageIds.length) {
+    throw new Error(
+      `reindexStages: al menos un stage de los ${orderedStageIds.length} recibidos no pertenece al pipeline ${pipelineId} (se actualizaron ${count})`,
+    );
   }
 }
 
