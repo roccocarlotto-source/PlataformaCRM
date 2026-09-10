@@ -92,7 +92,7 @@ export function AcceptInvitationPage() {
   //     un refetch pisaba lo que el usuario venía escribiendo.
   //   - Acá no hay nada que derivar. Estos efectos OBSERVAN dos sistemas
   //     externos —la sesión de Supabase, que llega asincrónica vía la query de
-  //     /api/me, y un marcador en localStorage— y avanzan una máquina de
+  //     /api/me, y un marcador en sessionStorage— y avanzan una máquina de
   //     estados. Es literalmente el uso que el propio mensaje de la regla
   //     nombra como válido ("subscribe for updates from some external system"),
   //     solo que la fuente no expone un callback al que suscribirse: la única
@@ -234,8 +234,8 @@ export function AcceptInvitationPage() {
   }
 
   // Calculado antes de los early-return: lo necesita también la rama
-  // "alreadyLoggedInEmail" de abajo (recuperación sin marcador de
-  // sessionStorage, ver esa rama).
+  // "alreadyLoggedInEmail" de abajo (caso sin marcador de sessionStorage,
+  // ver esa rama).
   const isBusy =
     step === "accepting" || step === "setting-password" || step === "resolving-profile";
 
@@ -276,28 +276,29 @@ export function AcceptInvitationPage() {
   }
 
   if (alreadyLoggedInEmail && step === "form") {
-    // La sesión de Supabase persiste en localStorage (persistSession: true,
-    // sin `storage` custom en lib/supabase.ts — a diferencia del marcador
-    // de recuperación de arriba, que usa sessionStorage y no sobrevive
-    // cerrar la pestaña/el navegador). Por eso este caso NO distingue "es
-    // otra cuenta" de "soy yo, cerré el navegador antes de terminar la
-    // contraseña" — no hay forma fiable de saberlo (ver informe de
-    // investigación del riesgo residual). Se ofrecen las dos salidas
-    // reales sin inventar detección: cerrar sesión si no es la cuenta
-    // correcta, o (re)configurar la contraseña de la sesión ya
-    // autenticada — misma operación segura e idempotente que el resto del
-    // flujo (supabase.auth.updateUser), sin nuevo endpoint ni heurística
-    // sobre si ya tiene contraseña.
+    // Sesión de Supabase ya autenticada, con public.users, y sin marcador
+    // de recuperación en sessionStorage. Desde el ítem 6 de
+    // docs/frontend-cambios-pendientes.md la sesión de Supabase también
+    // vive en sessionStorage (`storage` explícito en lib/supabase.ts), así
+    // que cerrar el navegador la borra igual que al marcador: acá NO puede
+    // llegar alguien que "cerró el navegador antes de terminar la
+    // contraseña" — en ese escenario ya no habría sesión y caería en la
+    // rama "unauthenticated" de arriba (enlace inválido/vencido, pedir
+    // reinvitación). Trade-off aceptado explícitamente en ese ítem, no un
+    // caso a recuperar. Lo que sí queda es la misma pestaña sin cerrar el
+    // navegador: alguien ya logueado (con esta u otra cuenta) que hace
+    // click en un enlace de invitación. Se ofrecen las dos salidas reales
+    // sin inventar detección: cerrar sesión si no es la cuenta correcta, o
+    // (re)configurar la contraseña de la sesión ya autenticada — misma
+    // operación segura e idempotente que el resto del flujo
+    // (supabase.auth.updateUser), sin nuevo endpoint ni heurística sobre
+    // si ya tiene contraseña.
     return (
       <AuthShell>
         <div>
           <p className="ds-auth-text">
             Ya iniciaste sesión como {alreadyLoggedInEmail}. Si esta invitación es para otra cuenta,
             cerrá sesión primero.
-          </p>
-          <p className="ds-auth-text">
-            Si cerraste el navegador antes de terminar de configurar tu contraseña, podés hacerlo
-            ahora sin perder tu cuenta.
           </p>
           <form onSubmit={handlePasswordOnlySubmit}>
             <FormField label="Contraseña">

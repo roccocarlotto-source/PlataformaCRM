@@ -2048,6 +2048,16 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   mecanismo de recuperación en el proyecto, confirmado) — riesgo residual
   real, documentado, no resuelto ni ampliado en este ciclo.
 
+  **Superado (2026-09-10, ítem 6 de `docs/frontend-cambios-pendientes.md`):**
+  la sesión de Supabase pasó a guardarse en `sessionStorage` (`storage`
+  explícito en `lib/supabase.ts`), así que ya no sobrevive a cerrar la
+  pestaña/el navegador — se pide login en cada apertura del programa. La
+  pantalla de "ya iniciaste sesión" sigue ofreciendo configurar la
+  contraseña, pero solo alcanza a quien abre una invitación ya logueado en
+  la misma pestaña sin cerrar el navegador; quien cierra el navegador con
+  la contraseña pendiente ahora ve "enlace no válido o expiró" y se
+  resuelve reinvitando — trade-off aceptado explícitamente por Rocco.
+
   **`AuthContext.tsx` — sin modificar**: `retryProfile()` (ya expuesto
   desde M1) alcanza para forzar la re-resolución de `/api/me` tras
   aceptar — el JWT nunca lleva `organizationId`/`role` (principio rector
