@@ -69,35 +69,24 @@ export function findStagesByPipeline(pipelineId: string, db: Db = prisma) {
   });
 }
 
-// organizationId además de pipelineId (B-12 de docs/auditoria-2026-08-29.md),
-// y también en countStagesByName: las dos deciden si createStage/updateStage
-// tiran un 409, así que les aplica el mismo criterio que
-// countActiveStagesByPipeline documenta más abajo — "esto decide si una
-// escritura procede, así que el aislamiento tiene que estar en su propio
-// WHERE y no en el del caller". Con honestidad sobre el alcance: pipelineId
-// es un UUID sin colisión posible entre organizaciones y los seis call sites
-// ya validan la pertenencia del pipeline antes de llamar, así que esto no
-// cambia ningún resultado real hoy — es consistencia y defensa en
-// profundidad, no la corrección de una fuga. El respaldo real de los tres
-// 409, además, son los índices únicos parciales de la base
-// (stages_pipeline_name_unique / _won_ / _lost_); estos pre-checks son la
-// versión legible del error.
-export function findStageWithFlag(
-  pipelineId: string,
-  organizationId: string,
-  flag: "isWon" | "isLost",
-  excludeId?: string,
-  db: Db = prisma,
-) {
-  const exclude = excludeId ? { id: { not: excludeId } } : {};
-  return db.stage.findFirst({
-    where:
-      flag === "isWon"
-        ? { pipelineId, organizationId, deletedAt: null, isWon: true, ...exclude }
-        : { pipelineId, organizationId, deletedAt: null, isLost: true, ...exclude },
-  });
-}
-
+// organizationId además de pipelineId (B-12 de docs/auditoria-2026-08-29.md):
+// esto decide si createStage/updateStage tiran un 409, así que le aplica el
+// mismo criterio que countActiveStagesByPipeline documenta más abajo — "esto
+// decide si una escritura procede, así que el aislamiento tiene que estar en
+// su propio WHERE y no en el del caller". Con honestidad sobre el alcance:
+// pipelineId es un UUID sin colisión posible entre organizaciones y los dos
+// call sites ya validan la pertenencia del pipeline antes de llamar, así que
+// esto no cambia ningún resultado real hoy — es consistencia y defensa en
+// profundidad, no la corrección de una fuga. El respaldo real del 409,
+// además, es el índice único parcial de la base (stages_pipeline_name_unique);
+// este pre-check es la versión legible del error.
+//
+// Hasta docs/frontend-cambios-pendientes.md §13 acá vivía también
+// findStageWithFlag, el pre-check gemelo para isWon/isLost (a lo sumo una
+// etapa ganada y una perdida por pipeline). Se fue junto con los índices
+// stages_pipeline_won_unique / stages_pipeline_lost_unique (migración
+// 20260910120000_stages_won_lost_no_exclusivos): varias etapas del mismo
+// pipeline pueden llevar el mismo flag a la vez.
 export function countStagesByName(
   pipelineId: string,
   organizationId: string,

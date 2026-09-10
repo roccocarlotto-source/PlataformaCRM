@@ -87,22 +87,6 @@ test("P2002 sobre el nombre: 409 con el mensaje de nombre duplicado", () => {
   );
 });
 
-test("P2002 sobre isWon: 409 con el mensaje de etapa ganada", () => {
-  assertAppError(
-    () => rethrowAsConflict(p2002(["stages_pipeline_won_unique"])),
-    409,
-    "Ya existe una etapa marcada como ganada en este pipeline",
-  );
-});
-
-test("P2002 sobre isLost: 409 con el mensaje de etapa perdida", () => {
-  assertAppError(
-    () => rethrowAsConflict(p2002(["stages_pipeline_lost_unique"])),
-    409,
-    "Ya existe una etapa marcada como perdida en este pipeline",
-  );
-});
-
 test("P2002 con target string (no array) también se traduce", () => {
   assertAppError(
     () => rethrowAsConflict(p2002("stages_pipeline_name_unique")),

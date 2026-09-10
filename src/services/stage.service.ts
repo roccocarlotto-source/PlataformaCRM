@@ -9,7 +9,6 @@ import {
   findManyStages,
   findStageById,
   findStagesByPipeline,
-  findStageWithFlag,
   lockStageForUpdate,
   reindexStages,
   shiftDownAfter,
@@ -102,27 +101,33 @@ export function computeFinalOrderIds(
   ];
 }
 
-// Único índice de unicidad que Stage puede violar en una carrera (nombre,
-// isWon, isLost — order nunca choca porque el reindexado lo maneja
-// siempre): traduce la violación a un 409 legible en vez de un 500 crudo.
+// Único índice de unicidad que Stage puede violar en una carrera (el nombre
+// — order nunca choca porque el reindexado lo maneja siempre): traduce la
+// violación a un 409 legible en vez de un 500 crudo.
+//
+// Hasta docs/frontend-cambios-pendientes.md §13 acá también se traducían
+// los P2002 de stages_pipeline_won_unique / stages_pipeline_lost_unique (a lo
+// sumo una etapa ganada y una perdida por pipeline). Esos dos índices ya no
+// existen (migración 20260910120000_stages_won_lost_no_exclusivos): varias
+// etapas del mismo pipeline pueden ser "ganada" o "perdida" a la vez, así
+// que no hay nada que traducir y las ramas se sacaron en vez de dejar código
+// que nunca puede volver a ejecutarse.
 //
 // T-2 (auditoría nueva): además del índice único de arriba, Stage tiene un
-// CHECK (stages_won_lost_exclusive_check, manual_constraints.sql) que
-// findStageWithFlag no puede reemplazar — ese pre-check solo mira OTRAS
-// filas del pipeline, nunca el propio flag opuesto de la fila que se está
-// actualizando, así que dos escrituras (una marca isWon, otra marca
-// isLost, sobre la misma etapa) pueden pasar las dos su chequeo y chocar
-// recién en la escritura real. Un CHECK no expone `meta.target` como
-// P2002, así que se reconoce por el nombre exacto de la constraint dentro
-// de `err.message` (única superficie estable disponible para un
-// PrismaClientUnknownRequestError en @prisma/client 5.22.0, verificado
-// empíricamente) — nunca por el texto humano completo del mensaje, para
-// no absorber ningún otro error por accidente. Mismo detalle que en
-// activity.service.ts: las comillas que Postgres pone alrededor del
-// nombre de la constraint quedan escapadas con una barra invertida
-// literal en el string que expone Prisma
-// (`\"stages_won_lost_exclusive_check\"`, no `"..."` a secas). La
-// traducción de P2002 de arriba queda intacta.
+// CHECK (stages_won_lost_exclusive_check, creado por las migraciones) que
+// impide que UNA MISMA etapa sea ganada y perdida a la vez — esa restricción
+// se mantiene (§13 la confirma). Ningún pre-check de la aplicación lo
+// reemplaza: dos escrituras (una marca isWon, otra marca isLost, sobre la
+// misma etapa) chocan recién en la escritura real. Un CHECK no expone
+// `meta.target` como P2002, así que se reconoce por el nombre exacto de la
+// constraint dentro de `err.message` (única superficie estable disponible
+// para un PrismaClientUnknownRequestError en @prisma/client 5.22.0,
+// verificado empíricamente) — nunca por el texto humano completo del
+// mensaje, para no absorber ningún otro error por accidente. Mismo detalle
+// que en activity.service.ts: las comillas que Postgres pone alrededor del
+// nombre de la constraint quedan escapadas con una barra invertida literal
+// en el string que expone Prisma (`\"stages_won_lost_exclusive_check\"`, no
+// `"..."` a secas). La traducción de P2002 de arriba queda intacta.
 //
 // Exportada para poder testear la traducción sin base (stage.service.test.ts).
 export function rethrowAsConflict(err: unknown): never {
@@ -133,12 +138,6 @@ export function rethrowAsConflict(err: unknown): never {
 
     if (target.includes("name")) {
       throw new AppError("Ya existe una etapa con ese nombre en este pipeline", 409);
-    }
-    if (target.includes("won")) {
-      throw new AppError("Ya existe una etapa marcada como ganada en este pipeline", 409);
-    }
-    if (target.includes("lost")) {
-      throw new AppError("Ya existe una etapa marcada como perdida en este pipeline", 409);
     }
     throw new AppError("El registro ya existe", 409);
   }
@@ -168,20 +167,6 @@ export async function createStage(organizationId: string, input: CreateStageInpu
   const existingByName = await countStagesByName(input.pipelineId, organizationId, input.name);
   if (existingByName > 0) {
     throw new AppError("Ya existe una etapa con ese nombre en este pipeline", 409);
-  }
-
-  if (input.isWon) {
-    const existing = await findStageWithFlag(input.pipelineId, organizationId, "isWon");
-    if (existing) {
-      throw new AppError("Ya existe una etapa marcada como ganada en este pipeline", 409);
-    }
-  }
-
-  if (input.isLost) {
-    const existing = await findStageWithFlag(input.pipelineId, organizationId, "isLost");
-    if (existing) {
-      throw new AppError("Ya existe una etapa marcada como perdida en este pipeline", 409);
-    }
   }
 
   try {
@@ -245,20 +230,6 @@ export async function updateStage(organizationId: string, id: string, input: Upd
     );
     if (existingByName > 0) {
       throw new AppError("Ya existe una etapa con ese nombre en este pipeline", 409);
-    }
-  }
-
-  if (input.isWon) {
-    const existing = await findStageWithFlag(stage.pipelineId, organizationId, "isWon", id);
-    if (existing) {
-      throw new AppError("Ya existe una etapa marcada como ganada en este pipeline", 409);
-    }
-  }
-
-  if (input.isLost) {
-    const existing = await findStageWithFlag(stage.pipelineId, organizationId, "isLost", id);
-    if (existing) {
-      throw new AppError("Ya existe una etapa marcada como perdida en este pipeline", 409);
     }
   }
 

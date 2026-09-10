@@ -11,26 +11,25 @@ import {
   softDeleteStage,
 } from "../repositories/stage.repository";
 import { AppError } from "../utils/AppError";
-import { updateStage } from "./stage.service";
+import { createStage, updateStage } from "./stage.service";
 
 // Test de integración de T-2 (auditoría nueva): stages_won_lost_exclusive_check
-// puede violarse porque findStageWithFlag (el pre-check de updateStage) solo
-// busca la marca isWon/isLost en OTRAS filas del pipeline — nunca revisa el
-// propio flag opuesto de la fila que se está actualizando.
+// es la única defensa contra una etapa ganada y perdida a la vez — ningún
+// pre-check de la aplicación mira el flag opuesto de la fila que se está
+// actualizando (y desde docs/frontend-cambios-pendientes.md §13 no existe
+// ningún pre-check sobre isWon/isLost: findStageWithFlag se fue con los
+// índices de exclusividad por pipeline).
 //
 // A diferencia de T-1 (que exige una carrera real, dos lecturas antes de
 // cualquier commit, y por eso necesita una barrera explícita contra el lock
 // real de Postgres para no confundirse con el pre-check síncrono), acá no
-// hace falta ningún tipo de concurrencia ni de lock: con el código actual,
-// las dos llamadas secuenciales alcanzan el camino del CHECK porque
-// findStageWithFlag(pipelineId, "isLost", id) excluye explícitamente la
-// propia fila id de su búsqueda y no consulta su flag isWon ya persistido
-// — no es una garantía absoluta independiente de cómo se implemente
-// findStageWithFlag en el futuro, es una consecuencia directa de cómo está
-// escrita hoy. Por eso alcanza con que la primera llamada complete del
-// todo y comitee antes de que arranque la segunda: es el test mínimo que
-// demuestra la traducción del CHECK sin la fragilidad de sincronizar dos
-// operaciones en paralelo.
+// hace falta ningún tipo de concurrencia ni de lock: las dos llamadas
+// secuenciales alcanzan el camino del CHECK porque nada en updateStage
+// consulta el isWon ya persistido de la propia fila antes de escribir
+// isLost. Por eso alcanza con que la primera llamada complete del todo y
+// comitee antes de que arranque la segunda: es el test mínimo que demuestra
+// la traducción del CHECK sin la fragilidad de sincronizar dos operaciones
+// en paralelo.
 
 async function createTestOrgAndPipeline() {
   const org = await prisma.organization.create({
@@ -81,10 +80,9 @@ test("updateStage: marcar isWon y, ya comiteado, marcar isLost sobre la misma et
   assert.equal(won.isWon, true);
 
   // Segunda operación, estrictamente después de que la primera ya
-  // comiteó: findStageWithFlag(pipelineId, "isLost", id) solo revisa
-  // OTRAS filas del pipeline — nunca el propio isWon, ya persistido, de
-  // esta misma fila — así que pasa sin más, y la escritura real es la que
-  // choca contra stages_won_lost_exclusive_check.
+  // comiteó: updateStage no consulta el isWon ya persistido de esta misma
+  // fila, así que pasa sin más, y la escritura real es la que choca contra
+  // stages_won_lost_exclusive_check.
   let caught: unknown;
   try {
     await updateStage(fx.orgId, stage.id, { isLost: true });
@@ -106,6 +104,68 @@ test("updateStage: marcar isWon y, ya comiteado, marcar isLost sobre la misma et
     raw!.isWon && raw!.isLost,
     false,
     "el dato persistido nunca debe quedar con isWon e isLost en true a la vez",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// docs/frontend-cambios-pendientes.md §13 (Parte A): "Ganada" y "Perdida" ya
+// no son exclusivas por pipeline. La migración
+// 20260910120000_stages_won_lost_no_exclusivos borró los índices únicos
+// parciales stages_pipeline_won_unique / stages_pipeline_lost_unique, y
+// createStage/updateStage ya no tienen pre-check sobre esos flags. Este test
+// corre contra la base real reconstruida desde cero en CI (migraciones + SQL
+// manual), así que también vigila que manual_constraints.sql no vuelva a
+// crear los índices por accidente: si reaparecieran, la segunda escritura
+// fallaría con P2002.
+//
+// El CHECK de la misma fila (test de arriba) sigue vigente: cada etapa acá
+// lleva UN solo flag, en filas distintas.
+// ---------------------------------------------------------------------------
+
+test("§13: dos etapas del mismo pipeline pueden ser isWon a la vez, y otras dos isLost a la vez — ni el service ni la base lo rechazan", async () => {
+  const { pipeline, etapas } = await crearPipelineConEtapas(4);
+  const [s1, s2, s3, s4] = etapas;
+
+  // updateStage sobre dos etapas distintas, misma marca: antes de §13 la
+  // segunda daba 409 ("Ya existe una etapa marcada como ganada...").
+  const ganada1 = await updateStage(fx.orgId, s1.id, { isWon: true });
+  const ganada2 = await updateStage(fx.orgId, s2.id, { isWon: true });
+  assert.equal(ganada1.isWon, true);
+  assert.equal(ganada2.isWon, true);
+
+  const perdida1 = await updateStage(fx.orgId, s3.id, { isLost: true });
+  const perdida2 = await updateStage(fx.orgId, s4.id, { isLost: true });
+  assert.equal(perdida1.isLost, true);
+  assert.equal(perdida2.isLost, true);
+
+  // createStage con la marca ya puesta, en un pipeline que ya tiene dos
+  // etapas con la misma: tampoco choca.
+  const ganada3 = await createStage(fx.orgId, {
+    pipelineId: pipeline.id,
+    name: `S5 ganada ${randomUUID().slice(0, 8)}`,
+    isWon: true,
+  });
+  assert.equal(ganada3.isWon, true);
+
+  const perdida3 = await createStage(fx.orgId, {
+    pipelineId: pipeline.id,
+    name: `S6 perdida ${randomUUID().slice(0, 8)}`,
+    isLost: true,
+  });
+  assert.equal(perdida3.isLost, true);
+
+  // Lo persistido, no solo lo devuelto: tres ganadas y tres perdidas activas
+  // en el mismo pipeline.
+  const marcadas = await prisma.stage.findMany({
+    where: { pipelineId: pipeline.id, deletedAt: null },
+    select: { id: true, isWon: true, isLost: true },
+  });
+  assert.equal(marcadas.filter((s) => s.isWon).length, 3);
+  assert.equal(marcadas.filter((s) => s.isLost).length, 3);
+  assert.equal(
+    marcadas.some((s) => s.isWon && s.isLost),
+    false,
+    "ninguna fila puede ser ganada y perdida a la vez (el CHECK sigue vigente)",
   );
 });
 
