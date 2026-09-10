@@ -644,7 +644,7 @@ describe("PipelineFormPage — editor de etapas integrado", () => {
     ]);
     // La respuesta del PATCH se retiene hasta que el test la libera, para
     // poder mirar la tabla MIENTRAS la mutation está pendiente — que es el
-    // único momento en que se ve el feedback de carga (§14). Después de
+    // único momento en que se ve el feedback de carga (§15). Después de
     // liberarla se delega en el handler de mockStagesServer, así el refetch
     // muestra el intercambio real de order y no una respuesta inventada.
     let liberarPatch: () => void = () => {};

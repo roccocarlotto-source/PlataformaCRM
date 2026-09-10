@@ -387,7 +387,7 @@ export function StageEditor({ pipelineId }: StageEditorProps) {
                       {/* Subir/Bajar afuera del menú y Editar/Eliminar adentro:
                           mismo criterio que StageListPage (§8).
                           Además del borde, se deshabilitan TODOS mientras hay
-                          un movimiento en curso (§14): como no se reordena
+                          un movimiento en curso (§15): como no se reordena
                           localmente hasta el refetch, sin esto una respuesta
                           lenta del backend se ve como "el click no hizo
                           nada". Toda la tabla y no solo la fila clickeada,

@@ -591,7 +591,7 @@ definidos en `prisma/sql/manual_constraints.sql` (líneas ~110-120) y ya aplicad
 
 ---
 
-## 14. Feedback de carga en "Subir"/"Bajar" del editor de etapas integrado
+## 15. Feedback de carga en "Subir"/"Bajar" del editor de etapas integrado
 
 **Estado:** hecho
 
