@@ -94,7 +94,7 @@ export function OpportunitySelect({ id, label, value, onChange }: OpportunitySel
         type="text"
         value={term}
         onChange={(event) => setTerm(event.target.value)}
-        placeholder="Buscar oportunidad por título…"
+        placeholder="Buscar por título…"
       />
       {debouncedTerm ? (
         <ul>

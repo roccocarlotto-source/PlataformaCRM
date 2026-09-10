@@ -65,7 +65,7 @@ async function selectCompany(user: ReturnType<typeof userEvent.setup>, name: str
       }),
     ),
   );
-  await user.type(screen.getByPlaceholderText("Buscar empresa por nombre…"), name);
+  await user.type(screen.getByPlaceholderText("Buscar por nombre…"), name);
   await waitFor(() => expect(screen.getByText(name)).toBeInTheDocument());
   await user.click(screen.getByText(name));
 }
@@ -85,7 +85,7 @@ async function selectContact(
       }),
     ),
   );
-  await user.type(screen.getByPlaceholderText("Buscar contacto por nombre o email…"), firstName);
+  await user.type(screen.getByPlaceholderText("Buscar por nombre o email…"), firstName);
   await waitFor(() => expect(screen.getByText(fullName)).toBeInTheDocument());
   await user.click(screen.getByText(fullName));
 }

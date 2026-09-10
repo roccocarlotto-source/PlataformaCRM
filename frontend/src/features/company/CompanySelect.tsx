@@ -81,7 +81,7 @@ export function CompanySelect({ id, label, value, onChange }: CompanySelectProps
         type="text"
         value={term}
         onChange={(event) => setTerm(event.target.value)}
-        placeholder="Buscar empresa por nombre…"
+        placeholder="Buscar por nombre…"
       />
       {debouncedTerm ? (
         <ul>

@@ -77,7 +77,7 @@ export function ContactSelect({ id, label, value, onChange }: ContactSelectProps
         type="text"
         value={term}
         onChange={(event) => setTerm(event.target.value)}
-        placeholder="Buscar contacto por nombre o email…"
+        placeholder="Buscar por nombre o email…"
       />
       {debouncedTerm ? (
         <ul>

@@ -144,7 +144,6 @@ export function VehicleListPage() {
             Marca
             <input
               type="text"
-              placeholder="Filtrar por marca"
               value={make}
               onChange={(event) => {
                 setMake(event.target.value);
@@ -156,7 +155,6 @@ export function VehicleListPage() {
             Modelo
             <input
               type="text"
-              placeholder="Filtrar por modelo"
               value={model}
               onChange={(event) => {
                 setModel(event.target.value);

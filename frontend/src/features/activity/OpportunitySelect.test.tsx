@@ -64,7 +64,7 @@ describe("OpportunitySelect", () => {
     const user = userEvent.setup();
 
     renderSelect(queryClient, undefined);
-    await user.type(screen.getByPlaceholderText("Buscar oportunidad por título…"), "renovación");
+    await user.type(screen.getByPlaceholderText("Buscar por título…"), "renovación");
 
     await waitFor(() => expect(captured.length).toBeGreaterThan(0));
     expect(captured[0].searchParams.get("search")).toBe("renovación");
@@ -89,7 +89,7 @@ describe("OpportunitySelect", () => {
     const user = userEvent.setup();
 
     renderSelect(queryClient, undefined);
-    await user.type(screen.getByPlaceholderText("Buscar oportunidad por título…"), "x");
+    await user.type(screen.getByPlaceholderText("Buscar por título…"), "x");
 
     await waitFor(() => expect(screen.getByText("Buscando…")).toBeInTheDocument());
   });
@@ -102,7 +102,7 @@ describe("OpportunitySelect", () => {
     const user = userEvent.setup();
 
     renderSelect(queryClient, undefined);
-    await user.type(screen.getByPlaceholderText("Buscar oportunidad por título…"), "x");
+    await user.type(screen.getByPlaceholderText("Buscar por título…"), "x");
 
     await waitFor(() =>
       expect(screen.getByText("No pudimos buscar oportunidades.")).toBeInTheDocument(),
@@ -122,7 +122,7 @@ describe("OpportunitySelect", () => {
     const user = userEvent.setup();
 
     renderSelect(queryClient, undefined);
-    await user.type(screen.getByPlaceholderText("Buscar oportunidad por título…"), "inexistente");
+    await user.type(screen.getByPlaceholderText("Buscar por título…"), "inexistente");
 
     await waitFor(() => expect(screen.getByText("Sin resultados.")).toBeInTheDocument());
   });
@@ -140,7 +140,7 @@ describe("OpportunitySelect", () => {
     const user = userEvent.setup();
     const onChange = renderSelect(queryClient, undefined);
 
-    await user.type(screen.getByPlaceholderText("Buscar oportunidad por título…"), "renovación");
+    await user.type(screen.getByPlaceholderText("Buscar por título…"), "renovación");
     await waitFor(() => expect(screen.getByText(/Renovación anual/)).toBeInTheDocument());
     await user.click(screen.getByText(/Renovación anual/));
 
@@ -160,7 +160,7 @@ describe("OpportunitySelect", () => {
     const user = userEvent.setup();
 
     renderSelect(queryClient, undefined);
-    await user.type(screen.getByPlaceholderText("Buscar oportunidad por título…"), "renovación");
+    await user.type(screen.getByPlaceholderText("Buscar por título…"), "renovación");
     await waitFor(() => expect(screen.getByText(/Renovación anual/)).toBeInTheDocument());
 
     await waitFor(() =>

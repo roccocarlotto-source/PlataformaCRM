@@ -187,7 +187,7 @@ function OpportunityTableView() {
           <div>
             <CompanySelect
               id="opportunity-filter-company"
-              label="Filtrar por empresa"
+              label="Empresa"
               value={companyId}
               onChange={(id) => {
                 setCompanyId(id);
@@ -208,7 +208,7 @@ function OpportunityTableView() {
           <div>
             <PipelineSelect
               id="opportunity-filter-pipeline"
-              label="Filtrar por pipeline"
+              label="Pipeline"
               value={pipelineId}
               onChange={(id) => {
                 setPipelineId(id);

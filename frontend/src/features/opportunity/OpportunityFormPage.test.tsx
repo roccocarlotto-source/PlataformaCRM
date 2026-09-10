@@ -89,7 +89,7 @@ function vehicleHandlers(selectedStatus: "AVAILABLE" | "RESERVED" = "RESERVED") 
   ];
 }
 
-const VEHICLE_PLACEHOLDER = "Buscar unidad disponible por marca, modelo, patente, VIN o código…";
+const VEHICLE_PLACEHOLDER = "Buscar disponible por marca, modelo, patente, VIN o código…";
 const PRICE_HINT = /Se completa con el precio de la unidad al guardar/;
 
 function renderForm(initialPath: string) {
@@ -143,7 +143,7 @@ describe("OpportunityFormPage", () => {
 
     await user.type(screen.getByLabelText("Título"), "Renovación 2027");
     await waitFor(() => expect(screen.getByLabelText("Empresa")).toBeInTheDocument());
-    await user.type(screen.getByPlaceholderText("Buscar empresa por nombre…"), "acme");
+    await user.type(screen.getByPlaceholderText("Buscar por nombre…"), "acme");
 
     await waitFor(() => expect(screen.getByText("Acme Corp")).toBeInTheDocument());
     await user.click(screen.getByText("Acme Corp"));
@@ -520,7 +520,7 @@ describe("OpportunityFormPage", () => {
     }
 
     // 1) Elegir Company PRIMERO.
-    await user.type(screen.getByPlaceholderText("Buscar empresa por nombre…"), "acme");
+    await user.type(screen.getByPlaceholderText("Buscar por nombre…"), "acme");
     await waitFor(() => expect(screen.getByText("Acme Corp")).toBeInTheDocument());
     await user.click(screen.getByText("Acme Corp"));
 
@@ -531,7 +531,7 @@ describe("OpportunityFormPage", () => {
     // montado en este form) también puede tener una <option>Ana Pérez
     // </option> con el mismo texto — el resultado de búsqueda de
     // ContactSelect es inequívocamente un <button>, la opción no lo es.
-    await user.type(screen.getByPlaceholderText("Buscar contacto por nombre o email…"), "ana");
+    await user.type(screen.getByPlaceholderText("Buscar por nombre o email…"), "ana");
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Ana Pérez" })).toBeInTheDocument(),
     );
@@ -543,8 +543,8 @@ describe("OpportunityFormPage", () => {
     await waitFor(() => expect(selectedContactParagraph()).toBeInTheDocument());
 
     // 3) Cambiar Company de nuevo NO debe tocar el Contact ya elegido.
-    await user.clear(screen.getByPlaceholderText("Buscar empresa por nombre…"));
-    await user.type(screen.getByPlaceholderText("Buscar empresa por nombre…"), "acme");
+    await user.clear(screen.getByPlaceholderText("Buscar por nombre…"));
+    await user.type(screen.getByPlaceholderText("Buscar por nombre…"), "acme");
     await waitFor(() => expect(screen.getByText("Acme Corp")).toBeInTheDocument());
     await user.click(screen.getByText("Acme Corp"));
 

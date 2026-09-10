@@ -139,7 +139,7 @@ export function ContactListPage() {
           <div>
             <CompanySelect
               id="contact-filter-company"
-              label="Filtrar por empresa"
+              label="Empresa"
               value={companyId}
               onChange={(id) => {
                 setCompanyId(id);
