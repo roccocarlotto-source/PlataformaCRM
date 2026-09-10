@@ -208,6 +208,28 @@ button:disabled {
   color: var(--color-primary-contrast);
 }
 
+/* Botón con aspecto de texto — una acción chica que revela algo dentro de un
+   formulario ("+ Agregar probabilidad", features/stage/ProbabilityField.tsx,
+   docs/frontend-cambios-pendientes.md §13). Es un <button> real y no un <a>:
+   dispara una acción en la misma página, no una navegación. Sin fondo ni
+   borde; el focus-visible global (outline) sigue aplicando. */
+.ds-text-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.ds-text-button:hover {
+  text-decoration: underline;
+}
+
 /* ---------------------------------------------------------------------- */
 /* FormField.tsx                                                           */
 /* ---------------------------------------------------------------------- */
@@ -2187,6 +2209,13 @@ a.ds-button--secondary:hover {
 /* Las casillas van en fila (regla :has de FormField) y necesitan el alto de
    un control para quedar alineadas con los inputs de al lado. */
 .ds-stage-editor-fields .ds-field:has(input[type="checkbox"]) {
+  min-height: var(--control-height);
+}
+
+/* "+ Agregar probabilidad" (ProbabilityField, §13) ocupa el lugar del campo
+   mientras está oculto: la altura de un control, para quedar alineado con los
+   inputs de al lado. */
+.ds-stage-editor-fields .ds-text-button {
   min-height: var(--control-height);
 }
 

@@ -654,11 +654,15 @@ model Stage {
   opportunities Opportunity[]
 
   @@unique([organizationId, id])
-  // Únicos (pipeline_id, order) y (pipeline_id, name) WHERE deleted_at IS NULL,
-  // y (pipeline_id) WHERE is_won/is_lost = true AND deleted_at IS NULL —
-  // índices únicos parciales; viven en la migración
+  // Únicos (pipeline_id, order) y (pipeline_id, name) WHERE deleted_at IS NULL
+  // — índices únicos parciales; viven en la migración
   // 20260821140000_incorporate_manual_ddl_into_migrations (C-2), con
-  // manual_constraints.sql como red de seguridad idempotente además
+  // manual_constraints.sql como red de seguridad idempotente además. Los dos
+  // parciales sobre is_won/is_lost que nacieron ahí los borró
+  // 20260910120000_stages_won_lost_no_exclusivos (docs/frontend-cambios-
+  // pendientes.md §13): varias etapas del mismo pipeline pueden ser "ganada"
+  // o "perdida" a la vez. El CHECK stages_won_lost_exclusive_check (una misma
+  // etapa no puede ser las dos cosas) sigue vigente.
   @@index([organizationId])
   @@index([pipelineId])
   // ALTO-6 — sirve al patrón de listado real de esta entidad:

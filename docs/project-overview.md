@@ -519,12 +519,16 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
     `Opportunity.stageId` es obligatorio: un hard delete de un `Stage` referenciado
     por una `Opportunity` violaría integridad referencial. Resuelve el riesgo que ya
     estaba señalado en este documento.
-  - Único `(pipelineId, order)` y `(pipelineId, name)`, y **nuevo**: único
-    `(pipelineId) WHERE is_won = true` y `(pipelineId) WHERE is_lost = true` — a lo
-    sumo una etapa ganada y una perdida por pipeline. Los cuatro son índices únicos
-    parciales `WHERE deleted_at IS NULL` (`manual_constraints.sql`) — antes `(pipelineId,
-    order)` y `(pipelineId, name)` eran constraints nativas de Prisma; se convirtieron
-    a parciales para que una etapa borrada libere su `order`/`name`.
+  - Único `(pipelineId, order)` y `(pipelineId, name)`. Los dos son índices únicos
+    parciales `WHERE deleted_at IS NULL` (`manual_constraints.sql`) — antes eran
+    constraints nativas de Prisma; se convirtieron a parciales para que una etapa
+    borrada libere su `order`/`name`. **Ya no existen** los otros dos parciales que
+    este módulo había agregado, `(pipelineId) WHERE is_won = true` y `(pipelineId)
+    WHERE is_lost = true` (a lo sumo una etapa ganada y una perdida por pipeline): los
+    borró la migración `20260910120000_stages_won_lost_no_exclusivos`
+    (`docs/frontend-cambios-pendientes.md` §13) — "Ganada" significa "esta etapa ya
+    fue superada en el proceso", no "la única etapa terminal del embudo", así que
+    varias etapas del mismo pipeline pueden llevar el mismo flag a la vez.
   - `probability` (probabilidad de cierre por etapa), `isWon`/`isLost` con `CHECK`
     que impide que ambos sean `true` a la vez (`stages_won_lost_exclusive_check`).
   - **Reordenamiento automático**: crear, actualizar el `order`, o borrar una etapa
@@ -1112,7 +1116,9 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   la organización, y al borrar el default se auto-promueve el más antiguo restante.
   `Stage`: `organizationId` propio (agregado en este módulo), `pipelineId` validado
   contra la organización (reutiliza `findPipelineById`), `probability` 0–100, a lo
-  sumo una etapa ganada y una perdida por pipeline (`409` si se repite), nombre único
+  sumo una etapa ganada y una perdida por pipeline (`409` si se repite — regla
+  **retirada** después en `docs/frontend-cambios-pendientes.md` §13, ver la sección
+  `Stage` del modelo de datos), nombre único
   por pipeline, y **reordenamiento automático** sin huecos ni duplicados al crear
   (inserta y corre a los siguientes), actualizar `order` (reindexado en dos fases
   dentro de una transacción), o borrar (cierra el hueco) — ver

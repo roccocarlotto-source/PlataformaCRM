@@ -7,6 +7,7 @@ import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { useCreateStage, useUpdateStage } from "./mutations";
+import { ProbabilityField } from "./ProbabilityField";
 import { useStage } from "./queries";
 import type { CreateStageInput, Stage, UpdateStageInput } from "./types";
 import { useFormDraft } from "../../lib/useFormDraft";
@@ -149,16 +150,16 @@ export function StageFormPage() {
                 Si se omite, la etapa se agrega al final.
               </p>
             ) : null}
+            {/* Oculta detrás de "+ Agregar probabilidad" (ProbabilityField, §13);
+                visible desde el arranque solo al editar una etapa que ya
+                tiene una probabilidad distinta de 0. En edición el form se
+                renderiza recién con la etapa cargada (LoadingState antes),
+                así que el valor inicial que ve el campo es el real. */}
             <div className="ds-field-grid--full">
-              <FormField label="Probabilidad (%)">
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={values.probability}
-                  onChange={(event) => setValues({ ...values, probability: event.target.value })}
-                />
-              </FormField>
+              <ProbabilityField
+                value={values.probability}
+                onChange={(probability) => setValues({ ...values, probability })}
+              />
             </div>
             <FormField label="Ganada">
               <input

@@ -257,10 +257,11 @@ from (
      'CREATE UNIQUE INDEX stages_pipeline_order_unique ON public.stages USING btree (pipeline_id, "order") WHERE (deleted_at IS NULL)'),
     ('stages_pipeline_name_unique',
      'CREATE UNIQUE INDEX stages_pipeline_name_unique ON public.stages USING btree (pipeline_id, name) WHERE (deleted_at IS NULL)'),
-    ('stages_pipeline_won_unique',
-     'CREATE UNIQUE INDEX stages_pipeline_won_unique ON public.stages USING btree (pipeline_id) WHERE (is_won = true AND deleted_at IS NULL)'),
-    ('stages_pipeline_lost_unique',
-     'CREATE UNIQUE INDEX stages_pipeline_lost_unique ON public.stages USING btree (pipeline_id) WHERE (is_lost = true AND deleted_at IS NULL)'),
+    -- stages_pipeline_won_unique / stages_pipeline_lost_unique ya no se
+    -- afirman: los borró 20260910120000_stages_won_lost_no_exclusivos
+    -- (docs/frontend-cambios-pendientes.md §13) — varias etapas del mismo
+    -- pipeline pueden ser ganada o perdida a la vez. El CHECK
+    -- stages_won_lost_exclusive_check (fila 8) sigue vigente.
     ('invitations_org_email_pending_unique',
      'CREATE UNIQUE INDEX invitations_org_email_pending_unique ON public.invitations USING btree (organization_id, email) WHERE (status = ''PENDING'')'),
     ('ingestion_events_source_external_unique',

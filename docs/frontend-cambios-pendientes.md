@@ -423,7 +423,7 @@ Aplica a estos formularios (todos tienen al menos un campo obligatorio): `Activi
 
 **Diseño confirmado:**
 
-- **Mecánica de guardado:** cada etapa se guarda al toque, reutilizando tal cual los hooks que ya existen — `useCreateStage(pipelineId)`, `useUpdateStage(pipelineId)`, `useDeleteStage(pipelineId)` de `frontend/src/features/stage/mutations.ts` — con toda su lógica de backend sin tocar (nombre único dentro del pipeline, como máximo una etapa `isWon` y una `isLost` por pipeline, no se puede borrar una etapa con oportunidades activas, locking y reindexado en `src/services/stage.service.ts`). El botón "Guardar" grande del formulario de Pipeline sigue existiendo pero queda acotado a los campos propios del Pipeline (Nombre, Default) — **no** intenta guardar etapas; cada etapa maneja su propio guardado/error de forma independiente dentro de su fila. No hace falta ningún endpoint nuevo de backend — es trabajo de frontend, orquestando llamadas que ya existen.
+- **Mecánica de guardado:** cada etapa se guarda al toque, reutilizando tal cual los hooks que ya existen — `useCreateStage(pipelineId)`, `useUpdateStage(pipelineId)`, `useDeleteStage(pipelineId)` de `frontend/src/features/stage/mutations.ts` — con toda su lógica de backend sin tocar (nombre único dentro del pipeline, como máximo una etapa `isWon` y una `isLost` por pipeline —regla retirada después en §13—, no se puede borrar una etapa con oportunidades activas, locking y reindexado en `src/services/stage.service.ts`). El botón "Guardar" grande del formulario de Pipeline sigue existiendo pero queda acotado a los campos propios del Pipeline (Nombre, Default) — **no** intenta guardar etapas; cada etapa maneja su propio guardado/error de forma independiente dentro de su fila. No hace falta ningún endpoint nuevo de backend — es trabajo de frontend, orquestando llamadas que ya existen.
 - **Reordenar etapas:** se mantienen los botones "Subir"/"Bajar" (mismo mecanismo que ya usa `StageListPage.tsx` hoy, vía `handleMove` + `useUpdateStage`). No se agrega drag-and-drop.
 
 **Comportamiento del editor integrado:**
@@ -506,3 +506,84 @@ Aplica a estos formularios (todos tienen al menos un campo obligatorio): `Activi
 - **Mensajes usados en este ítem:** "Pipeline guardado" (crear y editar el pipeline), "Etapa guardada" (crear y editar una etapa), "Etapa eliminada". Ningún otro formulario lo usa todavía.
 
 **Tests:** `Toast.test.tsx` (11 tests, con timers falsos y `fireEvent`): mensaje y "×"; `onDismiss` exactamente al vencer la duración por defecto y no antes; duración propia; "×" inmediata; desmontar cancela el temporizador; región `role=status` siempre presente y vacía; `show()` muestra dentro de la región y se va solo; "×" cierra antes de tiempo; un `show()` nuevo reemplaza y reinicia el tiempo; el mismo mensaje dos veces también reinicia; `useToast` fuera del provider lanza. Los tests de `PipelineFormPage` afirman el toast en cada guardado exitoso (ver §11).
+
+---
+
+## 13. Etapas "Ganada"/"Perdida" dejan de ser únicas por pipeline, y Probabilidad pasa a ser un campo oculto por defecto
+
+**Estado:** hecho
+
+**Dónde se vio:** `/pipelines/:id/edit` (editor de etapas integrado, §11) y `/pipelines/:id/stages/new` / `/pipelines/:id/stages/:stageId/edit` (la pantalla de respaldo).
+
+**Este ítem es distinto a los anteriores: toca el BACKEND** (una migración real de base de datos), no solo el frontend.
+
+### Parte A — "Ganada" y "Perdida" dejan de ser exclusivas por pipeline
+
+**Origen:** al usar el editor de etapas, marcar una segunda etapa como "Ganada" (o "Perdida") en el mismo pipeline fallaba con un 409 ("Ya existe una etapa marcada como ganada/perdida en este pipeline"). Se decidió que esto está mal planteado: "Ganada" no representa "la única etapa terminal de éxito del embudo" sino "esta etapa ya fue superada/pasada en el proceso" — es natural que varias etapas la tengan marcada a la vez a medida que una oportunidad avanza. Por el mismo criterio, "Perdida" también deja de ser exclusiva.
+
+**Confirmado:** el texto de los checkboxes y de los badges se mantiene igual ("Ganada"/"Perdida" en el formulario, "Etapa de Ganada"/"Etapa de Perdida" en la tabla) — no se renombra nada, solo cambia la regla de cuántas etapas pueden tenerlo marcado.
+
+**Esto es un cambio de backend, no alcanza con tocar el frontend:** hoy la exclusividad está garantizada por dos índices únicos **parciales** reales en la base de datos —
+
+```sql
+create unique index if not exists stages_pipeline_won_unique
+  on public.stages (pipeline_id)
+  where is_won = true and deleted_at is null;
+
+create unique index if not exists stages_pipeline_lost_unique
+  on public.stages (pipeline_id)
+  where is_lost = true and deleted_at is null;
+```
+
+definidos en `prisma/sql/manual_constraints.sql` (líneas ~110-120) y ya aplicados en la migración `20260821140000_incorporate_manual_ddl_into_migrations` — más un chequeo redundante en la capa de aplicación, en `src/services/stage.service.ts` (`createStage` e `updateStage`, usando `findStageWithFlag` de `src/repositories/stage.repository.ts`). Sacar la exclusividad requiere una migración real de Prisma que borre esos dos índices, no solo borrar código de la app.
+
+**Confirmado — esto NO se toca:** el CHECK `stages_won_lost_exclusive_check`, que impide que UNA MISMA etapa sea "Ganada" y "Perdida" a la vez. Es una restricción distinta e independiente de la que se está sacando (esa es sobre una fila individual, no sobre cuántas filas del pipeline pueden tener el flag) y sigue teniendo sentido: una etapa no puede ser las dos cosas al mismo tiempo.
+
+**Verificado en el código antes de decidir esto:** `Stage.isWon`/`isLost` no tienen ninguna conexión funcional con `Opportunity.status` (que es un campo propio e independiente de la oportunidad, `OPEN`/`WON`/`LOST`) — son puramente descriptivos/informativos hoy. Sacar la exclusividad no rompe ninguna otra lógica del sistema.
+
+### Parte B — el campo Probabilidad deja de estar siempre visible
+
+**Origen:** tanto en el editor integrado (`StageEditor.tsx`) como en la pantalla de respaldo (`StageFormPage.tsx`), el campo "Probabilidad (%)" siempre ocupa un lugar en el formulario, aunque no se use casi nunca. Se pidió ocultarlo por defecto.
+
+**Confirmado:** se reemplaza por un link/botón chico, algo como "+ Agregar probabilidad", que al hacer click desaparece y en su lugar aparece el input numérico de siempre (mismo rango 0-100, mismo comportamiento). Si nunca se abre, la etapa se guarda con probabilidad 0 (el default actual — sin cambios en el contrato del backend, esto es puramente de presentación). En modo edición, si la etapa que se está editando ya tiene una probabilidad distinta de 0 asignada, el campo arranca visible mostrando el valor directamente (no tiene sentido esconder un dato que ya existe y que la persona probablemente quiera ver/tocar).
+
+**Confirmado:** aplica a las **dos** pantallas donde existe el campo — el editor integrado (`StageEditor.tsx`, el sub-componente `StageRowForm` que usan tanto "Nueva etapa" como la edición inline) y la pantalla de respaldo (`StageFormPage.tsx`).
+
+**Archivos involucrados** (para referencia; confirmar los detalles leyendo el código actual antes de tocar nada):
+
+| Archivo | Qué pasa ahí |
+|---|---|
+| `prisma/sql/manual_constraints.sql` (líneas ~110-120) | Sacar los dos `CREATE UNIQUE INDEX ... stages_pipeline_won_unique` / `stages_pipeline_lost_unique`. Este archivo se reaplica en cada deploy (`npm run migrate:deploy` → `scripts/apply-manual-sql.ts`) como red de seguridad idempotente — si no se sacan de acá, el próximo deploy los vuelve a crear y deshace la migración. |
+| Una migración nueva de Prisma (carpeta nueva bajo `prisma/migrations/`, mismo formato de timestamp que las existentes) | `DROP INDEX IF EXISTS stages_pipeline_won_unique; DROP INDEX IF EXISTS stages_pipeline_lost_unique;`. Generarla con el flujo normal de Prisma contra la base de desarrollo local (`npx prisma migrate dev --name stages_won_lost_no_exclusivos` o el nombre que se prefiera); si la base local no está levantada, hay una skill de este mismo Claude Code para levantarla (setup de Supabase local). Después de generar la migración, correr `npm run migrate:deploy` para reaplicar `manual_constraints.sql` ya editado. |
+| `prisma/schema.prisma` (líneas ~654-659, el comentario sobre el modelo `Stage`) | Actualizar el comentario que menciona los cuatro índices únicos parciales — quedan solo dos (`(pipeline_id, order)` y `(pipeline_id, name)` `WHERE deleted_at IS NULL`), sacar la mención a `is_won`/`is_lost`. |
+| `src/services/stage.service.ts` | Sacar los bloques de chequeo de exclusividad en `createStage` (líneas ~173-184, los `if (input.isWon) {...}` e `if (input.isLost) {...}`) y en `updateStage` (líneas ~251-262, mismo patrón). Revisar si `findStageWithFlag` (de `src/repositories/stage.repository.ts`) queda sin ningún otro uso — si es así, se puede borrar también, a criterio de quien implementa. En `rethrowAsConflict` (líneas ~120-140), las ramas que traducen el P2002 de los índices won/lost a un 409 quedan muertas una vez que esos índices no existen más — sacarlas si parece más limpio, no es obligatorio pero evita código que nunca puede volver a ejecutarse. |
+| `src/services/stage.service.test.ts` | Hay dos tests (líneas ~90-105) que verifican el 409 de "ya existe una etapa marcada como ganada/perdida" — se vuelven inválidos, hay que sacarlos o adaptarlos. El test de la línea ~130 (CHECK de ganada+perdida en la misma fila) sigue siendo válido, no tocarlo. |
+| `src/services/stage.service.integration-test.ts` | El test de la línea ~66 (marcar `isWon` y después `isLost` sobre LA MISMA etapa falla por el CHECK) sigue siendo válido tal cual, no tocarlo — es sobre la restricción que se mantiene. Agregar un test nuevo que confirme que ahora SÍ se puede marcar `isWon: true` en dos etapas distintas del mismo pipeline (y lo mismo para `isLost`), sin que ninguna de las dos falle. |
+| `docs/project-overview.md` (líneas ~519-523, sección `Stage`) | El bullet que dice "único `(pipelineId) WHERE is_won = true` y `(pipelineId) WHERE is_lost = true` — a lo sumo una etapa ganada y una perdida por pipeline" queda desactualizado — corregirlo para reflejar que esos dos índices ya no existen (quedan los otros dos), siguiendo el mismo criterio que se usó en ítems anteriores para notas de este estilo en ese documento. |
+| `frontend/src/features/stage/StageEditor.tsx` | El comentario de la línea ~37 dice literalmente "a lo sumo una etapa ganada y una perdida" — corregirlo. Ahí mismo está `StageRowForm`, el sub-componente a modificar para la Parte B (Probabilidad oculta por defecto). |
+| `frontend/src/features/stage/StageFormPage.tsx` | Mismo tratamiento de Probabilidad oculta por defecto que en `StageEditor.tsx`, adaptado a esta pantalla. |
+
+**Decisiones ya tomadas:**
+
+- **"Ganada"/"Perdida" pueden estar marcadas en varias etapas del mismo pipeline.** Se sacan los dos índices únicos parciales de la base (con migración real) y el pre-check de la aplicación.
+- **El CHECK `stages_won_lost_exclusive_check` se mantiene.** Una misma etapa sigue sin poder ser ganada y perdida a la vez.
+- **Los textos de checkboxes y badges no cambian.**
+- **Probabilidad oculta por defecto, detrás de "+ Agregar probabilidad",** en las dos pantallas; visible desde el arranque en edición si la etapa ya tiene una probabilidad distinta de 0. Sin cambios en el contrato del backend (`probability?: number`, 0 si nunca se tocó).
+
+**Hallazgos al implementar (la tabla de arriba, verificada contra el código):** las referencias eran exactas (índices en `manual_constraints.sql` 110-120, pre-checks en `stage.service.ts` 173-184 y 251-262, comentario en `schema.prisma` 657-661, `StageEditor.tsx` 37). Dos cosas que la tabla no anticipaba: (1) **`docs/auditoria-2026-08-21-diagnostico.sql` afirmaba la existencia de los dos índices** (fila 7, "índices únicos parciales que faltan o cambiaron de definición") y `scripts/verify-schema.ts` corre ese diagnóstico en el job `integration` de CI después de reconstruir la base — con la migración aplicada, la fila 7 habría reportado `stages_pipeline_won_unique → FALTA` y CI habría fallado; se sacaron las dos entradas con una nota en su lugar. (2) El **test de integración de T-2** (`stage.service.integration-test.ts`, el del CHECK sobre la misma fila) sigue válido tal cual y no se tocó su lógica, pero sus comentarios explicaban el escenario a través de `findStageWithFlag`, que ya no existe; se reescribieron para que no apunten a una función borrada. Además, `prisma migrate dev` no funciona en este entorno (la shadow database no tiene el schema `auth`, ver la bitácora del 2026-09-07), así que la migración se escribió a mano con el mismo formato de las existentes y se aplicó con `npm run migrate:deploy` contra el Supabase local — verificado en `pg_indexes` que los dos índices desaparecieron y en `pg_constraint` que `stages_won_lost_exclusive_check` sigue.
+
+**Decisiones tomadas al implementar:**
+
+- **Migración `20260910120000_stages_won_lost_no_exclusivos`:** dos `drop index if exists` (`public.stages_pipeline_won_unique`, `public.stages_pipeline_lost_unique`), con la decisión y lo que NO se toca documentados en la cabecera del `.sql`. `if exists` para que sea segura en una base donde la red de seguridad nunca llegó a crearlos. No hay backfill ni cambio de datos: solo desaparece una restricción, ninguna fila existente puede violarla.
+- **`findStageWithFlag` se borró** (`stage.repository.ts`): sus únicos consumidores eran los dos pre-checks que se sacaron. El comentario de B-12 que compartía con `countStagesByName` se reescribió para hablar solo de esta última, con una nota de dónde estaba el gemelo.
+- **`rethrowAsConflict` sin las ramas `won`/`lost`:** sin los índices no puede llegar ningún P2002 con esos targets, y una rama que nunca corre es peor que ninguna (tapa la lectura de lo que sí corre). Los dos tests unitarios que las cubrían se sacaron; el del CHECK y el del nombre siguen. El comentario de T-2 explica ahora que ningún pre-check mira el flag opuesto de la fila (antes decía que `findStageWithFlag` "no podía reemplazar" al CHECK).
+- **Test de integración nuevo (§13):** cuatro etapas de un pipeline, dos pasan a `isWon` con `updateStage` y dos a `isLost`; después `createStage` con cada marca puesta en el mismo pipeline. Se afirma sobre lo persistido (tres ganadas y tres perdidas activas, ninguna con las dos) — y como corre contra la base reconstruida desde cero en CI, también vigila que `manual_constraints.sql` no vuelva a crear los índices por accidente.
+- **Componente compartido `frontend/src/features/stage/ProbabilityField.tsx`:** un solo lugar para el patrón "+ Agregar probabilidad" → input, usado por `StageRowForm` (editor integrado) y por `StageFormPage`. Recibe `value`/`onChange` (string, como el resto de los inputs numéricos) y decide solo si arranca visible: `Number(value) !== 0` **una vez, al montar** (inicializador de `useState`). Revelar es una decisión de la persona y no se deshace sola: en "Nueva etapa", después de guardar, los valores se vacían pero el campo revelado queda a la vista (vacío) para la siguiente etapa. En `StageFormPage` el form recién se renderiza con la etapa cargada (`LoadingState` antes), así que el valor inicial que ve el campo es el real; en el editor, `StageRowForm` recibe `initialValues` de la etapa.
+- **Foco:** al revelar por click, el foco pasa al input recién aparecido (`autoFocus` solo en ese caso). Si arrancó visible (edición con probabilidad), el foco lo sigue decidiendo el formulario — en el editor va al nombre, como antes.
+- **`step="any"` en las dos pantallas:** al compartir el input, `StageFormPage` hereda el `step="any"` que el editor ya tenía. Cierra el pendiente menor anotado en §11 (la validación nativa frenaba el submit de una etapa con probabilidad decimal en la pantalla de respaldo).
+- **Contrato con el backend sin cambios:** `toCreateInput`/`toUpdateInput` de las dos pantallas siguen mandando `probability` solo si hay un valor; si el campo nunca se abrió, no viaja y la etapa queda con el default 0.
+- **CSS (`design-system.css`):** una clase nueva chica, `.ds-text-button` (junto a `.ds-link-button`): un `<button>` real sin fondo ni borde, texto chico en `--color-primary`, subrayado al hover, con el `focus-visible` global. Es un botón y no un link porque dispara una acción en la misma página, no una navegación. En el editor (`.ds-stage-editor-fields .ds-text-button`) toma la altura de un control para quedar alineado con los inputs de la fila. Nada más cambió visualmente.
+- **Textos de checkboxes y badges intactos,** y la cortesía visual de desmarcar Ganada al marcar Perdida (y viceversa) también: sigue siendo sobre la misma fila, que es la regla que se mantiene.
+- **Referencias corregidas fuera del código:** `docs/project-overview.md` (bullet de índices de `Stage` y la nota de "a lo sumo una etapa ganada" en el estado de los módulos), `prisma/schema.prisma` (comentario del modelo), `StageEditor.tsx` (comentario de cabecera) y la mención de §11 de este mismo documento.
+
+**Tests:** backend — `stage.service.test.ts` sin los dos tests de P2002 won/lost (quedan nombre, target string, genérico, CHECK y relanzado); `stage.service.integration-test.ts` con el test nuevo de §13 (6/6 en local contra el Supabase local). Frontend — `StageFormPage.test.tsx`: S22 afirma además que no hay botón cuando el campo arranca visible; S24 pasa a ejemplificar el 409 con el nombre duplicado (el mensaje de "segunda ganada" ya no existe); nuevos S26 (segunda Ganada se guarda y navega sin error), S27 (creación: oculta, revela con foco y `step="any"`, el botón desaparece, el valor viaja en el POST) y S28 (edición con probabilidad 0 arranca oculta). `PipelineFormPage.test.tsx`: "Agregar etapa" ahora revela el campo antes de tipear y afirma que queda visible y vacío tras guardar; nuevos: "Nueva etapa" oculta y POST sin `probability` (la fila muestra 0%); revelar con foco; Editar oculta con 0 y visible con 25.5 (dentro de la fila, con el foco en el nombre); segunda Ganada con badge en las dos filas, sin alert y con toast. `mockStagesServer` ahora copia `isWon`/`isLost` en POST y PATCH, sin ninguna regla de exclusividad, como el backend.

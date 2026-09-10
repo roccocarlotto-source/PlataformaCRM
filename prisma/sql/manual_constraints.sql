@@ -107,18 +107,6 @@ create unique index if not exists stages_pipeline_name_unique
   on public.stages (pipeline_id, name)
   where deleted_at is null;
 
--- A lo sumo un stage marcado como ganado, y a lo sumo uno marcado como
--- perdido, por pipeline (distinto de stages_won_lost_exclusive_check —creado
--- por las migraciones, ver la cabecera—, que impide que un mismo stage sea
--- ambas cosas a la vez).
-create unique index if not exists stages_pipeline_won_unique
-  on public.stages (pipeline_id)
-  where is_won = true and deleted_at is null;
-
-create unique index if not exists stages_pipeline_lost_unique
-  on public.stages (pipeline_id)
-  where is_lost = true and deleted_at is null;
-
 -- A lo sumo una invitación PENDING por (organization_id, email). Un email
 -- puede tener múltiples invitaciones a lo largo del tiempo (reinvitado tras
 -- vencer, revocada y reinvitado, etc.) mientras a lo sumo una esté PENDING a
