@@ -405,3 +405,16 @@ describe("SourceFormPage — sugerencia de mapeo desde un archivo", () => {
     expect(llamadas).toBe(0);
   });
 });
+
+// Ítem 10 de docs/frontend-cambios-pendientes.md: el input ya era `required`,
+// pero el rótulo no tenía la marca — la señal visual no coincidía con el
+// comportamiento real.
+describe("SourceFormPage — campos obligatorios", () => {
+  it("Nombre lleva la marca de obligatorio y la referencia del asterisco va una sola vez, junto a Guardar", () => {
+    renderForm("/sources/new");
+
+    expect(screen.getByLabelText("Nombre")).toBeRequired();
+    expect(screen.getByText("Nombre")).toHaveClass("ds-required");
+    expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
+  });
+});

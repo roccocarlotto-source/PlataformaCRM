@@ -415,4 +415,14 @@ describe("CompanyFormPage", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Dos"));
   });
+
+  // Ítem 10 de docs/frontend-cambios-pendientes.md.
+  it("Nombre lleva la marca de obligatorio y la referencia del asterisco va una sola vez, junto a Guardar", async () => {
+    server.use(usersHandler());
+    renderForm("/companies/new");
+
+    expect(screen.getByLabelText("Nombre")).toBeRequired();
+    expect(screen.getByText("Nombre")).toHaveClass("ds-required");
+    expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
+  });
 });

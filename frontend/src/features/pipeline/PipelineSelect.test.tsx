@@ -81,4 +81,48 @@ describe("PipelineSelect", () => {
       expect(screen.getByText(/No pudimos cargar los pipelines/)).toBeInTheDocument(),
     );
   });
+
+  // Ítem 10 de docs/frontend-cambios-pendientes.md: el asterisco y el bloqueo
+  // van siempre juntos, así la señal visual coincide con lo que pasa al
+  // guardar. El "*" lo dibuja CSS (::after), no forma parte del texto.
+  it("con required: el rótulo lleva la marca .ds-required y el <select> es required", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makePipeline({ id: "pl1", name: "Ventas" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PipelineSelect
+          id="opp-pipeline"
+          label="Pipeline"
+          value={undefined}
+          onChange={vi.fn()}
+          required
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByLabelText("Pipeline")).toBeRequired();
+    expect(screen.getByText("Pipeline")).toHaveClass("ds-required");
+  });
+
+  it("sin required (default): ni marca en el rótulo ni required en el <select>", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makePipeline({ id: "pl1", name: "Ventas" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    renderSelect(undefined);
+
+    expect(await screen.findByLabelText("Pipeline")).not.toBeRequired();
+    expect(screen.getByText("Pipeline")).not.toHaveClass("ds-required");
+  });
 });

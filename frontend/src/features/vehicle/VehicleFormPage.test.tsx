@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -123,7 +123,13 @@ describe("VehicleFormPage — crear y editar", () => {
     expect(postedBody?.year).toBeTypeOf("number");
   });
 
-  it("create sin sucursal no manda nada y avisa", async () => {
+  // Ítem 10 de docs/frontend-cambios-pendientes.md: Sucursal lleva la marca
+  // de obligatorio y `required` (BranchSelect), así que el click en Guardar
+  // lo frena el navegador (y jsdom) sin llegar a handleSubmit; si el submit
+  // igual llega —p. ej. mientras la lista de sucursales todavía carga no hay
+  // <select> que validar—, el chequeo propio de handleSubmit sigue cortando
+  // con su mensaje. En ningún caso hay POST.
+  it("create sin sucursal no manda nada: required nativo en el click, y el chequeo propio avisa si el submit igual llega", async () => {
     let posted = false;
     server.use(
       ...baseHandlers(),
@@ -139,12 +145,21 @@ describe("VehicleFormPage — crear y editar", () => {
     await user.type(screen.getByLabelText("Marca"), "Toyota");
     await user.type(screen.getByLabelText("Modelo"), "Corolla");
     await user.type(screen.getByLabelText("Año"), "2020");
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    const branch = await screen.findByLabelText("Sucursal");
+    expect(branch).toBeRequired();
+    expect(screen.getByText("Sucursal")).toHaveClass("ds-required");
+    expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
 
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(posted).toBe(false);
+
+    fireEvent.submit(branch.closest("form") as HTMLFormElement);
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("Elegí una sucursal antes de guardar."),
     );
     expect(posted).toBe(false);
+    expect(screen.queryByText("listado de stock")).not.toBeInTheDocument();
   });
 
   it("create: 'Publicar en el sitio web' está deshabilitado y hay una nota; la galería no existe", async () => {

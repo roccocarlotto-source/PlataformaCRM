@@ -120,4 +120,42 @@ describe("BranchSelect", () => {
       expect(screen.getByText(/No pudimos cargar las sucursales/)).toBeInTheDocument(),
     );
   });
+
+  // Ítem 10 de docs/frontend-cambios-pendientes.md: los formularios que exigen
+  // sucursal (QR, Vehículo, Claim) pasan `required`; el filtro del listado no
+  // (los tests de arriba, sin el prop, siguen sin ninguna de las dos marcas).
+  it("con required: el rótulo lleva la marca .ds-required y el <select> es required", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makeBranch({ id: "b1", name: "Casa Central" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BranchSelect id="branch" label="Sucursal" value={undefined} onChange={vi.fn()} required />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByLabelText("Sucursal")).toBeRequired();
+    expect(screen.getByText("Sucursal")).toHaveClass("ds-required");
+  });
+
+  it("sin required (default): ni marca en el rótulo ni required en el <select>", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makeBranch({ id: "b1", name: "Casa Central" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    renderSelect(undefined);
+
+    expect(await screen.findByLabelText("Sucursal")).not.toBeRequired();
+    expect(screen.getByText("Sucursal")).not.toHaveClass("ds-required");
+  });
 });

@@ -200,3 +200,23 @@ describe("QrFormDialog — editar", () => {
     expect(branchesFetched).toBe(false);
   });
 });
+
+// Ítem 10 de docs/frontend-cambios-pendientes.md: los tres campos que
+// validar() exige llevan la marca (.ds-required + required); lo que bloquea
+// el guardado sigue siendo validar() (el test "valida en el cliente" de
+// arriba), porque el <form> es noValidate.
+describe("QrFormDialog — campos obligatorios", () => {
+  it("Sucursal, Nombre y Enlace de destino llevan la marca; Mensaje no; la referencia del asterisco va una sola vez", async () => {
+    server.use(branchesHandler());
+    const { dialog } = renderDialog();
+    await waitFor(() => expect(dialog.getByText("Casa Central")).toBeInTheDocument());
+
+    for (const label of ["Sucursal", "Nombre", "Enlace de destino"]) {
+      expect(dialog.getByLabelText(label)).toBeRequired();
+      expect(dialog.getByText(label)).toHaveClass("ds-required");
+    }
+    expect(dialog.getByLabelText("Mensaje (opcional)")).not.toBeRequired();
+    expect(dialog.getByText("Mensaje (opcional)")).not.toHaveClass("ds-required");
+    expect(dialog.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
+  });
+});

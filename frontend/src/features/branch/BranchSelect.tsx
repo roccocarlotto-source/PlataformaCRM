@@ -8,6 +8,12 @@ interface BranchSelectProps {
   // Texto de la opción vacía. En un formulario es "elegí una" (el backend
   // exige branchId); como filtro de listado es "Todas".
   emptyOptionLabel?: string;
+  // Obligatorio: "*" de .ds-required en el rótulo Y `required` en el
+  // <select>, siempre juntos (mismo contrato que PipelineSelect/StageSelect).
+  // Lo pasan los formularios que exigen sucursal (QR, Vehículo, Claim); el
+  // filtro del listado de QR no. El <select> solo existe con la lista
+  // cargada: cada formulario cubre ese hueco con su propio chequeo.
+  required?: boolean;
 }
 
 // Selector de sucursal del módulo QR (docs/qr-integration.md, Fase 3,
@@ -26,12 +32,13 @@ export function BranchSelect({
   value,
   onChange,
   emptyOptionLabel = "Elegir sucursal…",
+  required = false,
 }: BranchSelectProps) {
   const branchesQuery = useBranches(BRANCHES_PARA_SELECT);
 
   return (
     <div>
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id}>{required ? <span className="ds-required">{label}</span> : label}</label>
       {branchesQuery.isLoading ? <p>Cargando…</p> : null}
       {branchesQuery.isError ? (
         <p role="alert">
@@ -40,7 +47,12 @@ export function BranchSelect({
         </p>
       ) : null}
       {branchesQuery.isSuccess ? (
-        <select id={id} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+        <select
+          id={id}
+          value={value ?? ""}
+          onChange={(event) => onChange(event.target.value)}
+          required={required}
+        >
           <option value="">{emptyOptionLabel}</option>
           {branchesQuery.data.data.map((branch) => (
             <option key={branch.id} value={branch.id}>

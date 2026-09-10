@@ -5,6 +5,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { useCreateStage, useUpdateStage } from "./mutations";
 import { useStage } from "./queries";
 import type { CreateStageInput, Stage, UpdateStageInput } from "./types";
@@ -127,7 +128,7 @@ export function StageFormPage() {
       <div className="ds-stack">
         <Card heading="Datos de la etapa">
           <div className="ds-field-grid">
-            <FormField label="Nombre">
+            <FormField label={<span className="ds-required">Nombre</span>}>
               <input
                 type="text"
                 value={values.name}
@@ -181,6 +182,7 @@ export function StageFormPage() {
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
+          <RequiredFieldsHint />
           <Button type="submit" variant="primary" disabled={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>

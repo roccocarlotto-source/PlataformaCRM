@@ -4,6 +4,7 @@ import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
+import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { useCreateInvitation } from "./mutations";
 import type { CreateInvitationInput } from "./types";
 
@@ -74,6 +75,7 @@ export function InvitationFormPage() {
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
+          <RequiredFieldsHint />
           <Button type="submit" variant="primary" disabled={createInvitationMutation.isPending}>
             {createInvitationMutation.isPending ? "Enviando…" : "Enviar invitación"}
           </Button>

@@ -406,4 +406,16 @@ describe("ContactFormPage", () => {
       "Asignado a quien crea (por defecto)",
     );
   });
+
+  // Ítem 10 de docs/frontend-cambios-pendientes.md.
+  it("Nombre y Apellido llevan la marca de obligatorio y la referencia del asterisco va una sola vez, junto a Guardar", async () => {
+    server.use(usersHandler());
+    renderForm("/contacts/new");
+
+    for (const label of ["Nombre", "Apellido"]) {
+      expect(screen.getByLabelText(label)).toBeRequired();
+      expect(screen.getByText(label)).toHaveClass("ds-required");
+    }
+    expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
+  });
 });

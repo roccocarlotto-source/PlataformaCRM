@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -265,6 +265,13 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await user.type(screen.getByLabelText("Título"), "Sin relación");
+    // Pipeline y Etapa se exigen en el cliente desde el ítem 10 de
+    // docs/frontend-cambios-pendientes.md (test de abajo): hay que elegirlos
+    // para que el submit llegue al backend y sea SU mensaje el que se muestre.
+    await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() =>
@@ -272,6 +279,52 @@ describe("OpportunityFormPage", () => {
         "Debe indicar companyId, contactId, o ambos",
       ),
     );
+    expect(screen.queryByText("lista de oportunidades")).not.toBeInTheDocument();
+  });
+
+  // Ítem 10 de docs/frontend-cambios-pendientes.md: Pipeline y Etapa llevan
+  // la marca de obligatorio y `required` en sus <select>, así que el click en
+  // Guardar lo frena el navegador (y jsdom) sin llegar a handleSubmit. Si el
+  // submit igual llega —mientras una lista carga no hay <select> que validar,
+  // y el de Etapa está deshabilitado sin pipeline—, el chequeo propio de
+  // handleSubmit corta con su mensaje. En ningún caso hay POST: el asterisco
+  // no miente.
+  it("create: sin Pipeline/Etapa no hay POST — marca + required nativo en el click, chequeo propio si el submit igual llega", async () => {
+    let posted = false;
+    server.use(
+      ...baseHandlers(),
+      http.post(opportunitiesUrl, () => {
+        posted = true;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new");
+
+    await user.type(screen.getByLabelText("Título"), "Sin embudo");
+    const pipeline = await screen.findByLabelText("Pipeline");
+    expect(pipeline).toBeRequired();
+    expect(screen.getByText("Pipeline")).toHaveClass("ds-required");
+    expect(screen.getByLabelText("Etapa")).toBeRequired();
+    expect(screen.getByText("Etapa")).toHaveClass("ds-required");
+    expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(posted).toBe(false);
+
+    const form = pipeline.closest("form") as HTMLFormElement;
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Elegí un pipeline antes de guardar."),
+    );
+
+    await user.selectOptions(pipeline, "pl1");
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Elegí una etapa antes de guardar."),
+    );
+    expect(posted).toBe(false);
     expect(screen.queryByText("lista de oportunidades")).not.toBeInTheDocument();
   });
 

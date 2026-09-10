@@ -5,6 +5,12 @@ interface PipelineSelectProps {
   label: string;
   value: string | undefined;
   onChange: (pipelineId: string) => void;
+  // Obligatorio: marca el rótulo con el "*" de .ds-required Y pone `required`
+  // en el <select>, siempre juntos para que la señal visual coincida con el
+  // bloqueo real (ítem 10 de docs/frontend-cambios-pendientes.md). El
+  // <select> solo existe cuando la lista cargó: el formulario que lo exige
+  // cubre ese hueco con su propio chequeo en el submit.
+  required?: boolean;
 }
 
 // <select> simple, sin búsqueda de texto — a diferencia de CompanySelect,
@@ -14,12 +20,18 @@ interface PipelineSelectProps {
 // (pipeline.repository.ts), pero no se usa acá — un <select> con hasta 100
 // resultados es más simple y suficiente para el volumen esperado. Límite de
 // 100 documentado como riesgo residual (ver docs/project-overview.md).
-export function PipelineSelect({ id, label, value, onChange }: PipelineSelectProps) {
+export function PipelineSelect({
+  id,
+  label,
+  value,
+  onChange,
+  required = false,
+}: PipelineSelectProps) {
   const pipelinesQuery = usePipelines({ pageSize: 100, sortBy: "name", sortOrder: "asc" });
 
   return (
     <div>
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id}>{required ? <span className="ds-required">{label}</span> : label}</label>
       {pipelinesQuery.isLoading ? <p>Cargando…</p> : null}
       {pipelinesQuery.isError ? (
         <p role="alert">
@@ -28,7 +40,12 @@ export function PipelineSelect({ id, label, value, onChange }: PipelineSelectPro
         </p>
       ) : null}
       {pipelinesQuery.isSuccess ? (
-        <select id={id} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+        <select
+          id={id}
+          value={value ?? ""}
+          onChange={(event) => onChange(event.target.value)}
+          required={required}
+        >
           <option value="" disabled>
             Elegí uno…
           </option>

@@ -6,6 +6,12 @@ interface StageSelectProps {
   pipelineId: string | undefined;
   value: string | undefined;
   onChange: (stageId: string) => void;
+  // Obligatorio: "*" de .ds-required en el rótulo Y `required` en el
+  // <select>, siempre juntos (mismo contrato que PipelineSelect). Ojo: el
+  // <select> deshabilitado de "sin pipeline" no participa de la validación
+  // nativa aunque lleve required, y el real solo existe con la lista cargada;
+  // el formulario que lo exige cubre esos huecos en su submit.
+  required?: boolean;
 }
 
 const PAGE_SIZE = 100;
@@ -18,7 +24,15 @@ const PAGE_SIZE = 100;
 // cada vez que pipelineId cambia (useStages ya está scoped por pipelineId
 // vía stageKeys.byPipeline, así que un cambio de pipelineId es una queryKey
 // distinta, sin necesidad de invalidación manual acá).
-export function StageSelect({ id, label, pipelineId, value, onChange }: StageSelectProps) {
+export function StageSelect({
+  id,
+  label,
+  pipelineId,
+  value,
+  onChange,
+  required = false,
+}: StageSelectProps) {
+  const labelNode = required ? <span className="ds-required">{label}</span> : label;
   const stagesQuery = useStages(
     pipelineId ?? "",
     { pipelineId, pageSize: PAGE_SIZE, sortBy: "order", sortOrder: "asc" },
@@ -28,8 +42,8 @@ export function StageSelect({ id, label, pipelineId, value, onChange }: StageSel
   if (!pipelineId) {
     return (
       <div>
-        <label htmlFor={id}>{label}</label>
-        <select id={id} value="" disabled onChange={() => undefined}>
+        <label htmlFor={id}>{labelNode}</label>
+        <select id={id} value="" disabled required={required} onChange={() => undefined}>
           <option value="">Elegí primero un pipeline…</option>
         </select>
       </div>
@@ -38,7 +52,7 @@ export function StageSelect({ id, label, pipelineId, value, onChange }: StageSel
 
   return (
     <div>
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id}>{labelNode}</label>
       {stagesQuery.isLoading ? <p>Cargando…</p> : null}
       {stagesQuery.isError ? (
         <p role="alert">
@@ -47,7 +61,12 @@ export function StageSelect({ id, label, pipelineId, value, onChange }: StageSel
         </p>
       ) : null}
       {stagesQuery.isSuccess ? (
-        <select id={id} value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+        <select
+          id={id}
+          value={value ?? ""}
+          onChange={(event) => onChange(event.target.value)}
+          required={required}
+        >
           <option value="" disabled>
             Elegí una etapa…
           </option>

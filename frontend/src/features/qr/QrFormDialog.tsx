@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { Modal } from "../../design-system/Modal";
+import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { looksLikeUrl } from "../../lib/validation";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { BranchSelect } from "../branch/BranchSelect";
@@ -23,7 +24,11 @@ import type { CreateDigitalQrInput, QrCode, QrType, UpdateQrInput } from "./type
 //
 // Validación en el cliente para feedback inmediato (mismos mensajes que el
 // Dashboard original); la fuente de verdad sigue siendo el Zod del backend
-// y su 400 se muestra tal cual si igual llega.
+// y su 400 se muestra tal cual si igual llega. Es validar(), al principio de
+// handleSubmit, lo que bloquea el guardado: el <form> es noValidate a
+// propósito (los mensajes propios en vez de los globos del navegador), así
+// que los `required` de Sucursal/Nombre/Enlace son semántica (asterisco de
+// .ds-required y aria) que refleja ese bloqueo, no lo que lo produce.
 //
 // BranchSelect va suelto, sin FormField: trae su propio <label htmlFor>, y
 // FormField ES un <label> — mismo trato que UserSelect en CompanyFormPage.
@@ -151,24 +156,27 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
             label="Sucursal"
             value={values.branchId}
             onChange={(branchId) => setValues({ ...values, branchId: branchId || undefined })}
+            required
           />
         )}
-        <FormField label="Nombre">
+        <FormField label={<span className="ds-required">Nombre</span>}>
           <input
             type="text"
             value={values.name}
             onChange={(event) => setValues({ ...values, name: event.target.value })}
             placeholder="Reseñas Google"
             maxLength={80}
+            required
           />
         </FormField>
-        <FormField label="Enlace de destino">
+        <FormField label={<span className="ds-required">Enlace de destino</span>}>
           <input
             type="url"
             value={values.destinationUrl}
             onChange={(event) => setValues({ ...values, destinationUrl: event.target.value })}
             placeholder="https://search.google.com/local/writereview?placeid=..."
             maxLength={2048}
+            required
           />
         </FormField>
         <FormField label="Mensaje (opcional)">
@@ -220,6 +228,9 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
           </div>
         )}
         {error ? <ErrorState>{error}</ErrorState> : null}
+        {/* Al final del cuerpo: el botón de guardar vive en el pie del Modal,
+            fuera del <form>, y esto es lo más cerca que se le puede poner. */}
+        <RequiredFieldsHint />
       </form>
     </Modal>
   );

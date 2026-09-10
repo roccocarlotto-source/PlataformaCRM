@@ -6,6 +6,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
 import { StageSelect } from "../stage/StageSelect";
@@ -67,9 +68,10 @@ const LEAD_SOURCE_OPTIONS = Object.keys(LEAD_SOURCE_LABELS) as OpportunityLeadSo
 // Create: campos vacíos se omiten (undefined) — el backend NO admite null
 // en create para expectedCloseDate/actualCloseDate/lostReason (a diferencia
 // de update, ver types.ts). pipelineId/stageId son obligatorios en el
-// contrato real; si el usuario no eligió ninguno se envía "" y el backend
-// lo rechaza con su propio mensaje ("pipelineId inválido") — no se
-// duplica esa validación acá.
+// contrato real y handleSubmit los exige antes de llegar acá (ítem 10 de
+// docs/frontend-cambios-pendientes.md); el `?? ""` es solo para el tipo. Si
+// igual llegara vacío, el backend lo rechaza con su propio mensaje
+// ("pipelineId inválido").
 function toCreateInput(values: OpportunityFormValues): CreateOpportunityInput {
   return {
     title: values.title,
@@ -268,6 +270,21 @@ export function OpportunityFormPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    // Pipeline y Etapa son obligatorios en el contrato (opportunity.service.ts
+    // los valida) y sus <select> llevan `required` (asterisco + bloqueo nativo
+    // del navegador). Pero ese bloqueo tiene huecos: el <select> solo existe
+    // cuando su lista cargó, y el de Etapa está deshabilitado sin pipeline (un
+    // control disabled no participa de la validación). Este chequeo cubre esos
+    // casos con un mensaje propio en vez de un 400 "pipelineId inválido", y es
+    // la garantía de que el asterisco no miente: sin los dos, no hay mutación.
+    if (!values.pipelineId) {
+      setError("Elegí un pipeline antes de guardar.");
+      return;
+    }
+    if (!values.stageId) {
+      setError("Elegí una etapa antes de guardar.");
+      return;
+    }
     try {
       if (isEditMode) {
         await updateOpportunityMutation.mutateAsync(toUpdateInput(values));
@@ -297,11 +314,12 @@ export function OpportunityFormPage() {
   // restyle de Empresas (.ds-form, .ds-field-grid, .ds-required): las mismas
   // tarjetas de antes, con los campos de a pares como en el export — Título a
   // lo ancho, Empresa + Contacto; Pipeline + Etapa, (Monto + Moneda) + Fecha
-  // estimada, Propietario solo a media columna. El "*" va SOLO en Título, el
-  // único input con `required` real: el diseño también marca Embudo, Etapa,
-  // Monto y Propietario, pero acá esa validación la hace el backend a
-  // propósito (ver toCreateInput) y un asterisco sin validación en el cliente
-  // mentiría sobre qué pasa al dejarlos vacíos.
+  // estimada, Propietario solo a media columna. El "*" va en Título (input
+  // con `required`) y, desde el ítem 10 de docs/frontend-cambios-pendientes.md,
+  // también en Pipeline y Etapa: sus <select> llevan `required` y handleSubmit
+  // los chequea, así que el asterisco coincide con lo que pasa al dejarlos
+  // vacíos. El diseño marca además Monto y Propietario, pero son opcionales en
+  // el contrato (ver toCreateInput) y un asterisco ahí mentiría.
   //
   // Los dos textos de ayuda son del export y describen comportamiento real
   // (EMPTY_FORM.status es "OPEN"; ganada/perdida se asignan desde el
@@ -348,6 +366,7 @@ export function OpportunityFormPage() {
               label="Pipeline"
               value={values.pipelineId}
               onChange={handlePipelineChange}
+              required
             />
             <StageSelect
               id="opportunity-form-stage"
@@ -355,6 +374,7 @@ export function OpportunityFormPage() {
               pipelineId={values.pipelineId}
               value={values.stageId}
               onChange={(stageId) => setValues({ ...values, stageId })}
+              required
             />
             {/* Monto + Moneda siguen en su .ds-field-row, que acá es una
                 celda de la grilla: la fila queda (Monto | Moneda) | Fecha. */}
@@ -527,6 +547,7 @@ export function OpportunityFormPage() {
               embudo.
             </p>
           )}
+          <RequiredFieldsHint />
           <Button type="submit" variant="primary" disabled={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>

@@ -6,6 +6,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { UserSelect } from "../user/UserSelect";
 import { useCreateCompany, useUpdateCompany } from "./mutations";
@@ -216,6 +217,7 @@ export function CompanyFormPage() {
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
+          <RequiredFieldsHint />
           <Button type="submit" variant="primary" disabled={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
