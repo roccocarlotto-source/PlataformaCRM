@@ -12,6 +12,7 @@ import { Table } from "../../design-system/Table";
 import { useToast } from "../../design-system/useToast";
 import { useCreateStage, useDeleteStage, useUpdateStage } from "./mutations";
 import { formatProbability, probabilityWidth } from "./probability";
+import { ProbabilityField } from "./ProbabilityField";
 import { useStages } from "./queries";
 import type { CreateStageInput, Stage, UpdateStageInput } from "./types";
 
@@ -34,9 +35,11 @@ import type { CreateStageInput, Stage, UpdateStageInput } from "./types";
 // etapa, Eliminar, Subir/Bajar). El botón "Guardar" del formulario de
 // Pipeline queda acotado a Nombre/Default y no sabe que esto existe. Toda la
 // lógica de negocio sigue en el backend sin tocar: nombre único dentro del
-// pipeline, a lo sumo una etapa ganada y una perdida, no se borra una etapa
-// con oportunidades activas, reindexado del order (stage.service.ts). Acá
-// solo se muestra el error que devuelva, en la fila que lo causó.
+// pipeline, una misma etapa no puede ser ganada y perdida a la vez (varias
+// etapas del pipeline sí pueden llevar el mismo flag desde §13), no se borra
+// una etapa con oportunidades activas, reindexado del order
+// (stage.service.ts). Acá solo se muestra el error que devuelva, en la fila
+// que lo causó.
 //
 // "EDITAR" ES UNA FILA EDITABLE INLINE, y "Nueva etapa" es el mismo
 // mini-formulario (StageRowForm, abajo) al pie de la lista. Un solo componente
@@ -137,6 +140,10 @@ interface StageRowFormProps {
 //
 // isWon/isLost se desmarcan mutuamente como cortesía visual, igual que en
 // StageFormPage; la autoridad sigue siendo el 409/CHECK del backend.
+//
+// Probabilidad va oculta detrás de "+ Agregar probabilidad" (ProbabilityField,
+// §13): visible desde el arranque solo al editar una etapa que ya tiene una
+// probabilidad distinta de 0.
 function StageRowForm({
   initialValues,
   submitLabel,
@@ -188,21 +195,10 @@ function StageRowForm({
             autoFocus={onCancel !== undefined}
           />
         </FormField>
-        <FormField label="Probabilidad (%)">
-          {/* step="any": probability es Decimal(5,2) en el backend y el
-              listado ya muestra valores como 37.5%. Sin esto, el step por
-              defecto (1) hace que la validación nativa frene el submit de
-              una etapa con decimales al querer editarla — no es una
-              restricción del dominio, es un default del navegador. */}
-          <input
-            type="number"
-            min={0}
-            max={100}
-            step="any"
-            value={values.probability}
-            onChange={(event) => setValues({ ...values, probability: event.target.value })}
-          />
-        </FormField>
+        <ProbabilityField
+          value={values.probability}
+          onChange={(probability) => setValues({ ...values, probability })}
+        />
         <FormField label="Ganada">
           <input
             type="checkbox"

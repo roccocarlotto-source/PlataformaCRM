@@ -62,20 +62,34 @@ function mockStagesServer(initial: Stage[]) {
       });
     }),
     http.post(stagesUrl, async ({ request }) => {
-      const body = (await request.json()) as { name: string; probability?: number };
+      const body = (await request.json()) as {
+        name: string;
+        probability?: number;
+        isWon?: boolean;
+        isLost?: boolean;
+      };
       calls.postedBody = body;
+      // Sin ninguna regla de exclusividad de isWon/isLost, como el backend
+      // desde §13: dos etapas ganadas en el mismo pipeline se aceptan.
       const created = makeStage({
         id: `st-${stages.length + 1}`,
         name: body.name,
         order: stages.length + 1,
         probability: String(body.probability ?? 0),
+        isWon: body.isWon ?? false,
+        isLost: body.isLost ?? false,
       });
       stages.push(created);
       return HttpResponse.json(created, { status: 201 });
     }),
     http.patch(`${stagesUrl}/:id`, async ({ request, params }) => {
       const id = params.id as string;
-      const body = (await request.json()) as Partial<{ name: string; order: number }>;
+      const body = (await request.json()) as Partial<{
+        name: string;
+        order: number;
+        isWon: boolean;
+        isLost: boolean;
+      }>;
       calls.patched.push({ id, body });
       const index = stages.findIndex((stage) => stage.id === id);
       if (body.order !== undefined) {
@@ -86,6 +100,8 @@ function mockStagesServer(initial: Stage[]) {
         stages[index] = { ...stages[index], order: body.order };
       }
       if (body.name !== undefined) stages[index] = { ...stages[index], name: body.name };
+      if (body.isWon !== undefined) stages[index] = { ...stages[index], isWon: body.isWon };
+      if (body.isLost !== undefined) stages[index] = { ...stages[index], isLost: body.isLost };
       return HttpResponse.json(stages[index]);
     }),
     http.delete(`${stagesUrl}/:id`, ({ params }) => {
@@ -312,6 +328,8 @@ describe("PipelineFormPage — editor de etapas integrado", () => {
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
 
     await user.type(screen.getByLabelText("Nombre de la etapa"), "Negociación");
+    // §13: Probabilidad va oculta hasta que se pide.
+    await user.click(screen.getByRole("button", { name: "+ Agregar probabilidad" }));
     await user.type(screen.getByLabelText("Probabilidad (%)"), "60");
     await user.click(screen.getByLabelText("Ganada"));
     await user.click(screen.getByRole("button", { name: "Agregar etapa" }));
@@ -326,11 +344,122 @@ describe("PipelineFormPage — editor de etapas integrado", () => {
     });
     expect(screen.getByRole("status")).toHaveTextContent("Etapa guardada");
     expect(screen.getByLabelText("Nombre de la etapa")).toHaveValue("");
+    // El campo revelado sigue a la vista (vacío) para la siguiente etapa: se
+    // vacían los valores, no la decisión de mostrarlo.
     expect(screen.getByLabelText("Probabilidad (%)")).toHaveValue(null);
     expect(screen.getByLabelText("Ganada")).not.toBeChecked();
     expect(screen.getByLabelText("Nombre de la etapa")).toHaveFocus();
     // No navegó a ningún lado.
     expect(screen.getByText("Editar pipeline")).toBeInTheDocument();
+  });
+
+  // §13 (Parte B): Probabilidad oculta por defecto en "Nueva etapa".
+  it("Nueva etapa: Probabilidad arranca oculta y, sin abrirla, el POST no manda probability (queda el default 0 del backend)", async () => {
+    mockPipelineDetail();
+    const calls = mockStagesServer([]);
+
+    const user = userEvent.setup();
+    renderForm("/pipelines/pl1/edit");
+    await waitFor(() => expect(screen.getByLabelText("Nombre de la etapa")).toBeInTheDocument());
+
+    expect(screen.queryByLabelText("Probabilidad (%)")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ Agregar probabilidad" })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Nombre de la etapa"), "Prospecto");
+    await user.click(screen.getByRole("button", { name: "Agregar etapa" }));
+
+    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
+    expect(calls.postedBody).toEqual({
+      pipelineId: "pl1",
+      name: "Prospecto",
+      isWon: false,
+      isLost: false,
+    });
+    expect(screen.getAllByRole("row").slice(1)).toHaveLength(1);
+    expect(cellByHeader(screen.getAllByRole("row")[1], "Probabilidad")).toHaveTextContent("0%");
+  });
+
+  it("'+ Agregar probabilidad' revela el input con foco y deja de mostrarse", async () => {
+    mockPipelineDetail();
+    mockStagesServer([]);
+
+    const user = userEvent.setup();
+    renderForm("/pipelines/pl1/edit");
+    await waitFor(() => expect(screen.getByLabelText("Nombre de la etapa")).toBeInTheDocument());
+
+    const reveal = screen.getByRole("button", { name: "+ Agregar probabilidad" });
+    await user.click(reveal);
+
+    const probability = screen.getByLabelText("Probabilidad (%)");
+    expect(probability).toHaveFocus();
+    expect(probability).toHaveValue(null);
+    expect(probability).toHaveAttribute("step", "any");
+    expect(reveal).not.toBeInTheDocument();
+  });
+
+  it("Editar: Probabilidad arranca oculta si la etapa tiene 0, y visible con su valor si tiene otra cosa", async () => {
+    mockPipelineDetail();
+    mockStagesServer([
+      makeStage({ id: "st1", name: "Prospecto", order: 1, probability: "0" }),
+      makeStage({ id: "st2", name: "Negociación", order: 2, probability: "25.5" }),
+    ]);
+
+    const user = userEvent.setup();
+    renderForm("/pipelines/pl1/edit");
+    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
+
+    // Etapa con probabilidad 0: oculta, con el botón dentro de la fila.
+    await openActionsMenu(user, stageRow("Prospecto"));
+    await user.click(screen.getByRole("menuitem", { name: "Editar" }));
+    let editRow = screen.getByRole("button", { name: "Guardar etapa" }).closest("tr")!;
+    expect(within(editRow).queryByLabelText("Probabilidad (%)")).not.toBeInTheDocument();
+    expect(
+      within(editRow).getByRole("button", { name: "+ Agregar probabilidad" }),
+    ).toBeInTheDocument();
+    // El nombre conserva el foco (la persona acaba de elegir "Editar").
+    expect(within(editRow).getByLabelText("Nombre de la etapa")).toHaveFocus();
+    await user.click(within(editRow).getByRole("button", { name: "Cancelar" }));
+
+    // Etapa con probabilidad distinta de 0: visible desde el arranque, sin el
+    // botón.
+    await openActionsMenu(user, stageRow("Negociación"));
+    await user.click(screen.getByRole("menuitem", { name: "Editar" }));
+    editRow = screen.getByRole("button", { name: "Guardar etapa" }).closest("tr")!;
+    expect(within(editRow).getByLabelText("Probabilidad (%)")).toHaveValue(25.5);
+    expect(
+      within(editRow).queryByRole("button", { name: "+ Agregar probabilidad" }),
+    ).not.toBeInTheDocument();
+  });
+
+  // §13 (Parte A): "Ganada" ya no es exclusiva por pipeline — la exclusividad
+  // salió del backend (índices únicos parciales y pre-check). El editor nunca
+  // la validó del lado del cliente; lo que se fija es el flujo completo: con
+  // una etapa ganada ya en la lista, agregar otra ganada se acepta, aparece
+  // con su badge y no hay ningún error en la fila.
+  it("una segunda etapa Ganada en el mismo pipeline se guarda sin error y las dos muestran el badge", async () => {
+    mockPipelineDetail();
+    const calls = mockStagesServer([
+      makeStage({ id: "st1", name: "Cerrado", order: 1, isWon: true }),
+    ]);
+
+    const user = userEvent.setup();
+    renderForm("/pipelines/pl1/edit");
+    await waitFor(() => expect(screen.getByText("Cerrado")).toBeInTheDocument());
+
+    await user.type(screen.getByLabelText("Nombre de la etapa"), "Entregado");
+    await user.click(screen.getByLabelText("Ganada"));
+    await user.click(screen.getByRole("button", { name: "Agregar etapa" }));
+
+    await waitFor(() => expect(screen.getByText("Entregado")).toBeInTheDocument());
+    expect(calls.postedBody).toMatchObject({ name: "Entregado", isWon: true, isLost: false });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Etapa guardada");
+
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows.map((row) => cellByHeader(row, "Estado")?.textContent)).toEqual([
+      "Etapa de Ganada",
+      "Etapa de Ganada",
+    ]);
   });
 
   it("Ganada y Perdida se desmarcan mutuamente en el mini-formulario", async () => {
