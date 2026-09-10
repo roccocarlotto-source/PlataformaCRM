@@ -11,6 +11,7 @@ import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { usePipeline } from "../pipeline/queries";
 import { useDeleteStage, useUpdateStage } from "./mutations";
+import { formatProbability, probabilityWidth } from "./probability";
 import { useStages } from "./queries";
 
 // R1.10 — mismo tamaño de página que el resto de los módulos (ver
@@ -22,21 +23,8 @@ import { useStages } from "./queries";
 // rompería esa semántica, no es parte de este punto del Roadmap A.
 const PAGE_SIZE = 20;
 
-// probability siempre llega como string desde la API (Prisma.Decimal,
-// ver types.ts) — Number() antes de formatear, nunca .toFixed() directo
-// sobre el valor crudo.
-function formatProbability(probability: string): string {
-  return `${Number(probability)}%`;
-}
-
-// Ancho de la barra de probabilidad: el dato real acotado a 0–100. El
-// backend ya lo valida en ese rango; el clamp solo evita que un valor
-// fuera de rango (o NaN) dibuje una barra rota.
-function probabilityWidth(probability: string): number {
-  const value = Number(probability);
-  if (Number.isNaN(value)) return 0;
-  return Math.min(100, Math.max(0, value));
-}
+// formatProbability/probabilityWidth viven en ./probability.ts desde que el
+// editor integrado de etapas (StageEditor) las necesitó también.
 
 // Diseño de referencia: "Etapas del embudo". Filas con nombre, barra de
 // probabilidad + porcentaje, un único badge de estado (solo en la etapa

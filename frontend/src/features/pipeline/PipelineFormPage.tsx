@@ -1,13 +1,17 @@
 import { useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
+import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
+import { useToast } from "../../design-system/useToast";
+import { StageEditor } from "../stage/StageEditor";
 import { useCreatePipeline, useUpdatePipeline } from "./mutations";
-import { usePipeline } from "./queries";
+import { pipelineKeys, usePipeline } from "./queries";
 import type { CreatePipelineInput, Pipeline } from "./types";
 import { useFormDraft } from "../../lib/useFormDraft";
 
@@ -48,10 +52,25 @@ function toFormValues(data: Pipeline): PipelineFormValues {
 //
 // El checkbox va dentro de FormField como en SourceFormPage ("Activa"): es un
 // checkbox nativo, solo hereda el estilo base.
+//
+// DEBAJO DEL FORMULARIO VA EL EDITOR DE ETAPAS (features/stage/StageEditor,
+// docs/frontend-cambios-pendientes.md §11): el flujo de venta real de un
+// pipeline son sus etapas, y hasta ahora solo se configuraban en una pantalla
+// aparte (StageListPage, que sigue existiendo de respaldo). El editor guarda
+// cada etapa por su cuenta, al toque; el "Guardar" de esta página sigue
+// acotado a Nombre/Default. En creación el editor no puede existir todavía
+// (no hay pipelineId) y en su lugar va un aviso.
+//
+// El editor es un HERMANO del <form>, no un hijo: cada fila del editor es su
+// propio <form> (Enter guarda, `required` frena), y un form adentro de otro
+// es HTML inválido. Por eso el esqueleto es div.ds-form > [form, editor] y no
+// form.ds-form > todo, como en los demás formularios.
 export function PipelineFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const toast = useToast();
 
   const pipelineQuery = usePipeline(isEditMode ? id : undefined);
   const createPipelineMutation = useCreatePipeline();
@@ -71,10 +90,39 @@ export function PipelineFormPage() {
     try {
       if (isEditMode) {
         await updatePipelineMutation.mutateAsync(toInput(values));
+        toast.show("Pipeline guardado");
+        navigate("/pipelines");
       } else {
-        await createPipelineMutation.mutateAsync(toInput(values));
+        const created = await createPipelineMutation.mutateAsync(toInput(values));
+        // EXCEPCIÓN AL PATRÓN "crear → navegar a la lista" — A PROPÓSITO.
+        //
+        // Todos los demás formularios (Company, Contact, Opportunity…) vuelven
+        // a su listado después de crear, y este también lo hacía. Pipeline es
+        // distinto porque un pipeline recién creado no sirve para nada hasta
+        // que tiene etapas (createPipeline no crea ninguna por defecto), y
+        // las etapas se configuran acá abajo, en el editor integrado, que
+        // necesita el id real del pipeline para existir. Mandar a la persona
+        // a la lista para que vuelva a entrar a "Editar" y recién ahí cargar
+        // las etapas es exactamente el rodeo que §11 de
+        // docs/frontend-cambios-pendientes.md decidió evitar.
+        //
+        // Por eso, al crear, la página pasa a modo edición EN EL MISMO LUGAR:
+        // navega a /pipelines/:id/edit (misma pantalla, ahora con el editor
+        // de etapas habilitado) en vez de a /pipelines. Con `replace` para que
+        // "Atrás" no vuelva al formulario vacío de "Nuevo pipeline" sino a
+        // donde estaba la persona antes (la lista). En modo edición, guardar
+        // SÍ sigue navegando a la lista, como siempre.
+        //
+        // NO "corregir" esto buscando consistencia con los otros formularios:
+        // es una decisión confirmada, no un descuido.
+        //
+        // La respuesta del POST se siembra en la caché del detail para que el
+        // modo edición arranque con los datos ya cargados (sin pasar por
+        // LoadingState) y sin un GET redundante mientras sean frescos.
+        queryClient.setQueryData(pipelineKeys.detail(created.id), created);
+        toast.show("Pipeline guardado");
+        navigate(`/pipelines/${created.id}/edit`, { replace: true });
       }
-      navigate("/pipelines");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar el pipeline");
     }
@@ -100,40 +148,50 @@ export function PipelineFormPage() {
   // El checkbox sigue siendo el mismo FormField (label > span + input): la
   // regla .ds-field:has(input[type="checkbox"]) solo lo pone en fila.
   return (
-    <form onSubmit={handleSubmit} className="ds-form">
+    <div className="ds-form">
       <h1>{isEditMode ? "Editar pipeline" : "Nuevo pipeline"}</h1>
       <div className="ds-stack">
-        <Card heading="Datos del pipeline">
-          <div className="ds-field-grid">
-            <div className="ds-field-grid--full">
-              <FormField label={<span className="ds-required">Nombre</span>}>
-                <input
-                  type="text"
-                  value={values.name}
-                  onChange={(event) => setValues({ ...values, name: event.target.value })}
-                  required
-                />
-              </FormField>
+        <form onSubmit={handleSubmit} className="ds-stack">
+          <Card heading="Datos del pipeline">
+            <div className="ds-field-grid">
+              <div className="ds-field-grid--full">
+                <FormField label={<span className="ds-required">Nombre</span>}>
+                  <input
+                    type="text"
+                    value={values.name}
+                    onChange={(event) => setValues({ ...values, name: event.target.value })}
+                    required
+                  />
+                </FormField>
+              </div>
+              <div className="ds-field-grid--full">
+                <FormField label="Default">
+                  <input
+                    type="checkbox"
+                    checked={values.isDefault}
+                    onChange={(event) => setValues({ ...values, isDefault: event.target.checked })}
+                  />
+                </FormField>
+              </div>
             </div>
-            <div className="ds-field-grid--full">
-              <FormField label="Default">
-                <input
-                  type="checkbox"
-                  checked={values.isDefault}
-                  onChange={(event) => setValues({ ...values, isDefault: event.target.checked })}
-                />
-              </FormField>
-            </div>
+          </Card>
+          {error ? <ErrorState>{error}</ErrorState> : null}
+          <div>
+            <RequiredFieldsHint />
+            <Button type="submit" variant="primary" disabled={isSubmitting}>
+              {isSubmitting ? "Guardando…" : "Guardar"}
+            </Button>
           </div>
-        </Card>
-        {error ? <ErrorState>{error}</ErrorState> : null}
-        <div>
-          <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
-            {isSubmitting ? "Guardando…" : "Guardar"}
-          </Button>
-        </div>
+        </form>
+
+        {isEditMode ? (
+          <StageEditor pipelineId={id} />
+        ) : (
+          <Card heading="Etapas">
+            <EmptyState>Guardá el pipeline para poder agregar sus etapas.</EmptyState>
+          </Card>
+        )}
       </div>
-    </form>
+    </div>
   );
 }

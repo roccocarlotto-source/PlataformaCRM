@@ -2048,6 +2048,159 @@ a.ds-button--secondary:hover {
 }
 
 /* ---------------------------------------------------------------------------
+   Toast (design-system/Toast.tsx) — confirmación de guardado que se va sola.
+   Sin export de referencia: criterio propio con las piezas del sistema. El
+   cartel toma el par de tokens de Badge variant="success" (fondo suave +
+   texto/ícono en --color-success), el radio y la sombra de los desplegables
+   (MultiSelect, ActionsMenu), y el alto de un control (40px) para que no se
+   vea ni como un badge ni como un diálogo. La región es fija abajo a la
+   derecha, por encima del overlay de Modal (200 > 100): una confirmación
+   disparada desde un panel lateral también tiene que verse. pointer-events
+   none en la región (que ocupa su esquina aunque esté vacía) y auto en el
+   cartel, para que la esquina siga siendo clickeable cuando no hay toast.
+   --------------------------------------------------------------------------- */
+.ds-toast-region {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: calc(100% - var(--space-5) * 2);
+  pointer-events: none;
+}
+
+.ds-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  background: var(--color-success-soft);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  color: var(--color-success);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  pointer-events: auto;
+  animation: ds-toast-in 160ms ease-out;
+}
+
+.ds-toast-icon {
+  flex-shrink: 0;
+}
+
+.ds-toast-message {
+  flex: 1;
+}
+
+/* La "×": mismas medidas y comportamiento que la de Modal (32px, sin borde ni
+   fondo hasta el hover), en el color del cartel. */
+.ds-toast-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ds-toast-close:hover {
+  background: rgba(27, 27, 24, 0.08);
+}
+
+@keyframes ds-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-toast {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Editor de etapas integrado en el formulario de Pipeline — hoy con un único
+   consumidor, features/stage/StageEditor.tsx (docs/frontend-cambios-pendientes.md
+   §11). Vive acá por el mismo motivo que .ds-mapping-rows: el proyecto no
+   tiene CSS por feature. Son ajustes sobre piezas que ya existen —una Table
+   adentro de una Card, y los FormField de siempre puestos en una sola fila
+   como mini-formulario— no un componente nuevo.
+   --------------------------------------------------------------------------- */
+/* La tabla adentro de la tarjeta: sin la sombra ni el margen vertical que
+   trae suelta en una página (la tarjeta ya tiene sombra; del espacio se
+   encarga el .ds-stack). */
+.ds-stage-editor .ds-table-wrap {
+  margin: 0;
+  box-shadow: none;
+}
+
+/* "Nueva etapa": rótulo de sección chico, mismo trato que un rótulo de campo. */
+.ds-stage-editor-subtitle {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* Los campos en fila, alineados por la base (el control), con las casillas
+   Ganada/Perdida y los botones a la misma altura que los inputs. Nombre
+   crece; Probabilidad tiene un ancho fijo chico (tres dígitos). Sin margen
+   propio por campo: del espacio se encarga el gap. Dentro de una celda de
+   tabla (edición inline) la fila hace wrap si no entra. */
+.ds-stage-editor-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.ds-stage-editor-fields .ds-field {
+  margin: 0;
+}
+
+.ds-stage-editor-fields .ds-field:first-child {
+  flex: 1 1 200px;
+}
+
+.ds-stage-editor-fields .ds-field input[type="number"] {
+  width: 120px;
+}
+
+/* Las casillas van en fila (regla :has de FormField) y necesitan el alto de
+   un control para quedar alineadas con los inputs de al lado. */
+.ds-stage-editor-fields .ds-field:has(input[type="checkbox"]) {
+  min-height: var(--control-height);
+}
+
+.ds-stage-editor-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* El error de una fila va debajo de sus campos, con aire. */
+.ds-stage-editor-form .ds-error {
+  margin-top: var(--space-3);
+}
+
+/* ---------------------------------------------------------------------------
    Radio en tarjeta — cada opción de un radiogroup como una tarjeta con título
    y una línea de ayuda debajo, la elegida resaltada con el acento. Medidas
    del panel "Generar QR digital" del export "Reseñas QR": padding 12, radio
