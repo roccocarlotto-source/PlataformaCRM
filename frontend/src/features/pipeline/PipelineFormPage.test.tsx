@@ -376,7 +376,10 @@ describe("PipelineFormPage — editor de etapas integrado", () => {
       isLost: false,
     });
     expect(screen.getAllByRole("row").slice(1)).toHaveLength(1);
-    expect(cellByHeader(screen.getAllByRole("row")[1], "Probabilidad")).toHaveTextContent("0%");
+    // §14: el 0 del default se ve como guión en la fila, nunca como "0%".
+    const probabilityCell = cellByHeader(screen.getAllByRole("row")[1], "Probabilidad");
+    expect(probabilityCell).toHaveTextContent("-");
+    expect(probabilityCell).not.toHaveTextContent("0%");
   });
 
   it("'+ Agregar probabilidad' revela el input con foco y deja de mostrarse", async () => {

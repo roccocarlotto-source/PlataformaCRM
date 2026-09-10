@@ -147,6 +147,27 @@ describe("StageListPage", () => {
     expect(screen.queryByText("NaN%")).not.toBeInTheDocument();
   });
 
+  // §14: una etapa con probabilidad 0 (el default cuando nunca se abrió el
+  // campo) muestra un guión en la columna, no "0%".
+  it("S13b probability 0 se muestra como guión, no como 0%", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    mockPipeline({ id: "pl1" });
+    server.use(
+      http.get(stagesUrl, () =>
+        HttpResponse.json({
+          data: [makeStage({ id: "st-zero", name: "Sin probabilidad", probability: "0" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Sin probabilidad")).toBeInTheDocument());
+    expect(screen.getByText("-")).toBeInTheDocument();
+    expect(screen.queryByText("0%")).not.toBeInTheDocument();
+  });
+
   it("S14 badges isWon/isLost se muestran correctamente por fila", async () => {
     // Ganada y Perdida se consolidaron en una sola columna "Estado" con un
     // único badge (o ninguno). La celda se ubica por cabecera, no por índice.
