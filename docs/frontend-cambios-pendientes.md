@@ -174,3 +174,29 @@ Acá el rótulo y el placeholder viven en el mismo archivo. El placeholder no ap
 
 - Los tests que localizaban estos campos por placeholder se actualizaron al texto nuevo (`CompanySelect`, `ContactSelect`, `OpportunitySelect`, `VehicleSelect`, `ActivityFormPage`, `OpportunityFormPage`, `ContactListPage`). Los de 5.3, que ya no tienen placeholder, pasaron a localizar el campo por su rótulo con `getByLabelText` (`CompanyListPage`, `VehicleListPage`); el de `OpportunityListPage` pasó de `getByLabelText("Filtrar por pipeline")` a `getByLabelText("Pipeline")`.
 - `frontend/src/design-system/design-system.css`: el comentario de la regla `min-width: 260px` del input de los selectores de búsqueda (ítem 2) citaba los placeholders y rótulos viejos como justificación de la medida. Se actualizó para dejar claro que esas mediciones eran de los textos anteriores a este ítem y que los nuevos, más cortos, entran en el mismo mínimo. La regla en sí no cambia.
+
+
+---
+
+## 6. La sesión no debe sobrevivir a cerrar el navegador — pedir login en cada apertura del programa
+
+**Estado:** hecho
+
+**Dónde se vio:** verificado en producción por Rocco. Cerró el programa (el navegador), lo volvió a abrir, y entró al CRM directo sin que se le pidiera loguearse.
+
+**Archivo:** `frontend/src/lib/supabase.ts` (líneas ~18-24, creación del cliente de Supabase).
+
+**Comportamiento actual (antes de este ítem):** el cliente se crea con `persistSession: true` y sin `storage` custom, así que usa el default de la librería: `localStorage`. La sesión (access + refresh token) sobrevive indefinidamente a cerrar el navegador — mientras el refresh token siga vigente, la próxima apertura del CRM encuentra la sesión guardada y el usuario ya está adentro sin que se le pida nada.
+
+**Comportamiento deseado:** cada vez que se cierra el navegador/programa y se vuelve a abrir, tiene que pedir login de nuevo. Un F5 (recargar la página sin cerrar el navegador) tiene que seguir manteniendo la sesión — eso no cambia.
+
+**El cambio:** agregar `storage: window.sessionStorage` en las opciones de `auth` al crear el cliente (junto a `persistSession`, `autoRefreshToken` y `detectSessionInUrl`, que ya estaban). `sessionStorage` se comporta igual que `localStorage` frente a un F5 (sobrevive), pero se borra al cerrar la pestaña/el navegador — exactamente el comportamiento pedido. El comentario del mismo archivo (líneas ~8-17), que documentaba `persistSession` asumiendo el storage default, se corrigió para reflejar el storage explícito nuevo y por qué se eligió.
+
+**Efecto secundario conocido — decisión tomada, no un bug a evitar:** `frontend/src/features/auth/AcceptInvitationPage.tsx` (rama `alreadyLoggedInEmail`, líneas ~278-300) dependía a propósito de que la sesión de Supabase sobreviviera a cerrar el navegador, para recuperar a alguien que cerró el navegador a mitad de aceptar una invitación, antes de terminar de poner su contraseña. Con `sessionStorage` esa recuperación deja de ser posible: esa persona va a ver el mismo mensaje que ya existe para enlaces inválidos/vencidos ("Este enlace no es válido o expiró. Pedile a tu administrador que te reinvite.") y se resuelve reinvitando. Rocco confirmó explícitamente que acepta este trade-off — no hace falta preservar ese caso ni buscar una alternativa más compleja.
+
+Como consecuencia, en esa misma rama:
+- se corrigió el comentario (líneas ~278-290) que explicaba la ambigüedad del caso asumiendo persistencia en `localStorage` — "cerré el navegador antes de terminar" ya no es un escenario que ese código pueda recuperar, porque la sesión ya no existiría;
+- se sacó del JSX el párrafo "Si cerraste el navegador antes de terminar de configurar tu contraseña, podés hacerlo ahora sin perder tu cuenta.", que quedaba inexacto por la misma razón. La rama en sí se mantiene tal cual (mensaje de "ya iniciaste sesión" + formulario de contraseña): sigue siendo válida para el caso que sí queda — alguien ya logueado (con esta u otra cuenta), en la misma pestaña, sin haber cerrado el navegador, que hace click en un enlace de invitación;
+- se ajustó el comentario de `AcceptInvitationPage.test.tsx` (líneas ~192-198) que justificaba el test de esa rama con la persistencia en `localStorage`. El test en sí sigue pasando sin cambios: usa mocks de auth, no depende de `localStorage`/`sessionStorage` real.
+
+**Por arrastre:** `docs/project-overview.md` (sección 4, párrafo "Cierre del navegador entre accept exitoso y password pendiente") describía la persistencia en `localStorage` como hecho vigente; se le agregó una nota de "superado" apuntando a este ítem, sin reescribir el histórico.

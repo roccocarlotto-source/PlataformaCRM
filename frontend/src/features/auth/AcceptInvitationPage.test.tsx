@@ -190,13 +190,15 @@ describe("AcceptInvitationPage", () => {
     );
   });
 
-  // Remediación mínima post-informe: la sesión de Supabase persiste en
-  // localStorage (persistSession, sin storage custom) incluso si se cierra
-  // la pestaña/el navegador — a diferencia del marcador de sessionStorage,
-  // que sí se pierde. Sin esta opción, alguien que cerró el navegador
-  // antes de terminar de configurar su contraseña quedaba con un mensaje
-  // puramente informativo, sin ninguna acción real disponible para
-  // completar el paso pendiente.
+  // Esta rama nació como remediación post-informe para quien cerraba el
+  // navegador antes de terminar de configurar su contraseña, cuando la
+  // sesión de Supabase vivía en localStorage y sobrevivía a ese cierre.
+  // Desde el ítem 6 de docs/frontend-cambios-pendientes.md la sesión vive
+  // en sessionStorage y ese escenario ya no llega acá (cae en
+  // "unauthenticated"). La rama sigue existiendo para quien, en la misma
+  // pestaña y sin cerrar el navegador, abre un enlace de invitación ya
+  // logueado — y configurar la contraseña ahí tiene que seguir funcionando
+  // sin repetir accept, que es lo que verifica este test.
   it("authenticated existente sin marca: además del mensaje, ofrece configurar contraseña — y funciona sin repetir accept", async () => {
     profileExists = true;
     let acceptCalls = 0;
