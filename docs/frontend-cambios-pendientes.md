@@ -606,3 +606,32 @@ definidos en `prisma/sql/manual_constraints.sql` (líneas ~110-120) y ya aplicad
 
 **Tests:** nuevo `probability.test.ts` (función pura: "0", "0.0", "0.00" → guión; 37.5, 25.50, 100, 0.5 → "N%"; y `probabilityWidth` con 0 sigue en 0). `StageListPage.test.tsx`: nuevo S13b (fila con probabilidad 0 muestra guión y no "0%"). `PipelineFormPage.test.tsx`: la aserción de "Nueva etapa sin abrir Probabilidad" pasa de esperar "0%" a esperar el guión y afirmar que "0%" no aparece.
 
+---
+
+## 15. Feedback de carga en "Subir"/"Bajar" del editor de etapas integrado
+
+**Estado:** hecho
+
+**Dónde se vio:** `/pipelines/:id/edit`, editor de etapas integrado (§11), botones "Subir" y "Bajar" de cada fila de la tabla.
+
+**Archivo:** `frontend/src/features/stage/StageEditor.tsx` (render de cada fila, los dos `<Button>` de Subir/Bajar).
+
+**Origen:** se reportó como "los botones Subir/Bajar no funcionan". Diagnosticado en vivo con DevTools: **sí funcionan** — el click manda el PATCH, el backend responde 200 y el reordenamiento se aplica — pero la respuesta puede tardar varios segundos (se observaron ~4 s, probablemente por el cold start del backend en Render) y durante ese tiempo el botón no cambia en absoluto: no se deshabilita, no cambia de texto, no hay ningún indicador. La persona interpreta que el click "no hizo nada". Flujo real observado en el Network tab: clic en "Bajar" → preflight `OPTIONS` (204) → `PATCH /api/stages/:id` (200, ~4 s) → refetch del listado (200) → recién ahí la tabla se reordena.
+
+**Comportamiento actual:** los botones solo se deshabilitan por posición (`isFirstOverall`/`isLastOverall`, el borde real del pipeline). Mientras la mutation de mover (`moveStageMutation`) está en curso, todos siguen habilitados y sin indicador. Como el editor nunca reordena localmente antes de la respuesta (decisión de §11: propone el `order` del vecino y confía en el refetch), no hay ningún cambio visible hasta que el backend contesta.
+
+**Comportamiento deseado:** mientras haya un movimiento en curso (Subir o Bajar, de cualquier fila), **todos** los botones "Subir"/"Bajar" de la tabla quedan deshabilitados — no solo el que se clickeó — y vuelven a su estado normal (habilitado/deshabilitado según si es borde de tabla) cuando la request termina, sea con éxito o con error.
+
+**Decisiones ya tomadas:**
+
+- **Se deshabilita toda la tabla en conjunto, no solo la fila/botón clickeado.** Es la opción más simple: ya existe una única instancia de mutation (`moveStageMutation`) compartida por todos los movimientos, así que `isPending` describe exactamente "hay un movimiento en curso". De paso evita que se acumulen varios clicks antes de que responda el primero — cada movimiento propone el `order` del vecino calculado sobre la lista *actual*, y un segundo click antes del refetch trabajaría sobre datos viejos.
+- **Alcance: SOLO el editor integrado (`StageEditor.tsx`).** La pantalla de respaldo (`StageListPage.tsx`, accesible vía "Ver etapas") queda sin tocar: no es la pantalla donde se reportó el problema, y ya hay precedente en este documento de tocar solo una de las dos pantallas cuando se decide explícitamente.
+- **Sin spinner ni cambio de texto:** alcanza con el estado deshabilitado (el `Button` del design system ya lo muestra visualmente). Es un fix de feedback, no de funcionalidad — no cambia qué se manda ni cuándo.
+
+**Decisiones tomadas al implementar:**
+
+- **Un `|| moveStageMutation.isPending` en el `disabled` de cada botón,** sumado a la condición de borde que ya tenían (`isFirstOverall`/`isLastOverall`). Nada más cambió: ni el handler, ni la mutation, ni qué se manda. Como `isPending` vuelve a `false` también cuando el PATCH falla, los botones se rehabilitan en el error y el mensaje "No pudimos mover la etapa" sigue mostrándose a nivel de la lista como antes.
+- **Sin cambios de CSS ni de texto:** el `Button` del design system ya muestra el estado deshabilitado. El comentario del JSX explica que el bloqueo es de feedback de carga y por qué abarca toda la tabla, en el estilo del resto del archivo.
+- **`StageListPage.tsx` intacto,** según lo decidido arriba.
+
+**Tests:** `PipelineFormPage.test.tsx`, describe "editor de etapas integrado": test nuevo con tres etapas que retiene la respuesta del PATCH con una promesa que el propio test libera (mismo patrón que E2-4 de `IngestionEventListPage.test.tsx`). Con la request pendiente afirma que los seis botones Subir/Bajar están deshabilitados (incluidos los de las filas no clickeadas) y que la tabla todavía no se reordenó; tras liberar el PATCH, que la fila cambió de lugar, que cada botón volvió a responder solo a su posición y que salió un único PATCH con el order del vecino. Verificado que el test falla sin el fix. El handler que retiene devuelve `undefined` para que msw siga con el de `mockStagesServer`, así el refetch refleja el intercambio real de order. Suite completa de frontend 898/898, typecheck, lint y Prettier limpios.

@@ -638,6 +638,87 @@ describe("PipelineFormPage — editor de etapas integrado", () => {
     expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
+  it("mientras un movimiento está en curso, TODOS los Subir/Bajar quedan deshabilitados y vuelven a su estado por posición tras el refetch", async () => {
+    mockPipelineDetail();
+    const calls = mockStagesServer([
+      makeStage({ id: "st1", name: "Prospecto", order: 1 }),
+      makeStage({ id: "st2", name: "Propuesta", order: 2 }),
+      makeStage({ id: "st3", name: "Cierre", order: 3 }),
+    ]);
+    // La respuesta del PATCH se retiene hasta que el test la libera, para
+    // poder mirar la tabla MIENTRAS la mutation está pendiente — que es el
+    // único momento en que se ve el feedback de carga (§15). Después de
+    // liberarla se delega en el handler de mockStagesServer, así el refetch
+    // muestra el intercambio real de order y no una respuesta inventada.
+    let liberarPatch: () => void = () => {};
+    const patchEnVuelo = new Promise<void>((resolve) => {
+      liberarPatch = resolve;
+    });
+    server.use(
+      http.patch(`${stagesUrl}/:id`, async () => {
+        await patchEnVuelo;
+        // Sin respuesta, msw sigue con el siguiente handler que matchee: el
+        // de mockStagesServer, que hace el intercambio de order.
+        return undefined;
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/pipelines/pl1/edit");
+    await waitFor(() => expect(screen.getByText("Cierre")).toBeInTheDocument());
+
+    const botonesDeMover = () => [
+      ...screen.getAllByRole("button", { name: "Subir" }),
+      ...screen.getAllByRole("button", { name: "Bajar" }),
+    ];
+    // Sanidad: antes del click, el estado depende solo de la posición.
+    expect(botonesDeMover()).toHaveLength(6);
+    expect(within(stageRow("Propuesta")).getByRole("button", { name: "Subir" })).toBeEnabled();
+    expect(within(stageRow("Cierre")).getByRole("button", { name: "Subir" })).toBeEnabled();
+
+    await user.click(within(stageRow("Propuesta")).getByRole("button", { name: "Bajar" }));
+
+    // Con la request pendiente, los seis botones (incluidos los de las OTRAS
+    // filas, no solo el clickeado) quedan deshabilitados: es toda la tabla,
+    // porque la mutation es una sola y un segundo movimiento antes del
+    // refetch trabajaría sobre un order viejo.
+    await waitFor(() => {
+      for (const boton of botonesDeMover()) expect(boton).toBeDisabled();
+    });
+    // Y el listado todavía no cambió: nada se reordena localmente antes de
+    // la respuesta. (El PATCH se afirma recién al final: el handler de
+    // mockStagesServer lo registra cuando le llega, o sea, tras liberarlo.)
+    expect(
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => cellByHeader(row, "Nombre")?.textContent),
+    ).toEqual(["Prospecto", "Propuesta", "Cierre"]);
+
+    liberarPatch();
+
+    // Tras el refetch la fila cambió de lugar y los botones vuelven a
+    // responder solo a la posición: primero sin Subir, último sin Bajar, el
+    // del medio con los dos habilitados.
+    await waitFor(() => {
+      const rows = screen.getAllByRole("row").slice(1);
+      expect(rows.map((row) => cellByHeader(row, "Nombre")?.textContent)).toEqual([
+        "Prospecto",
+        "Cierre",
+        "Propuesta",
+      ]);
+    });
+    expect(within(stageRow("Prospecto")).getByRole("button", { name: "Subir" })).toBeDisabled();
+    expect(within(stageRow("Prospecto")).getByRole("button", { name: "Bajar" })).toBeEnabled();
+    expect(within(stageRow("Cierre")).getByRole("button", { name: "Subir" })).toBeEnabled();
+    expect(within(stageRow("Cierre")).getByRole("button", { name: "Bajar" })).toBeEnabled();
+    expect(within(stageRow("Propuesta")).getByRole("button", { name: "Subir" })).toBeEnabled();
+    expect(within(stageRow("Propuesta")).getByRole("button", { name: "Bajar" })).toBeDisabled();
+    // Un solo PATCH, con el order del vecino: el bloqueo no cambió qué se
+    // manda ni cuántas veces.
+    expect(calls.patched).toEqual([{ id: "st2", body: { order: 3 } }]);
+  });
+
   it("error al mover se muestra a nivel de la lista", async () => {
     mockPipelineDetail();
     mockStagesServer([
