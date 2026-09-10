@@ -385,16 +385,25 @@ export function StageEditor({ pipelineId }: StageEditorProps) {
                     </td>
                     <td>
                       {/* Subir/Bajar afuera del menú y Editar/Eliminar adentro:
-                          mismo criterio que StageListPage (§8). */}
+                          mismo criterio que StageListPage (§8).
+                          Además del borde, se deshabilitan TODOS mientras hay
+                          un movimiento en curso (§14): como no se reordena
+                          localmente hasta el refetch, sin esto una respuesta
+                          lenta del backend se ve como "el click no hizo
+                          nada". Toda la tabla y no solo la fila clickeada,
+                          porque la mutation es una sola y cada movimiento
+                          propone el order del vecino sobre la lista actual:
+                          un segundo click antes del refetch usaría datos
+                          viejos. */}
                       <div className="ds-row-actions">
                         <Button
-                          disabled={isFirstOverall}
+                          disabled={isFirstOverall || moveStageMutation.isPending}
                           onClick={() => handleMove(stage.id, stage.order - 1)}
                         >
                           Subir
                         </Button>
                         <Button
-                          disabled={isLastOverall}
+                          disabled={isLastOverall || moveStageMutation.isPending}
                           onClick={() => handleMove(stage.id, stage.order + 1)}
                         >
                           Bajar
