@@ -13,16 +13,17 @@ import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { useOwnerNames } from "../opportunity/relationResolution";
 import { useCompaniesByIds } from "./companyResolution";
+import { LIFECYCLE_STAGE_LABELS, LIFECYCLE_STAGES } from "./labels";
 import { useDeleteContact } from "./mutations";
 import { useContacts } from "./queries";
 import type { ContactSortBy, LifecycleStage, SortOrder } from "./types";
 
 const PAGE_SIZE = 20;
-const LIFECYCLE_STAGES: LifecycleStage[] = ["LEAD", "MQL", "SQL", "CUSTOMER", "CHURNED"];
 
 // Mapeo cerrado decidido en la Fase 1 del rediseño (ver design-system/Badge.tsx):
 // lifecycleStage es un enum fijo sin campo de color en el schema, así que el
-// color lo decide este consumidor y no el componente.
+// color lo decide este consumidor y no el componente. El TEXTO del badge sale
+// de LIFECYCLE_STAGE_LABELS (labels.ts); acá solo el color.
 const LIFECYCLE_BADGE_VARIANT: Record<LifecycleStage, BadgeVariant> = {
   LEAD: "neutral",
   MQL: "neutral",
@@ -131,7 +132,7 @@ export function ContactListPage() {
               <option value="">Todas</option>
               {LIFECYCLE_STAGES.map((stage) => (
                 <option key={stage} value={stage}>
-                  {stage}
+                  {LIFECYCLE_STAGE_LABELS[stage]}
                 </option>
               ))}
             </select>
@@ -256,7 +257,7 @@ export function ContactListPage() {
                     <td>{contact.phone ?? ""}</td>
                     <td>
                       <Badge variant={LIFECYCLE_BADGE_VARIANT[contact.lifecycleStage]}>
-                        {contact.lifecycleStage}
+                        {LIFECYCLE_STAGE_LABELS[contact.lifecycleStage]}
                       </Badge>
                     </td>
                     <td>{contact.source ?? ""}</td>
