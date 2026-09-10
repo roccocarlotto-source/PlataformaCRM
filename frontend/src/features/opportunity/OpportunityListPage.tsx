@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -348,10 +349,16 @@ function OpportunityTableView() {
                     </td>
                     {isAdmin ? (
                       <td>
-                        <Link to={`/opportunities/${opportunity.id}/edit`}>Editar</Link>{" "}
-                        <Button variant="danger" onClick={() => handleDelete(opportunity.id)}>
-                          Eliminar
-                        </Button>
+                        <ActionsMenu
+                          actions={[
+                            { label: "Editar", to: `/opportunities/${opportunity.id}/edit` },
+                            {
+                              label: "Eliminar",
+                              onClick: () => handleDelete(opportunity.id),
+                              destructive: true,
+                            },
+                          ]}
+                        />
                       </td>
                     ) : null}
                   </tr>

@@ -1941,6 +1941,113 @@ a.ds-button--secondary:hover {
 }
 
 /* ---------------------------------------------------------------------------
+   ActionsMenu (design-system/ActionsMenu.tsx) — botón de 3 puntos que abre
+   el menú con las acciones de una fila. Reemplaza a los links/botones
+   sueltos de la columna "Acciones" en las filas con 2+ acciones
+   (docs/frontend-cambios-pendientes.md §8); .ds-row-actions sigue para las
+   pantallas de una sola acción y para los controles que quedan afuera del
+   menú (Subir/Bajar de Etapas). Sin export de referencia: el trigger toma
+   las medidas del "×" de Modal (32px, sin borde ni fondo hasta el hover) y
+   la lista las de la lista abierta de MultiSelect (mismo fondo, borde,
+   radio y sombra), para que los dos desplegables del sistema se vean igual.
+   --------------------------------------------------------------------------- */
+.ds-actions-menu {
+  display: inline-flex;
+}
+
+.ds-actions-menu-trigger {
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+/* Abierto se queda "presionado" para que se vea de qué fila cuelga el menú. */
+.ds-actions-menu-trigger:hover,
+.ds-actions-menu-trigger[aria-expanded="true"] {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+/* position: fixed y no absolute: ver POSICIÓN en el comentario del
+   componente, que también fija top/right/bottom en línea desde el trigger.
+   z-index 10 como la lista de MultiSelect: por encima de la tabla, por
+   debajo del overlay de Modal (100), que de todos modos nunca conviven. */
+.ds-actions-menu-list {
+  position: fixed;
+  z-index: 10;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1) 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+}
+
+/* Cada ítem es un <button> o un <a> (Link) con la misma pinta: fila de
+   texto a ancho completo, ícono opcional delante, sin el subrayado ni el
+   color de acento de los links sueltos. El foco lo marca el fondo, no el
+   anillo: el menú ya es un contexto acotado y el anillo global de
+   button/a:focus-visible quedaría cortado por los bordes de la lista. */
+.ds-actions-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-base);
+  line-height: 1.4;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ds-actions-menu-item:hover,
+.ds-actions-menu-item:focus-visible {
+  outline: none;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.ds-actions-menu-item:disabled {
+  color: var(--color-text-faint);
+  background: transparent;
+  cursor: default;
+}
+
+/* Destructiva (Eliminar, Desactivar): mismo par de tokens que
+   .ds-button--danger dentro de .ds-row-actions. */
+.ds-actions-menu-item--danger {
+  color: var(--color-danger);
+}
+
+.ds-actions-menu-item--danger:hover,
+.ds-actions-menu-item--danger:focus-visible {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.ds-actions-menu-item svg {
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------------------
    Radio en tarjeta — cada opción de un radiogroup como una tarjeta con título
    y una línea de ayuda debajo, la elegida resaltada con el acento. Medidas
    del panel "Generar QR digital" del export "Reseñas QR": padding 12, radio

@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeSource } from "../../test/sourceFixtures";
+import { openActionsMenu } from "../../test/openActionsMenu";
 import { SourceListPage } from "./SourceListPage";
 import type { SourceListResponse } from "./types";
 
@@ -81,8 +82,10 @@ describe("SourceListPage", () => {
     // esperar a la TABLA antes de buscar las acciones por fila.
     const tabla = within(await screen.findByRole("table"));
     expect(screen.getByRole("link", { name: "Nueva fuente" })).toBeInTheDocument();
-    expect(tabla.getByRole("link", { name: "Editar" })).toBeInTheDocument();
-    expect(tabla.getByRole("button", { name: "Eliminar" })).toBeInTheDocument();
+    // Las acciones de fila viven en el menú de 3 puntos (§8).
+    await openActionsMenu(userEvent.setup());
+    expect(tabla.getByRole("menuitem", { name: "Editar" })).toBeInTheDocument();
+    expect(tabla.getByRole("menuitem", { name: "Eliminar" })).toBeInTheDocument();
   });
 
   it("los filtros viajan en la query y resetean la página a 1", async () => {
@@ -158,7 +161,8 @@ describe("SourceListPage", () => {
       const user = userEvent.setup();
       renderPage();
       await screen.findByText("Landing de precios");
-      await user.click(screen.getByRole("button", { name: "Eliminar" }));
+      await openActionsMenu(user);
+      await user.click(screen.getByRole("menuitem", { name: "Eliminar" }));
 
       expect(confirmSpy).toHaveBeenCalled();
       expect(llamadas).toBe(0);
@@ -180,7 +184,8 @@ describe("SourceListPage", () => {
       const user = userEvent.setup();
       renderPage();
       await screen.findByText("Landing de precios");
-      await user.click(screen.getByRole("button", { name: "Eliminar" }));
+      await openActionsMenu(user);
+      await user.click(screen.getByRole("menuitem", { name: "Eliminar" }));
 
       await waitFor(() => expect(borrados).toEqual(["s9"]));
     });
@@ -197,7 +202,8 @@ describe("SourceListPage", () => {
       const user = userEvent.setup();
       renderPage();
       await screen.findByText("Landing de precios");
-      await user.click(screen.getByRole("button", { name: "Eliminar" }));
+      await openActionsMenu(user);
+      await user.click(screen.getByRole("menuitem", { name: "Eliminar" }));
 
       expect(await screen.findByRole("alert")).toHaveTextContent("Fuente no encontrada");
     });
@@ -241,6 +247,15 @@ describe("SourceListPage — cross-links por fila", () => {
   // vacío es un resultado válido; "Importar archivo" solo en las FILE_IMPORT
   // porque importar contra otro tipo da un 400 garantizado (import.service.ts).
 
+  // Las acciones de una fila solo existen en el DOM con su menú de 3 puntos
+  // abierto (§8), y un menú abierto cierra al anterior: se recorre fila por
+  // fila, ubicándola por nombre.
+  async function menuDeFila(user: ReturnType<typeof userEvent.setup>, nombre: string) {
+    const row = screen.getByText(nombre).closest("tr");
+    await openActionsMenu(user, row);
+    return within(row!);
+  }
+
   function conFilas(sources: ReturnType<typeof makeSource>[]) {
     return http.get(baseUrl, () =>
       HttpResponse.json(
@@ -256,8 +271,9 @@ describe("SourceListPage — cross-links por fila", () => {
     server.use(conFilas([makeSource({ id: "src-file", name: "Feria", type: "FILE_IMPORT" })]));
     renderPage();
 
-    const tabla = within(await screen.findByRole("table"));
-    const link = tabla.getByRole("link", { name: "Importar archivo" });
+    await screen.findByRole("table");
+    const fila = await menuDeFila(userEvent.setup(), "Feria");
+    const link = fila.getByRole("menuitem", { name: "Importar archivo" });
     expect(link).toHaveAttribute("href", "/sources/src-file/import");
   });
 
@@ -265,16 +281,18 @@ describe("SourceListPage — cross-links por fila", () => {
     server.use(conFilas([makeSource({ id: "src-hook", name: "Landing", type: "WEBHOOK" })]));
     renderPage();
 
-    const tabla = within(await screen.findByRole("table"));
-    expect(tabla.queryByRole("link", { name: "Importar archivo" })).not.toBeInTheDocument();
+    await screen.findByRole("table");
+    const fila = await menuDeFila(userEvent.setup(), "Landing");
+    expect(fila.queryByRole("menuitem", { name: "Importar archivo" })).not.toBeInTheDocument();
   });
 
   it("una fila EXTERNAL_DB tampoco lo muestra", async () => {
     server.use(conFilas([makeSource({ id: "src-db", name: "Base", type: "EXTERNAL_DB" })]));
     renderPage();
 
-    const tabla = within(await screen.findByRole("table"));
-    expect(tabla.queryByRole("link", { name: "Importar archivo" })).not.toBeInTheDocument();
+    await screen.findByRole("table");
+    const fila = await menuDeFila(userEvent.setup(), "Base");
+    expect(fila.queryByRole("menuitem", { name: "Importar archivo" })).not.toBeInTheDocument();
   });
 
   it("con las tres juntas, solo la FILE_IMPORT ofrece importar", async () => {
@@ -287,10 +305,17 @@ describe("SourceListPage — cross-links por fila", () => {
     );
     renderPage();
 
-    const tabla = within(await screen.findByRole("table"));
-    const links = tabla.getAllByRole("link", { name: "Importar archivo" });
-    expect(links).toHaveLength(1);
-    expect(links[0]).toHaveAttribute("href", "/sources/src-file/import");
+    await screen.findByRole("table");
+    const user = userEvent.setup();
+    const landing = await menuDeFila(user, "Landing");
+    expect(landing.queryByRole("menuitem", { name: "Importar archivo" })).not.toBeInTheDocument();
+    const feria = await menuDeFila(user, "Feria");
+    expect(feria.getByRole("menuitem", { name: "Importar archivo" })).toHaveAttribute(
+      "href",
+      "/sources/src-file/import",
+    );
+    const base = await menuDeFila(user, "Base");
+    expect(base.queryByRole("menuitem", { name: "Importar archivo" })).not.toBeInTheDocument();
   });
 
   it("'Ver claves' SÍ aparece en las tres, con el filtro por fuente en la URL", async () => {
@@ -305,12 +330,19 @@ describe("SourceListPage — cross-links por fila", () => {
     );
     renderPage();
 
-    const tabla = within(await screen.findByRole("table"));
-    const links = tabla.getAllByRole("link", { name: "Ver claves" });
-    expect(links).toHaveLength(3);
-    expect(links[0]).toHaveAttribute("href", "/api-keys?sourceId=src-hook");
-    expect(links[1]).toHaveAttribute("href", "/api-keys?sourceId=src-file");
-    expect(links[2]).toHaveAttribute("href", "/api-keys?sourceId=src-db");
+    await screen.findByRole("table");
+    const user = userEvent.setup();
+    for (const [nombre, id] of [
+      ["Landing", "src-hook"],
+      ["Feria", "src-file"],
+      ["Base", "src-db"],
+    ]) {
+      const fila = await menuDeFila(user, nombre);
+      expect(fila.getByRole("menuitem", { name: "Ver claves" })).toHaveAttribute(
+        "href",
+        `/api-keys?sourceId=${id}`,
+      );
+    }
   });
 
   it("'Ver eventos' aparece en TODA fila, sin importar el tipo", async () => {
@@ -326,11 +358,18 @@ describe("SourceListPage — cross-links por fila", () => {
     );
     renderPage();
 
-    const tabla = within(await screen.findByRole("table"));
-    const links = tabla.getAllByRole("link", { name: "Ver eventos" });
-    expect(links).toHaveLength(3);
-    expect(links[0]).toHaveAttribute("href", "/ingestion-events?sourceId=src-hook");
-    expect(links[1]).toHaveAttribute("href", "/ingestion-events?sourceId=src-file");
-    expect(links[2]).toHaveAttribute("href", "/ingestion-events?sourceId=src-db");
+    await screen.findByRole("table");
+    const user = userEvent.setup();
+    for (const [nombre, id] of [
+      ["Landing", "src-hook"],
+      ["Feria", "src-file"],
+      ["Base", "src-db"],
+    ]) {
+      const fila = await menuDeFila(user, nombre);
+      expect(fila.getByRole("menuitem", { name: "Ver eventos" })).toHaveAttribute(
+        "href",
+        `/ingestion-events?sourceId=${id}`,
+      );
+    }
   });
 });

@@ -12,6 +12,7 @@ import { makeContact } from "../../test/contactFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { makeUser } from "../../test/userFixtures";
+import { openActionsMenu } from "../../test/openActionsMenu";
 import { OpportunityListPage } from "./OpportunityListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { OpportunityListResponse } from "./types";
@@ -368,6 +369,33 @@ describe("OpportunityListPage", () => {
     expect(screen.queryByText("Nueva oportunidad")).not.toBeInTheDocument();
     expect(screen.queryByText("Editar")).not.toBeInTheDocument();
     expect(screen.queryByText("Eliminar")).not.toBeInTheDocument();
+  });
+
+  it("ADMIN ve Editar/Eliminar en el menú de 3 puntos de la fila, con Editar como link", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(opportunitiesUrl, () =>
+        HttpResponse.json({
+          data: [makeOpportunity({ id: "op1" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      usersHandler(),
+      ...relationHandlers(),
+    );
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
+    expect(screen.getByText("Nueva oportunidad")).toBeInTheDocument();
+    // Las acciones no están en el DOM hasta abrir el menú (§8).
+    expect(screen.queryByText("Editar")).not.toBeInTheDocument();
+    await openActionsMenu(userEvent.setup());
+    expect(screen.getByRole("menuitem", { name: "Editar" })).toHaveAttribute(
+      "href",
+      "/opportunities/op1/edit",
+    );
+    expect(screen.getByRole("menuitem", { name: "Eliminar" })).toBeInTheDocument();
   });
 
   // El toggle Tabla/Embudo. La vista de embudo en sí (columnas, drag & drop,

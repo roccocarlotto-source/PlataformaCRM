@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -279,10 +280,16 @@ export function ActivityListPage() {
                   <td>{formatDateTime(activity.completedAt)}</td>
                   {isAdmin ? (
                     <td>
-                      <Link to={`/activities/${activity.id}/edit`}>Editar</Link>{" "}
-                      <Button variant="danger" onClick={() => handleDelete(activity.id)}>
-                        Eliminar
-                      </Button>
+                      <ActionsMenu
+                        actions={[
+                          { label: "Editar", to: `/activities/${activity.id}/edit` },
+                          {
+                            label: "Eliminar",
+                            onClick: () => handleDelete(activity.id),
+                            destructive: true,
+                          },
+                        ]}
+                      />
                     </td>
                   ) : null}
                 </tr>

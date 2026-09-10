@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeCompany } from "../../test/companyFixtures";
 import { makeUser } from "../../test/userFixtures";
+import { openActionsMenu } from "../../test/openActionsMenu";
 import { CompanyListPage } from "./CompanyListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { CompanyListResponse } from "./types";
@@ -97,6 +98,8 @@ describe("CompanyListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
     expect(screen.getByText("Nueva empresa")).toBeInTheDocument();
+    // Editar/Eliminar viven en el menú de 3 puntos de la fila (§8).
+    await openActionsMenu(userEvent.setup());
     expect(screen.getByText("Editar")).toBeInTheDocument();
     expect(screen.getByText("Eliminar")).toBeInTheDocument();
   });
@@ -184,6 +187,7 @@ describe("CompanyListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     expect(window.confirm).toHaveBeenCalled();
@@ -211,6 +215,7 @@ describe("CompanyListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     await waitFor(() => expect(deletedId).toBe("c-target"));
@@ -237,6 +242,7 @@ describe("CompanyListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"));

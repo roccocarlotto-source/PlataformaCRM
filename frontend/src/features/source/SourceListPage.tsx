@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
-import { Button } from "../../design-system/Button";
+import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -185,29 +185,33 @@ export function SourceListPage() {
                     formato que no es una decisión de este módulo. */}
                   <td>{new Date(source.createdAt).toLocaleDateString()}</td>
                   <td>
-                    <Link to={`/sources/${source.id}/edit`}>Editar</Link>{" "}
-                    {/* Cross-link a las claves de ESTA fuente, con el filtro ya
-                      aplicado. El filtro de ApiKeyListPage vive en la URL
-                      justamente para que este link pueda armarlo. */}
-                    <Link to={`/api-keys?sourceId=${source.id}`}>Ver claves</Link>{" "}
-                    {/* Solo en las FILE_IMPORT, a diferencia de "Ver claves":
-                      importar contra otro tipo daría un 400 garantizado
-                      (import.service.ts), mientras que un listado de claves
-                      vacío no es un error sino un resultado válido. */}
-                    {source.type === "FILE_IMPORT" ? (
-                      <>
-                        <Link to={`/sources/${source.id}/import`}>Importar archivo</Link>{" "}
-                      </>
-                    ) : null}
-                    {/* Sin condicionar por tipo, a diferencia de "Importar
-                      archivo": CUALQUIER fuente puede tener eventos — un
-                      webhook los genera de a uno, una FILE_IMPORT por lote — así
-                      que el listado filtrado siempre tiene sentido, aunque
-                      devuelva vacío. */}
-                    <Link to={`/ingestion-events?sourceId=${source.id}`}>Ver eventos</Link>{" "}
-                    <Button variant="danger" onClick={() => handleDelete(source.id)}>
-                      Eliminar
-                    </Button>
+                    <ActionsMenu
+                      actions={[
+                        { label: "Editar", to: `/sources/${source.id}/edit` },
+                        // Cross-link a las claves de ESTA fuente, con el filtro ya
+                        // aplicado. El filtro de ApiKeyListPage vive en la URL
+                        // justamente para que este link pueda armarlo.
+                        { label: "Ver claves", to: `/api-keys?sourceId=${source.id}` },
+                        // Solo en las FILE_IMPORT, a diferencia de "Ver claves":
+                        // importar contra otro tipo daría un 400 garantizado
+                        // (import.service.ts), mientras que un listado de claves
+                        // vacío no es un error sino un resultado válido.
+                        ...(source.type === "FILE_IMPORT"
+                          ? [{ label: "Importar archivo", to: `/sources/${source.id}/import` }]
+                          : []),
+                        // Sin condicionar por tipo, a diferencia de "Importar
+                        // archivo": CUALQUIER fuente puede tener eventos — un
+                        // webhook los genera de a uno, una FILE_IMPORT por lote — así
+                        // que el listado filtrado siempre tiene sentido, aunque
+                        // devuelva vacío.
+                        { label: "Ver eventos", to: `/ingestion-events?sourceId=${source.id}` },
+                        {
+                          label: "Eliminar",
+                          onClick: () => handleDelete(source.id),
+                          destructive: true,
+                        },
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}

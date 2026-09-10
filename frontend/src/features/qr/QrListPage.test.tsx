@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeBranch } from "../../test/branchFixtures";
 import { makeQrCode } from "../../test/qrFixtures";
+import { openActionsMenu } from "../../test/openActionsMenu";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { QrListPage } from "./QrListPage";
 import type { QrCodeListResponse } from "./types";
@@ -214,11 +215,16 @@ describe("QrListPage — acciones por rol", () => {
 
     await screen.findByRole("table");
     expect(screen.getByRole("button", { name: "Generar QR digital" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Editar" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Eliminar" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ver imagen" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Enviar" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copiar link" })).toBeInTheDocument();
+    // Las cinco acciones de fila viven en el menú de 3 puntos (§8), en este
+    // orden: las de solo lectura primero, las de escritura al final.
+    await openActionsMenu(userEvent.setup());
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Ver imagen",
+      "Enviar",
+      "Copiar link",
+      "Editar",
+      "Eliminar",
+    ]);
   });
 
   it("USER no ve escrituras pero SÍ ver imagen / enviar / copiar link", async () => {
@@ -231,11 +237,12 @@ describe("QrListPage — acciones por rol", () => {
 
     await screen.findByRole("table");
     expect(screen.queryByRole("button", { name: "Generar QR digital" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Eliminar" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ver imagen" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Enviar" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copiar link" })).toBeInTheDocument();
+    await openActionsMenu(userEvent.setup());
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Ver imagen",
+      "Enviar",
+      "Copiar link",
+    ]);
   });
 });
 
@@ -259,7 +266,8 @@ describe("QrListPage — eliminar", () => {
     renderPage();
 
     await screen.findByRole("table");
-    await user.click(screen.getByRole("button", { name: "Eliminar" }));
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Eliminar" }));
 
     await waitFor(() => expect(deletedId).toBe("d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11"));
     await waitFor(() => expect(gets).toBeGreaterThanOrEqual(2));
@@ -280,7 +288,8 @@ describe("QrListPage — eliminar", () => {
     renderPage();
 
     await screen.findByRole("table");
-    await user.click(screen.getByRole("button", { name: "Eliminar" }));
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Eliminar" }));
 
     expect(deleted).toBe(false);
   });
@@ -297,9 +306,11 @@ describe("QrListPage — copiar link", () => {
     renderPage();
 
     await screen.findByRole("table");
-    await user.click(screen.getByRole("button", { name: "Copiar link" }));
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Copiar link" }));
 
-    expect(await screen.findByRole("button", { name: "¡Copiado!" })).toBeInTheDocument();
+    // El menú sigue abierto (keepOpen) y el ítem pasa a decir "¡Copiado!".
+    expect(await screen.findByRole("menuitem", { name: "¡Copiado!" })).toBeInTheDocument();
     expect(await navigator.clipboard.readText()).toBe(
       `${env.qrPublicBaseUrl}/r/d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11`,
     );
@@ -315,13 +326,14 @@ describe("QrListPage — copiar link", () => {
     renderPage();
 
     await screen.findByRole("table");
-    await user.click(screen.getByRole("button", { name: "Copiar link" }));
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Copiar link" }));
 
     expect(await screen.findByText(/Copialo a mano/)).toBeInTheDocument();
     expect(
       screen.getByText(`${env.qrPublicBaseUrl}/r/d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11`),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "¡Copiado!" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "¡Copiado!" })).not.toBeInTheDocument();
   });
 });
 
@@ -369,7 +381,8 @@ describe("QrListPage — diálogos", () => {
     renderPage();
 
     await screen.findByRole("table");
-    await user.click(screen.getByRole("button", { name: "Editar" }));
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Editar" }));
 
     const dialog = within(await screen.findByRole("dialog"));
     expect(dialog.getByLabelText("Nombre")).toHaveValue("Mostrador");
@@ -387,7 +400,8 @@ describe("QrListPage — diálogos", () => {
     renderPage();
 
     await screen.findByRole("table");
-    await user.click(screen.getByRole("button", { name: "Enviar" }));
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Enviar" }));
 
     const dialog = within(await screen.findByRole("dialog"));
     expect(dialog.getByRole("radiogroup", { name: "Canal de envío" })).toBeInTheDocument();

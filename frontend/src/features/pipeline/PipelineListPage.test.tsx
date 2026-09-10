@@ -8,6 +8,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makePipeline } from "../../test/pipelineFixtures";
+import { openActionsMenu } from "../../test/openActionsMenu";
 import { PipelineListPage } from "./PipelineListPage";
 import { useUpdatePipeline } from "./mutations";
 import type { AuthContextValue } from "../../auth/AuthContext";
@@ -190,6 +191,10 @@ describe("PipelineListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
     expect(screen.getByText("Nuevo pipeline")).toBeInTheDocument();
+    // Editar/Eliminar viven en el menú de 3 puntos de la fila (§8); "Ver
+    // etapas" sigue en su propia columna, afuera del menú.
+    expect(screen.getByText("Ver etapas")).toBeInTheDocument();
+    await openActionsMenu(userEvent.setup());
     expect(screen.getByText("Editar")).toBeInTheDocument();
     expect(screen.getByText("Eliminar")).toBeInTheDocument();
   });
@@ -215,6 +220,7 @@ describe("PipelineListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     expect(window.confirm).toHaveBeenCalled();
@@ -242,6 +248,7 @@ describe("PipelineListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     await waitFor(() => expect(deletedId).toBe("pl-target"));
@@ -270,6 +277,7 @@ describe("PipelineListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     await waitFor(() =>

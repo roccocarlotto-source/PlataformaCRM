@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
+import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
-import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -21,7 +21,7 @@ const PAGE_SIZE = 20;
 //
 // Restyle con criterio propio (sin export de referencia para esta pantalla):
 // mismas piezas que PipelineListPage y QrListPage — Badge para el estado,
-// Button en .ds-row-actions para las acciones, ErrorState para los errores
+// ActionsMenu (menú de 3 puntos) para las acciones, ErrorState para los errores
 // por fila. Los textos, los nombres accesibles y las condiciones (fila
 // propia sin controles, errores scopeados por fila) no cambian.
 function UserRow({ user, isSelf }: { user: User; isSelf: boolean }) {
@@ -75,14 +75,25 @@ function UserRow({ user, isSelf }: { user: User; isSelf: boolean }) {
             visualmente el 400 real que el backend ya garantiza
             (targetUserId === actorUserId), mismo criterio que AdminRoute. */}
         {isSelf ? null : (
-          <div className="ds-row-actions">
-            <Button onClick={handleToggleActive} disabled={updateUserMutation.isPending}>
-              {user.isActive ? "Desactivar" : "Activar"}
-            </Button>
-            <Button variant="danger" onClick={handleDelete} disabled={deleteUserMutation.isPending}>
-              Eliminar
-            </Button>
-          </div>
+          <ActionsMenu
+            label={`Más acciones de ${user.fullName}`}
+            actions={[
+              {
+                label: user.isActive ? "Desactivar" : "Activar",
+                onClick: handleToggleActive,
+                disabled: updateUserMutation.isPending,
+                // Desactivar le saca el acceso a alguien: destructiva. Activar
+                // se lo devuelve: no.
+                destructive: user.isActive,
+              },
+              {
+                label: "Eliminar",
+                onClick: handleDelete,
+                disabled: deleteUserMutation.isPending,
+                destructive: true,
+              },
+            ]}
+          />
         )}
         {updateUserMutation.isError ? (
           <ErrorState>

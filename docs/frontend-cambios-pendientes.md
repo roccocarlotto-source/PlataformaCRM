@@ -239,6 +239,77 @@ Este select se usa en tres formularios con la **misma semántica de backend** (`
 
 ---
 
+## 8. Columna "Acciones" de las pantallas de listado: reemplazar botones sueltos por un menú de 3 puntos
+
+**Estado:** hecho
+
+**Dónde se vio:** en varias pantallas de listado, la columna "Acciones" de cada fila. El caso más visible es Empresas (`/companies`): "Editar" como link de texto seguido de un botón rojo "Eliminar", uno al lado del otro.
+
+**Contexto:** en varias pantallas de listado, la columna "Acciones" muestra los controles de cada fila (Editar, Eliminar, etc.) como enlaces/botones sueltos, uno al lado del otro, lo cual se ve inconsistente y poco prolijo (ejemplo: en Empresas, "Editar" como link de texto seguido de un botón rojo "Eliminar"). Cada pantalla resolvió la columna a su manera —links de texto en unas, `Button` dentro de `.ds-row-actions` en otras— y el resultado es una columna distinta en cada listado.
+
+**Comportamiento deseado:** en las filas con 2 o más acciones, agrupar los controles detrás de un botón trigger con ícono de 3 puntos (kebab) que al hacer click despliega un menú con las acciones de esa fila. Las filas que hoy tienen una sola acción **no se tocan** — un menú de un solo ítem no aporta nada y suma un clic innecesario.
+
+**Pantallas que pasan a usar el menú de 3 puntos (2+ acciones por fila):**
+
+| Archivo | Acciones de la fila |
+|---|---|
+| `frontend/src/features/company/CompanyListPage.tsx` | Editar, Eliminar |
+| `frontend/src/features/contact/ContactListPage.tsx` | Editar, Eliminar |
+| `frontend/src/features/opportunity/OpportunityListPage.tsx` | Editar, Eliminar |
+| `frontend/src/features/activity/ActivityListPage.tsx` | Editar, Eliminar |
+| `frontend/src/features/pipeline/PipelineListPage.tsx` | Ver etapas, y si es admin: Editar, Eliminar — 2 o 3 según rol |
+| `frontend/src/features/stage/StageListPage.tsx` | Editar, Eliminar |
+| `frontend/src/features/vehicle/VehicleListPage.tsx` | Editar, Eliminar |
+| `frontend/src/features/qr/QrListPage.tsx` | Ver imagen, Copiar link, Editar, Eliminar — 4 |
+| `frontend/src/features/user/UserListPage.tsx` | Desactivar/Activar, Eliminar |
+| `frontend/src/features/source/SourceListPage.tsx` | Editar, Ver claves, Importar archivo (solo en fuentes de tipo `FILE_IMPORT`), Ver eventos, Eliminar — 4 o 5 según tipo |
+
+**Pantallas que se dejan como están (fuera de alcance, una sola acción hoy):**
+
+| Archivo | Única acción |
+|---|---|
+| `frontend/src/features/apiKey/ApiKeyListPage.tsx` | Revocar |
+| `frontend/src/features/invitation/InvitationListPage.tsx` | Revocar |
+| `frontend/src/features/ingestionEvent/IngestionEventListPage.tsx` | Ver contacto |
+
+**Cómo se implementa:** un componente nuevo y reutilizable del design system, `frontend/src/design-system/ActionsMenu.tsx`, que recibe la lista de acciones de la fila (rótulo, qué hace, y un flag opcional para marcar una acción como "destructiva" — Eliminar/Revocar/Desactivar según el caso) y renderiza:
+
+- un botón trigger con el ícono de 3 puntos (de `lucide-react`, que ya es dependencia del proyecto) y un `aria-label` accesible ("Más acciones");
+- un panel desplegable con las acciones como ítems de menú (`role="menu"` / `role="menuitem"`, navegable con teclado, con las convenciones ARIA típicas de un botón de menú);
+- que se cierra con click afuera, con Escape y al elegir cualquier acción (el patrón de apertura/cierre es el de `MultiSelect.tsx`, no el de `Modal.tsx`, que no se cierra con esos gestos a propósito por su caso de uso de secretos irreversibles);
+- y en el que la acción destructiva conserva un tratamiento visual distinto (texto en el color `--color-danger` que ya usa el resto del design system) para no perder la señal de "esto borra/revoca algo".
+
+Los estilos van en `design-system.css`, con la convención de nombres y estructura de los otros componentes del sistema (`Modal`, `MultiSelect`, `Button`). Cada una de las 10 pantallas pasa a usar `ActionsMenu` en su columna "Acciones" con las acciones reales de cada una. Es un cambio puramente de presentación: qué hace cada acción, sus confirmaciones `window.confirm` y sus mutaciones no cambian; en `QrListPage` "Ver imagen" y "Copiar link" conservan su lógica propia, y en `SourceListPage` "Importar archivo" sigue apareciendo solo en las fuentes `FILE_IMPORT`.
+
+**Decisiones ya tomadas:**
+
+- **El menú se implementa SOLO en pantallas con 2+ acciones por fila.** Decisión explícita, ya confirmada con Rocco — no reabrir esta pregunta. Las tres pantallas de una sola acción quedan exactamente como están.
+- **No cambia ningún comportamiento funcional de las acciones.** Solo cambia cómo se presentan: agrupadas detrás de un menú en vez de sueltas.
+
+
+**Hallazgos al implementar (la lista de arriba, verificada contra el código):**
+
+- **Pipelines:** "Ver etapas" no estaba en la columna "Acciones" sino en su propia columna "Etapas", visible para todo rol. Se dejó ahí, afuera del menú: moverla al menú cambiaría la estructura de la tabla para USER (que quedaría con un menú de un solo ítem, justo lo que este ítem descarta). El menú de Pipelines tiene entonces Editar + Eliminar, solo para admin.
+- **Etapas:** la columna tenía cuatro controles, no dos: Editar, Eliminar, **Subir y Bajar**. Subir/Bajar quedan **afuera** del menú, como botones a la vista dentro de `.ds-row-actions` y con el menú de 3 puntos al final: reordenar suele ser varios clicks seguidos (abrir el menú cada vez lo haría tedioso) y su `disabled` —primera/última etapa— se ve de un vistazo. Es el único listado donde el menú convive con controles sueltos.
+- **QR:** la fila tiene **cinco** acciones, no cuatro: Ver imagen, **Enviar**, Copiar link, Editar, Eliminar (las dos últimas solo admin; USER ve un menú de tres). Los íconos de `lucide-react` que ya tenía cada botón se conservan delante de cada ítem.
+- **Usuarios:** "Desactivar" se marca como destructiva (le saca el acceso a alguien); "Activar" no. Antes las dos variantes eran un botón secundario; es el único ítem que gana la marca roja sin haberla tenido, y sale de la definición del propio ítem ("Eliminar/Revocar/Desactivar según el caso").
+
+**Decisiones tomadas al implementar (`frontend/src/design-system/ActionsMenu.tsx`):**
+
+- **API del componente:** `actions: ActionsMenuAction[]` con `label`, y una de `to` (navegación: se renderiza como `Link` de react-router con `href` real, así abrir en pestaña nueva y middle-click siguen funcionando igual que con el `<Link>Editar</Link>` que reemplaza) u `onClick` (imperativa); flags opcionales `destructive`, `disabled` (solo para `onClick`; Usuarios lo usa mientras una mutación está pendiente), `icon` (QR) y `keepOpen`. Prop `label` para el nombre accesible del trigger ("Más acciones" por defecto; Usuarios pasa "Más acciones de {nombre}"). Es la primera dependencia del design system sobre el router; se aceptó porque la alternativa —`onClick` + `navigate()`— degrada cada "Editar" a un botón sin URL.
+- **`keepOpen` existe por "Copiar link" de QR:** su confirmación es el propio ítem pasando a decir "¡Copiado!" (el estado `copiadoId` de siempre); con el cierre por defecto la confirmación desaparecería junto con el menú. Es la única acción de las 10 pantallas que lo usa.
+- **Ícono `MoreVertical`** (3 puntos verticales) de `lucide-react`, 16px, mismo `strokeWidth` 1.5 que el resto de los íconos del sistema.
+- **Posición `fixed`, no `absolute`:** `Table.tsx` envuelve la tabla en `.ds-table-wrap` con `overflow-x: auto`, y un overflow no visible en un eje vuelve `auto` al otro: un menú absoluto colgando de la última fila quedaría recortado por el borde de la tarjeta. Un elemento `fixed` no lo recorta ningún overflow de sus ancestros (solo un `transform`, y el design system no usa ninguno). Se ubica desde el rectángulo del trigger al abrirse (alineado a su borde derecho; hacia arriba si no entra debajo) y se cierra al primer scroll o resize, como un `<select>` nativo. Verificado con un harness estático y el CSS real: el menú de la última fila se dibuja completo por fuera de la tarjeta.
+- **Cierre:** click afuera (`pointerdown` en `document`, mismo mecanismo que `MultiSelect`), Escape (devuelve el foco al trigger), y al elegir una acción (salvo `keepOpen`). Al elegir, el menú se cierra **antes** de correr la acción: si la acción abre un `Modal`, ese se lleva el foco al montarse y no hay que pisárselo después; si abre un `window.confirm`, el foco ya está en el trigger cuando vuelve.
+- **Teclado (patrón "menu button" de WAI-ARIA):** trigger con `aria-haspopup="menu"`, `aria-expanded` y `aria-controls`; menú `role="menu"` rotulado por el trigger; ítems `role="menuitem"` con `tabIndex={-1}`, foco con ArrowUp/ArrowDown (con vuelta), Home/End; ArrowDown/ArrowUp desde el trigger abren dejando el foco en el primer/último ítem; Tab cierra y sigue la tabulación desde el trigger. Con el menú cerrado los ítems no están en el DOM (como en `MultiSelect`).
+- **CSS (`design-system.css`, bloque "ActionsMenu" después de `.ds-row-actions`):** trigger de 32px con las medidas del "×" de `Modal` (sin borde ni fondo hasta el hover; abierto se queda "presionado"), lista con el mismo fondo/borde/radio/sombra que la lista abierta de `MultiSelect`, ítems a ancho completo con foco marcado por fondo (`--color-surface-muted`) y la destructiva en `--color-danger` con hover `--color-danger-soft`, el mismo par de tokens que `.ds-button--danger` dentro de `.ds-row-actions`. `.ds-row-actions` sigue existiendo: lo usan las pantallas de una sola acción y Subir/Bajar de Etapas.
+
+**Tests:** `ActionsMenu.test.tsx` (14 tests: cerrado por defecto y atributos ARIA, `label`, apertura por click con foco en el primer ítem, `to` como link con `href` real vs. `onClick` como botón, cierre por segundo click / click afuera / Escape / selección, `keepOpen`, marca `--danger` solo en la destructiva, `disabled`, navegación por teclado, Tab, `tabIndex -1`). Helper nuevo `frontend/src/test/openActionsMenu.ts` (`openActionsMenu(user, row?)`: abre el menú de la única fila o de la fila dada, esperando a que exista), extraído porque nueve `*ListPage.test.tsx` necesitaban lo mismo, con el mismo criterio que `cellByHeader.ts`. En esos nueve archivos, cada test que clickeaba "Editar"/"Eliminar"/etc. abre primero el menú; los que buscaban `getByRole("link"|"button", { name })` pasan a `menuitem`; en Fuentes, los tests de cross-links con tres filas recorren fila por fila (un menú abierto cierra al anterior); en Etapas, "Subir" se ubica por nombre accesible dentro de la fila en vez de `button:nth-of-type(2)`; en QR, "¡Copiado!" se afirma como `menuitem` con el menú aún abierto; en Usuarios, la fila propia afirma también que no hay trigger. `OpportunityListPage.test.tsx` no tenía test de ADMIN sobre las acciones de fila y ganó uno. Los tests de "USER no ve Editar/Eliminar" siguen válidos sin cambios. `ApiKeyListPage`, `InvitationListPage` e `IngestionEventListPage` (código y tests) no se tocaron.
+
+
+
+---
+
 ## 9. Traducir las etapas del ciclo de vida de Contacto (Etapa)
 
 **Estado:** hecho

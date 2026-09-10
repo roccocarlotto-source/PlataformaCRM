@@ -11,6 +11,7 @@ import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makeUser } from "../../test/userFixtures";
+import { openActionsMenu } from "../../test/openActionsMenu";
 import { ActivityListPage } from "./ActivityListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { ActivityListResponse } from "./types";
@@ -347,6 +348,8 @@ describe("ActivityListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Llamar para renovación")).toBeInTheDocument());
     expect(screen.getByText("Nueva actividad")).toBeInTheDocument();
+    // Editar/Eliminar viven en el menú de 3 puntos de la fila (§8).
+    await openActionsMenu(userEvent.setup());
     expect(screen.getByText("Editar")).toBeInTheDocument();
     expect(screen.getByText("Eliminar")).toBeInTheDocument();
   });
@@ -371,6 +374,7 @@ describe("ActivityListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Llamar para renovación")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     expect(confirmSpy).toHaveBeenCalled();

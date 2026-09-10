@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -9,6 +9,7 @@ import { env } from "../../config/env";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { cellByHeader } from "../../test/cellByHeader";
+import { openActionsMenu } from "../../test/openActionsMenu";
 import { StageListPage } from "./StageListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { StageListResponse } from "./types";
@@ -217,10 +218,13 @@ describe("StageListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     expect(screen.getByText("Nueva etapa")).toBeInTheDocument();
-    expect(screen.getByText("Editar")).toBeInTheDocument();
-    expect(screen.getByText("Eliminar")).toBeInTheDocument();
+    // Subir/Bajar quedan a la vista; Editar/Eliminar viven en el menú de 3
+    // puntos de la fila (§8).
     expect(screen.getByText("Subir")).toBeInTheDocument();
     expect(screen.getByText("Bajar")).toBeInTheDocument();
+    await openActionsMenu(userEvent.setup());
+    expect(screen.getByText("Editar")).toBeInTheDocument();
+    expect(screen.getByText("Eliminar")).toBeInTheDocument();
   });
 
   it("S17 mover arriba dispara el PATCH esperado (order del vecino) y refetchea, sin reordenar localmente antes", async () => {
@@ -252,8 +256,7 @@ describe("StageListPage", () => {
     expect(getCallCount).toBe(1);
 
     const secondRow = screen.getByText("Segunda").closest("tr");
-    const upButton = secondRow!.querySelector("button:nth-of-type(2)") as HTMLButtonElement;
-    await user.click(upButton);
+    await user.click(within(secondRow!).getByRole("button", { name: "Subir" }));
 
     await waitFor(() => expect(patchedBody).toEqual({ order: 1 }));
     // El refetch posterior a la invalidación es lo que actualiza la vista
@@ -364,13 +367,13 @@ describe("StageListPage", () => {
 
     await waitFor(() => expect(screen.getByText("PrimeraDePagina1")).toBeInTheDocument());
     const page1Row = screen.getByText("PrimeraDePagina1").closest("tr");
-    expect(page1Row!.querySelector("button:nth-of-type(2)")).toBeDisabled();
+    expect(within(page1Row!).getByRole("button", { name: "Subir" })).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Siguiente" }));
 
     await waitFor(() => expect(screen.getByText("PrimeraDePagina2")).toBeInTheDocument());
     const page2Row = screen.getByText("PrimeraDePagina2").closest("tr");
-    expect(page2Row!.querySelector("button:nth-of-type(2)")).not.toBeDisabled();
+    expect(within(page2Row!).getByRole("button", { name: "Subir" })).not.toBeDisabled();
   });
 
   it("S19 eliminar etapa: cancelar no envía DELETE, confirmar sí, y un error se muestra visible", async () => {
@@ -395,9 +398,11 @@ describe("StageListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
     expect(deleteCalled).toBe(false);
 
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"));
   });

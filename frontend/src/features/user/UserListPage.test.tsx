@@ -6,6 +6,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeUser } from "../../test/userFixtures";
+import { openActionsMenu } from "../../test/openActionsMenu";
 import { UserListPage } from "./UserListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { UserListResponse } from "./types";
@@ -171,6 +172,7 @@ describe("UserListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Beto Gómez")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Desactivar"));
 
     await waitFor(() => expect(patchedBody).toEqual({ isActive: false }));
@@ -197,6 +199,7 @@ describe("UserListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Beto Gómez")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     expect(confirmSpy).toHaveBeenCalled();
@@ -228,6 +231,7 @@ describe("UserListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Beto Gómez")).toBeInTheDocument());
+    await openActionsMenu(user);
     await user.click(screen.getByText("Eliminar"));
 
     expect(confirmSpy).toHaveBeenCalled();
@@ -254,6 +258,8 @@ describe("UserListPage", () => {
     expect(within(row).queryByText("Desactivar")).not.toBeInTheDocument();
     expect(within(row).queryByText("Activar")).not.toBeInTheDocument();
     expect(within(row).queryByText("Eliminar")).not.toBeInTheDocument();
+    // Ni siquiera el menú de 3 puntos: no hay acciones que agrupar.
+    expect(within(row).queryByRole("button", { name: /Más acciones/ })).not.toBeInTheDocument();
     expect(within(row).getByText("ADMIN")).toBeInTheDocument();
   });
 

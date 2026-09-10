@@ -2,9 +2,9 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Car, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge } from "../../design-system/Badge";
-import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -304,10 +304,16 @@ export function VehicleListPage() {
                     ) : null}
                     {isAdmin ? (
                       <td>
-                        <Link to={`/vehicles/${vehicle.id}/edit`}>Editar</Link>{" "}
-                        <Button variant="danger" onClick={() => handleDelete(vehicle.id)}>
-                          Eliminar
-                        </Button>
+                        <ActionsMenu
+                          actions={[
+                            { label: "Editar", to: `/vehicles/${vehicle.id}/edit` },
+                            {
+                              label: "Eliminar",
+                              onClick: () => handleDelete(vehicle.id),
+                              destructive: true,
+                            },
+                          ]}
+                        />
                       </td>
                     ) : null}
                   </tr>
