@@ -5,6 +5,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { CompanySelect } from "../company/CompanySelect";
 import { ContactSelect } from "../opportunity/ContactSelect";
 import { UserSelect } from "../user/UserSelect";
@@ -333,6 +334,7 @@ export function ActivityFormPage() {
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
+          <RequiredFieldsHint />
           <Button type="submit" variant="primary" disabled={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>

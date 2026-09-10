@@ -5,6 +5,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { BranchSelect } from "../branch/BranchSelect";
 import { UserSelect } from "../user/UserSelect";
@@ -463,8 +464,10 @@ export function VehicleFormPage() {
     event.preventDefault();
     setError(null);
     setServerMissingFields(null);
-    // branchId es NOT NULL y BranchSelect no lleva `required`: se corta acá
-    // con un mensaje claro en vez de un 400 "branchId inválido".
+    // branchId es NOT NULL. BranchSelect lleva `required` (asterisco + bloqueo
+    // nativo del navegador), pero su <select> solo existe cuando la lista de
+    // sucursales cargó: este chequeo cubre ese hueco con un mensaje claro en
+    // vez de un 400 "branchId inválido".
     if (!values.branchId) {
       setError("Elegí una sucursal antes de guardar.");
       return;
@@ -689,6 +692,7 @@ export function VehicleFormPage() {
               label={fieldLabel("branchId")}
               value={values.branchId || undefined}
               onChange={(branchId) => update("branchId", branchId)}
+              required
             />
             <UserSelect
               id="vehicle-form-salesperson"
@@ -1088,6 +1092,7 @@ export function VehicleFormPage() {
 
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
+          <RequiredFieldsHint />
           <Button type="submit" variant="primary" disabled={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>

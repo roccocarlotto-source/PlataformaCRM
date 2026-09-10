@@ -621,3 +621,15 @@ describe("ActivityFormPage — edit", () => {
     expect(screen.queryByText("Asignado a quien crea (por defecto)")).not.toBeInTheDocument();
   });
 });
+
+// Ítem 10 de docs/frontend-cambios-pendientes.md.
+describe("ActivityFormPage — campos obligatorios", () => {
+  it("Asunto lleva la marca de obligatorio y la referencia del asterisco va una sola vez, junto a Guardar", async () => {
+    server.use(...baseHandlers());
+    renderForm("/activities/new");
+
+    expect(await screen.findByLabelText("Asunto")).toBeRequired();
+    expect(screen.getByText("Asunto")).toHaveClass("ds-required");
+    expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
+  });
+});

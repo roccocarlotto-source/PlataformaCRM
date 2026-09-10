@@ -5,6 +5,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { FieldMappingEditor } from "./FieldMappingEditor";
 import { SugerirMapeoDesdeArchivo } from "./SugerirMapeoDesdeArchivo";
@@ -162,7 +163,7 @@ export function SourceFormPage() {
         <Card heading="Datos de la fuente">
           <div className="ds-stack">
             <div className="ds-field-grid">
-              <FormField label="Nombre">
+              <FormField label={<span className="ds-required">Nombre</span>}>
                 <input
                   type="text"
                   value={values.name}
@@ -239,6 +240,7 @@ export function SourceFormPage() {
         {error ? <ErrorState>{error}</ErrorState> : null}
 
         <div>
+          <RequiredFieldsHint />
           <Button type="submit" variant="primary" disabled={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>

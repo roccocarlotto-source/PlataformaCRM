@@ -132,10 +132,9 @@ export function ClaimPage() {
   // Sin mockup propio (el "Activar QR físico" del diseño es otro flujo, que
   // no existe): mismo tratamiento que los formularios de página completa ya
   // migrados — .ds-form, Card y grilla de a pares (Sucursal + Nombre; Enlace
-  // de destino y Mensaje a lo ancho). El "*" va en Nombre y Enlace de
-  // destino, obligatorios en validar(); Sucursal también lo es, pero
-  // BranchSelect solo acepta un label de texto y es un componente compartido,
-  // así que su asterisco queda para cuando ese componente tenga su pasada.
+  // de destino y Mensaje a lo ancho). El "*" va en Sucursal, Nombre y Enlace
+  // de destino, los tres obligatorios en validar() (Sucursal vía el prop
+  // `required` de BranchSelect, ítem 10 de docs/frontend-cambios-pendientes.md).
   return (
     <form onSubmit={handleSubmit} noValidate className="ds-form">
       <h1>Reclamar código QR</h1>
@@ -151,6 +150,7 @@ export function ClaimPage() {
               label="Sucursal"
               value={values.branchId}
               onChange={(branchId) => setValues({ ...values, branchId: branchId || undefined })}
+              required
             />
             <FormField label={<span className="ds-required">Nombre</span>}>
               <input

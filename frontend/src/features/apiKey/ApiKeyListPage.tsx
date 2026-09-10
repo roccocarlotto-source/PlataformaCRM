@@ -5,6 +5,7 @@ import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Pagination } from "../../design-system/Pagination";
+import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Table } from "../../design-system/Table";
 import { useSources } from "../source/queries";
 import { ApiKeySecretDialog } from "./ApiKeySecretDialog";
@@ -137,14 +138,18 @@ export function ApiKeyListPage() {
       </div>
 
       {/* CREACIÓN SIN PANTALLA APARTE: es un solo campo. Un formulario en su
-          propia ruta sería una pantalla entera para elegir una fuente. */}
+          propia ruta sería una pantalla entera para elegir una fuente. Es un
+          <label> nativo y no FormField, pero la marca de obligatorio es la
+          misma (.ds-required + required): lo que de verdad bloquea es el
+          `disabled` del botón sin fuente elegida — acá no hay <form>. */}
       <div className="ds-filters">
         <label>
-          Fuente para la clave nueva
+          <span className="ds-required">Fuente para la clave nueva</span>
           <select
             value={sourceIdNueva}
             onChange={(event) => setSourceIdNueva(event.target.value)}
             disabled={createApiKeyMutation.isPending}
+            required
           >
             <option value="">Elegir fuente…</option>
             {fuentes.map((source) => (
@@ -162,6 +167,7 @@ export function ApiKeyListPage() {
           {createApiKeyMutation.isPending ? "Creando…" : "Crear clave"}
         </Button>
       </div>
+      <RequiredFieldsHint />
 
       {sourcesQuery.isSuccess && sourcesQuery.data.pagination.total > SOURCES_PARA_SELECT ? (
         <p className="ds-hint">

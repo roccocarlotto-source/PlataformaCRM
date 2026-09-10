@@ -156,4 +156,15 @@ describe("StageFormPage", () => {
     await waitFor(() => expect(screen.getByText("lista de etapas")).toBeInTheDocument());
     expect(patchedBody).not.toHaveProperty("pipelineId");
   });
+
+  // Ítem 10 de docs/frontend-cambios-pendientes.md: el input ya era
+  // `required`, pero el rótulo no tenía la marca — la señal visual no
+  // coincidía con el comportamiento real.
+  it("Nombre lleva la marca de obligatorio y la referencia del asterisco va una sola vez, junto a Guardar", () => {
+    renderForm("/pipelines/pl1/stages/new");
+
+    expect(screen.getByLabelText("Nombre")).toBeRequired();
+    expect(screen.getByText("Nombre")).toHaveClass("ds-required");
+    expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
+  });
 });

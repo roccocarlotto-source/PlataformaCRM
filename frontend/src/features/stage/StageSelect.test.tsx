@@ -152,4 +152,57 @@ describe("StageSelect", () => {
       expect(screen.getByText(/No pudimos cargar las etapas/)).toBeInTheDocument(),
     );
   });
+
+  // Ítem 10 de docs/frontend-cambios-pendientes.md: asterisco (.ds-required,
+  // el "*" lo dibuja CSS) y `required` van juntos, en las dos variantes del
+  // componente — el placeholder deshabilitado de "sin pipeline" y la lista
+  // real. Sin el prop, ninguna de las dos marcas (los tests de arriba).
+  it("con required y sin pipelineId: el placeholder deshabilitado ya lleva la marca y required", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StageSelect
+          id="opp-stage"
+          label="Etapa"
+          pipelineId={undefined}
+          value={undefined}
+          onChange={vi.fn()}
+          required
+        />
+      </QueryClientProvider>,
+    );
+
+    const select = screen.getByLabelText("Etapa");
+    expect(select).toBeDisabled();
+    expect(select).toBeRequired();
+    expect(screen.getByText("Etapa")).toHaveClass("ds-required");
+  });
+
+  it("con required y pipelineId: la lista real lleva la marca y required", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StageSelect
+          id="opp-stage"
+          label="Etapa"
+          pipelineId="pl1"
+          value={undefined}
+          onChange={vi.fn()}
+          required
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
+    expect(screen.getByLabelText("Etapa")).toBeRequired();
+    expect(screen.getByText("Etapa")).toHaveClass("ds-required");
+  });
 });

@@ -271,7 +271,11 @@ describe("ApiKeyListPage — creación y el secreto", () => {
     expect(document.body.textContent).not.toContain("crm_secreto_visible_una_vez");
   });
 
-  it("el botón de crear está deshabilitado sin fuente elegida", async () => {
+  // Ítem 10 de docs/frontend-cambios-pendientes.md: el `disabled` del botón
+  // es lo que bloquea (acá no hay <form>); la marca de obligatorio del campo
+  // (.ds-required + required) es la misma que en los formularios, aunque el
+  // <label> sea nativo y no FormField.
+  it("el botón de crear está deshabilitado sin fuente elegida, el campo lleva la marca de obligatorio y la referencia del asterisco va una sola vez", async () => {
     server.use(
       sourcesHandler(),
       http.get(`${sourcesUrl}/:id`, () => HttpResponse.json(makeSource())),
@@ -281,6 +285,9 @@ describe("ApiKeyListPage — creación y el secreto", () => {
     renderPage();
     await screen.findByRole("table");
     expect(screen.getByRole("button", { name: "Crear clave" })).toBeDisabled();
+    expect(screen.getByLabelText("Fuente para la clave nueva")).toBeRequired();
+    expect(screen.getByText("Fuente para la clave nueva")).toHaveClass("ds-required");
+    expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
   });
 
   it("un POST fallido muestra el error y NO abre el modal", async () => {

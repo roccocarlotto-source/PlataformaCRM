@@ -131,4 +131,13 @@ describe("PipelineFormPage", () => {
     );
     expect(screen.queryByText("lista de pipelines")).not.toBeInTheDocument();
   });
+
+  // Ítem 10 de docs/frontend-cambios-pendientes.md.
+  it("Nombre lleva la marca de obligatorio y la referencia del asterisco va una sola vez, junto a Guardar", () => {
+    renderForm("/pipelines/new");
+
+    expect(screen.getByLabelText("Nombre")).toBeRequired();
+    expect(screen.getByText("Nombre")).toHaveClass("ds-required");
+    expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
+  });
 });
