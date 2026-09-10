@@ -204,7 +204,9 @@ describe("StageFormPage", () => {
   it("S28 edición de una etapa con probabilidad 0 arranca con Probabilidad oculta", async () => {
     server.use(
       http.get(`${stagesUrl}/:id`, ({ params }) =>
-        HttpResponse.json(makeStage({ id: params.id as string, name: "Sin prob", probability: "0" })),
+        HttpResponse.json(
+          makeStage({ id: params.id as string, name: "Sin prob", probability: "0" }),
+        ),
       ),
     );
 
