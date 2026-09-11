@@ -6,6 +6,7 @@ import {
   Building2,
   Car,
   CheckSquare,
+  Coins,
   Columns3,
   Database,
   History,
@@ -163,6 +164,9 @@ export function AppLayout() {
               </SidebarLink>
               <SidebarLink to="/ingestion-events" icon={History}>
                 Eventos
+              </SidebarLink>
+              <SidebarLink to="/organization" icon={Coins}>
+                Organización
               </SidebarLink>
             </div>
           ) : null}

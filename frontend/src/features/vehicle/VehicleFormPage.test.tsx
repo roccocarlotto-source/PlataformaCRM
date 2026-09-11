@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeBranch } from "../../test/branchFixtures";
+import { makeExchangeRate, makeOrganizationSettings } from "../../test/organizationFixtures";
 import { makeUser } from "../../test/userFixtures";
 import {
   makeChangeLogEntry,
@@ -24,11 +25,17 @@ vi.mock("../../auth/getAccessToken", () => ({
 const baseUrl = `${env.apiUrl}/api/vehicles`;
 const usersUrl = `${env.apiUrl}/api/users`;
 const branchesUrl = `${env.apiUrl}/api/branches`;
+const organizationUrl = `${env.apiUrl}/api/organization`;
 
 // BranchSelect y UserSelect se montan SIEMPRE en esta ficha, así que todo test
 // necesita los dos handlers (mismo criterio que CompanyFormPage.test.tsx).
+// Desde el ítem 19.B la ficha también pide GET /api/organization por la
+// cotización; acá se responde SIN cotización para que los tests que tipean
+// en "Precio de lista (USD)" sigan esperando priceListLocal: null — el
+// auto-cálculo se ejercita aparte, en su propio describe.
 function baseHandlers() {
   return [
+    http.get(organizationUrl, () => HttpResponse.json(makeOrganizationSettings())),
     http.get(branchesUrl, () =>
       HttpResponse.json({
         data: [makeBranch({ id: "b1", name: "Casa Central" })],
@@ -611,5 +618,162 @@ describe("VehicleFormPage — historial de cambios", () => {
 
     await user.click(dialog.getByRole("button", { name: "Cerrar" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+// Ítem 19.B de docs/frontend-cambios-pendientes.md: al completar uno de los
+// dos precios de lista con el otro vacío, el otro se calcula con la cotización
+// vigente de GET /api/organization. Sugerido pero editable: nunca se pisa lo
+// tipeado a mano.
+describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 19.B)", () => {
+  const usdField = () => screen.getByLabelText("Precio de lista (USD)");
+  const localField = () => screen.getByLabelText("Precio de lista (moneda local)");
+
+  // Cotización 1 USD = 40,5 UYU. Va ANTES del handler sin cotización de
+  // baseHandlers: MSW resuelve con el primero que matchea.
+  function handlersWithRate() {
+    return [
+      http.get(organizationUrl, () =>
+        HttpResponse.json(
+          makeOrganizationSettings({
+            alternateCurrency: "UYU",
+            exchangeRates: [makeExchangeRate({ rate: "40.5", rateDate: "2026-09-10" })],
+          }),
+        ),
+      ),
+      ...baseHandlers(),
+    ];
+  }
+
+  // La cotización llega en su propia query: los tests esperan el hint antes
+  // de tipear, para no medir una carrera entre el GET y el primer teclazo.
+  async function waitForRate() {
+    await waitFor(() => expect(screen.getByText(/1 USD = 40,5 UYU/)).toBeInTheDocument());
+  }
+
+  it("completar USD calcula la moneda local con la cotización, y el POST manda los dos", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...handlersWithRate(),
+      http.post(baseUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+    await waitForRate();
+
+    await fillRequired(user);
+    await user.type(usdField(), "25000");
+
+    // Recalculado con cada tecla, no solo con la primera ("2" × 40,5 = 81).
+    expect(localField()).toHaveValue(1012500);
+    // El hint dice con qué cotización y de qué fecha.
+    expect(screen.getByText(/cotización vigente/)).toHaveTextContent(/del 10 .*2026/);
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({ priceListUsd: 25000, priceListLocal: 1012500 });
+  });
+
+  it("completar la moneda local calcula USD (dividiendo, redondeado a 2 decimales)", async () => {
+    server.use(...handlersWithRate());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+    await waitForRate();
+
+    await user.type(localField(), "1000000");
+
+    // 1000000 / 40,5 = 24691,358… → 24691.36
+    expect(usdField()).toHaveValue(24691.36);
+  });
+
+  it("sin cotización configurada no calcula nada: los dos campos siguen editables a mano y no hay hint", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+    await waitFor(() => expect(screen.getByLabelText("Sucursal")).toBeInTheDocument());
+
+    await user.type(usdField(), "25000");
+    expect(localField()).toHaveValue(null);
+    expect(screen.queryByText(/cotización vigente/)).not.toBeInTheDocument();
+
+    await user.type(localField(), "1000000");
+    expect(localField()).toHaveValue(1000000);
+    expect(usdField()).toHaveValue(25000);
+  });
+
+  it("un valor ya tipeado a mano en el otro campo no se pisa (creación)", async () => {
+    server.use(...handlersWithRate());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+    await waitForRate();
+
+    // La moneda local la tipea la persona; USD se calcula (24691.36)…
+    await user.type(localField(), "1000000");
+    expect(usdField()).toHaveValue(24691.36);
+    // …y al corregir USD a mano, la moneda local tipeada queda intacta.
+    await user.clear(usdField());
+    await user.type(usdField(), "25000");
+    expect(usdField()).toHaveValue(25000);
+    expect(localField()).toHaveValue(1000000);
+  });
+
+  it("en edición los dos valores persistidos cuentan como tipeados: cambiar uno no recalcula el otro", async () => {
+    server.use(
+      ...handlersWithRate(),
+      http.get(`${baseUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeVehicleDetail({
+            id: params.id as string,
+            priceListUsd: "25000.00",
+            priceListLocal: "1000000.00",
+          }),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/v1/edit");
+    await waitForRate();
+    await waitFor(() => expect(usdField()).toHaveValue(25000));
+
+    await user.clear(usdField());
+    await user.type(usdField(), "30000");
+
+    expect(usdField()).toHaveValue(30000);
+    expect(localField()).toHaveValue(1000000);
+  });
+
+  it("el valor calculado se puede corregir a mano, y después de eso ya no se recalcula", async () => {
+    server.use(...handlersWithRate());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+    await waitForRate();
+
+    await user.type(usdField(), "1000");
+    expect(localField()).toHaveValue(40500);
+
+    // Corrección a mano del calculado: sigue siendo un input normal.
+    await user.clear(localField());
+    await user.type(localField(), "41000");
+    expect(localField()).toHaveValue(41000);
+    // Y como ahora está tipeado, seguir editando USD no lo toca.
+    await user.type(usdField(), "0");
+    expect(usdField()).toHaveValue(10000);
+    expect(localField()).toHaveValue(41000);
+  });
+
+  it("borrar el campo de origen borra también el calculado (nunca fue tipeado)", async () => {
+    server.use(...handlersWithRate());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+    await waitForRate();
+
+    await user.type(usdField(), "1000");
+    expect(localField()).toHaveValue(40500);
+
+    await user.clear(usdField());
+    expect(localField()).toHaveValue(null);
   });
 });

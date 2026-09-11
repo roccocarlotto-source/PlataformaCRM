@@ -26,6 +26,7 @@ import type {
   OpportunityStatus,
   UpdateOpportunityInput,
 } from "./types";
+import { CURRENCY_OPTIONS, isKnownCurrency } from "../../lib/currencies";
 import { useFormDraft } from "../../lib/useFormDraft";
 
 interface OpportunityFormValues {
@@ -72,8 +73,9 @@ const LEAD_SOURCE_OPTIONS = Object.keys(LEAD_SOURCE_LABELS) as OpportunityLeadSo
 // normalizado a 3 letras porque el backend acepta cualquier código ISO 4217
 // (^[A-Z]{3}$, opportunity.controller.ts) y una lista parecía inventar una
 // restricción; en la práctica solo generaba tipeos ("usd", "U$S"). El backend
-// NO cambia: la restricción es del lado del cliente. Sin opción "Otra".
-const CURRENCY_OPTIONS = ["USD", "UYU"] as const;
+// NO cambia: la restricción es del lado del cliente. Sin opción "Otra". La
+// lista vive en lib/currencies.ts desde el ítem 19, compartida con la
+// configuración de moneda de la organización.
 
 // Create: campos vacíos se omiten (undefined) — el backend NO admite null
 // en create para expectedCloseDate/actualCloseDate/lostReason (a diferencia
@@ -365,7 +367,7 @@ export function OpportunityFormPage() {
   // API: el backend acepta cualquier ISO 4217) se muestra como opción extra
   // mientras sea el valor vigente. Sin esto el <select> mostraría "USD"
   // (la primera opción) mientras el PATCH sigue mandando el valor real.
-  const isKnownCurrency = (CURRENCY_OPTIONS as readonly string[]).includes(values.currency);
+  const hasKnownCurrency = isKnownCurrency(values.currency);
 
   // Restyle según "Nueva oportunidad" de Claude Design con las piezas del
   // restyle de Empresas (.ds-form, .ds-field-grid, .ds-required): las mismas
@@ -455,7 +457,7 @@ export function OpportunityFormPage() {
                         el backend va a tomar la moneda del precio de la
                         unidad. Desaparece apenas se elige USD o UYU. */}
                     {values.currency === "" ? <option value="">Según la unidad</option> : null}
-                    {isKnownCurrency || values.currency === "" ? null : (
+                    {hasKnownCurrency || values.currency === "" ? null : (
                       <option value={values.currency}>{values.currency}</option>
                     )}
                     {CURRENCY_OPTIONS.map((currency) => (

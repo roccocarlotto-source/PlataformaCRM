@@ -25,6 +25,8 @@ import { UserListPage } from "../features/user/UserListPage";
 import { InvitationListPage } from "../features/invitation/InvitationListPage";
 import { InvitationFormPage } from "../features/invitation/InvitationFormPage";
 import { makeInvitation } from "../test/invitationFixtures";
+import { makeOrganizationSettings } from "../test/organizationFixtures";
+import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
 import type { AuthContextValue } from "./AuthContext";
 
 // Ejercita la jerarquía real de routing (ProtectedRoute → AdminRoute →
@@ -695,5 +697,60 @@ describe("AdminRoute — protección visual de /invitations e /invitations/new (
     renderInvitationRouteAt("/invitations/new");
 
     await waitFor(() => expect(screen.getByText("Invitar")).toBeInTheDocument());
+  });
+});
+
+// Configuración de moneda de la organización (ítem 19.A): /organization va
+// dentro del mismo AdminRoute que /sources en app/router.tsx. GET
+// /api/organization es lectura abierta a cualquier autenticado, pero la
+// pantalla es toda escritura (PATCH ADMIN-only) — confirma el wiring, no
+// solo el mecanismo genérico ya probado arriba.
+const organizationUrl = `${env.apiUrl}/api/organization`;
+
+function renderOrganizationRouteAt(initialPath: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <MemoryRouter initialEntries={[initialPath]}>
+          <Routes>
+            <Route element={<ProtectedRoute />}>
+              <Route path="/companies" element={<div>lista de empresas</div>} />
+              <Route element={<AdminRoute />}>
+                <Route path="/organization" element={<OrganizationSettingsPage />} />
+              </Route>
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
+    </QueryClientProvider>,
+  );
+}
+
+describe("AdminRoute — protección visual de /organization (ítem 19)", () => {
+  it("USER entrando directamente a /organization no renderiza la pantalla ni pide GET /api/organization", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    let settingsRequested = false;
+    server.use(
+      http.get(organizationUrl, () => {
+        settingsRequested = true;
+        return HttpResponse.json(makeOrganizationSettings());
+      }),
+    );
+
+    renderOrganizationRouteAt("/organization");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByText("Organización")).not.toBeInTheDocument();
+    expect(settingsRequested).toBe(false);
+  });
+
+  it("ADMIN sí accede a /organization", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(http.get(organizationUrl, () => HttpResponse.json(makeOrganizationSettings())));
+
+    renderOrganizationRouteAt("/organization");
+
+    await waitFor(() => expect(screen.getByLabelText("Moneda de preferencia")).toBeInTheDocument());
   });
 });
