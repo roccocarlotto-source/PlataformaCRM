@@ -1,13 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { listBranches } from "./api";
+import { getBranch, listBranches } from "./api";
 import type { BranchListQuery } from "./types";
 
-// Misma forma jerárquica que userKeys/companyKeys. Sin details()/detail():
-// no hay consumidor de GET /api/branches/:id (ver api.ts).
+// Misma forma jerárquica que userKeys/companyKeys/sourceKeys. Sin namespacing
+// manual por organizationId — la higiene de cache entre identidades ya la da
+// queryClient.clear() en la frontera de AuthContext.
 export const branchKeys = {
   all: ["branches"] as const,
   lists: () => [...branchKeys.all, "list"] as const,
   list: (query: BranchListQuery) => [...branchKeys.lists(), query] as const,
+  details: () => [...branchKeys.all, "detail"] as const,
+  detail: (id: string) => [...branchKeys.details(), id] as const,
 };
 
 // La query que comparten BranchSelect y la resolución de nombres de
@@ -27,5 +30,13 @@ export function useBranches(query: BranchListQuery, options?: { enabled?: boolea
     queryKey: branchKeys.list(query),
     queryFn: ({ signal }) => listBranches(query, signal),
     enabled: options?.enabled,
+  });
+}
+
+export function useBranch(id: string | undefined) {
+  return useQuery({
+    queryKey: branchKeys.detail(id ?? ""),
+    queryFn: ({ signal }) => getBranch(id ?? "", signal),
+    enabled: id !== undefined,
   });
 }

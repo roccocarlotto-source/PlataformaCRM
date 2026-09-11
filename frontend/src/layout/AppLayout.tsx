@@ -13,6 +13,7 @@ import {
   Key,
   LayoutDashboard,
   MailPlus,
+  MapPin,
   QrCode,
   Target,
   UserCog,
@@ -167,6 +168,12 @@ export function AppLayout() {
               </SidebarLink>
               <SidebarLink to="/organization" icon={Coins}>
                 Organización
+              </SidebarLink>
+              {/* Sucursales (ítem 20): la lectura de /api/branches es abierta, pero
+                  la pantalla es toda escritura ADMIN-only — un USER ya ve las
+                  sucursales donde las necesita, en BranchSelect (QR, Vehículo). */}
+              <SidebarLink to="/branches" icon={MapPin}>
+                Sucursales
               </SidebarLink>
             </div>
           ) : null}

@@ -197,6 +197,16 @@ describe("router.tsx — wiring real de Fase 3 (módulo QR)", () => {
   });
 });
 
+describe("router.tsx — wiring real de Sucursales (ítem 20)", () => {
+  it("/branches, /branches/new y /branches/:id/edit existen y están bajo AdminRoute — el listado también, aunque GET /api/branches sea de lectura abierta", () => {
+    for (const path of ["/branches", "/branches/new", "/branches/:id/edit"]) {
+      expect(findRoute(router.routes, path)).toBeDefined();
+      const parent = findParentElement(router.routes, path) as { type: unknown } | undefined;
+      expect(parent?.type).toBe(AdminRoute);
+    }
+  });
+});
+
 describe("router.tsx — wiring real de platform admin (Fase 4a del módulo SaaS)", () => {
   it("/admin/organizations/new está anidada bajo PlatformAdminRoute, no bajo AdminRoute", () => {
     const parent = findParentElement(router.routes, "/admin/organizations/new") as {

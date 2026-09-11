@@ -110,6 +110,22 @@ describe("AppLayout — nav de configuración de la organización (ítem 19)", (
   });
 });
 
+describe("AppLayout — nav de Sucursales (ítem 20)", () => {
+  it("ADMIN ve 'Sucursales' en el grupo Administración, apuntando a /branches", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+
+    expect(screen.getByRole("link", { name: "Sucursales" })).toHaveAttribute("href", "/branches");
+  });
+
+  it("USER no ve 'Sucursales': la pantalla es toda escritura ADMIN-only", () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout();
+
+    expect(screen.queryByText("Sucursales")).not.toBeInTheDocument();
+  });
+});
+
 describe("AppLayout — nav del módulo QR (Fase 3)", () => {
   it("el link QR se muestra para ambos roles: el listado es de lectura abierta", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
