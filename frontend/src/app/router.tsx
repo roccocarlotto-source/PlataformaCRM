@@ -35,6 +35,8 @@ import { VehicleFormPage } from "../features/vehicle/VehicleFormPage";
 import { VehicleListPage } from "../features/vehicle/VehicleListPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
+import { BranchFormPage } from "../features/branch/BranchFormPage";
+import { BranchListPage } from "../features/branch/BranchListPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -155,6 +157,15 @@ export const router = createBrowserRouter([
               // pantalla es toda escritura (PATCH ADMIN-only), así que va acá
               // adentro como /sources.
               { path: "/organization", element: <OrganizationSettingsPage /> },
+              // Sucursales (ítem 20 de docs/frontend-cambios-pendientes.md). El
+              // LISTADO va acá adentro aunque GET /api/branches sea de lectura
+              // abierta (branch.routes.ts): la pantalla es toda escritura
+              // (POST/PATCH/DELETE ADMIN-only) y un USER ya ve las sucursales
+              // donde las necesita, en BranchSelect — mismo criterio que
+              // /organization. Misma forma de paths que /sources.
+              { path: "/branches", element: <BranchListPage /> },
+              { path: "/branches/new", element: <BranchFormPage /> },
+              { path: "/branches/:id/edit", element: <BranchFormPage /> },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/contacts/new", element: <ContactFormPage /> },
