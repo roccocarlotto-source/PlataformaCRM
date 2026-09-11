@@ -18,7 +18,12 @@ import {
 //   para redondear precios, no para operar con margen de segundos; una vez al
 //   día alcanza de sobra. Y la primera pasada es INMEDIATA, por la misma razón
 //   que en el worker de canales: una organización que configura su moneda hoy
-//   no tiene por qué esperar 24 horas por la primera cotización.
+//   no tiene por qué esperar 24 horas por la primera cotización. Ojo: es
+//   inmediata respecto del ARRANQUE DEL PROCESO. La moneda que se configura
+//   con el servidor ya corriendo no la cubre esta pasada sino el disparo a
+//   pedido de updateOrganizationCurrency (§24 de
+//   docs/frontend-cambios-pendientes.md); este worker sigue siendo el que
+//   mantiene la cotización al día después.
 //
 //   NO HAY MÁS PRECONDICIÓN QUE EXCHANGE_RATE_WORKER_ENABLED. El worker de
 //   Google necesita GOOGLE_WEBHOOK_URL; acá no hay nada que configurar: si
