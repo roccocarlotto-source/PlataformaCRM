@@ -66,10 +66,16 @@ describe("BranchFormPage — creación", () => {
     const zona = screen.getByLabelText("Zona horaria");
     expect(zona).toHaveValue("America/Montevideo");
     // La lista es una restricción del cliente (timezones.ts); el select no
-    // ofrece texto libre.
-    expect(screen.getByRole("option", { name: /Buenos Aires/ })).toHaveValue(
-      "America/Argentina/Buenos_Aires",
-    );
+    // ofrece texto libre. Tres opciones, una por comportamiento real de
+    // horarios (§26): Buenos Aires y São Paulo son UTC-3 fijo igual que
+    // Montevideo, así que ya no se ofrecen como opciones "distintas".
+    expect(screen.getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual([
+      "America/Montevideo",
+      "America/Santiago",
+      "America/Asuncion",
+    ]);
+    expect(screen.queryByRole("option", { name: /Buenos Aires/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Paulo/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Zona horaria" })).not.toBeInTheDocument();
   });
 
@@ -105,17 +111,14 @@ describe("BranchFormPage — creación", () => {
     const user = userEvent.setup();
     renderForm("/branches/new");
 
-    await user.type(screen.getByLabelText("Nombre"), "Sucursal Buenos Aires");
-    await user.selectOptions(
-      screen.getByLabelText("Zona horaria"),
-      "America/Argentina/Buenos_Aires",
-    );
+    await user.type(screen.getByLabelText("Nombre"), "Sucursal Santiago");
+    await user.selectOptions(screen.getByLabelText("Zona horaria"), "America/Santiago");
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(body).toBeDefined());
     expect(body).toEqual({
-      name: "Sucursal Buenos Aires",
-      timezone: "America/Argentina/Buenos_Aires",
+      name: "Sucursal Santiago",
+      timezone: "America/Santiago",
     });
   });
 
@@ -218,9 +221,61 @@ describe("BranchFormPage — edición", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Zona horaria")).toHaveValue("America/Montevideo"),
     );
-    // Cinco de timezones.ts, ni una más: la extra solo aparece con un valor
+    // Tres de timezones.ts, ni una más: la extra solo aparece con un valor
     // desconocido.
-    expect(screen.getAllByRole("option")).toHaveLength(5);
+    expect(screen.getAllByRole("option")).toHaveLength(3);
+  });
+
+  it("una sucursal guardada con una zona que SALIÓ de la lista (Buenos Aires, §26) sigue editable: opción extra, valor intacto al guardar, y elegir otra zona la reemplaza", async () => {
+    // No se migra ningún dato: una sucursal creada antes del §26 (o por API)
+    // con America/Argentina/Buenos_Aires sigue siendo válida. Es el mismo
+    // mecanismo que el caso de "UTC" de arriba, pero con una zona que ANTES
+    // sí estaba en la lista, para dejar cubierto que sacarla no la rompe.
+    const bodies: unknown[] = [];
+    server.use(
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(makeBranch({ id: "b1", timezone: "America/Argentina/Buenos_Aires" })),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(makeBranch({ id: "b1" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    const { unmount } = renderForm("/branches/b1/edit");
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Zona horaria")).toHaveValue("America/Argentina/Buenos_Aires"),
+    );
+    // La extra es la vigente, más las tres de la lista: cuatro en total.
+    expect(screen.getByRole("option", { name: "America/Argentina/Buenos_Aires" })).toHaveValue(
+      "America/Argentina/Buenos_Aires",
+    );
+    expect(screen.getAllByRole("option")).toHaveLength(4);
+
+    // Guardar sin tocar la zona: el PATCH manda la vieja tal cual, no
+    // Montevideo.
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect((bodies[0] as { timezone: string }).timezone).toBe("America/Argentina/Buenos_Aires");
+    unmount();
+
+    // Elegir una de la lista: la extra desaparece (ya no es la vigente) y el
+    // PATCH manda la nueva.
+    renderForm("/branches/b1/edit");
+    await waitFor(() =>
+      expect(screen.getByLabelText("Zona horaria")).toHaveValue("America/Argentina/Buenos_Aires"),
+    );
+    await user.selectOptions(screen.getByLabelText("Zona horaria"), "America/Montevideo");
+    expect(screen.getAllByRole("option")).toHaveLength(3);
+    expect(
+      screen.queryByRole("option", { name: "America/Argentina/Buenos_Aires" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect((bodies[1] as { timezone: string }).timezone).toBe("America/Montevideo");
   });
 
   it("estado de carga y estado de error al traer la sucursal", async () => {
