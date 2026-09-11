@@ -8,6 +8,9 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { BranchSelect } from "../branch/BranchSelect";
+import { formatExchangeRate } from "../organization/format";
+import { useOrganizationSettings } from "../organization/queries";
+import { formatDate } from "../opportunity/format";
 import { UserSelect } from "../user/UserSelect";
 import {
   BODY_TYPE_LABELS,
@@ -288,6 +291,26 @@ function numberOrNull(value: string): number | null {
   return value.trim() === "" ? null : Number(value);
 }
 
+// ---------------------------------------------------------------------------
+// Cálculo automático USD ↔ moneda local del precio de lista (ítem 19.B de
+// docs/frontend-cambios-pendientes.md). Solo el par priceListUsd/
+// priceListLocal: minAcceptablePriceUsd, acquisitionCostUsd y priceOnRequest
+// no participan.
+// ---------------------------------------------------------------------------
+
+type PriceListField = "priceListUsd" | "priceListLocal";
+
+// Redondeo a 2 decimales (Decimal(14,2) del backend) y de vuelta al string
+// que maneja el <input type="number">. "" o algo no numérico → "".
+function convertPriceList(value: string, from: PriceListField, rate: number): string {
+  const amount = Number(value);
+  if (value === "" || !Number.isFinite(amount) || !Number.isFinite(rate) || rate <= 0) {
+    return "";
+  }
+  const converted = from === "priceListUsd" ? amount * rate : amount / rate;
+  return String(Math.round(converted * 100) / 100);
+}
+
 function enumOrNull<T extends string>(value: T | ""): T | null {
   return value === "" ? null : value;
 }
@@ -460,6 +483,49 @@ export function VehicleFormPage() {
     setValues((current) => ({ ...current, [field]: value }));
   }
 
+  // Cotización vigente para sugerir el precio en la otra moneda. Con el
+  // universo USD/UYU (ítem 18.B), exchangeRates trae como máximo UNA fila —la
+  // del par no-USD configurado, sea la moneda de preferencia o la
+  // alternativa— y se usa directamente como USD↔moneda local, sin mapear cuál
+  // de los dos campos de organización es cuál. Sin fila (organización sin
+  // moneda distinta de USD, o el worker diario todavía no corrió) el cálculo
+  // simplemente no aplica: los dos campos siguen editables a mano, sin
+  // bloquear el formulario ni mostrar error. Un GET fallido tampoco bloquea.
+  const organizationQuery = useOrganizationSettings();
+  const exchangeRate = organizationQuery.data?.exchangeRates[0];
+  const rate = exchangeRate ? Number(exchangeRate.rate) : null;
+
+  // Cuál de los dos precios de lista tiene un valor CALCULADO (no tipeado).
+  // "El otro campo está vacío" no alcanza como criterio para recalcular: al
+  // tipear "25000" en USD, después del primer dígito la moneda local ya no
+  // está vacía y se quedaría en 2 × cotización. Mientras el otro campo siga
+  // siendo calculado, se recalcula con cada tecla; apenas la persona lo edita
+  // a mano deja de serlo y no se toca más. En edición los dos valores
+  // persistidos cuentan como tipeados (arranca en null).
+  const [derivedPriceField, setDerivedPriceField] = useState<PriceListField | null>(null);
+
+  function handlePriceListChange(field: PriceListField, value: string) {
+    const other: PriceListField = field === "priceListUsd" ? "priceListLocal" : "priceListUsd";
+    const canFillOther = rate !== null && (values[other] === "" || derivedPriceField === other);
+    if (!canFillOther) {
+      // El otro campo lo tipeó la persona (o no hay cotización): no se toca.
+      // Y si ESTE era el calculado, ahora lo está editando a mano.
+      update(field, value);
+      if (derivedPriceField === field) setDerivedPriceField(null);
+      return;
+    }
+    // Sugerido pero editable: se llena el otro campo, que sigue siendo un
+    // input normal. Borrar el origen borra también el calculado (nunca fue
+    // tipeado).
+    const converted = convertPriceList(value, field, rate);
+    setValues((current) => ({
+      ...current,
+      priceListUsd: field === "priceListUsd" ? value : converted,
+      priceListLocal: field === "priceListLocal" ? value : converted,
+    }));
+    setDerivedPriceField(converted === "" ? null : other);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -599,7 +665,7 @@ export function VehicleFormPage() {
                 min={0}
                 step="0.01"
                 value={values.priceListUsd}
-                onChange={(event) => update("priceListUsd", event.target.value)}
+                onChange={(event) => handlePriceListChange("priceListUsd", event.target.value)}
               />
             </FormField>
             <FormField label={fieldLabel("priceListLocal")}>
@@ -608,9 +674,20 @@ export function VehicleFormPage() {
                 min={0}
                 step="0.01"
                 value={values.priceListLocal}
-                onChange={(event) => update("priceListLocal", event.target.value)}
+                onChange={(event) => handlePriceListChange("priceListLocal", event.target.value)}
               />
             </FormField>
+            {/* Explica que el otro precio "se llena solo" y que se puede
+                corregir, para que no parezca un error (mismo criterio que la
+                nota de Oportunidad al vincular una unidad). Solo con
+                cotización: sin ella no pasa nada que explicar. */}
+            {exchangeRate ? (
+              <p className="ds-hint ds-field-grid--full">
+                Al completar uno de los dos precios de lista, el otro se calcula con la cotización
+                vigente ({formatExchangeRate(exchangeRate)}, del {formatDate(exchangeRate.rateDate)}
+                ) y se puede corregir a mano.
+              </p>
+            ) : null}
             <FormField label={fieldLabel("minAcceptablePriceUsd")}>
               <input
                 type="number"

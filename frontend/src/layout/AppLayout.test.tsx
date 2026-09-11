@@ -91,6 +91,25 @@ describe("AppLayout — nav gateado por rol (M7)", () => {
   });
 });
 
+describe("AppLayout — nav de configuración de la organización (ítem 19)", () => {
+  it("ADMIN ve 'Organización' en el grupo Administración, apuntando a /organization", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+
+    expect(screen.getByRole("link", { name: "Organización" })).toHaveAttribute(
+      "href",
+      "/organization",
+    );
+  });
+
+  it("USER no ve 'Organización': la pantalla es toda escritura ADMIN-only", () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout();
+
+    expect(screen.queryByText("Organización")).not.toBeInTheDocument();
+  });
+});
+
 describe("AppLayout — nav del módulo QR (Fase 3)", () => {
   it("el link QR se muestra para ambos roles: el listado es de lectura abierta", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));

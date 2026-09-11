@@ -805,3 +805,46 @@ Casi el mismo color en los dos modos: texto claro sobre fondo claro, y texto osc
 "Hoy" se calcula con `todayIsoDate` de `boardMove.ts` (reloj local, nunca `toISOString()`), que es exactamente lo que ya hace el embudo al arrastrar a Ganada/Perdida.
 
 **Tests:** los que esperaban ver los dos campos siempre visibles pasan a arrancar en Ganada/Perdida. Se agregan: Abierta → Perdida con fecha vacía completa hoy; lo mismo para Ganada; con fecha ya cargada no la pisa; el campo sigue editable tras autocompletarse; volver a Abierta oculta los dos campos, los limpia y el PATCH manda `null` en ambos.
+
+
+---
+
+## 19. Moneda de la organización: pantalla de configuración (nueva) y cálculo automático USD ↔ moneda local en la ficha de vehículo
+
+**Estado:** hecho
+
+**Dónde:** dos partes en una sola rama y un solo PR. (A) una pantalla nueva de configuración de moneda de la organización, bajo "Administración"; (B) `frontend/src/features/vehicle/VehicleFormPage.tsx`, tarjeta "Comercial", par `priceListUsd`/`priceListLocal`. Ninguna toca el backend ni el contrato de la API.
+
+**Contexto:** el backend YA tiene toda la infraestructura de cotizaciones (Fase 2c del módulo de stock, `src/services/organization.service.ts`): `Organization.preferredCurrency` / `Organization.alternateCurrency` (opcionales, nullable, ISO 4217), `GET /api/organization` (cualquier usuario autenticado) devuelve `{ id, name, preferredCurrency, alternateCurrency, exchangeRates: [{ targetCurrency, rate, rateDate }] }` con la cotización USD→X más reciente de cada moneda configurada distinta de USD (nunca hay fila USD→USD), y `PATCH /api/organization` (solo ADMIN) acepta `{ preferredCurrency?, alternateCurrency? }`, al menos un campo, cada uno nullable (`null` = desconfigurar). Si tras aplicar el body las dos monedas quedan iguales (y ninguna es `null`), responde 400 con "La moneda de preferencia y la alternativa no pueden ser la misma". El frontend nunca consumió nada de esto: no existía `features/organization/`, ni pantalla, ni query.
+
+### Parte A — pantalla "Organización" (configuración de moneda)
+
+**Comportamiento actual:** no hay forma de configurar la moneda de la organización desde la app; `exchangeRates` no se muestra en ningún lado.
+
+**Comportamiento deseado:** una página nueva, "Organización", en `/organization`, con dos `<select>` —"Moneda de preferencia" y "Moneda alternativa"— con las mismas dos opciones que Moneda en Oportunidad (ítem 18.B: USD y UYU, sin "Otra") más una opción "Sin configurar" (valor vacío, que viaja como `null`). Un botón "Guardar" manda el `PATCH` con los dos campos y muestra el toast "Configuración guardada" (ítem 12). El 400 de monedas iguales se muestra tal cual llega, en el `ErrorState` del formulario. Debajo, de solo lectura, la cotización vigente si `exchangeRates` trae alguna fila: "1 USD = 40,1235 UYU" con su fecha; si no hay ninguna, un texto que dice que todavía no hay cotización cargada.
+
+**Decisiones de diseño:**
+
+- **Feature nueva `frontend/src/features/organization/`** con la misma separación que `source/` y `branch/` (`types.ts`, `api.ts`, `queries.ts`, `mutations.ts`), pero para una entidad SINGLETON por organización: un solo `GET`, un solo `PATCH`, sin lista, sin paginación ni filtros. `organizationKeys` tiene una sola clave (`settings()`); la mutación invalida esa clave al terminar, mismo criterio de invalidación mínima que el resto.
+- **`CURRENCY_OPTIONS` pasa a ser compartida**, en `frontend/src/lib/currencies.ts`, y `OpportunityFormPage.tsx` la importa de ahí en vez de la constante local del ítem 18.B. Es la misma lista y el mismo criterio de "restricción del lado del cliente" (el backend sigue aceptando cualquier ISO 4217): dos copias divergirían tarde o temprano.
+- **Valor persistido fuera de la lista:** mismo criterio que Moneda en Oportunidad (18.B). Si una organización tiene, por datos viejos o cargados por API, una moneda que no es USD ni UYU, el select la muestra como opción extra mientras sea el valor vigente, para que nunca muestre "USD" mientras el PATCH manda otra cosa.
+- **Se mandan siempre los dos campos** en el PATCH (`"" → null`), sin diferenciar cuál cambió: el backend exige al menos uno, y mandar los dos es la forma más simple de expresar "la configuración queda así". La validación de "no pueden ser la misma" queda del lado del backend a propósito —no se replica en el cliente— porque el mensaje que devuelve es exactamente el que hay que mostrar.
+- **Ruta y navegación:** `/organization` dentro del mismo `<AdminRoute>` que ya envuelve `/sources`, `/api-keys`, etc. en `frontend/src/app/router.tsx` (la lectura es abierta a cualquier autenticado, pero la pantalla es toda escritura y no tiene sentido para un USER); link "Organización" en el grupo "Administración" del sidebar (`frontend/src/layout/AppLayout.tsx`), después de "Eventos".
+- **Formato de la cotización:** el `rate` llega como string decimal ("40.123456") y `rateDate` como "YYYY-MM-DD". Se muestra con `Intl.NumberFormat("es-UY")` hasta 4 decimales y la fecha con `formatDate` de `features/opportunity/format.ts` (formatea en UTC para que "2026-09-10" no se corra al 9 en una zona horaria negativa) — se reutiliza en vez de duplicarla.
+
+**Tests:** `api.test.ts` (GET y PATCH contra MSW, `null` viaja como `null`, el error del backend se propaga con su mensaje), `queries.test.tsx`/`mutations.test.tsx` (la query pega al endpoint; la mutación invalida la query de settings), `OrganizationSettingsPage.test.tsx` (carga y muestra los valores persistidos y la cotización; sin cotización muestra el aviso; guardar manda el PATCH con los dos campos y `null` por "Sin configurar" y muestra el toast; el 400 de monedas iguales se muestra tal cual; un valor persistido fuera de la lista aparece como opción extra). ADMIN-only: bloque nuevo en `auth/AdminRoute.test.tsx` con la jerarquía real (USER entrando a `/organization` no ve la pantalla ni pide el GET; ADMIN sí) y casos en `layout/AppLayout.test.tsx` (ADMIN ve "Organización", USER no).
+
+### Parte B — cálculo automático USD ↔ moneda local en la ficha de vehículo
+
+**Comportamiento actual:** `priceListUsd` y `priceListLocal` son dos `<input type="number">` independientes; hay que cargar los dos a mano.
+
+**Comportamiento deseado:** al completar uno de los dos con el otro vacío, el otro se calcula solo con la cotización vigente de `exchangeRates` (USD × rate = local; local ÷ rate = USD, redondeado a 2 decimales). El campo calculado sigue siendo un input normal, editable, para pisar el cálculo a mano — mismo criterio de "sugerido pero editable" que ya usa `handleVehicleChange` en Oportunidad. Si `exchangeRates` está vacío (organización sin moneda distinta de USD configurada, o el worker diario todavía no corrió), el cálculo automático simplemente no aplica: los dos campos quedan editables a mano como hoy, sin bloquear el formulario ni mostrar error.
+
+**Decisiones de diseño:**
+
+- **Qué cotización se usa:** como el universo de monedas está limitado a USD/UYU (ítem 18.B), `exchangeRates` tiene como máximo UNA fila (la del par no-USD configurado, sea `preferredCurrency` o `alternateCurrency`). Se usa esa fila directamente como la cotización USD↔moneda local, sin mapear cuál de los dos campos de organización es cuál. La ficha consume `useOrganizationSettings()` de la Parte A.
+- **No pisar lo tipeado a mano** (mismo cuidado que Monto en 18.A): el auto-cálculo solo llena un campo que está vacío. Pero "vacío" no alcanza como único criterio: al tipear "25000" en USD, después del primer dígito la moneda local ya no está vacía y se quedaría en 2 × cotización. Por eso la ficha recuerda con un estado local cuál de los dos campos tiene un valor CALCULADO (`derivedPriceField`): mientras el otro campo siga siendo calculado, se recalcula con cada tecla; apenas la persona lo edita a mano deja de serlo y no se toca más. Borrar el campo de origen borra también el calculado (nunca fue tipeado), y no toca uno tipeado a mano. En edición los dos valores persistidos cuentan como tipeados a mano: cambiar uno no recalcula el otro si ya tenía valor.
+- **Alcance:** SOLO el par `priceListUsd`/`priceListLocal`. `priceOnRequest`, `minAcceptablePriceUsd`, `acquisitionCostUsd` y el resto de los campos de precio no se tocan. Los inputs siguen siendo `type="number"`: adoptar `CurrencyInput` (18.A) en la ficha de vehículo sigue siendo un ítem aparte.
+- **Un hint debajo del par**, solo cuando hay cotización, explica que el otro campo se calcula con la cotización vigente (con el valor y la fecha) y que se puede corregir a mano — mismo criterio que la nota de Oportunidad al vincular una unidad, para que un campo que "se llena solo" no parezca un error.
+
+**Tests (`VehicleFormPage.test.tsx`):** los handlers base pasan a responder también `GET /api/organization` (sin cotización), para que los tests existentes que tipean en "Precio de lista (USD)" sigan esperando `priceListLocal: null`. Se agregan: completar USD calcula la moneda local con una cotización mockeada (y el POST manda los dos); completar la moneda local calcula USD; sin cotización el otro campo queda vacío y editable; un valor ya tipeado a mano en el otro campo no se pisa; el valor calculado se puede corregir a mano y después no se recalcula.

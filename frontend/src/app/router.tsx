@@ -34,6 +34,7 @@ import { QrListPage } from "../features/qr/QrListPage";
 import { VehicleFormPage } from "../features/vehicle/VehicleFormPage";
 import { VehicleListPage } from "../features/vehicle/VehicleListPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
+import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -148,6 +149,12 @@ export const router = createBrowserRouter([
               // por el mismo motivo — las dos rutas del backend llevan
               // authorize("ADMIN"), lectura incluida.
               { path: "/ingestion-events", element: <IngestionEventListPage /> },
+              // Configuración de moneda de la organización (ítem 19.A de
+              // docs/frontend-cambios-pendientes.md). Singleton: sin :id, sin
+              // "nuevo". GET /api/organization es lectura abierta, pero la
+              // pantalla es toda escritura (PATCH ADMIN-only), así que va acá
+              // adentro como /sources.
+              { path: "/organization", element: <OrganizationSettingsPage /> },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/contacts/new", element: <ContactFormPage /> },
