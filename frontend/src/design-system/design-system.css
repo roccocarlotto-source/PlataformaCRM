@@ -1534,6 +1534,14 @@ a.ds-button--secondary:hover {
    cambian una vista, no un dato de formulario. La opción activa lleva el
    tratamiento de la acción primaria (monocromática), como el ítem de nav
    activo. Primer consumidor: features/opportunity/OpportunityListPage.tsx.
+   Hover de la opción NO activa (§27): usa --color-primary-hover y
+   --color-primary-contrast, los mismos tokens que .ds-link-button ("+ Nueva")
+   muestra en su hover. Antes pasaba de --color-surface-sunken (el fondo del
+   contenedor) a --color-surface-muted, una diferencia de 6/255 por canal,
+   invisible. Que en hover quede parecido al reposo de la opción activa es
+   intencional (pedido explícito para que el hover se note), no un copy-paste
+   ni un descuido de contraste como el del §17: fondo y texto van siempre en
+   el par contrastado. La opción activa no cambia al pasar el mouse (§17).
    --------------------------------------------------------------------------- */
 .ds-segmented {
   display: inline-flex;
@@ -1554,7 +1562,8 @@ a.ds-button--secondary:hover {
 }
 
 .ds-segmented .ds-button:hover:not(:disabled):not([aria-pressed="true"]) {
-  background: var(--color-surface-muted);
+  background: var(--color-primary-hover);
+  color: var(--color-primary-contrast);
 }
 
 .ds-segmented .ds-button[aria-pressed="true"] {

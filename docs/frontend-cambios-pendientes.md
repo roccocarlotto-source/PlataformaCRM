@@ -1042,3 +1042,30 @@ Contrato existente que se consume tal cual:
 - **El comentario de cabecera de `timezones.ts`** deja registrado el criterio de selección (una sola opción por comportamiento real; no se listan zonas que hoy son equivalentes) para que quien quiera agregar una zona sepa qué preguntarse. El ejemplo "Buenos Aires" del tipeo a evitar sigue valiendo: es exactamente el texto libre que la validación IANA existe para rechazar.
 
 **Tests:** `BranchFormPage.test.tsx`: el caso de "ofrece la lista acotada" pasa a comprobar las tres opciones que quedan (Montevideo, Santiago, Asunción) y que Buenos Aires y São Paulo **no** están; "elegir otra zona viaja en el body" pasa a usar Santiago; "con una zona de la lista NO se agrega ninguna opción extra" espera tres opciones; y se agrega el caso de **una sucursal con una zona que se sacó de la lista (la vieja Buenos Aires) se sigue mostrando como opción extra al editar, se conserva al guardar sin perder el valor, y al elegir otra zona de la lista el PATCH manda la nueva**. El caso existente con `UTC` (zona que nunca estuvo en la lista) queda como está.
+
+---
+
+## 27. Toggle "Vista de tabla" / "Vista de embudo": el botón NO activo no tiene ningún hover perceptible
+
+**Estado:** hecho
+
+**Dónde se ve:** `/opportunities`, el toggle "Vista de tabla" / "Vista de embudo" (grupo `.ds-segmented` en `frontend/src/design-system/design-system.css`, hoy usado solo por `frontend/src/features/opportunity/OpportunityListPage.tsx`). Es la contracara del §17: aquel arregló el botón **activo** (`aria-pressed="true"`, fondo `--color-primary` y texto `--color-primary-contrast`), que no se toca acá. Este ítem es sobre los botones **no activos** del grupo.
+
+**Comportamiento actual:** al pasar el mouse por un botón no activo del toggle no se nota nada. Rocco lo comparó con los botones "+ Nueva empresa", "+ Nuevo contacto", etc. (`.ds-link-button`), que sí cambian de color de forma clara al hacer hover, y con el toggle "no pasa nada".
+
+**Causa raíz (verificada en el código, con los valores exactos de los tokens):** el botón no activo tiene `background: transparent`, así que en reposo lo que se ve es el fondo del contenedor `.ds-segmented`, que es `--color-surface-sunken`. La regla de hover `.ds-segmented .ds-button:hover:not(:disabled):not([aria-pressed="true"])` lo pasa a `--color-surface-muted`. En `tokens.css`:
+
+| Modo | `--color-surface-sunken` (lo que se ve en reposo) | `--color-surface-muted` (fondo en hover) |
+|---|---|---|
+| Claro | `#f6f6f3` | `#f0efeb` |
+| Oscuro | `#181816` | `#262623` |
+
+En modo claro la diferencia es de 6 sobre 255 en cada canal: existe, pero es invisible en la práctica. En cambio `.ds-link-button` va de `--color-primary` (`#1b1b18`) a `--color-primary-hover` (`#2e2e29`) al hacer hover, un salto de color fuerte que sí se percibe. No es un bug de JS ni de `aria-pressed`: el hover se aplica, pero con un matiz casi idéntico al reposo.
+
+**Comportamiento deseado (decisión confirmada con Rocco):** el hover del botón no activo tiene que ser del **mismo tipo** que el de "+ Nueva": un cambio de color fuerte y notorio, no un matiz. Concretamente, en hover el botón no activo toma el mismo fondo y texto que "+ Nueva" muestra en su propio hover: fondo `--color-primary-hover` y texto `--color-primary-contrast`. Al sacar el mouse vuelve a su reposo (fondo transparente, texto `--color-text-muted`), por CSS puro.
+
+**Nota de diseño, para que no se lea como un error:** con este cambio el hover del botón no activo queda visualmente muy parecido al reposo del botón activo (`--color-primary-hover` `#2e2e29` es cercano a `--color-primary` `#1b1b18`; en oscuro, `#ffffff` contra `#f0efe9`). Es intencional: Rocco lo pidió así explícitamente para que el hover se note. No es un descuido de contraste como el del §17 (allí el texto se volvía invisible sobre su propio fondo; acá texto y fondo van siempre en el par contrastado `--color-primary-hover` / `--color-primary-contrast`).
+
+**Arreglo:** una sola regla de CSS, sin JS ni backend. En `.ds-segmented .ds-button:hover:not(:disabled):not([aria-pressed="true"])`, el `background` pasa de `--color-surface-muted` a `--color-primary-hover` y se agrega `color: var(--color-primary-contrast)`. El botón activo (`[aria-pressed="true"]`) no se toca; el reposo del no activo no se toca. El comentario de cabecera del bloque `.ds-segmented` deja registrado por qué el hover del no activo usa los mismos tokens que el activo usa en reposo, para que quien lo lea después no lo confunda con un copy-paste. Como `.ds-segmented` es una regla compartida del sistema de diseño, el cambio alcanza a cualquier otro uso futuro del segmented control.
+
+**Tests:** el único test relacionado con el toggle (`OpportunityListPage.test.tsx`, "el toggle pasa de la vista de tabla a la de embudo y vuelve...") afirma el `aria-pressed` al hacer click, que no cambia. El hover es CSS puro, que Testing Library no evalúa (jsdom no aplica hojas de estilo), así que, igual que en el §17, no se agrega un test automatizado nuevo; la verificación es visual.
