@@ -1,7 +1,7 @@
+import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { upsertExchangeRate } from "../repositories/exchangeRate.repository";
 import { findOrganizationsWithConfiguredCurrency } from "../repositories/organization.repository";
-import { currenciesNeedingRate } from "./organization.service";
 
 // ---------------------------------------------------------------------------
 // Cotizaciones USD→X (Fase 2c del módulo de stock de vehículos). Lo llama el
@@ -17,10 +17,36 @@ import { currenciesNeedingRate } from "./organization.service";
 //
 // EL PAR ES SIEMPRE USD→DESTINO, nunca al revés. Si algún día hace falta la
 // inversa se calcula al leer (1/rate), no se guarda una fila más.
+//
+// DOS DISPARADORES, UNA SOLA FUNCIÓN (§24 de docs/frontend-cambios-pendientes.md):
+// el worker una vez por día, y updateOrganizationCurrency a pedido cada vez
+// que una organización guarda su moneda. Sin lo segundo, la primera pasada
+// "inmediata" del worker es inmediata respecto del ARRANQUE DEL PROCESO, no
+// de cuándo se configuró la moneda: con el servidor ya corriendo, la primera
+// cotización tardaba hasta 24 horas (o un reinicio a mano) en aparecer.
 // ---------------------------------------------------------------------------
 
 export const EXCHANGE_RATE_API_URL = "https://open.er-api.com/v6/latest/USD";
 export const EXCHANGE_RATE_BASE_CURRENCY = "USD";
+
+// Las monedas de las que hace falta cotización: las configuradas, sin
+// repetir y sin la base — el par es siempre USD→destino y USD→USD no se
+// guarda (el CHECK de exchange_rates lo prohíbe además). La usa el
+// GET /organization con las dos monedas de una organización, la pasada
+// completa con las de todas, y el disparo a pedido para decidir si hay algo
+// que buscar. Exportada para probarla sin base.
+export function currenciesNeedingRate(
+  currencies: (string | null | undefined)[],
+  base = EXCHANGE_RATE_BASE_CURRENCY,
+): string[] {
+  const set = new Set<string>();
+  for (const currency of currencies) {
+    if (currency && currency !== base) {
+      set.add(currency);
+    }
+  }
+  return [...set];
+}
 
 export type RatesByCurrency = Record<string, number>;
 
@@ -123,4 +149,58 @@ export async function fetchAndStoreExchangeRates(
   }
 
   return resumen;
+}
+
+// ---------------------------------------------------------------------------
+// Disparo A PEDIDO (§24): lo llama updateOrganizationCurrency con las monedas
+// con las que QUEDA la organización, apenas commiteó el UPDATE.
+//
+// NO BLOQUEA AL CALLER. fetchAndStoreExchangeRates hace un fetch real a la
+// API; esperarla haría que quien guarda su configuración espere esa llamada
+// de red. Es fire-and-forget con el mismo criterio que el `void tick()` del
+// worker: la promesa se suelta, pero su desenlace se loguea siempre —el
+// resumen como info, con el mismo formato que la pasada del worker, y un
+// rechazo como error— para que un fallo ni se pierda en silencio ni suba
+// como unhandledRejection y tire abajo el proceso. Consecuencia asumida: la
+// respuesta del PATCH normalmente todavía no trae la cotización nueva; la
+// trae el GET siguiente.
+//
+// SIN CHEQUEO FINO de "¿esta moneda ya tenía cotización de hoy?": un solo
+// fetch trae todas las monedas y el upsert es idempotente, así que llamar de
+// más es barato. Lo único que se mira es si queda alguna moneda distinta de
+// USD que buscar; y si el ambiente apagó las actualizaciones con
+// EXCHANGE_RATE_WORKER_ENABLED=false, acá tampoco se le pega a la fuente —el
+// mensaje que ese flag loguea ("las organizaciones ven la última guardada")
+// tiene que seguir siendo verdad.
+//
+// Devuelve si disparó o no. `actualizar` es SOLO PARA TESTS, mismo criterio
+// que `actualizar` en el worker.
+export function dispararActualizacionDeCotizaciones(
+  currencies: (string | null | undefined)[],
+  actualizar: () => Promise<ResumenDeActualizacion> = () => fetchAndStoreExchangeRates(),
+): boolean {
+  const necesarias = currenciesNeedingRate(currencies);
+  if (necesarias.length === 0) {
+    return false;
+  }
+  if (!env.EXCHANGE_RATE_WORKER_ENABLED) {
+    logger.info(
+      { currencies: necesarias },
+      "Actualización de cotizaciones a pedido omitida: EXCHANGE_RATE_WORKER_ENABLED=false",
+    );
+    return false;
+  }
+
+  void actualizar().then(
+    (resumen) => {
+      logger.info(resumen, "Pasada de actualización de cotizaciones a pedido");
+    },
+    (err: unknown) => {
+      // Misma red de seguridad que el worker: fetchAndStoreExchangeRates ya
+      // atrapa la fuente y cada upsert, así que llegar acá significa que
+      // falló la consulta de organizaciones.
+      logger.error({ err }, "Fallo inesperado en la actualización de cotizaciones a pedido");
+    },
+  );
+  return true;
 }

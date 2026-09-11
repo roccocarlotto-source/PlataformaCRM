@@ -4,6 +4,11 @@ import {
   updateOrganizationCurrency as updateOrganizationCurrencyRepo,
 } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
+import {
+  currenciesNeedingRate,
+  dispararActualizacionDeCotizaciones,
+  type ResumenDeActualizacion,
+} from "./exchangeRate.service";
 
 // ---------------------------------------------------------------------------
 // Configuración de la organización expuesta por la API (Fase 2c del módulo de
@@ -31,24 +36,6 @@ export interface OrganizationSettings {
   preferredCurrency: string | null;
   alternateCurrency: string | null;
   exchangeRates: OrganizationExchangeRate[];
-}
-
-// Las monedas de las que hace falta cotización: las configuradas, sin
-// repetir y sin "USD" — el par es siempre USD→destino y USD→USD no se guarda
-// (el CHECK de exchange_rates lo prohíbe además). Exportada para probarla
-// sin base; la reutiliza el worker con las monedas de todas las
-// organizaciones.
-export function currenciesNeedingRate(
-  currencies: (string | null | undefined)[],
-  base = "USD",
-): string[] {
-  const set = new Set<string>();
-  for (const currency of currencies) {
-    if (currency && currency !== base) {
-      set.add(currency);
-    }
-  }
-  return [...set];
 }
 
 export async function getOrganizationSettings(
@@ -82,9 +69,16 @@ export interface UpdateOrganizationCurrencyInput {
 
 export const MONEDAS_IGUALES = "La moneda de preferencia y la alternativa no pueden ser la misma";
 
+// SOLO PARA TESTS (§24): la búsqueda de cotización que se dispara tras
+// guardar. Producción no pasa nada y usa fetchAndStoreExchangeRates.
+export interface OpcionesDeActualizacionDeMoneda {
+  actualizarCotizaciones?: () => Promise<ResumenDeActualizacion>;
+}
+
 export async function updateOrganizationCurrency(
   organizationId: string,
   input: UpdateOrganizationCurrencyInput,
+  opciones: OpcionesDeActualizacionDeMoneda = {},
 ): Promise<OrganizationSettings> {
   const organization = await findOrganizationById(organizationId);
   if (!organization) {
@@ -107,5 +101,14 @@ export async function updateOrganizationCurrency(
   }
 
   await updateOrganizationCurrencyRepo(organizationId, input);
+
+  // §24: la cotización de lo que QUEDÓ configurado se busca ahora, a pedido,
+  // sin esperar al worker (cuya primera pasada fue al arrancar el proceso,
+  // no al guardar esto). Sin await a propósito: no bloquea la respuesta, y
+  // el desenlace se loguea adentro. El GET de abajo lee la base ANTES de que
+  // la fuente conteste, así que esta respuesta normalmente no trae todavía
+  // la cotización nueva; la trae el GET siguiente.
+  dispararActualizacionDeCotizaciones([preferred, alternate], opciones.actualizarCotizaciones);
+
   return getOrganizationSettings(organizationId);
 }

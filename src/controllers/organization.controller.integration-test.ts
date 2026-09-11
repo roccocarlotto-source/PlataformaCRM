@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import { after, before, test } from "node:test";
+import { after, before, mock, test } from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import express from "express";
 import { env } from "../config/env";
@@ -11,6 +11,7 @@ import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
 import { organizationRouter } from "../routes/organization.routes";
+import { EXCHANGE_RATE_API_URL, rateDateDeHoy } from "../services/exchangeRate.service";
 import { MONEDAS_IGUALES } from "../services/organization.service";
 
 // ---------------------------------------------------------------------------
@@ -26,13 +27,58 @@ import { MONEDAS_IGUALES } from "../services/organization.service";
 //   4. El GET trae la cotización MÁS RECIENTE de cada moneda configurada, sin
 //      USD, y NINGUNO de los campos internos de billing/QR del row — se
 //      verifica sobre el texto crudo de la respuesta, no campo por campo.
+//   5. §24: un PATCH con una moneda nueva dispara la búsqueda de cotización a
+//      pedido — responde ANTES de que la fuente conteste, y el GET refleja la
+//      cotización cuando la fuente responde.
 //
 // exchange_rates es global: se usan códigos que ningún otro archivo usa (ZY*)
 // y se limpian al final.
+//
+// LA FUENTE DE COTIZACIONES ESTÁ STUBBEADA A NIVEL DE fetch GLOBAL. Desde el
+// §24 cada PATCH que deja una moneda distinta de USD le pega a la fuente
+// (open.er-api.com), y por HTTP no hay forma de inyectarla como hacen los
+// tests del service. El stub responde SOLO a la URL de la API —lo que el
+// test decida en `respuestaDeLaFuente`— y deja pasar todo lo demás al fetch
+// real, que es el que este mismo archivo usa para llamar a la app. Cada
+// archivo de tests corre en su propio proceso, así que el stub no se filtra a
+// los demás.
 // ---------------------------------------------------------------------------
 
 const PASSWORD = "Org-test-password-123!";
-const MONEDAS = { preferida: "ZYA", alternativa: "ZYB" };
+const MONEDAS = { preferida: "ZYA", alternativa: "ZYB", aPedido: "ZYC" };
+
+// Por defecto la fuente responde bien pero sin ninguna de las monedas ZY*:
+// los PATCH de los casos 1-4 disparan la búsqueda y ésta no escribe nada,
+// así que sus aserciones sobre exchange_rates siguen valiendo tal cual.
+function respuestaConCotizaciones(rates: Record<string, number>): Response {
+  return new Response(JSON.stringify({ result: "success", rates }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+let respuestaDeLaFuente: () => Promise<Response> = () =>
+  Promise.resolve(respuestaConCotizaciones({}));
+let fetchStub: { mock: { restore(): void } } | undefined;
+
+// Una promesa que resuelve cuando el TEST lo decide: fija el orden "primero
+// responde el PATCH, después contesta la fuente" sin timers.
+function diferida<T>() {
+  let resolver!: (valor: T) => void;
+  const promesa = new Promise<T>((res) => {
+    resolver = res;
+  });
+  return { promesa, resolver };
+}
+
+async function esperarHasta<T>(condicion: () => Promise<T | undefined>, topeMs = 5_000) {
+  const limite = Date.now() + topeMs;
+  for (;;) {
+    const valor = await condicion();
+    if (valor !== undefined) return valor;
+    if (Date.now() > limite) throw new Error(`La condición no se cumplió en ${topeMs} ms`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
 
 interface FixtureUser {
   accessToken: string;
@@ -122,6 +168,16 @@ function dia(iso: string) {
 }
 
 before(async () => {
+  const fetchReal = globalThis.fetch;
+  fetchStub = mock.method(
+    globalThis,
+    "fetch",
+    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return url === EXCHANGE_RATE_API_URL ? respuestaDeLaFuente() : fetchReal(input, init);
+    },
+  );
+
   const started = await startTestApp();
   baseUrl = started.url;
   closeApp = started.close;
@@ -171,6 +227,7 @@ before(async () => {
 
 after(async () => {
   if (closeApp) await closeApp();
+  fetchStub?.mock.restore();
   await prisma.exchangeRate.deleteMany({
     where: { targetCurrency: { in: Object.values(MONEDAS) } },
   });
@@ -270,3 +327,39 @@ test("PATCH /api/organization — body vacío o moneda inválida es 400", async 
     400,
   );
 });
+
+test(
+  "PATCH /api/organization — una moneda nueva dispara la cotización a pedido: responde sin esperar a la fuente y el GET la refleja después (§24)",
+  // Si el PATCH esperara a la fuente se colgaría acá —la fuente se libera
+  // recién después de que respondió—; el tope lo vuelve un fallo legible.
+  { timeout: 15_000 },
+  async () => {
+    const fuente = diferida<Record<string, number>>();
+    respuestaDeLaFuente = () => fuente.promesa.then(respuestaConCotizaciones);
+
+    const patch = await call("PATCH", "/api/organization", admin.accessToken, {
+      preferredCurrency: MONEDAS.aPedido,
+    });
+    assert.equal(patch.status, 200);
+    const body = (await patch.json()) as Record<string, unknown>;
+    assert.equal(body.preferredCurrency, MONEDAS.aPedido);
+    // Respondió con lo que había en la base: la fuente todavía no contestó.
+    assert.deepEqual(body.exchangeRates, []);
+
+    fuente.resolver({ [MONEDAS.aPedido]: 12.5, USD: 1 });
+
+    const settings = await esperarHasta(async () => {
+      const res = await call("GET", "/api/organization", user.accessToken);
+      assert.equal(res.status, 200);
+      const actual = (await res.json()) as { exchangeRates: unknown[] };
+      return actual.exchangeRates.length > 0 ? actual : undefined;
+    });
+    assert.deepEqual(settings.exchangeRates, [
+      {
+        targetCurrency: MONEDAS.aPedido,
+        rate: "12.5",
+        rateDate: rateDateDeHoy().toISOString().slice(0, 10),
+      },
+    ]);
+  },
+);
