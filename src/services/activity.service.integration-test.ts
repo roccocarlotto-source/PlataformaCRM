@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import { AppError } from "../utils/AppError";
-import { updateActivity } from "./activity.service";
+import { getActivityById, listActivities, updateActivity } from "./activity.service";
 
 // Test de integración de T-1 (auditoría nueva): activities_related_entity_check
 // puede violarse por una carrera real entre dos updateActivity concurrentes,
@@ -357,4 +357,152 @@ test("updateActivity: carrera real limpiando companyId y contactId a la vez nunc
     false,
     "el dato persistido nunca debe quedar con las tres relaciones en null a la vez",
   );
+});
+
+// ---------------------------------------------------------------------------
+// §25 — lectura acotada por assignee. Con filas y roles reales: un USER ve
+// solo lo asignado a sí mismo por listado (mande el filtro que mande) y por
+// id; ADMIN no cambia en nada. Las aserciones de listado no dependen de
+// cuántas filas dejaron los tests anteriores: se mira que TODO lo devuelto
+// sea propio y que las filas conocidas estén o no estén.
+// ---------------------------------------------------------------------------
+
+const LIST_BASE = { page: 1, pageSize: 100, sortBy: "createdAt", sortOrder: "desc" } as const;
+
+interface ReadFixture {
+  propiaPendiente: string;
+  propiaCompletada: string;
+  ajena: string;
+  sinAsignar: string;
+}
+
+async function crearFilasDeLectura(): Promise<ReadFixture> {
+  const base = { organizationId: fx.orgId, authorId: fx.userId, companyId: fx.companyId };
+  const [propiaPendiente, propiaCompletada, ajena, sinAsignar] = await Promise.all([
+    prisma.activity.create({
+      data: {
+        ...base,
+        type: "TASK",
+        subject: "§25 propia pendiente",
+        assigneeId: fx.assigneeUserId,
+      },
+    }),
+    prisma.activity.create({
+      data: {
+        ...base,
+        type: "TASK",
+        subject: "§25 propia completada",
+        assigneeId: fx.assigneeUserId,
+        completedAt: new Date("2026-09-10T12:00:00.000Z"),
+      },
+    }),
+    prisma.activity.create({
+      data: { ...base, type: "TASK", subject: "§25 ajena", assigneeId: fx.otherUserId },
+    }),
+    prisma.activity.create({
+      data: { ...base, type: "NOTE", subject: "§25 sin asignar", assigneeId: null },
+    }),
+  ]);
+  return {
+    propiaPendiente: propiaPendiente.id,
+    propiaCompletada: propiaCompletada.id,
+    ajena: ajena.id,
+    sinAsignar: sinAsignar.id,
+  };
+}
+
+test("§25 USER: listActivities sin filtro devuelve solo lo asignado a sí mismo — ni ajenas ni sin asignar", async () => {
+  const filas = await crearFilasDeLectura();
+  const yo = { userId: fx.assigneeUserId, role: "USER" as const };
+
+  const result = await listActivities(fx.orgId, { ...LIST_BASE }, yo);
+  const ids = result.data.map((a) => a.id);
+
+  assert.ok(result.data.every((a) => a.assigneeId === fx.assigneeUserId));
+  assert.ok(ids.includes(filas.propiaPendiente));
+  assert.ok(ids.includes(filas.propiaCompletada));
+  assert.ok(!ids.includes(filas.ajena));
+  assert.ok(!ids.includes(filas.sinAsignar));
+  assert.equal(result.pagination.total, result.data.length);
+});
+
+test("§25 USER: listActivities con el assigneeId de otra persona devuelve igual solo lo propio — el filtro se ignora", async () => {
+  const filas = await crearFilasDeLectura();
+  const yo = { userId: fx.assigneeUserId, role: "USER" as const };
+
+  const result = await listActivities(fx.orgId, { ...LIST_BASE, assigneeId: fx.otherUserId }, yo);
+  const ids = result.data.map((a) => a.id);
+
+  assert.ok(result.data.length > 0);
+  assert.ok(result.data.every((a) => a.assigneeId === fx.assigneeUserId));
+  assert.ok(ids.includes(filas.propiaPendiente));
+  assert.ok(!ids.includes(filas.ajena));
+});
+
+test("§25 USER: el caso exacto de 'Mis tareas' (assigneeId propio + completed=false) sigue devolviendo solo lo propio pendiente", async () => {
+  const filas = await crearFilasDeLectura();
+  const yo = { userId: fx.assigneeUserId, role: "USER" as const };
+
+  const result = await listActivities(
+    fx.orgId,
+    {
+      ...LIST_BASE,
+      assigneeId: fx.assigneeUserId,
+      completed: false,
+      sortBy: "dueDate",
+      sortOrder: "asc",
+    },
+    yo,
+  );
+  const ids = result.data.map((a) => a.id);
+
+  assert.ok(result.data.every((a) => a.assigneeId === fx.assigneeUserId && a.completedAt === null));
+  assert.ok(ids.includes(filas.propiaPendiente));
+  assert.ok(!ids.includes(filas.propiaCompletada));
+  assert.ok(!ids.includes(filas.ajena));
+  assert.ok(!ids.includes(filas.sinAsignar));
+});
+
+test("§25 USER: getActivityById devuelve la propia; una ajena o sin asignar es el MISMO 404 que un id inexistente", async () => {
+  const filas = await crearFilasDeLectura();
+  const yo = { userId: fx.assigneeUserId, role: "USER" as const };
+
+  const propia = await getActivityById(fx.orgId, filas.propiaPendiente, yo);
+  assert.equal(propia.id, filas.propiaPendiente);
+
+  const esperar404 = (err: unknown) => {
+    assert.ok(err instanceof AppError, "debe ser AppError");
+    assert.equal(err.statusCode, 404);
+    assert.equal(err.message, "Actividad no encontrada");
+    return true;
+  };
+  await assert.rejects(() => getActivityById(fx.orgId, filas.ajena, yo), esperar404);
+  await assert.rejects(() => getActivityById(fx.orgId, filas.sinAsignar, yo), esperar404);
+  await assert.rejects(() => getActivityById(fx.orgId, randomUUID(), yo), esperar404);
+});
+
+test("§25 ADMIN: sin cambios — ve todo sin filtro, filtra por el assigneeId de cualquier persona, y lee cualquier id", async () => {
+  const filas = await crearFilasDeLectura();
+  const admin = { userId: fx.userId, role: "ADMIN" as const };
+
+  const todo = await listActivities(fx.orgId, { ...LIST_BASE }, admin);
+  const idsTodo = todo.data.map((a) => a.id);
+  for (const id of Object.values(filas)) {
+    assert.ok(idsTodo.includes(id), `ADMIN sin filtro debe ver ${id}`);
+  }
+
+  const deOtro = await listActivities(
+    fx.orgId,
+    { ...LIST_BASE, assigneeId: fx.otherUserId },
+    admin,
+  );
+  const idsDeOtro = deOtro.data.map((a) => a.id);
+  assert.ok(deOtro.data.every((a) => a.assigneeId === fx.otherUserId));
+  assert.ok(idsDeOtro.includes(filas.ajena));
+  assert.ok(!idsDeOtro.includes(filas.propiaPendiente));
+
+  const ajena = await getActivityById(fx.orgId, filas.ajena, admin);
+  assert.equal(ajena.id, filas.ajena);
+  const sinAsignar = await getActivityById(fx.orgId, filas.sinAsignar, admin);
+  assert.equal(sinAsignar.id, filas.sinAsignar);
 });

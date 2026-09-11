@@ -165,7 +165,7 @@ verificado por JWKS/ES256) y está aislado por organización.
 | `GET /api/imports/:batchId` | Motivo de falla de hasta 100 filas. **Ya no devuelve `rawPayload`** — cerrado por `D2-2` | ADMIN |
 | `POST /api/ingestion-events/:id/retry` | No devuelve datos del lead, pero identifica un evento concreto | ADMIN |
 | `GET /api/users`, `GET /api/invitations` | Email y nombre de personas usuarias e invitadas | ADMIN |
-| `GET /api/activities` | Texto libre | Cualquier usuario autenticado |
+| `GET /api/activities`, `GET /api/activities/:id` | Texto libre | Cualquier usuario autenticado, pero un USER solo recibe las actividades asignadas a sí mismo (una ajena por id es 404); ADMIN ve todas — ítem 25 de `frontend-cambios-pendientes.md` |
 | `POST /api/imports/preview` | **Entrada**, no salida. Devuelve solo los encabezados — pero recibe el archivo entero: ver la excepción de abajo | ADMIN |
 | `POST /api/ingest` | **Entrada**, no salida. Escribe `rawPayload` | Una `ApiKey` válida, sin JWT |
 

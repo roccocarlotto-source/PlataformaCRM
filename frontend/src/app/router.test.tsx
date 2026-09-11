@@ -55,10 +55,10 @@ describe("router.tsx — wiring real de Activity", () => {
     expect(editParent?.type).toBe(AdminRoute);
   });
 
-  it("/activities (listado) NO está anidada bajo AdminRoute", () => {
+  it("/activities (listado) está anidada bajo AdminRoute desde el ítem 25 — el listado completo es ADMIN-only", () => {
     const parent = findParentElement(router.routes, "/activities") as { type: unknown } | undefined;
 
-    expect(parent?.type).not.toBe(AdminRoute);
+    expect(parent?.type).toBe(AdminRoute);
   });
 
   it("las tres rutas de Activity existen en el árbol real", () => {
@@ -67,7 +67,7 @@ describe("router.tsx — wiring real de Activity", () => {
     expect(findRoute(router.routes, "/activities/:id/edit")).toBeDefined();
   });
 
-  it("/tasks (Mis tareas) existe, bajo AppLayout y NO bajo AdminRoute — leer y completar lo propio es de cualquier rol", () => {
+  it("/tasks (Mis tareas) existe, bajo AppLayout y NO bajo AdminRoute — leer y completar lo propio es de cualquier rol, también tras el ítem 25", () => {
     expect(findRoute(router.routes, "/tasks")).toBeDefined();
     const parent = findParentElement(router.routes, "/tasks") as { type: unknown } | undefined;
     expect(parent?.type).toBe(AppLayout);
@@ -76,7 +76,7 @@ describe("router.tsx — wiring real de Activity", () => {
 });
 
 describe("router.tsx — wiring real de M7 (Users, Invitations, Accept)", () => {
-  it("/users, /invitations e /invitations/new están anidadas bajo AdminRoute — a diferencia de Activity, acá la LECTURA también es ADMIN-only", () => {
+  it("/users, /invitations e /invitations/new están anidadas bajo AdminRoute — acá la LECTURA también es ADMIN-only", () => {
     const usersParent = findParentElement(router.routes, "/users") as { type: unknown };
     const invitationsParent = findParentElement(router.routes, "/invitations") as {
       type: unknown;

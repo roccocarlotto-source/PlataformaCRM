@@ -39,8 +39,59 @@ export interface ListActivitiesParams {
   sortOrder: SortOrder;
 }
 
-export async function listActivities(organizationId: string, params: ListActivitiesParams) {
-  const { page, pageSize, sortBy, sortOrder, ...filters } = params;
+export interface ActivityActor {
+  userId: string;
+  role: RoleName;
+}
+
+// ---------------------------------------------------------------------------
+// Quién puede LEER qué actividad (§25 de docs/frontend-cambios-pendientes.md).
+// GET /api/activities y GET /api/activities/:id siguen abiertos a cualquier
+// autenticado en la ruta —no llevan authorize("ADMIN")— y no es un olvido:
+// "Mis tareas" (MyTasksPage.tsx, para ambos roles) usa el MISMO endpoint,
+// GET /api/activities?assigneeId=<yo>&completed=false, así que un USER
+// necesita seguir pidiendo su propio listado. La restricción vive acá, en
+// el service, igual que la del PATCH (canSelfServiceCompleteActivity):
+//
+//   - ADMIN: ve todo, con cualquier filtro que mande (incluido el
+//     assigneeId de otra persona). Sin cambios de comportamiento.
+//   - USER: solo lo asignado a sí mismo. Cualquier assigneeId que venga del
+//     cliente se IGNORA y se fuerza el propio — "Mis tareas" ya manda el
+//     suyo, así que no nota diferencia; pedir el de otra persona o pedir sin
+//     filtro devuelve lo mismo: lo propio. Las actividades sin asignar
+//     tampoco las ve (assigneeId null nunca es igual a su id).
+//
+// Dos funciones puras, sin base, probadas solas en activity.service.test.ts.
+// El repositorio no sabe nada de esto: recibe filtros ya acotados.
+// ---------------------------------------------------------------------------
+export type ActivityReadFilters = Omit<
+  ListActivitiesParams,
+  "page" | "pageSize" | "sortBy" | "sortOrder"
+>;
+
+export function scopeActivityFiltersToActor(
+  actor: ActivityActor,
+  filters: ActivityReadFilters,
+): ActivityReadFilters {
+  if (actor.role === "ADMIN") return filters;
+  return { ...filters, assigneeId: actor.userId };
+}
+
+export function canReadActivity(
+  actor: ActivityActor,
+  activity: { assigneeId: string | null },
+): boolean {
+  if (actor.role === "ADMIN") return true;
+  return activity.assigneeId === actor.userId;
+}
+
+export async function listActivities(
+  organizationId: string,
+  params: ListActivitiesParams,
+  actor: ActivityActor,
+) {
+  const { page, pageSize, sortBy, sortOrder, ...requested } = params;
+  const filters = scopeActivityFiltersToActor(actor, requested);
   const skip = (page - 1) * pageSize;
 
   const [data, total] = await Promise.all([
@@ -59,9 +110,26 @@ export async function listActivities(organizationId: string, params: ListActivit
   };
 }
 
-export async function getActivityById(organizationId: string, id: string) {
+// Lectura interna: existe, es de esta organización y no está eliminada. Sin
+// actor a propósito — la usan updateActivity y deleteActivity, cuya
+// autorización es otra (la del PATCH da 403 y vive en
+// canSelfServiceCompleteActivity; DELETE es ADMIN-only en la ruta).
+async function requireActivity(organizationId: string, id: string) {
   const activity = await findActivityById(id, organizationId);
   if (!activity) {
+    throw new AppError("Actividad no encontrada", 404);
+  }
+  return activity;
+}
+
+// GET /api/activities/:id. Una actividad fuera del alcance de quien pregunta
+// (USER pidiendo una ajena o una sin asignar) recibe el MISMO 404 que un id
+// inexistente, no un 403: así no se confirma que ese id existe. Es distinto
+// del 403 del PATCH a propósito — ahí quien pregunta ya tiene el id de una
+// fuente legítima (por ejemplo "Mis tareas" mostrándoselo); acá no.
+export async function getActivityById(organizationId: string, id: string, actor: ActivityActor) {
+  const activity = await requireActivity(organizationId, id);
+  if (!canReadActivity(actor, activity)) {
     throw new AppError("Actividad no encontrada", 404);
   }
   return activity;
@@ -201,11 +269,6 @@ export interface UpdateActivityInput {
   opportunityId?: string | null;
 }
 
-export interface ActivityActor {
-  userId: string;
-  role: RoleName;
-}
-
 // ---------------------------------------------------------------------------
 // Quién puede PATCHear una actividad. Antes era authorize("ADMIN") en la
 // ruta; ahora la regla depende del RECURSO, así que vive acá:
@@ -248,7 +311,7 @@ export async function updateActivity(
   actor: ActivityActor,
 ) {
   // 404 si no existe, no es de esta organización, o ya está eliminada.
-  const activity = await getActivityById(organizationId, id);
+  const activity = await requireActivity(organizationId, id);
 
   // Autorización ANTES de tocar nada más: mismo mensaje y status que
   // authorize("ADMIN"), para que un USER sin permiso vea lo mismo que veía.
@@ -334,11 +397,11 @@ export async function updateActivity(
     throw err;
   }
 
-  return getActivityById(organizationId, id);
+  return requireActivity(organizationId, id);
 }
 
 export async function deleteActivity(organizationId: string, id: string) {
-  await getActivityById(organizationId, id);
+  await requireActivity(organizationId, id);
   const result = await softDeleteActivity(id, organizationId);
   if (result.count === 0) {
     throw new AppError("Actividad no encontrada", 404);

@@ -74,17 +74,18 @@ export const router = createBrowserRouter([
           { path: "/pipelines", element: <PipelineListPage /> },
           { path: "/pipelines/:pipelineId/stages", element: <StageListPage /> },
           { path: "/opportunities", element: <OpportunityListPage /> },
-          // Lectura abierta a cualquier rol (activity.routes.ts: GET sin
-          // authorize) — a diferencia de las rutas de escritura de abajo,
-          // /activities NO va dentro del AdminRoute.
-          { path: "/activities", element: <ActivityListPage /> },
-          // "Mis tareas": mismo motivo que /activities, y además la acción
-          // principal (tildar la propia tarea) es PATCH de solo completedAt
-          // sobre la propia actividad, permitido a cualquier rol desde esta
-          // fase (activity.routes.ts) — así que tampoco va en AdminRoute.
+          // "Mis tareas" (ítem 25 de docs/frontend-cambios-pendientes.md): la
+          // única pantalla de actividades para USER. GET /api/activities sigue
+          // sin authorize en la ruta (activity.routes.ts) pero el service acota
+          // la lectura de un USER a lo asignado a sí mismo, que es exactamente
+          // lo que esta pantalla pide (assigneeId=<yo>&completed=false); y la
+          // acción principal (tildar la propia tarea) es PATCH de solo
+          // completedAt sobre la propia actividad, permitido a cualquier rol —
+          // así que NO va en AdminRoute. El listado completo (/activities) sí,
+          // abajo.
           { path: "/tasks", element: <MyTasksPage /> },
           // Módulo QR (docs/qr-integration.md, Fase 3). El LISTADO va acá afuera,
-          // como /companies y /activities: GET /api/qr es lectura abierta a
+          // como /companies: GET /api/qr es lectura abierta a
           // cualquier usuario autenticado (qr.routes.ts: solo authenticate) y las
           // acciones de solo lectura (ver imagen, enviar, copiar link) son útiles
           // para un USER. Las escrituras (crear/editar/eliminar) son diálogos
@@ -121,7 +122,7 @@ export const router = createBrowserRouter([
             // GET /api/invitations son TAMBIÉN ADMIN-only (verificado en
             // user.routes.ts/invitation.routes.ts) — así que /users e
             // /invitations van dentro de este bloque, no como rutas de
-            // lectura abiertas (a diferencia de /activities arriba).
+            // lectura abiertas (a diferencia de /companies arriba).
             element: <AdminRoute />,
             children: [
               { path: "/users", element: <UserListPage /> },
@@ -179,6 +180,16 @@ export const router = createBrowserRouter([
               },
               { path: "/opportunities/new", element: <OpportunityFormPage /> },
               { path: "/opportunities/:id/edit", element: <OpportunityFormPage /> },
+              // Listado completo de actividades de la organización (ítem 25 de
+              // docs/frontend-cambios-pendientes.md): ADMIN-only. Hasta ese
+              // ítem vivía afuera como lectura abierta; ahora el backend acota
+              // a un USER a lo asignado a sí mismo, que ya tiene su pantalla en
+              // /tasks (arriba) — una tabla "Actividades" para USER solo
+              // repetiría "Mis tareas" con filtros que no puede usar. Mismo
+              // criterio que /organization y /branches: la autorización real
+              // es del service; esto evita mostrar una pantalla vacía de
+              // sentido para ese rol.
+              { path: "/activities", element: <ActivityListPage /> },
               { path: "/activities/new", element: <ActivityFormPage /> },
               { path: "/activities/:id/edit", element: <ActivityFormPage /> },
               // Ficha de vehículo: POST/PATCH /api/vehicles son ADMIN-only, y la

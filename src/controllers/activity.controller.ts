@@ -7,6 +7,7 @@ import {
   getActivityById,
   listActivities,
   updateActivity,
+  type ActivityActor,
 } from "../services/activity.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
@@ -113,6 +114,13 @@ const listQuerySchema = z
     },
   );
 
+// Quién pide, para las reglas de autorización a nivel de RECURSO que viven
+// en el service (lectura acotada por assignee para USER, §25; self-service
+// del PATCH). Siempre desde req.auth, nunca desde la query ni el body.
+function actorFromRequest(req: AuthenticatedRequest): ActivityActor {
+  return { userId: req.auth.userId, role: req.auth.role };
+}
+
 export const createActivityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createActivitySchema, req.body);
@@ -124,14 +132,16 @@ export const createActivityHandler = asyncHandler<AuthenticatedRequest>(
 export const listActivitiesHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const query = parseOrThrow(listQuerySchema, req.query);
-    const result = await listActivities(req.auth.organizationId, query);
+    // El actor decide qué se ve (activity.service.ts): un USER recibe solo
+    // lo suyo aunque la query traiga otro assigneeId o ninguno.
+    const result = await listActivities(req.auth.organizationId, query, actorFromRequest(req));
     res.status(200).json(result);
   },
 );
 
 export const getActivityHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);
-  const activity = await getActivityById(req.auth.organizationId, id);
+  const activity = await getActivityById(req.auth.organizationId, id, actorFromRequest(req));
   res.status(200).json(activity);
 });
 
@@ -141,10 +151,12 @@ export const updateActivityHandler = asyncHandler<AuthenticatedRequest>(
     const input = parseOrThrow(updateActivitySchema, req.body);
     // El actor real decide la autorización a nivel de recurso en el service
     // (ver activity.routes.ts: PATCH ya no lleva authorize("ADMIN")).
-    const activity = await updateActivity(req.auth.organizationId, id, input, {
-      userId: req.auth.userId,
-      role: req.auth.role,
-    });
+    const activity = await updateActivity(
+      req.auth.organizationId,
+      id,
+      input,
+      actorFromRequest(req),
+    );
     res.status(200).json(activity);
   },
 );

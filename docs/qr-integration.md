@@ -994,7 +994,7 @@ máquina); se volvieron a confirmar contra el código antes de escribirlos.
 - **`/qr` (listado) va fuera de `AdminRoute`, y el link "QR" del nav se ve
   para ambos roles.** La guía lo ponía dentro de
   `ProtectedRoute > AppLayout > AdminRoute`. El contrato real es el mismo
-  que `/companies` y `/activities`: `GET /api/qr` es lectura abierta a
+  que `/companies`: `GET /api/qr` es lectura abierta a
   cualquier usuario autenticado (`qr.routes.ts`: solo `authenticate`), y las
   acciones de solo lectura (ver imagen, enviar, copiar link) son exactamente
   el caso de uso de un USER de mostrador. Las escrituras (generar, editar,
