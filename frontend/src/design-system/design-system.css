@@ -1500,7 +1500,7 @@ a.ds-button--secondary:hover {
   color: var(--color-text-muted);
 }
 
-.ds-segmented .ds-button:hover:not(:disabled) {
+.ds-segmented .ds-button:hover:not(:disabled):not([aria-pressed="true"]) {
   background: var(--color-surface-muted);
 }
 
