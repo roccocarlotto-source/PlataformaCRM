@@ -57,6 +57,7 @@ export function makeVehicle(overrides: Partial<Vehicle> = {}): Vehicle {
     declaredConsumptionKmL: null,
     equipment: [],
     warranty: null,
+    warrantyOther: null,
     licensePlateDebtLocal: null,
     lastTechnicalInspectionAt: null,
     titleHolder: null,

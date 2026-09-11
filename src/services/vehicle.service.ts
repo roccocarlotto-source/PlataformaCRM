@@ -199,6 +199,7 @@ export interface VehicleWritableFields {
   equipment: string[];
 
   warranty: VehicleWarranty | null;
+  warrantyOther: string | null;
   licensePlateDebtLocal: number | null;
   lastTechnicalInspectionAt: Date | null;
   titleHolder: string | null;
@@ -295,6 +296,43 @@ export function applyConsignmentRule<T extends Partial<VehicleWritableFields>>(
     );
   }
   return { ...data, ...CONSIGNMENT_FIELDS_CLEARED };
+}
+
+// ---------------------------------------------------------------------------
+// Garantía "Otra" (§22): warrantyOther es el detalle en texto libre y solo
+// tiene sentido con warranty = OTHER. Misma forma que applyConsignmentRule,
+// con `effectiveWarranty` = la garantía con la que la fila QUEDA (la del body,
+// o la actual si el body no la trae):
+//
+//   - Si queda en OTHER: nada que hacer, lo que vino se escribe.
+//   - Si NO queda en OTHER y el body trae un detalle con contenido: 400. Es un
+//     body contradictorio — vaciarlo en silencio descartaría lo que el
+//     cliente pidió guardar.
+//   - Si NO queda en OTHER y no trae nada: warrantyOther va a NULL en la misma
+//     escritura, así cambiar "Otra" por "De fábrica" no deja el texto viejo
+//     colgado (y queda en el historial como cualquier otro campo).
+//
+// A diferencia de la consignación no hay CHECK en la base que lo respalde
+// (ver la migración 20260911120000): esta función es la única garantía, y por
+// eso corre en POST y en PATCH sin excepción.
+//
+// Exportada para probarla sin base.
+// ---------------------------------------------------------------------------
+
+export function applyWarrantyRule<T extends Partial<VehicleWritableFields>>(
+  effectiveWarranty: VehicleWarranty | null | undefined,
+  data: T,
+): T {
+  if (effectiveWarranty === "OTHER") {
+    return data;
+  }
+  if (data.warrantyOther !== undefined && data.warrantyOther !== null) {
+    throw new AppError(
+      "El detalle de la garantía (warrantyOther) solo se puede cargar con warranty = OTHER",
+      400,
+    );
+  }
+  return { ...data, warrantyOther: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -522,7 +560,10 @@ async function validateAssignedSalespersonId(organizationId: string, userId: str
 export function createVehicle(organizationId: string, input: CreateVehicleInput) {
   // Reglas puras primero: un body contradictorio o incompleto se rechaza
   // antes de abrir una transacción.
-  const data = applyConsignmentRule(input.origin ?? null, input);
+  const data = applyWarrantyRule(
+    input.warranty ?? null,
+    applyConsignmentRule(input.origin ?? null, input),
+  );
   assertCompleteForPublish(data, { photoCount: 0 });
 
   return prisma.$transaction(async (tx) => {
@@ -570,7 +611,11 @@ export async function updateVehicle(
     const current = await getVehicleById(organizationId, id, tx);
 
     const effectiveOrigin = input.origin !== undefined ? input.origin : current.origin;
-    const data: UpdateVehicleInput = applyConsignmentRule(effectiveOrigin, input);
+    const effectiveWarranty = input.warranty !== undefined ? input.warranty : current.warranty;
+    const data: UpdateVehicleInput = applyWarrantyRule(
+      effectiveWarranty,
+      applyConsignmentRule(effectiveOrigin, input),
+    );
 
     // La ficha con la que la fila queda, para las reglas que miran el todo.
     // Las fotos se cuentan solo si hace falta (la fila queda publicada), y

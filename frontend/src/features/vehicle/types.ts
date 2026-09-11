@@ -25,7 +25,7 @@ export type VehicleFuelType =
   "GASOLINE" | "DIESEL" | "HYBRID" | "ELECTRIC" | "CNG" | "GASOLINE_CNG";
 export type VehicleColorFinish = "SOLID" | "METALLIC" | "PEARL" | "MATTE";
 export type VehicleDrivetrain = "FRONT" | "REAR" | "FOUR_BY_FOUR" | "AWD";
-export type VehicleWarranty = "NONE" | "FACTORY" | "DEALER_6M" | "DEALER_12M";
+export type VehicleWarranty = "NONE" | "FACTORY" | "DEALER_6M" | "DEALER_12M" | "OTHER";
 
 export interface Vehicle {
   id: string;
@@ -84,6 +84,8 @@ export interface Vehicle {
 
   // Documentación / garantía
   warranty: VehicleWarranty | null;
+  // Detalle en texto libre, solo con warranty = "OTHER" (§22).
+  warrantyOther: string | null;
   licensePlateDebtLocal: string | null;
   lastTechnicalInspectionAt: string | null;
   titleHolder: string | null;
@@ -231,6 +233,7 @@ export interface VehicleWritableFields {
   equipment: string[];
 
   warranty: VehicleWarranty | null;
+  warrantyOther: string | null;
   licensePlateDebtLocal: number | null;
   lastTechnicalInspectionAt: string | null;
   titleHolder: string | null;

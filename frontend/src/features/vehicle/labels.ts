@@ -103,6 +103,7 @@ export const WARRANTY_LABELS: Record<VehicleWarranty, string> = {
   FACTORY: "De fábrica",
   DEALER_6M: "Del concesionario, 6 meses",
   DEALER_12M: "Del concesionario, 12 meses",
+  OTHER: "Otra",
 };
 
 // Rótulos de los campos de la ficha, para el checklist de completitud y el
@@ -152,6 +153,7 @@ export const FIELD_LABELS: Record<string, string> = {
   declaredConsumptionKmL: "Consumo declarado (km/L)",
   equipment: "Equipamiento",
   warranty: "Garantía",
+  warrantyOther: "Detalle de la garantía",
   licensePlateDebtLocal: "Deuda de patente (moneda local)",
   lastTechnicalInspectionAt: "Última inspección técnica",
   titleHolder: "Titular registral",

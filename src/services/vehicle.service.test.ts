@@ -8,6 +8,7 @@ import {
   PUBLISH_REQUIRED_FIELDS_USED,
   PUBLISH_REQUIRED_PHOTOS,
   applyConsignmentRule,
+  applyWarrantyRule,
   assertIdentifiersAvailable,
   computeChangeLogEntries,
   computeMissingFieldsForPublish,
@@ -200,6 +201,54 @@ test("consignación: un body que manda datos de consignante sin quedar en CONSIG
   // Mandar los campos EN null sí está permitido: es lo mismo que vaciarlos.
   const result = applyConsignmentRule("IMPORT", { consignorName: null, consignorPhone: null });
   assert.equal(result.consignorName, null);
+});
+
+// ---------------------------------------------------------------------------
+// applyWarrantyRule (§22)
+// ---------------------------------------------------------------------------
+
+test("garantía: con OTHER el detalle pasa tal cual", () => {
+  const data = { warranty: "OTHER" as const, warrantyOther: "Del importador, 90 días" };
+  assert.deepEqual(applyWarrantyRule("OTHER", data), data);
+  // PATCH que trae solo el detalle sobre una unidad que ya está en OTHER.
+  const soloDetalle = { warrantyOther: "Del importador, 90 días" };
+  assert.deepEqual(applyWarrantyRule("OTHER", soloDetalle), soloDetalle);
+});
+
+test("garantía: si la fila no queda en OTHER, warrantyOther va a NULL en la misma escritura", () => {
+  for (const warranty of ["NONE", "FACTORY", "DEALER_6M", "DEALER_12M", null] as const) {
+    const input: Partial<VehicleWritableFields> = { warranty, make: "Fiat" };
+    const result = applyWarrantyRule(warranty, input);
+    assert.equal(result.make, "Fiat");
+    assert.equal(result.warranty, warranty);
+    assert.equal(
+      result.warrantyOther,
+      null,
+      `warrantyOther debería quedar en null con ${warranty}`,
+    );
+    assert.equal(Object.keys(result).length, 3);
+  }
+  // PATCH que no trae la garantía sobre una unidad con una fija: mismo vaciado.
+  assert.deepEqual(applyWarrantyRule("FACTORY", { make: "Fiat" }), {
+    make: "Fiat",
+    warrantyOther: null,
+  });
+});
+
+test("garantía: un detalle con contenido sin quedar en OTHER es 400, no un vaciado silencioso", () => {
+  assertAppError(
+    () => applyWarrantyRule("FACTORY", { warranty: "FACTORY", warrantyOther: "x" }),
+    400,
+    "warranty = OTHER",
+  );
+  // warranty ausente (PATCH que no la manda) sobre una unidad sin OTHER.
+  assertAppError(() => applyWarrantyRule(null, { warrantyOther: "x" }), 400, "warrantyOther");
+  assertAppError(() => applyWarrantyRule("DEALER_6M", { warrantyOther: "x" }), 400, "OTHER");
+  // Mandarlo EN null sí está permitido: es lo mismo que vaciarlo.
+  assert.deepEqual(applyWarrantyRule("NONE", { warranty: "NONE", warrantyOther: null }), {
+    warranty: "NONE",
+    warrantyOther: null,
+  });
 });
 
 // ---------------------------------------------------------------------------

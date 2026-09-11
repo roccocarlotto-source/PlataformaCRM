@@ -55,7 +55,7 @@ const transmissionSchema = z.enum(["MANUAL", "AUTOMATIC", "AUTOMATIC_SEQUENTIAL"
 const fuelTypeSchema = z.enum(["GASOLINE", "DIESEL", "HYBRID", "ELECTRIC", "CNG", "GASOLINE_CNG"]);
 const colorFinishSchema = z.enum(["SOLID", "METALLIC", "PEARL", "MATTE"]);
 const drivetrainSchema = z.enum(["FRONT", "REAR", "FOUR_BY_FOUR", "AWD"]);
-const warrantySchema = z.enum(["NONE", "FACTORY", "DEALER_6M", "DEALER_12M"]);
+const warrantySchema = z.enum(["NONE", "FACTORY", "DEALER_6M", "DEALER_12M", "OTHER"]);
 
 // Texto nullable con trim y "vacío = null".
 function nullableText(max: number, label: string) {
@@ -215,8 +215,12 @@ const vehicleFields = {
     .nullable(),
   equipment: equipmentSchema,
 
-  // Documentación / garantía
+  // Documentación / garantía. warrantyOther solo tiene sentido con
+  // warranty = OTHER; la consistencia entre los dos la decide el service
+  // (applyWarrantyRule), igual que la de consignación: en un PATCH el valor
+  // que importa es con el que la fila QUEDA, y eso no lo ve un refine del body.
   warranty: warrantySchema.nullable(),
+  warrantyOther: nullableText(255, "warrantyOther"),
   licensePlateDebtLocal: nullableMoney("licensePlateDebtLocal"),
   lastTechnicalInspectionAt: nullableDate,
   titleHolder: nullableText(255, "titleHolder"),
