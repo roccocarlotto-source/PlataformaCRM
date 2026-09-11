@@ -41,9 +41,10 @@ import {
 // (useLayoutEffect, antes de que se pinte). Los puntos de miles no cuentan
 // porque van y vienen con el formato.
 //
-// Genérico a propósito: hoy lo usa Monto de Oportunidad; los precios de
-// VehicleFormPage tienen el mismo problema y pueden adoptarlo en otro ítem
-// sin tocar nada de acá.
+// Genérico a propósito: lo usan Monto de Oportunidad y, desde el ítem 23,
+// los seis importes de VehicleFormPage. Para cantidades enteras sin
+// decimales (Kilometraje) está IntegerInput.tsx, que calca este mecanismo
+// con las funciones de integerFormat.ts.
 // ---------------------------------------------------------------------------
 
 export interface CurrencyInputProps extends Omit<

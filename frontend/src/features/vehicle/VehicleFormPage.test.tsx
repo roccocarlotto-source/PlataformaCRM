@@ -231,7 +231,8 @@ describe("VehicleFormPage — crear y editar", () => {
     renderForm("/vehicles/v1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Marca")).toHaveValue("Toyota"));
-    expect(screen.getByLabelText("Precio de lista (USD)")).toHaveValue(25000);
+    // Ítem 23: el importe persistido se muestra ya formateado (CurrencyInput).
+    expect(screen.getByLabelText("Precio de lista (USD)")).toHaveValue("25.000,00");
     expect(screen.getByLabelText("Ingreso al stock")).toHaveValue("2026-03-01");
     expect(screen.getByLabelText("Transmisión")).toHaveValue("CVT");
     expect(equipmentChips()).toEqual(["ABS"]);
@@ -685,7 +686,9 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     await user.type(usdField(), "25000");
 
     // Recalculado con cada tecla, no solo con la primera ("2" × 40,5 = 81).
-    expect(localField()).toHaveValue(1012500);
+    // Desde el ítem 23 los dos son CurrencyInput: el calculado se ve ya
+    // formateado "en reposo" (lo cambió el padre, no se tipeó).
+    expect(localField()).toHaveValue("1.012.500,00");
     // El hint dice con qué cotización y de qué fecha.
     expect(screen.getByText(/cotización vigente/)).toHaveTextContent(/del 10 .*2026/);
 
@@ -703,7 +706,7 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     await user.type(localField(), "1000000");
 
     // 1000000 / 40,5 = 24691,358… → 24691.36
-    expect(usdField()).toHaveValue(24691.36);
+    expect(usdField()).toHaveValue("24.691,36");
   });
 
   it("sin cotización configurada no calcula nada: los dos campos siguen editables a mano y no hay hint", async () => {
@@ -713,12 +716,13 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     await waitFor(() => expect(screen.getByLabelText("Sucursal")).toBeInTheDocument());
 
     await user.type(usdField(), "25000");
-    expect(localField()).toHaveValue(null);
+    expect(localField()).toHaveValue("");
     expect(screen.queryByText(/cotización vigente/)).not.toBeInTheDocument();
 
+    // Al pasar al otro campo, USD pierde el foco y completa los decimales.
     await user.type(localField(), "1000000");
-    expect(localField()).toHaveValue(1000000);
-    expect(usdField()).toHaveValue(25000);
+    expect(localField()).toHaveValue("1.000.000");
+    expect(usdField()).toHaveValue("25.000,00");
   });
 
   it("un valor ya tipeado a mano en el otro campo no se pisa (creación)", async () => {
@@ -729,12 +733,12 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
 
     // La moneda local la tipea la persona; USD se calcula (24691.36)…
     await user.type(localField(), "1000000");
-    expect(usdField()).toHaveValue(24691.36);
+    expect(usdField()).toHaveValue("24.691,36");
     // …y al corregir USD a mano, la moneda local tipeada queda intacta.
     await user.clear(usdField());
     await user.type(usdField(), "25000");
-    expect(usdField()).toHaveValue(25000);
-    expect(localField()).toHaveValue(1000000);
+    expect(usdField()).toHaveValue("25.000");
+    expect(localField()).toHaveValue("1.000.000,00");
   });
 
   it("en edición los dos valores persistidos cuentan como tipeados: cambiar uno no recalcula el otro", async () => {
@@ -753,13 +757,13 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     const user = userEvent.setup();
     renderForm("/vehicles/v1/edit");
     await waitForRate();
-    await waitFor(() => expect(usdField()).toHaveValue(25000));
+    await waitFor(() => expect(usdField()).toHaveValue("25.000,00"));
 
     await user.clear(usdField());
     await user.type(usdField(), "30000");
 
-    expect(usdField()).toHaveValue(30000);
-    expect(localField()).toHaveValue(1000000);
+    expect(usdField()).toHaveValue("30.000");
+    expect(localField()).toHaveValue("1.000.000,00");
   });
 
   it("el valor calculado se puede corregir a mano, y después de eso ya no se recalcula", async () => {
@@ -769,16 +773,18 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     await waitForRate();
 
     await user.type(usdField(), "1000");
-    expect(localField()).toHaveValue(40500);
+    expect(localField()).toHaveValue("40.500,00");
 
     // Corrección a mano del calculado: sigue siendo un input normal.
     await user.clear(localField());
     await user.type(localField(), "41000");
-    expect(localField()).toHaveValue(41000);
-    // Y como ahora está tipeado, seguir editando USD no lo toca.
-    await user.type(usdField(), "0");
-    expect(usdField()).toHaveValue(10000);
-    expect(localField()).toHaveValue(41000);
+    expect(localField()).toHaveValue("41.000");
+    // Y como ahora está tipeado, seguir editando USD no lo toca. USD quedó
+    // "1.000,00" al perder el foco: el "0" va al final de la parte entera
+    // (posición 5, antes de la coma), como quien sigue escribiendo el número.
+    await user.type(usdField(), "0", { initialSelectionStart: 5, initialSelectionEnd: 5 });
+    expect(usdField()).toHaveValue("10.000,00");
+    expect(localField()).toHaveValue("41.000,00");
   });
 
   it("borrar el campo de origen borra también el calculado (nunca fue tipeado)", async () => {
@@ -788,10 +794,10 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     await waitForRate();
 
     await user.type(usdField(), "1000");
-    expect(localField()).toHaveValue(40500);
+    expect(localField()).toHaveValue("40.500,00");
 
     await user.clear(usdField());
-    expect(localField()).toHaveValue(null);
+    expect(localField()).toHaveValue("");
   });
 });
 
@@ -1167,5 +1173,164 @@ describe("VehicleFormPage — garantía 'Otra' con detalle (ítem 22)", () => {
     await user.click(screen.getByRole("button", { name: /guardar/i }));
     await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
     expect(patchedBody).toMatchObject({ warranty: "NONE", warrantyOther: null });
+  });
+});
+
+// Ítem 23 de docs/frontend-cambios-pendientes.md: los seis importes de la
+// ficha adoptan CurrencyInput (formato uruguayo en vivo) y Kilometraje pasa a
+// IntegerInput (puntos de miles, nunca decimales). Los otros siete numéricos
+// siguen siendo inputs nativos. El contrato con el backend no cambia: viajan
+// los mismos number de siempre.
+describe("VehicleFormPage — separador de miles en importes y kilometraje (ítem 23)", () => {
+  // "Precio acordado (USD)" solo existe con origen Consignación.
+  const AMOUNT_LABELS = [
+    "Precio de lista (USD)",
+    "Precio de lista (moneda local)",
+    "Precio mínimo aceptable (USD)",
+    "Costo de adquisición (USD)",
+    "Precio acordado (USD)",
+    "Deuda de patente (moneda local)",
+  ];
+
+  // "Comisión (%)" también vive en la sección de consignación.
+  const NATIVE_NUMBER_LABELS = [
+    "Año",
+    "Cilindrada (L)",
+    "Puertas",
+    "Asientos",
+    "Potencia (HP)",
+    "Consumo declarado (km/L)",
+    "Comisión (%)",
+  ];
+
+  it("cada uno de los seis importes se formatea en vivo al tipear y completa 2 decimales al salir", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+    await user.selectOptions(screen.getByLabelText("Origen"), "CONSIGNMENT");
+
+    for (const label of AMOUNT_LABELS) {
+      const input = screen.getByLabelText(label);
+      expect(input, label).toHaveAttribute("type", "text");
+      expect(input, label).toHaveAttribute("inputmode", "decimal");
+      await user.type(input, "20000,5");
+      expect(input, label).toHaveValue("20.000,5");
+      await user.tab();
+      expect(input, label).toHaveValue("20.000,50");
+    }
+  });
+
+  it("Kilometraje muestra puntos de miles en vivo y descarta una coma o un punto: nunca decimales", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+    const mileage = screen.getByLabelText("Kilometraje");
+    expect(mileage).toHaveAttribute("type", "text");
+    expect(mileage).toHaveAttribute("inputmode", "numeric");
+
+    await user.type(mileage, "150000");
+    expect(mileage).toHaveValue("150.000");
+    await user.type(mileage, ",");
+    expect(mileage).toHaveValue("150.000");
+    await user.type(mileage, ".");
+    expect(mileage).toHaveValue("150.000");
+    await user.tab();
+    expect(mileage).toHaveValue("150.000");
+  });
+
+  it("los siete numéricos fuera de alcance siguen siendo inputs nativos type=number", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+    await user.selectOptions(screen.getByLabelText("Origen"), "CONSIGNMENT");
+
+    for (const label of NATIVE_NUMBER_LABELS) {
+      expect(screen.getByLabelText(label), label).toHaveAttribute("type", "number");
+    }
+  });
+
+  it("create: el POST manda los importes y el kilometraje como number, sin puntos ni comas", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.post(baseUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    await fillRequired(user);
+    await user.selectOptions(screen.getByLabelText("Origen"), "CONSIGNMENT");
+    await user.type(screen.getByLabelText("Precio de lista (USD)"), "20000,5");
+    await user.type(screen.getByLabelText("Precio de lista (moneda local)"), "810000");
+    await user.type(screen.getByLabelText("Precio mínimo aceptable (USD)"), "19500");
+    await user.type(screen.getByLabelText("Costo de adquisición (USD)"), "17250,75");
+    await user.type(screen.getByLabelText("Precio acordado (USD)"), "18000");
+    await user.type(screen.getByLabelText("Deuda de patente (moneda local)"), "12345,6");
+    await user.type(screen.getByLabelText("Kilometraje"), "150000");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({
+      priceListUsd: 20000.5,
+      priceListLocal: 810000,
+      minAcceptablePriceUsd: 19500,
+      acquisitionCostUsd: 17250.75,
+      consignmentAgreedPriceUsd: 18000,
+      licensePlateDebtLocal: 12345.6,
+      mileage: 150000,
+    });
+  });
+
+  it("edit: los importes y el kilometraje persistidos se ven formateados, y el PATCH los manda tal cual", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${baseUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeVehicleDetail({
+            id: params.id as string,
+            origin: "CONSIGNMENT",
+            priceListUsd: "25000.50",
+            priceListLocal: "1012500.00",
+            minAcceptablePriceUsd: "24000.00",
+            acquisitionCostUsd: "20000.00",
+            consignmentAgreedPriceUsd: "23500.00",
+            licensePlateDebtLocal: "1234.50",
+            mileage: 150000,
+          }),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle({ id: "v1" }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/v1/edit");
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Precio de lista (USD)")).toHaveValue("25.000,50"),
+    );
+    expect(screen.getByLabelText("Precio de lista (moneda local)")).toHaveValue("1.012.500,00");
+    expect(screen.getByLabelText("Precio mínimo aceptable (USD)")).toHaveValue("24.000,00");
+    expect(screen.getByLabelText("Costo de adquisición (USD)")).toHaveValue("20.000,00");
+    expect(screen.getByLabelText("Precio acordado (USD)")).toHaveValue("23.500,00");
+    expect(screen.getByLabelText("Deuda de patente (moneda local)")).toHaveValue("1.234,50");
+    expect(screen.getByLabelText("Kilometraje")).toHaveValue("150.000");
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(patchedBody).toMatchObject({
+      priceListUsd: 25000.5,
+      priceListLocal: 1012500,
+      minAcceptablePriceUsd: 24000,
+      acquisitionCostUsd: 20000,
+      consignmentAgreedPriceUsd: 23500,
+      licensePlateDebtLocal: 1234.5,
+      mileage: 150000,
+    });
   });
 });

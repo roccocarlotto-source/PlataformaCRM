@@ -68,6 +68,13 @@ describe("currencyFormat", () => {
     expect(positionAfterSignificant("1.234,5", 6)).toBe(7);
     expect(positionAfterSignificant("1.234,5", 99)).toBe(7);
   });
+
+  it("cursor: con un predicado propio (ítem 23, IntegerInput) la coma deja de contar", () => {
+    const onlyDigits = (char: string) => /\d/.test(char);
+    expect(countSignificantBefore("1,.500", 2, onlyDigits)).toBe(1);
+    expect(positionAfterSignificant("1.500", 1, onlyDigits)).toBe(1);
+    expect(positionAfterSignificant("1.500", 2, onlyDigits)).toBe(3);
+  });
 });
 
 // Padre controlado mínimo: guarda el canónico y lo muestra aparte para poder
