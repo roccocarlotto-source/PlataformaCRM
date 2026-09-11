@@ -961,6 +961,59 @@ fieldset.ds-field {
 }
 
 /* ---------------------------------------------------------------------------
+   Lista de chips con alta de a uno — hoy con un único consumidor,
+   features/vehicle/EquipmentField.tsx (docs/frontend-cambios-pendientes.md
+   §21). Vive acá por el mismo motivo que .ds-mapping-rows. El chip en sí es
+   el .ds-badge neutral; acá solo va lo que el badge no tiene: el botón ✕ de
+   adentro, la lista que los envuelve y la fila input + botón de agregar.
+   --------------------------------------------------------------------------- */
+.ds-chip-list {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* La ✕ hereda el color del badge y solo se destaca al pasar el mouse o con
+   foco; el margen negativo compensa el padding derecho del pill para que la
+   ✕ quede pegada al borde como en un tag. */
+.ds-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ds-chip-remove:hover,
+.ds-chip-remove:focus-visible {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+
+/* Input y botón en una fila; el input toma el ancho que sobra y la fila
+   envuelve si la Card es angosta (móvil). */
+.ds-chip-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ds-chip-add input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------------------
    Modal — el diálogo del proyecto (design-system/Modal.tsx), como PANEL
    deslizante pegado al borde derecho y no como caja centrada. Medido en el
    export "Reseñas QR" (panel "Activar QR físico"): 360px de ancho, alto

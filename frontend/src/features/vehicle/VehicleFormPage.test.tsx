@@ -77,6 +77,22 @@ async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
 
 const localMissing = () => screen.getByRole("list", { name: "Campos que faltan para publicar" });
 
+// Ítem 21: Equipamiento es una lista de chips. Se agrega de a uno: tipear en
+// el input y confirmar con el botón (o Enter). Los chips confirmados son los
+// <li> de la lista "Equipamiento cargado"; su texto es el código.
+async function addEquipment(user: ReturnType<typeof userEvent.setup>, text: string) {
+  await user.type(screen.getByLabelText("Equipamiento"), text);
+  await user.click(screen.getByRole("button", { name: "+ Agregar equipamiento" }));
+}
+
+function equipmentChips(): string[] {
+  const list = screen.queryByRole("list", { name: "Equipamiento cargado" });
+  if (!list) return [];
+  return within(list)
+    .getAllByRole("listitem")
+    .map((item) => item.textContent ?? "");
+}
+
 describe("VehicleFormPage — crear y editar", () => {
   it("create: no pide detail, manda el POST convertido al contrato y navega al listado", async () => {
     let getDetailCalled = false;
@@ -100,7 +116,8 @@ describe("VehicleFormPage — crear y editar", () => {
     await user.type(screen.getByLabelText("Precio de lista (USD)"), "25000.5");
     await user.type(screen.getByLabelText("Kilometraje"), "45000");
     await user.type(screen.getByLabelText("Ingreso al stock"), "2026-03-01");
-    await user.type(screen.getByLabelText("Equipamiento"), "abs, airbag_lateral");
+    await addEquipment(user, "abs");
+    await addEquipment(user, "airbag lateral");
     await user.click(screen.getByLabelText("Acepta permuta"));
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
@@ -217,7 +234,7 @@ describe("VehicleFormPage — crear y editar", () => {
     expect(screen.getByLabelText("Precio de lista (USD)")).toHaveValue(25000);
     expect(screen.getByLabelText("Ingreso al stock")).toHaveValue("2026-03-01");
     expect(screen.getByLabelText("Transmisión")).toHaveValue("CVT");
-    expect(screen.getByLabelText("Equipamiento")).toHaveValue("ABS");
+    expect(equipmentChips()).toEqual(["ABS"]);
     expect(screen.getByLabelText("Publicar en el sitio web")).toBeEnabled();
     await waitFor(() => expect(screen.getByLabelText("Vendedor asignado")).toHaveValue("u1"));
     // Registro: solo lectura.
@@ -775,5 +792,217 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
 
     await user.clear(usdField());
     expect(localField()).toHaveValue(null);
+  });
+});
+
+// Ítem 21 de docs/frontend-cambios-pendientes.md: Equipamiento como lista de
+// chips con nombre normalizado en vivo. La forma que el backend exige
+// (^[A-Z0-9_]{1,50}$, sin repetidos, hasta 100) se garantiza acá, antes de
+// que exista un chip inválido; el payload sigue siendo equipment: string[].
+describe("VehicleFormPage — equipamiento como chips (ítem 21)", () => {
+  it("agregar un ítem lo muestra como chip ya normalizado y deja el input vacío para el siguiente", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    expect(screen.queryByRole("list", { name: "Equipamiento cargado" })).not.toBeInTheDocument();
+    await addEquipment(user, "Aire acondicionado");
+
+    expect(equipmentChips()).toEqual(["AIRE_ACONDICIONADO"]);
+    expect(screen.getByRole("button", { name: "Quitar AIRE_ACONDICIONADO" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Equipamiento")).toHaveValue("");
+    expect(screen.getByLabelText("Equipamiento")).toHaveFocus();
+  });
+
+  it("lo tipeado se normaliza en vivo: minúsculas, tildes y espacios pasan a código mientras se escribe", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    const input = screen.getByLabelText("Equipamiento");
+    await user.type(input, "cámara de visión ");
+    expect(input).toHaveValue("CAMARA_DE_VISION_");
+    await user.type(input, "trasera");
+    expect(input).toHaveValue("CAMARA_DE_VISION_TRASERA");
+    // El "_" del final que dejó un espacio de más no se guarda.
+    await user.clear(input);
+    await addEquipment(user, "techo solar ");
+    expect(equipmentChips()).toEqual(["TECHO_SOLAR"]);
+  });
+
+  it("el input corta a los 50 caracteres del backend", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    await user.type(screen.getByLabelText("Equipamiento"), "a".repeat(60));
+    expect(screen.getByLabelText("Equipamiento")).toHaveValue("A".repeat(50));
+  });
+
+  it("quitar un chip no afecta a los demás", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    await addEquipment(user, "abs");
+    await addEquipment(user, "airbag lateral");
+    await addEquipment(user, "esp");
+    expect(equipmentChips()).toEqual(["ABS", "AIRBAG_LATERAL", "ESP"]);
+
+    await user.click(screen.getByRole("button", { name: "Quitar AIRBAG_LATERAL" }));
+    expect(equipmentChips()).toEqual(["ABS", "ESP"]);
+  });
+
+  it("un duplicado (comparando ya normalizado) no se agrega y avisa; el aviso se va al seguir tipeando", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    await addEquipment(user, "ABS");
+    await addEquipment(user, "abs ");
+    expect(equipmentChips()).toEqual(["ABS"]);
+    expect(screen.getByRole("alert")).toHaveTextContent("ABS ya está en la lista.");
+    // Lo tipeado no se pierde: la persona puede corregirlo.
+    expect(screen.getByLabelText("Equipamiento")).toHaveValue("ABS_");
+
+    await user.type(screen.getByLabelText("Equipamiento"), "x");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("sin texto el botón está deshabilitado y Enter no hace nada", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    expect(screen.getByRole("button", { name: "+ Agregar equipamiento" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Equipamiento"), "{Enter}");
+    expect(equipmentChips()).toEqual([]);
+  });
+
+  it("Enter agrega el chip sin enviar el formulario", async () => {
+    let posted = false;
+    server.use(
+      ...baseHandlers(),
+      http.post(baseUrl, () => {
+        posted = true;
+        return HttpResponse.json(makeVehicle(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    await fillRequired(user);
+    await user.type(screen.getByLabelText("Equipamiento"), "control crucero{Enter}");
+    expect(equipmentChips()).toEqual(["CONTROL_CRUCERO"]);
+    expect(screen.getByLabelText("Equipamiento")).toHaveValue("");
+    expect(posted).toBe(false);
+    expect(screen.queryByText("listado de stock")).not.toBeInTheDocument();
+  });
+
+  it("con 100 ítems cargados no se puede agregar más: input y botón deshabilitados, y un aviso", async () => {
+    const full = Array.from({ length: 100 }, (_, i) => `ITEM_${i + 1}`);
+    server.use(
+      ...baseHandlers(),
+      http.get(`${baseUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeVehicleDetail({ id: params.id as string, equipment: full })),
+      ),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/v1/edit");
+
+    await waitFor(() => expect(equipmentChips()).toHaveLength(100));
+    expect(screen.getByLabelText("Equipamiento")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "+ Agregar equipamiento" })).toBeDisabled();
+    expect(screen.getByText("Llegaste al máximo de 100 ítems.")).toBeInTheDocument();
+
+    // Quitar uno vuelve a habilitar la carga.
+    await user.click(screen.getByRole("button", { name: "Quitar ITEM_100" }));
+    expect(equipmentChips()).toHaveLength(99);
+    expect(screen.getByLabelText("Equipamiento")).toBeEnabled();
+    expect(screen.queryByText("Llegaste al máximo de 100 ítems.")).not.toBeInTheDocument();
+  });
+
+  it("create: el POST manda el array de códigos, en el orden en que se agregaron", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.post(baseUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    await fillRequired(user);
+    await addEquipment(user, "Aire acondicionado");
+    await addEquipment(user, "abs");
+    await addEquipment(user, "cámara trasera");
+    await user.click(screen.getByRole("button", { name: "Quitar ABS" }));
+    // Texto tipeado y no confirmado: no viaja.
+    await user.type(screen.getByLabelText("Equipamiento"), "sin confirmar");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(postedBody?.equipment).toEqual(["AIRE_ACONDICIONADO", "CAMARA_TRASERA"]);
+  });
+
+  it("edit: los códigos persistidos se ven como chips y el PATCH los manda tal cual si no se tocan", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${baseUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeVehicleDetail({
+            id: params.id as string,
+            equipment: ["ABS", "AIRBAG_LATERAL", "TECHO_SOLAR"],
+          }),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle({ id: "v1" }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/v1/edit");
+
+    await waitFor(() => expect(equipmentChips()).toEqual(["ABS", "AIRBAG_LATERAL", "TECHO_SOLAR"]));
+    expect(screen.getByLabelText("Equipamiento")).toHaveValue("");
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(patchedBody?.equipment).toEqual(["ABS", "AIRBAG_LATERAL", "TECHO_SOLAR"]);
+  });
+
+  it("edit: quitar uno y agregar otro viaja en el PATCH; un persistido no se puede repetir", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${baseUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeVehicleDetail({ id: params.id as string, equipment: ["ABS", "AIRBAG_LATERAL"] }),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle({ id: "v1" }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/v1/edit");
+
+    await waitFor(() => expect(equipmentChips()).toEqual(["ABS", "AIRBAG_LATERAL"]));
+    await addEquipment(user, "airbag lateral");
+    expect(screen.getByRole("alert")).toHaveTextContent("AIRBAG_LATERAL ya está en la lista.");
+    await user.clear(screen.getByLabelText("Equipamiento"));
+
+    await user.click(screen.getByRole("button", { name: "Quitar ABS" }));
+    await addEquipment(user, "esp");
+    expect(equipmentChips()).toEqual(["AIRBAG_LATERAL", "ESP"]);
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(patchedBody?.equipment).toEqual(["AIRBAG_LATERAL", "ESP"]);
   });
 });

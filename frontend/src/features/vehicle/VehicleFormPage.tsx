@@ -12,6 +12,7 @@ import { formatExchangeRate } from "../organization/format";
 import { useOrganizationSettings } from "../organization/queries";
 import { formatDate } from "../opportunity/format";
 import { UserSelect } from "../user/UserSelect";
+import { EquipmentField } from "./EquipmentField";
 import {
   BODY_TYPE_LABELS,
   COLOR_FINISH_LABELS,
@@ -98,9 +99,10 @@ interface VehicleFormValues {
   powerHp: string;
   seats: string;
   declaredConsumptionKmL: string;
-  // Códigos separados por coma ("ABS, AIRBAG_LATERAL"). El backend los pasa a
-  // mayúsculas y valida la forma; el catálogo cerrado no está decidido.
-  equipment: string;
+  // Códigos ya normalizados ("ABS", "AIRBAG_LATERAL"), uno por chip: la lista
+  // es válida por construcción (EquipmentField, §21). El catálogo cerrado no
+  // está decidido.
+  equipment: string[];
 
   warranty: VehicleWarranty | "";
   licensePlateDebtLocal: string;
@@ -182,7 +184,7 @@ const EMPTY_FORM: VehicleFormValues = {
   powerHp: "",
   seats: "",
   declaredConsumptionKmL: "",
-  equipment: "",
+  equipment: [],
   warranty: "",
   licensePlateDebtLocal: "",
   lastTechnicalInspectionAt: "",
@@ -259,7 +261,7 @@ function toFormValues(vehicle: VehicleDetail): VehicleFormValues {
     powerHp: toText(vehicle.powerHp),
     seats: toText(vehicle.seats),
     declaredConsumptionKmL: toText(vehicle.declaredConsumptionKmL),
-    equipment: vehicle.equipment.join(", "),
+    equipment: vehicle.equipment,
     warranty: vehicle.warranty ?? "",
     licensePlateDebtLocal: toText(vehicle.licensePlateDebtLocal),
     lastTechnicalInspectionAt: toDateInput(vehicle.lastTechnicalInspectionAt),
@@ -375,10 +377,7 @@ function toInput(values: VehicleFormValues): VehicleWritableFields {
     powerHp: numberOrNull(values.powerHp),
     seats: numberOrNull(values.seats),
     declaredConsumptionKmL: numberOrNull(values.declaredConsumptionKmL),
-    equipment: values.equipment
-      .split(",")
-      .map((code) => code.trim().toUpperCase())
-      .filter((code) => code.length > 0),
+    equipment: values.equipment,
 
     warranty: enumOrNull(values.warranty),
     licensePlateDebtLocal: numberOrNull(values.licensePlateDebtLocal),
@@ -968,14 +967,11 @@ export function VehicleFormPage() {
               />
             </FormField>
             <div className="ds-field-grid--full">
-              <FormField label={fieldLabel("equipment")}>
-                <input
-                  type="text"
-                  placeholder="Códigos separados por coma, ej. ABS, AIRBAG_LATERAL"
-                  value={values.equipment}
-                  onChange={(event) => update("equipment", event.target.value)}
-                />
-              </FormField>
+              <EquipmentField
+                label={fieldLabel("equipment")}
+                value={values.equipment}
+                onChange={(codes) => update("equipment", codes)}
+              />
             </div>
           </div>
         </Card>
