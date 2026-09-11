@@ -130,6 +130,53 @@ test("fechas: @db.Date llegan como ISO y se coaccionan a Date; null las vacía",
   assert.equal(createVehicleSchema.safeParse({ ...minimo, stockEnteredAt: "ayer" }).success, false);
 });
 
+test("garantía: OTHER es un valor válido más; warrantyOther con trim, vacío -> null, hasta 255, y opcional en POST y PATCH (§22)", () => {
+  for (const warranty of ["NONE", "FACTORY", "DEALER_6M", "DEALER_12M", "OTHER", null]) {
+    assert.equal(
+      createVehicleSchema.safeParse({ ...minimo, warranty }).success,
+      true,
+      `${warranty}`,
+    );
+  }
+  assert.equal(createVehicleSchema.safeParse({ ...minimo, warranty: "Otra" }).success, false);
+
+  const r = createVehicleSchema.safeParse({
+    ...minimo,
+    warranty: "OTHER",
+    warrantyOther: "  Garantía del fabricante importador, 90 días  ",
+  });
+  assert.equal(r.success, true);
+  assert.equal(r.success && r.data.warrantyOther, "Garantía del fabricante importador, 90 días");
+
+  const vacio = createVehicleSchema.safeParse({
+    ...minimo,
+    warranty: "OTHER",
+    warrantyOther: "   ",
+  });
+  assert.equal(vacio.success && vacio.data.warrantyOther, null);
+  assert.equal(
+    createVehicleSchema.safeParse({ ...minimo, warrantyOther: "x".repeat(256) }).success,
+    false,
+  );
+  assert.equal(
+    createVehicleSchema.safeParse({ ...minimo, warrantyOther: "x".repeat(255) }).success,
+    true,
+  );
+
+  // Que warrantyOther viaje con una garantía que no es OTHER NO lo rechaza el
+  // schema: lo decide applyWarrantyRule en el service, que en un PATCH también
+  // ve la garantía persistida. Acá solo se valida la forma.
+  const sinOther = createVehicleSchema.safeParse({
+    ...minimo,
+    warranty: "FACTORY",
+    warrantyOther: "x",
+  });
+  assert.equal(sinOther.success, true);
+  const patch = updateVehicleSchema.safeParse({ warrantyOther: null });
+  assert.equal(patch.success, true);
+  assert.deepEqual(patch.success && patch.data, { warrantyOther: null });
+});
+
 test("consignorEmail válido o null; URLs http(s) y hasta 2048", () => {
   assert.equal(
     createVehicleSchema.safeParse({ ...minimo, consignorEmail: "no-es-email" }).success,

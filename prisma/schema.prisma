@@ -285,11 +285,14 @@ enum VehicleDrivetrain {
 
 // Garantía que se ofrece con la unidad. DEALER_6M/DEALER_12M son las dos
 // duraciones que ofrece una agencia sobre un usado; FACTORY es la del 0 km.
+// OTHER (§22) es "ninguna de las anteriores": el detalle real va en
+// Vehicle.warrantyOther, que solo tiene sentido con este valor.
 enum VehicleWarranty {
   NONE
   FACTORY
   DEALER_6M
   DEALER_12M
+  OTHER
 }
 
 // Los dos enums siguientes van en Opportunity, no en Vehicle: describen la
@@ -1851,6 +1854,12 @@ model Vehicle {
 
   // ----- Documentación / garantía ----------------------------------------
   warranty                  VehicleWarranty?
+  // Texto libre de la garantía cuando warranty = OTHER ("Garantía del
+  // fabricante importador, 90 días"). Par "enum + detalle" y no un enum con
+  // valores libres: las cuatro categorías fijas siguen siendo agrupables.
+  // NULL salvo con OTHER; lo sostiene applyWarrantyRule en el service, no un
+  // CHECK (ver la migración 20260911120000).
+  warrantyOther             String?          @map("warranty_other") @db.VarChar(255)
   // Deuda de patentes en moneda local: es una deuda ante un fisco local, no
   // tiene sentido en USD.
   licensePlateDebtLocal     Decimal?         @map("license_plate_debt_local") @db.Decimal(14, 2)

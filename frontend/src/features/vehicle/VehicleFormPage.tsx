@@ -105,6 +105,9 @@ interface VehicleFormValues {
   equipment: string[];
 
   warranty: VehicleWarranty | "";
+  // Detalle en texto libre, solo con warranty = "OTHER" (§22). Se limpia al
+  // elegir cualquier otra opción (handleWarrantyChange), no solo se oculta.
+  warrantyOther: string;
   licensePlateDebtLocal: string;
   lastTechnicalInspectionAt: string;
   titleHolder: string;
@@ -186,6 +189,7 @@ const EMPTY_FORM: VehicleFormValues = {
   declaredConsumptionKmL: "",
   equipment: [],
   warranty: "",
+  warrantyOther: "",
   licensePlateDebtLocal: "",
   lastTechnicalInspectionAt: "",
   titleHolder: "",
@@ -263,6 +267,7 @@ function toFormValues(vehicle: VehicleDetail): VehicleFormValues {
     declaredConsumptionKmL: toText(vehicle.declaredConsumptionKmL),
     equipment: vehicle.equipment,
     warranty: vehicle.warranty ?? "",
+    warrantyOther: toText(vehicle.warrantyOther),
     licensePlateDebtLocal: toText(vehicle.licensePlateDebtLocal),
     lastTechnicalInspectionAt: toDateInput(vehicle.lastTechnicalInspectionAt),
     titleHolder: toText(vehicle.titleHolder),
@@ -380,6 +385,11 @@ function toInput(values: VehicleFormValues): VehicleWritableFields {
     equipment: values.equipment,
 
     warranty: enumOrNull(values.warranty),
+    // Solo con "Otra"; null en cualquier otro caso, que es lo que
+    // applyWarrantyRule exige del otro lado (un detalle con otra garantía es
+    // 400). El estado ya se limpió al cambiar de opción; esto es la garantía
+    // en el payload.
+    warrantyOther: values.warranty === "OTHER" ? textOrNull(values.warrantyOther) : null,
     licensePlateDebtLocal: numberOrNull(values.licensePlateDebtLocal),
     lastTechnicalInspectionAt: textOrNull(values.lastTechnicalInspectionAt),
     titleHolder: textOrNull(values.titleHolder),
@@ -480,6 +490,19 @@ export function VehicleFormPage() {
 
   function update<K extends keyof VehicleFormValues>(field: K, value: VehicleFormValues[K]) {
     setValues((current) => ({ ...current, [field]: value }));
+  }
+
+  // Garantía (§22): al salir de "Otra" el detalle se LIMPIA en el mismo
+  // setValues, no solo se oculta — mismo criterio que reabrir una oportunidad
+  // (§18 Parte F). Si no, cambiar "Otra" por "De fábrica" y volver a "Otra"
+  // mostraría el texto viejo, y un estado con texto y garantía fija es
+  // exactamente lo que el backend rechaza.
+  function handleWarrantyChange(value: VehicleWarranty | "") {
+    setValues((current) => ({
+      ...current,
+      warranty: value,
+      warrantyOther: value === "OTHER" ? current.warrantyOther : "",
+    }));
   }
 
   // Cotización vigente para sugerir el precio en la otra moneda. Con el
@@ -982,9 +1005,20 @@ export function VehicleFormPage() {
               label={fieldLabel("warranty")}
               value={values.warranty}
               labels={WARRANTY_LABELS}
-              onChange={(value) => update("warranty", value)}
+              onChange={handleWarrantyChange}
               emptyLabel="Sin especificar"
             />
+            {values.warranty === "OTHER" ? (
+              <FormField label={fieldLabel("warrantyOther")}>
+                <input
+                  type="text"
+                  maxLength={255}
+                  placeholder="Ej. Garantía del fabricante importador, 90 días"
+                  value={values.warrantyOther}
+                  onChange={(event) => update("warrantyOther", event.target.value)}
+                />
+              </FormField>
+            ) : null}
             <FormField label={fieldLabel("titleHolder")}>
               <input
                 type="text"

@@ -1,0 +1,42 @@
+-- ---------------------------------------------------------------------------
+-- Garantía del vehículo: quinta opción "Otra" con detalle en texto libre
+-- (docs/frontend-cambios-pendientes.md §22).
+--
+-- Dos cambios, los dos aditivos y sin reescritura de tabla:
+--
+--   1. El valor OTHER en el enum VehicleWarranty. Las cuatro categorías fijas
+--      (NONE, FACTORY, DEALER_6M, DEALER_12M) no se tocan: siguen siendo el
+--      enum cerrado por el que se puede agrupar; OTHER es una categoría más.
+--   2. La columna warranty_other VARCHAR(255) NULL, el detalle de la garantía
+--      cuando warranty = OTHER ("Garantía del fabricante importador, 90 días").
+--
+-- Escrita a mano, no generada por `prisma migrate dev`: mismo motivo que el
+-- resto de las migraciones desde 20260821 (la shadow database no tiene el
+-- schema auth). Quien valida que aplica sobre una base vacía es el job
+-- `integration` del CI, que reconstruye la base desde cero en cada corrida.
+--
+-- Postgres prohíbe USAR un valor de enum en la misma transacción que lo
+-- agrega (desde PG 12 el ALTER TYPE ... ADD VALUE sí puede correr dentro de
+-- una transacción, que es como `migrate deploy` ejecuta cada migración). Esta
+-- migración no usa OTHER en ningún lado —ni default, ni backfill, ni CHECK—,
+-- así que no la afecta. Mismo molde que DEAD_LETTER en 20260902130000.
+--
+-- SIN CHECK "warranty_other IS NULL OR warranty = 'OTHER'", a diferencia de la
+-- sección de consignación (vehicles_consignment_fields_require_origin_check).
+-- Un CHECK con el literal 'OTHER' caería justo en la prohibición de arriba
+-- (habría que escribirlo como warranty::text = 'OTHER', que funciona pero es
+-- una rareza que una revisión futura va a "corregir"), y cada CHECK manual
+-- entra al diagnóstico y a los contadores de verify:schema. Es un campo
+-- descriptivo que no participa de ningún RESTRICT ni cálculo: la consistencia
+-- la sostiene applyWarrantyRule en vehicle.service.ts, la única puerta de
+-- escritura, en POST y en PATCH.
+--
+-- Sin backfill: ninguna fila puede tener OTHER todavía, así que la columna
+-- nace NULL en todas y no hay nada que migrar.
+-- ---------------------------------------------------------------------------
+
+-- AlterEnum
+ALTER TYPE "VehicleWarranty" ADD VALUE IF NOT EXISTS 'OTHER';
+
+-- AlterTable
+ALTER TABLE "vehicles" ADD COLUMN IF NOT EXISTS "warranty_other" VARCHAR(255);

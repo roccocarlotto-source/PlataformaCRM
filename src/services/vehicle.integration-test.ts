@@ -249,6 +249,55 @@ test("consignación: datos de consignante sin quedar en CONSIGNMENT son 400 — 
   assert.equal(consignada.consignorName, "Pedro");
 });
 
+test("garantía (§22): OTHER + detalle se guardan y se leen; cambiar a una fija vacía el detalle en la misma escritura y queda en el historial", async () => {
+  const v = await borrador(a, {
+    warranty: "OTHER",
+    warrantyOther: "Garantía del fabricante importador, 90 días",
+  });
+  assert.equal(v.warranty, "OTHER");
+  assert.equal(v.warrantyOther, "Garantía del fabricante importador, 90 días");
+
+  const leido = await getVehicleById(a.organizationId, v.id);
+  assert.equal(leido.warrantyOther, "Garantía del fabricante importador, 90 días");
+
+  // Solo warranty en el PATCH: el detalle persistido se vacía igual.
+  const editado = await updateVehicle(a.organizationId, a.userId, v.id, { warranty: "FACTORY" });
+  assert.equal(editado.warranty, "FACTORY");
+  assert.equal(editado.warrantyOther, null);
+
+  const log = await getVehicleChangeLog(a.organizationId, v.id, { page: 1, pageSize: 20 });
+  assert.deepEqual(log.data.map((row) => row.fieldName).sort(), ["warranty", "warrantyOther"]);
+  const detalle = log.data.find((row) => row.fieldName === "warrantyOther");
+  assert.equal(detalle?.oldValue, "Garantía del fabricante importador, 90 días");
+  assert.equal(detalle?.newValue, null);
+});
+
+test("garantía (§22): un detalle sin quedar en OTHER es 400 — en POST y en PATCH", async () => {
+  const enPost = await capturar(() => borrador(a, { warranty: "DEALER_12M", warrantyOther: "x" }));
+  assertAppError(enPost, 400, "warranty = OTHER");
+
+  const v = await borrador(a, { warranty: "NONE" });
+  // PATCH que trae solo el detalle sobre una unidad con garantía fija.
+  const enPatch = await capturar(() =>
+    updateVehicle(a.organizationId, a.userId, v.id, { warrantyOther: "x" }),
+  );
+  assertAppError(enPatch, 400, "warranty = OTHER");
+
+  // Pasarla a OTHER y cargar el detalle en el mismo PATCH sí vale.
+  const otra = await updateVehicle(a.organizationId, a.userId, v.id, {
+    warranty: "OTHER",
+    warrantyOther: "Del importador, 6 meses",
+  });
+  assert.equal(otra.warranty, "OTHER");
+  assert.equal(otra.warrantyOther, "Del importador, 6 meses");
+
+  // Y con la unidad ya en OTHER, un PATCH que trae solo el detalle lo actualiza.
+  const corregida = await updateVehicle(a.organizationId, a.userId, v.id, {
+    warrantyOther: "Del importador, 12 meses",
+  });
+  assert.equal(corregida.warrantyOther, "Del importador, 12 meses");
+});
+
 test("editar publicando: 422 si falta algo (la foto incluida); y una unidad publicada no puede quedar incompleta por un PATCH", async () => {
   const v = await borrador(a, { ...completoUsado, vin: "VINED1", licensePlate: "ED0001" });
 

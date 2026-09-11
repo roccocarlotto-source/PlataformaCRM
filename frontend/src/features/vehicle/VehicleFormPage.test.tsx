@@ -1006,3 +1006,166 @@ describe("VehicleFormPage — equipamiento como chips (ítem 21)", () => {
     expect(patchedBody?.equipment).toEqual(["AIRBAG_LATERAL", "ESP"]);
   });
 });
+
+// Ítem 22: Garantía con una quinta opción "Otra" que revela un input de texto
+// libre. Al elegir una opción fija el input desaparece Y el texto se limpia;
+// el payload manda warrantyOther solo con warranty: "OTHER" (applyWarrantyRule
+// del backend rechaza el detalle con cualquier otra garantía).
+describe("VehicleFormPage — garantía 'Otra' con detalle (ítem 22)", () => {
+  const warrantySelect = () => screen.getByLabelText("Garantía");
+  const detailInput = () => screen.queryByLabelText("Detalle de la garantía");
+
+  it("elegir 'Otra' revela el input de detalle; una opción fija no lo muestra", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    expect(detailInput()).not.toBeInTheDocument();
+    expect(within(warrantySelect()).getByRole("option", { name: "Otra" })).toHaveValue("OTHER");
+
+    await user.selectOptions(warrantySelect(), "FACTORY");
+    expect(detailInput()).not.toBeInTheDocument();
+
+    await user.selectOptions(warrantySelect(), "OTHER");
+    expect(detailInput()).toBeInTheDocument();
+    expect(detailInput()).toHaveAttribute("maxlength", "255");
+  });
+
+  it("create con 'Otra': el POST manda warranty OTHER y warrantyOther con el texto", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.post(baseUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    await user.selectOptions(warrantySelect(), "OTHER");
+    await user.type(detailInput()!, "Garantía del fabricante importador, 90 días");
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({
+      warranty: "OTHER",
+      warrantyOther: "Garantía del fabricante importador, 90 días",
+    });
+  });
+
+  it("con una opción fija el input no está y viaja warrantyOther: null; sin garantía también", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.post(baseUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    await user.selectOptions(warrantySelect(), "DEALER_12M");
+    expect(detailInput()).not.toBeInTheDocument();
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({ warranty: "DEALER_12M", warrantyOther: null });
+  });
+
+  it("cambiar de 'Otra' a una fija limpia el texto: volver a 'Otra' lo muestra vacío y el POST no lo manda", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.post(baseUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    await user.selectOptions(warrantySelect(), "OTHER");
+    await user.type(detailInput()!, "Del importador, 6 meses");
+    expect(detailInput()).toHaveValue("Del importador, 6 meses");
+
+    await user.selectOptions(warrantySelect(), "FACTORY");
+    expect(detailInput()).not.toBeInTheDocument();
+
+    // Volver a "Otra" no rescata el texto viejo: se limpió, no se ocultó.
+    await user.selectOptions(warrantySelect(), "OTHER");
+    expect(detailInput()).toHaveValue("");
+
+    await user.selectOptions(warrantySelect(), "FACTORY");
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({ warranty: "FACTORY", warrantyOther: null });
+  });
+
+  it("edit: un vehículo con 'Otra' y detalle muestra el texto, y el PATCH lo manda tal cual", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${baseUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeVehicleDetail({
+            id: params.id as string,
+            warranty: "OTHER",
+            warrantyOther: "Garantía del fabricante importador, 90 días",
+          }),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle({ id: "v1" }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/v1/edit");
+
+    await waitFor(() => expect(warrantySelect()).toHaveValue("OTHER"));
+    expect(detailInput()).toHaveValue("Garantía del fabricante importador, 90 días");
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(patchedBody).toMatchObject({
+      warranty: "OTHER",
+      warrantyOther: "Garantía del fabricante importador, 90 días",
+    });
+  });
+
+  it("edit: pasar de 'Otra' a una fija manda warrantyOther: null en el PATCH", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${baseUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeVehicleDetail({
+            id: params.id as string,
+            warranty: "OTHER",
+            warrantyOther: "Del importador, 6 meses",
+          }),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle({ id: "v1" }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/vehicles/v1/edit");
+
+    await waitFor(() => expect(warrantySelect()).toHaveValue("OTHER"));
+    await user.selectOptions(warrantySelect(), "NONE");
+    expect(detailInput()).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(patchedBody).toMatchObject({ warranty: "NONE", warrantyOther: null });
+  });
+});
