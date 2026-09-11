@@ -709,3 +709,24 @@ definidos en `prisma/sql/manual_constraints.sql` (líneas ~110-120) y ya aplicad
 | Refetches de fondo de `/api/me` al volver a la pestaña | a lo sumo 1 cada 30 s | a lo sumo 1 cada 5 min |
 
 **Tests:** backend — `src/app.test.ts` nuevo (2 tests: preflight de origen permitido responde 204 con `Access-Control-Max-Age: 600`, origen reflejado, credenciales y `PATCH` permitido; un origen no permitido sigue sin `Access-Control-Allow-Origin`). Suite unitaria 600/600, suite de integración 562/562 contra el Supabase local, typecheck, lint y Prettier limpios. Frontend — sin tests nuevos (el cambio es una opción de cache; los 13 de `AuthContext.test.tsx` cubren cuándo sí y cuándo no se pide `/api/me`), suite completa 903/903, typecheck, lint y Prettier limpios.
+
+## 17. Toggle "Vista de tabla" / "Vista de embudo": el botón activo pierde el contraste del texto al pasar el mouse
+
+**Estado:** hecho
+
+**Dónde se ve:** `/opportunities`, el toggle "Vista de tabla" / "Vista de embudo" (grupo `.ds-segmented`, hoy usado solo por `frontend/src/features/opportunity/OpportunityListPage.tsx`). El botón que está activo (`aria-pressed="true"`) pierde todo el contraste de texto al pasar el mouse por encima: el texto se vuelve prácticamente invisible sobre su propio fondo y parece que el botón "desaparece". Al sacar el mouse vuelve a verse normal.
+
+**Causa raíz (verificada en el código, con los valores exactos de los tokens):** en `frontend/src/design-system/design-system.css`, la regla `.ds-segmented .ds-button[aria-pressed="true"]` (línea ~1507) pone fondo `--color-primary` y texto `--color-primary-contrast`. Pero `.ds-segmented .ds-button:hover:not(:disabled)` (línea ~1503) tiene **más especificidad** (una clase, una clase, una pseudo-clase y la pseudo-clase de dentro de `:not()`: 0,4,0 contra 0,3,0 de la regla del activo), así que al hacer hover sobre el botón activo pisa el `background` a `--color-surface-muted` **sin tocar el `color`**, que sigue siendo `--color-primary-contrast`. En `tokens.css`:
+
+| Modo | `--color-surface-muted` (fondo en hover) | `--color-primary-contrast` (texto del activo) |
+|---|---|---|
+| Claro | `#f0efeb` | `#f6f6f3` |
+| Oscuro | `#262623` | `#1b1b18` |
+
+Casi el mismo color en los dos modos: texto claro sobre fondo claro, y texto oscuro sobre fondo oscuro. No es un bug de JS ni de `aria-pressed` (que se setea bien, como fija el test del toggle en `OpportunityListPage.test.tsx`): es puramente el orden de cascada de dos reglas de CSS.
+
+**Comportamiento deseado:** el botón que **ya está activo no cambia de aspecto al pasar el mouse**. No hay ninguna acción nueva que tomar sobre él (ya está seleccionado), así que no tiene por qué mostrar un estado de hover; se queda con su fondo `--color-primary` y su texto `--color-primary-contrast`. El hover **sigue funcionando exactamente igual** para los botones NO activos del grupo (fondo `--color-surface-muted` sobre texto `--color-text-muted`): eso no se toca.
+
+**Arreglo:** una sola línea de CSS. En `.ds-segmented .ds-button:hover:not(:disabled)` se agrega `:not([aria-pressed="true"])` al selector, así la regla de hover deja de aplicar sobre el botón ya activo del grupo y la regla del activo queda sin nada que la pise. Sin cambios de JS ni de la lógica de `aria-pressed` en `OpportunityListPage.tsx`. Como `.ds-segmented` es una regla compartida del sistema de diseño, el fix corrige lo mismo en cualquier otro lugar que la use en el futuro.
+
+**Tests:** el único test relacionado con el toggle (`OpportunityListPage.test.tsx`, "el toggle pasa de la vista de tabla a la de embudo y vuelve...") afirma el `aria-pressed` al hacer click, que no cambia. El hover es CSS puro, que Testing Library no evalúa (jsdom no aplica hojas de estilo), así que no se agrega un test nuevo para este ajuste de contraste; la verificación es visual.
