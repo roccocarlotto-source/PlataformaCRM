@@ -2,8 +2,10 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
+import { CurrencyInput } from "../../design-system/CurrencyInput";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
+import { IntegerInput } from "../../design-system/IntegerInput";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { useFormDraft } from "../../lib/useFormDraft";
@@ -308,7 +310,7 @@ function numberOrNull(value: string): number | null {
 type PriceListField = "priceListUsd" | "priceListLocal";
 
 // Redondeo a 2 decimales (Decimal(14,2) del backend) y de vuelta al string
-// que maneja el <input type="number">. "" o algo no numérico → "".
+// canónico que maneja CurrencyInput ("1012500.5"). "" o algo no numérico → "".
 function convertPriceList(value: string, from: PriceListField, rate: number): string {
   const amount = Number(value);
   if (value === "" || !Number.isFinite(amount) || !Number.isFinite(rate) || rate <= 0) {
@@ -681,22 +683,20 @@ export function VehicleFormPage() {
               onChange={(value) => update("origin", value)}
               emptyLabel="Sin especificar"
             />
+            {/* Importes con formato uruguayo en vivo (ítem 23): CurrencyInput
+                recibe y devuelve el mismo string canónico que el estado ya
+                guardaba ("25000.5"), así que handlePriceListChange y el
+                auto-cálculo del ítem 19 no cambian. */}
             <FormField label={fieldLabel("priceListUsd")}>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
+              <CurrencyInput
                 value={values.priceListUsd}
-                onChange={(event) => handlePriceListChange("priceListUsd", event.target.value)}
+                onChange={(value) => handlePriceListChange("priceListUsd", value)}
               />
             </FormField>
             <FormField label={fieldLabel("priceListLocal")}>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
+              <CurrencyInput
                 value={values.priceListLocal}
-                onChange={(event) => handlePriceListChange("priceListLocal", event.target.value)}
+                onChange={(value) => handlePriceListChange("priceListLocal", value)}
               />
             </FormField>
             {/* Explica que el otro precio "se llena solo" y que se puede
@@ -711,21 +711,15 @@ export function VehicleFormPage() {
               </p>
             ) : null}
             <FormField label={fieldLabel("minAcceptablePriceUsd")}>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
+              <CurrencyInput
                 value={values.minAcceptablePriceUsd}
-                onChange={(event) => update("minAcceptablePriceUsd", event.target.value)}
+                onChange={(value) => update("minAcceptablePriceUsd", value)}
               />
             </FormField>
             <FormField label={fieldLabel("acquisitionCostUsd")}>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
+              <CurrencyInput
                 value={values.acquisitionCostUsd}
-                onChange={(event) => update("acquisitionCostUsd", event.target.value)}
+                onChange={(value) => update("acquisitionCostUsd", value)}
               />
             </FormField>
             <EnumField
@@ -849,12 +843,9 @@ export function VehicleFormPage() {
                 />
               </FormField>
               <FormField label={fieldLabel("consignmentAgreedPriceUsd")}>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
+                <CurrencyInput
                   value={values.consignmentAgreedPriceUsd}
-                  onChange={(event) => update("consignmentAgreedPriceUsd", event.target.value)}
+                  onChange={(value) => update("consignmentAgreedPriceUsd", value)}
                 />
               </FormField>
               <FormField label={fieldLabel("consignmentCommissionPercent")}>
@@ -893,14 +884,10 @@ export function VehicleFormPage() {
 
         <Card heading="Características">
           <div className="ds-field-grid">
+            {/* Entero con puntos de miles, sin decimales (ítem 23): el estado
+                sigue guardando "150000" y el backend recibe el int de siempre. */}
             <FormField label={fieldLabel("mileage")}>
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={values.mileage}
-                onChange={(event) => update("mileage", event.target.value)}
-              />
+              <IntegerInput value={values.mileage} onChange={(value) => update("mileage", value)} />
             </FormField>
             <EnumField
               label={fieldLabel("transmission")}
@@ -1027,12 +1014,9 @@ export function VehicleFormPage() {
               />
             </FormField>
             <FormField label={fieldLabel("licensePlateDebtLocal")}>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
+              <CurrencyInput
                 value={values.licensePlateDebtLocal}
-                onChange={(event) => update("licensePlateDebtLocal", event.target.value)}
+                onChange={(value) => update("licensePlateDebtLocal", value)}
               />
             </FormField>
             <FormField label={fieldLabel("lastTechnicalInspectionAt")}>

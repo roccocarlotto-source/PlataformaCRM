@@ -86,12 +86,21 @@ export function formatAmount(canonical: string): string {
 
 // Cursor. Los puntos de miles van y vienen con el formato, así que la
 // posición del cursor se conserva contando solo los caracteres
-// "significativos" (dígitos y la coma) que quedan a su izquierda.
-function isSignificant(char: string): boolean {
+// "significativos" que quedan a su izquierda. Cuáles son significativos lo
+// decide el predicado: para un monto, dígitos y la coma (el default); para
+// un entero (IntegerInput.tsx, ítem 23) solo dígitos, así una coma tipeada
+// por costumbre se descarta sin correr el cursor.
+export type SignificantChar = (char: string) => boolean;
+
+function isAmountChar(char: string): boolean {
   return /\d/.test(char) || char === DECIMAL_SEPARATOR;
 }
 
-export function countSignificantBefore(text: string, position: number): number {
+export function countSignificantBefore(
+  text: string,
+  position: number,
+  isSignificant: SignificantChar = isAmountChar,
+): number {
   let count = 0;
   for (const char of text.slice(0, position)) {
     if (isSignificant(char)) count += 1;
@@ -101,7 +110,11 @@ export function countSignificantBefore(text: string, position: number): number {
 
 // Posición en `text` justo después del n-ésimo carácter significativo (0 →
 // el principio; más de los que hay → el final).
-export function positionAfterSignificant(text: string, count: number): number {
+export function positionAfterSignificant(
+  text: string,
+  count: number,
+  isSignificant: SignificantChar = isAmountChar,
+): number {
   if (count === 0) return 0;
   let seen = 0;
   for (let index = 0; index < text.length; index += 1) {
