@@ -59,7 +59,7 @@ describe("AppLayout — nav gateado por rol (M7)", () => {
     expect(screen.queryByText("Invitaciones")).not.toBeInTheDocument();
   });
 
-  it("la navegación existente (Empresas/Contactos/Pipelines/Oportunidades/Actividades) sigue intacta para ambos roles", () => {
+  it("la navegación existente (Empresas/Contactos/Pipelines/Oportunidades) sigue intacta para ambos roles", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     renderLayout();
 
@@ -67,7 +67,6 @@ describe("AppLayout — nav gateado por rol (M7)", () => {
     expect(screen.getByText("Contactos")).toBeInTheDocument();
     expect(screen.getByText("Pipelines")).toBeInTheDocument();
     expect(screen.getByText("Oportunidades")).toBeInTheDocument();
-    expect(screen.getByText("Actividades")).toBeInTheDocument();
   });
 
   it("'Mis tareas' se muestra para ambos roles: leer y completar lo propio es de cualquier rol", () => {
@@ -88,6 +87,26 @@ describe("AppLayout — nav gateado por rol (M7)", () => {
     renderLayout();
 
     expect(screen.getByText("A")).toBeInTheDocument();
+  });
+});
+
+describe("AppLayout — nav de Actividades (ítem 25)", () => {
+  it("ADMIN ve 'Actividades' en el grupo Actividad, apuntando a /activities", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+
+    expect(screen.getByRole("link", { name: "Actividades" })).toHaveAttribute(
+      "href",
+      "/activities",
+    );
+  });
+
+  it("USER no ve 'Actividades': el listado completo es ADMIN-only, lo suyo lo ve en 'Mis tareas'", () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout();
+
+    expect(screen.queryByText("Actividades")).not.toBeInTheDocument();
+    expect(screen.getByText("Mis tareas")).toHaveAttribute("href", "/tasks");
   });
 });
 

@@ -69,7 +69,7 @@ export function AppLayout() {
   const [logoutError, setLogoutError] = useState<string | null>(null);
   // Primera vez que el nav gatea un link por rol (M7): /users e
   // /invitations son las primeras páginas TOTALMENTE inaccesibles para
-  // USER (a diferencia de /activities, de lectura abierta) — mostrar el
+  // USER (a diferencia de /companies, de lectura abierta) — mostrar el
   // link solo para que rebote siempre a un USER sería mala UX. No es un
   // RBAC genérico, es un booleano ya expuesto por AuthContext.
   const isAdmin = me?.role === "ADMIN";
@@ -128,13 +128,19 @@ export function AppLayout() {
           </div>
           <div className="ds-sidebar-group">
             <span className="ds-sidebar-group-label">Actividad</span>
-            <SidebarLink to="/activities" icon={Activity}>
-              Actividades
-            </SidebarLink>
-            {/* "Mis tareas": nav plano, para ambos roles, como /activities —
-                GET /api/activities es lectura abierta, y completar la propia
-                tarea (PATCH solo completedAt sobre la propia) también lo es
-                para cualquier rol desde esta fase (activity.routes.ts). */}
+            {/* Listado completo "Actividades" (ítem 25): solo ADMIN, como
+                Organización/Sucursales — /activities está dentro del AdminRoute
+                y el backend acota a un USER a lo asignado a sí mismo, que ya
+                ve en "Mis tareas". */}
+            {isAdmin ? (
+              <SidebarLink to="/activities" icon={Activity}>
+                Actividades
+              </SidebarLink>
+            ) : null}
+            {/* "Mis tareas": nav plano, para ambos roles — un USER puede leer
+                lo asignado a sí mismo (activity.service.ts) y completar la
+                propia tarea (PATCH solo completedAt sobre la propia) desde la
+                fase de "Mis tareas" (activity.routes.ts). */}
             <SidebarLink to="/tasks" icon={CheckSquare}>
               Mis tareas
             </SidebarLink>
@@ -142,7 +148,7 @@ export function AppLayout() {
           <div className="ds-sidebar-group">
             <span className="ds-sidebar-group-label">QR</span>
             {/* Módulo QR (docs/qr-integration.md, Fase 3): visible para ambos roles,
-                como /activities — GET /api/qr es de lectura abierta y las acciones
+                como /companies — GET /api/qr es de lectura abierta y las acciones
                 de solo lectura (ver imagen, enviar, copiar link) sirven a un USER. */}
             <SidebarLink to="/qr" icon={QrCode}>
               QR

@@ -12,7 +12,12 @@ import { businessWriteRateLimiter } from "../middlewares/rateLimit";
 
 export const activityRouter = Router();
 
-// Lectura: cualquier usuario autenticado de la organización.
+// Lectura: cualquier usuario autenticado de la organización llega al handler,
+// pero NO ve todo — desde el §25 (docs/frontend-cambios-pendientes.md) un
+// USER recibe solo las actividades asignadas a sí mismo, y una ajena por id
+// es 404. Esa restricción vive en el service (listActivities/getActivityById
+// reciben el actor) y no como authorize("ADMIN") acá, porque "Mis tareas"
+// (para ambos roles) usa estos mismos dos endpoints para lo propio.
 activityRouter.get("/activities", authenticate, listActivitiesHandler);
 activityRouter.get("/activities/:id", authenticate, getActivityHandler);
 

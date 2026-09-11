@@ -20,6 +20,7 @@ import { ToastProvider } from "../design-system/Toast";
 import { StageFormPage } from "../features/stage/StageFormPage";
 import { OpportunityFormPage } from "../features/opportunity/OpportunityFormPage";
 import { ActivityFormPage } from "../features/activity/ActivityFormPage";
+import { ActivityListPage } from "../features/activity/ActivityListPage";
 import { makeActivity } from "../test/activityFixtures";
 import { UserListPage } from "../features/user/UserListPage";
 import { InvitationListPage } from "../features/invitation/InvitationListPage";
@@ -466,12 +467,13 @@ describe("AdminRoute — protección visual de rutas de escritura de Opportunity
   });
 });
 
-// Mismo árbitro de decisión, ahora para las rutas de escritura de Activity
-// (M6) — a diferencia de todos los bloques anteriores, /activities (listado,
-// lectura) NO va detrás de AdminRoute en app/router.tsx real (GET
-// /api/activities es abierto a cualquier rol) — solo /activities/new y
-// /activities/:id/edit sí. Confirma el wiring específico de Activity, no
-// solo el mecanismo genérico.
+// Mismo árbitro de decisión, ahora para las tres rutas de Activity (M6 +
+// ítem 25 de docs/frontend-cambios-pendientes.md). Hasta el ítem 25,
+// /activities (listado) vivía FUERA del AdminRoute como lectura abierta;
+// desde ese ítem el backend acota a un USER a lo asignado a sí mismo (que ya
+// ve en /tasks) y el listado completo pasa a ser ADMIN-only, como
+// /organization y /branches más abajo. Confirma el wiring específico de
+// Activity, no solo el mecanismo genérico.
 const activitiesUrl = `${env.apiUrl}/api/activities`;
 
 function renderActivityRouteAt(initialPath: string) {
@@ -482,8 +484,8 @@ function renderActivityRouteAt(initialPath: string) {
         <Routes>
           <Route element={<ProtectedRoute />}>
             <Route path="/companies" element={<div>lista de empresas</div>} />
-            <Route path="/activities" element={<div>lista de actividades</div>} />
             <Route element={<AdminRoute />}>
+              <Route path="/activities" element={<ActivityListPage />} />
               <Route path="/activities/new" element={<ActivityFormPage />} />
               <Route path="/activities/:id/edit" element={<ActivityFormPage />} />
             </Route>
@@ -495,6 +497,50 @@ function renderActivityRouteAt(initialPath: string) {
 }
 
 describe("AdminRoute — protección visual de rutas de escritura de Activity", () => {
+  it("USER entrando directamente a /activities (listado, ítem 25) no renderiza la lista ni dispara GET /api/activities", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    let listRequested = false;
+    server.use(
+      http.get(activitiesUrl, () => {
+        listRequested = true;
+        return HttpResponse.json({
+          data: [makeActivity()],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        });
+      }),
+    );
+
+    renderActivityRouteAt("/activities");
+
+    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
+    expect(screen.queryByRole("heading", { name: "Actividades" })).not.toBeInTheDocument();
+    expect(listRequested).toBe(false);
+  });
+
+  it("ADMIN sí accede a /activities (listado)", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(activitiesUrl, () =>
+        HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 20, total: 0, totalPages: 0 },
+        }),
+      ),
+      http.get(`${env.apiUrl}/api/users`, () =>
+        HttpResponse.json({
+          data: [makeUser()],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderActivityRouteAt("/activities");
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Actividades" })).toBeInTheDocument(),
+    );
+  });
+
   it("USER entrando directamente a /activities/new no renderiza el formulario", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
 
