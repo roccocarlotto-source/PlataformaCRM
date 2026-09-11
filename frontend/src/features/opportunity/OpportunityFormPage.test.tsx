@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -12,6 +12,7 @@ import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { makeVehicleDetail, makeVehicleListItem } from "../../test/vehicleFixtures";
+import { todayIsoDate } from "./boardMove";
 import { OpportunityFormPage } from "./OpportunityFormPage";
 
 vi.mock("../../auth/getAccessToken", () => ({
@@ -354,8 +355,17 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/op1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Título")).toHaveValue("Renovación original"));
-    expect(screen.getByLabelText("Monto")).toHaveValue(1234.5);
+    // Ítem 18.A: el monto se ve ya formateado (estilo Uruguay, 2 decimales).
+    expect(screen.getByLabelText("Monto")).toHaveValue("1.234,50");
+    // Ítem 18.B: "ARS" no está en la lista USD/UYU, pero es el valor
+    // persistido — se muestra como opción extra mientras sea el vigente, en
+    // vez de un select que dice "USD" y un PATCH que manda "ARS".
     expect(screen.getByLabelText("Moneda")).toHaveValue("ARS");
+    expect(
+      within(screen.getByLabelText("Moneda"))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["ARS", "USD", "UYU"]);
     expect(screen.getByLabelText("Estado")).toHaveValue("LOST");
     expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio");
     expect(screen.getByLabelText("Fecha estimada de cierre")).toHaveValue("2026-08-15");
@@ -364,14 +374,114 @@ describe("OpportunityFormPage", () => {
     await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("st1"));
   });
 
-  it("lostReason permanece visible sin importar el status, y no se borra al cambiar de LOST a OPEN", async () => {
+  // -------------------------------------------------------------------------
+  // Estado y cierre (ítems 18.E y 18.F de docs/frontend-cambios-pendientes.md).
+  // Reemplaza a propósito la decisión de M5 ("lostReason siempre visible,
+  // status nunca lo toca"): Motivo de pérdida y Fecha real de cierre solo se
+  // ven con Ganada/Perdida, cerrar desde Abierta completa la fecha con hoy
+  // si estaba vacía, y reabrir limpia los dos.
+  // -------------------------------------------------------------------------
+
+  it("edit: el select de Estado muestra Abierta/Ganada/Perdida con los values del enum", async () => {
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, () =>
+        HttpResponse.json(makeOpportunity({ pipelineId: "pl1", stageId: "st1" })),
+      ),
+    );
+    renderForm("/opportunities/op1/edit");
+
+    const estado = await screen.findByLabelText("Estado");
+    const options = within(estado).getAllByRole("option");
+    expect(options.map((option) => option.textContent)).toEqual(["Abierta", "Ganada", "Perdida"]);
+    expect(options.map((option) => (option as HTMLOptionElement).value)).toEqual([
+      "OPEN",
+      "WON",
+      "LOST",
+    ]);
+    expect(within(estado).queryByRole("option", { name: "OPEN" })).not.toBeInTheDocument();
+  });
+
+  it("edit: con Estado Abierta no se ven Motivo de pérdida ni Fecha real de cierre; con Ganada o Perdida sí, los dos", async () => {
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, () =>
+        HttpResponse.json(makeOpportunity({ status: "OPEN", pipelineId: "pl1", stageId: "st1" })),
+      ),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/op1/edit");
+
+    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("OPEN"));
+    expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Fecha real de cierre")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Estado"), "WON");
+    expect(screen.getByLabelText("Motivo de pérdida")).toBeVisible();
+    expect(screen.getByLabelText("Fecha real de cierre")).toBeVisible();
+
+    await user.selectOptions(screen.getByLabelText("Estado"), "LOST");
+    expect(screen.getByLabelText("Motivo de pérdida")).toBeVisible();
+    expect(screen.getByLabelText("Fecha real de cierre")).toBeVisible();
+
+    await user.selectOptions(screen.getByLabelText("Estado"), "OPEN");
+    expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Fecha real de cierre")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["LOST", "Perdida"],
+    ["WON", "Ganada"],
+  ])(
+    "edit: pasar de Abierta a %s con Fecha real vacía la completa con hoy, y sigue editable",
+    async (status, label) => {
+      let patchedBody: Record<string, unknown> | undefined;
+      server.use(
+        ...baseHandlers(),
+        http.get(`${opportunitiesUrl}/:id`, () =>
+          HttpResponse.json(
+            makeOpportunity({
+              status: "OPEN",
+              actualCloseDate: null,
+              pipelineId: "pl1",
+              stageId: "st1",
+            }),
+          ),
+        ),
+        http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
+          patchedBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(makeOpportunity());
+        }),
+      );
+      const user = userEvent.setup();
+      renderForm("/opportunities/op1/edit");
+
+      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("OPEN"));
+      await user.selectOptions(screen.getByLabelText("Estado"), label);
+
+      const fechaReal = screen.getByLabelText("Fecha real de cierre");
+      expect(fechaReal).toHaveValue(todayIsoDate());
+      expect(fechaReal).toBeEnabled();
+
+      // Es solo un valor inicial: se puede cambiar a mano después.
+      await user.clear(fechaReal);
+      await user.type(fechaReal, "2026-03-01");
+      expect(fechaReal).toHaveValue("2026-03-01");
+      await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+      await waitFor(() => expect(patchedBody).toBeDefined());
+      expect(patchedBody).toMatchObject({ status, actualCloseDate: "2026-03-01" });
+    },
+  );
+
+  it("edit: si Fecha real ya tenía valor, cambiar el Estado no lo pisa (ni Abierta → Perdida, ni Perdida → Ganada)", async () => {
     server.use(
       ...baseHandlers(),
       http.get(`${opportunitiesUrl}/:id`, () =>
         HttpResponse.json(
           makeOpportunity({
-            status: "LOST",
-            lostReason: "Precio muy alto",
+            status: "OPEN",
+            actualCloseDate: "2026-08-20T00:00:00.000Z",
             pipelineId: "pl1",
             stageId: "st1",
           }),
@@ -381,17 +491,82 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/op1/edit");
 
+    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("OPEN"));
+    await user.selectOptions(screen.getByLabelText("Estado"), "LOST");
+    expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
+
+    await user.selectOptions(screen.getByLabelText("Estado"), "WON");
+    expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
+  });
+
+  it("edit: una oportunidad que ya cargó cerrada con fecha vacía no se autocompleta al cambiar entre Ganada y Perdida (solo la transición desde Abierta)", async () => {
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, () =>
+        HttpResponse.json(
+          makeOpportunity({
+            status: "LOST",
+            actualCloseDate: null,
+            pipelineId: "pl1",
+            stageId: "st1",
+          }),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/op1/edit");
+
+    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("LOST"));
+    expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("");
+
+    await user.selectOptions(screen.getByLabelText("Estado"), "WON");
+    expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("");
+  });
+
+  it("edit: reabrir (Perdida → Abierta) limpia Motivo y Fecha real, y el PATCH los manda como null", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, () =>
+        HttpResponse.json(
+          makeOpportunity({
+            id: "op1",
+            status: "LOST",
+            lostReason: "Precio muy alto",
+            actualCloseDate: "2026-08-20T00:00:00.000Z",
+            pipelineId: "pl1",
+            stageId: "st1",
+          }),
+        ),
+      ),
+      http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity());
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/op1/edit");
+
     await waitFor(() =>
       expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio muy alto"),
     );
+    await user.selectOptions(screen.getByLabelText("Estado"), "OPEN");
+    expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
+
+    // Volver a cerrar arranca limpio: sin el motivo viejo, con la fecha de
+    // hoy (la transición desde Abierta se vuelve a vivir).
+    await user.selectOptions(screen.getByLabelText("Estado"), "LOST");
+    expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("");
+    expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue(todayIsoDate());
 
     await user.selectOptions(screen.getByLabelText("Estado"), "OPEN");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
 
-    expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio muy alto");
-    expect(screen.getByLabelText("Motivo de pérdida")).toBeVisible();
+    await waitFor(() => expect(patchedBody).toBeDefined());
+    expect(patchedBody).toMatchObject({ status: "OPEN", lostReason: null, actualCloseDate: null });
   });
 
-  it("editar sin tocar lostReason y cambiar status reenvía el mismo lostReason (nunca null/undefined por accidente)", async () => {
+  it("editar sin tocar lostReason y cambiar de Perdida a Ganada reenvía el mismo lostReason (nunca null/undefined por accidente)", async () => {
     let patchedBody: Record<string, unknown> | undefined;
     server.use(
       ...baseHandlers(),
@@ -401,6 +576,7 @@ describe("OpportunityFormPage", () => {
             id: "op1",
             status: "LOST",
             lostReason: "Precio",
+            actualCloseDate: "2026-08-20T00:00:00.000Z",
             pipelineId: "pl1",
             stageId: "st1",
           }),
@@ -415,12 +591,15 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/op1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio"));
-    await user.selectOptions(screen.getByLabelText("Estado"), "OPEN");
+    await user.selectOptions(screen.getByLabelText("Estado"), "WON");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(patchedBody).toBeDefined());
-    expect(patchedBody?.lostReason).toBe("Precio");
-    expect(patchedBody?.status).toBe("OPEN");
+    expect(patchedBody).toMatchObject({
+      status: "WON",
+      lostReason: "Precio",
+      actualCloseDate: "2026-08-20",
+    });
   });
 
   it("limpiar lostReason explícitamente y guardar envía lostReason: null", async () => {
@@ -429,7 +608,13 @@ describe("OpportunityFormPage", () => {
       ...baseHandlers(),
       http.get(`${opportunitiesUrl}/:id`, () =>
         HttpResponse.json(
-          makeOpportunity({ id: "op1", lostReason: "Precio", pipelineId: "pl1", stageId: "st1" }),
+          makeOpportunity({
+            id: "op1",
+            status: "LOST",
+            lostReason: "Precio",
+            pipelineId: "pl1",
+            stageId: "st1",
+          }),
         ),
       ),
       http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
@@ -454,8 +639,11 @@ describe("OpportunityFormPage", () => {
       ...baseHandlers(),
       http.get(`${opportunitiesUrl}/:id`, () =>
         HttpResponse.json(
+          // status WON: desde el ítem 18.F Fecha real solo se ve con
+          // Ganada/Perdida.
           makeOpportunity({
             id: "op1",
+            status: "WON",
             pipelineId: "pl1",
             stageId: "st1",
             expectedCloseDate: "2026-08-15T00:00:00.000Z",
@@ -664,7 +852,40 @@ describe("OpportunityFormPage", () => {
     expect(selectedContactParagraph()).toBeInTheDocument();
   });
 
-  it("amount: hidrata como number editable, envía number en el payload", async () => {
+  // Ítem 18.A: el input formatea en vivo estilo Uruguay (miles con punto,
+  // coma decimal; el punto tipeado se toma como coma) y el payload sigue
+  // llevando el número real, sin puntos ni comas. Al salir del campo se
+  // completan los 2 decimales.
+  it("amount: se formatea en vivo al tipear ('20000,5' → '20.000,5', '20.000,50' al salir) y viaja como number", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new");
+
+    await user.type(screen.getByLabelText("Título"), "Nueva");
+    const monto = screen.getByLabelText("Monto");
+    expect(monto).toHaveAttribute("inputmode", "decimal");
+    await user.type(monto, "20000,5");
+    expect(monto).toHaveValue("20.000,5");
+    await user.tab();
+    expect(monto).toHaveValue("20.000,50");
+    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(postedBody).toBeDefined());
+    expect(postedBody?.amount).toBe(20000.5);
+    expect(typeof postedBody?.amount).toBe("number");
+  });
+
+  it("amount: un punto tipeado como decimal ('2500.75') se lee como coma y envía 2500.75", async () => {
     let postedBody: Record<string, unknown> | undefined;
     server.use(
       ...baseHandlers(),
@@ -678,6 +899,7 @@ describe("OpportunityFormPage", () => {
 
     await user.type(screen.getByLabelText("Título"), "Nueva");
     await user.type(screen.getByLabelText("Monto"), "2500.75");
+    expect(screen.getByLabelText("Monto")).toHaveValue("2.500,75");
     await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
@@ -728,6 +950,90 @@ describe("OpportunityFormPage", () => {
     expect(screen.queryByText("lista de oportunidades")).not.toBeInTheDocument();
   });
 
+  // Ítem 18.B: Moneda es un <select> cerrado USD/UYU (sin "Otra"), que
+  // arranca en USD. La restricción es solo del cliente: el backend sigue
+  // aceptando cualquier ISO 4217.
+  it("create: Moneda es un select cerrado con USD y UYU, arranca en USD, y el POST manda la elegida", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new?pipelineId=pl1&stageId=st1");
+
+    const moneda = screen.getByLabelText("Moneda");
+    expect(moneda.tagName).toBe("SELECT");
+    expect(moneda).toHaveValue("USD");
+    expect(
+      within(moneda)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["USD", "UYU"]);
+
+    await user.type(screen.getByLabelText("Título"), "En pesos");
+    await user.selectOptions(moneda, "UYU");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(postedBody).toBeDefined());
+    expect(postedBody).toMatchObject({ currency: "UYU" });
+  });
+
+  // Ítem 18.C: "Fecha desconocida" vacía y deshabilita Fecha estimada de
+  // cierre; destildar la vuelve a habilitar. Sin cambio de modelo: vacío y
+  // desconocida son lo mismo para la API (el POST omite el campo).
+  it("create: 'Fecha desconocida' vacía y deshabilita Fecha estimada; destildar la habilita de nuevo", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new?pipelineId=pl1&stageId=st1");
+
+    const fecha = screen.getByLabelText("Fecha estimada de cierre");
+    const desconocida = screen.getByLabelText("Fecha desconocida");
+    expect(desconocida).not.toBeChecked();
+    expect(fecha).toBeEnabled();
+
+    await user.type(fecha, "2026-08-15");
+    expect(fecha).toHaveValue("2026-08-15");
+
+    await user.click(desconocida);
+    expect(desconocida).toBeChecked();
+    expect(fecha).toHaveValue("");
+    expect(fecha).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Título"), "Sin fecha");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(postedBody).toBeDefined());
+    expect(postedBody).not.toHaveProperty("expectedCloseDate");
+  });
+
+  it("'Fecha desconocida' destildada vuelve a habilitar el campo y deja cargar una fecha", async () => {
+    server.use(...baseHandlers());
+    const user = userEvent.setup();
+    renderForm("/opportunities/new");
+
+    const fecha = screen.getByLabelText("Fecha estimada de cierre");
+    const desconocida = screen.getByLabelText("Fecha desconocida");
+
+    await user.click(desconocida);
+    expect(fecha).toBeDisabled();
+
+    await user.click(desconocida);
+    expect(desconocida).not.toBeChecked();
+    expect(fecha).toBeEnabled();
+    await user.type(fecha, "2026-09-30");
+    expect(fecha).toHaveValue("2026-09-30");
+  });
+
   // -------------------------------------------------------------------------
   // Vehículo vinculado (Fase 3b). EL PUNTO DELICADO: el backend copia el
   // precio de la unidad SOLO si el body no manda amount ni currency, así que
@@ -761,12 +1067,18 @@ describe("OpportunityFormPage", () => {
       await screen.findByRole("button", { name: "Toyota Corolla 2020 · 25000.00 USD" }),
     );
 
-    expect(screen.getByLabelText("Monto")).toHaveValue(null);
+    expect(screen.getByLabelText("Monto")).toHaveValue("");
+    // Ítem 18.B: mientras Moneda está vacía por el vínculo, el <select>
+    // cerrado muestra la opción "Según la unidad" (value "") para no
+    // mentir con "USD".
     expect(screen.getByLabelText("Moneda")).toHaveValue("");
+    expect(
+      within(screen.getByLabelText("Moneda")).getByRole("option", { name: "Según la unidad" }),
+    ).toBeInTheDocument();
     expect(screen.getByText(PRICE_HINT)).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("Financiación"), "INSTALLMENT_24M");
-    await user.selectOptions(screen.getByLabelText("Origen del lead"), "WHATSAPP");
+    await user.selectOptions(screen.getByLabelText("Origen del cliente"), "WHATSAPP");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(postedBody).toBeDefined());
@@ -804,11 +1116,15 @@ describe("OpportunityFormPage", () => {
 
     await user.type(screen.getByLabelText("Monto"), "23500");
     expect(screen.queryByText(PRICE_HINT)).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText("Moneda"), "ars");
+    await user.selectOptions(screen.getByLabelText("Moneda"), "UYU");
+    // Elegida una moneda real, "Según la unidad" desaparece.
+    expect(
+      within(screen.getByLabelText("Moneda")).queryByRole("option", { name: "Según la unidad" }),
+    ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(postedBody).toBeDefined());
-    expect(postedBody).toMatchObject({ vehicleId: "v1", amount: 23500, currency: "ARS" });
+    expect(postedBody).toMatchObject({ vehicleId: "v1", amount: 23500, currency: "UYU" });
   });
 
   it("edit: arranca con la unidad persistida (RESERVED, con badge) SIN vaciar Monto/Moneda; 'Quitar vínculo' manda vehicleId: null y conserva el monto", async () => {
@@ -844,11 +1160,11 @@ describe("OpportunityFormPage", () => {
     expect(screen.getByText("Reservado")).toHaveClass("ds-badge--info");
     // La unidad con la que arrancó el form no es "nueva": nada se vacía y no
     // hay aviso.
-    expect(screen.getByLabelText("Monto")).toHaveValue(1234.5);
+    expect(screen.getByLabelText("Monto")).toHaveValue("1.234,50");
     expect(screen.getByLabelText("Moneda")).toHaveValue("ARS");
     expect(screen.queryByText(PRICE_HINT)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Financiación")).toHaveValue("OWN_FINANCING");
-    expect(screen.getByLabelText("Origen del lead")).toHaveValue("SHOWROOM");
+    expect(screen.getByLabelText("Origen del cliente")).toHaveValue("SHOWROOM");
 
     await user.click(screen.getByRole("button", { name: "Quitar vínculo" }));
     expect(screen.queryByText("Quitar vínculo")).not.toBeInTheDocument();
@@ -895,7 +1211,7 @@ describe("OpportunityFormPage", () => {
       await screen.findByRole("button", { name: "Ford Ranger 2020 · 40000.00 USD" }),
     );
 
-    expect(screen.getByLabelText("Monto")).toHaveValue(null);
+    expect(screen.getByLabelText("Monto")).toHaveValue("");
     expect(screen.getByLabelText("Moneda")).toHaveValue("");
     expect(screen.getByText(PRICE_HINT)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText(/Ford Ranger 2020 · 40000.00 USD/)).toBeVisible());

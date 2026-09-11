@@ -730,3 +730,78 @@ Casi el mismo color en los dos modos: texto claro sobre fondo claro, y texto osc
 **Arreglo:** una sola línea de CSS. En `.ds-segmented .ds-button:hover:not(:disabled)` se agrega `:not([aria-pressed="true"])` al selector, así la regla de hover deja de aplicar sobre el botón ya activo del grupo y la regla del activo queda sin nada que la pise. Sin cambios de JS ni de la lógica de `aria-pressed` en `OpportunityListPage.tsx`. Como `.ds-segmented` es una regla compartida del sistema de diseño, el fix corrige lo mismo en cualquier otro lugar que la use en el futuro.
 
 **Tests:** el único test relacionado con el toggle (`OpportunityListPage.test.tsx`, "el toggle pasa de la vista de tabla a la de embudo y vuelve...") afirma el `aria-pressed` al hacer click, que no cambia. El hover es CSS puro, que Testing Library no evalúa (jsdom no aplica hojas de estilo), así que no se agrega un test nuevo para este ajuste de contraste; la verificación es visual.
+
+
+---
+
+## 18. Formulario de Oportunidad: seis ajustes (Monto formateado, Moneda cerrada, fecha estimada "desconocida", "Origen del cliente", Estado en español, cierre condicional con fecha automática)
+
+**Estado:** hecho
+
+**Dónde:** `/opportunities/new` y `/opportunities/:id/edit`, `frontend/src/features/opportunity/OpportunityFormPage.tsx`. Seis ajustes independientes al mismo formulario, diagnosticados en el código y con las decisiones de diseño ya cerradas. Se implementan juntos en una sola rama y un solo PR. Ninguno toca el backend ni el contrato de la API.
+
+### Parte A — Monto: separador de miles y decimales con coma, estilo Uruguay
+
+**Comportamiento actual:** `<input type="number" min={0} step="0.01">` sin ningún formato: "20000.5" se ve tal cual, con punto decimal y sin separador de miles.
+
+**Comportamiento deseado:** mientras se escribe, el campo se formatea en vivo estilo Uruguay — punto cada 3 dígitos de la parte entera, coma para los decimales. "20000,5" se ve "20.000,5" al tipear y "20.000,50" al salir del campo (los decimales se completan a 2 recién al perder el foco, para que borrar hacia atrás no pelee con el relleno). Un valor cargado en edición se muestra ya formateado ("1.234,50"). El backend sigue recibiendo el monto real como `number` (Decimal 14,2): es puramente presentación del input.
+
+**Decisión de diseño:** los inputs `type="number"` nativos no admiten separadores de miles en ningún navegador, así que el campo pasa a `type="text" inputMode="decimal"` con formateo/parseo manual. Se agrega un componente genérico del sistema de diseño, `frontend/src/design-system/CurrencyInput.tsx`, que recibe y devuelve el valor canónico (`"20000.5"`, el mismo string que ya guardaba el formulario y que `Number()` convierte) y muestra el formateado con `Intl.NumberFormat("es-UY")`, cuidando la posición del cursor al tipear en medio de un número ya formateado (se cuenta cuántos dígitos quedan a la izquierda del cursor antes de reformatear y se lo vuelve a poner después del mismo dígito). Un punto tipeado se toma como coma decimal (numpad). No se agrega ninguna dependencia: `package.json` no tiene librería de máscaras y una sola función con `Intl` alcanza.
+
+**Alcance:** SOLO el campo Monto de Oportunidad. `VehicleFormPage.tsx` tiene campos de precio con el mismo problema (`priceListUsd`, `priceListLocal`) y NO se tocan acá; el componente queda genérico para que Vehículo lo adopte en otro ítem.
+
+**Tests:** los casos que escriben en Monto y verifican el payload siguen esperando el número real, sin puntos ni comas. Se agregan casos para el formateo visual, para el valor cargado en edición ya formateado, y un test unitario del componente (`CurrencyInput.test.tsx`) con parseo, formateo y cursor.
+
+### Parte B — Moneda: de texto libre a `<select>` con USD/UYU
+
+**Comportamiento actual:** `<input type="text" maxLength={3} pattern="[A-Z]{3}">`, normalizado a 3 letras mayúsculas con `normalizeCurrency`. El comentario de esa función defendía el texto libre a propósito ("el backend acepta cualquier ISO 4217 y una lista inventaría una restricción").
+
+**Comportamiento deseado:** `<select>` cerrado con dos opciones, USD y UYU, sin "Otra". El backend sigue aceptando cualquier ISO 4217 (no se toca); la restricción es solo del lado del cliente, porque la operación real es en Uruguay y el texto libre solo generaba tipeos ("usd", "U$S"). `EMPTY_FORM.currency` sigue siendo `"USD"` como valor inicial.
+
+**Decisión de diseño:** dos casos de borde que el `<select>` cerrado tiene que seguir soportando sin romper lo que ya existía: (1) al vincular una unidad de stock, `handleVehicleChange` vacía Moneda (`""`) para que el backend tome el precio de la unidad — mientras el valor es `""` el select muestra una opción "Según la unidad" que desaparece apenas se elige USD o UYU; (2) un registro persistido con otra moneda (datos viejos, o cargados por API) la muestra como opción extra mientras sea el valor vigente, para que el select nunca muestre "USD" mientras el PATCH manda "ARS". `normalizeCurrency` queda sin callers y se borra.
+
+**Tests:** los casos que tipeaban en Moneda pasan a `selectOptions`. Se agregan: las dos opciones fijas, la opción "Según la unidad" solo mientras está vacía, y la moneda persistida fuera de la lista.
+
+### Parte C — "Fecha estimada de cierre": opción "Desconocida"
+
+**Comportamiento actual:** `<input type="date">`, opcional, sin ninguna afordancia para decir "no sé".
+
+**Comportamiento deseado:** un checkbox al lado, "Fecha desconocida", que al tildarse vacía y deshabilita el input; al destildarlo, el input vuelve a habilitarse. Sin cambio de modelo de datos: "desconocida" y "vacío" son lo mismo para la API. Es afordancia de UI.
+
+**Decisión de diseño:** el checkbox necesita su propio estado local (`useState(false)`): si se derivara de "el campo está vacío", destildarlo con el campo vacío sería imposible (seguiría vacío, seguiría tildado y deshabilitado). Arranca destildado siempre, también en edición con la fecha vacía: como no se persiste, no hay forma de distinguir "desconocida" de "todavía no la cargaron". Va como un `FormField` propio (label > checkbox), que el CSS del sistema de diseño ya pone en fila.
+
+**Tests:** tildar vacía y deshabilita el campo (y el payload de creación lo omite); destildar lo vuelve a habilitar.
+
+### Parte D — "Origen del lead" → "Origen del cliente"
+
+**Comportamiento actual:** label "Origen del lead".
+
+**Comportamiento deseado:** "Origen del cliente". Solo el texto visible: `leadSource`, `OpportunityLeadSource`, `LEAD_SOURCE_LABELS` y `LEAD_SOURCE_OPTIONS` son nombres internos y no cambian. Verificado que "lead" no aparece en ningún otro texto visible de Oportunidad.
+
+**Tests:** los `getByLabelText("Origen del lead")` pasan a "Origen del cliente".
+
+### Parte E — Select "Estado": OPEN/WON/LOST en inglés → español
+
+**Comportamiento actual:** tres `<option>` hardcodeadas con el enum crudo como texto. La traducción correcta ya existía en `OpportunityListPage.tsx` (`STATUSES` y `STATUS_LABEL`: Abierta/Ganada/Perdida), usada en el filtro y en el badge; solo el select del formulario quedó afuera.
+
+**Comportamiento deseado:** el select muestra Abierta/Ganada/Perdida. El `value` de cada opción sigue siendo `"OPEN"`/`"WON"`/`"LOST"`.
+
+**Decisión de diseño:** `STATUS_LABEL` y `STATUSES` se mueven a `frontend/src/features/opportunity/labels.ts` (mismo archivo y mismo patrón `Record<Enum, string>` que `FINANCING_TYPE_LABELS`/`LEAD_SOURCE_LABELS`), se importan desde la lista (reemplazando la definición local) y desde el formulario (las 3 opciones pasan a un `.map`, igual que Financiación/Origen).
+
+**Tests:** los que usan el enum crudo sobre el select de Estado siguen funcionando (`selectOptions` por `value`); se afirma el texto visible. `OpportunityListPage.test.tsx` se corre entero tras mover los símbolos.
+
+### Parte F — "Motivo de pérdida" y "Fecha real de cierre": visibles solo al cerrar, con fecha automática
+
+**Comportamiento actual:** la tarjeta "Estado y cierre" (solo en edición) muestra siempre los dos campos sin importar el Estado. Fue una decisión deliberada de M5 (`docs/project-overview.md`, "`lostReason` — corregido durante el diseño"): se descartó ocultarlo porque dejaba sin definir qué pasa al volver de Perdida a Abierta. Esa decisión se da vuelta acá, con la vuelta definida.
+
+**Comportamiento deseado (cerrado en 3 rondas):**
+
+- **Visibilidad:** los dos campos se muestran juntos SOLO cuando el Estado es Ganada o Perdida; ocultos con Abierta. Un solo criterio para los dos.
+- **Fecha automática:** al cambiar el Estado de Abierta a Ganada o a Perdida (las dos) dentro de la misma sesión de edición, "Fecha real de cierre" se completa sola con la fecha de HOY si estaba vacía.
+- **Editable:** el auto-completado es solo un valor inicial cómodo; el input sigue siendo un `<input type="date">` normal, visible y editable, nunca `disabled`.
+- **Solo la transición vivida en el formulario:** nunca por el valor con el que cargó el registro. Si "Fecha real de cierre" ya tiene un valor (una oportunidad que ya estaba cerrada, o cargada a mano), cambiar el Estado no lo pisa.
+- **Reabrir limpia:** al volver el Estado a Abierta se limpian "Fecha real de cierre" y "Motivo de pérdida" en el mismo `setValues` (mismo criterio que `handlePipelineChange` con `stageId`). Sin esto quedarían ocultos pero viajarían igual en el PATCH, y reabrir arrastraría datos de un cierre anterior. En edición eso viaja como `null` explícito, que es lo que el backend espera para limpiar.
+
+"Hoy" se calcula con `todayIsoDate` de `boardMove.ts` (reloj local, nunca `toISOString()`), que es exactamente lo que ya hace el embudo al arrastrar a Ganada/Perdida.
+
+**Tests:** los que esperaban ver los dos campos siempre visibles pasan a arrancar en Ganada/Perdida. Se agregan: Abierta → Perdida con fecha vacía completa hoy; lo mismo para Ganada; con fecha ya cargada no la pisa; el campo sigue editable tras autocompletarse; volver a Abierta oculta los dos campos, los limpia y el PATCH manda `null` en ambos.

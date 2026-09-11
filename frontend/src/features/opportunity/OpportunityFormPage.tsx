@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
+import { CurrencyInput } from "../../design-system/CurrencyInput";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -12,8 +13,9 @@ import { PipelineSelect } from "../pipeline/PipelineSelect";
 import { StageSelect } from "../stage/StageSelect";
 import { UserSelect } from "../user/UserSelect";
 import { VehicleSelect } from "../vehicle/VehicleSelect";
+import { todayIsoDate } from "./boardMove";
 import { ContactSelect } from "./ContactSelect";
-import { FINANCING_TYPE_LABELS, LEAD_SOURCE_LABELS } from "./labels";
+import { FINANCING_TYPE_LABELS, LEAD_SOURCE_LABELS, STATUS_LABEL, STATUSES } from "./labels";
 import { useCreateOpportunity, useUpdateOpportunity } from "./mutations";
 import { useOpportunity } from "./queries";
 import type {
@@ -64,6 +66,14 @@ const EMPTY_FORM: OpportunityFormValues = {
 
 const FINANCING_TYPE_OPTIONS = Object.keys(FINANCING_TYPE_LABELS) as OpportunityFinancingType[];
 const LEAD_SOURCE_OPTIONS = Object.keys(LEAD_SOURCE_LABELS) as OpportunityLeadSource[];
+
+// Moneda: <select> cerrado con las dos monedas de la operación real (ítem
+// 18.B de docs/frontend-cambios-pendientes.md). Antes era texto libre
+// normalizado a 3 letras porque el backend acepta cualquier código ISO 4217
+// (^[A-Z]{3}$, opportunity.controller.ts) y una lista parecía inventar una
+// restricción; en la práctica solo generaba tipeos ("usd", "U$S"). El backend
+// NO cambia: la restricción es del lado del cliente. Sin opción "Otra".
+const CURRENCY_OPTIONS = ["USD", "UYU"] as const;
 
 // Create: campos vacíos se omiten (undefined) — el backend NO admite null
 // en create para expectedCloseDate/actualCloseDate/lostReason (a diferencia
@@ -128,8 +138,9 @@ function toUpdateInput(values: OpportunityFormValues): UpdateOpportunityInput {
 function toFormValues(data: Opportunity): OpportunityFormValues {
   return {
     title: data.title,
-    // amount llega como string (Decimal) — Number() para poder
-    // editarlo como campo numérico, nunca el string crudo tal cual.
+    // amount llega como string (Decimal) — Number() para tener el valor
+    // canónico que CurrencyInput espera ("1234.5"), nunca el string crudo
+    // tal cual ("1234.50").
     amount: String(Number(data.amount)),
     currency: data.currency,
     status: data.status,
@@ -149,16 +160,8 @@ function toFormValues(data: Opportunity): OpportunityFormValues {
   };
 }
 
-// Moneda: texto libre normalizado a 3 letras mayúsculas, que es exactamente
-// el regex del backend (^[A-Z]{3}$, opportunity.controller.ts). NO es un
-// <select> cerrado como en el diseño: el backend acepta cualquier código
-// ISO 4217 a propósito y una lista de 3 o 4 opciones inventaría una
-// restricción que no existe.
-function normalizeCurrency(raw: string): string {
-  return raw
-    .toUpperCase()
-    .replace(/[^A-Z]/g, "")
-    .slice(0, 3);
+function isClosed(status: OpportunityStatus): boolean {
+  return status === "WON" || status === "LOST";
 }
 
 // Un único componente para create y edit, mismo patrón que
@@ -167,14 +170,13 @@ function normalizeCurrency(raw: string): string {
 // Campos agrupados en tarjetas como en "Nueva oportunidad": "Oportunidad"
 // (título y a quién se asocia), "Embudo y valor" y, desde la Fase 3b del
 // módulo de stock, "Vehículo vinculado" (unidad, financiación y origen del
-// lead — ver handleVehicleChange por la interacción con Monto/Moneda). Estado,
-// Motivo de pérdida
-// y Fecha real de cierre van en una tercera tarjeta SOLO en edición: el
-// diseño no los tiene en creación porque toda oportunidad nueva arranca
-// abierta (EMPTY_FORM.status es "OPEN") y el cierre se haría desde el
-// Kanban; pero el Kanban todavía no existe, así que sacarlos también de la
-// edición dejaría sin forma de cerrar una oportunidad. En edición su
-// comportamiento no cambia en nada.
+// cliente — ver handleVehicleChange por la interacción con Monto/Moneda).
+// Estado, Motivo de pérdida y Fecha real de cierre van en una tercera tarjeta
+// SOLO en edición: el diseño no los tiene en creación porque toda oportunidad
+// nueva arranca abierta (EMPTY_FORM.status es "OPEN") y el cierre se haría
+// desde el Kanban; pero el Kanban todavía no existe, así que sacarlos también
+// de la edición dejaría sin forma de cerrar una oportunidad. Dentro de esa
+// tarjeta, Motivo y Fecha real aparecen solo al cerrar (ver handleStatusChange).
 //
 // Los selectores (CompanySelect, ContactSelect, PipelineSelect, StageSelect,
 // UserSelect) se montan sueltos, sin FormField: traen su propio <label
@@ -215,6 +217,15 @@ export function OpportunityFormPage() {
     opportunityQuery.data ? toFormValues(opportunityQuery.data) : initialValues,
   );
   const [error, setError] = useState<string | null>(null);
+
+  // "Fecha desconocida" (ítem 18.C): afordancia de UI sobre el mismo campo
+  // opcional, sin cambio de modelo — "desconocida" y vacío son lo mismo para
+  // la API. Es estado propio y no se deriva de "el campo está vacío": si lo
+  // fuera, destildarlo con el campo vacío sería imposible (seguiría vacío,
+  // seguiría tildado y deshabilitado). Arranca destildado siempre, también en
+  // edición con la fecha vacía: como no se persiste, no hay forma de
+  // distinguir "desconocida" de "todavía no la cargaron".
+  const [expectedCloseDateUnknown, setExpectedCloseDateUnknown] = useState(false);
 
   const isSubmitting = createOpportunityMutation.isPending || updateOpportunityMutation.isPending;
 
@@ -267,6 +278,46 @@ export function OpportunityFormPage() {
     });
   }
 
+  // Cierre desde el formulario (ítem 18.F de docs/frontend-cambios-pendientes.md).
+  // REEMPLAZA a propósito la decisión de M5 (docs/project-overview.md,
+  // "lostReason — corregido durante el diseño"), que dejaba Motivo de pérdida
+  // y Fecha real de cierre siempre visibles y nunca tocados por status porque
+  // no estaba definido qué pasa al reabrir. Ahora sí está definido:
+  //
+  // - Abierta → Ganada/Perdida: si Fecha real está vacía, se completa con HOY
+  //   (reloj local, mismo todayIsoDate que usa el embudo al arrastrar). Es un
+  //   valor inicial cómodo: el input sigue visible y editable, nunca
+  //   disabled. Solo actúa en la transición vivida acá — con el select
+  //   pasando por "OPEN" —, nunca por el valor con el que cargó el registro:
+  //   una oportunidad que ya estaba cerrada, o con fecha cargada a mano, no
+  //   se pisa.
+  // - Ganada/Perdida → Abierta: se limpian Fecha real y Motivo en el mismo
+  //   setValues (mismo criterio que handlePipelineChange con stageId). Si no,
+  //   quedarían ocultos pero viajarían igual en el PATCH y reabrir arrastraría
+  //   datos del cierre anterior; en edición viajan como null explícito, que es
+  //   lo que el backend espera para limpiar.
+  //
+  // El backend sigue sin sincronizar nada de esto: es comportamiento del
+  // formulario, y el embudo tiene el suyo (boardMove.ts).
+  function handleStatusChange(status: OpportunityStatus) {
+    setValues((current) => {
+      if (status === "OPEN") {
+        return { ...current, status, actualCloseDate: "", lostReason: "" };
+      }
+      if (current.status === "OPEN" && isClosed(status) && !current.actualCloseDate) {
+        return { ...current, status, actualCloseDate: todayIsoDate() };
+      }
+      return { ...current, status };
+    });
+  }
+
+  function handleExpectedCloseDateUnknownChange(unknown: boolean) {
+    setExpectedCloseDateUnknown(unknown);
+    if (unknown) {
+      setValues((current) => ({ ...current, expectedCloseDate: "" }));
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -309,6 +360,12 @@ export function OpportunityFormPage() {
       </ErrorState>
     );
   }
+
+  // Una moneda persistida fuera de la lista (datos viejos, o cargados por
+  // API: el backend acepta cualquier ISO 4217) se muestra como opción extra
+  // mientras sea el valor vigente. Sin esto el <select> mostraría "USD"
+  // (la primera opción) mientras el PATCH sigue mandando el valor real.
+  const isKnownCurrency = (CURRENCY_OPTIONS as readonly string[]).includes(values.currency);
 
   // Restyle según "Nueva oportunidad" de Claude Design con las piezas del
   // restyle de Empresas (.ds-form, .ds-field-grid, .ds-required): las mismas
@@ -380,26 +437,33 @@ export function OpportunityFormPage() {
                 celda de la grilla: la fila queda (Monto | Moneda) | Fecha. */}
             <div>
               <div className="ds-field-row">
+                {/* Formato uruguayo en vivo (ítem 18.A): el estado guarda el
+                    valor canónico ("20000.5") y CurrencyInput muestra
+                    "20.000,50". toCreateInput/toUpdateInput no cambian. */}
                 <FormField label="Monto">
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
+                  <CurrencyInput
                     value={values.amount}
-                    onChange={(event) => setValues({ ...values, amount: event.target.value })}
+                    onChange={(amount) => setValues({ ...values, amount })}
                   />
                 </FormField>
                 <FormField label="Moneda">
-                  <input
-                    type="text"
-                    maxLength={3}
-                    pattern="[A-Z]{3}"
-                    title="Código de 3 letras (ISO 4217), por ejemplo USD o UYU"
+                  <select
                     value={values.currency}
-                    onChange={(event) =>
-                      setValues({ ...values, currency: normalizeCurrency(event.target.value) })
-                    }
-                  />
+                    onChange={(event) => setValues({ ...values, currency: event.target.value })}
+                  >
+                    {/* Vacía solo mientras handleVehicleChange la dejó así:
+                        el backend va a tomar la moneda del precio de la
+                        unidad. Desaparece apenas se elige USD o UYU. */}
+                    {values.currency === "" ? <option value="">Según la unidad</option> : null}
+                    {isKnownCurrency || values.currency === "" ? null : (
+                      <option value={values.currency}>{values.currency}</option>
+                    )}
+                    {CURRENCY_OPTIONS.map((currency) => (
+                      <option key={currency} value={currency}>
+                        {currency}
+                      </option>
+                    ))}
+                  </select>
                 </FormField>
               </div>
               {/* Explica por qué los dos quedaron vacíos al vincular una
@@ -412,15 +476,29 @@ export function OpportunityFormPage() {
                 </p>
               ) : null}
             </div>
-            <FormField label="Fecha estimada de cierre">
-              <input
-                type="date"
-                value={values.expectedCloseDate}
-                onChange={(event) =>
-                  setValues({ ...values, expectedCloseDate: event.target.value })
-                }
-              />
-            </FormField>
+            {/* Fecha estimada + "Fecha desconocida" (ítem 18.C) comparten la
+                celda: el checkbox va debajo del input, como FormField propio
+                (label > checkbox), que el CSS del sistema de diseño ya pone
+                en fila. */}
+            <div>
+              <FormField label="Fecha estimada de cierre">
+                <input
+                  type="date"
+                  value={values.expectedCloseDate}
+                  disabled={expectedCloseDateUnknown}
+                  onChange={(event) =>
+                    setValues({ ...values, expectedCloseDate: event.target.value })
+                  }
+                />
+              </FormField>
+              <FormField label="Fecha desconocida">
+                <input
+                  type="checkbox"
+                  checked={expectedCloseDateUnknown}
+                  onChange={(event) => handleExpectedCloseDateUnknownChange(event.target.checked)}
+                />
+              </FormField>
+            </div>
             {/* "Sin asignar" solo aparece si el registro no tiene dueño
                 (Opportunity.ownerId no es nullable en la API, así que en la
                 práctica solo con datos viejos): con clearable={false} y un
@@ -439,11 +517,11 @@ export function OpportunityFormPage() {
         </Card>
 
         {/* Módulo de stock (Fase 3b). Card aparte y no dentro de "Embudo y
-            valor": la unidad, la financiación y el origen del lead son datos
-            de ESTA venta, no del embudo. Los tres opcionales, sin required —
-            una oportunidad sin unidad vinculada sigue siendo válida. El
-            selector va a lo ancho: su resultado (unidad + precio + estado +
-            "Quitar vínculo") no entra en media columna. */}
+            valor": la unidad, la financiación y el origen del cliente son
+            datos de ESTA venta, no del embudo. Los tres opcionales, sin
+            required — una oportunidad sin unidad vinculada sigue siendo
+            válida. El selector va a lo ancho: su resultado (unidad + precio +
+            estado + "Quitar vínculo") no entra en media columna. */}
         <Card heading="Vehículo vinculado">
           <div className="ds-field-grid">
             <div className="ds-field-grid--full">
@@ -472,7 +550,10 @@ export function OpportunityFormPage() {
                 ))}
               </select>
             </FormField>
-            <FormField label="Origen del lead">
+            {/* "Origen del cliente" es solo el texto visible (ítem 18.D):
+                leadSource/OpportunityLeadSource/LEAD_SOURCE_* son nombres
+                internos y siguen igual. */}
+            <FormField label="Origen del cliente">
               <select
                 value={values.leadSource}
                 onChange={(event) =>
@@ -496,45 +577,46 @@ export function OpportunityFormPage() {
         {/* Sin mockup: el diseño cierra desde el embudo. Misma grilla por
             criterio propio — Estado + Motivo de pérdida como par, el hint a
             lo ancho debajo de los dos (suelto ocuparía una celda), Fecha real
-            sola. */}
+            sola. Motivo y Fecha real solo con Ganada/Perdida — un solo
+            criterio para los dos (ver handleStatusChange). */}
         {isEditMode ? (
           <Card heading="Estado y cierre">
             <div className="ds-field-grid">
               <FormField label="Estado">
                 <select
                   value={values.status}
-                  onChange={(event) =>
-                    setValues({ ...values, status: event.target.value as OpportunityStatus })
-                  }
+                  onChange={(event) => handleStatusChange(event.target.value as OpportunityStatus)}
                 >
-                  <option value="OPEN">OPEN</option>
-                  <option value="WON">WON</option>
-                  <option value="LOST">LOST</option>
+                  {STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {STATUS_LABEL[status]}
+                    </option>
+                  ))}
                 </select>
               </FormField>
-              {/* Siempre visible y editable, sin importar status (ver
-                  docs/project-overview.md: decisión de M5 corregida — el backend
-                  no sincroniza lostReason con status, no se inventa esa
-                  sincronización ni se oculta el campo). */}
-              <FormField label="Motivo de pérdida">
-                <input
-                  type="text"
-                  value={values.lostReason}
-                  onChange={(event) => setValues({ ...values, lostReason: event.target.value })}
-                />
-              </FormField>
-              <p className="ds-hint ds-field-grid--full">
-                Especialmente relevante cuando el estado es LOST.
-              </p>
-              <FormField label="Fecha real de cierre">
-                <input
-                  type="date"
-                  value={values.actualCloseDate}
-                  onChange={(event) =>
-                    setValues({ ...values, actualCloseDate: event.target.value })
-                  }
-                />
-              </FormField>
+              {isClosed(values.status) ? (
+                <>
+                  <FormField label="Motivo de pérdida">
+                    <input
+                      type="text"
+                      value={values.lostReason}
+                      onChange={(event) => setValues({ ...values, lostReason: event.target.value })}
+                    />
+                  </FormField>
+                  <p className="ds-hint ds-field-grid--full">
+                    Especialmente relevante cuando el estado es Perdida.
+                  </p>
+                  <FormField label="Fecha real de cierre">
+                    <input
+                      type="date"
+                      value={values.actualCloseDate}
+                      onChange={(event) =>
+                        setValues({ ...values, actualCloseDate: event.target.value })
+                      }
+                    />
+                  </FormField>
+                </>
+              ) : null}
             </div>
           </Card>
         ) : null}

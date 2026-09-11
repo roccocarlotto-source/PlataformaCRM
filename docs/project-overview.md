@@ -1721,7 +1721,12 @@ auth.users (Supabase, gestionado)          public.users (Prisma, este repo)
   en edición envía `null` (vía la misma asimetría create/undefined vs.
   update/null que ya usan `expectedCloseDate`/`actualCloseDate`); no
   tocarlo reenvía el mismo valor hidratado, nunca `null`/`undefined` por
-  accidente.
+  accidente. **Reemplazada el 2026-09-11** por el ítem 18.F de
+  `docs/frontend-cambios-pendientes.md`, que sí define la vuelta: Motivo
+  de pérdida y Fecha real de cierre se ven solo con Ganada/Perdida, cerrar
+  desde Abierta completa la fecha con hoy si estaba vacía, y reabrir
+  limpia los dos (`null` en el PATCH). La semántica create/undefined vs.
+  update/null y el "no tocarlo reenvía el mismo valor" siguen vigentes.
 
   **Resolución de relaciones — deliberadamente local, no generalizada**:
   `opportunity/relationResolution.ts` reexporta `useCompaniesByIds` de
