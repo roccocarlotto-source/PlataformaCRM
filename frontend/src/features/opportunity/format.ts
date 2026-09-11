@@ -24,9 +24,11 @@ export function formatDate(iso: string): string {
   });
 }
 
-// Suma de montos AGRUPADA POR MONEDA. currency es texto libre ISO 4217 en
-// el backend (cualquier código de 3 letras, ver OpportunityFormPage), así
-// que sumar 1500 USD con 300 ARS en un solo número sería un dato inventado.
+// Suma de montos AGRUPADA POR MONEDA. currency es cualquier código ISO 4217
+// de 3 letras para el backend (el formulario lo acota a USD/UYU desde el
+// ítem 18.B de docs/frontend-cambios-pendientes.md, pero lo persistido o
+// cargado por API puede traer otros), así que sumar 1500 USD con 300 ARS
+// en un solo número sería un dato inventado.
 // Devuelve un total por moneda, en orden de primera aparición, y "—" si no
 // hay nada que sumar. Number() sobre cada amount: nunca concatenar strings.
 export function formatAmountTotals(items: readonly { amount: string; currency: string }[]): string {

@@ -14,6 +14,7 @@ import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
 import { formatAmount, formatDate } from "./format";
+import { STATUS_LABEL, STATUSES } from "./labels";
 import { useDeleteOpportunity } from "./mutations";
 import { OpportunityAssociation } from "./OpportunityAssociation";
 import { OpportunityBoardView } from "./OpportunityBoardView";
@@ -28,16 +29,9 @@ import {
 import type { OpportunitySortBy, OpportunityStatus, SortOrder } from "./types";
 
 const PAGE_SIZE = 20;
-const STATUSES: OpportunityStatus[] = ["OPEN", "WON", "LOST"];
 
-// Traducción del enum real a texto + color. Es el mismo status que ya se
-// leía crudo; no hay ningún estado inventado.
-const STATUS_LABEL: Record<OpportunityStatus, string> = {
-  OPEN: "Abierta",
-  WON: "Ganada",
-  LOST: "Perdida",
-};
-
+// Color por status; el texto (STATUS_LABEL) vive en labels.ts desde el ítem
+// 18.E de docs/frontend-cambios-pendientes.md, compartido con el formulario.
 const STATUS_BADGE_VARIANT: Record<OpportunityStatus, BadgeVariant> = {
   OPEN: "neutral",
   WON: "success",
