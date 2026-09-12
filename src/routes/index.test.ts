@@ -268,3 +268,21 @@ test("la configuración de moneda de la organización (Fase 2c) está montada ba
   const patch = await fetch(`${baseUrl}/api/organization`, { method: "PATCH" });
   assert.equal(patch.status, 401, "PATCH /api/organization no está montado");
 });
+
+test("el CRUD de agentes de IA (paso 2a) está montado bajo /api", async () => {
+  // La regresión que este archivo existe para atrapar: agentRouter escrito,
+  // tipado y con su propio test de integración en verde, pero sin la línea
+  // routes.use("/api", agentRouter) en routes/index.ts.
+  const id = randomUUID();
+  const casos: [string, string][] = [
+    ["GET", "/api/agents"],
+    ["GET", `/api/agents/${id}`],
+    ["POST", "/api/agents"],
+    ["PATCH", `/api/agents/${id}`],
+    ["DELETE", `/api/agents/${id}`],
+  ];
+  for (const [method, path] of casos) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+  }
+});

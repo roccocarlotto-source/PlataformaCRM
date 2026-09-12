@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { activityRouter } from "./activity.routes";
+import { agentRouter } from "./agent.routes";
 import { apiKeyRouter } from "./apiKey.routes";
 import { bookingRouter } from "./booking.routes";
 
@@ -78,6 +79,14 @@ routes.use("/api", importRouter);
 routes.use("/api", branchRouter);
 routes.use("/api", resourceRouter);
 routes.use("/api", serviceTypeRouter);
+
+// Módulo de Agentes de IA (docs/ai-agent-architecture.md §5, paso 2a de §9):
+// CRUD administrativo del Agent de una sucursal. Va acá, pegado a
+// resourceRouter/serviceTypeRouter, porque es la misma clase de entidad —
+// configuración que cuelga de una sucursal— y comparte exactamente su forma:
+// authenticate para leer, + authorize("ADMIN") para escribir. El loop de
+// orquestación y el canal Web público son 2b y no existen todavía.
+routes.use("/api", agentRouter);
 
 // Conexión OAuth con Google Calendar (paso 2 de booking-architecture.md §9).
 // Sus tres rutas administrativas comparten la forma del resto de este bloque;
