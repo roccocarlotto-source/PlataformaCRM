@@ -105,6 +105,10 @@ export interface RunAgentTurnInput {
   contactId: string;
   channel: ConversationChannel;
   texto: string;
+  // Id del hilo en el canal externo (Web: el sessionId del navegador). Solo se
+  // usa al CREAR la conversación; el endpoint ADMIN de prueba no lo manda y
+  // queda null, como siempre.
+  externalThreadId?: string;
 }
 
 export interface RunAgentTurnOptions {
@@ -363,6 +367,7 @@ export async function runAgentTurn(
       agentId,
       contactId,
       channel,
+      externalThreadId: input.externalThreadId,
     }));
 
   const entrante = await createMessage({

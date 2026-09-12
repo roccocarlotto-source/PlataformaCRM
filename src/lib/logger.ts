@@ -43,6 +43,10 @@ const REDACT_PATHS = [
   "req.headers.cookie",
   'req.headers["x-api-key"]',
   'req.headers["x-external-id"]',
+  // El token de embed del widget (paso 5b): misma clase de credencial en
+  // header que x-api-key, mismo tratamiento. Público por diseño, pero un log
+  // no es el lugar donde tiene que vivir.
+  'req.headers["x-embed-token"]',
   'res.headers["set-cookie"]',
 ];
 const REDACT_CENSOR = "[REDACTED]";

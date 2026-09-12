@@ -10,6 +10,7 @@ import { errorHandler } from "./middlewares/errorHandler";
 import { notFound } from "./middlewares/notFound";
 import { routes } from "./routes";
 import { ingestRouter } from "./routes/ingest.routes";
+import { publicWidgetRouter } from "./routes/publicWidget.routes";
 import { qrWebhookRouter } from "./routes/qrWebhook.routes";
 
 // Arma la instancia de Express (middlewares + rutas) sin escuchar ningún
@@ -37,6 +38,47 @@ app.use((_req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();
 });
+
+// pinoHttp ANTES de los parsers de cuerpo (ítem 4) Y, desde el paso 5b del
+// módulo de Agentes de IA, TAMBIÉN ANTES DEL cors() GLOBAL. Engancha res.end
+// al pasar, así que solo loguea lo que se monta después de él: con el orden
+// anterior —parsers primero— un request que moría en el parser (cuerpo
+// demasiado grande, JSON inválido) no dejaba NINGUNA línea de log.
+//
+// EFECTO COLATERAL GLOBAL DE SUBIRLO POR ENCIMA DEL cors() GLOBAL, escrito
+// para que no parezca un cambio no intencional: hasta este cambio, CUALQUIER
+// preflight OPTIONS de la app entera moría en el cors() global antes de llegar
+// a pinoHttp, así que ningún preflight se logueaba nunca, de ningún endpoint.
+// Ahora se loguean todos — no solo los de la ruta pública nueva. Es una mejora
+// incidental (más visibilidad), no un requisito de este PR; el motivo real de
+// moverlo es el de abajo: la ruta pública del widget se monta antes del cors()
+// global, y tiene que quedar cubierta por el log igual que la ingesta.
+app.use(pinoHttp({ logger }));
+
+// EL ROUTER PÚBLICO DEL WIDGET VA ANTES DEL cors() GLOBAL, Y NO ES COSMÉTICO —
+// es el mismo motivo estructural por el que ingestRouter y qrWebhookRouter van
+// antes del express.json() global (ver más abajo), aplicado a CORS en vez de
+// al parseo del cuerpo: un middleware montado DESPUÉS no puede actuar sobre
+// algo que uno anterior ya resolvió o terminó.
+//
+// El cors() global, montado con app.use() sin filtro de ruta, atiende y
+// TERMINA cualquier preflight OPTIONS de la app (responde 204 y no llama a
+// next). Un cors() propio montado después de él sobre /api/public nunca vería
+// el preflight del widget: el global ya habría contestado con SU lista
+// estática de orígenes (CORS_ORIGIN, el frontend propio) y con
+// credentials: true — y el widget vive en el sitio de CADA cliente, con un
+// origen distinto por agente (Agent.allowedOrigins) y sin cookies. Por eso el
+// router público trae su propio CORS dinámico (middlewares/widgetCors.ts),
+// resuelto por el :agentId de la URL, y se monta ACÁ, antes del global.
+//
+// Trae también su propio parser de cuerpo con su propio tope (8 KB,
+// middlewares/widgetBody.ts) y su propio camino de autenticación (el embed
+// token, middlewares/authenticateEmbedToken.ts), así que además cumple el
+// requisito de ir antes del express.json() global por el mismo motivo que la
+// ingesta. Ver routes/publicWidget.routes.ts para el orden interno de la
+// cadena y docs/ai-agent-architecture.md (nota del paso 5b bajo §6) para el
+// diseño.
+app.use("/api/public", publicWidgetRouter);
 
 // LA POLÍTICA CORS DE /api/ingest ES UNA DECISIÓN PENDIENTE, NO UN OLVIDO.
 //
@@ -67,13 +109,6 @@ app.use(
   }),
 );
 app.use(compression());
-
-// pinoHttp ANTES de los parsers de cuerpo (ítem 4). Engancha res.end al pasar,
-// así que solo loguea lo que se monta después de él: con el orden anterior
-// —parsers primero— un request que moría en el parser (cuerpo demasiado grande,
-// JSON inválido) no dejaba NINGUNA línea de log. Se registraba el error en
-// errorHandler, sin método, sin ruta y sin correlación con un request.
-app.use(pinoHttp({ logger }));
 
 // EL ROUTER DE INGESTA VA ANTES DEL express.json() GLOBAL, Y NO ES COSMÉTICO.
 //

@@ -6,6 +6,7 @@ import { acceptInvitationSchema } from "../schemas/invitation.schema";
 import { onboardingOtpSchema, onboardingSchema } from "../schemas/onboarding.schema";
 import type { AuthContext, InvitationAcceptSubject } from "../types/auth";
 import type { IngestContext } from "../types/ingest";
+import type { WidgetAuthContext } from "../types/widgetAuth";
 import { AppError } from "../utils/AppError";
 
 // M1 — rate limiting a nivel Express (docs/project-overview.md §8/§9).
@@ -533,3 +534,76 @@ export function createIngestRateLimiter(overrides?: { windowMs?: number; max?: n
 }
 
 export const ingestRateLimiter = createIngestRateLimiter();
+
+// ---------------------------------------------------------------------------
+// Paso 5b del módulo de Agentes de IA — el widget del canal Web,
+// POST /api/public/agents/:agentId/web/messages (nota fechada bajo §6 de
+// docs/ai-agent-architecture.md, punto 5).
+//
+// Amenaza: el SEGUNDO endpoint del sistema sin usuario detrás, y el más caro
+// por request de toda la app: cada mensaje aceptado dispara una llamada real
+// y paga a un LLM, más las escrituras de conversación y mensajes. La población
+// es cualquier navegador del mundo que cargue el sitio de un cliente — un
+// visitante real, o un script en loop.
+//
+// keyGenerator POR TOKEN (req.widgetAuth.embedTokenId), no por IP ni por
+// organización, por las mismas razones que ingestKeyGenerator (leer ese
+// bloque: trust proxy apagado, CDN delante, cuota cruzada). El token es la
+// unidad que el ADMIN puede revocar y rotar sin downtime (5a), así que es la
+// unidad correcta para contar.
+//
+// VALORES: 60 s / 20 requests — más estricto que businessWriteRateLimiter
+// (100/min por usuario) y que la ingesta. Generoso para una conversación
+// humana real (nadie escribe más de un mensaje cada pocos segundos), estricto
+// contra un script en loop. Constantes y no env vars: a diferencia de la
+// ingesta, acá el emisor es un humano tipeando y el tope no lo tensa ningún
+// volumen externo desconocido; si alguna vez hace falta ajustarlo, se
+// promueve a config/env.ts con el mismo patrón que INGEST_RATE_LIMIT_*.
+//
+// LO QUE ESTE LIMITER NO VE, dicho en una frase y documentado entero como
+// ítem pendiente en §10: el token es público por diseño, así que un token
+// filtrado repartido entre muchas IPs pasa por acá como si fuera un solo
+// widget muy activo. La defensa contra eso es revocar el token, no este
+// contador.
+//
+// Corre SIEMPRE después de authenticateEmbedToken (necesita embedTokenId) —
+// el flood anónimo con token inválido queda acotado por el costo de un
+// SHA-256 y una búsqueda por índice único, igual que en la ingesta.
+//
+// STORE: MemoryStore, con la misma advertencia que todos los demás limiters
+// de este archivo (ver el encabezado): con N instancias el límite efectivo
+// es N * WIDGET_RATE_LIMIT_MAX.
+// ---------------------------------------------------------------------------
+export const WIDGET_RATE_LIMIT_WINDOW_MS = 60_000;
+export const WIDGET_RATE_LIMIT_MAX = 20;
+
+function widgetKeyGenerator(req: Request): string {
+  const widgetAuth = (req as Request & { widgetAuth?: WidgetAuthContext }).widgetAuth;
+  if (!widgetAuth) {
+    // No debería poder pasar nunca: authenticateEmbedToken corre antes en la
+    // cadena y, si falla, ya cortó el request con su 401 — mismo criterio
+    // que ingestKeyGenerator.
+    throw new Error(
+      "widgetRateLimiter: falta req.widgetAuth — verificá el orden de middlewares en publicWidget.routes.ts",
+    );
+  }
+  return widgetAuth.embedTokenId;
+}
+
+// overrides solo para tests de integración, mismo criterio que
+// createIngestRateLimiter.
+export function createWidgetRateLimiter(overrides?: { windowMs?: number; max?: number }) {
+  return rateLimit({
+    windowMs: overrides?.windowMs ?? WIDGET_RATE_LIMIT_WINDOW_MS,
+    max: overrides?.max ?? WIDGET_RATE_LIMIT_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    keyGenerator: widgetKeyGenerator,
+    // Mensaje sin el límite ni la cuota restante, por lo mismo que el de
+    // ingesta: eso viaja en los headers estándar y repetirlo en el cuerpo de
+    // un endpoint público es regalar configuración.
+    handler: buildRateLimitHandler("Demasiados mensajes seguidos. Probá de nuevo en un momento."),
+  });
+}
+
+export const widgetRateLimiter = createWidgetRateLimiter();

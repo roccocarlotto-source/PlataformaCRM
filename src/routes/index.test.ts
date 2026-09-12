@@ -92,6 +92,31 @@ test("las demás rutas de la capa de ingesta también están montadas", async ()
   assert.equal(retry.status, 401, "POST /api/ingestion-events/:id/retry no está montado");
 });
 
+test("el endpoint público del widget está montado en app.ts bajo /api/public, ANTES del cors() y del express.json() globales", async () => {
+  // Mismo criterio que el de ingesta: 415 y no 404 prueba que lo atendió SU
+  // cadena (requireWidgetJsonContentType), no el parser global.
+  const post = await fetch(`${baseUrl}/api/public/agents/${randomUUID()}/web/messages`, {
+    method: "POST",
+  });
+  assert.equal(post.status, 415);
+
+  // Y el preflight lo contesta SU cors (204 sin reflejar ningún origen para
+  // un agente inexistente), no el global: el global reflejaría solo
+  // CORS_ORIGIN y con `credentials: true`. Que no venga
+  // Access-Control-Allow-Credentials es la huella de que corrió el del widget.
+  const preflight = await fetch(`${baseUrl}/api/public/agents/${randomUUID()}/web/messages`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: "https://cliente.example",
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": "x-embed-token",
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get("access-control-allow-origin"), null);
+  assert.equal(preflight.headers.get("access-control-allow-credentials"), null);
+});
+
 test("el webhook de ingesta está montado en app.ts, ANTES del express.json() global", async () => {
   // No da 401 sino 415: en /api/ingest el primer middleware de la cadena es
   // requireJsonContentType, no authenticate. Que conteste 415 y no 404 prueba
