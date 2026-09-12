@@ -199,6 +199,7 @@ after(async () => {
     await prisma.message.deleteMany({ where: { organizationId: org.id } });
     await prisma.conversation.deleteMany({ where: { organizationId: org.id } });
     await prisma.activity.deleteMany({ where: { organizationId: org.id } });
+    await prisma.agentEmbedToken.deleteMany({ where: { organizationId: org.id } });
     await prisma.agent.deleteMany({ where: { organizationId: org.id } });
     await prisma.contact.deleteMany({ where: { organizationId: org.id } });
     await prisma.branch.deleteMany({ where: { organizationId: org.id } });
@@ -227,6 +228,7 @@ test("POST /api/agents — ADMIN crea con el cuerpo mínimo; proveedor y modelo 
   assert.deepEqual(agente.enabledTools, []);
   assert.deepEqual(agente.channels, []);
   assert.deepEqual(agente.guardrails, {});
+  assert.deepEqual(agente.allowedOrigins, [], "paso 5a: sin orígenes = widget deshabilitado");
   assert.equal(agente.isActive, true);
   assert.equal(agente.deletedAt, null);
 });
@@ -719,5 +721,56 @@ test("POST /api/agents/:id/test-message — validación del body y del canal", a
     assert.equal(porWhatsapp.status, 200, crudo);
   } finally {
     resetLlmProviderParaTests();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Paso 5a — allowedOrigins en el CRUD de Agent. La validación en sí
+// (utils/origin.ts) está cubierta en origin.test.ts; acá se prueba que el
+// borde HTTP la aplica, normaliza, deduplica y acepta la lista vacía.
+// ---------------------------------------------------------------------------
+
+test("allowedOrigins — se normalizan y deduplican al crear; PATCH los reemplaza; vacío es válido", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    allowedOrigins: ["https://Ejemplo.com/", "https://ejemplo.com", "http://localhost:5173"],
+  });
+  assert.deepEqual(agente.allowedOrigins, ["https://ejemplo.com", "http://localhost:5173"]);
+
+  const patch = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
+    allowedOrigins: ["https://otro.example"],
+  });
+  assert.equal(patch.status, 200);
+  assert.deepEqual(((await patch.json()) as Record<string, unknown>).allowedOrigins, [
+    "https://otro.example",
+  ]);
+
+  // Vacía deshabilita el widget: es un estado, no un error.
+  const vacia = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
+    allowedOrigins: [],
+  });
+  assert.equal(vacia.status, 200);
+  assert.deepEqual(((await vacia.json()) as Record<string, unknown>).allowedOrigins, []);
+
+  const fila = await prisma.agent.findUniqueOrThrow({ where: { id: String(agente.id) } });
+  assert.deepEqual(fila.allowedOrigins, []);
+});
+
+test("allowedOrigins — rechaza con path, sin esquema, con query, con credenciales o con esquema no web", async () => {
+  const casos: [string, RegExp][] = [
+    ["https://ejemplo.com/widget", /no es un origen válido/],
+    ["ejemplo.com", /no es un origen válido/],
+    ["https://ejemplo.com/?x=1", /no es un origen válido/],
+    ["https://user:pass@ejemplo.com", /no es un origen válido/],
+    ["ftp://ejemplo.com", /no es un origen válido/],
+  ];
+  for (const [origen, esperado] of casos) {
+    const res = await call(
+      "POST",
+      "/api/agents",
+      adminA.accessToken,
+      cuerpoMinimo(orgA.branchId, { allowedOrigins: [origen] }),
+    );
+    assert.equal(res.status, 400, `debía ser 400 para ${origen}`);
+    assert.match(await mensajeDeError(res), esperado);
   }
 });

@@ -11,6 +11,7 @@ import {
   type AgentSortBy,
   type SortOrder,
 } from "../repositories/agent.repository";
+import { revokeEmbedTokensByAgent } from "../repositories/agentEmbedToken.repository";
 import { findBranchById, lockBranchForUpdate } from "../repositories/branch.repository";
 import { AppError } from "../utils/AppError";
 
@@ -91,6 +92,7 @@ export interface CreateAgentInput {
   enabledTools: string[];
   channels: ConversationChannel[];
   guardrails: Record<string, unknown>;
+  allowedOrigins: string[];
   isActive?: boolean;
 }
 
@@ -124,6 +126,7 @@ export async function createAgent(organizationId: string, input: CreateAgentInpu
         modelName: input.modelName,
         enabledTools: input.enabledTools,
         channels: input.channels,
+        allowedOrigins: input.allowedOrigins,
         // El cast es el mismo precio que paga source.service.ts con
         // fieldMapping: InputJsonValue exige una firma de índice que
         // Record<string, unknown> no declara, aunque cualquier objeto JSON la
@@ -155,6 +158,7 @@ export interface UpdateAgentInput {
   enabledTools?: string[];
   channels?: ConversationChannel[];
   guardrails?: Record<string, unknown>;
+  allowedOrigins?: string[];
   isActive?: boolean;
 }
 
@@ -182,8 +186,15 @@ export async function updateAgent(organizationId: string, id: string, input: Upd
 export async function deleteAgent(organizationId: string, id: string) {
   await getAgentById(organizationId, id);
 
-  const result = await softDeleteAgent(id, organizationId);
-  if (result.count === 0) {
-    throw new AppError("Agente no encontrado", 404);
-  }
+  // En transacción con la revocación de sus tokens de embed (paso 5a), mismo
+  // criterio que deleteSource con sus api_keys: dar de baja un agente tiene
+  // que matar sus credenciales, no dejarlas vivas esperando a que el endpoint
+  // público se acuerde de chequear deletedAt. La invariante vive en los datos.
+  await prisma.$transaction(async (tx) => {
+    const result = await softDeleteAgent(id, organizationId, tx);
+    if (result.count === 0) {
+      throw new AppError("Agente no encontrado", 404);
+    }
+    await revokeEmbedTokensByAgent(id, organizationId, tx);
+  });
 }

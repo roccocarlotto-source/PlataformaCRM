@@ -814,7 +814,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 42 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 43 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -869,7 +869,10 @@ from (
     ('conversations_organization_id_branch_id_fkey|conversations(organization_id,branch_id)->branches(organization_id,id)'),
     ('conversations_organization_id_contact_id_fkey|conversations(organization_id,contact_id)->contacts(organization_id,id)'),
     ('messages_organization_id_conversation_id_fkey|messages(organization_id,conversation_id)->conversations(organization_id,id)'),
-    ('messages_organization_id_sender_user_id_fkey|messages(organization_id,sender_user_id)->users(organization_id,id)')
+    ('messages_organization_id_sender_user_id_fkey|messages(organization_id,sender_user_id)->users(organization_id,id)'),
+    -- Paso 5a del módulo de Agentes de IA (migración 20260912140000): el token
+    -- de embed del widget, paralelo a api_keys pero colgando de agents.
+    ('agent_embed_tokens_organization_id_agent_id_fkey|agent_embed_tokens(organization_id,agent_id)->agents(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

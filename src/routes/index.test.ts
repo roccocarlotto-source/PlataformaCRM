@@ -281,6 +281,10 @@ test("el CRUD de agentes de IA (paso 2a) está montado bajo /api", async () => {
     ["PATCH", `/api/agents/${id}`],
     ["DELETE", `/api/agents/${id}`],
     ["POST", `/api/agents/${id}/test-message`],
+    // Paso 5a: tokens de embed, en su propio router.
+    ["GET", `/api/agents/${id}/embed-tokens`],
+    ["POST", `/api/agents/${id}/embed-tokens`],
+    ["DELETE", `/api/agents/${id}/embed-tokens/${randomUUID()}`],
   ];
   for (const [method, path] of casos) {
     const res = await fetch(`${baseUrl}${path}`, { method });

@@ -452,9 +452,10 @@ model Organization {
   workingHours WorkingHours[]
   bookings     Booking[]
 
-  agents        Agent[]
-  conversations Conversation[]
-  messages      Message[]
+  agents           Agent[]
+  conversations    Conversation[]
+  messages         Message[]
+  agentEmbedTokens AgentEmbedToken[]
 
   qrCodes                     QrCode[]
   qrPaymentEvents             PaymentEvent[]
@@ -1012,6 +1013,48 @@ model ApiKey {
   // índice ya las trae, y ordenarlas en memoria es gratis.
   @@index([organizationId, sourceId, createdAt])
   @@map("api_keys")
+}
+
+// ---------------------------------------------------------------------------
+// Token de embed del widget del canal Web (módulo de Agentes de IA, paso 5a;
+// nota del canal Web en §10 de docs/ai-agent-architecture.md).
+//
+// PARALELO A ApiKey, NO UNA EXTENSIÓN DE ÉL: mismo shape (hash + prefix, nunca
+// el token en claro; varios tokens activos por agente para rotar sin
+// downtime; revokedAt como estado terminal en vez de deletedAt), pero
+// scopeado a (organizationId, agentId) porque el widget es por agente, no por
+// fuente de ingesta — y de MENOR privilegio: solo puede escribir mensajes al
+// loop de orquestación, nunca leer nada del CRM. Es un token público de baja
+// privilegio (va en el HTML del sitio del cliente), no un secreto de sesión:
+// lo que lo protege es la suma de rate limit por token + Agent.allowedOrigins.
+//
+// Sin updatedAt: la única transición es revokedAt, y createdAt + revokedAt ya
+// cuentan la historia completa de la fila.
+// ---------------------------------------------------------------------------
+model AgentEmbedToken {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  agentId        String    @map("agent_id") @db.Uuid
+  // SHA-256 hex del token completo (prefijo incluido), UNIQUE global porque
+  // en el momento de autenticar todavía no se conoce la organización — es lo
+  // que la búsqueda resuelve. Ver utils/agentEmbedToken.ts.
+  tokenHash      String    @unique @map("token_hash")
+  // "embed_" + 8 caracteres del secreto: lo único del token que se muestra
+  // en la UI para que un ADMIN sepa cuál revocar.
+  tokenPrefix    String    @map("token_prefix") @db.VarChar(16)
+  lastUsedAt     DateTime? @map("last_used_at")
+  revokedAt      DateTime? @map("revoked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  agent        Agent        @relation(fields: [organizationId, agentId], references: [organizationId, id])
+
+  // Mismo criterio que ApiKey: (organization_id, agent_id, created_at) cubre
+  // el lado referenciante de la FK compuesta —que Postgres no indexa solo— y
+  // el listado "tokens de este agente" ya ordenado, con un único índice. No
+  // hay (organization_id, created_at) aparte: el prefijo ya lo trae.
+  @@index([organizationId, agentId, createdAt])
+  @@map("agent_embed_tokens")
 }
 
 // ---------------------------------------------------------------------------
@@ -1692,6 +1735,15 @@ model Agent {
   // declarados no debería poder existir, aunque su valor sea `{}`.
   guardrails Json
 
+  // Orígenes (esquema + host, sin path) desde los que el widget del canal Web
+  // puede escribirle a este agente — paso 5a, nota del canal Web en §10 de
+  // docs/ai-agent-architecture.md. VACÍO = widget deshabilitado, fail-closed:
+  // un agente recién creado no es accesible desde ningún origen hasta que un
+  // ADMIN registre al menos un dominio. Se compara contra el header Origin
+  // del request público (5b); normalizados por el borde HTTP
+  // (utils/origin.ts) para que la comparación sea por igualdad exacta.
+  allowedOrigins String[] @default([]) @map("allowed_origins")
+
   isActive  Boolean   @default(true) @map("is_active")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -1701,8 +1753,10 @@ model Agent {
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
 
   conversations Conversation[]
+  embedTokens   AgentEmbedToken[]
 
-  // El UNIQUE que habilita la FK compuesta de conversations (C-3).
+  // El UNIQUE que habilita las FKs compuestas de conversations y de
+  // agent_embed_tokens (C-3).
   @@unique([organizationId, id])
   @@index([organizationId])
   @@index([branchId])
