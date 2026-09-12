@@ -39,11 +39,13 @@ async function rechazoDe(nombre: string, args: Record<string, unknown>): Promise
 // Forma del catálogo
 // ---------------------------------------------------------------------------
 
-test("el catálogo tiene exactamente las cuatro tools del paso 2b, con su nombre como clave", () => {
+test("el catálogo tiene exactamente las seis tools de los pasos 2b y 3, con su nombre como clave", () => {
   assert.deepEqual([...CATALOGO_DE_TOOLS.keys()].sort(), [
     "create_booking",
+    "create_lead",
     "create_opportunity",
     "get_availability",
+    "update_lead",
     "update_opportunity",
   ]);
   for (const [nombre, tool] of CATALOGO_DE_TOOLS) {
@@ -139,3 +141,64 @@ test("create_booking: exige resourceId, serviceTypeId y startsAt ISO con zona", 
     /ISO 8601/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// create_lead / update_lead (paso 3) — mismo schema, misma validación
+// ---------------------------------------------------------------------------
+
+test("create_lead y update_lead exponen el mismo schema y ninguno pide contactId", () => {
+  const crear = CATALOGO_DE_TOOLS.get("create_lead")!;
+  const actualizar = CATALOGO_DE_TOOLS.get("update_lead")!;
+  assert.deepEqual(crear.definition.parameters, actualizar.definition.parameters);
+  assert.notEqual(crear.definition.description, actualizar.definition.description);
+
+  const parametros = crear.definition.parameters as {
+    required: string[];
+    properties: Record<string, unknown>;
+  };
+  assert.deepEqual(parametros.required, []);
+  assert.deepEqual(Object.keys(parametros.properties).sort(), [
+    "aiData",
+    "budgetAmount",
+    "budgetCurrency",
+    "intent",
+    "location",
+    "notes",
+    "score",
+    "serviceOfInterest",
+    "urgency",
+  ]);
+});
+
+for (const nombre of ["create_lead", "update_lead"]) {
+  test(`${nombre}: exige al menos un dato de calificación`, async () => {
+    assert.match(await rechazoDe(nombre, {}), /al menos un dato/);
+    // Y lo que el modelo no debe controlar no cuenta como dato: Zod descarta
+    // las claves desconocidas (contactId, lifecycleStage) y queda vacío.
+    assert.match(
+      await rechazoDe(nombre, { contactId: UUID, lifecycleStage: "CUSTOMER" }),
+      /al menos un dato/,
+    );
+  });
+
+  test(`${nombre}: score entre 0 y 100, entero — mismo rango que el CHECK de la base`, async () => {
+    assert.match(await rechazoDe(nombre, { score: 101 }), /entre 0 y 100/);
+    assert.match(await rechazoDe(nombre, { score: -1 }), /entre 0 y 100/);
+    assert.match(await rechazoDe(nombre, { score: 50.5 }), /entero/);
+  });
+
+  test(`${nombre}: budgetAmount y budgetCurrency van en par`, async () => {
+    assert.match(await rechazoDe(nombre, { budgetAmount: 1000 }), /van juntos/);
+    assert.match(await rechazoDe(nombre, { budgetCurrency: "UYU" }), /van juntos/);
+    assert.match(
+      await rechazoDe(nombre, { budgetAmount: -5, budgetCurrency: "UYU" }),
+      /budgetAmount/,
+    );
+    assert.match(await rechazoDe(nombre, { budgetAmount: 5, budgetCurrency: "pesos" }), /currency/);
+  });
+
+  test(`${nombre}: urgency solo LOW/MEDIUM/HIGH y aiData tiene que ser un objeto`, async () => {
+    assert.match(await rechazoDe(nombre, { urgency: "URGENTE" }), /urgency/);
+    assert.match(await rechazoDe(nombre, { aiData: ["x"] }), /aiData/);
+  });
+}

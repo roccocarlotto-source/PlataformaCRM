@@ -766,3 +766,97 @@ test("un agente que no opera en el canal, uno desactivado, o un contacto ajeno s
     await desmontar(e);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 8. Paso 3: create_lead / update_lead end-to-end, y el primer caso real de
+// guardrails.infoNoModificable.
+// ---------------------------------------------------------------------------
+
+test("create_lead y después update_lead en la misma conversación: la calificación se acumula en el Contact", async () => {
+  const e = await montar("lead", { enabledTools: ["create_lead", "update_lead"] });
+  try {
+    const primero = doblarProveedor([
+      pideTool("c1", "create_lead", {
+        score: 60,
+        intent: "comprar un auto usado",
+        urgency: "MEDIUM",
+        notes: "Prefiere automático",
+        aiData: { color: "rojo" },
+      }),
+      texto("Anotado. ¿Tenés un presupuesto en mente?"),
+    ]);
+    const turno1 = await turno(e, "Quiero un auto usado, automático", primero.proveedor);
+    assert.equal(turno1.toolCalls[0].allowed, true);
+    assert.equal(turno1.toolCalls[0].result?.ok, true);
+
+    const segundo = doblarProveedor([
+      pideTool("c2", "update_lead", {
+        score: 80,
+        budgetAmount: 15000,
+        budgetCurrency: "USD",
+        notes: "Hasta 15 mil dólares",
+        aiData: { puertas: 4 },
+      }),
+      texto("Perfecto, con eso tenemos varias opciones."),
+    ]);
+    const turno2 = await turno(e, "Hasta 15 mil dólares", segundo.proveedor);
+    assert.equal(turno2.conversationId, turno1.conversationId);
+    assert.equal(turno2.toolCalls[0].result?.ok, true);
+
+    // El resultado confirma lo escrito, para que el modelo pueda citarlo.
+    const confirmado = turno2.toolCalls[0].result as { ok: true; data: Record<string, unknown> };
+    assert.equal(confirmado.data.score, 80);
+    assert.equal(confirmado.data.budgetAmount, 15000);
+    assert.equal(confirmado.data.budgetCurrency, "USD");
+
+    const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    assert.equal(contacto.leadScore, 80);
+    assert.equal(contacto.leadIntent, "comprar un auto usado", "lo del primer turno sobrevive");
+    assert.equal(contacto.leadUrgency, "MEDIUM");
+    assert.equal(Number(contacto.leadBudgetAmount), 15000);
+    assert.match(
+      contacto.leadNotes ?? "",
+      /Prefiere automático\n\[\d{4}-\d{2}-\d{2}\] Hasta 15 mil dólares$/,
+    );
+    assert.deepEqual(contacto.leadAiData, { color: "rojo", puertas: 4 });
+    assert.equal(contacto.lifecycleStage, "LEAD", "no lo toca el agente");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("infoNoModificable = [Contact.budgetAmount] bloquea update_lead con presupuesto y deja pasar el resto", async () => {
+  const e = await montar("lead-guardrail", {
+    enabledTools: ["update_lead"],
+    guardrails: { infoNoModificable: ["Contact.budgetAmount"] },
+  });
+  try {
+    const doble = doblarProveedor([
+      {
+        text: null,
+        toolCalls: [
+          {
+            id: "c1",
+            name: "update_lead",
+            arguments: { budgetAmount: 9999, budgetCurrency: "USD" },
+          },
+          { id: "c2", name: "update_lead", arguments: { score: 40 } },
+        ],
+      },
+      texto("Tomo nota del interés; el presupuesto lo conversás con el vendedor."),
+    ]);
+
+    const resultado = await turno(e, "Tengo hasta 9999 dólares", doble.proveedor);
+
+    assert.equal(resultado.toolCalls[0].allowed, false);
+    assert.match(resultado.toolCalls[0].reason ?? "", /información protegida \(budgetAmount\)/);
+    assert.equal(resultado.toolCalls[1].allowed, true);
+    assert.equal(resultado.toolCalls[1].result?.ok, true);
+
+    const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    assert.equal(contacto.leadBudgetAmount, null, "el presupuesto protegido no se escribió");
+    assert.equal(contacto.leadScore, 40);
+  } finally {
+    await desmontar(e);
+  }
+});

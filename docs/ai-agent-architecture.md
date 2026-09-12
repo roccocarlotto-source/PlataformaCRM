@@ -276,6 +276,41 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >    construyan (paso 3), es el primer lugar donde este chequeo importa de
 >    verdad y donde conviene revisarlo.
 
+> **Nota del 12/09/2026 — decisiones tomadas al construir el paso 3
+> (`create_lead`/`update_lead`).**
+>
+> 1. **Una sola función de servicio detrás de dos tools.** No hay una entidad
+>    `Lead` separada — son columnas de `Contact` (comentario del schema). No
+>    tiene sentido un "create" que falle si ya hay datos y un "update" que
+>    falle si no los hay: sería un modelo pisándose contra un estado interno
+>    que no puede observar de antemano. Las dos tools (`create_lead`,
+>    `update_lead` — nombres que vienen del catálogo del documento de visión,
+>    sección 6) llaman a la MISMA función `qualifyLead()` de
+>    `contact.service.ts`, con descripciones distintas para orientar al modelo
+>    sobre cuál usar, pero el comportamiento es idéntico e idempotente: cada
+>    campo que el modelo envía se escribe, `leadNotes` siempre se agrega.
+> 2. **`lifecycleStage` NO se toca.** Mismo criterio que ya usa la ingesta
+>    (`promotion.service.ts`: "la ingesta no escribe lifecycleStage: al crear
+>    queda el default LEAD y sobre un contacto existente no se toca",
+>    `CAMPOS_IGNORADOS` en `ingestContact.schema.ts`) — es un campo que este
+>    proyecto trata como de decisión humana, no de escritura automatizada.
+>    `create_lead`/`update_lead` siguen el mismo precedente.
+> 3. **`customFields` queda afuera del alcance de estas tools.** Son campos
+>    configurables por vertical sin una definición de tipo formal todavía
+>    (deferred desde PR #207) — el agente no tiene cómo saber qué campos
+>    existen ni qué forma tienen. Se revisa cuando exista ese catálogo.
+> 4. **`leadAiData` se mergea superficialmente, no se sobreescribe** — mismo
+>    espíritu que `leadNotes`: es "cualquier dato sin columna propia" que se va
+>    acumulando en distintas conversaciones. Claves nuevas pisan claves viejas
+>    del mismo nombre; el resto del objeto anterior se conserva.
+> 5. **Nombres de campo para `infoNoModificable`.** El chequeo (3) de
+>    `puedeEjecutarTool` compara contra los ARGUMENTOS de la tool, así que el
+>    nombre a listar es el del argumento (`Contact.budgetAmount`,
+>    `Contact.score`, `Contact.notes`…), que es el de la columna sin el prefijo
+>    `lead`; `Contact.leadBudgetAmount` no aplicaría. Cada nota que agrega
+>    `qualifyLead` lleva un marcador `[AAAA-MM-DD]` al frente para que se pueda
+>    distinguir de dónde vino cada una.
+
 **La restricción de cumplimiento de Meta (documento de visión, roadmap 2.2) se aplica estructuralmente, no como un guardrail más que un admin pueda desactivar.** El catálogo de tools de la sección 7 solo incluye acciones de negocio acotadas (calificar, agendar, crear oportunidades, links de pago) — no existe ninguna tool de "responder cualquier cosa", así que un agente no puede convertirse en un asistente de propósito general aunque un admin deshabilite todos los guardrails configurables. Es una propiedad del catálogo de tools, no de la configuración.
 
 ## 7. Tools del agente de IA — estado real
@@ -284,7 +319,7 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 | --- | --- | --- |
 | `create_opportunity()` / `update_opportunity()` | `opportunity.service.ts` | **Construida (paso 2b, 12/09/2026)** — wrapper fino en `src/services/agentTools.service.ts` sobre el service existente. Ver la nota fechada bajo la sección 6 sobre qué resuelve el wrapper y qué NO puede elegir el modelo. |
 | `get_availability()` / `create_booking()` | Módulo de Booking (`docs/booking-architecture.md`) | **Construida (paso 2b, 12/09/2026)** — wrapper fino en `src/services/agentTools.service.ts` sobre `availability.service.ts` / `booking.service.ts`. `contactId` de la reserva sale siempre de la conversación. |
-| `create_lead()` / `update_lead()` | `Contact.leadScore`/etc. (PR #207) | Schema listo; falta el método de `contact.service.ts` que escriba estos campos — no existe todavía. `leadNotes` en particular necesita lógica de "agregar, no pisar" (ver el comentario del campo en el schema, PR #207), no un `update` genérico. |
+| `create_lead()` / `update_lead()` | `Contact.leadScore`/etc. (PR #207) | **Construida (paso 3, 12/09/2026)** — las dos tools llaman a la misma `qualifyLead()` de `contact.service.ts`, idempotente; `leadNotes` se agrega y `leadAiData` se mergea, nunca se pisan. Ver la nota fechada del paso 3 bajo la sección 6. |
 | `send_message()` | Integración de WhatsApp | Bloqueada — fuera de alcance de este documento (sección 2). |
 | `create_payment_link()` | Módulo de Pagos (2.3) | Bloqueada — pasarela sin elegir. |
 
@@ -298,7 +333,7 @@ El costo real depende del proveedor de LLM elegido (sección 10, sin decidir) y 
 2. Dividido en dos PRs, el segundo depende del primero:
    - **2a. Fundamentos:** interfaz `LlmProvider` abstracta + un primer adaptador concreto (OpenRouter — ver la decisión en la sección 10) + CRUD administrativo de `Agent` (`/api/agents`, sección 5). Sin loop todavía: deja el proveedor y la configuración del agente listos para que 2b los use.
    - **2b. Loop de orquestación:** capa de permisos (`puedeEjecutarTool`) + el loop completo de la sección 4 + `create_opportunity()`/`update_opportunity()` y `get_availability()`/`create_booking()` como primeras tools reales (son las dos que no necesitan construir nada nuevo debajo) + un endpoint interno de prueba para ejercitarlo antes de que exista el canal Web público. **Construido (12/09/2026):** `agentPermissions.service.ts`, `agentTools.service.ts`, `agentOrchestration.service.ts`, repositorios de `Conversation`/`Message` y `POST /api/agents/:id/test-message`. Las decisiones que hubo que tomar al construirlo están en la nota fechada bajo la sección 6.
-3. `create_lead()`/`update_lead()` — extender `contact.service.ts` para escribir los campos de calificación, con la lógica de "agregar, no pisar" de `leadNotes`.
+3. `create_lead()`/`update_lead()` — extender `contact.service.ts` para escribir los campos de calificación, con la lógica de "agregar, no pisar" de `leadNotes`. **Construido (12/09/2026):** `qualifyLead()` en `contact.service.ts` y las dos tools en `agentTools.service.ts`. Decisiones en la nota fechada del paso 3 bajo la sección 6.
 4. Mecanismo de handoff a humano (ya diseñado en la sección 6, reusa `Activity`).
 5. Endpoint público del canal Web (sección 5) — el widget embebido real.
 6. Integración de WhatsApp, cuando el trámite de Meta/Twilio esté resuelto — reusa el mismo loop ya probado en el paso 2, sin rediseñarlo.

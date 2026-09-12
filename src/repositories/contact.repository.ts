@@ -1,4 +1,4 @@
-import type { LifecycleStage, Prisma } from "@prisma/client";
+import type { LeadUrgency, LifecycleStage, Prisma } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 export interface ContactFilters {
@@ -159,6 +159,39 @@ export function softDeleteContact(id: string, organizationId: string, db: Db = p
     where: { id, organizationId },
     data: { deletedAt: new Date() },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Calificación del lead (columnas lead* de Contact, migración 20260912120000).
+// Escritura APARTE de updateContact, a propósito: UpdateContactData es el
+// contrato del PATCH de un humano y no expone estos campos; el único que los
+// escribe es qualifyLead (contact.service.ts), desde las tools create_lead /
+// update_lead del agente de IA. Que sean dos funciones es lo que garantiza
+// que el agente no pueda tocar, por esta vía, nada que no sea calificación —
+// ni lifecycleStage, ni customFields, ni el resto de Contact.
+// ---------------------------------------------------------------------------
+export interface UpdateLeadQualificationData {
+  leadScore?: number;
+  leadIntent?: string;
+  leadServiceOfInterest?: string;
+  leadUrgency?: LeadUrgency;
+  leadBudgetAmount?: number;
+  leadBudgetCurrency?: string;
+  leadLocation?: string;
+  // Ya concatenado / ya mergeado por el service: acá se escribe tal cual.
+  leadNotes?: string;
+  leadAiData?: Prisma.InputJsonValue;
+}
+
+// updateMany: el WHERE exige organizationId además de id (M4), y deletedAt
+// null — un contacto borrado no se califica.
+export function updateLeadQualification(
+  id: string,
+  organizationId: string,
+  data: UpdateLeadQualificationData,
+  db: Db = prisma,
+) {
+  return db.contact.updateMany({ where: { id, organizationId, deletedAt: null }, data });
 }
 
 // ---------------------------------------------------------------------------

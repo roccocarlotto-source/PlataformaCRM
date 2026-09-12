@@ -1,4 +1,4 @@
-import { Prisma, type LifecycleStage } from "@prisma/client";
+import { Prisma, type LeadUrgency, type LifecycleStage } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { findCompanyById } from "../repositories/company.repository";
 import {
@@ -10,8 +10,10 @@ import {
   findManyContacts,
   softDeleteContact,
   updateContact as updateContactRepo,
+  updateLeadQualification,
   type ContactSortBy,
   type SortOrder,
+  type UpdateLeadQualificationData,
 } from "../repositories/contact.repository";
 import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
 import { AppError } from "../utils/AppError";
@@ -302,4 +304,107 @@ export async function erasePersonalData(
 
     return { contactId: id, ingestionEventsAnonimizados: eventos.count };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Calificación del lead — qualifyLead (paso 3 de docs/ai-agent-architecture.md
+// §9; decisiones en la nota fechada del paso 3 bajo §6).
+//
+// UNA función detrás de las dos tools create_lead / update_lead: no hay
+// entidad Lead, son columnas de Contact, y un "create" que falle si ya hay
+// datos sería un modelo pisándose contra un estado que no puede observar.
+// Idempotente: cada campo que viene se escribe; `notes` SIEMPRE se agrega y
+// `aiData` SIEMPRE se mergea — nunca pisan lo acumulado en conversaciones
+// anteriores (comentario de leadNotes en el schema).
+//
+// LO QUE NO TOCA, y es la mitad del contrato: lifecycleStage (decisión humana,
+// mismo precedente que la ingesta — CAMPOS_IGNORADOS de ingestContact.schema.ts),
+// customFields (sin catálogo de definiciones todavía) y cualquier otro campo
+// de Contact. El repositorio (updateLeadQualification) no los acepta.
+// ---------------------------------------------------------------------------
+
+export interface QualifyLeadInput {
+  // 0..100 — el CHECK contacts_lead_score_range_check es el respaldo; el borde
+  // (la tool) valida antes para fallar con un mensaje y no con un error de
+  // Postgres.
+  score?: number;
+  intent?: string;
+  serviceOfInterest?: string;
+  urgency?: LeadUrgency;
+  budgetAmount?: number;
+  // ISO 4217; la tool exige que venga junto con budgetAmount.
+  budgetCurrency?: string;
+  location?: string;
+  // SE AGREGA, nunca reemplaza.
+  notes?: string;
+  // Merge superficial, nunca reemplaza.
+  aiData?: Record<string, unknown>;
+}
+
+// Marcador al frente de cada nota agregada, para poder distinguir de dónde
+// vino cada una cuando el texto ya acumuló varias conversaciones. Solo la
+// fecha (no hora): es lo que un vendedor lee de un vistazo, y dos notas del
+// mismo día quedan en líneas distintas de todos modos.
+function marcarNota(nota: string, hoy: Date): string {
+  return `[${hoy.toISOString().slice(0, 10)}] ${nota.trim()}`;
+}
+
+export function appendLeadNotes(actual: string | null, nueva: string, hoy = new Date()): string {
+  const marcada = marcarNota(nueva, hoy);
+  return actual && actual.trim().length > 0 ? `${actual}\n${marcada}` : marcada;
+}
+
+// Superficial a propósito: claves nuevas pisan claves viejas del mismo nombre,
+// el resto se conserva. Si lo guardado no es un objeto (null, o un valor
+// suelto escrito por otra vía), el nuevo va tal cual — no hay nada con qué
+// mergear.
+export function mergeLeadAiData(
+  actual: Prisma.JsonValue | null,
+  nuevo: Record<string, unknown>,
+): Record<string, unknown> {
+  const esObjeto = actual !== null && typeof actual === "object" && !Array.isArray(actual);
+  return esObjeto ? { ...(actual as Record<string, unknown>), ...nuevo } : { ...nuevo };
+}
+
+export async function qualifyLead(
+  organizationId: string,
+  contactId: string,
+  input: QualifyLeadInput,
+) {
+  // 404 si no existe, no es de esta organización, o está borrado.
+  const contacto = await getContactById(organizationId, contactId);
+
+  const data: UpdateLeadQualificationData = {
+    ...(input.score !== undefined ? { leadScore: input.score } : {}),
+    ...(input.intent !== undefined ? { leadIntent: input.intent } : {}),
+    ...(input.serviceOfInterest !== undefined
+      ? { leadServiceOfInterest: input.serviceOfInterest }
+      : {}),
+    ...(input.urgency !== undefined ? { leadUrgency: input.urgency } : {}),
+    ...(input.budgetAmount !== undefined ? { leadBudgetAmount: input.budgetAmount } : {}),
+    ...(input.budgetCurrency !== undefined ? { leadBudgetCurrency: input.budgetCurrency } : {}),
+    ...(input.location !== undefined ? { leadLocation: input.location } : {}),
+    ...(input.notes !== undefined && input.notes.trim().length > 0
+      ? { leadNotes: appendLeadNotes(contacto.leadNotes, input.notes) }
+      : {}),
+    ...(input.aiData !== undefined
+      ? {
+          leadAiData: mergeLeadAiData(contacto.leadAiData, input.aiData) as Prisma.InputJsonValue,
+        }
+      : {}),
+  };
+
+  if (Object.keys(data).length === 0) {
+    // Nada que escribir. No es un error: la tool ya exige al menos un campo,
+    // y llegar acá con todo undefined solo pasa desde código.
+    return contacto;
+  }
+
+  const result = await updateLeadQualification(contactId, organizationId, data);
+  if (result.count === 0) {
+    // Se borró entre el pre-chequeo y la escritura. Mismo 404.
+    throw new AppError("Contacto no encontrado", 404);
+  }
+
+  return getContactById(organizationId, contactId);
 }

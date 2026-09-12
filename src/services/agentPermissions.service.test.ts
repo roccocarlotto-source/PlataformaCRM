@@ -232,3 +232,44 @@ test("guardrails con tipos equivocados se tratan como no configurados", () => {
     );
   }
 });
+
+// ---------------------------------------------------------------------------
+// (3) con un caso REAL — paso 3. Hasta create_lead/update_lead ninguna tool
+// tocaba campos de Contact; ahora un guardrail como
+// infoNoModificable = ["Contact.budgetAmount"] tiene algo que bloquear.
+// ---------------------------------------------------------------------------
+
+test("(3) real: Contact.budgetAmount bloquea el argumento budgetAmount de update_lead", () => {
+  const conGuardrail = agente({
+    enabledTools: ["create_lead", "update_lead"],
+    guardrails: { infoNoModificable: ["Contact.budgetAmount"] },
+  });
+
+  const bloqueada = puedeEjecutarTool(
+    conGuardrail,
+    "update_lead",
+    { budgetAmount: 50_000, budgetCurrency: "UYU" },
+    { contactId: "c1" },
+  );
+  assert.equal(bloqueada.allowed, false);
+  assert.match(bloqueada.reason ?? "", /información protegida \(budgetAmount\)/);
+  assert.match(bloqueada.reason ?? "", /update_lead/);
+
+  // El mismo guardrail no molesta a una calificación que no toca el presupuesto.
+  const permitida = puedeEjecutarTool(
+    conGuardrail,
+    "update_lead",
+    { score: 80, notes: "quiere financiar" },
+    { contactId: "c1" },
+  );
+  assert.deepEqual(permitida, { allowed: true });
+
+  // Y aplica igual a create_lead: es el mismo campo, sin importar la tool.
+  const enCreate = puedeEjecutarTool(
+    conGuardrail,
+    "create_lead",
+    { budgetAmount: 1, budgetCurrency: "USD" },
+    { contactId: "c1" },
+  );
+  assert.equal(enCreate.allowed, false);
+});
