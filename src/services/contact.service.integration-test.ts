@@ -5,7 +5,7 @@ import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import { AppError } from "../utils/AppError";
-import { createContact, updateContact } from "./contact.service";
+import { createContact, qualifyLead, updateContact } from "./contact.service";
 
 // M-10 (docs/auditoria-2026-08-29.md) — PATCH no podía vaciar los campos
 // opcionales de Contact. Para phone/jobTitle/source el bug vivía solo en el
@@ -283,6 +283,184 @@ test("M-10: updateContact SIN companyId en el input no toca el vínculo (undefin
     const fila = await prisma.contact.findUnique({ where: { id: creado.id } });
     assert.equal(fila?.companyId, escenario.companyId, "no venir no es lo mismo que venir en null");
     assert.equal(fila?.jobTitle, "CEO");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// qualifyLead — paso 3 del módulo de Agentes de IA. Contra Postgres real
+// porque lo que importa es lo que QUEDA en la fila: que notes se agregue,
+// que aiData se mergee, y que lifecycleStage/customFields no se muevan.
+// ---------------------------------------------------------------------------
+
+const HOY = new Date().toISOString().slice(0, 10);
+
+test("qualifyLead: escribe solo los campos que vienen y devuelve el contacto actualizado", async () => {
+  const escenario = await montar();
+  try {
+    const creado = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Ana",
+      lastName: "Pérez",
+    });
+
+    const calificado = await qualifyLead(escenario.orgId, creado.id, {
+      score: 70,
+      intent: "comprar un auto usado",
+      urgency: "HIGH",
+      budgetAmount: 15000,
+      budgetCurrency: "USD",
+    });
+
+    assert.equal(calificado.leadScore, 70);
+    assert.equal(calificado.leadIntent, "comprar un auto usado");
+    assert.equal(calificado.leadUrgency, "HIGH");
+    assert.equal(Number(calificado.leadBudgetAmount), 15000);
+    assert.equal(calificado.leadBudgetCurrency, "USD");
+    // Lo que no vino sigue en NULL.
+    assert.equal(calificado.leadServiceOfInterest, null);
+    assert.equal(calificado.leadLocation, null);
+    assert.equal(calificado.leadNotes, null);
+    assert.equal(calificado.leadAiData, null);
+
+    // Una segunda calificación pisa lo que trae y conserva lo demás:
+    // idempotente, sin distinción create/update.
+    const otraVez = await qualifyLead(escenario.orgId, creado.id, {
+      score: 85,
+      location: "Pocitos",
+    });
+    assert.equal(otraVez.leadScore, 85);
+    assert.equal(otraVez.leadLocation, "Pocitos");
+    assert.equal(otraVez.leadIntent, "comprar un auto usado", "no se toca lo que no vino");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("qualifyLead: leadNotes se AGREGA con marcador de fecha — sobre null y sobre notas existentes", async () => {
+  const escenario = await montar();
+  try {
+    const creado = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Ana",
+      lastName: "Pérez",
+    });
+
+    const primera = await qualifyLead(escenario.orgId, creado.id, {
+      notes: "  Prefiere automático  ",
+    });
+    assert.equal(primera.leadNotes, `[${HOY}] Prefiere automático`);
+
+    const segunda = await qualifyLead(escenario.orgId, creado.id, {
+      notes: "Duda entre dos modelos",
+    });
+    assert.equal(
+      segunda.leadNotes,
+      `[${HOY}] Prefiere automático\n[${HOY}] Duda entre dos modelos`,
+      "la nota anterior se conserva íntegra",
+    );
+
+    // Una nota vacía no agrega una línea vacía ni pisa nada.
+    const vacia = await qualifyLead(escenario.orgId, creado.id, { notes: "   ", score: 10 });
+    assert.equal(vacia.leadNotes, segunda.leadNotes);
+    assert.equal(vacia.leadScore, 10);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("qualifyLead: leadAiData se mergea superficialmente — claves nuevas pisan, el resto se conserva", async () => {
+  const escenario = await montar();
+  try {
+    const creado = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Ana",
+      lastName: "Pérez",
+    });
+
+    const primera = await qualifyLead(escenario.orgId, creado.id, {
+      aiData: { color: "rojo", puertas: 4, extras: { techo: true } },
+    });
+    assert.deepEqual(primera.leadAiData, { color: "rojo", puertas: 4, extras: { techo: true } });
+
+    const segunda = await qualifyLead(escenario.orgId, creado.id, {
+      aiData: { color: "negro", extras: { gps: true } },
+    });
+    // Superficial: `extras` se reemplaza entero (no se mergea adentro), `puertas` sobrevive.
+    assert.deepEqual(segunda.leadAiData, { color: "negro", puertas: 4, extras: { gps: true } });
+
+    // Si lo guardado no es un objeto (escrito por otra vía), el nuevo va tal cual.
+    await prisma.contact.update({ where: { id: creado.id }, data: { leadAiData: "texto suelto" } });
+    const tercera = await qualifyLead(escenario.orgId, creado.id, { aiData: { color: "gris" } });
+    assert.deepEqual(tercera.leadAiData, { color: "gris" });
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("qualifyLead: NUNCA toca lifecycleStage ni customFields ni el resto de Contact", async () => {
+  const escenario = await montar();
+  try {
+    const creado = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Ana",
+      lastName: "Pérez",
+      email: "ana@example.test",
+      companyId: escenario.companyId,
+    });
+    await prisma.contact.update({
+      where: { id: creado.id },
+      data: { lifecycleStage: "CUSTOMER", customFields: { tratamiento: "ortodoncia" } },
+    });
+
+    await qualifyLead(escenario.orgId, creado.id, {
+      score: 99,
+      intent: "x",
+      serviceOfInterest: "y",
+      urgency: "LOW",
+      budgetAmount: 1,
+      budgetCurrency: "UYU",
+      location: "z",
+      notes: "n",
+      aiData: { k: "v" },
+    });
+
+    const fila = await prisma.contact.findUniqueOrThrow({ where: { id: creado.id } });
+    assert.equal(fila.lifecycleStage, "CUSTOMER", "decisión humana, no del agente");
+    assert.deepEqual(fila.customFields, { tratamiento: "ortodoncia" });
+    assert.equal(fila.email, "ana@example.test");
+    assert.equal(fila.companyId, escenario.companyId);
+    assert.equal(fila.ownerId, escenario.userId);
+    assert.equal(fila.firstName, "Ana");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("qualifyLead: 404 sobre un contacto de OTRA organización, uno inexistente y uno borrado — y nada cambia", async () => {
+  const escenario = await montar();
+  try {
+    const creado = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Ana",
+      lastName: "Pérez",
+    });
+
+    // Otra organización intenta calificarlo.
+    const ajeno = await qualifyLead(escenario.otraOrgId, creado.id, { score: 1 }).catch(
+      (err: unknown) => err,
+    );
+    assertAppError(ajeno, 404);
+
+    const inexistente = await qualifyLead(escenario.orgId, randomUUID(), { score: 1 }).catch(
+      (err: unknown) => err,
+    );
+    assertAppError(inexistente, 404);
+
+    await prisma.contact.update({ where: { id: creado.id }, data: { deletedAt: new Date() } });
+    const borrado = await qualifyLead(escenario.orgId, creado.id, { score: 1 }).catch(
+      (err: unknown) => err,
+    );
+    assertAppError(borrado, 404);
+
+    const fila = await prisma.contact.findUniqueOrThrow({ where: { id: creado.id } });
+    assert.equal(fila.leadScore, null);
   } finally {
     await desmontar(escenario);
   }

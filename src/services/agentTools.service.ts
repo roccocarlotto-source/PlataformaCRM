@@ -1,3 +1,4 @@
+import { LeadUrgency } from "@prisma/client";
 import { z } from "zod";
 import { findContactById } from "../repositories/contact.repository";
 import { findOpportunityById } from "../repositories/opportunity.repository";
@@ -8,12 +9,14 @@ import { AppError } from "../utils/AppError";
 import { currencySchema } from "../utils/validation";
 import { MAX_DIAS_DE_RANGO, obtenerDisponibilidad } from "./availability.service";
 import { createBooking } from "./booking.service";
+import { qualifyLead } from "./contact.service";
 import type { LlmToolDefinition } from "./llmProvider.service";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
 
 // ---------------------------------------------------------------------------
 // Catálogo de tools del agente de IA (docs/ai-agent-architecture.md §7) y sus
-// wrappers. Paso 2b: las cuatro que ya tienen toda su base construida.
+// wrappers. Paso 2b: las cuatro que ya tenían toda su base construida; paso
+// 3: create_lead / update_lead sobre las columnas de calificación de Contact.
 //
 // CADA WRAPPER ES FINO A PROPÓSITO: valida los argumentos que vienen del
 // modelo, resuelve lo que el modelo NO debe controlar, y llama al MISMO service
@@ -438,13 +441,158 @@ const createBookingTool: ToolDelAgente = {
 };
 
 // ---------------------------------------------------------------------------
+// create_lead / update_lead — paso 3 (nota fechada del paso 3 bajo §6).
+//
+// DOS TOOLS, UN SOLO WRAPPER, UNA SOLA FUNCIÓN DE SERVICIO (qualifyLead). Los
+// nombres vienen del catálogo del documento de visión y las descripciones
+// orientan al modelo sobre cuál usar; el comportamiento es idéntico e
+// idempotente. contactId sale siempre de la conversación, como en todas las
+// demás.
+//
+// Los nombres de los argumentos son los de las columnas sin el prefijo `lead`
+// (score, budgetAmount…): son los que un guardrail infoNoModificable tiene
+// que listar (`Contact.budgetAmount`), y es la primera vez que ese chequeo
+// tiene un caso real.
+// ---------------------------------------------------------------------------
+
+const leadArgs = z
+  .object({
+    // Mismo rango que el CHECK contacts_lead_score_range_check: se falla acá,
+    // con mensaje, y no en el UPDATE.
+    score: z
+      .number()
+      .int("score debe ser un entero")
+      .min(0, "score debe estar entre 0 y 100")
+      .max(100, "score debe estar entre 0 y 100")
+      .optional(),
+    intent: z.string().trim().min(1).max(200).optional(),
+    serviceOfInterest: z.string().trim().min(1).max(200).optional(),
+    urgency: z.nativeEnum(LeadUrgency).optional(),
+    budgetAmount: z.number().min(0, "budgetAmount debe ser mayor o igual a 0").optional(),
+    budgetCurrency: currencySchema.optional(),
+    location: z.string().trim().min(1).max(200).optional(),
+    notes: z.string().trim().min(1).max(4000).optional(),
+    aiData: z.record(z.string(), z.unknown()).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "Hay que indicar al menos un dato de calificación",
+  })
+  // Presupuesto como PAR: un monto sin moneda no se puede interpretar, y una
+  // moneda sin monto no dice nada (comentario de leadBudgetAmount en el
+  // schema: sin defaults, 0 no es "sin presupuesto").
+  .refine((data) => (data.budgetAmount === undefined) === (data.budgetCurrency === undefined), {
+    message: "budgetAmount y budgetCurrency van juntos: si viene uno, tiene que venir el otro",
+  });
+
+const LEAD_PARAMETERS = {
+  type: "object",
+  properties: {
+    score: {
+      type: "integer",
+      description: "Puntaje de calificación del lead, de 0 (frío) a 100 (listo para comprar).",
+    },
+    intent: {
+      type: "string",
+      description: "Qué quiere hacer el contacto, en sus palabras (ej. comprar un auto usado).",
+    },
+    serviceOfInterest: {
+      type: "string",
+      description: "Producto o servicio concreto que le interesa.",
+    },
+    urgency: { type: "string", enum: ["LOW", "MEDIUM", "HIGH"], description: "Urgencia." },
+    budgetAmount: {
+      type: "number",
+      description:
+        "Presupuesto disponible, mayor o igual a 0. Va SIEMPRE junto con budgetCurrency.",
+    },
+    budgetCurrency: {
+      type: "string",
+      description:
+        "Moneda del presupuesto, código ISO 4217 de 3 letras. Va SIEMPRE junto con budgetAmount.",
+    },
+    location: { type: "string", description: "Zona o ciudad del contacto." },
+    notes: {
+      type: "string",
+      description:
+        "Observaciones en texto libre (matices, dudas, condiciones). Se AGREGAN a las notas anteriores, nunca las reemplazan.",
+    },
+    aiData: {
+      type: "object",
+      description:
+        "Cualquier otro dato extraído de la conversación que no tenga campo propio, como objeto clave-valor. Se combina con lo ya guardado.",
+    },
+  },
+  required: [],
+  additionalProperties: false,
+};
+
+function ejecutarCalificacion(
+  args: Record<string, unknown>,
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<ResultadoDeTool> {
+  const validacion = validarArgs(leadArgs, args);
+  if (!validacion.ok) {
+    return Promise.resolve(validacion.resultado);
+  }
+  const input = validacion.value;
+
+  return conErroresDeNegocio(async () => {
+    const contacto = await qualifyLead(
+      contexto.organizationId,
+      contexto.conversation.contactId,
+      input,
+    );
+
+    // Confirma QUÉ se escribió (los valores ya persistidos), para que el modelo
+    // pueda referirse a lo que acaba de guardar sin volver a preguntarlo.
+    return exito({
+      contactId: contacto.id,
+      score: contacto.leadScore,
+      intent: contacto.leadIntent,
+      serviceOfInterest: contacto.leadServiceOfInterest,
+      urgency: contacto.leadUrgency,
+      budgetAmount: contacto.leadBudgetAmount === null ? null : Number(contacto.leadBudgetAmount),
+      budgetCurrency: contacto.leadBudgetCurrency,
+      location: contacto.leadLocation,
+      notes: contacto.leadNotes,
+      aiData: contacto.leadAiData,
+    });
+  });
+}
+
+const createLeadTool: ToolDelAgente = {
+  definition: {
+    name: "create_lead",
+    description:
+      "Registra la calificación inicial del contacto de esta conversación como lead: puntaje, intención, servicio de interés, urgencia, presupuesto, zona y notas. Usala la primera vez que reunís datos de calificación en la conversación. Todos los campos son opcionales; mandá los que conozcas.",
+    parameters: LEAD_PARAMETERS,
+  },
+  ejecutar: ejecutarCalificacion,
+};
+
+const updateLeadTool: ToolDelAgente = {
+  definition: {
+    name: "update_lead",
+    description:
+      "Actualiza la calificación del contacto de esta conversación cuando aparece información nueva o cambia algo (subió el presupuesto, cambió la urgencia, surgió una duda). Las notas se agregan a las anteriores. Todos los campos son opcionales; mandá solo lo que cambió.",
+    parameters: LEAD_PARAMETERS,
+  },
+  ejecutar: ejecutarCalificacion,
+};
+
+// ---------------------------------------------------------------------------
 // El catálogo
 // ---------------------------------------------------------------------------
 
 export const CATALOGO_DE_TOOLS: ReadonlyMap<string, ToolDelAgente> = new Map(
-  [createOpportunityTool, updateOpportunityTool, getAvailabilityTool, createBookingTool].map(
-    (tool) => [tool.definition.name, tool],
-  ),
+  [
+    createOpportunityTool,
+    updateOpportunityTool,
+    getAvailabilityTool,
+    createBookingTool,
+    createLeadTool,
+    updateLeadTool,
+  ].map((tool) => [tool.definition.name, tool]),
 );
 
 // La intersección entre lo que el agente tiene habilitado y lo que existe de
