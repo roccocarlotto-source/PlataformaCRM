@@ -1,0 +1,195 @@
+# Arquitectura del módulo de Agentes de IA
+
+Documento de diseño — 12/09/2026. Sigue la misma convención que `authentication-architecture.md`, `ingestion-architecture.md` y `booking-architecture.md`: describe el diseño antes de implementarlo, se actualiza a medida que se construye.
+
+## 1. Contexto y decisión
+
+El sistema necesita que un agente de IA converse con leads y clientes por WhatsApp y por un chat embebido en la web del negocio, ejecutando acciones reales del CRM (calificar, crear oportunidades, agendar) bajo el control del backend — ver `sistema_saas_definicion_funcional.md` (carpeta "Sistema Saas"), secciones 6, 7 y 9, y `docs/roadmap-implementacion.md`, 2.2.
+
+**Decisión: `Agent`/`Conversation`/`Message` como entidades propias, multi-tenant, con `Agent` a nivel de sucursal** — mismo nivel que `Resource`, `ServiceType` y `GoogleCalendarConnection` (`docs/booking-architecture.md`), no a nivel de organización. Motivo: el canal WhatsApp se conecta por sucursal (un número por sucursal, ver el brief del trámite de Meta/Twilio), así que un agente que responde por ese número tiene que poder tener tono, catálogo de servicios y guardrails propios de esa sucursal — dos sucursales de la misma organización pueden vender cosas distintas o tener políticas distintas.
+
+**Decisión: proveedor de LLM abstraído detrás de una interfaz propia, un solo proveedor implementado al principio** — tal como pide el documento de visión (sección 6). Cuál proveedor arrancar no está decidido (ver sección 10) — el diseño de este documento no depende de esa elección.
+
+**Principio que gobierna todo el diseño de acá para abajo, textual del documento de visión:** *"la IA puede proponer o ejecutar una acción, pero el sistema debe controlar si esa acción está permitida."* En este documento eso no es una frase de intención — tiene una implementación concreta en la sección 6 (capa de permisos), y es lo primero que hay que construir bien, antes que cualquier tool.
+
+## 2. Alcance de este módulo
+
+Incluye: modelo de datos de `Agent`/`Conversation`/`Message`, la capa de permisos y guardrails, el loop de orquestación del LLM con tool-calling (un solo proveedor), el mecanismo de handoff a humano, y las dos tools que ya tienen toda su base construida — `create_opportunity()`/`update_opportunity()` (sobre `opportunity.service.ts`) y `get_availability()`/`create_booking()` (sobre el módulo de Booking, completo) — probadas primero por el canal Web, sin depender de WhatsApp.
+
+No incluye (fuera de alcance de este documento):
+- **Integración de WhatsApp Business API** — depende del trámite externo con Meta/Twilio (en curso, por fuera de este repo). El modelo de datos de este documento ya lo contempla (`Conversation.channel`), pero el webhook y el envío real se diseñan cuando esa infraestructura exista.
+- **Knowledge Base / RAG** (sección 8 del documento de visión) — no diseñada todavía. `Agent` no referencia ninguna entidad de conocimiento en este documento.
+- **Motor de automatizaciones** (trigger/condition/action, sección 10 del documento de visión) — módulo aparte. Comparte el motor de eventos salientes (outbox) que ya existe, pero su diseño no vive acá.
+- **Pagos** (`create_payment_link()`) — depende de 2.3, sin pasarela elegida.
+- **`create_lead()`/`update_lead()` como tools terminadas** — el schema que necesitan ya existe (`Contact.leadScore`/`leadIntent`/etc., PR #207), pero `contact.service.ts` todavía no expone ningún método para escribirlos. Queda en el plan de implementación (sección 9), no diseñado a fondo acá porque es un wrapper fino, igual que las otras tools de la sección 7.
+
+## 3. Modelo de datos
+
+Tres entidades nuevas, bajo el mismo patrón de aislamiento multi-tenant que el resto del schema (`organizationId` + FKs compuestas donde aplica):
+
+```prisma
+enum ConversationChannel {
+  WHATSAPP
+  WEB
+}
+
+enum ConversationStatus {
+  ACTIVE
+  TRANSFERRED_TO_HUMAN
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageSenderType {
+  CONTACT   // el lead/cliente escribiendo
+  AGENT     // el agente de IA respondiendo
+  HUMAN     // una persona del negocio tomó la conversación (post handoff)
+}
+
+model Agent {
+  id             String   @id @default(uuid())
+  organizationId String
+  branchId       String
+  name           String              // "Agente comercial"
+  goal           String?             // resumen corto, para mostrar en el panel de admin
+  instructions   String              // el prompt real: objetivo + tono + contexto del negocio
+  tone           String?             // "formal", "cercano" — informativo, se compone en `instructions`
+  modelProvider  String              // "anthropic" | "openai" | "google" — string, no enum: cambia más rápido que un catálogo cerrado (mismo criterio que Opportunity.currency)
+  modelName      String              // el modelo exacto del proveedor
+  enabledTools   String[]            // subconjunto del catálogo de la sección 7, ej. ["create_opportunity", "get_availability"]
+  channels       ConversationChannel[] // en qué canales puede operar este Agent
+  guardrails     Json                // estructura documentada en la sección 6, sin enforcement de forma a nivel de Postgres
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+}
+
+model Conversation {
+  id             String   @id @default(uuid())
+  organizationId String
+  branchId       String              // denormalizado desde agentId, mismo criterio que Stage.organizationId — evita un join para RLS/aislamiento
+  agentId        String              // qué Agent la atendió al crearse; no se pisa en un handoff (ver más abajo)
+  contactId      String              // NOT NULL: una conversación sin contacto no es una conversación (mismo criterio que Booking.contactId)
+  assignedUserId String?             // se completa solo cuando status = TRANSFERRED_TO_HUMAN
+  channel        ConversationChannel
+  status         ConversationStatus @default(ACTIVE)
+  externalThreadId String?           // id del hilo en el canal externo (WhatsApp: el número del contacto; Web: id de sesión del widget)
+  lastMessageAt  DateTime?           // cache denormalizado, para ordenar un futuro listado sin agregar sobre Message
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  // Sin deletedAt: "cerrada" es un status (CLOSED), no un soft delete — mismo
+  // criterio que Booking con BookingStatus.CANCELLED. Una conversación
+  // cerrada es historia que hay que conservar tal cual.
+}
+
+model Message {
+  id                String   @id @default(uuid())
+  organizationId    String              // denormalizado desde conversationId
+  conversationId    String
+  direction         MessageDirection
+  senderType        MessageSenderType
+  senderUserId      String?             // solo cuando senderType = HUMAN
+  content           String              @db.Text
+  toolCalls         Json?               // auditoría: qué tool intentó usar el agente en este turno, con qué argumentos, si se permitió y qué devolvió — ver sección 6
+  externalMessageId String?             // id del mensaje en el canal externo (SID de Twilio, etc.) — dedup ante reintentos/reentregas del webhook
+  createdAt         DateTime @default(now())
+  // Sin updatedAt/deletedAt: un mensaje enviado no se edita ni se borra,
+  // es un registro de lo que pasó (mismo espíritu que Activity, que sí
+  // permite editar — pero un Message es la transcripción de una
+  // conversación real con un tercero, no una nota interna).
+}
+```
+
+**Por qué `Agent.branchId` no es `@unique`.** El documento de visión (sección 6) permite más de un agente por negocio ("ventas, soporte, recepción, postventa") — el schema lo soporta desde ahora aunque el plan de implementación (sección 9) solo va a crear uno ("Agente comercial") por sucursal al principio. El ruteo entre varios agentes activos de la misma sucursal queda como decisión abierta (sección 10) porque hoy no es un problema real: con un solo agente por sucursal no hay nada que rutear.
+
+**Por qué `Conversation.agentId` no cambia en un handoff.** Transferir a una persona es un cambio de `status` + completar `assignedUserId`, no reasignar la conversación a otro `Agent` — `agentId` sigue diciendo qué agente la venía atendiendo, para la auditoría. Si más adelante una conversación necesita pasar de un agente a otro (no a un humano), eso es un caso distinto, no diseñado acá.
+
+**Por qué `guardrails` es `Json` y no columnas.** Mismo motivo que `Contact.customFields` (PR #207): la sección 6 del documento de visión lista siete dimensiones de guardrail distintas (temas prohibidos, acciones prohibidas, información no modificable, cuándo derivar, promesas prohibidas, información requerida antes de una acción, herramientas habilitadas — esta última ya tiene su propia columna, `enabledTools`) y cada negocio va a necesitar una combinación distinta. Modelarlo como columnas fijas sería inventar una forma que no le va a servir a todos. La forma esperada (documentada, no impuesta por Postgres) está en la sección 6.
+
+**Índices** (sin agregar todavía los que dependan de un patrón de consulta real que no existe hasta que haya un panel de admin):
+- `Agent`: `[organizationId]`, `[branchId]`.
+- `Conversation`: `[organizationId]`, `[branchId]`, `[contactId]` (historial de conversaciones de un contacto), `[organizationId, status]` (bandeja de conversaciones activas/derivadas).
+- `Message`: `[conversationId, createdAt]` (el patrón de lectura real: los mensajes de una conversación, en orden).
+
+## 4. Loop de orquestación del LLM
+
+1. Llega un mensaje entrante (por ahora, desde el endpoint del canal Web — sección 5) → se resuelve o crea la `Conversation` (por `contactId` + `channel`, o por `externalThreadId` si ya existe una activa) y se persiste como `Message` (`INBOUND`, `senderType: CONTACT`).
+2. Se arma el contexto para el LLM: `Agent.instructions` + `Agent.tone` como system prompt, una ventana de los `Message` más recientes de la conversación (tamaño exacto sin decidir — sección 10), y el catálogo de tools filtrado por `Agent.enabledTools`.
+3. Se llama al proveedor de LLM (interfaz abstracta, sección 1) con tool-calling habilitado.
+4. **Si el modelo pide ejecutar una tool, NO se ejecuta directo.** Pasa primero por la capa de permisos (sección 6): `puedeEjecutarTool(agent, toolName, args, conversation)`. Si no está permitida, no se ejecuta — se le devuelve al modelo que esa acción no está disponible (o se dispara un handoff, si el guardrail dice eso), nunca se le miente al modelo con un resultado falso.
+5. Si está permitida, se ejecuta el wrapper real de la tool (que llama al service existente correspondiente — `opportunity.service.ts`, el módulo de Booking, etc.) y el resultado se registra en `Message.toolCalls` del turno.
+6. El resultado de la tool vuelve al modelo si hace falta (para que arme la respuesta final), o el modelo responde directo.
+7. La respuesta final se envía por el canal correspondiente y se persiste como `Message` (`OUTBOUND`, `senderType: AGENT`), con `Conversation.lastMessageAt` actualizado.
+
+**Este loop es el mismo para Web y para WhatsApp.** Lo único que cambia entre canales es cómo entra el mensaje y cómo sale la respuesta (sección 5) — la orquestación, la capa de permisos y el registro de auditoría son una sola implementación. Es la razón por la que conviene probar todo esto primero por Web (sección 9): el canal más simple de construir, ninguna aprobación externa de por medio, y si el loop tiene un problema de diseño es mucho más barato encontrarlo ahí que en producción sobre WhatsApp real.
+
+## 5. API interna
+
+- **Canal Web**: `POST /api/public/agents/:branchId/web/messages` — recibe un mensaje del widget embebido en la web del negocio. **Sin `authenticate`**, porque quien escribe es un visitante anónimo del sitio del negocio, no un usuario de este CRM — mismo problema de fondo que ya resolvieron `qrPublic.service.ts` y la capa de ingesta (`ApiKey`) para otros casos de escritura pública. La identidad que hay que validar acá no es "quién es la persona", es "este widget pertenece de verdad a esta sucursal" — probablemente un token de embed por sucursal, análogo a `ApiKey` pero de menor privilegio (solo puede escribir mensajes, no leer nada del CRM). **Diseño exacto pendiente** (sección 10): cómo se identifica/crea el `Contact` de un visitante que todavía no dio ningún dato de contacto real.
+- **Canal WhatsApp**: `POST /api/webhooks/whatsapp` — mismo patrón que `POST /api/webhooks/google-calendar` (`docs/booking-architecture.md`, sección 5): sin `authenticate`, un token firmado propio como defensa, `externalMessageId` para idempotencia ante reintentos. No se puede terminar de diseñar en detalle hasta que exista la cuenta de Twilio/Meta — lo que sí queda fijo desde ahora es que entra al mismo loop de la sección 4, no a uno paralelo.
+- **Administración** (ADMIN-only, mismo `authorize("ADMIN")` que `Branch`/`Pipeline`): `POST/GET/GET :id/PATCH/DELETE /api/agents` — CRUD del `Agent` de una sucursal. `GET /api/conversations?status=&branchId=` — bandeja de conversaciones (activas / derivadas / cerradas). `GET /api/conversations/:id/messages` — el hilo completo de una conversación, para que un humano vea el contexto antes de tomarla en un handoff.
+- **Sin endpoint de ejecución de tools.** El loop de la sección 4 llama directo a los services existentes (`opportunity.service.ts`, el módulo de Booking) desde dentro del proceso — no hay una capa HTTP intermedia. Mismo principio que ya establece `docs/booking-architecture.md` sección 7 para `get_availability()`/`create_booking()`: el agente nunca le habla a un proveedor externo ni salta la validación de negocio, siempre pasa por el mismo código que usaría un humano desde el panel.
+
+## 6. Guardrails y capa de permisos
+
+Esta es la pieza que hace cumplir, con código, el principio de la sección 1 — no es una sugerencia en el prompt del modelo.
+
+**Forma esperada de `Agent.guardrails`** (documentada acá, no forzada por Postgres — mismo criterio que `Contact.customFields`):
+
+```json
+{
+  "temasProhibidos": ["diagnósticos médicos", "asesoramiento legal"],
+  "accionesProhibidas": ["update_opportunity"],
+  "infoNoModificable": ["Contact.email"],
+  "condicionesDeDerivacion": ["el cliente pide hablar con una persona", "reclamo o queja"],
+  "promesasProhibidas": ["descuentos no publicados", "plazos de entrega no confirmados"],
+  "datosRequeridosAntesDeAccion": {
+    "create_booking": ["contactId", "serviceTypeId"]
+  }
+}
+```
+
+**`puedeEjecutarTool(agent, toolName, args, conversation)` es la función central**, llamada antes de ejecutar cualquier tool (paso 4 de la sección 4). Chequea, en este orden: (1) `toolName` está en `agent.enabledTools`; (2) `toolName` no está en `guardrails.accionesProhibidas`; (3) los campos de `args` no tocan nada listado en `guardrails.infoNoModificable`; (4) si `guardrails.datosRequeridosAntesDeAccion[toolName]` existe, todos esos datos ya están disponibles en la conversación (si no, la tool no se ejecuta y el modelo tiene que seguir preguntando). Devuelve `{ allowed: boolean, reason?: string }` — nunca ejecuta nada, solo decide.
+
+**El handoff a humano usa el mismo mecanismo, no uno aparte.** Se dispara cuando: el contacto lo pide explícitamente, el modelo no puede resolver el caso (falla repetida de tool-calling o el propio modelo lo señala), una `condicionDeDerivacion` configurada coincide con la conversación, o una tool bloqueada por el guardrail es la única forma de seguir (ej. el cliente pide algo que requiere una acción prohibida). Al dispararse: `Conversation.status = TRANSFERRED_TO_HUMAN`, `Conversation.assignedUserId` se completa (por ahora, el `ownerId` del `Contact` si tiene uno asignado; si no, sin asignar — un vendedor lo toma desde la bandeja de "Actividades"/"Mis tareas"), y se crea una `Activity` asociada al `Contact` — **reutiliza la infraestructura de `Activity` que ya existe**, no hace falta un mecanismo de notificación nuevo: la persona ve la conversación derivada exactamente donde ya mira sus tareas pendientes.
+
+**La restricción de cumplimiento de Meta (documento de visión, roadmap 2.2) se aplica estructuralmente, no como un guardrail más que un admin pueda desactivar.** El catálogo de tools de la sección 7 solo incluye acciones de negocio acotadas (calificar, agendar, crear oportunidades, links de pago) — no existe ninguna tool de "responder cualquier cosa", así que un agente no puede convertirse en un asistente de propósito general aunque un admin deshabilite todos los guardrails configurables. Es una propiedad del catálogo de tools, no de la configuración.
+
+## 7. Tools del agente de IA — estado real
+
+| Tool | Depende de | Estado |
+| --- | --- | --- |
+| `create_opportunity()` / `update_opportunity()` | `opportunity.service.ts` | Listo para construir — wrapper fino, el service ya existe completo. |
+| `get_availability()` / `create_booking()` | Módulo de Booking (`docs/booking-architecture.md`) | Listo para construir — el módulo está completo (PRs #41-44). |
+| `create_lead()` / `update_lead()` | `Contact.leadScore`/etc. (PR #207) | Schema listo; falta el método de `contact.service.ts` que escriba estos campos — no existe todavía. `leadNotes` en particular necesita lógica de "agregar, no pisar" (ver el comentario del campo en el schema, PR #207), no un `update` genérico. |
+| `send_message()` | Integración de WhatsApp | Bloqueada — fuera de alcance de este documento (sección 2). |
+| `create_payment_link()` | Módulo de Pagos (2.3) | Bloqueada — pasarela sin elegir. |
+
+## 8. Costos
+
+El costo real depende del proveedor de LLM elegido (sección 10, sin decidir) y del volumen/largo de conversación — no tiene sentido inventar un número acá antes de esa decisión. Lo que sí es estable independientemente del proveedor: el costo por conversación va a estar dominado por el tamaño del contexto que se le pasa al modelo en cada turno (system prompt + historial de mensajes + definiciones de tools), que es exactamente la ventana de contexto que la sección 10 deja como decisión abierta.
+
+## 9. Plan de implementación sugerido
+
+1. Schema: `Agent`/`Conversation`/`Message` + migración (esta es la base de todo lo demás).
+2. Capa de permisos (`puedeEjecutarTool`) + loop de orquestación mínimo con **un** proveedor de LLM, probado por el canal Web, con `create_opportunity()`/`update_opportunity()` y `get_availability()`/`create_booking()` como primeras tools reales — son las dos que no necesitan construir nada nuevo debajo.
+3. `create_lead()`/`update_lead()` — extender `contact.service.ts` para escribir los campos de calificación, con la lógica de "agregar, no pisar" de `leadNotes`.
+4. Mecanismo de handoff a humano (ya diseñado en la sección 6, reusa `Activity`).
+5. Endpoint público del canal Web (sección 5) — el widget embebido real.
+6. Integración de WhatsApp, cuando el trámite de Meta/Twilio esté resuelto — reusa el mismo loop ya probado en el paso 2, sin rediseñarlo.
+7. Conectar el motor de automatizaciones (acción "iniciar acción de IA") — depende de que ese motor exista, que es un módulo aparte.
+8. `create_payment_link()` — al final, cuando haya un pack que lo justifique (Pack Turnos, si se prioriza la seña anti no-show).
+
+## 10. Decisiones abiertas / pendientes
+
+- **Proveedor de LLM inicial** — Anthropic, OpenAI o Google, sin decidir. La interfaz abstracta de la sección 4 no depende de esta elección, así que no bloquea el paso 1 del plan de implementación.
+- **Ruteo entre varios `Agent` activos de la misma sucursal** — hoy no es un problema real porque el plan de implementación solo crea un "Agente comercial" por sucursal; se resuelve cuando alguien de verdad necesite un segundo agente.
+- **Diseño exacto del endpoint público del canal Web** — cómo se autentica el widget (token de embed por sucursal, similar a `ApiKey` pero de menor privilegio) y cómo se identifica o crea el `Contact` de un visitante anónimo que todavía no dio ningún dato real.
+- **Tamaño de la ventana de contexto** — cuántos `Message` previos de una `Conversation` se le pasan al LLM en cada turno, y qué pasa con una conversación muy larga (resumir, truncar, algo distinto) — no decidido.
+- **Rate limiting propio del loop del agente** — además del rate limiter genérico que ya usa el resto de las rutas de escritura (`businessWriteRateLimiter`), una llamada a un LLM es mucho más cara que un CRUD típico y probablemente necesita su propio límite — a evaluar cuando se implemente el paso 2 del plan.
+- **Knowledge Base / RAG** — sección 8 del documento de visión, sin diseñar. Cuando se aborde, probablemente sea un documento propio, mismo criterio que este.
