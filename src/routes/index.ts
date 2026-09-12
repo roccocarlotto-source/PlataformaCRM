@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { activityRouter } from "./activity.routes";
+import { agentEmbedTokenRouter } from "./agentEmbedToken.routes";
 import { agentRouter } from "./agent.routes";
 import { apiKeyRouter } from "./apiKey.routes";
 import { bookingRouter } from "./booking.routes";
@@ -87,6 +88,11 @@ routes.use("/api", serviceTypeRouter);
 // authenticate para leer, + authorize("ADMIN") para escribir. El loop de
 // orquestación y el canal Web público son 2b y no existen todavía.
 routes.use("/api", agentRouter);
+// Tokens de embed del widget del canal Web (paso 5a): credenciales de un
+// agente, ADMIN-only incluida la lectura, mismo patrón que apiKeyRouter. El
+// endpoint público que los consume (5b) NO va acá: será sin authenticate y
+// sin /api, junto a qrPublicRouter.
+routes.use("/api", agentEmbedTokenRouter);
 
 // Conexión OAuth con Google Calendar (paso 2 de booking-architecture.md §9).
 // Sus tres rutas administrativas comparten la forma del resto de este bloque;

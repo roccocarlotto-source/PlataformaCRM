@@ -17,6 +17,7 @@ import {
 } from "../services/llmProvider.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
+import { normalizeOrigin } from "../utils/origin";
 import { parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
@@ -86,6 +87,34 @@ const guardrailsSchema = z.record(z.string(), z.unknown(), {
   required_error: "guardrails es requerido (puede ser {})",
 });
 
+// Orígenes desde los que el widget del canal Web puede escribirle al agente
+// (paso 5a; nota del canal Web en §10). Cada entrada se valida y normaliza
+// con utils/origin.ts —esquema + host, sin path, query, fragmento ni
+// credenciales— y se guarda normalizada, para que el 5b compare el header
+// Origin por igualdad exacta. Vacío ES VÁLIDO y es el estado que deshabilita
+// el widget (fail-closed), no un error. Deduplicado después de normalizar:
+// "https://Ejemplo.com" y "https://ejemplo.com/" son el mismo origen.
+const originSchema = z
+  .string()
+  .trim()
+  .max(255, "un origen no puede superar los 255 caracteres")
+  .transform((value, ctx) => {
+    const normalized = normalizeOrigin(value);
+    if (normalized === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `"${value}" no es un origen válido: se espera esquema http/https + host, sin path (ej. https://ejemplo.com)`,
+      });
+      return z.NEVER;
+    }
+    return normalized;
+  });
+
+export const allowedOriginsSchema = z
+  .array(originSchema)
+  .max(50, "allowedOrigins no puede superar las 50 entradas")
+  .transform(sinDuplicados);
+
 const nameSchema = z
   .string()
   .trim()
@@ -113,6 +142,8 @@ const createAgentSchema = z.object({
   enabledTools: enabledToolsSchema.default([]),
   channels: channelsSchema.default([]),
   guardrails: guardrailsSchema,
+  // Default vacío = widget deshabilitado (fail-closed). Ver allowedOriginsSchema.
+  allowedOrigins: allowedOriginsSchema.default([]),
   isActive: z.boolean().optional(),
 });
 
@@ -130,6 +161,7 @@ const updateAgentSchema = z
     enabledTools: enabledToolsSchema,
     channels: channelsSchema,
     guardrails: guardrailsSchema,
+    allowedOrigins: allowedOriginsSchema,
     isActive: z.boolean(),
   })
   .partial()

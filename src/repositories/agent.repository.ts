@@ -72,6 +72,8 @@ export interface CreateAgentData {
   enabledTools: string[];
   channels: ConversationChannel[];
   guardrails: Prisma.InputJsonValue;
+  // Ya normalizados por utils/origin.ts. Vacío = widget deshabilitado.
+  allowedOrigins?: string[];
   isActive?: boolean;
 }
 
@@ -90,6 +92,7 @@ export interface UpdateAgentData {
   modelName?: string;
   enabledTools?: string[];
   channels?: ConversationChannel[];
+  allowedOrigins?: string[];
   // Se reemplaza entero, nunca se mergea: guardrails es NOT NULL sin default
   // en el schema, así que acá no hay DbNull que contemplar.
   guardrails?: Prisma.InputJsonValue;
