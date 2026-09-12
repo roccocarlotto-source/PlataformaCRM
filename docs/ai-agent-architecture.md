@@ -223,14 +223,67 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 
 **El handoff a humano usa el mismo mecanismo, no uno aparte.** Se dispara cuando: el contacto lo pide explícitamente, el modelo no puede resolver el caso (falla repetida de tool-calling o el propio modelo lo señala), una `condicionDeDerivacion` configurada coincide con la conversación, o una tool bloqueada por el guardrail es la única forma de seguir (ej. el cliente pide algo que requiere una acción prohibida). Al dispararse: `Conversation.status = TRANSFERRED_TO_HUMAN`, `Conversation.assignedUserId` se completa (por ahora, el `ownerId` del `Contact` si tiene uno asignado; si no, sin asignar — un vendedor lo toma desde la bandeja de "Actividades"/"Mis tareas"), y se crea una `Activity` asociada al `Contact` — **reutiliza la infraestructura de `Activity` que ya existe**, no hace falta un mecanismo de notificación nuevo: la persona ve la conversación derivada exactamente donde ya mira sus tareas pendientes.
 
+> **Nota del 12/09/2026 — decisiones tomadas al construir el paso 2b (loop de
+> orquestación).** Cuatro cosas que esta sección y la 7 dejaban sin resolver y
+> que hubo que decidir para poder escribir el loop y las primeras tools:
+>
+> 1. **A quién se le atribuye una `Opportunity` que crea el agente.**
+>    `Opportunity.ownerId` es NOT NULL con FK a `User` — no puede quedar vacío,
+>    y un agente de IA no es un `User`. Resolución: `create_opportunity` usa el
+>    `ownerId` del `Contact` de la conversación (el vendedor ya asignado a ese
+>    lead). Si el `Contact` no tiene `ownerId`, la tool falla con un error claro
+>    ("no se puede crear la oportunidad: el contacto no tiene un vendedor
+>    asignado") en vez de inventar un dueño — el modelo recibe ese error como
+>    resultado de la tool y decide cómo seguir la conversación con eso. El
+>    `contactId` de la oportunidad se toma SIEMPRE del `Contact` de la
+>    conversación, nunca es un argumento que el modelo pueda elegir.
+> 2. **A qué `pipelineId`/`stageId` va una `Opportunity` que crea el agente.**
+>    Se usa el `Pipeline` con `isDefault = true` de la organización (la columna
+>    ya existe, con índice único parcial que garantiza como máximo uno) y,
+>    dentro de él, el `Stage` de menor `order` no borrado. Si la organización
+>    no tiene un pipeline por defecto configurado, la tool falla con un error
+>    claro — mismo criterio que el punto anterior, no se inventa nada.
+>    `pipelineId`/`stageId`/`ownerId`/`contactId` NO son campos que el modelo
+>    pueda pasar como argumento en `create_opportunity` — los resuelve el
+>    wrapper, siempre. `update_opportunity` tampoco expone
+>    `ownerId`/`contactId`/`pipelineId` en su schema hacia el modelo (un agente
+>    de IA no debe poder reasignar el vendedor ni mover una oportunidad de
+>    pipeline) — por eso el `actorUserId` de `updateOpportunity` es
+>    efectivamente inerte en este camino: se le pasa el `ownerId` que la
+>    oportunidad ya tiene.
+> 3. **Alcance del handoff en este PR — NO es el mecanismo completo de esta
+>    sección.** Lo único que implementa 2b es una red de seguridad
+>    determinística: si el loop de tool-calling de un turno supera
+>    `MAX_TOOL_ROUNDS_PER_TURN` (5) rondas sin que el modelo produzca una
+>    respuesta final, el loop corta, pone `Conversation.status =
+>    TRANSFERRED_TO_HUMAN`, persiste un mensaje de cierre fijo ("No pude
+>    resolver tu consulta en este momento, alguien del equipo te va a
+>    contactar.") y termina el turno — así el loop nunca queda colgado ni
+>    miente con una respuesta inventada. Los otros disparadores de handoff que
+>    describe esta sección (el contacto lo pide explícitamente, una
+>    `condicionDeDerivacion` configurada coincide con el texto de la
+>    conversación) y la notificación real a un humano (crear la `Activity`,
+>    resolver `assignedUserId`) siguen siendo el paso 4 del plan, sin construir,
+>    tal como ya estaba planeado — este PR no los adelanta.
+> 4. **Interpretación de `guardrails.infoNoModificable` en
+>    `puedeEjecutarTool`.** Los ejemplos de arriba son del tipo `Contact.email`
+>    (formato `Entidad.campo`), pero no hay un mapeo tool→entidad en código.
+>    Implementación: se descarta el prefijo antes del punto y se compara el
+>    nombre de campo (case-insensitive) contra las claves de `args` de la tool
+>    que se está por ejecutar. Es una simplificación deliberada, documentada acá
+>    porque ninguna de las cuatro tools de este PR toca campos de `Contact`, así
+>    que no se ejercita todavía — cuando `create_lead`/`update_lead` se
+>    construyan (paso 3), es el primer lugar donde este chequeo importa de
+>    verdad y donde conviene revisarlo.
+
 **La restricción de cumplimiento de Meta (documento de visión, roadmap 2.2) se aplica estructuralmente, no como un guardrail más que un admin pueda desactivar.** El catálogo de tools de la sección 7 solo incluye acciones de negocio acotadas (calificar, agendar, crear oportunidades, links de pago) — no existe ninguna tool de "responder cualquier cosa", así que un agente no puede convertirse en un asistente de propósito general aunque un admin deshabilite todos los guardrails configurables. Es una propiedad del catálogo de tools, no de la configuración.
 
 ## 7. Tools del agente de IA — estado real
 
 | Tool | Depende de | Estado |
 | --- | --- | --- |
-| `create_opportunity()` / `update_opportunity()` | `opportunity.service.ts` | Listo para construir — wrapper fino, el service ya existe completo. |
-| `get_availability()` / `create_booking()` | Módulo de Booking (`docs/booking-architecture.md`) | Listo para construir — el módulo está completo (PRs #41-44). |
+| `create_opportunity()` / `update_opportunity()` | `opportunity.service.ts` | **Construida (paso 2b, 12/09/2026)** — wrapper fino en `src/services/agentTools.service.ts` sobre el service existente. Ver la nota fechada bajo la sección 6 sobre qué resuelve el wrapper y qué NO puede elegir el modelo. |
+| `get_availability()` / `create_booking()` | Módulo de Booking (`docs/booking-architecture.md`) | **Construida (paso 2b, 12/09/2026)** — wrapper fino en `src/services/agentTools.service.ts` sobre `availability.service.ts` / `booking.service.ts`. `contactId` de la reserva sale siempre de la conversación. |
 | `create_lead()` / `update_lead()` | `Contact.leadScore`/etc. (PR #207) | Schema listo; falta el método de `contact.service.ts` que escriba estos campos — no existe todavía. `leadNotes` en particular necesita lógica de "agregar, no pisar" (ver el comentario del campo en el schema, PR #207), no un `update` genérico. |
 | `send_message()` | Integración de WhatsApp | Bloqueada — fuera de alcance de este documento (sección 2). |
 | `create_payment_link()` | Módulo de Pagos (2.3) | Bloqueada — pasarela sin elegir. |
@@ -244,7 +297,7 @@ El costo real depende del proveedor de LLM elegido (sección 10, sin decidir) y 
 1. Schema: `Agent`/`Conversation`/`Message` + migración (esta es la base de todo lo demás).
 2. Dividido en dos PRs, el segundo depende del primero:
    - **2a. Fundamentos:** interfaz `LlmProvider` abstracta + un primer adaptador concreto (OpenRouter — ver la decisión en la sección 10) + CRUD administrativo de `Agent` (`/api/agents`, sección 5). Sin loop todavía: deja el proveedor y la configuración del agente listos para que 2b los use.
-   - **2b. Loop de orquestación:** capa de permisos (`puedeEjecutarTool`) + el loop completo de la sección 4 + `create_opportunity()`/`update_opportunity()` y `get_availability()`/`create_booking()` como primeras tools reales (son las dos que no necesitan construir nada nuevo debajo) + un endpoint interno de prueba para ejercitarlo antes de que exista el canal Web público.
+   - **2b. Loop de orquestación:** capa de permisos (`puedeEjecutarTool`) + el loop completo de la sección 4 + `create_opportunity()`/`update_opportunity()` y `get_availability()`/`create_booking()` como primeras tools reales (son las dos que no necesitan construir nada nuevo debajo) + un endpoint interno de prueba para ejercitarlo antes de que exista el canal Web público. **Construido (12/09/2026):** `agentPermissions.service.ts`, `agentTools.service.ts`, `agentOrchestration.service.ts`, repositorios de `Conversation`/`Message` y `POST /api/agents/:id/test-message`. Las decisiones que hubo que tomar al construirlo están en la nota fechada bajo la sección 6.
 3. `create_lead()`/`update_lead()` — extender `contact.service.ts` para escribir los campos de calificación, con la lógica de "agregar, no pisar" de `leadNotes`.
 4. Mecanismo de handoff a humano (ya diseñado en la sección 6, reusa `Activity`).
 5. Endpoint público del canal Web (sección 5) — el widget embebido real.

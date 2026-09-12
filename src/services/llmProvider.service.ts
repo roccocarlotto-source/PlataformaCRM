@@ -445,3 +445,13 @@ export function getLlmProvider(): LlmProvider {
 export function resetLlmProviderParaTests(): void {
   proveedor = undefined;
 }
+
+// Seam para los tests de integración del endpoint de prueba del agente
+// (POST /api/agents/:id/test-message): esos tests llaman por HTTP y no pueden
+// inyectar nada en el request, así que instalan un proveedor falso acá antes de
+// cada caso y lo sacan con resetLlmProviderParaTests() después. Reemplaza el
+// singleton perezoso entero: mientras esté puesto, getLlmProvider() no mira el
+// entorno. Solo para tests.
+export function setLlmProviderForTests(fake: LlmProvider): void {
+  proveedor = fake;
+}

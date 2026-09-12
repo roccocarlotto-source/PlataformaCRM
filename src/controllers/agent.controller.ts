@@ -9,6 +9,7 @@ import {
   listAgents,
   updateAgent,
 } from "../services/agent.service";
+import { runAgentTurn } from "../services/agentOrchestration.service";
 import {
   LLM_PROVIDER_NAMES,
   OPENROUTER_PROVIDER_NAME,
@@ -180,4 +181,40 @@ export const deleteAgentHandler = asyncHandler<AuthenticatedRequest>(async (req,
   const id = parseOrThrow(idParamSchema, req.params.id);
   await deleteAgent(req.auth.organizationId, id);
   res.status(204).send();
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/agents/:id/test-message — el endpoint interno de prueba del paso
+// 2b (§9). Ejercita el loop de orquestación completo con un contacto real de
+// la organización, ANTES de que exista el canal Web público: un ADMIN puede
+// ver qué contesta el agente y qué tools intentó usar sin publicar nada.
+//
+// Es un endpoint administrativo y NO un canal: lleva authenticate + authorize
+// (ADMIN) como el resto del CRUD, y el canal por el que se simula la
+// conversación es un parámetro (default WEB, el primer canal real del plan).
+// ---------------------------------------------------------------------------
+const testMessageSchema = z.object({
+  contactId: z.string().uuid("contactId inválido"),
+  message: z
+    .string()
+    .trim()
+    .min(1, "message es requerido")
+    .max(4000, "message no puede superar los 4000 caracteres"),
+  channel: channelSchema.default(ConversationChannel.WEB),
+});
+
+export const testMessageHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+  const id = parseOrThrow(idParamSchema, req.params.id);
+  const input = parseOrThrow(testMessageSchema, req.body);
+  // 404 si el agente no es de esta organización — antes de tocar el contacto,
+  // para no revelar nada sobre contactos ajenos en el mensaje de error.
+  await getAgentById(req.auth.organizationId, id);
+  const resultado = await runAgentTurn({
+    organizationId: req.auth.organizationId,
+    agentId: id,
+    contactId: input.contactId,
+    channel: input.channel,
+    texto: input.message,
+  });
+  res.status(200).json(resultado);
 });

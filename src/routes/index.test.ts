@@ -280,6 +280,7 @@ test("el CRUD de agentes de IA (paso 2a) está montado bajo /api", async () => {
     ["POST", "/api/agents"],
     ["PATCH", `/api/agents/${id}`],
     ["DELETE", `/api/agents/${id}`],
+    ["POST", `/api/agents/${id}/test-message`],
   ];
   for (const [method, path] of casos) {
     const res = await fetch(`${baseUrl}${path}`, { method });
