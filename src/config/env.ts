@@ -342,6 +342,41 @@ const envSchema = z.object({
   // el deploy que trae este middleware.
   QR_RESOLVE_PROXY_SECRET: z.string().optional(),
   QR_RESOLVE_PROXY_SECRET_PREVIOUS: z.string().optional(),
+
+  // -------------------------------------------------------------------------
+  // Proveedor de LLM — módulo de Agentes de IA (docs/ai-agent-architecture.md,
+  // paso 2a de §9; decisión de proveedor en §10). Ver
+  // src/services/llmProvider.service.ts.
+  //
+  // OPENROUTER_API_KEY: la clave de OpenRouter. OPCIONAL por el mismo criterio
+  //   que las GOOGLE_* y las de MercadoPago: el servidor arranca sin ella y
+  //   /health responde; la validación de presencia ocurre en el momento de uso
+  //   (getLlmProvider), que falla con un 500 que dice exactamente qué falta.
+  //   Se carga a mano en el .env local, nunca se commitea.
+  OPENROUTER_API_KEY: z.string().optional(),
+
+  // OPENROUTER_MODEL: el modelo por defecto cuando un Agent no fija el suyo.
+  //
+  //   VERIFICADO CONTRA EL CATÁLOGO REAL EL 12/09/2026 (GET
+  //   https://openrouter.ai/api/v1/models, filtrando los ids con sufijo ":free"
+  //   y "tools" en supported_parameters): ese día había 22 modelos gratuitos,
+  //   20 con tool-calling. Se elige google/gemma-4-31b-it:free —Google
+  //   DeepMind, 256K de contexto, 32K de salida, function calling nativo—
+  //   sobre alternativas también válidas ese día (nvidia/nemotron-3-super-
+  //   120b-a12b:free, nvidia/nemotron-3.5-lightning:free) por ser un vendor
+  //   grande con multilingüe fuerte; y NO openrouter/free, que elige un modelo
+  //   gratuito AL AZAR en cada llamada y haría irreproducible cualquier
+  //   comportamiento del agente.
+  //
+  //   ESE CATÁLOGO CAMBIA: los ":free" entran y salen sin aviso. Si un día el
+  //   default responde 404 de OpenRouter, es esto — se cambia acá o por
+  //   entorno, no en código. Mismo criterio de "verificado contra la fuente,
+  //   no asumido" que GOOGLE_CALENDAR_SCOPES y GOOGLE_CHANNEL_TTL_SECONDS.
+  OPENROUTER_MODEL: z.string().min(1).default("google/gemma-4-31b-it:free"),
+
+  // OPENROUTER_BASE_URL: la raíz de la API. Configurable para poder apuntar a
+  //   un mock local o a un proxy compatible con OpenAI sin tocar código.
+  OPENROUTER_BASE_URL: z.string().url().default("https://openrouter.ai/api/v1"),
 });
 
 function parseEnv() {
