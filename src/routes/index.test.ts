@@ -100,11 +100,16 @@ test("el endpoint público del widget está montado en app.ts bajo /api/public, 
   });
   assert.equal(post.status, 415);
 
-  // Y el preflight lo contesta SU cors (204 sin reflejar ningún origen para
-  // un agente inexistente), no el global: el global reflejaría solo
-  // CORS_ORIGIN y con `credentials: true`. Que no venga
-  // Access-Control-Allow-Credentials es la huella de que corrió el del widget.
-  const preflight = await fetch(`${baseUrl}/api/public/agents/${randomUUID()}/web/messages`, {
+  // Y el preflight lo contesta SU cors (204 sin reflejar ningún origen), no
+  // el global: el global reflejaría solo CORS_ORIGIN y con `credentials:
+  // true`. Que no venga Access-Control-Allow-Credentials es la huella de que
+  // corrió el del widget.
+  //
+  // El agentId NO es un UUID a propósito: este archivo no toca la base (el
+  // job unitario del CI corre sin ninguna), y con un UUID el delegate de CORS
+  // consultaría allowedOrigins en Postgres. Con un id mal formado corta antes
+  // de la consulta y decide "sin origen" igual — que es lo que hay que ver.
+  const preflight = await fetch(`${baseUrl}/api/public/agents/no-es-uuid/web/messages`, {
     method: "OPTIONS",
     headers: {
       Origin: "https://cliente.example",
