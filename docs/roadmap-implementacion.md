@@ -46,7 +46,7 @@ Ya diseñado en `docs/booking-architecture.md` (integración con Google Calendar
 
 ### 2.2 Agentes de IA
 
-No documentado en detalle todavía (a diferencia de Booking) — este roadmap deja el esqueleto, conviene un documento propio (`docs/ai-agent-architecture.md`) antes de empezar a construir, mismo criterio que se usó con booking.
+Ya diseñado en `docs/ai-agent-architecture.md` (12/09/2026 — modelo de datos `Agent`/`Conversation`/`Message`, capa de permisos y guardrails, loop de orquestación del LLM, handoff a humano, estado real de cada tool y plan de implementación). Lo que sigue en esta sección es el esqueleto que ese documento desarrolla; ante cualquier diferencia manda el documento.
 
 **Entidades nuevas** (bajo el mismo patrón multi-tenant que el resto del schema):
 - `Agent` — por sucursal: objetivo/instrucciones, proveedor de modelo, tono, guardrails (temas/acciones prohibidas, cuándo derivar), catálogo de tools habilitadas.
