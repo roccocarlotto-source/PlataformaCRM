@@ -4,6 +4,7 @@ import {
   deleteAgentHandler,
   getAgentHandler,
   listAgentsHandler,
+  testMessageHandler,
   updateAgentHandler,
 } from "../controllers/agent.controller";
 import { authenticate } from "../middlewares/authenticate";
@@ -42,4 +43,16 @@ agentRouter.delete(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   deleteAgentHandler,
+);
+
+// Endpoint interno de prueba del loop de orquestación (paso 2b). Es una
+// escritura administrativa —crea conversación y mensajes, y puede crear
+// oportunidades o reservas a través de las tools— así que lleva exactamente
+// la misma cadena que POST /agents.
+agentRouter.post(
+  "/agents/:id/test-message",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  testMessageHandler,
 );

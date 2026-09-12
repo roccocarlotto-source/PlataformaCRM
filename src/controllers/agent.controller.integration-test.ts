@@ -11,6 +11,14 @@ import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
 import { agentRouter } from "../routes/agent.routes";
+import { MENSAJE_DE_HANDOFF } from "../services/agentOrchestration.service";
+import {
+  resetLlmProviderParaTests,
+  setLlmProviderForTests,
+  type LlmCompletionRequest,
+  type LlmCompletionResult,
+  type LlmProvider,
+} from "../services/llmProvider.service";
 
 // ---------------------------------------------------------------------------
 // CRUD de /api/agents (paso 2a de docs/ai-agent-architecture.md §9) por HTTP
@@ -188,7 +196,10 @@ after(async () => {
   if (closeApp) await closeApp();
   for (const org of [orgA, orgB]) {
     if (!org) continue;
+    await prisma.message.deleteMany({ where: { organizationId: org.id } });
+    await prisma.conversation.deleteMany({ where: { organizationId: org.id } });
     await prisma.agent.deleteMany({ where: { organizationId: org.id } });
+    await prisma.contact.deleteMany({ where: { organizationId: org.id } });
     await prisma.branch.deleteMany({ where: { organizationId: org.id } });
     await prisma.user.deleteMany({ where: { organizationId: org.id } });
     await prisma.organization.delete({ where: { id: org.id } });
@@ -499,4 +510,209 @@ test("GET /api/agents?isActive=false lista solo los desactivados (que no es lo m
 
   const invalido = await call("GET", "/api/agents?isActive=maybe", userA.accessToken);
   assert.equal(invalido.status, 400);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/agents/:id/test-message — el endpoint interno de prueba del loop
+// (paso 2b). El proveedor de LLM se instala con setLlmProviderForTests antes
+// de cada caso y se saca después: por HTTP no hay forma de inyectarlo en el
+// request. El loop en sí (tools reales, guardrails, handoff, ventana) está
+// probado en agentOrchestration.integration-test.ts; acá se prueba la cadena
+// HTTP: autenticación, autorización, multi-tenant, validación del body y la
+// forma de la respuesta.
+// ---------------------------------------------------------------------------
+
+function proveedorGuionado(guion: LlmCompletionResult[]): {
+  proveedor: LlmProvider;
+  requests: LlmCompletionRequest[];
+} {
+  const requests: LlmCompletionRequest[] = [];
+  return {
+    requests,
+    proveedor: {
+      name: "doble",
+      complete(request) {
+        requests.push(request);
+        return Promise.resolve(guion[Math.min(requests.length - 1, guion.length - 1)]);
+      },
+    },
+  };
+}
+
+async function crearContacto(organizationId: string) {
+  return prisma.contact.create({
+    data: { organizationId, firstName: "Ana", lastName: "Pérez" },
+  });
+}
+
+function testMessage(agentId: unknown, token: string, body: Record<string, unknown>) {
+  return call("POST", `/api/agents/${agentId}/test-message`, token, body);
+}
+
+test("POST /api/agents/:id/test-message — ADMIN conversa con el agente y recibe respuesta, tool calls y estado", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    name: "Probador",
+    channels: ["WEB"],
+  });
+  const contacto = await crearContacto(orgA.id);
+  const doble = proveedorGuionado([{ text: "Hola, ¿en qué te ayudo?", toolCalls: [] }]);
+  setLlmProviderForTests(doble.proveedor);
+  try {
+    const res = await testMessage(agente.id, adminA.accessToken, {
+      contactId: contacto.id,
+      message: "Hola",
+    });
+    const crudo = await res.text();
+    assert.equal(res.status, 200, crudo);
+    const body = JSON.parse(crudo) as Record<string, unknown>;
+    assert.equal(body.respuesta, "Hola, ¿en qué te ayudo?");
+    assert.equal(body.status, "ACTIVE");
+    assert.equal(body.handoff, false);
+    assert.deepEqual(body.toolCalls, []);
+    assert.equal(typeof body.conversationId, "string");
+
+    assert.equal(doble.requests.length, 1);
+    assert.deepEqual(doble.requests[0].messages, [{ role: "user", content: "Hola" }]);
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: String(body.conversationId) },
+    });
+    assert.equal(conversation.organizationId, orgA.id);
+    assert.equal(conversation.contactId, contacto.id);
+  } finally {
+    resetLlmProviderParaTests();
+  }
+});
+
+test("POST /api/agents/:id/test-message — la derivación llega por HTTP con status y mensaje de cierre", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    channels: ["WEB"],
+    enabledTools: ["create_opportunity"],
+    guardrails: { accionesProhibidas: ["create_opportunity"] },
+  });
+  const contacto = await crearContacto(orgA.id);
+  const doble = proveedorGuionado([
+    { text: null, toolCalls: [{ id: "c", name: "create_opportunity", arguments: { title: "x" } }] },
+  ]);
+  setLlmProviderForTests(doble.proveedor);
+  try {
+    const res = await testMessage(agente.id, adminA.accessToken, {
+      contactId: contacto.id,
+      message: "Creala igual",
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      status: string;
+      respuesta: string;
+      handoff: boolean;
+      toolCalls: { allowed: boolean }[];
+    };
+    assert.equal(body.handoff, true);
+    assert.equal(body.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(body.respuesta, MENSAJE_DE_HANDOFF);
+    assert.ok(body.toolCalls.length > 0 && body.toolCalls.every((tc) => tc.allowed === false));
+  } finally {
+    resetLlmProviderParaTests();
+  }
+});
+
+test("POST /api/agents/:id/test-message — USER recibe 403; sin token 401; nada se persiste", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, { channels: ["WEB"] });
+  const contacto = await crearContacto(orgA.id);
+  const doble = proveedorGuionado([{ text: "no", toolCalls: [] }]);
+  setLlmProviderForTests(doble.proveedor);
+  try {
+    const user = await testMessage(agente.id, userA.accessToken, {
+      contactId: contacto.id,
+      message: "Hola",
+    });
+    assert.equal(user.status, 403);
+
+    const anonimo = await fetch(`${baseUrl}/api/agents/${agente.id}/test-message`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ contactId: contacto.id, message: "Hola" }),
+    });
+    assert.equal(anonimo.status, 401);
+
+    assert.equal(doble.requests.length, 0);
+    assert.equal(await prisma.conversation.count({ where: { contactId: contacto.id } }), 0);
+  } finally {
+    resetLlmProviderParaTests();
+  }
+});
+
+test("POST /api/agents/:id/test-message — multi-tenant: agente ajeno 404, contacto ajeno 400, agente borrado 404", async () => {
+  const agenteDeA = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    channels: ["WEB"],
+  });
+  const contactoDeA = await crearContacto(orgA.id);
+  const contactoDeB = await crearContacto(orgB.id);
+  const doble = proveedorGuionado([{ text: "no", toolCalls: [] }]);
+  setLlmProviderForTests(doble.proveedor);
+  try {
+    // B intenta usar el agente de A con su propio contacto.
+    const ajeno = await testMessage(agenteDeA.id, adminB.accessToken, {
+      contactId: contactoDeB.id,
+      message: "Hola",
+    });
+    assert.equal(ajeno.status, 404);
+
+    // A usa su agente con un contacto de B.
+    const contactoAjeno = await testMessage(agenteDeA.id, adminA.accessToken, {
+      contactId: contactoDeB.id,
+      message: "Hola",
+    });
+    assert.equal(contactoAjeno.status, 400);
+
+    // Un agente borrado no conversa.
+    await call("DELETE", `/api/agents/${agenteDeA.id}`, adminA.accessToken);
+    const borrado = await testMessage(agenteDeA.id, adminA.accessToken, {
+      contactId: contactoDeA.id,
+      message: "Hola",
+    });
+    assert.equal(borrado.status, 404);
+
+    assert.equal(doble.requests.length, 0);
+  } finally {
+    resetLlmProviderParaTests();
+  }
+});
+
+test("POST /api/agents/:id/test-message — validación del body y del canal", async () => {
+  const sinWeb = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    channels: ["WHATSAPP"],
+  });
+  const contacto = await crearContacto(orgA.id);
+  setLlmProviderForTests(proveedorGuionado([{ text: "ok", toolCalls: [] }]).proveedor);
+  try {
+    const sinMensaje = await testMessage(sinWeb.id, adminA.accessToken, {
+      contactId: contacto.id,
+      message: "   ",
+    });
+    assert.equal(sinMensaje.status, 400);
+    assert.match(await mensajeDeError(sinMensaje), /message es requerido/);
+
+    const sinContacto = await testMessage(sinWeb.id, adminA.accessToken, { message: "Hola" });
+    assert.equal(sinContacto.status, 400);
+
+    // El canal por defecto es WEB y este agente no opera ahí.
+    const canal = await testMessage(sinWeb.id, adminA.accessToken, {
+      contactId: contacto.id,
+      message: "Hola",
+    });
+    assert.equal(canal.status, 400);
+    assert.match(await mensajeDeError(canal), /no opera en el canal WEB/);
+
+    // Por WHATSAPP sí.
+    const porWhatsapp = await testMessage(sinWeb.id, adminA.accessToken, {
+      contactId: contacto.id,
+      message: "Hola",
+      channel: "WHATSAPP",
+    });
+    const crudo = await porWhatsapp.text();
+    assert.equal(porWhatsapp.status, 200, crudo);
+  } finally {
+    resetLlmProviderParaTests();
+  }
 });
