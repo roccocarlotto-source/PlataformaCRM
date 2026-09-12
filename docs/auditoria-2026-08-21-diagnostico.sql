@@ -395,7 +395,20 @@ from (
     ('contacts_lead_score_range_check', 'contacts',
      'CHECK (lead_score >= 0 AND lead_score <= 100)'),
     ('contacts_lead_budget_amount_non_negative_check', 'contacts',
-     'CHECK (lead_budget_amount >= 0)')
+     'CHECK (lead_budget_amount >= 0)'),
+    -- Módulo de Agentes de IA (migración 20260912130000): el único CHECK del
+    -- módulo. sender_type y sender_user_id van juntos — HUMAN exige usuario,
+    -- CONTACT/AGENT lo prohíben. Transcripto de pg_get_constraintdef: el `IN
+    -- ('CONTACT', 'AGENT')` de la migración vuelve como `= ANY (ARRAY[...])`,
+    -- y el normalizador quita los casts al enum (::"MessageSenderType") pero
+    -- NO los corchetes del ARRAY, así que van tal cual. Tiene la forma
+    -- (A AND B) OR (C AND D), el mismo límite conocido que
+    -- google_calendar_connections_channel_all_or_none_check y
+    -- qr_subscription_status_changes_source_actor_check: esta fila no
+    -- distingue esa parentización de otra con los mismos operandos. Se acepta
+    -- a sabiendas, igual que allá.
+    ('messages_sender_user_id_consistency_check', 'messages',
+     'CHECK (sender_type = ''HUMAN'' AND sender_user_id IS NOT NULL OR sender_type = ANY (ARRAY[''CONTACT'', ''AGENT'']) AND sender_user_id IS NULL)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -801,7 +814,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 35 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 42 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -843,7 +856,20 @@ from (
     ('vehicle_photos_organization_id_vehicle_id_fkey|vehicle_photos(organization_id,vehicle_id)->vehicles(organization_id,id)'),
     ('vehicles_organization_id_assigned_salesperson_id_fkey|vehicles(organization_id,assigned_salesperson_id)->users(organization_id,id)'),
     ('vehicles_organization_id_branch_id_fkey|vehicles(organization_id,branch_id)->branches(organization_id,id)'),
-    ('working_hours_organization_id_resource_id_fkey|working_hours(organization_id,resource_id)->resources(organization_id,id)')
+    ('working_hours_organization_id_resource_id_fkey|working_hours(organization_id,resource_id)->resources(organization_id,id)'),
+    -- Módulo de Agentes de IA (migración 20260912130000). El caso que esta
+    -- fila existe para atrapar tiene acá dos candidatos nuevos:
+    -- conversations.assigned_user_id y messages.sender_user_id apuntan a
+    -- users, y una FK bien formada hacia contacts pasaría la 14. Y dos
+    -- padres nuevos: agents y conversations, con su UNIQUE (organization_id,
+    -- id) propio.
+    ('agents_organization_id_branch_id_fkey|agents(organization_id,branch_id)->branches(organization_id,id)'),
+    ('conversations_organization_id_agent_id_fkey|conversations(organization_id,agent_id)->agents(organization_id,id)'),
+    ('conversations_organization_id_assigned_user_id_fkey|conversations(organization_id,assigned_user_id)->users(organization_id,id)'),
+    ('conversations_organization_id_branch_id_fkey|conversations(organization_id,branch_id)->branches(organization_id,id)'),
+    ('conversations_organization_id_contact_id_fkey|conversations(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('messages_organization_id_conversation_id_fkey|messages(organization_id,conversation_id)->conversations(organization_id,id)'),
+    ('messages_organization_id_sender_user_id_fkey|messages(organization_id,sender_user_id)->users(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

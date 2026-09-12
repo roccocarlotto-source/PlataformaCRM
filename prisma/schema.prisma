@@ -167,6 +167,48 @@ enum BookingStatus {
 }
 
 // ---------------------------------------------------------------------------
+// ConversationChannel / ConversationStatus / MessageDirection /
+// MessageSenderType — módulo de Agentes de IA (docs/ai-agent-architecture.md
+// §3). Cuatro enums cerrados a propósito: el catálogo de canales y de estados
+// lo define el producto, no cada negocio. Lo que SÍ cambia más rápido que un
+// catálogo (proveedor y nombre del modelo de LLM) es String en Agent, no enum —
+// mismo criterio que Opportunity.currency.
+// ---------------------------------------------------------------------------
+
+// En qué canal ocurre una conversación. Un Agent declara en `channels` en
+// cuáles puede operar; una Conversation nace en uno solo.
+enum ConversationChannel {
+  WHATSAPP
+  WEB
+}
+
+// Ciclo de vida de una Conversation. Es la fuente de verdad (no hay
+// deletedAt): TRANSFERRED_TO_HUMAN es el handoff de §6 y CLOSED es el cierre —
+// una conversación cerrada es historia que se conserva, no se borra.
+enum ConversationStatus {
+  ACTIVE
+  TRANSFERRED_TO_HUMAN
+  CLOSED
+}
+
+// INBOUND: llegó del contacto. OUTBOUND: salió del negocio (el agente de IA o
+// una persona). Es ortogonal a senderType a propósito: la dirección dice por
+// dónde viajó el mensaje, el tipo de emisor dice quién lo escribió.
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+// Quién escribió un Message. HUMAN exige senderUserId y CONTACT/AGENT exigen
+// que esté en NULL — lo sostiene el CHECK
+// messages_sender_user_id_consistency_check de la migración 20260912130000.
+enum MessageSenderType {
+  CONTACT
+  AGENT
+  HUMAN
+}
+
+// ---------------------------------------------------------------------------
 // QrType / QrSubscriptionStatus / QrSubscriptionChangeSource — módulo QR
 // (integración de QR Reviews, ver docs/qr-integration.md). Portados 1:1 de
 // los enums `subscription_status` / `subscription_change_source` del proyecto
@@ -410,6 +452,10 @@ model Organization {
   workingHours WorkingHours[]
   bookings     Booking[]
 
+  agents        Agent[]
+  conversations Conversation[]
+  messages      Message[]
+
   qrCodes                     QrCode[]
   qrPaymentEvents             PaymentEvent[]
   qrSubscriptionStatusChanges QrSubscriptionStatusChange[]
@@ -484,6 +530,11 @@ model User {
   // asignadas y los cambios de ficha que registró.
   assignedVehicles Vehicle[]          @relation("VehicleAssignedSalesperson")
   vehicleChanges   VehicleChangeLog[] @relation("VehicleChangeLogChangedBy")
+
+  // Módulo de Agentes de IA: las conversaciones que este usuario tomó tras un
+  // handoff y los mensajes que escribió como HUMAN en ellas.
+  assignedConversations Conversation[] @relation("ConversationAssignee")
+  sentMessages          Message[]      @relation("MessageSender")
 
   @@unique([organizationId, id])
   @@index([organizationId])
@@ -640,6 +691,7 @@ model Contact {
   activities      Activity[]
   ingestionEvents IngestionEvent[]
   bookings        Booking[]
+  conversations   Conversation[]
 
   @@unique([organizationId, id])
   // Único (organization_id, lower(email)) WHERE email IS NOT NULL AND
@@ -1175,6 +1227,11 @@ model Branch {
 
   bookings Booking[]
 
+  // Módulo de Agentes de IA: los agentes configurados para esta sucursal y
+  // las conversaciones que atendieron (branchId denormalizado desde Agent).
+  agents        Agent[]
+  conversations Conversation[]
+
   // Módulo QR: los QR digitales de esta sucursal.
   qrCodes QrCode[]
 
@@ -1565,6 +1622,204 @@ model Booking {
   // independiente—. Los NULL quedan afuera: una reserva sin Google es normal.
   // Lo afirma la fila 7 de docs/auditoria-2026-08-21-diagnostico.sql.
   @@map("bookings")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Módulo de Agentes de IA (docs/ai-agent-architecture.md) — paso 1 de §9.
+//
+// SOLO SCHEMA por ahora, mismo criterio que la calificación del lead en
+// Contact (20260912120000): ningún controller, service ni loop de
+// orquestación lee o escribe estas tablas todavía. Eso es el paso 2 del plan.
+//
+// Va acá, a continuación de Booking, porque es la siguiente pieza del mismo
+// módulo de negocio: el agente es quien va a llamar a get_availability() /
+// create_booking() (§7 del documento).
+//
+// SIN políticas RLS propias, y no es una omisión: bookings, working_hours,
+// resources, service_types y google_calendar_connections —el módulo
+// arquitectónicamente más parecido a este— tampoco las tienen. La defensa
+// principal es, como en todo el schema, el filtro por organizationId en cada
+// query (ver prisma/sql/rls_policies.sql).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ---------------------------------------------------------------------------
+// Agent — un agente de IA configurado por una sucursal (§3).
+//
+// branchId NO es @unique a propósito: el documento de visión permite más de un
+// agente por negocio (ventas, soporte, recepción, postventa), aunque el plan
+// solo vaya a crear uno ("Agente comercial") por sucursal al principio. El
+// ruteo entre varios activos es decisión abierta (§10); hoy no hay nada que
+// rutear.
+//
+// CON deletedAt, a diferencia de Conversation y Message: un Agent es
+// configuración que un ADMIN da de alta y de baja, no historia. Baja lógica,
+// igual que Resource/ServiceType.
+// ---------------------------------------------------------------------------
+model Agent {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  branchId       String @map("branch_id") @db.Uuid
+
+  name         String  @db.VarChar(200)
+  // Resumen corto para el panel de admin. El prompt real es `instructions`.
+  goal         String? @db.VarChar(500)
+  // El prompt real: objetivo + tono + contexto del negocio, en texto libre.
+  instructions String  @db.Text
+  // "formal", "cercano" — informativo; se compone dentro de `instructions`.
+  tone         String? @db.VarChar(100)
+
+  // String y no enum, los dos: el catálogo de proveedores y de modelos cambia
+  // más rápido de lo que conviene versionar en un enum de Postgres (mismo
+  // criterio que Opportunity.currency). Zod los valida en el borde cuando
+  // exista el endpoint.
+  modelProvider String @map("model_provider") @db.VarChar(50)
+  modelName     String @map("model_name") @db.VarChar(100)
+
+  // Subconjunto del catálogo de tools de §7 ("create_opportunity",
+  // "get_availability", ...). Es la primera de las cuatro comprobaciones de
+  // puedeEjecutarTool() en §6. Sin FK a un catálogo: el catálogo vive en
+  // código, no en la base.
+  enabledTools String[]              @map("enabled_tools")
+  // En qué canales puede operar este agente.
+  channels     ConversationChannel[]
+
+  // Forma esperada documentada en §6 (temas prohibidos, acciones prohibidas,
+  // info no modificable, condiciones de derivación, promesas prohibidas,
+  // datos requeridos antes de una acción) — NO impuesta por Postgres, mismo
+  // criterio que Contact.customFields: cada negocio va a necesitar una
+  // combinación distinta y fijarla en columnas sería inventar una forma que no
+  // le sirve a todos. NOT NULL sin default: un agente sin guardrails
+  // declarados no debería poder existir, aunque su valor sea `{}`.
+  guardrails Json
+
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+
+  conversations Conversation[]
+
+  // El UNIQUE que habilita la FK compuesta de conversations (C-3).
+  @@unique([organizationId, id])
+  @@index([organizationId])
+  @@index([branchId])
+  @@map("agents")
+}
+
+// ---------------------------------------------------------------------------
+// Conversation — un hilo entre un contacto y un agente por un canal (§3).
+//
+// SIN deletedAt: "cerrada" es un `status` (CLOSED), no un soft delete — mismo
+// criterio que Booking con BookingStatus.CANCELLED. Una conversación cerrada
+// es historia que hay que conservar tal cual, y un soft delete agregaría un
+// cuarto estado que no significa nada distinto de CLOSED.
+//
+// agentId NO cambia en un handoff: transferir a una persona es cambiar el
+// status a TRANSFERRED_TO_HUMAN y completar assignedUserId. agentId sigue
+// diciendo qué agente la venía atendiendo, para la auditoría. Pasar de un
+// agente a OTRO agente es un caso distinto, no diseñado.
+// ---------------------------------------------------------------------------
+model Conversation {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  // Denormalizado desde agentId, mismo criterio que Stage.organizationId:
+  // evita un join para aislamiento y para la bandeja por sucursal.
+  branchId       String @map("branch_id") @db.Uuid
+  agentId        String @map("agent_id") @db.Uuid
+
+  // NOT NULL: una conversación sin contacto no es una conversación — mismo
+  // criterio que Booking.contactId. La FK es RESTRICT por la regla de
+  // 20260821140200 (columna NOT NULL), y no NO ACTION.
+  contactId String @map("contact_id") @db.Uuid
+
+  // Se completa solo cuando status = TRANSFERRED_TO_HUMAN (§6): por ahora el
+  // ownerId del Contact si tiene uno; si no, queda NULL y un vendedor la toma
+  // desde la bandeja de Actividades. Nullable, y por eso su FK es NO ACTION.
+  assignedUserId String? @map("assigned_user_id") @db.Uuid
+
+  channel ConversationChannel
+  status  ConversationStatus  @default(ACTIVE)
+
+  // Id del hilo en el canal externo (WhatsApp: el número del contacto; Web: el
+  // id de sesión del widget). Nullable: el canal Web puede no tener uno hasta
+  // que el widget exista.
+  externalThreadId String?   @map("external_thread_id") @db.VarChar(255)
+  // Cache denormalizado del createdAt del último Message, para ordenar un
+  // futuro listado sin agregar sobre messages. Lo mantiene el loop del paso 2.
+  lastMessageAt    DateTime? @map("last_message_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+  agent        Agent        @relation(fields: [organizationId, agentId], references: [organizationId, id])
+  contact      Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
+  assignedUser User?        @relation("ConversationAssignee", fields: [organizationId, assignedUserId], references: [organizationId, id], onDelete: NoAction)
+
+  messages Message[]
+
+  // El UNIQUE que habilita la FK compuesta de messages (C-3).
+  @@unique([organizationId, id])
+  @@index([organizationId])
+  @@index([branchId])
+  // Historial de conversaciones de un contacto.
+  @@index([contactId])
+  // La bandeja: conversaciones activas / derivadas de la organización.
+  @@index([organizationId, status])
+  @@map("conversations")
+}
+
+// ---------------------------------------------------------------------------
+// Message — un mensaje dentro de una Conversation (§3).
+//
+// SIN updatedAt NI deletedAt: un mensaje enviado no se edita ni se borra, es
+// la transcripción de algo que ya pasó con un tercero — a diferencia de
+// Activity, que es una nota interna y sí se edita. Solo createdAt.
+//
+// senderType y senderUserId van juntos, y la base lo sostiene:
+// messages_sender_user_id_consistency_check (migración 20260912130000) exige
+// senderUserId cuando senderType = HUMAN y lo prohíbe para CONTACT/AGENT.
+// Mismo espíritu que google_calendar_connections_channel_all_or_none_check:
+// una fila HUMAN sin quién la mandó, o una CONTACT/AGENT con un usuario puesto
+// por error, son estados inconsistentes que conviene que el motor rechace y no
+// solo la aplicación.
+// ---------------------------------------------------------------------------
+model Message {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  // Denormalizado desde conversationId, para la FK compuesta y el aislamiento.
+  organizationId String @map("organization_id") @db.Uuid
+  conversationId String @map("conversation_id") @db.Uuid
+
+  direction    MessageDirection
+  senderType   MessageSenderType @map("sender_type")
+  // Solo cuando senderType = HUMAN (ver el CHECK). Nullable, y por eso su FK
+  // es NO ACTION.
+  senderUserId String?           @map("sender_user_id") @db.Uuid
+
+  content           String  @db.Text
+  // Auditoría del turno: qué tool intentó usar el agente, con qué argumentos,
+  // si puedeEjecutarTool() la permitió y qué devolvió (§6). Forma libre.
+  toolCalls         Json?   @map("tool_calls")
+  // Id del mensaje en el canal externo (SID de Twilio, etc.): dedup ante
+  // reintentos y reentregas del webhook. Sin UNIQUE todavía: el índice que lo
+  // haga cumplir nace con el webhook que lo necesite (paso 6 de §9), cuando se
+  // sepa contra qué se deduplica (¿por canal? ¿por conversación?).
+  externalMessageId String? @map("external_message_id") @db.VarChar(255)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conversation Conversation @relation(fields: [organizationId, conversationId], references: [organizationId, id])
+  senderUser   User?        @relation("MessageSender", fields: [organizationId, senderUserId], references: [organizationId, id], onDelete: NoAction)
+
+  // El patrón de lectura real, y el único: los mensajes de una conversación,
+  // en orden. No hay listado de mensajes por organización.
+  @@index([conversationId, createdAt])
+  @@map("messages")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

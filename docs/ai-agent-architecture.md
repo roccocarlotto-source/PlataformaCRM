@@ -116,6 +116,71 @@ model Message {
 - `Conversation`: `[organizationId]`, `[branchId]`, `[contactId]` (historial de conversaciones de un contacto), `[organizationId, status]` (bandeja de conversaciones activas/derivadas).
 - `Message`: `[conversationId, createdAt]` (el patrón de lectura real: los mensajes de una conversación, en orden).
 
+> **Nota del 12/09/2026 — el modelo de datos ya está construido.** Paso 1 del
+> plan de la sección 9, implementado en la migración
+> `20260912130000_agent_conversation_message_schema`. Solo schema, mismo
+> criterio que el PR #207 (Contact): sin controller, sin service, sin routes y
+> sin loop de orquestación — eso es el paso 2.
+>
+> Los bloques `model` de arriba son pseudo-código de diseño; la implementación
+> real sigue la convención de todo `prisma/schema.prisma` (`@id
+> @default(dbgenerated("gen_random_uuid()")) @db.Uuid`, `@map("snake_case")` en
+> cada columna, tablas `agents` / `conversations` / `messages`). Lo que hubo que
+> ajustar o decidir al implementar, respecto de lo escrito arriba:
+>
+> - **FKs compuestas y `@@unique([organizationId, id])`.** Todas las
+>   relaciones cruzadas son `(organization_id, x_id) -> padre(organization_id,
+>   id)`, el estándar del proyecto desde C-3 — el borrador las tenía como
+>   columnas sueltas. `Agent` y `Conversation` ganan el `@@unique([organizationId,
+>   id])` que habilita a `Conversation` y `Message` a referenciarlos compuesto.
+>   Acciones referenciales por la regla de `20260821140200`: `RESTRICT` en las
+>   NOT NULL (`Agent.branch`, `Conversation.branch`/`agent`/`contact`,
+>   `Message.conversation`), `NO ACTION` explícito en las dos nullable
+>   (`Conversation.assignedUser`, `Message.senderUser`).
+> - **Un CHECK que este documento no detallaba:**
+>   `messages_sender_user_id_consistency_check`. `senderType = HUMAN` exige
+>   `senderUserId`; `CONTACT`/`AGENT` exigen que sea NULL. El texto de arriba lo
+>   decía en un comentario ("solo cuando senderType = HUMAN"); la base ahora lo
+>   rechaza, no solo la aplicación — mismo espíritu que el CHECK de
+>   `GoogleCalendarConnection`. Escrito con las dos ramas explícitas a
+>   propósito: si `MessageSenderType` gana un cuarto valor, el CHECK lo rechaza
+>   hasta que alguien decida qué exige. Vive en la migración (criterio B-15) y
+>   entra a la fila 8 del diagnóstico (22 → 23 CHECK); las siete FKs compuestas
+>   entran a la fila 16 (35 → 42).
+> - **Nombres de relación en `User`:** `assignedConversations
+>   Conversation[] @relation("ConversationAssignee")` y `sentMessages Message[]
+>   @relation("MessageSender")`, mismo patrón que `assignedActivities
+>   @relation("ActivityAssignee")`. El resto de las back-relations
+>   (`Organization.agents/conversations/messages`, `Branch.agents/conversations`,
+>   `Contact.conversations`, `Agent.conversations`, `Conversation.messages`) no
+>   necesitan nombre.
+> - **Tamaños de columna**, que el borrador no fijaba: `name` VarChar(200),
+>   `goal` VarChar(500), `tone` VarChar(100), `modelProvider` VarChar(50),
+>   `modelName` VarChar(100), `externalThreadId` / `externalMessageId`
+>   VarChar(255). `instructions` y `content` son `Text`. `guardrails` es JSONB
+>   NOT NULL sin default: un agente sin guardrails declarados no debería poder
+>   existir, aunque el valor sea `{}`.
+> - **`enabledTools` y `channels` sin `@default([])`**, tal como están arriba.
+>   Prisma devuelve `[]` cuando la columna es NULL, así que en la práctica no
+>   cambia nada; queda anotado por si el paso 2 prefiere el default explícito
+>   que sí tiene `Vehicle.equipment`.
+> - **Sin políticas RLS propias**, y no es una omisión: `bookings`,
+>   `working_hours`, `resources`, `service_types` y
+>   `google_calendar_connections` —el módulo arquitectónicamente más parecido a
+>   este— tampoco las tienen. Sí las tiene el módulo de vehículos
+>   (`20260907120000`), así que hoy conviven los dos precedentes; este módulo
+>   sigue al de Booking. Si en algún momento se decide que toda tabla nueva con
+>   `organization_id` lleve política, las tres entran juntas a
+>   `prisma/sql/rls_policies.sql` y a la fila 5 del diagnóstico.
+> - **`externalMessageId` sin UNIQUE todavía.** El índice que haga cumplir la
+>   deduplicación nace con el webhook que la necesite (paso 6), cuando se sepa
+>   contra qué se deduplica (¿por canal? ¿por conversación?).
+>
+> Lo que **no** cambió: los cuatro enums con los mismos valores, los índices
+> exactamente como se listan arriba (ninguno más), sin `deletedAt` en
+> `Conversation` ni `Message`, sin `updatedAt` en `Message`, `branchId` de
+> `Agent` no único, `agentId` de `Conversation` intacto en un handoff.
+
 ## 4. Loop de orquestación del LLM
 
 1. Llega un mensaje entrante (por ahora, desde el endpoint del canal Web — sección 5) → se resuelve o crea la `Conversation` (por `contactId` + `channel`, o por `externalThreadId` si ya existe una activa) y se persiste como `Message` (`INBOUND`, `senderType: CONTACT`).
