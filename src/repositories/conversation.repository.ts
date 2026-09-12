@@ -63,3 +63,24 @@ export function updateConversation(
 ) {
   return db.conversation.updateMany({ where: { id, organizationId }, data });
 }
+
+// La conversación MÁS RECIENTE de un agente por un canal con ese id de hilo
+// externo (para el canal Web: el sessionId del navegador). SIN filtro de
+// status, a diferencia de findOpenConversation: lo que se busca acá es el
+// Contact de esa sesión, y tiene que encontrarse aunque la conversación
+// previa ya esté CLOSED — quien decide si hace falta una Conversation nueva es
+// findOpenConversation, que runAgentTurn llama después con el contactId ya
+// resuelto. Ver widgetContact.service.ts.
+export function findConversationByExternalThreadId(
+  organizationId: string,
+  agentId: string,
+  channel: ConversationChannel,
+  externalThreadId: string,
+  db: Db = prisma,
+) {
+  return db.conversation.findFirst({
+    where: { organizationId, agentId, channel, externalThreadId },
+    select: { id: true, contactId: true, status: true },
+    orderBy: { createdAt: "desc" },
+  });
+}

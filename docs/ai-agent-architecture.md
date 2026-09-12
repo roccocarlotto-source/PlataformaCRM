@@ -277,6 +277,72 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >    construyan (paso 3), es el primer lugar donde este chequeo importa de
 >    verdad y donde conviene revisarlo.
 
+> **Nota del 12/09/2026 — decisiones tomadas al construir el paso 5b (el
+> endpoint público del canal Web, `POST /api/public/agents/:agentId/web/messages`).**
+>
+> 1. **Por qué la URL lleva un `:agentId` público aunque el token sea el
+>    límite real de seguridad.** El diseño original consideraba resolver el
+>    `Agent` únicamente por el embed token (sin `agentId` en la URL), por "más
+>    limpio". Se descartó: el preflight CORS de un navegador (`OPTIONS`) NUNCA
+>    lleva el valor real de un header custom, solo anuncia vía
+>    `Access-Control-Request-Headers` que lo va a mandar. Sin un identificador
+>    público en la URL, el servidor no tiene de dónde sacar `allowedOrigins`
+>    para decidir el preflight. Por eso la ruta es
+>    `POST /api/public/agents/:agentId/web/messages`: el `:agentId` es público
+>    y solo sirve para la decisión de CORS; la autorización real sigue siendo
+>    el embed token, que viaja en un header (`x-embed-token`, nunca en la URL,
+>    mismo criterio que `x-api-key`) y cuyo propio `agentId` interno tiene que
+>    coincidir con el de la URL (defensa contra un token de otro agente copiado
+>    a la URL equivocada).
+> 2. **CORS dinámico por agente, montado ANTES del CORS global de `app.ts`.**
+>    El `cors()` global de `app.ts` es estático (una sola lista de orígenes) y,
+>    montado con `app.use()` sin filtro de ruta, intercepta y termina CUALQUIER
+>    preflight `OPTIONS` de la app antes de que llegue a otro middleware — así
+>    que un segundo `cors()` montado después, sobre la ruta pública, nunca
+>    correría para el preflight. La ruta del widget monta su propio middleware
+>    de CORS (con un "options delegate", soportado por `cors@^2.8.5`, ya
+>    confirmado instalado) ANTES del `cors()` global, resolviendo
+>    `allowedOrigins` por el `:agentId` de la URL. Esto obliga a reordenar
+>    `app.ts` (`pinoHttp` sube antes del `cors()` global, y el router público se
+>    monta entre los dos).
+> 3. **Rechazo único y genérico en la autenticación del token de embed**,
+>    exactamente el mismo criterio que `resolveIngestContext`/`RECHAZO` para la
+>    ingesta: header ausente, token inexistente, token revocado, agente
+>    inactivo o borrado, `agentId` del token que no coincide con el de la URL, y
+>    `Origin` ausente o no incluido en `allowedOrigins` — los siete casos
+>    devuelven el mismo mensaje y el mismo 401, sin distinción observable. El
+>    motivo real solo se loguea server-side. Es un endpoint público sin usuario
+>    detrás; cualquier diferencia observable lo convierte en oráculo (enumerar
+>    tokens válidos, dominios registrados, o si un agente existe).
+> 4. **La validación de `Origin` en el POST real es independiente de si el
+>    preflight pasó, y es intencional:** un cliente que nunca hace preflight
+>    (server-to-server, un script con `fetch` sin CORS, `curl`) puede mandar el
+>    POST directo con un `Origin` falsificado a mano. Esto NO es a prueba de un
+>    atacante que ya tiene el token en la mano — solo un navegador real impide
+>    que JavaScript de un sitio no autorizado falsifique su propio `Origin`. Es
+>    el mismo límite conocido del modelo "site ID" de Intercom/Drift: la
+>    defensa contra ese caso es el rate limit por token y la revocación, no el
+>    `Origin`.
+> 5. **Rate limit propio, por `embedTokenId`, más estricto que
+>    `businessWriteRateLimiter`.** Es tráfico público no autenticado y cada
+>    mensaje dispara una llamada real y paga a un LLM. Valores: ventana de 60 s,
+>    máximo 20 requests — generoso para una conversación humana real (nadie
+>    escribe más de un mensaje cada pocos segundos), estricto contra un script
+>    en loop. Riesgo conocido, aceptado y no resuelto en este PR: el token es
+>    público por diseño (vive en JS de cara al público), así que un token
+>    filtrado o scrapeado permite evadir este límite repartiendo requests entre
+>    muchas IPs distintas — un limiter por token no ve eso. Se documenta como
+>    ítem nuevo en la sección 10 en vez de resolverse acá: resolverlo bien (ej.
+>    límite adicional por combinación con huella de request, o un límite duro
+>    por agente además del de por token) es trabajo especulativo hasta que haya
+>    evidencia real de abuso.
+> 6. **La respuesta del endpoint es una proyección mínima**, no el
+>    `ResultadoDelTurno` completo que sí devuelve el endpoint ADMIN de prueba
+>    (`POST /api/agents/:id/test-message`). Un visitante anónimo no tiene por
+>    qué ver `toolCalls` (nombres de tools internas, argumentos, resultados) —
+>    eso es superficie de implementación interna. La respuesta pública es
+>    `{ conversationId, respuesta }` únicamente.
+
 > **Nota del 12/09/2026 — decisiones tomadas al construir el paso 3
 > (`create_lead`/`update_lead`).**
 >
@@ -382,7 +448,7 @@ El costo real depende del proveedor de LLM elegido (sección 10, sin decidir) y 
    - **2b. Loop de orquestación:** capa de permisos (`puedeEjecutarTool`) + el loop completo de la sección 4 + `create_opportunity()`/`update_opportunity()` y `get_availability()`/`create_booking()` como primeras tools reales (son las dos que no necesitan construir nada nuevo debajo) + un endpoint interno de prueba para ejercitarlo antes de que exista el canal Web público. **Construido (12/09/2026):** `agentPermissions.service.ts`, `agentTools.service.ts`, `agentOrchestration.service.ts`, repositorios de `Conversation`/`Message` y `POST /api/agents/:id/test-message`. Las decisiones que hubo que tomar al construirlo están en la nota fechada bajo la sección 6.
 3. `create_lead()`/`update_lead()` — extender `contact.service.ts` para escribir los campos de calificación, con la lógica de "agregar, no pisar" de `leadNotes`. **Construido (12/09/2026):** `qualifyLead()` en `contact.service.ts` y las dos tools en `agentTools.service.ts`. Decisiones en la nota fechada del paso 3 bajo la sección 6.
 4. Mecanismo de handoff a humano (ya diseñado en la sección 6, reusa `Activity`).
-5. Endpoint público del canal Web (sección 5) — el widget embebido real.
+5. Endpoint público del canal Web (sección 5) — el widget embebido real. **Construido (12/09/2026)**, en dos PRs: **5a** (schema y administración del token de embed: `AgentEmbedToken`, `Agent.allowedOrigins`, `utils/agentEmbedToken.ts`, `utils/origin.ts`, `agentEmbedToken.repository/service/controller/routes`) y **5b** (el endpoint público `POST /api/public/agents/:agentId/web/messages`: `types/widgetAuth.ts`, `services/widgetAuth.service.ts`, `middlewares/authenticateEmbedToken.ts`, `middlewares/widgetCors.ts`, `middlewares/widgetBody.ts`, `widgetRateLimiter` en `middlewares/rateLimit.ts`, `services/widgetContact.service.ts`, `controllers/publicWidget.controller.ts`, `routes/publicWidget.routes.ts`, y el reordenamiento de `app.ts` para montar el CORS del widget antes del global). Decisiones en la nota fechada del paso 5b bajo la sección 6 y en la nota del canal Web de la sección 10. El script embebible (`<script>`) del lado del sitio del cliente sigue siendo un desarrollo de frontend aparte.
 6. Integración de WhatsApp, cuando el trámite de Meta/Twilio esté resuelto — reusa el mismo loop ya probado en el paso 2, sin rediseñarlo.
 7. Conectar el motor de automatizaciones (acción "iniciar acción de IA") — depende de que ese motor exista, que es un módulo aparte.
 8. `create_payment_link()` — al final, cuando haya un pack que lo justifique (Pack Turnos, si se prioriza la seña anti no-show).
@@ -399,5 +465,6 @@ El costo real depende del proveedor de LLM elegido (sección 10, sin decidir) y 
   5. **Fuera de alcance de este documento:** el script embebible real que un negocio pega en su sitio (`<script>`) es un desarrollo de frontend aparte — acá se construye el endpoint del backend que ese script va a llamar.
 - **Tamaño de la ventana de contexto** — **Resuelta el 12/09/2026: los últimos 20 `Message` de la `Conversation`, truncado simple.** Si hay más de 20, se descartan los más viejos; sin resumen todavía. Se revisa si hace falta algo más sofisticado (resumen, ventana por tokens) cuando haya conversaciones reales de ese largo — hoy no las hay, y diseñar un resumen sobre conversaciones hipotéticas sería trabajo especulativo.
 - **Rate limiting propio del loop del agente** — además del rate limiter genérico que ya usa el resto de las rutas de escritura (`businessWriteRateLimiter`), una llamada a un LLM es mucho más cara que un CRUD típico y probablemente necesita su propio límite — a evaluar cuando se implemente el paso 2 del plan.
+- **Rate limiting del embed token filtrado, multi-IP** — pendiente, sin resolver (paso 5b, nota fechada bajo la sección 6, punto 5). El rate limit del widget cuenta por `embedTokenId` (60 s / 20 requests), y el token es público por diseño: vive en el JavaScript del sitio del cliente. Un token filtrado o scrapeado permite repartir requests entre muchas IPs distintas y un limiter por token no ve eso; tampoco serviría uno por IP (este proyecto no configura `trust proxy`, y detrás de un proxy `req.ip` es la IP del proxy para todos). Candidatos si aparece evidencia real de abuso: un límite duro adicional por `agentId` además del de por token, o una huella de request que combine varios headers. No se construye antes de esa evidencia: hoy la defensa es la revocación del token (rotar sin downtime, 5a) y el costo acotado de cada request rechazado.
 - **Knowledge Base / RAG** — sección 8 del documento de visión, sin diseñar. Cuando se aborde, probablemente sea un documento propio, mismo criterio que este.
 - **Contexto de negocio por cliente (documento de referencia)** — idea de Rocco: un campo de texto libre (tipo `.md`) con el contexto del negocio de cada cliente —servicios, políticas, catálogo, preguntas frecuentes— para que los agentes de esa sucursal/organización tengan contexto suficiente sin tener que derivarlo de otras tablas en cada turno. Es MÁS SIMPLE que el Knowledge Base/RAG del bullet anterior (aquello implica búsqueda semántica sobre documentos variados): acá es un solo campo de texto que se suma al system prompt junto con `Agent.instructions`. Probablemente vive en `Organization` o en `Branch`, no en `Agent`, porque le serviría a todos los agentes de ese cliente por igual. **Explícitamente diferido:** se diseña como su propio ítem chico recién cuando el loop básico (paso 2b) esté probado — no entra en el PR de 2a ni en el de 2b.

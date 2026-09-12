@@ -60,6 +60,23 @@ export function findAgentById(id: string, organizationId: string, db: Db = prism
   return db.agent.findFirst({ where: { id, organizationId, deletedAt: null } });
 }
 
+// SIN organizationId, A PROPÓSITO — la única lectura de este archivo sin él.
+// La usa el CORS dinámico del widget (middlewares/widgetCors.ts) al resolver
+// el preflight OPTIONS de POST /api/public/agents/:agentId/web/messages: en
+// ese momento no hay token (un preflight nunca lo trae) y por lo tanto no se
+// conoce la organización; lo único que hay es el :agentId público de la URL.
+// Y allowedOrigins no es un dato sensible: es exactamente lo que un preflight
+// de CORS existe para revelar por diseño (el navegador se lo muestra a
+// cualquiera que haga el OPTIONS). Devuelve SOLO eso, para que esta función
+// no pueda convertirse en un camino de lectura de nada más del agente.
+// deletedAt: null — un agente borrado no refleja ningún origen.
+export function findAgentOriginsById(agentId: string, db: Db = prisma) {
+  return db.agent.findFirst({
+    where: { id: agentId, deletedAt: null },
+    select: { allowedOrigins: true },
+  });
+}
+
 export interface CreateAgentData {
   organizationId: string;
   branchId: string;
