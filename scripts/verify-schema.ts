@@ -133,7 +133,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // (deny-all).
   [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
   [7, { descripcion: "Los 10 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
-  [8, { descripcion: "Los 20 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
+  [8, { descripcion: "Los 22 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
   [9, { descripcion: "Los 2 triggers de email, por pg_get_triggerdef", esperado: "ninguno" }],
   [
     10,

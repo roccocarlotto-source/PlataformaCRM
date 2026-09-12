@@ -28,6 +28,17 @@ enum LifecycleStage {
   CHURNED
 }
 
+// Urgencia de un lead (Contact.leadUrgency). Enum y no texto libre, a
+// diferencia de leadIntent/leadServiceOfInterest: la urgencia es un concepto
+// acotado que cruza todos los verticales del negocio (una automotora y una
+// clínica la miden igual), mientras que la intención varía demasiado entre
+// rubros para un catálogo cerrado.
+enum LeadUrgency {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 enum OpportunityStatus {
   OPEN
   WON
@@ -571,6 +582,56 @@ model Contact {
   updatedAt      DateTime       @updatedAt @map("updated_at")
   deletedAt      DateTime?      @map("deleted_at")
 
+  // -------------------------------------------------------------------------
+  // Calificación del lead (migración 20260912120000). Resuelve el pendiente
+  // abierto el 28/08/2026 al formalizar Lead vs. Contact: los atributos que
+  // el documento de visión asignaba a `Lead` viven acá, como columnas de
+  // Contact y no en una tabla aparte — la relación es 1:1 y no hace falta
+  // historial. TODAS nullable a propósito: un negocio que no usa calificación
+  // no pierde nada. Solo schema por ahora: ningún endpoint, service ni
+  // formulario las lee o escribe; quien las va a completar es el futuro
+  // create_lead()/update_lead() del agente de IA (docs/roadmap-
+  // implementacion.md, 2.2), directamente vía Prisma/el service, no
+  // necesariamente por el endpoint HTTP de Contact. Sin índices hasta que
+  // exista una consulta que filtre por alguna de ellas.
+  // -------------------------------------------------------------------------
+  // 0..100, información auxiliar (nunca gating). CHECK
+  // contacts_lead_score_range_check en la migración: NULL o dentro del rango.
+  leadScore             Int?         @map("lead_score")
+  // Texto libre, sin enum: "comprar" en una automotora, "cotizar tratamiento"
+  // en una clínica — la intención varía demasiado entre verticales para un
+  // catálogo cerrado. Mismo criterio para leadServiceOfInterest.
+  leadIntent            String?      @map("lead_intent") @db.VarChar(200)
+  leadServiceOfInterest String?      @map("lead_service_of_interest") @db.VarChar(200)
+  // Enum (ver LeadUrgency): concepto acotado que cruza verticales.
+  leadUrgency           LeadUrgency? @map("lead_urgency")
+  // Presupuesto: mismo patrón que Opportunity.amount/currency (monto + código
+  // ISO 4217 de 3 letras sin enum, ~180 códigos). SIN @default en ninguno de
+  // los dos, a diferencia de Opportunity: 0 no es "sin presupuesto", es
+  // "presupuesto cero", y son cosas distintas. CHECK
+  // contacts_lead_budget_amount_non_negative_check en la migración: NULL o
+  // >= 0.
+  leadBudgetAmount      Decimal?     @map("lead_budget_amount") @db.Decimal(14, 2)
+  leadBudgetCurrency    String?      @map("lead_budget_currency") @db.VarChar(3)
+  // Zona / ciudad, texto libre.
+  leadLocation          String?      @map("lead_location") @db.VarChar(200)
+  // Texto libre sin límite corto (@db.Text y no VarChar) porque está pensado
+  // para que un futuro update_lead() del agente AGREGUE contenido (concatene)
+  // en vez de sobreescribir: así no se pierden los matices o ambigüedades que
+  // el agente fue registrando en distintas conversaciones. Ese "agregar, no
+  // pisar" es responsabilidad de la capa de servicio que todavía no existe;
+  // acá solo se dimensiona la columna.
+  leadNotes             String?      @map("lead_notes") @db.Text
+  // Cualquier dato que el agente extraiga de la conversación y no tenga
+  // columna propia.
+  leadAiData            Json?        @map("lead_ai_data")
+  // Campos personalizados por industria ("tratamiento" en una clínica,
+  // "dormitorios" en una inmobiliaria — principio rector 13 del documento de
+  // visión). Sin catálogo formal de definiciones todavía: eso sería una tabla
+  // CustomFieldDefinition por organización (tipo/opciones/validación) y se
+  // formaliza cuando un segundo vertical real lo necesite, no antes.
+  customFields          Json?        @map("custom_fields")
+
   organization Organization @relation(fields: [organizationId], references: [id])
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
   owner        User?        @relation("ContactOwner", fields: [organizationId, ownerId], references: [organizationId, id], onDelete: NoAction)
@@ -585,7 +646,10 @@ model Contact {
   // deleted_at IS NULL — índice único parcial; su versión actual (con
   // lower()) vive en la migración
   // 20260825120000_m13_case_insensitive_contact_email, con
-  // manual_constraints.sql como red de seguridad idempotente además
+  // manual_constraints.sql como red de seguridad idempotente además.
+  // Los dos CHECK de calificación (lead_score en 0..100, lead_budget_amount
+  // >= 0) viven en la migración 20260912120000 y NO en
+  // manual_constraints.sql: B-15 sacó los CHECK de la reaplicación por deploy.
   @@index([organizationId])
   @@index([companyId])
   @@index([ownerId])

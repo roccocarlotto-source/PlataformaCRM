@@ -291,7 +291,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 20 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 22 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -386,7 +386,16 @@ from (
     ('exchange_rates_rate_positive_check', 'exchange_rates',
      'CHECK (rate > 0)'),
     ('exchange_rates_currencies_differ_check', 'exchange_rates',
-     'CHECK (base_currency <> target_currency)')
+     'CHECK (base_currency <> target_currency)'),
+    -- Calificación del lead (migración 20260912120000): las dos columnas
+    -- numéricas de las diez que se agregaron a contacts. Nullables, así que
+    -- el CHECK deja pasar la fila sin score/presupuesto (NULL pasa) y solo
+    -- frena el valor fuera de rango. El normalizador quita el `(0)::numeric`
+    -- de la comparación con Decimal, igual que en vehicles_*.
+    ('contacts_lead_score_range_check', 'contacts',
+     'CHECK (lead_score >= 0 AND lead_score <= 100)'),
+    ('contacts_lead_budget_amount_non_negative_check', 'contacts',
+     'CHECK (lead_budget_amount >= 0)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def

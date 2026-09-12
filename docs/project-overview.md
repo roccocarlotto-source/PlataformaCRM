@@ -440,6 +440,28 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   `(organizationId, email)` **parcial** (solo aplica si `email IS NOT NULL AND
   deletedAt IS NULL`), implementado a mano en `manual_constraints.sql` porque Prisma no
   soporta índices únicos parciales.
+- **Calificación del lead (12/09/2026, migración
+  `20260912120000_contact_lead_qualification_fields`)**: los atributos que el documento
+  de visión asignaba a `Lead` viven como **columnas de `Contact`**, no en una tabla
+  aparte (relación 1:1, sin historial), y son **todas nullable** — un negocio que no
+  califica no pierde nada. `leadScore` (`Int?`, 0..100 por CHECK, información auxiliar,
+  nunca gating); `leadIntent` y `leadServiceOfInterest` (`VarChar(200)?`, **texto
+  libre, sin enum**: "comprar" en una automotora, "cotizar tratamiento" en una clínica
+  — varía demasiado entre verticales para un catálogo cerrado); `leadUrgency` (enum
+  nuevo `LeadUrgency`: `LOW | MEDIUM | HIGH` — a diferencia de la intención, la urgencia
+  sí es un concepto acotado que cruza verticales); `leadBudgetAmount`
+  (`Decimal(14,2)?`, >= 0 por CHECK) + `leadBudgetCurrency` (`VarChar(3)?`, ISO 4217 sin
+  enum, mismo patrón que `Opportunity.amount/currency` pero **sin `@default`**: 0 no es
+  "sin presupuesto", es "presupuesto cero"); `leadLocation` (`VarChar(200)?`, zona /
+  ciudad); `leadNotes` (`Text?`, sin límite corto porque el futuro `update_lead()` del
+  agente **agrega, no pisa** — responsabilidad de la capa de servicio, que todavía no
+  existe); `leadAiData` (`Json?`, lo que el agente extraiga sin columna propia);
+  `customFields` (`Json?`, campos por industria — principio rector 13; sin tabla
+  `CustomFieldDefinition` hasta que un segundo vertical real la necesite). Los dos
+  CHECK viven en la migración y no en `manual_constraints.sql` (criterio B-15).
+  **Solo schema:** ningún endpoint, service ni formulario los lee o escribe todavía,
+  y no hay índices sobre ellos; los va a completar `create_lead()`/`update_lead()`
+  del agente de IA ([roadmap, 2.2](roadmap-implementacion.md)).
 
 ### `Pipeline`
 - **Propósito**: proceso de ventas de una organización. ✅ Módulo completo
@@ -921,6 +943,10 @@ mapean a snake_case en Postgres vía `@map`/`@@map`.
   > el gap es real: falta decidir **dónde viven** —columnas nuevas en `Contact` vs. una
   > tabla de calificación aparte— antes de implementar `create_lead()`/`update_lead()`
   > y las tools de calificación. Anotado en `docs/roadmap-implementacion.md`, P2.2.
+  >
+  > **Resuelto el 12/09/2026:** columnas nuevas en `Contact`, todas nullable, solo
+  > schema por ahora — ver el bullet "Calificación del lead" de `Contact` en la
+  > [sección 4](#4-modelo-de-datos) y el roadmap, 2.2.
 
 - **Pipeline con `Stage` ordenado (`order: Int`).** Modelo estándar de pipeline
   kanban de ventas: cada oportunidad vive en una etapa de un pipeline, con
