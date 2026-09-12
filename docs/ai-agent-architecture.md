@@ -311,6 +311,52 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >    `qualifyLead` lleva un marcador `[AAAA-MM-DD]` al frente para que se pueda
 >    distinguir de dónde vino cada una.
 
+> **Nota del 12/09/2026 — decisiones tomadas al construir el paso 4 (handoff
+> a humano completo).**
+>
+> 1. **A quién se le atribuye la `Activity` de una derivación.**
+>    `Activity.authorId` es NOT NULL con FK a `User` — mismo problema que
+>    `Opportunity.ownerId` en el paso 2b, misma resolución: se usa el `ownerId`
+>    del `Contact` de la conversación (también como `assigneeId`, como ya
+>    describía esta sección para `Conversation.assignedUserId`). Si el `Contact`
+>    no tiene `ownerId`, NO se crea la `Activity` — se loguea un warning, pero la
+>    transición de `Conversation.status` a `TRANSFERRED_TO_HUMAN` SIEMPRE ocurre
+>    igual, porque es la garantía central (el agente deja de responder solo) y
+>    no puede depender de que exista un vendedor asignado. Es una limitación
+>    conocida, no un bug: un negocio con muchos contactos sin vendedor asignado
+>    va a tener derivaciones silenciosas. Si eso importa en la práctica, la
+>    solución natural es un "vendedor por defecto" por sucursal — no se
+>    construye acá, es una decisión de producto aparte.
+> 2. **Cómo el modelo decide derivar, no solo el código.** Esta sección lista
+>    cuatro disparadores; hasta ahora solo estaba construido uno (falla repetida
+>    de tool-calling). Los otros tres —el contacto lo pide explícitamente, una
+>    `condicionDeDerivacion` configurada coincide, una tool bloqueada es la
+>    única forma de seguir— necesitan que el MODELO decida, porque son juicios
+>    sobre el contenido de la conversación que el código no puede evaluar. Se
+>    resuelven con una tool nueva, siempre disponible,
+>    `request_human_handoff(reason)`, que el modelo puede llamar cuando
+>    corresponda. Las instrucciones de cuándo usarla van en el system prompt
+>    (ver punto 3). No pasa por `puedeEjecutarTool`: ni `accionesProhibidas`
+>    ni ningún otro guardrail puede bloquear un pedido de derivación —
+>    bloquear la salida de emergencia sería contradictorio con para qué sirve.
+> 3. **`temasProhibidos` y `promesasProhibidas` de `guardrails` se incorporan
+>    al system prompt por primera vez.** Estos dos campos existen en la forma
+>    documentada de `guardrails` desde que se escribió esta sección, pero
+>    ningún código los leyó nunca — `puedeEjecutarTool` solo chequea
+>    `accionesProhibidas`/`infoNoModificable`/`datosRequeridosAntesDeAccion`,
+>    que son gates de EJECUCIÓN de tools; `temasProhibidos`/`promesasProhibidas`
+>    gobiernan lo que el modelo puede DECIR en texto libre, y la única forma de
+>    hacer cumplir eso es que el modelo lo sepa de antemano. Mismo criterio para
+>    `condicionesDeDerivacion`: se agregan al system prompt como instrucciones
+>    explícitas ("si la conversación coincide con algo de esta lista, llamá a
+>    `request_human_handoff`"), no como un chequeo de código que compare texto
+>    contra una lista — es exactamente el tipo de juicio para el que sirve un
+>    modelo de lenguaje y no un `string.includes`.
+> 4. **La red de seguridad del paso 2b (tope de rondas) ahora también crea la
+>    `Activity`.** Antes solo cambiaba `Conversation.status`; comparte la misma
+>    función de ejecución de handoff que la tool nueva, con motivo "el agente
+>    no pudo resolver el caso en el tiempo esperado".
+
 **La restricción de cumplimiento de Meta (documento de visión, roadmap 2.2) se aplica estructuralmente, no como un guardrail más que un admin pueda desactivar.** El catálogo de tools de la sección 7 solo incluye acciones de negocio acotadas (calificar, agendar, crear oportunidades, links de pago) — no existe ninguna tool de "responder cualquier cosa", así que un agente no puede convertirse en un asistente de propósito general aunque un admin deshabilite todos los guardrails configurables. Es una propiedad del catálogo de tools, no de la configuración.
 
 ## 7. Tools del agente de IA — estado real

@@ -9,7 +9,10 @@ import { AppError } from "../utils/AppError";
 import {
   MAX_TOOL_ROUNDS_PER_TURN,
   MENSAJE_DE_HANDOFF,
+  MOTIVO_TOPE_DE_RONDAS,
+  REQUEST_HUMAN_HANDOFF_TOOL_NAME,
   VENTANA_DE_MENSAJES,
+  ejecutarHandoff,
   runAgentTurn,
 } from "./agentOrchestration.service";
 import {
@@ -226,6 +229,7 @@ async function desmontar(e: Escenario) {
   const where = { organizationId: e.organizationId };
   await prisma.message.deleteMany({ where });
   await prisma.conversation.deleteMany({ where });
+  await prisma.activity.deleteMany({ where });
   await prisma.booking.deleteMany({ where });
   await prisma.workingHours.deleteMany({ where });
   await prisma.serviceType.deleteMany({ where });
@@ -285,7 +289,7 @@ test("texto directo: crea la conversación, persiste entrante y saliente, sin to
     assert.deepEqual(req.messages, [{ role: "user", content: "Hola" }]);
     assert.deepEqual(
       req.tools.map((t) => t.name),
-      ["create_opportunity"],
+      ["create_opportunity", REQUEST_HUMAN_HANDOFF_TOOL_NAME],
     );
     assert.equal(req.model, "doble/modelo");
 
@@ -439,7 +443,7 @@ test("una tool que no está en enabledTools se rechaza aunque exista en el catá
     // Y el catálogo ofrecido al modelo era solo lo habilitado.
     assert.deepEqual(
       doble.requests[0].tools.map((t) => t.name),
-      ["get_availability"],
+      ["get_availability", REQUEST_HUMAN_HANDOFF_TOOL_NAME],
     );
   } finally {
     await desmontar(e);
@@ -469,6 +473,22 @@ test("agotar MAX_TOOL_ROUNDS_PER_TURN deriva a humano con el cierre fijo, y desp
       where: { id: resultado.conversationId },
     });
     assert.equal(conversation.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(
+      conversation.assignedUserId,
+      e.ownerId,
+      "paso 4: asignada al vendedor del contacto",
+    );
+
+    // Paso 4: la red de seguridad ahora también avisa al negocio.
+    const activities = await prisma.activity.findMany({
+      where: { organizationId: e.organizationId },
+    });
+    assert.equal(activities.length, 1);
+    assert.equal(resultado.handoffActivityId, activities[0].id);
+    assert.equal(activities[0].body, MOTIVO_TOPE_DE_RONDAS);
+    assert.equal(activities[0].authorId, e.ownerId);
+    assert.equal(activities[0].assigneeId, e.ownerId);
+    assert.equal(activities[0].contactId, e.contactId);
 
     const saliente = await prisma.message.findFirstOrThrow({
       where: { conversationId: conversation.id, direction: "OUTBOUND" },
@@ -856,6 +876,237 @@ test("infoNoModificable = [Contact.budgetAmount] bloquea update_lead con presupu
     const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
     assert.equal(contacto.leadBudgetAmount, null, "el presupuesto protegido no se escribió");
     assert.equal(contacto.leadScore, 40);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 9. Paso 4: el handoff completo — la tool del sistema, la Activity de aviso,
+// y las instrucciones de derivación en el system prompt.
+// ---------------------------------------------------------------------------
+
+async function activitiesDe(e: Escenario) {
+  return prisma.activity.findMany({ where: { organizationId: e.organizationId } });
+}
+
+test("request_human_handoff con texto propio: se usa ese texto, se crea la Activity y assignedUserId es el vendedor del contacto", async () => {
+  const e = await montar("handoff-tool");
+  try {
+    const doble = doblarProveedor([
+      pideTool(
+        "h1",
+        REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+        { reason: "El cliente pide hablar con un vendedor" },
+        "Te paso con alguien del equipo, ya te contactan.",
+      ),
+      texto("no debería llegar"),
+    ]);
+
+    const resultado = await turno(e, "Quiero hablar con una persona", doble.proveedor);
+
+    // Cortó en la primera ronda: el modelo ya decidió.
+    assert.equal(doble.requests.length, 1);
+    assert.equal(resultado.handoff, true);
+    assert.equal(resultado.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(resultado.respuesta, "Te paso con alguien del equipo, ya te contactan.");
+    assert.equal(resultado.toolCalls.length, 1);
+    assert.equal(
+      resultado.toolCalls[0].allowed,
+      true,
+      "la salida de emergencia no pasa por permisos",
+    );
+
+    // La tool del sistema se ofreció aunque enabledTools no la tenga.
+    assert.ok(
+      doble.requests[0].tools.some((t) => t.name === REQUEST_HUMAN_HANDOFF_TOOL_NAME),
+      "request_human_handoff tiene que estar siempre en el catálogo ofrecido",
+    );
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: resultado.conversationId },
+    });
+    assert.equal(conversation.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(conversation.assignedUserId, e.ownerId);
+
+    const activities = await activitiesDe(e);
+    assert.equal(activities.length, 1);
+    assert.equal(resultado.handoffActivityId, activities[0].id);
+    assert.equal(activities[0].type, "TASK");
+    assert.equal(activities[0].authorId, e.ownerId);
+    assert.equal(activities[0].assigneeId, e.ownerId);
+    assert.equal(activities[0].contactId, e.contactId);
+    assert.equal(activities[0].body, "El cliente pide hablar con un vendedor");
+    assert.match(
+      activities[0].subject,
+      /Conversación derivada por el agente Agente comercial: Ana Pérez/,
+    );
+
+    const saliente = await prisma.message.findFirstOrThrow({
+      where: { conversationId: conversation.id, direction: "OUTBOUND" },
+    });
+    assert.equal(saliente.content, "Te paso con alguien del equipo, ya te contactan.");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("request_human_handoff SIN texto propio usa el cierre fijo; el guardrail accionesProhibidas no la bloquea", async () => {
+  const e = await montar("handoff-sin-texto", {
+    guardrails: { accionesProhibidas: [REQUEST_HUMAN_HANDOFF_TOOL_NAME, "create_opportunity"] },
+  });
+  try {
+    const doble = doblarProveedor([
+      pideTool("h1", REQUEST_HUMAN_HANDOFF_TOOL_NAME, { reason: "Reclamo por una entrega" }),
+    ]);
+
+    const resultado = await turno(e, "Esto es un reclamo", doble.proveedor);
+
+    assert.equal(doble.requests.length, 1);
+    assert.equal(resultado.handoff, true);
+    assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+    assert.equal(resultado.toolCalls[0].allowed, true, "ningún guardrail bloquea la derivación");
+    assert.ok(resultado.handoffActivityId);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("contacto SIN vendedor: la conversación igual queda derivada, sin Activity y sin que el turno falle", async () => {
+  const e = await montar("handoff-sin-vendedor", { conVendedor: false });
+  try {
+    const doble = doblarProveedor([
+      pideTool(
+        "h1",
+        REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+        { reason: "Pide una persona" },
+        "Ya te contactan.",
+      ),
+    ]);
+
+    const resultado = await turno(e, "Quiero hablar con alguien", doble.proveedor);
+
+    assert.equal(resultado.handoff, true);
+    assert.equal(resultado.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(resultado.handoffActivityId, null, "derivación silenciosa, documentada");
+    assert.equal(resultado.respuesta, "Ya te contactan.");
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: resultado.conversationId },
+    });
+    assert.equal(conversation.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(conversation.assignedUserId, null);
+    assert.equal((await activitiesDe(e)).length, 0);
+
+    // Y el agente ya no responde en esa conversación.
+    const despues = await turno(e, "¿Hola?", doblarProveedor([texto("no")]).proveedor);
+    assert.equal(despues.respuesta, null);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("condicionesDeDerivacion llega al system prompt y el modelo, al verla, deriva", async () => {
+  // El guion es del test: lo que se prueba es que la instrucción se arma y se
+  // pasa bien, no el juicio real de un LLM. El doble solo llama a la tool si
+  // encuentra la instrucción en el prompt que recibió.
+  const e = await montar("handoff-condiciones", {
+    guardrails: {
+      condicionesDeDerivacion: ["reclamo o queja", "pide hablar con una persona"],
+      temasProhibidos: ["asesoramiento legal"],
+      promesasProhibidas: ["plazos de entrega no confirmados"],
+    },
+  });
+  try {
+    const requests: LlmCompletionRequest[] = [];
+    const proveedor: LlmProvider = {
+      name: "doble-condicional",
+      complete(request) {
+        requests.push(request);
+        const veLaInstruccion =
+          request.systemPrompt.includes("- reclamo o queja") &&
+          request.systemPrompt.includes(`Llamá a ${REQUEST_HUMAN_HANDOFF_TOOL_NAME}`);
+        return Promise.resolve(
+          veLaInstruccion
+            ? pideTool(
+                "h1",
+                REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+                { reason: "Coincide: reclamo" },
+                "Te derivo.",
+              )
+            : texto("No vi ninguna instrucción de derivación"),
+        );
+      },
+    };
+
+    const resultado = await turno(e, "Tengo una queja con el servicio", proveedor);
+
+    assert.equal(resultado.handoff, true, requests[0]?.systemPrompt);
+    assert.equal(resultado.respuesta, "Te derivo.");
+    assert.ok(resultado.handoffActivityId);
+
+    const prompt = requests[0].systemPrompt;
+    assert.match(
+      prompt,
+      /No respondas ni opines sobre los siguientes temas:\n- asesoramiento legal/,
+    );
+    assert.match(prompt, /Nunca prometas ni confirmes:\n- plazos de entrega no confirmados/);
+    assert.match(prompt, /- pide hablar con una persona/);
+
+    const [activity] = await activitiesDe(e);
+    assert.equal(activity.body, "Coincide: reclamo");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("el tope de rondas comparte ejecutarHandoff: ahora también crea la Activity con el motivo fijo", async () => {
+  const e = await montar("handoff-tope", {
+    guardrails: { accionesProhibidas: ["create_opportunity"] },
+  });
+  try {
+    const doble = doblarProveedor([pideTool("call_x", "create_opportunity", { title: "x" })]);
+
+    const resultado = await turno(e, "Dale, creala igual", doble.proveedor);
+
+    assert.equal(doble.requests.length, MAX_TOOL_ROUNDS_PER_TURN);
+    assert.equal(resultado.handoff, true);
+    assert.ok(resultado.handoffActivityId);
+
+    const activities = await activitiesDe(e);
+    assert.equal(activities.length, 1, "una sola Activity aunque hubo cinco rondas");
+    assert.equal(activities[0].body, MOTIVO_TOPE_DE_RONDAS);
+    assert.equal(activities[0].assigneeId, e.ownerId);
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: resultado.conversationId },
+    });
+    assert.equal(conversation.assignedUserId, e.ownerId);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ejecutarHandoff es idempotente: una conversación ya derivada no genera una segunda Activity", async () => {
+  const e = await montar("handoff-idempotente");
+  try {
+    const primero = await turno(
+      e,
+      "Quiero una persona",
+      doblarProveedor([pideTool("h1", REQUEST_HUMAN_HANDOFF_TOOL_NAME, { reason: "pide" }, "Ok.")])
+        .proveedor,
+    );
+    assert.ok(primero.handoffActivityId);
+
+    const segunda = await ejecutarHandoff({
+      organizationId: e.organizationId,
+      conversationId: primero.conversationId,
+      contact: { id: e.contactId, ownerId: e.ownerId, firstName: "Ana", lastName: "Pérez" },
+      agentName: "Agente comercial",
+      motivo: "otra vez",
+    });
+    assert.equal(segunda.activityId, null);
+    assert.equal((await activitiesDe(e)).length, 1);
   } finally {
     await desmontar(e);
   }

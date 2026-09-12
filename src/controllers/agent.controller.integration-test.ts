@@ -198,6 +198,7 @@ after(async () => {
     if (!org) continue;
     await prisma.message.deleteMany({ where: { organizationId: org.id } });
     await prisma.conversation.deleteMany({ where: { organizationId: org.id } });
+    await prisma.activity.deleteMany({ where: { organizationId: org.id } });
     await prisma.agent.deleteMany({ where: { organizationId: org.id } });
     await prisma.contact.deleteMany({ where: { organizationId: org.id } });
     await prisma.branch.deleteMany({ where: { organizationId: org.id } });
@@ -605,12 +606,16 @@ test("POST /api/agents/:id/test-message — la derivación llega por HTTP con st
       status: string;
       respuesta: string;
       handoff: boolean;
+      handoffActivityId: string | null;
       toolCalls: { allowed: boolean }[];
     };
     assert.equal(body.handoff, true);
     assert.equal(body.status, "TRANSFERRED_TO_HUMAN");
     assert.equal(body.respuesta, MENSAJE_DE_HANDOFF);
     assert.ok(body.toolCalls.length > 0 && body.toolCalls.every((tc) => tc.allowed === false));
+    // Paso 4: el contacto de este archivo no tiene vendedor, así que la
+    // derivación es silenciosa y el endpoint lo dice.
+    assert.equal(body.handoffActivityId, null);
   } finally {
     resetLlmProviderParaTests();
   }
