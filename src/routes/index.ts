@@ -3,6 +3,7 @@ import { activityRouter } from "./activity.routes";
 import { agentEmbedTokenRouter } from "./agentEmbedToken.routes";
 import { agentRouter } from "./agent.routes";
 import { apiKeyRouter } from "./apiKey.routes";
+import { automationRouter } from "./automation.routes";
 import { bookingRouter } from "./booking.routes";
 
 import { branchRouter } from "./branch.routes";
@@ -93,6 +94,13 @@ routes.use("/api", agentRouter);
 // endpoint público que los consume (5b) NO va acá: será sin authenticate y
 // sin /api, junto a qrPublicRouter.
 routes.use("/api", agentEmbedTokenRouter);
+
+// Motor de automatizaciones (docs/automations-architecture.md §8): CRUD de las
+// reglas trigger -> acción de la organización. Va acá, con los demás CRUD de
+// configuración, porque comparte exactamente su forma: authenticate para
+// leer, + authorize("ADMIN") para escribir. La ejecución de las reglas no pasa
+// por HTTP: la dispara el worker del outbox (server.ts).
+routes.use("/api", automationRouter);
 
 // Conexión OAuth con Google Calendar (paso 2 de booking-architecture.md §9).
 // Sus tres rutas administrativas comparten la forma del resto de este bloque;

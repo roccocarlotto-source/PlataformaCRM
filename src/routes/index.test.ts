@@ -321,3 +321,18 @@ test("el CRUD de agentes de IA (paso 2a) está montado bajo /api", async () => {
     assert.equal(res.status, 401, `${method} ${path} no está montado`);
   }
 });
+
+test("el CRUD de automatizaciones (docs/automations-architecture.md §8) está montado bajo /api", async () => {
+  const id = randomUUID();
+  const casos: [string, string][] = [
+    ["GET", "/api/automations"],
+    ["GET", `/api/automations/${id}`],
+    ["POST", "/api/automations"],
+    ["PATCH", `/api/automations/${id}`],
+    ["DELETE", `/api/automations/${id}`],
+  ];
+  for (const [method, path] of casos) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+  }
+});

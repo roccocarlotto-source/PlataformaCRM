@@ -8,11 +8,13 @@
 // global entre casos, que es la parte que se rompe sola cuando el runner corre
 // archivos en paralelo.
 //
-// QUÉ ES UN HANDLER: la función que hace la entrega real de un eventType. Hoy
-// NO EXISTE NINGUNA — el motor se construye antes que sus tres consumidores
-// (aviso a Resea, recordatorio de WhatsApp, "Oportunidad → Ganada"), y los
-// tests registran una de prueba. Cuando existan, cada uno registra la suya al
-// arrancar el servidor.
+// QUÉ ES UN HANDLER: la función que hace la entrega real de un eventType. El
+// motor se construyó antes que sus consumidores (aviso a Resea, recordatorio
+// de WhatsApp, "Oportunidad → Ganada"), y los tests registran una de prueba.
+// El primero real llegó el 13/09/2026: el motor de automatizaciones registra
+// un handler de despacho por cada trigger conocido al arrancar el servidor
+// (automationRegistrations.ts, llamado desde server.ts); los otros dos siguen
+// bloqueados por dependencias externas (docs/automations-architecture.md §2).
 //
 // EL MOTOR NO INTERPRETA eventType. Quien emite decide el string; el registro
 // decide quién lo atiende. Un eventType sin handler no es un fallo transitorio
@@ -78,6 +80,7 @@ export function crearRegistroDeHandlers(): RegistroDeHandlers {
   };
 }
 
-// El que usa el servidor. Los consumidores futuros se registran acá al
-// arrancar; hoy no hay ninguno y el registro está vacío a propósito.
+// El que usa el servidor. Nace vacío a propósito: los consumidores se
+// registran al arrancar (hoy, registrarAutomatizaciones() en server.ts), no
+// como efecto de lado de un import.
 export const registroDeHandlers = crearRegistroDeHandlers();

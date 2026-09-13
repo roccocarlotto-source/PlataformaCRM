@@ -2,6 +2,7 @@ import { app } from "./app";
 import { env } from "./config/env";
 import { logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
+import { registrarAutomatizaciones } from "./services/automationRegistrations";
 import { crearShutdown } from "./shutdown";
 import { iniciarWorkerDeIngesta } from "./workers/ingestionWorker";
 import { iniciarWorkerDeCotizaciones } from "./workers/exchangeRateWorker";
@@ -19,6 +20,14 @@ const server = app.listen(env.PORT, () => {
 // debajo de las afirmaciones del propio test. Vive con el proceso servidor, que
 // es lo único que de verdad tiene que drenarla.
 const detenerWorker = iniciarWorkerDeIngesta();
+
+// Los registros del motor de automatizaciones (docs/automations-architecture.md
+// §4 y §5) —las acciones del catálogo y un handler de despacho por cada
+// trigger conocido— se pueblan ACÁ, antes de levantar el worker del outbox,
+// para que su log de arranque ya liste los eventTypes que este proceso sabe
+// atender. Es el primer consumidor real del outbox; hasta este punto el
+// registro de handlers estaba vacío por diseño (outboxHandlers.ts).
+registrarAutomatizaciones();
 
 // El worker de eventos salientes, por el mismo motivo y con el mismo criterio:
 // vive con el proceso servidor, no con la instancia de Express. Son dos timers

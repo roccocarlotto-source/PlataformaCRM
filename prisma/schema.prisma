@@ -104,6 +104,15 @@ enum OutboxStatus {
   DEAD_LETTER
 }
 
+// Resultado de UNA ejecución de una automatización para UN evento saliente
+// (docs/automations-architecture.md §3 y §6). Dos valores y no un booleano
+// porque FAILED lleva su `error` al lado: es el mínimo de observabilidad que
+// necesita quien configura una regla para saber si corrió y, si no, por qué.
+enum AutomationExecutionStatus {
+  SUCCESS
+  FAILED
+}
+
 // Tipo de recurso agendable (docs/booking-architecture.md §3). PERSON: una
 // persona que atiende (un barbero, un médico). ROOM: un espacio (una sala, una
 // cancha). CLASS: una clase con cupo, donde el recurso no es ni una persona ni
@@ -442,6 +451,9 @@ model Organization {
   apiKeys         ApiKey[]
   ingestionEvents IngestionEvent[]
   outboxEvents    OutboxEvent[]
+
+  automations          Automation[]
+  automationExecutions AutomationExecution[]
 
   branches     Branch[]
   resources    Resource[]
@@ -1199,6 +1211,84 @@ model OutboxEvent {
   // migración 20260828150000.
   @@index([organizationId, createdAt])
   @@map("outbox_events")
+}
+
+// ---------------------------------------------------------------------------
+// Motor de automatizaciones (docs/automations-architecture.md) — el primer
+// consumidor real del outbox de arriba. Una Automation es la regla "cuando
+// pase triggerType, ejecutá actionType con actionConfig"; una
+// AutomationExecution es la marca de que esa regla YA corrió para un evento
+// concreto, que es lo que hace al despacho idempotente frente a los reintentos
+// del outbox (§6 del documento).
+// ---------------------------------------------------------------------------
+
+model Automation {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  name String @db.VarChar(200)
+
+  // String y no enum, los dos — mismo criterio que OutboxEvent.eventType y
+  // Agent.modelProvider: el catálogo de triggers (automationTriggers.ts) y de
+  // acciones (automationActions.ts) vive en código, y agregar uno no debe
+  // requerir migración. Zod los valida en el borde contra ese catálogo. Un
+  // trigger ES un eventType del outbox: coinciden 1:1.
+  triggerType String @map("trigger_type") @db.VarChar(100)
+  actionType  String @map("action_type") @db.VarChar(100)
+
+  // La configuración de la acción. Sin forma impuesta por Postgres —cada
+  // acción declara su propio schema zod y el CRUD lo valida ANTES de
+  // guardar—, mismo criterio que Agent.guardrails.
+  actionConfig Json @map("action_config")
+
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  // Es configuración, no historial: soft delete, como Agent/Branch/Resource.
+  deletedAt DateTime? @map("deleted_at")
+
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  executions   AutomationExecution[]
+
+  // El UNIQUE que habilita la FK compuesta de automation_executions (C-3).
+  @@unique([organizationId, id])
+  // Exactamente la consulta del dispatcher: "las reglas activas de esta
+  // organización para este trigger".
+  @@index([organizationId, triggerType, isActive])
+  @@map("automations")
+}
+
+model AutomationExecution {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  automationId   String @map("automation_id") @db.Uuid
+
+  // SIN FK a outbox_events, a propósito: los eventos salientes se purgan a
+  // los 90 días y esta fila es el historial de la REGLA, no del evento. Una
+  // outboxEventId que ya no resuelve no es una inconsistencia, es un evento
+  // viejo.
+  outboxEventId String @map("outbox_event_id") @db.Uuid
+
+  status AutomationExecutionStatus
+  // El motivo del último fallo, para diagnosticar una regla que no corrió
+  // sin tener que mirar outbox_events.last_error (que resume el evento
+  // entero, no la regla).
+  error  String?
+
+  executedAt DateTime @default(now()) @map("executed_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  automation   Automation   @relation(fields: [organizationId, automationId], references: [organizationId, id])
+
+  // La garantía de "a lo sumo una marca por (regla, evento)". Es lo que
+  // convierte la idempotencia en un invariante de la base y no en una
+  // convención del dispatcher.
+  @@unique([automationId, outboxEventId])
+  // Cubre el lado referenciante de la FK compuesta —que Postgres no indexa
+  // por su cuenta— y "las ejecuciones de esta regla, ordenadas", con un solo
+  // índice.
+  @@index([organizationId, automationId, executedAt])
+  @@map("automation_executions")
 }
 
 // Módulo de Agenda/Booking — P2.1 de docs/roadmap-implementacion.md

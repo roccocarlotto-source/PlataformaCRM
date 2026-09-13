@@ -13,6 +13,7 @@ import {
   createOpportunity as createOpportunityRepo,
   findManyOpportunities,
   findOpportunityById,
+  lockOpportunityForUpdate,
   softDeleteOpportunity,
   updateOpportunity as updateOpportunityRepo,
   type OpportunitySortBy,
@@ -22,12 +23,47 @@ import {
   findOrganizationById,
   lockOrganizationForUpdate,
 } from "../repositories/organization.repository";
+import { emitOutboxEvent } from "../repositories/outboxEvent.repository";
 import { findPipelineById } from "../repositories/pipeline.repository";
 import { findStageById, lockStageForUpdate } from "../repositories/stage.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
+import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
 import { resolveOwnerId } from "./ownership.service";
 import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
+
+// ---------------------------------------------------------------------------
+// Trigger `opportunity.won` del motor de automatizaciones
+// (docs/automations-architecture.md §7). Es el PRIMER evento que este
+// repositorio emite al outbox: hasta acá el motor de eventos salientes estaba
+// construido sin ningún productor.
+//
+// La detección es pura y exportada para probarla sin base: WON alcanzado
+// desde cualquier otro estado dispara; WON -> WON (un PATCH que manda
+// status: "WON" sobre una ya ganada, o que no toca el status) NO dispara;
+// cualquier transición que no termine en WON tampoco.
+// ---------------------------------------------------------------------------
+export function transicionaAGanada(previo: OpportunityStatus, efectivo: OpportunityStatus) {
+  return previo !== "WON" && efectivo === "WON";
+}
+
+// Payload mínimo: la acción resuelve el resto leyendo la oportunidad si lo
+// necesita. ownerId es el dueño EFECTIVO después del cambio. Opportunity.ownerId
+// es NOT NULL, así que no hay caso "sin owner".
+function emitOpportunityWon(
+  organizationId: string,
+  datos: { opportunityId: string; ownerId: string },
+  tx: Prisma.TransactionClient,
+) {
+  return emitOutboxEvent(
+    {
+      organizationId,
+      eventType: TRIGGER_OPPORTUNITY_WON,
+      payload: { opportunityId: datos.opportunityId, ownerId: datos.ownerId },
+    },
+    tx,
+  );
+}
 
 export interface ListOpportunitiesParams {
   page: number;
@@ -326,6 +362,17 @@ export async function createOpportunity(
       );
     }
 
+    // Creada directamente como ganada: el evento va en el MISMO tx, lo último
+    // de la transacción, cuando la fila y la unidad ya están escritas. O
+    // comitean los dos, o ninguno.
+    if (created.status === "WON") {
+      await emitOpportunityWon(
+        organizationId,
+        { opportunityId: created.id, ownerId: created.ownerId },
+        tx,
+      );
+    }
+
     return created;
   });
 }
@@ -412,18 +459,29 @@ export async function updateOpportunity(
     await validateVehicleId(organizationId, newVehicleId);
   }
 
-  // La escritura va en transacción SOLO cuando cambia el stage o hay que
-  // sincronizar la unidad, y es deliberado: son los únicos casos con un
-  // invariante que defender —el RESTRICT de deleteStage, la exclusión de la
-  // unidad— y por lo tanto los únicos que necesitan un lock. Un UPDATE que no
-  // toca ninguno de los dos no compite con nadie, y envolverlo igual costaría
-  // un BEGIN y un COMMIT de más en el camino más frecuente.
+  // ¿Pide ganar? Solo un PATCH que manda status: "WON" puede producir la
+  // transición a ganada; si la produce DE VERDAD se decide adentro de la
+  // transacción, con la fila bloqueada (ver lockOpportunityForUpdate) — el
+  // `opportunity.status` leído arriba, sin lock, no alcanza: dos PATCH
+  // concurrentes a WON leerían OPEN los dos y emitirían dos eventos. El owner
+  // del payload es el efectivo después del cambio: si el mismo PATCH reasigna
+  // y gana, el seguimiento va al dueño nuevo.
+  const pideGanada = input.status === "WON";
+  const ownerIdEfectivo = data.ownerId ?? opportunity.ownerId;
+
+  // La escritura va en transacción SOLO cuando cambia el stage, hay que
+  // sincronizar la unidad o el PATCH pide ganar, y es deliberado: son los
+  // únicos casos con un invariante que defender —el RESTRICT de deleteStage,
+  // la exclusión de la unidad, la atomicidad del evento saliente con el cambio
+  // que lo origina— y por lo tanto los únicos que necesitan la transacción. Un
+  // UPDATE que no toca ninguno de los tres no compite con nadie, y envolverlo
+  // igual costaría un BEGIN y un COMMIT de más en el camino más frecuente.
   const dataRepo = {
     ...data,
     vehicleId: vehicleIdTouched ? newVehicleId : undefined,
   };
 
-  if (nuevoStageId || needsVehicleSync) {
+  if (nuevoStageId || needsVehicleSync || pideGanada) {
     await prisma.$transaction(async (tx) => {
       if (nuevoStageId) {
         await lockStageForUpdate(nuevoStageId, organizationId, tx);
@@ -472,6 +530,21 @@ export async function updateOpportunity(
         }
       }
 
+      // La detección REAL de la transición a ganada, sobre el status leído bajo
+      // el lock de la fila. Se toma DESPUÉS del lock de stage y del de
+      // organización, en el mismo orden relativo en que el UPDATE de abajo
+      // tomaría el lock de esta misma fila: deleteOpportunity lockea la
+      // organización y después escribe la oportunidad, así que tomar la fila
+      // antes que la organización acá sería la receta de un deadlock.
+      let pasaAWon = false;
+      if (pideGanada) {
+        const bloqueada = await lockOpportunityForUpdate(id, organizationId, tx);
+        if (!bloqueada) {
+          throw new AppError("Oportunidad no encontrada", 404);
+        }
+        pasaAWon = transicionaAGanada(bloqueada.status, "WON");
+      }
+
       const result = await updateOpportunityRepo(id, organizationId, dataRepo, tx);
       if (result.count === 0) {
         throw new AppError("Oportunidad no encontrada", 404);
@@ -483,6 +556,19 @@ export async function updateOpportunity(
           actorUserId,
           newVehicleId,
           vehicleStatusForOpportunityStatus(effectiveStatus),
+          tx,
+        );
+      }
+
+      // Después de que el UPDATE confirmó count === 1 (una oportunidad que
+      // desapareció entre el pre-check y la escritura dio 404 arriba y no
+      // llega acá) y después de la unidad, como en createOpportunity: el
+      // evento es lo último de la transacción. No existe camino por el que el
+      // cambio a WON comitee sin el evento, ni el evento sin el cambio.
+      if (pasaAWon) {
+        await emitOpportunityWon(
+          organizationId,
+          { opportunityId: id, ownerId: ownerIdEfectivo },
           tx,
         );
       }

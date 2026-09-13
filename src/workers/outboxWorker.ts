@@ -213,8 +213,8 @@ export function iniciarWorkerDeOutbox(opciones: OpcionesDelWorker = {}): () => P
       batchSize: env.OUTBOX_WORKER_BATCH_SIZE,
       maxAttempts: env.OUTBOX_MAX_ATTEMPTS,
       // Qué tipos sabe atender ESTE proceso. Es lo primero que uno quiere saber
-      // cuando un evento termina en DEAD_LETTER por handler ausente; hoy la
-      // lista está vacía porque todavía no hay consumidores.
+      // cuando un evento termina en DEAD_LETTER por handler ausente. Se puebla
+      // en server.ts (registrarAutomatizaciones) antes de llegar acá.
       handlers: registroDeHandlers.tiposRegistrados(),
     },
     "Worker de eventos salientes iniciado",

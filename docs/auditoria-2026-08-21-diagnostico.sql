@@ -196,7 +196,11 @@ from (
       -- las tres tablas con organization_id. exchange_rates no tiene
       -- organization_id (dato público) y va abajo como firma especial, al
       -- lado de roles.
-      ('vehicles'), ('vehicle_photos'), ('vehicle_change_logs')
+      ('vehicles'), ('vehicle_photos'), ('vehicle_change_logs'),
+      -- Motor de automatizaciones (docs/automations-architecture.md §3,
+      -- migración 20260913120000): las dos tablas tienen organization_id
+      -- propio y la política de aislamiento uniforme.
+      ('automations'), ('automation_executions')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -814,7 +818,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 43 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 44 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -872,7 +876,11 @@ from (
     ('messages_organization_id_sender_user_id_fkey|messages(organization_id,sender_user_id)->users(organization_id,id)'),
     -- Paso 5a del módulo de Agentes de IA (migración 20260912140000): el token
     -- de embed del widget, paralelo a api_keys pero colgando de agents.
-    ('agent_embed_tokens_organization_id_agent_id_fkey|agent_embed_tokens(organization_id,agent_id)->agents(organization_id,id)')
+    ('agent_embed_tokens_organization_id_agent_id_fkey|agent_embed_tokens(organization_id,agent_id)->agents(organization_id,id)'),
+    -- Motor de automatizaciones (migración 20260913120000): la marca de
+    -- ejecución cuelga de su regla con FK compuesta; automations es un padre
+    -- nuevo con su UNIQUE (organization_id, id) propio.
+    ('automation_executions_organization_id_automation_id_fkey|automation_executions(organization_id,automation_id)->automations(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

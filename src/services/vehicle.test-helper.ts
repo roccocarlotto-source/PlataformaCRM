@@ -70,6 +70,9 @@ export async function desmontar(...escenarios: Escenario[]) {
     await prisma.vehiclePhoto.deleteMany({ where: { organizationId: e.organizationId } });
     await prisma.vehicleChangeLog.deleteMany({ where: { organizationId: e.organizationId } });
     await prisma.vehicle.deleteMany({ where: { organizationId: e.organizationId } });
+    // Una oportunidad que pasa a WON (opportunityVehicle.integration-test.ts)
+    // emite opportunity.won al outbox: la fila referencia la organización.
+    await prisma.outboxEvent.deleteMany({ where: { organizationId: e.organizationId } });
     await prisma.branch.deleteMany({ where: { organizationId: e.organizationId } });
     await prisma.user.deleteMany({ where: { organizationId: e.organizationId } });
     await prisma.organization.delete({ where: { id: e.organizationId } });
