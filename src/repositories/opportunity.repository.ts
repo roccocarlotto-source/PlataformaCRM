@@ -158,6 +158,29 @@ export function softDeleteOpportunity(id: string, organizationId: string, db: Db
   });
 }
 
+// Lockea la fila de la Opportunity con SELECT ... FOR UPDATE y devuelve su
+// status TAL COMO ESTÁ bajo el lock. Mismo molde que lockStageForUpdate.
+//
+// Existe por el trigger opportunity.won (docs/automations-architecture.md
+// §7): la detección "no era WON y ahora sí" se decide sobre el status leído
+// ANTES de la transacción, y dos PATCH concurrentes a WON sobre la misma
+// oportunidad podrían leer OPEN los dos y emitir dos eventos — dos
+// seguimientos. Releer bajo el lock hace que el segundo vea WON y no emita.
+//
+// Sin default para `db`: fuera de una transacción el lock se libera al
+// instante. Cero filas = no se bloqueó nada (B-17): la oportunidad
+// desapareció entre el pre-check y acá, y el UPDATE de después daría count 0.
+export async function lockOpportunityForUpdate(
+  id: string,
+  organizationId: string,
+  db: Db,
+): Promise<{ status: OpportunityStatus } | null> {
+  const filas = await db.$queryRaw<
+    { status: OpportunityStatus }[]
+  >`SELECT status FROM opportunities WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid AND deleted_at IS NULL FOR UPDATE`;
+  return filas[0] ?? null;
+}
+
 // Oportunidades activas de un stage — el conteo sobre el que decide el RESTRICT
 // de deleteStage (ALTO-8). organizationId en el WHERE por el mismo motivo que
 // en countActiveStagesByPipeline: decide si una escritura procede.
