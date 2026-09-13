@@ -234,6 +234,10 @@ async function desmontar(e: Escenario) {
   await prisma.workingHours.deleteMany({ where });
   await prisma.serviceType.deleteMany({ where });
   await prisma.resource.deleteMany({ where });
+  // update_opportunity a WON emite opportunity.won al outbox (motor de
+  // automatizaciones): la fila referencia la organización y hay que borrarla
+  // antes que ella.
+  await prisma.outboxEvent.deleteMany({ where });
   await prisma.opportunity.deleteMany({ where });
   await prisma.stage.deleteMany({ where });
   await prisma.pipeline.deleteMany({ where });
