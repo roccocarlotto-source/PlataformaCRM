@@ -449,6 +449,120 @@ El costo real depende del proveedor de LLM elegido (sección 10, sin decidir) y 
 3. `create_lead()`/`update_lead()` — extender `contact.service.ts` para escribir los campos de calificación, con la lógica de "agregar, no pisar" de `leadNotes`. **Construido (12/09/2026):** `qualifyLead()` en `contact.service.ts` y las dos tools en `agentTools.service.ts`. Decisiones en la nota fechada del paso 3 bajo la sección 6.
 4. Mecanismo de handoff a humano (ya diseñado en la sección 6, reusa `Activity`).
 5. Endpoint público del canal Web (sección 5) — el widget embebido real. **Construido (12/09/2026)**, en dos PRs: **5a** (schema y administración del token de embed: `AgentEmbedToken`, `Agent.allowedOrigins`, `utils/agentEmbedToken.ts`, `utils/origin.ts`, `agentEmbedToken.repository/service/controller/routes`) y **5b** (el endpoint público `POST /api/public/agents/:agentId/web/messages`: `types/widgetAuth.ts`, `services/widgetAuth.service.ts`, `middlewares/authenticateEmbedToken.ts`, `middlewares/widgetCors.ts`, `middlewares/widgetBody.ts`, `widgetRateLimiter` en `middlewares/rateLimit.ts`, `services/widgetContact.service.ts`, `controllers/publicWidget.controller.ts`, `routes/publicWidget.routes.ts`, y el reordenamiento de `app.ts` para montar el CORS del widget antes del global). Decisiones en la nota fechada del paso 5b bajo la sección 6 y en la nota del canal Web de la sección 10. El script embebible (`<script>`) del lado del sitio del cliente sigue siendo un desarrollo de frontend aparte.
+
+   > **Nota del 13/09/2026 — decisiones tomadas al construir el script
+   > embebible (el widget del canal Web, `frontend/src/widget/`).**
+   >
+   > 1. **Vive en `frontend/`, como un segundo entry point de build, no un
+   >    paquete ni un repo nuevo.** Reusa el mismo deploy de Vercel que ya
+   >    existe — sin dominio nuevo, sin CDN propia, sin CI aparte. Es la
+   >    elección pragmática para esta etapa (cero clientes reales embebiendo
+   >    el widget todavía, cero evidencia de que haga falta algo más
+   >    sofisticado) — no una afirmación de que así va a quedar para siempre.
+   >    Si el día de mañana hace falta una CDN dedicada con versionado, es una
+   >    migración de infraestructura, no un rediseño del script en sí.
+   > 2. **Build separado del de la SPA, en modo librería, sin hash en el
+   >    nombre del archivo.** La SPA (`vite build`) emite assets con hash en
+   >    el nombre (`index-a1b2c3.js`) porque `index.html` los referencia
+   >    dinámicamente en cada deploy — pero el snippet que un negocio pega en
+   >    SU sitio es texto estático que no se regenera solo; si el archivo
+   >    cambiara de nombre en cada deploy, cada cliente embebido se rompería
+   >    en el próximo deploy de la SPA. Por eso el widget es un config de Vite
+   >    aparte (`frontend/vite.widget.config.ts`), en modo `build.lib`,
+   >    formato IIFE, que emite siempre `dist/widget.js` a secas, al MISMO
+   >    `dist/` que ya genera la SPA (`emptyOutDir: false` en el segundo
+   >    build, para no comerse el resultado del primero).
+   > 3. **`frontend/package.json`: el script `build` corre los dos builds
+   >    encadenados** (`tsc -b && vite build && vite build --config
+   >    vite.widget.config.ts`). Así el job `frontend` del CI (que ya corre
+   >    `npm run build`) valida el widget automáticamente, sin tocar
+   >    `.github/workflows/ci.yml`.
+   > 4. **Vercel sirve `widget.js` como archivo estático de verdad**, sin que
+   >    lo intercepte el rewrite catch-all de `frontend/vercel.json`
+   >    (`/(.*)` → `/index.html`): el comportamiento por defecto de Vercel es
+   >    que un archivo que existe en el build gana sobre cualquier rewrite.
+   >    Esto se verifica de verdad contra el deploy real después de mergear
+   >    (`curl -I https://<dominio-de-vercel>/widget.js` tiene que devolver
+   >    `content-type: application/javascript` o similar, nunca `text/html`)
+   >    — no alcanza con asumirlo. **Resultado de la verificación:**
+   >    pendiente — se completa acá mismo cuando se haga contra el deploy
+   >    real, después del merge.
+   > 5. **El widget NO importa `src/config/env.ts` ni `src/lib/api.ts` de la
+   >    SPA, a propósito.** `env.ts` valida las cuatro variables de la SPA al
+   >    importarse (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
+   >    `VITE_API_URL`, `VITE_QR_PUBLIC_BASE_URL`) — importarlo desde el
+   >    widget acoplaría su build a variables de Supabase que no usa para
+   >    nada. `api.ts` asume sesión de usuario (Bearer JWT, un
+   >    `unauthorizedHandler` que cierra sesión en un 401) — semántica que no
+   >    aplica: el widget no tiene usuario, y un 401 acá significa "token de
+   >    embed inválido o dominio no autorizado", no "tu sesión venció". El
+   >    widget lee `import.meta.env.VITE_API_URL` directo (Vite carga el mismo
+   >    `.env` para cualquier config en la raíz del paquete, así que la
+   >    variable está disponible igual) con su propia normalización mínima, y
+   >    tiene su propio wrapper de `fetch`, sin compartir código con
+   >    `lib/api.ts`.
+   > 6. **Configuración por instancia vía atributos `data-*` del propio
+   >    `<script>`** (`data-agent-id`, `data-embed-token`, `data-api-url`
+   >    opcional, `data-primary-color` opcional), leídos de
+   >    `document.currentScript` en el tope del módulo, de forma síncrona —
+   >    es lo que hace que funcione aunque el script se cargue con `async`
+   >    (el navegador puede diferir CUÁNDO se ejecuta el script, pero una vez
+   >    que arranca, su código de nivel superior corre de un tirón;
+   >    `document.currentScript` sigue apuntando al script correcto mientras
+   >    se lo lea ahí, antes de cualquier `await`).
+   > 7. **Aislamiento visual con Shadow DOM** (`attachShadow({ mode: "open" })`):
+   >    los estilos del widget no se filtran al sitio del cliente y viceversa.
+   >    Sin librería de CSS-in-JS: los estilos van como un string de CSS plano
+   >    inyectado en un `<style>` dentro del shadow root. Color de acento
+   >    configurable vía la custom property `--widget-accent`
+   >    (`data-primary-color` la setea inline en el host element).
+   > 8. **`sessionId` en `localStorage`, scopeado por `agentId`** dentro del
+   >    mismo origen (por si una página llegara a embeber dos agentes
+   >    distintos — no es el caso pensado, pero es gratis evitarlo). Si
+   >    `localStorage` no está disponible (modo privado, storage bloqueado),
+   >    el `sessionId` vive en memoria para esa carga de página: se pierde la
+   >    continuidad entre recargas, pero el chat funciona.
+   > 9. **Limitación conocida y aceptada, documentada a propósito y no
+   >    resuelta acá: no hay forma de recuperar el historial de una
+   >    conversación anterior al recargar la página.** El endpoint público
+   >    (5b) es de solo escritura — no existe un GET de mensajes. El widget
+   >    solo muestra lo que pasó en la pestaña actual desde que se abrió.
+   >    Resolverlo (un GET de historial, protegido por el mismo embed token +
+   >    el `sessionId` como prueba de que sos el mismo visitante) es trabajo a
+   >    futuro si hace falta evidencia real de que los usuarios recargan la
+   >    página en medio de una conversación — no se construye
+   >    especulativamente ahora.
+   > 10. **Sin pantalla en el CRM para copiar el snippet.** No existe todavía
+   >     ningún `frontend/src/features/agent*` — el módulo de Agentes de IA no
+   >     tiene UI de administración en absoluto (a diferencia de casi todos
+   >     los demás módulos del backend, que sí la tienen). Armar una pantalla
+   >     que genere el snippet sin que exista el resto de la administración de
+   >     Agentes (crear agente, configurar guardrails, ver conversaciones)
+   >     sería una pantalla huérfana. Por ahora el `<script>` se arma a mano
+   >     con los datos que ya devuelve el CRUD admin existente
+   >     (`POST /api/agents`, `POST /api/agents/:id/embed-tokens`, ambos de
+   >     5a). Queda anotado como trabajo futuro, no en el alcance de este PR.
+   > 11. **Sin retry automático ante fallo de red.** Cada mensaje dispara una
+   >     llamada real y paga a un LLM; reintentar solo automáticamente podría
+   >     duplicar mensajes o cobrar dos veces si el POST llegó a procesarse
+   >     pero la respuesta no volvió. Ante un error de red o 5xx, el widget
+   >     muestra un botón de "Reintentar" que el visitante dispara a mano —
+   >     nunca un retry silencioso.
+   > 12. **Sin branding propio del producto en el widget** ("Powered by ...").
+   >     Es una elección conservadora para un producto B2B que se embebe en el
+   >     sitio de OTRO negocio — el default es blanco, sin atribución. Fácil de
+   >     agregar después si en algún momento se decide lo contrario; no es una
+   >     decisión difícil de revertir.
+   >
+   > **Construido (13/09/2026):** `frontend/src/widget/config.ts` (lectura y
+   > validación de los `data-*`), `session.ts` (`sessionId` en
+   > `localStorage`), `api.ts` (`sendWidgetMessage` + `WidgetApiError` con
+   > categoría), `styles.ts` (CSS plano), `ui.ts` (Shadow DOM, burbuja,
+   > panel, mensajes, "escribiendo...", error con reintento), `main.ts`
+   > (entry point, flag de idempotencia `window.__plataformaCrmWidgetLoaded`),
+   > sus tests (`*.test.ts` + `frontend/src/test/msw/widgetHandlers.ts`),
+   > `frontend/vite.widget.config.ts` y el script `build` de
+   > `frontend/package.json`.
 6. Integración de WhatsApp, cuando el trámite de Meta/Twilio esté resuelto — reusa el mismo loop ya probado en el paso 2, sin rediseñarlo.
 7. Conectar el motor de automatizaciones (acción "iniciar acción de IA") — depende de que ese motor exista, que es un módulo aparte.
 8. `create_payment_link()` — al final, cuando haya un pack que lo justifique (Pack Turnos, si se prioriza la seña anti no-show).
