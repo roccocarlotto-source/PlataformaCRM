@@ -10,6 +10,7 @@ import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Pagination } from "../../design-system/Pagination";
+import { PhoneNumber } from "../../design-system/PhoneNumber";
 import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { useOwnerNames } from "../opportunity/relationResolution";
@@ -255,7 +256,9 @@ export function ContactListPage() {
                         : ""}
                     </td>
                     <td>{contact.email ?? ""}</td>
-                    <td>{contact.phone ?? ""}</td>
+                    <td>
+                      <PhoneNumber value={contact.phone} />
+                    </td>
                     <td>
                       <Badge variant={LIFECYCLE_BADGE_VARIANT[contact.lifecycleStage]}>
                         {LIFECYCLE_STAGE_LABELS[contact.lifecycleStage]}
