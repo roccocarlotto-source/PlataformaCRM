@@ -256,7 +256,9 @@ export function ContactListPage() {
                         : ""}
                     </td>
                     <td>{contact.email ?? ""}</td>
-                    <td><PhoneNumber value={contact.phone} /></td>
+                    <td>
+                      <PhoneNumber value={contact.phone} />
+                    </td>
                     <td>
                       <Badge variant={LIFECYCLE_BADGE_VARIANT[contact.lifecycleStage]}>
                         {LIFECYCLE_STAGE_LABELS[contact.lifecycleStage]}
