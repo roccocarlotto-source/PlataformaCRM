@@ -374,4 +374,43 @@ describe("PipelineListPage", () => {
       expect(row).not.toHaveTextContent("Default");
     }
   });
+
+  // -------------------------------------------------------------------------
+  // "Ver detalle" (docs/frontend-cambios-pendientes.md §28): pop up de solo
+  // lectura con los mismos campos que el formulario, desde la fila ya cargada.
+  // -------------------------------------------------------------------------
+
+  it("§28 Ver detalle abre el pop up con Nombre y Default en solo lectura; cierra con × y con Escape", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json({
+          data: [makePipeline({ name: "Ventas mayoristas", isDefault: true })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Ventas mayoristas")).toBeInTheDocument());
+    await openActionsMenu(user);
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Ver detalle");
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle del pipeline" });
+    expect(dialog).toHaveTextContent("Ventas mayoristas");
+    // El checkbox "Default" del formulario se lee como Sí/No, no como casilla.
+    expect(dialog).toHaveTextContent("Sí");
+    expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Cerrar diálogo" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 });

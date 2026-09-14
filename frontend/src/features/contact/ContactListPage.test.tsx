@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -545,5 +545,59 @@ describe("ContactListPage", () => {
     // Margen para que un fetch indebido, si lo hubiera, alcance a dispararse.
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(usersRequestCount).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // "Ver detalle" (docs/frontend-cambios-pendientes.md §28): pop up de solo
+  // lectura con los mismos campos que el formulario, desde la fila ya cargada.
+  // -------------------------------------------------------------------------
+
+  it("§28 Ver detalle abre el pop up con los campos del formulario, empresa/etapa/propietario resueltos; cierra con × y con Escape", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      usersHandler(),
+      http.get(contactsUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeContact({
+              companyId: "co-1",
+              ownerId: "u1",
+              jobTitle: "Gerenta",
+              lifecycleStage: "SQL",
+              source: "Web",
+            }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${companiesUrl}/:id`, () =>
+        HttpResponse.json(makeCompany({ id: "co-1", name: "Acme" })),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
+    await openActionsMenu(user);
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Ver detalle");
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle del contacto" });
+    expect(dialog).toHaveTextContent("Gerenta");
+    expect(dialog).toHaveTextContent("Web");
+    expect(dialog).toHaveTextContent("Acme");
+    expect(dialog).toHaveTextContent("Ana Pérez");
+    // La etapa va como Badge traducido, igual que en la columna.
+    expect(within(dialog).getByText("Calificado (Ventas)")).toHaveClass("ds-badge");
+    expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Cerrar diálogo" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

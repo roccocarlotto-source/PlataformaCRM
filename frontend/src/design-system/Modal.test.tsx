@@ -172,4 +172,81 @@ describe("Modal", () => {
     expect(acciones.getByRole("button", { name: "Guardando…" })).toBeDisabled();
     expect(acciones.getByRole("button", { name: "Cancelar" })).toBeEnabled();
   });
+
+  // --- Variante "dialog" (docs/frontend-cambios-pendientes.md §28) ----------
+  // Caja centrada y descartable: los dos gestos que el panel rechaza acá SÍ
+  // cierran. Los tests de arriba (sin variant) siguen siendo la regresión de
+  // que el panel no cambió; el último de este bloque lo afirma explícito.
+
+  describe("variant=dialog", () => {
+    it("se cierra al hacer click en el overlay, pero NO con un click adentro de la caja", async () => {
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      const { container } = render(
+        <Modal variant="dialog" title="Detalle" onClose={onClose}>
+          <p>contenido</p>
+        </Modal>,
+      );
+
+      // Un click dentro del diálogo burbujea hasta el overlay con otro target:
+      // no cuenta como "afuera".
+      await user.click(screen.getByText("contenido"));
+      expect(onClose).not.toHaveBeenCalled();
+
+      const overlay = container.querySelector(".ds-modal-overlay");
+      expect(overlay).toHaveClass("ds-modal-overlay--dialog");
+      await user.click(overlay!);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("se cierra con Escape", async () => {
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <Modal variant="dialog" title="Detalle" onClose={onClose}>
+          <p>c</p>
+        </Modal>,
+      );
+
+      await user.keyboard("{Escape}");
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("el × se llama 'Cerrar diálogo' y el pie tiene solo 'Cerrar': dos controles con nombres distintos", async () => {
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      const { container } = render(
+        <Modal variant="dialog" title="Detalle" onClose={onClose}>
+          <p>c</p>
+        </Modal>,
+      );
+
+      expect(screen.getByRole("dialog")).toHaveClass("ds-modal--dialog");
+      const botones = pie(container).getAllByRole("button");
+      expect(botones.map((boton) => boton.textContent)).toEqual(["Cerrar"]);
+
+      await user.click(screen.getByRole("button", { name: "Cerrar diálogo" }));
+      await user.click(screen.getByRole("button", { name: "Cerrar" }));
+      expect(onClose).toHaveBeenCalledTimes(2);
+    });
+
+    it("regresión: el panel (default) sigue sin cerrarse con overlay ni Escape y sin la clase del diálogo", async () => {
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      const { container } = render(
+        <Modal title="T" onClose={onClose}>
+          <p>c</p>
+        </Modal>,
+      );
+
+      const overlay = container.querySelector(".ds-modal-overlay");
+      expect(overlay).not.toHaveClass("ds-modal-overlay--dialog");
+      expect(screen.getByRole("dialog")).not.toHaveClass("ds-modal--dialog");
+      await user.click(overlay!);
+      await user.keyboard("{Escape}");
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Cerrar panel" })).toBeInTheDocument();
+      expect(pie(container).getByRole("button", { name: "Listo" })).toBeInTheDocument();
+    });
+  });
 });

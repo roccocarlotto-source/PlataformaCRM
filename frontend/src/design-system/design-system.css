@@ -1109,6 +1109,84 @@ fieldset.ds-field {
   border-top: 1px solid var(--color-border);
 }
 
+/* Variante "dialog" (Modal variant="dialog", docs/frontend-cambios-pendientes.md
+   §28): la misma caja —encabezado, cuerpo con scroll, pie— pero CENTRADA y más
+   angosta que alta, para contenido descartable como el pop up "Ver detalle".
+   Sin export de referencia: 520px de ancho (entran los pares rótulo/valor de
+   DetailList a dos columnas sin cortar los rótulos largos de Vehículo), alto
+   según el contenido con tope al 85% de la ventana para que el cuerpo
+   scrollee antes de que la caja toque los bordes, y el radio grande + la
+   sombra de los desplegables porque flota sobre la página en vez de colgar de
+   un borde. El overlay es el mismo del panel (mismo tono) y acá SÍ captura
+   clicks: es uno de los dos gestos de cierre del diálogo, ver el componente.
+   Las medidas internas (padding, título, "×") no cambian. */
+.ds-modal-overlay--dialog {
+  justify-content: center;
+  align-items: center;
+  padding: var(--space-5);
+}
+
+.ds-modal--dialog {
+  width: 520px;
+  height: auto;
+  max-height: 85vh;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+}
+
+/* ---------------------------------------------------------------------------
+   DetailList (design-system/DetailList.tsx) — pares rótulo/valor en
+   secciones, el contenido del pop up "Ver detalle" de los listados
+   (docs/frontend-cambios-pendientes.md §28). Sin export de referencia: los
+   rótulos toman el trato de .ds-field-label (13px/600/mutado) para que el
+   detalle se lea como el formulario del que sale, con el valor en el texto
+   base al lado. Grilla de dos columnas, rótulo a la izquierda con un mínimo
+   para que no se parta en cada fila y el valor con el resto; cada fila es
+   display: contents para que dt y dd entren directo en la grilla del <dl>.
+   Las secciones se separan con el mismo espacio que el cuerpo del Modal y el
+   título de sección lleva un borde inferior, como el encabezado del panel.
+   --------------------------------------------------------------------------- */
+.ds-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.ds-detail-heading {
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-2);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ds-detail-list {
+  display: grid;
+  grid-template-columns: minmax(150px, 2fr) 3fr;
+  gap: var(--space-3) var(--space-4);
+  margin: 0;
+}
+
+.ds-detail-row {
+  display: contents;
+}
+
+.ds-detail-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* overflow-wrap: un enlace o un email largo sin espacios no ensancha la
+   grilla ni desborda la caja; se corta donde haga falta. */
+.ds-detail-value {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
 /* Campo de solo lectura con un secreto: monoespaciado para poder leer carácter
    por carácter, y seleccionable —readOnly, nunca disabled— porque seleccionar a
    mano es el respaldo cuando el portapapeles no está disponible. */

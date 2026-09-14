@@ -427,4 +427,47 @@ describe("StageListPage", () => {
     await user.click(screen.getByText("Eliminar"));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("no se pudo eliminar"));
   });
+
+  // -------------------------------------------------------------------------
+  // "Ver detalle" (docs/frontend-cambios-pendientes.md §28): pop up de solo
+  // lectura con los mismos campos que el formulario, desde la fila ya cargada.
+  // -------------------------------------------------------------------------
+
+  it("§28 Ver detalle abre el pop up con los campos del formulario (probabilidad formateada, Ganada/Perdida como Sí/No); cierra con × y con Escape", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    mockPipeline();
+    server.use(
+      http.get(stagesUrl, () =>
+        HttpResponse.json({
+          data: [makeStage({ name: "Cierre", order: 3, probability: "37.5", isWon: true })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Cierre")).toBeInTheDocument());
+    await openActionsMenu(user);
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Ver detalle");
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle de la etapa" });
+    expect(dialog).toHaveTextContent("Cierre");
+    expect(dialog).toHaveTextContent("37.5%");
+    const valores = within(dialog)
+      .getAllByRole("definition")
+      .map((dd) => dd.textContent);
+    expect(valores).toEqual(["Cierre", "3", "37.5%", "Sí", "No"]);
+    expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Cerrar diálogo" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 });

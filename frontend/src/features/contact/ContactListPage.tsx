@@ -6,9 +6,11 @@ import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
+import { DetailList } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { PhoneNumber } from "../../design-system/PhoneNumber";
 import { Table } from "../../design-system/Table";
@@ -49,6 +51,9 @@ export function ContactListPage() {
   const [companyId, setCompanyId] = useState<string | undefined>(undefined);
   const [sortBy, setSortBy] = useState<ContactSortBy>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
+  // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
   const contactsQuery = useContacts({
     page,
@@ -81,6 +86,27 @@ export function ContactListPage() {
   // (user.routes.ts), así que para un USER la request nunca se dispara y no hay
   // un 403 que atrapar.
   const ownerNames = useOwnerNames(isAdmin);
+
+  // ownerId es nullable acá (a diferencia de Opportunity), así que el guard
+  // no es defensivo de más: sin él, un owner sin asignar entraría a
+  // byId.get(null). Sin dueño y dueño que no se pudo resolver muestran lo
+  // mismo — "—" —, y es correcto: para quien lee, las dos cosas son "no hay
+  // nombre que mostrar acá". Compartido por la columna Propietario y el
+  // detalle.
+  function nombreDePropietario(ownerId: string | null): string | null {
+    return ownerId ? (ownerNames.byId.get(ownerId) ?? null) : null;
+  }
+
+  // Empresa: sin companyId no hay nada que mostrar; con uno que no se pudo
+  // resolver, el guión. Compartido por la columna Empresa y el detalle.
+  function nombreDeEmpresa(companyId: string | null): string {
+    return companyId ? (companyResolution.byId.get(companyId)?.name ?? "—") : "";
+  }
+
+  // La fila del detalle sale del array ya cargado, sin un GET aparte: el
+  // listado trae el objeto Contact completo (§28). Si la fila desaparece
+  // (se eliminó, cambió la página) el pop up se cierra solo.
+  const detalle = contactsQuery.data?.data.find((contact) => contact.id === detalleAbierto);
 
   const deleteContactMutation = useDeleteContact();
 
@@ -230,16 +256,9 @@ export function ContactListPage() {
             <tbody>
               {contactsQuery.data.data.map((contact) => {
                 const fullName = `${contact.firstName} ${contact.lastName}`;
-                // ownerId es nullable acá (a diferencia de Opportunity), así
-                // que el guard no es defensivo de más: sin él, un owner sin
-                // asignar entraría a byId.get(null). Sin dueño y dueño que no
-                // se pudo resolver muestran lo mismo — "—" —, y es correcto:
-                // para quien lee la tabla, las dos cosas son "no hay nombre
-                // que mostrar acá". Y sin nombre no hay avatar: un círculo
-                // con "—" adentro no representa a nadie.
-                const ownerName = contact.ownerId
-                  ? (ownerNames.byId.get(contact.ownerId) ?? null)
-                  : null;
+                // Sin nombre no hay avatar: un círculo con "—" adentro no
+                // representa a nadie.
+                const ownerName = nombreDePropietario(contact.ownerId);
                 return (
                   <tr key={contact.id}>
                     <td>
@@ -250,11 +269,7 @@ export function ContactListPage() {
                         <span>{fullName}</span>
                       </span>
                     </td>
-                    <td>
-                      {contact.companyId
-                        ? (companyResolution.byId.get(contact.companyId)?.name ?? "—")
-                        : ""}
-                    </td>
+                    <td>{nombreDeEmpresa(contact.companyId)}</td>
                     <td>{contact.email ?? ""}</td>
                     <td>
                       <PhoneNumber value={contact.phone} />
@@ -281,6 +296,12 @@ export function ContactListPage() {
                       <td>
                         <ActionsMenu
                           actions={[
+                            // Primero "Ver detalle": la acción de consulta,
+                            // antes que las de escritura (§28).
+                            {
+                              label: "Ver detalle",
+                              onClick: () => setDetalleAbierto(contact.id),
+                            },
                             { label: "Editar", to: `/contacts/${contact.id}/edit` },
                             {
                               label: "Eliminar",
@@ -307,6 +328,42 @@ export function ContactListPage() {
           />
         ) : null}
       </div>
+
+      {/* Los mismos campos que ContactFormPage, en solo lectura, con la
+          empresa, la etapa (mismo Badge) y el propietario resueltos igual que
+          en sus columnas. */}
+      {detalle ? (
+        <Modal
+          variant="dialog"
+          title="Detalle del contacto"
+          onClose={() => setDetalleAbierto(null)}
+        >
+          <DetailList
+            sections={[
+              {
+                items: [
+                  { label: "Nombre", value: detalle.firstName },
+                  { label: "Apellido", value: detalle.lastName },
+                  { label: "Email", value: detalle.email },
+                  { label: "Teléfono", value: detalle.phone },
+                  { label: "Puesto", value: detalle.jobTitle },
+                  { label: "Empresa", value: nombreDeEmpresa(detalle.companyId) },
+                  { label: "Fuente", value: detalle.source },
+                  {
+                    label: "Etapa",
+                    value: (
+                      <Badge variant={LIFECYCLE_BADGE_VARIANT[detalle.lifecycleStage]}>
+                        {LIFECYCLE_STAGE_LABELS[detalle.lifecycleStage]}
+                      </Badge>
+                    ),
+                  },
+                  { label: "Propietario", value: nombreDePropietario(detalle.ownerId) },
+                ],
+              },
+            ]}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }

@@ -215,10 +215,12 @@ describe("QrListPage — acciones por rol", () => {
 
     await screen.findByRole("table");
     expect(screen.getByRole("button", { name: "Generar QR digital" })).toBeInTheDocument();
-    // Las cinco acciones de fila viven en el menú de 3 puntos (§8), en este
-    // orden: las de solo lectura primero, las de escritura al final.
+    // Las seis acciones de fila viven en el menú de 3 puntos (§8), en este
+    // orden: las de solo lectura primero (Ver detalle al frente, §28), las de
+    // escritura al final.
     await openActionsMenu(userEvent.setup());
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Ver detalle",
       "Ver imagen",
       "Enviar",
       "Copiar link",
@@ -239,6 +241,7 @@ describe("QrListPage — acciones por rol", () => {
     expect(screen.queryByRole("button", { name: "Generar QR digital" })).not.toBeInTheDocument();
     await openActionsMenu(userEvent.setup());
     expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Ver detalle",
       "Ver imagen",
       "Enviar",
       "Copiar link",
@@ -406,6 +409,55 @@ describe("QrListPage — diálogos", () => {
     const dialog = within(await screen.findByRole("dialog"));
     expect(dialog.getByRole("radiogroup", { name: "Canal de envío" })).toBeInTheDocument();
     await user.click(dialog.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "Ver detalle" (docs/frontend-cambios-pendientes.md §28): pop up de solo
+// lectura con los datos del QR —no la imagen—, desde la fila ya cargada.
+// ---------------------------------------------------------------------------
+describe("QrListPage — ver detalle", () => {
+  it("abre el pop up con los datos del registro (sucursal por nombre, estado y tipo como badge, fechas); cierra con × y con Escape", async () => {
+    const claimedAt = "2026-01-15T14:30:00.000Z";
+    server.use(
+      branchesHandler(),
+      http.get(qrUrl, () =>
+        HttpResponse.json(
+          listResponse({
+            data: [makeQrCode({ message: "Gracias por su visita", claimedAt })],
+          }),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage("USER");
+
+    await screen.findByRole("table");
+    await openActionsMenu(user);
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Ver detalle");
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle del QR" });
+    expect(dialog).toHaveTextContent("Mostrador");
+    expect(dialog).toHaveTextContent("Casa Central");
+    expect(dialog).not.toHaveTextContent("b1");
+    expect(within(dialog).getByText("Activo")).toHaveClass("ds-badge");
+    expect(within(dialog).getByText("Reusable")).toHaveClass("ds-badge");
+    expect(dialog).toHaveTextContent("https://g.page/r/abc/review");
+    expect(dialog).toHaveTextContent("Gracias por su visita");
+    expect(dialog).toHaveTextContent(new Date(claimedAt).toLocaleString());
+    // Es el detalle, no la imagen: sin <img> ni <svg> del código adentro.
+    expect(dialog.querySelector("img, svg.qr")).toBeNull();
+    expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Cerrar diálogo" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

@@ -4,9 +4,12 @@ import { useAuth } from "../../auth/AuthContext";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
+import { DetailList } from "../../design-system/DetailList";
+import { yesNo } from "../../design-system/detailFormat";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { usePipeline } from "../pipeline/queries";
@@ -48,6 +51,9 @@ export function StageListPage() {
 
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
+  // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
   const stagesQuery = useStages(pipelineId ?? "", {
     pipelineId,
@@ -57,6 +63,11 @@ export function StageListPage() {
     sortBy: "order",
     sortOrder: "asc",
   });
+
+  // La fila del detalle sale del array ya cargado, sin un GET aparte: el
+  // listado trae el objeto Stage completo (§28). Si la fila desaparece (se
+  // eliminó, cambió la página) el pop up se cierra solo.
+  const detalle = stagesQuery.data?.data.find((stage) => stage.id === detalleAbierto);
 
   const deleteStageMutation = useDeleteStage(pipelineId ?? "");
   const updateStageMutation = useUpdateStage(pipelineId ?? "");
@@ -224,6 +235,12 @@ export function StageListPage() {
                           </Button>
                           <ActionsMenu
                             actions={[
+                              // Primero "Ver detalle": la acción de consulta,
+                              // antes que las de escritura (§28).
+                              {
+                                label: "Ver detalle",
+                                onClick: () => setDetalleAbierto(stage.id),
+                              },
                               {
                                 label: "Editar",
                                 to: `/pipelines/${pipelineId}/stages/${stage.id}/edit`,
@@ -254,6 +271,27 @@ export function StageListPage() {
           />
         ) : null}
       </div>
+
+      {/* Los mismos campos que StageFormPage, en solo lectura: la probabilidad
+          con el mismo formatProbability de la columna (0 → guión, §14) y los
+          dos checkboxes como Sí/No. */}
+      {detalle ? (
+        <Modal variant="dialog" title="Detalle de la etapa" onClose={() => setDetalleAbierto(null)}>
+          <DetailList
+            sections={[
+              {
+                items: [
+                  { label: "Nombre", value: detalle.name },
+                  { label: "Orden", value: detalle.order },
+                  { label: "Probabilidad", value: formatProbability(detalle.probability) },
+                  { label: "Ganada", value: yesNo(detalle.isWon) },
+                  { label: "Perdida", value: yesNo(detalle.isLost) },
+                ],
+              },
+            ]}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }
