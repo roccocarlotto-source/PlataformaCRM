@@ -2415,3 +2415,14 @@ a.ds-button--secondary:hover {
 .ds-auth-shell .ds-error {
   margin: 0 0 var(--space-3);
 }
+
+/* ---------------------------------------------------------------------------
+   PhoneNumber.tsx — teléfono agrupado. Solo el espacio entre grupos: gap fijo
+   en píxeles en vez de un carácter de espacio, que varía con la tipografía.
+   Color y tipografía se heredan del contexto (celda de tabla, etc.).
+   --------------------------------------------------------------------------- */
+.ds-phone {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
