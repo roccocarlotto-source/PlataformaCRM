@@ -4,9 +4,12 @@ import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
+import { DetailList } from "../../design-system/DetailList";
+import { yesNo } from "../../design-system/detailFormat";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { useDeletePipeline } from "./mutations";
@@ -28,6 +31,9 @@ export function PipelineListPage() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<PipelineSortBy>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
+  // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
   const pipelinesQuery = usePipelines({
     page,
@@ -36,6 +42,11 @@ export function PipelineListPage() {
     sortBy,
     sortOrder,
   });
+
+  // La fila del detalle sale del array ya cargado, sin un GET aparte: el
+  // listado trae el objeto Pipeline completo (§28). Si la fila desaparece
+  // (se eliminó, cambió la página) el pop up se cierra solo.
+  const detalle = pipelinesQuery.data?.data.find((pipeline) => pipeline.id === detalleAbierto);
 
   const deletePipelineMutation = useDeletePipeline();
 
@@ -141,6 +152,12 @@ export function PipelineListPage() {
                     <td>
                       <ActionsMenu
                         actions={[
+                          // Primero "Ver detalle": la acción de consulta,
+                          // antes que las de escritura (§28).
+                          {
+                            label: "Ver detalle",
+                            onClick: () => setDetalleAbierto(pipeline.id),
+                          },
                           { label: "Editar", to: `/pipelines/${pipeline.id}/edit` },
                           {
                             label: "Eliminar",
@@ -166,6 +183,29 @@ export function PipelineListPage() {
           />
         ) : null}
       </div>
+
+      {/* Los mismos campos que la tarjeta "Datos del pipeline" de
+          PipelineFormPage, en solo lectura. Las etapas no son un campo del
+          pipeline (el editor integrado del formulario es otra entidad) y
+          tienen su propia pantalla, "Ver etapas". */}
+      {detalle ? (
+        <Modal
+          variant="dialog"
+          title="Detalle del pipeline"
+          onClose={() => setDetalleAbierto(null)}
+        >
+          <DetailList
+            sections={[
+              {
+                items: [
+                  { label: "Nombre", value: detalle.name },
+                  { label: "Default", value: yesNo(detalle.isDefault) },
+                ],
+              },
+            ]}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }

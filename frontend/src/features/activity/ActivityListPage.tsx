@@ -5,9 +5,11 @@ import { useAuth } from "../../auth/AuthContext";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
+import { DetailList } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
@@ -56,6 +58,9 @@ export function ActivityListPage() {
   const [companyId, setCompanyId] = useState<string | undefined>(undefined);
   const [sortBy, setSortBy] = useState<ActivitySortBy>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
+  // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
   const activitiesQuery = useActivities({
     page,
@@ -112,6 +117,11 @@ export function ActivityListPage() {
     if (isAdmin) return userNames.byId.get(userId) ?? "—";
     return "—";
   }
+
+  // La fila del detalle sale del array ya cargado, sin un GET aparte: el
+  // listado trae el objeto Activity completo (§28). Si la fila desaparece
+  // (se eliminó, cambió la página) el pop up se cierra solo.
+  const detalle = rows.find((activity) => activity.id === detalleAbierto);
 
   function handleDelete(id: string) {
     if (!window.confirm("¿Eliminar esta actividad?")) return;
@@ -282,6 +292,12 @@ export function ActivityListPage() {
                     <td>
                       <ActionsMenu
                         actions={[
+                          // Primero "Ver detalle": la acción de consulta,
+                          // antes que las de escritura (§28).
+                          {
+                            label: "Ver detalle",
+                            onClick: () => setDetalleAbierto(activity.id),
+                          },
                           { label: "Editar", to: `/activities/${activity.id}/edit` },
                           {
                             label: "Eliminar",
@@ -307,6 +323,55 @@ export function ActivityListPage() {
           />
         ) : null}
       </div>
+
+      {/* Los mismos campos que ActivityFormPage, en solo lectura, con las
+          relaciones y las fechas resueltas igual que en las columnas. Autor
+          no está en el formulario (no se edita) pero sí en la tabla: es un
+          dato de la actividad y el detalle no lo recorta. */}
+      {detalle ? (
+        <Modal
+          variant="dialog"
+          title="Detalle de la actividad"
+          onClose={() => setDetalleAbierto(null)}
+        >
+          <DetailList
+            sections={[
+              {
+                items: [
+                  {
+                    label: "Tipo",
+                    value: <Badge variant="neutral">{ACTIVITY_TYPE_LABELS[detalle.type]}</Badge>,
+                  },
+                  { label: "Asunto", value: detalle.subject },
+                  { label: "Notas", value: detalle.body },
+                  {
+                    label: "Empresa",
+                    value: detalle.companyId
+                      ? (companyNames.byId.get(detalle.companyId)?.name ?? "—")
+                      : null,
+                  },
+                  {
+                    label: "Contacto",
+                    value: detalle.contactId
+                      ? (contactNames.byId.get(detalle.contactId) ?? "—")
+                      : null,
+                  },
+                  {
+                    label: "Oportunidad",
+                    value: detalle.opportunityId
+                      ? (opportunityNames.byId.get(detalle.opportunityId) ?? "—")
+                      : null,
+                  },
+                  { label: "Autor", value: resolveUserLabel(detalle.authorId) },
+                  { label: "Asignado a", value: resolveUserLabel(detalle.assigneeId) },
+                  { label: "Vencimiento", value: formatDateTime(detalle.dueDate) },
+                  { label: "Completada", value: formatDateTime(detalle.completedAt) },
+                ],
+              },
+            ]}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }

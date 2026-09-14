@@ -8,6 +8,7 @@ import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { MultiSelect } from "../../design-system/MultiSelect";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
@@ -18,6 +19,7 @@ import { CONDITION_LABELS, STATUS_BADGE_VARIANT, STATUS_LABELS } from "./labels"
 import { useDeleteVehicle } from "./mutations";
 import { useVehicles } from "./queries";
 import type { VehicleCondition, VehicleSortBy, VehicleStatus, SortOrder } from "./types";
+import { VehicleDetail } from "./VehicleDetail";
 import { VehicleSummaryCards } from "./VehicleSummaryCards";
 
 const PAGE_SIZE = 20;
@@ -59,6 +61,9 @@ export function VehicleListPage() {
   const [consignmentOnly, setConsignmentOnly] = useState(false);
   const [sortBy, setSortBy] = useState<VehicleSortBy>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
+  // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
   const vehiclesQuery = useVehicles({
     page,
@@ -77,6 +82,21 @@ export function VehicleListPage() {
 
   const salespersonNames = useOwnerNames(isAdmin);
   const deleteVehicleMutation = useDeleteVehicle();
+
+  // Sin vendedor y vendedor que no se pudo resolver muestran lo mismo, "—"
+  // (mismo criterio que la columna Owner de CompanyListPage). Compartido por
+  // la columna Vendedor y el detalle.
+  function nombreDeVendedor(assignedSalespersonId: string | null): string | null {
+    return assignedSalespersonId
+      ? (salespersonNames.byId.get(assignedSalespersonId) ?? null)
+      : null;
+  }
+
+  // La fila del detalle sale del array ya cargado, sin un GET aparte: el
+  // listado trae el Vehicle completo más la portada (VehicleListItem, §28).
+  // Si la fila desaparece (se dio de baja, cambió la página) el pop up se
+  // cierra solo.
+  const detalle = vehiclesQuery.data?.data.find((vehicle) => vehicle.id === detalleAbierto);
 
   function handleDelete(id: string) {
     if (!window.confirm("¿Dar de baja esta unidad?")) return;
@@ -256,12 +276,9 @@ export function VehicleListPage() {
             </thead>
             <tbody>
               {vehiclesQuery.data.data.map((vehicle) => {
-                // Sin vendedor y vendedor que no se pudo resolver muestran lo
-                // mismo, "—", y sin nombre no hay avatar — mismo criterio que
-                // la columna Owner de CompanyListPage.
-                const salespersonName = vehicle.assignedSalespersonId
-                  ? (salespersonNames.byId.get(vehicle.assignedSalespersonId) ?? null)
-                  : null;
+                // Sin nombre no hay avatar: un círculo con "—" adentro no
+                // representa a nadie.
+                const salespersonName = nombreDeVendedor(vehicle.assignedSalespersonId);
                 return (
                   <tr key={vehicle.id}>
                     {/* La portada viene resuelta en lote con el listado
@@ -306,6 +323,12 @@ export function VehicleListPage() {
                       <td>
                         <ActionsMenu
                           actions={[
+                            // Primero "Ver detalle": la acción de consulta,
+                            // antes que las de escritura (§28).
+                            {
+                              label: "Ver detalle",
+                              onClick: () => setDetalleAbierto(vehicle.id),
+                            },
                             { label: "Editar", to: `/vehicles/${vehicle.id}/edit` },
                             {
                               label: "Eliminar",
@@ -332,6 +355,21 @@ export function VehicleListPage() {
           />
         ) : null}
       </div>
+
+      {/* La ficha completa en solo lectura, con las secciones del formulario
+          (VehicleDetail.tsx). */}
+      {detalle ? (
+        <Modal
+          variant="dialog"
+          title="Detalle de la unidad"
+          onClose={() => setDetalleAbierto(null)}
+        >
+          <VehicleDetail
+            vehicle={detalle}
+            salespersonName={nombreDeVendedor(detalle.assignedSalespersonId)}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }

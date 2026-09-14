@@ -1,12 +1,15 @@
 import { useState } from "react";
-import { Check, Eye, Link2, Pencil, Plus, Send, Trash2 } from "lucide-react";
+import { Check, Eye, Info, Link2, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
+import { DetailList } from "../../design-system/DetailList";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { buildPublicResolutionUrl } from "../../lib/publicUrl";
@@ -52,14 +55,18 @@ const ESTADO_BADGE: Record<QrCodeStatus, BadgeVariant> = {
 // solo su texto.
 const ICONO = { size: 15, strokeWidth: 1.5, "aria-hidden": true } as const;
 
-// Qué diálogo está abierto y sobre qué QR. Uno solo a la vez: los cuatro
-// (crear, editar, imagen, enviar) son Modal, y dos superpuestos no tienen
-// sentido.
+// Qué diálogo está abierto y sobre qué QR. Uno solo a la vez: los cinco
+// (crear, editar, imagen, enviar, detalle) son Modal, y dos superpuestos no
+// tienen sentido. "detalle" es el pop up de solo lectura de §28; entra en
+// esta misma unión —con la fila ya cargada, como imagen/enviar— en vez de un
+// estado aparte con el id, para no tener dos mecanismos de diálogo en la
+// misma pantalla.
 type Dialogo =
   | { kind: "crear" }
   | { kind: "editar"; qr: QrCode }
   | { kind: "imagen"; qr: QrCode }
-  | { kind: "enviar"; qr: QrCode };
+  | { kind: "enviar"; qr: QrCode }
+  | { kind: "detalle"; qr: QrCode };
 
 export function QrListPage() {
   const { me } = useAuth();
@@ -255,6 +262,15 @@ export function QrListPage() {
                       elegirla la escondería. */}
                     <ActionsMenu
                       actions={[
+                        // Primero "Ver detalle" (§28): los DATOS del QR, no la
+                        // imagen del código — "Ver imagen" sigue siendo otra
+                        // acción. Con ícono como el resto de los ítems de
+                        // esta fila.
+                        {
+                          label: "Ver detalle",
+                          icon: <Info {...ICONO} />,
+                          onClick: () => setDialogo({ kind: "detalle", qr }),
+                        },
                         {
                           label: "Ver imagen",
                           icon: <Eye {...ICONO} />,
@@ -323,6 +339,52 @@ export function QrListPage() {
       ) : null}
       {dialogo?.kind === "enviar" ? (
         <QrSendDialog qr={dialogo.qr} onClose={() => setDialogo(null)} />
+      ) : null}
+      {/* Los campos de QrFormDialog (sucursal, nombre, destino, mensaje, tipo)
+          más lo que el listado ya muestra o el registro guarda y ningún
+          formulario edita: número, estado derivado (mismo Badge que la
+          columna) y las fechas de reclamo, uso y creación. */}
+      {dialogo?.kind === "detalle" ? (
+        <Modal variant="dialog" title="Detalle del QR" onClose={() => setDialogo(null)}>
+          <DetailList
+            sections={[
+              {
+                items: [
+                  { label: "N°", value: dialogo.qr.displayNumber },
+                  { label: "Nombre", value: dialogo.qr.name },
+                  {
+                    label: "Sucursal",
+                    value: dialogo.qr.branchId
+                      ? (nombreDeSucursal.get(dialogo.qr.branchId) ?? SIN_RESOLVER)
+                      : null,
+                  },
+                  {
+                    label: "Estado",
+                    value: (
+                      <Badge variant={ESTADO_BADGE[estadoDeQr(dialogo.qr)]}>
+                        {ESTADO_LABEL[estadoDeQr(dialogo.qr)]}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    label: "Tipo",
+                    value:
+                      dialogo.qr.qrType === "SINGLE_USE" ? (
+                        <Badge variant="info">Un solo uso</Badge>
+                      ) : (
+                        <Badge variant="neutral">Reusable</Badge>
+                      ),
+                  },
+                  { label: "Enlace de destino", value: dialogo.qr.destinationUrl },
+                  { label: "Mensaje", value: dialogo.qr.message },
+                  { label: "Reclamado el", value: formatDateTime(dialogo.qr.claimedAt) },
+                  { label: "Usado el", value: formatDateTime(dialogo.qr.usedAt) },
+                  { label: "Creado el", value: formatDateTime(dialogo.qr.createdAt) },
+                ],
+              },
+            ]}
+          />
+        </Modal>
       ) : null}
     </div>
   );

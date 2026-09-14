@@ -6,15 +6,19 @@ import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
+import { DetailList } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
+import { unitTitle } from "../vehicle/format";
+import { useVehicle } from "../vehicle/queries";
 import { formatAmount, formatDate } from "./format";
-import { STATUS_LABEL, STATUSES } from "./labels";
+import { FINANCING_TYPE_LABELS, LEAD_SOURCE_LABELS, STATUS_LABEL, STATUSES } from "./labels";
 import { useDeleteOpportunity } from "./mutations";
 import { OpportunityAssociation } from "./OpportunityAssociation";
 import { OpportunityBoardView } from "./OpportunityBoardView";
@@ -88,6 +92,9 @@ function OpportunityTableView() {
   const [pipelineId, setPipelineId] = useState<string | undefined>(undefined);
   const [sortBy, setSortBy] = useState<OpportunitySortBy>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
+  // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
   const opportunitiesQuery = useOpportunities({
     page,
@@ -126,6 +133,18 @@ function OpportunityTableView() {
   const pipelineNames = usePipelineNames(visiblePipelineIds);
   const stageNames = useStageNames(visibleStageRefs);
   const ownerNames = useOwnerNames(isAdmin);
+
+  // La fila del detalle sale del array ya cargado, sin un GET aparte: el
+  // listado trae el objeto Opportunity completo (§28). Si la fila desaparece
+  // (se eliminó, cambió la página) el pop up se cierra solo.
+  const detalle = rows.find((opportunity) => opportunity.id === detalleAbierto);
+
+  // La única relación que la tabla NO resuelve es la unidad de stock: no
+  // tiene columna. El formulario la muestra por nombre (VehicleSelect, con
+  // esta misma query por id), así que el detalle también, y nunca el UUID.
+  // Se pide recién con el pop up abierto y solo si hay unidad vinculada
+  // (useVehicle(undefined) queda deshabilitada): no es un fetch por fila.
+  const vehiculoDelDetalle = useVehicle(detalle?.vehicleId ?? undefined);
 
   function handleDelete(id: string) {
     if (!window.confirm("¿Eliminar esta oportunidad?")) return;
@@ -345,6 +364,12 @@ function OpportunityTableView() {
                       <td>
                         <ActionsMenu
                           actions={[
+                            // Primero "Ver detalle": la acción de consulta,
+                            // antes que las de escritura (§28).
+                            {
+                              label: "Ver detalle",
+                              onClick: () => setDetalleAbierto(opportunity.id),
+                            },
                             { label: "Editar", to: `/opportunities/${opportunity.id}/edit` },
                             {
                               label: "Eliminar",
@@ -371,6 +396,105 @@ function OpportunityTableView() {
           />
         ) : null}
       </div>
+
+      {/* Los mismos campos que OpportunityFormPage, agrupados en sus mismas
+          cuatro tarjetas, en solo lectura y con las relaciones resueltas igual
+          que en las columnas (monto con formatAmount, cierre con formatDate).
+          Motivo y Fecha real de cierre solo con Ganada/Perdida, como en el
+          formulario. */}
+      {detalle ? (
+        <Modal
+          variant="dialog"
+          title="Detalle de la oportunidad"
+          onClose={() => setDetalleAbierto(null)}
+        >
+          <DetailList
+            sections={[
+              {
+                heading: "Oportunidad",
+                items: [
+                  { label: "Título", value: detalle.title },
+                  {
+                    label: "Empresa",
+                    value: detalle.companyId
+                      ? (companyNames.byId.get(detalle.companyId)?.name ?? "—")
+                      : null,
+                  },
+                  {
+                    label: "Contacto",
+                    value: detalle.contactId
+                      ? (contactNames.byId.get(detalle.contactId) ?? "—")
+                      : null,
+                  },
+                ],
+              },
+              {
+                heading: "Embudo y valor",
+                items: [
+                  { label: "Pipeline", value: pipelineNames.byId.get(detalle.pipelineId) ?? "—" },
+                  { label: "Etapa", value: stageNames.byId.get(detalle.stageId) ?? "—" },
+                  { label: "Monto", value: formatAmount(detalle.amount, detalle.currency) },
+                  { label: "Moneda", value: detalle.currency },
+                  {
+                    label: "Fecha estimada de cierre",
+                    value: detalle.expectedCloseDate ? formatDate(detalle.expectedCloseDate) : null,
+                  },
+                  { label: "Propietario", value: ownerNames.byId.get(detalle.ownerId) ?? null },
+                ],
+              },
+              {
+                heading: "Vehículo vinculado",
+                items: [
+                  {
+                    label: "Unidad de stock",
+                    value: !detalle.vehicleId
+                      ? null
+                      : vehiculoDelDetalle.data
+                        ? unitTitle(vehiculoDelDetalle.data)
+                        : vehiculoDelDetalle.isLoading
+                          ? "Cargando…"
+                          : "—",
+                  },
+                  {
+                    label: "Financiación",
+                    value: detalle.financingType
+                      ? FINANCING_TYPE_LABELS[detalle.financingType]
+                      : null,
+                  },
+                  {
+                    label: "Origen del cliente",
+                    value: detalle.leadSource ? LEAD_SOURCE_LABELS[detalle.leadSource] : null,
+                  },
+                ],
+              },
+              {
+                heading: "Estado y cierre",
+                items: [
+                  {
+                    label: "Estado",
+                    value: (
+                      <Badge variant={STATUS_BADGE_VARIANT[detalle.status]}>
+                        {STATUS_LABEL[detalle.status]}
+                      </Badge>
+                    ),
+                  },
+                  ...(detalle.status !== "OPEN"
+                    ? [
+                        { label: "Motivo de pérdida", value: detalle.lostReason },
+                        {
+                          label: "Fecha real de cierre",
+                          value: detalle.actualCloseDate
+                            ? formatDate(detalle.actualCloseDate)
+                            : null,
+                        },
+                      ]
+                    : []),
+                ],
+              },
+            ]}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }

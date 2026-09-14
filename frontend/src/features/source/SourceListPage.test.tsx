@@ -372,4 +372,71 @@ describe("SourceListPage — cross-links por fila", () => {
       );
     }
   });
+
+  // -------------------------------------------------------------------------
+  // "Ver detalle" (docs/frontend-cambios-pendientes.md §28): pop up de solo
+  // lectura con los mismos campos que el formulario, desde la fila ya cargada.
+  // -------------------------------------------------------------------------
+
+  it("§28 Ver detalle abre el pop up con tipo y estado traducidos y el mapeo de columnas de una FILE_IMPORT; cierra con × y con Escape", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json(
+          listResponse({
+            data: [
+              makeSource({
+                name: "Feria",
+                type: "FILE_IMPORT",
+                isActive: false,
+                fieldMapping: { Correo: "email", Nombre: "firstName" },
+              }),
+            ],
+          }),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Feria")).toBeInTheDocument());
+    await openActionsMenu(user);
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Ver detalle");
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle de la fuente" });
+    expect(dialog).toHaveTextContent("Feria");
+    expect(dialog).toHaveTextContent("Importación de archivo");
+    expect(dialog).toHaveTextContent("Pausada");
+    expect(dialog).toHaveTextContent("Correo → Email");
+    expect(dialog).toHaveTextContent("Nombre → Nombre");
+    expect(dialog).toHaveTextContent(new Date("2026-01-01T00:00:00.000Z").toLocaleDateString());
+    expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Cerrar diálogo" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("§28 en una fuente que no es FILE_IMPORT el detalle no muestra 'Mapeo de columnas'", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json(listResponse({ data: [makeSource({ type: "WEBHOOK" })] })),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Landing de precios")).toBeInTheDocument());
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle de la fuente" });
+    expect(dialog).toHaveTextContent("Webhook");
+    expect(dialog).not.toHaveTextContent("Mapeo de columnas");
+  });
 });

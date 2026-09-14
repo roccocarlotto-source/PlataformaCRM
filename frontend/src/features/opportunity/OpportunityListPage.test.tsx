@@ -12,6 +12,7 @@ import { makeContact } from "../../test/contactFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { makeUser } from "../../test/userFixtures";
+import { makeVehicleDetail } from "../../test/vehicleFixtures";
 import { openActionsMenu } from "../../test/openActionsMenu";
 import { OpportunityListPage } from "./OpportunityListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
@@ -49,6 +50,7 @@ const contactsUrl = `${env.apiUrl}/api/contacts`;
 const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
 const stagesUrl = `${env.apiUrl}/api/stages`;
 const usersUrl = `${env.apiUrl}/api/users`;
+const vehiclesUrl = `${env.apiUrl}/api/vehicles`;
 
 // OpportunityListPage siempre monta PipelineSelect como filtro (sin
 // `enabled` gating — a diferencia de CompanySelect/ContactSelect, no busca
@@ -454,5 +456,78 @@ describe("OpportunityListPage", () => {
     expect(screen.getByLabelText("Estado")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("table")).toBeInTheDocument());
     expect(screen.getByText("Renovación anual")).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // "Ver detalle" (docs/frontend-cambios-pendientes.md §28): pop up de solo
+  // lectura con los mismos campos que el formulario, desde la fila ya cargada.
+  // -------------------------------------------------------------------------
+
+  it("§28 Ver detalle abre el pop up con las cuatro secciones del formulario y las relaciones resueltas (unidad incluida); cierra con × y con Escape", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    let vehicleRequests = 0;
+    server.use(
+      ...relationHandlers(),
+      usersHandler(),
+      http.get(opportunitiesUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeOpportunity({
+              vehicleId: "v1",
+              financingType: "OWN_FINANCING",
+              leadSource: "SHOWROOM",
+              status: "LOST",
+              lostReason: "Precio",
+              actualCloseDate: "2026-03-10T00:00:00.000Z",
+            }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.get(`${vehiclesUrl}/:id`, ({ params }) => {
+        vehicleRequests += 1;
+        return HttpResponse.json(makeVehicleDetail({ id: params.id as string }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
+    // La unidad no tiene columna: no se pide hasta abrir el detalle.
+    expect(vehicleRequests).toBe(0);
+    await openActionsMenu(user);
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Ver detalle");
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle de la oportunidad" });
+    for (const heading of [
+      "Oportunidad",
+      "Embudo y valor",
+      "Vehículo vinculado",
+      "Estado y cierre",
+    ]) {
+      expect(within(dialog).getByRole("heading", { level: 3, name: heading })).toBeInTheDocument();
+    }
+    expect(dialog).toHaveTextContent("Acme Corp");
+    expect(dialog).toHaveTextContent("Ventas");
+    expect(dialog).toHaveTextContent("Prospecto");
+    expect(dialog).toHaveTextContent("1500.00 USD");
+    expect(dialog).toHaveTextContent("Ana Pérez");
+    expect(dialog).toHaveTextContent("Financiación propia");
+    expect(dialog).toHaveTextContent("Showroom");
+    expect(dialog).toHaveTextContent("Precio");
+    expect(within(dialog).getByText("Perdida")).toHaveClass("ds-badge");
+    await waitFor(() => expect(dialog).toHaveTextContent("Toyota Corolla 2020"));
+    expect(vehicleRequests).toBe(1);
+    expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Cerrar diálogo" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

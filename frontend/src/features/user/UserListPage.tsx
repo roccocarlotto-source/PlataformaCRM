@@ -2,9 +2,12 @@ import { useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
+import { DetailList } from "../../design-system/DetailList";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { useDeleteUser, useUpdateUser } from "./mutations";
@@ -24,7 +27,17 @@ const PAGE_SIZE = 20;
 // ActionsMenu (menú de 3 puntos) para las acciones, ErrorState para los errores
 // por fila. Los textos, los nombres accesibles y las condiciones (fila
 // propia sin controles, errores scopeados por fila) no cambian.
-function UserRow({ user, isSelf }: { user: User; isSelf: boolean }) {
+// El estado del pop up "Ver detalle" (§28) vive en UserListPage, que es
+// quien lo renderiza —uno solo para toda la tabla—; la fila solo avisa.
+function UserRow({
+  user,
+  isSelf,
+  onVerDetalle,
+}: {
+  user: User;
+  isSelf: boolean;
+  onVerDetalle: () => void;
+}) {
   const updateUserMutation = useUpdateUser(user.id);
   const deleteUserMutation = useDeleteUser();
 
@@ -73,11 +86,16 @@ function UserRow({ user, isSelf }: { user: User; isSelf: boolean }) {
       <td>
         {/* Fila propia: sin controles de modificación — refleja
             visualmente el 400 real que el backend ya garantiza
-            (targetUserId === actorUserId), mismo criterio que AdminRoute. */}
+            (targetUserId === actorUserId), mismo criterio que AdminRoute.
+            Tampoco "Ver detalle": sería un menú de un solo ítem, justo lo que
+            §8 descarta, y los datos propios ya están en la fila. */}
         {isSelf ? null : (
           <ActionsMenu
             label={`Más acciones de ${user.fullName}`}
             actions={[
+              // Primero "Ver detalle": la acción de consulta, antes que las
+              // de escritura (§28).
+              { label: "Ver detalle", onClick: onVerDetalle },
               {
                 label: user.isActive ? "Desactivar" : "Activar",
                 onClick: handleToggleActive,
@@ -122,6 +140,9 @@ export function UserListPage() {
   const [isActive, setIsActive] = useState<"true" | "false" | "">("");
   const [sortBy, setSortBy] = useState<UserSortBy>("fullName");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
+  // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
+  // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
   const usersQuery = useUsers({
     page,
@@ -133,6 +154,11 @@ export function UserListPage() {
   });
 
   const rows = useMemo(() => usersQuery.data?.data ?? [], [usersQuery.data]);
+
+  // La fila del detalle sale del array ya cargado, sin un GET aparte (no
+  // existe GET /api/users/:id, y no hace falta: el listado trae el User
+  // completo, §28). Si la fila desaparece el pop up se cierra solo.
+  const detalle = rows.find((user) => user.id === detalleAbierto);
 
   return (
     <div>
@@ -219,7 +245,12 @@ export function UserListPage() {
           </thead>
           <tbody>
             {rows.map((user) => (
-              <UserRow key={user.id} user={user} isSelf={user.id === me?.id} />
+              <UserRow
+                key={user.id}
+                user={user}
+                isSelf={user.id === me?.id}
+                onVerDetalle={() => setDetalleAbierto(user.id)}
+              />
             ))}
           </tbody>
         </Table>
@@ -238,6 +269,36 @@ export function UserListPage() {
           onPrevious={() => setPage((current) => current - 1)}
           onNext={() => setPage((current) => current + 1)}
         />
+      ) : null}
+
+      {/* Usuarios no tiene formulario de edición (se edita en línea): el
+          detalle muestra lo que la fila ya muestra —nombre, email, rol y
+          estado con el mismo Badge— más los dos datos del registro que
+          ninguna celda tiene, último acceso y fecha de alta. */}
+      {detalle ? (
+        <Modal variant="dialog" title="Detalle del usuario" onClose={() => setDetalleAbierto(null)}>
+          <DetailList
+            sections={[
+              {
+                items: [
+                  { label: "Nombre", value: detalle.fullName },
+                  { label: "Email", value: detalle.email },
+                  { label: "Rol", value: detalle.role.name },
+                  {
+                    label: "Estado",
+                    value: detalle.isActive ? (
+                      <Badge variant="success">Activo</Badge>
+                    ) : (
+                      <Badge variant="neutral">Inactivo</Badge>
+                    ),
+                  },
+                  { label: "Último acceso", value: formatDateTime(detalle.lastLoginAt) },
+                  { label: "Fecha de alta", value: formatDateTime(detalle.createdAt) },
+                ],
+              },
+            ]}
+          />
+        </Modal>
       ) : null}
     </div>
   );

@@ -455,4 +455,59 @@ describe("ActivityListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Reunión")).toBeInTheDocument());
   });
+
+  // -------------------------------------------------------------------------
+  // "Ver detalle" (docs/frontend-cambios-pendientes.md §28): pop up de solo
+  // lectura con los mismos campos que el formulario, desde la fila ya cargada.
+  // -------------------------------------------------------------------------
+
+  it("§28 Ver detalle abre el pop up con los campos del formulario y las relaciones resueltas; cierra con × y con Escape", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const dueDate = "2026-02-01T12:00:00.000Z";
+    server.use(
+      ...relationHandlers(),
+      usersHandler(),
+      http.get(activitiesUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeActivity({
+              type: "CALL",
+              body: "Confirmar la renovación",
+              assigneeId: "u2",
+              contactId: "ct1",
+              dueDate,
+            }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Llamar para renovación")).toBeInTheDocument());
+    await openActionsMenu(user);
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Ver detalle");
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle de la actividad" });
+    expect(within(dialog).getByText("Llamada")).toHaveClass("ds-badge");
+    expect(dialog).toHaveTextContent("Confirmar la renovación");
+    expect(dialog).toHaveTextContent("Acme Corp");
+    expect(dialog).toHaveTextContent("Ana Pérez");
+    // Autor = quien está logueado ("Vos"); asignado resuelto por nombre.
+    expect(dialog).toHaveTextContent("Vos");
+    expect(dialog).toHaveTextContent("Beto Gómez");
+    expect(dialog).toHaveTextContent(new Date(dueDate).toLocaleString());
+    expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Cerrar diálogo" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 });

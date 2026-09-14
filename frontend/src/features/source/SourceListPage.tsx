@@ -2,14 +2,17 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
+import { DetailList } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { useDeleteSource } from "./mutations";
 import { useSources } from "./queries";
-import type { SourceSortBy, SourceType, SortOrder } from "./types";
+import { ETIQUETA_DE_CAMPO } from "./types";
+import type { FieldMapping, SourceSortBy, SourceType, SortOrder } from "./types";
 
 const PAGE_SIZE = 20;
 
@@ -18,6 +21,17 @@ const ETIQUETA_DE_TIPO: Record<SourceType, string> = {
   FILE_IMPORT: "Importación de archivo",
   EXTERNAL_DB: "Base externa",
 };
+
+// El mapeo de columnas del formulario (FieldMappingEditor), en solo lectura:
+// una línea por columna, "encabezado del archivo → campo de Contact" con la
+// misma etiqueta que el editor muestra en su <select>. Sin filas, vacío (y
+// DetailList lo dibuja como "—").
+function describirMapeo(fieldMapping: FieldMapping | null): string {
+  if (!fieldMapping) return "";
+  return Object.entries(fieldMapping)
+    .map(([encabezado, campo]) => `${encabezado} → ${ETIQUETA_DE_CAMPO[campo]}`)
+    .join("\n");
+}
 
 // SIN el gate `isAdmin` que usan CompanyListPage/ContactListPage, y no es una
 // omisión: en esos módulos la LECTURA es abierta y solo la escritura es
@@ -37,6 +51,9 @@ export function SourceListPage() {
   const [isActive, setIsActive] = useState<"" | "true" | "false">("");
   const [sortBy, setSortBy] = useState<SourceSortBy>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
+  // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
   const sourcesQuery = useSources({
     page,
@@ -47,6 +64,11 @@ export function SourceListPage() {
     sortBy,
     sortOrder,
   });
+
+  // La fila del detalle sale del array ya cargado, sin un GET aparte: el
+  // listado trae el objeto Source completo, fieldMapping incluido (§28). Si
+  // la fila desaparece (se retiró, cambió la página) el pop up se cierra solo.
+  const detalle = sourcesQuery.data?.data.find((source) => source.id === detalleAbierto);
 
   const deleteSourceMutation = useDeleteSource();
 
@@ -187,6 +209,12 @@ export function SourceListPage() {
                   <td>
                     <ActionsMenu
                       actions={[
+                        // Primero "Ver detalle": la acción de consulta, antes
+                        // que las de escritura y los cross-links (§28).
+                        {
+                          label: "Ver detalle",
+                          onClick: () => setDetalleAbierto(source.id),
+                        },
                         { label: "Editar", to: `/sources/${source.id}/edit` },
                         // Cross-link a las claves de ESTA fuente, con el filtro ya
                         // aplicado. El filtro de ApiKeyListPage vive en la URL
@@ -228,6 +256,34 @@ export function SourceListPage() {
           />
         ) : null}
       </div>
+
+      {/* Los mismos campos que SourceFormPage, en solo lectura: el mapeo de
+          columnas solo en las FILE_IMPORT, como el editor del formulario (el
+          backend lo rechaza en cualquier otro tipo), y la fecha de creación
+          con el mismo formato que la columna "Creada". */}
+      {detalle ? (
+        <Modal
+          variant="dialog"
+          title="Detalle de la fuente"
+          onClose={() => setDetalleAbierto(null)}
+        >
+          <DetailList
+            sections={[
+              {
+                items: [
+                  { label: "Nombre", value: detalle.name },
+                  { label: "Tipo", value: ETIQUETA_DE_TIPO[detalle.type] },
+                  { label: "Estado", value: detalle.isActive ? "Activa" : "Pausada" },
+                  ...(detalle.type === "FILE_IMPORT"
+                    ? [{ label: "Mapeo de columnas", value: describirMapeo(detalle.fieldMapping) }]
+                    : []),
+                  { label: "Creada", value: new Date(detalle.createdAt).toLocaleDateString() },
+                ],
+              },
+            ]}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }

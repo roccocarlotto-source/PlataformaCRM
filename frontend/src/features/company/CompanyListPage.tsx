@@ -4,9 +4,11 @@ import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
+import { DetailList } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { Table } from "../../design-system/Table";
 import { useOwnerNames } from "../opportunity/relationResolution";
@@ -31,6 +33,9 @@ export function CompanyListPage() {
   const [industry, setIndustry] = useState("");
   const [sortBy, setSortBy] = useState<CompanySortBy>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
+  // no una ruta: el detalle no tiene URL propia, decisión tomada en el ítem.
+  const [detalleAbierto, setDetalleAbierto] = useState<string | null>(null);
 
   const companiesQuery = useCompanies({
     page,
@@ -51,6 +56,20 @@ export function CompanyListPage() {
   // (user.routes.ts), así que para un USER la request nunca se dispara y no hay
   // un 403 que atrapar.
   const ownerNames = useOwnerNames(isAdmin);
+
+  // ownerId es nullable acá (a diferencia de Opportunity), así que el guard
+  // no es defensivo de más: sin él, un owner sin asignar entraría a
+  // byId.get(null). Sin dueño y dueño que no se pudo resolver muestran lo
+  // mismo — "—" —, y es correcto: para quien lee, las dos cosas son "no hay
+  // nombre que mostrar acá". Compartido por la columna Owner y el detalle.
+  function nombreDePropietario(ownerId: string | null): string | null {
+    return ownerId ? (ownerNames.byId.get(ownerId) ?? null) : null;
+  }
+
+  // La fila del detalle sale del array ya cargado, sin un GET aparte: el
+  // listado trae el objeto Company completo (§28). Si la fila desaparece
+  // (se eliminó, cambió la página) el pop up se cierra solo.
+  const detalle = companiesQuery.data?.data.find((company) => company.id === detalleAbierto);
 
   const deleteCompanyMutation = useDeleteCompany();
 
@@ -170,16 +189,9 @@ export function CompanyListPage() {
             </thead>
             <tbody>
               {companiesQuery.data.data.map((company) => {
-                // ownerId es nullable acá (a diferencia de Opportunity), así
-                // que el guard no es defensivo de más: sin él, un owner sin
-                // asignar entraría a byId.get(null). Sin dueño y dueño que no
-                // se pudo resolver muestran lo mismo — "—" —, y es correcto:
-                // para quien lee la tabla, las dos cosas son "no hay nombre
-                // que mostrar acá". Y sin nombre no hay avatar: un círculo
-                // con "—" adentro no representa a nadie.
-                const ownerName = company.ownerId
-                  ? (ownerNames.byId.get(company.ownerId) ?? null)
-                  : null;
+                // Sin nombre no hay avatar: un círculo con "—" adentro no
+                // representa a nadie.
+                const ownerName = nombreDePropietario(company.ownerId);
                 return (
                   <tr key={company.id}>
                     <td className="ds-cell-primary">{company.name}</td>
@@ -208,6 +220,12 @@ export function CompanyListPage() {
                       <td>
                         <ActionsMenu
                           actions={[
+                            // Primero "Ver detalle": la acción de consulta,
+                            // antes que las de escritura (§28).
+                            {
+                              label: "Ver detalle",
+                              onClick: () => setDetalleAbierto(company.id),
+                            },
                             { label: "Editar", to: `/companies/${company.id}/edit` },
                             {
                               label: "Eliminar",
@@ -234,6 +252,32 @@ export function CompanyListPage() {
           />
         ) : null}
       </div>
+
+      {/* Los mismos campos que CompanyFormPage, en solo lectura, con el
+          propietario resuelto igual que en la columna Owner. */}
+      {detalle ? (
+        <Modal
+          variant="dialog"
+          title="Detalle de la empresa"
+          onClose={() => setDetalleAbierto(null)}
+        >
+          <DetailList
+            sections={[
+              {
+                items: [
+                  { label: "Nombre", value: detalle.name },
+                  { label: "Dominio", value: detalle.domain },
+                  { label: "Industria", value: detalle.industry },
+                  { label: "Teléfono", value: detalle.phone },
+                  { label: "Ciudad", value: detalle.city },
+                  { label: "País", value: detalle.country },
+                  { label: "Propietario", value: nombreDePropietario(detalle.ownerId) },
+                ],
+              },
+            ]}
+          />
+        </Modal>
+      ) : null}
     </div>
   );
 }

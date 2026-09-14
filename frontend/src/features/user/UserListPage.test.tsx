@@ -278,4 +278,57 @@ describe("UserListPage", () => {
     await waitFor(() => expect(screen.getByText("Ana Pérez")).toBeInTheDocument());
     expect(screen.queryByText("11111111-2222-3333-4444-555555555555")).not.toBeInTheDocument();
   });
+
+  // -------------------------------------------------------------------------
+  // "Ver detalle" (docs/frontend-cambios-pendientes.md §28): pop up de solo
+  // lectura con los datos del usuario, desde la fila ya cargada. La fila
+  // propia sigue sin menú (ni Ver detalle).
+  // -------------------------------------------------------------------------
+
+  it("§28 Ver detalle abre el pop up con nombre, email, rol, estado y fechas; cierra con × y con Escape", async () => {
+    useAuthMock.mockReturnValue(mockAuth());
+    const lastLoginAt = "2026-02-01T12:00:00.000Z";
+    server.use(
+      http.get(usersUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeUser({
+              id: "u2",
+              fullName: "Beto Gómez",
+              email: "beto@example.com",
+              isActive: false,
+              lastLoginAt,
+            }),
+          ],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Beto Gómez")).toBeInTheDocument());
+    await openActionsMenu(user);
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Ver detalle");
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle del usuario" });
+    expect(dialog).toHaveTextContent("Beto Gómez");
+    expect(dialog).toHaveTextContent("beto@example.com");
+    expect(dialog).toHaveTextContent("ADMIN");
+    expect(within(dialog).getByText("Inactivo")).toHaveClass("ds-badge");
+    expect(dialog).toHaveTextContent(new Date(lastLoginAt).toLocaleString());
+    expect(dialog).not.toHaveTextContent("u2");
+    // Solo lectura: ni el <select> de rol de la fila ni ningún otro control.
+    expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: "Cerrar diálogo" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
 });

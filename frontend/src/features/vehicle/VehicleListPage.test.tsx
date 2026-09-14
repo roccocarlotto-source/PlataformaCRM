@@ -425,4 +425,102 @@ describe("VehicleListPage", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("no se pudo dar de baja"),
     );
   });
+
+  // -------------------------------------------------------------------------
+  // "Ver detalle" (docs/frontend-cambios-pendientes.md §28): la ficha
+  // completa en solo lectura, con las secciones del formulario, desde la
+  // fila ya cargada (VehicleListItem) y sin GET /vehicles/:id.
+  // -------------------------------------------------------------------------
+
+  it("§28 Ver detalle abre la ficha por secciones con importes/kilometraje formateados, sucursal y vendedor por nombre; cierra con × y con Escape", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    let detailRequests = 0;
+    server.use(
+      branchesHandler(),
+      usersHandler(),
+      vehiclesHandler([
+        makeVehicleListItem({
+          assignedSalespersonId: "u1",
+          priceListUsd: "25000.00",
+          mileage: 150000,
+          origin: "CONSIGNMENT",
+          consignorName: "Carlos Consignante",
+          equipment: ["ABS", "AIRBAG"],
+          warranty: "OTHER",
+          warrantyOther: "3 meses del taller",
+          stockEnteredAt: "2026-02-15T00:00:00.000Z",
+          acceptsTradeIn: true,
+        }),
+      ]),
+      http.get(`${baseUrl}/:id`, () => {
+        detailRequests += 1;
+        return HttpResponse.json({ error: { message: "no debería pedirse" } }, { status: 500 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Toyota Corolla 2020")).toBeInTheDocument());
+    await openActionsMenu(user);
+    expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Ver detalle");
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle de la unidad" });
+    // Las tarjetas del formulario, como secciones; Consignación solo porque
+    // el origen es CONSIGNMENT.
+    for (const heading of [
+      "Identificación",
+      "Comercial",
+      "Sucursal y asignación",
+      "Consignación",
+      "Características",
+      "Documentación y garantía",
+      "Multimedia",
+      "Publicación",
+      "Registro",
+    ]) {
+      expect(within(dialog).getByRole("heading", { level: 3, name: heading })).toBeInTheDocument();
+    }
+    expect(dialog).toHaveTextContent("Toyota");
+    expect(dialog).toHaveTextContent("Usado");
+    expect(dialog).toHaveTextContent("25.000,00");
+    expect(dialog).toHaveTextContent("150.000");
+    expect(dialog).toHaveTextContent("Casa Central");
+    expect(dialog).toHaveTextContent("Ana Pérez");
+    expect(dialog).toHaveTextContent("Carlos Consignante");
+    expect(dialog).toHaveTextContent("ABS, AIRBAG");
+    expect(dialog).toHaveTextContent("3 meses del taller");
+    expect(dialog).toHaveTextContent("15 feb 2026");
+    expect(dialog).toHaveTextContent("STK-000001");
+    expect(within(dialog).getByText("Disponible")).toHaveClass("ds-badge");
+    // Ni ids crudos ni ayudas del formulario de edición.
+    expect(dialog).not.toHaveTextContent("b1");
+    expect(dialog).not.toHaveTextContent("Completitud");
+    expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
+    expect(detailRequests).toBe(0);
+
+    await user.click(screen.getByRole("button", { name: "Cerrar diálogo" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("§28 sin origen Consignación el detalle no muestra esa sección", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(branchesHandler(), usersHandler(), vehiclesHandler([makeVehicleListItem()]));
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Toyota Corolla 2020")).toBeInTheDocument());
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle de la unidad" });
+    expect(within(dialog).queryByRole("heading", { name: "Consignación" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "Características" })).toBeInTheDocument();
+  });
 });
