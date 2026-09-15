@@ -181,6 +181,40 @@ export async function lockOpportunityForUpdate(
   return filas[0] ?? null;
 }
 
+// ---------------------------------------------------------------------------
+// Agregados del resumen del Dashboard (§30 de docs/frontend-cambios-pendientes
+// .md). Reciben SOLO el recorte que cambia entre consultas (status, moneda y
+// una ventana sobre createdAt o actualCloseDate): organizationId y
+// deletedAt: null los pone siempre esta capa, igual que buildWhere, así que
+// ninguna llamada puede olvidarse del aislamiento ni contar borradas.
+// ---------------------------------------------------------------------------
+export type OpportunityAggregateWhere = Pick<
+  Prisma.OpportunityWhereInput,
+  "status" | "currency" | "createdAt" | "actualCloseDate"
+>;
+
+export function countOpportunitiesWhere(
+  organizationId: string,
+  where: OpportunityAggregateWhere,
+  db: Db = prisma,
+) {
+  return db.opportunity.count({ where: { organizationId, deletedAt: null, ...where } });
+}
+
+// SUM(amount). `null` cuando no hay ninguna fila que sumar (así lo devuelve
+// Prisma); el service lo traduce a "0".
+export async function sumOpportunityAmount(
+  organizationId: string,
+  where: OpportunityAggregateWhere,
+  db: Db = prisma,
+): Promise<Prisma.Decimal | null> {
+  const result = await db.opportunity.aggregate({
+    where: { organizationId, deletedAt: null, ...where },
+    _sum: { amount: true },
+  });
+  return result._sum.amount;
+}
+
 // Oportunidades activas de un stage — el conteo sobre el que decide el RESTRICT
 // de deleteStage (ALTO-8). organizationId en el WHERE por el mismo motivo que
 // en countActiveStagesByPipeline: decide si una escritura procede.

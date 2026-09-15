@@ -14,6 +14,21 @@ import { opportunityKeys } from "../opportunity/queries";
 // genuinamente nueva — mismo patrón estructural que usePipelineNames/
 // useContactNames en opportunity/relationResolution.ts, aplicado a
 // Opportunity.
+// Rótulo humano de un authorId/assigneeId, la misma regla para la tabla de
+// "Actividades" y el feed del Dashboard (§30): "Vos" si es quien mira
+// (conocido vía useAuth, sin request), el nombre resuelto por useOwnerNames
+// si es ADMIN, y "—" si no se puede resolver — nunca el UUID crudo. Un USER
+// no tiene acceso a GET /api/users, así que cualquier id ajeno cae en "—".
+export function resolveUserLabel(
+  userId: string | null,
+  viewer: { meId: string | undefined; isAdmin: boolean; names: ReadonlyMap<string, string> },
+): string {
+  if (!userId) return "";
+  if (userId === viewer.meId) return "Vos";
+  if (viewer.isAdmin) return viewer.names.get(userId) ?? "—";
+  return "—";
+}
+
 export function useOpportunityNames(ids: readonly string[]) {
   const uniqueIds = Array.from(new Set(ids));
 

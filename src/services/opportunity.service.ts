@@ -10,12 +10,15 @@ import { findCompanyById } from "../repositories/company.repository";
 import { findContactById } from "../repositories/contact.repository";
 import {
   countOpportunities,
+  countOpportunitiesWhere,
   createOpportunity as createOpportunityRepo,
   findManyOpportunities,
   findOpportunityById,
   lockOpportunityForUpdate,
   softDeleteOpportunity,
+  sumOpportunityAmount,
   updateOpportunity as updateOpportunityRepo,
+  type OpportunityAggregateWhere,
   type OpportunitySortBy,
   type SortOrder,
 } from "../repositories/opportunity.repository";
@@ -28,6 +31,7 @@ import { findPipelineById } from "../repositories/pipeline.repository";
 import { findStageById, lockStageForUpdate } from "../repositories/stage.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
+import { lastMonthsUTC, monthWindowUTC, type MonthWindow } from "../utils/utcMonth";
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
 import { resolveOwnerId } from "./ownership.service";
 import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
@@ -617,4 +621,140 @@ export async function deleteOpportunity(organizationId: string, actorUserId: str
       throw new AppError("Oportunidad no encontrada", 404);
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Resumen comercial del Dashboard (§30 de docs/frontend-cambios-pendientes.md).
+// Es el primer agregado (SUM) que expone la API de Opportunity: hasta acá el
+// Dashboard solo podía contar vía pagination.total de un listado.
+//
+// Todos los montos van en UNA sola moneda, la preferida de la organización
+// (USD si no está configurada): las oportunidades en otra moneda quedan
+// fuera de los totales en $, pero NO de los conteos (openCount, los de Win
+// Rate) — decisión tomada con el dueño del proyecto, distinta a propósito del
+// criterio por moneda de formatAmountTotals en el frontend. Los Decimal se
+// serializan como string con dos decimales, nunca Number.
+//
+// Los límites de mes son ventanas UTC (ver utils/utcMonth.ts por qué). `now`
+// y `db` son inyectables para probar los bordes sin depender del reloj ni de
+// una base (opportunity.service.test.ts); el default es el camino real.
+// ---------------------------------------------------------------------------
+export const DASHBOARD_REVENUE_MONTHS = 6;
+export const DASHBOARD_DEFAULT_CURRENCY = "USD";
+
+export interface DashboardMonthFigures {
+  count: number;
+  // SUM(amount) en la moneda de la organización, "0.00" si no hay filas.
+  value: string;
+}
+
+export interface DashboardSummary {
+  currency: string;
+  // status=OPEN ahora mismo. El conteo no filtra por moneda.
+  openCount: number;
+  // SUM(amount) de las OPEN en la moneda de la organización, ahora mismo.
+  openValue: string;
+  // Oportunidades CREADAS en cada mes (createdAt, inmutable): es la base de
+  // la variación de "abiertas" y "valor del pipeline", porque el estado de
+  // hace un mes no se puede reconstruir (status es libre en el PATCH).
+  createdThisMonth: DashboardMonthFigures;
+  createdLastMonth: DashboardMonthFigures;
+  // WON con actualCloseDate en el mes: count para Win Rate, value para
+  // "ganado este mes".
+  wonThisMonth: DashboardMonthFigures;
+  wonLastMonth: DashboardMonthFigures;
+  // LOST con actualCloseDate en el mes: el resto del denominador de Win Rate.
+  lostCountThisMonth: number;
+  lostCountLastMonth: number;
+  // Últimos DASHBOARD_REVENUE_MONTHS meses calendario, el actual incluido,
+  // en orden cronológico: SUM(amount) de WON por actualCloseDate.
+  revenueByMonth: Array<{ month: string; value: string }>;
+}
+
+function serializeAmount(sum: Prisma.Decimal | null): string {
+  return sum === null ? "0.00" : sum.toFixed(2);
+}
+
+function inWindow(window: MonthWindow) {
+  return { gte: window.start, lt: window.end };
+}
+
+export async function getDashboardSummary(
+  organizationId: string,
+  { now = new Date(), db = prisma }: { now?: Date; db?: Db } = {},
+): Promise<DashboardSummary> {
+  const organization = await findOrganizationById(organizationId, db);
+  const currency = organization?.preferredCurrency ?? DASHBOARD_DEFAULT_CURRENCY;
+
+  const thisMonth = monthWindowUTC(now);
+  const lastMonth = monthWindowUTC(now, -1);
+  const revenueWindows = lastMonthsUTC(now, DASHBOARD_REVENUE_MONTHS);
+
+  const count = (where: OpportunityAggregateWhere) =>
+    countOpportunitiesWhere(organizationId, where, db);
+  const sum = (where: OpportunityAggregateWhere) =>
+    sumOpportunityAmount(organizationId, { ...where, currency }, db);
+
+  // Todas las consultas son independientes entre sí: un solo Promise.all, la
+  // misma forma de "N consultas en paralelo, una por bucket" que
+  // useDefaultPipelineStageSummary usa del lado del frontend. El SUM de WON
+  // por mes de la serie ya cubre "ganado este mes" y "el mes anterior" (son
+  // sus dos últimas entradas), así que esos dos no se piden dos veces.
+  const [
+    openCount,
+    openValue,
+    createdThisMonthCount,
+    createdThisMonthValue,
+    createdLastMonthCount,
+    createdLastMonthValue,
+    wonCountThisMonth,
+    wonCountLastMonth,
+    lostCountThisMonth,
+    lostCountLastMonth,
+    revenueSums,
+  ] = await Promise.all([
+    count({ status: "OPEN" }),
+    sum({ status: "OPEN" }),
+    count({ createdAt: inWindow(thisMonth) }),
+    sum({ createdAt: inWindow(thisMonth) }),
+    count({ createdAt: inWindow(lastMonth) }),
+    sum({ createdAt: inWindow(lastMonth) }),
+    count({ status: "WON", actualCloseDate: inWindow(thisMonth) }),
+    count({ status: "WON", actualCloseDate: inWindow(lastMonth) }),
+    count({ status: "LOST", actualCloseDate: inWindow(thisMonth) }),
+    count({ status: "LOST", actualCloseDate: inWindow(lastMonth) }),
+    Promise.all(
+      revenueWindows.map((window) => sum({ status: "WON", actualCloseDate: inWindow(window) })),
+    ),
+  ]);
+
+  const revenueByMonth = revenueWindows.map((window, index) => ({
+    month: window.month,
+    value: serializeAmount(revenueSums[index]),
+  }));
+
+  return {
+    currency,
+    openCount,
+    openValue: serializeAmount(openValue),
+    createdThisMonth: {
+      count: createdThisMonthCount,
+      value: serializeAmount(createdThisMonthValue),
+    },
+    createdLastMonth: {
+      count: createdLastMonthCount,
+      value: serializeAmount(createdLastMonthValue),
+    },
+    wonThisMonth: {
+      count: wonCountThisMonth,
+      value: revenueByMonth[revenueByMonth.length - 1].value,
+    },
+    wonLastMonth: {
+      count: wonCountLastMonth,
+      value: revenueByMonth[revenueByMonth.length - 2].value,
+    },
+    lostCountThisMonth,
+    lostCountLastMonth,
+    revenueByMonth,
+  };
 }

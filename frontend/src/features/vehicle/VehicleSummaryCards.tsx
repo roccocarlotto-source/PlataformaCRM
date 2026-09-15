@@ -6,7 +6,8 @@ const CARDS: Array<{ key: "inStock" | "available"; label: string }> = [
   { key: "available", label: "Disponibles" },
 ];
 
-// Calco de dashboard/OpportunitySummaryCards.tsx: solo conteos exactos
+// Calco del resumen comercial de M8 (hoy dashboard/OpportunityKpiCards.tsx,
+// que ya tiene montos): solo conteos exactos
 // (pagination.total con pageSize=1), sin "valor de stock" ni "días promedio
 // en stock" — ver useVehicleSummary en queries.ts por qué esas dos quedan
 // afuera. Un <dl>: cada tarjeta es un par término/valor; loading y error

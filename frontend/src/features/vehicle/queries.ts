@@ -46,7 +46,8 @@ export interface VehicleCount {
 }
 
 // Los dos KPI del listado, conteos EXACTOS vía pagination.total de una query
-// con pageSize=1 — mismo patrón que useOpportunitySummary (dashboard/queries.ts).
+// con pageSize=1 — el patrón que usaba el resumen comercial de M8 (hoy ese
+// resumen sale del agregado GET /opportunities/dashboard-summary, ver §30).
 // "En stock" = sin filtro de status; "Disponibles" = status AVAILABLE. Sin
 // "valor de stock" ni "días promedio en stock": el backend no expone SUM ni
 // AVG, y sumar client-side las filas de la página visible mentiría apenas

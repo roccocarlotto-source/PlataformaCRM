@@ -86,9 +86,23 @@ export function bucketFor(dueDate: string | null, now: Date): DueDateBucket {
 
 // Abreviaturas propias en vez de toLocaleDateString: el resultado no
 // depende de la versión de ICU del navegador ("sep" vs "sept") y es el
-// mismo en los tests que en producción.
+// mismo en los tests que en producción. MONTHS se exporta porque el eje X
+// del gráfico de ingresos del Dashboard (§30) usa las mismas abreviaturas.
 const WEEKDAYS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
-const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+export const MONTHS = [
+  "ene",
+  "feb",
+  "mar",
+  "abr",
+  "may",
+  "jun",
+  "jul",
+  "ago",
+  "sep",
+  "oct",
+  "nov",
+  "dic",
+];
 
 function pad2(value: number): string {
   return String(value).padStart(2, "0");

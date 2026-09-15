@@ -138,3 +138,29 @@ export interface UpdateOpportunityInput {
   financingType?: OpportunityFinancingType | null;
   leadSource?: OpportunityLeadSource | null;
 }
+
+// Resumen comercial del Dashboard (§30 de docs/frontend-cambios-pendientes.md),
+// GET /api/opportunities/dashboard-summary. Reconstruido desde
+// src/services/opportunity.service.ts (DashboardSummary). Todos los montos
+// (`value`, `openValue`) son string por el mismo motivo que `amount`
+// (Prisma.Decimal), ya en la moneda de la organización que dice `currency`;
+// las variaciones NO vienen calculadas: las arma el frontend (dashboard/kpi.ts).
+export interface OpportunityDashboardMonthFigures {
+  count: number;
+  value: string;
+}
+
+export interface OpportunityDashboardSummary {
+  currency: string;
+  openCount: number;
+  openValue: string;
+  createdThisMonth: OpportunityDashboardMonthFigures;
+  createdLastMonth: OpportunityDashboardMonthFigures;
+  wonThisMonth: OpportunityDashboardMonthFigures;
+  wonLastMonth: OpportunityDashboardMonthFigures;
+  lostCountThisMonth: number;
+  lostCountLastMonth: number;
+  // 6 meses calendario en orden cronológico, el actual al final; `month` es
+  // "YYYY-MM".
+  revenueByMonth: Array<{ month: string; value: string }>;
+}

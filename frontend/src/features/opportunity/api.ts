@@ -3,6 +3,7 @@ import { getAccessToken } from "../../auth/getAccessToken";
 import type {
   CreateOpportunityInput,
   Opportunity,
+  OpportunityDashboardSummary,
   OpportunityListQuery,
   OpportunityListResponse,
   UpdateOpportunityInput,
@@ -65,5 +66,16 @@ export function deleteOpportunity(id: string): Promise<void> {
   return request<void>(`/opportunities/${id}`, {
     method: "DELETE",
     getAccessToken,
+  });
+}
+
+// Resumen comercial del Dashboard (§30). Sin query params: el rango lo fija
+// el backend con su propio reloj (ventanas de mes en UTC).
+export function getOpportunityDashboardSummary(
+  signal?: AbortSignal,
+): Promise<OpportunityDashboardSummary> {
+  return request<OpportunityDashboardSummary>("/opportunities/dashboard-summary", {
+    getAccessToken,
+    signal,
   });
 }
