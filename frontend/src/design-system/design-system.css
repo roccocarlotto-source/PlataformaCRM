@@ -868,6 +868,46 @@ fieldset.ds-field {
   gap: var(--space-2);
 }
 
+/* Selector de tema Sistema/Claro/Oscuro (ThemeToggle.tsx, §31): tres botones
+   solo-ícono en una fila, repartidos a lo ancho del pie de la sidebar. El
+   activo usa EXACTAMENTE los tokens de .ds-sidebar-link.is-active (casi negro
+   sobre casi blanco, invertido en dark) para que "esto es lo elegido" se lea
+   igual que "esta es la página actual". */
+.ds-theme-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+}
+
+/* El `width: 100%` de `.ds-sidebar-account button` (Cerrar sesión) alcanza a
+   estos botones; flex: 1 los reparte parejo y el width queda sin efecto. */
+.ds-theme-toggle-button {
+  flex: 1 1 0;
+  height: var(--control-height-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.ds-theme-toggle-button:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.ds-theme-toggle-button.is-active {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
 .ds-sidebar-account button {
   width: 100%;
 }

@@ -23,6 +23,7 @@ import {
 import { useAuth } from "../auth/AuthContext";
 import { Button } from "../design-system/Button";
 import { ErrorState } from "../design-system/ErrorState";
+import { ThemeToggle } from "../design-system/ThemeToggle";
 
 // Ícono + href + label de cada link, para no repetir el patrón de NavLink
 // (className por isActive) en cada ítem. Los labels son EXACTAMENTE los que
@@ -193,6 +194,10 @@ export function AppLayout() {
           ) : null}
         </nav>
         <div className="ds-sidebar-account">
+          {/* Selector de tema (§31): en el pie de la sidebar, arriba de la
+              identidad y de "Cerrar sesión" — siempre a mano, sin una pantalla
+              de configuración que hoy no existe. */}
+          <ThemeToggle />
           <div className="ds-sidebar-account-top">
             {me ? (
               <span className="ds-sidebar-account-mark" aria-hidden="true">

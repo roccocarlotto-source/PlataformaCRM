@@ -6,12 +6,22 @@
    Claude Design (U:\Proyectos\Sistema Saas\Pantallas, fuera del repo): una
    paleta de neutros cálidos (nunca gris puro), un único acento índigo y dos
    semánticos (éxito/peligro). El diseño es solo modo claro: el bloque
-   prefers-color-scheme: dark de abajo es una derivación propia con el mismo
+   :root[data-theme="dark"] de abajo es una derivación propia con el mismo
    criterio de inversión que tenía el sistema anterior — fondo casi negro
    (cálido, como el claro), superficie un poco más clara que el fondo, bordes
-   sutiles, texto casi blanco, grises mutados más claros. color-scheme: light
-   dark está declarado en global.css; no hay toggle manual ni selector de
-   tema a propósito, se sigue la preferencia del SO.
+   sutiles, texto casi blanco, grises mutados más claros.
+
+   CÓMO SE ELIGE EL TEMA (docs/frontend-cambios-pendientes.md §31): la paleta
+   oscura se activa con el atributo data-theme="dark" en <html>, no con
+   @media (prefers-color-scheme: dark). Quién pone ese atributo: el <script>
+   inline de index.html antes de la primera pintura, y después ThemeProvider
+   (theme/ThemeContext.tsx) en cada cambio. La preferencia de la persona
+   (Sistema / Claro / Oscuro, ThemeToggle en la sidebar) se guarda en
+   localStorage; "Sistema" —el valor por defecto— resuelve con la misma media
+   query desde JS, así que quien nunca toca el control sigue al SO como antes.
+   color-scheme también se declara acá, por tema, para que los controles
+   nativos del navegador (scrollbar, <select>, date picker) sigan el tema
+   ELEGIDO y no el del SO.
 
    ACENTO vs ACCIÓN PRIMARIA — son dos cosas distintas en este diseño:
    - --color-primary-*: la acción primaria (botón principal, ítem de nav
@@ -25,6 +35,11 @@
    compartan color por accidente. */
 
 :root {
+  /* Base clara: aplica también sin data-theme (o con cualquier valor que no
+     sea "dark"), así el HTML antes de que corra el script inline ya es
+     coherente. Ver el bloque :root[data-theme="dark"] al final. */
+  color-scheme: light;
+
   /* Neutros */
   --color-bg: #f6f6f3;
   --color-surface: #ffffff;
@@ -94,38 +109,41 @@
   --font-size-xl: 1.5rem; /* 24px — título de página */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #151513;
-    --color-surface: #1d1d1a;
-    --color-surface-sunken: #181816;
-    --color-surface-muted: #262623;
-    --color-border: #33332e;
-    --color-border-strong: #44443e;
-    --color-text: #f0efe9;
-    --color-text-muted: #b1b0a5;
-    --color-text-faint: #7f7e74;
+/* Paleta oscura: mismos tokens, mismos valores que tenía el bloque
+   @media (prefers-color-scheme: dark) que reemplaza (§31). Solo cambió el
+   selector: ahora la activa el atributo data-theme="dark" de <html>. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
 
-    /* La acción primaria se invierte: casi blanco sobre casi negro. */
-    --color-primary: #f0efe9;
-    --color-primary-hover: #ffffff;
-    --color-primary-contrast: #1b1b18;
+  --color-bg: #151513;
+  --color-surface: #1d1d1a;
+  --color-surface-sunken: #181816;
+  --color-surface-muted: #262623;
+  --color-border: #33332e;
+  --color-border-strong: #44443e;
+  --color-text: #f0efe9;
+  --color-text-muted: #b1b0a5;
+  --color-text-faint: #7f7e74;
 
-    --color-accent: #8f98e8;
-    --color-accent-hover: #a7aff0;
-    --color-accent-contrast: #12131c;
-    --color-accent-soft: #262b4d;
+  /* La acción primaria se invierte: casi blanco sobre casi negro. */
+  --color-primary: #f0efe9;
+  --color-primary-hover: #ffffff;
+  --color-primary-contrast: #1b1b18;
 
-    --color-danger: #e2685d;
-    --color-danger-hover: #e8837a;
-    --color-danger-soft: #3a2220;
+  --color-accent: #8f98e8;
+  --color-accent-hover: #a7aff0;
+  --color-accent-contrast: #12131c;
+  --color-accent-soft: #262b4d;
 
-    --color-success: #59c78a;
-    --color-success-soft: #1c3327;
+  --color-danger: #e2685d;
+  --color-danger-hover: #e8837a;
+  --color-danger-soft: #3a2220;
 
-    --color-focus-ring: #a7aff0;
+  --color-success: #59c78a;
+  --color-success-soft: #1c3327;
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.6);
-  }
+  --color-focus-ring: #a7aff0;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.6);
 }
