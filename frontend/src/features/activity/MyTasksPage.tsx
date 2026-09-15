@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -7,42 +8,52 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { useCompanyNames, useContactNames } from "../opportunity/relationResolution";
 import { useCompleteActivity } from "./mutations";
-import { useMyPendingActivities } from "./queries";
+import { activityKeys, useMyPendingActivities } from "./queries";
 import { useOpportunityNames } from "./relationResolution";
 import {
   TASK_BUCKET_LABELS,
   TASK_BUCKET_ORDER,
   bucketFor,
+  formatTaskCompletedAt,
   formatTaskDueDate,
   type TaskBucket,
 } from "./taskBuckets";
 import { ACTIVITY_TYPES, ACTIVITY_TYPE_LABELS } from "./types";
-import type { Activity, ActivityType } from "./types";
+import type { Activity, ActivityListResponse, ActivityType } from "./types";
 
 // ---------------------------------------------------------------------------
 // "Mis tareas" — diseño de referencia "Mis tareas": las actividades
-// PENDIENTES asignadas a quien mira, agrupadas por vencimiento (Vencidas /
-// Hoy / Esta semana / Más adelante / Sin fecha), con un checkbox para
-// completarlas. Es la fase propia que ActivityListPage dejó anotada; esa
-// tabla (todas las actividades, ambos roles) no cambia.
+// asignadas a quien mira que todavía le conciernen, agrupadas por
+// vencimiento (Vencidas / Hoy / Esta semana / Más adelante / Sin fecha), con
+// un checkbox para completarlas, y al final el bloque "Esperando
+// confirmación" (§29) con las que ya tildó y un ADMIN todavía no revisó. Es
+// la fase propia que ActivityListPage dejó anotada; esa tabla (todas las
+// actividades, ADMIN) no cambia.
 //
-// No es un concepto nuevo: "pendiente" es completedAt === null y "asignada
-// a vos" es assigneeId === me.id, los dos campos reales del modelo (no hay
-// status/priority/isCompleted). El backend filtra las dos cosas
-// (assigneeId + completed=false), así que acá llega solo lo pendiente de
-// esta persona y los dos filtros de la vista (buscador, tipo) son
-// client-side sobre ese conjunto, como el buscador del embudo.
+// No es un concepto nuevo: "pendiente" es completedAt === null, "esperando
+// confirmación" es completedAt !== null && confirmedAt === null, y
+// "asignada a vos" es assigneeId === me.id — campos reales del modelo (no
+// hay status/priority/isCompleted). El backend filtra assigneeId +
+// confirmed=false, así que acá llega solo lo abierto de esta persona y los
+// dos filtros de la vista (buscador, tipo) son client-side sobre ese
+// conjunto, como el buscador del embudo.
 //
 // Completar es PATCH { completedAt } sobre la propia actividad, permitido a
 // cualquier rol desde esta fase (activity.service.ts,
-// canSelfServiceCompleteActivity). Crear sigue siendo ADMIN-only, por eso
-// "+ Nueva tarea" solo aparece para ADMIN.
+// canSelfServiceCompleteActivity), pero desde el §29 no es la palabra final:
+// la tarea queda "pendiente de confirmar" hasta que un ADMIN la confirme
+// (desaparece de acá) o la rechace (vuelve a su bloque por vencimiento).
+// Por eso una fila tildada NO se va: cambia de bloque. Un ADMIN que tilda
+// la suya queda confirmado en el acto (auto-confirmación del backend) y sí
+// desaparece. Crear sigue siendo ADMIN-only, por eso "+ Nueva tarea" solo
+// aparece para ADMIN.
 // ---------------------------------------------------------------------------
 
 export function MyTasksPage() {
   const { me } = useAuth();
   const meId = me?.id;
   const isAdmin = me?.role === "ADMIN";
+  const queryClient = useQueryClient();
 
   const tasksQuery = useMyPendingActivities(meId);
   const completeMutation = useCompleteActivity();
@@ -53,31 +64,37 @@ export function MyTasksPage() {
   // abierta se reubica recién al volver a entrar.
   const [now] = useState(() => new Date());
 
-  // Movimiento optimista: una fila tildada desaparece del render en el acto
-  // y vuelve solo si el PATCH falla.
-  const [completedIds, setCompletedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [search, setSearch] = useState("");
   const [type, setType] = useState<ActivityType | "">("");
 
-  const pending = useMemo(
-    () => (tasksQuery.data ?? []).filter((task) => !completedIds.has(task.id)),
-    [tasksQuery.data, completedIds],
+  // Lo que sigue abierto para esta persona. El filtro por confirmedAt es
+  // defensa contra la propia cache: la respuesta del PATCH de un ADMIN que
+  // tildó la suya vuelve ya confirmada (ver handleComplete) y no tiene que
+  // verse ni un render mientras llega el refetch.
+  const open = useMemo(
+    () => (tasksQuery.data ?? []).filter((task) => task.confirmedAt === null),
+    [tasksQuery.data],
   );
 
   const visible = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
-    return pending.filter(
+    return open.filter(
       (task) =>
         (type === "" || task.type === type) &&
         (needle === "" || task.subject.toLocaleLowerCase().includes(needle)),
     );
-  }, [pending, search, type]);
+  }, [open, search, type]);
 
   // Agrupado en el orden de la vista; un bloque sin tareas no se renderiza.
+  // Una tarea ya tildada va a "Esperando confirmación" sin importar su
+  // vencimiento: la decisión se toma acá y no en bucketFor, que sigue
+  // siendo una función pura sobre dueDate (§29).
   const groups = useMemo(() => {
     const byBucket = new Map<TaskBucket, Activity[]>();
     for (const task of visible) {
-      const bucket = bucketFor(task.dueDate, now);
+      const bucket: TaskBucket = task.completedAt
+        ? "AWAITING_CONFIRMATION"
+        : bucketFor(task.dueDate, now);
       const list = byBucket.get(bucket);
       if (list) list.push(task);
       else byBucket.set(bucket, [task]);
@@ -90,34 +107,52 @@ export function MyTasksPage() {
 
   // Solo los ids realmente presentes — mismo criterio que ActivityListPage.
   const companyIds = useMemo(
-    () => pending.map((t) => t.companyId).filter((v): v is string => v !== null),
-    [pending],
+    () => open.map((t) => t.companyId).filter((v): v is string => v !== null),
+    [open],
   );
   const contactIds = useMemo(
-    () => pending.map((t) => t.contactId).filter((v): v is string => v !== null),
-    [pending],
+    () => open.map((t) => t.contactId).filter((v): v is string => v !== null),
+    [open],
   );
   const opportunityIds = useMemo(
-    () => pending.map((t) => t.opportunityId).filter((v): v is string => v !== null),
-    [pending],
+    () => open.map((t) => t.opportunityId).filter((v): v is string => v !== null),
+    [open],
   );
   const companyNames = useCompanyNames(companyIds);
   const contactNames = useContactNames(contactIds);
   const opportunityNames = useOpportunityNames(opportunityIds);
 
+  // Actualización optimista SOBRE LA CACHE de TanStack Query, no una lista
+  // aparte en memoria: la fila tildada tiene que QUEDAR (pasa a "Esperando
+  // confirmación"), así que lo que cambia es el completedAt de esa tarea en
+  // cada página cacheada del listado, y el agrupado de arriba la reubica
+  // solo en el próximo render. setQueriesData con el prefijo de listas
+  // alcanza a todas las páginas que useMyPendingActivities tenga abiertas.
+  function patchCached(id: string, patch: Partial<Activity>) {
+    queryClient.setQueriesData<ActivityListResponse>(
+      { queryKey: activityKeys.lists() },
+      (current) =>
+        current
+          ? {
+              ...current,
+              data: current.data.map((task) => (task.id === id ? { ...task, ...patch } : task)),
+            }
+          : current,
+    );
+  }
+
   function handleComplete(task: Activity) {
-    setCompletedIds((current) => new Set(current).add(task.id));
+    const completedAt = new Date().toISOString();
+    patchCached(task.id, { completedAt });
     completeMutation.mutate(
-      { id: task.id, completedAt: new Date().toISOString() },
+      { id: task.id, completedAt },
       {
+        // Lo que el server devolvió manda: para un ADMIN viene ya confirmada
+        // (auto-confirmación) y la fila sale de la vista sin esperar el
+        // refetch que el hook dispara igual.
+        onSuccess: (saved) => patchCached(task.id, saved),
         // Revertir: la fila vuelve a su bloque; el error se muestra abajo.
-        onError: () => {
-          setCompletedIds((current) => {
-            const next = new Set(current);
-            next.delete(task.id);
-            return next;
-          });
-        },
+        onError: () => patchCached(task.id, { completedAt: null }),
       },
     );
   }
@@ -132,6 +167,36 @@ export function MyTasksPage() {
     if (task.opportunityId) parts.push(opportunityNames.byId.get(task.opportunityId) ?? "—");
     return parts.join(" · ");
   }
+
+  // Tipo + asunto (link a editar solo para ADMIN) + relacionados: lo mismo
+  // en una fila pendiente que en una esperando confirmación.
+  function taskMain(task: Activity) {
+    return (
+      <div className="ds-task-main">
+        <div className="ds-task-title">
+          <Badge variant="neutral">{ACTIVITY_TYPE_LABELS[task.type]}</Badge>
+          {isAdmin ? (
+            <Link to={`/activities/${task.id}/edit`}>{task.subject}</Link>
+          ) : (
+            <span>{task.subject}</span>
+          )}
+        </div>
+        {relatedLine(task) ? <div className="ds-task-related">{relatedLine(task)}</div> : null}
+      </div>
+    );
+  }
+
+  // Pie: sobre el conjunto YA FILTRADO por buscador/tipo, no sobre el total:
+  // describe lo que está en pantalla. "Pendientes" son solo las sin tildar;
+  // las que esperan confirmación se cuentan aparte, cuando las hay.
+  const pendingCount = visible.filter((task) => task.completedAt === null).length;
+  const awaitingCount = visible.length - pendingCount;
+  const footer = [
+    pendingCount === 1 ? "1 tarea pendiente" : `${pendingCount} tareas pendientes`,
+    awaitingCount > 0 ? `${awaitingCount} esperando confirmación` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div>
@@ -197,11 +262,11 @@ export function MyTasksPage() {
         </ErrorState>
       ) : null}
 
-      {tasksQuery.isSuccess && pending.length === 0 ? (
+      {tasksQuery.isSuccess && open.length === 0 ? (
         <EmptyState>No tenés tareas pendientes.</EmptyState>
       ) : null}
 
-      {tasksQuery.isSuccess && pending.length > 0 && visible.length === 0 ? (
+      {tasksQuery.isSuccess && open.length > 0 && visible.length === 0 ? (
         <EmptyState>Ninguna tarea pendiente coincide con el filtro.</EmptyState>
       ) : null}
 
@@ -214,45 +279,42 @@ export function MyTasksPage() {
             </span>
           </h2>
           <ul className="ds-task-list">
-            {tasks.map((task) => (
-              <li key={task.id} className="ds-task-row">
-                <input
-                  type="checkbox"
-                  className="ds-task-check"
-                  checked={false}
-                  onChange={() => handleComplete(task)}
-                  aria-label={`Completar: ${task.subject}`}
-                />
-                <div className="ds-task-main">
-                  <div className="ds-task-title">
-                    <Badge variant="neutral">{ACTIVITY_TYPE_LABELS[task.type]}</Badge>
-                    {isAdmin ? (
-                      <Link to={`/activities/${task.id}/edit`}>{task.subject}</Link>
-                    ) : (
-                      <span>{task.subject}</span>
-                    )}
-                  </div>
-                  {relatedLine(task) ? (
-                    <div className="ds-task-related">{relatedLine(task)}</div>
-                  ) : null}
-                </div>
-                <span
-                  className={`ds-task-due${bucket === "OVERDUE" ? " ds-task-due--overdue" : ""}`}
-                >
-                  {formatTaskDueDate(task.dueDate, now)}
-                </span>
-              </li>
-            ))}
+            {tasks.map((task) =>
+              bucket === "AWAITING_CONFIRMATION" ? (
+                // Sin checkbox: ya no hay nada que tildar. Grisada, con un
+                // indicador en el lugar del checkbox y la fecha en que se
+                // completó en vez del vencimiento (§29).
+                <li key={task.id} className="ds-task-row ds-task-row--awaiting">
+                  <span className="ds-task-awaiting-mark" aria-hidden="true" />
+                  {taskMain(task)}
+                  <span className="ds-task-due">
+                    {formatTaskCompletedAt(task.completedAt ?? "", now)}
+                  </span>
+                </li>
+              ) : (
+                <li key={task.id} className="ds-task-row">
+                  <input
+                    type="checkbox"
+                    className="ds-task-check"
+                    checked={false}
+                    onChange={() => handleComplete(task)}
+                    aria-label={`Completar: ${task.subject}`}
+                  />
+                  {taskMain(task)}
+                  <span
+                    className={`ds-task-due${bucket === "OVERDUE" ? " ds-task-due--overdue" : ""}`}
+                  >
+                    {formatTaskDueDate(task.dueDate, now)}
+                  </span>
+                </li>
+              ),
+            )}
           </ul>
         </section>
       ))}
 
-      {/* Sobre el conjunto YA FILTRADO por buscador/tipo, no sobre el total:
-          describe lo que está en pantalla. */}
       {tasksQuery.isSuccess && visible.length > 0 ? (
-        <p className="ds-task-footer">
-          {visible.length === 1 ? "1 tarea pendiente" : `${visible.length} tareas pendientes`}
-        </p>
+        <p className="ds-task-footer">{footer}</p>
       ) : null}
     </div>
   );

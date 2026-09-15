@@ -15,11 +15,17 @@ import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { useCompaniesByIds } from "../contact/companyResolution";
 import { useContactNames, useOwnerNames } from "../opportunity/relationResolution";
-import { useDeleteActivity } from "./mutations";
+import { useConfirmActivity, useDeleteActivity } from "./mutations";
 import { useActivities } from "./queries";
 import { useOpportunityNames } from "./relationResolution";
-import { ACTIVITY_TYPES, ACTIVITY_TYPE_LABELS } from "./types";
-import type { Activity, ActivitySortBy, ActivityType, SortOrder } from "./types";
+import { ACTIVITY_TYPES, ACTIVITY_TYPE_LABELS, confirmationStatusOf } from "./types";
+import type {
+  Activity,
+  ActivityConfirmationStatus,
+  ActivitySortBy,
+  ActivityType,
+  SortOrder,
+} from "./types";
 
 const PAGE_SIZE = 20;
 
@@ -27,6 +33,27 @@ function formatDateTime(iso: string | null): string {
   if (!iso) return "";
   return new Date(iso).toLocaleString();
 }
+
+// Columna "Confirmación" (§29): el mismo Badge en la tabla y en el detalle.
+// "—" neutral para lo que no está completado (no hay nada que confirmar),
+// info mientras espera al ADMIN, success una vez confirmada.
+const CONFIRMATION_BADGE: Record<
+  ActivityConfirmationStatus,
+  { label: string; variant: "neutral" | "info" | "success" }
+> = {
+  NOT_COMPLETED: { label: "—", variant: "neutral" },
+  AWAITING_CONFIRMATION: { label: "Pendiente de confirmar", variant: "info" },
+  CONFIRMED: { label: "Confirmada", variant: "success" },
+};
+
+function confirmationBadge(activity: Activity) {
+  const { label, variant } = CONFIRMATION_BADGE[confirmationStatusOf(activity)];
+  return <Badge variant={variant}>{label}</Badge>;
+}
+
+// Filtro "Confirmación": "" = todas; los otros dos solo tienen sentido sobre
+// completadas, así que mandan completed=true implícito junto con confirmed.
+type ConfirmationFilter = "" | "AWAITING_CONFIRMATION" | "CONFIRMED";
 
 // "Vencida" es un hecho derivado de dos campos que ya existen: vencimiento en
 // el pasado y sin fecha de completado. No es un estado del modelo (Activity
@@ -56,6 +83,7 @@ export function ActivityListPage() {
   const [search, setSearch] = useState("");
   const [type, setType] = useState<ActivityType | "">("");
   const [companyId, setCompanyId] = useState<string | undefined>(undefined);
+  const [confirmation, setConfirmation] = useState<ConfirmationFilter>("");
   const [sortBy, setSortBy] = useState<ActivitySortBy>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
@@ -68,11 +96,14 @@ export function ActivityListPage() {
     search: search || undefined,
     type: type || undefined,
     companyId,
+    completed: confirmation ? true : undefined,
+    confirmed: confirmation ? confirmation === "CONFIRMED" : undefined,
     sortBy,
     sortOrder,
   });
 
   const deleteActivityMutation = useDeleteActivity();
+  const confirmActivityMutation = useConfirmActivity();
 
   const rows = useMemo(() => activitiesQuery.data?.data ?? [], [activitiesQuery.data]);
 
@@ -174,6 +205,20 @@ export function ActivityListPage() {
               ))}
             </select>
           </label>
+          <label>
+            Confirmación
+            <select
+              value={confirmation}
+              onChange={(event) => {
+                setConfirmation(event.target.value as ConfirmationFilter);
+                setPage(1);
+              }}
+            >
+              <option value="">Todas</option>
+              <option value="AWAITING_CONFIRMATION">Pendiente de confirmar</option>
+              <option value="CONFIRMED">Confirmada</option>
+            </select>
+          </label>
           <div>
             <CompanySelect
               id="activity-filter-company"
@@ -238,6 +283,16 @@ export function ActivityListPage() {
           </ErrorState>
         ) : null}
 
+        {confirmActivityMutation.isError ? (
+          <ErrorState>
+            No pudimos {confirmActivityMutation.variables?.confirmed ? "confirmar" : "rechazar"} la
+            actividad
+            {confirmActivityMutation.error instanceof Error
+              ? `: ${confirmActivityMutation.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
+
         {activitiesQuery.isSuccess && rows.length === 0 ? (
           <EmptyState>No hay actividades para mostrar.</EmptyState>
         ) : null}
@@ -256,6 +311,7 @@ export function ActivityListPage() {
                 <th>Asignado a</th>
                 <th>Vencimiento</th>
                 <th>Completada</th>
+                <th>Confirmación</th>
                 {isAdmin ? <th>Acciones</th> : null}
               </tr>
             </thead>
@@ -288,6 +344,7 @@ export function ActivityListPage() {
                     </span>
                   </td>
                   <td>{formatDateTime(activity.completedAt)}</td>
+                  <td>{confirmationBadge(activity)}</td>
                   {isAdmin ? (
                     <td>
                       <ActionsMenu
@@ -298,6 +355,31 @@ export function ActivityListPage() {
                             label: "Ver detalle",
                             onClick: () => setDetalleAbierto(activity.id),
                           },
+                          // Confirmar / Rechazar (§29): acciones de flujo de
+                          // trabajo, entre la consulta y la edición, y SOLO
+                          // mientras la tarea espera confirmación. Una vez
+                          // confirmada no aparecen: revertirla es edición
+                          // manual, fuera de este menú.
+                          ...(confirmationStatusOf(activity) === "AWAITING_CONFIRMATION"
+                            ? [
+                                {
+                                  label: "Confirmar",
+                                  onClick: () =>
+                                    confirmActivityMutation.mutate({
+                                      id: activity.id,
+                                      confirmed: true,
+                                    }),
+                                },
+                                {
+                                  label: "Rechazar",
+                                  onClick: () =>
+                                    confirmActivityMutation.mutate({
+                                      id: activity.id,
+                                      confirmed: false,
+                                    }),
+                                },
+                              ]
+                            : []),
                           { label: "Editar", to: `/activities/${activity.id}/edit` },
                           {
                             label: "Eliminar",
@@ -366,6 +448,19 @@ export function ActivityListPage() {
                   { label: "Asignado a", value: resolveUserLabel(detalle.assigneeId) },
                   { label: "Vencimiento", value: formatDateTime(detalle.dueDate) },
                   { label: "Completada", value: formatDateTime(detalle.completedAt) },
+                  // §29: el mismo Badge de la columna y, solo si está
+                  // confirmada, quién y cuándo (nombre resuelto como Autor/
+                  // Asignado, nunca el UUID).
+                  { label: "Confirmación", value: confirmationBadge(detalle) },
+                  ...(confirmationStatusOf(detalle) === "CONFIRMED"
+                    ? [
+                        { label: "Confirmada por", value: resolveUserLabel(detalle.confirmedById) },
+                        {
+                          label: "Fecha de confirmación",
+                          value: formatDateTime(detalle.confirmedAt),
+                        },
+                      ]
+                    : []),
                 ],
               },
             ]}

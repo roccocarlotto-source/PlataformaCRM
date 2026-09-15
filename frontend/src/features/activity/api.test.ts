@@ -72,6 +72,8 @@ describe("activity/api — contrato HTTP", () => {
       dueDateTo: "2026-01-31T00:00:00.000Z",
       completedAtFrom: "2026-01-01T00:00:00.000Z",
       completedAtTo: "2026-01-31T00:00:00.000Z",
+      completed: true,
+      confirmed: false,
       sortBy: "dueDate",
       sortOrder: "asc",
     });
@@ -91,6 +93,10 @@ describe("activity/api — contrato HTTP", () => {
     expect(params.get("dueDateTo")).toBe("2026-01-31T00:00:00.000Z");
     expect(params.get("completedAtFrom")).toBe("2026-01-01T00:00:00.000Z");
     expect(params.get("completedAtTo")).toBe("2026-01-31T00:00:00.000Z");
+    // Los dos booleanos viajan como "true"/"false" explícitos: `false` es un
+    // valor real (solo pendientes / solo sin confirmar), no una omisión.
+    expect(params.get("completed")).toBe("true");
+    expect(params.get("confirmed")).toBe("false");
     expect(params.get("sortBy")).toBe("dueDate");
     expect(params.get("sortOrder")).toBe("asc");
   });

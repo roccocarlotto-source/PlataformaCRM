@@ -36,10 +36,13 @@ activityRouter.post(
 // vive en el service (canSelfServiceCompleteActivity, activity.service.ts),
 // que es el único lugar que tiene la actividad real a mano. La regla:
 // ADMIN edita cualquier campo de cualquier actividad, como siempre; un
-// USER puede PATCHear una actividad si y solo si es su propio assignee Y
-// el único campo del body es completedAt (tildar/destildar "Mis tareas").
-// Cualquier otra combinación recibe el mismo 403 que daría authorize.
-// POST y DELETE siguen siendo ADMIN-only, sin cambios.
+// USER puede PATCHear una actividad si y solo si es su propio assignee, el
+// único campo del body es completedAt (tildar en "Mis tareas") y la tarea
+// todavía no está completada (§29: no puede destildarse a sí mismo; deshacer
+// un tilde es "Rechazar", que solo hace un ADMIN). Cualquier otra
+// combinación —incluido `confirmed`, la acción Confirmar/Rechazar— recibe
+// el mismo 403 que daría authorize. POST y DELETE siguen siendo ADMIN-only,
+// sin cambios.
 activityRouter.patch(
   "/activities/:id",
   authenticate,

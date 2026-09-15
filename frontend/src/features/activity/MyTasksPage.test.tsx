@@ -11,6 +11,7 @@ import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makeOpportunity } from "../../test/opportunityFixtures";
 import { MyTasksPage } from "./MyTasksPage";
+import { activityKeys } from "./queries";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { Activity, UpdateActivityInput } from "./types";
 
@@ -88,26 +89,41 @@ const SAMPLE: Activity[] = [
 interface Captured {
   listRequests: URL[];
   patches: { id: string; body: UpdateActivityInput }[];
+  // El "estado del server": el PATCH lo modifica y el listado lo lee, así
+  // que un refetch refleja lo que se escribió, y un test puede simular lo
+  // que hace un ADMIN desde otra pantalla (confirmar) tocándolo a mano.
+  state: Activity[];
 }
 
 function tasksHandlers(
   activities: Activity[],
-  options: { pageSize?: number; patchStatus?: number } = {},
+  options: { pageSize?: number; patchStatus?: number; autoConfirm?: boolean } = {},
 ): { handlers: ReturnType<typeof http.get>[]; captured: Captured } {
-  const captured: Captured = { listRequests: [], patches: [] };
+  const captured: Captured = {
+    listRequests: [],
+    patches: [],
+    state: activities.map((a) => ({ ...a })),
+  };
   const pageSize = options.pageSize ?? 100;
   const handlers = [
     http.get(activitiesUrl, ({ request }) => {
       const url = new URL(request.url);
       captured.listRequests.push(url);
       const page = Number(url.searchParams.get("page") ?? "1");
+      // Mismo filtro que el backend real: confirmed=false deja afuera lo
+      // confirmado (§29); completed=false, lo completado.
+      const rows = captured.state.filter(
+        (a) =>
+          (url.searchParams.get("confirmed") !== "false" || a.confirmedAt === null) &&
+          (url.searchParams.get("completed") !== "false" || a.completedAt === null),
+      );
       return HttpResponse.json({
-        data: activities.slice((page - 1) * pageSize, page * pageSize),
+        data: rows.slice((page - 1) * pageSize, page * pageSize),
         pagination: {
           page,
           pageSize,
-          total: activities.length,
-          totalPages: Math.max(1, Math.ceil(activities.length / pageSize)),
+          total: rows.length,
+          totalPages: Math.max(1, Math.ceil(rows.length / pageSize)),
         },
       });
     }),
@@ -120,8 +136,18 @@ function tasksHandlers(
           { status: options.patchStatus },
         );
       }
-      const original = activities.find((a) => a.id === params.id) ?? makeActivity();
-      return HttpResponse.json({ ...original, ...body });
+      const original = captured.state.find((a) => a.id === params.id) ?? makeActivity();
+      // autoConfirm simula lo que el backend hace cuando quien tilda es
+      // ADMIN (§29): la devuelve ya confirmada.
+      const saved: Activity = {
+        ...original,
+        ...body,
+        ...(options.autoConfirm && body.completedAt
+          ? { confirmedAt: body.completedAt, confirmedById: "u1" }
+          : {}),
+      };
+      captured.state = captured.state.map((a) => (a.id === saved.id ? saved : a));
+      return HttpResponse.json(saved);
     }),
     http.get(`${companiesUrl}/:id`, ({ params }) =>
       HttpResponse.json(makeCompany({ id: params.id as string, name: "Motor Delta" })),
@@ -147,6 +173,7 @@ function renderPage() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 function group(name: string): HTMLElement {
@@ -154,7 +181,7 @@ function group(name: string): HTMLElement {
 }
 
 describe("MyTasksPage", () => {
-  it("(a) pide SOLO las pendientes asignadas a mí y las agrupa por vencimiento en orden, ocultando los bloques vacíos", async () => {
+  it("(a) pide SOLO las no confirmadas asignadas a mí y las agrupa por vencimiento en orden, ocultando los bloques vacíos", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const { handlers, captured } = tasksHandlers(SAMPLE);
     server.use(...handlers);
@@ -164,7 +191,10 @@ describe("MyTasksPage", () => {
 
     const request = captured.listRequests[0];
     expect(request?.searchParams.get("assigneeId")).toBe("u1");
-    expect(request?.searchParams.get("completed")).toBe("false");
+    // §29: confirmed=false (pendientes + completadas sin confirmar), ya no
+    // completed=false.
+    expect(request?.searchParams.get("confirmed")).toBe("false");
+    expect(request?.searchParams.has("completed")).toBe(false);
     expect(request?.searchParams.get("pageSize")).toBe("100");
     expect(request?.searchParams.get("sortBy")).toBe("dueDate");
 
@@ -213,8 +243,8 @@ describe("MyTasksPage", () => {
     expect(within(group(expected)).getByText("Enviar propuesta")).toBeInTheDocument();
   });
 
-  it("(b) tildar el checkbox dispara PATCH { completedAt: ahora } y la fila desaparece en el acto", async () => {
-    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+  it("(b) tildar el checkbox dispara PATCH { completedAt: ahora } y la fila pasa en el acto a 'Esperando confirmación', sin checkbox y con la fecha de completada (§29)", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
     const { handlers, captured } = tasksHandlers(SAMPLE);
     server.use(...handlers);
     const user = userEvent.setup();
@@ -225,9 +255,22 @@ describe("MyTasksPage", () => {
     const before = Date.now();
     await user.click(screen.getByRole("checkbox", { name: "Completar: Llamar a Andrés" }));
 
-    expect(screen.queryByText("Llamar a Andrés")).not.toBeInTheDocument();
+    // La fila QUEDA, en el último bloque, grisada y sin nada que tildar.
     expect(screen.queryByRole("heading", { name: /^Vencidas/ })).not.toBeInTheDocument();
-    expect(screen.getByText("3 tareas pendientes")).toBeInTheDocument();
+    const headings = screen
+      .getAllByRole("region")
+      .map((region) => within(region).getByRole("heading", { level: 2 }).textContent);
+    expect(headings).toEqual(["Hoy1", "Más adelante1", "Sin fecha1", "Esperando confirmación1"]);
+    const row = within(group("Esperando confirmación"))
+      .getByText("Llamar a Andrés")
+      .closest("li") as HTMLElement;
+    expect(row).toHaveClass("ds-task-row--awaiting");
+    expect(within(row).queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("checkbox", { name: "Completar: Llamar a Andrés" }),
+    ).not.toBeInTheDocument();
+    expect(within(row).getByText(/^Completada hoy/)).toBeInTheDocument();
+    expect(screen.getByText("3 tareas pendientes · 1 esperando confirmación")).toBeInTheDocument();
 
     await waitFor(() => expect(captured.patches).toHaveLength(1));
     const patch = captured.patches[0];
@@ -321,7 +364,10 @@ describe("MyTasksPage", () => {
     await user.click(screen.getByRole("checkbox", { name: "Completar: Llamar a Andrés" }));
     await waitFor(() => expect(captured.patches).toHaveLength(1));
     expect(captured.patches[0]?.body).toHaveProperty("completedAt");
-    expect(screen.queryByText("Llamar a Andrés")).not.toBeInTheDocument();
+    // Pasa a "Esperando confirmación" (§29), no desaparece.
+    expect(
+      within(group("Esperando confirmación")).getByText("Llamar a Andrés"),
+    ).toBeInTheDocument();
 
     // Esta página nunca resuelve usuarios: ni para USER ni para nadie.
     expect(usersRequests).toBe(0);
@@ -360,5 +406,102 @@ describe("MyTasksPage", () => {
     await waitFor(() =>
       expect(screen.getByText("No tenés tareas pendientes.")).toBeInTheDocument(),
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Confirmación del ADMIN (docs/frontend-cambios-pendientes.md §29): el
+  // bloque "Esperando confirmación" y cuándo una tarea deja esta pantalla.
+  // -------------------------------------------------------------------------
+
+  it("§29 una tarea ya tildada al cargar aparece en 'Esperando confirmación', grisada, sin checkbox y con 'Completada el <fecha>' en vez del vencimiento", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    // Completada hace dos días (a las 16:30 local), aunque vencía hoy: el
+    // bloque lo decide completedAt, no el vencimiento.
+    const completedAt = new Date(
+      NOW.getFullYear(),
+      NOW.getMonth(),
+      NOW.getDate() - 2,
+      16,
+      30,
+    ).toISOString();
+    const { handlers } = tasksHandlers([
+      ...SAMPLE,
+      makeActivity({
+        id: "t-espera",
+        subject: "Enviar contrato",
+        dueDate: todayLate,
+        completedAt,
+      }),
+    ]);
+    server.use(...handlers);
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Enviar contrato")).toBeInTheDocument());
+
+    const region = group("Esperando confirmación");
+    const row = within(region).getByText("Enviar contrato").closest("li") as HTMLElement;
+    expect(row).toHaveClass("ds-task-row--awaiting");
+    expect(within(row).queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(within(row).getByText(/^Completada el .*, 16:30$/)).toBeInTheDocument();
+    expect(within(row).queryByText("Hoy")).not.toBeInTheDocument();
+    // No cuenta como pendiente, y "Hoy" sigue con su única tarea.
+    expect(within(group("Hoy")).queryByText("Enviar contrato")).not.toBeInTheDocument();
+    expect(screen.getByText("4 tareas pendientes · 1 esperando confirmación")).toBeInTheDocument();
+  });
+
+  it("§29 la fila se va de verdad recién cuando el backend la devuelve confirmada: sobrevive al refetch tras el PATCH y desaparece tras la confirmación del ADMIN", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    const { handlers, captured } = tasksHandlers(SAMPLE);
+    server.use(...handlers);
+    const user = userEvent.setup();
+
+    const queryClient = renderPage();
+    await waitFor(() => expect(screen.getByText("Llamar a Andrés")).toBeInTheDocument());
+    const listsBefore = captured.listRequests.length;
+
+    await user.click(screen.getByRole("checkbox", { name: "Completar: Llamar a Andrés" }));
+    await waitFor(() => expect(captured.patches).toHaveLength(1));
+    // El PATCH exitoso invalida el listado: llega un segundo fetch, que
+    // devuelve la tarea completada y sin confirmar → sigue en el bloque.
+    await waitFor(() => expect(captured.listRequests.length).toBeGreaterThan(listsBefore));
+    await waitFor(() =>
+      expect(
+        within(group("Esperando confirmación")).getByText("Llamar a Andrés"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText("3 tareas pendientes · 1 esperando confirmación")).toBeInTheDocument();
+
+    // Un ADMIN la confirma desde "Actividades" (fuera de esta pantalla): el
+    // server ya no la devuelve con confirmed=false, y al próximo refetch se va.
+    captured.state = captured.state.map((a) =>
+      a.id === "t-overdue"
+        ? { ...a, confirmedAt: new Date().toISOString(), confirmedById: "u9" }
+        : a,
+    );
+    await queryClient.invalidateQueries({ queryKey: activityKeys.lists() });
+
+    await waitFor(() => expect(screen.queryByText("Llamar a Andrés")).not.toBeInTheDocument());
+    expect(
+      screen.queryByRole("heading", { name: /^Esperando confirmación/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("3 tareas pendientes")).toBeInTheDocument();
+  });
+
+  it("§29 ADMIN que tilda la suya: el server la devuelve ya confirmada (auto-confirmación) y la fila desaparece sin pasar por 'Esperando confirmación'", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const { handlers, captured } = tasksHandlers(SAMPLE, { autoConfirm: true });
+    server.use(...handlers);
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Llamar a Andrés")).toBeInTheDocument());
+
+    await user.click(screen.getByRole("checkbox", { name: "Completar: Llamar a Andrés" }));
+    await waitFor(() => expect(captured.patches).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByText("Llamar a Andrés")).not.toBeInTheDocument());
+    expect(
+      screen.queryByRole("heading", { name: /^Esperando confirmación/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("3 tareas pendientes")).toBeInTheDocument();
   });
 });

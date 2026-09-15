@@ -1922,8 +1922,9 @@ a.ds-button--secondary:hover {
   background: var(--color-surface-muted);
 }
 
-/* Checkbox circular, sin marcar: tildarlo completa la tarea y la fila se
-   va, así que nunca se ve el estado "marcado". */
+/* Checkbox circular, sin marcar: tildarlo completa la tarea y la fila pasa
+   al bloque "Esperando confirmación" (sin checkbox, ver abajo), así que
+   nunca se ve el estado "marcado". */
 .ds-task-check {
   appearance: none;
   width: 18px;
@@ -1938,6 +1939,24 @@ a.ds-button--secondary:hover {
 
 .ds-task-check:hover {
   border-color: var(--color-text-muted);
+}
+
+/* Fila de "Esperando confirmación" (§29): ya tildada, sin nada que hacer
+   hasta que un ADMIN la confirme o rechace. Va grisada con la misma
+   opacidad que un control deshabilitado (button:disabled) y, en el lugar
+   del checkbox, un círculo relleno y mutado del mismo tamaño, para que la
+   columna de la izquierda se alinee con las filas que sí tienen checkbox. */
+.ds-task-row--awaiting {
+  opacity: 0.55;
+}
+
+.ds-task-awaiting-mark {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-sunken);
 }
 
 .ds-task-main {

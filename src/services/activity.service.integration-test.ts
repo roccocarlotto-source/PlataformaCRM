@@ -143,14 +143,15 @@ after(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Self-service acotado de "Mis tareas": un USER puede completar (y
-// destildar) SU actividad mandando solo completedAt; cualquier otra cosa es
-// 403 y no escribe nada. La matriz completa de la regla pura está en
+// Self-service acotado de "Mis tareas": un USER puede completar SU
+// actividad todavía pendiente mandando solo completedAt; cualquier otra
+// cosa —incluido destildarla una vez completada (§29)— es 403 y no escribe
+// nada. La matriz completa de la regla pura está en
 // activity.service.test.ts; acá se prueba con roles y filas reales que el
 // service la aplica antes de tocar la base.
 // ---------------------------------------------------------------------------
 
-test("USER real completa su propia actividad mandando solo completedAt: persiste", async () => {
+test("USER real completa su propia actividad mandando solo completedAt: persiste, y queda SIN confirmar (§29)", async () => {
   const activity = await prisma.activity.create({
     data: {
       organizationId: fx.orgId,
@@ -170,18 +171,307 @@ test("USER real completa su propia actividad mandando solo completedAt: persiste
     { userId: fx.assigneeUserId, role: "USER" },
   );
   assert.equal(updated.completedAt?.toISOString(), completedAt.toISOString());
+  assert.equal(updated.confirmedAt, null);
+  assert.equal(updated.confirmedById, null);
 
   const raw = await prisma.activity.findUnique({ where: { id: activity.id } });
   assert.equal(raw?.completedAt?.toISOString(), completedAt.toISOString());
+  assert.equal(raw?.confirmedAt, null);
+});
 
-  // Y la puede destildar (completedAt: null) con la misma regla.
-  const reopened = await updateActivity(
+test("§29 USER real intentando destildar (completedAt: null) su propia actividad ya completada: 403 y nada escrito", async () => {
+  const completedAt = new Date("2026-09-04T15:00:00.000Z");
+  const activity = await prisma.activity.create({
+    data: {
+      organizationId: fx.orgId,
+      authorId: fx.userId,
+      assigneeId: fx.assigneeUserId,
+      type: "TASK",
+      subject: "Mis tareas: destildar",
+      companyId: fx.companyId,
+      completedAt,
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      updateActivity(
+        fx.orgId,
+        activity.id,
+        { completedAt: null },
+        { userId: fx.assigneeUserId, role: "USER" },
+      ),
+    (err: unknown) => {
+      assert.ok(err instanceof AppError, "debe ser AppError");
+      assert.equal(err.statusCode, 403);
+      assert.equal(err.message, "No tenés permisos para realizar esta acción");
+      return true;
+    },
+  );
+
+  const raw = await prisma.activity.findUnique({ where: { id: activity.id } });
+  assert.equal(raw?.completedAt?.toISOString(), completedAt.toISOString());
+  assert.equal(raw?.updatedAt.toISOString(), activity.updatedAt.toISOString());
+});
+
+// ---------------------------------------------------------------------------
+// §29 — Confirmar / Rechazar y la auto-confirmación del ADMIN, con filas
+// reales. La matriz de resolveConfirmationPatch está en
+// activity.service.test.ts; acá se prueba que updateActivity la aplica de
+// verdad (qué queda persistido, y que un 400/403 no escribe nada).
+// ---------------------------------------------------------------------------
+
+async function crearCompletadaSinConfirmar(subject: string) {
+  return prisma.activity.create({
+    data: {
+      organizationId: fx.orgId,
+      authorId: fx.userId,
+      assigneeId: fx.assigneeUserId,
+      type: "TASK",
+      subject,
+      companyId: fx.companyId,
+      completedAt: new Date("2026-09-04T15:00:00.000Z"),
+    },
+  });
+}
+
+test("§29 ADMIN confirma una completada sin confirmar: confirmedAt del server y confirmedById = el ADMIN; completedAt intacto", async () => {
+  const activity = await crearCompletadaSinConfirmar("§29 confirmar");
+  const antes = Date.now();
+
+  const updated = await updateActivity(
+    fx.orgId,
+    activity.id,
+    { confirmed: true },
+    { userId: fx.userId, role: "ADMIN" },
+  );
+
+  assert.equal(updated.completedAt?.toISOString(), activity.completedAt?.toISOString());
+  assert.equal(updated.confirmedById, fx.userId);
+  assert.ok(updated.confirmedAt, "confirmedAt debe quedar seteado");
+  assert.ok(updated.confirmedAt.getTime() >= antes - 1000);
+  assert.ok(updated.confirmedAt.getTime() <= Date.now() + 1000);
+
+  // Segunda confirmación: 400 y nada cambia.
+  await assert.rejects(
+    () =>
+      updateActivity(
+        fx.orgId,
+        activity.id,
+        { confirmed: true },
+        { userId: fx.userId, role: "ADMIN" },
+      ),
+    (err: unknown) => err instanceof AppError && err.statusCode === 400,
+  );
+  const raw = await prisma.activity.findUnique({ where: { id: activity.id } });
+  assert.equal(raw?.confirmedAt?.toISOString(), updated.confirmedAt.toISOString());
+});
+
+test("§29 ADMIN rechaza una completada sin confirmar: vuelve a pendiente (completedAt, confirmedAt y confirmedById en null)", async () => {
+  const activity = await crearCompletadaSinConfirmar("§29 rechazar");
+
+  const updated = await updateActivity(
+    fx.orgId,
+    activity.id,
+    { confirmed: false },
+    { userId: fx.userId, role: "ADMIN" },
+  );
+  assert.equal(updated.completedAt, null);
+  assert.equal(updated.confirmedAt, null);
+  assert.equal(updated.confirmedById, null);
+
+  // Y el asignado la puede volver a completar (regla de self-service: la
+  // fila está pendiente otra vez).
+  const otraVez = await updateActivity(
+    fx.orgId,
+    activity.id,
+    { completedAt: new Date() },
+    { userId: fx.assigneeUserId, role: "USER" },
+  );
+  assert.ok(otraVez.completedAt);
+  assert.equal(otraVez.confirmedAt, null);
+});
+
+test("§29 confirmar o rechazar una que NO está completada: 400 y nada escrito", async () => {
+  const activity = await prisma.activity.create({
+    data: {
+      organizationId: fx.orgId,
+      authorId: fx.userId,
+      assigneeId: fx.assigneeUserId,
+      type: "TASK",
+      subject: "§29 sin completar",
+      companyId: fx.companyId,
+    },
+  });
+  const admin = { userId: fx.userId, role: "ADMIN" as const };
+
+  await assert.rejects(
+    () => updateActivity(fx.orgId, activity.id, { confirmed: true }, admin),
+    (err: unknown) => {
+      assert.ok(err instanceof AppError);
+      assert.equal(err.statusCode, 400);
+      assert.equal(err.message, "No se puede confirmar una actividad que no está completada");
+      return true;
+    },
+  );
+  await assert.rejects(
+    () => updateActivity(fx.orgId, activity.id, { confirmed: false }, admin),
+    (err: unknown) => {
+      assert.ok(err instanceof AppError);
+      assert.equal(err.statusCode, 400);
+      assert.equal(err.message, "No hay nada que rechazar: la actividad no está completada");
+      return true;
+    },
+  );
+
+  const raw = await prisma.activity.findUnique({ where: { id: activity.id } });
+  assert.equal(raw?.updatedAt.toISOString(), activity.updatedAt.toISOString());
+});
+
+test("§29 USER real (el propio assignee) mandando `confirmed`: 403 y nada escrito", async () => {
+  const activity = await crearCompletadaSinConfirmar("§29 user confirma");
+
+  for (const confirmed of [true, false]) {
+    await assert.rejects(
+      () =>
+        updateActivity(
+          fx.orgId,
+          activity.id,
+          { confirmed },
+          { userId: fx.assigneeUserId, role: "USER" },
+        ),
+      (err: unknown) => err instanceof AppError && err.statusCode === 403,
+    );
+  }
+
+  const raw = await prisma.activity.findUnique({ where: { id: activity.id } });
+  assert.equal(raw?.confirmedAt, null);
+  assert.equal(raw?.completedAt?.toISOString(), activity.completedAt?.toISOString());
+});
+
+test("§29 auto-confirmación: ADMIN completando una pendiente la deja confirmada en la misma escritura", async () => {
+  const activity = await prisma.activity.create({
+    data: {
+      organizationId: fx.orgId,
+      authorId: fx.userId,
+      assigneeId: fx.assigneeUserId,
+      type: "TASK",
+      subject: "§29 auto",
+      companyId: fx.companyId,
+    },
+  });
+  const completedAt = new Date("2026-09-05T10:00:00.000Z");
+
+  const updated = await updateActivity(
+    fx.orgId,
+    activity.id,
+    { completedAt },
+    { userId: fx.userId, role: "ADMIN" },
+  );
+  assert.equal(updated.completedAt?.toISOString(), completedAt.toISOString());
+  assert.ok(updated.confirmedAt, "auto-confirmada");
+  assert.equal(updated.confirmedById, fx.userId);
+
+  // Editar otro campo de una ya completada no toca la confirmación.
+  const editada = await updateActivity(
+    fx.orgId,
+    activity.id,
+    { subject: "§29 auto (editada)" },
+    { userId: fx.userId, role: "ADMIN" },
+  );
+  assert.equal(editada.confirmedAt?.toISOString(), updated.confirmedAt.toISOString());
+  assert.equal(editada.confirmedById, fx.userId);
+});
+
+test("§29 invariante: ADMIN limpiando completedAt a mano sobre una confirmada también borra confirmedAt/confirmedById", async () => {
+  const activity = await prisma.activity.create({
+    data: {
+      organizationId: fx.orgId,
+      authorId: fx.userId,
+      assigneeId: fx.assigneeUserId,
+      type: "TASK",
+      subject: "§29 invariante",
+      companyId: fx.companyId,
+      completedAt: new Date("2026-09-04T15:00:00.000Z"),
+      confirmedAt: new Date("2026-09-04T16:00:00.000Z"),
+      confirmedById: fx.userId,
+    },
+  });
+
+  const updated = await updateActivity(
     fx.orgId,
     activity.id,
     { completedAt: null },
-    { userId: fx.assigneeUserId, role: "USER" },
+    { userId: fx.userId, role: "ADMIN" },
   );
-  assert.equal(reopened.completedAt, null);
+  assert.equal(updated.completedAt, null);
+  assert.equal(updated.confirmedAt, null);
+  assert.equal(updated.confirmedById, null);
+});
+
+test("§29 filtro confirmed: confirmed=false trae pendientes y completadas sin confirmar; completed=true&confirmed=false es solo la cola de confirmación", async () => {
+  const yo = { userId: fx.assigneeUserId, role: "USER" as const };
+  const base = { organizationId: fx.orgId, authorId: fx.userId, companyId: fx.companyId };
+  const [pendiente, sinConfirmar, confirmada] = await Promise.all([
+    prisma.activity.create({
+      data: { ...base, type: "TASK", subject: "§29 f pendiente", assigneeId: fx.assigneeUserId },
+    }),
+    prisma.activity.create({
+      data: {
+        ...base,
+        type: "TASK",
+        subject: "§29 f sin confirmar",
+        assigneeId: fx.assigneeUserId,
+        completedAt: new Date("2026-09-04T15:00:00.000Z"),
+      },
+    }),
+    prisma.activity.create({
+      data: {
+        ...base,
+        type: "TASK",
+        subject: "§29 f confirmada",
+        assigneeId: fx.assigneeUserId,
+        completedAt: new Date("2026-09-04T15:00:00.000Z"),
+        confirmedAt: new Date("2026-09-04T16:00:00.000Z"),
+        confirmedById: fx.userId,
+      },
+    }),
+  ]);
+
+  // "Mis tareas" (§29): assigneeId propio + confirmed=false.
+  const misTareas = await listActivities(
+    fx.orgId,
+    { ...LIST_BASE, assigneeId: fx.assigneeUserId, confirmed: false },
+    yo,
+  );
+  const idsMisTareas = misTareas.data.map((a) => a.id);
+  assert.ok(misTareas.data.every((a) => a.confirmedAt === null));
+  assert.ok(idsMisTareas.includes(pendiente.id));
+  assert.ok(idsMisTareas.includes(sinConfirmar.id));
+  assert.ok(!idsMisTareas.includes(confirmada.id));
+
+  // La cola del ADMIN.
+  const cola = await listActivities(
+    fx.orgId,
+    { ...LIST_BASE, completed: true, confirmed: false },
+    { userId: fx.userId, role: "ADMIN" },
+  );
+  const idsCola = cola.data.map((a) => a.id);
+  assert.ok(cola.data.every((a) => a.completedAt !== null && a.confirmedAt === null));
+  assert.ok(idsCola.includes(sinConfirmar.id));
+  assert.ok(!idsCola.includes(pendiente.id));
+  assert.ok(!idsCola.includes(confirmada.id));
+
+  // Y las confirmadas.
+  const confirmadas = await listActivities(
+    fx.orgId,
+    { ...LIST_BASE, confirmed: true },
+    { userId: fx.userId, role: "ADMIN" },
+  );
+  const idsConfirmadas = confirmadas.data.map((a) => a.id);
+  assert.ok(confirmadas.data.every((a) => a.confirmedAt !== null));
+  assert.ok(idsConfirmadas.includes(confirmada.id));
+  assert.ok(!idsConfirmadas.includes(sinConfirmar.id));
 });
 
 test("USER real intentando completar la actividad de OTRO assignee: AppError 403 y nada escrito", async () => {
@@ -439,7 +729,7 @@ test("§25 USER: listActivities con el assigneeId de otra persona devuelve igual
   assert.ok(!ids.includes(filas.ajena));
 });
 
-test("§25 USER: el caso exacto de 'Mis tareas' (assigneeId propio + completed=false) sigue devolviendo solo lo propio pendiente", async () => {
+test("§25 USER: assigneeId propio + completed=false (lo que 'Mis tareas' pedía antes del §29) sigue devolviendo solo lo propio pendiente", async () => {
   const filas = await crearFilasDeLectura();
   const yo = { userId: fx.assigneeUserId, role: "USER" as const };
 

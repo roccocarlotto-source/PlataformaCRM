@@ -532,12 +532,13 @@ model User {
   organization Organization @relation(fields: [organizationId], references: [id])
   role         Role         @relation(fields: [roleId], references: [id])
 
-  ownedCompanies     Company[]     @relation("CompanyOwner")
-  ownedContacts      Contact[]     @relation("ContactOwner")
-  ownedOpportunities Opportunity[] @relation("OpportunityOwner")
-  authoredActivities Activity[]    @relation("ActivityAuthor")
-  assignedActivities Activity[]    @relation("ActivityAssignee")
-  invitationsSent    Invitation[]  @relation("InvitationInvitedBy")
+  ownedCompanies      Company[]     @relation("CompanyOwner")
+  ownedContacts       Contact[]     @relation("ContactOwner")
+  ownedOpportunities  Opportunity[] @relation("OpportunityOwner")
+  authoredActivities  Activity[]    @relation("ActivityAuthor")
+  assignedActivities  Activity[]    @relation("ActivityAssignee")
+  confirmedActivities Activity[]    @relation("ActivityConfirmedBy")
+  invitationsSent     Invitation[]  @relation("InvitationInvitedBy")
 
   // Módulo de stock de vehículos: las unidades que este vendedor tiene
   // asignadas y los cambios de ficha que registró.
@@ -895,6 +896,15 @@ model Activity {
   body           String?
   dueDate        DateTime?    @map("due_date")
   completedAt    DateTime?    @map("completed_at")
+  // Confirmación del ADMIN sobre una tarea que el asignado marcó como hecha
+  // (docs/frontend-cambios-pendientes.md §29). Tres estados derivados de dos
+  // columnas: pendiente (completedAt null) → pendiente de confirmar
+  // (completedAt set, confirmedAt null) → confirmada (las dos set). Invariante
+  // que sostiene activity.service.ts en toda escritura: confirmedAt y
+  // confirmedById nunca quedan con valor si completedAt es null. Ninguna de
+  // las dos la escribe el cliente: las calcula el service (quién y cuándo).
+  confirmedAt    DateTime?    @map("confirmed_at")
+  confirmedById  String?      @map("confirmed_by_id") @db.Uuid
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
   deletedAt      DateTime?    @map("deleted_at")
@@ -902,6 +912,9 @@ model Activity {
   organization Organization @relation(fields: [organizationId], references: [id])
   author       User         @relation("ActivityAuthor", fields: [organizationId, authorId], references: [organizationId, id])
   assignee     User?        @relation("ActivityAssignee", fields: [organizationId, assigneeId], references: [organizationId, id], onDelete: NoAction)
+  // Mismo criterio que assignee: FK compuesta por organización y NoAction
+  // para no perder el rastro de quién confirmó si se borra el usuario.
+  confirmedBy  User?        @relation("ActivityConfirmedBy", fields: [organizationId, confirmedById], references: [organizationId, id], onDelete: NoAction)
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
   contact      Contact?     @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)
   opportunity  Opportunity? @relation(fields: [organizationId, opportunityId], references: [organizationId, id], onDelete: NoAction)

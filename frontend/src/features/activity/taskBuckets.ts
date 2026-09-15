@@ -3,15 +3,23 @@
 // pura, sin React: se prueba sola (taskBuckets.test.ts), mismo espíritu que
 // opportunity/boardMove.ts.
 //
-// Los cinco bloques, en el orden en que se muestran, y su etiqueta:
-//   OVERDUE   → "Vencidas"
-//   TODAY     → "Hoy"
-//   THIS_WEEK → "Esta semana"
-//   LATER     → "Más adelante"
-//   NO_DATE   → "Sin fecha"
+// Los seis bloques, en el orden en que se muestran, y su etiqueta:
+//   OVERDUE               → "Vencidas"
+//   TODAY                 → "Hoy"
+//   THIS_WEEK             → "Esta semana"
+//   LATER                 → "Más adelante"
+//   NO_DATE               → "Sin fecha"
+//   AWAITING_CONFIRMATION → "Esperando confirmación"
+//
+// El último es del §29 y no es un bloque "por vencimiento": son tareas ya
+// hechas que esperan la confirmación de un ADMIN, menos urgentes que todo lo
+// que sigue pendiente, por eso va al final. bucketFor() NO lo devuelve
+// nunca: sigue siendo una función pura sobre dueDate; quién va a ese bloque
+// (completedAt no nulo) lo decide MyTasksPage al armar los grupos.
 // ---------------------------------------------------------------------------
 
-export type TaskBucket = "OVERDUE" | "TODAY" | "THIS_WEEK" | "LATER" | "NO_DATE";
+export type TaskBucket =
+  "OVERDUE" | "TODAY" | "THIS_WEEK" | "LATER" | "NO_DATE" | "AWAITING_CONFIRMATION";
 
 export const TASK_BUCKET_ORDER: readonly TaskBucket[] = [
   "OVERDUE",
@@ -19,6 +27,7 @@ export const TASK_BUCKET_ORDER: readonly TaskBucket[] = [
   "THIS_WEEK",
   "LATER",
   "NO_DATE",
+  "AWAITING_CONFIRMATION",
 ];
 
 export const TASK_BUCKET_LABELS: Record<TaskBucket, string> = {
@@ -27,6 +36,7 @@ export const TASK_BUCKET_LABELS: Record<TaskBucket, string> = {
   THIS_WEEK: "Esta semana",
   LATER: "Más adelante",
   NO_DATE: "Sin fecha",
+  AWAITING_CONFIRMATION: "Esperando confirmación",
 };
 
 // Todo en fecha LOCAL de quien mira: "hoy" y "esta semana" son días
@@ -63,7 +73,9 @@ function startOfNextMonday(now: Date): Date {
 // Si hoy es domingo, THIS_WEEK queda vacío ese día (no quedan días de la
 // semana calendario por delante: mañana ya es el próximo lunes) y todo lo
 // futuro cae en LATER. Es correcto, no un bug.
-export function bucketFor(dueDate: string | null, now: Date): TaskBucket {
+export type DueDateBucket = Exclude<TaskBucket, "AWAITING_CONFIRMATION">;
+
+export function bucketFor(dueDate: string | null, now: Date): DueDateBucket {
   if (dueDate === null) return "NO_DATE";
   const due = new Date(dueDate);
   if (due.getTime() < now.getTime()) return "OVERDUE";
@@ -106,4 +118,14 @@ export function formatTaskDueDate(dueDate: string | null, now: Date): string {
   const year = due.getFullYear() === now.getFullYear() ? "" : ` ${due.getFullYear()}`;
   const day = `${WEEKDAYS[due.getDay()]} ${due.getDate()} ${MONTHS[due.getMonth()]}${year}`;
   return hasTime ? `${day}, ${time}` : day;
+}
+
+// Texto de la derecha de una fila de "Esperando confirmación" (§29): en vez
+// del vencimiento, cuándo se tildó. Mismo formato que formatTaskDueDate para
+// que las dos columnas se lean igual; "Hoy" se baja a minúscula porque acá
+// va en medio de la frase ("Completada hoy, 11:00" / "Completada el jue 3
+// sep, 11:00").
+export function formatTaskCompletedAt(completedAt: string, now: Date): string {
+  const when = formatTaskDueDate(completedAt, now);
+  return when.startsWith("Hoy") ? `Completada hoy${when.slice(3)}` : `Completada el ${when}`;
 }

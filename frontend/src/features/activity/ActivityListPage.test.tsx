@@ -220,7 +220,9 @@ describe("ActivityListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Llamar para renovación")).toBeInTheDocument());
     const row = screen.getByText("Llamar para renovación").closest("tr") as HTMLElement;
-    expect(within(row).getByText("—")).toBeInTheDocument();
+    // La celda Empresa (3.ª columna). La columna "Confirmación" también
+    // muestra "—" para una no completada (§29), así que se mira la celda.
+    expect(row.querySelectorAll("td")[2]).toHaveTextContent("—");
   });
 
   it("ADMIN ve autor y asignado resueltos vía GET /api/users; el propio id se muestra como 'Vos'", async () => {
@@ -307,7 +309,8 @@ describe("ActivityListPage", () => {
 
     await waitFor(() => expect(screen.getByText("Llamar para renovación")).toBeInTheDocument());
     const row = screen.getByText("Llamar para renovación").closest("tr") as HTMLElement;
-    expect(within(row).getByText("—")).toBeInTheDocument();
+    // La celda Autor (6.ª columna); "Confirmación" también muestra "—" (§29).
+    expect(row.querySelectorAll("td")[5]).toHaveTextContent("—");
     expect(within(row).queryByText("u-ajeno")).not.toBeInTheDocument();
   });
 
@@ -509,5 +512,237 @@ describe("ActivityListPage", () => {
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Confirmación del ADMIN (docs/frontend-cambios-pendientes.md §29): columna
+  // "Confirmación", acciones Confirmar/Rechazar solo mientras espera, filtro
+  // y campos nuevos del detalle.
+  // -------------------------------------------------------------------------
+
+  const COMPLETED_AT = "2026-09-10T12:00:00.000Z";
+  const CONFIRMED_AT = "2026-09-11T09:30:00.000Z";
+
+  function threeStates() {
+    return [
+      makeActivity({ id: "act-pendiente", subject: "Sin completar" }),
+      makeActivity({
+        id: "act-espera",
+        subject: "Espera confirmación",
+        completedAt: COMPLETED_AT,
+      }),
+      makeActivity({
+        id: "act-ok",
+        subject: "Ya confirmada",
+        completedAt: COMPLETED_AT,
+        confirmedAt: CONFIRMED_AT,
+        confirmedById: "u2",
+      }),
+    ];
+  }
+
+  function rowOf(subject: string): HTMLElement {
+    return screen.getByText(subject).closest("tr") as HTMLElement;
+  }
+
+  it("§29 columna 'Confirmación': '—' neutral sin completar, 'Pendiente de confirmar' info, 'Confirmada' success", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(activitiesUrl, () =>
+        HttpResponse.json({
+          data: threeStates(),
+          pagination: { page: 1, pageSize: 20, total: 3, totalPages: 1 },
+        }),
+      ),
+      ...relationHandlers(),
+      usersHandler(),
+    );
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Ya confirmada")).toBeInTheDocument());
+
+    expect(screen.getByRole("columnheader", { name: "Confirmación" })).toBeInTheDocument();
+    const pendiente = rowOf("Sin completar").querySelectorAll("td")[9] as HTMLElement;
+    expect(within(pendiente).getByText("—")).toHaveClass("ds-badge", "ds-badge--neutral");
+    expect(within(rowOf("Espera confirmación")).getByText("Pendiente de confirmar")).toHaveClass(
+      "ds-badge",
+      "ds-badge--info",
+    );
+    expect(within(rowOf("Ya confirmada")).getByText("Confirmada")).toHaveClass(
+      "ds-badge",
+      "ds-badge--success",
+    );
+  });
+
+  it("§29 'Confirmar' y 'Rechazar' están SOLO en la fila que espera confirmación, entre 'Ver detalle' y 'Editar', y mandan PATCH { confirmed }", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const patches: { id: string; body: unknown }[] = [];
+    server.use(
+      http.get(activitiesUrl, () =>
+        HttpResponse.json({
+          data: threeStates(),
+          pagination: { page: 1, pageSize: 20, total: 3, totalPages: 1 },
+        }),
+      ),
+      http.patch(`${activitiesUrl}/:id`, async ({ params, request }) => {
+        const body = await request.json();
+        patches.push({ id: params.id as string, body });
+        return HttpResponse.json(makeActivity({ id: params.id as string }));
+      }),
+      ...relationHandlers(),
+      usersHandler(),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Ya confirmada")).toBeInTheDocument());
+
+    await openActionsMenu(user, rowOf("Espera confirmación"));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Ver detalle",
+      "Confirmar",
+      "Rechazar",
+      "Editar",
+      "Eliminar",
+    ]);
+    await user.click(screen.getByRole("menuitem", { name: "Confirmar" }));
+    await waitFor(() => expect(patches).toHaveLength(1));
+    expect(patches[0]).toEqual({ id: "act-espera", body: { confirmed: true } });
+
+    await openActionsMenu(user, rowOf("Espera confirmación"));
+    await user.click(screen.getByRole("menuitem", { name: "Rechazar" }));
+    await waitFor(() => expect(patches).toHaveLength(2));
+    expect(patches[1]).toEqual({ id: "act-espera", body: { confirmed: false } });
+
+    // Ni en la que no está completada ni en la ya confirmada.
+    for (const subject of ["Sin completar", "Ya confirmada"]) {
+      await openActionsMenu(user, rowOf(subject));
+      expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+        "Ver detalle",
+        "Editar",
+        "Eliminar",
+      ]);
+      await user.keyboard("{Escape}");
+    }
+  });
+
+  it("§29 si Confirmar falla se muestra el error con la acción que falló", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(activitiesUrl, () =>
+        HttpResponse.json({
+          data: [threeStates()[1]],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.patch(`${activitiesUrl}/:id`, () =>
+        HttpResponse.json(
+          { error: { message: "La actividad ya está confirmada" } },
+          { status: 400 },
+        ),
+      ),
+      ...relationHandlers(),
+      usersHandler(),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await openActionsMenu(user);
+    await user.click(screen.getByRole("menuitem", { name: "Confirmar" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "No pudimos confirmar la actividad: La actividad ya está confirmada",
+      ),
+    );
+  });
+
+  it("§29 filtro 'Confirmación': 'Pendiente de confirmar' pide completed=true&confirmed=false, 'Confirmada' completed=true&confirmed=true, 'Todas' ninguno", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const captured: URL[] = [];
+    server.use(
+      http.get(activitiesUrl, ({ request }) => {
+        captured.push(new URL(request.url));
+        return HttpResponse.json({
+          data: [makeActivity()],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        });
+      }),
+      ...relationHandlers(),
+      usersHandler(),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Llamar para renovación")).toBeInTheDocument());
+    const initial = captured[0];
+    expect(initial?.searchParams.has("completed")).toBe(false);
+    expect(initial?.searchParams.has("confirmed")).toBe(false);
+
+    const select = screen.getByLabelText("Confirmación");
+    await user.selectOptions(select, "AWAITING_CONFIRMATION");
+    await waitFor(() =>
+      expect(
+        captured.some(
+          (u) =>
+            u.searchParams.get("completed") === "true" &&
+            u.searchParams.get("confirmed") === "false",
+        ),
+      ).toBe(true),
+    );
+
+    await user.selectOptions(select, "CONFIRMED");
+    await waitFor(() =>
+      expect(
+        captured.some(
+          (u) =>
+            u.searchParams.get("completed") === "true" &&
+            u.searchParams.get("confirmed") === "true",
+        ),
+      ).toBe(true),
+    );
+
+    const before = captured.length;
+    await user.selectOptions(select, "");
+    await waitFor(() => expect(captured.length).toBeGreaterThan(before));
+    const last = captured.at(-1);
+    expect(last?.searchParams.has("completed")).toBe(false);
+    expect(last?.searchParams.has("confirmed")).toBe(false);
+  });
+
+  it("§29 'Ver detalle' muestra Confirmación y, solo si está confirmada, 'Confirmada por' (nombre, no UUID) y 'Fecha de confirmación'", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      http.get(activitiesUrl, () =>
+        HttpResponse.json({
+          data: threeStates(),
+          pagination: { page: 1, pageSize: 20, total: 3, totalPages: 1 },
+        }),
+      ),
+      ...relationHandlers(),
+      usersHandler(),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Ya confirmada")).toBeInTheDocument());
+
+    await openActionsMenu(user, rowOf("Ya confirmada"));
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    let dialog = await screen.findByRole("dialog", { name: "Detalle de la actividad" });
+    expect(within(dialog).getByText("Confirmada")).toHaveClass("ds-badge--success");
+    expect(within(dialog).getByText("Confirmada por")).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("Beto Gómez");
+    expect(dialog).not.toHaveTextContent("u2");
+    expect(within(dialog).getByText("Fecha de confirmación")).toBeInTheDocument();
+    expect(dialog).toHaveTextContent(new Date(CONFIRMED_AT).toLocaleString());
+    await user.keyboard("{Escape}");
+
+    await openActionsMenu(user, rowOf("Espera confirmación"));
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+    dialog = await screen.findByRole("dialog", { name: "Detalle de la actividad" });
+    expect(within(dialog).getByText("Pendiente de confirmar")).toHaveClass("ds-badge--info");
+    expect(within(dialog).queryByText("Confirmada por")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Fecha de confirmación")).not.toBeInTheDocument();
   });
 });

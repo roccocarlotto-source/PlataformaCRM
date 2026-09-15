@@ -10,6 +10,7 @@ import {
   updateActivity as updateActivityRepo,
   type ActivitySortBy,
   type SortOrder,
+  type UpdateActivityData,
 } from "../repositories/activity.repository";
 import { findOpportunityById } from "../repositories/opportunity.repository";
 import { findUserByIdInOrganization } from "../repositories/user.repository";
@@ -35,6 +36,11 @@ export interface ListActivitiesParams {
   // expresar "es null"; sin este filtro, la vista tendría que traer TODO el
   // historial de una persona para descartar casi todo del lado del cliente.
   completed?: boolean;
+  // §29: true → confirmedAt not null, false → confirmedAt null. Combinable
+  // con `completed`: completed=true&confirmed=false es la cola de "pendientes
+  // de confirmar" del ADMIN; confirmed=false solo es lo que "Mis tareas"
+  // muestra (pendientes + completadas que todavía esperan confirmación).
+  confirmed?: boolean;
   sortBy: ActivitySortBy;
   sortOrder: SortOrder;
 }
@@ -49,7 +55,7 @@ export interface ActivityActor {
 // GET /api/activities y GET /api/activities/:id siguen abiertos a cualquier
 // autenticado en la ruta —no llevan authorize("ADMIN")— y no es un olvido:
 // "Mis tareas" (MyTasksPage.tsx, para ambos roles) usa el MISMO endpoint,
-// GET /api/activities?assigneeId=<yo>&completed=false, así que un USER
+// GET /api/activities?assigneeId=<yo>&confirmed=false, así que un USER
 // necesita seguir pidiendo su propio listado. La restricción vive acá, en
 // el service, igual que la del PATCH (canSelfServiceCompleteActivity):
 //
@@ -267,6 +273,12 @@ export interface UpdateActivityInput {
   companyId?: string | null;
   contactId?: string | null;
   opportunityId?: string | null;
+  // Campo de ACCIÓN, no un dato que se guarde tal cual (§29): true =
+  // "Confirmar", false = "Rechazar". confirmedAt/confirmedById NO existen acá
+  // a propósito —mismo criterio que authorId en CreateActivityInput—: quién
+  // confirmó y cuándo los calcula updateActivity del actor y del reloj del
+  // server, y así es imposible que un valor del cliente los pise.
+  confirmed?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -275,14 +287,26 @@ export interface UpdateActivityInput {
 //
 //   - ADMIN: cualquier campo de cualquier actividad, exactamente como hoy.
 //   - USER: self-service ACOTADO, decidido con el dueño del proyecto —
-//     puede PATCHear si y solo si (a) es su propio assigneeId, Y (b) el
-//     ÚNICO campo del body es completedAt (tildar o destildar en "Mis
-//     tareas"). No puede tocar subject/type/relaciones ni reasignarse.
+//     puede PATCHear si y solo si (a) es su propio assigneeId, (b) el
+//     ÚNICO campo del body es completedAt (tildar en "Mis tareas"), Y (c) la
+//     actividad todavía NO está completada. No puede tocar subject/type/
+//     relaciones ni reasignarse.
 //
-// El motivo: el checkbox de "Mis tareas" lo usa quien tiene la tarea
-// asignada, que casi nunca es ADMIN (quien asigna sí lo es: el selector
-// "Asignado a" sale de GET /api/users, ADMIN-only). Sin esto, ese checkbox
-// devolvería 403 a cualquier USER.
+// (c) es del §29: desde que el tilde queda "pendiente de confirmar" hasta
+// que un ADMIN lo revisa, dejar que el asignado mande completedAt: null
+// sería dejarlo revertir una tarea que ya está esperando revisión. Un USER
+// solo puede COMPLETAR su tarea, nunca destildarla: para deshacer un tilde
+// por error, la vía es que el ADMIN la rechace. (Un completedAt: null sobre
+// una tarea todavía pendiente sigue pasando: es un no-op, no una reversión.)
+//
+// El motivo de todo el self-service: el checkbox de "Mis tareas" lo usa
+// quien tiene la tarea asignada, que casi nunca es ADMIN (quien asigna sí lo
+// es: el selector "Asignado a" sale de GET /api/users, ADMIN-only). Sin
+// esto, ese checkbox devolvería 403 a cualquier USER.
+//
+// `confirmed` (Confirmar/Rechazar) nunca pasa por acá para un USER: no es
+// completedAt, así que (b) ya lo rechaza. updateActivity vuelve a exigir
+// ADMIN en esa rama igual, como defensa en profundidad.
 //
 // Función pura a propósito (no toca la base): se prueba sola, sin DB —
 // mismo criterio que normalizeEmail/rethrowAsConflict en contact.service.ts.
@@ -291,14 +315,101 @@ export interface UpdateActivityInput {
 // ---------------------------------------------------------------------------
 export function canSelfServiceCompleteActivity(
   actor: ActivityActor,
-  activity: { assigneeId: string | null },
+  activity: { assigneeId: string | null; completedAt: Date | null },
   input: UpdateActivityInput,
 ): boolean {
   if (actor.role === "ADMIN") return true;
 
   const fields = Object.keys(input);
   const onlyCompletedAt = fields.length > 0 && fields.every((field) => field === "completedAt");
-  return onlyCompletedAt && activity.assigneeId === actor.userId;
+  return onlyCompletedAt && activity.assigneeId === actor.userId && activity.completedAt === null;
+}
+
+// ---------------------------------------------------------------------------
+// §29 — qué escribe cada camino sobre completedAt/confirmedAt/confirmedById.
+// Función pura, separada de updateActivity para probarse sin base (las
+// validaciones de relaciones y la escritura real siguen en updateActivity):
+// recibe la fila actual, el input ya autorizado y el actor, y devuelve SOLO
+// las columnas de confirmación/completado que hay que escribir además del
+// resto del input (o lanza el AppError 400 correspondiente).
+//
+//   - confirmed: true ("Confirmar"): solo ADMIN, solo sobre una completada y
+//     todavía sin confirmar. Escribe confirmedAt/confirmedById del server.
+//   - confirmed: false ("Rechazar"): solo ADMIN, solo sobre una completada.
+//     Vuelve a pendiente: completedAt, confirmedAt y confirmedById en null.
+//   - Auto-confirmación: un ADMIN que completa (completedAt no nulo) una
+//     actividad que NO estaba completada la deja confirmada en la misma
+//     escritura — no tiene sentido pedirle que se autoconfirme. No revalida
+//     nada si edita otro campo de una que ya estaba completada.
+//   - Invariante, en cualquier camino: si la escritura deja completedAt en
+//     null (rechazo, o el ADMIN limpiando el campo a mano), confirmedAt y
+//     confirmedById se van con él. Nunca existe una "confirmada" sin
+//     completar.
+//
+// `confirmed` y `completedAt` en el mismo body es 400: son dos maneras de
+// decidir el mismo estado y no hay un orden obvio entre ellas (¿confirmar y
+// después limpiar? ¿limpiar y después confirmar?). Ningún caller manda las
+// dos; se rechaza para que la ambigüedad no exista.
+// ---------------------------------------------------------------------------
+export type ActivityConfirmationPatch = Pick<
+  UpdateActivityData,
+  "completedAt" | "confirmedAt" | "confirmedById"
+>;
+
+export function resolveConfirmationPatch(
+  actor: ActivityActor,
+  activity: { completedAt: Date | null; confirmedAt: Date | null },
+  input: Pick<UpdateActivityInput, "completedAt" | "confirmed">,
+  now: Date = new Date(),
+): ActivityConfirmationPatch {
+  const patch: ActivityConfirmationPatch = {};
+
+  if (input.confirmed !== undefined) {
+    if (actor.role !== "ADMIN") {
+      throw new AppError("No tenés permisos para realizar esta acción", 403);
+    }
+    if (input.completedAt !== undefined) {
+      throw new AppError("confirmed no se combina con completedAt en el mismo PATCH", 400);
+    }
+    if (activity.completedAt === null) {
+      throw new AppError(
+        input.confirmed
+          ? "No se puede confirmar una actividad que no está completada"
+          : "No hay nada que rechazar: la actividad no está completada",
+        400,
+      );
+    }
+    if (input.confirmed) {
+      if (activity.confirmedAt !== null) {
+        throw new AppError("La actividad ya está confirmada", 400);
+      }
+      patch.confirmedAt = now;
+      patch.confirmedById = actor.userId;
+    } else {
+      patch.completedAt = null;
+    }
+  } else if (
+    actor.role === "ADMIN" &&
+    input.completedAt !== undefined &&
+    input.completedAt !== null &&
+    activity.completedAt === null
+  ) {
+    patch.confirmedAt = now;
+    patch.confirmedById = actor.userId;
+  }
+
+  // Invariante: si esta escritura deja completedAt en null, la confirmación
+  // se va con él. `patch` gana sobre `input` (el rechazo ya lo puso en null).
+  // Solo cuando completedAt se ESCRIBE: un PATCH que no lo toca no tiene por
+  // qué tocar la confirmación (la fila ya cumple la invariante por
+  // construcción, y así la función devuelve solo lo que cambia).
+  const finalCompletedAt = patch.completedAt !== undefined ? patch.completedAt : input.completedAt;
+  if (finalCompletedAt === null) {
+    patch.confirmedAt = null;
+    patch.confirmedById = null;
+  }
+
+  return patch;
 }
 
 // authorId no es un parámetro de esta función a propósito: no existe forma
@@ -319,7 +430,16 @@ export async function updateActivity(
     throw new AppError("No tenés permisos para realizar esta acción", 403);
   }
 
-  const data: UpdateActivityInput = { ...input };
+  // `confirmed` es una acción, no una columna: se separa del resto del input
+  // y se traduce a completedAt/confirmedAt/confirmedById (§29). Las guardas
+  // de esa traducción (solo ADMIN, solo sobre una completada, no dos veces)
+  // corren acá, antes de validar relaciones — un 400 de confirmación no
+  // necesita tocar la base.
+  const { confirmed, ...fields } = input;
+  const data: UpdateActivityData = {
+    ...fields,
+    ...resolveConfirmationPatch(actor, activity, { completedAt: input.completedAt, confirmed }),
+  };
 
   if ("assigneeId" in input) {
     data.assigneeId = input.assigneeId
