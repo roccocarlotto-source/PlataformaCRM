@@ -5,10 +5,13 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { useContainerWidth } from "../../lib/useContainerWidth";
 import { formatAmount } from "../opportunity/format";
-import { useDashboardSummary } from "./queries";
+import type { OpportunityRevenueGranularity } from "../opportunity/types";
+import { useRevenueSeries } from "./queries";
 import {
   CHART_BASELINE,
   CHART_BOX,
+  dateShortLabel,
+  monthShortLabel,
   nearestPointIndex,
   segmentsToPath,
   smoothSegments,
@@ -21,73 +24,127 @@ import {
 // Reemplazo del "Pipeline overview" del mockup (§30 de docs/frontend-cambios-
 // pendientes.md): no hay historial de Opportunity para saber cuánto valía el
 // pipeline en una fecha pasada, así que se grafica un dato que sí es real —
-// SUM(amount) de las ganadas por mes de cierre, últimos 6 meses, en la
-// moneda de la organización. Es la misma serie que el backend ya calcula
-// para "Ganado este mes"; la card y el gráfico comparten el request.
+// SUM(amount) de las ganadas por fecha de cierre, en la moneda de la
+// organización.
+//
+// Desde el §33 la serie NO sale del resumen comercial sino de su propio
+// endpoint (useRevenueSeries), con la granularidad elegida acá. Es
+// deliberado: las 4 KPI cards de arriba son siempre mensuales, así que pasar
+// el gráfico a Semanal o Diario no tiene que refetchearlas ni recalcularlas.
 //
 // SVG a mano, sin librería (el frontend no tiene ninguna). Desde el §32: el
 // <svg> se dibuja con el ancho REAL de la tarjeta (useContainerWidth), y ese
 // mismo número va al viewBox y a width/height — nunca un viewBox fijo que el
 // CSS estira, porque entonces los rótulos escalaban con la tarjeta. Curva
 // suave (Catmull-Rom → Bézier) con relleno en degradé, el último tramo
-// punteado porque el backend manda el mes calendario en curso al final de la
-// serie (lastMonthsUTC: "la actual al final") y ese dato todavía no cerró.
-// Las animaciones de entrada viven en design-system.css (.ds-chart-*), sin
-// JS: el <svg> no lleva ninguna key atada a los datos, así que un refetch en
-// background reconcilia los mismos nodos y no las repite.
+// punteado porque el backend manda el período EN CURSO al final de la serie
+// (lastMonthsUTC/lastWeeksUTC/lastDaysUTC comparten ese contrato) y ese dato
+// todavía no cerró.
 //
-// El hover SÍ pasa por JS desde el §33: un único <rect> de captura sobre
-// todo el área útil y un solo crosshair que se posiciona en el punto más
-// cercano al puntero (ver Crosshair). Antes cada punto tenía su propia
-// franja de :hover y su propio tooltip, y el resultado saltaba de columna en
-// columna.
+// El hover pasa por JS desde el §33: un único <rect> de captura sobre todo el
+// área útil y un solo crosshair que se posiciona en el punto más cercano al
+// puntero (ver Crosshair). Antes cada punto tenía su propia franja de :hover
+// y su propio tooltip, y el resultado saltaba de columna en columna.
 //
 // Una sola serie, así que no lleva leyenda: el título ya la nombra. El
 // <title> de cada punto es el nombre accesible del círculo, y la tabla
 // oculta es la versión legible por lector de pantalla; el crosshair es un
 // duplicado decorativo de esos <title>.
+
+interface PeriodOption {
+  value: OpportunityRevenueGranularity;
+  // Texto del botón del selector.
+  button: string;
+  // "por mes" / "por semana" / "por día" en el título de la tarjeta.
+  noun: string;
+  // Encabezado de la columna de la tabla accesible.
+  column: string;
+  // "los últimos 6 meses" — el mismo texto sirve para el estado vacío y para
+  // el aria-label del <svg>, así que se escribe una sola vez.
+  window: string;
+}
+
+const PERIODS: ReadonlyArray<PeriodOption> = [
+  { value: "month", button: "Mensual", noun: "mes", column: "Mes", window: "los últimos 6 meses" },
+  {
+    value: "week",
+    button: "Semanal",
+    noun: "semana",
+    column: "Semana",
+    window: "las últimas 8 semanas",
+  },
+  { value: "day", button: "Diario", noun: "día", column: "Día", window: "los últimos 30 días" },
+];
+
 export function RevenueByMonthChart() {
-  const summary = useDashboardSummary();
+  const [granularity, setGranularity] = useState<OpportunityRevenueGranularity>("month");
+  const revenue = useRevenueSeries(granularity);
   const { ref, width } = useContainerWidth();
-  const series = summary.data?.revenueByMonth ?? [];
-  const currency = summary.data?.currency ?? "";
+
+  const period = PERIODS.find((option) => option.value === granularity) ?? PERIODS[0];
+  const heading = `Ingresos ganados por ${period.noun}`;
+  const currency = revenue.data?.currency ?? "";
+  // El rótulo lo elige el componente según la granularidad y toChartPoints lo
+  // recibe ya hecho (§33): el backend manda la clave cruda ("2026-03" o
+  // "2026-03-09") y acá se decide cómo se lee.
+  const formatLabel = granularity === "month" ? monthShortLabel : dateShortLabel;
+  const rawPoints = revenue.data?.points ?? [];
+  const series = rawPoints.map((point) => ({
+    label: formatLabel(point.label),
+    value: point.value,
+  }));
   const max = Math.max(0, ...series.map((entry) => Number(entry.value)));
 
   return (
-    <Card aria-label="Ingresos ganados por mes" heading="Ingresos ganados por mes">
-      {summary.isLoading ? <LoadingState /> : null}
+    <Card
+      aria-label={heading}
+      heading={heading}
+      headerAction={<PeriodToggle value={granularity} onChange={setGranularity} />}
+    >
+      {revenue.isLoading ? <LoadingState /> : null}
 
-      {summary.isError ? (
+      {revenue.isError ? (
         <ErrorState>
-          No pudimos cargar los ingresos por mes
-          {summary.error instanceof Error ? `: ${summary.error.message}` : "."}
+          No pudimos cargar los ingresos
+          {revenue.error instanceof Error ? `: ${revenue.error.message}` : "."}
         </ErrorState>
       ) : null}
 
-      {summary.isSuccess && max === 0 ? (
-        <EmptyState>Todavía no hay ingresos ganados en los últimos 6 meses.</EmptyState>
+      {revenue.isSuccess && max === 0 ? (
+        <EmptyState>Todavía no hay ingresos ganados en {period.window}.</EmptyState>
       ) : null}
 
-      {summary.isSuccess && max > 0 ? (
+      {revenue.isSuccess && max > 0 ? (
         <div className="ds-chart-frame" ref={ref}>
           {/* Sin ancho medido todavía (el primer frame) no se dibuja nada:
-              un ancho inventado es exactamente el bug que el §32 corrige. */}
+              un ancho inventado es exactamente el bug que el §32 corrige.
+              La key es la granularidad y NO los datos: cambiar de vista
+              remonta el subárbol y repite la animación de entrada (son otros
+              datos), mientras que un refetch en background de la MISMA
+              granularidad reconcilia los mismos nodos y no la repite. */}
           {width !== null && width > 0 ? (
-            <ChartSvg series={series} width={width} max={max} currency={currency} />
+            <ChartSvg
+              key={granularity}
+              series={series}
+              width={width}
+              max={max}
+              currency={currency}
+              label={`${heading}, ${period.window}, en ${currency}`}
+            />
           ) : null}
           <table className="ds-sr-only">
-            <caption>Ingresos ganados por mes</caption>
+            <caption>{heading}</caption>
             <thead>
               <tr>
-                <th scope="col">Mes</th>
+                <th scope="col">{period.column}</th>
                 <th scope="col">Ingresos</th>
               </tr>
             </thead>
             <tbody>
-              {series.map((entry) => (
-                <tr key={entry.month}>
-                  <td>{entry.month}</td>
-                  <td>{formatAmount(entry.value, currency)}</td>
+              {rawPoints.map((point) => (
+                <tr key={point.label}>
+                  <td>{point.label}</td>
+                  <td>{formatAmount(point.value, currency)}</td>
                 </tr>
               ))}
             </tbody>
@@ -98,11 +155,41 @@ export function RevenueByMonthChart() {
   );
 }
 
+interface PeriodToggleProps {
+  value: OpportunityRevenueGranularity;
+  onChange: (value: OpportunityRevenueGranularity) => void;
+}
+
+// Segmented control de texto en el header de la tarjeta, con el mismo patrón
+// visual y accesible que ThemeToggle (role="group" con nombre + aria-pressed
+// por botón): un lector de pantalla anuncia "Semanal, botón, presionado".
+function PeriodToggle({ value, onChange }: PeriodToggleProps) {
+  return (
+    <div className="ds-period-toggle" role="group" aria-label="Período">
+      {PERIODS.map((option) => {
+        const isActive = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            className={`ds-period-toggle-button${isActive ? " is-active" : ""}`}
+            aria-pressed={isActive}
+            onClick={() => onChange(option.value)}
+          >
+            {option.button}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 interface ChartSvgProps {
-  series: ReadonlyArray<{ month: string; value: string }>;
+  series: ReadonlyArray<{ label: string; value: string }>;
   width: number;
   max: number;
   currency: string;
+  label: string;
 }
 
 // Estado del crosshair: el índice se conserva al salir del gráfico para que
@@ -112,13 +199,13 @@ interface CrosshairState {
   visible: boolean;
 }
 
-function ChartSvg({ series, width, max, currency }: ChartSvgProps) {
+function ChartSvg({ series, width, max, currency, label }: ChartSvgProps) {
   const gradientId = useId();
   const svgRef = useRef<SVGSVGElement>(null);
   const [crosshair, setCrosshair] = useState<CrosshairState>({ index: 0, visible: false });
   const points = toChartPoints(series, width);
   const segments = smoothSegments(points);
-  // El último tramo va aparte y punteado: es el mes en curso, sin cerrar.
+  // El último tramo va aparte y punteado: es el período en curso, sin cerrar.
   const solidPath = segmentsToPath(segments.slice(0, -1));
   const partialPath = segmentsToPath(segments.slice(-1));
   const areaPath = toAreaPath(points);
@@ -145,6 +232,10 @@ function ChartSvg({ series, width, max, currency }: ChartSvgProps) {
   // La serie puede acortarse entre renders (otra respuesta del backend): el
   // índice guardado se acota acá y nunca se lee un punto que no existe.
   const activePoint = points[Math.min(crosshair.index, points.length - 1)];
+  // Con 30 puntos (granularidad diaria) los rótulos del eje X se pisarían:
+  // se muestra uno de cada N, empezando por el último para que el período en
+  // curso siempre tenga el suyo.
+  const labelStep = Math.ceil(points.length / 8);
 
   return (
     <svg
@@ -154,7 +245,7 @@ function ChartSvg({ series, width, max, currency }: ChartSvgProps) {
       height={CHART_BOX.height}
       viewBox={`0 0 ${width} ${CHART_BOX.height}`}
       role="img"
-      aria-label={`Ingresos ganados por mes, últimos 6 meses, en ${currency}`}
+      aria-label={label}
     >
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -207,17 +298,19 @@ function ChartSvg({ series, width, max, currency }: ChartSvgProps) {
         <path className="ds-chart-line ds-chart-line--partial" d={partialPath} />
       ) : null}
 
-      {points.map((point) => (
-        <text
-          key={point.label}
-          className="ds-chart-label"
-          x={point.x}
-          y={CHART_BOX.height - 10}
-          textAnchor="middle"
-        >
-          {point.label}
-        </text>
-      ))}
+      {points.map((point, index) =>
+        (points.length - 1 - index) % labelStep === 0 ? (
+          <text
+            key={point.label}
+            className="ds-chart-label"
+            x={point.x}
+            y={CHART_BOX.height - 10}
+            textAnchor="middle"
+          >
+            {point.label}
+          </text>
+        ) : null,
+      )}
 
       {/* Los círculos de cada punto: el <title> es su nombre accesible y el
           índice escalona la animación de entrada. */}

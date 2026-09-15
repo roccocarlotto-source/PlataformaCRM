@@ -5,11 +5,11 @@ import type { ReactNode } from "react";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
-import { makeDashboardSummary } from "../../test/dashboardFixtures";
+import { makeDashboardSummary, makeRevenueSeries } from "../../test/dashboardFixtures";
 import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
-import { useDashboardSummary, useDefaultPipelineStageSummary } from "./queries";
+import { useDashboardSummary, useDefaultPipelineStageSummary, useRevenueSeries } from "./queries";
 import type { OpportunityListResponse } from "../opportunity/types";
 import type { PipelineListResponse } from "../pipeline/types";
 import type { StageListResponse } from "../stage/types";
@@ -23,6 +23,7 @@ const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
 const stagesUrl = `${env.apiUrl}/api/stages`;
 const usersUrl = `${env.apiUrl}/api/users`;
 const summaryUrl = `${env.apiUrl}/api/opportunities/dashboard-summary`;
+const revenueSeriesUrl = `${env.apiUrl}/api/opportunities/revenue-series`;
 
 function wrapperFor(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -63,6 +64,50 @@ describe("useDashboardSummary", () => {
     expect(captured[0]?.search).toBe("");
     expect(result.current.data?.openCount).toBe(7);
     expect(result.current.data?.revenueByMonth).toHaveLength(6);
+  });
+
+  // §33: la serie del gráfico tiene su propia key, con la granularidad
+  // adentro, y NO cuelga de DASHBOARD_SUMMARY_KEY. Pedir otra granularidad
+  // no puede invalidar ni tocar el resumen que alimenta las KPI cards.
+  it("useRevenueSeries: una key por granularidad, y el resumen no se vuelve a pedir", async () => {
+    const granularidades: string[] = [];
+    let summaryRequests = 0;
+    server.use(
+      http.get(summaryUrl, () => {
+        summaryRequests += 1;
+        return HttpResponse.json(makeDashboardSummary());
+      }),
+      http.get(revenueSeriesUrl, ({ request }) => {
+        const granularity = new URL(request.url).searchParams.get("granularity") ?? "";
+        granularidades.push(granularity);
+        return HttpResponse.json(
+          makeRevenueSeries({ granularity: granularity as "month" | "week" | "day" }),
+        );
+      }),
+    );
+
+    const queryClient = newClient();
+    const { result, rerender } = renderHook(
+      ({ granularity }: { granularity: "month" | "week" }) => ({
+        summary: useDashboardSummary(),
+        series: useRevenueSeries(granularity),
+      }),
+      {
+        wrapper: wrapperFor(queryClient),
+        initialProps: { granularity: "month" } as { granularity: "month" | "week" },
+      },
+    );
+
+    await waitFor(() => expect(result.current.series.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.summary.isSuccess).toBe(true));
+
+    rerender({ granularity: "week" });
+    await waitFor(() => expect(result.current.series.data?.granularity).toBe("week"));
+
+    expect(granularidades).toEqual(["month", "week"]);
+    expect(summaryRequests).toBe(1);
+    expect(queryClient.getQueryData(["dashboard", "revenue-series", "month"])).toBeDefined();
+    expect(queryClient.getQueryData(["dashboard", "revenue-series", "week"])).toBeDefined();
   });
 
   it("error: se refleja como isError, sin datos inventados", async () => {

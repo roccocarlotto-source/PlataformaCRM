@@ -29,7 +29,8 @@ export const CHART_BOX = {
 export interface ChartPoint {
   x: number;
   y: number;
-  // "mar" — misma abreviatura que "Mis tareas" (MONTHS de taskBuckets.ts).
+  // Ya formateado para mostrar ("mar", "9 mar"): lo arma el componente con
+  // monthShortLabel/dateShortLabel según la granularidad activa.
   label: string;
   value: number;
 }
@@ -44,19 +45,39 @@ export interface CurveSegment {
 
 export const CHART_BASELINE = CHART_BOX.height - CHART_BOX.bottom;
 
-// "YYYY-MM" → "mar". El backend manda el mes calendario UTC como texto; no
-// se pasa por Date para no arrastrar la zona horaria del navegador.
+// Rótulos del eje X y del tooltip, uno por granularidad (§33). El backend
+// manda la clave cruda de cada ventana en UTC ("YYYY-MM" para meses,
+// "YYYY-MM-DD" para semanas y días) y acá se recorta con slice, sin pasar por
+// Date: pasarla por Date arrastraría la zona horaria del navegador y en
+// Montevideo (UTC-3) correría cada rótulo un día para atrás.
+//
+// Viven acá y no en el componente porque son parte del mismo contrato que
+// toChartPoints —lo que el componente le pasa ya rotulado— y son puras, así
+// que se prueban solas.
+
+// "YYYY-MM" → "mar".
 export function monthShortLabel(month: string): string {
   const index = Number(month.slice(5, 7)) - 1;
   return MONTHS[index] ?? month;
 }
 
-// Los puntos en coordenadas del viewBox para un ancho dado. El eje Y va de 0
-// (abajo) al máximo de la serie (arriba); si todo es 0, todos los puntos
-// quedan sobre la base. Un solo punto se centra; con más, se reparten en el
-// ancho útil.
+// "YYYY-MM-DD" → "9 mar". Sirve para semanas (es el lunes de la ventana) y
+// para días; el año no entra, como en "Mis tareas".
+export function dateShortLabel(date: string): string {
+  const month = MONTHS[Number(date.slice(5, 7)) - 1];
+  const day = Number(date.slice(8, 10));
+  if (month === undefined || day === 0) return date;
+  return `${day} ${month}`;
+}
+
+// Los puntos en coordenadas del viewBox para un ancho dado. La serie llega YA
+// ROTULADA (§33): quién la arma —el componente— elige el formateador según la
+// granularidad activa, y esta función no sabe nada de meses ni de fechas. El
+// eje Y va de 0 (abajo) al máximo de la serie (arriba); si todo es 0, todos
+// los puntos quedan sobre la base. Un solo punto se centra; con más, se
+// reparten en el ancho útil.
 export function toChartPoints(
-  series: ReadonlyArray<{ month: string; value: string }>,
+  series: ReadonlyArray<{ label: string; value: string }>,
   width: number,
 ): ChartPoint[] {
   const values = series.map((entry) => Number(entry.value));
@@ -71,7 +92,7 @@ export function toChartPoints(
         ? CHART_BOX.left + innerWidth / 2
         : CHART_BOX.left + (innerWidth * index) / (series.length - 1);
     const y = max === 0 ? CHART_BASELINE : CHART_BASELINE - (value / max) * innerHeight;
-    return { x, y, label: monthShortLabel(entry.month), value };
+    return { x, y, label: entry.label, value };
   });
 }
 

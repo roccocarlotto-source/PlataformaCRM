@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
-import { makeDashboardSummary } from "../../test/dashboardFixtures";
+import { makeDateRevenueSeries, makeRevenueSeries } from "../../test/dashboardFixtures";
 import { stubResizeObserver } from "../../test/resizeObserverStub";
 import { CHART_BOX } from "./revenueChart";
 import { RevenueByMonthChart } from "./RevenueByMonthChart";
@@ -17,7 +18,13 @@ vi.mock("../../auth/getAccessToken", () => ({
 // tests de este archivo (ver resizeObserverStub.ts).
 stubResizeObserver(600);
 
-const summaryUrl = `${env.apiUrl}/api/opportunities/dashboard-summary`;
+const seriesUrl = `${env.apiUrl}/api/opportunities/revenue-series`;
+
+// El endpoint distingue las tres granularidades por query param; por defecto
+// devuelve la serie mensual para cualquiera.
+function seriesHandler() {
+  return http.get(seriesUrl, () => HttpResponse.json(makeRevenueSeries()));
+}
 
 function renderChart() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -33,14 +40,14 @@ function card() {
 }
 
 describe("RevenueByMonthChart", () => {
-  it("loading mientras llega el resumen", () => {
-    server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
+  it("loading mientras llega la serie", () => {
+    server.use(seriesHandler());
     renderChart();
     expect(within(card()).getByText("Cargando…")).toBeInTheDocument();
   });
 
   it("success: un SVG con la curva de 6 puntos, un círculo y un rótulo de mes por punto, y la tabla accesible", async () => {
-    server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
+    server.use(seriesHandler());
     renderChart();
 
     const svg = await within(card()).findByRole("img");
@@ -70,7 +77,8 @@ describe("RevenueByMonthChart", () => {
     // El máximo de la serie rotula el techo, en la moneda.
     expect(within(svg as HTMLElement).getByText("3000.00 USD")).toBeInTheDocument();
 
-    // <title> nativo por punto y tabla para lector de pantalla.
+    // <title> nativo por punto y tabla para lector de pantalla, ésta con la
+    // clave cruda del backend y no con el rótulo corto.
     expect(svg.querySelector("circle.ds-chart-point title")?.textContent).toBe("oct: 100.00 USD");
     const table = within(card()).getByRole("table", { name: "Ingresos ganados por mes" });
     expect(within(table).getAllByRole("row")).toHaveLength(7);
@@ -78,7 +86,7 @@ describe("RevenueByMonthChart", () => {
   });
 
   it("el viewBox y el tamaño renderizado coinciden 1:1 con el ancho medido", async () => {
-    server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
+    server.use(seriesHandler());
     renderChart();
 
     const svg = await within(card()).findByRole("img");
@@ -93,7 +101,7 @@ describe("RevenueByMonthChart", () => {
   });
 
   it("un solo crosshair para toda la serie, oculto hasta el hover y oculto para tecnología asistiva", async () => {
-    server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
+    server.use(seriesHandler());
     renderChart();
 
     const svg = await within(card()).findByRole("img");
@@ -112,7 +120,7 @@ describe("RevenueByMonthChart", () => {
   });
 
   it("hover: el crosshair se posiciona en el punto más cercano al puntero y muestra su tooltip", async () => {
-    server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
+    server.use(seriesHandler());
     renderChart();
 
     const svg = await within(card()).findByRole("img");
@@ -128,7 +136,7 @@ describe("RevenueByMonthChart", () => {
     expect(crosshair.style.transform).toBe("translateX(283.2px)");
     expect(crosshair.querySelector("text")?.textContent).toBe("dic: 250.00 USD");
 
-    // Un pixel más a la izquierda del corte y el punto activo es el anterior.
+    // Del otro lado del corte, el punto activo es el anterior.
     fireEvent.pointerMove(hit, { clientX: 200 });
     expect(crosshair.style.transform).toBe("translateX(185.6px)");
     expect(crosshair.querySelector("text")?.textContent).toBe("nov: 0.00 USD");
@@ -139,7 +147,7 @@ describe("RevenueByMonthChart", () => {
   });
 
   it("al salir del gráfico el crosshair se oculta, pero se desvanece donde estaba", async () => {
-    server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
+    server.use(seriesHandler());
     renderChart();
 
     const svg = await within(card()).findByRole("img");
@@ -157,7 +165,7 @@ describe("RevenueByMonthChart", () => {
   });
 
   it("el máximo toca el techo y un mes en 0 queda sobre la base", async () => {
-    server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
+    server.use(seriesHandler());
     renderChart();
 
     const svg = await within(card()).findByRole("img");
@@ -167,6 +175,99 @@ describe("RevenueByMonthChart", () => {
     expect(cy[1]).toBeGreaterThan(cy[5]);
     expect(Math.max(...cy)).toBe(cy[1]);
     expect(Math.min(...cy)).toBe(cy[5]);
+  });
+
+  it("selector de período: arranca en Mensual y pide la serie mensual", async () => {
+    const pedidas: string[] = [];
+    server.use(
+      http.get(seriesUrl, ({ request }) => {
+        pedidas.push(new URL(request.url).searchParams.get("granularity") ?? "");
+        return HttpResponse.json(makeRevenueSeries());
+      }),
+    );
+    renderChart();
+
+    await within(card()).findByRole("img");
+    const grupo = within(card()).getByRole("group", { name: "Período" });
+    expect(within(grupo).getByRole("button", { name: "Mensual" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(within(grupo).getByRole("button", { name: "Semanal" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(pedidas).toEqual(["month"]);
+  });
+
+  it("al elegir Semanal pide esa serie y redibuja el gráfico con 8 puntos rotulados por fecha", async () => {
+    const user = userEvent.setup();
+    const pedidas: string[] = [];
+    server.use(
+      http.get(seriesUrl, ({ request }) => {
+        const granularity = new URL(request.url).searchParams.get("granularity") ?? "";
+        pedidas.push(granularity);
+        return HttpResponse.json(
+          granularity === "week" ? makeDateRevenueSeries("week", 8) : makeRevenueSeries(),
+        );
+      }),
+    );
+    renderChart();
+    await within(card()).findByRole("img");
+
+    await user.click(within(card()).getByRole("button", { name: "Semanal" }));
+
+    // El título, el aria-label del svg y el encabezado de la tabla siguen a
+    // la granularidad activa.
+    const semanal = await screen.findByLabelText("Ingresos ganados por semana");
+    const svg = await within(semanal).findByRole("img");
+    expect(svg).toHaveAttribute(
+      "aria-label",
+      "Ingresos ganados por semana, las últimas 8 semanas, en USD",
+    );
+    expect(svg.querySelectorAll("circle.ds-chart-point")).toHaveLength(8);
+    // Rótulos "día + mes" a partir del "YYYY-MM-DD" del backend.
+    expect(within(svg as HTMLElement).getByText("9 mar")).toBeInTheDocument();
+    expect(within(svg as HTMLElement).getByText("19 ene")).toBeInTheDocument();
+    // Y la tabla accesible muestra la clave cruda.
+    const table = within(semanal).getByRole("table", { name: "Ingresos ganados por semana" });
+    expect(within(table).getByText("2026-03-09")).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Semana" })).toBeInTheDocument();
+
+    expect(pedidas).toEqual(["month", "week"]);
+  });
+
+  it("con 30 puntos (Diario) se rotula uno de cada cuatro, anclado al día en curso", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(seriesUrl, ({ request }) => {
+        const granularity = new URL(request.url).searchParams.get("granularity") ?? "";
+        return HttpResponse.json(
+          granularity === "day"
+            ? makeDateRevenueSeries("day", 30, "2026-03-15")
+            : makeRevenueSeries(),
+        );
+      }),
+    );
+    renderChart();
+    await within(card()).findByRole("img");
+
+    await user.click(within(card()).getByRole("button", { name: "Diario" }));
+
+    const diario = await screen.findByLabelText("Ingresos ganados por día");
+    const svg = await within(diario).findByRole("img");
+    expect(svg.querySelectorAll("circle.ds-chart-point")).toHaveLength(30);
+    // 30 rótulos uno al lado del otro se pisarían: se dibuja uno de cada 4,
+    // anclado al último para que el día en curso siempre tenga el suyo.
+    const labels = Array.from(svg.querySelectorAll("text.ds-chart-label")).map(
+      (label) => label.textContent,
+    );
+    expect(labels).toContain("15 mar");
+    expect(labels).toContain("11 mar");
+    expect(labels).not.toContain("14 mar");
+    // La tabla accesible, en cambio, tiene los 30 días.
+    const table = within(diario).getByRole("table", { name: "Ingresos ganados por día" });
+    expect(within(table).getAllByRole("row")).toHaveLength(31);
   });
 
   it("sin ancho medido todavía no dibuja el svg (nunca un ancho inventado), pero la tabla accesible ya está", async () => {
@@ -180,7 +281,7 @@ describe("RevenueByMonthChart", () => {
       },
     );
     try {
-      server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
+      server.use(seriesHandler());
       renderChart();
 
       const table = await within(card()).findByRole("table", {
@@ -195,16 +296,16 @@ describe("RevenueByMonthChart", () => {
 
   it("empty: seis meses en 0 → empty state explícito, sin SVG", async () => {
     server.use(
-      http.get(summaryUrl, () =>
+      http.get(seriesUrl, () =>
         HttpResponse.json(
-          makeDashboardSummary({
-            revenueByMonth: [
-              { month: "2025-10", value: "0.00" },
-              { month: "2025-11", value: "0.00" },
-              { month: "2025-12", value: "0.00" },
-              { month: "2026-01", value: "0.00" },
-              { month: "2026-02", value: "0.00" },
-              { month: "2026-03", value: "0.00" },
+          makeRevenueSeries({
+            points: [
+              { label: "2025-10", value: "0.00" },
+              { label: "2025-11", value: "0.00" },
+              { label: "2025-12", value: "0.00" },
+              { label: "2026-01", value: "0.00" },
+              { label: "2026-02", value: "0.00" },
+              { label: "2026-03", value: "0.00" },
             ],
           }),
         ),
@@ -221,9 +322,9 @@ describe("RevenueByMonthChart", () => {
     expect(within(card()).queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("error: alert con el mensaje real, sin gráfico", async () => {
+  it("error: alert con el mensaje real, sin gráfico, y el selector sigue disponible", async () => {
     server.use(
-      http.get(summaryUrl, () =>
+      http.get(seriesUrl, () =>
         HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
       ),
     );
@@ -231,9 +332,10 @@ describe("RevenueByMonthChart", () => {
 
     await waitFor(() =>
       expect(within(card()).getByRole("alert")).toHaveTextContent(
-        "No pudimos cargar los ingresos por mes: caída",
+        "No pudimos cargar los ingresos: caída",
       ),
     );
     expect(within(card()).queryByRole("img")).not.toBeInTheDocument();
+    expect(within(card()).getByRole("button", { name: "Mensual" })).toBeInTheDocument();
   });
 });

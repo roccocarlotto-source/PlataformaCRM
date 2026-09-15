@@ -164,3 +164,20 @@ export interface OpportunityDashboardSummary {
   // "YYYY-MM".
   revenueByMonth: Array<{ month: string; value: string }>;
 }
+
+// Serie de ingresos por período (§33), GET /api/opportunities/revenue-series
+// ?granularity=... Reconstruida desde src/services/opportunity.service.ts
+// (RevenueSeries). Endpoint aparte del resumen a propósito: las KPI cards son
+// siempre mensuales y no se recalculan al cambiar la granularidad del
+// gráfico.
+export type OpportunityRevenueGranularity = "month" | "week" | "day";
+
+export interface OpportunityRevenueSeries {
+  currency: string;
+  granularity: OpportunityRevenueGranularity;
+  // Orden cronológico, el período en curso al final. `label` es la clave
+  // cruda del backend: "YYYY-MM" para meses, "YYYY-MM-DD" (fecha de inicio de
+  // la ventana) para semanas y días. El formato para mostrar lo decide el
+  // frontend (dashboard/revenueChart.ts).
+  points: Array<{ label: string; value: string }>;
+}

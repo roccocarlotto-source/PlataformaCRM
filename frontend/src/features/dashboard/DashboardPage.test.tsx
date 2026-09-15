@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { delay, http, HttpResponse } from "msw";
@@ -7,7 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeActivity } from "../../test/activityFixtures";
 import { makeCompany } from "../../test/companyFixtures";
-import { makeDashboardSummary } from "../../test/dashboardFixtures";
+import { makeDashboardSummary, makeRevenueSeries } from "../../test/dashboardFixtures";
 import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
@@ -48,6 +49,7 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
 
 const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
 const summaryUrl = `${env.apiUrl}/api/opportunities/dashboard-summary`;
+const revenueSeriesUrl = `${env.apiUrl}/api/opportunities/revenue-series`;
 const activitiesUrl = `${env.apiUrl}/api/activities`;
 const companiesUrl = `${env.apiUrl}/api/companies`;
 const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
@@ -73,6 +75,12 @@ function vehiclesSummaryHandler(totals = { inStock: 12, available: 5 }) {
 
 function summaryHandler() {
   return http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary()));
+}
+
+// El gráfico de ingresos tiene su propio endpoint desde el §33: el resumen ya
+// no le alcanza, y en este archivo todos los tests lo montan junto con aquél.
+function revenueSeriesHandler() {
+  return http.get(revenueSeriesUrl, () => HttpResponse.json(makeRevenueSeries()));
 }
 
 // Un único handler para /opportunities: distingue los tres consumidores por
@@ -197,6 +205,7 @@ describe("DashboardPage — render general y estados", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       summaryHandler(),
+      revenueSeriesHandler(),
       opportunitiesHandler(),
       activitiesHandler(),
       usersHandler(),
@@ -249,6 +258,7 @@ describe("DashboardPage — render general y estados", () => {
     let usersRequestCount = 0;
     server.use(
       summaryHandler(),
+      revenueSeriesHandler(),
       opportunitiesHandler(),
       activitiesHandler(),
       companyHandler(),
@@ -274,6 +284,7 @@ describe("DashboardPage — render general y estados", () => {
     let stagesRequests = 0;
     server.use(
       summaryHandler(),
+      revenueSeriesHandler(),
       opportunitiesHandler(),
       activitiesHandler(),
       usersHandler(),
@@ -299,12 +310,13 @@ describe("DashboardPage — render general y estados", () => {
     expect(stagesRequests).toBe(0);
   });
 
-  it("error parcial: si falla el resumen, caen KPI, gráfico y mayores abiertas — recientes, pipeline y feed siguen", async () => {
+  it("error parcial: si falla el resumen, caen KPI y mayores abiertas — el gráfico, con su propio endpoint (§33), sigue", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       http.get(summaryUrl, () =>
         HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
       ),
+      revenueSeriesHandler(),
       opportunitiesHandler(),
       activitiesHandler(),
       usersHandler(),
@@ -318,14 +330,14 @@ describe("DashboardPage — render general y estados", () => {
     await waitFor(() => expect(within(summary).getAllByRole("alert")).toHaveLength(4));
     await waitFor(() =>
       expect(
-        within(screen.getByLabelText("Ingresos ganados por mes")).getByRole("alert"),
-      ).toBeInTheDocument(),
-    );
-    await waitFor(() =>
-      expect(
         within(screen.getByLabelText("Mayores oportunidades abiertas")).getByRole("alert"),
       ).toBeInTheDocument(),
     );
+    // Desde el §33 el gráfico ya no lee el resumen: que el resumen caiga no lo
+    // afecta. Es la degradación por sección llevada un paso más lejos.
+    const grafico = screen.getByLabelText("Ingresos ganados por mes");
+    await within(grafico).findByRole("img");
+    expect(within(grafico).queryByRole("alert")).not.toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
     const pipeline = screen.getByLabelText("Pipeline");
@@ -333,10 +345,51 @@ describe("DashboardPage — render general y estados", () => {
     await waitFor(() => expect(screen.getByText("Llamada de seguimiento")).toBeInTheDocument());
   });
 
+  // La razón de ser del endpoint aparte del §33: las 4 KPI cards son siempre
+  // mensuales, así que cambiar la vista del gráfico no puede tocarlas.
+  it("cambiar la granularidad del gráfico pide otra serie y NO refetchea el resumen de las KPI", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const user = userEvent.setup();
+    let summaryRequests = 0;
+    const granularidades: string[] = [];
+    server.use(
+      http.get(summaryUrl, () => {
+        summaryRequests += 1;
+        return HttpResponse.json(makeDashboardSummary());
+      }),
+      http.get(revenueSeriesUrl, ({ request }) => {
+        granularidades.push(new URL(request.url).searchParams.get("granularity") ?? "");
+        return HttpResponse.json(makeRevenueSeries());
+      }),
+      opportunitiesHandler(),
+      activitiesHandler(),
+      usersHandler(),
+      companyHandler(),
+      ...defaultPipelineHandlers(),
+    );
+
+    renderDashboard();
+
+    const summary = screen.getByLabelText("Resumen comercial");
+    await waitFor(() => expect(within(summary).getByText("4500.00 USD")).toBeInTheDocument());
+    const grafico = screen.getByLabelText("Ingresos ganados por mes");
+    await within(grafico).findByRole("img");
+    expect(summaryRequests).toBe(1);
+
+    await user.click(within(grafico).getByRole("button", { name: "Semanal" }));
+    await screen.findByLabelText("Ingresos ganados por semana");
+
+    expect(granularidades).toEqual(["month", "week"]);
+    expect(summaryRequests).toBe(1);
+    // Y las KPI siguen mostrando sus números mensuales, intactas.
+    expect(within(summary).getByText("4500.00 USD")).toBeInTheDocument();
+  });
+
   it("loading independiente: Pipeline puede seguir cargando mientras el resto ya tiene datos", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       summaryHandler(),
+      revenueSeriesHandler(),
       opportunitiesHandler(),
       activitiesHandler(),
       usersHandler(),
@@ -373,6 +426,10 @@ describe("DashboardPage — render general y estados", () => {
       http.get(summaryUrl, ({ request }) => {
         capture(request);
         return HttpResponse.json(makeDashboardSummary());
+      }),
+      http.get(revenueSeriesUrl, ({ request }) => {
+        capture(request);
+        return HttpResponse.json(makeRevenueSeries());
       }),
       http.get(opportunitiesUrl, ({ request }) => {
         capture(request);

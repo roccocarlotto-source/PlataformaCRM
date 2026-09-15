@@ -1339,6 +1339,43 @@ fieldset.ds-field {
   margin-bottom: var(--space-4);
 }
 
+/* Selector de período del gráfico de ingresos (§33), en el header de la
+   tarjeta: el MISMO patrón visual que .ds-theme-toggle —pista hundida con
+   borde, y el activo con los tokens de .ds-sidebar-link.is-active— pero con
+   texto en vez de íconos, así que los botones se miden por su contenido en
+   lugar de repartirse el ancho del contenedor. Es la única diferencia que
+   justifica clases propias en vez de reusar las del tema. */
+.ds-period-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+}
+
+.ds-period-toggle-button {
+  height: var(--control-height-sm);
+  padding: 0 var(--space-3);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.ds-period-toggle-button:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.ds-period-toggle-button.is-active {
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
 .ds-card-title {
   font-family: var(--font-sans);
   font-size: var(--font-size-base);

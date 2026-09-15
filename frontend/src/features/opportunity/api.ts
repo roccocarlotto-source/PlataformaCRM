@@ -6,6 +6,8 @@ import type {
   OpportunityDashboardSummary,
   OpportunityListQuery,
   OpportunityListResponse,
+  OpportunityRevenueGranularity,
+  OpportunityRevenueSeries,
   UpdateOpportunityInput,
 } from "./types";
 
@@ -78,4 +80,17 @@ export function getOpportunityDashboardSummary(
     getAccessToken,
     signal,
   });
+}
+
+// Serie de ingresos del gráfico del Dashboard (§33). A diferencia del
+// resumen, sí lleva query param: la granularidad la elige quien mira. Las
+// ventanas las sigue fijando el backend con su propio reloj.
+export function getRevenueSeries(
+  granularity: OpportunityRevenueGranularity,
+  signal?: AbortSignal,
+): Promise<OpportunityRevenueSeries> {
+  return request<OpportunityRevenueSeries>(
+    `/opportunities/revenue-series?granularity=${granularity}`,
+    { getAccessToken, signal },
+  );
 }

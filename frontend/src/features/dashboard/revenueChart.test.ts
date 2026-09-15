@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CHART_BASELINE,
   CHART_BOX,
+  dateShortLabel,
   monthShortLabel,
   nearestPointIndex,
   segmentsToPath,
@@ -43,16 +44,35 @@ describe("monthShortLabel", () => {
   });
 });
 
+describe("dateShortLabel", () => {
+  it("YYYY-MM-DD → día + abreviatura de mes, sin año y sin pasar por Date", () => {
+    expect(dateShortLabel("2026-03-09")).toBe("9 mar");
+    expect(dateShortLabel("2026-01-19")).toBe("19 ene");
+    expect(dateShortLabel("2025-12-31")).toBe("31 dic");
+  });
+
+  it("no arrastra la zona horaria: un 1 de mes sigue siendo el 1, no el 30 anterior", () => {
+    expect(dateShortLabel("2026-03-01")).toBe("1 mar");
+  });
+
+  it("una fecha que no se puede leer se devuelve tal cual, nunca undefined ni NaN", () => {
+    expect(dateShortLabel("raro")).toBe("raro");
+    expect(dateShortLabel("2026-13-05")).toBe("2026-13-05");
+    expect(dateShortLabel("2026-03")).toBe("2026-03");
+  });
+});
+
 describe("toChartPoints", () => {
   it("escala al máximo de la serie: el máximo toca el techo y 0 queda en la base", () => {
     const points = toChartPoints(
       [
-        { month: "2026-01", value: "0.00" },
-        { month: "2026-02", value: "50.00" },
-        { month: "2026-03", value: "100.00" },
+        { label: "ene", value: "0.00" },
+        { label: "feb", value: "50.00" },
+        { label: "mar", value: "100.00" },
       ],
       WIDTH,
     );
+    // El rótulo viaja tal cual: desde el §33 lo arma el componente.
     expect(points.map((entry) => entry.label)).toEqual(["ene", "feb", "mar"]);
     expect(points[0].y).toBe(CHART_BASELINE);
     expect(points[2].y).toBe(CHART_BOX.top);
@@ -61,9 +81,9 @@ describe("toChartPoints", () => {
 
   it("reparte los puntos en el ancho útil DEL ANCHO RECIBIDO, el primero a la izquierda y el último a la derecha", () => {
     const series = [
-      { month: "2026-01", value: "1" },
-      { month: "2026-02", value: "1" },
-      { month: "2026-03", value: "1" },
+      { label: "ene", value: "1" },
+      { label: "feb", value: "1" },
+      { label: "mar", value: "1" },
     ];
     const points = toChartPoints(series, WIDTH);
     expect(points[0].x).toBe(CHART_BOX.left);
@@ -81,8 +101,8 @@ describe("toChartPoints", () => {
   it("todo en 0: todos los puntos sobre la base, sin dividir por cero", () => {
     const points = toChartPoints(
       [
-        { month: "2026-01", value: "0.00" },
-        { month: "2026-02", value: "0.00" },
+        { label: "ene", value: "0.00" },
+        { label: "feb", value: "0.00" },
       ],
       WIDTH,
     );
@@ -90,7 +110,7 @@ describe("toChartPoints", () => {
   });
 
   it("un solo punto se centra", () => {
-    const [single] = toChartPoints([{ month: "2026-01", value: "10" }], WIDTH);
+    const [single] = toChartPoints([{ label: "ene", value: "10" }], WIDTH);
     expect(single.x).toBe(CHART_BOX.left + INNER_WIDTH / 2);
   });
 });
@@ -122,9 +142,9 @@ describe("smoothSegments", () => {
     // debajo de la base (un ingreso negativo que no existe).
     const dip = toChartPoints(
       [
-        { month: "2026-01", value: "100" },
-        { month: "2026-02", value: "0" },
-        { month: "2026-03", value: "250" },
+        { label: "ene", value: "100" },
+        { label: "feb", value: "0" },
+        { label: "mar", value: "250" },
       ],
       WIDTH,
     );

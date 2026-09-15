@@ -27,3 +27,14 @@ test("GET /opportunities/dashboard-summary está montada y va antes que GET /opp
   assert.notEqual(detalle, -1, "la ruta de detalle no está montada");
   assert.ok(resumen < detalle, `el resumen (${resumen}) tiene que ir antes que :id (${detalle})`);
 });
+
+// §33 — exactamente lo mismo para la serie de ingresos por período, la
+// segunda ruta de agregados bajo /opportunities.
+test("GET /opportunities/revenue-series está montada y va antes que GET /opportunities/:id", () => {
+  const rutas = rutasGet();
+  const serie = rutas.indexOf("/opportunities/revenue-series");
+  const detalle = rutas.indexOf("/opportunities/:id");
+  assert.notEqual(serie, -1, "la ruta de la serie no está montada");
+  assert.notEqual(detalle, -1, "la ruta de detalle no está montada");
+  assert.ok(serie < detalle, `la serie (${serie}) tiene que ir antes que :id (${detalle})`);
+});
