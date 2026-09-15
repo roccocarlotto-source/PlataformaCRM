@@ -1427,6 +1427,66 @@ a.ds-button--secondary:hover {
   margin: 0;
 }
 
+/* Fila de KPI comerciales (§32, OpportunityKpiCards.tsx): entrada escalonada
+   de las cuatro tarjetas y un levantamiento leve al hover. Acotado al wrapper
+   .ds-kpi-row a propósito, para no tocar la regla base .ds-card (toda la app)
+   ni .ds-kpi fuera de esta fila (VehicleSummaryCards). La sombra del hover
+   queda fuera de la media query: no es movimiento; el desplazamiento y la
+   entrada sí. fill-mode backwards para que, terminada la entrada, el hover no
+   quede pisado por la animación. */
+.ds-kpi-row .ds-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ds-kpi-row .ds-card {
+    transition:
+      transform 160ms ease-out,
+      box-shadow 160ms ease-out;
+  }
+
+  .ds-kpi-row .ds-card:hover {
+    transform: translateY(-2px);
+  }
+
+  .ds-kpi-row .ds-kpi {
+    animation: ds-rise-in 420ms ease-out backwards;
+  }
+
+  .ds-kpi-row .ds-kpi:nth-child(2) {
+    animation-delay: 80ms;
+  }
+
+  .ds-kpi-row .ds-kpi:nth-child(3) {
+    animation-delay: 160ms;
+  }
+
+  .ds-kpi-row .ds-kpi:nth-child(4) {
+    animation-delay: 240ms;
+  }
+}
+
+/* Keyframes compartidos por .ds-kpi-row y .ds-chart-* (más abajo). */
+@keyframes ds-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ds-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Meter — fila "rótulo … valor" con barra proporcional debajo (pista 6px,
    relleno en el color primario). El ancho del relleno lo calcula el
@@ -1552,29 +1612,62 @@ a.ds-button--secondary:hover {
 }
 
 /* ---------------------------------------------------------------------------
-   Gráfico de línea del Dashboard (§30, features/dashboard/RevenueByMonthChart
-   .tsx): un <svg> a mano que escala al ancho de la tarjeta. Línea de 2px en el
-   color primario (el mismo del relleno de .ds-meter-fill), marcadores huecos
-   sobre la superficie, líneas de referencia y rótulos recesivos.
+   Gráfico de línea del Dashboard (§30 y §32, features/dashboard/
+   RevenueByMonthChart.tsx): un <svg> a mano cuyo viewBox y width/height se
+   arman con el ancho REAL medido del contenedor (.ds-chart-frame, vía
+   lib/useContainerWidth.ts). Por eso acá NO hay width: 100%: 1 unidad de
+   viewBox es 1px, y estos font-size/stroke-width son píxeles de verdad y no
+   escalan con la tarjeta (el bug del §32). Curva en el acento índigo con
+   relleno en degradé, marcadores huecos sobre la superficie, líneas de
+   referencia y rótulos recesivos.
+
+   El hover por punto (guía punteada + tooltip visibles, círculo más grande)
+   se resuelve con :hover sobre el <g> del marcador, cuya franja invisible
+   (.ds-chart-hit) cubre toda la columna. Las animaciones de entrada y las
+   transiciones van al final, bajo prefers-reduced-motion: no-preference;
+   mostrar/ocultar el tooltip no es movimiento y queda afuera.
    --------------------------------------------------------------------------- */
+.ds-chart-frame {
+  min-width: 0;
+}
+
 .ds-chart {
   display: block;
-  width: 100%;
-  height: auto;
+  /* El rótulo del máximo puede ser más largo que el margen izquierdo con
+     importes muy grandes: que asome sobre el padding de la tarjeta antes que
+     recortarse. Los tooltips ya se corren hacia adentro por geometría. */
+  overflow: visible;
 }
 
 .ds-chart-line {
   fill: none;
-  stroke: var(--color-primary);
+  stroke: var(--color-accent);
   stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
 
+/* Último tramo: el mes calendario en curso, que todavía no cerró. */
+.ds-chart-line--partial {
+  stroke-dasharray: 4 5;
+}
+
+.ds-chart-area-stop-start {
+  stop-color: var(--color-accent);
+  stop-opacity: 0.28;
+}
+
+.ds-chart-area-stop-end {
+  stop-color: var(--color-accent);
+  stop-opacity: 0;
+}
+
 .ds-chart-point {
   fill: var(--color-surface);
-  stroke: var(--color-primary);
+  stroke: var(--color-accent);
   stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 .ds-chart-grid {
@@ -1586,6 +1679,98 @@ a.ds-button--secondary:hover {
   font-family: var(--font-sans);
   font-size: 11px;
   fill: var(--color-text-muted);
+}
+
+/* transparent y no none: un fill none no recibe eventos de puntero. */
+.ds-chart-hit {
+  fill: transparent;
+}
+
+.ds-chart-guide {
+  stroke: var(--color-accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Tooltip visual: los tokens de .ds-sidebar-link.is-active (tinta sobre
+   contraste), duplicado decorativo del <title> nativo del círculo. */
+.ds-chart-tooltip {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ds-chart-tooltip-box {
+  fill: var(--color-primary);
+}
+
+.ds-chart-tooltip-text {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  fill: var(--color-primary-contrast);
+}
+
+.ds-chart-marker:hover .ds-chart-guide,
+.ds-chart-marker:hover .ds-chart-tooltip {
+  opacity: 1;
+}
+
+.ds-chart-marker:hover .ds-chart-point {
+  transform: scale(1.5);
+}
+
+/* Entrada: grilla y rótulos aparecen enseguida, la línea se dibuja (pathLength
+   =1 en el <path>, así el dasharray/dashoffset va de 1 a 0 sin medir nada
+   desde JS), el relleno y el tramo punteado se funden después, y los
+   marcadores entran escalonados por --ds-chart-index (inline, desde el
+   componente). Todo con fill-mode backwards: al terminar, cada elemento vuelve
+   a su estilo normal, así el :hover de arriba no queda pisado por la
+   animación. Sin key atada a los datos en el <svg>, un refetch en background
+   reconcilia los mismos nodos y no las repite. */
+@media (prefers-reduced-motion: no-preference) {
+  .ds-chart-grid,
+  .ds-chart-label {
+    animation: ds-fade-in 300ms ease-out backwards;
+  }
+
+  .ds-chart-line--solid {
+    stroke-dasharray: 1;
+    animation: ds-chart-draw 1.1s ease-out backwards;
+  }
+
+  .ds-chart-line--partial {
+    animation: ds-fade-in 400ms ease-out 1s backwards;
+  }
+
+  .ds-chart-area {
+    animation: ds-fade-in 700ms ease-out 250ms backwards;
+  }
+
+  .ds-chart-marker {
+    animation: ds-rise-in 400ms ease-out backwards;
+    animation-delay: calc(350ms + var(--ds-chart-index, 0) * 130ms);
+  }
+
+  .ds-chart-point {
+    transition: transform 140ms ease-out;
+  }
+
+  .ds-chart-guide,
+  .ds-chart-tooltip {
+    transition: opacity 140ms ease-out;
+  }
+}
+
+@keyframes ds-chart-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 /* ---------------------------------------------------------------------------

@@ -12,8 +12,13 @@ import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { makeUser } from "../../test/userFixtures";
+import { stubResizeObserver } from "../../test/resizeObserverStub";
 import { DashboardPage } from "./DashboardPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
+
+// jsdom no tiene ResizeObserver y el gráfico de ingresos (§32) no dibuja el
+// <svg> hasta medir el ancho de la tarjeta.
+stubResizeObserver(600);
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
