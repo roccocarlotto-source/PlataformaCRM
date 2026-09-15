@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
@@ -39,7 +39,7 @@ describe("RevenueByMonthChart", () => {
     expect(within(card()).getByText("Cargando…")).toBeInTheDocument();
   });
 
-  it("success: un SVG con la curva de 6 puntos, un marcador y un rótulo de mes por punto, y la tabla accesible", async () => {
+  it("success: un SVG con la curva de 6 puntos, un círculo y un rótulo de mes por punto, y la tabla accesible", async () => {
     server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
     renderChart();
 
@@ -60,7 +60,7 @@ describe("RevenueByMonthChart", () => {
     const gradientId = svg.querySelector("linearGradient")?.getAttribute("id");
     expect(area?.getAttribute("fill")).toBe(`url(#${gradientId})`);
 
-    expect(svg.querySelectorAll("circle")).toHaveLength(6);
+    expect(svg.querySelectorAll("circle.ds-chart-point")).toHaveLength(6);
 
     // Eje X: las abreviaturas de MONTHS, en el orden cronológico del backend.
     const months = ["oct", "nov", "dic", "ene", "feb", "mar"];
@@ -70,8 +70,8 @@ describe("RevenueByMonthChart", () => {
     // El máximo de la serie rotula el techo, en la moneda.
     expect(within(svg as HTMLElement).getByText("3000.00 USD")).toBeInTheDocument();
 
-    // Tooltip nativo por marcador y tabla para lector de pantalla.
-    expect(svg.querySelector("circle title")?.textContent).toBe("oct: 100.00 USD");
+    // <title> nativo por punto y tabla para lector de pantalla.
+    expect(svg.querySelector("circle.ds-chart-point title")?.textContent).toBe("oct: 100.00 USD");
     const table = within(card()).getByRole("table", { name: "Ingresos ganados por mes" });
     expect(within(table).getAllByRole("row")).toHaveLength(7);
     expect(within(table).getByText("2026-03")).toBeInTheDocument();
@@ -85,28 +85,75 @@ describe("RevenueByMonthChart", () => {
     expect(svg).toHaveAttribute("width", "600");
     expect(svg).toHaveAttribute("height", String(CHART_BOX.height));
     expect(svg).toHaveAttribute("viewBox", `0 0 600 ${CHART_BOX.height}`);
-    // Y los puntos se reparten en ESE ancho: el último marcador queda en el
+    // Y los puntos se reparten en ESE ancho: el último círculo queda en el
     // borde derecho del área útil.
-    const circles = Array.from(svg.querySelectorAll("circle"));
+    const circles = Array.from(svg.querySelectorAll("circle.ds-chart-point"));
     expect(Number(circles[0].getAttribute("cx"))).toBe(CHART_BOX.left);
     expect(Number(circles[5].getAttribute("cx"))).toBe(600 - CHART_BOX.right);
   });
 
-  it("tooltip visual y guía por marcador, ocultos para tecnología asistiva (el <title> es la vía accesible)", async () => {
+  it("un solo crosshair para toda la serie, oculto hasta el hover y oculto para tecnología asistiva", async () => {
     server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
     renderChart();
 
     const svg = await within(card()).findByRole("img");
-    const markers = svg.querySelectorAll("g.ds-chart-marker");
-    expect(markers).toHaveLength(6);
-    const first = markers[0];
-    expect(first.querySelector(".ds-chart-hit")).not.toBeNull();
-    expect(first.querySelector(".ds-chart-guide")).not.toBeNull();
-    const tooltip = first.querySelector(".ds-chart-tooltip");
-    expect(tooltip).toHaveAttribute("aria-hidden", "true");
-    expect(tooltip?.querySelector("text")?.textContent).toBe("oct: 100.00 USD");
-    // Índice para el escalonado de la entrada.
-    expect((markers[3] as SVGGElement).style.getPropertyValue("--ds-chart-index")).toBe("3");
+    // Un único rect de captura sobre el área útil, y un único crosshair —
+    // ya no hay una franja ni un tooltip por punto (§33).
+    expect(svg.querySelectorAll("rect.ds-chart-hit")).toHaveLength(1);
+    const crosshair = svg.querySelectorAll("g.ds-chart-crosshair");
+    expect(crosshair).toHaveLength(1);
+    expect(crosshair[0]).toHaveAttribute("aria-hidden", "true");
+    expect(crosshair[0].classList.contains("is-visible")).toBe(false);
+    expect(crosshair[0].querySelector(".ds-chart-guide")).not.toBeNull();
+    expect(crosshair[0].querySelector(".ds-chart-crosshair-point")).not.toBeNull();
+    // Índice para el escalonado de la entrada, ahora sobre el círculo.
+    const points = svg.querySelectorAll("circle.ds-chart-point");
+    expect((points[3] as SVGCircleElement).style.getPropertyValue("--ds-chart-index")).toBe("3");
+  });
+
+  it("hover: el crosshair se posiciona en el punto más cercano al puntero y muestra su tooltip", async () => {
+    server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
+    renderChart();
+
+    const svg = await within(card()).findByRole("img");
+    const hit = svg.querySelector("rect.ds-chart-hit") as SVGRectElement;
+    const crosshair = svg.querySelector("g.ds-chart-crosshair") as SVGGElement;
+
+    // getBoundingClientRect da 0 en jsdom, así que clientX es directamente la
+    // X del viewBox. Con 600px de ancho los puntos caen en 88, 185.6, 283.2,
+    // 380.8, 478.4 y 576: 270 está más cerca de "dic" (el tercero) que de
+    // "nov".
+    fireEvent.pointerMove(hit, { clientX: 270 });
+    expect(crosshair.classList.contains("is-visible")).toBe(true);
+    expect(crosshair.style.transform).toBe("translateX(283.2px)");
+    expect(crosshair.querySelector("text")?.textContent).toBe("dic: 250.00 USD");
+
+    // Un pixel más a la izquierda del corte y el punto activo es el anterior.
+    fireEvent.pointerMove(hit, { clientX: 200 });
+    expect(crosshair.style.transform).toBe("translateX(185.6px)");
+    expect(crosshair.querySelector("text")?.textContent).toBe("nov: 0.00 USD");
+
+    // Más allá del último punto se queda en el último, no se sale de la serie.
+    fireEvent.pointerMove(hit, { clientX: 9_999 });
+    expect(crosshair.querySelector("text")?.textContent).toBe("mar: 3000.00 USD");
+  });
+
+  it("al salir del gráfico el crosshair se oculta, pero se desvanece donde estaba", async () => {
+    server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
+    renderChart();
+
+    const svg = await within(card()).findByRole("img");
+    const hit = svg.querySelector("rect.ds-chart-hit") as SVGRectElement;
+    const crosshair = svg.querySelector("g.ds-chart-crosshair") as SVGGElement;
+
+    fireEvent.pointerMove(hit, { clientX: 478 });
+    expect(crosshair.classList.contains("is-visible")).toBe(true);
+
+    fireEvent.pointerLeave(hit);
+    expect(crosshair.classList.contains("is-visible")).toBe(false);
+    // Sigue en el último punto apuntado: la salida es un fade, no un salto
+    // al principio de la serie.
+    expect(crosshair.style.transform).toBe("translateX(478.4px)");
   });
 
   it("el máximo toca el techo y un mes en 0 queda sobre la base", async () => {
@@ -114,7 +161,7 @@ describe("RevenueByMonthChart", () => {
     renderChart();
 
     const svg = await within(card()).findByRole("img");
-    const circles = Array.from(svg.querySelectorAll("circle"));
+    const circles = Array.from(svg.querySelectorAll("circle.ds-chart-point"));
     const cy = circles.map((circle) => Number(circle.getAttribute("cy")));
     // nov (índice 1) es 0.00 → base; mar (índice 5) es el máximo → techo.
     expect(cy[1]).toBeGreaterThan(cy[5]);

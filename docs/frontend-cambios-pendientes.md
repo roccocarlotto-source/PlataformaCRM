@@ -1412,3 +1412,33 @@ Cambios:
 - Alcance CSS respetado: clases nuevas solo `ds-chart-*` y `ds-kpi-row`, con los keyframes `ds-fade-in`, `ds-rise-in` y `ds-chart-draw`, más el token `--shadow-md`. No se tocaron la regla base `.ds-card`, `.ds-kpi` fuera de `.ds-kpi-row` ni `VehicleSummaryCards.tsx`.
 - Archivos nuevos: `lib/useContainerWidth.ts` (+ test) y `test/resizeObserverStub.ts`. Modificados: `revenueChart.ts` (+ test), `RevenueByMonthChart.tsx` (+ test), `OpportunityKpiCards.tsx` (solo la clase del `<dl>`), `DashboardPage.test.tsx` (solo el stub), `design-system.css` y `tokens.css`. Sin cambios de backend, sin migración y sin dependencias nuevas.
 - Suite completa del frontend: 127 archivos y 1197 tests (en el §31 eran 126 y 1177). Typecheck, ESLint, Prettier y build (app y widget) limpios.
+
+## 33. Selector de período (mensual/semanal/diario) y crosshair continuo en el gráfico de ingresos
+
+Motivo: seguir mejorando el gráfico "Ingresos ganados por mes" — un hover
+que se sienta continuo (como el crosshair de un componente de referencia que
+se evaluó y se descartó en el §32 por traer Tailwind/shadcn) y la
+posibilidad de ver la serie por semana o por día, no solo por mes.
+
+Parte A — hover continuo: los seis marcadores con su propia franja de
+:hover (§32) se reemplazan por un único crosshair que sigue al puntero
+(onPointerMove sobre el área del gráfico, sin librería), con una transición
+CSS para que el desplazamiento entre puntos se sienta como un deslizamiento
+y no un salto. El <title> nativo por punto y la tabla accesible no cambian.
+
+Parte B — granularidad: nuevo endpoint GET /opportunities/revenue-series
+?granularity=month|week|day, separado de /opportunities/dashboard-summary
+a propósito — las 4 KPI cards siguen siendo mensuales siempre, y cambiar la
+granularidad del gráfico no debe refetchear ni recalcular esas cards. El
+último bucket de cualquier granularidad es siempre el período en curso, sin
+cerrar (mismo criterio que ya vale para el mes en el §32, generalizado).
+Ventanas: semana lunes-a-domingo UTC, día calendario UTC. Cantidad de
+buckets: 6 meses (sin cambios), 8 semanas, 30 días — constantes ajustables.
+Selector visual: segmented control de texto ("Mensual"/"Semanal"/"Diario"),
+mismo patrón visual que .ds-theme-toggle, en el header de la tarjeta.
+
+Refactor necesario: revenueChart.ts (toChartPoints y compañía) dejaba de
+saber calcular el rótulo de mes internamente (monthShortLabel) para poder
+servir las tres granularidades sin triplicar el componente — ahora recibe
+puntos ya rotulados ({label, value}) y quien arma esos puntos (el
+componente) elige el formateador según la granularidad activa.

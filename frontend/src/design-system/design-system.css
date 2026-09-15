@@ -1621,11 +1621,12 @@ a.ds-button--secondary:hover {
    relleno en degradé, marcadores huecos sobre la superficie, líneas de
    referencia y rótulos recesivos.
 
-   El hover por punto (guía punteada + tooltip visibles, círculo más grande)
-   se resuelve con :hover sobre el <g> del marcador, cuya franja invisible
-   (.ds-chart-hit) cubre toda la columna. Las animaciones de entrada y las
-   transiciones van al final, bajo prefers-reduced-motion: no-preference;
-   mostrar/ocultar el tooltip no es movimiento y queda afuera.
+   El hover es un único crosshair (§33) y no seis franjas de :hover: un solo
+   <rect class="ds-chart-hit"> cubre el área útil y el componente posiciona
+   .ds-chart-crosshair (guía + círculo + tooltip) en el punto más cercano al
+   puntero, con transform. Las animaciones de entrada y las transiciones van
+   al final, bajo prefers-reduced-motion: no-preference; mostrar/ocultar el
+   crosshair no es movimiento y queda afuera.
    --------------------------------------------------------------------------- */
 .ds-chart-frame {
   min-width: 0;
@@ -1666,8 +1667,6 @@ a.ds-button--secondary:hover {
   fill: var(--color-surface);
   stroke: var(--color-accent);
   stroke-width: 2;
-  transform-box: fill-box;
-  transform-origin: center;
 }
 
 .ds-chart-grid {
@@ -1690,17 +1689,34 @@ a.ds-button--secondary:hover {
   stroke: var(--color-accent);
   stroke-width: 1;
   stroke-dasharray: 3 4;
+}
+
+/* Crosshair (§33): un solo grupo para toda la serie, colocado con dos
+   transform anidados que el componente calcula (translateX del punto afuera,
+   translateY adentro). Todo su contenido se dibuja en coordenadas relativas
+   al punto activo, así la transición de transform lo desliza de un punto al
+   siguiente en vez de saltar. Oculto hasta que el puntero entra al gráfico;
+   nunca recibe eventos, para no robarle el hover al rect de captura. */
+.ds-chart-crosshair {
   opacity: 0;
   pointer-events: none;
+}
+
+.ds-chart-crosshair.is-visible {
+  opacity: 1;
+}
+
+/* Círculo resaltado del punto activo: el mismo par fill/stroke que
+   .ds-chart-point, más grande (r=6 contra r=4) y sin animación de entrada,
+   porque no entra con la serie sino con el puntero. */
+.ds-chart-crosshair-point {
+  fill: var(--color-surface);
+  stroke: var(--color-accent);
+  stroke-width: 2;
 }
 
 /* Tooltip visual: los tokens de .ds-sidebar-link.is-active (tinta sobre
    contraste), duplicado decorativo del <title> nativo del círculo. */
-.ds-chart-tooltip {
-  opacity: 0;
-  pointer-events: none;
-}
-
 .ds-chart-tooltip-box {
   fill: var(--color-primary);
 }
@@ -1713,22 +1729,12 @@ a.ds-button--secondary:hover {
   fill: var(--color-primary-contrast);
 }
 
-.ds-chart-marker:hover .ds-chart-guide,
-.ds-chart-marker:hover .ds-chart-tooltip {
-  opacity: 1;
-}
-
-.ds-chart-marker:hover .ds-chart-point {
-  transform: scale(1.5);
-}
-
 /* Entrada: grilla y rótulos aparecen enseguida, la línea se dibuja (pathLength
    =1 en el <path>, así el dasharray/dashoffset va de 1 a 0 sin medir nada
-   desde JS), el relleno y el tramo punteado se funden después, y los
-   marcadores entran escalonados por --ds-chart-index (inline, desde el
-   componente). Todo con fill-mode backwards: al terminar, cada elemento vuelve
-   a su estilo normal, así el :hover de arriba no queda pisado por la
-   animación. Sin key atada a los datos en el <svg>, un refetch en background
+   desde JS), el relleno y el tramo punteado se funden después, y los puntos
+   entran escalonados por --ds-chart-index (inline, desde el componente). Todo
+   con fill-mode backwards: al terminar, cada elemento vuelve a su estilo
+   normal. Sin key atada a los datos en el <svg>, un refetch en background
    reconcilia los mismos nodos y no las repite. */
 @media (prefers-reduced-motion: no-preference) {
   .ds-chart-grid,
@@ -1749,18 +1755,23 @@ a.ds-button--secondary:hover {
     animation: ds-fade-in 700ms ease-out 250ms backwards;
   }
 
-  .ds-chart-marker {
+  .ds-chart-point {
     animation: ds-rise-in 400ms ease-out backwards;
     animation-delay: calc(350ms + var(--ds-chart-index, 0) * 130ms);
   }
 
-  .ds-chart-point {
-    transition: transform 140ms ease-out;
+  /* El deslizamiento del crosshair entre puntos: la curva sale rápido y
+     frena al llegar, que es lo que lo hace leer como "sigue al mouse" y no
+     como "salta al punto". El grupo interno lleva la suya porque su
+     transform (la Y del punto) es independiente del externo. */
+  .ds-chart-crosshair {
+    transition:
+      transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 160ms ease-out;
   }
 
-  .ds-chart-guide,
-  .ds-chart-tooltip {
-    transition: opacity 140ms ease-out;
+  .ds-chart-crosshair-focus {
+    transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 }
 

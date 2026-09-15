@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   CHART_BASELINE,
   CHART_BOX,
-  hitBand,
   monthShortLabel,
+  nearestPointIndex,
   segmentsToPath,
   smoothSegments,
   toAreaPath,
@@ -213,19 +213,29 @@ describe("tooltipLayout", () => {
   });
 });
 
-describe("hitBand", () => {
+describe("nearestPointIndex", () => {
+  // Tres puntos a 244px de paso: los mismos que reparte toChartPoints con
+  // WIDTH=600 (88, 332, 576).
   const points = [point(88, 0), point(332, 0), point(576, 0)];
 
-  it("cada franja va de mitad de camino con el vecino anterior a mitad con el siguiente", () => {
-    expect(hitBand(points, 1, WIDTH)).toEqual({ x: 210, width: 244 });
+  it("devuelve el punto más cercano, y el corte está a mitad de camino entre dos", () => {
+    expect(nearestPointIndex(points, 88)).toBe(0);
+    expect(nearestPointIndex(points, 209)).toBe(0);
+    expect(nearestPointIndex(points, 211)).toBe(1);
+    expect(nearestPointIndex(points, 332)).toBe(1);
+    expect(nearestPointIndex(points, 453)).toBe(1);
+    expect(nearestPointIndex(points, 455)).toBe(2);
+    expect(nearestPointIndex(points, 576)).toBe(2);
   });
 
-  it("la primera arranca en 0 y la última llega al ancho del gráfico", () => {
-    expect(hitBand(points, 0, WIDTH)).toEqual({ x: 0, width: 210 });
-    expect(hitBand(points, 2, WIDTH)).toEqual({ x: 454, width: WIDTH - 454 });
+  it("fuera del rango de la serie se acota al primero o al último, nunca a un índice inexistente", () => {
+    expect(nearestPointIndex(points, -500)).toBe(0);
+    expect(nearestPointIndex(points, 0)).toBe(0);
+    expect(nearestPointIndex(points, 5_000)).toBe(2);
   });
 
-  it("un solo punto cubre todo el ancho", () => {
-    expect(hitBand([point(332, 0)], 0, WIDTH)).toEqual({ x: 0, width: WIDTH });
+  it("con menos de dos puntos siempre es el 0 (no hay paso del que dividir)", () => {
+    expect(nearestPointIndex([point(332, 0)], 10)).toBe(0);
+    expect(nearestPointIndex([], 10)).toBe(0);
   });
 });

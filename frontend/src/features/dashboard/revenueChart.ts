@@ -167,16 +167,19 @@ export function tooltipLayout(point: ChartPoint, text: string, chartWidth: numbe
   };
 }
 
-// Franja de hover de cada punto: la mitad de la distancia al vecino a cada
-// lado, así se puede apuntar a una columna entera y no solo al círculo.
-export function hitBand(
-  points: ReadonlyArray<ChartPoint>,
-  index: number,
-  chartWidth: number,
-): { x: number; width: number } {
-  if (points.length < 2) return { x: 0, width: chartWidth };
+// Punto más cercano a una X del puntero, en coordenadas del viewBox (§33).
+// Reemplaza a hitBand (§32), que le daba a cada punto su propia franja de
+// :hover: ahora hay un único rect de captura y el crosshair se posiciona en
+// el punto que devuelve esta función, así que quién está "activo" se decide
+// una sola vez y desde JS.
+//
+// Los puntos están repartidos con espaciado uniforme (toChartPoints), así que
+// no hace falta recorrerlos: alcanza con dividir por el paso y redondear. El
+// resultado se acota a la serie, porque el rect de captura llega hasta los
+// bordes del área útil y el puntero puede caer fuera del primer/último punto.
+export function nearestPointIndex(points: ReadonlyArray<ChartPoint>, pointerX: number): number {
+  if (points.length < 2) return 0;
   const step = points[1].x - points[0].x;
-  const left = index === 0 ? 0 : points[index].x - step / 2;
-  const right = index === points.length - 1 ? chartWidth : points[index].x + step / 2;
-  return { x: left, width: right - left };
+  const index = Math.round((pointerX - points[0].x) / step);
+  return Math.min(points.length - 1, Math.max(0, index));
 }

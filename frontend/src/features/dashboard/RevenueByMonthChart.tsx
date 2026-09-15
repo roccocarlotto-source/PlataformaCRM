@@ -1,4 +1,4 @@
-import { useId, type CSSProperties } from "react";
+import { useId, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { Card } from "../../design-system/Card";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -9,7 +9,7 @@ import { useDashboardSummary } from "./queries";
 import {
   CHART_BASELINE,
   CHART_BOX,
-  hitBand,
+  nearestPointIndex,
   segmentsToPath,
   smoothSegments,
   toAreaPath,
@@ -32,14 +32,20 @@ import {
 // suave (Catmull-Rom → Bézier) con relleno en degradé, el último tramo
 // punteado porque el backend manda el mes calendario en curso al final de la
 // serie (lastMonthsUTC: "la actual al final") y ese dato todavía no cerró.
-// Las animaciones de entrada y el hover por punto viven en design-system.css
-// (.ds-chart-*), sin JS: el <svg> no lleva ninguna key atada a los datos, así
-// que un refetch en background reconcilia los mismos nodos y no las repite.
+// Las animaciones de entrada viven en design-system.css (.ds-chart-*), sin
+// JS: el <svg> no lleva ninguna key atada a los datos, así que un refetch en
+// background reconcilia los mismos nodos y no las repite.
+//
+// El hover SÍ pasa por JS desde el §33: un único <rect> de captura sobre
+// todo el área útil y un solo crosshair que se posiciona en el punto más
+// cercano al puntero (ver Crosshair). Antes cada punto tenía su propia
+// franja de :hover y su propio tooltip, y el resultado saltaba de columna en
+// columna.
 //
 // Una sola serie, así que no lleva leyenda: el título ya la nombra. El
-// <title> de cada marcador es el tooltip nativo, y la tabla oculta es la
-// versión legible por lector de pantalla; el tooltip visual del hover es un
-// duplicado decorativo de ese <title>.
+// <title> de cada punto es el nombre accesible del círculo, y la tabla
+// oculta es la versión legible por lector de pantalla; el crosshair es un
+// duplicado decorativo de esos <title>.
 export function RevenueByMonthChart() {
   const summary = useDashboardSummary();
   const { ref, width } = useContainerWidth();
@@ -99,8 +105,17 @@ interface ChartSvgProps {
   currency: string;
 }
 
+// Estado del crosshair: el índice se conserva al salir del gráfico para que
+// el grupo se desvanezca DONDE estaba y no salte al punto 0 mientras se va.
+interface CrosshairState {
+  index: number;
+  visible: boolean;
+}
+
 function ChartSvg({ series, width, max, currency }: ChartSvgProps) {
   const gradientId = useId();
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [crosshair, setCrosshair] = useState<CrosshairState>({ index: 0, visible: false });
   const points = toChartPoints(series, width);
   const segments = smoothSegments(points);
   // El último tramo va aparte y punteado: es el mes en curso, sin cerrar.
@@ -108,9 +123,32 @@ function ChartSvg({ series, width, max, currency }: ChartSvgProps) {
   const partialPath = segmentsToPath(segments.slice(-1));
   const areaPath = toAreaPath(points);
   const right = width - CHART_BOX.right;
+  const pointText = (point: ChartPoint) =>
+    `${point.label}: ${formatAmount(String(point.value), currency)}`;
+
+  // El <rect> de captura y el <svg> comparten el sistema de coordenadas (el
+  // viewBox es 1:1 con el ancho renderizado desde el §32), así que restarle
+  // el borde izquierdo del <svg> al clientX ya da la X del viewBox.
+  function handlePointerMove(event: PointerEvent<SVGRectElement>) {
+    const box = svgRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const index = nearestPointIndex(points, event.clientX - box.left);
+    setCrosshair((current) =>
+      current.visible && current.index === index ? current : { index, visible: true },
+    );
+  }
+
+  function handlePointerLeave() {
+    setCrosshair((current) => (current.visible ? { ...current, visible: false } : current));
+  }
+
+  // La serie puede acortarse entre renders (otra respuesta del backend): el
+  // índice guardado se acota acá y nunca se lee un punto que no existe.
+  const activePoint = points[Math.min(crosshair.index, points.length - 1)];
 
   return (
     <svg
+      ref={svgRef}
       className="ds-chart"
       width={width}
       height={CHART_BOX.height}
@@ -181,69 +219,90 @@ function ChartSvg({ series, width, max, currency }: ChartSvgProps) {
         </text>
       ))}
 
+      {/* Los círculos de cada punto: el <title> es su nombre accesible y el
+          índice escalona la animación de entrada. */}
       {points.map((point, index) => (
-        <ChartMarker
+        <circle
           key={point.label}
-          point={point}
-          index={index}
-          band={hitBand(points, index, width)}
-          width={width}
-          text={`${point.label}: ${formatAmount(String(point.value), currency)}`}
-        />
+          className="ds-chart-point"
+          style={{ "--ds-chart-index": index } as CSSProperties}
+          cx={point.x}
+          cy={point.y}
+          r={4}
+        >
+          <title>{pointText(point)}</title>
+        </circle>
       ))}
+
+      {activePoint ? (
+        <Crosshair
+          point={activePoint}
+          visible={crosshair.visible}
+          text={pointText(activePoint)}
+          width={width}
+        />
+      ) : null}
+
+      {/* Último, para quedar encima de todo: es el único elemento que recibe
+          eventos de puntero, así el crosshair no parpadea al pasar por arriba
+          de un círculo (que, siendo hermano y no descendiente, dispararía el
+          pointerleave de este rect). */}
+      <rect
+        className="ds-chart-hit"
+        x={CHART_BOX.left}
+        y={0}
+        width={Math.max(0, right - CHART_BOX.left)}
+        height={CHART_BOX.height}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={handlePointerLeave}
+      />
     </svg>
   );
 }
 
-interface ChartMarkerProps {
+interface CrosshairProps {
   point: ChartPoint;
-  index: number;
-  band: { x: number; width: number };
-  width: number;
+  visible: boolean;
   text: string;
+  width: number;
 }
 
-// Marcador de un punto con su franja de hover: al pasar el mouse por la
-// columna, el círculo crece, aparece una guía vertical punteada y el tooltip
-// visual (rect + text). Todo por CSS (:hover sobre el <g>), sin seguir el
-// mouse desde JS. El índice va como custom property para escalonar la
-// entrada.
-function ChartMarker({ point, index, band, width, text }: ChartMarkerProps) {
+// Crosshair único que sigue al puntero (§33): guía vertical, círculo
+// resaltado y tooltip, todos dibujados en coordenadas RELATIVAS al punto
+// activo y llevados a su lugar con dos `transform` anidados —
+// translateX(point.x) afuera, translateY(point.y) adentro. Es lo que permite
+// que el movimiento entre puntos sea un deslizamiento: la transición CSS
+// interpola el transform, cosa que no podría hacer con atributos x/cx.
+//
+// El tooltip va en el grupo interno porque su desplazamiento vertical
+// respecto del punto es constante (siempre arriba del círculo); el
+// horizontal no lo es —tooltipLayout lo corre hacia adentro cerca de los
+// bordes— así que se usa la diferencia contra la X del punto, que ya
+// contempla ese corrimiento.
+function Crosshair({ point, visible, text, width }: CrosshairProps) {
   const tooltip = tooltipLayout(point, text, width);
-  const style = { "--ds-chart-index": index } as CSSProperties;
 
   return (
-    <g className="ds-chart-marker" style={style}>
-      <rect
-        className="ds-chart-hit"
-        x={band.x}
-        y={0}
-        width={band.width}
-        height={CHART_BOX.height}
-      />
-      <line
-        className="ds-chart-guide"
-        x1={point.x}
-        x2={point.x}
-        y1={CHART_BOX.top}
-        y2={CHART_BASELINE}
-      />
-      <circle className="ds-chart-point" cx={point.x} cy={point.y} r={4}>
-        <title>{text}</title>
-      </circle>
-      <g className="ds-chart-tooltip" aria-hidden="true">
+    <g
+      className={`ds-chart-crosshair${visible ? " is-visible" : ""}`}
+      aria-hidden="true"
+      style={{ transform: `translateX(${point.x}px)` }}
+    >
+      <line className="ds-chart-guide" x1={0} x2={0} y1={CHART_BOX.top} y2={CHART_BASELINE} />
+      <g className="ds-chart-crosshair-focus" style={{ transform: `translateY(${point.y}px)` }}>
+        <circle className="ds-chart-crosshair-point" cx={0} cy={0} r={6} />
         <rect
           className="ds-chart-tooltip-box"
-          x={tooltip.x}
-          y={tooltip.y}
+          x={tooltip.x - point.x}
+          y={tooltip.y - point.y}
           width={tooltip.width}
           height={tooltip.height}
           rx={6}
         />
         <text
           className="ds-chart-tooltip-text"
-          x={tooltip.textX}
-          y={tooltip.textY}
+          x={tooltip.textX - point.x}
+          y={tooltip.textY - point.y}
           textAnchor="middle"
         >
           {text}
