@@ -113,9 +113,24 @@ function get(path: string, token: string): Promise<Response> {
   return fetch(`${baseUrl}${path}`, { headers: { authorization: `Bearer ${token}` } });
 }
 
+function patch(path: string, token: string, body: unknown): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: "PATCH",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 interface ListBody {
-  data: { id: string; assigneeId: string | null }[];
+  data: { id: string; assigneeId: string | null; completedAt: string | null }[];
   pagination: { total: number };
+}
+
+interface ActivityBody {
+  id: string;
+  completedAt: string | null;
+  confirmedAt: string | null;
+  confirmedById: string | null;
 }
 
 before(async () => {
@@ -229,4 +244,144 @@ test("GET /api/activities — ADMIN sin cambios: filtrar por el assigneeId de cu
 
   const ajena = await get(`/api/activities/${ajenaId}`, admin.accessToken);
   assert.equal(ajena.status, 200);
+});
+
+// ---------------------------------------------------------------------------
+// §29 — el flujo completo de confirmación por HTTP, con la app y los JWT
+// reales: USER completa su tarea desde "Mis tareas" → queda pendiente de
+// confirmar (y la sigue viendo, ahora con confirmed=false en vez de
+// completed=false) → USER no puede destildarla ni confirmarla → ADMIN la
+// confirma → USER ya no la ve en "Mis tareas". Lo que este archivo agrega
+// sobre el test del service: que el body `confirmed` pasa por el schema del
+// controller, que confirmedById sale de req.auth y no del body, y que un
+// confirmedAt/confirmedById mandados por el cliente se ignoran.
+// ---------------------------------------------------------------------------
+
+test("§29 flujo completo: USER completa → pendiente de confirmar → ADMIN confirma → desaparece de 'Mis tareas'", async () => {
+  const company = await prisma.company.findFirstOrThrow({ where: { organizationId: orgId } });
+  const tarea = await prisma.activity.create({
+    data: {
+      organizationId: orgId,
+      authorId: admin.id,
+      assigneeId: user.id,
+      companyId: company.id,
+      type: "TASK",
+      subject: "§29 flujo",
+    },
+  });
+  const misTareas = `/api/activities?assigneeId=${user.id}&confirmed=false&sortBy=dueDate&sortOrder=asc`;
+
+  // 1. Antes de tildar: está en "Mis tareas", pendiente.
+  let lista = (await (await get(misTareas, user.accessToken)).json()) as ListBody;
+  assert.ok(lista.data.some((a) => a.id === tarea.id && a.completedAt === null));
+
+  // 2. USER tilda (solo completedAt). Queda completada y SIN confirmar,
+  //    aunque el body intente colar confirmedAt/confirmedById: el schema los
+  //    rechaza como claves desconocidas (Zod los descarta) y el service nunca
+  //    los toma del body.
+  const completedAt = new Date().toISOString();
+  const tildar = await patch(`/api/activities/${tarea.id}`, user.accessToken, { completedAt });
+  assert.equal(tildar.status, 200);
+  const tildada = (await tildar.json()) as ActivityBody;
+  assert.equal(tildada.completedAt, completedAt);
+  assert.equal(tildada.confirmedAt, null);
+  assert.equal(tildada.confirmedById, null);
+
+  const colada = await patch(`/api/activities/${tarea.id}`, user.accessToken, {
+    completedAt,
+    confirmedAt: completedAt,
+    confirmedById: user.id,
+  });
+  // Ya está completada: el self-service no permite volver a mandar
+  // completedAt (403), y aunque lo permitiera, confirmedAt/confirmedById no
+  // son parte del contrato.
+  assert.equal(colada.status, 403);
+
+  // 3. Sigue en "Mis tareas" (confirmed=false), ahora completada.
+  lista = (await (await get(misTareas, user.accessToken)).json()) as ListBody;
+  assert.ok(lista.data.some((a) => a.id === tarea.id && a.completedAt === completedAt));
+
+  // 4. USER no puede destildarla ni confirmarla/rechazarla.
+  assert.equal(
+    (await patch(`/api/activities/${tarea.id}`, user.accessToken, { completedAt: null })).status,
+    403,
+  );
+  assert.equal(
+    (await patch(`/api/activities/${tarea.id}`, user.accessToken, { confirmed: true })).status,
+    403,
+  );
+  assert.equal(
+    (await patch(`/api/activities/${tarea.id}`, user.accessToken, { confirmed: false })).status,
+    403,
+  );
+
+  // 5. La cola del ADMIN la lista.
+  const cola = (await (
+    await get("/api/activities?completed=true&confirmed=false", admin.accessToken)
+  ).json()) as ListBody;
+  assert.ok(cola.data.some((a) => a.id === tarea.id));
+
+  // 6. ADMIN confirma: confirmedById es el ADMIN del JWT, no algo del body.
+  const confirmar = await patch(`/api/activities/${tarea.id}`, admin.accessToken, {
+    confirmed: true,
+  });
+  assert.equal(confirmar.status, 200);
+  const confirmada = (await confirmar.json()) as ActivityBody;
+  assert.equal(confirmada.completedAt, completedAt);
+  assert.ok(confirmada.confirmedAt, "confirmedAt seteado por el server");
+  assert.equal(confirmada.confirmedById, admin.id);
+
+  // 7. Confirmar dos veces: 400 con el mensaje de la guarda.
+  const otraVez = await patch(`/api/activities/${tarea.id}`, admin.accessToken, {
+    confirmed: true,
+  });
+  assert.equal(otraVez.status, 400);
+  const otraVezBody = (await otraVez.json()) as { error: { message: string } };
+  assert.equal(otraVezBody.error.message, "La actividad ya está confirmada");
+
+  // 8. Recién ahora desaparece de "Mis tareas" del USER, y sale de la cola.
+  lista = (await (await get(misTareas, user.accessToken)).json()) as ListBody;
+  assert.ok(!lista.data.some((a) => a.id === tarea.id));
+  const colaDespues = (await (
+    await get("/api/activities?completed=true&confirmed=false", admin.accessToken)
+  ).json()) as ListBody;
+  assert.ok(!colaDespues.data.some((a) => a.id === tarea.id));
+});
+
+test("§29 rechazar por HTTP: la tarea vuelve a 'Mis tareas' del USER como pendiente y puede tildarse otra vez", async () => {
+  const company = await prisma.company.findFirstOrThrow({ where: { organizationId: orgId } });
+  const tarea = await prisma.activity.create({
+    data: {
+      organizationId: orgId,
+      authorId: admin.id,
+      assigneeId: user.id,
+      companyId: company.id,
+      type: "TASK",
+      subject: "§29 rechazo",
+      completedAt: new Date("2026-09-10T12:00:00.000Z"),
+    },
+  });
+
+  const rechazar = await patch(`/api/activities/${tarea.id}`, admin.accessToken, {
+    confirmed: false,
+  });
+  assert.equal(rechazar.status, 200);
+  const rechazada = (await rechazar.json()) as ActivityBody;
+  assert.equal(rechazada.completedAt, null);
+  assert.equal(rechazada.confirmedAt, null);
+  assert.equal(rechazada.confirmedById, null);
+
+  // Rechazar una pendiente: 400.
+  const nada = await patch(`/api/activities/${tarea.id}`, admin.accessToken, { confirmed: false });
+  assert.equal(nada.status, 400);
+
+  // El USER la ve pendiente y la vuelve a tildar.
+  const lista = (await (
+    await get(`/api/activities?assigneeId=${user.id}&confirmed=false`, user.accessToken)
+  ).json()) as ListBody;
+  assert.ok(lista.data.some((a) => a.id === tarea.id && a.completedAt === null));
+  const tildar = await patch(`/api/activities/${tarea.id}`, user.accessToken, {
+    completedAt: new Date().toISOString(),
+  });
+  assert.equal(tildar.status, 200);
 });

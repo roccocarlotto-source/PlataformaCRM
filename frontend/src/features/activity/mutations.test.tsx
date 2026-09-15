@@ -6,7 +6,12 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeActivity } from "../../test/activityFixtures";
-import { useCreateActivity, useDeleteActivity, useUpdateActivity } from "./mutations";
+import {
+  useConfirmActivity,
+  useCreateActivity,
+  useDeleteActivity,
+  useUpdateActivity,
+} from "./mutations";
 import { activityKeys } from "./queries";
 
 vi.mock("../../auth/getAccessToken", () => ({
@@ -49,6 +54,37 @@ describe("activity/mutations — invalidación de cache", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: activityKeys.lists() });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: activityKeys.detail("act1") });
     expect(invalidateSpy).toHaveBeenCalledTimes(2);
+  });
+
+  // §29: Confirmar/Rechazar es un PATCH cuyo body es SOLO { confirmed }:
+  // nunca completedAt (el backend rechaza combinarlos) ni confirmedAt/
+  // confirmedById (los calcula el server).
+  it("confirm/reject envían SOLO { confirmed } al id de la llamada e invalidan lists() y detail(id)", async () => {
+    const bodies: { id: string; body: unknown }[] = [];
+    server.use(
+      http.patch(`${baseUrl}/:id`, async ({ params, request }) => {
+        bodies.push({ id: params.id as string, body: await request.json() });
+        return HttpResponse.json(makeActivity({ id: params.id as string }));
+      }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    const { result } = renderHook(() => useConfirmActivity(), { wrapper: wrapperFor(queryClient) });
+    result.current.mutate({ id: "act-ok", confirmed: true });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    result.current.mutate({ id: "act-no", confirmed: false });
+    await waitFor(() => expect(bodies).toHaveLength(2));
+
+    expect(bodies).toEqual([
+      { id: "act-ok", body: { confirmed: true } },
+      { id: "act-no", body: { confirmed: false } },
+    ]);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: activityKeys.lists() });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: activityKeys.detail("act-ok") });
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: activityKeys.detail("act-no") }),
+    );
   });
 
   it("delete exitoso invalida activityKeys.lists() y activityKeys.detail(id)", async () => {

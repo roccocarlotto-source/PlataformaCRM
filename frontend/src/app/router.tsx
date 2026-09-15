@@ -78,8 +78,8 @@ export const router = createBrowserRouter([
           // única pantalla de actividades para USER. GET /api/activities sigue
           // sin authorize en la ruta (activity.routes.ts) pero el service acota
           // la lectura de un USER a lo asignado a sí mismo, que es exactamente
-          // lo que esta pantalla pide (assigneeId=<yo>&completed=false); y la
-          // acción principal (tildar la propia tarea) es PATCH de solo
+          // lo que esta pantalla pide (assigneeId=<yo>&confirmed=false, §29);
+          // y la acción principal (tildar la propia tarea) es PATCH de solo
           // completedAt sobre la propia actividad, permitido a cualquier rol —
           // así que NO va en AdminRoute. El listado completo (/activities) sí,
           // abajo.

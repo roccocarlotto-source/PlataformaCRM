@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { bucketFor, formatTaskDueDate } from "./taskBuckets";
+import {
+  TASK_BUCKET_LABELS,
+  TASK_BUCKET_ORDER,
+  bucketFor,
+  formatTaskCompletedAt,
+  formatTaskDueDate,
+} from "./taskBuckets";
 
 // Todas las fechas se construyen con el constructor local (año, mes, día,
 // hora), nunca desde un ISO UTC: las reglas son en hora local y así el test
@@ -79,5 +85,39 @@ describe("formatTaskDueDate", () => {
   it("agrega el año solo cuando no es el año en curso", () => {
     expect(formatTaskDueDate(iso(new Date(2025, 11, 1, 0, 0)), THU)).toBe("lun 1 dic 2025");
     expect(formatTaskDueDate(iso(new Date(2027, 0, 4, 10, 0)), THU)).toBe("lun 4 ene 2027, 10:00");
+  });
+});
+
+// §29: el bloque "Esperando confirmación" existe, va último, y NO sale de
+// bucketFor (que sigue decidiendo solo por dueDate — los casos de arriba no
+// cambian). Quién va a ese bloque lo decide MyTasksPage.
+describe("AWAITING_CONFIRMATION (§29)", () => {
+  it("es el último bloque del orden y tiene su etiqueta", () => {
+    expect(TASK_BUCKET_ORDER.at(-1)).toBe("AWAITING_CONFIRMATION");
+    expect(TASK_BUCKET_ORDER.indexOf("NO_DATE")).toBe(TASK_BUCKET_ORDER.length - 2);
+    expect(TASK_BUCKET_LABELS.AWAITING_CONFIRMATION).toBe("Esperando confirmación");
+  });
+
+  it("bucketFor nunca lo devuelve, con o sin fecha", () => {
+    expect(bucketFor(null, THU)).not.toBe("AWAITING_CONFIRMATION");
+    expect(bucketFor(iso(new Date(2026, 8, 3, 9, 0)), THU)).not.toBe("AWAITING_CONFIRMATION");
+  });
+});
+
+describe("formatTaskCompletedAt (§29)", () => {
+  it("hoy → 'Completada hoy' / 'Completada hoy, HH:mm' (la H en minúscula dentro de la frase)", () => {
+    expect(formatTaskCompletedAt(iso(new Date(2026, 8, 3, 0, 0)), THU)).toBe("Completada hoy");
+    expect(formatTaskCompletedAt(iso(new Date(2026, 8, 3, 9, 5)), THU)).toBe(
+      "Completada hoy, 09:05",
+    );
+  });
+
+  it("otro día → 'Completada el <mismo formato que el vencimiento>'", () => {
+    expect(formatTaskCompletedAt(iso(new Date(2026, 8, 1, 16, 30)), THU)).toBe(
+      "Completada el mar 1 sep, 16:30",
+    );
+    expect(formatTaskCompletedAt(iso(new Date(2025, 11, 1, 0, 0)), THU)).toBe(
+      "Completada el lun 1 dic 2025",
+    );
   });
 });

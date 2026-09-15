@@ -16,6 +16,10 @@ export interface ActivityFilters {
   // true → completedAt not null; false → completedAt null; undefined → sin
   // filtro. Ver ListActivitiesParams en activity.service.ts.
   completed?: boolean;
+  // Mismo patrón sobre confirmedAt (§29). Combinable con `completed`: la cola
+  // del ADMIN es completed=true&confirmed=false; "Mis tareas" pide
+  // confirmed=false (pendientes + completadas sin confirmar).
+  confirmed?: boolean;
 }
 
 export type ActivitySortBy = "createdAt" | "updatedAt" | "dueDate" | "completedAt" | "subject";
@@ -65,6 +69,9 @@ function buildWhere(organizationId: string, filters: ActivityFilters): Prisma.Ac
     // orden no sea accidental.
     ...(filters.completed !== undefined
       ? { completedAt: filters.completed ? { not: null } : null }
+      : {}),
+    ...(filters.confirmed !== undefined
+      ? { confirmedAt: filters.confirmed ? { not: null } : null }
       : {}),
   };
 }
@@ -141,6 +148,10 @@ export interface UpdateActivityData {
   body?: string | null;
   dueDate?: Date | null;
   completedAt?: Date | null;
+  // Solo los escribe el service (§29): quién confirmó y cuándo se calculan
+  // del actor y del reloj del server, nunca llegan del cliente.
+  confirmedAt?: Date | null;
+  confirmedById?: string | null;
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir

@@ -34,9 +34,26 @@ export interface Activity {
   body: string | null;
   dueDate: string | null;
   completedAt: string | null;
+  // §29: confirmación del ADMIN sobre una tarea completada. Tres estados
+  // derivados: pendiente (completedAt null) → pendiente de confirmar
+  // (completedAt set, confirmedAt null) → confirmada (las dos set). Nunca
+  // se mandan al backend: los calcula el service (ver `confirmed` abajo).
+  confirmedAt: string | null;
+  confirmedById: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+}
+
+export type ActivityConfirmationStatus = "NOT_COMPLETED" | "AWAITING_CONFIRMATION" | "CONFIRMED";
+
+// Una sola definición de los tres estados, usada por la columna, el filtro
+// y el detalle de ActivityListPage y por el agrupado de MyTasksPage.
+export function confirmationStatusOf(
+  activity: Pick<Activity, "completedAt" | "confirmedAt">,
+): ActivityConfirmationStatus {
+  if (activity.completedAt === null) return "NOT_COMPLETED";
+  return activity.confirmedAt === null ? "AWAITING_CONFIRMATION" : "CONFIRMED";
 }
 
 export interface ActivityListPagination {
@@ -75,6 +92,10 @@ export interface ActivityListQuery {
   // Filtro real del backend (listQuerySchema), agregado para "Mis tareas":
   // los rangos completedAtFrom/To no pueden expresar "es null".
   completed?: boolean;
+  // §29, mismo trato sobre confirmedAt. "Mis tareas" pide confirmed=false
+  // (pendientes + completadas sin confirmar); la cola del ADMIN en
+  // "Actividades" es completed=true&confirmed=false.
+  confirmed?: boolean;
   sortBy?: ActivitySortBy;
   sortOrder?: SortOrder;
 }
@@ -111,4 +132,9 @@ export interface UpdateActivityInput {
   companyId?: string | null;
   contactId?: string | null;
   opportunityId?: string | null;
+  // §29: acción de Confirmar (true) / Rechazar (false), solo ADMIN, solo
+  // sobre una completada. Se manda SOLO, nunca con completedAt (el backend
+  // rechaza la combinación con 400). confirmedAt/confirmedById no existen
+  // acá: los calcula el service.
+  confirmed?: boolean;
 }

@@ -67,6 +67,10 @@ const updateActivitySchema = z
     companyId: z.string().uuid("companyId inválido").nullable().optional(),
     contactId: z.string().uuid("contactId inválido").nullable().optional(),
     opportunityId: z.string().uuid("opportunityId inválido").nullable().optional(),
+    // §29: acción de Confirmar (true) / Rechazar (false), solo ADMIN. Nunca
+    // confirmedAt/confirmedById: los calcula el service (ver
+    // UpdateActivityInput en activity.service.ts).
+    confirmed: z.boolean().optional(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
@@ -93,6 +97,12 @@ const listQuerySchema = z
     // true, así que ?completed=false pediría las completadas. Mismo helper
     // que isActive en user.controller.ts.
     completed: z
+      .enum(["true", "false"])
+      .transform((value) => value === "true")
+      .optional(),
+    // §29, mismo trato: confirmed=false es lo que pide "Mis tareas";
+    // completed=true&confirmed=false, la cola de pendientes de confirmar.
+    confirmed: z
       .enum(["true", "false"])
       .transform((value) => value === "true")
       .optional(),

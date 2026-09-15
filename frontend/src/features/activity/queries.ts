@@ -30,20 +30,23 @@ export function useActivities(query: ActivityListQuery, options?: { enabled?: bo
 // listQuerySchema) — mismo límite que documentan PipelineSelect/StageSelect.
 const MAX_PAGE_SIZE = 100;
 
-// TODAS las actividades PENDIENTES asignadas a una persona, para "Mis
-// tareas". Mismo patrón que usePipelineOpportunitiesAll (opportunity/
-// queries.ts): la primera página dice cuántas hay (pagination.totalPages) y
-// las restantes se piden en paralelo con useQueries. Acá el conjunto es
-// chico por construcción —solo lo pendiente de una persona, gracias al
-// filtro completed=false del backend—, así que traerlo entero es razonable;
-// traer también su historial completado no lo sería.
+// TODAS las actividades SIN CONFIRMAR asignadas a una persona, para "Mis
+// tareas": las pendientes y, desde el §29, también las que ya tildó y
+// esperan la confirmación de un ADMIN (bloque "Esperando confirmación").
+// Por eso el filtro es confirmed=false y no completed=false: lo confirmado
+// es lo único que ya no le concierne. Mismo patrón que
+// usePipelineOpportunitiesAll (opportunity/queries.ts): la primera página
+// dice cuántas hay (pagination.totalPages) y las restantes se piden en
+// paralelo con useQueries. El conjunto sigue siendo chico por construcción
+// —lo que una persona tiene abierto, no su historial confirmado—, así que
+// traerlo entero es razonable.
 //
 // Orden fijo por dueDate asc: dentro de cada bloque de la vista, lo que
 // vence antes va primero (no hay campo de posición en Activity).
 export function useMyPendingActivities(assigneeId: string | undefined) {
   const baseQuery: ActivityListQuery = {
     assigneeId,
-    completed: false,
+    confirmed: false,
     pageSize: MAX_PAGE_SIZE,
     sortBy: "dueDate",
     sortOrder: "asc",
