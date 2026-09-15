@@ -12,9 +12,12 @@ body,
   height: 100%;
 }
 
+/* Sin color-scheme acá: lo declara tokens.css por tema (light en :root, dark
+   en :root[data-theme="dark"]). Una declaración en body pisaría el valor
+   heredado de <html> y los controles nativos volverían a seguir al SO en vez
+   del tema elegido (§31). */
 body {
   font-family: var(--font-sans);
-  color-scheme: light dark;
   line-height: 1.5;
 }
 

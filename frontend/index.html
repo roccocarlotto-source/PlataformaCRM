@@ -4,6 +4,37 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Plataforma CRM</title>
+    <!-- Tema claro/oscuro ANTES de la primera pintura (§31 de
+         docs/frontend-cambios-pendientes.md). Lee la preferencia guardada
+         (Sistema/Claro/Oscuro), la resuelve y deja data-theme en <html> para
+         que tokens.css ya pinte el tema correcto — sin este script, quien
+         eligió "Oscuro" vería un flash claro hasta que React montara.
+
+         LÓGICA DUPLICADA A PROPÓSITO con src/theme/theme.ts (misma clave de
+         storage, mismos valores válidos, misma regla de resolución): un
+         script inline no puede importar un módulo TS, y este es el único
+         punto del frontend donde hace falta código antes de que exista React.
+         Si se cambia algo de esto acá, cambiarlo también allá.
+
+         try/catch solo alrededor de localStorage (puede tirar en modo privado
+         o con storage bloqueado): sin storage se sigue al SO, igual que
+         theme.ts, y el data-theme se escribe igual. -->
+    <script>
+      (function () {
+        var stored = null;
+        try {
+          stored = localStorage.getItem("plataforma-crm:theme");
+        } catch (error) {
+          // Sin storage: stored queda en null y la preferencia cae a "system".
+        }
+        var preference = stored === "light" || stored === "dark" ? stored : "system";
+        var systemPrefersDark =
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.dataset.theme =
+          preference === "system" ? (systemPrefersDark ? "dark" : "light") : preference;
+      })();
+    </script>
     <!-- Tipografía del sistema de diseño (design-system/tokens.css): Public
          Sans para cuerpo/UI y Space Grotesk para títulos. Ninguna es de
          sistema; si Google Fonts no responde, --font-sans/--font-display caen

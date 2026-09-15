@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AppLayout } from "./AppLayout";
+import { ThemeProvider } from "../theme/ThemeContext";
 import type { AuthContextValue } from "../auth/AuthContext";
 
 // Primer test de componente propio de AppLayout (gap heredado desde M2,
@@ -34,11 +35,16 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
   };
 }
 
+// ThemeProvider REAL (no mock): el toggle de tema del pie de la sidebar (§31)
+// necesita el contexto, y el provider no tiene dependencias externas — sin
+// matchMedia en jsdom resuelve "Sistema" a claro, y localStorage arranca vacío.
 function renderLayout() {
-  render(
-    <MemoryRouter>
-      <AppLayout />
-    </MemoryRouter>,
+  return render(
+    <ThemeProvider>
+      <MemoryRouter>
+        <AppLayout />
+      </MemoryRouter>
+    </ThemeProvider>,
   );
 }
 
@@ -72,11 +78,7 @@ describe("AppLayout — nav gateado por rol (M7)", () => {
   it("'Mis tareas' se muestra para ambos roles: leer y completar lo propio es de cualquier rol", () => {
     for (const role of ["USER", "ADMIN"] as const) {
       useAuthMock.mockReturnValue(mockAuth(role));
-      const { unmount } = render(
-        <MemoryRouter>
-          <AppLayout />
-        </MemoryRouter>,
-      );
+      const { unmount } = renderLayout();
       expect(screen.getByText("Mis tareas")).toHaveAttribute("href", "/tasks");
       unmount();
     }
@@ -174,5 +176,40 @@ describe("AppLayout — nav de platform admin (Fase 4a del módulo SaaS)", () =>
     renderLayout();
 
     expect(screen.queryByText("Nueva organización")).not.toBeInTheDocument();
+  });
+});
+
+describe("AppLayout — selector de tema en el pie de la sidebar (ítem 31)", () => {
+  it("el grupo 'Tema' con Sistema/Claro/Oscuro está dentro de .ds-sidebar-account, ANTES de la identidad y de 'Cerrar sesión'", () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    const { container } = renderLayout();
+
+    const group = screen.getByRole("group", { name: "Tema" });
+    const account = container.querySelector(".ds-sidebar-account");
+    expect(account).not.toBeNull();
+    expect(account).toContainElement(group);
+    for (const name of ["Sistema", "Claro", "Oscuro"]) {
+      expect(group).toContainElement(screen.getByRole("button", { name }));
+    }
+
+    // Orden dentro del bloque: toggle → nombre/rol → Cerrar sesión.
+    const logout = screen.getByRole("button", { name: "Cerrar sesión" });
+    const identity = screen.getByText("Usuario");
+    expect(group.compareDocumentPosition(identity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      identity.compareDocumentPosition(logout) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("sin preferencia guardada arranca en 'Sistema', para ambos roles", () => {
+    for (const role of ["USER", "ADMIN"] as const) {
+      useAuthMock.mockReturnValue(mockAuth(role));
+      const { unmount } = renderLayout();
+      expect(screen.getByRole("button", { name: "Sistema" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      unmount();
+    }
   });
 });
