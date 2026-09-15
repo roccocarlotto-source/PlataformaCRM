@@ -5,10 +5,13 @@ import { MemoryRouter } from "react-router-dom";
 import { delay, http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
-import { makeOpportunity } from "../../test/opportunityFixtures";
+import { makeActivity } from "../../test/activityFixtures";
 import { makeCompany } from "../../test/companyFixtures";
+import { makeDashboardSummary } from "../../test/dashboardFixtures";
+import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
+import { makeUser } from "../../test/userFixtures";
 import { DashboardPage } from "./DashboardPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 
@@ -39,6 +42,8 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
 }
 
 const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
+const summaryUrl = `${env.apiUrl}/api/opportunities/dashboard-summary`;
+const activitiesUrl = `${env.apiUrl}/api/activities`;
 const companiesUrl = `${env.apiUrl}/api/companies`;
 const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
 const stagesUrl = `${env.apiUrl}/api/stages`;
@@ -61,28 +66,58 @@ function vehiclesSummaryHandler(totals = { inStock: 12, available: 5 }) {
   });
 }
 
-// Un único handler para /opportunities: distingue la card de resumen
-// (pageSize=1, sin ownerId) de la lista personal reciente (ownerId+pageSize=5)
-// por sus propios query params — igual que el backend real los diferenciaría.
-function opportunitiesHandler(
-  totalsByStatus: Record<string, number> = { OPEN: 3, WON: 2, LOST: 1 },
-) {
+function summaryHandler() {
+  return http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary()));
+}
+
+// Un único handler para /opportunities: distingue los tres consumidores por
+// sus propios query params, igual que el backend real los diferenciaría —
+// la tabla de recientes (sortBy=createdAt, sin status), las mayores abiertas
+// (status=OPEN + currency) y los conteos por etapa (stageId + pageSize=1).
+function opportunitiesHandler(stageTotal = 4) {
   return http.get(opportunitiesUrl, ({ request }) => {
     const url = new URL(request.url);
-    const ownerId = url.searchParams.get("ownerId");
-    const status = url.searchParams.get("status") ?? "OPEN";
-
-    if (ownerId) {
+    if (url.searchParams.has("stageId")) {
       return HttpResponse.json({
-        data: [makeOpportunity({ id: "op-recent", title: "Renovación anual", companyId: "co1" })],
+        data: [],
+        pagination: { page: 1, pageSize: 1, total: stageTotal, totalPages: stageTotal },
+      });
+    }
+    if (url.searchParams.get("status") === "OPEN") {
+      return HttpResponse.json({
+        data: [makeOpportunity({ id: "op-top", title: "Flota nueva", amount: "8000.00" })],
         pagination: { page: 1, pageSize: 5, total: 1, totalPages: 1 },
       });
     }
-
-    const total = totalsByStatus[status] ?? 0;
     return HttpResponse.json({
-      data: [],
-      pagination: { page: 1, pageSize: 1, total, totalPages: total },
+      data: [makeOpportunity({ id: "op-recent", title: "Renovación anual", companyId: "co1" })],
+      pagination: { page: 1, pageSize: 5, total: 1, totalPages: 1 },
+    });
+  });
+}
+
+function activitiesHandler() {
+  return http.get(activitiesUrl, () =>
+    HttpResponse.json({
+      data: [
+        makeActivity({
+          id: "act-feed",
+          subject: "Llamada de seguimiento",
+          companyId: "co1",
+          authorId: "u2",
+        }),
+      ],
+      pagination: { page: 1, pageSize: 8, total: 1, totalPages: 1 },
+    }),
+  );
+}
+
+function usersHandler(onRequest?: () => void) {
+  return http.get(usersUrl, () => {
+    onRequest?.();
+    return HttpResponse.json({
+      data: [makeUser({ id: "u2", fullName: "Bruno Díaz" })],
+      pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
     });
   });
 }
@@ -133,74 +168,112 @@ function renderDashboard() {
   return queryClient;
 }
 
+function follows(before: HTMLElement, after: HTMLElement) {
+  return Boolean(before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING);
+}
+
+const SECTIONS = [
+  "Resumen de stock",
+  "Resumen comercial",
+  "Ingresos ganados por mes",
+  "Oportunidades recientes",
+  "Mayores oportunidades abiertas",
+  "Pipeline",
+  "Actividad reciente",
+  "Acciones rápidas",
+];
+
 describe("DashboardPage — render general y estados", () => {
   beforeEach(() => {
     server.use(vehiclesSummaryHandler());
   });
 
-  it("renderiza las 5 secciones para ADMIN con datos exactos, sin UUIDs crudos", async () => {
+  it("ADMIN: las 8 secciones en el orden del §30, con datos exactos y sin UUIDs crudos", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    server.use(opportunitiesHandler(), ...defaultPipelineHandlers(), companyHandler());
+    server.use(
+      summaryHandler(),
+      opportunitiesHandler(),
+      activitiesHandler(),
+      usersHandler(),
+      ...defaultPipelineHandlers(),
+      companyHandler(),
+    );
 
     renderDashboard();
 
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
 
-    await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
-    expect(await screen.findByText("Acme Corp")).toBeInTheDocument();
+    const regions = SECTIONS.map((name) => screen.getByLabelText(name));
+    for (let index = 1; index < regions.length; index += 1) {
+      expect(follows(regions[index - 1], regions[index])).toBe(true);
+    }
 
-    // KPIs de stock (Fase 3b): conteos exactos de pagination.total, y la
-    // sección va ARRIBA del resumen comercial, como en el mockup.
+    // Stock (Fase 3b) y KPI comerciales (§30) con sus números.
     const stock = screen.getByLabelText("Resumen de stock");
     await waitFor(() => expect(within(stock).getByText("12")).toBeInTheDocument());
     expect(within(stock).getByText("5")).toBeInTheDocument();
-    expect(
-      stock.compareDocumentPosition(screen.getByLabelText("Resumen comercial")) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
 
     const summary = screen.getByLabelText("Resumen comercial");
-    await waitFor(() => expect(within(summary).getByText("3")).toBeInTheDocument());
-    expect(within(summary).getByText("2")).toBeInTheDocument();
-    expect(within(summary).getByText("1")).toBeInTheDocument();
+    await waitFor(() => expect(within(summary).getByText("4500.00 USD")).toBeInTheDocument());
+    expect(within(summary).getByText("3")).toBeInTheDocument();
+    expect(within(summary).getByText("50%")).toBeInTheDocument();
 
+    // Gráfico, recientes, mayores, pipeline y feed.
+    await within(screen.getByLabelText("Ingresos ganados por mes")).findByRole("img");
+    await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
+    expect(await screen.findByText("Acme Corp", { selector: "td" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Flota nueva")).toBeInTheDocument());
     const pipeline = screen.getByLabelText("Pipeline");
     await waitFor(() => expect(within(pipeline).getByText(/Prospecto/)).toBeInTheDocument());
+    const feed = screen.getByLabelText("Actividad reciente");
+    await waitFor(() =>
+      expect(within(feed).getByText("Llamada de seguimiento")).toBeInTheDocument(),
+    );
+    await waitFor(() => expect(feed).toHaveTextContent("por Bruno Díaz"));
 
     // Ningún id crudo de fixture visible como texto suelto.
-    expect(screen.queryByText("op-recent")).not.toBeInTheDocument();
-    expect(screen.queryByText("co1")).not.toBeInTheDocument();
-    expect(screen.queryByText("st1")).not.toBeInTheDocument();
-    expect(screen.queryByText("pl1")).not.toBeInTheDocument();
+    for (const raw of ["op-recent", "op-top", "act-feed", "co1", "st1", "pl1", "u2"]) {
+      expect(screen.queryByText(raw)).not.toBeInTheDocument();
+    }
 
     expect(screen.getByLabelText("Acciones rápidas")).toBeInTheDocument();
   });
 
-  it("USER no ve Acciones rápidas, pero sí el resto de las secciones", async () => {
+  it("USER: no ve Acciones rápidas, sí el resto, y nunca dispara GET /api/users", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
-    server.use(opportunitiesHandler(), ...noDefaultPipelineHandlers());
+    let usersRequestCount = 0;
+    server.use(
+      summaryHandler(),
+      opportunitiesHandler(),
+      activitiesHandler(),
+      companyHandler(),
+      usersHandler(() => {
+        usersRequestCount += 1;
+      }),
+      ...noDefaultPipelineHandlers(),
+    );
 
     renderDashboard();
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
-    expect(screen.getByLabelText("Resumen de stock")).toBeInTheDocument();
-    expect(screen.getByLabelText("Resumen comercial")).toBeInTheDocument();
-    expect(screen.getByLabelText("Pipeline")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Llamada de seguimiento")).toBeInTheDocument());
+    for (const name of SECTIONS.filter((section) => section !== "Acciones rápidas")) {
+      expect(screen.getByLabelText(name)).toBeInTheDocument();
+    }
     expect(screen.queryByLabelText("Acciones rápidas")).not.toBeInTheDocument();
+    expect(usersRequestCount).toBe(0);
   });
 
   it("sin Pipeline default: empty state explícito, no error, y no dispara GET /stages", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     let stagesRequests = 0;
     server.use(
+      summaryHandler(),
       opportunitiesHandler(),
+      activitiesHandler(),
+      usersHandler(),
       companyHandler(),
-      http.get(pipelinesUrl, () =>
-        HttpResponse.json({
-          data: [makePipeline({ id: "pl1", isDefault: false })],
-          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
-        }),
-      ),
+      ...noDefaultPipelineHandlers(),
       http.get(stagesUrl, () => {
         stagesRequests += 1;
         return HttpResponse.json({
@@ -221,105 +294,47 @@ describe("DashboardPage — render general y estados", () => {
     expect(stagesRequests).toBe(0);
   });
 
-  it("sin oportunidades abiertas propias: empty state en la lista de recientes", async () => {
+  it("error parcial: si falla el resumen, caen KPI, gráfico y mayores abiertas — recientes, pipeline y feed siguen", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
-      http.get(opportunitiesUrl, ({ request }) => {
-        const url = new URL(request.url);
-        if (url.searchParams.get("ownerId")) {
-          return HttpResponse.json({
-            data: [],
-            pagination: { page: 1, pageSize: 5, total: 0, totalPages: 0 },
-          });
-        }
-        return HttpResponse.json({
-          data: [],
-          pagination: { page: 1, pageSize: 1, total: 0, totalPages: 0 },
-        });
-      }),
-      ...noDefaultPipelineHandlers(),
-    );
-
-    renderDashboard();
-
-    await waitFor(() =>
-      expect(screen.getByText("No tenés oportunidades abiertas propias.")).toBeInTheDocument(),
-    );
-  });
-
-  it("Stage con 0 oportunidades muestra 0, no un error ni un vacío", async () => {
-    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    server.use(
-      opportunitiesHandler({ OPEN: 0, WON: 0, LOST: 0 }),
-      http.get(pipelinesUrl, () =>
-        HttpResponse.json({
-          data: [makePipeline({ id: "pl1", isDefault: true })],
-          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
-        }),
+      http.get(summaryUrl, () =>
+        HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
       ),
-      http.get(stagesUrl, () =>
-        HttpResponse.json({
-          data: [makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto" })],
-          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
-        }),
-      ),
-    );
-
-    renderDashboard();
-
-    const pipeline = screen.getByLabelText("Pipeline");
-    await waitFor(() => expect(within(pipeline).getByText(/Prospecto/)).toBeInTheDocument());
-    expect(
-      within(pipeline).getByText("Prospecto:", { exact: false }).closest("li")?.textContent,
-    ).toContain("0");
-  });
-
-  it("error parcial: si falla la card de WON, las demás secciones y cards siguen mostrando datos", async () => {
-    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    server.use(
-      http.get(opportunitiesUrl, ({ request }) => {
-        const url = new URL(request.url);
-        const status = url.searchParams.get("status");
-        const ownerId = url.searchParams.get("ownerId");
-        if (status === "WON") {
-          return HttpResponse.json({ error: { message: "caída" } }, { status: 500 });
-        }
-        if (ownerId) {
-          return HttpResponse.json({
-            data: [
-              makeOpportunity({ id: "op-recent", title: "Renovación anual", companyId: "co1" }),
-            ],
-            pagination: { page: 1, pageSize: 5, total: 1, totalPages: 1 },
-          });
-        }
-        const total = status === "OPEN" ? 3 : 1;
-        return HttpResponse.json({
-          data: [],
-          pagination: { page: 1, pageSize: 1, total, totalPages: total },
-        });
-      }),
+      opportunitiesHandler(),
+      activitiesHandler(),
+      usersHandler(),
       companyHandler(),
-      ...noDefaultPipelineHandlers(),
+      ...defaultPipelineHandlers(),
     );
 
     renderDashboard();
 
     const summary = screen.getByLabelText("Resumen comercial");
-    await waitFor(() => expect(within(summary).getAllByRole("alert").length).toBe(1));
-    expect(within(summary).getByText("3")).toBeInTheDocument(); // OPEN sigue OK
-    expect(within(summary).getByText("1")).toBeInTheDocument(); // LOST sigue OK
+    await waitFor(() => expect(within(summary).getAllByRole("alert")).toHaveLength(4));
+    await waitFor(() =>
+      expect(
+        within(screen.getByLabelText("Ingresos ganados por mes")).getByRole("alert"),
+      ).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(
+        within(screen.getByLabelText("Mayores oportunidades abiertas")).getByRole("alert"),
+      ).toBeInTheDocument(),
+    );
 
-    // La lista de recientes y el pipeline no se ven afectados por el error de WON.
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
-    expect(
-      screen.getByText("No hay un pipeline configurado como predeterminado."),
-    ).toBeInTheDocument();
+    const pipeline = screen.getByLabelText("Pipeline");
+    await waitFor(() => expect(within(pipeline).getByText(/Prospecto/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Llamada de seguimiento")).toBeInTheDocument());
   });
 
-  it("loading independiente: Pipeline puede seguir cargando mientras Resumen y Recientes ya tienen datos", async () => {
+  it("loading independiente: Pipeline puede seguir cargando mientras el resto ya tiene datos", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
+      summaryHandler(),
       opportunitiesHandler(),
+      activitiesHandler(),
+      usersHandler(),
       companyHandler(),
       http.get(pipelinesUrl, async () => {
         await delay(200);
@@ -333,6 +348,8 @@ describe("DashboardPage — render general y estados", () => {
     renderDashboard();
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
+    const summary = screen.getByLabelText("Resumen comercial");
+    await waitFor(() => expect(within(summary).getByText("4500.00 USD")).toBeInTheDocument());
     const pipeline = screen.getByLabelText("Pipeline");
     expect(within(pipeline).getByText("Cargando…")).toBeInTheDocument();
 
@@ -343,42 +360,38 @@ describe("DashboardPage — render general y estados", () => {
     );
   });
 
-  it("nunca dispara GET /api/users (ADMIN ni USER) — se registra un handler contador, no la ausencia de handler", async () => {
+  it("ningún request del Dashboard envía organizationId", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    let usersRequestCount = 0;
+    const capturedUrls: URL[] = [];
+    const capture = (request: Request) => capturedUrls.push(new URL(request.url));
     server.use(
-      opportunitiesHandler(),
-      ...noDefaultPipelineHandlers(),
-      companyHandler(),
-      http.get(usersUrl, () => {
-        usersRequestCount += 1;
+      http.get(summaryUrl, ({ request }) => {
+        capture(request);
+        return HttpResponse.json(makeDashboardSummary());
+      }),
+      http.get(opportunitiesUrl, ({ request }) => {
+        capture(request);
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 5, total: 0, totalPages: 0 },
+        });
+      }),
+      http.get(activitiesUrl, ({ request }) => {
+        capture(request);
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 8, total: 0, totalPages: 0 },
+        });
+      }),
+      http.get(usersUrl, ({ request }) => {
+        capture(request);
         return HttpResponse.json({
           data: [],
           pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
         });
       }),
-    );
-
-    renderDashboard();
-
-    await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
-    expect(screen.getByLabelText("Pipeline")).toBeInTheDocument();
-    expect(usersRequestCount).toBe(0);
-  });
-
-  it("ningún request del Dashboard envía organizationId", async () => {
-    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    const capturedUrls: URL[] = [];
-    server.use(
-      http.get(opportunitiesUrl, ({ request }) => {
-        capturedUrls.push(new URL(request.url));
-        return HttpResponse.json({
-          data: [],
-          pagination: { page: 1, pageSize: 1, total: 0, totalPages: 0 },
-        });
-      }),
       http.get(pipelinesUrl, ({ request }) => {
-        capturedUrls.push(new URL(request.url));
+        capture(request);
         return HttpResponse.json({
           data: [makePipeline({ id: "pl1", isDefault: false })],
           pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
@@ -392,6 +405,9 @@ describe("DashboardPage — render general y estados", () => {
       expect(
         screen.getByText("No hay un pipeline configurado como predeterminado."),
       ).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Todavía no hay actividades.")).toBeInTheDocument(),
     );
     expect(capturedUrls.length).toBeGreaterThan(0);
     for (const url of capturedUrls) {

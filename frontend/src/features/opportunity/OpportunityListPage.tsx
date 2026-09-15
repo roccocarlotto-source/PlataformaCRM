@@ -4,7 +4,7 @@ import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
-import { Badge, type BadgeVariant } from "../../design-system/Badge";
+import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { DetailList } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -18,7 +18,13 @@ import { PipelineSelect } from "../pipeline/PipelineSelect";
 import { unitTitle } from "../vehicle/format";
 import { useVehicle } from "../vehicle/queries";
 import { formatAmount, formatDate } from "./format";
-import { FINANCING_TYPE_LABELS, LEAD_SOURCE_LABELS, STATUS_LABEL, STATUSES } from "./labels";
+import {
+  FINANCING_TYPE_LABELS,
+  LEAD_SOURCE_LABELS,
+  STATUS_BADGE_VARIANT,
+  STATUS_LABEL,
+  STATUSES,
+} from "./labels";
 import { useDeleteOpportunity } from "./mutations";
 import { OpportunityAssociation } from "./OpportunityAssociation";
 import { OpportunityBoardView } from "./OpportunityBoardView";
@@ -33,14 +39,6 @@ import {
 import type { OpportunitySortBy, OpportunityStatus, SortOrder } from "./types";
 
 const PAGE_SIZE = 20;
-
-// Color por status; el texto (STATUS_LABEL) vive en labels.ts desde el ítem
-// 18.E de docs/frontend-cambios-pendientes.md, compartido con el formulario.
-const STATUS_BADGE_VARIANT: Record<OpportunityStatus, BadgeVariant> = {
-  OPEN: "neutral",
-  WON: "success",
-  LOST: "danger",
-};
 
 // La misma entidad vista de dos formas — decidido así con el dueño del
 // proyecto: un toggle dentro de esta página, no una ruta ni un link de nav

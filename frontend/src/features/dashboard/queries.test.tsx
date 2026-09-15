@@ -5,14 +5,11 @@ import type { ReactNode } from "react";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
+import { makeDashboardSummary } from "../../test/dashboardFixtures";
 import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
-import {
-  useDefaultPipelineStageSummary,
-  useMyRecentOpenOpportunities,
-  useOpportunitySummary,
-} from "./queries";
+import { useDashboardSummary, useDefaultPipelineStageSummary } from "./queries";
 import type { OpportunityListResponse } from "../opportunity/types";
 import type { PipelineListResponse } from "../pipeline/types";
 import type { StageListResponse } from "../stage/types";
@@ -25,6 +22,7 @@ const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
 const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
 const stagesUrl = `${env.apiUrl}/api/stages`;
 const usersUrl = `${env.apiUrl}/api/users`;
+const summaryUrl = `${env.apiUrl}/api/opportunities/dashboard-summary`;
 
 function wrapperFor(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -46,183 +44,35 @@ function opportunityListResponse(
   };
 }
 
-describe("useOpportunitySummary", () => {
-  it("OPEN/WON/LOST cada uno consulta con su propio status, y ningún request usa GET /api/users", async () => {
-    const captured: string[] = [];
+describe("useDashboardSummary", () => {
+  it("pide GET /opportunities/dashboard-summary sin query params y devuelve el resumen tal cual", async () => {
+    const captured: URL[] = [];
     server.use(
-      http.get(opportunitiesUrl, ({ request }) => {
-        const url = new URL(request.url);
-        captured.push(url.searchParams.get("status") ?? "");
-        return HttpResponse.json(
-          opportunityListResponse({
-            pagination: { page: 1, pageSize: 1, total: 7, totalPages: 7 },
-          }),
-        );
+      http.get(summaryUrl, ({ request }) => {
+        captured.push(new URL(request.url));
+        return HttpResponse.json(makeDashboardSummary({ openCount: 7 }));
       }),
     );
 
-    const { result } = renderHook(() => useOpportunitySummary(), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() => expect(result.current.open.isLoading).toBe(false));
-    expect(result.current.won.isLoading).toBe(false);
-    expect(result.current.lost.isLoading).toBe(false);
-
-    expect(captured.sort()).toEqual(["LOST", "OPEN", "WON"]);
-  });
-
-  it("cada valor usa pagination.total, nunca items.length — data trae 3 filas pero pagination.total=1", async () => {
-    server.use(
-      http.get(opportunitiesUrl, () =>
-        HttpResponse.json(
-          opportunityListResponse({
-            data: [makeOpportunity(), makeOpportunity(), makeOpportunity()],
-            pagination: { page: 1, pageSize: 1, total: 1, totalPages: 1 },
-          }),
-        ),
-      ),
-    );
-
-    const { result } = renderHook(() => useOpportunitySummary(), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() => expect(result.current.open.total).toBe(1));
-    expect(result.current.open.total).not.toBe(3);
-  });
-
-  it("0 se muestra correctamente (pagination.total: 0)", async () => {
-    server.use(
-      http.get(opportunitiesUrl, () =>
-        HttpResponse.json(
-          opportunityListResponse({
-            data: [],
-            pagination: { page: 1, pageSize: 1, total: 0, totalPages: 0 },
-          }),
-        ),
-      ),
-    );
-
-    const { result } = renderHook(() => useOpportunitySummary(), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() => expect(result.current.open.isLoading).toBe(false));
-    expect(result.current.open.total).toBe(0);
-  });
-
-  it("un error en una consulta no inventa un valor y no afecta a las otras", async () => {
-    server.use(
-      http.get(opportunitiesUrl, ({ request }) => {
-        const url = new URL(request.url);
-        const status = url.searchParams.get("status");
-        if (status === "WON") {
-          return HttpResponse.json({ error: { message: "fallo" } }, { status: 500 });
-        }
-        return HttpResponse.json(opportunityListResponse());
-      }),
-    );
-
-    const { result } = renderHook(() => useOpportunitySummary(), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() => expect(result.current.won.isError).toBe(true));
-    expect(result.current.won.total).toBeNull();
-    expect(result.current.open.isError).toBe(false);
-    expect(result.current.open.total).toBe(1);
-    expect(result.current.lost.isError).toBe(false);
-    expect(result.current.lost.total).toBe(1);
-  });
-
-  it("no dispara ningún request a GET /api/users", async () => {
-    let usersRequestCount = 0;
-    server.use(
-      http.get(opportunitiesUrl, () => HttpResponse.json(opportunityListResponse())),
-      http.get(usersUrl, () => {
-        usersRequestCount += 1;
-        return HttpResponse.json({
-          data: [],
-          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
-        });
-      }),
-    );
-
-    const { result } = renderHook(() => useOpportunitySummary(), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() => expect(result.current.open.isLoading).toBe(false));
-    expect(usersRequestCount).toBe(0);
-  });
-});
-
-describe("useMyRecentOpenOpportunities", () => {
-  it("filtra por ownerId, status=OPEN, sortBy=createdAt, sortOrder=desc y pageSize=5", async () => {
-    const captured: URLSearchParams[] = [];
-    server.use(
-      http.get(opportunitiesUrl, ({ request }) => {
-        captured.push(new URL(request.url).searchParams);
-        return HttpResponse.json(opportunityListResponse());
-      }),
-    );
-
-    const { result } = renderHook(() => useMyRecentOpenOpportunities("u1"), {
+    const { result } = renderHook(() => useDashboardSummary(), {
       wrapper: wrapperFor(newClient()),
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(captured[0]?.get("ownerId")).toBe("u1");
-    expect(captured[0]?.get("status")).toBe("OPEN");
-    expect(captured[0]?.get("sortBy")).toBe("createdAt");
-    expect(captured[0]?.get("sortOrder")).toBe("desc");
-    expect(captured[0]?.get("pageSize")).toBe("5");
-  });
-
-  it("sin ownerId (undefined) no dispara ningún request — enabled queda en false", async () => {
-    let requestCount = 0;
-    server.use(
-      http.get(opportunitiesUrl, () => {
-        requestCount += 1;
-        return HttpResponse.json(opportunityListResponse());
-      }),
-    );
-
-    renderHook(() => useMyRecentOpenOpportunities(undefined), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(requestCount).toBe(0);
-  });
-
-  it("empty: data vacía", async () => {
-    server.use(
-      http.get(opportunitiesUrl, () =>
-        HttpResponse.json({
-          data: [],
-          pagination: { page: 1, pageSize: 5, total: 0, totalPages: 0 },
-        }),
-      ),
-    );
-
-    const { result } = renderHook(() => useMyRecentOpenOpportunities("u1"), {
-      wrapper: wrapperFor(newClient()),
-    });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.data).toEqual([]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.search).toBe("");
+    expect(result.current.data?.openCount).toBe(7);
+    expect(result.current.data?.revenueByMonth).toHaveLength(6);
   });
 
   it("error: se refleja como isError, sin datos inventados", async () => {
     server.use(
-      http.get(opportunitiesUrl, () =>
+      http.get(summaryUrl, () =>
         HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
       ),
     );
 
-    const { result } = renderHook(() => useMyRecentOpenOpportunities("u1"), {
+    const { result } = renderHook(() => useDashboardSummary(), {
       wrapper: wrapperFor(newClient()),
     });
 
@@ -230,23 +80,47 @@ describe("useMyRecentOpenOpportunities", () => {
     expect(result.current.data).toBeUndefined();
   });
 
-  it("datos: refleja exactamente lo que responde la API", async () => {
+  it("dos consumidores en el mismo QueryClient comparten un único request", async () => {
+    let requests = 0;
     server.use(
-      http.get(opportunitiesUrl, () =>
-        HttpResponse.json(
-          opportunityListResponse({
-            data: [makeOpportunity({ id: "op-recent", title: "Renovación" })],
-          }),
-        ),
-      ),
+      http.get(summaryUrl, () => {
+        requests += 1;
+        return HttpResponse.json(makeDashboardSummary());
+      }),
     );
 
-    const { result } = renderHook(() => useMyRecentOpenOpportunities("u1"), {
+    const wrapper = wrapperFor(newClient());
+    const first = renderHook(() => useDashboardSummary(), { wrapper });
+    const second = renderHook(() => useDashboardSummary(), { wrapper });
+
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(second.result.current.isSuccess).toBe(true));
+    expect(requests).toBe(1);
+  });
+
+  it("no dispara ningún request a GET /api/users ni al listado de oportunidades", async () => {
+    let otherRequests = 0;
+    server.use(
+      http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())),
+      http.get(usersUrl, () => {
+        otherRequests += 1;
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        });
+      }),
+      http.get(opportunitiesUrl, () => {
+        otherRequests += 1;
+        return HttpResponse.json(opportunityListResponse());
+      }),
+    );
+
+    const { result } = renderHook(() => useDashboardSummary(), {
       wrapper: wrapperFor(newClient()),
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.data[0]?.id).toBe("op-recent");
+    expect(otherRequests).toBe(0);
   });
 });
 

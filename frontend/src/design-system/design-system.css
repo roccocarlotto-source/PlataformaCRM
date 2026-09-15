@@ -1355,9 +1355,10 @@ a.ds-button--secondary:hover {
 
 /* ---------------------------------------------------------------------------
    KPI — tarjeta chica con rótulo arriba y número grande abajo (24px en la
-   fuente display, como los números del diseño). Hoy con un único consumidor,
-   features/dashboard/OpportunitySummaryCards.tsx; queda acá y no como
-   componente por el mismo criterio que ds-mapping-rows.
+   fuente display, como los números del diseño). Consumidores:
+   features/dashboard/OpportunityKpiCards.tsx y features/vehicle/
+   VehicleSummaryCards.tsx; queda acá y no como componente por el mismo
+   criterio que ds-mapping-rows.
    --------------------------------------------------------------------------- */
 .ds-kpi {
   display: flex;
@@ -1389,8 +1390,8 @@ a.ds-button--secondary:hover {
 /* ---------------------------------------------------------------------------
    Meter — fila "rótulo … valor" con barra proporcional debajo (pista 6px,
    relleno en el color primario). El ancho del relleno lo calcula el
-   consumidor a partir de datos reales; acá solo la forma. Único consumidor
-   hoy: features/dashboard/PipelineStageSummary.tsx.
+   consumidor a partir de datos reales; acá solo la forma. Consumidores:
+   features/dashboard/PipelineStageSummary.tsx y TopDealsList.tsx.
    --------------------------------------------------------------------------- */
 .ds-meter-list {
   list-style: none;
@@ -1434,7 +1435,7 @@ a.ds-button--secondary:hover {
 /* ---------------------------------------------------------------------------
    Lista de filas dentro de una tarjeta: texto principal + secundario a la
    izquierda, dato alineado a la derecha, separador entre filas. Único
-   consumidor hoy: features/dashboard/RecentOpenOpportunities.tsx.
+   consumidor hoy: features/dashboard/ActivityFeed.tsx.
    --------------------------------------------------------------------------- */
 .ds-list {
   list-style: none;
@@ -1487,6 +1488,64 @@ a.ds-button--secondary:hover {
 
 .ds-kpi-state[role="alert"] {
   color: var(--color-danger);
+}
+
+/* Línea de variación debajo del número (§30): verde si sube, rojo si baja,
+   apagada si no cambió o no hay base de comparación. Semántica de estado,
+   los mismos tokens que Badge success/danger. */
+.ds-kpi-delta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.ds-kpi-delta--up {
+  color: var(--color-success);
+}
+
+.ds-kpi-delta--down {
+  color: var(--color-danger);
+}
+
+.ds-kpi-delta--neutral {
+  color: var(--color-text-faint);
+}
+
+/* ---------------------------------------------------------------------------
+   Gráfico de línea del Dashboard (§30, features/dashboard/RevenueByMonthChart
+   .tsx): un <svg> a mano que escala al ancho de la tarjeta. Línea de 2px en el
+   color primario (el mismo del relleno de .ds-meter-fill), marcadores huecos
+   sobre la superficie, líneas de referencia y rótulos recesivos.
+   --------------------------------------------------------------------------- */
+.ds-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.ds-chart-line {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.ds-chart-point {
+  fill: var(--color-surface);
+  stroke: var(--color-primary);
+  stroke-width: 2;
+}
+
+.ds-chart-grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.ds-chart-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  fill: var(--color-text-muted);
 }
 
 /* ---------------------------------------------------------------------------

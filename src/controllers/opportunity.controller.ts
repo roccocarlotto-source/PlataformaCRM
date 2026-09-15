@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   createOpportunity,
   deleteOpportunity,
+  getDashboardSummary,
   getOpportunityById,
   listOpportunities,
   updateOpportunity,
@@ -134,6 +135,16 @@ export const listOpportunitiesHandler = asyncHandler<AuthenticatedRequest>(
     const query = parseOrThrow(listQuerySchema, req.query);
     const result = await listOpportunities(req.auth.organizationId, query);
     res.status(200).json(result);
+  },
+);
+
+// Resumen comercial del Dashboard (§30). Sin query params: el rango (mes
+// actual, anterior y los últimos 6 meses) es fijo y lo decide el service con
+// el reloj real; la organización sale del JWT como en el resto del módulo.
+export const getDashboardSummaryHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const summary = await getDashboardSummary(req.auth.organizationId);
+    res.status(200).json(summary);
   },
 );
 

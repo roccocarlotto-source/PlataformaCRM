@@ -17,7 +17,10 @@ import { useCompaniesByIds } from "../contact/companyResolution";
 import { useContactNames, useOwnerNames } from "../opportunity/relationResolution";
 import { useConfirmActivity, useDeleteActivity } from "./mutations";
 import { useActivities } from "./queries";
-import { useOpportunityNames } from "./relationResolution";
+import {
+  resolveUserLabel as resolveUserLabelShared,
+  useOpportunityNames,
+} from "./relationResolution";
 import { ACTIVITY_TYPES, ACTIVITY_TYPE_LABELS, confirmationStatusOf } from "./types";
 import type {
   Activity,
@@ -137,17 +140,10 @@ export function ActivityListPage() {
   // al volver a entrar; es una aproximación aceptable para un indicador.
   const [now] = useState(() => Date.now());
 
-  // USER nunca resuelve el nombre de otro usuario (sin acceso a GET
-  // /api/users): compara contra su propio id (conocido vía useAuth, sin
-  // request adicional) y muestra "Vos" en ese caso; cualquier otro id
-  // ajeno cae en el fallback humano "—", nunca el UUID crudo. ADMIN
-  // resuelve cualquier id vía userNames.
-  function resolveUserLabel(userId: string | null): string {
-    if (!userId) return "";
-    if (userId === me?.id) return "Vos";
-    if (isAdmin) return userNames.byId.get(userId) ?? "—";
-    return "—";
-  }
+  // La regla ("Vos" / nombre resuelto / "—") vive en relationResolution.ts
+  // desde el §30, compartida con el feed de actividad del Dashboard.
+  const resolveUserLabel = (userId: string | null) =>
+    resolveUserLabelShared(userId, { meId: me?.id, isAdmin, names: userNames.byId });
 
   // La fila del detalle sale del array ya cargado, sin un GET aparte: el
   // listado trae el objeto Activity completo (§28). Si la fila desaparece

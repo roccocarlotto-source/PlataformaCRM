@@ -1,3 +1,4 @@
+import type { BadgeVariant } from "../../design-system/Badge";
 import type { OpportunityFinancingType, OpportunityLeadSource, OpportunityStatus } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -22,6 +23,16 @@ export const STATUS_LABEL: Record<OpportunityStatus, string> = {
   OPEN: "Abierta",
   WON: "Ganada",
   LOST: "Perdida",
+};
+
+// Color del Badge por status. Vivía en OpportunityListPage.tsx; se movió acá
+// en el §30 de docs/frontend-cambios-pendientes.md porque la tabla de
+// oportunidades recientes del Dashboard pinta el mismo status con la misma
+// paleta — una sola definición, como STATUS_LABEL.
+export const STATUS_BADGE_VARIANT: Record<OpportunityStatus, BadgeVariant> = {
+  OPEN: "neutral",
+  WON: "success",
+  LOST: "danger",
 };
 
 export const FINANCING_TYPE_LABELS: Record<OpportunityFinancingType, string> = {
