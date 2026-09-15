@@ -30,7 +30,7 @@ export function OpportunityKpiCards() {
 
   return (
     <section aria-label="Resumen comercial">
-      <dl className="ds-card-grid">
+      <dl className="ds-card-grid ds-kpi-row">
         {LABELS.map(({ key, label }) => {
           const card = cards?.find((candidate) => candidate.key === key);
           return (

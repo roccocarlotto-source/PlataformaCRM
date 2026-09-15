@@ -1345,3 +1345,70 @@ Generá la migración corriendo `npx prisma migrate dev` contra tu stack local d
 - Textos visibles (solo como `aria-label`/`title`, los botones son solo-ícono): "Sistema", "Claro", "Oscuro"; el grupo se llama "Tema". Íconos `Monitor`/`Sun`/`Moon` de `lucide-react`, 16px, `strokeWidth` 1.5 como el resto de la sidebar.
 - CSS: `.ds-theme-toggle` (fila con borde, fondo `--color-surface-sunken`, `--radius-md`, 2px de padding) y `.ds-theme-toggle-button` (32px de alto, `--radius-sm`, hover `--color-surface-muted`) con `.is-active` = `--color-primary` sobre `--color-primary-contrast`, exactamente los tokens de `.ds-sidebar-link.is-active`.
 - Suite completa del frontend: 126 archivos, 1177 tests (eran 123/1145 en §30: +3 archivos, +32 tests). Typecheck, ESLint, Prettier (frontend y raíz) y build (app y widget) limpios. Sin cambios de backend, sin migración.
+
+## 32. Gráfico de ingresos: curva suave, animaciones y corrección de un bug de escalado
+
+Motivo: pedido de mejorar el diseño general del Dashboard, con foco en el
+gráfico "Ingresos ganados por mes" ("no me gustó nada"). Al investigar el
+motivo se encontró un bug real, no solo una cuestión de gusto: el <svg> usa
+un viewBox fijo (CHART_BOX.width=600) mientras que la tarjeta se estira sin
+tope (main no tiene max-width, a propósito — ver global.css). En un monitor
+ancho la tarjeta renderiza bien por encima de 600px, y como font-size/
+stroke-width de .ds-chart-label viven DENTRO del sistema de coordenadas del
+viewBox, escalan junto con todo lo demás — por eso el rótulo "0.00 USD" se
+veía tan grande como un número de KPI.
+
+Se evaluó adoptar una librería de gráficos (Recharts, y después Bklit UI —
+un registry de shadcn/ui que hubiera metido Tailwind CSS en un frontend que
+deliberadamente no lo usa). Se descartaron las dos: para un solo gráfico en
+un dashboard interno, construir a mano con SVG + CSS (como ya se había
+hecho en §30) sale más barato que adoptar una librería completa o, peor,
+reimplementar a mano las piezas sueltas de otra (@visx/*) para imitar el
+resultado de una librería que no se puede usar tal cual.
+
+Cambios:
+- CHART_BOX deja de ser un ancho fijo: revenueChart.ts recibe el ancho real
+  medido del contenedor (ResizeObserver, sin librería) y arma el viewBox Y
+  los atributos width/height del <svg> con ESE número — nunca un viewBox
+  que se estira por CSS. Así 1 unidad de viewBox es siempre 1px real, y el
+  bug de escalado queda estructuralmente resuelto (mismo principio que
+  ResponsiveContainer de Recharts, sin la dependencia).
+- La polilínea recta pasa a ser una curva suave (Catmull-Rom → Bézier,
+  función pura y testeada) con relleno en degradé debajo (acento índigo),
+  dibujado con una animación de entrada.
+- Los 4 KPI comerciales (OpportunityKpiCards) entran con un fade + rise
+  escalonado; las tarjetas de esa fila levantan levemente al hover.
+- Toda animación respeta prefers-reduced-motion.
+- Alcance contenido a propósito: las clases nuevas van bajo el prefijo
+  ds-chart-* (ya existente) y un wrapper nuevo ds-kpi-row en la <section>
+  de OpportunityKpiCards — NO se tocó la regla base .ds-card (usada en
+  toda la app) ni VehicleSummaryCards.tsx. Las tablas/listas de más abajo
+  del Dashboard (oportunidades recientes, pipeline, actividad, acciones
+  rápidas) quedan sin cambios en esta pasada.
+
+**Hallazgos al implementar:**
+
+- **El bug de escalado se confirmó leyendo el código, tal como estaba descripto.** `.ds-chart` tenía `width: 100%; height: auto` sobre un `viewBox="0 0 600 200"`, así que en una tarjeta de 1100px todo se multiplicaba por ~1,8 (los rótulos de 11px se veían a ~20px). Ahora `.ds-chart` ya no tiene `width` en CSS, y en el harness visual `getComputedStyle(.ds-chart-label).fontSize` da `11px` con la tarjeta a 1100px de ancho.
+- **El último mes de la serie es siempre el mes calendario en curso: confirmado, y por eso el último tramo va punteado.** `getDashboardSummary` usa `lastMonthsUTC(now, 6)`, cuyo comentario y cuyo test (`utcMonth.test.ts`, "la actual al final") fijan que la ventana del mes actual es la última. El controller llama `getDashboardSummary(req.auth.organizationId)` sin inyectar `now`, así que en producción `now` es siempre `new Date()`. Salvedad: "en curso" es el mes UTC; entre las 21:00 del último día del mes en Montevideo y la medianoche, la serie ya arrancó el mes siguiente (mismo criterio que el §30).
+- **Catmull-Rom sin cota dibujaba ingresos negativos.** Con la serie del fixture (oct 100, nov 0, dic 250…), el punto de control del tramo que llega a noviembre caía por debajo de la base: la curva bajaba del eje "0" entre dos puntos reales. `smoothSegments` acota las Y de los puntos de control al rango vertical de la serie; como una cúbica nunca sale de la envolvente convexa de sus cuatro puntos, la curva queda siempre entre la base y el techo. Hay un test que demuestra que sin la cota el control se pasaba.
+- **`useContainerWidth` es un callback ref, no `useRef` + `useEffect`.** El `<div>` medido se monta recién con `isSuccess && max > 0`, después del primer render; un efecto con deps vacías ya habría corrido con el ref en `null` y nunca habría observado nada. React 19 acepta que el callback ref devuelva una función de limpieza, que es donde se hace `observer.disconnect()`. Vive en `lib/` (junto a `useFormDraft.ts`) porque no tiene nada del Dashboard, y tiene su test.
+- **El `<svg>` no se dibuja hasta la primera medición, pero la tabla `.ds-sr-only` sí.** La tabla accesible no depende del ancho, así que un lector de pantalla tiene los datos desde el primer render. Hay un test con un `ResizeObserver` que nunca notifica: sin `img`, con tabla.
+- **jsdom no tiene `ResizeObserver`, y eso afectaba también a `DashboardPage.test.tsx`** (espera el `img` del gráfico), no solo al test del componente. El stub quedó en `test/resizeObserverStub.ts` y lo usan los tres archivos de test. Notifica sincrónicamente al observar, con 600px por defecto. Sin él, el fallback del hook (`getBoundingClientRect`) da 0 en jsdom y el gráfico no se dibujaría.
+- **La animación de dibujado no se repite en un refetch en background: verificado leyendo el código.** El `<svg>` y los `<path>` no tienen `key`; `isSuccess` sigue en `true` durante un refetch (React Query no pasa a loading si ya hay datos), así que React reconcilia los mismos nodos y solo cambia el atributo `d`, y una animación CSS no se reinicia por un cambio de atributo. Dos casos sí la repiten, y se dejan así: (1) cuando cambia el mes calendario, las `key` de marcadores y rótulos son el mes y esos nodos se vuelven a montar, lo que es correcto porque son otros datos; (2) si un refetch falla, `isSuccess` pasa a `false`, el gráfico deja lugar al `ErrorState` y al recuperarse vuelve a entrar animado. Ese segundo caso es el comportamiento de estados que ya tenía el §30, no algo nuevo de este ítem.
+- **Hover sin JS: la franja de hover es un `<rect>` invisible por columna.** Apuntar a un círculo de 4px es incómodo; cada marcador es un `<g>` con un `<rect class="ds-chart-hit">` que cubre desde la mitad del camino con el vecino anterior hasta la mitad con el siguiente, y `.ds-chart-marker:hover` muestra guía y tooltip. Tiene que ser `fill: transparent` y no `fill: none`, porque un relleno `none` no recibe eventos de puntero. Guía y tooltip llevan `pointer-events: none` para no robarle el hover a la columna vecina.
+- **El tooltip visual no mide texto.** Estima el ancho por cantidad de caracteres a 11px (`tooltipLayout`), se corre hacia adentro cerca de los bordes, y `CHART_BOX.top` subió a 40 para que el del punto más alto no se salga por arriba. Es `aria-hidden`: la vía accesible sigue siendo el `<title>` del círculo más la tabla, que no se tocaron.
+- **Todas las animaciones usan `animation-fill-mode: backwards`, no `both`.** Con `both`, el `transform` final de `ds-rise-in` quedaría aplicado para siempre sobre `.ds-kpi` y `.ds-chart-marker`, y un `animation` gana sobre las declaraciones normales, así que el `transform` del hover no tendría efecto. Con `backwards` el estado inicial se aplica durante el delay y al terminar cada elemento vuelve a su estilo normal.
+- **La línea se dibuja con `pathLength={1}`**, así `stroke-dasharray: 1` y `stroke-dashoffset` de 1 a 0 funcionan sin medir el largo real desde JS. El tramo punteado del último mes es un `<path>` aparte (sin `pathLength`, con su propio `stroke-dasharray: 4 5`) que se funde cuando la línea terminó de dibujarse. Por eso existe `segmentsToPath`: arma el `d` de un subconjunto de tramos con los mismos puntos de control que la curva completa, y los dos `<path>` empalman sin quiebre.
+- **Hizo falta un token de sombra nuevo.** `tokens.css` solo tenía `--shadow-sm` (la de reposo de `.ds-card`) y `--shadow-overlay` (modales). El hover de la fila de KPI usa `--shadow-md`, definido en los dos temas. La sombra del hover va fuera de `prefers-reduced-motion` porque no es movimiento; el `translateY(-2px)` y las transiciones van adentro.
+- **Verificación visual:** harness HTML estático en el scratchpad con los CSS reales por `file://`, con el markup que produce el componente de verdad (volcado desde un test temporal ya borrado), en claro y oscuro, a 1100px de ancho, vía `/browse`. Se verificó que los rótulos quedan a 11px reales, que la curva y el relleno se ven bien en los dos temas, que el tramo punteado se nota, y que el hover del primer y el último mes muestra la guía y el tooltip dentro del `<svg>`. No se pudo verificar `prefers-reduced-motion: reduce` en el navegador, porque `Emulation.setEmulatedMedia` está denegado en el harness (mismo límite ya anotado para el modo oscuro); se verificó leyendo el CSS, donde toda regla con `animation`, `transition` o `transform` de hover está dentro de `@media (prefers-reduced-motion: no-preference)`.
+
+**Decisiones tomadas al implementar:**
+
+- `revenueChart.ts`: `CHART_BOX` sin `width` (`height: 240`, `left: 88`, `right: 24`, `top: 40`, `bottom: 36`) y `CHART_BASELINE` exportado. `toChartPoints(series, width)` recibe el ancho. `toPolylinePoints` se borró porque ya no la usaba nadie. Funciones nuevas, todas puras y con test: `smoothSegments`, `segmentsToPath`, `toSmoothPath`, `toAreaPath`, `tooltipLayout` y `hitBand`.
+- El margen izquierdo pasó de 56 a 88 para que un máximo de cuatro cifras ("3000.00 USD") no se pise con la grilla. Con importes de siete cifras o más, el rótulo asoma sobre el padding de la tarjeta (`.ds-chart { overflow: visible }`) en vez de recortarse.
+- `RevenueByMonthChart.tsx`: el dibujo se separó en `ChartSvg` y `ChartMarker`, en el mismo archivo y sin exportar. El `id` del degradé sale de `useId()` para que dos gráficos en una misma página no compartan `id`. El escalonado de los marcadores usa la custom property inline `--ds-chart-index`, con 130ms entre puntos después de 350ms.
+- Tiempos de entrada: grilla y rótulos 300ms, línea 1,1s, relleno 700ms desde los 250ms, tramo punteado 400ms desde 1s, marcadores 400ms cada uno, y KPI 420ms con 80ms entre tarjetas. Hover: 140ms en el gráfico y 160ms en las tarjetas.
+- Colores: línea, marcadores, guía y degradé en `--color-accent`, que es el índigo de marca y pasa al índigo claro en oscuro. El degradé va de 28% de opacidad a 0. El tooltip usa `--color-primary` sobre `--color-primary-contrast`, los mismos tokens del ítem activo de la sidebar. Antes la línea era `--color-primary`.
+- Alcance CSS respetado: clases nuevas solo `ds-chart-*` y `ds-kpi-row`, con los keyframes `ds-fade-in`, `ds-rise-in` y `ds-chart-draw`, más el token `--shadow-md`. No se tocaron la regla base `.ds-card`, `.ds-kpi` fuera de `.ds-kpi-row` ni `VehicleSummaryCards.tsx`.
+- Archivos nuevos: `lib/useContainerWidth.ts` (+ test) y `test/resizeObserverStub.ts`. Modificados: `revenueChart.ts` (+ test), `RevenueByMonthChart.tsx` (+ test), `OpportunityKpiCards.tsx` (solo la clase del `<dl>`), `DashboardPage.test.tsx` (solo el stub), `design-system.css` y `tokens.css`. Sin cambios de backend, sin migración y sin dependencias nuevas.
+- Suite completa del frontend: 127 archivos y 1197 tests (en el §31 eran 126 y 1177). Typecheck, ESLint, Prettier y build (app y widget) limpios.
