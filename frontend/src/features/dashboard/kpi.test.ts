@@ -36,10 +36,9 @@ describe("winRate", () => {
 });
 
 describe("buildKpiCards", () => {
-  it("devuelve las 4 cards en el orden del mockup", () => {
+  it("devuelve las 3 cards en el orden del mockup", () => {
     expect(buildKpiCards(makeDashboardSummary()).map((card) => card.key)).toEqual([
       "created",
-      "pipelineValue",
       "won",
       "winRate",
     ]);
@@ -48,7 +47,8 @@ describe("buildKpiCards", () => {
   it("creadas: el número grande es createdThisPeriod.count, no las abiertas de ahora", () => {
     const card = cardsByKey(
       makeDashboardSummary({
-        // openCount ya no alimenta ninguna card desde el §35.
+        // openCount ya no alimenta ninguna card desde el §35 (openValue
+        // tampoco, desde el §36).
         openCount: 99,
         createdThisPeriod: { count: 5, value: "2000.00" },
         createdLastPeriod: { count: 3, value: "1000.00" },
@@ -74,23 +74,6 @@ describe("buildKpiCards", () => {
       }),
     ).get("created");
     expect(igual?.delta).toEqual({ direction: "neutral", text: "0 vs. mes anterior" });
-  });
-
-  it("valor del pipeline: SUM de abiertas en la moneda de la organización, variación sobre el valor CREADO por mes", () => {
-    const card = cardsByKey().get("pipelineValue");
-    expect(card?.value).toBe("4500.00 USD");
-    expect(card?.delta).toEqual({
-      direction: "up",
-      text: "+100% en valor nuevo vs. mes anterior",
-    });
-  });
-
-  it("valor del pipeline: sin valor creado el mes anterior → neutral con guion, sin porcentaje inventado", () => {
-    const card = cardsByKey(
-      makeDashboardSummary({ createdLastMonth: { count: 0, value: "0.00" } }),
-    ).get("pipelineValue");
-    expect(card?.delta.direction).toBe("neutral");
-    expect(card?.delta.text).toBe("— sin base de comparación el mes anterior");
   });
 
   it("ganado: monto en la moneda y variación relativa contra el período anterior, negativa en rojo", () => {
@@ -142,7 +125,9 @@ describe("buildKpiCards", () => {
 // ---------------------------------------------------------------------------
 // §35: las nueve combinaciones de rótulo y comparación. La granularidad sale
 // del propio resumen (el eco del backend), no de un argumento aparte: los
-// rótulos describen SIEMPRE la ventana de los números que acompañan.
+// rótulos describen SIEMPRE la ventana de los números que acompañan. Desde el
+// §36 las tres cards del resumen son las tres que siguen al selector: ya no
+// hay ninguna que se quede en mensual.
 // ---------------------------------------------------------------------------
 
 describe("buildKpiCards — rótulos por granularidad (§35)", () => {
@@ -203,25 +188,6 @@ describe("buildKpiCards — rótulos por granularidad (§35)", () => {
       );
     });
 
-    it(`${granularity}: "Valor del pipeline" NO cambia — mismo rótulo, mismo valor y siempre vs. mes anterior`, () => {
-      const card = cardsByKey(
-        makeDashboardSummary({
-          granularity,
-          // Números del período bien distintos de los mensuales: si la card
-          // los mirara, el valor o la variación cambiarían.
-          createdThisPeriod: { count: 1, value: "7.00" },
-          createdLastPeriod: { count: 9, value: "9999.00" },
-        }),
-      ).get("pipelineValue");
-
-      expect(card?.label).toBe("Valor del pipeline");
-      expect(card?.value).toBe("4500.00 USD");
-      expect(card?.delta).toEqual({
-        direction: "up",
-        text: "+100% en valor nuevo vs. mes anterior",
-      });
-    });
-
     it(`${granularity}: kpiLabels devuelve los mismos rótulos que las cards, en el mismo orden`, () => {
       const cards = buildKpiCards(makeDashboardSummary({ granularity }));
       expect(kpiLabels(granularity)).toEqual(
@@ -230,11 +196,9 @@ describe("buildKpiCards — rótulos por granularidad (§35)", () => {
     });
   }
 
-  it("semanal y diario leen los campos *Period, no los mensuales", () => {
+  it("semanal lee los campos *Period, con la comparación de la semana", () => {
     const summary = makeDashboardSummary({
       granularity: "week",
-      createdThisMonth: { count: 50, value: "50000.00" },
-      createdLastMonth: { count: 40, value: "40000.00" },
       createdThisPeriod: { count: 4, value: "400.00" },
       createdLastPeriod: { count: 2, value: "200.00" },
     });
@@ -242,7 +206,5 @@ describe("buildKpiCards — rótulos por granularidad (§35)", () => {
 
     expect(cards.get("created")?.value).toBe("4");
     expect(cards.get("created")?.delta.text).toBe("+2 vs. semana anterior");
-    // Y la card mensual sigue leyendo los mensuales: +25% de 40000 a 50000.
-    expect(cards.get("pipelineValue")?.delta.text).toBe("+25% en valor nuevo vs. mes anterior");
   });
 });

@@ -5,7 +5,7 @@ import type {
 } from "../opportunity/types";
 
 // ---------------------------------------------------------------------------
-// Las cuatro cards del resumen comercial (§30 de docs/frontend-cambios-
+// Las tres cards del resumen comercial (§30 de docs/frontend-cambios-
 // pendientes.md) a partir de los números crudos del backend. Lógica pura,
 // sin React, probada sola (kpi.test.ts) — mismo espíritu que taskBuckets.ts.
 //
@@ -14,20 +14,22 @@ import type {
 // también cubre "no hay base de comparación", que se muestra como "—" en vez
 // de inventar un porcentaje sobre un cero.
 //
-// Desde el §35 tres de las cuatro siguen al selector de período: "creadas",
-// "ganado" y "tasa de cierre" cambian de rótulo, de comparación Y de números
-// según la granularidad, que sale del propio resumen (`summary.granularity`,
-// el eco del backend) y no del estado de la página — así el rótulo nunca
-// describe una ventana distinta de la de los números que acompaña.
+// Las tres siguen al selector de período: "creadas", "ganado" y "tasa de
+// cierre" cambian de rótulo, de comparación Y de números según la
+// granularidad, que sale del propio resumen (`summary.granularity`, el eco del
+// backend) y no del estado de la página — así el rótulo nunca describe una
+// ventana distinta de la de los números que acompaña.
 //
-// "Valor del pipeline" es la excepción y es el punto del ítem: es la foto de
-// lo que está abierto AHORA, y su variación se compara siempre contra el mes
-// anterior, elija lo que elija el selector.
+// Hasta el §36 había una cuarta, "Valor del pipeline", que era la excepción:
+// la foto de lo abierto AHORA, siempre comparada contra el mes anterior. Se
+// sacó porque el embudo de Oportunidades ya muestra lo mismo por pipeline y
+// multi-moneda; con ella se fueron su par mensual del backend y el único uso
+// de `openValue`.
 // ---------------------------------------------------------------------------
 
 export type KpiDeltaDirection = "up" | "down" | "neutral";
 
-export const KPI_KEYS = ["created", "pipelineValue", "won", "winRate"] as const;
+export const KPI_KEYS = ["created", "won", "winRate"] as const;
 
 export type KpiKey = (typeof KPI_KEYS)[number];
 
@@ -70,11 +72,6 @@ const PERIOD_COPY: Record<
   },
 };
 
-// "Valor del pipeline" no sigue al selector: su rótulo y su comparación son
-// siempre los mensuales.
-const PIPELINE_VALUE_LABEL = "Valor del pipeline";
-const MONTH_COMPARISON = PERIOD_COPY.month.comparison;
-
 // Rótulo de cada card para una granularidad, en el orden del mockup. Lo usan
 // buildKpiCards y el esqueleto de OpportunityKpiCards (que necesita los
 // rótulos ANTES de que llegue el resumen), así que se escribe una sola vez.
@@ -84,7 +81,6 @@ export function kpiLabels(
   const copy = PERIOD_COPY[granularity];
   return [
     { key: "created", label: copy.created },
-    { key: "pipelineValue", label: PIPELINE_VALUE_LABEL },
     { key: "won", label: copy.won },
     { key: "winRate", label: copy.winRate },
   ];
@@ -117,7 +113,7 @@ function signed(value: number, suffix: string): string {
 }
 
 // El texto de "no hay con qué comparar" nombra la ventana anterior, así que
-// también sigue al período — salvo en "Valor del pipeline", que pasa el mes.
+// también sigue al período.
 function sinBase(previous: string) {
   return { direction: "neutral" as const, text: `— sin base de comparación ${previous}` };
 }
@@ -130,14 +126,6 @@ export function buildKpiCards(summary: OpportunityDashboardSummary): KpiCard[] {
   // de creadas por mes al lado, dos cosas distintas en la misma card; ahora el
   // número grande y la variación son lo mismo, medido en la misma ventana.
   const createdDelta = summary.createdThisPeriod.count - summary.createdLastPeriod.count;
-
-  // La única que NO sigue al selector: el valor de lo abierto ahora, con su
-  // variación siempre sobre el valor CREADO en el mes (el estado de hace un mes
-  // no se puede reconstruir, ver el service).
-  const newValueDelta = percentDelta(
-    Number(summary.createdThisMonth.value),
-    Number(summary.createdLastMonth.value),
-  );
 
   const wonDelta = percentDelta(
     Number(summary.wonThisPeriod.value),
@@ -158,16 +146,6 @@ export function buildKpiCards(summary: OpportunityDashboardSummary): KpiCard[] {
         direction: directionOf(createdDelta),
         text: `${signed(createdDelta, "")} ${copy.comparison}`,
       },
-    },
-    pipelineValue: {
-      value: formatAmount(summary.openValue, summary.currency),
-      delta:
-        newValueDelta === null
-          ? sinBase(PERIOD_COPY.month.previous)
-          : {
-              direction: directionOf(newValueDelta),
-              text: `${signed(newValueDelta, "%")} en valor nuevo ${MONTH_COMPARISON}`,
-            },
     },
     won: {
       value: formatAmount(summary.wonThisPeriod.value, summary.currency),

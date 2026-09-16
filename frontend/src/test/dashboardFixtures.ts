@@ -9,9 +9,8 @@ import type {
 // (Prisma.Decimal → toJSON() string), mismo criterio que
 // opportunityFixtures.ts.
 //
-// Por defecto es el resumen MENSUAL, y ahí el par "del período" coincide con
-// el par mensual, tal como responde el backend. Los tests que necesitan que
-// diverjan (semanal/diario) pisan `granularity` y los campos `*Period`.
+// Por defecto es el resumen MENSUAL. Los tests de otra ventana (semanal/
+// diaria) pisan `granularity` y los campos `*Period`.
 export function makeDashboardSummary(
   overrides: Partial<OpportunityDashboardSummary> = {},
 ): OpportunityDashboardSummary {
@@ -20,8 +19,6 @@ export function makeDashboardSummary(
     granularity: "month",
     openCount: 3,
     openValue: "4500.00",
-    createdThisMonth: { count: 5, value: "2000.00" },
-    createdLastMonth: { count: 3, value: "1000.00" },
     createdThisPeriod: { count: 5, value: "2000.00" },
     createdLastPeriod: { count: 3, value: "1000.00" },
     wonThisPeriod: { count: 2, value: "3000.00" },

@@ -196,8 +196,8 @@ test("getDashboardSummary: otras monedas quedan fuera de los montos pero no de o
   assert.equal(resumen.currency, "UYU");
   assert.equal(resumen.openCount, 3);
   assert.equal(resumen.openValue, "1750.25");
-  assert.equal(resumen.createdThisMonth.count, 3, "creadas este mes: conteo sin moneda");
-  assert.equal(resumen.createdThisMonth.value, "1750.25", "creadas este mes: monto solo en UYU");
+  assert.equal(resumen.createdThisPeriod.count, 3, "creadas en el mes: conteo sin moneda");
+  assert.equal(resumen.createdThisPeriod.value, "1750.25", "creadas en el mes: monto solo en UYU");
 });
 
 test("getDashboardSummary: los bordes del mes son [inicio, inicio del siguiente) en UTC", async () => {
@@ -217,8 +217,8 @@ test("getDashboardSummary: los bordes del mes son [inicio, inicio del siguiente)
     "UYU",
   );
   const resumen = await getDashboardSummary(ORG, { granularity: "month", now: AHORA, db });
-  assert.deepEqual(resumen.createdThisMonth, { count: 1, value: "2.00" });
-  assert.deepEqual(resumen.createdLastMonth, { count: 2, value: "9.00" });
+  assert.deepEqual(resumen.createdThisPeriod, { count: 1, value: "2.00" });
+  assert.deepEqual(resumen.createdLastPeriod, { count: 2, value: "9.00" });
 });
 
 test("getDashboardSummary: ganadas y perdidas se cuentan por actualCloseDate en cada mes; sin fecha de cierre no cuentan", async () => {
@@ -272,14 +272,15 @@ test("getDashboardSummary: ya NO trae revenueByMonth — la serie de 6 meses es 
 });
 
 // ---------------------------------------------------------------------------
-// §35: las tres cards que siguen al selector usan la ventana de `granularity`,
-// y el par SIEMPRE mensual (el de "Valor del pipeline") no se mueve nunca.
+// §35: las tres cards del resumen usan la ventana de `granularity`. Desde el
+// §36 ese es el ÚNICO juego de ventanas que devuelve el service: el par
+// siempre mensual se fue con "Valor del pipeline".
 // AHORA (15/3/2026) es DOMINGO, así que la semana en curso arranca el lunes 9
 // y la anterior el lunes 2 — el caso interesante, porque el domingo es el
 // último día de la semana y no el primero.
 // ---------------------------------------------------------------------------
 
-test("getDashboardSummary: con granularity=month el par del período ES el par mensual, sin consultar dos veces", async () => {
+test("getDashboardSummary: con granularity=month las ventanas son el mes en curso y el anterior", async () => {
   const db = baseEnMemoria(
     [
       fila({ createdAt: dia("2026-03-10T00:00:00.000Z"), amount: new Prisma.Decimal(2) }),
@@ -289,21 +290,18 @@ test("getDashboardSummary: con granularity=month el par del período ES el par m
   );
   const resumen = await getDashboardSummary(ORG, { granularity: "month", now: AHORA, db });
 
-  assert.deepEqual(resumen.createdThisPeriod, resumen.createdThisMonth);
-  assert.deepEqual(resumen.createdLastPeriod, resumen.createdLastMonth);
   assert.deepEqual(resumen.createdThisPeriod, { count: 1, value: "2.00" });
   assert.deepEqual(resumen.createdLastPeriod, { count: 1, value: "16.00" });
 });
 
-test("getDashboardSummary: con granularity=week las ventanas son lunes-a-domingo y el par mensual queda igual", async () => {
+test("getDashboardSummary: con granularity=week las ventanas son lunes-a-domingo", async () => {
   const db = baseEnMemoria(
     [
       // Martes 10: semana en curso (y marzo).
       fila({ createdAt: dia("2026-03-10T00:00:00.000Z"), amount: new Prisma.Decimal(2) }),
       // Jueves 5: semana anterior (y marzo).
       fila({ createdAt: dia("2026-03-05T00:00:00.000Z"), amount: new Prisma.Decimal(4) }),
-      // Domingo 1: marzo, pero dos semanas atrás — fuera de las dos ventanas
-      // semanales y dentro de la mensual.
+      // Domingo 1: marzo, pero dos semanas atrás — fuera de las dos ventanas.
       fila({ createdAt: dia("2026-03-01T00:00:00.000Z"), amount: new Prisma.Decimal(8) }),
       // Febrero: mes anterior, y ninguna de las dos semanas.
       fila({ createdAt: dia("2026-02-20T00:00:00.000Z"), amount: new Prisma.Decimal(16) }),
@@ -335,11 +333,6 @@ test("getDashboardSummary: con granularity=week las ventanas son lunes-a-domingo
   assert.deepEqual(resumen.wonThisPeriod, { count: 1, value: "100.00" });
   assert.equal(resumen.lostCountLastPeriod, 1);
   assert.equal(resumen.lostCountThisPeriod, 0);
-
-  // Y el par que alimenta "Valor del pipeline" sigue siendo el del MES, con
-  // las tres de marzo y la de febrero.
-  assert.deepEqual(resumen.createdThisMonth, { count: 3, value: "14.00" });
-  assert.deepEqual(resumen.createdLastMonth, { count: 1, value: "16.00" });
 });
 
 test("getDashboardSummary: con granularity=day las ventanas son hoy y ayer en UTC", async () => {
@@ -348,7 +341,7 @@ test("getDashboardSummary: con granularity=day las ventanas son hoy y ayer en UT
       fila({ createdAt: dia("2026-03-15T01:00:00.000Z"), amount: new Prisma.Decimal(3) }),
       // Último instante de ayer: sigue siendo ayer.
       fila({ createdAt: dia("2026-03-14T23:59:59.999Z"), amount: new Prisma.Decimal(5) }),
-      // Primer instante de mañana: fuera de las dos ventanas, dentro del mes.
+      // Primer instante de mañana: fuera de las dos ventanas.
       fila({ createdAt: dia("2026-03-16T00:00:00.000Z"), amount: new Prisma.Decimal(7) }),
       fila({
         status: "WON",
@@ -372,10 +365,6 @@ test("getDashboardSummary: con granularity=day las ventanas son hoy y ayer en UT
   assert.deepEqual(resumen.wonLastPeriod, { count: 0, value: "0.00" });
   assert.equal(resumen.lostCountThisPeriod, 0);
   assert.equal(resumen.lostCountLastPeriod, 1);
-
-  // Las cinco filas se crearon en marzo: el par mensual las ve a todas, sin
-  // importar que la granularidad sea diaria.
-  assert.equal(resumen.createdThisMonth.count, 5);
 });
 
 test("getDashboardSummary: las borradas y las de otra organización nunca suman ni cuentan", async () => {
@@ -390,7 +379,7 @@ test("getDashboardSummary: las borradas y las de otra organización nunca suman 
   const resumen = await getDashboardSummary(ORG, { granularity: "month", now: AHORA, db });
   assert.equal(resumen.openCount, 1);
   assert.equal(resumen.openValue, "100.00");
-  assert.deepEqual(resumen.createdThisMonth, { count: 1, value: "100.00" });
+  assert.deepEqual(resumen.createdThisPeriod, { count: 1, value: "100.00" });
 });
 
 // ---------------------------------------------------------------------------

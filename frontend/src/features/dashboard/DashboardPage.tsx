@@ -33,9 +33,10 @@ import { TopDealsList } from "./TopDealsList";
 // hermanos directos, y un contexto para un dato que cruza un solo nivel es
 // ceremonia.
 //
-// Lo que el selector NO toca, y es el punto del ítem: las cards de stock
-// (inventario actual) y "Valor del pipeline" dentro de la fila de KPIs (la
-// foto de lo abierto ahora, siempre contra el mes anterior).
+// Lo que el selector NO toca: las cards de stock (inventario actual), que no
+// miran el resumen comercial. La otra excepción del §35, "Valor del pipeline",
+// dejó de existir en el §36 — el embudo de Oportunidades ya muestra ese total
+// por pipeline y multi-moneda.
 export function DashboardPage() {
   const [granularity, setGranularity] = useState<OpportunityRevenueGranularity>("month");
 
