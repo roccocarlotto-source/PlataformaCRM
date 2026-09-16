@@ -17,6 +17,7 @@
     "prisma:validate": "prisma validate",
     "prisma:studio": "prisma studio",
     "prisma:seed": "prisma db seed",
+    "seed:dev-data": "tsx scripts/seed-dev-data.ts",
     "migrate:deploy": "tsx scripts/apply-manual-sql.ts",
     "verify:schema": "tsx scripts/verify-schema.ts",
     "purge:ingestion-events": "tsx scripts/purge-ingestion-events.ts",
