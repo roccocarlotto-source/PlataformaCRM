@@ -4,38 +4,37 @@ import type {
   OpportunityRevenueSeries,
 } from "../features/opportunity/types";
 
-// Fixture del resumen comercial (§30) para los tests de features/dashboard/.
-// Montos como string, fiel al contrato (Prisma.Decimal → toJSON() string),
-// mismo criterio que opportunityFixtures.ts. La serie tiene 6 meses en orden
-// cronológico, como la manda el backend.
+// Fixture del resumen comercial (§30, con la granularidad del §35) para los
+// tests de features/dashboard/. Montos como string, fiel al contrato
+// (Prisma.Decimal → toJSON() string), mismo criterio que
+// opportunityFixtures.ts.
+//
+// Por defecto es el resumen MENSUAL, y ahí el par "del período" coincide con
+// el par mensual, tal como responde el backend. Los tests que necesitan que
+// diverjan (semanal/diario) pisan `granularity` y los campos `*Period`.
 export function makeDashboardSummary(
   overrides: Partial<OpportunityDashboardSummary> = {},
 ): OpportunityDashboardSummary {
   return {
     currency: "USD",
+    granularity: "month",
     openCount: 3,
     openValue: "4500.00",
     createdThisMonth: { count: 5, value: "2000.00" },
     createdLastMonth: { count: 3, value: "1000.00" },
-    wonThisMonth: { count: 2, value: "3000.00" },
-    wonLastMonth: { count: 1, value: "1500.00" },
-    lostCountThisMonth: 2,
-    lostCountLastMonth: 1,
-    revenueByMonth: [
-      { month: "2025-10", value: "100.00" },
-      { month: "2025-11", value: "0.00" },
-      { month: "2025-12", value: "250.00" },
-      { month: "2026-01", value: "900.00" },
-      { month: "2026-02", value: "1500.00" },
-      { month: "2026-03", value: "3000.00" },
-    ],
+    createdThisPeriod: { count: 5, value: "2000.00" },
+    createdLastPeriod: { count: 3, value: "1000.00" },
+    wonThisPeriod: { count: 2, value: "3000.00" },
+    wonLastPeriod: { count: 1, value: "1500.00" },
+    lostCountThisPeriod: 2,
+    lostCountLastPeriod: 1,
     ...overrides,
   };
 }
 
 // Serie de ingresos del gráfico (§33), GET /opportunities/revenue-series.
-// Los mismos montos que revenueByMonth arriba, para que los tests que ya
-// existían sobre el gráfico sigan leyendo los mismos números.
+// Seis meses en orden cronológico, el actual al final, como los manda el
+// backend.
 export function makeRevenueSeries(
   overrides: Partial<OpportunityRevenueSeries> = {},
 ): OpportunityRevenueSeries {

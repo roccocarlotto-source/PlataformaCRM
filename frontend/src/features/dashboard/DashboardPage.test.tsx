@@ -229,7 +229,7 @@ describe("DashboardPage — render general y estados", () => {
 
     const summary = screen.getByLabelText("Resumen comercial");
     await waitFor(() => expect(within(summary).getByText("4500.00 USD")).toBeInTheDocument());
-    expect(within(summary).getByText("3")).toBeInTheDocument();
+    expect(within(summary).getByText("5")).toBeInTheDocument();
     expect(within(summary).getByText("50%")).toBeInTheDocument();
 
     // Gráfico, recientes, mayores, pipeline y feed.
@@ -345,21 +345,62 @@ describe("DashboardPage — render general y estados", () => {
     await waitFor(() => expect(screen.getByText("Llamada de seguimiento")).toBeInTheDocument());
   });
 
-  // La razón de ser del endpoint aparte del §33: las 4 KPI cards son siempre
-  // mensuales, así que cambiar la vista del gráfico no puede tocarlas.
-  it("cambiar la granularidad del gráfico pide otra serie y NO refetchea el resumen de las KPI", async () => {
+  // §35: el selector dejó de ser un control de la tarjeta del gráfico y pasó a
+  // ser uno de la página. Un click tiene que mover la fila de KPIs Y el
+  // gráfico, con un request de cada endpoint por granularidad.
+  it("el selector vive en el header de la página, junto al <h1>, y no en la tarjeta del gráfico", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    server.use(
+      summaryHandler(),
+      revenueSeriesHandler(),
+      opportunitiesHandler(),
+      activitiesHandler(),
+      usersHandler(),
+      companyHandler(),
+      ...defaultPipelineHandlers(),
+    );
+
+    renderDashboard();
+
+    const toggle = screen.getByRole("group", { name: "Período" });
+    const titulo = screen.getByRole("heading", { name: "Dashboard" });
+    expect(toggle.parentElement).toHaveClass("ds-page-header");
+    expect(toggle.parentElement).toContainElement(titulo);
+    expect(within(toggle).getByRole("button", { name: "Mensual" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    const grafico = await screen.findByLabelText("Ingresos ganados por mes");
+    await within(grafico).findByRole("img");
+    expect(within(grafico).queryByRole("group", { name: "Período" })).not.toBeInTheDocument();
+  });
+
+  it("elegir Semanal mueve las 3 KPI que siguen al período Y el gráfico, con un request por endpoint", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const user = userEvent.setup();
-    let summaryRequests = 0;
+    const resumenes: string[] = [];
     const granularidades: string[] = [];
     server.use(
-      http.get(summaryUrl, () => {
-        summaryRequests += 1;
-        return HttpResponse.json(makeDashboardSummary());
+      http.get(summaryUrl, ({ request }) => {
+        const granularity = new URL(request.url).searchParams.get("granularity") ?? "";
+        resumenes.push(granularity);
+        return HttpResponse.json(
+          granularity === "week"
+            ? makeDashboardSummary({
+                granularity: "week",
+                createdThisPeriod: { count: 1, value: "100.00" },
+                createdLastPeriod: { count: 1, value: "100.00" },
+                wonThisPeriod: { count: 1, value: "700.00" },
+                wonLastPeriod: { count: 1, value: "700.00" },
+              })
+            : makeDashboardSummary(),
+        );
       }),
       http.get(revenueSeriesUrl, ({ request }) => {
-        granularidades.push(new URL(request.url).searchParams.get("granularity") ?? "");
-        return HttpResponse.json(makeRevenueSeries());
+        const granularity = new URL(request.url).searchParams.get("granularity") ?? "";
+        granularidades.push(granularity);
+        return HttpResponse.json(makeRevenueSeries({ granularity: granularity as "month" }));
       }),
       opportunitiesHandler(),
       activitiesHandler(),
@@ -371,18 +412,33 @@ describe("DashboardPage — render general y estados", () => {
     renderDashboard();
 
     const summary = screen.getByLabelText("Resumen comercial");
-    await waitFor(() => expect(within(summary).getByText("4500.00 USD")).toBeInTheDocument());
-    const grafico = screen.getByLabelText("Ingresos ganados por mes");
-    await within(grafico).findByRole("img");
-    expect(summaryRequests).toBe(1);
+    await waitFor(() => expect(within(summary).getByText("3000.00 USD")).toBeInTheDocument());
+    expect(within(summary).getByText("Ganado este mes")).toBeInTheDocument();
+    await within(screen.getByLabelText("Ingresos ganados por mes")).findByRole("img");
 
-    await user.click(within(grafico).getByRole("button", { name: "Semanal" }));
+    await user.click(screen.getByRole("button", { name: "Semanal" }));
+
+    // Las tres cards que siguen al selector cambian de rótulo y de número…
+    await waitFor(() => expect(within(summary).getByText("700.00 USD")).toBeInTheDocument());
+    expect(within(summary).getByText("Ganado esta semana")).toBeInTheDocument();
+    expect(within(summary).getByText("Oportunidades creadas esta semana")).toBeInTheDocument();
+    expect(within(summary).getByText("Tasa de cierre de la semana")).toBeInTheDocument();
+    // …y el gráfico también.
     await screen.findByLabelText("Ingresos ganados por semana");
 
-    expect(granularidades).toEqual(["month", "week"]);
-    expect(summaryRequests).toBe(1);
-    // Y las KPI siguen mostrando sus números mensuales, intactas.
+    // "Valor del pipeline" no se movió: mismo rótulo, mismo valor, misma
+    // comparación mensual. Ni el stock, que ni siquiera mira el resumen.
+    expect(within(summary).getByText("Valor del pipeline")).toBeInTheDocument();
     expect(within(summary).getByText("4500.00 USD")).toBeInTheDocument();
+    expect(within(summary).getByText("+100% en valor nuevo vs. mes anterior")).toBeInTheDocument();
+    const stock = screen.getByLabelText("Resumen de stock");
+    expect(within(stock).getByText("12")).toBeInTheDocument();
+    expect(within(stock).getByText("5")).toBeInTheDocument();
+
+    // Un request por endpoint y por granularidad: las KPI y TopDealsList
+    // comparten la misma entrada de caché, no piden el resumen dos veces.
+    expect(resumenes).toEqual(["month", "week"]);
+    expect(granularidades).toEqual(["month", "week"]);
   });
 
   it("loading independiente: Pipeline puede seguir cargando mientras el resto ya tiene datos", async () => {

@@ -71,20 +71,22 @@ export function deleteOpportunity(id: string): Promise<void> {
   });
 }
 
-// Resumen comercial del Dashboard (§30). Sin query params: el rango lo fija
-// el backend con su propio reloj (ventanas de mes en UTC).
+// Resumen comercial del Dashboard (§30). Desde el §35 lleva la granularidad
+// del selector de período, igual que la serie de ingresos: los bordes de cada
+// ventana los sigue fijando el backend con su propio reloj (en UTC).
 export function getOpportunityDashboardSummary(
+  granularity: OpportunityRevenueGranularity,
   signal?: AbortSignal,
 ): Promise<OpportunityDashboardSummary> {
-  return request<OpportunityDashboardSummary>("/opportunities/dashboard-summary", {
-    getAccessToken,
-    signal,
-  });
+  return request<OpportunityDashboardSummary>(
+    `/opportunities/dashboard-summary?granularity=${granularity}`,
+    { getAccessToken, signal },
+  );
 }
 
-// Serie de ingresos del gráfico del Dashboard (§33). A diferencia del
-// resumen, sí lleva query param: la granularidad la elige quien mira. Las
-// ventanas las sigue fijando el backend con su propio reloj.
+// Serie de ingresos del gráfico del Dashboard (§33), con la misma granularidad
+// que el resumen. Las ventanas las sigue fijando el backend con su propio
+// reloj.
 export function getRevenueSeries(
   granularity: OpportunityRevenueGranularity,
   signal?: AbortSignal,

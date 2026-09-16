@@ -15,11 +15,11 @@ vi.mock("../../auth/getAccessToken", () => ({
 const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
 const summaryUrl = `${env.apiUrl}/api/opportunities/dashboard-summary`;
 
-function renderList() {
+function renderList(granularity: "month" | "week" | "day" = "month") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <TopDealsList />
+      <TopDealsList granularity={granularity} />
     </QueryClientProvider>,
   );
 }
@@ -105,6 +105,27 @@ describe("TopDealsList", () => {
     renderList();
 
     await waitFor(() => expect(within(card()).getByRole("alert")).toHaveTextContent("lista rota"));
+  });
+
+  // §35: la tarjeta no muestra nada que dependa del período, pero pide el
+  // resumen con la granularidad que le baja el Dashboard para caer en la MISMA
+  // entrada de caché que las KPI cards, en vez de disparar un segundo request.
+  it("pide el resumen con la granularidad que recibe, no siempre la mensual", async () => {
+    const pedidas: string[] = [];
+    server.use(
+      http.get(summaryUrl, ({ request }) => {
+        pedidas.push(new URL(request.url).searchParams.get("granularity") ?? "");
+        return HttpResponse.json(makeDashboardSummary({ granularity: "day", currency: "UYU" }));
+      }),
+      http.get(opportunitiesUrl, ({ request }) => {
+        expect(new URL(request.url).searchParams.get("currency")).toBe("UYU");
+        return listResponse([makeOpportunity({ id: "op1", title: "Flota nueva" })]);
+      }),
+    );
+    renderList("day");
+
+    await waitFor(() => expect(within(card()).getByText("Flota nueva")).toBeInTheDocument());
+    expect(pedidas).toEqual(["day"]);
   });
 
   it("empty: sin abiertas en la moneda de la organización, lo dice con la moneda", async () => {

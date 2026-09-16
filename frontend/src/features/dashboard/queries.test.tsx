@@ -46,7 +46,7 @@ function opportunityListResponse(
 }
 
 describe("useDashboardSummary", () => {
-  it("pide GET /opportunities/dashboard-summary sin query params y devuelve el resumen tal cual", async () => {
+  it("pide GET /opportunities/dashboard-summary con la granularidad en el query param y devuelve el resumen tal cual", async () => {
     const captured: URL[] = [];
     server.use(
       http.get(summaryUrl, ({ request }) => {
@@ -55,21 +55,62 @@ describe("useDashboardSummary", () => {
       }),
     );
 
-    const { result } = renderHook(() => useDashboardSummary(), {
+    const { result } = renderHook(() => useDashboardSummary("month"), {
       wrapper: wrapperFor(newClient()),
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(captured).toHaveLength(1);
-    expect(captured[0]?.search).toBe("");
+    expect(captured[0]?.searchParams.get("granularity")).toBe("month");
     expect(result.current.data?.openCount).toBe(7);
-    expect(result.current.data?.revenueByMonth).toHaveLength(6);
+    expect(result.current.data?.granularity).toBe("month");
   });
 
-  // §33: la serie del gráfico tiene su propia key, con la granularidad
-  // adentro, y NO cuelga de DASHBOARD_SUMMARY_KEY. Pedir otra granularidad
-  // no puede invalidar ni tocar el resumen que alimenta las KPI cards.
-  it("useRevenueSeries: una key por granularidad, y el resumen no se vuelve a pedir", async () => {
+  // §35: el resumen dejó de tener una key única. Cada granularidad es su
+  // propia entrada de caché, igual que la serie del gráfico: volver a una ya
+  // vista no pide nada, y pedir otra no invalida la anterior.
+  it("una key por granularidad: cada período se pide una sola vez y queda cacheado aparte", async () => {
+    const pedidas: string[] = [];
+    server.use(
+      http.get(summaryUrl, ({ request }) => {
+        const granularity = new URL(request.url).searchParams.get("granularity") ?? "";
+        pedidas.push(granularity);
+        return HttpResponse.json(
+          makeDashboardSummary({ granularity: granularity as "month" | "week" | "day" }),
+        );
+      }),
+    );
+
+    const queryClient = newClient();
+    const { result, rerender } = renderHook(
+      ({ granularity }: { granularity: "month" | "week" }) => useDashboardSummary(granularity),
+      {
+        wrapper: wrapperFor(queryClient),
+        initialProps: { granularity: "month" } as { granularity: "month" | "week" },
+      },
+    );
+
+    await waitFor(() => expect(result.current.data?.granularity).toBe("month"));
+
+    rerender({ granularity: "week" });
+    await waitFor(() => expect(result.current.data?.granularity).toBe("week"));
+
+    expect(pedidas).toEqual(["month", "week"]);
+    expect(queryClient.getQueryData(["dashboard", "summary", "month"])).toBeDefined();
+    expect(queryClient.getQueryData(["dashboard", "summary", "week"])).toBeDefined();
+
+    // Volver a la mensual muestra los datos cacheados en el mismo render, sin
+    // pasar por loading: lo que se vuelva a pedir de fondo (acá sí, porque
+    // este QueryClient de test no tiene staleTime) no deja la card en blanco.
+    rerender({ granularity: "month" });
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.data?.granularity).toBe("month");
+  });
+
+  // §33 + §35: los dos agregados siguen siendo endpoints separados, con keys
+  // separadas. Se piden con la misma granularidad, pero cada uno se refetchea
+  // por su cuenta.
+  it("useRevenueSeries: key propia, distinta de la del resumen, también por granularidad", async () => {
     const granularidades: string[] = [];
     let summaryRequests = 0;
     server.use(
@@ -89,7 +130,7 @@ describe("useDashboardSummary", () => {
     const queryClient = newClient();
     const { result, rerender } = renderHook(
       ({ granularity }: { granularity: "month" | "week" }) => ({
-        summary: useDashboardSummary(),
+        summary: useDashboardSummary("month"),
         series: useRevenueSeries(granularity),
       }),
       {
@@ -105,6 +146,8 @@ describe("useDashboardSummary", () => {
     await waitFor(() => expect(result.current.series.data?.granularity).toBe("week"));
 
     expect(granularidades).toEqual(["month", "week"]);
+    // El resumen mensual sigue montado y no se volvió a pedir: son dos
+    // entradas de caché independientes.
     expect(summaryRequests).toBe(1);
     expect(queryClient.getQueryData(["dashboard", "revenue-series", "month"])).toBeDefined();
     expect(queryClient.getQueryData(["dashboard", "revenue-series", "week"])).toBeDefined();
@@ -117,7 +160,7 @@ describe("useDashboardSummary", () => {
       ),
     );
 
-    const { result } = renderHook(() => useDashboardSummary(), {
+    const { result } = renderHook(() => useDashboardSummary("month"), {
       wrapper: wrapperFor(newClient()),
     });
 
@@ -125,7 +168,7 @@ describe("useDashboardSummary", () => {
     expect(result.current.data).toBeUndefined();
   });
 
-  it("dos consumidores en el mismo QueryClient comparten un único request", async () => {
+  it("dos consumidores con la MISMA granularidad comparten un único request", async () => {
     let requests = 0;
     server.use(
       http.get(summaryUrl, () => {
@@ -135,8 +178,8 @@ describe("useDashboardSummary", () => {
     );
 
     const wrapper = wrapperFor(newClient());
-    const first = renderHook(() => useDashboardSummary(), { wrapper });
-    const second = renderHook(() => useDashboardSummary(), { wrapper });
+    const first = renderHook(() => useDashboardSummary("week"), { wrapper });
+    const second = renderHook(() => useDashboardSummary("week"), { wrapper });
 
     await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
     await waitFor(() => expect(second.result.current.isSuccess).toBe(true));
@@ -160,7 +203,7 @@ describe("useDashboardSummary", () => {
       }),
     );
 
-    const { result } = renderHook(() => useDashboardSummary(), {
+    const { result } = renderHook(() => useDashboardSummary("month"), {
       wrapper: wrapperFor(newClient()),
     });
 

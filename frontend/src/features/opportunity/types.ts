@@ -139,39 +139,50 @@ export interface UpdateOpportunityInput {
   leadSource?: OpportunityLeadSource | null;
 }
 
-// Resumen comercial del Dashboard (§30 de docs/frontend-cambios-pendientes.md),
-// GET /api/opportunities/dashboard-summary. Reconstruido desde
-// src/services/opportunity.service.ts (DashboardSummary). Todos los montos
-// (`value`, `openValue`) son string por el mismo motivo que `amount`
-// (Prisma.Decimal), ya en la moneda de la organización que dice `currency`;
-// las variaciones NO vienen calculadas: las arma el frontend (dashboard/kpi.ts).
-export interface OpportunityDashboardMonthFigures {
+// La granularidad del selector de período del Dashboard. Desde el §35 gobierna
+// las DOS respuestas agregadas —el resumen comercial y la serie de ingresos—,
+// así que se declara antes que las dos.
+export type OpportunityRevenueGranularity = "month" | "week" | "day";
+
+// Resumen comercial del Dashboard (§30 de docs/frontend-cambios-pendientes.md,
+// rediseñado en el §35), GET /api/opportunities/dashboard-summary?granularity=…
+// Reconstruido desde src/services/opportunity.service.ts (DashboardSummary).
+// Todos los montos (`value`, `openValue`) son string por el mismo motivo que
+// `amount` (Prisma.Decimal), ya en la moneda de la organización que dice
+// `currency`; las variaciones NO vienen calculadas: las arma el frontend
+// (dashboard/kpi.ts).
+export interface OpportunityDashboardFigures {
   count: number;
   value: string;
 }
 
 export interface OpportunityDashboardSummary {
   currency: string;
+  // Eco de lo pedido: kpi.ts rotula las cards con ESTA granularidad, no con la
+  // del estado de la página, así el rótulo nunca describe otra ventana que la
+  // de los números que está mostrando.
+  granularity: OpportunityRevenueGranularity;
   openCount: number;
   openValue: string;
-  createdThisMonth: OpportunityDashboardMonthFigures;
-  createdLastMonth: OpportunityDashboardMonthFigures;
-  wonThisMonth: OpportunityDashboardMonthFigures;
-  wonLastMonth: OpportunityDashboardMonthFigures;
-  lostCountThisMonth: number;
-  lostCountLastMonth: number;
-  // 6 meses calendario en orden cronológico, el actual al final; `month` es
-  // "YYYY-MM".
-  revenueByMonth: Array<{ month: string; value: string }>;
+  // Siempre mes calendario, sin importar la granularidad: es la base de la
+  // variación de "Valor del pipeline", que no sigue al selector.
+  createdThisMonth: OpportunityDashboardFigures;
+  createdLastMonth: OpportunityDashboardFigures;
+  // Las cuatro que sí siguen al selector: la ventana es el mes, la semana o el
+  // día según `granularity`.
+  createdThisPeriod: OpportunityDashboardFigures;
+  createdLastPeriod: OpportunityDashboardFigures;
+  wonThisPeriod: OpportunityDashboardFigures;
+  wonLastPeriod: OpportunityDashboardFigures;
+  lostCountThisPeriod: number;
+  lostCountLastPeriod: number;
 }
 
 // Serie de ingresos por período (§33), GET /api/opportunities/revenue-series
 // ?granularity=... Reconstruida desde src/services/opportunity.service.ts
-// (RevenueSeries). Endpoint aparte del resumen a propósito: las KPI cards son
-// siempre mensuales y no se recalculan al cambiar la granularidad del
-// gráfico.
-export type OpportunityRevenueGranularity = "month" | "week" | "day";
-
+// (RevenueSeries). Sigue siendo un endpoint aparte del resumen después del
+// §35: la misma granularidad, pero una respuesta de N buckets contra un puñado
+// de agregados, cacheada por separado.
 export interface OpportunityRevenueSeries {
   currency: string;
   granularity: OpportunityRevenueGranularity;

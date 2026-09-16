@@ -4,9 +4,20 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { formatAmount } from "../opportunity/format";
 import { useOpportunities } from "../opportunity/queries";
+import type { OpportunityRevenueGranularity } from "../opportunity/types";
 import { useDashboardSummary } from "./queries";
 
 const TOP_LIMIT = 5;
+
+interface TopDealsListProps {
+  // No cambia NADA de lo que muestra esta tarjeta: las 5 abiertas de mayor
+  // monto son las mismas en cualquier granularidad, y de todo el resumen acá
+  // solo se lee `currency`. El prop existe porque desde el §35 la key del
+  // resumen lleva la granularidad: sin él, este componente pediría una entrada
+  // de caché distinta de la que ya pidió OpportunityKpiCards y el Dashboard
+  // haría dos requests idénticos en vez de uno.
+  granularity: OpportunityRevenueGranularity;
+}
 
 // "Top deals" del mockup (§30 de docs/frontend-cambios-pendientes.md): las 5
 // oportunidades ABIERTAS de mayor monto, con una barra proporcional al monto
@@ -16,8 +27,8 @@ const TOP_LIMIT = 5;
 // un dato inventado; esa moneda sale del resumen ya cargado
 // (useDashboardSummary, request compartido), y hasta tenerla no se pide
 // nada: `enabled` gatea el listado, mismo patrón que useStages.
-export function TopDealsList() {
-  const summary = useDashboardSummary();
+export function TopDealsList({ granularity }: TopDealsListProps) {
+  const summary = useDashboardSummary(granularity);
   const currency = summary.data?.currency;
 
   const query = useOpportunities(

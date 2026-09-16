@@ -32,7 +32,7 @@ import { findStageById, lockStageForUpdate } from "../repositories/stage.reposit
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
 import { lastMonthsUTC, monthWindowUTC } from "../utils/utcMonth";
-import { lastDaysUTC, lastWeeksUTC } from "../utils/utcWindow";
+import { dayWindowUTC, lastDaysUTC, lastWeeksUTC, weekWindowUTC } from "../utils/utcWindow";
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
 import { resolveOwnerId } from "./ownership.service";
 import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
@@ -625,9 +625,10 @@ export async function deleteOpportunity(organizationId: string, actorUserId: str
 }
 
 // ---------------------------------------------------------------------------
-// Resumen comercial del Dashboard (§30 de docs/frontend-cambios-pendientes.md).
-// Es el primer agregado (SUM) que expone la API de Opportunity: hasta acá el
-// Dashboard solo podía contar vía pagination.total de un listado.
+// Resumen comercial del Dashboard (§30 de docs/frontend-cambios-pendientes.md,
+// rediseñado en el §35). Es el primer agregado (SUM) que expone la API de
+// Opportunity: hasta el §30 el Dashboard solo podía contar vía
+// pagination.total de un listado.
 //
 // Todos los montos van en UNA sola moneda, la preferida de la organización
 // (USD si no está configurada): las oportunidades en otra moneda quedan
@@ -636,14 +637,37 @@ export async function deleteOpportunity(organizationId: string, actorUserId: str
 // criterio por moneda de formatAmountTotals en el frontend. Los Decimal se
 // serializan como string con dos decimales, nunca Number.
 //
-// Los límites de mes son ventanas UTC (ver utils/utcMonth.ts por qué). `now`
+// Desde el §35 el resumen YA NO es siempre mensual: recibe la misma
+// granularidad que la serie de ingresos y devuelve DOS juegos de ventanas,
+// porque el Dashboard muestra las dos cosas en la misma fila de cards:
+//
+//   - createdThisMonth/createdLastMonth: SIEMPRE mes calendario. Son la base
+//     de la variación de "Valor del pipeline", que es una foto del momento y
+//     se compara siempre contra el mes anterior, elija lo que elija el
+//     selector.
+//   - createdThisPeriod/createdLastPeriod, wonThisPeriod/wonLastPeriod,
+//     lostCountThisPeriod/lostCountLastPeriod: la ventana que pide
+//     `granularity`. Son las tres cards que siguen al selector.
+//
+// Con granularity="month" los dos juegos de "created" son exactamente la
+// misma ventana: en ese caso no se consulta dos veces (ver abajo).
+//
+// Los límites de las ventanas son UTC (ver utils/utcMonth.ts por qué). `now`
 // y `db` son inyectables para probar los bordes sin depender del reloj ni de
 // una base (opportunity.service.test.ts); el default es el camino real.
+// `granularity` NO tiene default a propósito: quien llama siempre sabe cuál
+// quiere, y un default acá escondería un bug — el mismo criterio que el
+// schema Zod de la ruta.
 // ---------------------------------------------------------------------------
-export const DASHBOARD_REVENUE_MONTHS = 6;
+
+// Compartida por el resumen y por la serie de ingresos (§33): desde el §35 las
+// dos respuestas se piden con la misma granularidad y las dos la declaran en
+// su respuesta.
+export type RevenueGranularity = "month" | "week" | "day";
+
 export const DASHBOARD_DEFAULT_CURRENCY = "USD";
 
-export interface DashboardMonthFigures {
+export interface DashboardFigures {
   count: number;
   // SUM(amount) en la moneda de la organización, "0.00" si no hay filas.
   value: string;
@@ -651,25 +675,33 @@ export interface DashboardMonthFigures {
 
 export interface DashboardSummary {
   currency: string;
-  // status=OPEN ahora mismo. El conteo no filtra por moneda.
+  // Eco de lo pedido, igual que RevenueSeries: el frontend rotula las cards
+  // con ESTA granularidad y no con la de su propio estado, así los rótulos
+  // nunca describen números de otra ventana.
+  granularity: RevenueGranularity;
+  // status=OPEN ahora mismo, sin ninguna ventana. El conteo no filtra por
+  // moneda.
   openCount: number;
   // SUM(amount) de las OPEN en la moneda de la organización, ahora mismo.
   openValue: string;
-  // Oportunidades CREADAS en cada mes (createdAt, inmutable): es la base de
-  // la variación de "abiertas" y "valor del pipeline", porque el estado de
-  // hace un mes no se puede reconstruir (status es libre en el PATCH).
-  createdThisMonth: DashboardMonthFigures;
-  createdLastMonth: DashboardMonthFigures;
-  // WON con actualCloseDate en el mes: count para Win Rate, value para
-  // "ganado este mes".
-  wonThisMonth: DashboardMonthFigures;
-  wonLastMonth: DashboardMonthFigures;
-  // LOST con actualCloseDate en el mes: el resto del denominador de Win Rate.
-  lostCountThisMonth: number;
-  lostCountLastMonth: number;
-  // Últimos DASHBOARD_REVENUE_MONTHS meses calendario, el actual incluido,
-  // en orden cronológico: SUM(amount) de WON por actualCloseDate.
-  revenueByMonth: Array<{ month: string; value: string }>;
+  // Oportunidades CREADAS en el mes calendario (createdAt, inmutable): es la
+  // base de la variación de "Valor del pipeline", porque el estado de hace un
+  // mes no se puede reconstruir (status es libre en el PATCH). Siempre
+  // mensuales, sin importar `granularity`.
+  createdThisMonth: DashboardFigures;
+  createdLastMonth: DashboardFigures;
+  // Lo mismo, pero en la ventana de `granularity`: el valor Y la variación de
+  // la card "Oportunidades creadas".
+  createdThisPeriod: DashboardFigures;
+  createdLastPeriod: DashboardFigures;
+  // WON con actualCloseDate dentro de la ventana del período: count para Win
+  // Rate, value para "Ganado".
+  wonThisPeriod: DashboardFigures;
+  wonLastPeriod: DashboardFigures;
+  // LOST con actualCloseDate dentro de la ventana: el resto del denominador
+  // de Win Rate.
+  lostCountThisPeriod: number;
+  lostCountLastPeriod: number;
 }
 
 function serializeAmount(sum: Prisma.Decimal | null): string {
@@ -678,6 +710,19 @@ function serializeAmount(sum: Prisma.Decimal | null): string {
 
 function inWindow(window: { start: Date; end: Date }) {
   return { gte: window.start, lt: window.end };
+}
+
+// La ventana "en curso" (offset 0) o "anterior" (offset -1) de la granularidad
+// pedida. Es el único lugar donde el resumen elige entre mes, semana y día:
+// las tres funciones ya existían desde el §33 y devuelven el mismo
+// {start, end}, así que acá no se calcula ninguna fecha nueva.
+function periodWindow(
+  granularity: RevenueGranularity,
+  now: Date,
+  offset: number,
+): { start: Date; end: Date } {
+  if (granularity === "month") return monthWindowUTC(now, offset);
+  return granularity === "week" ? weekWindowUTC(now, offset) : dayWindowUTC(now, offset);
 }
 
 // La moneda en la que se reportan TODOS los agregados de la organización.
@@ -691,13 +736,22 @@ async function resolveReportingCurrency(organizationId: string, db: Db): Promise
 
 export async function getDashboardSummary(
   organizationId: string,
-  { now = new Date(), db = prisma }: { now?: Date; db?: Db } = {},
+  {
+    granularity,
+    now = new Date(),
+    db = prisma,
+  }: { granularity: RevenueGranularity; now?: Date; db?: Db },
 ): Promise<DashboardSummary> {
   const currency = await resolveReportingCurrency(organizationId, db);
 
   const thisMonth = monthWindowUTC(now);
   const lastMonth = monthWindowUTC(now, -1);
-  const revenueWindows = lastMonthsUTC(now, DASHBOARD_REVENUE_MONTHS);
+  const thisPeriod = periodWindow(granularity, now, 0);
+  const lastPeriod = periodWindow(granularity, now, -1);
+  // Con granularidad mensual, las ventanas del período SON las del mes: se
+  // piden una sola vez y el par del período reusa el mensual. Solo en semanal
+  // y diario hay dos consultas más (count + sum por ventana).
+  const periodIsMonth = granularity === "month";
 
   const count = (where: OpportunityAggregateWhere) =>
     countOpportunitiesWhere(organizationId, where, db);
@@ -705,10 +759,10 @@ export async function getDashboardSummary(
     sumOpportunityAmount(organizationId, { ...where, currency }, db);
 
   // Todas las consultas son independientes entre sí: un solo Promise.all, la
-  // misma forma de "N consultas en paralelo, una por bucket" que
-  // useDefaultPipelineStageSummary usa del lado del frontend. El SUM de WON
-  // por mes de la serie ya cubre "ganado este mes" y "el mes anterior" (son
-  // sus dos últimas entradas), así que esos dos no se piden dos veces.
+  // misma forma de "N consultas en paralelo" que usa getRevenueSeries. Desde
+  // el §35 "ganado" ya NO se deriva de las dos últimas entradas de una serie
+  // de 6 meses (que se fue junto con revenueByMonth): es su propio SUM sobre
+  // la ventana del período, que puede ser una semana o un día.
   const [
     openCount,
     openValue,
@@ -716,11 +770,13 @@ export async function getDashboardSummary(
     createdThisMonthValue,
     createdLastMonthCount,
     createdLastMonthValue,
-    wonCountThisMonth,
-    wonCountLastMonth,
-    lostCountThisMonth,
-    lostCountLastMonth,
-    revenueSums,
+    wonThisPeriodCount,
+    wonThisPeriodValue,
+    wonLastPeriodCount,
+    wonLastPeriodValue,
+    lostCountThisPeriod,
+    lostCountLastPeriod,
+    createdPeriod,
   ] = await Promise.all([
     count({ status: "OPEN" }),
     sum({ status: "OPEN" }),
@@ -728,68 +784,73 @@ export async function getDashboardSummary(
     sum({ createdAt: inWindow(thisMonth) }),
     count({ createdAt: inWindow(lastMonth) }),
     sum({ createdAt: inWindow(lastMonth) }),
-    count({ status: "WON", actualCloseDate: inWindow(thisMonth) }),
-    count({ status: "WON", actualCloseDate: inWindow(lastMonth) }),
-    count({ status: "LOST", actualCloseDate: inWindow(thisMonth) }),
-    count({ status: "LOST", actualCloseDate: inWindow(lastMonth) }),
-    Promise.all(
-      revenueWindows.map((window) => sum({ status: "WON", actualCloseDate: inWindow(window) })),
-    ),
+    count({ status: "WON", actualCloseDate: inWindow(thisPeriod) }),
+    sum({ status: "WON", actualCloseDate: inWindow(thisPeriod) }),
+    count({ status: "WON", actualCloseDate: inWindow(lastPeriod) }),
+    sum({ status: "WON", actualCloseDate: inWindow(lastPeriod) }),
+    count({ status: "LOST", actualCloseDate: inWindow(thisPeriod) }),
+    count({ status: "LOST", actualCloseDate: inWindow(lastPeriod) }),
+    periodIsMonth
+      ? null
+      : Promise.all([
+          count({ createdAt: inWindow(thisPeriod) }),
+          sum({ createdAt: inWindow(thisPeriod) }),
+          count({ createdAt: inWindow(lastPeriod) }),
+          sum({ createdAt: inWindow(lastPeriod) }),
+        ]),
   ]);
 
-  const revenueByMonth = revenueWindows.map((window, index) => ({
-    month: window.month,
-    value: serializeAmount(revenueSums[index]),
-  }));
+  const createdThisMonth: DashboardFigures = {
+    count: createdThisMonthCount,
+    value: serializeAmount(createdThisMonthValue),
+  };
+  const createdLastMonth: DashboardFigures = {
+    count: createdLastMonthCount,
+    value: serializeAmount(createdLastMonthValue),
+  };
 
   return {
     currency,
+    granularity,
     openCount,
     openValue: serializeAmount(openValue),
-    createdThisMonth: {
-      count: createdThisMonthCount,
-      value: serializeAmount(createdThisMonthValue),
-    },
-    createdLastMonth: {
-      count: createdLastMonthCount,
-      value: serializeAmount(createdLastMonthValue),
-    },
-    wonThisMonth: {
-      count: wonCountThisMonth,
-      value: revenueByMonth[revenueByMonth.length - 1].value,
-    },
-    wonLastMonth: {
-      count: wonCountLastMonth,
-      value: revenueByMonth[revenueByMonth.length - 2].value,
-    },
-    lostCountThisMonth,
-    lostCountLastMonth,
-    revenueByMonth,
+    createdThisMonth,
+    createdLastMonth,
+    // `createdPeriod === null` es exactamente el caso mensual: las mismas
+    // cifras, sin una segunda consulta idéntica.
+    createdThisPeriod: createdPeriod
+      ? { count: createdPeriod[0], value: serializeAmount(createdPeriod[1]) }
+      : createdThisMonth,
+    createdLastPeriod: createdPeriod
+      ? { count: createdPeriod[2], value: serializeAmount(createdPeriod[3]) }
+      : createdLastMonth,
+    wonThisPeriod: { count: wonThisPeriodCount, value: serializeAmount(wonThisPeriodValue) },
+    wonLastPeriod: { count: wonLastPeriodCount, value: serializeAmount(wonLastPeriodValue) },
+    lostCountThisPeriod,
+    lostCountLastPeriod,
   };
 }
 
 // ---------------------------------------------------------------------------
 // Serie de ingresos por período (§33 de docs/frontend-cambios-pendientes.md).
 //
-// Endpoint APARTE del resumen, y es una decisión de diseño: las 4 KPI cards
-// del Dashboard son SIEMPRE mensuales, así que cambiar la granularidad del
-// gráfico no tiene por qué refetchear ni recalcular nada de ellas. Los dos
-// agregados comparten el patrón (una ventana por bucket, un SUM por ventana
-// en paralelo) y la moneda de reporte (resolveReportingCurrency), no el
-// request.
+// Endpoint APARTE del resumen, y sigue siéndolo después del §35: aunque ahora
+// los dos reciben la MISMA granularidad, una serie de N buckets y un puñado de
+// agregados de dos ventanas son dos respuestas de tamaño y de ritmo distintos,
+// y el frontend las cachea por separado. Los dos comparten el patrón (una
+// ventana por bucket, un SUM por ventana en paralelo) y la moneda de reporte
+// (resolveReportingCurrency), no el request.
 //
 // El último bucket de cualquier granularidad es SIEMPRE el período en curso,
 // sin cerrar — lastMonthsUTC/lastWeeksUTC/lastDaysUTC comparten ese contrato,
 // y es lo que habilita al frontend a dibujar el último tramo punteado.
 // ---------------------------------------------------------------------------
 
-export type RevenueGranularity = "month" | "week" | "day";
-
-// Cuántos buckets trae cada granularidad. Los 6 meses son los del §30 (la
-// misma constante, no un número nuevo); 8 semanas son ~2 meses de detalle
+// Cuántos buckets trae cada granularidad: 6 meses (los del §30, cuando el
+// resumen traía una serie mensual propia), 8 semanas son ~2 meses de detalle
 // semanal y 30 días un mes de detalle diario. Ajustables sin tocar nada más.
 export const REVENUE_SERIES_BUCKET_COUNT: Record<RevenueGranularity, number> = {
-  month: DASHBOARD_REVENUE_MONTHS,
+  month: 6,
   week: 8,
   day: 30,
 };
@@ -827,8 +888,8 @@ export async function getRevenueSeries(
   const currency = await resolveReportingCurrency(organizationId, db);
   const windows = revenueWindows(granularity, now);
 
-  // Mismo patrón que revenueByMonth en getDashboardSummary: N consultas
-  // independientes, una por ventana, todas en paralelo.
+  // El mismo patrón que el resumen: N consultas independientes, una por
+  // ventana, todas en paralelo.
   const sums = await Promise.all(
     windows.map((window) =>
       sumOpportunityAmount(

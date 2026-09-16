@@ -1,5 +1,8 @@
 import { formatAmount } from "../opportunity/format";
-import type { OpportunityDashboardSummary } from "../opportunity/types";
+import type {
+  OpportunityDashboardSummary,
+  OpportunityRevenueGranularity,
+} from "../opportunity/types";
 
 // ---------------------------------------------------------------------------
 // Las cuatro cards del resumen comercial (§30 de docs/frontend-cambios-
@@ -10,15 +13,81 @@ import type { OpportunityDashboardSummary } from "../opportunity/types";
 // tiene tres salidas: sube (verde), baja (rojo) o neutral (gris) — y neutral
 // también cubre "no hay base de comparación", que se muestra como "—" en vez
 // de inventar un porcentaje sobre un cero.
+//
+// Desde el §35 tres de las cuatro siguen al selector de período: "creadas",
+// "ganado" y "tasa de cierre" cambian de rótulo, de comparación Y de números
+// según la granularidad, que sale del propio resumen (`summary.granularity`,
+// el eco del backend) y no del estado de la página — así el rótulo nunca
+// describe una ventana distinta de la de los números que acompaña.
+//
+// "Valor del pipeline" es la excepción y es el punto del ítem: es la foto de
+// lo que está abierto AHORA, y su variación se compara siempre contra el mes
+// anterior, elija lo que elija el selector.
 // ---------------------------------------------------------------------------
 
 export type KpiDeltaDirection = "up" | "down" | "neutral";
 
+export const KPI_KEYS = ["created", "pipelineValue", "won", "winRate"] as const;
+
+export type KpiKey = (typeof KPI_KEYS)[number];
+
 export interface KpiCard {
-  key: "open" | "pipelineValue" | "wonThisMonth" | "winRate";
+  key: KpiKey;
   label: string;
   value: string;
   delta: { direction: KpiDeltaDirection; text: string };
+}
+
+// Los textos que dependen de la granularidad, escritos a mano en vez de
+// derivados de un "este {noun}": en español el género no acompaña ("este mes"
+// pero "esta semana") y para el día "hoy"/"ayer" se lee mucho mejor que "este
+// día"/"el día anterior". Son nueve combinaciones, y eso es exactamente lo que
+// hay acá.
+const PERIOD_COPY: Record<
+  OpportunityRevenueGranularity,
+  { created: string; won: string; winRate: string; comparison: string; previous: string }
+> = {
+  month: {
+    created: "Oportunidades creadas este mes",
+    won: "Ganado este mes",
+    winRate: "Tasa de cierre del mes",
+    comparison: "vs. mes anterior",
+    previous: "el mes anterior",
+  },
+  week: {
+    created: "Oportunidades creadas esta semana",
+    won: "Ganado esta semana",
+    winRate: "Tasa de cierre de la semana",
+    comparison: "vs. semana anterior",
+    previous: "la semana anterior",
+  },
+  day: {
+    created: "Oportunidades creadas hoy",
+    won: "Ganado hoy",
+    winRate: "Tasa de cierre del día",
+    comparison: "vs. ayer",
+    previous: "ayer",
+  },
+};
+
+// "Valor del pipeline" no sigue al selector: su rótulo y su comparación son
+// siempre los mensuales.
+const PIPELINE_VALUE_LABEL = "Valor del pipeline";
+const MONTH_COMPARISON = PERIOD_COPY.month.comparison;
+
+// Rótulo de cada card para una granularidad, en el orden del mockup. Lo usan
+// buildKpiCards y el esqueleto de OpportunityKpiCards (que necesita los
+// rótulos ANTES de que llegue el resumen), así que se escribe una sola vez.
+export function kpiLabels(
+  granularity: OpportunityRevenueGranularity,
+): Array<{ key: KpiKey; label: string }> {
+  const copy = PERIOD_COPY[granularity];
+  return [
+    { key: "created", label: copy.created },
+    { key: "pipelineValue", label: PIPELINE_VALUE_LABEL },
+    { key: "won", label: copy.won },
+    { key: "winRate", label: copy.winRate },
+  ];
 }
 
 // Variación relativa en %, redondeada. null cuando el período anterior es 0:
@@ -47,73 +116,82 @@ function signed(value: number, suffix: string): string {
   return `${sign}${value}${suffix}`;
 }
 
-const SIN_BASE = "— sin base de comparación el mes anterior";
+// El texto de "no hay con qué comparar" nombra la ventana anterior, así que
+// también sigue al período — salvo en "Valor del pipeline", que pasa el mes.
+function sinBase(previous: string) {
+  return { direction: "neutral" as const, text: `— sin base de comparación ${previous}` };
+}
 
 export function buildKpiCards(summary: OpportunityDashboardSummary): KpiCard[] {
-  // Abiertas ahora mismo; la variación es sobre las CREADAS en cada mes
-  // (createdAt es inmutable), no sobre "cuántas estaban abiertas hace un
-  // mes", que no se puede reconstruir. El texto lo dice.
-  const newDeals = summary.createdThisMonth.count - summary.createdLastMonth.count;
+  const copy = PERIOD_COPY[summary.granularity];
 
+  // Oportunidades CREADAS en la ventana elegida (createdAt es inmutable). Hasta
+  // el §35 esta card mostraba "cuántas están abiertas ahora" con una variación
+  // de creadas por mes al lado, dos cosas distintas en la misma card; ahora el
+  // número grande y la variación son lo mismo, medido en la misma ventana.
+  const createdDelta = summary.createdThisPeriod.count - summary.createdLastPeriod.count;
+
+  // La única que NO sigue al selector: el valor de lo abierto ahora, con su
+  // variación siempre sobre el valor CREADO en el mes (el estado de hace un mes
+  // no se puede reconstruir, ver el service).
   const newValueDelta = percentDelta(
     Number(summary.createdThisMonth.value),
     Number(summary.createdLastMonth.value),
   );
 
   const wonDelta = percentDelta(
-    Number(summary.wonThisMonth.value),
-    Number(summary.wonLastMonth.value),
+    Number(summary.wonThisPeriod.value),
+    Number(summary.wonLastPeriod.value),
   );
 
-  const rateThisMonth = winRate(summary.wonThisMonth.count, summary.lostCountThisMonth);
-  const rateLastMonth = winRate(summary.wonLastMonth.count, summary.lostCountLastMonth);
+  const rateThisPeriod = winRate(summary.wonThisPeriod.count, summary.lostCountThisPeriod);
+  const rateLastPeriod = winRate(summary.wonLastPeriod.count, summary.lostCountLastPeriod);
   // En puntos porcentuales, no relativa: "+7 pts", para no confundirla con
   // los "%" de variación en $ de las otras cards.
   const ratePoints =
-    rateThisMonth !== null && rateLastMonth !== null ? rateThisMonth - rateLastMonth : null;
+    rateThisPeriod !== null && rateLastPeriod !== null ? rateThisPeriod - rateLastPeriod : null;
 
-  return [
-    {
-      key: "open",
-      label: "Oportunidades abiertas",
-      value: String(summary.openCount),
+  const byKey: Record<KpiKey, Pick<KpiCard, "value" | "delta">> = {
+    created: {
+      value: String(summary.createdThisPeriod.count),
       delta: {
-        direction: directionOf(newDeals),
-        text: `${signed(newDeals, "")} nuevas oportunidades vs. mes anterior`,
+        direction: directionOf(createdDelta),
+        text: `${signed(createdDelta, "")} ${copy.comparison}`,
       },
     },
-    {
-      key: "pipelineValue",
-      label: "Valor del pipeline",
+    pipelineValue: {
       value: formatAmount(summary.openValue, summary.currency),
       delta:
         newValueDelta === null
-          ? { direction: "neutral", text: SIN_BASE }
+          ? sinBase(PERIOD_COPY.month.previous)
           : {
               direction: directionOf(newValueDelta),
-              text: `${signed(newValueDelta, "%")} en valor nuevo vs. mes anterior`,
+              text: `${signed(newValueDelta, "%")} en valor nuevo ${MONTH_COMPARISON}`,
             },
     },
-    {
-      key: "wonThisMonth",
-      label: "Ganado este mes",
-      value: formatAmount(summary.wonThisMonth.value, summary.currency),
+    won: {
+      value: formatAmount(summary.wonThisPeriod.value, summary.currency),
       delta:
         wonDelta === null
-          ? { direction: "neutral", text: SIN_BASE }
-          : { direction: directionOf(wonDelta), text: `${signed(wonDelta, "%")} vs. mes anterior` },
-    },
-    {
-      key: "winRate",
-      label: "Tasa de cierre del mes",
-      value: rateThisMonth === null ? "—" : `${rateThisMonth}%`,
-      delta:
-        ratePoints === null
-          ? { direction: "neutral", text: SIN_BASE }
+          ? sinBase(copy.previous)
           : {
-              direction: directionOf(ratePoints),
-              text: `${signed(ratePoints, " pts")} vs. mes anterior`,
+              direction: directionOf(wonDelta),
+              text: `${signed(wonDelta, "%")} ${copy.comparison}`,
             },
     },
-  ];
+    winRate: {
+      value: rateThisPeriod === null ? "—" : `${rateThisPeriod}%`,
+      delta:
+        ratePoints === null
+          ? sinBase(copy.previous)
+          : {
+              direction: directionOf(ratePoints),
+              text: `${signed(ratePoints, " pts")} ${copy.comparison}`,
+            },
+    },
+  };
+
+  // El orden y los rótulos salen de kpiLabels: una sola fuente para las cards
+  // y para el esqueleto que se dibuja mientras carga.
+  return kpiLabels(summary.granularity).map(({ key, label }) => ({ key, label, ...byKey[key] }));
 }
