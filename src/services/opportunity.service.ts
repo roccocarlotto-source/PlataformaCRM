@@ -638,19 +638,13 @@ export async function deleteOpportunity(organizationId: string, actorUserId: str
 // serializan como string con dos decimales, nunca Number.
 //
 // Desde el §35 el resumen YA NO es siempre mensual: recibe la misma
-// granularidad que la serie de ingresos y devuelve DOS juegos de ventanas,
-// porque el Dashboard muestra las dos cosas en la misma fila de cards:
-//
-//   - createdThisMonth/createdLastMonth: SIEMPRE mes calendario. Son la base
-//     de la variación de "Valor del pipeline", que es una foto del momento y
-//     se compara siempre contra el mes anterior, elija lo que elija el
-//     selector.
-//   - createdThisPeriod/createdLastPeriod, wonThisPeriod/wonLastPeriod,
-//     lostCountThisPeriod/lostCountLastPeriod: la ventana que pide
-//     `granularity`. Son las tres cards que siguen al selector.
-//
-// Con granularity="month" los dos juegos de "created" son exactamente la
-// misma ventana: en ese caso no se consulta dos veces (ver abajo).
+// granularidad que la serie de ingresos. El §35 devolvía DOS juegos de
+// ventanas —uno siempre mensual para "Valor del pipeline" y otro según
+// `granularity` para el resto—; desde el §36, que sacó esa card del
+// Dashboard, hay UN solo juego: createdThisPeriod/createdLastPeriod,
+// wonThisPeriod/wonLastPeriod y lostCountThisPeriod/lostCountLastPeriod, la
+// ventana que pide `granularity`, una por cada una de las tres cards que
+// quedaron. El par siempre-mensual se fue con su único consumidor.
 //
 // Los límites de las ventanas son UTC (ver utils/utcMonth.ts por qué). `now`
 // y `db` son inyectables para probar los bordes sin depender del reloj ni de
@@ -680,18 +674,16 @@ export interface DashboardSummary {
   // nunca describen números de otra ventana.
   granularity: RevenueGranularity;
   // status=OPEN ahora mismo, sin ninguna ventana. El conteo no filtra por
-  // moneda.
+  // moneda. Los dos quedaron sin consumidor en el frontend (openCount desde el
+  // §35, openValue desde el §36, que sacó "Valor del pipeline" del Dashboard)
+  // y se mantienen igual: son dos agregados baratos sobre el mismo índice y
+  // son la aserción de los tests de aislamiento multi-tenant
+  // (opportunityDashboard.integration-test.ts).
   openCount: number;
   // SUM(amount) de las OPEN en la moneda de la organización, ahora mismo.
   openValue: string;
-  // Oportunidades CREADAS en el mes calendario (createdAt, inmutable): es la
-  // base de la variación de "Valor del pipeline", porque el estado de hace un
-  // mes no se puede reconstruir (status es libre en el PATCH). Siempre
-  // mensuales, sin importar `granularity`.
-  createdThisMonth: DashboardFigures;
-  createdLastMonth: DashboardFigures;
-  // Lo mismo, pero en la ventana de `granularity`: el valor Y la variación de
-  // la card "Oportunidades creadas".
+  // Oportunidades CREADAS (createdAt, inmutable) en la ventana de
+  // `granularity`: el valor Y la variación de la card "Oportunidades creadas".
   createdThisPeriod: DashboardFigures;
   createdLastPeriod: DashboardFigures;
   // WON con actualCloseDate dentro de la ventana del período: count para Win
@@ -744,14 +736,8 @@ export async function getDashboardSummary(
 ): Promise<DashboardSummary> {
   const currency = await resolveReportingCurrency(organizationId, db);
 
-  const thisMonth = monthWindowUTC(now);
-  const lastMonth = monthWindowUTC(now, -1);
   const thisPeriod = periodWindow(granularity, now, 0);
   const lastPeriod = periodWindow(granularity, now, -1);
-  // Con granularidad mensual, las ventanas del período SON las del mes: se
-  // piden una sola vez y el par del período reusa el mensual. Solo en semanal
-  // y diario hay dos consultas más (count + sum por ventana).
-  const periodIsMonth = granularity === "month";
 
   const count = (where: OpportunityAggregateWhere) =>
     countOpportunitiesWhere(organizationId, where, db);
@@ -766,64 +752,44 @@ export async function getDashboardSummary(
   const [
     openCount,
     openValue,
-    createdThisMonthCount,
-    createdThisMonthValue,
-    createdLastMonthCount,
-    createdLastMonthValue,
+    createdThisPeriodCount,
+    createdThisPeriodValue,
+    createdLastPeriodCount,
+    createdLastPeriodValue,
     wonThisPeriodCount,
     wonThisPeriodValue,
     wonLastPeriodCount,
     wonLastPeriodValue,
     lostCountThisPeriod,
     lostCountLastPeriod,
-    createdPeriod,
   ] = await Promise.all([
     count({ status: "OPEN" }),
     sum({ status: "OPEN" }),
-    count({ createdAt: inWindow(thisMonth) }),
-    sum({ createdAt: inWindow(thisMonth) }),
-    count({ createdAt: inWindow(lastMonth) }),
-    sum({ createdAt: inWindow(lastMonth) }),
+    count({ createdAt: inWindow(thisPeriod) }),
+    sum({ createdAt: inWindow(thisPeriod) }),
+    count({ createdAt: inWindow(lastPeriod) }),
+    sum({ createdAt: inWindow(lastPeriod) }),
     count({ status: "WON", actualCloseDate: inWindow(thisPeriod) }),
     sum({ status: "WON", actualCloseDate: inWindow(thisPeriod) }),
     count({ status: "WON", actualCloseDate: inWindow(lastPeriod) }),
     sum({ status: "WON", actualCloseDate: inWindow(lastPeriod) }),
     count({ status: "LOST", actualCloseDate: inWindow(thisPeriod) }),
     count({ status: "LOST", actualCloseDate: inWindow(lastPeriod) }),
-    periodIsMonth
-      ? null
-      : Promise.all([
-          count({ createdAt: inWindow(thisPeriod) }),
-          sum({ createdAt: inWindow(thisPeriod) }),
-          count({ createdAt: inWindow(lastPeriod) }),
-          sum({ createdAt: inWindow(lastPeriod) }),
-        ]),
   ]);
-
-  const createdThisMonth: DashboardFigures = {
-    count: createdThisMonthCount,
-    value: serializeAmount(createdThisMonthValue),
-  };
-  const createdLastMonth: DashboardFigures = {
-    count: createdLastMonthCount,
-    value: serializeAmount(createdLastMonthValue),
-  };
 
   return {
     currency,
     granularity,
     openCount,
     openValue: serializeAmount(openValue),
-    createdThisMonth,
-    createdLastMonth,
-    // `createdPeriod === null` es exactamente el caso mensual: las mismas
-    // cifras, sin una segunda consulta idéntica.
-    createdThisPeriod: createdPeriod
-      ? { count: createdPeriod[0], value: serializeAmount(createdPeriod[1]) }
-      : createdThisMonth,
-    createdLastPeriod: createdPeriod
-      ? { count: createdPeriod[2], value: serializeAmount(createdPeriod[3]) }
-      : createdLastMonth,
+    createdThisPeriod: {
+      count: createdThisPeriodCount,
+      value: serializeAmount(createdThisPeriodValue),
+    },
+    createdLastPeriod: {
+      count: createdLastPeriodCount,
+      value: serializeAmount(createdLastPeriodValue),
+    },
     wonThisPeriod: { count: wonThisPeriodCount, value: serializeAmount(wonThisPeriodValue) },
     wonLastPeriod: { count: wonLastPeriodCount, value: serializeAmount(wonLastPeriodValue) },
     lostCountThisPeriod,

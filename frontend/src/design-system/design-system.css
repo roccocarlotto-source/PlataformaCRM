@@ -1498,7 +1498,8 @@ a.ds-button--secondary:hover {
 }
 
 /* Fila de KPI comerciales (§32, OpportunityKpiCards.tsx): entrada escalonada
-   de las cuatro tarjetas y un levantamiento leve al hover. Acotado al wrapper
+   de las tres tarjetas (eran cuatro hasta el §36) y un levantamiento leve al
+   hover. Acotado al wrapper
    .ds-kpi-row a propósito, para no tocar la regla base .ds-card (toda la app)
    ni .ds-kpi fuera de esta fila (VehicleSummaryCards). La sombra del hover
    queda fuera de la media query: no es movimiento; el desplazamiento y la
@@ -1529,10 +1530,6 @@ a.ds-button--secondary:hover {
 
   .ds-kpi-row .ds-kpi:nth-child(3) {
     animation-delay: 160ms;
-  }
-
-  .ds-kpi-row .ds-kpi:nth-child(4) {
-    animation-delay: 240ms;
   }
 }
 

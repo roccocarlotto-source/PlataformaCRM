@@ -228,7 +228,7 @@ describe("DashboardPage — render general y estados", () => {
     expect(within(stock).getByText("5")).toBeInTheDocument();
 
     const summary = screen.getByLabelText("Resumen comercial");
-    await waitFor(() => expect(within(summary).getByText("4500.00 USD")).toBeInTheDocument());
+    await waitFor(() => expect(within(summary).getByText("3000.00 USD")).toBeInTheDocument());
     expect(within(summary).getByText("5")).toBeInTheDocument();
     expect(within(summary).getByText("50%")).toBeInTheDocument();
 
@@ -327,7 +327,7 @@ describe("DashboardPage — render general y estados", () => {
     renderDashboard();
 
     const summary = screen.getByLabelText("Resumen comercial");
-    await waitFor(() => expect(within(summary).getAllByRole("alert")).toHaveLength(4));
+    await waitFor(() => expect(within(summary).getAllByRole("alert")).toHaveLength(3));
     await waitFor(() =>
       expect(
         within(screen.getByLabelText("Mayores oportunidades abiertas")).getByRole("alert"),
@@ -426,11 +426,7 @@ describe("DashboardPage — render general y estados", () => {
     // …y el gráfico también.
     await screen.findByLabelText("Ingresos ganados por semana");
 
-    // "Valor del pipeline" no se movió: mismo rótulo, mismo valor, misma
-    // comparación mensual. Ni el stock, que ni siquiera mira el resumen.
-    expect(within(summary).getByText("Valor del pipeline")).toBeInTheDocument();
-    expect(within(summary).getByText("4500.00 USD")).toBeInTheDocument();
-    expect(within(summary).getByText("+100% en valor nuevo vs. mes anterior")).toBeInTheDocument();
+    // El stock no se movió: ni siquiera mira el resumen.
     const stock = screen.getByLabelText("Resumen de stock");
     expect(within(stock).getByText("12")).toBeInTheDocument();
     expect(within(stock).getByText("5")).toBeInTheDocument();
@@ -463,7 +459,7 @@ describe("DashboardPage — render general y estados", () => {
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
     const summary = screen.getByLabelText("Resumen comercial");
-    await waitFor(() => expect(within(summary).getByText("4500.00 USD")).toBeInTheDocument());
+    await waitFor(() => expect(within(summary).getByText("3000.00 USD")).toBeInTheDocument());
     const pipeline = screen.getByLabelText("Pipeline");
     expect(within(pipeline).getByText("Cargando…")).toBeInTheDocument();
 

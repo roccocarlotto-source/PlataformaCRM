@@ -22,9 +22,9 @@ interface TopDealsListProps {
 // "Top deals" del mockup (§30 de docs/frontend-cambios-pendientes.md): las 5
 // oportunidades ABIERTAS de mayor monto, con una barra proporcional al monto
 // de la más grande — las mismas clases .ds-meter-* que PipelineStageSummary,
-// sin CSS nuevo. Filtra por la moneda de la organización (la misma que usa
-// "Valor del pipeline"), porque comparar barras de monedas distintas sería
-// un dato inventado; esa moneda sale del resumen ya cargado
+// sin CSS nuevo. Filtra por la moneda de la organización, porque comparar
+// barras de monedas distintas sería un dato inventado; esa moneda sale del
+// resumen ya cargado
 // (useDashboardSummary, request compartido), y hasta tenerla no se pide
 // nada: `enabled` gatea el listado, mismo patrón que useStages.
 export function TopDealsList({ granularity }: TopDealsListProps) {

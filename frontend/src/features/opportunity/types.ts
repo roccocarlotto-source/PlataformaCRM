@@ -162,14 +162,12 @@ export interface OpportunityDashboardSummary {
   // del estado de la página, así el rótulo nunca describe otra ventana que la
   // de los números que está mostrando.
   granularity: OpportunityRevenueGranularity;
+  // Sin consumidor en el frontend desde el §36 (ver el service: se mantienen
+  // por los tests de aislamiento y porque son baratos).
   openCount: number;
   openValue: string;
-  // Siempre mes calendario, sin importar la granularidad: es la base de la
-  // variación de "Valor del pipeline", que no sigue al selector.
-  createdThisMonth: OpportunityDashboardFigures;
-  createdLastMonth: OpportunityDashboardFigures;
-  // Las cuatro que sí siguen al selector: la ventana es el mes, la semana o el
-  // día según `granularity`.
+  // Las cuatro ventanas del resumen: el mes, la semana o el día según
+  // `granularity`, una por cada una de las tres cards.
   createdThisPeriod: OpportunityDashboardFigures;
   createdLastPeriod: OpportunityDashboardFigures;
   wonThisPeriod: OpportunityDashboardFigures;

@@ -183,12 +183,8 @@ test("resumen end to end: conteos, montos en la moneda de la organización y ven
 
   // Creadas en marzo (UTC): la abierta del 2, la de USD del 5 (cuenta, no
   // suma) y NO la borrada del 3. La del 28/2 a las 23:59:59Z es de febrero.
-  assert.deepEqual(resumen.createdThisMonth, { count: 2, value: "1000.00" });
-  assert.deepEqual(resumen.createdLastMonth, { count: 4, value: "740.00" });
-  // Con granularidad mensual el par del período ES el mensual (§35): el
-  // service no repite la consulta, y el contrato tiene que reflejarlo.
-  assert.deepEqual(resumen.createdThisPeriod, resumen.createdThisMonth);
-  assert.deepEqual(resumen.createdLastPeriod, resumen.createdLastMonth);
+  assert.deepEqual(resumen.createdThisPeriod, { count: 2, value: "1000.00" });
+  assert.deepEqual(resumen.createdLastPeriod, { count: 4, value: "740.00" });
 
   // Cerradas por actualCloseDate.
   assert.deepEqual(resumen.wonThisPeriod, { count: 2, value: "500.00" });
@@ -200,9 +196,8 @@ test("resumen end to end: conteos, montos en la moneda de la organización y ven
 // §35: el mismo escenario visto en semanal. AHORA (15/3/2026) es DOMINGO, así
 // que la semana en curso va del lunes 9 al lunes 16 y la anterior del 2 al 9.
 // Lo que se verifica contra Postgres real es que las ventanas de utcWindow.ts
-// recorten igual que en la base en memoria de opportunity.service.test.ts, y
-// que el par SIEMPRE mensual no se mueva al cambiar de granularidad.
-test("resumen end to end: en semanal las ventanas son lunes-a-domingo y el par mensual no se mueve", async () => {
+// recorten igual que en la base en memoria de opportunity.service.test.ts.
+test("resumen end to end: en semanal las ventanas son lunes-a-domingo", async () => {
   const resumen = await getDashboardSummary(a.organizationId, { granularity: "week", now: AHORA });
 
   assert.equal(resumen.granularity, "week");
@@ -216,11 +211,9 @@ test("resumen end to end: en semanal las ventanas son lunes-a-domingo y el par m
   assert.equal(resumen.lostCountThisPeriod, 1);
   assert.equal(resumen.lostCountLastPeriod, 0);
 
-  // Y "Valor del pipeline" sigue mirando el mes, igual que en el test de
-  // arriba: es lo que no puede cambiar al mover el selector.
+  // El stock abierto no tiene ventana: es el mismo número que en el test
+  // mensual de arriba, y mover el selector no puede cambiarlo.
   assert.equal(resumen.openValue, "1500.00");
-  assert.deepEqual(resumen.createdThisMonth, { count: 2, value: "1000.00" });
-  assert.deepEqual(resumen.createdLastMonth, { count: 4, value: "740.00" });
 });
 
 test("aislamiento: la organización B no ve nada de A, y sin preferredCurrency suma en USD", async () => {
@@ -236,7 +229,7 @@ test("aislamiento: la organización B no ve nada de A, y sin preferredCurrency s
     "42.00",
     "la abierta en UYU no suma en una organización sin moneda",
   );
-  assert.deepEqual(resumen.createdThisMonth, { count: 2, value: "42.00" });
+  assert.deepEqual(resumen.createdThisPeriod, { count: 2, value: "42.00" });
   assert.deepEqual(resumen.wonThisPeriod, { count: 0, value: "0.00" });
 
   // Ninguna ganada de A se cuela en ninguna de las tres granularidades.
