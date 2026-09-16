@@ -1735,7 +1735,7 @@ a.ds-button--secondary:hover {
 .ds-chart-point {
   fill: var(--color-surface);
   stroke: var(--color-accent);
-  stroke-width: 2;
+  stroke-width: 1.5;
 }
 
 .ds-chart-grid {
@@ -1776,12 +1776,12 @@ a.ds-button--secondary:hover {
 }
 
 /* Círculo resaltado del punto activo: el mismo par fill/stroke que
-   .ds-chart-point, más grande (r=6 contra r=4) y sin animación de entrada,
+   .ds-chart-point, más grande (r=5 contra r=3) y sin animación de entrada,
    porque no entra con la serie sino con el puntero. */
 .ds-chart-crosshair-point {
   fill: var(--color-surface);
   stroke: var(--color-accent);
-  stroke-width: 2;
+  stroke-width: 1.5;
 }
 
 /* Tooltip visual: los tokens de .ds-sidebar-link.is-active (tinta sobre

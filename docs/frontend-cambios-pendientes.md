@@ -1706,3 +1706,42 @@ componente) elige el formateador según la granularidad activa.
 - **Sin CSS nuevo.** Durante el conteo el ancho del número varía (los dígitos de Public Sans no son de ancho fijo). Como el valor está alineado a la izquierda, solo se mueve el borde derecho y en la app no se percibe como salto. `font-variant-numeric: tabular-nums` en `.ds-kpi-value` lo eliminaría del todo, pero es un cambio de diseño que no fue pedido: queda anotado como candidato.
 - **Tests nuevos:** `useCountUp.test.ts` (10 tests: null y conteo creciente y exacto, ease-out, cambio posterior y paso por null, cambio a mitad, reduced motion, el default del setup, `animate: false`, sin matchMedia, `durationMs`, cancelación al desmontar), 5 en `kpi.test.ts`, 4 en `OpportunityKpiCards.test.tsx` (conteo de llegada, período no visitado, volver al período en caché mientras el otro carga, "—" que después tiene número), `VehicleSummaryCards.test.tsx` (4, archivo nuevo) y uno de cableado en `DashboardPage.test.tsx` (stock y KPI cuentan al entrar; Semanal después no).
 - **Suites completas en verde:** frontend 130 archivos y 1248 tests (en el §36 eran 128 y 1224). Typecheck (`tsc -b`), ESLint, Prettier sobre los fuentes y `npm run build` (app y widget) limpios. Solo frontend: sin cambios de backend, migraciones, dependencias ni CSS.
+
+## 38. Achicar los puntos de datos del gráfico de ingresos
+
+**Estado:** hecho
+
+**Contexto:** Rocco pidió, mostrando una captura del Dashboard en vista Diario, que los puntos de datos del gráfico "Ingresos ganados por [período]" (`RevenueByMonthChart.tsx`) sean más chicos — hoy se ven grandes, sobre todo con muchos puntos juntos (la vista Diario tiene hasta 30). Hay dos círculos distintos en juego, ambos en `design-system.css`: `.ds-chart-point` (uno por cada punto de la serie, `r={4}` fijado inline en el componente, `stroke-width: 2`) y `.ds-chart-crosshair-point` (el círculo resaltado del punto activo al pasar el mouse, `r={6}` inline, mismo `stroke-width: 2` — el comentario del CSS ya dice que es "el mismo par fill/stroke que `.ds-chart-point`, más grande").
+
+**Comportamiento deseado:** los puntos de la serie se ven notoriamente más chicos que hoy, sin dejar de ser visibles ni de tener área suficiente para el `<title>` (tooltip nativo) y el hit-testing del hover. El círculo resaltado del crosshair sigue siendo más grande que los puntos normales (es la señal de "este es el que estás mirando"), pero también achicado en la misma proporción.
+
+**Decisiones de implementación (mías, con un default razonable y reversible — no hace falta volver a preguntarle a Rocco, pero verificalas visualmente antes de darlas por buenas):**
+
+- Punto de partida sugerido, a ajustar viendo cómo se ve realmente en el navegador (no hay una medida "correcta" única, esto es una decisión de gusto visual):
+  - `.ds-chart-point`: `r={4}` → `r={3}` en `RevenueByMonthChart.tsx` (es un atributo SVG inline, no CSS — está en el `<circle>` dentro de `ChartSvg`). `stroke-width` en `design-system.css`: `2` → `1.5`, para que el aro no quede grueso respecto del círculo más chico.
+  - `.ds-chart-crosshair-point`: `r={6}` → `r={5}` en `RevenueByMonthChart.tsx` (dentro de `Crosshair`). Mismo `stroke-width: 1.5` en `design-system.css`, para que los dos círculos queden consistentes entre sí.
+- Si al verlo en el navegador el punto queda demasiado chico para leerse cómodo (sobre todo en la vista Mensual, con menos puntos y más espaciados, donde SÍ hay lugar de sobra), ajustar el número hasta que se vea bien — priorizar que se vea bien por sobre seguir el número sugerido al pie de la letra.
+- Probar las tres granularidades (Mensual, Semanal, Diario): la Diaria es la que motivó el pedido (más puntos, más juntos), pero el cambio es al mismo componente/CSS para las tres, así que hay que confirmar que también se ve bien con pocos puntos separados.
+- Sin cambios de comportamiento: el hover, el crosshair, el `<title>` de cada punto y la animación de entrada escalonada (`ds-rise-in` por `--ds-chart-index`) siguen igual, solo cambia el tamaño.
+
+**Cómo se implementa:**
+- `frontend/src/features/dashboard/RevenueByMonthChart.tsx`: el `r={4}` del `<circle className="ds-chart-point">` dentro de `ChartSvg`, y el `r={6}` del `<circle className="ds-chart-crosshair-point">` dentro de `Crosshair`.
+- `frontend/src/design-system/design-system.css`: `stroke-width` de `.ds-chart-point` y `.ds-chart-crosshair-point`.
+
+**Tests:** ninguno nuevo necesario — es un cambio puramente visual (radio y grosor de trazo) sobre un elemento que los tests existentes (`RevenueByMonthChart.test.tsx`) verifican por presencia/estructura, no por tamaño en píxeles. Correr igual la suite completa del frontend para confirmar que nada se rompe, y hacer la verificación visual en el navegador en las tres granularidades (es lo único que realmente confirma si el tamaño quedó bien).
+
+**Hallazgos al implementar:**
+
+- **El tamaño del círculo no afecta el hover.** Desde el §33 los círculos no reciben eventos de puntero: hay un único `<rect className="ds-chart-hit">` encima de todo y el punto activo sale de `nearestPointIndex` por la X del mouse. Achicar el radio no reduce el área de hit-testing; solo el `<title>` nativo depende del círculo, y lo leen lectores de pantalla (el `<rect>` lo tapa para el mouse desde antes).
+- **`tooltipLayout` no depende del radio.** El tooltip se ubica con `TOOLTIP_BOX.gap` fijo sobre el centro del punto, así que con el círculo resaltado más chico queda un poco más de aire arriba, sin tocar nada más.
+- **Verificación visual con el componente real, no con la app logueada.** Generar el magic link con la API admin del Supabase local quedó bloqueado por el clasificador de permisos (leía la service-role key del `.env`), así que no se entró al Dashboard con sesión. En cambio se montó `RevenueByMonthChart` tal cual, con el CSS real (`tokens.css`, `global.css`, `design-system.css`), en una página temporal servida por el mismo Vite, con un `QueryClient` precargado con series de ejemplo de las tres granularidades (12 meses, 12 semanas, 30 días con ceros intercalados). La página se borró antes del commit. Recorrido con `/browse`:
+  - **Atributos en el DOM:** `r="3"` y `stroke-width` computado `1.5px` en los 54 puntos; `r="5"` en el crosshair. Consola sin errores.
+  - **Diario (30 puntos):** comparado lado a lado contra el mismo gráfico con `r=4`/`stroke 2` y `r=6`/`stroke 2` forzados por JS: el diámetro exterior baja de 10px a 7,5px y el cúmulo de puntos deja de dominar la curva. Con hover, el círculo resaltado (r=5) se distingue sin problema de los vecinos (r=3).
+  - **Mensual y Semanal (12 puntos, bien espaciados):** los puntos siguen leyéndose cómodos, no quedan "perdidos" sobre la línea.
+  - **Escala 1x y tema oscuro:** el aro de 1.5px se ve nítido a 1x (no se empasta) y en oscuro mantiene el contraste de `--color-accent` contra el fondo.
+
+**Decisiones tomadas al implementar:**
+
+- **Tamaño final = el punto de partida sugerido:** `.ds-chart-point` en `r=3` con `stroke-width: 1.5`, `.ds-chart-crosshair-point` en `r=5` con `stroke-width: 1.5`. Se miró si convenía bajar más (r=2.5) o quedarse en un intermedio, pero con r=3 la vista Diaria ya queda despejada y en Mensual/Semanal el punto sigue siendo claramente un marcador; más chico empezaría a perderse en la vista con pocos puntos. La proporción entre los dos círculos pasa de 6:4 a 5:3, así que el resaltado destaca incluso un poco más que antes.
+- **Se actualizó el comentario de `.ds-chart-crosshair-point`** en `design-system.css`, que citaba los radios viejos ("r=6 contra r=4").
+- **Sin tests nuevos:** `RevenueByMonthChart.test.tsx` no afirma radios ni grosores. Suites completas del frontend en verde: 130 archivos y 1248 tests (igual que en el §37), `tsc -b`, ESLint y Prettier sobre los fuentes limpios (`format:check` solo marca los 4 archivos de `dist/` local ya conocidos). Solo frontend: sin cambios de backend, migraciones ni dependencias.

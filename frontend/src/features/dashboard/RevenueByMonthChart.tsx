@@ -271,7 +271,7 @@ function ChartSvg({ series, width, max, currency, label }: ChartSvgProps) {
           style={{ "--ds-chart-index": index } as CSSProperties}
           cx={point.x}
           cy={point.y}
-          r={4}
+          r={3}
         >
           <title>{pointText(point)}</title>
         </circle>
@@ -333,7 +333,7 @@ function Crosshair({ point, visible, text, width }: CrosshairProps) {
     >
       <line className="ds-chart-guide" x1={0} x2={0} y1={CHART_BOX.top} y2={CHART_BASELINE} />
       <g className="ds-chart-crosshair-focus" style={{ transform: `translateY(${point.y}px)` }}>
-        <circle className="ds-chart-crosshair-point" cx={0} cy={0} r={6} />
+        <circle className="ds-chart-crosshair-point" cx={0} cy={0} r={5} />
         <rect
           className="ds-chart-tooltip-box"
           x={tooltip.x - point.x}
