@@ -1,4 +1,9 @@
-import type { OpportunityRevenueGranularity } from "../opportunity/types";
+import { useState } from "react";
+import type {
+  OpportunityDashboardSummary,
+  OpportunityRevenueGranularity,
+} from "../opportunity/types";
+import { AnimatedNumber } from "../../design-system/AnimatedNumber";
 import { Card } from "../../design-system/Card";
 import { buildKpiCards, kpiLabels } from "./kpi";
 import { useDashboardSummary } from "./queries";
@@ -36,6 +41,29 @@ export function OpportunityKpiCards({ granularity }: OpportunityKpiCardsProps) {
   // mismos que produce buildKpiCards, de la misma función.
   const labels = kpiLabels(granularity);
 
+  // §37: los números grandes cuentan desde 0 SOLO la primera vez que llega un
+  // resumen; cambiar de período después los actualiza directo (confirmado con
+  // Rocco). El flag vive acá y no en cada AnimatedNumber porque, al pedir un
+  // período todavía no visto, la card vuelve a "Cargando…" y el número se
+  // desmonta: la instancia que se monta con el dato nuevo no tiene cómo saber
+  // que la fila ya animó. Este componente no se desmonta al cambiar de período.
+  //
+  // Cómo se apaga, sin efecto: se recuerda el PRIMER resumen recibido y, en
+  // cuanto summary.data deja de ser ese objeto (undefined al pedir otro
+  // período, u otro resumen), la animación queda apagada para siempre. El
+  // flag cambia en ese mismo render, antes de que se monte ninguna instancia
+  // nueva; las de la primera llegada ya tomaron su decisión (useCountUp la
+  // toma una sola vez) y el cambio del prop no las interrumpe. Pegajoso a
+  // propósito: comparar solo contra el primer resumen haría que volver a ese
+  // período (misma referencia en la caché) animara otra vez.
+  const [firstSummary, setFirstSummary] = useState<OpportunityDashboardSummary | null>(null);
+  const [arrivalDone, setArrivalDone] = useState(false);
+  if (firstSummary === null) {
+    if (summary.data) setFirstSummary(summary.data);
+  } else if (!arrivalDone && summary.data !== firstSummary) {
+    setArrivalDone(true);
+  }
+
   return (
     <section aria-label="Resumen comercial">
       <dl className="ds-card-grid ds-kpi-row">
@@ -53,7 +81,14 @@ export function OpportunityKpiCards({ granularity }: OpportunityKpiCardsProps) {
               ) : null}
               {card ? (
                 <>
-                  <dd className="ds-kpi-value">{card.value}</dd>
+                  <dd className="ds-kpi-value">
+                    <AnimatedNumber
+                      value={card.numericValue}
+                      format={card.formatValue}
+                      fallback={card.value}
+                      animate={!arrivalDone}
+                    />
+                  </dd>
                   <dd className={`ds-kpi-delta ds-kpi-delta--${card.delta.direction}`}>
                     {card.delta.text}
                   </dd>

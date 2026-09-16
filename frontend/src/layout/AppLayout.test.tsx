@@ -36,8 +36,9 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
 }
 
 // ThemeProvider REAL (no mock): el toggle de tema del pie de la sidebar (§31)
-// necesita el contexto, y el provider no tiene dependencias externas — sin
-// matchMedia en jsdom resuelve "Sistema" a claro, y localStorage arranca vacío.
+// necesita el contexto, y el provider no tiene dependencias externas — con el
+// matchMedia de test/setup.ts (que no prefiere oscuro) resuelve "Sistema" a
+// claro, y localStorage arranca vacío.
 function renderLayout() {
   return render(
     <ThemeProvider>

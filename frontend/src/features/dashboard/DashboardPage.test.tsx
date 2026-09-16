@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
@@ -14,6 +14,7 @@ import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { stubResizeObserver } from "../../test/resizeObserverStub";
+import { COUNT_UP_DURATION_MS } from "../../lib/useCountUp";
 import { DashboardPage } from "./DashboardPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 
@@ -527,5 +528,75 @@ describe("DashboardPage — render general y estados", () => {
     for (const url of capturedUrls) {
       expect(url.search.toLowerCase()).not.toContain("organizationid");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §37: los números grandes de las dos filas de arriba cuentan desde 0 al
+// entrar, y elegir otro período después los actualiza directo. El resto del
+// archivo corre con el matchMedia global de test/setup.ts (reduced motion);
+// acá se pisa, y requestAnimationFrame va con timers falsos (MSW, waitFor y
+// userEvent siguen con timers reales).
+// ---------------------------------------------------------------------------
+
+describe("DashboardPage — conteo de llegada (§37)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("stock y KPI comerciales cuentan en la primera carga; Semanal después no vuelve a contar", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame"] });
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const user = userEvent.setup();
+    server.use(
+      vehiclesSummaryHandler(),
+      http.get(summaryUrl, ({ request }) =>
+        HttpResponse.json(
+          new URL(request.url).searchParams.get("granularity") === "week"
+            ? makeDashboardSummary({
+                granularity: "week",
+                createdThisPeriod: { count: 1, value: "100.00" },
+                wonThisPeriod: { count: 1, value: "700.00" },
+                lostCountThisPeriod: 3,
+              })
+            : makeDashboardSummary(),
+        ),
+      ),
+      http.get(revenueSeriesUrl, ({ request }) => {
+        const granularity = new URL(request.url).searchParams.get("granularity") as "month";
+        return HttpResponse.json(makeRevenueSeries({ granularity }));
+      }),
+      opportunitiesHandler(),
+      activitiesHandler(),
+      usersHandler(),
+      companyHandler(),
+      ...defaultPipelineHandlers(),
+    );
+
+    renderDashboard();
+
+    const valuesOf = (region: string) =>
+      Array.from(screen.getByLabelText(region).querySelectorAll(".ds-kpi-value")).map(
+        (dd) => dd.textContent,
+      );
+
+    await waitFor(() => expect(valuesOf("Resumen de stock")).toEqual(["0", "0"]));
+    await waitFor(() => expect(valuesOf("Resumen comercial")).toEqual(["0", "0.00 USD", "0%"]));
+
+    act(() => {
+      vi.advanceTimersByTime(COUNT_UP_DURATION_MS + 50);
+    });
+    expect(valuesOf("Resumen de stock")).toEqual(["12", "5"]);
+    expect(valuesOf("Resumen comercial")).toEqual(["5", "3000.00 USD", "50%"]);
+
+    await user.click(screen.getByRole("button", { name: "Semanal" }));
+    // Sin avanzar ningún frame: si volviera a contar, se quedaría en 0.
+    await waitFor(() => expect(valuesOf("Resumen comercial")).toEqual(["1", "700.00 USD", "25%"]));
+    expect(valuesOf("Resumen de stock")).toEqual(["12", "5"]);
   });
 });

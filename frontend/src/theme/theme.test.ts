@@ -100,10 +100,13 @@ describe("applyResolvedTheme", () => {
   });
 });
 
-// jsdom no implementa window.matchMedia: estos tests cubren tanto ese caso
-// (que es también el de un navegador sin soporte) como uno con un stub.
+// jsdom no implementa window.matchMedia, pero desde el §37 test/setup.ts
+// instala un mock global (prefers-reduced-motion: reduce por defecto). El
+// caso "sin matchMedia" (un navegador sin soporte) se reproduce sacándolo a
+// mano; el otro test usa su propio stub.
 describe("getSystemPrefersDark / subscribeToSystemPrefersDark", () => {
   it("sin matchMedia (jsdom, navegador viejo) el SO cuenta como claro y suscribirse es un no-op", () => {
+    vi.stubGlobal("matchMedia", undefined);
     expect(typeof window.matchMedia).toBe("undefined");
     expect(getSystemPrefersDark()).toBe(false);
     const listener = vi.fn();
