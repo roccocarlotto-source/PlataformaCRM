@@ -200,7 +200,10 @@ from (
       -- Motor de automatizaciones (docs/automations-architecture.md §3,
       -- migración 20260913120000): las dos tablas tienen organization_id
       -- propio y la política de aislamiento uniforme.
-      ('automations'), ('automation_executions')
+      ('automations'), ('automation_executions'),
+      -- Cotización (§39 de docs/frontend-cambios-pendientes.md, migración
+      -- 20260916120000): organization_id propio y la política uniforme.
+      ('quotes')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -412,7 +415,11 @@ from (
     -- distingue esa parentización de otra con los mismos operandos. Se acepta
     -- a sabiendas, igual que allá.
     ('messages_sender_user_id_consistency_check', 'messages',
-     'CHECK (sender_type = ''HUMAN'' AND sender_user_id IS NOT NULL OR sender_type = ANY (ARRAY[''CONTACT'', ''AGENT'']) AND sender_user_id IS NULL)')
+     'CHECK (sender_type = ''HUMAN'' AND sender_user_id IS NOT NULL OR sender_type = ANY (ARRAY[''CONTACT'', ''AGENT'']) AND sender_user_id IS NULL)'),
+    -- Cotización (§39, migración 20260916120000): el mismo CHECK que
+    -- opportunities_amount_non_negative_check sobre el precio ofertado.
+    ('quotes_amount_non_negative_check', 'quotes',
+     'CHECK (amount >= 0)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -818,7 +825,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 44 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 47 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -880,7 +887,14 @@ from (
     -- Motor de automatizaciones (migración 20260913120000): la marca de
     -- ejecución cuelga de su regla con FK compuesta; automations es un padre
     -- nuevo con su UNIQUE (organization_id, id) propio.
-    ('automation_executions_organization_id_automation_id_fkey|automation_executions(organization_id,automation_id)->automations(organization_id,id)')
+    ('automation_executions_organization_id_automation_id_fkey|automation_executions(organization_id,automation_id)->automations(organization_id,id)'),
+    -- Cotización (§39, migración 20260916120000): cuelga de su oportunidad,
+    -- fotografía la unidad y registra quién la armó. created_by_id apunta a
+    -- users: una FK bien formada hacia contacts pasaría la 14, que es el caso
+    -- que esta fila existe para atrapar.
+    ('quotes_organization_id_created_by_id_fkey|quotes(organization_id,created_by_id)->users(organization_id,id)'),
+    ('quotes_organization_id_opportunity_id_fkey|quotes(organization_id,opportunity_id)->opportunities(organization_id,id)'),
+    ('quotes_organization_id_vehicle_id_fkey|quotes(organization_id,vehicle_id)->vehicles(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

@@ -45,6 +45,25 @@ enum OpportunityStatus {
   LOST
 }
 
+// Ciclo de vida de una Quote (cotización, §39 de
+// docs/frontend-cambios-pendientes.md). DRAFT -> SENT -> ACCEPTED | REJECTED,
+// más dos estados a los que nadie llega con un PATCH:
+//   - EXPIRED: una SENT cuyo valid_until ya pasó. Transición perezosa, mismo
+//     criterio que InvitationStatus: no hay job, se recalcula antes de cada
+//     operación que depende del estado (quote.repository.ts,
+//     expireDueQuotes).
+//   - SUPERSEDED: la que estaba en DRAFT o SENT cuando se creó una nueva
+//     sobre la misma oportunidad. Queda en el historial, nunca vuelve.
+// Las reglas viven en quote.service.ts, no en la base.
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  SUPERSEDED
+}
+
 // PENDING -> ACCEPTED (el invitado completó el flujo) | REVOKED (un ADMIN la
 // canceló) | EXPIRED (pasó expiresAt sin aceptarse). La transición a EXPIRED
 // es perezosa: no hay job programado, se recalcula en el momento en que
@@ -478,6 +497,8 @@ model Organization {
   vehiclePhotos     VehiclePhoto[]
   vehicleChangeLogs VehicleChangeLog[]
 
+  quotes Quote[]
+
   @@index([deletedAt])
   @@map("organizations")
 }
@@ -539,6 +560,8 @@ model User {
   assignedActivities  Activity[]    @relation("ActivityAssignee")
   confirmedActivities Activity[]    @relation("ActivityConfirmedBy")
   invitationsSent     Invitation[]  @relation("InvitationInvitedBy")
+  // Las cotizaciones que armó (§39).
+  createdQuotes       Quote[]       @relation("QuoteCreatedBy")
 
   // Módulo de stock de vehículos: las unidades que este vendedor tiene
   // asignadas y los cambios de ficha que registró.
@@ -854,6 +877,7 @@ model Opportunity {
 
   activities Activity[]
   bookings   Booking[]
+  quotes     Quote[]
 
   @@unique([organizationId, id])
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL) y
@@ -2413,9 +2437,10 @@ model Vehicle {
   photos        VehiclePhoto[]
   changeLog     VehicleChangeLog[]
   opportunities Opportunity[]
+  quotes        Quote[]
 
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3): photos,
-  // change log y opportunities.vehicle_id.
+  // change log, opportunities.vehicle_id y quotes.vehicle_id.
   @@unique([organizationId, id])
   // Ver el comentario de internalCode: sin predicado parcial a propósito.
   @@unique([organizationId, internalCode])
@@ -2602,4 +2627,75 @@ model ExchangeRate {
 
   @@unique([baseCurrency, targetCurrency, rateDate])
   @@map("exchange_rates")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Cotización (§39 de docs/frontend-cambios-pendientes.md)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ---------------------------------------------------------------------------
+// Quote — la oferta de precio que se le hace al cliente dentro de una
+// Opportunity. NO es ExchangeRate (el tipo de cambio, que en la UI también se
+// llama "cotización") ni Opportunity.amount (el número de gestión interna de
+// lo que se espera cerrar): es el documento que se negocia, y cada
+// contraoferta es una fila nueva.
+//
+// "LA ACTIVA" NO ES UNA COLUMNA: es la de created_at más reciente entre las
+// que no están en SUPERSEDED (quote.service.ts, getActiveQuote). Un booleano
+// is_active podría desincronizarse del estado; la consulta no. El índice
+// (organization_id, opportunity_id, created_at) resuelve las dos lecturas —
+// el historial ordenado y "la activa"— y cubre además el lado referenciante
+// de la FK compuesta a opportunities.
+//
+// vehicleId es una FOTO: se copia de la oportunidad al crear la cotización y
+// no se actualiza si después cambia la unidad vinculada. Una cotización vieja
+// sigue diciendo por qué auto se hizo. Nullable (-> NO ACTION, regla de
+// 20260821140200) porque una oportunidad puede no tener unidad.
+//
+// amount/currency con el MISMO tipo que Opportunity.amount/currency — el
+// precio ofertado, independiente de los precios de lista del vehículo.
+// amount >= 0 por CHECK en la migración, como opportunities.
+//
+// lines: JSONB con [{ description, amount }] — accesorios (monto positivo) y
+// descuentos (negativo). Sin tabla hija a propósito: las líneas no se
+// consultan ni se referencian solas, se leen y se escriben siempre con su
+// cotización, y una vez SENT son inmutables junto con ella. amount va como
+// string con dos decimales ("150.00"), la misma forma en que la API
+// serializa un Decimal, para no pasar un importe por un float de JSON. La
+// forma la valida zod en el borde (quote.controller.ts), como
+// Automation.actionConfig.
+//
+// validUntil es @db.Date: "válida hasta el 30 de septiembre", no un instante.
+//
+// SIN deletedAt: una cotización no se borra, se supera. Cuelga de una
+// oportunidad con soft delete, así que la FK RESTRICT no se dispara nunca.
+// ---------------------------------------------------------------------------
+
+model Quote {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  opportunityId  String      @map("opportunity_id") @db.Uuid
+  vehicleId      String?     @map("vehicle_id") @db.Uuid
+  createdById    String      @map("created_by_id") @db.Uuid
+  amount         Decimal     @db.Decimal(14, 2)
+  currency       String      @db.VarChar(3)
+  lines          Json        @default("[]")
+  validUntil     DateTime?   @map("valid_until") @db.Date
+  status         QuoteStatus @default(DRAFT)
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  opportunity  Opportunity  @relation(fields: [organizationId, opportunityId], references: [organizationId, id])
+  vehicle      Vehicle?     @relation(fields: [organizationId, vehicleId], references: [organizationId, id], onDelete: NoAction)
+  createdBy    User         @relation("QuoteCreatedBy", fields: [organizationId, createdById], references: [organizationId, id])
+
+  // El historial de una oportunidad (más nueva primero) y "la activa". Sin
+  // índice sobre vehicle_id ni created_by_id: no hay vista "cotizaciones de
+  // esta unidad" ni "de este vendedor" (mismo criterio que
+  // vehicle_change_logs.changed_by_id), y vehicles/users nunca se borran
+  // físicamente, así que la FK no necesita el índice para su verificación.
+  // Sin @@unique([organizationId, id]): nada referencia a una cotización.
+  @@index([organizationId, opportunityId, createdAt])
+  @@map("quotes")
 }

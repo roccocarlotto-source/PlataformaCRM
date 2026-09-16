@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeOpportunity } from "../../test/opportunityFixtures";
+import { makeQuote, makeQuoteList } from "../../test/quoteFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { makeUser } from "../../test/userFixtures";
@@ -53,12 +54,17 @@ const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
 const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
 const stagesUrl = `${env.apiUrl}/api/stages`;
 const usersUrl = `${env.apiUrl}/api/users`;
+const quotesUrl = `${env.apiUrl}/api/quotes`;
 
 // PipelineSelect y UserSelect se montan SIEMPRE en este form (sin
 // `enabled` gating por texto, a diferencia de CompanySelect/ContactSelect)
 // — todo test necesita estos dos handlers como mínimo.
 function baseHandlers() {
   return [
+    // La sección de Cotización (§39) se monta en edición y pide el historial
+    // de la oportunidad. Vacío por defecto: los tests del formulario no la
+    // miran; los dos del final sí.
+    http.get(quotesUrl, () => HttpResponse.json(makeQuoteList([], null))),
     http.get(pipelinesUrl, () =>
       HttpResponse.json({
         data: [
@@ -1221,5 +1227,54 @@ describe("OpportunityFormPage", () => {
     expect(patched[0]).toMatchObject({ vehicleId: "v2", financingType: null, leadSource: null });
     expect(patched[0]).not.toHaveProperty("amount");
     expect(patched[0]).not.toHaveProperty("currency");
+  });
+
+  it("edit: debajo del formulario se monta la sección de Cotización de ESA oportunidad, con la activa y su historial", async () => {
+    let pedida: string | null = null;
+    // El handler de quotes va ANTES de baseHandlers(): en MSW gana el primero
+    // que matchea, y baseHandlers() trae uno vacío.
+    server.use(
+      http.get(`${opportunitiesUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeOpportunity({ id: params.id as string })),
+      ),
+      http.get(quotesUrl, ({ request }) => {
+        pedida = new URL(request.url).searchParams.get("opportunityId");
+        return HttpResponse.json(
+          makeQuoteList(
+            [
+              makeQuote({ id: "q2", opportunityId: "op1", status: "SENT" }),
+              makeQuote({ id: "q1", opportunityId: "op1", status: "SUPERSEDED" }),
+            ],
+            "q2",
+          ),
+        );
+      }),
+      ...baseHandlers(),
+    );
+    renderForm("/opportunities/op1/edit");
+
+    const cotizacion = await screen.findByRole("region", { name: "Cotización" });
+    expect(await within(cotizacion).findByText("Enviada")).toBeInTheDocument();
+    expect(pedida).toBe("op1");
+    // Fuera del <form> de la oportunidad: sus botones no lo envían.
+    expect(cotizacion.closest("form")).toBeNull();
+    const historial = screen.getByRole("region", { name: "Historial de cotizaciones" });
+    expect(within(historial).getAllByRole("listitem")).toHaveLength(1);
+  });
+
+  it("create: no hay sección de Cotización ni se pide ningún historial", async () => {
+    let pedidas = 0;
+    server.use(
+      http.get(quotesUrl, () => {
+        pedidas += 1;
+        return HttpResponse.json(makeQuoteList([], null));
+      }),
+      ...baseHandlers(),
+    );
+    renderForm("/opportunities/new");
+
+    expect(await screen.findByRole("heading", { name: "Nueva oportunidad" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Cotización" })).not.toBeInTheDocument();
+    expect(pedidas).toBe(0);
   });
 });

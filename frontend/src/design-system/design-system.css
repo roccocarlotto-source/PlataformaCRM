@@ -2887,3 +2887,163 @@ a.ds-button--secondary:hover {
   align-items: baseline;
   gap: 5px;
 }
+
+/* ---------------------------------------------------------------------------
+   Cotización de una oportunidad (features/quote/, docs/frontend-cambios-
+   pendientes.md §39). Vive acá por el mismo motivo que .ds-mapping-rows: un
+   solo consumidor, pero con tokens del sistema y no estilos sueltos en el
+   componente. La sección va debajo del formulario de la oportunidad, con el
+   mismo ancho máximo (.ds-form) y separada del botón Guardar.
+   --------------------------------------------------------------------------- */
+.ds-quote-section {
+  margin-top: var(--space-5);
+}
+
+.ds-quote {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ds-quote-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.ds-quote-vehicle,
+.ds-quote-validity {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+/* Importes alineados a la derecha y con cifras de ancho fijo, para que los
+   montos de las líneas se lean en columna. Calificada con .ds-table para
+   ganarle a .ds-table th/td, que fijan la alineación a la izquierda. */
+.ds-table .ds-quote-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* El total es una fila de datos, no un encabezado: sin el tratamiento en
+   mayúsculas chicas de .ds-table th, con peso y una línea que lo separa. */
+.ds-quote-total th,
+.ds-quote-total td {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--color-text);
+  border-top: 1px solid var(--color-border-strong);
+}
+
+.ds-quote-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.ds-quote-blocked {
+  margin: var(--space-2) 0 0;
+}
+
+.ds-quote-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ds-quote-history-list details {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.ds-quote-history-list summary {
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-quote-history-list details[open] summary {
+  margin-bottom: var(--space-3);
+}
+
+/* Una línea del formulario en el panel de 360px: descripción a lo ancho,
+   tipo + importe de a par, y Quitar al final. */
+.ds-quote-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ds-quote-line {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: end;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ds-quote-line > label:first-child,
+.ds-quote-line > .ds-button {
+  grid-column: 1 / -1;
+}
+
+.ds-quote-line > .ds-button {
+  justify-self: end;
+}
+
+.ds-quote-line input,
+.ds-quote-line select {
+  width: 100%;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Impresión de la cotización activa (botón "Imprimir" → window.print()). En
+   papel queda SOLO .ds-quote-printable: todo lo demás se oculta con
+   visibility y no con display, porque la cotización está anidada adentro del
+   layout y un display: none en un ancestro la ocultaría también. Se la saca
+   del flujo para que arranque arriba de la hoja.
+   --------------------------------------------------------------------------- */
+.ds-print-only {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .ds-quote-printable,
+  .ds-quote-printable * {
+    visibility: visible;
+  }
+
+  .ds-quote-printable {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    color: #000;
+  }
+
+  .ds-print-only {
+    display: block;
+    margin-bottom: var(--space-4);
+  }
+
+  .ds-quote-printable .ds-table-wrap {
+    border: none;
+    box-shadow: none;
+    overflow: visible;
+  }
+}
