@@ -19,7 +19,7 @@ import { TopDealsList } from "./TopDealsList";
 // Layout (§30 de docs/frontend-cambios-pendientes.md, la distribución del
 // dashboard de referencia): KPIs de stock arriba de todo (Fase 3b del módulo
 // de vehículos, mismo componente que encabeza el listado de stock), la fila
-// de 4 KPI comerciales con su variación, el gráfico de ingresos a todo el
+// de KPI comerciales con su variación, el gráfico de ingresos a todo el
 // ancho, oportunidades recientes + mayores abiertas lado a
 // lado, pipeline + actividad reciente lado a lado (las parejas colapsan a
 // una columna en pantallas angostas, ver .ds-card-grid), acciones rápidas al
@@ -32,6 +32,11 @@ import { TopDealsList } from "./TopDealsList";
 // prop a los tres componentes que lo necesitan en vez de por contexto: son
 // hermanos directos, y un contexto para un dato que cruza un solo nivel es
 // ceremonia.
+//
+// Los números grandes de las dos filas de arriba (stock y KPI comerciales)
+// cuentan desde 0 al entrar, solo en la primera carga (§37): el stock lo pide
+// con `countUp` porque fuera del Dashboard no anima, y OpportunityKpiCards
+// se encarga de no volver a contar al cambiar de período.
 //
 // Lo que el selector NO toca: las cards de stock (inventario actual), que no
 // miran el resumen comercial. La otra excepción del §35, "Valor del pipeline",
@@ -49,7 +54,7 @@ export function DashboardPage() {
         <PeriodToggle value={granularity} onChange={setGranularity} />
       </div>
       <div className="ds-stack">
-        <VehicleSummaryCards />
+        <VehicleSummaryCards countUp />
         <OpportunityKpiCards granularity={granularity} />
         <RevenueByMonthChart granularity={granularity} />
         <div className="ds-card-grid">

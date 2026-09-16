@@ -37,6 +37,13 @@ export interface KpiCard {
   key: KpiKey;
   label: string;
   value: string;
+  // El número detrás de `value` (§37), para que OpportunityKpiCards lo cuente
+  // desde 0. null cuando `value` no es un número: el "—" de la tasa de cierre
+  // sin nada cerrado.
+  numericValue: number | null;
+  // La función que produjo `value`, reutilizable con cualquier número
+  // intermedio del conteo: cada frame se formatea igual que el valor final.
+  formatValue: (n: number) => string;
   delta: { direction: KpiDeltaDirection; text: string };
 }
 
@@ -139,16 +146,31 @@ export function buildKpiCards(summary: OpportunityDashboardSummary): KpiCard[] {
   const ratePoints =
     rateThisPeriod !== null && rateLastPeriod !== null ? rateThisPeriod - rateLastPeriod : null;
 
-  const byKey: Record<KpiKey, Pick<KpiCard, "value" | "delta">> = {
+  // value siempre sale de formatValue(numericValue): el string que prueban los
+  // tests y el último frame del conteo no pueden divergir. Sin número (solo la
+  // tasa de cierre puede quedarse sin), el guion.
+  const card = (
+    numericValue: number | null,
+    formatValue: (n: number) => string,
+  ): Pick<KpiCard, "value" | "numericValue" | "formatValue"> => ({
+    value: numericValue === null ? "—" : formatValue(numericValue),
+    numericValue,
+    formatValue,
+  });
+
+  const byKey: Record<KpiKey, Omit<KpiCard, "key" | "label">> = {
     created: {
-      value: String(summary.createdThisPeriod.count),
+      // Math.round: durante el conteo los frames intermedios son fraccionarios.
+      ...card(summary.createdThisPeriod.count, (n) => String(Math.round(n))),
       delta: {
         direction: directionOf(createdDelta),
         text: `${signed(createdDelta, "")} ${copy.comparison}`,
       },
     },
     won: {
-      value: formatAmount(summary.wonThisPeriod.value, summary.currency),
+      ...card(Number(summary.wonThisPeriod.value), (n) =>
+        formatAmount(String(n), summary.currency),
+      ),
       delta:
         wonDelta === null
           ? sinBase(copy.previous)
@@ -158,7 +180,7 @@ export function buildKpiCards(summary: OpportunityDashboardSummary): KpiCard[] {
             },
     },
     winRate: {
-      value: rateThisPeriod === null ? "—" : `${rateThisPeriod}%`,
+      ...card(rateThisPeriod, (n) => `${Math.round(n)}%`),
       delta:
         ratePoints === null
           ? sinBase(copy.previous)

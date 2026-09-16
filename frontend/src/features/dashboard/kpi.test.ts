@@ -208,3 +208,57 @@ describe("buildKpiCards — rótulos por granularidad (§35)", () => {
     expect(cards.get("created")?.delta.text).toBe("+2 vs. semana anterior");
   });
 });
+
+// ---------------------------------------------------------------------------
+// §37: el número crudo detrás de cada `value` y la función que lo formatea,
+// para que OpportunityKpiCards cuente desde 0 reformateando cada frame con la
+// MISMA lógica del string final.
+// ---------------------------------------------------------------------------
+
+describe("buildKpiCards — numericValue y formatValue (§37)", () => {
+  it("creadas: el conteo del período, entero también en los frames intermedios", () => {
+    const card = cardsByKey().get("created");
+    expect(card?.numericValue).toBe(5);
+    expect(card?.formatValue(2.6)).toBe("3");
+  });
+
+  it("ganado: el monto como número, formateado con formatAmount y la moneda del resumen", () => {
+    const card = cardsByKey(
+      makeDashboardSummary({ currency: "UYU", wonThisPeriod: { count: 1, value: "750.50" } }),
+    ).get("won");
+    expect(card?.numericValue).toBe(750.5);
+    expect(card?.formatValue(123.456)).toBe("123.46 UYU");
+  });
+
+  it("tasa de cierre: el porcentaje, redondeado en los frames intermedios", () => {
+    const card = cardsByKey().get("winRate");
+    expect(card?.numericValue).toBe(50);
+    expect(card?.formatValue(33.4)).toBe("33%");
+  });
+
+  it("tasa de cierre sin nada cerrado: numericValue null (no hay nada que contar) y el guion como value", () => {
+    const card = cardsByKey(
+      makeDashboardSummary({ wonThisPeriod: { count: 0, value: "0.00" }, lostCountThisPeriod: 0 }),
+    ).get("winRate");
+    expect(card?.numericValue).toBeNull();
+    expect(card?.value).toBe("—");
+  });
+
+  it("formatValue(numericValue) === value en cada card: el último frame del conteo es el string ya probado", () => {
+    const summaries = [
+      makeDashboardSummary(),
+      makeDashboardSummary({ currency: "UYU", wonThisPeriod: { count: 3, value: "1234.50" } }),
+      makeDashboardSummary({
+        createdThisPeriod: { count: 0, value: "0.00" },
+        wonThisPeriod: { count: 0, value: "0.00" },
+        lostCountThisPeriod: 4,
+      }),
+    ];
+    for (const summary of summaries) {
+      for (const card of buildKpiCards(summary)) {
+        expect(card.numericValue).not.toBeNull();
+        expect(card.formatValue(card.numericValue as number)).toBe(card.value);
+      }
+    }
+  });
+});
