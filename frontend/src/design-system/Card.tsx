@@ -5,10 +5,11 @@ export interface CardProps extends HTMLAttributes<HTMLElement> {
   // Se llama `heading` y no `title` para no pisar el atributo HTML title
   // (tooltip), que sigue disponible vía ...props.
   heading?: ReactNode;
-  // Control opcional a la derecha del título, en la misma fila. .ds-card-header
-  // ya era un flex con space-between esperando este segundo hijo; el primer
-  // consumidor real es el selector de período del gráfico de ingresos (§33).
-  headerAction?: ReactNode;
+  // Sin slot para un control a la derecha del título: lo tuvo entre el §33 y
+  // el §35, para el selector de período del gráfico de ingresos, y se fue con
+  // él cuando el selector pasó a ser un control de página. .ds-card-header
+  // sigue siendo un flex con space-between, así que reponerlo es agregar el
+  // prop de vuelta y nada más — pero no se deja un slot sin consumidores.
   // <section> por defecto: cada tarjeta del Dashboard es una región con su
   // propio aria-label. "div" para tarjetas que viven DENTRO de una sección
   // (las KPI del resumen comercial), donde una <section> anidada sin nombre
@@ -28,21 +29,13 @@ export interface CardProps extends HTMLAttributes<HTMLElement> {
 // Solo contenedor + título opcional. Los estados (LoadingState, EmptyState,
 // ErrorState) los sigue componiendo cada consumidor adentro, igual que hoy.
 // ---------------------------------------------------------------------------
-export function Card({
-  heading,
-  headerAction,
-  as: Tag = "section",
-  className,
-  children,
-  ...props
-}: CardProps) {
+export function Card({ heading, as: Tag = "section", className, children, ...props }: CardProps) {
   const classes = ["ds-card", className].filter(Boolean).join(" ");
   return (
     <Tag className={classes} {...props}>
-      {heading !== undefined || headerAction !== undefined ? (
+      {heading !== undefined ? (
         <div className="ds-card-header">
-          {heading !== undefined ? <h2 className="ds-card-title">{heading}</h2> : null}
-          {headerAction}
+          <h2 className="ds-card-title">{heading}</h2>
         </div>
       ) : null}
       {children}

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
@@ -26,11 +25,14 @@ function seriesHandler() {
   return http.get(seriesUrl, () => HttpResponse.json(makeRevenueSeries()));
 }
 
-function renderChart() {
+// Desde el §35 la granularidad llega por prop: el selector ya no vive acá sino
+// en el header de la página (DashboardPage), y el wiring del click se prueba
+// allá.
+function renderChart(granularity: "month" | "week" | "day" = "month") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <RevenueByMonthChart />
+      <RevenueByMonthChart granularity={granularity} />
     </QueryClientProvider>,
   );
 }
@@ -177,7 +179,10 @@ describe("RevenueByMonthChart", () => {
     expect(Math.min(...cy)).toBe(cy[5]);
   });
 
-  it("selector de período: arranca en Mensual y pide la serie mensual", async () => {
+  // §35: el selector se fue al header de la página. La tarjeta ya no lo
+  // renderiza ni tiene estado propio: la granularidad que recibe es la que
+  // pide.
+  it("pide la serie de la granularidad que recibe por prop, y ya no renderiza el selector", async () => {
     const pedidas: string[] = [];
     server.use(
       http.get(seriesUrl, ({ request }) => {
@@ -188,20 +193,12 @@ describe("RevenueByMonthChart", () => {
     renderChart();
 
     await within(card()).findByRole("img");
-    const grupo = within(card()).getByRole("group", { name: "Período" });
-    expect(within(grupo).getByRole("button", { name: "Mensual" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(within(grupo).getByRole("button", { name: "Semanal" })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
+    expect(within(card()).queryByRole("group", { name: "Período" })).not.toBeInTheDocument();
+    expect(within(card()).queryByRole("button", { name: "Mensual" })).not.toBeInTheDocument();
     expect(pedidas).toEqual(["month"]);
   });
 
-  it("al elegir Semanal pide esa serie y redibuja el gráfico con 8 puntos rotulados por fecha", async () => {
-    const user = userEvent.setup();
+  it("con granularity=week pide esa serie y dibuja 8 puntos rotulados por fecha", async () => {
     const pedidas: string[] = [];
     server.use(
       http.get(seriesUrl, ({ request }) => {
@@ -212,10 +209,7 @@ describe("RevenueByMonthChart", () => {
         );
       }),
     );
-    renderChart();
-    await within(card()).findByRole("img");
-
-    await user.click(within(card()).getByRole("button", { name: "Semanal" }));
+    renderChart("week");
 
     // El título, el aria-label del svg y el encabezado de la tabla siguen a
     // la granularidad activa.
@@ -234,11 +228,12 @@ describe("RevenueByMonthChart", () => {
     expect(within(table).getByText("2026-03-09")).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: "Semana" })).toBeInTheDocument();
 
-    expect(pedidas).toEqual(["month", "week"]);
+    // Una sola serie pedida: la tarjeta ya no arranca en mensual para después
+    // cambiar, arranca directo en la que le dieron.
+    expect(pedidas).toEqual(["week"]);
   });
 
   it("con 30 puntos (Diario) se rotula uno de cada cuatro, anclado al día en curso", async () => {
-    const user = userEvent.setup();
     server.use(
       http.get(seriesUrl, ({ request }) => {
         const granularity = new URL(request.url).searchParams.get("granularity") ?? "";
@@ -249,10 +244,7 @@ describe("RevenueByMonthChart", () => {
         );
       }),
     );
-    renderChart();
-    await within(card()).findByRole("img");
-
-    await user.click(within(card()).getByRole("button", { name: "Diario" }));
+    renderChart("day");
 
     const diario = await screen.findByLabelText("Ingresos ganados por día");
     const svg = await within(diario).findByRole("img");
@@ -322,7 +314,7 @@ describe("RevenueByMonthChart", () => {
     expect(within(card()).queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("error: alert con el mensaje real, sin gráfico, y el selector sigue disponible", async () => {
+  it("error: alert con el mensaje real y sin gráfico", async () => {
     server.use(
       http.get(seriesUrl, () =>
         HttpResponse.json({ error: { message: "caída" } }, { status: 500 }),
@@ -336,6 +328,5 @@ describe("RevenueByMonthChart", () => {
       ),
     );
     expect(within(card()).queryByRole("img")).not.toBeInTheDocument();
-    expect(within(card()).getByRole("button", { name: "Mensual" })).toBeInTheDocument();
   });
 });

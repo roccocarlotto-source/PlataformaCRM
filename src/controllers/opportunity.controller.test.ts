@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { createOpportunitySchema, updateOpportunitySchema } from "./opportunity.controller";
+import {
+  createOpportunitySchema,
+  revenueGranularitySchema,
+  updateOpportunitySchema,
+} from "./opportunity.controller";
 
 // M-9 (docs/auditoria-2026-08-29.md) — `amount` viene de un body JSON y se
 // valida con z.number(), no con z.coerce.number().
@@ -96,4 +100,48 @@ test("2c: financingType/leadSource: null limpian en PATCH", () => {
   const parsed = updateOpportunitySchema.safeParse({ financingType: null, leadSource: null });
   assert.equal(parsed.success, true);
   assert.deepEqual(parsed.success && parsed.data, { financingType: null, leadSource: null });
+});
+
+// ---------------------------------------------------------------------------
+// §35: `granularity` dejó de ser exclusiva de GET /opportunities/revenue-series
+// y ahora también gobierna GET /opportunities/dashboard-summary — los dos
+// handlers pasan el MISMO `revenueGranularitySchema` por parseOrThrow, así que
+// probar el schema cubre la frontera de las dos rutas. Sin HTTP, igual que los
+// tests de M-9 de arriba: lo que está bajo prueba es el schema.
+//
+// parseOrThrow convierte cualquier ZodError en un AppError 400, de modo que
+// "el schema rechaza" y "la ruta responde 400" son lo mismo acá.
+// ---------------------------------------------------------------------------
+
+test("§35: granularity acepta exactamente month, week y day", () => {
+  for (const valor of ["month", "week", "day"]) {
+    const parsed = revenueGranularitySchema.safeParse(valor);
+    assert.equal(parsed.success, true, `${valor} es una granularidad válida`);
+    assert.equal(parsed.success && parsed.data, valor);
+  }
+});
+
+test("§35: granularity ausente se rechaza — no hay default implícito en el backend", () => {
+  // req.query.granularity es undefined cuando la ruta se pide sin el param.
+  const parsed = revenueGranularitySchema.safeParse(undefined);
+  assert.equal(
+    parsed.success,
+    false,
+    "sin granularity la ruta responde 400, no un mes por las dudas",
+  );
+});
+
+test("§35: una granularity inválida se rechaza con el mensaje del errorMap", () => {
+  for (const valor of ["year", "MONTH", "", 1, null, ["month"]]) {
+    assert.equal(
+      revenueGranularitySchema.safeParse(valor).success,
+      false,
+      `${JSON.stringify(valor)} no es una granularidad`,
+    );
+  }
+  const parsed = revenueGranularitySchema.safeParse("year");
+  assert.equal(
+    parsed.success === false && parsed.error.issues[0].message,
+    "granularity debe ser month, week o day",
+  );
 });

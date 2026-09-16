@@ -14,38 +14,44 @@ import type { Stage } from "../stage/types";
 // Dashboard no es dueño de ningún recurso propio: los hooks de acá componen
 // listOpportunities/listPipelines(usePipelines)/listStages(useStages) ya
 // existentes, con sus propias key factories (opportunityKeys/pipelineKeys/
-// stageKeys) — no se crea dashboardKeys ni ninguna cache paralela. La única
-// key propia es la del resumen comercial, que es un solo endpoint sin
-// filtros (ver useDashboardSummary).
+// stageKeys) — no se crea dashboardKeys ni ninguna cache paralela. Las únicas
+// keys propias son las de los dos agregados del Dashboard (el resumen
+// comercial y la serie de ingresos), que no tienen más filtro que la
+// granularidad del selector de período.
 
-// Resumen comercial (§30 de docs/frontend-cambios-pendientes.md): el primer
-// agregado real del backend (GET /opportunities/dashboard-summary — conteos
-// y SUM de amount en la moneda de la organización, mes actual vs. anterior y
-// serie de 6 meses). Un solo useQuery; las cinco secciones que lo consumen
-// (KPI, gráfico, top deals) comparten esta key y por lo tanto un solo
-// request. Las variaciones y el "—" cuando no hay base de comparación se
-// calculan en kpi.ts: el backend manda números crudos, el frontend decide
-// formato — mismo criterio que StatusCount/DefaultPipelineStageSummary.
+// Resumen comercial (§30 de docs/frontend-cambios-pendientes.md, con la
+// granularidad del §35): el primer agregado real del backend
+// (GET /opportunities/dashboard-summary — conteos y SUM de amount en la moneda
+// de la organización, ventana en curso vs. anterior). Un solo useQuery por
+// granularidad; los dos consumidores (las KPI cards y TopDealsList, que solo
+// necesita la moneda) comparten esa key y por lo tanto un solo request. Las
+// variaciones y el "—" cuando no hay base de comparación se calculan en
+// kpi.ts: el backend manda números crudos, el frontend decide formato — mismo
+// criterio que StatusCount/DefaultPipelineStageSummary.
+//
+// La granularidad va en la key, mismo patrón que useRevenueSeries: cada
+// período se cachea aparte y volver a uno ya visto es instantáneo, sin
+// invalidar los otros.
 //
 // No cuelga de opportunityKeys a propósito: no es un listado ni un detalle,
 // y las mutaciones de Opportunity invalidan lists()/detail(), no esto. El
 // resumen se refresca por staleTime/refetch al volver al Dashboard (defaults
 // de lib/queryClient.ts), que para un tablero de KPIs alcanza.
-export const DASHBOARD_SUMMARY_KEY = ["dashboard", "summary"] as const;
+export function dashboardSummaryKey(granularity: OpportunityRevenueGranularity) {
+  return ["dashboard", "summary", granularity] as const;
+}
 
-export function useDashboardSummary() {
+export function useDashboardSummary(granularity: OpportunityRevenueGranularity) {
   return useQuery({
-    queryKey: DASHBOARD_SUMMARY_KEY,
-    queryFn: ({ signal }) => getOpportunityDashboardSummary(signal),
+    queryKey: dashboardSummaryKey(granularity),
+    queryFn: ({ signal }) => getOpportunityDashboardSummary(granularity, signal),
   });
 }
 
-// Serie de ingresos del gráfico (§33). Key propia y NO derivada de
-// DASHBOARD_SUMMARY_KEY, y ése es el punto del ítem: las 4 KPI cards son
-// siempre mensuales, así que cambiar de Mensual a Diario tiene que pedir esta
-// serie y nada más — ni refetch ni recálculo del resumen. La granularidad va
-// en la key, así cada vista se cachea por separado y volver a una ya vista es
-// instantáneo.
+// Serie de ingresos del gráfico (§33). Key propia y NO derivada de la del
+// resumen: aunque desde el §35 las dos se piden con la misma granularidad,
+// son dos respuestas distintas (N buckets contra un puñado de agregados) y
+// cada una se refetchea por su cuenta.
 export function useRevenueSeries(granularity: OpportunityRevenueGranularity) {
   return useQuery({
     queryKey: ["dashboard", "revenue-series", granularity] as const,

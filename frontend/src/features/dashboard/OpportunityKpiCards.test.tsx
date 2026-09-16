@@ -13,11 +13,11 @@ vi.mock("../../auth/getAccessToken", () => ({
 
 const summaryUrl = `${env.apiUrl}/api/opportunities/dashboard-summary`;
 
-function renderCards() {
+function renderCards(granularity: "month" | "week" | "day" = "month") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <OpportunityKpiCards />
+      <OpportunityKpiCards granularity={granularity} />
     </QueryClientProvider>,
   );
 }
@@ -40,26 +40,59 @@ describe("OpportunityKpiCards", () => {
       .getAllByRole("term")
       .map((term) => term.textContent);
     expect(labels).toEqual([
-      "Oportunidades abiertas",
+      "Oportunidades creadas este mes",
       "Valor del pipeline",
       "Ganado este mes",
       "Tasa de cierre del mes",
     ]);
     expect(within(section()).getAllByText("Cargando…")).toHaveLength(4);
 
-    await waitFor(() => expect(within(section()).getByText("3")).toBeInTheDocument());
+    await waitFor(() => expect(within(section()).getByText("5")).toBeInTheDocument());
+  });
+
+  // §35: el esqueleto se rotula con el prop (no hay datos todavía), así que la
+  // fila no cambia de forma ni de texto cuando llega el resumen.
+  it("los rótulos del esqueleto siguen a la granularidad del prop, antes de que llegue el resumen", async () => {
+    server.use(
+      http.get(summaryUrl, async () => {
+        await delay(100);
+        return HttpResponse.json(makeDashboardSummary({ granularity: "day" }));
+      }),
+    );
+    renderCards("day");
+
+    const cargando = within(section())
+      .getAllByRole("term")
+      .map((term) => term.textContent);
+    expect(cargando).toEqual([
+      "Oportunidades creadas hoy",
+      "Valor del pipeline",
+      "Ganado hoy",
+      "Tasa de cierre del día",
+    ]);
+
+    await waitFor(() => expect(within(section()).getByText("5")).toBeInTheDocument());
+    expect(
+      within(section())
+        .getAllByRole("term")
+        .map((term) => term.textContent),
+    ).toEqual(cargando);
+    expect(within(section()).getByText("+2 vs. ayer")).toBeInTheDocument();
   });
 
   it("success: valor grande y línea de variación por card, con la clase de dirección", async () => {
     server.use(http.get(summaryUrl, () => HttpResponse.json(makeDashboardSummary())));
     renderCards();
 
-    await waitFor(() => expect(within(section()).getByText("3")).toBeInTheDocument());
+    // El número grande de la primera card son las CREADAS en el período
+    // (createdThisPeriod.count = 5), no las abiertas de ahora (openCount = 3).
+    await waitFor(() => expect(within(section()).getByText("5")).toBeInTheDocument());
+    expect(within(section()).queryByText("3")).not.toBeInTheDocument();
     expect(within(section()).getByText("4500.00 USD")).toBeInTheDocument();
     expect(within(section()).getByText("3000.00 USD")).toBeInTheDocument();
     expect(within(section()).getByText("50%")).toBeInTheDocument();
 
-    const up = within(section()).getByText("+2 nuevas oportunidades vs. mes anterior");
+    const up = within(section()).getByText("+2 vs. mes anterior");
     expect(up).toHaveClass("ds-kpi-delta", "ds-kpi-delta--up");
     expect(within(section()).getByText("+100% en valor nuevo vs. mes anterior")).toHaveClass(
       "ds-kpi-delta--up",
@@ -70,13 +103,27 @@ describe("OpportunityKpiCards", () => {
     );
   });
 
+  it("pide el resumen con la granularidad del prop", async () => {
+    const pedidas: string[] = [];
+    server.use(
+      http.get(summaryUrl, ({ request }) => {
+        pedidas.push(new URL(request.url).searchParams.get("granularity") ?? "");
+        return HttpResponse.json(makeDashboardSummary({ granularity: "week" }));
+      }),
+    );
+    renderCards("week");
+
+    await waitFor(() => expect(within(section()).getByText("5")).toBeInTheDocument());
+    expect(pedidas).toEqual(["week"]);
+  });
+
   it("variación negativa en rojo y sin base de comparación en neutral con guion", async () => {
     server.use(
       http.get(summaryUrl, () =>
         HttpResponse.json(
           makeDashboardSummary({
-            wonThisMonth: { count: 1, value: "500.00" },
-            wonLastMonth: { count: 1, value: "1000.00" },
+            wonThisPeriod: { count: 1, value: "500.00" },
+            wonLastPeriod: { count: 1, value: "1000.00" },
             createdLastMonth: { count: 0, value: "0.00" },
           }),
         ),
@@ -117,10 +164,12 @@ describe("OpportunityKpiCards", () => {
             openValue: "0.00",
             createdThisMonth: { count: 0, value: "0.00" },
             createdLastMonth: { count: 0, value: "0.00" },
-            wonThisMonth: { count: 0, value: "0.00" },
-            wonLastMonth: { count: 0, value: "0.00" },
-            lostCountThisMonth: 0,
-            lostCountLastMonth: 0,
+            createdThisPeriod: { count: 0, value: "0.00" },
+            createdLastPeriod: { count: 0, value: "0.00" },
+            wonThisPeriod: { count: 0, value: "0.00" },
+            wonLastPeriod: { count: 0, value: "0.00" },
+            lostCountThisPeriod: 0,
+            lostCountLastPeriod: 0,
           }),
         ),
       ),

@@ -17,10 +17,13 @@ const idParamSchema = z.string().uuid("id inválido");
 
 const statusSchema = z.enum(["OPEN", "WON", "LOST"]);
 
-// Granularidad de GET /opportunities/revenue-series (§33). SIN default a
-// propósito: si falta o no es una de las tres, es 400 — el frontend siempre
-// la manda, y un default acá escondería un bug de quien llama.
-const revenueGranularitySchema = z.enum(["month", "week", "day"], {
+// Granularidad de GET /opportunities/revenue-series (§33) y, desde el §35,
+// también de GET /opportunities/dashboard-summary: el selector del Dashboard
+// manda sobre los dos. SIN default a propósito: si falta o no es una de las
+// tres, es 400 — el frontend siempre la manda, y un default acá escondería un
+// bug de quien llama. Exportado para probar esa frontera sin HTTP
+// (opportunity.controller.test.ts).
+export const revenueGranularitySchema = z.enum(["month", "week", "day"], {
   errorMap: () => ({ message: "granularity debe ser month, week o day" }),
 });
 
@@ -146,12 +149,15 @@ export const listOpportunitiesHandler = asyncHandler<AuthenticatedRequest>(
   },
 );
 
-// Resumen comercial del Dashboard (§30). Sin query params: el rango (mes
-// actual, anterior y los últimos 6 meses) es fijo y lo decide el service con
-// el reloj real; la organización sale del JWT como en el resto del módulo.
+// Resumen comercial del Dashboard (§30). Desde el §35 lleva `granularity`,
+// igual que la serie de ingresos y con el mismo schema: el selector de período
+// del Dashboard controla las dos respuestas. Los bordes de cada ventana los
+// sigue fijando el service con el reloj real; la organización sale del JWT
+// como en el resto del módulo.
 export const getDashboardSummaryHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
-    const summary = await getDashboardSummary(req.auth.organizationId);
+    const granularity = parseOrThrow(revenueGranularitySchema, req.query.granularity);
+    const summary = await getDashboardSummary(req.auth.organizationId, { granularity });
     res.status(200).json(summary);
   },
 );

@@ -8,10 +8,11 @@ import { createStage } from "./stage.service";
 import { desmontar, montar, type Escenario } from "./vehicle.test-helper";
 
 // ---------------------------------------------------------------------------
-// Resumen del Dashboard (§30 de docs/frontend-cambios-pendientes.md) contra
-// Postgres real: que el WHERE que arma el service —ventanas gte/lt sobre
-// created_at (timestamp) y actual_close_date (date), status, moneda, soft
-// delete— lo ejecute Prisma igual que la base en memoria de
+// Resumen del Dashboard (§30 de docs/frontend-cambios-pendientes.md, con las
+// ventanas por granularidad del §35) contra Postgres real: que el WHERE que
+// arma el service —ventanas gte/lt sobre created_at (timestamp) y
+// actual_close_date (date), status, moneda, soft delete— lo ejecute Prisma
+// igual que la base en memoria de
 // opportunity.service.test.ts, y que una oportunidad de OTRA organización
 // nunca sume acá. Dos organizaciones (vehicle.test-helper): una con moneda
 // preferida configurada y otra sin (fallback USD).
@@ -26,8 +27,9 @@ let b: Escenario;
 let contextoA: { pipelineId: string; stageId: string; companyId: string };
 let contextoB: { pipelineId: string; stageId: string; companyId: string };
 
-// 15 de marzo de 2026: "este mes" es marzo, "el anterior" febrero, y la serie
-// va de octubre 2025 a marzo 2026.
+// 15 de marzo de 2026, que además cae DOMINGO: "este mes" es marzo y "el
+// anterior" febrero; la semana en curso arranca el lunes 9 y la anterior el
+// lunes 2.
 const AHORA = new Date("2026-03-15T15:00:00.000Z");
 
 async function contextoDe(e: Escenario) {
@@ -168,10 +170,14 @@ after(async () => {
   await desmontar(...[a, b].filter(Boolean));
 });
 
-test("resumen end to end: conteos, montos en la moneda de la organización, ventanas de mes y serie de 6 meses", async () => {
-  const resumen = await getDashboardSummary(a.organizationId, { now: AHORA });
+test("resumen end to end: conteos, montos en la moneda de la organización y ventanas de mes", async () => {
+  const resumen = await getDashboardSummary(a.organizationId, {
+    granularity: "month",
+    now: AHORA,
+  });
 
   assert.equal(resumen.currency, "UYU");
+  assert.equal(resumen.granularity, "month");
   assert.equal(resumen.openCount, 3, "las tres abiertas, incluida la de USD");
   assert.equal(resumen.openValue, "1500.00", "solo las abiertas en UYU suman");
 
@@ -179,25 +185,49 @@ test("resumen end to end: conteos, montos en la moneda de la organización, vent
   // suma) y NO la borrada del 3. La del 28/2 a las 23:59:59Z es de febrero.
   assert.deepEqual(resumen.createdThisMonth, { count: 2, value: "1000.00" });
   assert.deepEqual(resumen.createdLastMonth, { count: 4, value: "740.00" });
+  // Con granularidad mensual el par del período ES el mensual (§35): el
+  // service no repite la consulta, y el contrato tiene que reflejarlo.
+  assert.deepEqual(resumen.createdThisPeriod, resumen.createdThisMonth);
+  assert.deepEqual(resumen.createdLastPeriod, resumen.createdLastMonth);
 
   // Cerradas por actualCloseDate.
-  assert.deepEqual(resumen.wonThisMonth, { count: 2, value: "500.00" });
-  assert.equal(resumen.lostCountThisMonth, 1);
-  assert.deepEqual(resumen.wonLastMonth, { count: 1, value: "50.00" });
-  assert.equal(resumen.lostCountLastMonth, 2);
+  assert.deepEqual(resumen.wonThisPeriod, { count: 2, value: "500.00" });
+  assert.equal(resumen.lostCountThisPeriod, 1);
+  assert.deepEqual(resumen.wonLastPeriod, { count: 1, value: "50.00" });
+  assert.equal(resumen.lostCountLastPeriod, 2);
+});
 
-  assert.deepEqual(resumen.revenueByMonth, [
-    { month: "2025-10", value: "10.00" },
-    { month: "2025-11", value: "0.00" },
-    { month: "2025-12", value: "0.00" },
-    { month: "2026-01", value: "0.00" },
-    { month: "2026-02", value: "50.00" },
-    { month: "2026-03", value: "500.00" },
-  ]);
+// §35: el mismo escenario visto en semanal. AHORA (15/3/2026) es DOMINGO, así
+// que la semana en curso va del lunes 9 al lunes 16 y la anterior del 2 al 9.
+// Lo que se verifica contra Postgres real es que las ventanas de utcWindow.ts
+// recorten igual que en la base en memoria de opportunity.service.test.ts, y
+// que el par SIEMPRE mensual no se mueva al cambiar de granularidad.
+test("resumen end to end: en semanal las ventanas son lunes-a-domingo y el par mensual no se mueve", async () => {
+  const resumen = await getDashboardSummary(a.organizationId, { granularity: "week", now: AHORA });
+
+  assert.equal(resumen.granularity, "week");
+  // Ninguna se creó entre el lunes 9 y hoy; las del 2 y el 5 son de la semana
+  // anterior (la borrada del 3 sigue sin contar, y la de USD cuenta sin sumar).
+  assert.deepEqual(resumen.createdThisPeriod, { count: 0, value: "0.00" });
+  assert.deepEqual(resumen.createdLastPeriod, { count: 2, value: "1000.00" });
+  // La perdida del 10 de marzo cae en la semana en curso; las ganadas del 1 y
+  // del 20 quedan fuera de las dos ventanas.
+  assert.deepEqual(resumen.wonThisPeriod, { count: 0, value: "0.00" });
+  assert.equal(resumen.lostCountThisPeriod, 1);
+  assert.equal(resumen.lostCountLastPeriod, 0);
+
+  // Y "Valor del pipeline" sigue mirando el mes, igual que en el test de
+  // arriba: es lo que no puede cambiar al mover el selector.
+  assert.equal(resumen.openValue, "1500.00");
+  assert.deepEqual(resumen.createdThisMonth, { count: 2, value: "1000.00" });
+  assert.deepEqual(resumen.createdLastMonth, { count: 4, value: "740.00" });
 });
 
 test("aislamiento: la organización B no ve nada de A, y sin preferredCurrency suma en USD", async () => {
-  const resumen = await getDashboardSummary(b.organizationId, { now: AHORA });
+  const resumen = await getDashboardSummary(b.organizationId, {
+    granularity: "month",
+    now: AHORA,
+  });
 
   assert.equal(resumen.currency, "USD");
   assert.equal(resumen.openCount, 2);
@@ -207,17 +237,12 @@ test("aislamiento: la organización B no ve nada de A, y sin preferredCurrency s
     "la abierta en UYU no suma en una organización sin moneda",
   );
   assert.deepEqual(resumen.createdThisMonth, { count: 2, value: "42.00" });
-  assert.deepEqual(resumen.wonThisMonth, { count: 0, value: "0.00" });
-  assert.ok(
-    resumen.revenueByMonth.every((mes) => mes.value === "0.00"),
-    "ninguna ganada de A se cuela en la serie de B",
-  );
-});
+  assert.deepEqual(resumen.wonThisPeriod, { count: 0, value: "0.00" });
 
-test("el reloj por defecto es el real: sin `now` la serie termina en el mes actual", async () => {
-  const resumen = await getDashboardSummary(a.organizationId);
-  const hoy = new Date();
-  const mesActual = `${hoy.getUTCFullYear()}-${String(hoy.getUTCMonth() + 1).padStart(2, "0")}`;
-  assert.equal(resumen.revenueByMonth.length, 6);
-  assert.equal(resumen.revenueByMonth[5].month, mesActual);
+  // Ninguna ganada de A se cuela en ninguna de las tres granularidades.
+  for (const granularity of ["month", "week", "day"] as const) {
+    const otra = await getDashboardSummary(b.organizationId, { granularity, now: AHORA });
+    assert.deepEqual(otra.wonThisPeriod, { count: 0, value: "0.00" }, `ganado en ${granularity}`);
+    assert.deepEqual(otra.wonLastPeriod, { count: 0, value: "0.00" }, `anterior en ${granularity}`);
+  }
 });

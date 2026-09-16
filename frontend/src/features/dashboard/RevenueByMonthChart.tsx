@@ -6,6 +6,7 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { useContainerWidth } from "../../lib/useContainerWidth";
 import { formatAmount } from "../opportunity/format";
 import type { OpportunityRevenueGranularity } from "../opportunity/types";
+import { periodOption } from "./period";
 import { useRevenueSeries } from "./queries";
 import {
   CHART_BASELINE,
@@ -28,9 +29,11 @@ import {
 // organización.
 //
 // Desde el §33 la serie NO sale del resumen comercial sino de su propio
-// endpoint (useRevenueSeries), con la granularidad elegida acá. Es
-// deliberado: las 4 KPI cards de arriba son siempre mensuales, así que pasar
-// el gráfico a Semanal o Diario no tiene que refetchearlas ni recalcularlas.
+// endpoint (useRevenueSeries). La granularidad se elegía acá, en el header de
+// esta tarjeta; desde el §35 el selector vive en el header de la PÁGINA y
+// llega por prop: el mismo período gobierna la fila de KPIs y este gráfico.
+// Los dos endpoints siguen separados —dos respuestas de tamaño distinto, cada
+// una con su caché— así que este componente sigue sin depender del resumen.
 //
 // SVG a mano, sin librería (el frontend no tiene ninguna). Desde el §32: el
 // <svg> se dibuja con el ancho REAL de la tarjeta (useContainerWidth), y ese
@@ -51,37 +54,17 @@ import {
 // oculta es la versión legible por lector de pantalla; el crosshair es un
 // duplicado decorativo de esos <title>.
 
-interface PeriodOption {
-  value: OpportunityRevenueGranularity;
-  // Texto del botón del selector.
-  button: string;
-  // "por mes" / "por semana" / "por día" en el título de la tarjeta.
-  noun: string;
-  // Encabezado de la columna de la tabla accesible.
-  column: string;
-  // "los últimos 6 meses" — el mismo texto sirve para el estado vacío y para
-  // el aria-label del <svg>, así que se escribe una sola vez.
-  window: string;
+interface RevenueByMonthChartProps {
+  // El período elegido en el header de la página (§35). Antes era estado
+  // propio de este componente.
+  granularity: OpportunityRevenueGranularity;
 }
 
-const PERIODS: ReadonlyArray<PeriodOption> = [
-  { value: "month", button: "Mensual", noun: "mes", column: "Mes", window: "los últimos 6 meses" },
-  {
-    value: "week",
-    button: "Semanal",
-    noun: "semana",
-    column: "Semana",
-    window: "las últimas 8 semanas",
-  },
-  { value: "day", button: "Diario", noun: "día", column: "Día", window: "los últimos 30 días" },
-];
-
-export function RevenueByMonthChart() {
-  const [granularity, setGranularity] = useState<OpportunityRevenueGranularity>("month");
+export function RevenueByMonthChart({ granularity }: RevenueByMonthChartProps) {
   const revenue = useRevenueSeries(granularity);
   const { ref, width } = useContainerWidth();
 
-  const period = PERIODS.find((option) => option.value === granularity) ?? PERIODS[0];
+  const period = periodOption(granularity);
   const heading = `Ingresos ganados por ${period.noun}`;
   const currency = revenue.data?.currency ?? "";
   // El rótulo lo elige el componente según la granularidad y toChartPoints lo
@@ -96,11 +79,7 @@ export function RevenueByMonthChart() {
   const max = Math.max(0, ...series.map((entry) => Number(entry.value)));
 
   return (
-    <Card
-      aria-label={heading}
-      heading={heading}
-      headerAction={<PeriodToggle value={granularity} onChange={setGranularity} />}
-    >
+    <Card aria-label={heading} heading={heading}>
       {revenue.isLoading ? <LoadingState /> : null}
 
       {revenue.isError ? (
@@ -152,35 +131,6 @@ export function RevenueByMonthChart() {
         </div>
       ) : null}
     </Card>
-  );
-}
-
-interface PeriodToggleProps {
-  value: OpportunityRevenueGranularity;
-  onChange: (value: OpportunityRevenueGranularity) => void;
-}
-
-// Segmented control de texto en el header de la tarjeta, con el mismo patrón
-// visual y accesible que ThemeToggle (role="group" con nombre + aria-pressed
-// por botón): un lector de pantalla anuncia "Semanal, botón, presionado".
-function PeriodToggle({ value, onChange }: PeriodToggleProps) {
-  return (
-    <div className="ds-period-toggle" role="group" aria-label="Período">
-      {PERIODS.map((option) => {
-        const isActive = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            className={`ds-period-toggle-button${isActive ? " is-active" : ""}`}
-            aria-pressed={isActive}
-            onClick={() => onChange(option.value)}
-          >
-            {option.button}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
