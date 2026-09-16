@@ -31,7 +31,8 @@ import { findPipelineById } from "../repositories/pipeline.repository";
 import { findStageById, lockStageForUpdate } from "../repositories/stage.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
-import { lastMonthsUTC, monthWindowUTC, type MonthWindow } from "../utils/utcMonth";
+import { lastMonthsUTC, monthWindowUTC } from "../utils/utcMonth";
+import { lastDaysUTC, lastWeeksUTC } from "../utils/utcWindow";
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
 import { resolveOwnerId } from "./ownership.service";
 import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
@@ -675,16 +676,24 @@ function serializeAmount(sum: Prisma.Decimal | null): string {
   return sum === null ? "0.00" : sum.toFixed(2);
 }
 
-function inWindow(window: MonthWindow) {
+function inWindow(window: { start: Date; end: Date }) {
   return { gte: window.start, lt: window.end };
+}
+
+// La moneda en la que se reportan TODOS los agregados de la organización.
+// Compartida por el resumen y por la serie de ingresos (§33) para que las dos
+// respondan lo mismo: la preferida de la organización, o USD si no configuró
+// ninguna.
+async function resolveReportingCurrency(organizationId: string, db: Db): Promise<string> {
+  const organization = await findOrganizationById(organizationId, db);
+  return organization?.preferredCurrency ?? DASHBOARD_DEFAULT_CURRENCY;
 }
 
 export async function getDashboardSummary(
   organizationId: string,
   { now = new Date(), db = prisma }: { now?: Date; db?: Db } = {},
 ): Promise<DashboardSummary> {
-  const organization = await findOrganizationById(organizationId, db);
-  const currency = organization?.preferredCurrency ?? DASHBOARD_DEFAULT_CURRENCY;
+  const currency = await resolveReportingCurrency(organizationId, db);
 
   const thisMonth = monthWindowUTC(now);
   const lastMonth = monthWindowUTC(now, -1);
@@ -756,5 +765,86 @@ export async function getDashboardSummary(
     lostCountThisMonth,
     lostCountLastMonth,
     revenueByMonth,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Serie de ingresos por período (§33 de docs/frontend-cambios-pendientes.md).
+//
+// Endpoint APARTE del resumen, y es una decisión de diseño: las 4 KPI cards
+// del Dashboard son SIEMPRE mensuales, así que cambiar la granularidad del
+// gráfico no tiene por qué refetchear ni recalcular nada de ellas. Los dos
+// agregados comparten el patrón (una ventana por bucket, un SUM por ventana
+// en paralelo) y la moneda de reporte (resolveReportingCurrency), no el
+// request.
+//
+// El último bucket de cualquier granularidad es SIEMPRE el período en curso,
+// sin cerrar — lastMonthsUTC/lastWeeksUTC/lastDaysUTC comparten ese contrato,
+// y es lo que habilita al frontend a dibujar el último tramo punteado.
+// ---------------------------------------------------------------------------
+
+export type RevenueGranularity = "month" | "week" | "day";
+
+// Cuántos buckets trae cada granularidad. Los 6 meses son los del §30 (la
+// misma constante, no un número nuevo); 8 semanas son ~2 meses de detalle
+// semanal y 30 días un mes de detalle diario. Ajustables sin tocar nada más.
+export const REVENUE_SERIES_BUCKET_COUNT: Record<RevenueGranularity, number> = {
+  month: DASHBOARD_REVENUE_MONTHS,
+  week: 8,
+  day: 30,
+};
+
+export interface RevenueSeries {
+  currency: string;
+  granularity: RevenueGranularity;
+  // En orden cronológico, el período en curso al final. `label` es "YYYY-MM"
+  // para meses y "YYYY-MM-DD" (la fecha de inicio de la ventana) para semanas
+  // y días: la clave cruda, que el frontend formatea.
+  points: Array<{ label: string; value: string }>;
+}
+
+function revenueWindows(
+  granularity: RevenueGranularity,
+  now: Date,
+): Array<{ label: string; start: Date; end: Date }> {
+  const count = REVENUE_SERIES_BUCKET_COUNT[granularity];
+  if (granularity === "month") {
+    // lastMonthsUTC rotula con `month`; el resto ya rotula con `label`.
+    return lastMonthsUTC(now, count).map((window) => ({
+      label: window.month,
+      start: window.start,
+      end: window.end,
+    }));
+  }
+  return granularity === "week" ? lastWeeksUTC(now, count) : lastDaysUTC(now, count);
+}
+
+export async function getRevenueSeries(
+  organizationId: string,
+  granularity: RevenueGranularity,
+  { now = new Date(), db = prisma }: { now?: Date; db?: Db } = {},
+): Promise<RevenueSeries> {
+  const currency = await resolveReportingCurrency(organizationId, db);
+  const windows = revenueWindows(granularity, now);
+
+  // Mismo patrón que revenueByMonth en getDashboardSummary: N consultas
+  // independientes, una por ventana, todas en paralelo.
+  const sums = await Promise.all(
+    windows.map((window) =>
+      sumOpportunityAmount(
+        organizationId,
+        { status: "WON", actualCloseDate: inWindow(window), currency },
+        db,
+      ),
+    ),
+  );
+
+  return {
+    currency,
+    granularity,
+    points: windows.map((window, index) => ({
+      label: window.label,
+      value: serializeAmount(sums[index]),
+    })),
   };
 }

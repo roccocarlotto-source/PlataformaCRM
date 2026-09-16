@@ -1,6 +1,11 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { getOpportunityDashboardSummary, listOpportunities } from "../opportunity/api";
+import {
+  getOpportunityDashboardSummary,
+  getRevenueSeries,
+  listOpportunities,
+} from "../opportunity/api";
 import { opportunityKeys } from "../opportunity/queries";
+import type { OpportunityRevenueGranularity } from "../opportunity/types";
 import { usePipelines } from "../pipeline/queries";
 import type { Pipeline } from "../pipeline/types";
 import { useStages } from "../stage/queries";
@@ -32,6 +37,19 @@ export function useDashboardSummary() {
   return useQuery({
     queryKey: DASHBOARD_SUMMARY_KEY,
     queryFn: ({ signal }) => getOpportunityDashboardSummary(signal),
+  });
+}
+
+// Serie de ingresos del gráfico (§33). Key propia y NO derivada de
+// DASHBOARD_SUMMARY_KEY, y ése es el punto del ítem: las 4 KPI cards son
+// siempre mensuales, así que cambiar de Mensual a Diario tiene que pedir esta
+// serie y nada más — ni refetch ni recálculo del resumen. La granularidad va
+// en la key, así cada vista se cachea por separado y volver a una ya vista es
+// instantáneo.
+export function useRevenueSeries(granularity: OpportunityRevenueGranularity) {
+  return useQuery({
+    queryKey: ["dashboard", "revenue-series", granularity] as const,
+    queryFn: ({ signal }) => getRevenueSeries(granularity, signal),
   });
 }
 

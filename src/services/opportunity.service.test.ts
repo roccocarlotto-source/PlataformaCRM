@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import type { Db } from "../lib/prisma";
 import {
   getDashboardSummary,
+  getRevenueSeries,
   priceFromVehicle,
   transicionaAGanada,
   vehicleStatusForOpportunityStatus,
@@ -304,4 +305,130 @@ test("getDashboardSummary: las borradas y las de otra organización nunca suman 
   assert.equal(resumen.openCount, 1);
   assert.equal(resumen.openValue, "100.00");
   assert.deepEqual(resumen.createdThisMonth, { count: 1, value: "100.00" });
+});
+
+// ---------------------------------------------------------------------------
+// getRevenueSeries (§33): la misma base en memoria, pero mirando las tres
+// granularidades. AHORA (15/3/2026) es DOMINGO, así que la semana en curso es
+// la que arranca el lunes 9 — el caso interesante, porque el domingo es el
+// último día de la semana y no el primero.
+// ---------------------------------------------------------------------------
+
+function ganada(actualCloseDate: Date, amount: number, currency = "UYU"): FilaEnMemoria {
+  return fila({ status: "WON", actualCloseDate, amount: new Prisma.Decimal(amount), currency });
+}
+
+test("getRevenueSeries: mensual devuelve los mismos 6 meses que el resumen, y lo dice en la respuesta", async () => {
+  const db = baseEnMemoria(
+    [
+      ganada(dia("2025-10-01T00:00:00.000Z"), 10),
+      // Septiembre 2025: séptimo mes hacia atrás, fuera de la serie.
+      ganada(dia("2025-09-30T00:00:00.000Z"), 1_000),
+      ganada(dia("2026-01-15T00:00:00.000Z"), 40),
+      ganada(dia("2026-03-15T00:00:00.000Z"), 60),
+    ],
+    "UYU",
+  );
+  const serie = await getRevenueSeries(ORG, "month", { now: AHORA, db });
+
+  assert.equal(serie.currency, "UYU");
+  assert.equal(serie.granularity, "month");
+  assert.deepEqual(serie.points, [
+    { label: "2025-10", value: "10.00" },
+    { label: "2025-11", value: "0.00" },
+    { label: "2025-12", value: "0.00" },
+    { label: "2026-01", value: "40.00" },
+    { label: "2026-02", value: "0.00" },
+    { label: "2026-03", value: "60.00" },
+  ]);
+
+  const resumen = await getDashboardSummary(ORG, { now: AHORA, db });
+  assert.deepEqual(
+    serie.points.map((punto) => ({ month: punto.label, value: punto.value })),
+    resumen.revenueByMonth,
+    "la serie mensual y revenueByMonth del resumen no pueden diferir",
+  );
+});
+
+test("getRevenueSeries: semanal devuelve 8 semanas lunes-a-domingo, la en curso al final", async () => {
+  const db = baseEnMemoria(
+    [
+      // Lunes 9: primer día de la semana en curso.
+      ganada(dia("2026-03-09T00:00:00.000Z"), 300),
+      // Domingo 15: último día de la MISMA semana, no de la siguiente.
+      ganada(dia("2026-03-15T00:00:00.000Z"), 200),
+      // Domingo 8: último día de la semana anterior.
+      ganada(dia("2026-03-08T00:00:00.000Z"), 50),
+      // Lunes 19 de enero: primera semana de la serie.
+      ganada(dia("2026-01-19T00:00:00.000Z"), 7),
+      // Domingo 18 de enero: una semana antes del comienzo, fuera de la serie.
+      ganada(dia("2026-01-18T00:00:00.000Z"), 9_999),
+    ],
+    "UYU",
+  );
+  const serie = await getRevenueSeries(ORG, "week", { now: AHORA, db });
+
+  assert.equal(serie.granularity, "week");
+  assert.deepEqual(serie.points, [
+    { label: "2026-01-19", value: "7.00" },
+    { label: "2026-01-26", value: "0.00" },
+    { label: "2026-02-02", value: "0.00" },
+    { label: "2026-02-09", value: "0.00" },
+    { label: "2026-02-16", value: "0.00" },
+    { label: "2026-02-23", value: "0.00" },
+    { label: "2026-03-02", value: "50.00" },
+    { label: "2026-03-09", value: "500.00" },
+  ]);
+});
+
+test("getRevenueSeries: diaria devuelve 30 días calendario, el de hoy al final", async () => {
+  const db = baseEnMemoria(
+    [
+      ganada(dia("2026-03-15T00:00:00.000Z"), 60),
+      // Último instante del día anterior: el día de ayer, no el de hoy.
+      ganada(dia("2026-03-14T23:59:59.999Z"), 40),
+      // Primer día de la ventana de 30.
+      ganada(dia("2026-02-14T00:00:00.000Z"), 5),
+      // Un día antes del comienzo: afuera.
+      ganada(dia("2026-02-13T23:59:59.999Z"), 9_999),
+    ],
+    "UYU",
+  );
+  const serie = await getRevenueSeries(ORG, "day", { now: AHORA, db });
+
+  assert.equal(serie.granularity, "day");
+  assert.equal(serie.points.length, 30);
+  assert.deepEqual(serie.points[0], { label: "2026-02-14", value: "5.00" });
+  assert.deepEqual(serie.points[28], { label: "2026-03-14", value: "40.00" });
+  assert.deepEqual(serie.points[29], { label: "2026-03-15", value: "60.00" });
+  assert.equal(
+    serie.points.filter((punto) => punto.value !== "0.00").length,
+    3,
+    "ningún otro día suma",
+  );
+});
+
+test("getRevenueSeries: solo suma WON en la moneda de reporte, y sin preferredCurrency esa moneda es USD", async () => {
+  const db = baseEnMemoria(
+    [
+      ganada(dia("2026-03-15T00:00:00.000Z"), 60, "USD"),
+      // Ganada en otra moneda: no suma.
+      ganada(dia("2026-03-15T00:00:00.000Z"), 9_999, "UYU"),
+      // Abierta con fecha de cierre cargada: no es ingreso.
+      fila({
+        status: "OPEN",
+        actualCloseDate: dia("2026-03-15T00:00:00.000Z"),
+        amount: new Prisma.Decimal(500),
+        currency: "USD",
+      }),
+      // Borrada, y una de otra organización: invisibles para la serie.
+      { ...ganada(dia("2026-03-15T00:00:00.000Z"), 111, "USD"), deletedAt: dia("2026-03-16") },
+      { ...ganada(dia("2026-03-15T00:00:00.000Z"), 222, "USD"), organizationId: "org-b" },
+    ],
+    null,
+  );
+  const serie = await getRevenueSeries(ORG, "day", { now: AHORA, db });
+
+  assert.equal(serie.currency, "USD");
+  assert.deepEqual(serie.points[29], { label: "2026-03-15", value: "60.00" });
 });

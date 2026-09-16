@@ -1412,3 +1412,61 @@ Cambios:
 - Alcance CSS respetado: clases nuevas solo `ds-chart-*` y `ds-kpi-row`, con los keyframes `ds-fade-in`, `ds-rise-in` y `ds-chart-draw`, más el token `--shadow-md`. No se tocaron la regla base `.ds-card`, `.ds-kpi` fuera de `.ds-kpi-row` ni `VehicleSummaryCards.tsx`.
 - Archivos nuevos: `lib/useContainerWidth.ts` (+ test) y `test/resizeObserverStub.ts`. Modificados: `revenueChart.ts` (+ test), `RevenueByMonthChart.tsx` (+ test), `OpportunityKpiCards.tsx` (solo la clase del `<dl>`), `DashboardPage.test.tsx` (solo el stub), `design-system.css` y `tokens.css`. Sin cambios de backend, sin migración y sin dependencias nuevas.
 - Suite completa del frontend: 127 archivos y 1197 tests (en el §31 eran 126 y 1177). Typecheck, ESLint, Prettier y build (app y widget) limpios.
+
+## 33. Selector de período (mensual/semanal/diario) y crosshair continuo en el gráfico de ingresos
+
+Motivo: seguir mejorando el gráfico "Ingresos ganados por mes" — un hover
+que se sienta continuo (como el crosshair de un componente de referencia que
+se evaluó y se descartó en el §32 por traer Tailwind/shadcn) y la
+posibilidad de ver la serie por semana o por día, no solo por mes.
+
+Parte A — hover continuo: los seis marcadores con su propia franja de
+:hover (§32) se reemplazan por un único crosshair que sigue al puntero
+(onPointerMove sobre el área del gráfico, sin librería), con una transición
+CSS para que el desplazamiento entre puntos se sienta como un deslizamiento
+y no un salto. El <title> nativo por punto y la tabla accesible no cambian.
+
+Parte B — granularidad: nuevo endpoint GET /opportunities/revenue-series
+?granularity=month|week|day, separado de /opportunities/dashboard-summary
+a propósito — las 4 KPI cards siguen siendo mensuales siempre, y cambiar la
+granularidad del gráfico no debe refetchear ni recalcular esas cards. El
+último bucket de cualquier granularidad es siempre el período en curso, sin
+cerrar (mismo criterio que ya vale para el mes en el §32, generalizado).
+Ventanas: semana lunes-a-domingo UTC, día calendario UTC. Cantidad de
+buckets: 6 meses (sin cambios), 8 semanas, 30 días — constantes ajustables.
+Selector visual: segmented control de texto ("Mensual"/"Semanal"/"Diario"),
+mismo patrón visual que .ds-theme-toggle, en el header de la tarjeta.
+
+Refactor necesario: revenueChart.ts (toChartPoints y compañía) dejaba de
+saber calcular el rótulo de mes internamente (monthShortLabel) para poder
+servir las tres granularidades sin triplicar el componente — ahora recibe
+puntos ya rotulados ({label, value}) y quien arma esos puntos (el
+componente) elige el formateador según la granularidad activa.
+
+**Hallazgos al implementar:**
+
+- **Un `<g>` por punto no se puede "deslizar": los atributos `x`/`cx` de SVG no son animables por CSS.** Para que el crosshair se mueva y no salte, todo su contenido se dibuja en coordenadas RELATIVAS al punto activo y el grupo se coloca con dos `transform` anidados (`translateX(point.x)` afuera, `translateY(point.y)` adentro). `transform` sí es interpolable, así que una sola regla `transition: transform 160ms` alcanza. El grupo interno lleva su propia transición porque su Y es independiente de la X del externo.
+- **El `<rect>` de captura tiene que estar ARRIBA de los círculos, y eso apaga el tooltip nativo del navegador.** Si los círculos quedaran encima, al pasar el puntero sobre uno el evento apuntaría al círculo —que es hermano y no descendiente del rect— y el `pointerleave` del rect se dispararía, haciendo parpadear el crosshair. Con el rect último, el `<title>` de cada círculo sigue siendo su nombre accesible (lector de pantalla), pero ya no se ve el tooltip amarillo del sistema operativo. Es una pérdida aceptable: el tooltip que lo reemplaza sigue al puntero y es el que se quería.
+- **El índice del punto activo se conserva al salir del gráfico.** El estado es `{index, visible}` y `onPointerLeave` solo apaga `visible`: si se borrara el índice, el crosshair se desvanecería mientras vuelve al primer punto de la serie. Hay un test que fija exactamente eso (el `transform` sigue en el último punto apuntado después del `pointerLeave`).
+- **jsdom 29 sí implementa `PointerEvent`**, así que `fireEvent.pointerMove(rect, { clientX })` lleva un `clientX` real hasta el handler de React. Y como `getBoundingClientRect()` devuelve ceros en jsdom, el `clientX` del test es directamente la X del viewBox: la aritmética del test es la misma que la del navegador, sin stubs.
+- **Con 30 puntos los rótulos del eje X se pisan.** Un rótulo como "14 feb" a 11px no entra en los ~34px que le tocan a cada día. Se dibuja uno de cada `ceil(n / 8)`, contando desde el ÚLTIMO para que el período en curso siempre tenga el suyo. Con 6 meses y 8 semanas el paso da 1 y no cambia nada de lo que ya había. La tabla accesible sigue teniendo las 30 filas.
+- **El título de la tarjeta tuvo que volverse dinámico.** Con "Diario" activo, "Ingresos ganados por mes" es simplemente falso. Ahora es "Ingresos ganados por mes / por semana / por día", y ese mismo texto alimenta el `aria-label` de la `<section>`, el `aria-label` del `<svg>`, el `<caption>` de la tabla y el encabezado de su primera columna. Como el default sigue siendo mensual, los tests que buscaban la tarjeta por "Ingresos ganados por mes" no cambiaron.
+- **El archivo NO se renombró a `RevenueChart.tsx`, y es por Windows.** Al lado vive `revenueChart.ts` (el módulo de geometría); en un filesystem case-insensitive, `import ... from "./revenueChart"` contra un `RevenueChart.tsx` hermano es exactamente la clase de ambigüedad que después falla solo en CI (Linux, case-sensitive). El nombre del componente queda como estaba.
+- **El test de "error parcial" del Dashboard cambió de premisa, y para bien.** Antes verificaba que si caía el resumen caían las KPI, el gráfico y las mayores abiertas. Ahora el gráfico tiene su propio endpoint, así que el test verifica lo contrario para él: el resumen cae y el gráfico sigue dibujando. Es la degradación por sección del §30 llevada un paso más lejos.
+- **`tsc --noEmit` pasó y `tsc -b` (el del build) no.** Un `initialProps: { granularity: "month" as const }` en `renderHook` fija el tipo del prop en `"month"` y hace que el `rerender({ granularity: "week" })` no compile. El typecheck suelto no lo vio; `npm run build` sí. Conviene correr el build y no solo el typecheck antes de dar por cerrado un cambio de tests.
+- **La semana lunes-a-domingo se probó con un domingo a propósito.** El `now` de los tests es el domingo 15/3/2026, que es el ÚLTIMO día de la semana que arranca el lunes 9 — el caso donde un `startOfWeek` mal escrito devolvería el 15 o el 16. Hay filas de fixture en el domingo 8 (semana anterior) y en el lunes 9 y el domingo 15 (semana en curso) para fijar los dos bordes.
+- **Verificación visual:** harness HTML estático en el scratchpad con los CSS reales por `file://` y el markup que produce el componente de verdad (volcado desde un test temporal ya borrado), con el crosshair activo, en claro y oscuro, vía `/browse`. Se verificó que la guía punteada, el círculo resaltado y el tooltip se leen bien en los dos temas, y que el segmented control de período tiene el mismo peso visual que el del tema en la sidebar. La transición en sí no se puede capturar en una foto: se verificó leyendo el CSS.
+
+**Decisiones tomadas al implementar:**
+
+- **Parte A.** `hitBand` se borró y la reemplaza `nearestPointIndex(points, pointerX)`, pura y con test: divide por el paso uniforme, redondea y acota a la serie. Clases nuevas `.ds-chart-crosshair`, `.ds-chart-crosshair-focus` y `.ds-chart-crosshair-point`; se fueron `.ds-chart-marker` y `.ds-chart-tooltip` (el grupo, no la caja ni el texto). La animación de entrada escalonada pasó del `<g>` del marcador al propio `<circle class="ds-chart-point">`, con la misma custom property `--ds-chart-index`; a ese círculo se le sacaron `transform-box`/`transform-origin`, que existían solo para el `scale` del hover viejo. La transición es `transform 160ms cubic-bezier(0.22, 1, 0.36, 1)` (sale rápido, frena al llegar) y vive dentro de `@media (prefers-reduced-motion: no-preference)`, igual que el resto del movimiento del gráfico.
+- **Backend: `src/utils/utcWindow.ts` es archivo nuevo, y `utcMonth.ts` no se tocó** (más allá de que el service ya no importa el tipo `MonthWindow`). Expone `startOfDayUTC`/`addDaysUTC`/`startOfNextDayUTC`/`dayWindowUTC`/`lastDaysUTC` y `startOfWeekUTC`/`addWeeksUTC`/`startOfNextWeekUTC`/`weekWindowUTC`/`lastWeeksUTC`, más `dateKeyUTC`, sobre una interfaz `DateWindow { label, start, end }`. `addDaysUTC` suma milisegundos y no días de calendario: en UTC no hay horario de verano, así que todos los días duran lo mismo (en hora local no alcanzaría).
+- **`getRevenueSeries(organizationId, granularity, { now, db })`** con `REVENUE_SERIES_BUCKET_COUNT = { month: DASHBOARD_REVENUE_MONTHS, week: 8, day: 30 }` — el mes reusa la constante del §30 en vez de repetir el 6. `inWindow` se generalizó a `{ start, end }` y la búsqueda de la moneda de reporte se extrajo a `resolveReportingCurrency`, compartida con `getDashboardSummary`, así las dos respuestas no pueden divergir. Un test unitario compara la serie mensual contra `revenueByMonth` del resumen, entrada por entrada.
+- **La granularidad se valida con `z.enum(["month","week","day"])` SIN default**, con mensaje en español vía `errorMap`: si falta o es inválida es 400. Un default escondería un bug de quien llama; el frontend siempre la manda.
+- **Test de integración en archivo nuevo** (`opportunityRevenueSeries.integration-test.ts`) y no como extensión de `opportunityDashboard.integration-test.ts`: las filas que hacen interesante a la serie son otras (bordes de semana y de día) y meterlas en el escenario del resumen habría cambiado sus aserciones exactas sin aportarle nada.
+- **Frontend: `useRevenueSeries(granularity)` con key `["dashboard", "revenue-series", granularity]`**, sin colgar de `DASHBOARD_SUMMARY_KEY`. Hay dos tests que fijan la garantía del ítem: uno en `queries.test.tsx` (cambiar de granularidad pide otra serie y el resumen se pide una sola vez) y otro en `DashboardPage.test.tsx` (lo mismo end-to-end, con las KPI mostrando sus números intactos después del cambio).
+- **`toChartPoints(series, width)` recibe `{ label, value }` ya rotulado.** `monthShortLabel` se quedó en `revenueChart.ts` y se le sumó `dateShortLabel` ("2026-03-09" → "9 mar"), las dos por `slice` y sin pasar por `Date` — pasarla por `Date` arrastraría la zona horaria del navegador y en Montevideo correría cada rótulo un día para atrás. El componente elige cuál usar según la granularidad activa.
+- **`key={granularity}` en el subárbol del `<svg>`:** cambiar de vista remonta y repite la animación de entrada (son otros datos), y un refetch en background de la MISMA granularidad reconcilia los mismos nodos y no la repite — el criterio del §32, ahora explícito en una key.
+- **Cambiar de granularidad muestra "Cargando…" mientras llega la serie nueva.** No se usó `placeholderData` para mantener el gráfico viejo en pantalla: los tres estados (loading / error / vacío) son los mismos que la tarjeta ya tenía desde el §30, y sostener datos de otra granularidad mientras carga es justo el tipo de mentira transitoria que el §32 evitó con el ancho medido. Si molesta en uso real, es un ítem aparte de una línea.
+- **`Card` ganó un prop `headerAction`.** `.ds-card-header` ya era un flex con `space-between` esperando un segundo hijo desde el §30; el selector de período es su primer consumidor real. Las clases `.ds-period-toggle*` copian el patrón visual de `.ds-theme-toggle*` (pista hundida, activo con los tokens del ítem activo de la sidebar) y solo difieren en que los botones se miden por su texto en vez de repartirse el ancho.
+- **Suites completas en verde:** frontend 127 archivos y 1207 tests (en el §32 eran 127 y 1197), backend 753 unitarios y 695 de integración contra el Postgres local. Typecheck, ESLint, Prettier y build (app y widget) limpios en los dos lados. Sin migración, sin dependencias nuevas.

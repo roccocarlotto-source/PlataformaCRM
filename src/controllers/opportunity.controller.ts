@@ -5,6 +5,7 @@ import {
   deleteOpportunity,
   getDashboardSummary,
   getOpportunityById,
+  getRevenueSeries,
   listOpportunities,
   updateOpportunity,
 } from "../services/opportunity.service";
@@ -15,6 +16,13 @@ import { currencySchema, parseOrThrow } from "../utils/validation";
 const idParamSchema = z.string().uuid("id inválido");
 
 const statusSchema = z.enum(["OPEN", "WON", "LOST"]);
+
+// Granularidad de GET /opportunities/revenue-series (§33). SIN default a
+// propósito: si falta o no es una de las tres, es 400 — el frontend siempre
+// la manda, y un default acá escondería un bug de quien llama.
+const revenueGranularitySchema = z.enum(["month", "week", "day"], {
+  errorMap: () => ({ message: "granularity debe ser month, week o day" }),
+});
 
 // Enums de Prisma del módulo de stock de vehículos (Fase 2c), como z.enum
 // con los valores a la vista — misma convención que vehicle.controller.ts.
@@ -145,6 +153,14 @@ export const getDashboardSummaryHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const summary = await getDashboardSummary(req.auth.organizationId);
     res.status(200).json(summary);
+  },
+);
+
+export const getRevenueSeriesHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const granularity = parseOrThrow(revenueGranularitySchema, req.query.granularity);
+    const series = await getRevenueSeries(req.auth.organizationId, granularity);
+    res.status(200).json(series);
   },
 );
 
