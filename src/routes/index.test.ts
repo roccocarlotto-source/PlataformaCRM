@@ -336,3 +336,20 @@ test("el CRUD de automatizaciones (docs/automations-architecture.md §8) está m
     assert.equal(res.status, 401, `${method} ${path} no está montado`);
   }
 });
+
+test("las cotizaciones (§39) están montadas bajo /api, sin DELETE", async () => {
+  const id = randomUUID();
+  const casos: [string, string][] = [
+    ["GET", "/api/quotes"],
+    ["GET", `/api/quotes/${id}`],
+    ["POST", "/api/quotes"],
+    ["PATCH", `/api/quotes/${id}`],
+  ];
+  for (const [method, path] of casos) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+  }
+  // Una cotización no se borra, se supera: el DELETE cae en notFound.
+  const borrar = await fetch(`${baseUrl}/api/quotes/${id}`, { method: "DELETE" });
+  assert.equal(borrar.status, 404);
+});

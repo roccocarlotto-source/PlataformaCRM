@@ -10,6 +10,7 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
+import { QuoteSection } from "../quote/QuoteSection";
 import { StageSelect } from "../stage/StageSelect";
 import { UserSelect } from "../user/UserSelect";
 import { VehicleSelect } from "../vehicle/VehicleSelect";
@@ -384,259 +385,273 @@ export function OpportunityFormPage() {
   // (EMPTY_FORM.status es "OPEN"; ganada/perdida se asignan desde el
   // embudo), pero solo en creación: en edición la tarjeta "Estado y cierre"
   // sí permite cerrar desde acá, y ahí serían falsos.
+  // La sección de Cotización (§39) va DESPUÉS del <form> y no adentro: tiene
+  // sus propios formularios y botones, y un <form> no se anida. Solo en
+  // edición — una oportunidad que todavía no existe no tiene a qué colgarle
+  // una cotización.
   return (
-    <form onSubmit={handleSubmit} className="ds-form">
-      <h1>{isEditMode ? "Editar oportunidad" : "Nueva oportunidad"}</h1>
-      {isEditMode ? null : (
-        <p className="ds-hint">Se crea abierta en la etapa elegida del embudo.</p>
-      )}
-      <div className="ds-stack">
-        <Card heading="Oportunidad">
-          <div className="ds-field-grid">
-            <div className="ds-field-grid--full">
-              <FormField label={<span className="ds-required">Título</span>}>
-                <input
-                  type="text"
-                  value={values.title}
-                  onChange={(event) => setValues({ ...values, title: event.target.value })}
-                  required
-                />
-              </FormField>
-            </div>
-            <CompanySelect
-              id="opportunity-form-company"
-              label="Empresa"
-              value={values.companyId}
-              onChange={handleCompanyChange}
-            />
-            <ContactSelect
-              id="opportunity-form-contact"
-              label="Contacto"
-              value={values.contactId}
-              onChange={handleContactChange}
-            />
-          </div>
-        </Card>
-
-        <Card heading="Embudo y valor">
-          <div className="ds-field-grid">
-            <PipelineSelect
-              id="opportunity-form-pipeline"
-              label="Pipeline"
-              value={values.pipelineId}
-              onChange={handlePipelineChange}
-              required
-            />
-            <StageSelect
-              id="opportunity-form-stage"
-              label="Etapa"
-              pipelineId={values.pipelineId}
-              value={values.stageId}
-              onChange={(stageId) => setValues({ ...values, stageId })}
-              required
-            />
-            {/* Monto + Moneda siguen en su .ds-field-row, que acá es una
-                celda de la grilla: la fila queda (Monto | Moneda) | Fecha. */}
-            <div>
-              <div className="ds-field-row">
-                {/* Formato uruguayo en vivo (ítem 18.A): el estado guarda el
-                    valor canónico ("20000.5") y CurrencyInput muestra
-                    "20.000,50". toCreateInput/toUpdateInput no cambian. */}
-                <FormField label="Monto">
-                  <CurrencyInput
-                    value={values.amount}
-                    onChange={(amount) => setValues({ ...values, amount })}
+    <>
+      <form onSubmit={handleSubmit} className="ds-form">
+        <h1>{isEditMode ? "Editar oportunidad" : "Nueva oportunidad"}</h1>
+        {isEditMode ? null : (
+          <p className="ds-hint">Se crea abierta en la etapa elegida del embudo.</p>
+        )}
+        <div className="ds-stack">
+          <Card heading="Oportunidad">
+            <div className="ds-field-grid">
+              <div className="ds-field-grid--full">
+                <FormField label={<span className="ds-required">Título</span>}>
+                  <input
+                    type="text"
+                    value={values.title}
+                    onChange={(event) => setValues({ ...values, title: event.target.value })}
+                    required
                   />
                 </FormField>
-                <FormField label="Moneda">
-                  <select
-                    value={values.currency}
-                    onChange={(event) => setValues({ ...values, currency: event.target.value })}
-                  >
-                    {/* Vacía solo mientras handleVehicleChange la dejó así:
+              </div>
+              <CompanySelect
+                id="opportunity-form-company"
+                label="Empresa"
+                value={values.companyId}
+                onChange={handleCompanyChange}
+              />
+              <ContactSelect
+                id="opportunity-form-contact"
+                label="Contacto"
+                value={values.contactId}
+                onChange={handleContactChange}
+              />
+            </div>
+          </Card>
+
+          <Card heading="Embudo y valor">
+            <div className="ds-field-grid">
+              <PipelineSelect
+                id="opportunity-form-pipeline"
+                label="Pipeline"
+                value={values.pipelineId}
+                onChange={handlePipelineChange}
+                required
+              />
+              <StageSelect
+                id="opportunity-form-stage"
+                label="Etapa"
+                pipelineId={values.pipelineId}
+                value={values.stageId}
+                onChange={(stageId) => setValues({ ...values, stageId })}
+                required
+              />
+              {/* Monto + Moneda siguen en su .ds-field-row, que acá es una
+                celda de la grilla: la fila queda (Monto | Moneda) | Fecha. */}
+              <div>
+                <div className="ds-field-row">
+                  {/* Formato uruguayo en vivo (ítem 18.A): el estado guarda el
+                    valor canónico ("20000.5") y CurrencyInput muestra
+                    "20.000,50". toCreateInput/toUpdateInput no cambian. */}
+                  <FormField label="Monto">
+                    <CurrencyInput
+                      value={values.amount}
+                      onChange={(amount) => setValues({ ...values, amount })}
+                    />
+                  </FormField>
+                  <FormField label="Moneda">
+                    <select
+                      value={values.currency}
+                      onChange={(event) => setValues({ ...values, currency: event.target.value })}
+                    >
+                      {/* Vacía solo mientras handleVehicleChange la dejó así:
                         el backend va a tomar la moneda del precio de la
                         unidad. Desaparece apenas se elige USD o UYU. */}
-                    {values.currency === "" ? <option value="">Según la unidad</option> : null}
-                    {hasKnownCurrency || values.currency === "" ? null : (
-                      <option value={values.currency}>{values.currency}</option>
-                    )}
-                    {CURRENCY_OPTIONS.map((currency) => (
-                      <option key={currency} value={currency}>
-                        {currency}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-              </div>
-              {/* Explica por qué los dos quedaron vacíos al vincular una
+                      {values.currency === "" ? <option value="">Según la unidad</option> : null}
+                      {hasKnownCurrency || values.currency === "" ? null : (
+                        <option value={values.currency}>{values.currency}</option>
+                      )}
+                      {CURRENCY_OPTIONS.map((currency) => (
+                        <option key={currency} value={currency}>
+                          {currency}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                </div>
+                {/* Explica por qué los dos quedaron vacíos al vincular una
                   unidad (ver handleVehicleChange), para que no parezca un
                   bug. Desaparece apenas se tipea algo en cualquiera de los
                   dos: ahí ya es un monto explícito. */}
-              {hasNewVehicle && !values.amount && !values.currency ? (
-                <p className="ds-hint">
-                  Se completa con el precio de la unidad al guardar, salvo que cargues un monto acá.
-                </p>
-              ) : null}
-            </div>
-            {/* Fecha estimada + "Fecha desconocida" (ítem 18.C) comparten la
+                {hasNewVehicle && !values.amount && !values.currency ? (
+                  <p className="ds-hint">
+                    Se completa con el precio de la unidad al guardar, salvo que cargues un monto
+                    acá.
+                  </p>
+                ) : null}
+              </div>
+              {/* Fecha estimada + "Fecha desconocida" (ítem 18.C) comparten la
                 celda: el checkbox va debajo del input, como FormField propio
                 (label > checkbox), que el CSS del sistema de diseño ya pone
                 en fila. */}
-            <div>
-              <FormField label="Fecha estimada de cierre">
-                <input
-                  type="date"
-                  value={values.expectedCloseDate}
-                  disabled={expectedCloseDateUnknown}
-                  onChange={(event) =>
-                    setValues({ ...values, expectedCloseDate: event.target.value })
-                  }
-                />
-              </FormField>
-              <FormField label="Fecha desconocida">
-                <input
-                  type="checkbox"
-                  checked={expectedCloseDateUnknown}
-                  onChange={(event) => handleExpectedCloseDateUnknownChange(event.target.checked)}
-                />
-              </FormField>
-            </div>
-            {/* "Sin asignar" solo aparece si el registro no tiene dueño
+              <div>
+                <FormField label="Fecha estimada de cierre">
+                  <input
+                    type="date"
+                    value={values.expectedCloseDate}
+                    disabled={expectedCloseDateUnknown}
+                    onChange={(event) =>
+                      setValues({ ...values, expectedCloseDate: event.target.value })
+                    }
+                  />
+                </FormField>
+                <FormField label="Fecha desconocida">
+                  <input
+                    type="checkbox"
+                    checked={expectedCloseDateUnknown}
+                    onChange={(event) => handleExpectedCloseDateUnknownChange(event.target.checked)}
+                  />
+                </FormField>
+              </div>
+              {/* "Sin asignar" solo aparece si el registro no tiene dueño
                 (Opportunity.ownerId no es nullable en la API, así que en la
                 práctica solo con datos viejos): con clearable={false} y un
                 valor real, UserSelect no renderiza opción vacía — el PATCH
                 no puede limpiar ownerId (chequeo truthy en
                 opportunity.service.ts). */}
-            <UserSelect
-              id="opportunity-form-owner"
-              label="Propietario"
-              value={values.ownerId}
-              onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
-              emptyOptionLabel="Sin asignar"
-              clearable={false}
-            />
-          </div>
-        </Card>
+              <UserSelect
+                id="opportunity-form-owner"
+                label="Propietario"
+                value={values.ownerId}
+                onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
+                emptyOptionLabel="Sin asignar"
+                clearable={false}
+              />
+            </div>
+          </Card>
 
-        {/* Módulo de stock (Fase 3b). Card aparte y no dentro de "Embudo y
+          {/* Módulo de stock (Fase 3b). Card aparte y no dentro de "Embudo y
             valor": la unidad, la financiación y el origen del cliente son
             datos de ESTA venta, no del embudo. Los tres opcionales, sin
             required — una oportunidad sin unidad vinculada sigue siendo
             válida. El selector va a lo ancho: su resultado (unidad + precio +
             estado + "Quitar vínculo") no entra en media columna. */}
-        <Card heading="Vehículo vinculado">
-          <div className="ds-field-grid">
-            <div className="ds-field-grid--full">
-              <VehicleSelect
-                id="opportunity-form-vehicle"
-                label="Unidad de stock"
-                value={values.vehicleId}
-                onChange={handleVehicleChange}
-              />
-            </div>
-            <FormField label="Financiación">
-              <select
-                value={values.financingType}
-                onChange={(event) =>
-                  setValues({
-                    ...values,
-                    financingType: event.target.value as OpportunityFinancingType | "",
-                  })
-                }
-              >
-                <option value="">Sin especificar</option>
-                {FINANCING_TYPE_OPTIONS.map((financingType) => (
-                  <option key={financingType} value={financingType}>
-                    {FINANCING_TYPE_LABELS[financingType]}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            {/* "Origen del cliente" es solo el texto visible (ítem 18.D):
-                leadSource/OpportunityLeadSource/LEAD_SOURCE_* son nombres
-                internos y siguen igual. */}
-            <FormField label="Origen del cliente">
-              <select
-                value={values.leadSource}
-                onChange={(event) =>
-                  setValues({
-                    ...values,
-                    leadSource: event.target.value as OpportunityLeadSource | "",
-                  })
-                }
-              >
-                <option value="">Sin especificar</option>
-                {LEAD_SOURCE_OPTIONS.map((leadSource) => (
-                  <option key={leadSource} value={leadSource}>
-                    {LEAD_SOURCE_LABELS[leadSource]}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-          </div>
-        </Card>
-
-        {/* Sin mockup: el diseño cierra desde el embudo. Misma grilla por
-            criterio propio — Estado + Motivo de pérdida como par, el hint a
-            lo ancho debajo de los dos (suelto ocuparía una celda), Fecha real
-            sola. Motivo y Fecha real solo con Ganada/Perdida — un solo
-            criterio para los dos (ver handleStatusChange). */}
-        {isEditMode ? (
-          <Card heading="Estado y cierre">
+          <Card heading="Vehículo vinculado">
             <div className="ds-field-grid">
-              <FormField label="Estado">
+              <div className="ds-field-grid--full">
+                <VehicleSelect
+                  id="opportunity-form-vehicle"
+                  label="Unidad de stock"
+                  value={values.vehicleId}
+                  onChange={handleVehicleChange}
+                />
+              </div>
+              <FormField label="Financiación">
                 <select
-                  value={values.status}
-                  onChange={(event) => handleStatusChange(event.target.value as OpportunityStatus)}
+                  value={values.financingType}
+                  onChange={(event) =>
+                    setValues({
+                      ...values,
+                      financingType: event.target.value as OpportunityFinancingType | "",
+                    })
+                  }
                 >
-                  {STATUSES.map((status) => (
-                    <option key={status} value={status}>
-                      {STATUS_LABEL[status]}
+                  <option value="">Sin especificar</option>
+                  {FINANCING_TYPE_OPTIONS.map((financingType) => (
+                    <option key={financingType} value={financingType}>
+                      {FINANCING_TYPE_LABELS[financingType]}
                     </option>
                   ))}
                 </select>
               </FormField>
-              {isClosed(values.status) ? (
-                <>
-                  <FormField label="Motivo de pérdida">
-                    <input
-                      type="text"
-                      value={values.lostReason}
-                      onChange={(event) => setValues({ ...values, lostReason: event.target.value })}
-                    />
-                  </FormField>
-                  <p className="ds-hint ds-field-grid--full">
-                    Especialmente relevante cuando el estado es Perdida.
-                  </p>
-                  <FormField label="Fecha real de cierre">
-                    <input
-                      type="date"
-                      value={values.actualCloseDate}
-                      onChange={(event) =>
-                        setValues({ ...values, actualCloseDate: event.target.value })
-                      }
-                    />
-                  </FormField>
-                </>
-              ) : null}
+              {/* "Origen del cliente" es solo el texto visible (ítem 18.D):
+                leadSource/OpportunityLeadSource/LEAD_SOURCE_* son nombres
+                internos y siguen igual. */}
+              <FormField label="Origen del cliente">
+                <select
+                  value={values.leadSource}
+                  onChange={(event) =>
+                    setValues({
+                      ...values,
+                      leadSource: event.target.value as OpportunityLeadSource | "",
+                    })
+                  }
+                >
+                  <option value="">Sin especificar</option>
+                  {LEAD_SOURCE_OPTIONS.map((leadSource) => (
+                    <option key={leadSource} value={leadSource}>
+                      {LEAD_SOURCE_LABELS[leadSource]}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
             </div>
           </Card>
-        ) : null}
 
-        {error ? <ErrorState>{error}</ErrorState> : null}
-        <div>
-          {isEditMode ? null : (
-            <p className="ds-hint">
-              La oportunidad arranca abierta. Cerrarla como ganada o perdida se hace desde el
-              embudo.
-            </p>
-          )}
-          <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
-            {isSubmitting ? "Guardando…" : "Guardar"}
-          </Button>
+          {/* Sin mockup: el diseño cierra desde el embudo. Misma grilla por
+            criterio propio — Estado + Motivo de pérdida como par, el hint a
+            lo ancho debajo de los dos (suelto ocuparía una celda), Fecha real
+            sola. Motivo y Fecha real solo con Ganada/Perdida — un solo
+            criterio para los dos (ver handleStatusChange). */}
+          {isEditMode ? (
+            <Card heading="Estado y cierre">
+              <div className="ds-field-grid">
+                <FormField label="Estado">
+                  <select
+                    value={values.status}
+                    onChange={(event) =>
+                      handleStatusChange(event.target.value as OpportunityStatus)
+                    }
+                  >
+                    {STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {STATUS_LABEL[status]}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                {isClosed(values.status) ? (
+                  <>
+                    <FormField label="Motivo de pérdida">
+                      <input
+                        type="text"
+                        value={values.lostReason}
+                        onChange={(event) =>
+                          setValues({ ...values, lostReason: event.target.value })
+                        }
+                      />
+                    </FormField>
+                    <p className="ds-hint ds-field-grid--full">
+                      Especialmente relevante cuando el estado es Perdida.
+                    </p>
+                    <FormField label="Fecha real de cierre">
+                      <input
+                        type="date"
+                        value={values.actualCloseDate}
+                        onChange={(event) =>
+                          setValues({ ...values, actualCloseDate: event.target.value })
+                        }
+                      />
+                    </FormField>
+                  </>
+                ) : null}
+              </div>
+            </Card>
+          ) : null}
+
+          {error ? <ErrorState>{error}</ErrorState> : null}
+          <div>
+            {isEditMode ? null : (
+              <p className="ds-hint">
+                La oportunidad arranca abierta. Cerrarla como ganada o perdida se hace desde el
+                embudo.
+              </p>
+            )}
+            <RequiredFieldsHint />
+            <Button type="submit" variant="primary" disabled={isSubmitting}>
+              {isSubmitting ? "Guardando…" : "Guardar"}
+            </Button>
+          </div>
         </div>
-      </div>
-    </form>
+      </form>
+      {isEditMode && opportunityQuery.data ? (
+        <QuoteSection opportunity={opportunityQuery.data} />
+      ) : null}
+    </>
   );
 }

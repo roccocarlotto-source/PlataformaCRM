@@ -27,6 +27,7 @@ import { pipelineRouter } from "./pipeline.routes";
 import { qrRouter } from "./qr.routes";
 import { qrAdminRouter } from "./qrAdmin.routes";
 import { qrPublicRouter } from "./qrPublic.routes";
+import { quoteRouter } from "./quote.routes";
 import { sourceRouter } from "./source.routes";
 import { stageRouter } from "./stage.routes";
 import { userRouter } from "./user.routes";
@@ -45,6 +46,9 @@ routes.use("/api", contactRouter);
 routes.use("/api", pipelineRouter);
 routes.use("/api", stageRouter);
 routes.use("/api", opportunityRouter);
+// Cotizaciones (§39 de docs/frontend-cambios-pendientes.md): sub-recurso de la
+// oportunidad, con su misma forma de permisos. Va pegada a ella.
+routes.use("/api", quoteRouter);
 routes.use("/api", activityRouter);
 routes.use("/api", invitationRouter);
 routes.use("/api", userRouter);

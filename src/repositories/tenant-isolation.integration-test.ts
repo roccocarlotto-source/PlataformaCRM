@@ -38,6 +38,12 @@ import {
   markEventFailed,
   anonymizeIngestionEventsOfContact,
 } from "./ingestionEvent.repository";
+import {
+  expireDueQuotes,
+  supersedeOpenQuotes,
+  transitionQuoteConditional,
+  updateDraftQuoteContent,
+} from "./quote.repository";
 import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
 import type { NotaIgnorado, PromotionNote } from "../types/promotion";
 
@@ -134,6 +140,11 @@ interface Fixture {
   ingestionEventBFailed: { id: string };
   ingestionEventBPending: { id: string };
   ingestionEventBProcessed: { id: string };
+  // §39 — cotizaciones de la oportunidad de B: una DRAFT y una SENT ya
+  // vencida (valid_until en el pasado), cada escritura condicional necesita
+  // su estado de partida.
+  quoteBDraft: { id: string };
+  quoteBSentVencida: { id: string };
   authUserId: string;
 }
 
@@ -386,6 +397,30 @@ before(async () => {
     },
   });
 
+  // §39 — directo por Prisma, como outboxEventB: createQuote del service
+  // toma locks y supera la anterior, y acá solo hacen falta dos filas fijas.
+  const quoteBDraft = await prisma.quote.create({
+    data: {
+      organizationId: orgB.id,
+      opportunityId: opportunityB.id,
+      createdById: userB.id,
+      amount: 20_000,
+      currency: "USD",
+      status: "DRAFT",
+    },
+  });
+  const quoteBSentVencida = await prisma.quote.create({
+    data: {
+      organizationId: orgB.id,
+      opportunityId: opportunityB.id,
+      createdById: userB.id,
+      amount: 19_000,
+      currency: "USD",
+      status: "SENT",
+      validUntil: new Date("2020-01-01T00:00:00.000Z"),
+    },
+  });
+
   fx = {
     orgA: { id: orgA.id },
     orgB: { id: orgB.id },
@@ -413,6 +448,8 @@ before(async () => {
     ingestionEventBFailed: { id: ingestionEventBFailed.id },
     ingestionEventBPending: { id: ingestionEventBPending.id },
     ingestionEventBProcessed: { id: ingestionEventBProcessed.id },
+    quoteBDraft: { id: quoteBDraft.id },
+    quoteBSentVencida: { id: quoteBSentVencida.id },
     authUserId: authUserB.id,
   };
 });
@@ -439,6 +476,8 @@ after(async () => {
   await prisma.source.deleteMany({ where: { organizationId: ambas } });
   await prisma.invitation.deleteMany({ where: { organizationId: fx.orgB.id } });
   await prisma.activity.deleteMany({ where: { organizationId: fx.orgB.id } });
+  // Las cotizaciones referencian la oportunidad (RESTRICT): van antes.
+  await prisma.quote.deleteMany({ where: { organizationId: ambas } });
   await prisma.opportunity.deleteMany({ where: { organizationId: fx.orgB.id } });
   await prisma.contact.deleteMany({ where: { organizationId: ambas } });
   await prisma.company.deleteMany({ where: { organizationId: fx.orgB.id } });
@@ -1114,4 +1153,57 @@ test("anonymizeIngestionEventsOfContact: contactId de Organization B + organizat
   const entrante = (notasDespues[0] as NotaIgnorado).entrante;
   assert.equal(entrante, ENTRANTE_RECONOCIBLE, "la nota sigue sin redactar");
   assert.notEqual(entrante, MARCADOR_DE_DATO_BORRADO);
+});
+
+// ---------------------------------------------------------------------------
+// §39 — Cotización. Las cuatro escrituras de quote.repository.ts filtran por
+// organizationId en su WHERE además de por estado. El caso cross-tenant es el
+// mismo que el resto: id (u opportunityId) de B + organizationId de A, con B
+// en el estado exacto que la escritura espera — si no, "no cambió nada" sería
+// cierto aunque la función no filtrara por organización.
+// ---------------------------------------------------------------------------
+
+function leerQuoteBDraft() {
+  return prisma.quote.findUniqueOrThrow({ where: { id: fx.quoteBDraft.id } });
+}
+
+test("transitionQuoteConditional: id de Organization B (DRAFT) + organizationId de Organization A no la envía", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerQuoteBDraft,
+    () => transitionQuoteConditional(fx.quoteBDraft.id, fx.orgA.id, "DRAFT", "SENT"),
+    "transitionQuoteConditional",
+  );
+});
+
+test("updateDraftQuoteContent: id de Organization B (DRAFT) + organizationId de Organization A no cambia el monto", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerQuoteBDraft,
+    () => updateDraftQuoteContent(fx.quoteBDraft.id, fx.orgA.id, { amount: 1 }),
+    "updateDraftQuoteContent",
+  );
+});
+
+test("supersedeOpenQuotes: opportunityId de Organization B + organizationId de Organization A no supera ninguna cotización", async () => {
+  const leerAmbas = () =>
+    prisma.quote.findMany({
+      where: { id: { in: [fx.quoteBDraft.id, fx.quoteBSentVencida.id] } },
+      orderBy: { id: "asc" },
+    });
+  await assertCrossTenantWriteNoOp(
+    leerAmbas,
+    () => supersedeOpenQuotes(fx.orgA.id, fx.opportunityB.id, prisma),
+    "supersedeOpenQuotes",
+  );
+});
+
+test("expireDueQuotes: id de Organization B (SENT vencida) + organizationId de Organization A no la vence", async () => {
+  await assertCrossTenantWriteNoOp(
+    () => prisma.quote.findUniqueOrThrow({ where: { id: fx.quoteBSentVencida.id } }),
+    () =>
+      expireDueQuotes(
+        { organizationId: fx.orgA.id, id: fx.quoteBSentVencida.id },
+        new Date("2030-01-01T00:00:00.000Z"),
+      ),
+    "expireDueQuotes",
+  );
 });
