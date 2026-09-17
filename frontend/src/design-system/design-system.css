@@ -2043,7 +2043,7 @@ a.ds-button--secondary:hover {
 }
 
 /* ---------------------------------------------------------------------------
-   Avatar + nombre en línea, como en las celdas Nombre y Propietario de los
+   Avatar + nombre en línea, como en las celdas Nombre y Asignado de los
    listados. El avatar va `decorative` porque el nombre ya está al lado.
    --------------------------------------------------------------------------- */
 .ds-person {
@@ -2578,7 +2578,7 @@ a.ds-button--secondary:hover {
    <label htmlFor>): adentro de la grilla ninguno lleva margen propio, del
    espacio se encarga el gap, y todo rótulo se ve como rótulo de campo
    (13px/600/mutado, mismo trato que .ds-field-label) para que un par
-   País + Propietario quede parejo aunque uno use FormField y el otro no. */
+   País + Asignado quede parejo aunque uno use FormField y el otro no. */
 .ds-field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));

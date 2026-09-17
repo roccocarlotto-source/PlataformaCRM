@@ -422,11 +422,11 @@ export function OpportunityFormPage() {
   // restyle de Empresas (.ds-form, .ds-field-grid, .ds-required): las mismas
   // tarjetas de antes, con los campos de a pares como en el export — Título a
   // lo ancho, Empresa + Contacto; Pipeline + Etapa, (Monto + Moneda) + Fecha
-  // estimada, Propietario solo a media columna. El "*" va en Título (input
+  // estimada, Asignado solo a media columna. El "*" va en Título (input
   // con `required`) y, desde el ítem 10 de docs/frontend-cambios-pendientes.md,
   // también en Pipeline y Etapa: sus <select> llevan `required` y handleSubmit
   // los chequea, así que el asterisco coincide con lo que pasa al dejarlos
-  // vacíos. El diseño marca además Monto y Propietario, pero son opcionales en
+  // vacíos. El diseño marca además Monto y Asignado, pero son opcionales en
   // el contrato (ver toCreateInput) y un asterisco ahí mentiría.
   //
   // Los dos textos de ayuda son del export y describen comportamiento real
@@ -569,7 +569,7 @@ export function OpportunityFormPage() {
                 opportunity.service.ts). */}
               <UserSelect
                 id="opportunity-form-owner"
-                label="Propietario"
+                label="Asignado"
                 value={values.ownerId}
                 onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
                 emptyOptionLabel="Sin asignar"

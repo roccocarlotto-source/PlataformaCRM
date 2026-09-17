@@ -71,7 +71,7 @@ function renderPage() {
 
 // Las celdas se ubican por cabecera (test/cellByHeader.ts), no por índice: el
 // orden de columnas cambió al migrar al design system (Nombre | Empresa |
-// Email | Teléfono | Etapa | Origen | Propietario | Acciones) y puede volver a
+// Email | Teléfono | Etapa | Origen | Asignado | Acciones) y puede volver a
 // cambiar sin que estas aserciones se rompan.
 describe("ContactListPage", () => {
   it("loading, éxito, error y empty state", async () => {
@@ -443,7 +443,7 @@ describe("ContactListPage", () => {
     // Fallback explícito, nunca el UUID crudo ("co-rota").
     expect(screen.queryByText("co-rota")).not.toBeInTheDocument();
     // Se afirma sobre LA CELDA de Empresa, no con un getByText("—") suelto:
-    // desde que existe la columna Propietario hay más de un "—" en la fila
+    // desde que existe la columna Asignado hay más de un "—" en la fila
     // (estas fixtures traen ownerId null), así que el assert viejo pasó a ser
     // ambiguo. La celda se ubica por su cabecera, no por índice.
     const filaRota = screen.getByText("Con Pérez").closest("tr");
@@ -451,10 +451,10 @@ describe("ContactListPage", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Columna Propietario (owner) — el gap de M3 cerrado (ver ContactListPage.tsx).
+  // Columna Asignado (owner) — el gap de M3 cerrado (ver ContactListPage.tsx).
   // -------------------------------------------------------------------------
 
-  it("ADMIN ve la columna Propietario resuelta a fullName", async () => {
+  it("ADMIN ve la columna Asignado resuelta a fullName", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       usersHandler(),
@@ -468,14 +468,14 @@ describe("ContactListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Propietario")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Asignado")).toBeInTheDocument());
     await waitFor(() => {
       const fila = screen.getByText("Juana Pérez").closest("tr");
       expect(fila).toHaveTextContent("Ana Pérez");
     });
   });
 
-  it("un contacto SIN propietario muestra el guion, no un ownerId crudo ni un nombre ajeno", async () => {
+  it("un contacto SIN asignado muestra el guion, no un ownerId crudo ni un nombre ajeno", async () => {
     // Caso que Opportunity no tiene y por eso no esta cubierto alla:
     // Contact.ownerId es nullable. La celda se ubica por su cabecera, no por
     // índice.
@@ -492,13 +492,13 @@ describe("ContactListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Propietario")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Asignado")).toBeInTheDocument());
     const fila = screen.getByText("Juana Pérez").closest("tr");
-    expect(cellByHeader(fila, "Propietario")).toHaveTextContent("—");
+    expect(cellByHeader(fila, "Asignado")).toHaveTextContent("—");
     expect(fila).not.toHaveTextContent("Ana Pérez");
   });
 
-  it("USER: no ve la columna Propietario ni el ownerId crudo", async () => {
+  it("USER: no ve la columna Asignado ni el ownerId crudo", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       http.get(contactsUrl, () =>
@@ -512,7 +512,7 @@ describe("ContactListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Juana Pérez")).toBeInTheDocument());
-    expect(screen.queryByText("Propietario")).not.toBeInTheDocument();
+    expect(screen.queryByText("Asignado")).not.toBeInTheDocument();
     expect(screen.queryByText("u1")).not.toBeInTheDocument();
   });
 
@@ -552,7 +552,7 @@ describe("ContactListPage", () => {
   // lectura con los mismos campos que el formulario, desde la fila ya cargada.
   // -------------------------------------------------------------------------
 
-  it("§28 Ver detalle abre el pop up con los campos del formulario, empresa/etapa/propietario resueltos; cierra con × y con Escape", async () => {
+  it("§28 Ver detalle abre el pop up con los campos del formulario, empresa/etapa/asignado resueltos; cierra con × y con Escape", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       usersHandler(),

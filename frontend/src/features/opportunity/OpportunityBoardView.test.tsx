@@ -409,7 +409,7 @@ describe("OpportunityBoardView", () => {
     expect(captured.opportunityRequests).toHaveLength(requestsBefore);
   });
 
-  it("USER: no ve el avatar del propietario, ni '+ Añadir', y no dispara GET /api/users", async () => {
+  it("USER: no ve el avatar del asignado, ni '+ Añadir', y no dispara GET /api/users", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     let usersRequests = 0;
     const { handlers } = boardHandlers([makeOpportunity({ stageId: "st-prospecto" })]);
@@ -433,7 +433,7 @@ describe("OpportunityBoardView", () => {
     expect(screen.queryByText("+ Añadir")).not.toBeInTheDocument();
   });
 
-  it("ADMIN ve el avatar del propietario en la tarjeta", async () => {
+  it("ADMIN ve el avatar del asignado en la tarjeta", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     const { handlers } = boardHandlers([
       makeOpportunity({ stageId: "st-prospecto", ownerId: "u1" }),

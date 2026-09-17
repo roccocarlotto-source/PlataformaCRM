@@ -84,7 +84,7 @@ function toInput(values: CompanyFormValues): CreateCompanyInput {
 // OpportunityFormPage. Mantener el resto del formulario en FormField no es
 // inconsistencia: es que este control ya viene resuelto.
 //
-// Propietario arranca preseleccionado en quien crea (ítem 7 de
+// Asignado arranca preseleccionado en quien crea (ítem 7 de
 // docs/frontend-cambios-pendientes.md): createCompany autoasignaría igual
 // —resolveOwnerId devuelve actorUserId si no se manda nada—, pero mostrar
 // una opción "Asignado a quien crea (por defecto)" al lado del mismo usuario
@@ -104,7 +104,7 @@ export function CompanyFormPage() {
   const createCompanyMutation = useCreateCompany();
   const updateCompanyMutation = useUpdateCompany(id ?? "");
 
-  // Solo en creación: el propietario inicial es quien está creando. En
+  // Solo en creación: el asignado inicial es quien está creando. En
   // edición el valor viene del registro (toFormValues), y si no tiene dueño
   // queda undefined — no se inventa uno.
   const initialValues: CompanyFormValues = isEditMode
@@ -207,7 +207,7 @@ export function CompanyFormPage() {
             </FormField>
             <UserSelect
               id="company-form-owner"
-              label="Propietario"
+              label="Asignado"
               value={values.ownerId}
               onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
               emptyOptionLabel="Sin asignar"

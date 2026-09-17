@@ -2773,7 +2773,7 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    `<label>`, y `FormField` del design system **es** un `<label>` —
    anidarlos daría HTML inválido y un `getByLabelText` ambiguo. Así que en
    `CompanyFormPage` (el único de los cuatro que usa design system) el
-   campo Propietario se monta suelto y se ve algo distinto de sus
+   campo Asignado se monta suelto y se ve algo distinto de sus
    hermanos. Resolverlo bien exigiría un `className` opcional en
    `UserSelect`, que es un componente compartido con Opportunity y
    Activity: tocar los tres por un detalle visual de uno no se justifica

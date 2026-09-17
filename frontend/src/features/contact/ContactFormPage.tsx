@@ -87,7 +87,7 @@ function toFormValues(data: Contact): ContactFormValues {
 // de M3 era que no había GET /api/users consumido y un UUID crudo no es un
 // control aceptable. M5 lo consumió y dejó UserSelect listo.
 //
-// Propietario arranca preseleccionado en quien crea, igual que en Company
+// Asignado arranca preseleccionado en quien crea, igual que en Company
 // (ítem 7 de docs/frontend-cambios-pendientes.md): createContact llama al
 // MISMO resolveOwnerId que createCompany (ownership.service.ts) y
 // autoasignaría igual si no se mandara nada, pero la opción "Asignado a quien
@@ -116,7 +116,7 @@ export function ContactFormPage() {
   const createContactMutation = useCreateContact();
   const updateContactMutation = useUpdateContact(id ?? "");
 
-  // Solo en creación: el propietario inicial es quien está creando. En
+  // Solo en creación: el asignado inicial es quien está creando. En
   // edición el valor viene del registro (toFormValues), y si no tiene dueño
   // queda undefined — no se inventa uno.
   const initialValues: ContactFormValues = isEditMode
@@ -163,7 +163,7 @@ export function ContactFormPage() {
   // dejó el restyle de Empresas (Card, .ds-form, .ds-field-grid,
   // .ds-required): una tarjeta con los campos de a pares en el orden del
   // diseño — Nombre + Apellido, Email + Teléfono, Puesto + Empresa, Fuente +
-  // Etapa, Propietario solo en la última fila (a media columna, como en el
+  // Etapa, Asignado solo en la última fila (a media columna, como en el
   // export). El "*" va SOLO en los dos campos que de verdad llevan `required`
   // (Nombre, Apellido); el diseño también marca Email pero el formulario no
   // lo exige y no se inventa esa validación. Fuente sigue siendo texto libre
@@ -242,7 +242,7 @@ export function ContactFormPage() {
             </FormField>
             <UserSelect
               id="contact-form-owner"
-              label="Propietario"
+              label="Asignado"
               value={values.ownerId}
               onChange={(ownerId) => setValues({ ...values, ownerId: ownerId || undefined })}
               emptyOptionLabel="Sin asignar"
