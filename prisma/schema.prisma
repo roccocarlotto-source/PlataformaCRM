@@ -884,6 +884,20 @@ model Opportunity {
   // Etiqueta manual, sin relación con Source (ver el comentario del enum).
   leadSource    OpportunityLeadSource?    @map("lead_source")
 
+  // Detalle del plan de financiación (§42). Complementa a financingType, no lo
+  // reemplaza: la categoría gruesa sigue sirviendo para filtrar, y esto es lo
+  // que el vendedor acordó de verdad. Un solo juego de valores por oportunidad,
+  // editado in-place sin historial. Sin validación cruzada con financingType
+  // (se puede cargar con cualquier valor del enum, NONE incluido) y sin
+  // efectos: son datos descriptivos, como leadSource. Los dos importes van en
+  // la moneda de la oportunidad (currency), sin moneda propia. Los CHECK de no
+  // negativos / cuotas > 0 viven en la migración 20260919120000.
+  financingLender            String?  @map("financing_lender") @db.VarChar(255)
+  financingDownPayment       Decimal? @map("financing_down_payment") @db.Decimal(14, 2)
+  // El número real de cuotas: puede no coincidir con el 24/36 de financingType.
+  financingInstallmentCount  Int?     @map("financing_installment_count")
+  financingInstallmentAmount Decimal? @map("financing_installment_amount") @db.Decimal(14, 2)
+
   organization Organization @relation(fields: [organizationId], references: [id])
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
   contact      Contact?     @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)

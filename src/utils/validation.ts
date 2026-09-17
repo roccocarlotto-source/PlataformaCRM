@@ -29,6 +29,12 @@ export function parseOrThrow<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, dat
   return parsed.data;
 }
 
+// Tope de Decimal(14, 2): 12 dígitos enteros. Sin esto un monto más grande
+// llegaría a Postgres y volvería como 500 ("numeric field overflow") en vez
+// de un 400 legible. Nació en quote.controller.ts (§39) y se mudó acá en el
+// §42, cuando el detalle de financiación de Opportunity lo necesitó también.
+export const MAX_AMOUNT = 999_999_999_999.99;
+
 // Código ISO 4217 de tres letras en mayúsculas. No hay enum de moneda en el
 // schema (currency es VarChar(3) libre, a propósito: ISO 4217 tiene ~180
 // códigos, no es un conjunto chico de estados de negocio como sí lo son

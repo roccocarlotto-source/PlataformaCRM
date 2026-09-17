@@ -6,6 +6,7 @@ import {
   revenueGranularitySchema,
   updateOpportunitySchema,
 } from "./opportunity.controller";
+import { MAX_AMOUNT } from "../utils/validation";
 
 // M-9 (docs/auditoria-2026-08-29.md) — `amount` viene de un body JSON y se
 // valida con z.number(), no con z.coerce.number().
@@ -100,6 +101,106 @@ test("2c: financingType/leadSource: null limpian en PATCH", () => {
   const parsed = updateOpportunitySchema.safeParse({ financingType: null, leadSource: null });
   assert.equal(parsed.success, true);
   assert.deepEqual(parsed.success && parsed.data, { financingType: null, leadSource: null });
+});
+
+// ---------------------------------------------------------------------------
+// §42: detalle de financiación. Los dos importes con el tope de Decimal(14, 2)
+// (MAX_AMOUNT, el mismo que Quote.amount), la cantidad de cuotas entera,
+// positiva y con tope de 120; los cuatro nullables en PATCH y opcionales en
+// POST. Sin validación cruzada con financingType.
+// ---------------------------------------------------------------------------
+
+test("§42: los cuatro campos del detalle se aceptan en POST y en PATCH", () => {
+  const detalle = {
+    financingLender: "  Banco República  ",
+    financingDownPayment: 5000.5,
+    financingInstallmentCount: 23,
+    financingInstallmentAmount: 812.25,
+  };
+  const creado = createOpportunitySchema.safeParse({ ...BASE_CREATE, ...detalle });
+  assert.equal(creado.success, true);
+  assert.equal(creado.success && creado.data.financingLender, "Banco República", "trim");
+  assert.equal(creado.success && creado.data.financingInstallmentCount, 23);
+
+  const actualizado = updateOpportunitySchema.safeParse(detalle);
+  assert.equal(actualizado.success, true);
+  assert.equal(actualizado.success && actualizado.data.financingDownPayment, 5000.5);
+});
+
+test("§42: los importes tienen piso 0 y techo MAX_AMOUNT; 0 es válido", () => {
+  for (const campo of ["financingDownPayment", "financingInstallmentAmount"]) {
+    assert.equal(updateOpportunitySchema.safeParse({ [campo]: 0 }).success, true, `${campo}: 0`);
+    assert.equal(updateOpportunitySchema.safeParse({ [campo]: -0.01 }).success, false);
+    assert.equal(
+      updateOpportunitySchema.safeParse({ [campo]: MAX_AMOUNT }).success,
+      true,
+      `${campo}: el tope exacto entra`,
+    );
+    assert.equal(
+      updateOpportunitySchema.safeParse({ [campo]: 1_000_000_000_000 }).success,
+      false,
+      `${campo}: por encima del tope es 400, no el overflow de Postgres`,
+    );
+    assert.equal(updateOpportunitySchema.safeParse({ [campo]: "100" }).success, false, "string");
+  }
+});
+
+test("§42: financingInstallmentCount es entero, mayor a 0 y a lo sumo 120", () => {
+  for (const valido of [1, 25, 120]) {
+    assert.equal(
+      updateOpportunitySchema.safeParse({ financingInstallmentCount: valido }).success,
+      true,
+      `${valido}`,
+    );
+  }
+  for (const invalido of [0, -1, 121, 24.5, "24"]) {
+    assert.equal(
+      updateOpportunitySchema.safeParse({ financingInstallmentCount: invalido }).success,
+      false,
+      `${JSON.stringify(invalido)}`,
+    );
+  }
+});
+
+test("§42: financingLender no puede superar 255 caracteres", () => {
+  assert.equal(
+    updateOpportunitySchema.safeParse({ financingLender: "x".repeat(255) }).success,
+    true,
+  );
+  assert.equal(
+    updateOpportunitySchema.safeParse({ financingLender: "x".repeat(256) }).success,
+    false,
+  );
+});
+
+test("§42: null vacía los cuatro en PATCH y se rechaza en POST", () => {
+  const vacios = {
+    financingLender: null,
+    financingDownPayment: null,
+    financingInstallmentCount: null,
+    financingInstallmentAmount: null,
+  };
+  const parsed = updateOpportunitySchema.safeParse(vacios);
+  assert.equal(parsed.success, true);
+  assert.deepEqual(parsed.success && parsed.data, vacios);
+
+  for (const campo of Object.keys(vacios)) {
+    assert.equal(
+      createOpportunitySchema.safeParse({ ...BASE_CREATE, [campo]: null }).success,
+      false,
+      `${campo}: null en POST`,
+    );
+  }
+});
+
+test("§42: el detalle se acepta con cualquier financingType, NONE incluido", () => {
+  const parsed = createOpportunitySchema.safeParse({
+    ...BASE_CREATE,
+    financingType: "NONE",
+    financingLender: "Financiera X",
+    financingInstallmentCount: 36,
+  });
+  assert.equal(parsed.success, true);
 });
 
 // ---------------------------------------------------------------------------

@@ -113,6 +113,11 @@ export interface CreateOpportunityData {
   vehicleId?: string;
   financingType?: OpportunityFinancingType;
   leadSource?: OpportunityLeadSource;
+  // Detalle de financiación (§42): datos descriptivos, sin validación previa.
+  financingLender?: string;
+  financingDownPayment?: number;
+  financingInstallmentCount?: number;
+  financingInstallmentAmount?: number;
 }
 
 export function createOpportunity(data: CreateOpportunityData, db: Db = prisma) {
@@ -136,6 +141,10 @@ export interface UpdateOpportunityData {
   vehicleId?: string | null;
   financingType?: OpportunityFinancingType | null;
   leadSource?: OpportunityLeadSource | null;
+  financingLender?: string | null;
+  financingDownPayment?: number | null;
+  financingInstallmentCount?: number | null;
+  financingInstallmentAmount?: number | null;
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir

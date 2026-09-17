@@ -292,6 +292,11 @@ export interface CreateOpportunityInput {
   vehicleId?: string;
   financingType?: OpportunityFinancingType;
   leadSource?: OpportunityLeadSource;
+  // Detalle de financiación (§42): pasan tal cual, sin regla de negocio.
+  financingLender?: string;
+  financingDownPayment?: number;
+  financingInstallmentCount?: number;
+  financingInstallmentAmount?: number;
 }
 
 export async function createOpportunity(
@@ -356,6 +361,10 @@ export async function createOpportunity(
         vehicleId: input.vehicleId,
         financingType: input.financingType,
         leadSource: input.leadSource,
+        financingLender: input.financingLender,
+        financingDownPayment: input.financingDownPayment,
+        financingInstallmentCount: input.financingInstallmentCount,
+        financingInstallmentAmount: input.financingInstallmentAmount,
       },
       tx,
     );
@@ -409,6 +418,11 @@ export interface UpdateOpportunityInput {
   vehicleId?: string | null;
   financingType?: OpportunityFinancingType | null;
   leadSource?: OpportunityLeadSource | null;
+  // null = vaciar; no disparan nada (ni automatizaciones ni la unidad).
+  financingLender?: string | null;
+  financingDownPayment?: number | null;
+  financingInstallmentCount?: number | null;
+  financingInstallmentAmount?: number | null;
 }
 
 export async function updateOpportunity(
