@@ -316,6 +316,47 @@ test("listado: consignmentOnly es 'true'/'false' explícito; precios y q se coac
   assert.equal(listVehiclesQuerySchema.safeParse({ q: "   " }).success, false);
 });
 
+const OPPORTUNITY_ID = "2c5f0d9c-1b2e-4c5d-8e7f-9a0b1c2d3e4f";
+
+test("permuta (§41): tradeInOpportunityId es UUID o null, opcional en POST y PATCH, y no depende del origen", () => {
+  const conVinculo = createVehicleSchema.safeParse({
+    ...minimo,
+    origin: "TRADE_IN",
+    tradeInOpportunityId: OPPORTUNITY_ID,
+  });
+  assert.equal(conVinculo.success && conVinculo.data.tradeInOpportunityId, OPPORTUNITY_ID);
+
+  // Sin vínculo sigue siendo un POST válido, también con origin TRADE_IN.
+  const sinVinculo = createVehicleSchema.safeParse({ ...minimo, origin: "TRADE_IN" });
+  assert.equal(sinVinculo.success, true);
+  assert.equal(sinVinculo.success && "tradeInOpportunityId" in sinVinculo.data, false);
+
+  // Un vínculo con otro origen no es asunto del borde (ni del service).
+  assert.equal(
+    createVehicleSchema.safeParse({
+      ...minimo,
+      origin: "DIRECT_PURCHASE",
+      tradeInOpportunityId: OPPORTUNITY_ID,
+    }).success,
+    true,
+  );
+
+  assert.equal(
+    createVehicleSchema.safeParse({ ...minimo, tradeInOpportunityId: "x" }).success,
+    false,
+  );
+  assert.equal(updateVehicleSchema.safeParse({ tradeInOpportunityId: "x" }).success, false);
+
+  const desvincular = updateVehicleSchema.safeParse({ tradeInOpportunityId: null });
+  assert.deepEqual(desvincular.success && desvincular.data, { tradeInOpportunityId: null });
+});
+
+test("listado: tradeInOpportunityId es un filtro UUID opcional (§41)", () => {
+  const r = listVehiclesQuerySchema.safeParse({ tradeInOpportunityId: OPPORTUNITY_ID });
+  assert.equal(r.success && r.data.tradeInOpportunityId, OPPORTUNITY_ID);
+  assert.equal(listVehiclesQuerySchema.safeParse({ tradeInOpportunityId: "x" }).success, false);
+});
+
 test("historial: paginado con los mismos defaults y tope", () => {
   const r = changeLogQuerySchema.safeParse({});
   assert.deepEqual(r.success && r.data, { page: 1, pageSize: 20 });

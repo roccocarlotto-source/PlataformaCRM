@@ -175,6 +175,9 @@ const vehicleFields = {
   acceptsTradeIn: z.boolean(),
   financingAvailable: z.boolean(),
   priceOnRequest: z.boolean(),
+  // Permuta (§41): la venta en la que se recibió la unidad. Que exista y sea
+  // de esta organización lo decide el service; null desvincula.
+  tradeInOpportunityId: z.string().uuid("tradeInOpportunityId inválido").nullable(),
 
   // Consignación (solo con origin = CONSIGNMENT: lo decide el service)
   consignorName: nullableText(255, "consignorName"),
@@ -302,6 +305,7 @@ export const listVehiclesQuerySchema = z.object({
   minPriceUsd: z.coerce.number().min(0).optional(),
   maxPriceUsd: z.coerce.number().min(0).optional(),
   consignmentOnly: queryBooleanSchema,
+  tradeInOpportunityId: z.string().uuid("tradeInOpportunityId inválido").optional(),
   q: z.string().trim().min(1).max(100).optional(),
   sortBy: z.enum(["createdAt", "priceListUsd", "stockEnteredAt"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),

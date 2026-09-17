@@ -3094,6 +3094,26 @@ a.ds-button--secondary:hover {
 }
 
 /* ---------------------------------------------------------------------------
+   Permuta (features/vehicle/TradeInSection.tsx, §41). Tercera tarjeta debajo
+   de la ficha de la oportunidad, con el mismo ritmo que Entrega.
+   --------------------------------------------------------------------------- */
+.ds-trade-in-section {
+  margin-top: var(--space-5);
+}
+
+.ds-trade-in {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ds-trade-in-list {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: grid;
+  gap: var(--space-1);
+}
+
+/* ---------------------------------------------------------------------------
    Impresión de la cotización activa (botón "Imprimir" → window.print()). En
    papel queda SOLO .ds-quote-printable: todo lo demás se oculta con
    visibility y no con display, porque la cotización está anidada adentro del

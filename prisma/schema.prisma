@@ -890,13 +890,20 @@ model Opportunity {
   owner        User         @relation("OpportunityOwner", fields: [organizationId, ownerId], references: [organizationId, id])
   pipeline     Pipeline     @relation(fields: [organizationId, pipelineId], references: [organizationId, id])
   stage        Stage        @relation(fields: [organizationId, stageId], references: [organizationId, id])
-  vehicle      Vehicle?     @relation(fields: [organizationId, vehicleId], references: [organizationId, id], onDelete: NoAction)
+  // Con nombre desde §41: Vehicle.tradeInOpportunityId es una SEGUNDA
+  // relación entre los mismos dos modelos, y Prisma exige nombrar las dos. El
+  // nombre no llega a la base (la constraint sigue siendo
+  // opportunities_organization_id_vehicle_id_fkey).
+  vehicle      Vehicle?     @relation("OpportunityVehicle", fields: [organizationId, vehicleId], references: [organizationId, id], onDelete: NoAction)
 
   activities Activity[]
   bookings   Booking[]
   quotes     Quote[]
   // A lo sumo una (UNIQUE (organization_id, opportunity_id) en Delivery).
   deliveries Delivery[]
+  // Permuta (§41): las unidades que el cliente entregó en esta venta. Cero o
+  // más, sin UNIQUE — ver Vehicle.tradeInOpportunityId.
+  tradeInVehicles Vehicle[] @relation("VehicleTradeInOpportunity")
 
   @@unique([organizationId, id])
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL) y
@@ -2316,6 +2323,18 @@ model Vehicle {
   // que priceListUsd esté cargado — la agencia puede tener el precio y no
   // querer exhibirlo.
   priceOnRequest        Boolean                    @default(false) @map("price_on_request")
+  // Permuta (§41 de docs/frontend-cambios-pendientes.md): la oportunidad de
+  // venta en la que el cliente entregó esta unidad como parte de pago. Es lo
+  // que convierte origin = TRADE_IN de un dato suelto en trazabilidad en los
+  // dos sentidos (la venta ve qué auto recibió; la unidad ve de qué venta
+  // salió). FK compuesta y NO ACTION (nullable, regla de 20260821140200).
+  //
+  // A PROPÓSITO sin CHECK contra origin, a diferencia de la sección de
+  // consignación: un TRADE_IN sin vínculo sigue siendo válido (datos
+  // anteriores a §41, o una permuta que no pasó por una oportunidad del CRM),
+  // y el vínculo no depende del origen, así que no hay nada que vaciar cuando
+  // cambia. Sin UNIQUE: una venta puede recibir más de una unidad.
+  tradeInOpportunityId  String?                    @map("trade_in_opportunity_id") @db.Uuid
 
   // ----- Consignación ----------------------------------------------------
   // Datos del dueño que dejó la unidad en consignación. Los ocho son
@@ -2452,10 +2471,11 @@ model Vehicle {
   organization        Organization @relation(fields: [organizationId], references: [id])
   branch              Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict)
   assignedSalesperson User?        @relation("VehicleAssignedSalesperson", fields: [organizationId, assignedSalespersonId], references: [organizationId, id], onDelete: NoAction)
+  tradeInOpportunity  Opportunity? @relation("VehicleTradeInOpportunity", fields: [organizationId, tradeInOpportunityId], references: [organizationId, id], onDelete: NoAction)
 
   photos        VehiclePhoto[]
   changeLog     VehicleChangeLog[]
-  opportunities Opportunity[]
+  opportunities Opportunity[]      @relation("OpportunityVehicle")
   quotes        Quote[]
   deliveries    Delivery[]
 
@@ -2486,6 +2506,10 @@ model Vehicle {
   @@index([organizationId, priceListUsd])
   // Lado referenciante de la FK a users: "las unidades de este vendedor".
   @@index([organizationId, assignedSalespersonId])
+  // Lado referenciante de la FK a opportunities (§41), que Postgres no indexa
+  // solo: sirve al filtro GET /vehicles?tradeInOpportunityId= de la sección
+  // Permuta de la oportunidad.
+  @@index([organizationId, tradeInOpportunityId])
   @@map("vehicles")
 }
 

@@ -70,6 +70,18 @@ function baseHandlers() {
     // La de Entrega (§40) solo pide con la oportunidad ganada. Vacía por
     // defecto: una ganada sin unidad no tiene entrega.
     http.get(deliveriesUrl, () => HttpResponse.json({ data: [] })),
+    // La de Permuta (§41) se monta siempre en edición y lista las unidades
+    // con ?tradeInOpportunityId=. Vacía por defecto. Solo responde a ESA
+    // consulta: cualquier otro GET /vehicles (la búsqueda de VehicleSelect)
+    // sigue de largo hasta vehicleHandlers() — un resolver que no devuelve
+    // nada en MSW pasa al siguiente handler.
+    http.get(`${env.apiUrl}/api/vehicles`, ({ request }) => {
+      if (!new URL(request.url).searchParams.has("tradeInOpportunityId")) return undefined;
+      return HttpResponse.json({
+        data: [],
+        pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+      });
+    }),
     http.get(pipelinesUrl, () =>
       HttpResponse.json({
         data: [
@@ -1324,6 +1336,104 @@ describe("OpportunityFormPage", () => {
 
     expect(await screen.findByRole("region", { name: "Cotización" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Entrega" })).not.toBeInTheDocument();
+    expect(pedidas).toBe(0);
+  });
+
+  it("edit: la tarjeta de Permuta se monta con la oportunidad ABIERTA, sin unidades, con el aviso y el botón que lleva al alta con el vínculo", async () => {
+    let pedida: string | null = null;
+    server.use(
+      http.get(`${opportunitiesUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeOpportunity({ id: params.id as string, status: "OPEN" })),
+      ),
+      http.get(vehiclesUrl, ({ request }) => {
+        pedida = new URL(request.url).searchParams.get("tradeInOpportunityId");
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        });
+      }),
+      ...baseHandlers(),
+    );
+    renderForm("/opportunities/op1/edit");
+
+    const permuta = await screen.findByRole("region", { name: "Permuta" });
+    expect(
+      await within(permuta).findByText("El cliente no entregó ningún auto en esta venta."),
+    ).toBeInTheDocument();
+    expect(pedida).toBe("op1");
+    expect(within(permuta).getByText(/no se descuenta solo del monto/)).toBeInTheDocument();
+    expect(within(permuta).getByRole("link", { name: "Agregar auto en permuta" })).toHaveAttribute(
+      "href",
+      "/vehicles/new?tradeInOpportunityId=op1",
+    );
+    expect(permuta.closest("form")).toBeNull();
+  });
+
+  it("edit: con autos en permuta, la tarjeta los lista con su etiqueta y un link a su ficha de stock", async () => {
+    server.use(
+      http.get(`${opportunitiesUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeOpportunity({ id: params.id as string, status: "WON" })),
+      ),
+      http.get(vehiclesUrl, () =>
+        HttpResponse.json({
+          data: [
+            makeVehicleListItem({
+              id: "t1",
+              make: "Fiat",
+              model: "Uno",
+              year: 2012,
+              internalCode: "STK-000040",
+              origin: "TRADE_IN",
+              tradeInOpportunityId: "op1",
+            }),
+            makeVehicleListItem({
+              id: "t2",
+              make: "VW",
+              model: "Gol",
+              trim: "Trend",
+              year: 2015,
+              internalCode: "STK-000041",
+              origin: "TRADE_IN",
+              tradeInOpportunityId: "op1",
+            }),
+          ],
+          pagination: { page: 1, pageSize: 100, total: 2, totalPages: 1 },
+        }),
+      ),
+      ...baseHandlers(),
+    );
+    renderForm("/opportunities/op1/edit");
+
+    const permuta = await screen.findByRole("region", { name: "Permuta" });
+    const lista = await within(permuta).findByRole("list", { name: "Autos recibidos en permuta" });
+    const links = within(lista).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Fiat Uno 2012 · STK-000040",
+      "VW Gol Trend 2015 · STK-000041",
+    ]);
+    expect(links[0]).toHaveAttribute("href", "/vehicles/t1/edit");
+    expect(links[1]).toHaveAttribute("href", "/vehicles/t2/edit");
+    expect(
+      within(permuta).queryByText("El cliente no entregó ningún auto en esta venta."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("create: no hay tarjeta de Permuta ni se pide ninguna unidad vinculada", async () => {
+    let pedidas = 0;
+    server.use(
+      http.get(vehiclesUrl, ({ request }) => {
+        if (new URL(request.url).searchParams.has("tradeInOpportunityId")) pedidas += 1;
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        });
+      }),
+      ...baseHandlers(),
+    );
+    renderForm("/opportunities/new");
+
+    expect(await screen.findByRole("heading", { name: "Nueva oportunidad" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Permuta" })).not.toBeInTheDocument();
     expect(pedidas).toBe(0);
   });
 });

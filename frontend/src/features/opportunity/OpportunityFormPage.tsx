@@ -14,6 +14,7 @@ import { DeliverySection } from "../delivery/DeliverySection";
 import { QuoteSection } from "../quote/QuoteSection";
 import { StageSelect } from "../stage/StageSelect";
 import { UserSelect } from "../user/UserSelect";
+import { TradeInSection } from "../vehicle/TradeInSection";
 import { VehicleSelect } from "../vehicle/VehicleSelect";
 import { todayIsoDate } from "./boardMove";
 import { ContactSelect } from "./ContactSelect";
@@ -391,7 +392,8 @@ export function OpportunityFormPage() {
   // edición — una oportunidad que todavía no existe no tiene a qué colgarle
   // una cotización. La de Entrega (§40) va debajo, por el mismo motivo, y se
   // muestra sola solo si la oportunidad está ganada y tiene entrega (ver
-  // DeliverySection).
+  // DeliverySection). La de Permuta (§41) va al final y sin ese gating: la
+  // permuta se carga en cualquier momento de la negociación.
   return (
     <>
       <form onSubmit={handleSubmit} className="ds-form">
@@ -656,6 +658,7 @@ export function OpportunityFormPage() {
         <>
           <QuoteSection opportunity={opportunityQuery.data} />
           <DeliverySection opportunity={opportunityQuery.data} />
+          <TradeInSection opportunity={opportunityQuery.data} />
         </>
       ) : null}
     </>

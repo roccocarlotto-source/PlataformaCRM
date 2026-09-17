@@ -803,7 +803,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 29 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 51 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -827,7 +827,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 50 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 51 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -903,7 +903,14 @@ from (
     -- quotes.created_by_id.
     ('deliveries_organization_id_delivered_by_id_fkey|deliveries(organization_id,delivered_by_id)->users(organization_id,id)'),
     ('deliveries_organization_id_opportunity_id_fkey|deliveries(organization_id,opportunity_id)->opportunities(organization_id,id)'),
-    ('deliveries_organization_id_vehicle_id_fkey|deliveries(organization_id,vehicle_id)->vehicles(organization_id,id)')
+    ('deliveries_organization_id_vehicle_id_fkey|deliveries(organization_id,vehicle_id)->vehicles(organization_id,id)'),
+    -- Permuta (§41, migración 20260918120000): la unidad recibida en permuta
+    -- apunta a la venta en la que entró. Es la segunda FK de vehicles hacia
+    -- una tabla de negocio que NO es branches/users, y la inversa de
+    -- opportunities.vehicle_id: una FK bien formada con el sentido cambiado
+    -- (o hacia quotes/deliveries, que también cuelgan de opportunities) pasaría
+    -- la 14.
+    ('vehicles_organization_id_trade_in_opportunity_id_fkey|vehicles(organization_id,trade_in_opportunity_id)->opportunities(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

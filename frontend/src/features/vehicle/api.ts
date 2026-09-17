@@ -37,6 +37,7 @@ function buildListQueryString(query: VehicleListQuery): string {
   // "true"/"false" explícitos (queryBooleanSchema); solo se manda cuando el
   // filtro está activo — false es lo mismo que no filtrar.
   if (query.consignmentOnly) params.set("consignmentOnly", "true");
+  if (query.tradeInOpportunityId) params.set("tradeInOpportunityId", query.tradeInOpportunityId);
   if (query.q) params.set("q", query.q);
   if (query.sortBy) params.set("sortBy", query.sortBy);
   if (query.sortOrder) params.set("sortOrder", query.sortOrder);

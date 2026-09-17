@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeBranch } from "../../test/branchFixtures";
+import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makeExchangeRate, makeOrganizationSettings } from "../../test/organizationFixtures";
 import { makeUser } from "../../test/userFixtures";
 import {
@@ -26,6 +27,7 @@ const baseUrl = `${env.apiUrl}/api/vehicles`;
 const usersUrl = `${env.apiUrl}/api/users`;
 const branchesUrl = `${env.apiUrl}/api/branches`;
 const organizationUrl = `${env.apiUrl}/api/organization`;
+const opportunitiesUrl = `${env.apiUrl}/api/opportunities`;
 
 // BranchSelect y UserSelect se montan SIEMPRE en esta ficha, así que todo test
 // necesita los dos handlers (mismo criterio que CompanyFormPage.test.tsx).
@@ -60,6 +62,7 @@ function renderForm(initialPath: string) {
           <Route path="/vehicles/new" element={<VehicleFormPage />} />
           <Route path="/vehicles/:id/edit" element={<VehicleFormPage />} />
           <Route path="/vehicles" element={<div>listado de stock</div>} />
+          <Route path="/opportunities/:id/edit" element={<div>ficha de la oportunidad</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -1332,5 +1335,158 @@ describe("VehicleFormPage — separador de miles en importes y kilometraje (íte
       licensePlateDebtLocal: 1234.5,
       mileage: 150000,
     });
+  });
+});
+
+// §41: "Agregar auto en permuta" desde la oportunidad llega con
+// ?tradeInOpportunityId=. El origen arranca en Permuta, el id viaja en el POST
+// sin ser un campo del formulario, y al guardar se vuelve a la oportunidad.
+describe("VehicleFormPage — permuta (§41)", () => {
+  it("create con ?tradeInOpportunityId: origen Permuta, nota con el título de la oportunidad, POST con el vínculo y vuelta a la oportunidad", async () => {
+    let pedida: string | undefined;
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, ({ params }) => {
+        pedida = params.id as string;
+        return HttpResponse.json(
+          makeOpportunity({ id: params.id as string, title: "Venta Hilux a Gómez" }),
+        );
+      }),
+      http.post(baseUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle({ origin: "TRADE_IN" }), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/vehicles/new?tradeInOpportunityId=op1");
+
+    expect(await screen.findByText(/Se va a vincular a la oportunidad/)).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Venta Hilux a Gómez" })).toHaveAttribute(
+      "href",
+      "/opportunities/op1/edit",
+    );
+    expect(pedida).toBe("op1");
+    expect(screen.getByLabelText("Origen")).toHaveValue("TRADE_IN");
+
+    // La sucursal se elige a mano: la oportunidad no tiene sucursal propia.
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("ficha de la oportunidad")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({
+      origin: "TRADE_IN",
+      tradeInOpportunityId: "op1",
+      branchId: "b1",
+      make: "Toyota",
+    });
+  });
+
+  it("create sin el parámetro: sin nota, sin pedir oportunidad, sin vínculo en el POST, y vuelve al listado", async () => {
+    let pedidas = 0;
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, () => {
+        pedidas += 1;
+        return HttpResponse.json(makeOpportunity());
+      }),
+      http.post(baseUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/vehicles/new");
+
+    await fillRequired(user);
+    expect(screen.queryByText(/Se va a vincular a la oportunidad/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Origen")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(postedBody).not.toHaveProperty("tradeInOpportunityId");
+    expect(postedBody?.origin).toBeNull();
+    expect(pedidas).toBe(0);
+  });
+
+  it("create: si la oportunidad no carga se avisa igual sin título, y el 400 del backend se muestra sin navegar", async () => {
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, () =>
+        HttpResponse.json({ error: { message: "Oportunidad no encontrada" } }, { status: 404 }),
+      ),
+      http.post(baseUrl, () =>
+        HttpResponse.json(
+          {
+            error: {
+              message:
+                "La oportunidad indicada en tradeInOpportunityId no existe o no pertenece a tu organización",
+            },
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/vehicles/new?tradeInOpportunityId=op-borrada");
+
+    expect(
+      await screen.findByText("Se va a vincular a la oportunidad que no pudimos cargar"),
+    ).toBeInTheDocument();
+    await fillRequired(user);
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/tradeInOpportunityId no existe/),
+    );
+    expect(screen.queryByText("ficha de la oportunidad")).not.toBeInTheDocument();
+  });
+
+  it("edit: una unidad recibida en permuta muestra de qué venta salió, y el PATCH no toca el vínculo", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeOpportunity({ id: params.id as string, title: "Venta Hilux a Gómez" }),
+        ),
+      ),
+      http.get(`${baseUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeVehicleDetail({
+            id: params.id as string,
+            origin: "TRADE_IN",
+            tradeInOpportunityId: "op1",
+          }),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeVehicle());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/vehicles/v1/edit?tradeInOpportunityId=otra");
+
+    expect(await screen.findByText(/Recibida en permuta en la oportunidad/)).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Venta Hilux a Gómez" })).toHaveAttribute(
+      "href",
+      "/opportunities/op1/edit",
+    );
+    // En edición el parámetro de la URL se ignora.
+    expect(screen.queryByText(/Se va a vincular/)).not.toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Kilometraje"));
+    await user.type(screen.getByLabelText("Kilometraje"), "120000");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("listado de stock")).toBeInTheDocument());
+    expect(patchedBody).toMatchObject({ origin: "TRADE_IN", mileage: 120000 });
+    expect(patchedBody).not.toHaveProperty("tradeInOpportunityId");
   });
 });
