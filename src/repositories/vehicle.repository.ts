@@ -27,6 +27,9 @@ export interface VehicleFilters {
   minPriceUsd?: number;
   maxPriceUsd?: number;
   consignmentOnly?: boolean;
+  // Permuta (§41): "las unidades recibidas en esta venta", igualdad exacta
+  // sobre el índice (organization_id, trade_in_opportunity_id).
+  tradeInOpportunityId?: string;
   // Búsqueda de texto libre contra los identificadores y el título.
   q?: string;
 }
@@ -48,6 +51,7 @@ function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.Veh
     ...(filters.make ? { make: filters.make } : {}),
     ...(filters.model ? { model: filters.model } : {}),
     ...(filters.consignmentOnly ? { origin: "CONSIGNMENT" } : {}),
+    ...(filters.tradeInOpportunityId ? { tradeInOpportunityId: filters.tradeInOpportunityId } : {}),
     ...(filters.minPriceUsd !== undefined || filters.maxPriceUsd !== undefined
       ? {
           priceListUsd: {

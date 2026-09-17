@@ -13,6 +13,7 @@ import {
 } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 import { findBranchById } from "../repositories/branch.repository";
+import { findOpportunityById } from "../repositories/opportunity.repository";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { findUserByIdInOrganization } from "../repositories/user.repository";
 import { countPhotosByVehicle } from "../repositories/vehiclePhoto.repository";
@@ -70,6 +71,7 @@ export interface ListVehiclesParams {
   minPriceUsd?: number;
   maxPriceUsd?: number;
   consignmentOnly?: boolean;
+  tradeInOpportunityId?: string;
   q?: string;
   sortBy: VehicleSortBy;
   sortOrder: SortOrder;
@@ -174,6 +176,9 @@ export interface VehicleWritableFields {
   acceptsTradeIn: boolean;
   financingAvailable: boolean;
   priceOnRequest: boolean;
+  // Permuta (§41): la venta en la que se recibió la unidad. Opcional en POST
+  // y PATCH (no está en RequiredOnCreate) y sin regla contra origin.
+  tradeInOpportunityId: string | null;
 
   consignorName: string | null;
   consignorDocument: string | null;
@@ -521,8 +526,8 @@ export function computeChangeLogEntries(
 }
 
 // ---------------------------------------------------------------------------
-// Validaciones cruzadas: la sucursal y el vendedor tienen que ser de la
-// organización del caller. Mismo mensaje y mismo 400 que validateBranchId en
+// Validaciones cruzadas: la sucursal, el vendedor y la oportunidad de la
+// permuta tienen que ser de la organización del caller. Mismo mensaje y mismo 400 que validateBranchId en
 // qr.service / resource.service (nunca se confirma la existencia de una
 // sucursal ajena), y el de resolveOwnerId para el vendedor. `db` explícito
 // porque corren DENTRO de la transacción, con el lock tomado.
@@ -540,6 +545,22 @@ async function validateAssignedSalespersonId(organizationId: string, userId: str
   if (!user) {
     throw new AppError(
       "El usuario indicado en assignedSalespersonId no existe, no pertenece a tu organización, o está desactivado",
+      400,
+    );
+  }
+}
+
+// Permuta (§41): la oportunidad existe, es de esta organización y no está
+// dada de baja (findOpportunityById filtra deletedAt). Cualquier estado vale
+// —abierta, ganada o perdida—: la permuta se carga durante la negociación y
+// una venta que después se pierde no deshace un auto que ya entró al stock.
+// El mensaje no distingue "no existe" de "es de otra organización", igual que
+// los dos de arriba.
+async function validateTradeInOpportunityId(organizationId: string, opportunityId: string, db: Db) {
+  const opportunity = await findOpportunityById(opportunityId, organizationId, db);
+  if (!opportunity) {
+    throw new AppError(
+      "La oportunidad indicada en tradeInOpportunityId no existe o no pertenece a tu organización",
       400,
     );
   }
@@ -571,6 +592,9 @@ export function createVehicle(organizationId: string, input: CreateVehicleInput)
     await validateBranchId(organizationId, data.branchId, tx);
     if (data.assignedSalespersonId) {
       await validateAssignedSalespersonId(organizationId, data.assignedSalespersonId, tx);
+    }
+    if (data.tradeInOpportunityId) {
+      await validateTradeInOpportunityId(organizationId, data.tradeInOpportunityId, tx);
     }
     await validateIdentifiersUnique(
       organizationId,
@@ -631,6 +655,11 @@ export async function updateVehicle(
     }
     if (data.assignedSalespersonId) {
       await validateAssignedSalespersonId(organizationId, data.assignedSalespersonId, tx);
+    }
+    // Solo si viene un id: null desvincula, y no cambiar el vínculo no
+    // revalida una oportunidad que se dio de baja después de cargarlo.
+    if (data.tradeInOpportunityId) {
+      await validateTradeInOpportunityId(organizationId, data.tradeInOpportunityId, tx);
     }
     await validateIdentifiersUnique(
       organizationId,

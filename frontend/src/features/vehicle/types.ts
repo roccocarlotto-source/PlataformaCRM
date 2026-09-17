@@ -59,6 +59,8 @@ export interface Vehicle {
   acceptsTradeIn: boolean;
   financingAvailable: boolean;
   priceOnRequest: boolean;
+  // Permuta (§41): la oportunidad de venta en la que se recibió la unidad.
+  tradeInOpportunityId: string | null;
 
   // Consignación (null salvo origin = CONSIGNMENT, lo garantiza el backend)
   consignorName: string | null;
@@ -180,6 +182,8 @@ export interface VehicleListQuery {
   minPriceUsd?: number;
   maxPriceUsd?: number;
   consignmentOnly?: boolean;
+  // Permuta (§41): las unidades recibidas en esa venta.
+  tradeInOpportunityId?: string;
   q?: string;
   sortBy?: VehicleSortBy;
   sortOrder?: SortOrder;
@@ -211,6 +215,8 @@ export interface VehicleWritableFields {
   acceptsTradeIn: boolean;
   financingAvailable: boolean;
   priceOnRequest: boolean;
+  // Permuta (§41). Opcional en POST y PATCH, y sin regla contra origin.
+  tradeInOpportunityId: string | null;
 
   consignorName: string | null;
   consignorDocument: string | null;

@@ -35,6 +35,7 @@ export function makeVehicle(overrides: Partial<Vehicle> = {}): Vehicle {
     acceptsTradeIn: false,
     financingAvailable: false,
     priceOnRequest: false,
+    tradeInOpportunityId: null,
     consignorName: null,
     consignorDocument: null,
     consignorPhone: null,

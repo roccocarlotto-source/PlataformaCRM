@@ -36,6 +36,23 @@ describe("vehicle api", () => {
     expect(captured?.searchParams.get("minPriceUsd")).toBe("0");
   });
 
+  it("tradeInOpportunityId viaja como filtro del listado (§41)", async () => {
+    let captured: URL | undefined;
+    server.use(
+      http.get(baseUrl, ({ request }) => {
+        captured = new URL(request.url);
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        });
+      }),
+    );
+
+    await listVehicles({ tradeInOpportunityId: "op1", pageSize: 100 });
+
+    expect(captured?.searchParams.get("tradeInOpportunityId")).toBe("op1");
+  });
+
   it("consignmentOnly false y sin status no agregan parámetros", async () => {
     let captured: URL | undefined;
     server.use(
@@ -52,6 +69,7 @@ describe("vehicle api", () => {
 
     expect(captured?.searchParams.has("consignmentOnly")).toBe(false);
     expect(captured?.searchParams.has("status")).toBe(false);
+    expect(captured?.searchParams.has("tradeInOpportunityId")).toBe(false);
     expect(captured?.searchParams.get("page")).toBe("2");
   });
 

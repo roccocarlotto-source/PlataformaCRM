@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { CurrencyInput } from "../../design-system/CurrencyInput";
@@ -13,6 +13,7 @@ import { BranchSelect } from "../branch/BranchSelect";
 import { formatExchangeRate } from "../organization/format";
 import { useOrganizationSettings } from "../organization/queries";
 import { formatDate } from "../opportunity/format";
+import { useOpportunity } from "../opportunity/queries";
 import { UserSelect } from "../user/UserSelect";
 import { EquipmentField } from "./EquipmentField";
 import {
@@ -331,7 +332,11 @@ function enumOrNull<T extends string>(value: T | ""): T | null {
 // Consignación: si el origen NO es consignación, los ocho campos van en null
 // aunque haya algo tipeado. Es lo que applyConsignmentRule exige (un dato de
 // consignante con otro origen es 400) y lo que la UI avisa antes de guardar.
-function toInput(values: VehicleFormValues): VehicleWritableFields {
+//
+// Sin tradeInOpportunityId (§41): no es un campo del formulario sino contexto
+// de la URL, y solo viaja en el POST (ver handleSubmit). Que falte en el PATCH
+// es lo que deja intacto el vínculo de una unidad ya cargada.
+function toInput(values: VehicleFormValues): Omit<VehicleWritableFields, "tradeInOpportunityId"> {
   const isConsignment = values.origin === "CONSIGNMENT";
   return {
     condition: values.condition,
@@ -449,6 +454,35 @@ function EnumField<T extends string>({
   );
 }
 
+// Permuta (§41): la oportunidad de venta a la que la unidad se va a vincular
+// (alta desde la oportunidad) o de la que salió (edición). Trazabilidad en el
+// sentido unidad -> venta; el otro lo da TradeInSection. Si la oportunidad no
+// carga (dada de baja, o un id que no existe) se dice igual, sin título: en el
+// alta el backend va a rechazar el vínculo con su propio mensaje.
+function TradeInOpportunityNote({
+  opportunityId,
+  pending,
+}: {
+  opportunityId: string;
+  pending: boolean;
+}) {
+  const opportunityQuery = useOpportunity(opportunityId);
+  const title = opportunityQuery.data?.title;
+  const target = title ? (
+    <Link to={`/opportunities/${opportunityId}/edit`}>{title}</Link>
+  ) : opportunityQuery.isLoading ? (
+    "…"
+  ) : (
+    "que no pudimos cargar"
+  );
+  return (
+    <p className="ds-hint">
+      {pending ? "Se va a vincular a la oportunidad " : "Recibida en permuta en la oportunidad "}
+      {target}
+    </p>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Ficha de vehículo: un único componente para create y edit (modo por :id),
 // plantilla CompanyFormPage pero con una Card por sección. Lo que no sale
@@ -463,11 +497,21 @@ function EnumField<T extends string>({
 //   - "Publicar en el sitio web" arranca deshabilitado en creación: una unidad
 //     nueva nunca tiene fotos y el backend rechaza publicarla siempre.
 //   - La galería y el historial solo existen en edición (necesitan un id).
+//   - Permuta (§41): "Agregar auto en permuta" desde la oportunidad llega a
+//     /vehicles/new?tradeInOpportunityId=<id>. El origen arranca en Permuta
+//     (editable, como cualquier valor inicial) y el id viaja en el POST sin
+//     ser un campo del formulario. La sucursal se sigue eligiendo a mano: la
+//     oportunidad no tiene sucursal propia. Guardado, vuelve a la oportunidad.
 // ---------------------------------------------------------------------------
 export function VehicleFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Solo en creación; un valor inválido lo rechaza el backend con su 400.
+  const tradeInOpportunityId = isEditMode
+    ? undefined
+    : searchParams.get("tradeInOpportunityId") || undefined;
 
   const vehicleQuery = useVehicle(isEditMode ? id : undefined);
   const createVehicleMutation = useCreateVehicle();
@@ -475,7 +519,11 @@ export function VehicleFormPage() {
 
   const [values, setValues] = useFormDraft<VehicleFormValues>(
     vehicleQuery.data?.id,
-    vehicleQuery.data ? toFormValues(vehicleQuery.data) : EMPTY_FORM,
+    vehicleQuery.data
+      ? toFormValues(vehicleQuery.data)
+      : tradeInOpportunityId
+        ? { ...EMPTY_FORM, origin: "TRADE_IN" }
+        : EMPTY_FORM,
   );
   const [error, setError] = useState<string | null>(null);
   // La lista de faltantes que devolvió el SERVIDOR en el último 422, si hubo.
@@ -566,6 +614,10 @@ export function VehicleFormPage() {
       const input = toInput(values);
       if (isEditMode) {
         await updateVehicleMutation.mutateAsync(input);
+      } else if (tradeInOpportunityId) {
+        await createVehicleMutation.mutateAsync({ ...input, tradeInOpportunityId });
+        navigate(`/opportunities/${tradeInOpportunityId}/edit`);
+        return;
       } else {
         await createVehicleMutation.mutateAsync(input);
       }
@@ -594,6 +646,11 @@ export function VehicleFormPage() {
   return (
     <form onSubmit={handleSubmit} className="ds-form">
       <h1>{isEditMode ? "Editar unidad" : "Nueva unidad"}</h1>
+      {tradeInOpportunityId ? (
+        <TradeInOpportunityNote opportunityId={tradeInOpportunityId} pending />
+      ) : vehicle?.tradeInOpportunityId ? (
+        <TradeInOpportunityNote opportunityId={vehicle.tradeInOpportunityId} pending={false} />
+      ) : null}
       <div className="ds-stack">
         <Card heading="Identificación">
           <div className="ds-field-grid">
