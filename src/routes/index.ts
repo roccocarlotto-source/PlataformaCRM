@@ -9,6 +9,7 @@ import { bookingRouter } from "./booking.routes";
 import { branchRouter } from "./branch.routes";
 import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
+import { deliveryRouter } from "./delivery.routes";
 import { googleCalendarConnectionRouter } from "./googleCalendarConnection.routes";
 import { healthRouter } from "./health.routes";
 import { importRouter } from "./import.routes";
@@ -49,6 +50,9 @@ routes.use("/api", opportunityRouter);
 // Cotizaciones (§39 de docs/frontend-cambios-pendientes.md): sub-recurso de la
 // oportunidad, con su misma forma de permisos. Va pegada a ella.
 routes.use("/api", quoteRouter);
+// Entregas (§40): el otro sub-recurso de la oportunidad, misma forma de
+// permisos. Nace sola al ganar con unidad vinculada, por eso no tiene POST.
+routes.use("/api", deliveryRouter);
 routes.use("/api", activityRouter);
 routes.use("/api", invitationRouter);
 routes.use("/api", userRouter);

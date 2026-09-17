@@ -28,7 +28,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 // rechaza con 409 (assertVehicleAvailable en opportunity.service.ts), así que
 // ofrecerla sería ofrecer un error. La unidad seleccionada, en cambio, se
 // resuelve SIN ese filtro: una oportunidad abierta tiene su unidad RESERVED y
-// una ganada la tiene SOLD — es el caso normal, no una excepción — y tiene
+// una ganada la tiene SOLD o DELIVERED — es el caso normal, no una excepción — y tiene
 // que poder mostrarse igual, con su estado al lado.
 //
 // Cada resultado muestra la unidad como el listado de stock (unitTitle) más

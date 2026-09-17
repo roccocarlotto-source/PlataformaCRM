@@ -14,7 +14,10 @@
 // seats/year son Int.
 
 export type VehicleCondition = "NEW" | "USED";
-export type VehicleStatus = "AVAILABLE" | "RESERVED" | "IN_PREPARATION" | "IN_TRANSIT" | "SOLD";
+// SOLD = vendida, pendiente de entregar; DELIVERED = entregada al cliente, el
+// cierre del ciclo (§40 de docs/frontend-cambios-pendientes.md).
+export type VehicleStatus =
+  "AVAILABLE" | "RESERVED" | "IN_PREPARATION" | "IN_TRANSIT" | "SOLD" | "DELIVERED";
 export type VehicleBodyType =
   "SEDAN" | "HATCHBACK" | "SUV" | "PICKUP" | "COUPE" | "WAGON" | "VAN" | "UTILITY" | "MINIVAN";
 export type VehicleOrigin =

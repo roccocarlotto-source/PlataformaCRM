@@ -203,7 +203,9 @@ from (
       ('automations'), ('automation_executions'),
       -- Cotización (§39 de docs/frontend-cambios-pendientes.md, migración
       -- 20260916120000): organization_id propio y la política uniforme.
-      ('quotes')
+      ('quotes'),
+      -- Entrega (§40, migración 20260917120000): ídem.
+      ('deliveries')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -825,7 +827,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 47 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 50 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -894,7 +896,14 @@ from (
     -- que esta fila existe para atrapar.
     ('quotes_organization_id_created_by_id_fkey|quotes(organization_id,created_by_id)->users(organization_id,id)'),
     ('quotes_organization_id_opportunity_id_fkey|quotes(organization_id,opportunity_id)->opportunities(organization_id,id)'),
-    ('quotes_organization_id_vehicle_id_fkey|quotes(organization_id,vehicle_id)->vehicles(organization_id,id)')
+    ('quotes_organization_id_vehicle_id_fkey|quotes(organization_id,vehicle_id)->vehicles(organization_id,id)'),
+    -- Entrega (§40, migración 20260917120000): cuelga de su oportunidad,
+    -- fotografía la unidad vendida y registra quién confirmó la entrega.
+    -- delivered_by_id apunta a users, por el mismo motivo que
+    -- quotes.created_by_id.
+    ('deliveries_organization_id_delivered_by_id_fkey|deliveries(organization_id,delivered_by_id)->users(organization_id,id)'),
+    ('deliveries_organization_id_opportunity_id_fkey|deliveries(organization_id,opportunity_id)->opportunities(organization_id,id)'),
+    ('deliveries_organization_id_vehicle_id_fkey|deliveries(organization_id,vehicle_id)->vehicles(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

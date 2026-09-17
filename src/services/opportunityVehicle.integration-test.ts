@@ -55,7 +55,10 @@ before(async () => {
 
 after(async () => {
   if (!e) return;
-  // Las oportunidades referencian unidades (FK NO ACTION): van primero.
+  // Las entregas (§40) nacen al ganar con unidad y referencian la oportunidad
+  // (RESTRICT): van antes. Las oportunidades referencian unidades (FK NO
+  // ACTION): van antes que desmontar.
+  await prisma.delivery.deleteMany({ where: { organizationId: e.organizationId } });
   await prisma.opportunity.deleteMany({ where: { organizationId: e.organizationId } });
   await prisma.stage.deleteMany({ where: { organizationId: e.organizationId } });
   await prisma.pipeline.deleteMany({ where: { organizationId: e.organizationId } });
