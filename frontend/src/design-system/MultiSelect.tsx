@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { ChevronDown } from "lucide-react";
+import { matchesSearch } from "./searchText";
 
 // ---------------------------------------------------------------------------
 // Desplegable de selección múltiple con checkboxes: un botón cerrado que se ve
@@ -37,11 +38,23 @@ import { ChevronDown } from "lucide-react";
 // mismo porque ahí volvería a mandar el label[for]. aria-expanded +
 // aria-controls dicen si está abierto y qué abre. La lista es role="group"
 // con el mismo rótulo: son checkboxes, no un menú.
+//
+// BUSCADOR (docs/frontend-cambios-pendientes.md §44): arriba de los
+// checkboxes, con el mismo filtro que Select (substring sin mayúsculas ni
+// acentos, contra rótulo y subtítulo; design-system/searchText.ts). Filtra
+// solo lo que se VE: tildar/destildar sigue operando sobre el value completo,
+// así que una opción elegida que queda oculta por la búsqueda no se pierde.
+// Al abrir, el foco va al buscador (se abre para elegir, y tipear es lo más
+// rápido); la búsqueda se descarta al cerrar. El botón cerrado no cambia.
 // ---------------------------------------------------------------------------
 
 export interface MultiSelectOption<T extends string> {
   value: T;
   label: string;
+  // Preparado para el mismo dato que SelectOption.subtitle (p. ej. el email de
+  // una persona). Hoy ningún consumidor lo pasa: solo participa del filtro del
+  // buscador y todavía no se dibuja.
+  subtitle?: string;
 }
 
 export interface MultiSelectProps<T extends string> {
@@ -84,6 +97,7 @@ export function MultiSelect<T extends string>({
   const menuId = `${triggerId}-menu`;
 
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -93,7 +107,9 @@ export function MultiSelect<T extends string>({
   useEffect(() => {
     if (!open) return;
     function handlePointerDown(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+      setQuery("");
     }
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
@@ -101,11 +117,21 @@ export function MultiSelect<T extends string>({
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "Escape" || !open) return;
-    setOpen(false);
+    close();
     // Devolver el foco al botón: si estaba en un checkbox de la lista, esa
     // lista deja de existir y el foco caería al body.
     triggerRef.current?.focus();
   }
+
+  // Cerrar descarta la búsqueda: al reabrir se ven todas las opciones.
+  function close() {
+    setOpen(false);
+    setQuery("");
+  }
+
+  const visibleOptions = options.filter((option) =>
+    matchesSearch(query, [option.label, option.subtitle]),
+  );
 
   // El resultado sigue el orden de las opciones, no el de los clicks: el
   // mismo conjunto elegido produce siempre la misma query (y la misma
@@ -133,14 +159,30 @@ export function MultiSelect<T extends string>({
         aria-labelledby={`${labelId} ${valueId}`}
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => (open ? close() : setOpen(true))}
       >
         <span id={valueId}>{triggerText(value, options, emptyLabel)}</span>
         <ChevronDown size={16} strokeWidth={1.5} aria-hidden="true" />
       </button>
       {open ? (
         <div id={menuId} role="group" aria-labelledby={labelId} className="ds-multiselect-menu">
-          {options.map((option) => (
+          {/* type="text" y no "search": Chromium le agrega a los search una
+              cruz nativa para borrar, un ícono que el rediseño no quiere (§44).
+              Nombre accesible propio porque no tiene <label> visible. */}
+          <input
+            type="text"
+            className="ds-multiselect-search"
+            aria-label={`Buscar en ${label}`}
+            autoComplete="off"
+            spellCheck={false}
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          {visibleOptions.length === 0 ? (
+            <div className="ds-multiselect-empty">Sin resultados.</div>
+          ) : null}
+          {visibleOptions.map((option) => (
             <label key={option.value} className="ds-multiselect-option">
               <input
                 type="checkbox"

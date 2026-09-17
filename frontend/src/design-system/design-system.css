@@ -690,6 +690,153 @@ fieldset.ds-field {
   margin: 0;
 }
 
+/* Buscador arriba de los checkboxes. Es un input suelto dentro de la lista
+   (no está dentro de un <label> ni es hijo directo de la píldora), así que
+   ninguna regla de .ds-filters lo toca: conserva el aspecto de input de
+   formulario y solo se ajusta el margen y el ancho a la lista. */
+.ds-multiselect-search {
+  width: auto;
+  max-width: none;
+  margin: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.ds-multiselect-empty {
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Select (design-system/Select.tsx) — combobox de un solo valor con buscador.
+   Raíz div > label[for] + input, como MultiSelect: en .ds-filters la píldora
+   lo detecta sola; en un formulario es un campo más. El panel abierto usa el
+   mismo tratamiento que .ds-multiselect-menu (fondo, borde, radio, sombra)
+   para que las dos familias de desplegable se vean parejas.
+   --------------------------------------------------------------------------- */
+.ds-select {
+  /* El panel abierto se posiciona respecto del campo (o de la píldora). */
+  position: relative;
+  max-width: 32rem;
+}
+
+/* El chevron de la regla base de select no llega acá (apunta a select, no a
+   input): se replica con el mismo token, posición y reserva de padding. */
+.ds-select-input {
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  background-size: 16px 16px;
+  padding-right: calc(var(--space-3) * 2 + 16px);
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+/* Abierto se tipea: cursor de texto. */
+.ds-select-input[aria-expanded="true"] {
+  cursor: text;
+}
+
+/* Cerrado y sin valor, el placeholder ES la fila vacía ("Sin asignar",
+   "Todas"): se pinta como el texto de una opción, igual que la <option
+   value=""> de un <select> y que los selects vecinos de la misma fila. Abierto
+   vuelve al color apagado de cualquier placeholder, porque ahí es solo un
+   recordatorio de lo elegido mientras se tipea. */
+.ds-select-input[aria-expanded="false"]::placeholder {
+  color: var(--color-text);
+  opacity: 1;
+}
+
+/* Dentro de la píldora de filtros. La regla genérica de la píldora para
+   "div:has(> label[for]) > input" borra el fondo (y con él el chevron) con
+   el shorthand background y fija un min-width de 260px pensado para los
+   placeholders largos de CompanySelect/ContactSelect; acá se repone el
+   chevron pegado al borde, como el de los <select> de la misma fila, y el
+   ancho queda fijo en algo parecido al que tenía el <select> (sin esto el
+   input toma su ancho intrínseco de size=20 y la píldora se estira). El
+   selector es más específico que el genérico (tres clases contra dos). */
+.ds-filters .ds-select > input.ds-select-input,
+.ds-board-toolbar .ds-select > input.ds-select-input {
+  flex: 0 1 auto;
+  width: 10rem;
+  min-width: 0;
+  background: transparent var(--select-chevron) no-repeat right center / 16px 16px;
+  padding-right: calc(16px + var(--space-2));
+}
+
+/* Mismo tratamiento visual que .ds-multiselect-menu. Ancho del campo: en un
+   formulario el input tiene max-width 32rem y la raíz también, así que el
+   panel queda alineado con él. white-space: normal porque la píldora de
+   filtros impone nowrap y un email largo tiene que poder partirse. */
+.ds-select-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 10;
+  width: 100%;
+  min-width: 12rem;
+  padding: var(--space-1) 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  white-space: normal;
+  cursor: default;
+}
+
+/* La lista scrollea sola; el panel no crece más allá de ~8 filas. */
+.ds-select-menu [role="listbox"] {
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.ds-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+/* Resaltada por teclado o mouse: el mismo gris que el hover de
+   .ds-multiselect-option. */
+.ds-select-option-active {
+  background: var(--color-surface-muted);
+}
+
+/* La elegida lleva acento suave, esté o no resaltada encima: la selección
+   manda sobre el resaltado. */
+.ds-select-option-selected {
+  background: var(--color-accent-soft);
+}
+
+.ds-select-option-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ds-select-option-subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.ds-select-check {
+  flex: 0 0 auto;
+  color: var(--color-accent);
+}
+
+.ds-select-empty {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+}
+
 /* ---------------------------------------------------------------------------
    Tarjeta de listado — filtros, estados, tabla y paginación en UNA tarjeta,
    como en el export "Empresas CRM" (medido: tarjeta con el mismo borde/radio/

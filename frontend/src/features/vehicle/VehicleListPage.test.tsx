@@ -14,6 +14,7 @@ import { openActionsMenu } from "../../test/openActionsMenu";
 import { VehicleListPage } from "./VehicleListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { VehicleListItem } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -350,7 +351,7 @@ describe("VehicleListPage", () => {
     await user.keyboard("{Escape}");
 
     await waitFor(() => expect(screen.getByLabelText("Sucursal")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Sucursal"), "b1");
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Casa Central");
     await waitFor(() => expect(lastListQuery()?.get("branchId")).toBe("b1"));
 
     await user.selectOptions(screen.getByLabelText("Condición"), "NEW");

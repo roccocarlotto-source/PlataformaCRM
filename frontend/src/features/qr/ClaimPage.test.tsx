@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -10,6 +10,7 @@ import { makeBranch } from "../../test/branchFixtures";
 import { makeQrCode } from "../../test/qrFixtures";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { ClaimPage } from "./ClaimPage";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -99,7 +100,7 @@ describe("ClaimPage", () => {
     );
     const user = userEvent.setup();
     renderPage(`/claim/${QR_ID}`);
-    await waitFor(() => expect(screen.getByText("Casa Central")).toBeInTheDocument());
+    await screen.findByRole("combobox", { name: "Sucursal" });
 
     await user.click(screen.getByRole("button", { name: "Reclamar QR" }));
     expect(screen.getByRole("alert")).toHaveTextContent(/Elegí la sucursal/);
@@ -119,9 +120,9 @@ describe("ClaimPage", () => {
     );
     const user = userEvent.setup();
     renderPage(`/claim/${QR_ID}`);
-    await waitFor(() => expect(screen.getByText("Casa Central")).toBeInTheDocument());
+    await screen.findByRole("combobox", { name: "Sucursal" });
 
-    await user.selectOptions(screen.getByLabelText("Sucursal"), "b1");
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Casa Central");
     await user.type(screen.getByLabelText("Nombre"), "Vidriera");
     await user.type(screen.getByLabelText("Enlace de destino"), "https://g.page/r/x/review");
     await user.click(screen.getByRole("button", { name: "Reclamar QR" }));
@@ -151,9 +152,9 @@ describe("ClaimPage", () => {
     );
     const user = userEvent.setup();
     renderPage(`/claim/${QR_ID}`);
-    await waitFor(() => expect(screen.getByText("Casa Central")).toBeInTheDocument());
+    await screen.findByRole("combobox", { name: "Sucursal" });
 
-    await user.selectOptions(screen.getByLabelText("Sucursal"), "b1");
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Casa Central");
     await user.type(screen.getByLabelText("Nombre"), "Vidriera");
     await user.type(screen.getByLabelText("Enlace de destino"), "https://g.page/r/x/review");
     await user.click(screen.getByRole("button", { name: "Reclamar QR" }));

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { listSelectOptions } from "../../test/chooseSelectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
@@ -271,11 +272,12 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/new?pipelineId=pl1&stageId=st1");
 
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u1"));
-    const select = screen.getByLabelText("Propietario");
-    expect(select).not.toHaveTextContent("Asignado a quien crea (por defecto)");
-    expect(select).not.toHaveTextContent("Sin asignar");
-    expect(select.querySelector('option[value=""]')).toBeNull();
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("Ana Pérez"));
+    // Abrir el panel muestra solo usuarios: ninguna fila vacía.
+    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
+      "Ana Pérez",
+    ]);
+    await user.keyboard("{Escape}");
 
     await user.type(screen.getByLabelText("Título"), "Con dueño actual");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
