@@ -45,6 +45,7 @@ import {
   updateDraftQuoteContent,
 } from "./quote.repository";
 import { confirmDeliveryConditional, updatePendingDelivery } from "./delivery.repository";
+import { deletePayment, updatePayment } from "./payment.repository";
 import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
 import type { NotaIgnorado, PromotionNote } from "../types/promotion";
 
@@ -149,6 +150,8 @@ interface Fixture {
   // §40 — una entrega PENDING de la oportunidad de B: las dos escrituras
   // condicionales parten de ese estado.
   deliveryBPending: { id: string };
+  // §43 — un pago de la oportunidad de B.
+  paymentB: { id: string };
   authUserId: string;
 }
 
@@ -436,6 +439,18 @@ before(async () => {
     },
   });
 
+  // §43 — directo por Prisma, como las entregas: solo hace falta una fila fija.
+  const paymentB = await prisma.payment.create({
+    data: {
+      organizationId: orgB.id,
+      opportunityId: opportunityB.id,
+      amount: 5000,
+      currency: "USD",
+      method: "CASH",
+      paidAt: new Date("2026-09-16T00:00:00.000Z"),
+    },
+  });
+
   fx = {
     orgA: { id: orgA.id },
     orgB: { id: orgB.id },
@@ -466,6 +481,7 @@ before(async () => {
     quoteBDraft: { id: quoteBDraft.id },
     quoteBSentVencida: { id: quoteBSentVencida.id },
     deliveryBPending: { id: deliveryBPending.id },
+    paymentB: { id: paymentB.id },
     authUserId: authUserB.id,
   };
 });
@@ -495,6 +511,7 @@ after(async () => {
   // Las cotizaciones referencian la oportunidad (RESTRICT): van antes.
   await prisma.quote.deleteMany({ where: { organizationId: ambas } });
   await prisma.delivery.deleteMany({ where: { organizationId: ambas } });
+  await prisma.payment.deleteMany({ where: { organizationId: ambas } });
   await prisma.opportunity.deleteMany({ where: { organizationId: fx.orgB.id } });
   await prisma.contact.deleteMany({ where: { organizationId: ambas } });
   await prisma.company.deleteMany({ where: { organizationId: fx.orgB.id } });
@@ -1258,5 +1275,37 @@ test("confirmDeliveryConditional: id de Organization B (PENDING) + organizationI
         deliveredAt: new Date(),
       }),
     "confirmDeliveryConditional",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// §43 — Pago del cliente. Las dos escrituras de payment.repository.ts filtran
+// por organizationId en su WHERE. createPayment no está: recibe organizationId
+// en el dato, y lo que impide colgarlo de una oportunidad ajena es la FK
+// compuesta (probado en payment.service.integration-test.ts).
+// ---------------------------------------------------------------------------
+
+function leerPaymentB() {
+  return prisma.payment.findUniqueOrThrow({ where: { id: fx.paymentB.id } });
+}
+
+test("updatePayment: id de Organization B + organizationId de Organization A no cambia el pago", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerPaymentB,
+    () =>
+      updatePayment(fx.paymentB.id, fx.orgA.id, {
+        amount: 1,
+        method: "OTHER",
+        paidAt: new Date("2030-01-01T00:00:00.000Z"),
+      }),
+    "updatePayment",
+  );
+});
+
+test("deletePayment: id de Organization B + organizationId de Organization A no borra el pago", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerPaymentB,
+    () => deletePayment(fx.paymentB.id, fx.orgA.id),
+    "deletePayment",
   );
 });

@@ -372,3 +372,19 @@ test("las entregas (§40) están montadas bajo /api, sin POST ni DELETE", async 
   const borrar = await fetch(`${baseUrl}/api/deliveries/${id}`, { method: "DELETE" });
   assert.equal(borrar.status, 404);
 });
+
+test("los pagos (§43) están montados bajo /api, con DELETE", async () => {
+  const id = randomUUID();
+  const casos: [string, string][] = [
+    ["GET", "/api/payments"],
+    ["GET", `/api/payments/${id}`],
+    ["POST", "/api/payments"],
+    ["PATCH", `/api/payments/${id}`],
+    // A diferencia de quotes y deliveries, un pago se borra de verdad.
+    ["DELETE", `/api/payments/${id}`],
+  ];
+  for (const [method, path] of casos) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+  }
+});

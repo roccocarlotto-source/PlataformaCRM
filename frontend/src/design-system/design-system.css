@@ -3114,6 +3114,79 @@ a.ds-button--secondary:hover {
 }
 
 /* ---------------------------------------------------------------------------
+   Pagos del cliente (features/payment/PaymentSection.tsx, §43). Cuarta tarjeta
+   debajo de la ficha de la oportunidad, con el mismo ritmo que Permuta.
+   --------------------------------------------------------------------------- */
+.ds-payment-section {
+  margin-top: var(--space-5);
+}
+
+.ds-payment {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ds-payment .ds-field {
+  margin: 0;
+}
+
+.ds-payment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* Cada pago en una fila: el dato a la izquierda y Editar/Borrar a la derecha,
+   mismo reparto que los ítems del checklist de Entrega. */
+.ds-payment-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ds-payment-data {
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-payment-row-actions,
+.ds-payment-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ds-payment-total {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-payment-form {
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+/* Monto, método y fecha de a tres en pantalla ancha; se apilan en el
+   celular. */
+.ds-payment-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+}
+
+.ds-payment-fields input,
+.ds-payment-fields select {
+  max-width: none;
+}
+
+/* ---------------------------------------------------------------------------
    Impresión de la cotización activa (botón "Imprimir" → window.print()). En
    papel queda SOLO .ds-quote-printable: todo lo demás se oculta con
    visibility y no con display, porque la cotización está anidada adentro del

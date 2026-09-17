@@ -20,6 +20,7 @@ import { onboardingRouter } from "./onboarding.routes";
 import { opportunityRouter } from "./opportunity.routes";
 import { organizationRouter } from "./organization.routes";
 import { organizationAdminRouter } from "./organizationAdmin.routes";
+import { paymentRouter } from "./payment.routes";
 
 import { resourceRouter } from "./resource.routes";
 
@@ -53,6 +54,9 @@ routes.use("/api", quoteRouter);
 // Entregas (§40): el otro sub-recurso de la oportunidad, misma forma de
 // permisos. Nace sola al ganar con unidad vinculada, por eso no tiene POST.
 routes.use("/api", deliveryRouter);
+// Pagos del cliente (§43): tercer sub-recurso de la oportunidad, misma forma
+// de permisos. Es el único de los tres con DELETE.
+routes.use("/api", paymentRouter);
 routes.use("/api", activityRouter);
 routes.use("/api", invitationRouter);
 routes.use("/api", userRouter);

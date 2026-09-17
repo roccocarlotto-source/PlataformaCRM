@@ -321,6 +321,18 @@ test("fila 8 distingue un CHECK reescrito para no restringir nada", async () => 
   );
 });
 
+// §43: el único CHECK de importe ESTRICTO. Relajarlo a `>=` (el molde de todos
+// los demás) difiere en un carácter; el normalizador saca espacios, paréntesis
+// y el `::numeric`, pero no el `=`.
+test("fila 8 distingue el CHECK de pagos relajado de > 0 a >= 0", async () => {
+  await assertDiscrimina(
+    "payments_amount_positive_check",
+    `(select pg_get_constraintdef(oid) from pg_constraint where conname = 'payments_amount_positive_check')`,
+    "CHECK (amount > 0)",
+    "CHECK (amount >= 0)",
+  );
+});
+
 test("fila 8 distingue el CHECK de espacios del email vaciado de contenido", async () => {
   await assertDiscrimina(
     "contacts_email_trimmed_check",

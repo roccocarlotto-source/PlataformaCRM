@@ -15,7 +15,9 @@ export function toCents(amount: string): number {
   return Math.round(Number(amount) * 100);
 }
 
-function centsToCanonical(cents: number): string {
+// Exportada para el total de pagos (features/payment/totals.ts, §43), que suma
+// en centavos por el mismo motivo.
+export function centsToCanonical(cents: number): string {
   const abs = Math.abs(cents);
   const integer = Math.floor(abs / 100);
   const decimals = String(abs % 100).padStart(2, "0");

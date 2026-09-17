@@ -11,6 +11,7 @@ import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
 import { DeliverySection } from "../delivery/DeliverySection";
+import { PaymentSection } from "../payment/PaymentSection";
 import { QuoteSection } from "../quote/QuoteSection";
 import { StageSelect } from "../stage/StageSelect";
 import { UserSelect } from "../user/UserSelect";
@@ -437,8 +438,10 @@ export function OpportunityFormPage() {
   // edición — una oportunidad que todavía no existe no tiene a qué colgarle
   // una cotización. La de Entrega (§40) va debajo, por el mismo motivo, y se
   // muestra sola solo si la oportunidad está ganada y tiene entrega (ver
-  // DeliverySection). La de Permuta (§41) va al final y sin ese gating: la
-  // permuta se carga en cualquier momento de la negociación.
+  // DeliverySection). La de Permuta (§41) va después y sin ese gating: la
+  // permuta se carga en cualquier momento de la negociación. La de Pagos (§43)
+  // cierra la ficha, también sin gating: el cobro es el último paso del
+  // proceso comercial, pero una seña se cobra con la oportunidad abierta.
   return (
     <>
       <form onSubmit={handleSubmit} className="ds-form">
@@ -754,6 +757,7 @@ export function OpportunityFormPage() {
           <QuoteSection opportunity={opportunityQuery.data} />
           <DeliverySection opportunity={opportunityQuery.data} />
           <TradeInSection opportunity={opportunityQuery.data} />
+          <PaymentSection opportunity={opportunityQuery.data} />
         </>
       ) : null}
     </>

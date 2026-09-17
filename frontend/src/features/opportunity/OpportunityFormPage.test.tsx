@@ -57,6 +57,7 @@ const stagesUrl = `${env.apiUrl}/api/stages`;
 const usersUrl = `${env.apiUrl}/api/users`;
 const quotesUrl = `${env.apiUrl}/api/quotes`;
 const deliveriesUrl = `${env.apiUrl}/api/deliveries`;
+const paymentsUrl = `${env.apiUrl}/api/payments`;
 
 // PipelineSelect y UserSelect se montan SIEMPRE en este form (sin
 // `enabled` gating por texto, a diferencia de CompanySelect/ContactSelect)
@@ -70,6 +71,14 @@ function baseHandlers() {
     // La de Entrega (§40) solo pide con la oportunidad ganada. Vacía por
     // defecto: una ganada sin unidad no tiene entrega.
     http.get(deliveriesUrl, () => HttpResponse.json({ data: [] })),
+    // La de Pagos (§43) se monta siempre en edición y pide el historial.
+    // Vacío por defecto.
+    http.get(paymentsUrl, () =>
+      HttpResponse.json({
+        data: [],
+        pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+      }),
+    ),
     // La de Permuta (§41) se monta siempre en edición y lista las unidades
     // con ?tradeInOpportunityId=. Vacía por defecto. Solo responde a ESA
     // consulta: cualquier otro GET /vehicles (la búsqueda de VehicleSelect)
@@ -1608,6 +1617,52 @@ describe("OpportunityFormPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Nueva oportunidad" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Permuta" })).not.toBeInTheDocument();
+    expect(pedidas).toBe(0);
+  });
+
+  it("edit: la tarjeta de Pagos se monta al final, sin gating por estado, y pide los pagos de la oportunidad", async () => {
+    let pedida: string | null = null;
+    server.use(
+      http.get(`${opportunitiesUrl}/:id`, ({ params }) =>
+        HttpResponse.json(
+          makeOpportunity({ id: params.id as string, status: "LOST", amount: "18500.00" }),
+        ),
+      ),
+      http.get(paymentsUrl, ({ request }) => {
+        pedida = new URL(request.url).searchParams.get("opportunityId");
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        });
+      }),
+      ...baseHandlers(),
+    );
+    renderForm("/opportunities/op1/edit");
+
+    const pagos = await screen.findByRole("region", { name: "Pagos" });
+    expect(await within(pagos).findByText("Todavía no se registraron pagos.")).toBeInTheDocument();
+    expect(pedida).toBe("op1");
+    // Última tarjeta de la ficha: después de Permuta.
+    const permuta = screen.getByRole("region", { name: "Permuta" });
+    expect(permuta.compareDocumentPosition(pagos) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("create: no hay tarjeta de Pagos ni se piden pagos", async () => {
+    let pedidas = 0;
+    server.use(
+      http.get(paymentsUrl, () => {
+        pedidas += 1;
+        return HttpResponse.json({
+          data: [],
+          pagination: { page: 1, pageSize: 100, total: 0, totalPages: 0 },
+        });
+      }),
+      ...baseHandlers(),
+    );
+    renderForm("/opportunities/new");
+
+    expect(await screen.findByRole("heading", { name: "Nueva oportunidad" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Pagos" })).not.toBeInTheDocument();
     expect(pedidas).toBe(0);
   });
 });
