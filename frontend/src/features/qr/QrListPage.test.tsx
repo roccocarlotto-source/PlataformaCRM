@@ -12,6 +12,7 @@ import { openActionsMenu } from "../../test/openActionsMenu";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { QrListPage } from "./QrListPage";
 import type { QrCodeListResponse } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -192,8 +193,8 @@ describe("QrListPage — listado", () => {
     renderPage();
 
     await screen.findByRole("table");
-    await screen.findByRole("option", { name: "Casa Central" });
-    await user.selectOptions(screen.getByLabelText("Sucursal"), "b1");
+    await screen.findByRole("combobox", { name: "Sucursal" });
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Casa Central");
 
     await waitFor(() => {
       const last = captured[captured.length - 1];
@@ -364,8 +365,8 @@ describe("QrListPage — diálogos", () => {
 
     const dialog = within(await screen.findByRole("dialog"));
     expect(dialog.getByText("Generar QR digital")).toBeInTheDocument();
-    await waitFor(() => expect(dialog.getByText("Casa Central")).toBeInTheDocument());
-    await user.selectOptions(dialog.getByLabelText("Sucursal"), "b1");
+    await dialog.findByRole("combobox", { name: "Sucursal" });
+    await chooseSelectOption(user, dialog.getByLabelText("Sucursal"), "Casa Central");
     await user.type(dialog.getByLabelText("Nombre"), "Caja");
     await user.type(dialog.getByLabelText("Enlace de destino"), "https://g.page/r/x/review");
     await user.click(dialog.getByRole("button", { name: "Crear QR" }));

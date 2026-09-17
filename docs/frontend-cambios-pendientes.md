@@ -2095,3 +2095,68 @@ componente) elige el formateador según la granularidad activa.
   - `PaymentSection.test.tsx` (9): tarjeta vacía con total en cero; lista más nuevo primero con fecha, monto y método; Pagado/Saldo; un pago en UYU listado con su moneda, fuera del total y con la nota visible; alta (fecha precargada en hoy, POST sin moneda, lista y total actualizados, formulario cerrado); alta sin monto no llama al backend; edición inline hidratada y PATCH sin `opportunityId`; borrado con confirm (cancelar no borra, aceptar manda DELETE y actualiza el total); error de carga visible.
   - `OpportunityFormPage.test.tsx` (2): en edición, la tarjeta se monta con la oportunidad PERDIDA, pide `?opportunityId=op1` y queda después de Permuta; en creación, no hay tarjeta ni request.
 - **Suites completas en verde.** Backend: `typecheck`, ESLint, Prettier, **818** unitarios (805 en el §42), **770** de integración contra el Supabase local (754) y `verify:schema` 14/14. Frontend: 137 archivos y **1312** tests (1297), `tsc -b`, ESLint, Prettier y `npm run build`. **Migración real** `20260920120000_payments`, aplicada solo en local: **producción necesita `npm run migrate:deploy` después del merge.** Sin dependencias nuevas.
+
+## 44. Rediseño de los `<select>`, Fase 1: combobox con buscador (UserSelect y BranchSelect)
+
+**Estado:** hecho
+
+**Contexto:** el `<select>` nativo no se puede estilar por dentro: su popup lo dibuja el sistema operativo, no filtra al tipear y no muestra una segunda línea. En modo oscuro hizo falta un parche (PR #236) para que las opciones se leyeran. Con 20 o 30 usuarios, elegir un propietario obliga a scrollear, y dos homónimos no se distinguen. La referencia de diseño de Rocco es un combobox: un control con aspecto de input que, al hacer foco o click, abre un panel flotante con la lista, y que filtra lo que se tipea.
+
+**Comportamiento deseado (confirmado con Rocco):**
+- Control con aspecto de input, no de botón. Al abrir, un panel flotante con las opciones, filtrable escribiendo.
+- **Sin íconos decorativos:** ni avatares, ni íconos de persona, ni badges de estado, ni ícono dentro del control cerrado. Por fila, solo el texto (y una segunda línea opcional) y, en la fila elegida, un check. El chevron del control cerrado y el checkbox del multi-select no cuentan como decoración.
+- Los selectores de **persona** muestran el email como segunda línea. Los de **enum simple** (sucursal, pipeline, etapa, método de pago…) muestran una sola línea.
+- Fase 1 solo migra dos pilotos: `UserSelect` (persona) y `BranchSelect` (simple). Suma además un buscador a `MultiSelect`, por consistencia.
+
+**Decisiones de implementación:**
+
+- **Componente nuevo `design-system/Select.tsx`** (un solo valor), con el mismo criterio de arquitectura que `MultiSelect.tsx`:
+  - Raíz `div > label[for] + input`: la píldora de `.ds-filters`/`.ds-board-toolbar` lo detecta sola.
+  - Se cierra con Escape, con click afuera (`pointerdown` en `document`, solo mientras está abierto) y al perder el foco.
+  - Con el panel cerrado, las opciones no están en el DOM.
+  - Cada decisión de ARIA va comentada en el archivo.
+- **Patrón WAI-ARIA 1.2 combobox + listbox:**
+  - El input lleva `role="combobox"`, `aria-autocomplete="list"` y `aria-expanded`. `aria-controls` y `aria-activedescendant` existen solo con el panel abierto, porque cerrado no hay a qué apuntar.
+  - El foco nunca sale del input. El resaltado se comunica con `aria-activedescendant`, y el panel cancela el `mousedown`: sin eso, clickear una opción dispararía el blur, que cierra el panel antes de que llegue el click.
+  - Cada fila es `role="option"`. Su nombre accesible es solo el rótulo (`aria-labelledby`) y el subtítulo va como descripción (`aria-describedby`). Sin eso, el nombre quedaba "Ana Pérezana@example.com", pegado.
+  - `aria-selected` marca la fila del valor actual (la del check), no la resaltada.
+- **Interacción:**
+  - Foco o click abren el panel. El input se vacía para tipear y se resalta lo ya elegido (o la primera fila).
+  - Tipear filtra y resalta la primera coincidencia. Flechas mueven el resaltado y Enter elige.
+  - Escape, click afuera y Tab cierran sin cambiar el valor. En los tres casos el input vuelve a mostrar el rótulo de lo elegido, nunca la búsqueda a medio escribir.
+  - Enter con el panel cerrado se comporta como en cualquier input (envía el formulario). Abierto, nunca envía.
+  - Escape con el panel abierto hace `stopPropagation`, para no cerrar también un `Modal` descartable que escucha `keydown` en `document`.
+- **Filtro compartido `design-system/searchText.ts`** (`matchesSearch`): substring sin mayúsculas ni acentos (NFD), contra rótulo y subtítulo. Lo usan `Select` y `MultiSelect`.
+- **`emptyOption`** es la fila vacía, con valor `""`, siempre primera. Con el panel cerrado y sin valor, su texto es el **placeholder** del input. Así el input queda vacío y `required` sigue bloqueando el submit igual que con el `<select>`. La fila vacía también se filtra: si quedara siempre, "Sin resultados." no aparecería nunca.
+- **Desvío menor de la firma pedida:** `value` es `T | "" | undefined` y `onChange` recibe `T | ""`, porque elegir la fila vacía produce `""` aunque `T` no lo incluya. Para `UserSelect`/`BranchSelect` (`T = string`) no cambia nada.
+- **`UserSelect` y `BranchSelect`:** con la lista cargada devuelven `<Select>`, que trae su propio rótulo. Mientras carga o si falla conservan el rótulo con el aviso debajo, como antes. `UserSelect` mapea `{ value: id, label: fullName, subtitle: email }` y pasa `emptyOption` con la misma condición de antes (`clearable || !value`). `BranchSelect` usa una sola línea. Ninguna prop pública cambió, y los formularios que los usan no se tocaron. La búsqueda es local, sobre la página ya traída: ninguno de los dos endpoints tiene `search`.
+- **`MultiSelect`:** buscador arriba de los checkboxes, con el mismo filtro. Al abrir toma el foco y al cerrar se descarta. Filtra solo lo que se ve: tildar con la lista filtrada no pierde las opciones elegidas que quedaron ocultas. Usa `type="text"` y no `search`, porque Chromium le agrega a los search una cruz nativa. `MultiSelectOption` acepta `subtitle?` (participa del filtro y todavía no se dibuja): hoy ningún consumidor lo pasa. El botón cerrado no cambia.
+- **CSS nuevo** (`.ds-select*`, `.ds-multiselect-search`, `.ds-multiselect-empty`):
+  - El panel copia fondo, borde, radio y sombra de `.ds-multiselect-menu`, y la lista scrollea a partir de 18rem.
+  - Fila resaltada en `--color-surface-muted`, fila elegida en `--color-accent-soft` (la selección manda sobre el resaltado), subtítulo en `--color-text-muted` y check de 16px en `--color-accent`.
+  - El chevron del input replica la regla de `select` con `--select-chevron`.
+- **Helper de tests `src/test/chooseSelectOption.ts`**, en la línea de `openActionsMenu.ts`. `chooseSelectOption(user, combobox, nombre)` reemplaza a `user.selectOptions`, y `listSelectOptions(user, combobox)` reemplaza a listar los `<option>`.
+
+**Nota de alcance:** esta ronda NO migra el resto de los `<select>` nativos. Quedan para la **Fase 2**, después de que se apruebe esta. Rocco los estimó en ~29; el grep de aperturas `<select` en JSX fuera de tests da 60 elementos en 27 archivos (ver hallazgos). Tampoco se tocan `CompanySelect`, `ContactSelect`, `VehicleSelect` ni `OpportunitySelect`: son buscadores server-side propios, con otra arquitectura. **Si alguna vez se migran al mismo diseño es una decisión aparte y no está comprometida.** Queda para una ronda aparte convertir el botón cerrado de `MultiSelect` en chips removibles, como muestra la captura de Rocco.
+
+**Hallazgos al implementar:**
+
+- **Dos reglas de la píldora de filtros pisaban al input.** La genérica `.ds-filters div:has(> label[for]) > input` usa el shorthand `background: transparent`, que borraba el chevron. Además fija `min-width: 260px`, pensado para los placeholders largos de `CompanySelect`. Una regla más específica (`.ds-filters .ds-select > input.ds-select-input`) repone el chevron y fija el ancho en 10rem. Sin esto, la píldora de Sucursal quedaba notoriamente más ancha que con el `<select>`. Medido en Stock con `/browse`.
+- **El placeholder apagado desentonaba en la fila de filtros.** "Todas" (placeholder) se veía gris al lado de "Todos"/"Todas" de los selects vecinos. Con el panel cerrado, el placeholder se pinta en `--color-text`, como la `<option value="">` de un `<select>`. Abierto vuelve al color apagado, porque ahí solo recuerda lo elegido mientras se tipea.
+- **Los tests de formulario esperaban la lista con `getByText("Casa Central")`.** Con el panel cerrado, las opciones no están en el DOM. Esos `waitFor` pasan a `findByRole("combobox", { name: "Sucursal" })` (QR, Claim).
+- **`toHaveValue` ahora ve el rótulo, no el id.** Los asserts de hidratación pasan de `toHaveValue("u2")` a `toHaveValue("Beto Díaz")`. El id sigue afirmándose donde importa: en el body del POST/PATCH.
+- **Los usos de `BranchSelect` también estaban en QR** (`QrFormDialog`, `QrListPage`, `ClaimPage`) y en el filtro de `VehicleListPage`, además de `VehicleFormPage`. Sus tests se actualizaron con el mismo helper.
+- **El conteo de la Fase 2 es mayor que la estimación.** Por elemento, quedan 60 `<select>` en 27 archivos, porque varios formularios tienen más de uno (Oportunidad: Moneda, Financiación, Origen, Estado…). Conviene que la Fase 2 se planifique por componente compartido (`PipelineSelect`, `StageSelect`…) y por formulario, no por conteo.
+- **Verificación visual con `/browse`, en claro y oscuro** (toggle de tema del §31), con un usuario QA ADMIN temporal en el Supabase local (borrado al terminar):
+  - Nueva oportunidad → Propietario: panel con nombre + email, check en el elegido, filtro por email ("GMAIL" deja solo a quien corresponde), "Sin resultados." y Escape que restaura el rótulo.
+  - Nueva unidad → Sucursal: una sola línea, "norte" + Enter elige.
+  - Stock: píldora de Sucursal y buscador de Estado.
+  - Ningún ícono decorativo en ningún caso.
+
+**Tests:**
+
+- `Select.test.tsx` (19, nuevo): estado cerrado sin panel; click abre vacío con la elegida resaltada; subtítulo como descripción; fila de una línea; filtro por rótulo sin mayúsculas ni acentos; filtro por subtítulo; Enter elige y cierra con foco y rótulo; flechas + Enter; click elige; re-elegir no llama a `onChange`; Escape; click afuera; Tab; check y `aria-selected`; "Sin resultados." fuera del listbox, con Enter inerte; `emptyOption` primera, placeholder y `""`; la fila vacía se filtra; `required`/`disabled`; Escape que no llega a `document`.
+- `MultiSelect.test.tsx` (+6): el buscador aparece al abrir con foco; filtro sin acentos; filtro por subtítulo; tildar filtrado no pierde las ocultas; "Sin resultados."; cerrar descarta la búsqueda.
+- `UserSelect.test.tsx` (9 → 11) y `BranchSelect.test.tsx` (7 → 8): reescritos para el combobox, sumando que tipear no pide `search`, el email como segunda línea, la búsqueda por email y el filtro de sucursales.
+- Actualizados: `ActivityFormPage`, `CompanyFormPage`, `ContactFormPage`, `OpportunityFormPage`, `VehicleFormPage`, `VehicleListPage`, `QrFormDialog`, `QrListPage` y `ClaimPage`.
+- **Suite de frontend en verde:** 138 archivos y **1340** tests (1312 en el §43), `tsc -b`, ESLint, Prettier y `npm run build`. Sin backend, sin migraciones y sin dependencias nuevas.

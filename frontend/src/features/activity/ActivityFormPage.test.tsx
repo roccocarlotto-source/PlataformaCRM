@@ -11,6 +11,7 @@ import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { ActivityFormPage } from "./ActivityFormPage";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -116,7 +117,7 @@ describe("ActivityFormPage — create", () => {
     const user = userEvent.setup();
     renderForm("/activities/new?assigneeId=u2");
 
-    await waitFor(() => expect(screen.getByLabelText("Asignado a")).toHaveValue("u2"));
+    await waitFor(() => expect(screen.getByLabelText("Asignado a")).toHaveValue("Beto Gómez"));
 
     await user.type(screen.getByLabelText("Asunto"), "Desde Mis tareas");
     await selectCompany(user, "Acme Corp", "co1");
@@ -412,7 +413,7 @@ describe("ActivityFormPage — edit", () => {
     await user.clear(screen.getByLabelText("Notas"));
     await user.clear(screen.getByLabelText("Vencimiento"));
     await user.clear(screen.getByLabelText("Completada"));
-    await user.selectOptions(screen.getByLabelText("Asignado a"), "");
+    await chooseSelectOption(user, screen.getByLabelText("Asignado a"), "Sin asignar");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(patchedBody).toBeDefined());
@@ -617,8 +618,9 @@ describe("ActivityFormPage — edit", () => {
     server.use(...baseHandlers());
     renderForm("/activities/new");
 
-    await screen.findByText("Sin asignar");
-    expect(screen.queryByText("Asignado a quien crea (por defecto)")).not.toBeInTheDocument();
+    // Sin valor, la fila vacía es el placeholder del combobox (§44).
+    const assignee = await screen.findByRole("combobox", { name: "Asignado a" });
+    expect(assignee).toHaveAttribute("placeholder", "Sin asignar");
   });
 });
 

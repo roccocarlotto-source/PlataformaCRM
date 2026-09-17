@@ -11,6 +11,7 @@ import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { ContactFormPage } from "./ContactFormPage";
+import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -305,10 +306,10 @@ describe("ContactFormPage", () => {
 
     await user.type(screen.getByLabelText("Nombre"), "Nueva");
     await user.type(screen.getByLabelText("Apellido"), "Persona");
-    // El select recien existe cuando la query de usuarios resolvio: UserSelect
+    // El combobox recien existe cuando la query de usuarios resolvio: UserSelect
     // no renderiza nada hasta isSuccess.
     await waitFor(() => expect(screen.getByLabelText("Propietario")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Propietario"), "u2");
+    await chooseSelectOption(user, screen.getByLabelText("Propietario"), "Beto Díaz");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
@@ -339,11 +340,13 @@ describe("ContactFormPage", () => {
     // Ana Pérez) ya está marcado, y la antigua opción "Asignado a quien crea
     // (por defecto)" —que decía lo mismo que elegirse a uno mismo— no existe
     // más. Tampoco hay opción vacía de ningún tipo mientras haya un valor.
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u1"));
-    const select = screen.getByLabelText("Propietario");
-    expect(select).not.toHaveTextContent("Asignado a quien crea (por defecto)");
-    expect(select).not.toHaveTextContent("Sin asignar");
-    expect(select.querySelector('option[value=""]')).toBeNull();
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("Ana Pérez"));
+    // Abrir el panel muestra solo usuarios: ninguna fila vacía.
+    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
+      "Ana Pérez",
+      "Beto Díaz",
+    ]);
+    await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
@@ -365,12 +368,16 @@ describe("ContactFormPage", () => {
       ),
     );
 
+    const user = userEvent.setup();
     renderForm("/contacts/ct1/edit");
 
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("u2"));
+    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("Beto Díaz"));
     // Con un dueño real, "Sin asignar" no se ofrece: el PATCH no podría
     // limpiar ownerId de todos modos (chequeo truthy en contact.service.ts).
-    expect(screen.getByLabelText("Propietario")).not.toHaveTextContent("Sin asignar");
+    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
+      "Ana Pérez",
+      "Beto Díaz",
+    ]);
   });
 
   it("edit: un contacto SIN propietario muestra 'Sin asignar', no al usuario actual ni un valor inventado", async () => {
@@ -391,6 +398,7 @@ describe("ContactFormPage", () => {
       ),
     );
 
+    const user = userEvent.setup();
     renderForm("/contacts/ct1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
@@ -398,12 +406,20 @@ describe("ContactFormPage", () => {
     // se derivan en render (lib/useFormDraft.ts) en vez de sembrarse con un
     // efecto, "Nombre" ya tiene su valor un ciclo ANTES — el efecto forzaba un
     // render extra que este assert aprovechaba sin decirlo para que la query de
-    // usuarios llegara a resolver. UserSelect no renderiza el <select> hasta
+    // usuarios llegara a resolver. UserSelect no renderiza el combobox hasta
     // isSuccess, así que hay que esperarlo explícitamente.
     await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
-    expect(screen.getByRole("option", { name: "Sin asignar" })).toHaveValue("");
-    expect(screen.getByLabelText("Propietario")).not.toHaveTextContent(
-      "Asignado a quien crea (por defecto)",
+    // Sin valor, "Sin asignar" es el placeholder cerrado y la fila vacía
+    // (primera y marcada) al abrir.
+    expect(screen.getByLabelText("Propietario")).toHaveAttribute("placeholder", "Sin asignar");
+    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
+      "Sin asignar",
+      "Ana Pérez",
+      "Beto Díaz",
+    ]);
+    expect(screen.getByRole("option", { name: "Sin asignar" })).toHaveAttribute(
+      "aria-selected",
+      "true",
     );
   });
 

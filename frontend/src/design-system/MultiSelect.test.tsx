@@ -140,6 +140,89 @@ describe("MultiSelect", () => {
     expect(boton()).toHaveTextContent("Disponible");
   });
 
+  describe("buscador", () => {
+    const buscador = () => screen.getByRole("textbox", { name: "Buscar en Estado" });
+
+    it("al abrir aparece arriba de la lista, con el foco, y sin buscador cerrado", async () => {
+      const user = userEvent.setup();
+      render(<Controlado />);
+
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+      await user.click(boton());
+
+      expect(buscador()).toHaveFocus();
+      expect(buscador()).toHaveValue("");
+    });
+
+    it("filtra las opciones visibles sin distinguir mayúsculas ni acentos", async () => {
+      const user = userEvent.setup();
+      render(<Controlado />);
+
+      await user.click(boton());
+      await user.keyboard("VENDÍ");
+
+      expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+      expect(screen.getByRole("checkbox", { name: "Vendido" })).toBeInTheDocument();
+    });
+
+    it("filtra también por subtítulo, si la opción lo trae", async () => {
+      const user = userEvent.setup();
+      render(
+        <MultiSelect
+          label="Estado"
+          options={[
+            { value: "a", label: "Ana Pérez", subtitle: "ana@example.com" },
+            { value: "b", label: "Beto Gómez", subtitle: "beto@acme.test" },
+          ]}
+          value={[]}
+          onChange={vi.fn()}
+        />,
+      );
+
+      await user.click(boton());
+      await user.keyboard("acme");
+
+      expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+      expect(screen.getByRole("checkbox", { name: "Beto Gómez" })).toBeInTheDocument();
+    });
+
+    it("tildar con la lista filtrada no pierde las elegidas que quedaron ocultas", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(<Controlado initial={["AVAILABLE"]} onChange={onChange} />);
+
+      await user.click(boton());
+      await user.keyboard("vend");
+      await user.click(screen.getByRole("checkbox", { name: "Vendido" }));
+
+      expect(onChange).toHaveBeenLastCalledWith(["AVAILABLE", "SOLD"]);
+    });
+
+    it("sin coincidencias muestra 'Sin resultados.'", async () => {
+      const user = userEvent.setup();
+      render(<Controlado />);
+
+      await user.click(boton());
+      await user.keyboard("zzz");
+
+      expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+      expect(screen.getByText("Sin resultados.")).toBeInTheDocument();
+    });
+
+    it("cerrar descarta la búsqueda: al reabrir se ven todas", async () => {
+      const user = userEvent.setup();
+      render(<Controlado />);
+
+      await user.click(boton());
+      await user.keyboard("vend{Escape}");
+      expect(boton()).toHaveFocus();
+
+      await user.click(boton());
+      expect(buscador()).toHaveValue("");
+      expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    });
+  });
+
   it("un segundo click en el botón cierra la lista", async () => {
     const user = userEvent.setup();
     render(<Controlado />);

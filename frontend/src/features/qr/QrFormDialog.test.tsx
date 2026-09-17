@@ -9,6 +9,7 @@ import { makeBranch } from "../../test/branchFixtures";
 import { makeQrCode } from "../../test/qrFixtures";
 import { QrFormDialog } from "./QrFormDialog";
 import type { QrCode } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -50,12 +51,12 @@ describe("QrFormDialog — crear", () => {
     );
     const user = userEvent.setup();
     const { dialog } = renderDialog();
-    await waitFor(() => expect(dialog.getByText("Casa Central")).toBeInTheDocument());
+    await dialog.findByRole("combobox", { name: "Sucursal" });
 
     await user.click(dialog.getByRole("button", { name: "Crear QR" }));
     expect(dialog.getByRole("alert")).toHaveTextContent(/Elegí la sucursal/);
 
-    await user.selectOptions(dialog.getByLabelText("Sucursal"), "b1");
+    await chooseSelectOption(user, dialog.getByLabelText("Sucursal"), "Casa Central");
     await user.click(dialog.getByRole("button", { name: "Crear QR" }));
     expect(dialog.getByRole("alert")).toHaveTextContent(/nombre del QR es obligatorio/);
 
@@ -79,9 +80,9 @@ describe("QrFormDialog — crear", () => {
     );
     const user = userEvent.setup();
     const { dialog, onSaved } = renderDialog();
-    await waitFor(() => expect(dialog.getByText("Casa Central")).toBeInTheDocument());
+    await dialog.findByRole("combobox", { name: "Sucursal" });
 
-    await user.selectOptions(dialog.getByLabelText("Sucursal"), "b1");
+    await chooseSelectOption(user, dialog.getByLabelText("Sucursal"), "Casa Central");
     await user.type(dialog.getByLabelText("Nombre"), "  Caja  ");
     await user.type(dialog.getByLabelText("Enlace de destino"), "https://g.page/r/x/review");
     await user.click(dialog.getByRole("button", { name: "Crear QR" }));
@@ -107,9 +108,9 @@ describe("QrFormDialog — crear", () => {
     );
     const user = userEvent.setup();
     const { dialog } = renderDialog();
-    await waitFor(() => expect(dialog.getByText("Casa Central")).toBeInTheDocument());
+    await dialog.findByRole("combobox", { name: "Sucursal" });
 
-    await user.selectOptions(dialog.getByLabelText("Sucursal"), "b1");
+    await chooseSelectOption(user, dialog.getByLabelText("Sucursal"), "Casa Central");
     await user.type(dialog.getByLabelText("Nombre"), "Evento");
     await user.type(dialog.getByLabelText("Enlace de destino"), "https://g.page/r/x/review");
     await user.type(dialog.getByLabelText("Mensaje (opcional)"), " ¡Gracias! ");
@@ -132,9 +133,9 @@ describe("QrFormDialog — crear", () => {
     );
     const user = userEvent.setup();
     const { dialog, onSaved } = renderDialog();
-    await waitFor(() => expect(dialog.getByText("Casa Central")).toBeInTheDocument());
+    await dialog.findByRole("combobox", { name: "Sucursal" });
 
-    await user.selectOptions(dialog.getByLabelText("Sucursal"), "b1");
+    await chooseSelectOption(user, dialog.getByLabelText("Sucursal"), "Casa Central");
     await user.type(dialog.getByLabelText("Nombre"), "Caja");
     await user.type(dialog.getByLabelText("Enlace de destino"), "https://g.page/r/x/review");
     await user.click(dialog.getByRole("button", { name: "Crear QR" }));
@@ -209,7 +210,7 @@ describe("QrFormDialog — campos obligatorios", () => {
   it("Sucursal, Nombre y Enlace de destino llevan la marca; Mensaje no; la referencia del asterisco va una sola vez", async () => {
     server.use(branchesHandler());
     const { dialog } = renderDialog();
-    await waitFor(() => expect(dialog.getByText("Casa Central")).toBeInTheDocument());
+    await dialog.findByRole("combobox", { name: "Sucursal" });
 
     for (const label of ["Sucursal", "Nombre", "Enlace de destino"]) {
       expect(dialog.getByLabelText(label)).toBeRequired();

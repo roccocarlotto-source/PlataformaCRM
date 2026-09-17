@@ -18,6 +18,7 @@ import {
 } from "../../test/vehicleFixtures";
 import { VehicleFormPage } from "./VehicleFormPage";
 import type { VehiclePhoto } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -75,7 +76,7 @@ async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("Modelo"), "Corolla");
   await user.type(screen.getByLabelText("Año"), "2020");
   await waitFor(() => expect(screen.getByLabelText("Sucursal")).toBeInTheDocument());
-  await user.selectOptions(screen.getByLabelText("Sucursal"), "b1");
+  await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Casa Central");
 }
 
 const localMissing = () => screen.getByRole("list", { name: "Campos que faltan para publicar" });
@@ -154,7 +155,7 @@ describe("VehicleFormPage — crear y editar", () => {
   // de obligatorio y `required` (BranchSelect), así que el click en Guardar
   // lo frena el navegador (y jsdom) sin llegar a handleSubmit; si el submit
   // igual llega —p. ej. mientras la lista de sucursales todavía carga no hay
-  // <select> que validar—, el chequeo propio de handleSubmit sigue cortando
+  // selector que validar—, el chequeo propio de handleSubmit sigue cortando
   // con su mensaje. En ningún caso hay POST.
   it("create sin sucursal no manda nada: required nativo en el click, y el chequeo propio avisa si el submit igual llega", async () => {
     let posted = false;
@@ -240,7 +241,9 @@ describe("VehicleFormPage — crear y editar", () => {
     expect(screen.getByLabelText("Transmisión")).toHaveValue("CVT");
     expect(equipmentChips()).toEqual(["ABS"]);
     expect(screen.getByLabelText("Publicar en el sitio web")).toBeEnabled();
-    await waitFor(() => expect(screen.getByLabelText("Vendedor asignado")).toHaveValue("u1"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Vendedor asignado")).toHaveValue("Ana Pérez"),
+    );
     // Registro: solo lectura.
     expect(screen.getByText("STK-000001")).toBeInTheDocument();
 
