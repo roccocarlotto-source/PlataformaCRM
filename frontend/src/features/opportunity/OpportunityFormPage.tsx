@@ -10,6 +10,7 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
+import { DeliverySection } from "../delivery/DeliverySection";
 import { QuoteSection } from "../quote/QuoteSection";
 import { StageSelect } from "../stage/StageSelect";
 import { UserSelect } from "../user/UserSelect";
@@ -388,7 +389,9 @@ export function OpportunityFormPage() {
   // La sección de Cotización (§39) va DESPUÉS del <form> y no adentro: tiene
   // sus propios formularios y botones, y un <form> no se anida. Solo en
   // edición — una oportunidad que todavía no existe no tiene a qué colgarle
-  // una cotización.
+  // una cotización. La de Entrega (§40) va debajo, por el mismo motivo, y se
+  // muestra sola solo si la oportunidad está ganada y tiene entrega (ver
+  // DeliverySection).
   return (
     <>
       <form onSubmit={handleSubmit} className="ds-form">
@@ -650,7 +653,10 @@ export function OpportunityFormPage() {
         </div>
       </form>
       {isEditMode && opportunityQuery.data ? (
-        <QuoteSection opportunity={opportunityQuery.data} />
+        <>
+          <QuoteSection opportunity={opportunityQuery.data} />
+          <DeliverySection opportunity={opportunityQuery.data} />
+        </>
       ) : null}
     </>
   );

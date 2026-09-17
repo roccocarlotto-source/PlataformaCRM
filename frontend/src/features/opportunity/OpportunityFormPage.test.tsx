@@ -9,6 +9,7 @@ import { env } from "../../config/env";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeOpportunity } from "../../test/opportunityFixtures";
 import { makeQuote, makeQuoteList } from "../../test/quoteFixtures";
+import { makeDelivery } from "../../test/deliveryFixtures";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { makeStage } from "../../test/stageFixtures";
 import { makeUser } from "../../test/userFixtures";
@@ -55,6 +56,7 @@ const pipelinesUrl = `${env.apiUrl}/api/pipelines`;
 const stagesUrl = `${env.apiUrl}/api/stages`;
 const usersUrl = `${env.apiUrl}/api/users`;
 const quotesUrl = `${env.apiUrl}/api/quotes`;
+const deliveriesUrl = `${env.apiUrl}/api/deliveries`;
 
 // PipelineSelect y UserSelect se montan SIEMPRE en este form (sin
 // `enabled` gating por texto, a diferencia de CompanySelect/ContactSelect)
@@ -65,6 +67,9 @@ function baseHandlers() {
     // de la oportunidad. Vacío por defecto: los tests del formulario no la
     // miran; los dos del final sí.
     http.get(quotesUrl, () => HttpResponse.json(makeQuoteList([], null))),
+    // La de Entrega (§40) solo pide con la oportunidad ganada. Vacía por
+    // defecto: una ganada sin unidad no tiene entrega.
+    http.get(deliveriesUrl, () => HttpResponse.json({ data: [] })),
     http.get(pipelinesUrl, () =>
       HttpResponse.json({
         data: [
@@ -1275,6 +1280,50 @@ describe("OpportunityFormPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Nueva oportunidad" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Cotización" })).not.toBeInTheDocument();
+    expect(pedidas).toBe(0);
+  });
+
+  it("edit: con la oportunidad ganada, la tarjeta de Entrega se monta debajo de Cotización y fuera del <form>", async () => {
+    let pedida: string | null = null;
+    server.use(
+      http.get(`${opportunitiesUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeOpportunity({ id: params.id as string, status: "WON" })),
+      ),
+      http.get(deliveriesUrl, ({ request }) => {
+        pedida = new URL(request.url).searchParams.get("opportunityId");
+        return HttpResponse.json({ data: [makeDelivery({ opportunityId: "op1" })] });
+      }),
+      ...baseHandlers(),
+    );
+    renderForm("/opportunities/op1/edit");
+
+    const entrega = await screen.findByRole("region", { name: "Entrega" });
+    expect(within(entrega).getByText("Pendiente de entrega")).toBeInTheDocument();
+    expect(pedida).toBe("op1");
+    expect(entrega.closest("form")).toBeNull();
+    const cotizacion = screen.getByRole("region", { name: "Cotización" });
+    // DOCUMENT_POSITION_FOLLOWING: Entrega va después de Cotización.
+    expect(
+      cotizacion.compareDocumentPosition(entrega) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("edit: con la oportunidad abierta no hay tarjeta de Entrega ni se la pide", async () => {
+    let pedidas = 0;
+    server.use(
+      http.get(`${opportunitiesUrl}/:id`, ({ params }) =>
+        HttpResponse.json(makeOpportunity({ id: params.id as string, status: "OPEN" })),
+      ),
+      http.get(deliveriesUrl, () => {
+        pedidas += 1;
+        return HttpResponse.json({ data: [makeDelivery()] });
+      }),
+      ...baseHandlers(),
+    );
+    renderForm("/opportunities/op1/edit");
+
+    expect(await screen.findByRole("region", { name: "Cotización" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Entrega" })).not.toBeInTheDocument();
     expect(pedidas).toBe(0);
   });
 });

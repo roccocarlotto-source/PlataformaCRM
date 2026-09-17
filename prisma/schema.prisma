@@ -295,15 +295,29 @@ enum VehicleBodyType {
 
 // Ciclo de vida comercial de la unidad. NO es un flujo lineal: una unidad va
 // y vuelve entre AVAILABLE/RESERVED/IN_PREPARATION según lo que pase con la
-// venta; SOLD es el único terminal en la práctica. Independiente de
-// visibleInListing y de publishOnWebsite: una unidad SOLD puede seguir
-// publicada como "vendida" y una AVAILABLE puede estar oculta.
+// venta. Independiente de visibleInListing y de publishOnWebsite: una unidad
+// SOLD puede seguir publicada como "vendida" y una AVAILABLE puede estar
+// oculta.
+//
+// Desde el §40 (Entrega) SOLD y DELIVERED son dos eventos distintos: SOLD es
+// "vendida, pendiente de entregar" (la oportunidad ganó) y DELIVERED es el
+// cierre real del ciclo de vida de la unidad, al que solo se llega con
+// "Confirmar entrega" (delivery.service.ts).
 enum VehicleStatus {
   AVAILABLE
   RESERVED
   IN_PREPARATION
   IN_TRANSIT
   SOLD
+  DELIVERED
+}
+
+// Entrega física de la unidad al cliente (§40). PENDING nace sola cuando la
+// oportunidad gana con unidad vinculada; DELIVERED la pone "Confirmar
+// entrega" y la vuelve inmutable. Las reglas viven en delivery.service.ts.
+enum DeliveryStatus {
+  PENDING
+  DELIVERED
 }
 
 // Cómo entró la unidad al stock. CONSIGNMENT es el único valor con campos
@@ -497,7 +511,8 @@ model Organization {
   vehiclePhotos     VehiclePhoto[]
   vehicleChangeLogs VehicleChangeLog[]
 
-  quotes Quote[]
+  quotes     Quote[]
+  deliveries Delivery[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -562,6 +577,8 @@ model User {
   invitationsSent     Invitation[]  @relation("InvitationInvitedBy")
   // Las cotizaciones que armó (§39).
   createdQuotes       Quote[]       @relation("QuoteCreatedBy")
+  // Las entregas que confirmó (§40).
+  confirmedDeliveries Delivery[]    @relation("DeliveryDeliveredBy")
 
   // Módulo de stock de vehículos: las unidades que este vendedor tiene
   // asignadas y los cambios de ficha que registró.
@@ -878,6 +895,8 @@ model Opportunity {
   activities Activity[]
   bookings   Booking[]
   quotes     Quote[]
+  // A lo sumo una (UNIQUE (organization_id, opportunity_id) en Delivery).
+  deliveries Delivery[]
 
   @@unique([organizationId, id])
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL) y
@@ -2438,9 +2457,11 @@ model Vehicle {
   changeLog     VehicleChangeLog[]
   opportunities Opportunity[]
   quotes        Quote[]
+  deliveries    Delivery[]
 
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3): photos,
-  // change log, opportunities.vehicle_id y quotes.vehicle_id.
+  // change log, opportunities.vehicle_id, quotes.vehicle_id y
+  // deliveries.vehicle_id.
   @@unique([organizationId, id])
   // Ver el comentario de internalCode: sin predicado parcial a propósito.
   @@unique([organizationId, internalCode])
@@ -2698,4 +2719,71 @@ model Quote {
   // Sin @@unique([organizationId, id]): nada referencia a una cotización.
   @@index([organizationId, opportunityId, createdAt])
   @@map("quotes")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Entrega (§40 de docs/frontend-cambios-pendientes.md)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ---------------------------------------------------------------------------
+// Delivery — la entrega física de la unidad vendida al cliente. "Vendido" y
+// "entregado" son dos eventos distintos: la oportunidad ganada pasa la unidad
+// a SOLD, y esta fila registra cuándo salió de verdad de la agencia, quién la
+// entregó y qué se le dio al cliente.
+//
+// NACE SOLA, nunca por POST: opportunity.service.ts la crea en PENDING, en la
+// MISMA transacción que mueve la unidad a SOLD, cuando la oportunidad pasa a
+// ganada con una unidad vinculada (o cuando a una ya ganada se le vincula
+// una). No es una Automation ni cuelga del evento opportunity.won del outbox:
+// es un efecto directo y determinístico, como el propio SOLD.
+//
+// UNA POR OPORTUNIDAD — a diferencia de Quote, que versiona: la entrega es un
+// evento real que no se supera ni se recrea. De ahí el UNIQUE
+// (organization_id, opportunity_id), que además cubre el lado referenciante
+// de la FK compuesta a opportunities.
+//
+// vehicleId es una FOTO, mismo criterio que Quote.vehicleId: la unidad que se
+// vendió al momento de crear la entrega. Nullable por la regla de
+// 20260821140200 (-> NO ACTION), aunque en la práctica siempre está: no hay
+// entrega sin unidad.
+//
+// checklist: JSONB con [{ label, checked }]. Se siembra con un default fijo en
+// código (delivery.service.ts, DEFAULT_DELIVERY_CHECKLIST) y cada entrega
+// edita el suyo sin tocar el de las demás. Sin catálogo ni tabla hija, mismo
+// criterio que Quote.lines; la forma la valida zod en el borde. Es
+// INFORMATIVO: confirmar la entrega no exige que esté todo tildado.
+//
+// scheduledAt es @db.Date ("se entrega el 30"); deliveredAt es el instante
+// real, y deliveredById quién confirmó — los dos los pone "Confirmar entrega"
+// y quedan null mientras está PENDING. Esa consistencia la sostiene
+// delivery.service.ts, la única puerta de escritura, y no un CHECK: mismo
+// criterio que confirmed_at/confirmed_by_id en activities (20260914120000).
+//
+// SIN deletedAt: una entrega no se borra. Cuelga de una oportunidad con soft
+// delete, así que la FK RESTRICT no se dispara nunca.
+// ---------------------------------------------------------------------------
+model Delivery {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  opportunityId  String         @map("opportunity_id") @db.Uuid
+  vehicleId      String?        @map("vehicle_id") @db.Uuid
+  checklist      Json           @default("[]")
+  scheduledAt    DateTime?      @map("scheduled_at") @db.Date
+  deliveredAt    DateTime?      @map("delivered_at")
+  deliveredById  String?        @map("delivered_by_id") @db.Uuid
+  status         DeliveryStatus @default(PENDING)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  opportunity  Opportunity  @relation(fields: [organizationId, opportunityId], references: [organizationId, id])
+  vehicle      Vehicle?     @relation(fields: [organizationId, vehicleId], references: [organizationId, id], onDelete: NoAction)
+  deliveredBy  User?        @relation("DeliveryDeliveredBy", fields: [organizationId, deliveredById], references: [organizationId, id], onDelete: NoAction)
+
+  // Una entrega por oportunidad. Sin índice sobre vehicle_id ni
+  // delivered_by_id: no hay vista "entregas de esta unidad" ni "de este
+  // usuario", y vehicles/users nunca se borran físicamente (mismo criterio que
+  // quotes). Sin @@unique([organizationId, id]): nada referencia a una entrega.
+  @@unique([organizationId, opportunityId])
+  @@map("deliveries")
 }

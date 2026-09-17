@@ -44,6 +44,7 @@ import {
   transitionQuoteConditional,
   updateDraftQuoteContent,
 } from "./quote.repository";
+import { confirmDeliveryConditional, updatePendingDelivery } from "./delivery.repository";
 import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
 import type { NotaIgnorado, PromotionNote } from "../types/promotion";
 
@@ -145,6 +146,9 @@ interface Fixture {
   // su estado de partida.
   quoteBDraft: { id: string };
   quoteBSentVencida: { id: string };
+  // §40 — una entrega PENDING de la oportunidad de B: las dos escrituras
+  // condicionales parten de ese estado.
+  deliveryBPending: { id: string };
   authUserId: string;
 }
 
@@ -421,6 +425,17 @@ before(async () => {
     },
   });
 
+  // §40 — directo por Prisma, como las cotizaciones: la entrega nace sola al
+  // ganar con unidad (opportunity.service.ts), y acá solo hace falta una fila
+  // fija. Sin unidad: la columna es nullable y ninguna escritura la mira.
+  const deliveryBPending = await prisma.delivery.create({
+    data: {
+      organizationId: orgB.id,
+      opportunityId: opportunityB.id,
+      checklist: [{ label: "Manual del vehículo", checked: false }],
+    },
+  });
+
   fx = {
     orgA: { id: orgA.id },
     orgB: { id: orgB.id },
@@ -450,6 +465,7 @@ before(async () => {
     ingestionEventBProcessed: { id: ingestionEventBProcessed.id },
     quoteBDraft: { id: quoteBDraft.id },
     quoteBSentVencida: { id: quoteBSentVencida.id },
+    deliveryBPending: { id: deliveryBPending.id },
     authUserId: authUserB.id,
   };
 });
@@ -478,6 +494,7 @@ after(async () => {
   await prisma.activity.deleteMany({ where: { organizationId: fx.orgB.id } });
   // Las cotizaciones referencian la oportunidad (RESTRICT): van antes.
   await prisma.quote.deleteMany({ where: { organizationId: ambas } });
+  await prisma.delivery.deleteMany({ where: { organizationId: ambas } });
   await prisma.opportunity.deleteMany({ where: { organizationId: fx.orgB.id } });
   await prisma.contact.deleteMany({ where: { organizationId: ambas } });
   await prisma.company.deleteMany({ where: { organizationId: fx.orgB.id } });
@@ -1205,5 +1222,41 @@ test("expireDueQuotes: id de Organization B (SENT vencida) + organizationId de O
         new Date("2030-01-01T00:00:00.000Z"),
       ),
     "expireDueQuotes",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// §40 — Entrega. Las dos escrituras de delivery.repository.ts filtran por
+// organizationId en su WHERE además de por estado, con B en PENDING —el estado
+// exacto que las dos esperan—. createDelivery no está: recibe organizationId
+// en el dato, y lo que impide colgarla de una oportunidad ajena son las FKs
+// compuestas (probado en delivery.service.integration-test.ts).
+// ---------------------------------------------------------------------------
+
+function leerDeliveryBPending() {
+  return prisma.delivery.findUniqueOrThrow({ where: { id: fx.deliveryBPending.id } });
+}
+
+test("updatePendingDelivery: id de Organization B (PENDING) + organizationId de Organization A no cambia el checklist", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerDeliveryBPending,
+    () =>
+      updatePendingDelivery(fx.deliveryBPending.id, fx.orgA.id, {
+        checklist: [{ label: "hijacked", checked: true }],
+        scheduledAt: new Date("2030-01-01T00:00:00.000Z"),
+      }),
+    "updatePendingDelivery",
+  );
+});
+
+test("confirmDeliveryConditional: id de Organization B (PENDING) + organizationId de Organization A no la confirma", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerDeliveryBPending,
+    () =>
+      confirmDeliveryConditional(fx.deliveryBPending.id, fx.orgA.id, {
+        deliveredById: fx.userB.id,
+        deliveredAt: new Date(),
+      }),
+    "confirmDeliveryConditional",
   );
 });

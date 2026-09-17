@@ -37,7 +37,8 @@ export interface Opportunity {
   // Unidad de stock vinculada (Fase 2c). Al vincular una, el backend le copia
   // el precio a amount/currency SOLO si el body no los manda (ver
   // OpportunityFormPage), y sincroniza el estado de la unidad con el de la
-  // oportunidad (RESERVED mientras está abierta, SOLD al ganarla).
+  // oportunidad (RESERVED mientras está abierta, SOLD al ganarla). DELIVERED
+  // no sale de la oportunidad: lo pone "Confirmar entrega" (§40).
   vehicleId: string | null;
   financingType: OpportunityFinancingType | null;
   leadSource: OpportunityLeadSource | null;

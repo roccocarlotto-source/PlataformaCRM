@@ -3008,6 +3008,92 @@ a.ds-button--secondary:hover {
 }
 
 /* ---------------------------------------------------------------------------
+   Entrega de la unidad (features/delivery/, docs/frontend-cambios-pendientes.md
+   §40). Mismo criterio que el bloque de Cotización, con el que comparte lugar
+   en la ficha: una tarjeta debajo de la sección de cotización, con el ancho de
+   .ds-form, y tokens del sistema.
+   --------------------------------------------------------------------------- */
+.ds-delivery-section {
+  margin-top: var(--space-5);
+}
+
+.ds-delivery {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ds-delivery-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.ds-delivery-vehicle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.ds-delivery .ds-field {
+  margin: 0;
+}
+
+.ds-delivery-subtitle {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* Cada ítem en una fila: la casilla con su texto a la izquierda y "Quitar" a
+   la derecha. El texto del ítem es el dato, así que va con el color y el peso
+   del texto normal y no con el gris del rótulo de un campo. */
+.ds-delivery-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ds-delivery-checklist li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ds-delivery-checklist .ds-field-label {
+  font-size: var(--font-size-base);
+  font-weight: 400;
+  color: var(--color-text);
+}
+
+.ds-delivery-add {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+/* El campo crece hasta el max-width de 32rem que ya tienen los inputs (regla
+   base de input/select/textarea), y no más: con flex: 1 la fila ocupaba todo
+   el ancho de la tarjeta y "Agregar" quedaba lejos de su campo. */
+.ds-delivery-add .ds-field {
+  flex: 0 1 32rem;
+  min-width: 0;
+}
+
+.ds-delivery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* ---------------------------------------------------------------------------
    Impresión de la cotización activa (botón "Imprimir" → window.print()). En
    papel queda SOLO .ds-quote-printable: todo lo demás se oculta con
    visibility y no con display, porque la cotización está anidada adentro del

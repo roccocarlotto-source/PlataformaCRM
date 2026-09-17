@@ -31,7 +31,14 @@ import { parseOrThrow } from "../utils/validation";
 const idParamSchema = z.string().uuid("id inválido");
 
 const conditionSchema = z.enum(["NEW", "USED"]);
-const statusSchema = z.enum(["AVAILABLE", "RESERVED", "IN_PREPARATION", "IN_TRANSIT", "SOLD"]);
+const statusSchema = z.enum([
+  "AVAILABLE",
+  "RESERVED",
+  "IN_PREPARATION",
+  "IN_TRANSIT",
+  "SOLD",
+  "DELIVERED",
+]);
 const bodyTypeSchema = z.enum([
   "SEDAN",
   "HATCHBACK",

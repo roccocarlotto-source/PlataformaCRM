@@ -353,3 +353,22 @@ test("las cotizaciones (§39) están montadas bajo /api, sin DELETE", async () =
   const borrar = await fetch(`${baseUrl}/api/quotes/${id}`, { method: "DELETE" });
   assert.equal(borrar.status, 404);
 });
+
+test("las entregas (§40) están montadas bajo /api, sin POST ni DELETE", async () => {
+  const id = randomUUID();
+  const casos: [string, string][] = [
+    ["GET", "/api/deliveries"],
+    ["GET", `/api/deliveries/${id}`],
+    ["PATCH", `/api/deliveries/${id}`],
+  ];
+  for (const [method, path] of casos) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+  }
+  // Nace sola al ganar la oportunidad y no se borra: POST y DELETE caen en
+  // notFound.
+  const crear = await fetch(`${baseUrl}/api/deliveries`, { method: "POST" });
+  assert.equal(crear.status, 404);
+  const borrar = await fetch(`${baseUrl}/api/deliveries/${id}`, { method: "DELETE" });
+  assert.equal(borrar.status, 404);
+});

@@ -34,6 +34,7 @@ import { AppError } from "../utils/AppError";
 import { lastMonthsUTC, monthWindowUTC } from "../utils/utcMonth";
 import { dayWindowUTC, lastDaysUTC, lastWeeksUTC, weekWindowUTC } from "../utils/utcWindow";
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
+import { createDeliveryForSoldVehicle } from "./delivery.service";
 import { resolveOwnerId } from "./ownership.service";
 import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
 
@@ -221,7 +222,9 @@ function assertVehicleAvailable(vehicle: { status: VehicleStatus }) {
 
 // El estado en que queda la unidad según el de la oportunidad que la tiene
 // vinculada: abierta la reserva, ganada la vende, perdida no reserva nada.
-// Exportada para probarla sin base.
+// Nunca devuelve DELIVERED: a ese estado no se llega por la oportunidad sino
+// por "Confirmar entrega" (delivery.service.ts, §40). Exportada para probarla
+// sin base.
 export function vehicleStatusForOpportunityStatus(status: OpportunityStatus): VehicleStatus {
   switch (status) {
     case "WON":
@@ -365,6 +368,13 @@ export async function createOpportunity(
         vehicleStatusForOpportunityStatus(created.status),
         tx,
       );
+      // Entrega (§40): creada directamente como ganada, la unidad pasa de
+      // AVAILABLE (assertVehicleAvailable, arriba) a SOLD, y en la misma
+      // transacción nace su entrega pendiente. La oportunidad es nueva, así
+      // que no puede tener una entrega previa.
+      if (created.status === "WON") {
+        await createDeliveryForSoldVehicle(organizationId, created.id, input.vehicleId, tx);
+      }
     }
 
     // Creada directamente como ganada: el evento va en el MISMO tx, lo último
@@ -563,6 +573,22 @@ export async function updateOpportunity(
           vehicleStatusForOpportunityStatus(effectiveStatus),
           tx,
         );
+
+        // Entrega (§40), en la misma transacción que deja la unidad SOLD.
+        // Nace en dos casos: la oportunidad PASA a ganada con la unidad
+        // vinculada (pasaAWon), o a una ganada se le vincula una unidad
+        // (vehicleChanged).
+        //
+        // NO alcanza con "el destino de la unidad es SOLD". needsVehicleSync
+        // se decide sobre el status leído SIN lock: dos PATCH a WON
+        // concurrentes entran los dos a este bloque, y el segundo —que hoy es
+        // un no-op sobre una unidad ya SOLD— reventaría el UNIQUE de la
+        // entrega con un 409. pasaAWon sale de la fila bloqueada, así que solo
+        // el primero la crea (carrera probada en
+        // delivery.service.integration-test.ts).
+        if (effectiveStatus === "WON" && (pasaAWon || vehicleChanged)) {
+          await createDeliveryForSoldVehicle(organizationId, id, newVehicleId, tx);
+        }
       }
 
       // Después de que el UPDATE confirmó count === 1 (una oportunidad que
