@@ -320,6 +320,16 @@ enum DeliveryStatus {
   DELIVERED
 }
 
+// Cómo cobró la agencia un pago del cliente (§43). Lista cerrada a propósito,
+// no texto libre: "Otro" cubre lo que no entra.
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  CARD
+  CHECK
+  OTHER
+}
+
 // Cómo entró la unidad al stock. CONSIGNMENT es el único valor con campos
 // propios (consignor* / consignment* en Vehicle) y el CHECK de la migración
 // solo los admite con este origen.
@@ -513,6 +523,7 @@ model Organization {
 
   quotes     Quote[]
   deliveries Delivery[]
+  payments   Payment[]
 
   @@index([deletedAt])
   @@map("organizations")
@@ -910,14 +921,16 @@ model Opportunity {
   // opportunities_organization_id_vehicle_id_fkey).
   vehicle      Vehicle?     @relation("OpportunityVehicle", fields: [organizationId, vehicleId], references: [organizationId, id], onDelete: NoAction)
 
-  activities Activity[]
-  bookings   Booking[]
-  quotes     Quote[]
+  activities      Activity[]
+  bookings        Booking[]
+  quotes          Quote[]
   // A lo sumo una (UNIQUE (organization_id, opportunity_id) en Delivery).
-  deliveries Delivery[]
+  deliveries      Delivery[]
   // Permuta (§41): las unidades que el cliente entregó en esta venta. Cero o
   // más, sin UNIQUE — ver Vehicle.tradeInOpportunityId.
-  tradeInVehicles Vehicle[] @relation("VehicleTradeInOpportunity")
+  tradeInVehicles Vehicle[]  @relation("VehicleTradeInOpportunity")
+  // Pagos del cliente (§43): cero o más, historial editable.
+  payments        Payment[]
 
   @@unique([organizationId, id])
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL) y
@@ -2824,4 +2837,55 @@ model Delivery {
   // quotes). Sin @@unique([organizationId, id]): nada referencia a una entrega.
   @@unique([organizationId, opportunityId])
   @@map("deliveries")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pago del cliente (§43 de docs/frontend-cambios-pendientes.md)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ---------------------------------------------------------------------------
+// Payment — un cobro que la agencia registra dentro de una oportunidad: la
+// entrega inicial hoy, una cuota el mes que viene. HISTORIAL, como Quote, y no
+// un campo único como financingType: cero o más filas por oportunidad.
+//
+// PURAMENTE INFORMATIVO: no bloquea "Confirmar entrega" ni el cierre de la
+// oportunidad, y no emite eventos al outbox (ninguna automatización lo ve).
+// Mismo criterio que Permuta (§41) y el detalle de financiación (§42).
+//
+// currency es una FOTO, mismo criterio que Quote.vehicleId: se copia de
+// Opportunity.currency al crear el pago y no se toca si la oportunidad cambia
+// de moneda después — un pago cobrado en USD no se reinterpreta. Por eso el
+// cliente no la manda y el PATCH no la edita. El total "Pagado / Saldo" de la
+// ficha solo suma los pagos en la moneda actual de la oportunidad.
+//
+// amount > 0 por CHECK en la migración — estricto, a diferencia de
+// quotes/opportunities (>= 0): un pago de $0 no es un pago.
+//
+// paidAt es @db.Date: la fecha en que se cobró, cargada a mano, no un
+// timestamp del sistema.
+//
+// SIN deletedAt: a diferencia de Quote y Delivery, un pago se corrige y se
+// BORRA de verdad (DELETE físico). Es un dato cargado a mano, no un ledger
+// contable; sin historial de cambios sobre cada pago.
+// ---------------------------------------------------------------------------
+model Payment {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  opportunityId  String        @map("opportunity_id") @db.Uuid
+  amount         Decimal       @db.Decimal(14, 2)
+  currency       String        @db.VarChar(3)
+  method         PaymentMethod
+  paidAt         DateTime      @map("paid_at") @db.Date
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  opportunity  Opportunity  @relation(fields: [organizationId, opportunityId], references: [organizationId, id])
+
+  // El historial de una oportunidad (más nuevo primero) con un solo índice que
+  // además cubre el lado referenciante de la FK compuesta a opportunities.
+  // Sin índice sobre method: no hay vista "pagos en efectivo". Sin
+  // @@unique([organizationId, id]): nada referencia a un pago.
+  @@index([organizationId, opportunityId, paidAt])
+  @@map("payments")
 }

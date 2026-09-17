@@ -205,7 +205,9 @@ from (
       -- 20260916120000): organization_id propio y la política uniforme.
       ('quotes'),
       -- Entrega (§40, migración 20260917120000): ídem.
-      ('deliveries')
+      ('deliveries'),
+      -- Pago del cliente (§43, migración 20260920120000): ídem.
+      ('payments')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -300,7 +302,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 27 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 28 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -431,7 +433,12 @@ from (
     ('opportunities_financing_installment_amount_non_negative_check', 'opportunities',
      'CHECK (financing_installment_amount >= 0)'),
     ('opportunities_financing_installment_count_positive_check', 'opportunities',
-     'CHECK (financing_installment_count > 0)')
+     'CHECK (financing_installment_count > 0)'),
+    -- Pago del cliente (§43, migración 20260920120000): ESTRICTO, a diferencia
+    -- de quotes_amount_non_negative_check — un pago de $0 no es un pago. Un
+    -- `>=` en su lugar difiere en un carácter y esta fila lo atrapa.
+    ('payments_amount_positive_check', 'payments',
+     'CHECK (amount > 0)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -813,7 +820,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 51 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 52 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -837,7 +844,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 51 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 52 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -920,7 +927,10 @@ from (
     -- opportunities.vehicle_id: una FK bien formada con el sentido cambiado
     -- (o hacia quotes/deliveries, que también cuelgan de opportunities) pasaría
     -- la 14.
-    ('vehicles_organization_id_trade_in_opportunity_id_fkey|vehicles(organization_id,trade_in_opportunity_id)->opportunities(organization_id,id)')
+    ('vehicles_organization_id_trade_in_opportunity_id_fkey|vehicles(organization_id,trade_in_opportunity_id)->opportunities(organization_id,id)'),
+    -- Pago del cliente (§43, migración 20260920120000): cuelga de su
+    -- oportunidad, igual que quotes/deliveries.
+    ('payments_organization_id_opportunity_id_fkey|payments(organization_id,opportunity_id)->opportunities(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
