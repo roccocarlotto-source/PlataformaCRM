@@ -63,6 +63,36 @@ textarea {
   border-radius: var(--radius-md);
 }
 
+/* Apaga el <select> nativo del navegador y dibuja el propio chevron (mismo
+   ícono que MultiSelect.tsx: ChevronDown de lucide-react, 16px, stroke-width
+   1.5), en --color-text-faint porque es un indicio secundario, no el valor
+   elegido. El SVG vive en el token --select-chevron (tokens.css), que ya
+   cambia de color por tema. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  background-size: 16px 16px;
+  padding-right: calc(var(--space-3) * 2 + 16px);
+}
+
+/* El popup nativo de <option> no sigue color-scheme de forma confiable en
+   Chromium cuando el <select> ya tiene color/background propios (hereda esos
+   valores al popup): sin esto, en modo oscuro el texto queda casi blanco
+   sobre el fondo claro por defecto del SO, invisible hasta que el hover del
+   navegador lo tapa con su propio resaltado. */
+option {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
+option:disabled {
+  color: var(--color-text-faint);
+}
+
 textarea {
   height: auto;
   min-height: calc(var(--control-height) * 2);
@@ -467,6 +497,18 @@ fieldset.ds-field {
   background: transparent;
   font-size: var(--font-size-base);
   color: var(--color-text);
+}
+
+/* El shorthand background: transparent de arriba también borra el chevron de
+   la regla base de select: se repone acá, pegado al borde derecho porque el
+   padding lo pone la píldora y no el control. Regla aparte para no dibujarlo
+   en los input de la misma lista. */
+.ds-filters label select,
+.ds-filters div:has(> label[for]) > select,
+.ds-board-toolbar label select,
+.ds-board-toolbar div:has(> label[for]) > select {
+  background: transparent var(--select-chevron) no-repeat right center / 16px 16px;
+  padding-right: calc(16px + var(--space-2));
 }
 
 /* El foco se muestra en la píldora entera, no en el control transparente. */

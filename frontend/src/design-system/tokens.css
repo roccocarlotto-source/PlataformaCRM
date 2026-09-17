@@ -75,6 +75,12 @@
 
   --color-focus-ring: #3d47ad;
 
+  /* Chevron de los <select> nativos: ChevronDown de lucide-react (el mismo de
+     MultiSelect.tsx) como SVG en data URI. Un SVG de background-image no lee
+     variables CSS, así que el stroke es el hex de --color-text-faint
+     hardcodeado: si ese token cambia, este cambia con él (acá y en dark). */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%238f8e85' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+
   /* Tipografía: Public Sans para cuerpo/UI, Space Grotesk para títulos.
      Ninguna es de sistema — index.html las carga desde Google Fonts, con
      system-ui de respaldo si no llegan. */
@@ -145,6 +151,9 @@
   --color-success-soft: #1c3327;
 
   --color-focus-ring: #a7aff0;
+
+  /* Stroke = --color-text-faint oscuro (#7f7e74). */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%237f7e74' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
