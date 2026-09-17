@@ -300,7 +300,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 22 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 27 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -421,7 +421,17 @@ from (
     -- Cotización (§39, migración 20260916120000): el mismo CHECK que
     -- opportunities_amount_non_negative_check sobre el precio ofertado.
     ('quotes_amount_non_negative_check', 'quotes',
-     'CHECK (amount >= 0)')
+     'CHECK (amount >= 0)'),
+    -- Detalle de financiación (§42, migración 20260919120000): los tres
+    -- nullables del plan. NULL pasa (la expresión da NULL), así que solo frenan
+    -- el valor fuera de rango. El normalizador quita el `(0)::numeric` de las
+    -- comparaciones con Decimal, igual que en vehicles_*.
+    ('opportunities_financing_down_payment_non_negative_check', 'opportunities',
+     'CHECK (financing_down_payment >= 0)'),
+    ('opportunities_financing_installment_amount_non_negative_check', 'opportunities',
+     'CHECK (financing_installment_amount >= 0)'),
+    ('opportunities_financing_installment_count_positive_check', 'opportunities',
+     'CHECK (financing_installment_count > 0)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def

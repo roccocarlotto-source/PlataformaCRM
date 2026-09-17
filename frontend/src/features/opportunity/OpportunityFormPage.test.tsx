@@ -1246,6 +1246,180 @@ describe("OpportunityFormPage", () => {
     expect(patched[0]).not.toHaveProperty("currency");
   });
 
+  // §42: detalle del plan de financiación, visible solo con una financiación
+  // elegida (ni "Sin especificar" ni "Sin financiación").
+  const FINANCING_DETAIL_LABELS = [
+    "Entidad financiera",
+    "Entrega inicial",
+    "Cantidad de cuotas",
+    "Monto de cuota",
+  ];
+
+  it("§42 create: el detalle de financiación no aparece sin financiación ni con 'Sin financiación'; con Cuotas sí, y el POST manda lo cargado", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new?pipelineId=pl1&stageId=st1");
+
+    const financiacion = await screen.findByLabelText("Financiación");
+    for (const label of FINANCING_DETAIL_LABELS) {
+      expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
+    }
+
+    await user.selectOptions(financiacion, "NONE");
+    for (const label of FINANCING_DETAIL_LABELS) {
+      expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
+    }
+
+    await user.selectOptions(financiacion, "INSTALLMENT_24M");
+    for (const label of FINANCING_DETAIL_LABELS) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument();
+    }
+
+    await user.type(screen.getByLabelText("Título"), "Con plan");
+    await user.type(screen.getByLabelText("Entidad financiera"), "Banco República");
+    await user.type(screen.getByLabelText("Entrega inicial"), "5000");
+    await user.type(screen.getByLabelText("Cantidad de cuotas"), "23");
+    await user.type(screen.getByLabelText("Monto de cuota"), "812,25");
+    // Ya salió del campo: CurrencyInput lo muestra con los dos decimales.
+    expect(screen.getByLabelText("Entrega inicial")).toHaveValue("5.000,00");
+
+    // Sin Empresa ni Contacto el backend real respondería 400; acá lo que
+    // importa es el payload, y el handler lo acepta igual.
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(postedBody).toBeDefined());
+    expect(postedBody).toMatchObject({
+      financingType: "INSTALLMENT_24M",
+      financingLender: "Banco República",
+      financingDownPayment: 5000,
+      financingInstallmentCount: 23,
+      financingInstallmentAmount: 812.25,
+    });
+  });
+
+  it("§42 create: sin tocar el detalle, el POST no manda ninguno de los cuatro campos", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.post(opportunitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/new?pipelineId=pl1&stageId=st1");
+
+    await user.selectOptions(await screen.findByLabelText("Financiación"), "OWN_FINANCING");
+    await user.type(screen.getByLabelText("Título"), "Sin plan");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(postedBody).toBeDefined());
+    for (const campo of [
+      "financingLender",
+      "financingDownPayment",
+      "financingInstallmentCount",
+      "financingInstallmentAmount",
+    ]) {
+      expect(postedBody).not.toHaveProperty(campo);
+    }
+  });
+
+  it("§42 edit: hidrata el detalle persistido, el PATCH manda lo corregido y un campo vaciado va como null", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, () =>
+        HttpResponse.json(
+          makeOpportunity({
+            id: "op1",
+            pipelineId: "pl1",
+            stageId: "st1",
+            financingType: "INSTALLMENT_36M",
+            financingLender: "Banco República",
+            financingDownPayment: "5000.50",
+            financingInstallmentCount: 36,
+            financingInstallmentAmount: "812.25",
+          }),
+        ),
+      ),
+      http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity());
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/op1/edit");
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Entidad financiera")).toHaveValue("Banco República"),
+    );
+    expect(screen.getByLabelText("Entrega inicial")).toHaveValue("5.000,50");
+    expect(screen.getByLabelText("Cantidad de cuotas")).toHaveValue(36);
+    expect(screen.getByLabelText("Monto de cuota")).toHaveValue("812,25");
+
+    await user.clear(screen.getByLabelText("Cantidad de cuotas"));
+    await user.type(screen.getByLabelText("Cantidad de cuotas"), "35");
+    await user.clear(screen.getByLabelText("Entidad financiera"));
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(patchedBody).toBeDefined());
+    expect(patchedBody).toMatchObject({
+      financingType: "INSTALLMENT_36M",
+      financingLender: null,
+      financingDownPayment: 5000.5,
+      financingInstallmentCount: 35,
+      financingInstallmentAmount: 812.25,
+    });
+  });
+
+  it("§42 edit: pasar a 'Sin financiación' oculta el detalle pero no lo vacía — el PATCH lo reenvía tal cual", async () => {
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      ...baseHandlers(),
+      http.get(`${opportunitiesUrl}/:id`, () =>
+        HttpResponse.json(
+          makeOpportunity({
+            id: "op1",
+            pipelineId: "pl1",
+            stageId: "st1",
+            financingType: "OWN_FINANCING",
+            financingDownPayment: "0.00",
+            financingInstallmentCount: 12,
+          }),
+        ),
+      ),
+      http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeOpportunity());
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/opportunities/op1/edit");
+
+    await waitFor(() => expect(screen.getByLabelText("Cantidad de cuotas")).toHaveValue(12));
+    await user.selectOptions(screen.getByLabelText("Financiación"), "NONE");
+    for (const label of FINANCING_DETAIL_LABELS) {
+      expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
+    }
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(patchedBody).toBeDefined());
+    expect(patchedBody).toMatchObject({
+      financingType: "NONE",
+      financingLender: null,
+      // Una entrega inicial de 0 es un valor real: no se confunde con vacío.
+      financingDownPayment: 0,
+      financingInstallmentCount: 12,
+      financingInstallmentAmount: null,
+    });
+  });
+
   it("edit: debajo del formulario se monta la sección de Cotización de ESA oportunidad, con la activa y su historial", async () => {
     let pedida: string | null = null;
     // El handler de quotes va ANTES de baseHandlers(): en MSW gana el primero

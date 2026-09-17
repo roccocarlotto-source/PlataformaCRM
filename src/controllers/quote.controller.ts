@@ -10,14 +10,9 @@ import {
 import type { AuthenticatedRequest } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
-import { currencySchema, parseOrThrow } from "../utils/validation";
+import { currencySchema, MAX_AMOUNT, parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
-
-// Tope de Decimal(14, 2): 12 dígitos enteros. Sin esto un monto más grande
-// llegaría a Postgres y volvería como 500 ("numeric field overflow") en vez
-// de un 400 legible.
-const MAX_AMOUNT = 999_999_999_999.99;
 
 // Tope de cordura para las líneas: una cotización de una automotora lleva un
 // puñado de accesorios y algún descuento, no un catálogo.

@@ -11,7 +11,7 @@ import {
 } from "../services/opportunity.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
-import { currencySchema, parseOrThrow } from "../utils/validation";
+import { currencySchema, MAX_AMOUNT, parseOrThrow } from "../utils/validation";
 
 const idParamSchema = z.string().uuid("id inválido");
 
@@ -37,6 +37,37 @@ const leadSourceSchema = z.enum([
   "REFERRAL",
   "WHATSAPP",
 ]);
+
+// Detalle de financiación (§42). Los dos importes van en la moneda de la
+// oportunidad y comparten tope con Quote.amount (MAX_AMOUNT, Decimal(14, 2));
+// z.number() y no coerce por el mismo motivo que amount (M-9). La cantidad de
+// cuotas es el número real, independiente del 24/36 de financingType, con un
+// tope de cordura: nadie financia un auto en más de 10 años. Sin validación
+// cruzada con financingType, a propósito — ver schema.prisma.
+const MAX_INSTALLMENT_COUNT = 120;
+
+const financingAmountSchema = (campo: string) =>
+  z
+    .number({ invalid_type_error: `${campo} debe ser un número` })
+    .min(0, `${campo} debe ser mayor o igual a 0`)
+    .max(MAX_AMOUNT, `${campo} supera el máximo permitido`);
+
+const financingFields = {
+  financingLender: z
+    .string()
+    .trim()
+    .max(255, "financingLender no puede superar los 255 caracteres"),
+  financingDownPayment: financingAmountSchema("financingDownPayment"),
+  financingInstallmentCount: z
+    .number({ invalid_type_error: "financingInstallmentCount debe ser un número" })
+    .int("financingInstallmentCount debe ser un número entero")
+    .positive("financingInstallmentCount debe ser mayor a 0")
+    .max(
+      MAX_INSTALLMENT_COUNT,
+      `financingInstallmentCount no puede superar las ${MAX_INSTALLMENT_COUNT} cuotas`,
+    ),
+  financingInstallmentAmount: financingAmountSchema("financingInstallmentAmount"),
+};
 
 const opportunityFields = {
   title: z
@@ -67,6 +98,10 @@ const opportunityFields = {
   vehicleId: z.string().uuid("vehicleId inválido").optional(),
   financingType: financingTypeSchema.optional(),
   leadSource: leadSourceSchema.optional(),
+  financingLender: financingFields.financingLender.optional(),
+  financingDownPayment: financingFields.financingDownPayment.optional(),
+  financingInstallmentCount: financingFields.financingInstallmentCount.optional(),
+  financingInstallmentAmount: financingFields.financingInstallmentAmount.optional(),
 };
 
 // Exportado para poder fijar con tests unitarios (sin base) qué rechaza el
@@ -95,6 +130,9 @@ export const createOpportunitySchema = z
 // vehicleId/financingType/leadSource (Fase 2c) igual: vehicleId: null es
 // "desvincular la unidad" y libera la reserva si sigue vigente (ver
 // opportunity.service.ts).
+//
+// Los cuatro del detalle de financiación (§42) también: null los vacía, sin
+// ningún efecto más allá de la columna.
 export const updateOpportunitySchema = z
   .object({
     ...opportunityFields,
@@ -109,6 +147,10 @@ export const updateOpportunitySchema = z
     vehicleId: z.string().uuid("vehicleId inválido").nullable().optional(),
     financingType: financingTypeSchema.nullable().optional(),
     leadSource: leadSourceSchema.nullable().optional(),
+    financingLender: financingFields.financingLender.nullable().optional(),
+    financingDownPayment: financingFields.financingDownPayment.nullable().optional(),
+    financingInstallmentCount: financingFields.financingInstallmentCount.nullable().optional(),
+    financingInstallmentAmount: financingFields.financingInstallmentAmount.nullable().optional(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {

@@ -42,6 +42,14 @@ export interface Opportunity {
   vehicleId: string | null;
   financingType: OpportunityFinancingType | null;
   leadSource: OpportunityLeadSource | null;
+  // Detalle del plan de financiación (§42). Complementa a financingType, sin
+  // validación cruzada: puede venir cargado con cualquier valor del enum. Los
+  // dos importes son Decimal(14,2) → string en lectura (mismo caso que
+  // amount), en la moneda de la oportunidad; la cantidad de cuotas es Int.
+  financingLender: string | null;
+  financingDownPayment: string | null;
+  financingInstallmentCount: number | null;
+  financingInstallmentAmount: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -109,6 +117,10 @@ export interface CreateOpportunityInput {
   vehicleId?: string;
   financingType?: OpportunityFinancingType;
   leadSource?: OpportunityLeadSource;
+  financingLender?: string;
+  financingDownPayment?: number;
+  financingInstallmentCount?: number;
+  financingInstallmentAmount?: number;
 }
 
 // A diferencia de create: expectedCloseDate/actualCloseDate/lostReason
@@ -138,6 +150,11 @@ export interface UpdateOpportunityInput {
   vehicleId?: string | null;
   financingType?: OpportunityFinancingType | null;
   leadSource?: OpportunityLeadSource | null;
+  // null vacía el campo; el backend no dispara nada con ninguno de los cuatro.
+  financingLender?: string | null;
+  financingDownPayment?: number | null;
+  financingInstallmentCount?: number | null;
+  financingInstallmentAmount?: number | null;
 }
 
 // La granularidad del selector de período del Dashboard. Desde el §35 gobierna

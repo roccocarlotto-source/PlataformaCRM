@@ -48,6 +48,12 @@ interface OpportunityFormValues {
   vehicleId: string | undefined;
   financingType: OpportunityFinancingType | "";
   leadSource: OpportunityLeadSource | "";
+  // Detalle de financiación (§42). Los importes como string canónico de
+  // CurrencyInput ("5000.5"), la cantidad de cuotas como el texto del input.
+  financingLender: string;
+  financingDownPayment: string;
+  financingInstallmentCount: string;
+  financingInstallmentAmount: string;
 }
 
 const EMPTY_FORM: OpportunityFormValues = {
@@ -66,6 +72,10 @@ const EMPTY_FORM: OpportunityFormValues = {
   vehicleId: undefined,
   financingType: "",
   leadSource: "",
+  financingLender: "",
+  financingDownPayment: "",
+  financingInstallmentCount: "",
+  financingInstallmentAmount: "",
 };
 
 const FINANCING_TYPE_OPTIONS = Object.keys(FINANCING_TYPE_LABELS) as OpportunityFinancingType[];
@@ -79,6 +89,12 @@ const LEAD_SOURCE_OPTIONS = Object.keys(LEAD_SOURCE_LABELS) as OpportunityLeadSo
 // NO cambia: la restricción es del lado del cliente. Sin opción "Otra". La
 // lista vive en lib/currencies.ts desde el ítem 19, compartida con la
 // configuración de moneda de la organización.
+
+// "" → undefined; cualquier otro texto → Number. "0" es un valor real (una
+// entrega inicial de cero), por eso no es un chequeo truthy sobre el número.
+function optionalNumber(value: string): number | undefined {
+  return value === "" ? undefined : Number(value);
+}
 
 // Create: campos vacíos se omiten (undefined) — el backend NO admite null
 // en create para expectedCloseDate/actualCloseDate/lostReason (a diferencia
@@ -104,6 +120,10 @@ function toCreateInput(values: OpportunityFormValues): CreateOpportunityInput {
     vehicleId: values.vehicleId,
     financingType: values.financingType || undefined,
     leadSource: values.leadSource || undefined,
+    financingLender: values.financingLender || undefined,
+    financingDownPayment: optionalNumber(values.financingDownPayment),
+    financingInstallmentCount: optionalNumber(values.financingInstallmentCount),
+    financingInstallmentAmount: optionalNumber(values.financingInstallmentAmount),
   };
 }
 
@@ -115,7 +135,8 @@ function toCreateInput(values: OpportunityFormValues): CreateOpportunityInput {
 // vía PATCH. vehicleId/financingType/leadSource siguen el patrón de
 // expectedCloseDate: vacío es null explícito, y en vehicleId ese null es
 // "quitar el vínculo" (mandar el mismo id que ya tenía es un no-op para el
-// backend, que compara contra el vínculo vigente).
+// backend, que compara contra el vínculo vigente). Los cuatro del detalle de
+// financiación (§42) también: vacío es null explícito.
 function toUpdateInput(values: OpportunityFormValues): UpdateOpportunityInput {
   return {
     title: values.title,
@@ -133,6 +154,10 @@ function toUpdateInput(values: OpportunityFormValues): UpdateOpportunityInput {
     vehicleId: values.vehicleId ?? null,
     financingType: values.financingType || null,
     leadSource: values.leadSource || null,
+    financingLender: values.financingLender || null,
+    financingDownPayment: optionalNumber(values.financingDownPayment) ?? null,
+    financingInstallmentCount: optionalNumber(values.financingInstallmentCount) ?? null,
+    financingInstallmentAmount: optionalNumber(values.financingInstallmentAmount) ?? null,
   };
 }
 
@@ -162,11 +187,31 @@ function toFormValues(data: Opportunity): OpportunityFormValues {
     vehicleId: data.vehicleId ?? undefined,
     financingType: data.financingType ?? "",
     leadSource: data.leadSource ?? "",
+    financingLender: data.financingLender ?? "",
+    // Mismo trato que amount: Number() para el canónico que CurrencyInput espera.
+    financingDownPayment:
+      data.financingDownPayment === null ? "" : String(Number(data.financingDownPayment)),
+    financingInstallmentCount:
+      data.financingInstallmentCount === null ? "" : String(data.financingInstallmentCount),
+    financingInstallmentAmount:
+      data.financingInstallmentAmount === null
+        ? ""
+        : String(Number(data.financingInstallmentAmount)),
   };
 }
 
 function isClosed(status: OpportunityStatus): boolean {
   return status === "WON" || status === "LOST";
+}
+
+// El detalle del plan (§42) se muestra solo con una financiación elegida —
+// mismo patrón condicional que isClosed con Motivo/Fecha real. A diferencia
+// de ese caso, volver a "Sin especificar"/"Sin financiación" NO vacía el
+// detalle: los valores quedan ocultos y viajan igual al guardar, así un cambio
+// de categoría por error no borra lo cargado. Es la misma regla del backend:
+// el detalle no depende de financingType.
+function hasFinancing(financingType: OpportunityFinancingType | ""): boolean {
+  return financingType !== "" && financingType !== "NONE";
 }
 
 // Un único componente para create y edit, mismo patrón que
@@ -585,6 +630,56 @@ export function OpportunityFormPage() {
                   ))}
                 </select>
               </FormField>
+              {/* Detalle del plan (§42), solo con una financiación elegida (ver
+                hasFinancing). De a pares como el resto de la grilla: Entidad +
+                Entrega, Cuotas + Monto de cuota. Sin cálculo automático entre
+                ellos: se cargan los números que da el banco. */}
+              {hasFinancing(values.financingType) ? (
+                <>
+                  <FormField label="Entidad financiera">
+                    <input
+                      type="text"
+                      value={values.financingLender}
+                      maxLength={255}
+                      onChange={(event) =>
+                        setValues({ ...values, financingLender: event.target.value })
+                      }
+                    />
+                  </FormField>
+                  <FormField label="Entrega inicial">
+                    <CurrencyInput
+                      value={values.financingDownPayment}
+                      onChange={(financingDownPayment) =>
+                        setValues({ ...values, financingDownPayment })
+                      }
+                    />
+                  </FormField>
+                  <FormField label="Cantidad de cuotas">
+                    <input
+                      type="number"
+                      min={1}
+                      max={120}
+                      step={1}
+                      value={values.financingInstallmentCount}
+                      onChange={(event) =>
+                        setValues({ ...values, financingInstallmentCount: event.target.value })
+                      }
+                    />
+                  </FormField>
+                  <FormField label="Monto de cuota">
+                    <CurrencyInput
+                      value={values.financingInstallmentAmount}
+                      onChange={(financingInstallmentAmount) =>
+                        setValues({ ...values, financingInstallmentAmount })
+                      }
+                    />
+                  </FormField>
+                  <p className="ds-hint ds-field-grid--full">
+                    Entidad vacía para financiación propia. Los importes van en la moneda de la
+                    oportunidad.
+                  </p>
+                </>
+              ) : null}
             </div>
           </Card>
 
