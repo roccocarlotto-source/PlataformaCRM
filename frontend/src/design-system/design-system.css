@@ -2637,13 +2637,23 @@ a.ds-button--secondary:hover {
 
 /* ---------------------------------------------------------------------------
    Formulario en tarjeta — medidas del export "Nueva empresa": el contenido
-   no pasa de 920px de ancho y los campos van en una grilla de dos columnas
-   iguales (gap 16px entre filas, 20px entre columnas), con el campo
-   principal ocupando el ancho completo. Primer consumidor:
-   features/company/CompanyFormPage.tsx.
+   no pasa de 920px de ancho, queda centrado en el área disponible (el <main>
+   no tiene tope propio, así que sin los márgenes automáticos el formulario
+   quedaba pegado al borde izquierdo con todo el aire a la derecha) y los
+   campos van en una grilla de dos columnas iguales (gap 16px entre filas,
+   20px entre columnas), con el campo principal ocupando el ancho completo.
+   Primer consumidor: features/company/CompanyFormPage.tsx.
+
+   El centrado va en las longhand y no en `margin: 0 auto`: el shorthand
+   también setea margin-top: 0, y las cuatro secciones de la ficha de
+   oportunidad (.ds-quote-section, .ds-delivery-section, .ds-trade-in-section,
+   .ds-payment-section) comparten el elemento con .ds-form y dependen de su
+   propio margin-top.
    --------------------------------------------------------------------------- */
 .ds-form {
   max-width: 920px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* Dos columnas: con el mínimo de 320px entran dos (no tres) en los 870px
