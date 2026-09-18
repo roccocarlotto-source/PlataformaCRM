@@ -1627,6 +1627,17 @@ fieldset.ds-field {
   tab-size: 2;
 }
 
+/* Vista tecnica del JSON, de SOLO LECTURA: el colapsable "Ver JSON" del panel
+   de confirmacion de guardrails (item 56). Un <pre> y no un textarea, porque
+   no se edita y un control de formulario habria prometido lo contrario. La
+   monoespaciada la pone .ds-code-field, que va al lado; lo unico propio es que
+   una linea larga corte en vez de sacarle scroll horizontal al panel. */
+.ds-json-preview {
+  margin: var(--space-2) 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ---------------------------------------------------------------------------
    Badge.tsx — pill de estado. Cuatro variantes semánticas, nunca un color
    suelto: neutral (Lead/MQL), info (SQL, índigo = acento), success

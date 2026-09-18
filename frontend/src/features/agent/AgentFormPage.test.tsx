@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -43,6 +43,7 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
 }
 
 const baseUrl = `${env.apiUrl}/api/agents`;
+const translateUrl = `${baseUrl}/guardrails/translate`;
 const branchesUrl = `${env.apiUrl}/api/branches`;
 
 function mockBranches() {
@@ -52,6 +53,19 @@ function mockBranches() {
       pagination: { page: 1, pageSize: 100, total: 2, totalPages: 1 },
     }),
   );
+}
+
+// El traductor del ítem 56. Registra los cuerpos que recibe: la mitad de lo
+// que hay que probar es CUÁNDO se lo llama y cuándo NO — una traducción de más
+// es una llamada paga a un LLM por un campo que nadie tocó.
+function mockTranslate(
+  respuesta: { guardrails: Record<string, unknown>; descartado?: unknown[] },
+  registro?: unknown[],
+) {
+  return http.post(translateUrl, async ({ request }) => {
+    registro?.push(await request.json());
+    return HttpResponse.json({ descartado: [], ...respuesta });
+  });
 }
 
 // Se renderiza dentro de un Routes real para que useParams vea (o no vea) el
@@ -71,13 +85,11 @@ function renderForm(ruta: string) {
   );
 }
 
-// Escribe el JSON de los guardrails de una sola vez. NO se usa user.type:
-// esa API lee "{" y "[" como el comienzo de un descriptor de tecla
-// ("{Escape}"), así que un JSON habría que escaparlo entero y el test dejaría
-// de parecerse a lo que se quiere probar. Pegar es además lo que una persona
-// hace de verdad con un objeto de configuración.
+// Escribe los guardrails en lenguaje natural. Se pega en vez de tipear: es lo
+// que una persona hace de verdad con un párrafo, y el test no depende de 200
+// eventos de teclado.
 async function escribirGuardrails(user: ReturnType<typeof userEvent.setup>, texto: string) {
-  const campo = screen.getByLabelText("Guardrails (JSON)");
+  const campo = screen.getByLabelText("Guardrails");
   await user.clear(campo);
   await user.click(campo);
   await user.paste(texto);
@@ -92,10 +104,12 @@ async function completarMinimo(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("AgentFormPage — creación", () => {
-  it("manda el POST con los campos del formulario y los guardrails ya parseados a objeto", async () => {
+  it("manda el POST con los campos del formulario, el texto y el JSON confirmado", async () => {
     const bodies: unknown[] = [];
+    const traducciones: unknown[] = [];
     server.use(
       mockBranches(),
+      mockTranslate({ guardrails: { accionesProhibidas: ["update_opportunity"] } }, traducciones),
       http.post(baseUrl, async ({ request }) => {
         bodies.push(await request.json());
         return HttpResponse.json(makeAgent(), { status: 201 });
@@ -109,9 +123,7 @@ describe("AgentFormPage — creación", () => {
     await user.type(screen.getByLabelText("Objetivo"), "Calificar el lead");
     await user.type(screen.getByLabelText("Tono"), "cercano");
     await user.type(screen.getByLabelText("Modelo"), "openai/gpt-4o-mini");
-
-    // El textarea arranca en "{}" (default de creación): se reemplaza entero.
-    await escribirGuardrails(user, '{"accionesProhibidas": ["update_opportunity"]}');
+    await escribirGuardrails(user, "No modifiques oportunidades.");
 
     await user.click(screen.getByLabelText("Canales", { selector: "button" }));
     await user.click(screen.getByRole("checkbox", { name: "WhatsApp" }));
@@ -119,7 +131,11 @@ describe("AgentFormPage — creación", () => {
 
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
+    // Primero el panel: nada se guardó todavía.
+    await user.click(await screen.findByRole("button", { name: "Confirmar y guardar" }));
+
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect(traducciones).toEqual([{ text: "No modifiques oportunidades." }]);
     expect(bodies).toEqual([
       {
         branchId: "b2",
@@ -131,11 +147,223 @@ describe("AgentFormPage — creación", () => {
         modelName: "openai/gpt-4o-mini",
         enabledTools: [],
         channels: ["WHATSAPP"],
-        // Objeto, no el string del textarea.
+        // El objeto que devolvió la traducción, TAL CUAL se mostró.
         guardrails: { accionesProhibidas: ["update_opportunity"] },
+        // Y el texto que el ADMIN escribió, para poder volver a editarlo.
+        guardrailsText: "No modifiques oportunidades.",
         isActive: true,
       },
     ]);
+  });
+
+  it("el panel muestra el resumen en español antes de guardar, y todavía no manda nada", async () => {
+    let posts = 0;
+    server.use(
+      mockBranches(),
+      mockTranslate({
+        guardrails: {
+          accionesProhibidas: ["update_opportunity"],
+          temasProhibidos: ["diagnósticos médicos"],
+          datosRequeridosAntesDeAccion: { create_booking: ["serviceTypeId"] },
+        },
+      }),
+      http.post(baseUrl, () => {
+        posts += 1;
+        return HttpResponse.json(makeAgent(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+    await escribirGuardrails(user, "No modifiques oportunidades ni hables de medicina.");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    const panel = await screen.findByRole("dialog");
+    // Rótulos en castellano, no nombres de tool crudos.
+    expect(
+      within(panel).getByText("No puede ejecutar estas acciones: Modificar oportunidad."),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText("No habla de: diagnósticos médicos.")).toBeInTheDocument();
+    expect(
+      within(panel).getByText('Antes de "Reservar turno" tiene que conocer: serviceTypeId.'),
+    ).toBeInTheDocument();
+    // Y el JSON en crudo, para quien lo quiera revisar.
+    expect(within(panel).getByText(/"accionesProhibidas"/)).toBeInTheDocument();
+
+    expect(posts).toBe(0);
+  });
+
+  it("lo que no se puede aplicar se muestra como advertencia, no desaparece", async () => {
+    server.use(
+      mockBranches(),
+      mockTranslate({
+        guardrails: {},
+        descartado: [
+          {
+            clave: "accionesProhibidas",
+            valor: "enviar_email",
+            motivo: '"enviar_email" no es ninguna de las acciones del agente',
+          },
+        ],
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+    await escribirGuardrails(user, "No mandes mails.");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    const panel = await screen.findByRole("dialog");
+    expect(
+      within(panel).getByText(
+        '"enviar_email": "enviar_email" no es ninguna de las acciones del agente.',
+      ),
+    ).toBeInTheDocument();
+    // Y el resumen dice explícitamente que no quedó nada, en vez de una lista
+    // vacía que se lee igual que "no se entendió nada".
+    expect(within(panel).getByText(/Sin guardrails/)).toBeInTheDocument();
+  });
+
+  it('"Volver a editar" cierra el panel sin mandar nada y deja el texto intacto', async () => {
+    let posts = 0;
+    server.use(
+      mockBranches(),
+      mockTranslate({ guardrails: { temasProhibidos: ["política"] } }),
+      http.post(baseUrl, () => {
+        posts += 1;
+        return HttpResponse.json(makeAgent(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+    await escribirGuardrails(user, "No hables de política.");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await user.click(await screen.findByRole("button", { name: "Volver a editar" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(posts).toBe(0);
+    expect(screen.getByLabelText("Guardrails")).toHaveValue("No hables de política.");
+    // Sigue en el formulario: no navegó al listado.
+    expect(screen.queryByText("listado")).not.toBeInTheDocument();
+  });
+
+  it("sin texto de guardrails no se traduce nada: el POST sale con {} y texto vacío", async () => {
+    let traducciones = 0;
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      mockBranches(),
+      http.post(translateUrl, () => {
+        traducciones += 1;
+        return HttpResponse.json({ guardrails: {}, descartado: [] });
+      }),
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    // Sin panel de confirmación: no hay nada que confirmar.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(traducciones).toBe(0);
+    expect(bodies[0].guardrails).toEqual({});
+    expect(bodies[0].guardrailsText).toBe("");
+  });
+
+  it("si la traducción falla no se guarda nada, y Reintentar vuelve a intentarla", async () => {
+    let intentos = 0;
+    let posts = 0;
+    server.use(
+      mockBranches(),
+      http.post(translateUrl, () => {
+        intentos += 1;
+        if (intentos === 1) {
+          return HttpResponse.json(
+            {
+              error: { message: "No se pudo interpretar la traducción del modelo, probá de nuevo" },
+            },
+            { status: 502 },
+          );
+        }
+        return HttpResponse.json({
+          guardrails: { temasProhibidos: ["política"] },
+          descartado: [],
+        });
+      }),
+      http.post(baseUrl, () => {
+        posts += 1;
+        return HttpResponse.json(makeAgent(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+    await escribirGuardrails(user, "No hables de política.");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    // Fail closed: el error se ve y NO se guardó un agente con guardrails
+    // vacíos por una falla de red.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /No se pudo interpretar la traducción del modelo/,
+    );
+    expect(posts).toBe(0);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // Y lo escrito sigue ahí.
+    expect(screen.getByLabelText("Guardrails")).toHaveValue("No hables de política.");
+
+    await user.click(screen.getByRole("button", { name: "Reintentar" }));
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(intentos).toBe(2);
+    expect(posts).toBe(0);
+  });
+
+  it("volver a guardar sin tocar el texto no vuelve a traducir", async () => {
+    // El POST falla la primera vez: el ADMIN ya confirmó, corrige otra cosa y
+    // guarda de nuevo. Traducir otra vez sería pagar dos veces por el mismo
+    // texto, y además podría dar un objeto distinto del que confirmó.
+    let traducciones = 0;
+    let posts = 0;
+    server.use(
+      mockBranches(),
+      http.post(translateUrl, () => {
+        traducciones += 1;
+        return HttpResponse.json({ guardrails: { temasProhibidos: ["política"] }, descartado: [] });
+      }),
+      http.post(baseUrl, () => {
+        posts += 1;
+        if (posts === 1) {
+          return HttpResponse.json({ error: { message: "Algo salió mal" } }, { status: 500 });
+        }
+        return HttpResponse.json(makeAgent(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+    await escribirGuardrails(user, "No hables de política.");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmar y guardar" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Algo salió mal");
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect(traducciones).toBe(1);
+    expect(posts).toBe(2);
   });
 
   it("sin Modelo el POST sale SIN la clave: el backend usa el modelo por defecto", async () => {
@@ -211,43 +439,6 @@ describe("AgentFormPage — creación", () => {
     expect(bodies[0].enabledTools).toEqual(["create_opportunity", "create_booking"]);
   });
 
-  it("un JSON roto en los guardrails se frena en el cliente, sin pegarle al backend", async () => {
-    let llamadas = 0;
-    server.use(
-      mockBranches(),
-      http.post(baseUrl, () => {
-        llamadas += 1;
-        return HttpResponse.json(makeAgent(), { status: 201 });
-      }),
-    );
-
-    const user = userEvent.setup();
-    renderForm("/agents/new");
-    await completarMinimo(user);
-
-    await escribirGuardrails(user, '{"temasProhibidos": [');
-
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /Los guardrails tienen que ser un JSON válido/,
-    );
-    expect(llamadas).toBe(0);
-  });
-
-  it("una lista tampoco pasa: los guardrails tienen que ser un objeto", async () => {
-    server.use(mockBranches());
-    const user = userEvent.setup();
-    renderForm("/agents/new");
-    await completarMinimo(user);
-
-    await escribirGuardrails(user, '["update_opportunity"]');
-
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/objeto JSON/);
-  });
-
   it("guardar mientras las sucursales cargan avisa que falta la sucursal, y no manda nada", async () => {
     // Mientras la lista carga, BranchSelect no renderiza ningún input: el
     // `required` no existe todavía y el navegador no tiene qué frenar. Ese es
@@ -300,7 +491,7 @@ describe("AgentFormPage — edición", () => {
     return http.get(`${baseUrl}/:id`, () => HttpResponse.json(makeAgent(overrides)));
   }
 
-  it("hidrata los campos, con los guardrails formateados para poder leerlos", async () => {
+  it("hidrata los campos, con los guardrails en las palabras del ADMIN", async () => {
     server.use(
       mockBranches(),
       mockAgentDetalle({
@@ -309,6 +500,7 @@ describe("AgentFormPage — edición", () => {
         tone: "cercano",
         modelName: "openai/gpt-4o-mini",
         guardrails: { accionesProhibidas: ["update_opportunity"] },
+        guardrailsText: "No modifiques oportunidades.",
       }),
     );
 
@@ -318,10 +510,70 @@ describe("AgentFormPage — edición", () => {
     expect(screen.getByLabelText("Objetivo")).toHaveValue("Calificar el lead");
     expect(screen.getByLabelText("Tono")).toHaveValue("cercano");
     expect(screen.getByLabelText("Modelo")).toHaveValue("openai/gpt-4o-mini");
-    // Indentado, no en una línea.
-    expect(screen.getByLabelText("Guardrails (JSON)")).toHaveValue(
-      '{\n  "accionesProhibidas": [\n    "update_opportunity"\n  ]\n}',
+    // El texto, no el JSON: el JSON ya no se muestra en el formulario.
+    expect(screen.getByLabelText("Guardrails")).toHaveValue("No modifiques oportunidades.");
+  });
+
+  it("guardar sin tocar el texto no traduce de nuevo y reenvía el guardrails existente", async () => {
+    let traducciones = 0;
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      mockBranches(),
+      mockAgentDetalle({
+        guardrails: { accionesProhibidas: ["update_opportunity"] },
+        guardrailsText: "No modifiques oportunidades.",
+      }),
+      http.post(translateUrl, () => {
+        traducciones += 1;
+        return HttpResponse.json({ guardrails: {}, descartado: [] });
+      }),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent());
+      }),
     );
+
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+
+    const nombre = await screen.findByLabelText("Nombre");
+    await user.clear(nombre);
+    await user.type(nombre, "Otro nombre");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(traducciones).toBe(0);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(bodies[0].guardrails).toEqual({ accionesProhibidas: ["update_opportunity"] });
+    expect(bodies[0].guardrailsText).toBe("No modifiques oportunidades.");
+  });
+
+  it("cambiar el texto sí dispara la traducción, y el PATCH lleva lo confirmado", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      mockBranches(),
+      mockAgentDetalle({
+        guardrails: { accionesProhibidas: ["update_opportunity"] },
+        guardrailsText: "No modifiques oportunidades.",
+      }),
+      mockTranslate({ guardrails: { temasProhibidos: ["política"] } }),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+    await screen.findByLabelText("Nombre");
+
+    await escribirGuardrails(user, "No hables de política.");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await user.click(await screen.findByRole("button", { name: "Confirmar y guardar" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].guardrails).toEqual({ temasProhibidos: ["política"] });
+    expect(bodies[0].guardrailsText).toBe("No hables de política.");
   });
 
   it("la sucursal se ve, con su nombre, pero no se puede cambiar", async () => {
@@ -369,7 +621,9 @@ describe("AgentFormPage — edición", () => {
         modelName: "openai/gpt-4o-mini",
         enabledTools: ["create_lead"],
         channels: ["WEB"],
+        // Los dos SIEMPRE juntos: el backend rechaza un PATCH con uno solo.
         guardrails: {},
+        guardrailsText: "",
         isActive: false,
       },
     ]);

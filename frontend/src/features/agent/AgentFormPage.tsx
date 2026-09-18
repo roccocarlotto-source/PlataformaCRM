@@ -5,22 +5,25 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { MultiSelect } from "../../design-system/MultiSelect";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { BranchSelect } from "../branch/BranchSelect";
-import {
-  EMPTY_GUARDRAILS_TEXT,
-  formatGuardrails,
-  parseGuardrails,
-  type ParseGuardrailsResult,
-} from "./guardrails";
+import { translateGuardrails } from "./api";
+import { formatGuardrails, resumirDescartes, resumirGuardrails } from "./guardrails";
 import { CHANNEL_OPTIONS, DEFAULT_MODEL_PROVIDER, MODEL_PROVIDER_OPTIONS } from "./labels";
 import { useCreateAgent, useUpdateAgent } from "./mutations";
 import { useAgent } from "./queries";
 import { agentToolOptions } from "./tools";
-import type { Agent, ConversationChannel, CreateAgentInput, UpdateAgentInput } from "./types";
+import type {
+  Agent,
+  ConversationChannel,
+  CreateAgentInput,
+  GuardrailsTranslation,
+  UpdateAgentInput,
+} from "./types";
 
 interface AgentFormValues {
   branchId: string | undefined;
@@ -32,11 +35,21 @@ interface AgentFormValues {
   modelName: string;
   enabledTools: string[];
   channels: ConversationChannel[];
-  // Los guardrails viven como TEXTO mientras se editan y se convierten a
-  // objeto recién al enviar — ver guardrails.ts para por qué no pueden ser el
-  // objeto directo. Mismo reparto que mappingRows en SourceFormPage.
-  guardrails: string;
+  // EL TEXTO, en las palabras del ADMIN — no el JSON. Hasta el §55 este campo
+  // del estado se llamaba `guardrails` y guardaba el JSON escrito a mano, con
+  // el mismo nombre que el `guardrails` del payload: dos cosas distintas
+  // llamadas igual. Acá el nombre dice cuál de las dos es, y el objeto que
+  // viaja al backend no vive en el estado del formulario sino en `confirmado`.
+  guardrailsText: string;
   isActive: boolean;
+}
+
+// Lo que el ADMIN ya vio y aceptó: el texto sobre el que confirmó y el objeto
+// que se le mostró. Van juntos porque la pregunta que se le hace al enviar es
+// exactamente "¿este texto sigue siendo el que confirmaste?".
+interface GuardrailsConfirmados {
+  text: string;
+  guardrails: Record<string, unknown>;
 }
 
 const EMPTY_FORM: AgentFormValues = {
@@ -51,9 +64,12 @@ const EMPTY_FORM: AgentFormValues = {
   modelName: "",
   enabledTools: [],
   channels: [],
-  guardrails: EMPTY_GUARDRAILS_TEXT,
+  guardrailsText: "",
   isActive: true,
 };
+
+const PLACEHOLDER_GUARDRAILS =
+  "Ej.: No hables de diagnósticos médicos ni de asesoramiento legal. No permitas cambiar el estado de una oportunidad a ganada sin que un humano lo confirme. Si el cliente pide hablar con una persona, derivá la conversación.";
 
 function toFormValues(agent: Agent): AgentFormValues {
   return {
@@ -66,7 +82,7 @@ function toFormValues(agent: Agent): AgentFormValues {
     modelName: agent.modelName,
     enabledTools: agent.enabledTools,
     channels: agent.channels,
-    guardrails: formatGuardrails(agent.guardrails),
+    guardrailsText: agent.guardrailsText,
     isActive: agent.isActive,
   };
 }
@@ -110,6 +126,24 @@ function validar(values: AgentFormValues, isEditMode: boolean): string | null {
 // distingue del propio param de ruta (:id), mismo patrón que BranchFormPage y
 // SourceFormPage. Página completa y no diálogo, por la cantidad de campos.
 //
+// LOS GUARDRAILS SE ESCRIBEN EN LENGUAJE NATURAL (ítem 56), y es lo que más
+// cambió desde el §55. El ADMIN escribe en sus palabras; al guardar, el
+// backend traduce ese texto al objeto de docs/ai-agent-architecture.md §6 y la
+// pantalla se lo muestra para que lo CONFIRME antes de que quede activo. Tres
+// cosas que no son obvias y que sostienen todo el flujo:
+//
+//   1. Se guarda EXACTAMENTE lo que el ADMIN confirmó. El POST/PATCH lleva el
+//      objeto que devolvió la traducción, y el backend no vuelve a traducir:
+//      una segunda llamada al modelo podría dar otro resultado, y entonces lo
+//      guardado no sería lo que se mostró.
+//   2. Si el texto no cambió, no hay traducción. En edición, lo que el agente
+//      ya tiene cuenta como confirmado, así que guardar sin tocar el campo no
+//      gasta una llamada al proveedor por algo que nadie editó.
+//   3. Si la traducción falla, NO se guarda. Nada de caer a `{}` en silencio:
+//      un agente con los guardrails vacíos porque se cayó la red es
+//      exactamente el accidente que este flujo tiene que impedir. Mismo
+//      criterio "fail closed" que allowedOrigins.
+//
 // LA SUCURSAL ES INMUTABLE, y es lo que más lo diferencia de los otros
 // formularios: branchId viaja en el POST pero NO existe en updateAgentSchema
 // (agent.controller.ts). Cada Conversation lleva el branchId denormalizado
@@ -138,31 +172,33 @@ export function AgentFormPage() {
     agentQuery.data ? toFormValues(agentQuery.data) : EMPTY_FORM,
   );
   const [error, setError] = useState<string | null>(null);
+  // La traducción que está esperando confirmación. null = el panel está
+  // cerrado; no hace falta un booleano aparte para eso.
+  const [traduccion, setTraduccion] = useState<GuardrailsTranslation | null>(null);
+  const [traduciendo, setTraduciendo] = useState(false);
+  // true solo cuando el error que se está mostrando es de la traducción: es lo
+  // que decide si aparece "Reintentar". Un error del POST no se reintenta con
+  // ese botón — se reintenta guardando de nuevo.
+  const [puedeReintentar, setPuedeReintentar] = useState(false);
+  const [confirmado, setConfirmado] = useState<GuardrailsConfirmados | null>(null);
+
+  // En EDICIÓN, lo que el agente ya tiene cuenta como confirmado: el ADMIN lo
+  // confirmó cuando lo creó o lo editó por última vez. Se deriva de la query
+  // en vez de sembrarse con un efecto, mismo criterio que useFormDraft — un
+  // refetch no puede pisar una confirmación recién hecha, porque `confirmado`
+  // gana.
+  const confirmadoVigente: GuardrailsConfirmados | null =
+    confirmado ??
+    (agentQuery.data
+      ? { text: agentQuery.data.guardrailsText, guardrails: agentQuery.data.guardrails }
+      : null);
 
   const isSubmitting = createAgentMutation.isPending || updateAgentMutation.isPending;
+  const guardarDeshabilitado = isSubmitting || traduciendo;
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-
-    const errorDeValidacion = validar(values, isEditMode);
-    if (errorDeValidacion !== null) {
-      setError(errorDeValidacion);
-      return;
-    }
-
-    // Los guardrails se validan ANTES de tocar la red: que el texto sea un
-    // objeto JSON es un problema de forma que se puede decir sin preguntarle
-    // al servidor, y mandarlo igual daría un 400 con el mismo diagnóstico una
-    // vuelta más tarde. Anotado a mano el tipo, como en SourceFormPage: sin
-    // él la unión discriminada deja de discriminar.
-    const resultado: ParseGuardrailsResult = parseGuardrails(values.guardrails);
-    if (!resultado.ok) {
-      setError(resultado.error);
-      return;
-    }
-
+  async function guardar(guardrails: Record<string, unknown>) {
     const modelName = values.modelName.trim();
+    const guardrailsText = values.guardrailsText.trim();
 
     try {
       if (isEditMode) {
@@ -183,7 +219,11 @@ export function AgentFormPage() {
           modelName,
           enabledTools: values.enabledTools,
           channels: values.channels,
-          guardrails: resultado.guardrails,
+          // Los dos SIEMPRE juntos: el backend rechaza un PATCH que traiga uno
+          // solo, justamente para que el texto que se muestra y el objeto que
+          // rige no puedan quedar diciendo cosas distintas.
+          guardrails,
+          guardrailsText,
           isActive: values.isActive,
         };
         await updateAgentMutation.mutateAsync(input);
@@ -202,7 +242,8 @@ export function AgentFormPage() {
           ...(modelName === "" ? {} : { modelName }),
           enabledTools: values.enabledTools,
           channels: values.channels,
-          guardrails: resultado.guardrails,
+          guardrails,
+          guardrailsText,
           isActive: values.isActive,
         };
         await createAgentMutation.mutateAsync(input);
@@ -211,6 +252,69 @@ export function AgentFormPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar el agente");
     }
+  }
+
+  // Pide la traducción y abre el panel. Un fallo NO cierra el formulario ni
+  // pierde lo escrito: deja el error a la vista con un "Reintentar" al lado.
+  async function traducir() {
+    setError(null);
+    setPuedeReintentar(false);
+    setTraduciendo(true);
+    try {
+      setTraduccion(await translateGuardrails(values.guardrailsText.trim()));
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "No se pudieron traducir los guardrails a reglas",
+      );
+      setPuedeReintentar(true);
+    } finally {
+      setTraduciendo(false);
+    }
+  }
+
+  async function confirmarYGuardar() {
+    if (traduccion === null) {
+      return;
+    }
+    const texto = values.guardrailsText.trim();
+    // Queda confirmado ANTES de guardar: si el POST falla y el ADMIN vuelve a
+    // apretar Guardar sin tocar el texto, no se traduce de nuevo.
+    setConfirmado({ text: texto, guardrails: traduccion.guardrails });
+    setTraduccion(null);
+    await guardar(traduccion.guardrails);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setPuedeReintentar(false);
+
+    const errorDeValidacion = validar(values, isEditMode);
+    if (errorDeValidacion !== null) {
+      setError(errorDeValidacion);
+      return;
+    }
+
+    const texto = values.guardrailsText.trim();
+
+    // (1) Sin texto no hay nada que traducir: {} directo, sin gastar una
+    // llamada al proveedor. Mismo criterio que tenía el textarea de JSON
+    // vacío en el §55.
+    if (texto === "") {
+      await guardar({});
+      return;
+    }
+
+    // (2) El texto no cambió desde la última confirmación (en edición, desde
+    // que se cargó el agente): se reenvía el objeto ya confirmado tal cual.
+    if (confirmadoVigente !== null && confirmadoVigente.text.trim() === texto) {
+      await guardar(confirmadoVigente.guardrails);
+      return;
+    }
+
+    // (3) Texto nuevo: se traduce y se muestra para confirmar. Todavía no se
+    // guarda nada.
+    await traducir();
   }
 
   if (isEditMode && agentQuery.isLoading) {
@@ -225,6 +329,8 @@ export function AgentFormPage() {
       </ErrorState>
     );
   }
+
+  const descartes = traduccion ? resumirDescartes(traduccion.descartado) : [];
 
   return (
     <form onSubmit={handleSubmit} className="ds-form">
@@ -386,36 +492,93 @@ export function AgentFormPage() {
         <Card heading="Guardrails">
           <div className="ds-field-grid">
             <div className="ds-field-grid--full">
-              <FormField label="Guardrails (JSON)">
+              <FormField label="Guardrails">
                 <textarea
-                  className="ds-code-field"
-                  value={values.guardrails}
-                  rows={10}
-                  spellCheck={false}
-                  onChange={(event) => setValues({ ...values, guardrails: event.target.value })}
+                  value={values.guardrailsText}
+                  rows={8}
+                  maxLength={4000}
+                  placeholder={PLACEHOLDER_GUARDRAILS}
+                  onChange={(event) => setValues({ ...values, guardrailsText: event.target.value })}
                 />
               </FormField>
-              {/* Por qué es JSON crudo y no un formulario con un campo por
-                  clave: ver el encabezado de guardrails.ts. */}
               <p className="ds-hint">
-                Un objeto JSON con los límites del agente: temas y acciones prohibidas, información
-                que no puede modificar, condiciones para derivar a una persona. La forma completa
-                está en docs/ai-agent-architecture.md §6. Sin guardrails declarados, dejá{" "}
-                <code>{EMPTY_GUARDRAILS_TEXT}</code>.
+                Escribilo con tus palabras: qué temas no puede tocar, qué acciones no puede hacer,
+                qué datos no puede modificar y cuándo tiene que pasarle la conversación a una
+                persona. Al guardar te mostramos qué entendimos, para que lo confirmes. Si lo dejás
+                vacío, el agente no tiene ninguna restricción además de los permisos de arriba.
               </p>
             </div>
           </div>
         </Card>
 
         {error ? <ErrorState>{error}</ErrorState> : null}
+        {puedeReintentar ? (
+          <div>
+            <Button onClick={() => void traducir()} disabled={traduciendo}>
+              Reintentar
+            </Button>
+          </div>
+        ) : null}
 
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
-            {isSubmitting ? "Guardando…" : "Guardar"}
+          <Button type="submit" variant="primary" disabled={guardarDeshabilitado}>
+            {traduciendo ? "Traduciendo…" : isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>
       </div>
+
+      {/* El panel de confirmación. Variante "panel" y no "dialog", y no es un
+          detalle: el panel NO se cierra al hacer click afuera ni con Escape
+          (ver Modal.tsx), que es justo lo que hace falta acá — un cierre
+          accidental sobre una confirmación pendiente dejaría al ADMIN sin
+          saber si guardó o no. Los dos caminos son explícitos: confirmar, o
+          volver a editar. */}
+      {traduccion ? (
+        <Modal
+          title="Esto es lo que entendimos"
+          closeLabel="Volver a editar"
+          onClose={() => setTraduccion(null)}
+          primaryAction={{
+            label: "Confirmar y guardar",
+            onClick: () => void confirmarYGuardar(),
+            disabled: isSubmitting,
+          }}
+        >
+          <p className="ds-hint">
+            Así va a quedar configurado el agente. Si algo no es lo que quisiste decir, volvé a
+            editar el texto.
+          </p>
+          <ul>
+            {resumirGuardrails(traduccion.guardrails, agentToolOptions(values.enabledTools)).map(
+              (linea) => (
+                <li key={linea}>{linea}</li>
+              ),
+            )}
+          </ul>
+
+          {descartes.length > 0 ? (
+            <ErrorState>
+              Esto no se puede aplicar y no va a quedar configurado:
+              <ul>
+                {descartes.map((linea) => (
+                  <li key={linea}>{linea}</li>
+                ))}
+              </ul>
+            </ErrorState>
+          ) : null}
+
+          {/* Para quien quiera revisar el objeto en crudo. De solo lectura: lo
+              que se guarda es lo de arriba, y un campo editable acá volvería a
+              pedirle JSON al ADMIN, que es exactamente lo que este ítem sacó. */}
+          <details>
+            <summary>Ver JSON</summary>
+            <pre className="ds-code-field ds-json-preview">
+              {formatGuardrails(traduccion.guardrails)}
+            </pre>
+          </details>
+        </Modal>
+      ) : null}
     </form>
   );
 }

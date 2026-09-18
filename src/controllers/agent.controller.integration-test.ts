@@ -151,13 +151,15 @@ function call(method: string, path: string, token: string, body?: unknown): Prom
 // El mínimo que alcanza para un agente funcional: modelProvider/modelName
 // salen por default (OpenRouter + OPENROUTER_MODEL), enabledTools/channels en
 // []. guardrails es obligatorio aunque sea {} — NOT NULL sin default en el
-// schema, a propósito.
+// schema, a propósito — y guardrailsText lo acompaña con la misma regla: los
+// límites del agente se declaran en las dos formas o en ninguna (ítem 56).
 function cuerpoMinimo(branchId: string, extra: Record<string, unknown> = {}) {
   return {
     branchId,
     name: "Agente comercial",
     instructions: "Atendé consultas de venta y agendá turnos.",
     guardrails: {},
+    guardrailsText: "",
     ...extra,
   };
 }
@@ -228,6 +230,7 @@ test("POST /api/agents — ADMIN crea con el cuerpo mínimo; proveedor y modelo 
   assert.deepEqual(agente.enabledTools, []);
   assert.deepEqual(agente.channels, []);
   assert.deepEqual(agente.guardrails, {});
+  assert.equal(agente.guardrailsText, "");
   assert.deepEqual(agente.allowedOrigins, [], "paso 5a: sin orígenes = widget deshabilitado");
   assert.equal(agente.isActive, true);
   assert.equal(agente.deletedAt, null);
@@ -240,6 +243,9 @@ test("POST /api/agents — el cuerpo completo se persiste tal cual, con tools y 
     datosRequeridosAntesDeAccion: { create_booking: ["contactId", "serviceTypeId"] },
   };
 
+  const guardrailsText =
+    "No hables de diagnósticos médicos. No modifiques oportunidades. Antes de reservar tenés que saber el servicio.";
+
   const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
     goal: "Vender cortes de pelo",
     tone: "cercano",
@@ -248,6 +254,7 @@ test("POST /api/agents — el cuerpo completo se persiste tal cual, con tools y 
     enabledTools: ["create_opportunity", "get_availability", "create_opportunity"],
     channels: ["WEB", "WHATSAPP", "WEB"],
     guardrails,
+    guardrailsText,
     isActive: false,
   });
 
@@ -259,6 +266,9 @@ test("POST /api/agents — el cuerpo completo se persiste tal cual, con tools y 
   assert.deepEqual(agente.enabledTools, ["create_opportunity", "get_availability"]);
   assert.deepEqual(agente.channels, ["WEB", "WHATSAPP"]);
   assert.deepEqual(agente.guardrails, guardrails);
+  // El texto se persiste TAL CUAL, sin volver a traducirse: lo que se guarda
+  // es lo que el ADMIN confirmó en la pantalla (ítem 56).
+  assert.equal(agente.guardrailsText, guardrailsText);
   assert.equal(agente.isActive, false);
 });
 
@@ -267,6 +277,8 @@ test("POST /api/agents — validación: sin guardrails, proveedor desconocido, t
     [{ guardrails: undefined }, /guardrails es requerido/],
     [{ guardrails: null }, /guardrails debe ser un objeto/],
     [{ guardrails: [] }, /guardrails debe ser un objeto/],
+    [{ guardrailsText: undefined }, /guardrailsText/],
+    [{ guardrailsText: "x".repeat(4001) }, /guardrailsText no puede superar/],
     [{ modelProvider: "anthropic" }, /modelProvider debe ser uno de: openrouter/],
     [{ enabledTools: ["Create Opportunity"] }, /snake_case/],
     [{ channels: ["SMS"] }, /channels solo admite WHATSAPP o WEB/],
@@ -307,6 +319,7 @@ test("GET /api/agents/:id y PATCH — ADMIN edita; USER lee el resultado", async
     goal: null,
     enabledTools: ["get_availability", "create_booking"],
     guardrails: { condicionesDeDerivacion: ["reclamo"] },
+    guardrailsText: "Si el cliente hace un reclamo, derivá a una persona.",
     isActive: false,
   });
   const crudoPatch = await patch.text();
@@ -317,6 +330,7 @@ test("GET /api/agents/:id y PATCH — ADMIN edita; USER lee el resultado", async
   assert.deepEqual(editado.enabledTools, ["get_availability", "create_booking"]);
   // Se reemplaza entero, no se mergea.
   assert.deepEqual(editado.guardrails, { condicionesDeDerivacion: ["reclamo"] });
+  assert.equal(editado.guardrailsText, "Si el cliente hace un reclamo, derivá a una persona.");
   assert.equal(editado.isActive, false);
   // Lo que no se mandó no cambia.
   assert.equal(editado.instructions, agente.instructions);
@@ -324,6 +338,32 @@ test("GET /api/agents/:id y PATCH — ADMIN edita; USER lee el resultado", async
   const get = await call("GET", `/api/agents/${agente.id}`, userA.accessToken);
   assert.equal(get.status, 200);
   assert.deepEqual(await get.json(), editado);
+});
+
+test("PATCH /api/agents/:id — guardrails y guardrailsText van juntos o no van", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+
+  // Cada uno solo: 400, y la fila no cambia. Es lo que evita que la pantalla
+  // muestre un texto y el agente obedezca otra cosa (ítem 56).
+  for (const cuerpo of [
+    { guardrails: { temasProhibidos: ["política"] } },
+    { guardrailsText: "No hables de política." },
+  ]) {
+    const res = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, cuerpo);
+    assert.equal(res.status, 400, `debía ser 400 para ${JSON.stringify(cuerpo)}`);
+    assert.match(await mensajeDeError(res), /guardrails y guardrailsText se actualizan juntos/);
+  }
+
+  const sinTocar = await prisma.agent.findUniqueOrThrow({ where: { id: String(agente.id) } });
+  assert.deepEqual(sinTocar.guardrails, {});
+  assert.equal(sinTocar.guardrailsText, "");
+
+  // Un PATCH que no menciona ninguno de los dos sigue siendo válido: el campo
+  // que no se manda no se toca.
+  const otro = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
+    name: "Sin tocar los guardrails",
+  });
+  assert.equal(otro.status, 200);
 });
 
 test("PATCH /api/agents/:id — sin campos es 400, y branchId NO es editable", async () => {
@@ -772,5 +812,101 @@ test("allowedOrigins — rechaza con path, sin esquema, con query, con credencia
     );
     assert.equal(res.status, 400, `debía ser 400 para ${origen}`);
     assert.match(await mensajeDeError(res), esperado);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/agents/guardrails/translate — el traductor del ítem 56. NO guarda
+// nada: lo que se prueba acá es la cadena HTTP (autenticación, autorización,
+// validación del body y la forma de la respuesta), con el proveedor de LLM
+// instalado por setLlmProviderForTests como en el endpoint de prueba. La
+// traducción en sí —el prompt armado desde el catálogo real y toda la
+// sanitización— está probada como test UNITARIO en
+// agentGuardrailsTranslation.service.test.ts.
+// ---------------------------------------------------------------------------
+
+function translate(token: string, body: Record<string, unknown>) {
+  return call("POST", "/api/agents/guardrails/translate", token, body);
+}
+
+test("POST /api/agents/guardrails/translate — ADMIN traduce y recibe guardrails + descartado", async () => {
+  const doble = proveedorGuionado([
+    {
+      text: JSON.stringify({
+        temasProhibidos: ["diagnósticos médicos"],
+        accionesProhibidas: ["update_opportunity", "enviar_email"],
+      }),
+      toolCalls: [],
+    },
+  ]);
+  setLlmProviderForTests(doble.proveedor);
+  try {
+    const res = await translate(adminA.accessToken, {
+      text: "No hables de medicina y no modifiques oportunidades ni mandes mails.",
+    });
+    const crudo = await res.text();
+    assert.equal(res.status, 200, crudo);
+    const body = JSON.parse(crudo) as {
+      guardrails: Record<string, unknown>;
+      descartado: { clave: string; valor: string; motivo: string }[];
+    };
+
+    assert.deepEqual(body.guardrails, {
+      accionesProhibidas: ["update_opportunity"],
+      temasProhibidos: ["diagnósticos médicos"],
+    });
+    // Lo que no se pudo aplicar vuelve como advertencia, nunca en silencio.
+    assert.equal(body.descartado.length, 1);
+    assert.equal(body.descartado[0].valor, "enviar_email");
+
+    // Sin tools y sin `model`: es una traducción de criterio fijo.
+    assert.equal(doble.requests.length, 1);
+    assert.deepEqual(doble.requests[0].tools, []);
+    assert.equal(doble.requests[0].model, undefined);
+  } finally {
+    resetLlmProviderParaTests();
+  }
+});
+
+test("POST /api/agents/guardrails/translate — texto vacío devuelve {} sin llamar al proveedor", async () => {
+  const doble = proveedorGuionado([
+    { text: '{"temasProhibidos":["no debería llegar"]}', toolCalls: [] },
+  ]);
+  setLlmProviderForTests(doble.proveedor);
+  try {
+    const res = await translate(adminA.accessToken, { text: "   " });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { guardrails: {}, descartado: [] });
+    assert.equal(doble.requests.length, 0);
+  } finally {
+    resetLlmProviderParaTests();
+  }
+});
+
+test("POST /api/agents/guardrails/translate — USER 403, sin token 401, texto demasiado largo 400", async () => {
+  const user = await translate(userA.accessToken, { text: "No hables de política." });
+  assert.equal(user.status, 403);
+
+  const anonimo = await fetch(`${baseUrl}/api/agents/guardrails/translate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: "No hables de política." }),
+  });
+  assert.equal(anonimo.status, 401);
+
+  const largo = await translate(adminA.accessToken, { text: "x".repeat(4001) });
+  assert.equal(largo.status, 400);
+  assert.match(await mensajeDeError(largo), /no puede superar los 4000 caracteres/);
+});
+
+test("POST /api/agents/guardrails/translate — una respuesta ininteligible es 502, no un {} silencioso", async () => {
+  const doble = proveedorGuionado([{ text: "No entendí tu pedido", toolCalls: [] }]);
+  setLlmProviderForTests(doble.proveedor);
+  try {
+    const res = await translate(adminA.accessToken, { text: "No hables de política." });
+    assert.equal(res.status, 502);
+    assert.match(await mensajeDeError(res), /No se pudo interpretar la traducción del modelo/);
+  } finally {
+    resetLlmProviderParaTests();
   }
 });

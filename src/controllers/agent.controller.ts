@@ -9,6 +9,7 @@ import {
   listAgents,
   updateAgent,
 } from "../services/agent.service";
+import { translateGuardrailsText } from "../services/agentGuardrailsTranslation.service";
 import { runAgentTurn } from "../services/agentOrchestration.service";
 import {
   LLM_PROVIDER_NAMES,
@@ -87,6 +88,20 @@ const guardrailsSchema = z.record(z.string(), z.unknown(), {
   required_error: "guardrails es requerido (puede ser {})",
 });
 
+// El mismo objeto de §6, pero EN LAS PALABRAS DEL ADMIN (ítem 56). Es lo que
+// la pantalla muestra y vuelve a editar; el enforcement sigue siendo 100%
+// sobre `guardrails`. Requerido igual que él: un agente declara sus límites
+// aunque sea con texto vacío, que es la contraparte exacta de `{}`. El tope es
+// el mismo que el de `message` en testMessageSchema — es texto que va a viajar
+// a un LLM.
+const guardrailsTextSchema = z
+  .string({
+    invalid_type_error: "guardrailsText debe ser texto",
+    required_error: 'guardrailsText es requerido (puede ser "")',
+  })
+  .trim()
+  .max(4000, "guardrailsText no puede superar los 4000 caracteres");
+
 // Orígenes desde los que el widget del canal Web puede escribirle al agente
 // (paso 5a; nota del canal Web en §10). Cada entrada se valida y normaliza
 // con utils/origin.ts —esquema + host, sin path, query, fragmento ni
@@ -142,6 +157,7 @@ const createAgentSchema = z.object({
   enabledTools: enabledToolsSchema.default([]),
   channels: channelsSchema.default([]),
   guardrails: guardrailsSchema,
+  guardrailsText: guardrailsTextSchema,
   // Default vacío = widget deshabilitado (fail-closed). Ver allowedOriginsSchema.
   allowedOrigins: allowedOriginsSchema.default([]),
   isActive: z.boolean().optional(),
@@ -161,12 +177,21 @@ const updateAgentSchema = z
     enabledTools: enabledToolsSchema,
     channels: channelsSchema,
     guardrails: guardrailsSchema,
+    guardrailsText: guardrailsTextSchema,
     allowedOrigins: allowedOriginsSchema,
     isActive: z.boolean(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
     message: "Debe enviar al menos un campo para actualizar",
+  })
+  // VAN SIEMPRE JUNTOS, mismo tipo de regla que budgetAmount/budgetCurrency en
+  // LEAD_PARAMETERS. Un PATCH que trajera solo uno de los dos dejaría el texto
+  // que la pantalla muestra y el JSON que hace cumplir los guardrails diciendo
+  // cosas distintas — el ADMIN leería sus palabras y el agente obedecería otra
+  // cosa. Es el único desacople que este ítem no puede permitirse.
+  .refine((data) => (data.guardrails === undefined) === (data.guardrailsText === undefined), {
+    message: "guardrails y guardrailsText se actualizan juntos",
   });
 
 const listQuerySchema = z.object({
@@ -208,6 +233,31 @@ export const updateAgentHandler = asyncHandler<AuthenticatedRequest>(async (req,
   const agent = await updateAgent(req.auth.organizationId, id, input);
   res.status(200).json(agent);
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/agents/guardrails/translate — el traductor del ítem 56.
+//
+// NO GUARDA NADA, y esa es su forma: recibe el texto del ADMIN, devuelve el
+// objeto de §6 que se entendió más lo que hubo que descartar, y la pantalla
+// se lo muestra para que confirme ANTES de crear o editar el agente. El
+// create/update que viene después recibe ese mismo objeto ya confirmado y NO
+// vuelve a traducir: una segunda llamada al modelo podría dar otro resultado, y
+// lo que se guarda tiene que ser exactamente lo que el ADMIN vio y aceptó.
+//
+// ADMIN como el resto de las escrituras de Agent, aunque no escriba: dispara
+// una llamada real y paga a un LLM. No es una lectura abierta.
+// ---------------------------------------------------------------------------
+const translateGuardrailsSchema = z.object({
+  text: z.string().trim().max(4000, "el texto no puede superar los 4000 caracteres"),
+});
+
+export const translateGuardrailsHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const input = parseOrThrow(translateGuardrailsSchema, req.body);
+    const resultado = await translateGuardrailsText(input.text);
+    res.status(200).json(resultado);
+  },
+);
 
 export const deleteAgentHandler = asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
   const id = parseOrThrow(idParamSchema, req.params.id);

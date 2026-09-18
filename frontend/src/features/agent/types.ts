@@ -33,6 +33,11 @@ export interface Agent {
   // es Record<string, unknown> y no una interfaz con las seis claves de §6:
   // tipar una forma que nadie valida sería prometer algo que no es cierto.
   guardrails: Record<string, unknown>;
+  // El MISMO límite, en las palabras del ADMIN (ítem 56). Es lo que el
+  // formulario muestra y vuelve a editar; el enforcement sigue siendo 100%
+  // sobre `guardrails`. NOT NULL con default '' en la base, así que siempre
+  // viene — "" es la contraparte exacta de `{}`.
+  guardrailsText: string;
   // Orígenes habilitados para el widget embebible (§10). Viene en la
   // respuesta, pero NINGUNA pantalla lo edita todavía — ver el comentario de
   // CreateAgentInput.
@@ -91,6 +96,10 @@ export interface CreateAgentInput {
   enabledTools: string[];
   channels: ConversationChannel[];
   guardrails: Record<string, unknown>;
+  // Requerido igual que `guardrails`, y el backend exige los dos (en el PATCH,
+  // además, exige que vayan juntos): el texto que se muestra y el objeto que
+  // rige no pueden quedar diciendo cosas distintas.
+  guardrailsText: string;
   isActive?: boolean;
 }
 
@@ -101,3 +110,26 @@ export interface CreateAgentInput {
 // denormalizado, apuntando a una sucursal distinta de la que las atendió.
 // Mandarlo sería un 400, así que el tipo no lo deja ni intentarlo.
 export type UpdateAgentInput = Partial<Omit<CreateAgentInput, "branchId">>;
+
+// La respuesta de POST /api/agents/guardrails/translate (ítem 56). NO guarda
+// nada: es lo que el formulario muestra en el panel de confirmación antes de
+// crear o editar el agente.
+//
+// `guardrails` tiene la misma forma que el del Agent —Record y no una interfaz
+// con las seis claves de §6, por el mismo motivo— y es EXACTAMENTE el objeto
+// que después viaja en el POST/PATCH: el backend no vuelve a traducir, así que
+// lo que se guarda es lo que el ADMIN confirmó.
+//
+// `descartado` es lo que el sistema entendió pero NO puede hacer cumplir (una
+// acción que no existe, un campo que ninguna acción toca, una frase demasiado
+// larga). Se muestra como advertencia: nada se descarta en silencio.
+export interface GuardrailsDiscard {
+  clave: string;
+  valor: string;
+  motivo: string;
+}
+
+export interface GuardrailsTranslation {
+  guardrails: Record<string, unknown>;
+  descartado: GuardrailsDiscard[];
+}

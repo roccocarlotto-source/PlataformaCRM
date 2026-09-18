@@ -613,7 +613,17 @@ async function main() {
     modelName: "anthropic/claude-sonnet-4.5",
     enabledTools: ["create_lead", "get_availability"],
     channels: Object.values(ConversationChannel),
-    guardrails: { maxTurns: 20 },
+    // Un guardrail que HACE CUMPLIR ALGO. Antes decía `{ maxTurns: 20 }`, una
+    // clave que ninguna de las dos piezas de enforcement lee: no bloqueaba
+    // nada y sembraba el mismo malentendido que el ítem 56 vino a cerrar con
+    // la sanitización del traductor. Las dos claves de abajo sí las evalúa
+    // puedeEjecutarTool(), y el texto es el que la pantalla muestra.
+    guardrails: {
+      accionesProhibidas: ["create_opportunity"],
+      datosRequeridosAntesDeAccion: { get_availability: ["serviceTypeId"] },
+    },
+    guardrailsText:
+      "No crees oportunidades por tu cuenta, eso lo hace un vendedor. No consultes disponibilidad sin saber antes qué servicio quiere el cliente.",
     allowedOrigins: [],
   });
   contar("Agent");

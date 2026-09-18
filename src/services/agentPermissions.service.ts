@@ -53,7 +53,13 @@ function comoListaDeStrings(valor: unknown): string[] {
 // "Contact.email" → "email"; "email" → "email". Ver la nota del 12/09/2026
 // bajo §6, punto 4: no hay mapeo tool→entidad, así que se compara solo el
 // nombre de campo, sin distinguir mayúsculas.
-function nombreDeCampo(entrada: string): string {
+//
+// EXPORTADA para agentGuardrailsTranslation.service.ts (ítem 56): la
+// sanitización de un `infoNoModificable` traducido desde lenguaje natural
+// tiene que filtrar con EXACTAMENTE el mismo criterio con el que después se va
+// a comparar acá. Duplicar estas dos líneas allá sería duplicar la regla que
+// decide si un guardrail bloquea algo o no.
+export function nombreDeCampo(entrada: string): string {
   const ultimoPunto = entrada.lastIndexOf(".");
   return (ultimoPunto === -1 ? entrada : entrada.slice(ultimoPunto + 1)).trim().toLowerCase();
 }
