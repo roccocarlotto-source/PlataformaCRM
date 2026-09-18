@@ -2653,3 +2653,95 @@ Cambiar de sucursal **sin** haber tocado el campo trae el sugerido de la nueva; 
 - **`api.test.ts`:** un caso nuevo para `getSuggestedQrDisplayNumber` (path, query y Bearer).
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend. `npm run migrate:deploy` y `npm run verify:schema` corridos contra el Supabase local: **14 de 14 chequeos afirmados en verde**, con el índice nuevo entre ellos. **Backend: 824 unitarios y 779 de integración. Frontend: 139 archivos y 1361 tests.** Sin dependencias nuevas.
+
+## 55. Agentes de IA: la primera pantalla del panel de administración
+
+**Estado:** hecho
+
+**Qué es.** El arranque del módulo de administración de **Agentes de IA** en el frontend, que hasta acá no existía en absoluto: `frontend/src/features/agent*` no estaba. El backend sí estaba completo y probado de punta a punta desde los pasos 2a a 5b de `docs/ai-agent-architecture.md` §9 — CRUD, catálogo de tools, loop de orquestación, tokens de embed y widget embebible—, así que un ADMIN podía tener agentes de IA funcionando pero solo podía crearlos y configurarlos con `curl`. Este ítem es **solo frontend**: no se tocó nada bajo `src/` ni `prisma/`.
+
+Son dos pantallas y tres rutas: el listado `/agents`, el alta `/agents/new` y la edición `/agents/:id/edit`, más el link "Agentes de IA" en el grupo Administración de la sidebar.
+
+**El patrón es el de `features/branch/`**, que es el análogo más parecido — entidad que cuelga de una sucursal, lectura abierta y escritura ADMIN-only, páginas completas y no diálogos. Mismos archivos (`types.ts`, `api.ts`, `queries.ts`, `mutations.ts`, las dos páginas y sus tests), misma forma de `agentKeys`, misma invalidación mínima por mutación, mismo `useFormDraft` para el borrador del formulario.
+
+---
+
+### Las rutas van las tres dentro de `AdminRoute`, con un motivo más que `/branches`
+
+`Agent` tiene **exactamente** el mismo esquema de permisos que `Branch`: `GET /api/agents` (lista y detalle) es lectura abierta a cualquier autenticado, y `POST/PATCH/DELETE` son `authorize("ADMIN")` (`agent.routes.ts`). Con ese reparto, el listado *podría* vivir afuera del bloque, como `/companies`.
+
+Va adentro por el mismo criterio que ya dejó escrito el comentario de `/branches` —la pantalla es toda escritura, y un USER solo vería botones que el backend le rechazaría— **y por uno más que no aplica a las sucursales**: un USER ve sucursales en otros lados (el `BranchSelect` de QR y de Vehículo), así que la lectura abierta de `/api/branches` le sirve para algo. Con los agentes no: hoy no existe ningún `AgentSelect` ni ninguna pantalla que le muestre un agente a alguien que no lo administra. El módulo entero es configuración administrativa.
+
+La autorización real de escritura sigue siendo del backend; esto es la restricción de UX, como siempre.
+
+---
+
+### El formulario, campo por campo, y las decisiones que no se ven
+
+**`branchId` es inmutable, y se muestra deshabilitado en vez de esconderse.** No existe en `updateAgentSchema` (`agent.controller.ts`) y no es un olvido: cada `Conversation` lleva el `branchId` denormalizado desde el agente, así que mover el agente dejaría sus conversaciones históricas apuntando a una sucursal que no las atendió (la nota de `UpdateAgentInput` en `agent.service.ts` lo explica entero). En la edición el campo se ve, con el nombre de la sucursal, deshabilitado y con la razón escrita debajo — el criterio del `type` de `SourceFormPage`, no el de `QrFormDialog`, que directamente lo oculta: en una página completa el dato a la vista informa más que su ausencia. Para eso `BranchSelect` estrenó un prop `disabled`, que ya forwardea al `Select` de siempre.
+
+**`instructions` es el prompt real**, no un campo más: objetivo, tono y contexto del negocio en texto libre, sin máximo en el backend. Tiene tarjeta propia y un `<textarea>` de 12 filas. `goal` (máx 500) y `tone` (máx 100) son los que la pantalla aclara que **no** son el prompt: el objetivo es un resumen para el listado y el tono es informativo, se compone dentro de las instrucciones.
+
+**`modelProvider` es un `<select>` de una sola opción, a propósito.** Se valida contra `LLM_PROVIDER_NAMES` (`llmProvider.service.ts`) y hoy el único adaptador es OpenRouter. La alternativa era un input libre, y se descartó porque el backend contesta 400 a cualquier otro valor: ofrecer texto libre sería invitar a un error que no se puede resolver desde la pantalla. Queda como select —y no como un texto fijo— para que el día que exista un segundo adaptador la pantalla no cambie: se agrega una entrada en `MODEL_PROVIDER_OPTIONS` (`features/agent/labels.ts`) y listo.
+
+**`modelName` vacío significa cosas distintas al crear y al editar**, y por eso el asterisco también depende del modo. Al crear, el POST sale **sin la clave** y el backend asigna el default de `OPENROUTER_MODEL` — que es lo que el hint promete ("Si lo dejás vacío, se usa el modelo por defecto"); el campo es `.default()` y no `.nullable()`, así que mandar `""` o `null` sería un 400. Al editar, vaciarlo se frena en el cliente: el agente ya tiene modelo, el PATCH parcial simplemente no lo tocaría, y la pantalla habría dicho "guardado" sobre un campo que se dejó en blanco a propósito. Es el mismo razonamiento del N° del QR en §54.
+
+**`enabledTools` sale de una lista local que ESPEJA `CATALOGO_DE_TOOLS`** (`src/services/agentTools.service.ts`), en `features/agent/tools.ts`. No hay endpoint que exponga el catálogo y **no se creó uno**: las tools viven en código del backend, son seis fijas, y nadie más que esta pantalla las consume — una ruta, un controller y un test de integración para no duplicar seis strings no se paga. El precio está dicho en un comentario arriba de la lista: **si el catálogo del backend cambia, esta lista hay que actualizarla a mano.**
+
+Las descripciones son **las mismas que lee el modelo**, copiadas textual, no un resumen: lo que la tool hace de verdad es lo que dice esa descripción, y un ADMIN que decide si habilitarla merece leer eso y no una paráfrasis que envejece por otro lado. El `label` sí es propio, corto y en castellano ("Crear oportunidad").
+
+**Una tool que NO está en el catálogo se conserva.** El backend valida la *forma* del nombre (`snake_case`), no su pertenencia al catálogo — es una decisión documentada en `toolNameSchema` —, así que una fila puede traer una tool creada por API, o una que se sacó del catálogo después. `agentToolOptions()` la agrega como opción extra mientras sea un valor vigente, con el nombre crudo y una aclaración. Sin eso, el selector la mostraría como no elegida y el PATCH la habría borrado sin que nadie lo pidiera; es el mismo criterio que la zona horaria fuera de lista en `BranchFormPage`. Hay un test que lo fija.
+
+**`channels` también usa `MultiSelect`, aunque sean dos opciones.** Un par de checkboxes sueltos alcanzaba, pero al lado del selector de tools, en la misma grilla, quedaban dos controles de familias distintas para la misma clase de dato. El `emptyLabel` es "Ninguno" y no el "Todos" por defecto, porque acá vacío significa vacío: sin canales el agente no atiende por ningún lado.
+
+**`guardrails` es un textarea de JSON crudo — decisión de Rocco, no un atajo.** La forma de §6 (temas prohibidos, acciones prohibidas, info no modificable, condiciones de derivación…) está **documentada, no impuesta**: ni Postgres ni el `z.record` del backend la validan, mismo criterio que `Contact.customFields`. Un mini-formulario con seis campos fijos le pondría a la pantalla una forma que el backend no garantiza y dejaría sin manera de escribir una clave que el diseño todavía no previó. Cuando la forma se estabilice, el formulario se construye encima de este mismo campo.
+
+La conversión texto ↔ objeto vive en `features/agent/guardrails.ts`, aparte del componente y por la misma razón que `fieldMapping.ts` en `features/source`: es lógica pura con casos borde que conviene probar sin montar una pantalla. Se muestra con `JSON.stringify(valor, null, 2)` y se manda parseado. **La validación del cliente es la misma que la del backend, no una más estricta**: tiene que parsear y ser un objeto plano (array, `null` y primitivos se rechazan, igual que `z.record`), y el **contenido no se valida en ningún lado**. Un textarea vacío se toma como `{}` en vez de como error: la intención es evidente y es lo mismo que dice el default de creación.
+
+**`allowedOrigins` NO está en este formulario, y la omisión es la parte importante.** Es el campo que habilita el widget embebible del canal Web (§10) y la pantalla que lo acompaña —tokens de embed y snippet para copiar— no existe todavía; un campo de orígenes permitidos sin esa pantalla al lado es configuración huérfana. En el POST se omite y el backend lo default-ea a `[]` (widget deshabilitado, fail-closed). **En el PATCH omitirlo es lo que lo deja intacto**: mandarlo como `[]` borraría la configuración del widget de un agente que ya la tuviera. Hay un test por cada mitad.
+
+**Lo que tampoco se construyó, a propósito:** la pantalla de tokens de embed (`/api/agents/:id/embed-tokens`), el playground de prueba (`POST /api/agents/:id/test-message`) y cualquier bandeja de conversaciones — esa API ni siquiera existe, solo hay repositorios de `Conversation`/`Message` sin controller ni rutas. **No quedaron lugares vacíos anticipándolas:** cuando existan, traen su propia pantalla.
+
+---
+
+### El listado
+
+Columnas: Nombre · Sucursal · Estado · Canales · Modelo · Acciones. Filtros: buscador por nombre, `BranchSelect`, Estado (activos/inactivos) y el par Ordenar por + Orden de siempre. La sucursal se resuelve por nombre contra **la misma query que alimenta el filtro** (`BRANCHES_PARA_SELECT`, misma `queryKey`): una sola request para las dos cosas, igual que `QrListPage`. Una sucursal fuera de las primeras 100 se muestra como guion, el mismo riesgo residual documentado de siempre.
+
+**El badge de Estado sí significa algo**, a diferencia del que el §53 sacó del módulo QR: `isActive` es un campo real y editable, y un agente inactivo no atiende ninguna conversación. Canales va como texto (`WhatsApp · Web`) y no como badges: son hasta dos valores por fila y una segunda tanda de pills competiría con la del Estado; sin canales, guion.
+
+El `isActive` del filtro viaja con un chequeo explícito `!== undefined` en el armado de la query — un `if (query.isActive)` se comería justamente el filtro de inactivos. Hay un test que lo fija y otro que verifica que "Todos" saca el parámetro en vez de mandar `isActive=""`.
+
+La confirmación de borrado nombra la consecuencia que no se ve en pantalla: *"¿Eliminar este agente? Deja de responder de inmediato y sus tokens de embed quedan revocados."* El borrado es lógico y la revocación en cascada la hace el backend en la misma transacción.
+
+---
+
+### Lo que se tocó del design system, y por qué
+
+Tres cambios chicos, todos aditivos. Ninguna pantalla existente cambia de aspecto — verificado con un harness estático en claro y oscuro, incluido el `MultiSelect` de los filtros de Stock, que es el único consumidor previo.
+
+**1. `MultiSelect` ahora dibuja el `subtitle`.** El campo existía en `MultiSelectOption` desde el §44 con un comentario que decía "todavía no se dibuja". Acá se estrenó: rótulo corto arriba, descripción completa debajo en `--color-text-muted`, el mismo tratamiento que `.ds-select-option-subtitle`. Solo aplica a las opciones que lo traen (la regla CSS va con `:has()`), así que una opción sin subtítulo sigue siendo una línea centrada con `nowrap`.
+
+La parte que no es cosmética: **el nombre accesible**. El `<label>` que envuelve al checkbox aporta *todo* su texto al nombre, así que sin hacer nada la opción se habría anunciado como *"Crear oportunidad Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda…"*. Con `aria-labelledby` al rótulo y `aria-describedby` al subtítulo, el nombre queda limpio y la descripción es descripción — el mismo reparto que ya hacían las opciones de `Select`. Tres casos nuevos en `MultiSelect.test.tsx` lo cubren, incluido que una opción **sin** subtítulo no cambia.
+
+**2. `MultiSelect` dentro de un formulario.** El botón cerrado estaba pensado para vivir en la píldora de `.ds-filters`, que le pone el borde y el fondo. En un `.ds-field-grid` no hay píldora y quedaba como un texto suelto debajo del rótulo, sin parecer un campo. La regla nueva (`.ds-field-grid .ds-multiselect-trigger`) le devuelve la caja de un `<input>`: mismo alto, borde, radio y margen superior, más el `:focus-visible` que en los filtros mostraba la píldora por él.
+
+**3. `--font-mono` como token, y `.ds-code-field`.** El textarea de guardrails va monoespaciado para que la indentación se lea como una estructura. La familia ya estaba escrita a mano en `.ds-secret` (el secreto de una API key); con un segundo consumidor pasó a `tokens.css` y `.ds-secret` ahora la usa desde ahí. No se carga ninguna fuente nueva: es la monoespaciada del sistema.
+
+---
+
+**Qué NO cambió:**
+
+- **El backend entero.** Ni `src/`, ni `prisma/`, ni una migración. El contrato que esta pantalla consume estaba construido y probado antes de empezar.
+- **`features/branch/`**, salvo el prop `disabled` de `BranchSelect`, que es aditivo y tiene default `false`.
+- **Los filtros de Stock de vehículos**, el único consumidor previo de `MultiSelect`: sus opciones no tienen subtítulo y no viven en un `.ds-field-grid`, así que las dos reglas nuevas no las alcanzan. Su suite pasa sin tocar un solo assert.
+
+**Tests:** la suite de frontend pasó de **1361 a 1407** casos y de 139 a **142** archivos.
+
+- **`guardrails.test.ts` (nuevo, 9 casos):** el formateo con indentación, el objeto vacío, el textarea vacío como `{}`, una clave inventada que **pasa** (el cliente no puede ser más estricto que el servidor), el JSON roto con el mensaje del motor adentro, y que lista / `null` / `42` / `"texto"` / `true` no son un objeto plano.
+- **`AgentListPage.test.tsx` (nuevo, 15 casos):** las cinco columnas con sus valores reales, el agente inactivo sin canales y con un proveedor fuera de la lista, la sucursal que no resuelve, que no hay gate por rol, los cinco filtros en la query (incluido `isActive=false`), que "Todos" saca el parámetro, la paginación, los tres casos de borrado (cancelar no llama, confirmar manda el id correcto, el error se muestra y la fila sigue), carga/error/vacío, y los dos de `AdminRoute`.
+- **`AgentFormPage.test.tsx` (nuevo, 17 casos):** el POST completo con los guardrails ya como objeto, el POST **sin** `modelName` (y con `goal`/`tone` en `null` y sin `allowedOrigins`), el proveedor preseleccionado, que la descripción de cada tool se ve y que el nombre accesible del checkbox es solo el rótulo, el orden de catálogo en `enabledTools`, los dos rechazos de guardrails sin tocar la red, el aviso de sucursal mientras la lista carga, el error del backend, y en edición: la hidratación con los guardrails formateados, la sucursal visible y deshabilitada con su razón, el PATCH completo **sin** `branchId` ni `allowedOrigins`, la tool desconocida que se conserva, el vaciado de Modelo frenado en el cliente y el error del detalle.
+- **`MultiSelect.test.tsx` (+3)** y **`AppLayout.test.tsx` (+2)**, descritos arriba.
+- **Verificado que los tests distinguen:** el caso de la tool fuera de catálogo se corrió con el `agentToolOptions` reducido a la lista fija, y falla; el del nombre accesible se corrió sin el `aria-labelledby`, y falla. No se dieron por buenos porque pasaran.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en el frontend. **Suite en verde: 142 archivos y 1407 tests.** Sin backend, sin migraciones y sin dependencias nuevas.

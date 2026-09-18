@@ -15,6 +15,11 @@ interface BranchSelectProps {
   // Claim); el filtro del listado de QR no. El selector solo existe con la
   // lista cargada: cada formulario cubre ese hueco con su propio chequeo.
   required?: boolean;
+  // Para mostrar una sucursal que NO se puede cambiar, en vez de esconder el
+  // campo: mismo criterio que el `type` deshabilitado de SourceFormPage — que
+  // el dato esté a la vista y no se pueda tocar informa más que su ausencia.
+  // Lo estrenó la edición de un agente de IA, cuyo branchId es inmutable.
+  disabled?: boolean;
 }
 
 // Selector de sucursal del módulo QR (docs/qr-integration.md, Fase 3,
@@ -36,6 +41,7 @@ export function BranchSelect({
   onChange,
   emptyOptionLabel = "Elegir sucursal…",
   required = false,
+  disabled = false,
 }: BranchSelectProps) {
   const branchesQuery = useBranches(BRANCHES_PARA_SELECT);
 
@@ -54,6 +60,7 @@ export function BranchSelect({
         }))}
         emptyOption={{ label: emptyOptionLabel }}
         required={required}
+        disabled={disabled}
       />
     );
   }

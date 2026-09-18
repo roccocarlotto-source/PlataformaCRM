@@ -51,9 +51,11 @@ import { matchesSearch } from "./searchText";
 export interface MultiSelectOption<T extends string> {
   value: T;
   label: string;
-  // Preparado para el mismo dato que SelectOption.subtitle (p. ej. el email de
-  // una persona). Hoy ningún consumidor lo pasa: solo participa del filtro del
-  // buscador y todavía no se dibuja.
+  // Segunda línea, en --color-text-muted, igual que SelectOption.subtitle.
+  // Participa además del filtro del buscador. Estrenado por el selector de
+  // tools de un agente de IA (features/agent), donde el rótulo es un nombre
+  // corto ("Crear oportunidad") y el subtítulo es la descripción completa que
+  // lee el modelo — la que de verdad dice qué hace habilitar esa tool.
   subtitle?: string;
 }
 
@@ -188,8 +190,36 @@ export function MultiSelect<T extends string>({
                 type="checkbox"
                 checked={value.includes(option.value)}
                 onChange={() => toggle(option.value)}
+                // Con subtítulo, el nombre accesible se fija al RÓTULO y la
+                // descripción pasa a ser descripción: el <label> que envuelve
+                // al checkbox aporta TODO su texto al nombre, y sin esto el
+                // checkbox se anunciaría como "Crear oportunidad Crea una
+                // oportunidad de venta para el contacto de esta…". Mismo
+                // reparto label/describedby que las opciones de Select. Sin
+                // subtítulo no hay nada que separar y el <label> alcanza.
+                aria-labelledby={option.subtitle ? `${menuId}-${option.value}-label` : undefined}
+                aria-describedby={
+                  option.subtitle ? `${menuId}-${option.value}-subtitle` : undefined
+                }
               />
-              {option.label}
+              {/* Sin subtítulo, el rótulo va suelto como siempre: la opción
+                  sigue siendo una línea de nowrap y las pantallas que ya
+                  usaban MultiSelect no cambian ni un píxel. Con subtítulo, el
+                  par se envuelve en un bloque que SÍ puede ocupar dos líneas
+                  (ver .ds-multiselect-option-text en design-system.css). */}
+              {option.subtitle ? (
+                <span className="ds-multiselect-option-text">
+                  <span id={`${menuId}-${option.value}-label`}>{option.label}</span>
+                  <span
+                    id={`${menuId}-${option.value}-subtitle`}
+                    className="ds-multiselect-option-subtitle"
+                  >
+                    {option.subtitle}
+                  </span>
+                </span>
+              ) : (
+                option.label
+              )}
             </label>
           ))}
         </div>

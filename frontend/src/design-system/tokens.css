@@ -86,6 +86,12 @@
      system-ui de respaldo si no llegan. */
   --font-sans: "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Space Grotesk", "Public Sans", system-ui, sans-serif;
+  /* Monoespaciada, solo del sistema: para texto que se lee carácter por
+     carácter (el secreto de una API key) o cuya indentación significa algo
+     (el JSON de los guardrails de un agente). No se carga ninguna fuente
+     nueva para esto. Nació duplicada en .ds-secret; vive acá desde que tuvo
+     un segundo consumidor. */
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
   --space-1: 4px;
   --space-2: 8px;
