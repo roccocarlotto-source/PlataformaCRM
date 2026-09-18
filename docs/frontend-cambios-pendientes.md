@@ -2364,3 +2364,46 @@ Con `margin` a `auto` de los dos lados, el navegador reparte el sobrante en part
 **Verificación visual:** Nueva oportunidad, Editar empresa y Nuevo proceso de venta, en modo claro y oscuro, contra el Supabase local con datos sembrados. Los tres formularios centrados, con 112px de aire a cada lado en 1440px.
 
 **Suite de frontend en verde: 138 archivos y 1340 tests** — el mismo conteo que el §48: un cambio de CSS puro no agrega ni rompe casos. Ningún test menciona `.ds-form` ni depende de posiciones. Sin backend, sin migraciones y sin dependencias nuevas.
+
+## 50. Sincronizar Etapa con Estado en los formularios (igual que ya hace el Kanban)
+
+**Estado:** hecho
+
+**Contexto:** una Oportunidad tiene dos campos que hablan del mismo tema y hasta ahora vivían separados fuera del tablero:
+
+- **Estado** (`status`): Abierta / Ganada / Perdida. Es el campo real: dispara Motivo de pérdida, Fecha real de cierre y alimenta el Win Rate.
+- **Etapa** (`stageId`): un paso configurable del proceso de venta. Cada Etapa tiene sus propios flags `isWon` / `isLost`, mutuamente excluyentes, que se configuran en Procesos de venta → Etapas.
+
+El **tablero Kanban ya los sincronizaba**: arrastrar una tarjeta a una columna marcada como ganada o perdida manda en el mismo PATCH el `status` que corresponde (`boardMove.ts`, `buildMovePatch`). El **formulario nunca lo hizo**: su selector de Etapa solo cambiaba `stageId` (`onChange={(stageId) => setValues({ ...values, stageId })}`), sin mirar los flags. Elegir ahí una Etapa "Perdida" dejaba la oportunidad **abierta**, sin Motivo de pérdida a la vista y sin fecha de cierre — la persona creía haberla cerrado y no la había cerrado. Encima, en **Alta** la tarjeta "Estado y cierre" ni siquiera existía (`isEditMode ? <Card…> : null`), así que no había forma de notar la contradicción.
+
+**La regla aplicada es la MISMA que la del Kanban**, no una parecida:
+
+- Etapa destino con `isWon` → `status: "WON"`, y Fecha real de cierre = **hoy solo si estaba vacía** (una fecha ya cargada nunca se pisa).
+- Etapa destino con `isLost` → `status: "LOST"`, mismo criterio de fecha.
+- Etapa destino **normal** con la oportunidad cerrada → **se reabre**: `status: "OPEN"`, Fecha real vacía y Motivo de pérdida vacío.
+- Etapa destino normal con la oportunidad ya abierta → no toca nada, solo cambia `stageId` (el comportamiento de siempre).
+
+**La duplicación se evitó extrayendo la regla, no copiándola.** La lógica que estaba adentro de `buildMovePatch` pasó a un módulo puro nuevo, `frontend/src/features/opportunity/stageStatus.ts`, que exporta `stageStatusChange(current, targetFlags)`. Devuelve una **intención** (`{ status, actualCloseDate: "keep" | "today" | "clear" }`, o `null` si la etapa no cambia nada) en vez de un valor ya formateado, porque los dos consumidores escriben cosas distintas:
+
+- `boardMove.ts` la traduce a un PATCH que sale a la red: `"keep"` es **no mandar el campo**, `"clear"` es mandar `null`.
+- `OpportunityFormPage.tsx` la aplica sobre su **estado local**: `"clear"` es `""`, que es lo que espera un `<input type="date">`, y `toUpdateInput` ya convierte ese `""` en el `null` explícito del PATCH.
+
+Lo que la regla compartida **no** decide, porque las dos políticas difieren legítimamente: `lostReason`. El embudo nunca lo toca en un drag y sigue sin tocarlo; el formulario lo limpia en toda transición cuyo estado resultante no sea `LOST`, que es el mismo criterio del §48 (si no, el motivo de una pérdida anterior viajaría fantasma en el PATCH).
+
+**Para leer los flags, el formulario comparte la query con el selector.** `OpportunityFormPage` necesita saber si la Etapa elegida es ganada o perdida, y eso solo lo sabía `StageSelect` adentro. En vez de cambiar la firma pública del selector (tiene otros consumidores y tests), la página trae la misma lista: el hook `useStageOptions(pipelineId)` se mudó de `StageSelect.tsx` a `stage/queries.ts` y ahora lo usan los dos. Comparten `queryKey` **por construcción** —no por copiar los mismos literales en dos lados—, así que la página lee del caché de React Query y **no se dispara ni una request extra**. Si las etapas todavía no cargaron, o el id elegido no está en la lista, se trata como etapa normal y no se toca el estado: nunca se adivina por el nombre de la Etapa.
+
+**Qué cambia en Alta:** la tarjeta "Estado y cierre" ahora **puede aparecer**. Su condición pasó de `isEditMode` a `isEditMode || isClosed(values.status)`: se muestra siempre en edición, como antes, y en creación solo cuando la Etapa elegida forzó un cierre. Al volver a una Etapa normal el estado vuelve a `OPEN` y la tarjeta desaparece de nuevo. Adentro funciona igual que siempre, incluso en Alta: el Estado **sigue siendo editable a mano** (la Etapa propone, la persona decide — se puede elegir una Etapa "Perdida" y corregir el Estado a Ganada antes de guardar), Motivo de pérdida solo con Perdida y Fecha real con Ganada o Perdida. Los dos textos de ayuda de creación ("Se crea abierta en la etapa elegida del embudo" y "La oportunidad arranca abierta…") se ocultan mientras el estado esté cerrado: ahí serían falsos.
+
+**Cambiar de Proceso de venta también reabre.** `handlePipelineChange` ya limpiaba `stageId`; ahora, si la oportunidad había quedado cerrada, la reabre con el mismo criterio (`status: "OPEN"`, Fecha real y Motivo vacíos). El cierre lo había causado una Etapa que al cambiar de pipeline deja de existir: sin causa, no queda el efecto. Si ya estaba abierta, no cambia nada.
+
+**Qué NO cambia:**
+
+- **No se recalcula nada al abrir una edición existente.** La sincronización es una reacción a que alguien cambie la Etapa o el Proceso de venta, nunca un efecto de hidratación. Una oportunidad histórica cuyo Estado no coincide con los flags de su Etapa (drift de datos viejos) se muestra **tal cual está persistida** y, si se guarda sin tocar nada, se guarda igual. Corregirla automáticamente al abrir el formulario sería reescribir datos que nadie pidió tocar. Hay un test dedicado a esto.
+- **El backend.** Sigue sin relacionar `stageId` con `status` (`opportunity.service.ts` no mira `isWon`/`isLost`). La sincronización es y sigue siendo del frontend.
+- **El Kanban.** `buildMovePatch` produce exactamente los mismos PATCH que antes; sus tests pasaron sin una sola modificación.
+- **La firma de `StageSelect`.** Sigue siendo `onChange: (stageId: string) => void`. Ningún otro consumidor se tocó.
+- **El selector de Estado.** `handleStatusChange` (cambio manual, independiente de la Etapa) quedó intacto, y sus tests también.
+
+**Tests:** 7 casos nuevos en `OpportunityFormPage.test.tsx` (un `describe` propio) y un archivo nuevo `stageStatus.test.ts` con 6 casos para la regla pura. Los handlers MSW de `baseHandlers()` ahora devuelven tres etapas para "Ventas" — una normal y las dos marcadas — en vez de una sola. Cubren: Alta con Etapa perdida (aparece la tarjeta, el POST manda `LOST` con motivo y fecha de hoy), Alta con Etapa ganada (sin Motivo), Alta volviendo a una Etapa normal (la tarjeta desaparece y el POST vuelve a `OPEN`), Edición revelando Motivo al cambiar de Etapa, Edición reabriendo al volver a una Etapa normal, cambio de Proceso de venta estando cerrada, y el de la carga inicial que **no** recalcula. Los tests existentes de `handleStatusChange` y los de `boardMove.ts` pasaron sin modificación.
+
+**Suite de frontend en verde: 139 archivos y 1353 tests.** `tsc -b`, ESLint y Prettier limpios. Sin backend, sin migraciones y sin dependencias nuevas.

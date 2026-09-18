@@ -1,5 +1,5 @@
 import { Select } from "../../design-system/Select";
-import { useStages } from "./queries";
+import { useStageOptions } from "./queries";
 
 interface StageSelectProps {
   id?: string;
@@ -14,8 +14,6 @@ interface StageSelectProps {
   // el formulario que lo exige cubre esos huecos en su submit.
   required?: boolean;
 }
-
-const PAGE_SIZE = 100;
 
 // Combobox del design system (Select, §46 de docs/frontend-cambios-pendientes.md),
 // de una sola línea y con búsqueda local sobre la página ya traída — misma
@@ -37,11 +35,11 @@ export function StageSelect({
   onChange,
   required = false,
 }: StageSelectProps) {
-  const stagesQuery = useStages(
-    pipelineId ?? "",
-    { pipelineId, pageSize: PAGE_SIZE, sortBy: "order", sortOrder: "asc" },
-    { enabled: pipelineId !== undefined },
-  );
+  // Una sola página de 100 ordenada por `order`, definida en queries.ts
+  // (useStageOptions) para compartir la misma queryKey con
+  // OpportunityFormPage, que necesita los flags isWon/isLost de la etapa
+  // elegida — ver §50.
+  const stagesQuery = useStageOptions(pipelineId);
 
   // Sin pipeline no hay etapas que ofrecer: el selector queda deshabilitado y
   // su fila vacía es el cartel ("Elegí primero un proceso de venta…"), que

@@ -1,4 +1,5 @@
 import type { Stage } from "../stage/types";
+import { stageStatusChange } from "./stageStatus";
 import type { Opportunity, UpdateOpportunityInput } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -27,6 +28,12 @@ import type { Opportunity, UpdateOpportunityInput } from "./types";
 //
 // Es una función pura a propósito: la interacción de arrastre se prueba
 // aparte, y estas reglas se prueban una por una sin simular ningún drag.
+//
+// Desde §50 la REGLA en sí (qué status corresponde a los flags de la etapa
+// destino, y qué hacer con la fecha) vive en stageStatus.ts, compartida con
+// el formulario de la oportunidad — que la aplica sobre su estado local en
+// vez de sobre un PATCH. Acá queda solo la traducción de esa intención al
+// lenguaje del PATCH: "keep" es no mandar el campo, "clear" es mandar null.
 // ---------------------------------------------------------------------------
 
 export type StageOutcome = Pick<Stage, "id" | "isWon" | "isLost">;
@@ -39,28 +46,13 @@ export function buildMovePatch(
 ): UpdateOpportunityInput | null {
   if (target.id === opportunity.stageId) return null;
 
-  // Una etapa no puede ser ganada y perdida a la vez (refine del backend,
-  // stage.controller.ts); el orden de los dos `if` solo importa si esa
-  // regla se rompiera, y en ese caso "ganada" gana.
-  if (target.isWon) {
-    return closeAs("WON", target.id, opportunity.actualCloseDate, today);
-  }
-  if (target.isLost) {
-    return closeAs("LOST", target.id, opportunity.actualCloseDate, today);
-  }
-  if (opportunity.status !== "OPEN") {
-    return { stageId: target.id, status: "OPEN", actualCloseDate: null };
-  }
-  return { stageId: target.id };
-}
+  const change = stageStatusChange(opportunity, target);
+  if (!change) return { stageId: target.id };
 
-function closeAs(
-  status: "WON" | "LOST",
-  stageId: string,
-  existingCloseDate: string | null,
-  today: string,
-): UpdateOpportunityInput {
-  return existingCloseDate ? { stageId, status } : { stageId, status, actualCloseDate: today };
+  const patch: UpdateOpportunityInput = { stageId: target.id, status: change.status };
+  if (change.actualCloseDate === "today") return { ...patch, actualCloseDate: today };
+  if (change.actualCloseDate === "clear") return { ...patch, actualCloseDate: null };
+  return patch;
 }
 
 // "Hoy" en formato YYYY-MM-DD según el reloj LOCAL de quien arrastra — es

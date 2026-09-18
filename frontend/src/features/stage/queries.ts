@@ -43,6 +43,30 @@ export function useStages(
   });
 }
 
+// Las etapas de un pipeline tal como las OFRECE un selector: una sola página
+// de 100 (el máximo que acepta el backend, stage.controller.ts
+// listQuerySchema) ordenada por `order`.
+//
+// Vive acá y no adentro de StageSelect desde §50: OpportunityFormPage
+// necesita los flags isWon/isLost de la etapa elegida para sincronizar el
+// Estado, y esos flags ya vienen en esta misma respuesta. Compartiendo el
+// hook comparten la queryKey POR CONSTRUCCIÓN — no por copiar los mismos
+// literales en dos lados — así que el formulario lee del caché de React
+// Query y no dispara un segundo GET /stages.
+//
+// Sin pipelineId la query queda desactivada por completo: un Stage siempre
+// pertenece a un único Pipeline y un listado sin scope mezclaría etapas de
+// todos (ver StageSelect.tsx).
+const OPTIONS_PAGE_SIZE = 100;
+
+export function useStageOptions(pipelineId: string | undefined) {
+  return useStages(
+    pipelineId ?? "",
+    { pipelineId, pageSize: OPTIONS_PAGE_SIZE, sortBy: "order", sortOrder: "asc" },
+    { enabled: pipelineId !== undefined },
+  );
+}
+
 export function useStage(pipelineId: string, id: string | undefined) {
   return useQuery({
     queryKey: stageKeys.detail(pipelineId, id ?? ""),
