@@ -2864,3 +2864,58 @@ Si `guardrails` queda en `{}`, el resumen **no es una lista vacía**: dice *"Sin
 - **Verificado que los tests distinguen:** el caso de la comparación por nombre pelado se corrió con la sanitización filtrando por el string completo en vez de por `nombreDeCampo()`, y fallan dos casos; el de "guardar sin tocar el texto no traduce" se corrió sin la inicialización de la confirmación desde la query, y falla. No se dieron por buenos porque pasaran.
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
+
+---
+
+## 57. "Guardrails" pasa a llamarse "Reglas del agente", y se limpia el backfill que no representaba nada
+
+**Estado:** hecho
+
+**Qué lo disparó.** Con el §56 recién mergeado, Rocco abrió un agente que ya existía desde antes: la semilla de desarrollo con `guardrails: {"maxTurns": 20}`. El campo de texto natural le mostró, literalmente, `{"maxTurns": 20}`. Dos cosas salieron de ahí, y este ítem son esas dos.
+
+La primera es de copy: **"Guardrails" no es una palabra para un usuario no técnico.** Entre las opciones propuestas Rocco eligió **"Reglas del agente"**.
+
+La segunda es de datos: ese JSON **no representaba nada real**. `maxTurns` no es ninguna de las seis claves de `docs/ai-agent-architecture.md` §6, así que ni `puedeEjecutarTool()` ni `armarSystemPrompt()` lo leen — nunca tuvo ningún efecto. Mostrarlo como "esto es lo que configuraste" es peor que mostrar el campo vacío: parece una regla y no lo es.
+
+---
+
+### El rename es de copy, y solo de copy
+
+Lo único que cambia es **lo que lee el usuario**. Ni un nombre de variable, de tipo, de función ni de clave de la API se tocó: `guardrails`, `guardrailsText`, `GuardrailsTranslation`, `resumirGuardrails`, `formatGuardrails`, `/agents/guardrails/translate`, la columna `guardrails_text`, todo queda exactamente igual. Es deliberado: "guardrail" es el término técnico correcto para el código y la documentación (`docs/ai-agent-architecture.md` lo usa en todos lados, igual que el resto del código de agentes), y renombrar identificadores por un cambio de rótulo sería un diff enorme sin ningún beneficio — y con un riesgo real, porque `guardrails` es además el nombre de un campo del contrato HTTP.
+
+Los lugares visibles al usuario, después de revisar `frontend/src` entero:
+
+- El `<Card heading>` y el `<FormField label>` del formulario de agente — los dos "Guardrails" con mayúscula, que eran los únicos previstos.
+- **Tres más que el grep encontró en minúscula**, y que se cambiaron por el mismo motivo (si la palabra no sirve en el rótulo, tampoco sirve tres líneas más abajo):
+  - el hint de la tarjeta de acciones: *"cada acción vuelve a pasar por los guardrails de abajo"* → *"…por las reglas del agente de abajo"*;
+  - el mensaje de error de la traducción: *"No se pudieron traducir los guardrails a reglas"* → *"No se pudieron interpretar las reglas del agente"*;
+  - la línea del resumen cuando no quedó nada declarado (`SIN_GUARDRAILS`, en `features/agent/guardrails.ts`): *"Sin guardrails: …"* → *"Sin reglas: …"*. El **nombre** de la constante sigue siendo `SIN_GUARDRAILS`, por la misma razón de arriba; lo que cambió es su valor.
+
+En los tests eso es un rename de selector, no un cambio de comportamiento: los `getByLabelText("Guardrails")` de `AgentFormPage.test.tsx` pasan a `"Reglas del agente"`, y el `getByText(/Sin guardrails/)` a `/Sin reglas/`.
+
+---
+
+### La migración: por qué es segura
+
+`20260923120000_limpiar_backfill_de_guardrails_sin_claves_reconocidas` **no cambia el schema** — `guardrails_text` ya existe y `prisma/schema.prisma` no se toca. Es un único `UPDATE` de limpieza de datos.
+
+La condición es lo importante:
+
+```sql
+WHERE "guardrails_text" = "guardrails"::text
+  AND NOT ( "guardrails" ? 'temasProhibidos' OR … OR "guardrails" ? 'datosRequeridosAntesDeAccion' )
+```
+
+La primera mitad es la que protege del accidente que importa: **solo toca las filas donde `guardrails_text` sigue siendo el volcado literal que hizo el backfill del §56.** Si el ADMIN ya reescribió el campo con sus palabras, esa igualdad deja de ser cierta y la fila no se toca — no hay forma de que esta migración pise texto escrito por una persona.
+
+La segunda mitad es la que decide qué es basura: si el JSON no usa **ninguna** de las seis claves de §6, esa configuración nunca hizo cumplir nada. En esas filas se limpian los dos campos: `guardrails_text` a `''` y `guardrails` a `'{}'`. Pasar de `{"maxTurns": 20}` a `{}` es **semánticamente idéntico** para el enforcement — `puedeEjecutarTool()` leía cero reglas antes y lee cero reglas después. No hay ningún cambio de comportamiento; se saca lo que nunca hizo nada.
+
+No se agregó ningún test de integración: es una limpieza de una sola vez, no lógica de aplicación. Se verificó de dos maneras contra el Supabase local — primero el predicado solo, en una transacción con cinco filas de prueba (backfill muerto, backfill de una clave real, JSON muerto pero con el texto ya reescrito por el ADMIN, texto propio con objeto real, y todo vacío): **actualiza exactamente una, la primera**. Después la migración de verdad, con `npm run migrate:deploy`, sobre la fila real de la semilla: `{"maxTurns": 20}` / `{"maxTurns": 20}` quedó en `{}` / `''`. `npm run verify:schema` sigue en 14/14.
+
+En producción hay que correr `npm run migrate:deploy` después del merge, como con cualquier migración de este repo.
+
+---
+
+**Qué NO cambió:** el enforcement (`puedeEjecutarTool()`, `armarSystemPrompt()`), el contrato HTTP, el schema de Prisma, el flujo de traducción y confirmación del §56, y el backend entero — no tiene un solo cambio de código, solo la migración.
+
+**Tests:** el frontend queda en **1418 casos en 142 archivos**, los mismos que dejó el §56: este ítem no agrega ni saca casos, cambia los selectores de los que ya había. `npm run typecheck`, `npm run lint` y `prettier --check` limpios en frontend.
