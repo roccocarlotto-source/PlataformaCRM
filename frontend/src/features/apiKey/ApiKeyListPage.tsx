@@ -6,6 +6,8 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Pagination } from "../../design-system/Pagination";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
+import { Select } from "../../design-system/Select";
+import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { useSources } from "../source/queries";
 import { ApiKeySecretDialog } from "./ApiKeySecretDialog";
@@ -18,7 +20,7 @@ const PAGE_SIZE = 20;
 
 // Tope del backend para pageSize. Se pide el máximo de una sola vez para el
 // select de creación: una organización con más de 100 fuentes de ingesta no es
-// un escenario que exista hoy, y paginar un <select> sería resolver un problema
+// un escenario que exista hoy, y paginar un desplegable sería resolver un problema
 // que nadie tiene. Si alguna vez pasa, se nota — ver la nota de abajo.
 const SOURCES_PARA_SELECT = 100;
 
@@ -60,7 +62,7 @@ export function ApiKeyListPage() {
     sortOrder,
   });
 
-  // Las fuentes que alimentan los dos <select> de la pantalla. Se declara acá
+  // Las fuentes que alimentan los dos selectores de la pantalla. Se declara acá
   // arriba, antes de los handlers, porque handleCreate la necesita — ver
   // nombreDeFuenteElegida.
   const fuentes = sourcesQuery.data?.data ?? [];
@@ -88,7 +90,7 @@ export function ApiKeyListPage() {
   // clave de una fuente recién dada de alta, que no tiene ninguna fila todavía.
   // Buscar ahí devolvía "—" aunque el nombre estuviera cargado en memoria.
   //
-  // `fuentes` es la lista que alimenta el propio <select>, así que sourceIdNueva
+  // `fuentes` es la lista que alimenta el propio selector, así que sourceIdNueva
   // es por construcción uno de sus elementos: el nombre siempre está, sin ir a
   // la red.
   function nombreDeFuenteElegida(sourceId: string): string {
@@ -138,27 +140,21 @@ export function ApiKeyListPage() {
       </div>
 
       {/* CREACIÓN SIN PANTALLA APARTE: es un solo campo. Un formulario en su
-          propia ruta sería una pantalla entera para elegir una fuente. Es un
-          <label> nativo y no FormField, pero la marca de obligatorio es la
-          misma (.ds-required + required): lo que de verdad bloquea es el
-          `disabled` del botón sin fuente elegida — acá no hay <form>. */}
+          propia ruta sería una pantalla entera para elegir una fuente. Va sin
+          FormField (Select trae su propio <label htmlFor>), pero la marca de
+          obligatorio es la misma (.ds-required + required, que es lo que
+          `required` de Select pone): lo que de verdad bloquea es el `disabled`
+          del botón sin fuente elegida — acá no hay <form>. */}
       <div className="ds-filters">
-        <label>
-          <span className="ds-required">Fuente para la clave nueva</span>
-          <select
-            value={sourceIdNueva}
-            onChange={(event) => setSourceIdNueva(event.target.value)}
-            disabled={createApiKeyMutation.isPending}
-            required
-          >
-            <option value="">Elegir fuente…</option>
-            {fuentes.map((source) => (
-              <option key={source.id} value={source.id}>
-                {source.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label="Fuente para la clave nueva"
+          required
+          value={sourceIdNueva}
+          options={fuentes.map((source) => ({ value: source.id, label: source.name }))}
+          emptyOption={{ label: "Elegir fuente…" }}
+          onChange={setSourceIdNueva}
+          disabled={createApiKeyMutation.isPending}
+        />
         <Button
           variant="primary"
           disabled={!sourceIdNueva || createApiKeyMutation.isPending}
@@ -188,54 +184,38 @@ export function ApiKeyListPage() {
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>
         <div className="ds-filters">
-          <label>
-            Fuente
-            <select
-              value={sourceIdFiltro}
-              onChange={(event) => cambiarFiltroDeFuente(event.target.value)}
-            >
-              <option value="">Todas</option>
-              {fuentes.map((source) => (
-                <option key={source.id} value={source.id}>
-                  {source.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Estado
-            <select
-              value={status}
-              onChange={(event) => {
-                setStatus(event.target.value as ApiKeyStatus | "");
-                setPage(1);
-              }}
-            >
-              <option value="">Todas</option>
-              <option value="ACTIVE">Activas</option>
-              <option value="REVOKED">Revocadas</option>
-            </select>
-          </label>
-          <label>
-            Ordenar por
-            <select
-              value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as ApiKeySortBy)}
-            >
-              <option value="createdAt">Fecha de creación</option>
-              <option value="lastUsedAt">Último uso</option>
-            </select>
-          </label>
-          <label>
-            Orden
-            <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-            >
-              <option value="desc">Descendente</option>
-              <option value="asc">Ascendente</option>
-            </select>
-          </label>
+          <Select
+            label="Fuente"
+            value={sourceIdFiltro}
+            options={fuentes.map((source) => ({ value: source.id, label: source.name }))}
+            emptyOption={{ label: "Todas" }}
+            onChange={cambiarFiltroDeFuente}
+          />
+          <Select
+            label="Estado"
+            value={status}
+            options={[
+              { value: "ACTIVE", label: "Activas" },
+              { value: "REVOKED", label: "Revocadas" },
+            ]}
+            emptyOption={{ label: "Todas" }}
+            onChange={(value) => {
+              setStatus(value);
+              setPage(1);
+            }}
+          />
+          <Select
+            label="Ordenar por"
+            value={sortBy}
+            options={[
+              { value: "createdAt", label: "Fecha de creación" },
+              { value: "lastUsedAt", label: "Último uso" },
+            ]}
+            onChange={(value) => {
+              if (value) setSortBy(value);
+            }}
+          />
+          <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
         {apiKeysQuery.isLoading ? <LoadingState /> : null}

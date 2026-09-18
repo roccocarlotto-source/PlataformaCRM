@@ -10,6 +10,7 @@ import { makeIngestionEvent } from "../../test/ingestionEventFixtures";
 import { makeSource } from "../../test/sourceFixtures";
 import { IngestionEventListPage } from "./IngestionEventListPage";
 import type { IngestionEventListResponse } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -187,7 +188,7 @@ describe("IngestionEventListPage — filtros", () => {
     await user.click(screen.getByRole("button", { name: "Siguiente" }));
     await waitFor(() => expect(urls.at(-1)?.searchParams.get("page")).toBe("2"));
 
-    await user.selectOptions(screen.getByLabelText("Estado"), "FAILED");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Fallido");
     await waitFor(() => {
       expect(urls.at(-1)?.searchParams.get("status")).toBe("FAILED");
       expect(urls.at(-1)?.searchParams.get("page")).toBe("1");
@@ -211,7 +212,8 @@ describe("IngestionEventListPage — filtros", () => {
     renderPage("/ingestion-events?sourceId=src2");
 
     await waitFor(() => expect(urls[0]?.searchParams.get("sourceId")).toBe("src2"));
-    await waitFor(() => expect(screen.getByLabelText("Fuente")).toHaveValue("src2"));
+    // El combobox muestra el NOMBRE de la fuente, no su id (§46).
+    await waitFor(() => expect(screen.getByLabelText("Fuente")).toHaveValue("Feria"));
   });
 
   it("el filtro por batchId de la URL filtra y se anuncia en la pantalla", async () => {
@@ -250,7 +252,7 @@ describe("IngestionEventListPage — filtros", () => {
     renderPage("/ingestion-events?batchId=batch-9");
     await screen.findByRole("table");
 
-    await user.selectOptions(screen.getByLabelText("Fuente"), "src2");
+    await chooseSelectOption(user, screen.getByLabelText("Fuente"), "Feria");
 
     await waitFor(() => {
       expect(urls.at(-1)?.searchParams.get("sourceId")).toBe("src2");

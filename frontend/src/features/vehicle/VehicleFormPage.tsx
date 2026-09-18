@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -8,6 +8,7 @@ import { FormField } from "../../design-system/FormField";
 import { IntegerInput } from "../../design-system/IntegerInput";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
+import { Select } from "../../design-system/Select";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { BranchSelect } from "../branch/BranchSelect";
 import { formatExchangeRate } from "../organization/format";
@@ -422,11 +423,16 @@ function toInput(values: VehicleFormValues): Omit<VehicleWritableFields, "tradeI
   };
 }
 
-// <select> de un enum del schema envuelto en FormField. Con `emptyLabel` el
-// enum es nullable y la primera opción es "" (sin elegir); sin él, es un enum
-// obligatorio (condition, status, publicationCurrency) y no hay opción vacía.
+// Desplegable de un enum del schema. Con `emptyLabel` el enum es nullable y la
+// primera fila es "" (sin elegir); sin él, es un enum obligatorio (condition,
+// status, publicationCurrency) y no hay fila vacía.
+//
+// Desde §46 es el combobox del design system y va suelto, sin FormField:
+// Select trae su propio <label htmlFor> y FormField ES un <label>. Por eso
+// `label` pasa a ser string: ninguno de los ocho campos que lo usan es
+// obligatorio en el sentido de llevar asterisco.
 interface EnumFieldProps<T extends string> {
-  label: ReactNode;
+  label: string;
   value: T | "";
   labels: Record<T, string>;
   onChange: (value: T | "") => void;
@@ -441,16 +447,16 @@ function EnumField<T extends string>({
   emptyLabel,
 }: EnumFieldProps<T>) {
   return (
-    <FormField label={label}>
-      <select value={value} onChange={(event) => onChange(event.target.value as T | "")}>
-        {emptyLabel !== undefined ? <option value="">{emptyLabel}</option> : null}
-        {(Object.keys(labels) as T[]).map((option) => (
-          <option key={option} value={option}>
-            {labels[option]}
-          </option>
-        ))}
-      </select>
-    </FormField>
+    <Select<T>
+      label={label}
+      value={value}
+      options={(Object.keys(labels) as T[]).map((option) => ({
+        value: option,
+        label: labels[option],
+      }))}
+      emptyOption={emptyLabel !== undefined ? { label: emptyLabel } : undefined}
+      onChange={onChange}
+    />
   );
 }
 
@@ -603,7 +609,7 @@ export function VehicleFormPage() {
     setError(null);
     setServerMissingFields(null);
     // branchId es NOT NULL. BranchSelect lleva `required` (asterisco + bloqueo
-    // nativo del navegador), pero su <select> solo existe cuando la lista de
+    // nativo del navegador), pero su selector solo existe cuando la lista de
     // sucursales cargó: este chequeo cubre ese hueco con un mensaje claro en
     // vez de un 400 "branchId inválido".
     if (!values.branchId) {

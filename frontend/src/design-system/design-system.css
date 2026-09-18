@@ -293,6 +293,26 @@ fieldset.ds-field {
   color: var(--color-text-muted);
 }
 
+/* El rótulo propio de un Select (design-system/Select.tsx) toma el MISMO trato
+   que el de un FormField. Select no puede ir adentro de un FormField —FormField
+   ES un <label> y Select trae el suyo—, así que en un formulario queda como
+   hermano de los FormField y sin esto se leería 14px/500 al lado de rótulos de
+   13px/600/mutado. Hasta §46 eso lo tapaba ".ds-field-grid label", que alcanza
+   porque casi todos los formularios usan esa grilla; al migrar el resto de los
+   <select> aparecieron contenedores que no la usan (.ds-payment-fields,
+   .ds-field-row, las filas de QuoteFormPanel y de FieldMappingEditor, el
+   <form> suelto de QrFormDialog), así que la regla se ata al componente y no
+   al contenedor de turno. Dentro de la píldora de filtros NO aplica: el
+   selector de .ds-filters/.ds-board-toolbar es más específico y ahí el rótulo
+   hereda el tamaño de la píldora, como siempre. */
+.ds-select > label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
 /* Marca de campo obligatorio, generada por CSS a propósito: el "*" no forma
    parte del textContent del label, así el nombre accesible sigue siendo
    "Nombre" (getByLabelText exacto en los tests) y los lectores de pantalla
@@ -784,6 +804,23 @@ fieldset.ds-field {
   cursor: default;
 }
 
+/* Un Select dentro de una celda de tabla (§46: la columna Rol de
+   UserListPage). .ds-table-wrap lleva overflow-x: auto para que una tabla
+   ancha scrollee sola, y por regla de CSS el eje que queda en `visible`
+   computa a `auto` en cuanto el otro no lo está: el wrapper es un contenedor
+   de scroll en los dos ejes y le recortaría el panel a las últimas filas. Solo
+   mientras hay un panel abierto adentro, el wrapper deja de recortar.
+   TRADEOFF: durante ese rato la tabla no puede scrollear en horizontal, y si
+   estuviera scrolleada volvería al margen izquierdo. Es aceptable acá —la
+   tabla de Usuarios tiene cinco columnas angostas y no llega a desbordar— y se
+   corrige solo al cerrar el panel. La solución de fondo (renderizar el panel
+   en un portal con posición fija) es otro orden de cambio y no entra en esta
+   fase. Si más adelante una tabla ANCHA necesita un Select adentro, el
+   selector se acota con una clase en vez de generalizar esto. */
+.ds-table-wrap:has(.ds-select-menu) {
+  overflow: visible;
+}
+
 /* La lista scrollea sola; el panel no crece más allá de ~8 filas. */
 .ds-select-menu [role="listbox"] {
   max-height: 18rem;
@@ -835,6 +872,43 @@ fieldset.ds-field {
   padding: var(--space-2) var(--space-3);
   color: var(--color-text-muted);
   font-size: var(--font-size-base);
+}
+
+/* Entrada del panel, compartida por las dos familias de desplegable
+   (docs/frontend-cambios-pendientes.md §46). ANIMATION Y NO TRANSITION: los
+   dos paneles se montan y desmontan del DOM (`{open ? <div…> : null}`), no
+   alternan una clase abierto/cerrado, y una transition sobre un nodo recién
+   montado no dispara — no hay estado anterior desde el cual interpolar. Una
+   keyframe sí corre sola al montarse, así que la entrada se resuelve en CSS
+   puro, sin tocar el estado de Select.tsx ni de MultiSelect.tsx y sin
+   arriesgar los tests de apertura/cierre.
+
+   SIN ANIMACIÓN DE SALIDA, mismo criterio que el pop up de Ver detalle (§34):
+   para animar el cierre habría que demorar el desmontaje en React, que es otro
+   orden de cambio y le agregaría un estado intermedio a dos componentes cuyo
+   ciclo abrir/cerrar ya está cubierto por tests.
+
+   140ms ease-out y 4px: el panel aparece pegado al campo y el recorrido es un
+   matiz (del orden de ds-rise-in, 6px), no un desplazamiento que se lea como
+   tal — un desplegable que se espera instantáneo no puede sentirse lento. */
+@keyframes ds-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Envuelto en no-preference (y no con un `animation: none` bajo `reduce`)
+   porque así el movimiento nunca llega a declararse para quien lo desactivó. */
+@media (prefers-reduced-motion: no-preference) {
+  .ds-select-menu,
+  .ds-multiselect-menu {
+    animation: ds-menu-in 140ms ease-out;
+  }
 }
 
 /* ---------------------------------------------------------------------------

@@ -138,20 +138,19 @@ describe("ContactFormPage", () => {
     const user = userEvent.setup();
     renderForm("/contacts/new");
 
-    const options = Array.from(screen.getByLabelText("Etapa").querySelectorAll("option")).map(
-      (option) => [option.value, option.textContent],
-    );
-    expect(options).toEqual([
-      ["LEAD", "Nuevo"],
-      ["MQL", "Calificado (Marketing)"],
-      ["SQL", "Calificado (Ventas)"],
-      ["CUSTOMER", "Cliente"],
-      ["CHURNED", "Perdido"],
+    // El valor interno del enum ya no es observable en la fila (§46): lo que
+    // garantiza que viaja intacto es el payload del POST, más abajo.
+    expect(await listSelectOptions(user, screen.getByLabelText("Etapa"))).toEqual([
+      "Nuevo",
+      "Calificado (Marketing)",
+      "Calificado (Ventas)",
+      "Cliente",
+      "Perdido",
     ]);
 
     await user.type(screen.getByLabelText("Nombre"), "Nueva");
     await user.type(screen.getByLabelText("Apellido"), "Persona");
-    await user.selectOptions(screen.getByLabelText("Etapa"), "Cliente");
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Cliente");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());

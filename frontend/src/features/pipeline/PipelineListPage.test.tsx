@@ -13,6 +13,7 @@ import { PipelineListPage } from "./PipelineListPage";
 import { useUpdatePipeline } from "./mutations";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { Pipeline, PipelineListResponse } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -130,7 +131,7 @@ describe("PipelineListPage", () => {
     await user.type(screen.getByPlaceholderText("Buscar por nombre"), "ventas");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("search")).toBe("ventas"));
 
-    await user.selectOptions(screen.getByLabelText("Ordenar por"), "name");
+    await chooseSelectOption(user, screen.getByLabelText("Ordenar por"), "Nombre");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("sortBy")).toBe("name"));
 
     await user.click(screen.getByText("Siguiente"));

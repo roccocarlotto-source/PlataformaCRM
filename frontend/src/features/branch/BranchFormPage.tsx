@@ -6,6 +6,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
+import { Select } from "../../design-system/Select";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { useCreateBranch, useUpdateBranch } from "./mutations";
 import { useBranch } from "./queries";
@@ -99,27 +100,28 @@ export function BranchFormPage() {
               />
             </FormField>
 
-            <FormField label={<span className="ds-required">Zona horaria</span>}>
-              <select
-                value={values.timezone}
-                onChange={(event) => setValues({ ...values, timezone: event.target.value })}
-                required
-              >
-                {/* Valor persistido FUERA de la lista (una sucursal creada por API
-                    con "UTC", por ejemplo): se muestra como opción extra mientras
-                    sea el vigente, para que el select nunca muestre Montevideo
-                    mientras el PATCH manda otra cosa. Mismo criterio que Moneda
-                    (§18.B/§19). Ver timezones.ts. */}
-                {isKnownTimezone(values.timezone) ? null : (
-                  <option value={values.timezone}>{values.timezone}</option>
-                )}
-                {TIMEZONE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </FormField>
+            {/* Suelto, sin FormField: Select trae su propio <label htmlFor> y
+                FormField ES un <label>.
+
+                Valor persistido FUERA de la lista (una sucursal creada por API
+                con "UTC", por ejemplo): se muestra como opción extra mientras
+                sea el vigente, para que el selector nunca muestre Montevideo
+                mientras el PATCH manda otra cosa. Mismo criterio que Moneda
+                (§18.B/§19). Ver timezones.ts. */}
+            <Select
+              label="Zona horaria"
+              required
+              value={values.timezone}
+              options={[
+                ...(isKnownTimezone(values.timezone)
+                  ? []
+                  : [{ value: values.timezone, label: values.timezone }]),
+                ...TIMEZONE_OPTIONS,
+              ]}
+              onChange={(timezone) => {
+                if (timezone) setValues({ ...values, timezone });
+              }}
+            />
           </div>
         </Card>
 

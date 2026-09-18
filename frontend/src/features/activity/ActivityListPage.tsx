@@ -11,6 +11,8 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
+import { Select } from "../../design-system/Select";
+import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { useCompaniesByIds } from "../contact/companyResolution";
@@ -184,37 +186,29 @@ export function ActivityListPage() {
               }}
             />
           </label>
-          <label>
-            Tipo
-            <select
-              value={type}
-              onChange={(event) => {
-                setType(event.target.value as ActivityType | "");
-                setPage(1);
-              }}
-            >
-              <option value="">Todos</option>
-              {ACTIVITY_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {ACTIVITY_TYPE_LABELS[t]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Confirmación
-            <select
-              value={confirmation}
-              onChange={(event) => {
-                setConfirmation(event.target.value as ConfirmationFilter);
-                setPage(1);
-              }}
-            >
-              <option value="">Todas</option>
-              <option value="AWAITING_CONFIRMATION">Pendiente de confirmar</option>
-              <option value="CONFIRMED">Confirmada</option>
-            </select>
-          </label>
+          <Select
+            label="Tipo"
+            value={type}
+            options={ACTIVITY_TYPES.map((t) => ({ value: t, label: ACTIVITY_TYPE_LABELS[t] }))}
+            emptyOption={{ label: "Todos" }}
+            onChange={(value) => {
+              setType(value);
+              setPage(1);
+            }}
+          />
+          <Select
+            label="Confirmación"
+            value={confirmation}
+            options={[
+              { value: "AWAITING_CONFIRMATION", label: "Pendiente de confirmar" },
+              { value: "CONFIRMED", label: "Confirmada" },
+            ]}
+            emptyOption={{ label: "Todas" }}
+            onChange={(value) => {
+              setConfirmation(value);
+              setPage(1);
+            }}
+          />
           <div>
             <CompanySelect
               id="activity-filter-company"
@@ -236,29 +230,21 @@ export function ActivityListPage() {
               </Button>
             ) : null}
           </div>
-          <label>
-            Ordenar por
-            <select
-              value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as ActivitySortBy)}
-            >
-              <option value="createdAt">Fecha de creación</option>
-              <option value="updatedAt">Última actualización</option>
-              <option value="dueDate">Vencimiento</option>
-              <option value="completedAt">Completada</option>
-              <option value="subject">Asunto</option>
-            </select>
-          </label>
-          <label>
-            Orden
-            <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-            >
-              <option value="desc">Descendente</option>
-              <option value="asc">Ascendente</option>
-            </select>
-          </label>
+          <Select
+            label="Ordenar por"
+            value={sortBy}
+            options={[
+              { value: "createdAt", label: "Fecha de creación" },
+              { value: "updatedAt", label: "Última actualización" },
+              { value: "dueDate", label: "Vencimiento" },
+              { value: "completedAt", label: "Completada" },
+              { value: "subject", label: "Asunto" },
+            ]}
+            onChange={(value) => {
+              if (value) setSortBy(value);
+            }}
+          />
+          <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
         {activitiesQuery.isLoading ? <LoadingState /> : null}

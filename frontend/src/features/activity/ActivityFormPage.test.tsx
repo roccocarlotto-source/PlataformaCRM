@@ -11,7 +11,7 @@ import { makeCompany } from "../../test/companyFixtures";
 import { makeContact } from "../../test/contactFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { ActivityFormPage } from "./ActivityFormPage";
-import { chooseSelectOption } from "../../test/chooseSelectOption";
+import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -94,13 +94,19 @@ async function selectContact(
 describe("ActivityFormPage — create", () => {
   it("32. Tipo ofrece los 5 ActivityType reales con labels humanos", async () => {
     server.use(...baseHandlers());
+    const user = userEvent.setup();
     renderForm("/activities/new");
 
-    const select = (await screen.findByLabelText("Tipo")) as HTMLSelectElement;
-    const optionTexts = Array.from(select.options).map((o) => o.textContent);
-    expect(optionTexts).toEqual(["Llamada", "Reunión", "Email", "Tarea", "Nota"]);
-    const optionValues = Array.from(select.options).map((o) => o.value);
-    expect(optionValues).toEqual(["CALL", "MEETING", "EMAIL", "TASK", "NOTE"]);
+    // Desde §46 las filas solo están en el DOM con el panel abierto y lo que
+    // se lee de ellas es el rótulo: el valor interno del enum ya no es
+    // observable acá, lo cubre el payload del POST en los tests de guardado.
+    expect(await listSelectOptions(user, await screen.findByLabelText("Tipo"))).toEqual([
+      "Llamada",
+      "Reunión",
+      "Email",
+      "Tarea",
+      "Nota",
+    ]);
   });
 
   // "+ Nueva tarea" de "Mis tareas" llega con ?assigneeId=<yo>: el
@@ -309,7 +315,7 @@ describe("ActivityFormPage — edit", () => {
     renderForm("/activities/act1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Asunto")).toHaveValue("Reunión de cierre"));
-    expect(screen.getByLabelText("Tipo")).toHaveValue("MEETING");
+    expect(screen.getByLabelText("Tipo")).toHaveValue("Reunión");
     expect(screen.getByLabelText("Notas")).toHaveValue("Notas previas");
     await waitFor(() => expect(screen.getByText(/Seleccionada:.*Acme Corp/)).toBeInTheDocument());
   });

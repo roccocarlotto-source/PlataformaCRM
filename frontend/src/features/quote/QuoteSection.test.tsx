@@ -8,6 +8,7 @@ import { env } from "../../config/env";
 import { makeQuote, makeQuoteList } from "../../test/quoteFixtures";
 import { QuoteSection } from "./QuoteSection";
 import type { Quote } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -128,7 +129,7 @@ describe("QuoteSection", () => {
 
     await user.click(within(panel).getByRole("button", { name: "Agregar línea" }));
     await user.type(within(panel).getByLabelText("Descripción"), "Descuento contado");
-    await user.selectOptions(within(panel).getByLabelText("Tipo"), "discount");
+    await chooseSelectOption(user, within(panel).getByLabelText("Tipo"), "Descuento");
     await user.type(within(panel).getByLabelText("Importe"), "500");
     await user.click(within(panel).getByRole("button", { name: "Guardar" }));
 

@@ -8,6 +8,7 @@ import { env } from "../../config/env";
 import { todayIsoDate } from "../opportunity/boardMove";
 import { PaymentSection } from "./PaymentSection";
 import type { Payment } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -185,7 +186,7 @@ describe("PaymentSection", () => {
     expect(within(form).getByLabelText("Fecha")).toHaveValue(todayIsoDate());
 
     await user.type(within(form).getByLabelText("Monto"), "3000");
-    await user.selectOptions(within(form).getByLabelText("Método"), "CARD");
+    await chooseSelectOption(user, within(form).getByLabelText("Método"), "Tarjeta");
     await user.clear(within(form).getByLabelText("Fecha"));
     await user.type(within(form).getByLabelText("Fecha"), "2026-09-14");
     await user.click(within(form).getByRole("button", { name: "Agregar" }));
@@ -231,7 +232,7 @@ describe("PaymentSection", () => {
     );
     const form = within(card).getByRole("form", { name: "Pago" });
     expect(within(form).getByLabelText("Monto")).toHaveValue("5.000,00");
-    expect(within(form).getByLabelText("Método")).toHaveValue("TRANSFER");
+    expect(within(form).getByLabelText("Método")).toHaveValue("Transferencia");
     expect(within(form).getByLabelText("Fecha")).toHaveValue("2026-09-10");
 
     await user.clear(within(form).getByLabelText("Monto"));

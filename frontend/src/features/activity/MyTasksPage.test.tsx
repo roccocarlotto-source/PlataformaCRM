@@ -14,6 +14,7 @@ import { MyTasksPage } from "./MyTasksPage";
 import { activityKeys } from "./queries";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { Activity, UpdateActivityInput } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -312,7 +313,7 @@ describe("MyTasksPage", () => {
     await waitFor(() => expect(screen.getByText("Depurar duplicados")).toBeInTheDocument());
     const requestsBefore = captured.listRequests.length;
 
-    await user.selectOptions(screen.getByLabelText("Tipo"), "TASK");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Tarea");
     expect(screen.getByText("Revisión trimestral")).toBeInTheDocument();
     expect(screen.getByText("Depurar duplicados")).toBeInTheDocument();
     expect(screen.queryByText("Llamar a Andrés")).not.toBeInTheDocument();

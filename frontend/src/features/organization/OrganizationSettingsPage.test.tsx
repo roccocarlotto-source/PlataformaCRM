@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
@@ -9,6 +9,7 @@ import { makeExchangeRate, makeOrganizationSettings } from "../../test/organizat
 import { ToastProvider } from "../../design-system/Toast";
 import { OrganizationSettingsPage } from "./OrganizationSettingsPage";
 import type { OrganizationSettings } from "./types";
+import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -42,13 +43,15 @@ function mockSettings(settings: OrganizationSettings) {
   return { getPatchedBody: () => patchedBody };
 }
 
-const optionsOf = (label: string) =>
-  within(screen.getByLabelText(label))
-    .getAllByRole("option")
-    .map((option) => option.textContent);
+// Desde §46 los dos controles son el combobox del design system: sus filas
+// solo están en el DOM con el panel abierto, así que leerlas es abrirlo
+// (listSelectOptions). El panel se cierra solo al abrir el del otro control.
+const optionsOf = (user: UserEvent, label: string) =>
+  listSelectOptions(user, screen.getByRole("combobox", { name: label }));
 
 describe("OrganizationSettingsPage — carga", () => {
   it("hidrata los dos selects con lo persistido y muestra la cotización vigente con su fecha", async () => {
+    const user = userEvent.setup();
     mockSettings(
       makeOrganizationSettings({
         name: "Automotora Demo",
@@ -63,8 +66,12 @@ describe("OrganizationSettingsPage — carga", () => {
     expect(screen.getByLabelText("Moneda alternativa")).toHaveValue("UYU");
     expect(screen.getByText(/Configuración de Automotora Demo/)).toBeInTheDocument();
     // Ambos selects: "Sin configurar" + las dos monedas de la operación, sin "Otra".
-    expect(optionsOf("Moneda de preferencia")).toEqual(["Sin configurar", "USD", "UYU"]);
-    expect(optionsOf("Moneda alternativa")).toEqual(["Sin configurar", "USD", "UYU"]);
+    expect(await optionsOf(user, "Moneda de preferencia")).toEqual([
+      "Sin configurar",
+      "USD",
+      "UYU",
+    ]);
+    expect(await optionsOf(user, "Moneda alternativa")).toEqual(["Sin configurar", "USD", "UYU"]);
 
     // Cotización de solo lectura: es-UY (coma decimal), hasta 4 decimales, y
     // la fecha del dato. No es un input.
@@ -91,6 +98,7 @@ describe("OrganizationSettingsPage — carga", () => {
   });
 
   it("una moneda persistida fuera de la lista se muestra como opción extra mientras sea la vigente", async () => {
+    const user = userEvent.setup();
     // Mismo criterio que Moneda en Oportunidad (ítem 18.B): "ARS" no está en
     // USD/UYU, pero es lo persistido — el select no puede decir "Sin
     // configurar" mientras el PATCH mandaría "ARS".
@@ -98,9 +106,14 @@ describe("OrganizationSettingsPage — carga", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByLabelText("Moneda de preferencia")).toHaveValue("ARS"));
-    expect(optionsOf("Moneda de preferencia")).toEqual(["Sin configurar", "ARS", "USD", "UYU"]);
-    // El otro select no se contamina con la opción extra.
-    expect(optionsOf("Moneda alternativa")).toEqual(["Sin configurar", "USD", "UYU"]);
+    expect(await optionsOf(user, "Moneda de preferencia")).toEqual([
+      "Sin configurar",
+      "ARS",
+      "USD",
+      "UYU",
+    ]);
+    // El otro control no se contamina con la opción extra.
+    expect(await optionsOf(user, "Moneda alternativa")).toEqual(["Sin configurar", "USD", "UYU"]);
   });
 
   it("un error del GET muestra el mensaje y no presenta el formulario", async () => {
@@ -126,7 +139,7 @@ describe("OrganizationSettingsPage — guardado", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByLabelText("Moneda de preferencia")).toHaveValue("USD"));
-    await user.selectOptions(screen.getByLabelText("Moneda alternativa"), "UYU");
+    await chooseSelectOption(user, screen.getByLabelText("Moneda alternativa"), "UYU");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() =>
@@ -144,7 +157,7 @@ describe("OrganizationSettingsPage — guardado", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByLabelText("Moneda alternativa")).toHaveValue("UYU"));
-    await user.selectOptions(screen.getByLabelText("Moneda alternativa"), "");
+    await chooseSelectOption(user, screen.getByLabelText("Moneda alternativa"), "Sin configurar");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() =>
@@ -174,7 +187,7 @@ describe("OrganizationSettingsPage — guardado", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByLabelText("Moneda alternativa")).toHaveValue("UYU"));
-    await user.selectOptions(screen.getByLabelText("Moneda alternativa"), "USD");
+    await chooseSelectOption(user, screen.getByLabelText("Moneda alternativa"), "USD");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());

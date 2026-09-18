@@ -9,6 +9,8 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
+import { Select } from "../../design-system/Select";
+import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { useDeleteUser, useUpdateUser } from "./mutations";
 import { useUsers } from "./queries";
@@ -63,15 +65,26 @@ function UserRow({
         {isSelf ? (
           user.role.name
         ) : (
-          <select
-            aria-label={`Rol de ${user.fullName}`}
-            value={user.role.name}
-            onChange={(event) => handleRoleChange(event.target.value as "ADMIN" | "USER")}
+          // El rótulo queda oculto (labelHidden): la columna ya dice "Rol" y
+          // el nombre accesible sigue siendo el de antes, "Rol de <nombre>".
+          //
+          // Role.name es `string` en el contrato (la tabla de roles del backend
+          // podría tener otro), así que el genérico va explícito y un nombre
+          // fuera de los dos conocidos cae en "": el control queda en blanco,
+          // exactamente lo que hacía el <select> con un value sin <option>.
+          <Select<"ADMIN" | "USER">
+            label={`Rol de ${user.fullName}`}
+            labelHidden
+            value={user.role.name === "ADMIN" || user.role.name === "USER" ? user.role.name : ""}
+            options={[
+              { value: "ADMIN", label: "ADMIN" },
+              { value: "USER", label: "USER" },
+            ]}
+            onChange={(value) => {
+              if (value) handleRoleChange(value);
+            }}
             disabled={updateUserMutation.isPending}
-          >
-            <option value="ADMIN">ADMIN</option>
-            <option value="USER">USER</option>
-          </select>
+          />
         )}
       </td>
       <td>
@@ -170,53 +183,48 @@ export function UserListPage() {
 
       <h2 className="ds-filters-title">Filtros</h2>
       <div className="ds-filters">
-        <label>
-          Rol
-          <select
-            value={role}
-            onChange={(event) => {
-              setRole(event.target.value as "ADMIN" | "USER" | "");
-              setPage(1);
-            }}
-          >
-            <option value="">Todos</option>
-            <option value="ADMIN">ADMIN</option>
-            <option value="USER">USER</option>
-          </select>
-        </label>
-        <label>
-          Estado
-          <select
-            value={isActive}
-            onChange={(event) => {
-              setIsActive(event.target.value as "true" | "false" | "");
-              setPage(1);
-            }}
-          >
-            <option value="">Todos</option>
-            <option value="true">Activo</option>
-            <option value="false">Inactivo</option>
-          </select>
-        </label>
-        <label>
-          Ordenar por
-          <select value={sortBy} onChange={(event) => setSortBy(event.target.value as UserSortBy)}>
-            <option value="fullName">Nombre</option>
-            <option value="createdAt">Fecha de alta</option>
-          </select>
-        </label>
+        <Select
+          label="Rol"
+          value={role}
+          options={[
+            { value: "ADMIN", label: "ADMIN" },
+            { value: "USER", label: "USER" },
+          ]}
+          emptyOption={{ label: "Todos" }}
+          onChange={(value) => {
+            setRole(value);
+            setPage(1);
+          }}
+        />
+        <Select
+          label="Estado"
+          value={isActive}
+          options={[
+            { value: "true", label: "Activo" },
+            { value: "false", label: "Inactivo" },
+          ]}
+          emptyOption={{ label: "Todos" }}
+          onChange={(value) => {
+            setIsActive(value);
+            setPage(1);
+          }}
+        />
+        <Select
+          label="Ordenar por"
+          value={sortBy}
+          options={[
+            { value: "fullName", label: "Nombre" },
+            { value: "createdAt", label: "Fecha de alta" },
+          ]}
+          onChange={(value) => {
+            if (value) setSortBy(value);
+          }}
+        />
         {/* Antes era un <select> suelto sin rótulo; ahora lleva "Orden" como
-            en el resto de los listados. */}
-        <label>
-          Orden
-          <select
-            value={sortOrder}
-            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-          >
-            <option value="asc">Ascendente</option>
-            <option value="desc">Descendente</option>
-          </select>
-        </label>
+            en el resto de los listados. Desde §46 sale del componente
+            compartido, que lista Descendente primero como los otros once
+            listados (acá estaba al revés). */}
+        <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
       </div>
 
       {usersQuery.isLoading ? <LoadingState /> : null}

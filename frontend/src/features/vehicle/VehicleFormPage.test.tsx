@@ -18,7 +18,7 @@ import {
 } from "../../test/vehicleFixtures";
 import { VehicleFormPage } from "./VehicleFormPage";
 import type { VehiclePhoto } from "./types";
-import { chooseSelectOption } from "../../test/chooseSelectOption";
+import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -326,7 +326,7 @@ describe("VehicleFormPage — completitud para publicar", () => {
     expect(within(localMissing()).queryByText("VIN")).not.toBeInTheDocument();
 
     // Pasar a 0 km saca los tres de usado de la lista.
-    await user.selectOptions(screen.getByLabelText("Condición"), "NEW");
+    await chooseSelectOption(user, screen.getByLabelText("Condición"), "Nuevo");
     expect(within(localMissing()).queryByText("Patente")).not.toBeInTheDocument();
     expect(within(localMissing()).queryByText("Kilometraje")).not.toBeInTheDocument();
     // 1/11 = 9%.
@@ -403,12 +403,12 @@ describe("VehicleFormPage — consignación", () => {
     expect(screen.queryByText("Consignación", { selector: "h2" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Consignante")).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Origen"), "CONSIGNMENT");
+    await chooseSelectOption(user, screen.getByLabelText("Origen"), "Consignación");
     expect(screen.getByText("Consignación", { selector: "h2" })).toBeInTheDocument();
     await user.type(screen.getByLabelText("Consignante"), "Juan Pérez");
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Origen"), "TRADE_IN");
+    await chooseSelectOption(user, screen.getByLabelText("Origen"), "Permuta");
     expect(screen.queryByLabelText("Consignante")).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(
       "Los datos de consignación cargados se van a perder al guardar",
@@ -435,7 +435,7 @@ describe("VehicleFormPage — consignación", () => {
     const user = userEvent.setup();
     renderForm("/vehicles/new");
 
-    await user.selectOptions(screen.getByLabelText("Origen"), "CONSIGNMENT");
+    await chooseSelectOption(user, screen.getByLabelText("Origen"), "Consignación");
     await user.type(screen.getByLabelText("Consignante"), "Juan Pérez");
     await user.type(screen.getByLabelText("Comisión (%)"), "7.5");
     await fillRequired(user);
@@ -1024,7 +1024,9 @@ describe("VehicleFormPage — equipamiento como chips (ítem 21)", () => {
 // el payload manda warrantyOther solo con warranty: "OTHER" (applyWarrantyRule
 // del backend rechaza el detalle con cualquier otra garantía).
 describe("VehicleFormPage — garantía 'Otra' con detalle (ítem 22)", () => {
-  const warrantySelect = () => screen.getByLabelText("Garantía");
+  // Por rol y no por rótulo: con el panel abierto el listbox comparte el
+  // nombre accesible del input (aria-labelledby) y getByLabelText da dos.
+  const warrantySelect = () => screen.getByRole("combobox", { name: "Garantía" });
   const detailInput = () => screen.queryByLabelText("Detalle de la garantía");
 
   it("elegir 'Otra' revela el input de detalle; una opción fija no lo muestra", async () => {
@@ -1033,12 +1035,14 @@ describe("VehicleFormPage — garantía 'Otra' con detalle (ítem 22)", () => {
     renderForm("/vehicles/new");
 
     expect(detailInput()).not.toBeInTheDocument();
-    expect(within(warrantySelect()).getByRole("option", { name: "Otra" })).toHaveValue("OTHER");
+    // "Otra" se ofrece: desde §46 las filas solo están en el DOM con el panel
+    // abierto, así que se leen con listSelectOptions.
+    expect(await listSelectOptions(user, warrantySelect())).toContain("Otra");
 
-    await user.selectOptions(warrantySelect(), "FACTORY");
+    await chooseSelectOption(user, warrantySelect(), "De fábrica");
     expect(detailInput()).not.toBeInTheDocument();
 
-    await user.selectOptions(warrantySelect(), "OTHER");
+    await chooseSelectOption(user, warrantySelect(), "Otra");
     expect(detailInput()).toBeInTheDocument();
     expect(detailInput()).toHaveAttribute("maxlength", "255");
   });
@@ -1055,7 +1059,7 @@ describe("VehicleFormPage — garantía 'Otra' con detalle (ítem 22)", () => {
     const user = userEvent.setup();
     renderForm("/vehicles/new");
 
-    await user.selectOptions(warrantySelect(), "OTHER");
+    await chooseSelectOption(user, warrantySelect(), "Otra");
     await user.type(detailInput()!, "Garantía del fabricante importador, 90 días");
     await fillRequired(user);
     await user.click(screen.getByRole("button", { name: /guardar/i }));
@@ -1079,7 +1083,7 @@ describe("VehicleFormPage — garantía 'Otra' con detalle (ítem 22)", () => {
     const user = userEvent.setup();
     renderForm("/vehicles/new");
 
-    await user.selectOptions(warrantySelect(), "DEALER_12M");
+    await chooseSelectOption(user, warrantySelect(), "Del concesionario, 12 meses");
     expect(detailInput()).not.toBeInTheDocument();
     await fillRequired(user);
     await user.click(screen.getByRole("button", { name: /guardar/i }));
@@ -1100,18 +1104,18 @@ describe("VehicleFormPage — garantía 'Otra' con detalle (ítem 22)", () => {
     const user = userEvent.setup();
     renderForm("/vehicles/new");
 
-    await user.selectOptions(warrantySelect(), "OTHER");
+    await chooseSelectOption(user, warrantySelect(), "Otra");
     await user.type(detailInput()!, "Del importador, 6 meses");
     expect(detailInput()).toHaveValue("Del importador, 6 meses");
 
-    await user.selectOptions(warrantySelect(), "FACTORY");
+    await chooseSelectOption(user, warrantySelect(), "De fábrica");
     expect(detailInput()).not.toBeInTheDocument();
 
     // Volver a "Otra" no rescata el texto viejo: se limpió, no se ocultó.
-    await user.selectOptions(warrantySelect(), "OTHER");
+    await chooseSelectOption(user, warrantySelect(), "Otra");
     expect(detailInput()).toHaveValue("");
 
-    await user.selectOptions(warrantySelect(), "FACTORY");
+    await chooseSelectOption(user, warrantySelect(), "De fábrica");
     await fillRequired(user);
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
@@ -1140,7 +1144,7 @@ describe("VehicleFormPage — garantía 'Otra' con detalle (ítem 22)", () => {
     const user = userEvent.setup();
     renderForm("/vehicles/v1/edit");
 
-    await waitFor(() => expect(warrantySelect()).toHaveValue("OTHER"));
+    await waitFor(() => expect(warrantySelect()).toHaveValue("Otra"));
     expect(detailInput()).toHaveValue("Garantía del fabricante importador, 90 días");
 
     await user.click(screen.getByRole("button", { name: /guardar/i }));
@@ -1172,8 +1176,8 @@ describe("VehicleFormPage — garantía 'Otra' con detalle (ítem 22)", () => {
     const user = userEvent.setup();
     renderForm("/vehicles/v1/edit");
 
-    await waitFor(() => expect(warrantySelect()).toHaveValue("OTHER"));
-    await user.selectOptions(warrantySelect(), "NONE");
+    await waitFor(() => expect(warrantySelect()).toHaveValue("Otra"));
+    await chooseSelectOption(user, warrantySelect(), "Sin garantía");
     expect(detailInput()).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /guardar/i }));
@@ -1213,7 +1217,7 @@ describe("VehicleFormPage — separador de miles en importes y kilometraje (íte
     server.use(...baseHandlers());
     const user = userEvent.setup();
     renderForm("/vehicles/new");
-    await user.selectOptions(screen.getByLabelText("Origen"), "CONSIGNMENT");
+    await chooseSelectOption(user, screen.getByLabelText("Origen"), "Consignación");
 
     for (const label of AMOUNT_LABELS) {
       const input = screen.getByLabelText(label);
@@ -1248,7 +1252,7 @@ describe("VehicleFormPage — separador de miles en importes y kilometraje (íte
     server.use(...baseHandlers());
     const user = userEvent.setup();
     renderForm("/vehicles/new");
-    await user.selectOptions(screen.getByLabelText("Origen"), "CONSIGNMENT");
+    await chooseSelectOption(user, screen.getByLabelText("Origen"), "Consignación");
 
     for (const label of NATIVE_NUMBER_LABELS) {
       expect(screen.getByLabelText(label), label).toHaveAttribute("type", "number");
@@ -1268,7 +1272,7 @@ describe("VehicleFormPage — separador de miles en importes y kilometraje (íte
     renderForm("/vehicles/new");
 
     await fillRequired(user);
-    await user.selectOptions(screen.getByLabelText("Origen"), "CONSIGNMENT");
+    await chooseSelectOption(user, screen.getByLabelText("Origen"), "Consignación");
     await user.type(screen.getByLabelText("Precio de lista (USD)"), "20000,5");
     await user.type(screen.getByLabelText("Precio de lista (moneda local)"), "810000");
     await user.type(screen.getByLabelText("Precio mínimo aceptable (USD)"), "19500");
@@ -1371,7 +1375,7 @@ describe("VehicleFormPage — permuta (§41)", () => {
       "/opportunities/op1/edit",
     );
     expect(pedida).toBe("op1");
-    expect(screen.getByLabelText("Origen")).toHaveValue("TRADE_IN");
+    expect(screen.getByLabelText("Origen")).toHaveValue("Permuta");
 
     // La sucursal se elige a mano: la oportunidad no tiene sucursal propia.
     await fillRequired(user);

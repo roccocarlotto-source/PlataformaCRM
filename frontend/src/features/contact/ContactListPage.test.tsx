@@ -14,6 +14,7 @@ import { openActionsMenu } from "../../test/openActionsMenu";
 import { ContactListPage } from "./ContactListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { ContactListResponse } from "./types";
+import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -150,19 +151,25 @@ describe("ContactListPage", () => {
     expect(cellByHeader(row, "Etapa")).toHaveTextContent("Perdido");
     expect(cellByHeader(row, "Etapa")).not.toHaveTextContent("CHURNED");
 
-    const options = Array.from(screen.getByLabelText("Etapa").querySelectorAll("option")).map(
-      (option) => [option.value, option.textContent],
-    );
-    expect(options).toEqual([
-      ["", "Todas"],
-      ["LEAD", "Nuevo"],
-      ["MQL", "Calificado (Marketing)"],
-      ["SQL", "Calificado (Ventas)"],
-      ["CUSTOMER", "Cliente"],
-      ["CHURNED", "Perdido"],
+    // El valor interno del enum ya no es observable en la fila (§46): que
+    // viaja intacto lo verifica el assert de la query, justo abajo.
+    expect(await listSelectOptions(user, screen.getByLabelText("Etapa"))).toEqual([
+      "Todas",
+      "Nuevo",
+      "Calificado (Marketing)",
+      "Calificado (Ventas)",
+      "Cliente",
+      "Perdido",
     ]);
 
-    await user.selectOptions(screen.getByLabelText("Etapa"), "Calificado (Ventas)");
+    // getByRole y no getByLabelText: listSelectOptions dejó el panel abierto y
+    // el listbox comparte el rótulo con el input (aria-labelledby), así que
+    // getByLabelText encontraría los dos.
+    await chooseSelectOption(
+      user,
+      screen.getByRole("combobox", { name: "Etapa" }),
+      "Calificado (Ventas)",
+    );
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("lifecycleStage")).toBe("SQL"));
   });
 
@@ -188,10 +195,10 @@ describe("ContactListPage", () => {
     await user.type(screen.getByPlaceholderText("Buscar por nombre o email"), "juana");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("search")).toBe("juana"));
 
-    await user.selectOptions(screen.getByLabelText("Etapa"), "MQL");
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Calificado (Marketing)");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("lifecycleStage")).toBe("MQL"));
 
-    await user.selectOptions(screen.getByLabelText("Ordenar por"), "firstName");
+    await chooseSelectOption(user, screen.getByLabelText("Ordenar por"), "Nombre");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("sortBy")).toBe("firstName"));
 
     await user.click(screen.getByText("Siguiente"));

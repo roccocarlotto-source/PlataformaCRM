@@ -10,6 +10,7 @@ import { makeSource } from "../../test/sourceFixtures";
 import { openActionsMenu } from "../../test/openActionsMenu";
 import { SourceListPage } from "./SourceListPage";
 import type { SourceListResponse } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -107,13 +108,13 @@ describe("SourceListPage", () => {
     await user.click(screen.getByRole("button", { name: "Siguiente" }));
     await waitFor(() => expect(urls.at(-1)?.searchParams.get("page")).toBe("2"));
 
-    await user.selectOptions(screen.getByLabelText("Tipo"), "FILE_IMPORT");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Importación de archivo");
     await waitFor(() => {
       expect(urls.at(-1)?.searchParams.get("type")).toBe("FILE_IMPORT");
       expect(urls.at(-1)?.searchParams.get("page")).toBe("1");
     });
 
-    await user.selectOptions(screen.getByLabelText("Estado"), "false");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Pausadas");
     await waitFor(() => expect(urls.at(-1)?.searchParams.get("isActive")).toBe("false"));
 
     await user.type(screen.getByLabelText("Buscar"), "feria");
