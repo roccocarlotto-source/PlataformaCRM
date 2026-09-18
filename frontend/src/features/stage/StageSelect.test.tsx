@@ -7,6 +7,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeStage } from "../../test/stageFixtures";
 import { StageSelect } from "./StageSelect";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -90,8 +91,11 @@ describe("StageSelect", () => {
     const user = userEvent.setup();
     const { onChange } = renderSelect("pl1", undefined);
 
-    await waitFor(() => expect(screen.getByText("Negociación")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st2");
+    await chooseSelectOption(
+      user,
+      await screen.findByRole("combobox", { name: "Etapa" }),
+      "Negociación",
+    );
 
     expect(onChange).toHaveBeenCalledWith("st2");
   });
@@ -201,7 +205,9 @@ describe("StageSelect", () => {
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
+    // La lista real (no la deshabilitada de "sin pipeline") aparece recién
+    // con la query resuelta; el rótulo vacío del control la delata.
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).not.toBeDisabled());
     expect(screen.getByLabelText("Etapa")).toBeRequired();
     expect(screen.getByText("Etapa")).toHaveClass("ds-required");
   });

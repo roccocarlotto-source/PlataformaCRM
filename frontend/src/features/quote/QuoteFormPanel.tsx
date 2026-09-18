@@ -4,6 +4,7 @@ import { CurrencyInput } from "../../design-system/CurrencyInput";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { Modal } from "../../design-system/Modal";
+import { Select } from "../../design-system/Select";
 import { CURRENCY_OPTIONS, isKnownCurrency } from "../../lib/currencies";
 import {
   EMPTY_LINE,
@@ -102,21 +103,19 @@ export function QuoteFormPanel({
               onChange={(amount) => setValues((current) => ({ ...current, amount }))}
             />
           </FormField>
-          <FormField label="Moneda">
-            <select
-              value={values.currency}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, currency: event.target.value }))
-              }
-            >
-              {hasKnownCurrency ? null : <option value={values.currency}>{values.currency}</option>}
-              {CURRENCY_OPTIONS.map((currency) => (
-                <option key={currency} value={currency}>
-                  {currency}
-                </option>
-              ))}
-            </select>
-          </FormField>
+          {/* Suelto, sin FormField: Select trae su propio <label htmlFor> y
+              FormField ES un <label>. */}
+          <Select
+            label="Moneda"
+            value={values.currency}
+            options={[
+              ...(hasKnownCurrency ? [] : [{ value: values.currency, label: values.currency }]),
+              ...CURRENCY_OPTIONS.map((currency) => ({ value: currency, label: currency })),
+            ]}
+            onChange={(currency) => {
+              if (currency) setValues((current) => ({ ...current, currency }));
+            }}
+          />
         </div>
         <FormField label="Válida hasta">
           <input
@@ -148,20 +147,17 @@ export function QuoteFormPanel({
                       onChange={(event) => updateLine(index, { description: event.target.value })}
                     />
                   </label>
-                  <label>
-                    <span className="ds-field-label">Tipo</span>
-                    <select
-                      value={line.kind}
-                      onChange={(event) =>
-                        updateLine(index, {
-                          kind: event.target.value as QuoteLineFormValue["kind"],
-                        })
-                      }
-                    >
-                      <option value="extra">Accesorio</option>
-                      <option value="discount">Descuento</option>
-                    </select>
-                  </label>
+                  <Select
+                    label="Tipo"
+                    value={line.kind}
+                    options={[
+                      { value: "extra", label: "Accesorio" },
+                      { value: "discount", label: "Descuento" },
+                    ]}
+                    onChange={(kind) => {
+                      if (kind) updateLine(index, { kind });
+                    }}
+                  />
                   <label>
                     <span className="ds-field-label">Importe</span>
                     <CurrencyInput

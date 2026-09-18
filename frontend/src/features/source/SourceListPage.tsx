@@ -8,6 +8,8 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
+import { Select } from "../../design-system/Select";
+import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { useDeleteSource } from "./mutations";
 import { useSources } from "./queries";
@@ -112,55 +114,45 @@ export function SourceListPage() {
               }}
             />
           </label>
-          <label>
-            Tipo
-            <select
-              value={type}
-              onChange={(event) => {
-                setType(event.target.value as SourceType | "");
-                setPage(1);
-              }}
-            >
-              <option value="">Todos</option>
-              <option value="WEBHOOK">Webhook</option>
-              <option value="FILE_IMPORT">Importación de archivo</option>
-              <option value="EXTERNAL_DB">Base externa</option>
-            </select>
-          </label>
-          <label>
-            Estado
-            <select
-              value={isActive}
-              onChange={(event) => {
-                setIsActive(event.target.value as "" | "true" | "false");
-                setPage(1);
-              }}
-            >
-              <option value="">Todos</option>
-              <option value="true">Activas</option>
-              <option value="false">Pausadas</option>
-            </select>
-          </label>
-          <label>
-            Ordenar por
-            <select
-              value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as SourceSortBy)}
-            >
-              <option value="createdAt">Fecha de creación</option>
-              <option value="name">Nombre</option>
-            </select>
-          </label>
-          <label>
-            Orden
-            <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-            >
-              <option value="desc">Descendente</option>
-              <option value="asc">Ascendente</option>
-            </select>
-          </label>
+          <Select
+            label="Tipo"
+            value={type}
+            options={[
+              { value: "WEBHOOK", label: "Webhook" },
+              { value: "FILE_IMPORT", label: "Importación de archivo" },
+              { value: "EXTERNAL_DB", label: "Base externa" },
+            ]}
+            emptyOption={{ label: "Todos" }}
+            onChange={(value) => {
+              setType(value);
+              setPage(1);
+            }}
+          />
+          <Select
+            label="Estado"
+            value={isActive}
+            options={[
+              { value: "true", label: "Activas" },
+              { value: "false", label: "Pausadas" },
+            ]}
+            emptyOption={{ label: "Todos" }}
+            onChange={(value) => {
+              setIsActive(value);
+              setPage(1);
+            }}
+          />
+          <Select
+            label="Ordenar por"
+            value={sortBy}
+            options={[
+              { value: "createdAt", label: "Fecha de creación" },
+              { value: "name", label: "Nombre" },
+            ]}
+            onChange={(value) => {
+              if (value) setSortBy(value);
+            }}
+          />
+          <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
         {sourcesQuery.isLoading ? <LoadingState /> : null}

@@ -9,6 +9,7 @@ import { env } from "../../config/env";
 import { makeInvitation } from "../../test/invitationFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { InvitationListPage } from "./InvitationListPage";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -102,7 +103,7 @@ describe("InvitationListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("invitado@example.com")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Estado"), "REVOKED");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Revocada");
 
     await waitFor(() =>
       expect(captured.some((u) => u.searchParams.get("status") === "REVOKED")).toBe(true),

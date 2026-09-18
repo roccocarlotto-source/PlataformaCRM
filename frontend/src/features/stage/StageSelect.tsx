@@ -1,3 +1,4 @@
+import { Select } from "../../design-system/Select";
 import { useStages } from "./queries";
 
 interface StageSelectProps {
@@ -6,9 +7,9 @@ interface StageSelectProps {
   pipelineId: string | undefined;
   value: string | undefined;
   onChange: (stageId: string) => void;
-  // Obligatorio: "*" de .ds-required en el rótulo Y `required` en el
-  // <select>, siempre juntos (mismo contrato que PipelineSelect). Ojo: el
-  // <select> deshabilitado de "sin pipeline" no participa de la validación
+  // Obligatorio: "*" de .ds-required en el rótulo Y `required` en el input del
+  // selector, siempre juntos (mismo contrato que PipelineSelect). Ojo: el
+  // selector deshabilitado de "sin pipeline" no participa de la validación
   // nativa aunque lleve required, y el real solo existe con la lista cargada;
   // el formulario que lo exige cubre esos huecos en su submit.
   required?: boolean;
@@ -16,6 +17,10 @@ interface StageSelectProps {
 
 const PAGE_SIZE = 100;
 
+// Combobox del design system (Select, §46 de docs/frontend-cambios-pendientes.md),
+// de una sola línea y con búsqueda local sobre la página ya traída — misma
+// plantilla que PipelineSelect y BranchSelect.
+//
 // Deshabilitado/vacío sin pipelineId — un Stage siempre pertenece a un único
 // Pipeline (ver stage/types.ts) y Opportunity exige que stageId pertenezca
 // al pipelineId indicado (opportunity.service.ts, validateStageId). La
@@ -32,50 +37,61 @@ export function StageSelect({
   onChange,
   required = false,
 }: StageSelectProps) {
-  const labelNode = required ? <span className="ds-required">{label}</span> : label;
   const stagesQuery = useStages(
     pipelineId ?? "",
     { pipelineId, pageSize: PAGE_SIZE, sortBy: "order", sortOrder: "asc" },
     { enabled: pipelineId !== undefined },
   );
 
+  // Sin pipeline no hay etapas que ofrecer: el selector queda deshabilitado y
+  // su fila vacía es el cartel ("Elegí primero un proceso de venta…"), que
+  // cerrado se lee como placeholder — exactamente lo que mostraba el <select>
+  // vacío y deshabilitado de antes.
   if (!pipelineId) {
     return (
-      <div>
-        <label htmlFor={id}>{labelNode}</label>
-        <select id={id} value="" disabled required={required} onChange={() => undefined}>
-          <option value="">Elegí primero un proceso de venta…</option>
-        </select>
-      </div>
+      <Select
+        id={id}
+        label={label}
+        value=""
+        onChange={() => undefined}
+        options={[]}
+        emptyOption={{ label: "Elegí primero un proceso de venta…" }}
+        required={required}
+        disabled
+      />
+    );
+  }
+
+  // Con la lista cargada, Select trae su propio div > label[for] + input.
+  // Mientras carga o si falló, se conserva el rótulo con el aviso debajo.
+  if (stagesQuery.isSuccess) {
+    return (
+      <Select
+        id={id}
+        label={label}
+        value={value}
+        onChange={onChange}
+        options={stagesQuery.data.data.map((stage) => ({
+          value: stage.id,
+          label: stage.name,
+        }))}
+        // Igual que PipelineSelect: la fila vacía reemplaza a la <option
+        // value="" disabled> y solo se ofrece mientras no hay etapa elegida.
+        emptyOption={value ? undefined : { label: "Elegí una etapa…" }}
+        required={required}
+      />
     );
   }
 
   return (
     <div>
-      <label htmlFor={id}>{labelNode}</label>
+      <label htmlFor={id}>{required ? <span className="ds-required">{label}</span> : label}</label>
       {stagesQuery.isLoading ? <p>Cargando…</p> : null}
       {stagesQuery.isError ? (
         <p role="alert">
           No pudimos cargar las etapas
           {stagesQuery.error instanceof Error ? `: ${stagesQuery.error.message}` : "."}
         </p>
-      ) : null}
-      {stagesQuery.isSuccess ? (
-        <select
-          id={id}
-          value={value ?? ""}
-          onChange={(event) => onChange(event.target.value)}
-          required={required}
-        >
-          <option value="" disabled>
-            Elegí una etapa…
-          </option>
-          {stagesQuery.data.data.map((stage) => (
-            <option key={stage.id} value={stage.id}>
-              {stage.name}
-            </option>
-          ))}
-        </select>
       ) : null}
     </div>
   );

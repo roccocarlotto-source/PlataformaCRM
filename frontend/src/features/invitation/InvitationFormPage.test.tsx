@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeInvitation } from "../../test/invitationFixtures";
 import { InvitationFormPage } from "./InvitationFormPage";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -42,7 +43,7 @@ describe("InvitationFormPage", () => {
     renderForm();
 
     await user.type(screen.getByLabelText("Email"), "nuevo@example.com");
-    await user.selectOptions(screen.getByLabelText("Rol"), "ADMIN");
+    await chooseSelectOption(user, screen.getByLabelText("Rol"), "ADMIN");
     await user.click(screen.getByRole("button", { name: /enviar invitación/i }));
 
     await waitFor(() => expect(screen.getByText("lista de invitaciones")).toBeInTheDocument());

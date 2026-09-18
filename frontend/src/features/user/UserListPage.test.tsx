@@ -10,6 +10,7 @@ import { openActionsMenu } from "../../test/openActionsMenu";
 import { UserListPage } from "./UserListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { UserListResponse } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -112,8 +113,8 @@ describe("UserListPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("Ana Pérez")).toBeInTheDocument());
 
-    await user.selectOptions(screen.getByLabelText("Rol"), "ADMIN");
-    await user.selectOptions(screen.getByLabelText("Estado"), "true");
+    await chooseSelectOption(user, screen.getByLabelText("Rol"), "ADMIN");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Activo");
     await user.click(screen.getByText("Siguiente"));
 
     await waitFor(() =>
@@ -148,7 +149,7 @@ describe("UserListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Beto Gómez")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Rol de Beto Gómez"), "USER");
+    await chooseSelectOption(user, screen.getByLabelText("Rol de Beto Gómez"), "USER");
 
     await waitFor(() => expect(patchedBody).toEqual({ role: "USER" }));
   });

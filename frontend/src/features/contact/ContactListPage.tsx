@@ -13,6 +13,8 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { PhoneNumber } from "../../design-system/PhoneNumber";
+import { Select } from "../../design-system/Select";
+import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { useOwnerNames } from "../opportunity/relationResolution";
@@ -148,23 +150,19 @@ export function ContactListPage() {
               }}
             />
           </label>
-          <label>
-            Etapa
-            <select
-              value={lifecycleStage}
-              onChange={(event) => {
-                setLifecycleStage(event.target.value as LifecycleStage | "");
-                setPage(1);
-              }}
-            >
-              <option value="">Todas</option>
-              {LIFECYCLE_STAGES.map((stage) => (
-                <option key={stage} value={stage}>
-                  {LIFECYCLE_STAGE_LABELS[stage]}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label="Etapa"
+            value={lifecycleStage}
+            options={LIFECYCLE_STAGES.map((stage) => ({
+              value: stage,
+              label: LIFECYCLE_STAGE_LABELS[stage],
+            }))}
+            emptyOption={{ label: "Todas" }}
+            onChange={(value) => {
+              setLifecycleStage(value);
+              setPage(1);
+            }}
+          />
           <div>
             <CompanySelect
               id="contact-filter-company"
@@ -189,28 +187,20 @@ export function ContactListPage() {
               </Button>
             ) : null}
           </div>
-          <label>
-            Ordenar por
-            <select
-              value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as ContactSortBy)}
-            >
-              <option value="createdAt">Fecha de creación</option>
-              <option value="firstName">Nombre</option>
-              <option value="lastName">Apellido</option>
-              <option value="lifecycleStage">Etapa</option>
-            </select>
-          </label>
-          <label>
-            Orden
-            <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-            >
-              <option value="desc">Descendente</option>
-              <option value="asc">Ascendente</option>
-            </select>
-          </label>
+          <Select
+            label="Ordenar por"
+            value={sortBy}
+            options={[
+              { value: "createdAt", label: "Fecha de creación" },
+              { value: "firstName", label: "Nombre" },
+              { value: "lastName", label: "Apellido" },
+              { value: "lifecycleStage", label: "Etapa" },
+            ]}
+            onChange={(value) => {
+              if (value) setSortBy(value);
+            }}
+          />
+          <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
         {contactsQuery.isLoading ? <LoadingState /> : null}

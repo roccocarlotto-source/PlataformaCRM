@@ -6,6 +6,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
+import { Select } from "../../design-system/Select";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { FieldMappingEditor } from "./FieldMappingEditor";
 import { SugerirMapeoDesdeArchivo } from "./SugerirMapeoDesdeArchivo";
@@ -172,25 +173,32 @@ export function SourceFormPage() {
                 />
               </FormField>
 
-              <FormField label="Tipo">
-                <select
-                  value={values.type}
-                  disabled={isEditMode}
-                  onChange={(event) =>
-                    setValues({ ...values, type: event.target.value as SourceType })
-                  }
-                >
-                  {/* Falta EXTERNAL_DB del enum a propósito, no es un olvido: el ítem 6
-                    (bases de datos externas) sigue pospuesto —ver docs/project-overview.md
-                    §8— y no hay ninguna forma de ingesta que lo consuma. Crear una
-                    fuente de ese tipo hoy no rompe nada, pero tampoco hace nada.
-                    `SourceType` en types.ts SÍ lo incluye: el backend lo acepta, así
-                    que el tipo tiene que poder representar una fuente existente que
-                    llegue por otro camino. Esto es solo no ofrecer la opción. */}
-                  <option value="WEBHOOK">Webhook</option>
-                  <option value="FILE_IMPORT">Importación de archivo</option>
-                </select>
-              </FormField>
+              {/* Suelto, sin FormField: Select trae su propio <label htmlFor>
+                  y FormField ES un <label>.
+
+                  Falta EXTERNAL_DB del enum a propósito, no es un olvido: el ítem 6
+                  (bases de datos externas) sigue pospuesto —ver docs/project-overview.md
+                  §8— y no hay ninguna forma de ingesta que lo consuma. Crear una
+                  fuente de ese tipo hoy no rompe nada, pero tampoco hace nada.
+                  `SourceType` en types.ts SÍ lo incluye: el backend lo acepta, así
+                  que el tipo tiene que poder representar una fuente existente que
+                  llegue por otro camino. Esto es solo no ofrecer la opción. */}
+              {/* Genérico explícito en SourceType (y no inferido de `options`)
+                  justamente porque la lista NO tiene EXTERNAL_DB: sin esto,
+                  `value` no aceptaría una fuente existente de ese tipo. Como
+                  antes, un valor fuera de la lista deja el campo en blanco. */}
+              <Select<SourceType>
+                label="Tipo"
+                value={values.type}
+                disabled={isEditMode}
+                options={[
+                  { value: "WEBHOOK", label: "Webhook" },
+                  { value: "FILE_IMPORT", label: "Importación de archivo" },
+                ]}
+                onChange={(type) => {
+                  if (type) setValues({ ...values, type });
+                }}
+              />
               {isEditMode ? (
                 <p className="ds-hint ds-field-grid--full">
                   El tipo no se puede cambiar: una integración de webhook no se convierte en una

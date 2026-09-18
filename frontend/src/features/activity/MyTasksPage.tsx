@@ -6,6 +6,7 @@ import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Select } from "../../design-system/Select";
 import { useCompanyNames, useContactNames } from "../opportunity/relationResolution";
 import { useCompleteActivity } from "./mutations";
 import { activityKeys, useMyPendingActivities } from "./queries";
@@ -230,20 +231,13 @@ export function MyTasksPage() {
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
-        <label>
-          Tipo
-          <select
-            value={type}
-            onChange={(event) => setType(event.target.value as ActivityType | "")}
-          >
-            <option value="">Todos los tipos</option>
-            {ACTIVITY_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {ACTIVITY_TYPE_LABELS[t]}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Select
+          label="Tipo"
+          value={type}
+          options={ACTIVITY_TYPES.map((t) => ({ value: t, label: ACTIVITY_TYPE_LABELS[t] }))}
+          emptyOption={{ label: "Todos los tipos" }}
+          onChange={setType}
+        />
       </div>
 
       {tasksQuery.isLoading ? <LoadingState /> : null}

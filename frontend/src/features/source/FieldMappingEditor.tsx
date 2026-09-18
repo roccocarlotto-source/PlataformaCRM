@@ -1,4 +1,5 @@
 import { Button } from "../../design-system/Button";
+import { Select } from "../../design-system/Select";
 import { FILA_VACIA, type FieldMappingRow } from "./fieldMapping";
 import { CAMPOS_DE_CONTACTO, ETIQUETA_DE_CAMPO, MAX_COLUMNAS_MAPEADAS } from "./types";
 
@@ -69,23 +70,17 @@ export function FieldMappingEditor({ rows, onChange, disabled }: FieldMappingEdi
                   onChange={(event) => actualizar(index, { encabezado: event.target.value })}
                 />
               </label>
-              <label>
-                <span className="ds-field-label">Campo del contacto</span>
-                <select
-                  value={fila.destino}
-                  disabled={disabled}
-                  onChange={(event) =>
-                    actualizar(index, { destino: event.target.value as FieldMappingRow["destino"] })
-                  }
-                >
-                  <option value="">Elegir campo…</option>
-                  {CAMPOS_DE_CONTACTO.map((campo) => (
-                    <option key={campo} value={campo}>
-                      {ETIQUETA_DE_CAMPO[campo]}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <Select
+                label="Campo del contacto"
+                value={fila.destino}
+                disabled={disabled}
+                options={CAMPOS_DE_CONTACTO.map((campo) => ({
+                  value: campo,
+                  label: ETIQUETA_DE_CAMPO[campo],
+                }))}
+                emptyOption={{ label: "Elegir campo…" }}
+                onChange={(destino) => actualizar(index, { destino })}
+              />
               <Button
                 variant="danger"
                 disabled={disabled}

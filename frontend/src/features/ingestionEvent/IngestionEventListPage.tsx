@@ -5,6 +5,7 @@ import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Pagination } from "../../design-system/Pagination";
+import { Select } from "../../design-system/Select";
 import { Table } from "../../design-system/Table";
 import { useSources } from "../source/queries";
 import { useRetryIngestionEvent } from "./mutations";
@@ -122,49 +123,44 @@ export function IngestionEventListPage() {
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>
         <div className="ds-filters">
-          <label>
-            Fuente
-            <select
-              value={sourceIdFiltro}
-              onChange={(event) => cambiarFiltroDeFuente(event.target.value)}
-            >
-              <option value="">Todas</option>
-              {fuentes.map((source) => (
-                <option key={source.id} value={source.id}>
-                  {source.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Estado
-            <select
-              value={status}
-              onChange={(event) => {
-                setStatus(event.target.value as IngestionStatus | "");
-                setPage(1);
-              }}
-            >
-              <option value="">Todos</option>
-              {ESTADOS.map((estado) => (
-                <option key={estado} value={estado}>
-                  {ETIQUETA_DE_ESTADO[estado]}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label="Fuente"
+            value={sourceIdFiltro}
+            options={fuentes.map((source) => ({ value: source.id, label: source.name }))}
+            emptyOption={{ label: "Todas" }}
+            onChange={cambiarFiltroDeFuente}
+          />
+          <Select
+            label="Estado"
+            value={status}
+            options={ESTADOS.map((estado) => ({
+              value: estado,
+              label: ETIQUETA_DE_ESTADO[estado],
+            }))}
+            emptyOption={{ label: "Todos" }}
+            onChange={(value) => {
+              setStatus(value);
+              setPage(1);
+            }}
+          />
           {/* Sin selector de "Ordenar por": el backend solo acepta createdAt. Un
-            select con una sola opción sería ofrecer una elección que no existe. */}
-          <label>
-            Orden
-            <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-            >
-              <option value="desc">Más recientes primero</option>
-              <option value="asc">Más antiguos primero</option>
-            </select>
-          </label>
+            desplegable con una sola opción sería ofrecer una elección que no
+            existe.
+
+            "Orden" va inline y NO usa SortOrderSelect: es el único de los trece
+            listados cuyos rótulos no son "Descendente"/"Ascendente" — acá lo
+            que se ordena es siempre una fecha y se dice así. */}
+          <Select
+            label="Orden"
+            value={sortOrder}
+            options={[
+              { value: "desc", label: "Más recientes primero" },
+              { value: "asc", label: "Más antiguos primero" },
+            ]}
+            onChange={(value) => {
+              if (value) setSortOrder(value);
+            }}
+          />
         </div>
 
         {sourcesQuery.isSuccess && sourcesQuery.data.pagination.total > SOURCES_PARA_SELECT ? (
