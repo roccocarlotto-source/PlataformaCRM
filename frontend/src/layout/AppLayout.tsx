@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import {
   Activity,
+  Bot,
   Building,
   Building2,
   Car,
@@ -181,6 +182,13 @@ export function AppLayout() {
                   sucursales donde las necesita, en BranchSelect (QR, Vehículo). */}
               <SidebarLink to="/branches" icon={MapPin}>
                 Sucursales
+              </SidebarLink>
+              {/* Agentes de IA (ítem 55): mismo caso que Sucursales —
+                  GET /api/agents es lectura abierta, pero la pantalla es toda
+                  configuración ADMIN-only— y uno más: hoy no hay ninguna otra
+                  pantalla donde un USER necesite ver agentes. */}
+              <SidebarLink to="/agents" icon={Bot}>
+                Agentes de IA
               </SidebarLink>
             </div>
           ) : null}

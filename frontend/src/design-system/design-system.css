@@ -743,6 +743,74 @@ fieldset.ds-field {
   white-space: nowrap;
 }
 
+/* Opción con subtítulo (MultiSelectOption.subtitle): rótulo corto arriba y
+   descripción completa debajo, el mismo tratamiento que
+   .ds-select-option-subtitle. Solo aplica a las opciones que lo traen —de ahí
+   el :has()—, así que las que no cambian: siguen siendo una línea centrada.
+   El white-space: normal del bloque deshace el nowrap que la opción hereda,
+   que es lo que permite que una descripción larga envuelva en vez de estirar
+   la lista a lo ancho de la pantalla. */
+.ds-multiselect .ds-multiselect-option:has(.ds-multiselect-option-text) {
+  align-items: flex-start;
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+/* El checkbox baja un pelo para alinearse con la primera línea del rótulo,
+   no con el tope del bloque de dos líneas. */
+.ds-multiselect .ds-multiselect-option:has(.ds-multiselect-option-text) input {
+  margin-top: 2px;
+}
+
+.ds-multiselect-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.ds-multiselect-option-subtitle {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+}
+
+/* ---------------------------------------------------------------------------
+   MultiSelect DENTRO DE UN FORMULARIO (.ds-field-grid), no de la barra de
+   filtros. El botón cerrado está pensado para vivir en una píldora, que le
+   pone el borde y el fondo; en un formulario no hay píldora y quedaría como
+   un texto suelto debajo del rótulo, sin parecer un campo. Acá recupera la
+   caja de un <input>: mismo alto, mismo borde, mismo radio y el mismo
+   margen superior que la regla base les da a input/select/textarea.
+   Estrenado por el formulario de agentes de IA (tools y canales).
+   --------------------------------------------------------------------------- */
+.ds-field-grid .ds-multiselect-trigger {
+  justify-content: space-between;
+  width: 100%;
+  height: var(--control-height);
+  margin-top: var(--space-1);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+/* El foco sí se ve acá: en la barra de filtros lo mostraba la píldora con
+   :focus-within, y en un formulario no hay nada que lo muestre por él. */
+.ds-field-grid .ds-multiselect-trigger:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+/* El rótulo de la única opción elegida puede ser más largo que la columna:
+   se recorta con puntos suspensivos en vez de ensanchar la grilla. */
+.ds-field-grid .ds-multiselect-trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---------------------------------------------------------------------------
    Select (design-system/Select.tsx) — combobox de un solo valor con buscador.
    Raíz div > label[for] + input, como MultiSelect: en .ds-filters la píldora
@@ -1543,9 +1611,20 @@ fieldset.ds-field {
    por carácter, y seleccionable —readOnly, nunca disabled— porque seleccionar a
    mano es el respaldo cuando el portapapeles no está disponible. */
 .ds-secret {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   word-break: break-all;
+}
+
+/* Textarea donde se escribe código, no prosa: hoy el JSON de los guardrails
+   de un agente (features/agent/AgentFormPage.tsx). Monoespaciada para que la
+   indentación de JSON.stringify(valor, null, 2) se lea como una estructura, y
+   con tabulación corta porque dos niveles de anidamiento ya son comunes ahí.
+   El resto (borde, fondo, foco) lo trae la regla base de textarea. */
+.ds-code-field {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  tab-size: 2;
 }
 
 /* ---------------------------------------------------------------------------

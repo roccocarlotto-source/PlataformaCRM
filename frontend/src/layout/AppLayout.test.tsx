@@ -148,6 +148,22 @@ describe("AppLayout — nav de Sucursales (ítem 20)", () => {
   });
 });
 
+describe("AppLayout — nav de Agentes de IA (ítem 55)", () => {
+  it("ADMIN ve 'Agentes de IA' en el grupo Administración, apuntando a /agents", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+
+    expect(screen.getByRole("link", { name: "Agentes de IA" })).toHaveAttribute("href", "/agents");
+  });
+
+  it("USER no ve 'Agentes de IA': el módulo entero es configuración ADMIN-only", () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout();
+
+    expect(screen.queryByText("Agentes de IA")).not.toBeInTheDocument();
+  });
+});
+
 describe("AppLayout — nav del módulo QR (Fase 3)", () => {
   it("el link QR se muestra para ambos roles: el listado es de lectura abierta", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));

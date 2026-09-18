@@ -37,6 +37,8 @@ import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPa
 import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
 import { BranchFormPage } from "../features/branch/BranchFormPage";
 import { BranchListPage } from "../features/branch/BranchListPage";
+import { AgentFormPage } from "../features/agent/AgentFormPage";
+import { AgentListPage } from "../features/agent/AgentListPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -167,6 +169,19 @@ export const router = createBrowserRouter([
               { path: "/branches", element: <BranchListPage /> },
               { path: "/branches/new", element: <BranchFormPage /> },
               { path: "/branches/:id/edit", element: <BranchFormPage /> },
+              // Agentes de IA (ítem 55 de docs/frontend-cambios-pendientes.md;
+              // diseño en docs/ai-agent-architecture.md). MISMO esquema de
+              // permisos que Branch —GET abierto, POST/PATCH/DELETE ADMIN-only
+              // en agent.routes.ts— y el listado va igualmente acá adentro,
+              // por el mismo criterio y uno más: a diferencia de las
+              // sucursales, hoy NO hay ninguna otra pantalla que le muestre
+              // agentes a un USER (no existe un AgentSelect que alguien
+              // consuma), así que el módulo entero es configuración
+              // administrativa. La autorización real de escritura sigue siendo
+              // del backend.
+              { path: "/agents", element: <AgentListPage /> },
+              { path: "/agents/new", element: <AgentFormPage /> },
+              { path: "/agents/:id/edit", element: <AgentFormPage /> },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/contacts/new", element: <ContactFormPage /> },

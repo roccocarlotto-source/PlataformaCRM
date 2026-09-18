@@ -232,4 +232,63 @@ describe("MultiSelect", () => {
     await user.click(boton());
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
+
+  // El subtítulo existía en el tipo desde el §44 pero no se dibujaba. Lo
+  // estrenó el selector de tools de un agente de IA (features/agent), donde
+  // el rótulo es un nombre corto y el subtítulo, la descripción completa que
+  // lee el modelo.
+  describe("subtítulo", () => {
+    const CON_SUBTITULO: MultiSelectOption<"a" | "b">[] = [
+      { value: "a", label: "Crear oportunidad", subtitle: "Crea una oportunidad de venta." },
+      { value: "b", label: "Sin descripción" },
+    ];
+
+    function renderConSubtitulo() {
+      return render(
+        <MultiSelect
+          id="acciones"
+          label="Acciones"
+          options={CON_SUBTITULO}
+          value={[]}
+          onChange={vi.fn()}
+        />,
+      );
+    }
+
+    it("se dibuja debajo del rótulo, y el nombre accesible sigue siendo solo el rótulo", async () => {
+      const user = userEvent.setup();
+      renderConSubtitulo();
+
+      await user.click(screen.getByLabelText("Acciones", { selector: "button" }));
+
+      // El <label> que envuelve al checkbox aportaría TODO su texto al
+      // nombre: sin el aria-labelledby, la opción se anunciaría como
+      // "Crear oportunidad Crea una oportunidad de venta.".
+      const opcion = screen.getByRole("checkbox", { name: "Crear oportunidad" });
+      expect(opcion).toHaveAccessibleDescription("Crea una oportunidad de venta.");
+      expect(screen.getByText("Crea una oportunidad de venta.")).toBeInTheDocument();
+    });
+
+    it("una opción sin subtítulo no cambia: el rótulo sigue siendo su nombre accesible", async () => {
+      const user = userEvent.setup();
+      renderConSubtitulo();
+
+      await user.click(screen.getByLabelText("Acciones", { selector: "button" }));
+
+      expect(screen.getByRole("checkbox", { name: "Sin descripción" })).toHaveAccessibleDescription(
+        "",
+      );
+    });
+
+    it("el buscador filtra también por el subtítulo", async () => {
+      const user = userEvent.setup();
+      renderConSubtitulo();
+
+      await user.click(screen.getByLabelText("Acciones", { selector: "button" }));
+      await user.keyboard("venta");
+
+      expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+      expect(screen.getByRole("checkbox", { name: "Crear oportunidad" })).toBeInTheDocument();
+    });
+  });
 });
