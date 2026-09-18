@@ -3,7 +3,14 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeQrCode } from "../../test/qrFixtures";
-import { claimQrCode, createDigitalQrCode, deleteQrCode, listQrCodes, updateQrCode } from "./api";
+import {
+  claimQrCode,
+  createDigitalQrCode,
+  deleteQrCode,
+  getSuggestedQrDisplayNumber,
+  listQrCodes,
+  updateQrCode,
+} from "./api";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -60,6 +67,25 @@ describe("features/qr/api", () => {
 
     await listQrCodes({});
     expect(new URL(captured!.url).search).toBe("");
+  });
+
+  // §54 — el N° sugerido de una sucursal.
+  it("getSuggestedQrDisplayNumber: GET /api/qr/next-display-number con branchId en la query", async () => {
+    let captured: Request | undefined;
+    server.use(
+      http.get(`${baseUrl}/next-display-number`, ({ request }) => {
+        captured = request;
+        return HttpResponse.json({ branchId: "b1", suggestedDisplayNumber: 7 });
+      }),
+    );
+
+    const result = await getSuggestedQrDisplayNumber("b1");
+
+    const url = new URL(captured!.url);
+    expect(url.pathname).toBe("/api/qr/next-display-number");
+    expect(url.searchParams.get("branchId")).toBe("b1");
+    expect(captured!.headers.get("Authorization")).toBe("Bearer test-token");
+    expect(result).toEqual({ branchId: "b1", suggestedDisplayNumber: 7 });
   });
 
   it("createDigitalQrCode: POST /api/qr/digital con el body tal cual", async () => {

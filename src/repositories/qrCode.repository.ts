@@ -81,6 +81,39 @@ export function countActiveQrCodesByBranch(
   return db.qrCode.count({ where: { branchId, organizationId, deletedAt: null } });
 }
 
+// El próximo display_number libre de una sucursal (§54 de
+// docs/frontend-cambios-pendientes.md): max + 1 sobre los QRs ACTIVOS de esa
+// sucursal, 1 si no hay ninguno.
+//
+// MIRA deletedAt: null, y ahí está todo el cambio: un QR borrado libera su
+// número. Antes lo repartía Organization.nextQrDisplayNumber, un contador por
+// organización que solo subía —con 10 QRs creados y 9 borrados el siguiente
+// nacía con el 11, no con el 2—. Ese contador ya no existe.
+//
+// organizationId además de branchId aunque el branchId ya determine la
+// organización (la FK compuesta lo fuerza): mismo criterio que
+// countActiveQrCodesByBranch — lo que decide una escritura lleva el
+// aislamiento en su propio WHERE, no en el del caller.
+//
+// ES UNA SUGERENCIA, NO UNA RESERVA. Entre este max y el INSERT hay una
+// ventana; lo que impide de verdad dos QRs activos con el mismo número en la
+// misma sucursal es el índice único parcial
+// qr_codes_branch_display_number_unique. En la creación esta lectura además va
+// dentro de la transacción que ya tomó lockBranchForUpdate, así que dos altas
+// concurrentes de la misma sucursal se serializan y ninguna de las dos llega a
+// chocar con el índice.
+export async function findNextDisplayNumberByBranch(
+  branchId: string,
+  organizationId: string,
+  db: Db = prisma,
+): Promise<number> {
+  const resultado = await db.qrCode.aggregate({
+    where: { branchId, organizationId, deletedAt: null },
+    _max: { displayNumber: true },
+  });
+  return (resultado._max.displayNumber ?? 0) + 1;
+}
+
 export interface CreateQrCodeData {
   organizationId: string;
   branchId: string;
@@ -94,10 +127,16 @@ export function createQrCode(data: CreateQrCodeData, db: Db = prisma) {
   return db.qrCode.create({ data });
 }
 
+// displayNumber es editable desde §54: el N° se puede corregir a mano también
+// después de crear el QR. branchId sigue sin estar (mover un QR de sucursal no
+// es una operación del contrato), y eso es lo que hace que la unicidad del
+// PATCH se evalúe contra la MISMA sucursal que la del alta, sin que el service
+// tenga que averiguar cuál es.
 export interface UpdateQrCodeData {
   name?: string;
   destinationUrl?: string;
   message?: string | null;
+  displayNumber?: number;
 }
 
 // deletedAt: null en el WHERE, no solo en el pre-check: un QR borrado no se
@@ -113,7 +152,10 @@ export function updateQrCode(
 }
 
 // Soft delete: solo deletedAt. name/destinationUrl/message/displayNumber se
-// conservan — nunca se limpian (0008 original, delete_qr_code).
+// conservan — nunca se limpian (0008 original, delete_qr_code). Desde §54 la
+// fila conserva su displayNumber pero deja de OCUPARLO: el índice único es
+// parcial (WHERE deleted_at IS NULL) y findNextDisplayNumberByBranch ignora
+// los borrados, así que ese número vuelve a estar disponible para la sucursal.
 export function softDeleteQrCode(id: string, organizationId: string, db: Db = prisma) {
   return db.qrCode.updateMany({
     where: { id, organizationId, deletedAt: null },

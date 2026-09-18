@@ -452,13 +452,13 @@ model Organization {
   // solo desde el endpoint de platform admin (Fase 2) — nunca por el propio
   // dueño de la cuenta, nunca por el webhook de MercadoPago.
   qrBillingExempt             Boolean              @default(false) @map("qr_billing_exempt")
-  // DEC-064/066 original: contador durable de "próximo display_number a
-  // asignar" para los QRs de esta cuenta — sobrevive borrados de QrCode
-  // (nunca se reusa un número), se incrementa dentro de la misma
-  // transacción con lock que el claim/create (ver Fase 2). No es una
-  // sequence de Postgres a propósito: nextval() no es transaccional y
-  // quemaría un número aunque la transacción que lo pidió haga rollback.
-  nextQrDisplayNumber         Int                  @default(1) @map("next_qr_display_number")
+  // ACÁ VIVÍA nextQrDisplayNumber (DEC-064/066 original): el contador durable
+  // del próximo display_number de los QRs de la cuenta. Lo eliminó
+  // 20260921120000_qr_display_number_por_sucursal
+  // (docs/frontend-cambios-pendientes.md §54): el N° de un QR pasó a ser una
+  // serie POR SUCURSAL que SÍ reusa los números liberados, calculada como
+  // max + 1 sobre los QRs activos de esa sucursal, así que la columna se quedó
+  // sin un solo lector. Ver el comentario de QrCode.displayNumber.
 
   // ---------------------------------------------------------------------
   // Módulo de stock de vehículos (ver la sección al final del archivo).
@@ -472,9 +472,11 @@ model Organization {
   preferredCurrency      String? @map("preferred_currency") @db.VarChar(3)
   alternateCurrency      String? @map("alternate_currency") @db.VarChar(3)
   // Contador durable del próximo internalCode a asignar a un Vehicle de esta
-  // cuenta — réplica exacta del patrón de nextQrDisplayNumber, por las mismas
-  // razones: sobrevive al soft delete de la unidad (un código nunca se
-  // reusa, así que el @@unique de vehicles no necesita predicado parcial) y
+  // cuenta. Nació como réplica del patrón que usaba nextQrDisplayNumber —
+  // eliminado en 20260921120000, ver arriba— y acá el patrón SE QUEDA, porque
+  // el requerimiento es el opuesto: sobrevive al soft delete de la unidad (un
+  // código nunca se reusa: puede estar escrito en un remito, así que el
+  // @@unique de vehicles no necesita predicado parcial) y
   // se incrementa dentro de la misma transacción con lock que el INSERT (Fase
   // 2). No es una sequence de Postgres porque nextval() no es transaccional:
   // quemaría un número aunque la transacción que lo pidió haga rollback, y
@@ -2103,8 +2105,30 @@ model QrCode {
   branchId       String @map("branch_id") @db.Uuid
 
   // Etiqueta amigable para el Dashboard ("QR 1", "QR 2"...). Dashboard-only,
-  // nunca parte del routing de resolución (DEC-064/065/066 original) — el
-  // contador vive en Organization.nextQrDisplayNumber.
+  // nunca parte del routing de resolución (DEC-064/065/066 original): el flujo
+  // público resuelve por id y no lee esta columna.
+  //
+  // ÚNICO POR SUCURSAL ENTRE LOS QRs ACTIVOS desde
+  // 20260921120000_qr_display_number_por_sucursal
+  // (docs/frontend-cambios-pendientes.md §54), y eso lo sostiene la base:
+  // índice único parcial (organization_id, branch_id, display_number) WHERE
+  // deleted_at IS NULL, creado en esa migración porque el DSL de Prisma no
+  // expresa el predicado (fila 7 del diagnóstico). Sin el predicado, un
+  // @@unique declarativo bloquearía reusar el número de un QR borrado, que es
+  // exactamente lo que el §54 viene a permitir; sin el UNIQUE, dos altas
+  // concurrentes de la misma sucursal podrían repartirse el mismo número.
+  // Mismo criterio que vehicle_photos_vehicle_cover_unique.
+  //
+  // Hasta esa migración el número lo repartía un contador durable por
+  // organización (Organization.nextQrDisplayNumber, ya eliminado) que nunca
+  // liberaba el número de un QR borrado. Hoy el service lo calcula como
+  // max + 1 sobre los activos de la sucursal, y quien crea o edita puede
+  // escribirlo a mano.
+  //
+  // Sigue nullable: la columna nació así y ninguna fila real llega sin número
+  // (el service siempre asigna uno). Dos NULL no chocan entre sí en el índice
+  // único — Postgres los considera distintos — así que la nulabilidad no
+  // debilita la garantía para las filas que sí tienen número.
   displayNumber Int? @map("display_number")
 
   name           String  @db.VarChar(255)
@@ -2279,7 +2303,8 @@ model Vehicle {
 
   // Código interno correlativo por organización, asignado por el service en
   // la misma transacción que el INSERT a partir de
-  // Organization.nextVehicleStockNumber (patrón de nextQrDisplayNumber). Es
+  // Organization.nextVehicleStockNumber (contador durable; ver el comentario
+  // de ese campo por qué acá sí y en los QRs ya no). Es
   // VarChar y no Int porque lo que se muestra y se busca es el código
   // formateado ("STK-000123"); el formato lo decide la Fase 2 y la base no lo
   // impone. NOT NULL aunque la ficha sea borrador: no lo carga la persona,

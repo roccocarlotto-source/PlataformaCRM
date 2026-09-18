@@ -7,6 +7,7 @@ import { looksLikeUrl } from "../../lib/validation";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { BranchSelect } from "../branch/BranchSelect";
 import { useCreateDigitalQrCode, useUpdateQrCode } from "./mutations";
+import { useSuggestedQrDisplayNumber } from "./queries";
 import type { CreateDigitalQrInput, QrCode, UpdateQrInput } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -17,9 +18,19 @@ import type { CreateDigitalQrInput, QrCode, UpdateQrInput } from "./types";
 // disponible como fila del listado ya cargado. El diálogo lo recibe por prop
 // y no fetchea nada. Documentado como desvío de la guía de Fase 3.
 //
-// Crear: sucursal + nombre + destino + mensaje opcional. Editar: solo
+// Crear: sucursal + N° + nombre + destino + mensaje opcional. Editar: N° +
 // nombre/destino/mensaje — branchId es inmutable tras la creación
 // (updateQrSchema no lo acepta), así que ni se muestra ni viaja en el PATCH.
+//
+// EL CAMPO "N°" ES DEL §54 de docs/frontend-cambios-pendientes.md. Hasta ese
+// ítem el número lo asignaba el backend solo, con un contador por organización
+// que nunca liberaba el número de un QR borrado, y acá no había campo ninguno.
+// Hoy la serie es por SUCURSAL y reusa los números liberados: al elegir la
+// sucursal se pide el sugerido (useSuggestedQrDisplayNumber) y se prellena el
+// campo, que sigue siendo un input común — se puede escribir otro número, y si
+// ese número ya lo usa otro QR ACTIVO de la sucursal el backend contesta 409
+// y el mensaje se muestra tal cual por el catch de handleSubmit, sin ningún
+// manejo especial (hay un test que lo fija).
 //
 // Hasta el ítem 53 de docs/frontend-cambios-pendientes.md había un cuarto
 // campo al crear: los radios "Reusable / Un solo uso", que mandaban `qrType`
@@ -44,6 +55,11 @@ import type { CreateDigitalQrInput, QrCode, UpdateQrInput } from "./types";
 
 interface QrFormValues {
   branchId: string | undefined;
+  // String y no number, como el resto de los campos numéricos de los
+  // formularios del proyecto: el estado guarda lo que hay en el input,
+  // incluido el vacío mientras se borra para escribir otro número. La
+  // conversión a number pasa una sola vez, al armar el payload.
+  displayNumber: string;
   name: string;
   destinationUrl: string;
   message: string;
@@ -51,6 +67,7 @@ interface QrFormValues {
 
 const EMPTY_FORM: QrFormValues = {
   branchId: undefined,
+  displayNumber: "",
   name: "",
   destinationUrl: "",
   message: "",
@@ -59,10 +76,24 @@ const EMPTY_FORM: QrFormValues = {
 function toFormValues(qr: QrCode): QrFormValues {
   return {
     branchId: qr.branchId ?? undefined,
+    displayNumber: qr.displayNumber === null ? "" : String(qr.displayNumber),
     name: qr.name ?? "",
     destinationUrl: qr.destinationUrl ?? "",
     message: qr.message ?? "",
   };
+}
+
+// §54 — el N° tal como lo va a recibir el backend, o null si lo que hay en el
+// campo no es un entero positivo (incluido el vacío). Solo dígitos: "1e3",
+// "1.5" y " 2 " con basura alrededor no son un rótulo de mostrador, y un
+// Number() a secas los aceptaría o los convertiría en NaN sin avisar.
+function parseDisplayNumber(raw: string): number | null {
+  const limpio = raw.trim();
+  if (!/^\d+$/.test(limpio)) {
+    return null;
+  }
+  const numero = Number(limpio);
+  return Number.isSafeInteger(numero) && numero > 0 ? numero : null;
 }
 
 // message vacío se manda como null (el backend hace nullif(btrim()) igual,
@@ -70,11 +101,15 @@ function toFormValues(qr: QrCode): QrFormValues {
 // mandar "" también da null server-side; se manda null para que el intent
 // quede a la vista en el body).
 function toCreateInput(values: QrFormValues): CreateDigitalQrInput {
+  const displayNumber = parseDisplayNumber(values.displayNumber);
   return {
     branchId: values.branchId ?? "",
     name: values.name.trim(),
     destinationUrl: values.destinationUrl.trim(),
     message: values.message.trim() || null,
+    // Ausente = el backend asigna el sugerido de la sucursal. Es el camino que
+    // se toma si alguien guarda antes de que la sugerencia llegue.
+    ...(displayNumber === null ? {} : { displayNumber }),
   };
 }
 
@@ -83,12 +118,30 @@ function toUpdateInput(values: QrFormValues): UpdateQrInput {
     name: values.name.trim(),
     destinationUrl: values.destinationUrl.trim(),
     message: values.message.trim() || null,
+    // En edición validar() garantiza que haya un número válido, así que el
+    // `?? undefined` es inalcanzable — está para no mandar NaN si alguna vez
+    // dejara de estarlo.
+    displayNumber: parseDisplayNumber(values.displayNumber) ?? undefined,
   };
 }
 
 function validar(values: QrFormValues, isEditMode: boolean): string | null {
   if (!isEditMode && !values.branchId) {
     return "Elegí la sucursal a la que pertenece este QR.";
+  }
+  // §54. Vacío al CREAR es válido: el backend asigna el sugerido, que es lo
+  // que corresponde si alguien guarda antes de que la sugerencia llegue —
+  // hacerlo fallar por una carrera que no provocó sería peor. Vacío al EDITAR
+  // no: el QR ya tiene un número, el PATCH simplemente no lo tocaría, y la
+  // pantalla habría dicho "guardado" sobre un campo que se dejó en blanco a
+  // propósito. Por eso el asterisco del campo también depende del modo.
+  const numero = parseDisplayNumber(values.displayNumber);
+  if (values.displayNumber.trim() === "") {
+    if (isEditMode) {
+      return "El N° del QR no puede quedar vacío.";
+    }
+  } else if (numero === null) {
+    return "El N° del QR tiene que ser un número entero mayor que 0.";
   }
   if (!values.name.trim()) {
     return "El nombre del QR es obligatorio.";
@@ -114,11 +167,31 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
   const createMutation = useCreateDigitalQrCode();
   const updateMutation = useUpdateQrCode(qr?.id ?? "");
 
-  const [values, setValues] = useFormDraft<QrFormValues>(
-    qr?.id,
-    qr ? toFormValues(qr) : EMPTY_FORM,
-  );
+  const [draft, setValues] = useFormDraft<QrFormValues>(qr?.id, qr ? toFormValues(qr) : EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
+
+  // §54 — el N° sugerido para la sucursal elegida. Solo al crear: al editar, el
+  // número que corresponde es el que el QR ya tiene, no el próximo libre.
+  const suggestedQuery = useSuggestedQrDisplayNumber(isEditMode ? undefined : draft.branchId);
+  const suggested = suggestedQuery.data?.suggestedDisplayNumber;
+
+  // Si la persona ya escribió en el campo, la sugerencia no se lo pisa —mismo
+  // criterio que derivedPriceField en VehicleFormPage—, y por eso hace falta
+  // un flag y no alcanza con "el campo está vacío": borrar el número para
+  // escribir otro deja el campo vacío por un instante, y ahí la sugerencia
+  // volvería a meterse encima de lo que se está tipeando.
+  const [numeroTocado, setNumeroTocado] = useState(false);
+
+  // El valor vigente del campo se DERIVA en el render, sin efecto que lo
+  // escriba (misma razón que useFormDraft: un setState en efecto vuelve a
+  // pisar lo tipeado, y en render el lint lo prohíbe). Mientras nadie lo tocó,
+  // manda la sugerencia; apenas la tocan, manda el borrador. Cambiar de
+  // sucursal sin haber tocado el campo trae la sugerencia de la nueva.
+  const displayNumber =
+    !isEditMode && !numeroTocado && suggested !== undefined
+      ? String(suggested)
+      : draft.displayNumber;
+  const values: QrFormValues = { ...draft, displayNumber };
 
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
@@ -163,6 +236,27 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
             required
           />
         )}
+        {/* §54. El asterisco depende del modo porque la obligatoriedad también:
+            al crear, vacío significa "poné vos el sugerido"; al editar, el QR
+            ya tiene número y dejarlo en blanco no lo cambia. Ver validar(). */}
+        <FormField label={isEditMode ? <span className="ds-required">N°</span> : <span>N°</span>}>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={values.displayNumber}
+            onChange={(event) => {
+              setNumeroTocado(true);
+              setValues({ ...values, displayNumber: event.target.value });
+            }}
+            required={isEditMode}
+          />
+        </FormField>
+        <p className="ds-hint">
+          {isEditMode
+            ? "Tiene que ser único entre los QR activos de la sucursal."
+            : "Sugerido: el siguiente libre en esta sucursal. Podés cambiarlo."}
+        </p>
         <FormField label={<span className="ds-required">Nombre</span>}>
           <input
             type="text"

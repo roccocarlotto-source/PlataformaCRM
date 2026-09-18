@@ -31,20 +31,6 @@ export function findOrganizationByMercadopagoSubscriptionId(
   });
 }
 
-// Contador durable de display_number (DEC-064/066 original): se incrementa
-// dentro de la misma transacción con lock que el claim/create, y devuelve el
-// número que le toca a ESE QR. No es una sequence de Postgres a propósito —
-// nextval() no es transaccional y quemaría un número aunque la transacción
-// haga rollback (ver el comentario del campo en prisma/schema.prisma).
-export async function assignNextQrDisplayNumber(organizationId: string, db: Db): Promise<number> {
-  const updated = await db.organization.update({
-    where: { id: organizationId },
-    data: { nextQrDisplayNumber: { increment: 1 } },
-    select: { nextQrDisplayNumber: true },
-  });
-  return updated.nextQrDisplayNumber - 1;
-}
-
 export function updateQrSubscriptionStatus(
   organizationId: string,
   qrSubscriptionStatus: QrSubscriptionStatus,
