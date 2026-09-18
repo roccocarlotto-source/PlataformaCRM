@@ -89,7 +89,7 @@ function renderForm(ruta: string) {
 // que una persona hace de verdad con un párrafo, y el test no depende de 200
 // eventos de teclado.
 async function escribirGuardrails(user: ReturnType<typeof userEvent.setup>, texto: string) {
-  const campo = screen.getByLabelText("Guardrails");
+  const campo = screen.getByLabelText("Reglas del agente");
   await user.clear(campo);
   await user.click(campo);
   await user.paste(texto);
@@ -223,7 +223,7 @@ describe("AgentFormPage — creación", () => {
     ).toBeInTheDocument();
     // Y el resumen dice explícitamente que no quedó nada, en vez de una lista
     // vacía que se lee igual que "no se entendió nada".
-    expect(within(panel).getByText(/Sin guardrails/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Sin reglas/)).toBeInTheDocument();
   });
 
   it('"Volver a editar" cierra el panel sin mandar nada y deja el texto intacto', async () => {
@@ -247,7 +247,7 @@ describe("AgentFormPage — creación", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(posts).toBe(0);
-    expect(screen.getByLabelText("Guardrails")).toHaveValue("No hables de política.");
+    expect(screen.getByLabelText("Reglas del agente")).toHaveValue("No hables de política.");
     // Sigue en el formulario: no navegó al listado.
     expect(screen.queryByText("listado")).not.toBeInTheDocument();
   });
@@ -320,7 +320,7 @@ describe("AgentFormPage — creación", () => {
     expect(posts).toBe(0);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     // Y lo escrito sigue ahí.
-    expect(screen.getByLabelText("Guardrails")).toHaveValue("No hables de política.");
+    expect(screen.getByLabelText("Reglas del agente")).toHaveValue("No hables de política.");
 
     await user.click(screen.getByRole("button", { name: "Reintentar" }));
 
@@ -511,7 +511,7 @@ describe("AgentFormPage — edición", () => {
     expect(screen.getByLabelText("Tono")).toHaveValue("cercano");
     expect(screen.getByLabelText("Modelo")).toHaveValue("openai/gpt-4o-mini");
     // El texto, no el JSON: el JSON ya no se muestra en el formulario.
-    expect(screen.getByLabelText("Guardrails")).toHaveValue("No modifiques oportunidades.");
+    expect(screen.getByLabelText("Reglas del agente")).toHaveValue("No modifiques oportunidades.");
   });
 
   it("guardar sin tocar el texto no traduce de nuevo y reenvía el guardrails existente", async () => {

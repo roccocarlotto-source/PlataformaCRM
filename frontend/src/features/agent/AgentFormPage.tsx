@@ -264,7 +264,7 @@ export function AgentFormPage() {
       setTraduccion(await translateGuardrails(values.guardrailsText.trim()));
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudieron traducir los guardrails a reglas",
+        err instanceof Error ? err.message : "No se pudieron interpretar las reglas del agente",
       );
       setPuedeReintentar(true);
     } finally {
@@ -483,16 +483,16 @@ export function AgentFormPage() {
 
             <p className="ds-hint ds-field-grid--full">
               Habilitar una acción es condición necesaria pero no suficiente: antes de ejecutarla,
-              cada acción vuelve a pasar por los guardrails de abajo. Sin canales, el agente no
-              atiende por ningún lado.
+              cada acción vuelve a pasar por las reglas del agente de abajo. Sin canales, el agente
+              no atiende por ningún lado.
             </p>
           </div>
         </Card>
 
-        <Card heading="Guardrails">
+        <Card heading="Reglas del agente">
           <div className="ds-field-grid">
             <div className="ds-field-grid--full">
-              <FormField label="Guardrails">
+              <FormField label="Reglas del agente">
                 <textarea
                   value={values.guardrailsText}
                   rows={8}

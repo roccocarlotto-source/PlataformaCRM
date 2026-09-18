@@ -63,7 +63,7 @@ function enumerar(valores: string[]): string {
 }
 
 export const SIN_GUARDRAILS =
-  "Sin guardrails: el agente no tiene ninguna restricción adicional más allá de los permisos generales.";
+  "Sin reglas: el agente no tiene ninguna restricción adicional más allá de los permisos generales.";
 
 // Las líneas del resumen, una por cada clave de §6 presente y no vacía, en un
 // orden fijo: primero lo que se hace cumplir CON CÓDIGO (las tres que
