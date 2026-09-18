@@ -2217,3 +2217,41 @@ componente) elige el formateador según la granularidad activa.
 **`design-system/Card.test.tsx` quedó con "Pipeline" a propósito.** Ahí es un rótulo de ejemplo para probar el componente reutilizable, no texto de ninguna pantalla real — mismo criterio que el §45 con `Select.test.tsx`.
 
 **Suite de frontend en verde: 138 archivos y 1340 tests** — el mismo conteo que el §45 y el §44, como corresponde a un cambio de copy. `tsc -b`, ESLint y Prettier limpios. Sin backend, sin migraciones y sin dependencias nuevas.
+
+## 48. Motivo de pérdida: solo visible con Estado = Perdida
+
+**Estado:** hecho
+
+**Contexto:** en el formulario de edición de Oportunidad, la tarjeta "Estado y cierre" mostraba "Motivo de pérdida" y "Fecha real de cierre" con el mismo criterio — `isClosed(status)`, es decir con Estado **Ganada o Perdida**. Un hint debajo de los dos campos ("Especialmente relevante cuando el estado es Perdida.") intentaba compensar la parte rara: pedirle a alguien el motivo de la pérdida de una oportunidad que acaba de ganar. Es un bug de UX, no una decisión: el campo nunca tuvo sentido en una oportunidad ganada.
+
+**Qué mostraba antes:**
+
+- Estado **Abierta**: ni Motivo ni Fecha real.
+- Estado **Ganada**: Motivo de pérdida **y** Fecha real, más el hint.
+- Estado **Perdida**: Motivo de pérdida y Fecha real, más el hint.
+
+**Qué muestra ahora:**
+
+- Estado **Abierta**: ni Motivo ni Fecha real (sin cambios).
+- Estado **Ganada**: **solo** Fecha real de cierre.
+- Estado **Perdida**: Motivo de pérdida y Fecha real de cierre.
+
+Son **dos criterios distintos**, uno por campo: Motivo con `status === "LOST"`, Fecha real con `isClosed(status)` como hasta ahora. El hint se eliminó: con el campo apareciendo solo en Perdida, aclarar que es "especialmente relevante cuando el estado es Perdida" es redundante.
+
+**`lostReason` se limpia al salir de Perdida hacia cualquier otro estado.** Antes `handleStatusChange` lo vaciaba únicamente al reabrir (`status === "OPEN"`). Ahora lo vacía en **cualquier** transición cuyo estado nuevo no sea `LOST` — reabrir y también Perdida → Ganada. No es un detalle cosmético: el campo oculto seguiría viajando en el PATCH (`toUpdateInput` manda `lostReason: values.lostReason || null`), así que una oportunidad pasada de Perdida a Ganada se habría guardado con el motivo de la pérdida anterior, invisible en pantalla y visible en el pop up "Ver detalle" del listado. Con la limpieza, esa transición manda `lostReason: null`. Es el mismo criterio que ya se aplicaba al reabrir, extendido al único otro camino por el que el campo desaparece.
+
+**Qué NO cambió:**
+
+- **La lógica de `actualCloseDate`.** Autocompletar con hoy al cerrar desde Abierta, respetar una fecha ya cargada y limpiar al reabrir queda exactamente igual.
+- **El backend.** `lostReason` sigue siendo un campo libre que el backend acepta en cualquier estado; no valida ni sincroniza nada de esto. La regla es del formulario.
+- **El embudo (`boardMove.ts`).** Nunca tocó `lostReason` en un drag y sigue sin tocarlo — cerrar desde el Kanban conserva lo que haya.
+- **El pop up "Ver detalle" del listado.** Sigue mostrando el motivo si el registro lo tiene, sin condicionarlo al estado: es lectura de un dato persistido, no un campo a completar.
+
+**Tests:** dos actualizados en `OpportunityFormPage.test.tsx`, ninguno nuevo y ninguno borrado.
+
+- El que verificaba visibilidad (`"edit: con Estado Abierta no se ven Motivo de pérdida ni Fecha real de cierre; con Ganada o Perdida sí, los dos"`) pasó a `"edit: Motivo de pérdida solo se ve con Perdida; Fecha real de cierre se ve con Ganada o Perdida"`, con la assertion de Ganada invertida a `not.toBeInTheDocument()` para el Motivo.
+- El que probaba el comportamiento viejo de `lostReason` (`"editar sin tocar lostReason y cambiar de Perdida a Ganada reenvía el mismo lostReason (nunca null/undefined por accidente)"`) se reescribió como `"edit: cambiar de Perdida a Ganada limpia lostReason y el PATCH lo manda como null"`. Es el test que documenta el cambio de decisión: antes preservar el valor era lo correcto porque el campo seguía en pantalla; ahora, con el campo oculto, preservarlo es exactamente el bug.
+
+El de reabrir (`"edit: reabrir (Perdida → Abierta) limpia Motivo y Fecha real, y el PATCH los manda como null"`) pasó sin cambios, como correspondía: reabrir ya limpiaba. Los de `boardMove`, `OpportunityBoardView`, `OpportunityListPage` y `api.test.ts` que nombran `lostReason` tampoco necesitaron cambios — ninguno depende de la visibilidad del campo en el formulario.
+
+**Suite de frontend en verde: 138 archivos y 1340 tests** — el mismo conteo que el §47 y el §45: el cambio corrige comportamiento sin agregar casos nuevos. `tsc -b`, ESLint y Prettier limpios. Sin backend, sin migraciones y sin dependencias nuevas.
