@@ -236,7 +236,7 @@ describe("VehicleFormPage — crear y editar", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Marca")).toHaveValue("Toyota"));
     // Ítem 23: el importe persistido se muestra ya formateado (CurrencyInput).
-    expect(screen.getByLabelText("Precio de lista (USD)")).toHaveValue("25.000,00");
+    expect(screen.getByLabelText("Precio de lista (USD)")).toHaveValue("25.000");
     expect(screen.getByLabelText("Ingreso al stock")).toHaveValue("2026-03-01");
     expect(screen.getByLabelText("Transmisión")).toHaveValue("CVT");
     expect(equipmentChips()).toEqual(["ABS"]);
@@ -694,7 +694,7 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     // Recalculado con cada tecla, no solo con la primera ("2" × 40,5 = 81).
     // Desde el ítem 23 los dos son CurrencyInput: el calculado se ve ya
     // formateado "en reposo" (lo cambió el padre, no se tipeó).
-    expect(localField()).toHaveValue("1.012.500,00");
+    expect(localField()).toHaveValue("1.012.500");
     // El hint dice con qué cotización y de qué fecha.
     expect(screen.getByText(/cotización vigente/)).toHaveTextContent(/del 10 .*2026/);
 
@@ -728,7 +728,7 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     // Al pasar al otro campo, USD pierde el foco y completa los decimales.
     await user.type(localField(), "1000000");
     expect(localField()).toHaveValue("1.000.000");
-    expect(usdField()).toHaveValue("25.000,00");
+    expect(usdField()).toHaveValue("25.000");
   });
 
   it("un valor ya tipeado a mano en el otro campo no se pisa (creación)", async () => {
@@ -744,7 +744,7 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     await user.clear(usdField());
     await user.type(usdField(), "25000");
     expect(usdField()).toHaveValue("25.000");
-    expect(localField()).toHaveValue("1.000.000,00");
+    expect(localField()).toHaveValue("1.000.000");
   });
 
   it("en edición los dos valores persistidos cuentan como tipeados: cambiar uno no recalcula el otro", async () => {
@@ -763,13 +763,13 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     const user = userEvent.setup();
     renderForm("/vehicles/v1/edit");
     await waitForRate();
-    await waitFor(() => expect(usdField()).toHaveValue("25.000,00"));
+    await waitFor(() => expect(usdField()).toHaveValue("25.000"));
 
     await user.clear(usdField());
     await user.type(usdField(), "30000");
 
     expect(usdField()).toHaveValue("30.000");
-    expect(localField()).toHaveValue("1.000.000,00");
+    expect(localField()).toHaveValue("1.000.000");
   });
 
   it("el valor calculado se puede corregir a mano, y después de eso ya no se recalcula", async () => {
@@ -779,18 +779,18 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     await waitForRate();
 
     await user.type(usdField(), "1000");
-    expect(localField()).toHaveValue("40.500,00");
+    expect(localField()).toHaveValue("40.500");
 
     // Corrección a mano del calculado: sigue siendo un input normal.
     await user.clear(localField());
     await user.type(localField(), "41000");
     expect(localField()).toHaveValue("41.000");
     // Y como ahora está tipeado, seguir editando USD no lo toca. USD quedó
-    // "1.000,00" al perder el foco: el "0" va al final de la parte entera
-    // (posición 5, antes de la coma), como quien sigue escribiendo el número.
+    // "1.000" al perder el foco (sin ",00" desde §52): el "0" va al final de
+    // la parte entera, como quien sigue escribiendo el número.
     await user.type(usdField(), "0", { initialSelectionStart: 5, initialSelectionEnd: 5 });
-    expect(usdField()).toHaveValue("10.000,00");
-    expect(localField()).toHaveValue("41.000,00");
+    expect(usdField()).toHaveValue("10.000");
+    expect(localField()).toHaveValue("41.000");
   });
 
   it("borrar el campo de origen borra también el calculado (nunca fue tipeado)", async () => {
@@ -800,7 +800,7 @@ describe("VehicleFormPage — cálculo automático USD ↔ moneda local (ítem 1
     await waitForRate();
 
     await user.type(usdField(), "1000");
-    expect(localField()).toHaveValue("40.500,00");
+    expect(localField()).toHaveValue("40.500");
 
     await user.clear(usdField());
     expect(localField()).toHaveValue("");
@@ -1324,10 +1324,10 @@ describe("VehicleFormPage — separador de miles en importes y kilometraje (íte
     await waitFor(() =>
       expect(screen.getByLabelText("Precio de lista (USD)")).toHaveValue("25.000,50"),
     );
-    expect(screen.getByLabelText("Precio de lista (moneda local)")).toHaveValue("1.012.500,00");
-    expect(screen.getByLabelText("Precio mínimo aceptable (USD)")).toHaveValue("24.000,00");
-    expect(screen.getByLabelText("Costo de adquisición (USD)")).toHaveValue("20.000,00");
-    expect(screen.getByLabelText("Precio acordado (USD)")).toHaveValue("23.500,00");
+    expect(screen.getByLabelText("Precio de lista (moneda local)")).toHaveValue("1.012.500");
+    expect(screen.getByLabelText("Precio mínimo aceptable (USD)")).toHaveValue("24.000");
+    expect(screen.getByLabelText("Costo de adquisición (USD)")).toHaveValue("20.000");
+    expect(screen.getByLabelText("Precio acordado (USD)")).toHaveValue("23.500");
     expect(screen.getByLabelText("Deuda de patente (moneda local)")).toHaveValue("1.234,50");
     expect(screen.getByLabelText("Kilometraje")).toHaveValue("150.000");
 

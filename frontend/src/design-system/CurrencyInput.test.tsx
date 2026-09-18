@@ -38,12 +38,23 @@ describe("currencyFormat", () => {
     expect(parseAmount("1a2b,3c")).toBe("12.3");
   });
 
-  it("formatAmount: canónico → siempre con miles y 2 decimales", () => {
+  it("formatAmount: canónico → miles siempre, decimales solo si los hay (§52)", () => {
     expect(formatAmount("")).toBe("");
-    expect(formatAmount("7")).toBe("7,00");
-    expect(formatAmount("1234.5")).toBe("1.234,50");
+    // Sin centavos reales no se fuerza la coma: un entero se ve entero, sin
+    // importar si el canónico trae la parte decimal en cero o no la trae.
+    expect(formatAmount("7")).toBe("7");
+    expect(formatAmount("60000")).toBe("60.000");
+    expect(formatAmount("60000.0")).toBe("60.000");
+    expect(formatAmount("60000.00")).toBe("60.000");
+    expect(formatAmount("0")).toBe("0");
+    expect(formatAmount("1234567")).toBe("1.234.567");
+    // Con centavos reales, el formato de siempre: coma y relleno a 2, así que
+    // un solo decimal no-cero sigue mostrando su cero de relleno.
     expect(formatAmount("20000.5")).toBe("20.000,50");
+    expect(formatAmount("1234.5")).toBe("1.234,50");
+    expect(formatAmount("20000.25")).toBe("20.000,25");
     expect(formatAmount("1234567.89")).toBe("1.234.567,89");
+    expect(formatAmount("0.05")).toBe("0,05");
   });
 
   it("formatAmountWhileTyping: miles en vivo, decimales como se tipearon, coma colgada preservada", () => {
@@ -127,6 +138,17 @@ describe("CurrencyInput", () => {
     expect(screen.getByTestId("canonical")).toHaveTextContent("20000.5");
   });
 
+  it("al salir con un importe redondo no aparece una coma de la nada (§52)", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const input = screen.getByLabelText("Monto");
+
+    await user.type(input, "60000");
+    await user.tab();
+    expect(input).toHaveValue("60.000");
+    expect(screen.getByTestId("canonical")).toHaveTextContent("60000");
+  });
+
   it("un punto tipeado se toma como coma decimal", async () => {
     const user = userEvent.setup();
     render(<Harness />);
@@ -141,14 +163,14 @@ describe("CurrencyInput", () => {
     const user = userEvent.setup();
     render(<Harness initial="1234567" />);
     const input = screen.getByLabelText("Monto") as HTMLInputElement;
-    expect(input).toHaveValue("1.234.567,00");
+    expect(input).toHaveValue("1.234.567");
 
     // Insertar "9" justo después del "1" inicial: el formato agrega un punto
     // de miles nuevo delante y correría el cursor si no se compensara.
     await user.type(input, "9", { initialSelectionStart: 1, initialSelectionEnd: 1 });
-    expect(input).toHaveValue("19.234.567,00");
+    expect(input).toHaveValue("19.234.567");
     expect(input.selectionStart).toBe(2);
-    expect(screen.getByTestId("canonical")).toHaveTextContent("19234567.00");
+    expect(screen.getByTestId("canonical")).toHaveTextContent("19234567");
   });
 
   it("borrar hacia atrás no pelea con el relleno de decimales", async () => {

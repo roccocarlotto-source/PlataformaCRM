@@ -76,12 +76,24 @@ export function formatAmountWhileTyping(text: string): string {
   return hasSeparator ? `${formattedInteger}${DECIMAL_SEPARATOR}${decimals}` : formattedInteger;
 }
 
-// Formato "en reposo" (valor cargado, o al salir del campo): siempre con 2
-// decimales, como se muestra un importe. "" queda "".
+// Formato "en reposo" (valor cargado, o al salir del campo): así se muestra un
+// importe ya guardado. "" queda "".
+//
+// Los centavos aparecen SOLO si existen de verdad (§52): un importe entero se
+// ve "60.000", no "60.000,00" —la coma colgada no agregaba información y
+// ensuciaba la lectura de las pantallas donde casi todos los montos son
+// redondos—. Un valor con centavos reales no cambia: "20000.5" sigue siendo
+// "20.000,50", con el relleno a 2 posiciones. La decisión es puramente de
+// presentación: el contrato de CurrencyInput sigue siendo el canónico con
+// punto decimal, y para cantidades que NUNCA tienen decimales existe aparte
+// IntegerInput.tsx.
 export function formatAmount(canonical: string): string {
   if (canonical === "") return "";
   const { integer, decimals } = splitCanonical(canonical);
-  return `${formatInteger(integer)}${DECIMAL_SEPARATOR}${decimals.padEnd(MAX_DECIMALS, "0")}`;
+  const formattedInteger = formatInteger(integer);
+  // "" (sin parte decimal), "0" y "00" son todos cero: Number("") es 0.
+  if (Number(decimals) === 0) return formattedInteger;
+  return `${formattedInteger}${DECIMAL_SEPARATOR}${decimals.padEnd(MAX_DECIMALS, "0")}`;
 }
 
 // Cursor. Los puntos de miles van y vienen con el formato, así que la

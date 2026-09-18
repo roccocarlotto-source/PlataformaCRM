@@ -123,7 +123,7 @@ describe("QuoteSection", () => {
 
     await user.click(await screen.findByRole("button", { name: "Nueva cotización" }));
     const panel = screen.getByRole("dialog", { name: "Nueva cotización" });
-    expect(within(panel).getByLabelText(/Precio ofertado/)).toHaveValue("18.500,00");
+    expect(within(panel).getByLabelText(/Precio ofertado/)).toHaveValue("18.500");
     // Sin activa no hay nada que reemplazar: sin aviso.
     expect(within(panel).queryByText(/pasa al historial/)).not.toBeInTheDocument();
 
@@ -148,9 +148,9 @@ describe("QuoteSection", () => {
     const card = quoteCard();
     expect(await within(card).findByText("Borrador")).toBeInTheDocument();
     expect(within(card).getByText("Descuento contado")).toBeInTheDocument();
-    expect(within(card).getByText("−500,00 USD")).toBeInTheDocument();
+    expect(within(card).getByText("−500 USD")).toBeInTheDocument();
     // Total: 18.500 − 500.
-    expect(within(card).getByText("18.000,00 USD")).toBeInTheDocument();
+    expect(within(card).getByText("18.000 USD")).toBeInTheDocument();
   });
 
   it("el formulario no deja guardar una línea sin descripción y no manda nada", async () => {
@@ -276,16 +276,16 @@ describe("QuoteSection", () => {
     expect(within(panel).getByLabelText("Descripción")).toHaveValue("Polarizado");
 
     const precio = within(panel).getByLabelText(/Precio ofertado/);
-    expect(precio).toHaveValue("25.000,00");
+    expect(precio).toHaveValue("25.000");
     await user.clear(precio);
     await user.type(precio, "24000");
     await user.click(within(panel).getByRole("button", { name: "Guardar" }));
 
     const entradas = await within(historyCard()).findAllByRole("listitem");
     expect(entradas).toHaveLength(1);
-    expect(entradas[0]).toHaveTextContent("25.350,00 USD · Reemplazada");
+    expect(entradas[0]).toHaveTextContent("25.350 USD · Reemplazada");
     expect(await within(quoteCard()).findByText("Borrador")).toBeInTheDocument();
-    expect(within(quoteCard()).getByText("24.350,00 USD")).toBeInTheDocument();
+    expect(within(quoteCard()).getByText("24.350 USD")).toBeInTheDocument();
   });
 
   it("historial: todas menos la activa, más nueva primero, en solo lectura (sin acciones)", async () => {
@@ -309,8 +309,8 @@ describe("QuoteSection", () => {
     const history = await screen.findByRole("region", { name: "Historial de cotizaciones" });
     const entradas = await within(history).findAllByRole("listitem");
     expect(entradas).toHaveLength(2);
-    expect(entradas[0]).toHaveTextContent("24.000,00 USD · Rechazada");
-    expect(entradas[1]).toHaveTextContent("25.000,00 USD · Reemplazada");
+    expect(entradas[0]).toHaveTextContent("24.000 USD · Rechazada");
+    expect(entradas[1]).toHaveTextContent("25.000 USD · Reemplazada");
     expect(within(history).queryByRole("button")).not.toBeInTheDocument();
   });
 

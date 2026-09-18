@@ -34,9 +34,10 @@ export function quoteTotal(quote: Pick<Quote, "amount" | "lines">): string {
   return centsToCanonical(cents);
 }
 
-// "24.150,00 USD" / "−500,00 USD". formatAmount (el formato uruguayo de
-// CurrencyInput) descarta el signo, así que se agrega acá con el signo menos
-// tipográfico, que no se confunde con un guión.
+// "24.150 USD" / "−500 USD" / "24.150,50 USD". formatAmount (el formato
+// uruguayo de CurrencyInput) muestra los centavos solo si los hay (§52) y
+// descarta el signo, así que el menos se agrega acá con el signo tipográfico,
+// que no se confunde con un guión.
 export function formatMoney(amount: string, currency: string): string {
   const cents = toCents(amount);
   const sign = cents < 0 ? "−" : "";

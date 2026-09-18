@@ -29,9 +29,11 @@ describe("quote/format", () => {
   });
 
   it("formatMoney: formato uruguayo con la moneda, y el signo menos tipográfico en negativos", () => {
+    // Los centavos solo aparecen si existen (§52): el importe redondo va sin
+    // coma, el que tiene centavos los sigue mostrando.
     expect(formatMoney("24150.5", "USD")).toBe("24.150,50 USD");
-    expect(formatMoney("-500.00", "UYU")).toBe("−500,00 UYU");
-    expect(formatMoney("0", "USD")).toBe("0,00 USD");
+    expect(formatMoney("-500.00", "UYU")).toBe("−500 UYU");
+    expect(formatMoney("0", "USD")).toBe("0 USD");
   });
 
   it("vehicleLabel: marca, modelo, versión y año, con el código interno; sin versión no deja huecos", () => {

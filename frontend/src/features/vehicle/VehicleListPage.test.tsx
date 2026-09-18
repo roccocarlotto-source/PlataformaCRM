@@ -484,7 +484,7 @@ describe("VehicleListPage", () => {
     }
     expect(dialog).toHaveTextContent("Toyota");
     expect(dialog).toHaveTextContent("Usado");
-    expect(dialog).toHaveTextContent("25.000,00");
+    expect(dialog).toHaveTextContent("25.000");
     expect(dialog).toHaveTextContent("150.000");
     expect(dialog).toHaveTextContent("Casa Central");
     expect(dialog).toHaveTextContent("Ana Pérez");

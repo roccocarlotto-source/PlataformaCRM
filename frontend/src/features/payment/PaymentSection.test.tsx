@@ -119,7 +119,7 @@ describe("PaymentSection", () => {
     const card = await paymentsCard();
     expect(await within(card).findByText("Todavía no se registraron pagos.")).toBeInTheDocument();
     expect(within(card).getByText(/^Pagado:/)).toHaveTextContent(
-      "Pagado: 0,00 USD de 25.000,00 USD · Saldo: 25.000,00 USD",
+      "Pagado: 0 USD de 25.000 USD · Saldo: 25.000 USD",
     );
   });
 
@@ -134,7 +134,7 @@ describe("PaymentSection", () => {
     expect(items).toHaveLength(2);
     expect(items[0]).toHaveTextContent("1.500,50 USD");
     expect(items[0]).toHaveTextContent("Transferencia");
-    expect(items[1]).toHaveTextContent("5.000,00 USD");
+    expect(items[1]).toHaveTextContent("5.000 USD");
     expect(items[1]).toHaveTextContent("Efectivo");
   });
 
@@ -147,7 +147,7 @@ describe("PaymentSection", () => {
     const card = await paymentsCard();
     await within(card).findByRole("list", { name: "Pagos registrados" });
     expect(within(card).getByText(/^Pagado:/)).toHaveTextContent(
-      "Pagado: 7.500,25 USD de 25.000,00 USD · Saldo: 17.499,75 USD",
+      "Pagado: 7.500,25 USD de 25.000 USD · Saldo: 17.499,75 USD",
     );
     expect(within(card).queryByText(/en otra moneda/)).not.toBeInTheDocument();
   });
@@ -165,9 +165,9 @@ describe("PaymentSection", () => {
     renderSection();
     const card = await paymentsCard();
     const list = await within(card).findByRole("list", { name: "Pagos registrados" });
-    expect(within(list).getByText(/200\.000,00 UYU/)).toBeInTheDocument();
+    expect(within(list).getByText(/200\.000 UYU/)).toBeInTheDocument();
     expect(within(card).getByText(/^Pagado:/)).toHaveTextContent(
-      "Pagado: 5.000,00 USD de 25.000,00 USD · Saldo: 20.000,00 USD",
+      "Pagado: 5.000 USD de 25.000 USD · Saldo: 20.000 USD",
     );
     expect(
       within(card).getByText("1 pago en otra moneda no incluido en el total."),
@@ -201,10 +201,10 @@ describe("PaymentSection", () => {
     });
 
     const list = await within(card).findByRole("list", { name: "Pagos registrados" });
-    expect(within(list).getByText(/3\.000,00 USD · Tarjeta/)).toBeInTheDocument();
+    expect(within(list).getByText(/3\.000 USD · Tarjeta/)).toBeInTheDocument();
     expect(within(card).queryByRole("form", { name: "Pago" })).not.toBeInTheDocument();
     expect(within(card).getByText(/^Pagado:/)).toHaveTextContent(
-      "Pagado: 3.000,00 USD de 25.000,00 USD · Saldo: 22.000,00 USD",
+      "Pagado: 3.000 USD de 25.000 USD · Saldo: 22.000 USD",
     );
   });
 
@@ -228,10 +228,10 @@ describe("PaymentSection", () => {
     const card = await paymentsCard();
 
     await user.click(
-      await within(card).findByRole("button", { name: /^Editar el pago de 5\.000,00 USD/ }),
+      await within(card).findByRole("button", { name: /^Editar el pago de 5\.000 USD/ }),
     );
     const form = within(card).getByRole("form", { name: "Pago" });
-    expect(within(form).getByLabelText("Monto")).toHaveValue("5.000,00");
+    expect(within(form).getByLabelText("Monto")).toHaveValue("5.000");
     expect(within(form).getByLabelText("Método")).toHaveValue("Transferencia");
     expect(within(form).getByLabelText("Fecha")).toHaveValue("2026-09-10");
 
@@ -244,8 +244,8 @@ describe("PaymentSection", () => {
     expect(received[0].url).toMatch(/\/api\/payments\/p1$/);
     expect(received[0].body).toEqual({ amount: 4500, method: "TRANSFER", paidAt: "2026-09-10" });
 
-    expect(await within(card).findByText(/4\.500,00 USD · Transferencia/)).toBeInTheDocument();
-    expect(within(card).getByText(/^Pagado:/)).toHaveTextContent("Pagado: 4.500,00 USD");
+    expect(await within(card).findByText(/4\.500 USD · Transferencia/)).toBeInTheDocument();
+    expect(within(card).getByText(/^Pagado:/)).toHaveTextContent("Pagado: 4.500 USD");
   });
 
   it("borrado: pide confirmación con el monto; cancelar no borra, aceptar manda el DELETE y saca el pago del total", async () => {
@@ -259,10 +259,10 @@ describe("PaymentSection", () => {
     const card = await paymentsCard();
 
     const borrar = await within(card).findByRole("button", {
-      name: /^Borrar el pago de 5\.000,00 USD/,
+      name: /^Borrar el pago de 5\.000 USD/,
     });
     await user.click(borrar);
-    expect(confirm).toHaveBeenCalledWith("¿Borrar este pago de 5.000,00 USD?");
+    expect(confirm).toHaveBeenCalledWith("¿Borrar este pago de 5.000 USD?");
     expect(received).toHaveLength(0);
 
     confirm.mockReturnValueOnce(true);
@@ -273,7 +273,7 @@ describe("PaymentSection", () => {
 
     await waitFor(() => expect(within(card).getAllByRole("listitem")).toHaveLength(1));
     expect(within(card).getByText(/^Pagado:/)).toHaveTextContent(
-      "Pagado: 1.000,00 USD de 25.000,00 USD · Saldo: 24.000,00 USD",
+      "Pagado: 1.000 USD de 25.000 USD · Saldo: 24.000 USD",
     );
   });
 
