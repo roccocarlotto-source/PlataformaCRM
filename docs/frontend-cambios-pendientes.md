@@ -2407,3 +2407,75 @@ Lo que la regla compartida **no** decide, porque las dos políticas difieren leg
 **Tests:** 7 casos nuevos en `OpportunityFormPage.test.tsx` (un `describe` propio) y un archivo nuevo `stageStatus.test.ts` con 6 casos para la regla pura. Los handlers MSW de `baseHandlers()` ahora devuelven tres etapas para "Ventas" — una normal y las dos marcadas — en vez de una sola. Cubren: Alta con Etapa perdida (aparece la tarjeta, el POST manda `LOST` con motivo y fecha de hoy), Alta con Etapa ganada (sin Motivo), Alta volviendo a una Etapa normal (la tarjeta desaparece y el POST vuelve a `OPEN`), Edición revelando Motivo al cambiar de Etapa, Edición reabriendo al volver a una Etapa normal, cambio de Proceso de venta estando cerrada, y el de la carga inicial que **no** recalcula. Los tests existentes de `handleStatusChange` y los de `boardMove.ts` pasaron sin modificación.
 
 **Suite de frontend en verde: 139 archivos y 1353 tests.** `tsc -b`, ESLint y Prettier limpios. Sin backend, sin migraciones y sin dependencias nuevas.
+## 51. Sacar el select de Estado: ya es un valor derivado de la Etapa
+
+**Estado:** hecho
+
+**Contexto — la contradicción que quedó viva después del §50.** El §50 sincronizó la Etapa con el Estado: elegir una Etapa marcada `isWon` / `isLost` en el formulario fija el `status` automáticamente, con la misma regla que el Kanban al arrastrar. Pero dejó el segundo selector en pie, explícitamente ("el Estado sigue siendo editable a mano: la Etapa propone, la persona decide"), y esa decisión no aguanta el primer caso real:
+
+1. Se elige la Etapa "Cierre perdido" → el Estado pasa a **Perdida** y aparece Motivo de pérdida.
+2. Se pisa el Estado a mano a **Ganada** en el select de al lado.
+3. Se guarda.
+
+Queda una oportunidad cuya **Etapa dice perdida y cuyo Estado dice ganada**, sin ningún aviso. Y las dos consumidoras de esos campos no leen lo mismo: el **Kanban** agrupa por `stageId`, así que la muestra en la columna "Cierre perdido"; el **dashboard de Win Rate** suma por `status`, así que la cuenta como ganada. El mismo registro, ganado y perdido al mismo tiempo según quién lo mire. No es un caso de laboratorio: el camino de dos pasos que lo produce es exactamente el que §50 había descrito como deseable.
+
+**Decisión: se elimina la redundancia sacando el select.** No hay dos fuentes de verdad que conciliar, hay una: la **Etapa**. El Estado pasa a ser un **valor derivado de solo lectura** en el formulario, y los dos únicos caminos por los que cambia son los que ya aplican la regla compartida de `stageStatus.ts`:
+
+- elegir una Etapa en el propio formulario (`handleStageChange`) o cambiar de Proceso de venta y perder la Etapa que causaba el cierre (`handlePipelineChange`);
+- arrastrar la tarjeta en el embudo (`boardMove.ts`, sin cambios en este ítem).
+
+La alternativa habría sido conservar el select y validar la coherencia al guardar. Se descartó: un formulario que ofrece un control y después rechaza lo que ese control produce es peor que uno que no lo ofrece. La regla ya existe, es una sola y es determinista — no hay decisión que dejarle a la persona.
+
+**Qué se sacó del código:**
+
+- El `<Select label="Estado">` de la tarjeta "Estado y cierre".
+- **`handleStatusChange` completo**, con su bloque de comentarios. Era el único consumidor de ese select, y con el select afuera no quedaba nadie llamándolo (verificado con grep en todo el repo antes de borrarlo). Su regla no se perdió: la parte de Fecha real y reapertura la cubre `stageStatusChange`, y la de `lostReason` (limpiar en toda transición cuyo estado resultante no sea `LOST`, criterio del §48) quedó en `handleStageChange` y `handlePipelineChange`, que **no cambiaron de lógica**.
+- El import de `STATUSES` en `OpportunityFormPage.tsx`. La constante sigue exportada y en uso: la consume el filtro de Estado del listado (`OpportunityListPage.tsx`).
+- Los comentarios que nombraban a `handleStatusChange` como si siguiera existiendo (tres en `OpportunityFormPage.tsx`, uno en `stageStatus.ts`), reescritos para explicar el criterio nuevo. Las menciones en las secciones **históricas** de este documento (§42, §48, §50) se dejaron tal cual: son el registro de lo que se decidió entonces, no documentación del código de hoy.
+
+**Cómo se muestra el Estado ahora.** Un `<p>` con el rótulo asociado por `aria-labelledby`, dentro de un `<div className="ds-field">`:
+
+```tsx
+<div className="ds-field">
+  <span className="ds-field-label" id="opportunity-form-status-label">Estado</span>
+  <p className="ds-field-value" aria-labelledby="opportunity-form-status-label">
+    {STATUS_LABEL[values.status]}
+  </p>
+</div>
+```
+
+Tres decisiones adentro de eso:
+
+- **Texto, no un `<input readOnly>` ni un `<select disabled>`.** Una caja con borde invita a tocarla, y acá no hay nada que tocar. El único campo de solo lectura que el design system ya tenía (`.ds-secret`, el secreto de una API key en `ApiKeySecretDialog`) sí usa `readOnly`, pero por una razón que acá no aplica: ahí seleccionar el texto a mano es el respaldo cuando el portapapeles no está disponible. `DetailList` tampoco servía: es el `<dl>` del pop up "Ver detalle", no un campo dentro de un formulario.
+- **No usa `FormField`.** `FormField` **es** un `<label>`, y un `<label>` no puede nombrar a un `<p>`: la asociación implícita de `<label>` solo vale para elementos de formulario. Con `aria-labelledby`, que vale para cualquier elemento, el **nombre accesible no cambia** respecto del select: `getByLabelText("Estado")` lo sigue encontrando y los lectores de pantalla lo leen igual.
+- **Clase nueva `.ds-field-value`** en `design-system.css`, al lado de `.ds-field-label`. Toma `min-height: var(--control-height)` y el mismo `margin-top` que los controles, para que el texto quede alineado con el input que le toque al lado en la grilla de dos columnas; sin borde ni fondo, porque no es una caja editable. Es la única adición visual del ítem.
+
+**El gate de la tarjeta "Estado y cierre" se unificó entre Alta y Edición.** Pasó de `isEditMode || isClosed(values.status)` a **solo `isClosed(values.status)`**. En Alta no cambia nada (ya era así desde §50); lo que cambia es Edición, donde antes se mostraba siempre. Con el select afuera, una tarjeta en edición sobre una oportunidad abierta no tenía **nada** que ofrecer: Motivo de pérdida no se muestra con Abierta, Fecha real tampoco, y el Estado ya se lee en la Etapa elegida dos tarjetas más arriba. Era una tarjeta con un solo dato redundante. Ahora la tarjeta significa una sola cosa, en los dos modos: **esta oportunidad está cerrada, acá están los datos del cierre.**
+
+**Los dos textos de ayuda, revisados.** El primero ("Se crea abierta en la etapa elegida del embudo") ya nombraba la Etapa y sigue siendo de creación y solo mientras la oportunidad esté abierta: con una Etapa marcada elegida no nace abierta y sería falso. El segundo sí quedó viejo: decía "Cerrarla como ganada o perdida se hace desde el **embudo**", y desde §50 cerrar eligiendo una Etapa marcada en el propio formulario es un camino igual de válido. Quedó así:
+
+> Para cerrarla como ganada o perdida, elegí una etapa marcada así en el proceso de venta, o movela en el embudo.
+
+Y su gate pasó a ser el **inverso del de la tarjeta** (`isClosed(values.status) ? null : …`), en los dos modos: mientras está abierta el texto explica cómo cerrarla, y al cerrarse desaparece y su lugar lo toma la tarjeta con los datos del cierre. Antes estaba oculto en Edición, que era justo el modo donde ahora hace falta.
+
+**Un matiz de comportamiento que se pierde, a propósito.** `handleStatusChange` autocompletaba la Fecha real con hoy **solo en la transición vivida desde Abierta**: una oportunidad que ya había cargado cerrada y con la fecha vacía podía pasar de Perdida a Ganada sin que apareciera una fecha. `stageStatusChange` no distingue el estado de partida — cierra con `today` siempre que la fecha esté vacía (`existingCloseDate ? "keep" : "today"`). Como el único camino que queda es el de la Etapa, la regla del formulario ahora es la del embudo, que es la que ya regía desde §50 para cualquier cambio de Etapa. Es más simple y es una sola; el caso que cambia (registro cerrado, fecha vacía, se lo manda a la otra etapa de cierre) termina con la fecha de hoy en vez de vacía, lo cual es más correcto que dejar un cierre sin fecha.
+
+**Limitación conocida: un Proceso de venta sin ninguna Etapa marcada.** Si un pipeline no tiene ninguna Etapa con `isWon` o `isLost`, sus oportunidades **no se pueden cerrar** — ni desde el formulario (no hay Etapa que dispare la regla) ni desde el Kanban (ninguna columna cierra). Antes del §51 el select de Estado era la vía de escape. **No se resuelve en este ítem** y se anota como deuda consciente, con las salidas posibles para cuando haga falta: exigir al menos una etapa ganada y una perdida al crear o editar un Proceso de venta (validación en el backend), avisarlo en la pantalla de Etapas, o dar una acción explícita de "Cerrar oportunidad" separada del formulario. La primera es la que mejor encaja con la decisión de este ítem: si la Etapa es la única fuente de verdad del cierre, un proceso sin etapas de cierre está mal configurado, y el lugar de decirlo es la configuración del proceso, no el formulario de cada oportunidad.
+
+**Qué NO cambia:**
+
+- **El backend.** Sigue sin relacionar `stageId` con `status`. Acepta cualquier combinación, incluidas las contradictorias — este ítem cierra el camino de la UI, no el del contrato. Los registros históricos que ya estén en drift se siguen mostrando tal cual (el §50 tiene su test dedicado a que la carga inicial **no** recalcule, y sigue pasando).
+- **El Kanban.** `boardMove.ts` no se tocó.
+- **`stageStatus.ts`.** Ni la firma ni la lógica; solo un comentario que nombraba a `handleStatusChange`.
+- **El filtro de Estado del listado** y el "Estado" del pop up "Ver detalle": los dos solo **leen** `status` para mostrarlo. Verificado con grep en todo `frontend/src`.
+
+**Tests:** `OpportunityFormPage.test.tsx` pasó de 51 a 49 casos. Los 28 puntos del archivo que tocaban `getByLabelText("Estado")` / `queryByLabelText("Estado")` se revisaron uno por uno:
+
+- **Migrados a manejarse por la Etapa (5, ninguna cobertura perdida):** la tarjeta que aparece solo cerrada con Motivo únicamente en Perdida y Fecha real en las dos; el `it.each` de cerrar con Fecha real vacía completándola con hoy y quedando editable (dos casos, `WON` y `LOST`); una Fecha real ya cargada que no se pisa; y pasar de una Etapa perdida a una ganada limpiando `lostReason`. Todos existían ya y probaban reglas que siguen vivas: lo único que cambió es **quién las dispara**. Se apoyan en un helper nuevo, `chooseEtapa`, y en las tres etapas que `baseHandlers()` devuelve para "Ventas" desde §50.
+- **Reescrito y acotado (1):** "reabrir limpia Motivo y Fecha real y el PATCH los manda como `null`" ya lo cubría un test del `describe` de §50, así que el migrado se quedó con la parte que **nadie** cubría: reabrir con una Etapa normal y **volver a cerrar** arranca limpio, sin el motivo viejo y con la fecha de hoy.
+- **Borrados (2), los únicos:** el que listaba las opciones del select (`["Abierta", "Ganada", "Perdida"]`) probaba el contenido de un control que ya no existe, y no hay nada que reemplazarlo; y el de "una cerrada con fecha vacía no se autocompleta al cambiar entre Ganada y Perdida", que probaba el matiz de `handleStatusChange` descrito arriba — el comportamiento que lo reemplaza ya tiene su caso en `stageStatus.test.ts` ("los flags mandan, no el estado actual").
+- **Asserts adaptados (el resto, incluidos los 11 del `describe` de §50):** `toHaveValue("Perdida")` → `toHaveTextContent("Perdida")`, porque el Estado es texto; y los que esperaban ver "Abierta" en Edición pasaron a `queryByLabelText("Estado")).not.toBeInTheDocument()`, porque con el gate unificado la tarjeta no está. No se borró ninguno: son los que prueban que **el valor persistido se respeta** (hidratación) y que la carga inicial no recalcula nada.
+
+No hizo falta ningún test nuevo: el ítem no agrega comportamiento, saca un camino. El `describe` de §50 se renombró a "la Etapa gobierna el Estado (§50, §51)" — "sincroniza" describía dos campos editables que se seguían; ahora uno manda.
+
+**Suite de frontend en verde: 139 archivos y 1351 tests** (los 1353 del §50 menos los 2 borrados). `tsc --noEmit`, ESLint y Prettier limpios. Sin backend, sin migraciones y sin dependencias nuevas.

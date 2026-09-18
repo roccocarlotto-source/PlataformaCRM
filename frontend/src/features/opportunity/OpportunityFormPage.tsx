@@ -21,7 +21,7 @@ import { TradeInSection } from "../vehicle/TradeInSection";
 import { VehicleSelect } from "../vehicle/VehicleSelect";
 import { todayIsoDate } from "./boardMove";
 import { ContactSelect } from "./ContactSelect";
-import { FINANCING_TYPE_LABELS, LEAD_SOURCE_LABELS, STATUS_LABEL, STATUSES } from "./labels";
+import { FINANCING_TYPE_LABELS, LEAD_SOURCE_LABELS, STATUS_LABEL } from "./labels";
 import { useCreateOpportunity, useUpdateOpportunity } from "./mutations";
 import { useOpportunity } from "./queries";
 import { stageStatusChange } from "./stageStatus";
@@ -226,13 +226,11 @@ function hasFinancing(financingType: OpportunityFinancingType | ""): boolean {
 // módulo de stock, "Vehículo vinculado" (unidad, financiación y origen del
 // cliente — ver handleVehicleChange por la interacción con Monto/Moneda).
 // Estado, Motivo de pérdida y Fecha real de cierre van en una tercera tarjeta,
-// siempre en edición y en Alta solo si la Etapa elegida cerró la oportunidad
-// (§50): el diseño no los tiene en creación porque toda oportunidad nueva
-// arranca abierta (EMPTY_FORM.status es "OPEN") y el cierre se haría desde el
-// Kanban; pero el Kanban todavía no existe, así que sacarlos también de la
-// edición dejaría sin forma de cerrar una oportunidad. Dentro de esa tarjeta,
-// Fecha real aparece al cerrar (Ganada o Perdida) y Motivo solo con Perdida
-// (ver handleStatusChange).
+// que aparece —en Alta y en Edición con el mismo criterio— solo si la
+// oportunidad está cerrada (§51). El Estado NO se edita a mano: se muestra
+// como texto y se deriva de la Etapa elegida, acá con stageStatusChange (§50)
+// o en el embudo al arrastrar (boardMove.ts). Dentro de esa tarjeta, Fecha
+// real aparece al cerrar (Ganada o Perdida) y Motivo solo con Perdida.
 //
 // Los selectores (CompanySelect, ContactSelect, PipelineSelect, StageSelect,
 // UserSelect) se montan sueltos, sin FormField: traen su propio <label
@@ -300,10 +298,10 @@ export function OpportunityFormPage() {
   //
   // Si la oportunidad había quedado cerrada por una etapa (ver
   // handleStageChange), ese cierre pierde su causa al irse la etapa: se
-  // REABRE con el mismo criterio que handleStatusChange al pasar a Abierta.
-  // Si ya estaba abierta no cambia nada — en particular, un cierre puesto a
-  // mano en el selector de Estado tampoco se pisa más allá de esto: quien
-  // cambia de proceso de venta está empezando de nuevo.
+  // REABRE, con el mismo criterio que stageStatusChange aplica al volver a
+  // una etapa normal (status OPEN, Motivo y Fecha real vacíos). Si ya estaba
+  // abierta no cambia nada. También reabre un cierre que venía persistido de
+  // otro proceso de venta: quien cambia de proceso está empezando de nuevo.
   function handlePipelineChange(pipelineId: string) {
     setValues((current) => {
       const next = { ...current, pipelineId, stageId: undefined };
@@ -318,11 +316,15 @@ export function OpportunityFormPage() {
   // etapa marcada "Perdida" dejaba la oportunidad abierta y sin Motivo de
   // pérdida a la vista, que es lo que confundía.
   //
+  // Desde §51 es EL ÚNICO camino por el que el Estado cambia en este
+  // formulario: el selector de Estado que se editaba a mano ya no existe, así
+  // que no hay forma de dejar Etapa y Estado contradictorios entre sí.
+  //
   // Vale igual en Alta y en Edición. Lo que la regla no decide y sí decide
   // este handler:
   //   - lostReason se limpia en toda transición cuyo estado resultante no sea
-  //     LOST, mismo criterio que handleStatusChange (§48) — si no, el motivo
-  //     de una pérdida anterior viajaría fantasma en el PATCH.
+  //     LOST (criterio de §48) — si no, el motivo de una pérdida anterior
+  //     viajaría fantasma en el PATCH.
   //   - "clear" es "" y no null: es el valor que espera un <input type="date">.
   //     toUpdateInput ya convierte ese "" en el null explícito que el backend
   //     necesita para limpiar.
@@ -396,45 +398,6 @@ export function OpportunityFormPage() {
     });
   }
 
-  // Cierre desde el formulario (ítem 18.F de docs/frontend-cambios-pendientes.md).
-  // REEMPLAZA a propósito la decisión de M5 (docs/project-overview.md,
-  // "lostReason — corregido durante el diseño"), que dejaba Motivo de pérdida
-  // y Fecha real de cierre siempre visibles y nunca tocados por status porque
-  // no estaba definido qué pasa al reabrir. Ahora sí está definido:
-  //
-  // - Abierta → Ganada/Perdida: si Fecha real está vacía, se completa con HOY
-  //   (reloj local, mismo todayIsoDate que usa el embudo al arrastrar). Es un
-  //   valor inicial cómodo: el input sigue visible y editable, nunca
-  //   disabled. Solo actúa en la transición vivida acá — con el select
-  //   pasando por "OPEN" —, nunca por el valor con el que cargó el registro:
-  //   una oportunidad que ya estaba cerrada, o con fecha cargada a mano, no
-  //   se pisa.
-  // - Ganada/Perdida → Abierta: se limpia Fecha real en el mismo setValues
-  //   (mismo criterio que handlePipelineChange con stageId). Si no, quedaría
-  //   oculta pero viajaría igual en el PATCH y reabrir arrastraría datos del
-  //   cierre anterior; en edición viaja como null explícito, que es lo que el
-  //   backend espera para limpiar.
-  // - Cualquier estado que no sea Perdida: se limpia el Motivo, por el mismo
-  //   motivo pero con su propio criterio — el campo solo se muestra con
-  //   Perdida, así que tanto reabrir como pasar a Ganada tienen que dejarlo
-  //   vacío para que el motivo de la pérdida anterior no viaje fantasma en el
-  //   PATCH.
-  //
-  // El backend sigue sin sincronizar nada de esto: es comportamiento del
-  // formulario, y el embudo tiene el suyo (boardMove.ts).
-  function handleStatusChange(status: OpportunityStatus) {
-    setValues((current) => {
-      const base = status === "LOST" ? current : { ...current, lostReason: "" };
-      if (status === "OPEN") {
-        return { ...base, status, actualCloseDate: "" };
-      }
-      if (current.status === "OPEN" && isClosed(status) && !current.actualCloseDate) {
-        return { ...base, status, actualCloseDate: todayIsoDate() };
-      }
-      return { ...base, status };
-    });
-  }
-
   function handleExpectedCloseDateUnknownChange(unknown: boolean) {
     setExpectedCloseDateUnknown(unknown);
     if (unknown) {
@@ -503,11 +466,18 @@ export function OpportunityFormPage() {
   // el contrato (ver toCreateInput) y un asterisco ahí mentiría.
   //
   // Los dos textos de ayuda son del export y describen comportamiento real
-  // (EMPTY_FORM.status es "OPEN"; ganada/perdida se asignan desde el
-  // embudo), pero solo en creación y mientras la oportunidad siga abierta: en
-  // edición la tarjeta "Estado y cierre" sí permite cerrar desde acá, y desde
-  // §50 en Alta también, si la Etapa elegida forzó el cierre. En esos dos
-  // casos serían falsos, así que no se muestran.
+  // (EMPTY_FORM.status es "OPEN"; ganada/perdida se derivan de la Etapa).
+  // Cada uno con su propio gate:
+  //
+  //   - "Se crea abierta…" es de creación y solo mientras siga abierta: con
+  //     una Etapa marcada elegida la oportunidad NO nace abierta y el texto
+  //     sería falso.
+  //   - El de abajo explica CÓMO cerrarla, así que se muestra en los dos
+  //     modos mientras esté abierta y desaparece al cerrarse (§51: el mismo
+  //     gate que la tarjeta "Estado y cierre", invertido). Desde §51 nombra
+  //     los dos caminos reales —elegir una etapa marcada acá mismo o mover
+  //     la tarjeta en el embudo—; decir solo "desde el embudo" era lo que
+  //     quedó viejo al sacar el selector de Estado.
   // La sección de Cotización (§39) va DESPUÉS del <form> y no adentro: tiene
   // sus propios formularios y botones, y un <form> no se anida. Solo en
   // edición — una oportunidad que todavía no existe no tiene a qué colgarle
@@ -751,33 +721,42 @@ export function OpportunityFormPage() {
             criterio propio — Estado + el campo que corresponda como par.
             Dos criterios distintos, uno por campo: Motivo de pérdida solo con
             Perdida (pedir un motivo de pérdida en una oportunidad ganada no
-            tiene sentido), Fecha real de cierre con Ganada o Perdida
-            (ver handleStatusChange).
+            tiene sentido), Fecha real de cierre con Ganada o Perdida.
 
-            En edición se muestra siempre. En Alta aparece SOLO si la Etapa
-            elegida forzó un cierre (§50): sin eso la oportunidad nace abierta
-            y la tarjeta no tendría nada que ofrecer, pero con una etapa
-            marcada "Perdida" el Motivo tiene que estar a la vista antes de
-            guardar. Vuelve a desaparecer al elegir una etapa normal, porque
-            ahí el estado vuelve a "OPEN". El Estado sigue siendo editable a
-            mano también en Alta: la etapa propone, la persona decide. */}
-          {isEditMode || isClosed(values.status) ? (
+            UN SOLO GATE para Alta y Edición (§51): la tarjeta aparece
+            únicamente si la oportunidad está cerrada. Con el selector de
+            Estado afuera no queda nada que hacer acá mientras siga abierta
+            —ni Motivo ni Fecha real se muestran, y el Estado ya se lee en la
+            Etapa elegida—, así que mostrarla en edición era una tarjeta con
+            un solo dato redundante. Vuelve a desaparecer al elegir una etapa
+            normal, porque ahí el estado vuelve a "OPEN". */}
+          {isClosed(values.status) ? (
             <Card heading="Estado y cierre">
               <div className="ds-field-grid">
-                {/* El combobox del design system (§46), suelto y sin FormField:
-                    Select trae su propio <label htmlFor> y FormField ES un
-                    <label>. */}
-                <Select
-                  label="Estado"
-                  value={values.status}
-                  options={STATUSES.map((status) => ({
-                    value: status,
-                    label: STATUS_LABEL[status],
-                  }))}
-                  onChange={(status) => {
-                    if (status) handleStatusChange(status);
-                  }}
-                />
+                {/* El Estado es DERIVADO, no editable (§51): lo fija la Etapa
+                    elegida, vía stageStatusChange en handleStageChange y
+                    handlePipelineChange, o el embudo al arrastrar. Antes acá
+                    había un <Select> a mano y eso permitía guardar una
+                    oportunidad en una etapa marcada "Perdida" con el Estado
+                    en "Ganada": el Kanban la mostraba en la columna perdida y
+                    el Win Rate la contaba como ganada.
+
+                    Texto, no un input readOnly ni un select disabled: un
+                    control invita a tocarlo y acá no hay nada que tocar. Por
+                    eso tampoco usa FormField —FormField ES un <label> y un
+                    <label> no puede nombrar a un <p>, que no es un elemento
+                    de formulario—: el rótulo se asocia con aria-labelledby,
+                    que vale para cualquier elemento y conserva el nombre
+                    accesible (getByLabelText("Estado") lo sigue encontrando,
+                    igual que con el select). */}
+                <div className="ds-field">
+                  <span className="ds-field-label" id="opportunity-form-status-label">
+                    Estado
+                  </span>
+                  <p className="ds-field-value" aria-labelledby="opportunity-form-status-label">
+                    {STATUS_LABEL[values.status]}
+                  </p>
+                </div>
                 {values.status === "LOST" ? (
                   <FormField label="Motivo de pérdida">
                     <input
@@ -804,10 +783,10 @@ export function OpportunityFormPage() {
 
           {error ? <ErrorState>{error}</ErrorState> : null}
           <div>
-            {isEditMode || isClosed(values.status) ? null : (
+            {isClosed(values.status) ? null : (
               <p className="ds-hint">
-                La oportunidad arranca abierta. Cerrarla como ganada o perdida se hace desde el
-                embudo.
+                Para cerrarla como ganada o perdida, elegí una etapa marcada así en el proceso de
+                venta, o movela en el embudo.
               </p>
             )}
             <RequiredFieldsHint />
