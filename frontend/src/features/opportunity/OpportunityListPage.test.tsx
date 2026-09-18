@@ -190,8 +190,8 @@ describe("OpportunityListPage", () => {
     await user.selectOptions(screen.getByLabelText("Estado"), "WON");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("status")).toBe("WON"));
 
-    await waitFor(() => expect(screen.getByLabelText("Pipeline")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await waitFor(() => expect(screen.getByLabelText("Proceso de venta")).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("pipelineId")).toBe("pl1"));
 
     await user.click(screen.getByText("Siguiente"));

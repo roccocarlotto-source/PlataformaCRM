@@ -192,7 +192,7 @@ const SECTIONS = [
   "Ingresos ganados por mes",
   "Oportunidades recientes",
   "Mayores oportunidades abiertas",
-  "Pipeline",
+  "Proceso de venta",
   "Actividad reciente",
   "Acciones rápidas",
 ];
@@ -238,7 +238,7 @@ describe("DashboardPage — render general y estados", () => {
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
     expect(await screen.findByText("Acme Corp", { selector: "td" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Flota nueva")).toBeInTheDocument());
-    const pipeline = screen.getByLabelText("Pipeline");
+    const pipeline = screen.getByLabelText("Proceso de venta");
     await waitFor(() => expect(within(pipeline).getByText(/Prospecto/)).toBeInTheDocument());
     const feed = screen.getByLabelText("Actividad reciente");
     await waitFor(() =>
@@ -304,7 +304,7 @@ describe("DashboardPage — render general y estados", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("No hay un pipeline configurado como predeterminado."),
+        screen.getByText("No hay un proceso de venta configurado como predeterminado."),
       ).toBeInTheDocument(),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -341,7 +341,7 @@ describe("DashboardPage — render general y estados", () => {
     expect(within(grafico).queryByRole("alert")).not.toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
-    const pipeline = screen.getByLabelText("Pipeline");
+    const pipeline = screen.getByLabelText("Proceso de venta");
     await waitFor(() => expect(within(pipeline).getByText(/Prospecto/)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText("Llamada de seguimiento")).toBeInTheDocument());
   });
@@ -461,12 +461,12 @@ describe("DashboardPage — render general y estados", () => {
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
     const summary = screen.getByLabelText("Resumen comercial");
     await waitFor(() => expect(within(summary).getByText("3000.00 USD")).toBeInTheDocument());
-    const pipeline = screen.getByLabelText("Pipeline");
+    const pipeline = screen.getByLabelText("Proceso de venta");
     expect(within(pipeline).getByText("Cargando…")).toBeInTheDocument();
 
     await waitFor(() =>
       expect(
-        within(pipeline).getByText("No hay un pipeline configurado como predeterminado."),
+        within(pipeline).getByText("No hay un proceso de venta configurado como predeterminado."),
       ).toBeInTheDocument(),
     );
   });
@@ -518,7 +518,7 @@ describe("DashboardPage — render general y estados", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("No hay un pipeline configurado como predeterminado."),
+        screen.getByText("No hay un proceso de venta configurado como predeterminado."),
       ).toBeInTheDocument(),
     );
     await waitFor(() =>

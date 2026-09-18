@@ -154,7 +154,7 @@ describe("PipelineFormPage", () => {
     expect(getDetailCalled).toBe(false);
     // En creación la sección Etapas es solo el aviso: sin editor ni GET /stages.
     expect(
-      screen.getByText("Guardá el pipeline para poder agregar sus etapas."),
+      screen.getByText("Guardá el proceso de venta para poder agregar sus etapas."),
     ).toBeInTheDocument();
     expect(screen.queryByText("Nueva etapa")).not.toBeInTheDocument();
 
@@ -163,13 +163,13 @@ describe("PipelineFormPage", () => {
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     // Misma página, ahora en modo edición, con el editor habilitado.
-    await waitFor(() => expect(screen.getByText("Editar pipeline")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Editar proceso de venta")).toBeInTheDocument());
     expect(screen.queryByText("lista de pipelines")).not.toBeInTheDocument();
     expect(postedBody).toEqual({ name: "Ventas Nueva", isDefault: true });
-    expect(screen.getByRole("status")).toHaveTextContent("Pipeline guardado");
+    expect(screen.getByRole("status")).toHaveTextContent("Proceso de venta guardado");
     await waitFor(() => expect(screen.getByText("Nueva etapa")).toBeInTheDocument());
     expect(
-      screen.queryByText("Guardá el pipeline para poder agregar sus etapas."),
+      screen.queryByText("Guardá el proceso de venta para poder agregar sus etapas."),
     ).not.toBeInTheDocument();
     expect(stagesCalls.listRequests.length).toBeGreaterThan(0);
     expect(stagesCalls.listRequests[0].searchParams.get("pipelineId")).toBe("pl-nuevo");
@@ -214,7 +214,7 @@ describe("PipelineFormPage", () => {
     expect(patchedId).toBe("pl1");
     expect(patchedBody).toEqual({ name: "Ventas Editada", isDefault: false });
     // El toast sobrevive a la navegación: el provider está por encima del router.
-    expect(screen.getByRole("status")).toHaveTextContent("Pipeline guardado");
+    expect(screen.getByRole("status")).toHaveTextContent("Proceso de venta guardado");
   });
 
   it("P21 error de detail muestra error y no presenta el form como create vacío", async () => {
@@ -252,9 +252,9 @@ describe("PipelineFormPage", () => {
       ),
     );
     expect(screen.queryByText("lista de pipelines")).not.toBeInTheDocument();
-    expect(screen.getByText("Nuevo pipeline")).toBeInTheDocument();
+    expect(screen.getByText("Nuevo proceso de venta")).toBeInTheDocument();
     expect(
-      screen.getByText("Guardá el pipeline para poder agregar sus etapas."),
+      screen.getByText("Guardá el proceso de venta para poder agregar sus etapas."),
     ).toBeInTheDocument();
     expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
@@ -313,7 +313,9 @@ describe("PipelineFormPage — editor de etapas integrado", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText("Este pipeline todavía no tiene etapas. Agregá la primera acá abajo."),
+        screen.getByText(
+          "Este proceso de venta todavía no tiene etapas. Agregá la primera acá abajo.",
+        ),
       ).toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: "Agregar etapa" })).toBeInTheDocument();
@@ -350,7 +352,7 @@ describe("PipelineFormPage — editor de etapas integrado", () => {
     expect(screen.getByLabelText("Ganada")).not.toBeChecked();
     expect(screen.getByLabelText("Nombre de la etapa")).toHaveFocus();
     // No navegó a ningún lado.
-    expect(screen.getByText("Editar pipeline")).toBeInTheDocument();
+    expect(screen.getByText("Editar proceso de venta")).toBeInTheDocument();
   });
 
   // §13 (Parte B): Probabilidad oculta por defecto en "Nueva etapa".

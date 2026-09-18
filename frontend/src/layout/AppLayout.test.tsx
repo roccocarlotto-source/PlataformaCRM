@@ -66,13 +66,13 @@ describe("AppLayout — nav gateado por rol (M7)", () => {
     expect(screen.queryByText("Invitaciones")).not.toBeInTheDocument();
   });
 
-  it("la navegación existente (Empresas/Contactos/Pipelines/Oportunidades) sigue intacta para ambos roles", () => {
+  it("la navegación existente (Empresas/Contactos/Procesos de venta/Oportunidades) sigue intacta para ambos roles", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     renderLayout();
 
     expect(screen.getByText("Empresas")).toBeInTheDocument();
     expect(screen.getByText("Contactos")).toBeInTheDocument();
-    expect(screen.getByText("Pipelines")).toBeInTheDocument();
+    expect(screen.getByText("Procesos de venta")).toBeInTheDocument();
     expect(screen.getByText("Oportunidades")).toBeInTheDocument();
   });
 

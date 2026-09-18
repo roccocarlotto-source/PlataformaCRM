@@ -200,7 +200,9 @@ export function OpportunityBoardView() {
 
   if (pipelinesQuery.isSuccess && pipelinesQuery.data.data.length === 0) {
     return (
-      <EmptyState>No hay pipelines todavía. Creá uno en Pipelines para ver el embudo.</EmptyState>
+      <EmptyState>
+        No hay procesos de venta todavía. Creá uno en Procesos de venta para ver el embudo.
+      </EmptyState>
     );
   }
 
@@ -210,7 +212,7 @@ export function OpportunityBoardView() {
         <div className="ds-board-toolbar-group">
           <PipelineSelect
             id="board-pipeline"
-            label="Pipeline"
+            label="Proceso de venta"
             value={pipelineId}
             onChange={setSelectedPipelineId}
           />
@@ -257,7 +259,7 @@ export function OpportunityBoardView() {
       ) : null}
 
       {stagesQuery.isSuccess && stages.length === 0 ? (
-        <EmptyState>Este pipeline no tiene etapas todavía.</EmptyState>
+        <EmptyState>Este proceso de venta no tiene etapas todavía.</EmptyState>
       ) : null}
 
       {stagesQuery.isSuccess && opportunitiesQuery.isSuccess && stages.length > 0 ? (

@@ -116,7 +116,7 @@ export function AppLayout() {
               Contactos
             </SidebarLink>
             <SidebarLink to="/pipelines" icon={Columns3}>
-              Pipelines
+              Procesos de venta
             </SidebarLink>
             <SidebarLink to="/opportunities" icon={Target}>
               Oportunidades

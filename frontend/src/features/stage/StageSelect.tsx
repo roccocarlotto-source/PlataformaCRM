@@ -44,7 +44,7 @@ export function StageSelect({
       <div>
         <label htmlFor={id}>{labelNode}</label>
         <select id={id} value="" disabled required={required} onChange={() => undefined}>
-          <option value="">Elegí primero un pipeline…</option>
+          <option value="">Elegí primero un proceso de venta…</option>
         </select>
       </div>
     );

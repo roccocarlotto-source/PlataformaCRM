@@ -136,18 +136,18 @@ describe("ToastProvider + useToast", () => {
   it("un show() nuevo reemplaza al toast visible y reinicia su tiempo (no se apilan)", () => {
     render(
       <ToastProvider>
-        <Trigger message="Pipeline guardado" />
+        <Trigger message="Proceso de venta guardado" />
         <Trigger message="Etapa guardada" />
       </ToastProvider>,
     );
 
-    show("Pipeline guardado");
+    show("Proceso de venta guardado");
     act(() => {
       vi.advanceTimersByTime(TOAST_DURATION_MS - 100);
     });
     show("Etapa guardada");
 
-    expect(screen.queryByText("Pipeline guardado")).not.toBeInTheDocument();
+    expect(screen.queryByText("Proceso de venta guardado")).not.toBeInTheDocument();
     expect(screen.getByText("Etapa guardada")).toBeInTheDocument();
 
     // El tiempo arrancó de nuevo con el segundo: 100ms después del primero

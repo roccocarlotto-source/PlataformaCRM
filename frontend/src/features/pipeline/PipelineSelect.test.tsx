@@ -18,7 +18,12 @@ function renderSelect(value: string | undefined, onChange = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <PipelineSelect id="opp-pipeline" label="Pipeline" value={value} onChange={onChange} />
+      <PipelineSelect
+        id="opp-pipeline"
+        label="Proceso de venta"
+        value={value}
+        onChange={onChange}
+      />
     </QueryClientProvider>,
   );
   return onChange;
@@ -63,7 +68,7 @@ describe("PipelineSelect", () => {
     const onChange = renderSelect(undefined);
 
     await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl2");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl2");
 
     expect(onChange).toHaveBeenCalledWith("pl2");
   });
@@ -78,7 +83,7 @@ describe("PipelineSelect", () => {
     renderSelect(undefined);
 
     await waitFor(() =>
-      expect(screen.getByText(/No pudimos cargar los pipelines/)).toBeInTheDocument(),
+      expect(screen.getByText(/No pudimos cargar los procesos de venta/)).toBeInTheDocument(),
     );
   });
 
@@ -99,7 +104,7 @@ describe("PipelineSelect", () => {
       <QueryClientProvider client={queryClient}>
         <PipelineSelect
           id="opp-pipeline"
-          label="Pipeline"
+          label="Proceso de venta"
           value={undefined}
           onChange={vi.fn()}
           required
@@ -107,8 +112,8 @@ describe("PipelineSelect", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByLabelText("Pipeline")).toBeRequired();
-    expect(screen.getByText("Pipeline")).toHaveClass("ds-required");
+    expect(await screen.findByLabelText("Proceso de venta")).toBeRequired();
+    expect(screen.getByText("Proceso de venta")).toHaveClass("ds-required");
   });
 
   it("sin required (default): ni marca en el rótulo ni required en el <select>", async () => {
@@ -122,7 +127,7 @@ describe("PipelineSelect", () => {
     );
     renderSelect(undefined);
 
-    expect(await screen.findByLabelText("Pipeline")).not.toBeRequired();
-    expect(screen.getByText("Pipeline")).not.toHaveClass("ds-required");
+    expect(await screen.findByLabelText("Proceso de venta")).not.toBeRequired();
+    expect(screen.getByText("Proceso de venta")).not.toHaveClass("ds-required");
   });
 });

@@ -2186,3 +2186,34 @@ componente) elige el formateador según la granularidad activa.
 - `docs/project-overview.md` (deuda cosmética del layout del formulario de Oportunidad) pasó a decir "campo Asignado".
 
 **Tests:** ninguno nuevo y ninguno borrado — el rename no agrega comportamiento. Se actualizaron **7 archivos de test** (`CompanyFormPage`, `CompanyListPage`, `ContactFormPage`, `ContactListPage`, `OpportunityFormPage`, `OpportunityListPage` y `OpportunityBoardView`): los `getByLabelText("Propietario")` de los formularios, los `getByText`/`queryByText`/`cellByHeader` de las columnas y el `getByText("Owner")` de Empresas. **Suite de frontend en verde: 138 archivos y 1340 tests** — el mismo conteo que el §44, como corresponde a un cambio de copy. `tsc -b`, ESLint y Prettier limpios. Sin backend, sin migraciones y sin dependencias nuevas.
+
+## 47. Renombrar "Pipeline" a "Proceso de venta"
+
+**Estado:** hecho
+
+**Contexto:** el embudo comercial se mostraba en la UI como "Pipeline", un anglicismo que no es el término que usa nadie de la operación. Rocco pidió renombrarlo a "Proceso de venta" en toda la interfaz. Es un cambio de copy puro. El nombre nuevo no es una invención: el propio comentario de `prisma/schema.prisma` arriba de `model Pipeline` ya describía la entidad como "proceso de ventas" — el rename alinea la pantalla con la idea original del modelo.
+
+**Alcance (lo que ve el usuario):**
+
+- **Menú lateral** (`AppLayout.tsx`): "Pipelines" → "Procesos de venta", en plural, mismo criterio que "Empresas"/"Contactos"/"Oportunidades".
+- **Listado** (`PipelineListPage.tsx`): el `<h1>`, el botón "Nuevo proceso de venta", el título del pop up "Ver detalle" (§28), el `confirm()` de borrado, los dos `ErrorState` (cargar / eliminar) y el `EmptyState`.
+- **Formulario** (`PipelineFormPage.tsx`): los dos `<h1>` (alta y edición), el toast "Proceso de venta guardado", el rótulo de la tarjeta "Datos del proceso de venta", el `ErrorState` de carga, el mensaje de guardado fallido y el `EmptyState` del editor de etapas integrado.
+- **Oportunidad:** el `label` del `PipelineSelect` en el formulario (`OpportunityFormPage.tsx`), en el filtro y en el pop up de detalle (`OpportunityListPage.tsx`), y en el selector del tablero Kanban (`OpportunityBoardView.tsx`). Además el "Quitar filtro de proceso de venta", el "Elegí un proceso de venta antes de guardar." y los dos `EmptyState` del embudo.
+- **Dashboard** (`PipelineStageSummary.tsx`): el `aria-label` y el `heading` de la tarjeta, más sus tres estados vacíos/de error.
+
+**El listado inicial se quedaba corto, y por qué se amplió:** el pedido traía siete archivos "confirmados", casi todos con el término en mayúscula (rótulos y títulos). El `grep` de verificación que pedía el propio pedido encontró **otras 15 ocurrencias visibles en minúscula** — mensajes de error, `EmptyState`, el `confirm()` de borrado y el rótulo de una tarjeta —, incluidas cuatro en archivos que no estaban en la lista: `PipelineSelect.tsx` ("No pudimos cargar los procesos de venta", su único texto propio), `StageEditor.tsx`, `StageListPage.tsx` y `StageSelect.tsx` ("Elegí primero un proceso de venta…"). Se renombraron todas: dejarlas habría producido una UI a medio traducir, con el menú diciendo "Procesos de venta" y el error de abajo diciendo "No pudimos cargar los pipelines". Son los cuatro archivos y las quince cadenas que van más allá de lo pedido explícitamente — fáciles de revertir por separado si Rocco prefiere acotarlo.
+
+**Qué NO se tocó, y por qué:**
+
+- **Nada del backend ni del modelo.** `model Pipeline`, `pipelineId`, los services, los contratos de API y las claves de cache siguen igual. El rename es de texto visible, no de modelo de datos.
+- **Rutas.** `/pipelines`, `/pipelines/new`, `/pipelines/:id/edit` y las hijas de Etapa quedan intactas: cambiarlas rompería links guardados sin cambiar nada de lo que se lee en pantalla.
+- **Nombres de archivo, componentes, hooks y types.** `PipelineSelect.tsx`, `PipelineFormPage`, `pipelineKeys`, `usePipelines`, `PipelineSortBy` y compañía no se renombraron. Buscar "Pipeline" en el código sigue encontrando la entidad; buscar "proceso de venta" encuentra lo que se muestra.
+- **Los `id` de los `<select>`** (`board-pipeline`, `opportunity-form-pipeline`, `opportunity-filter-pipeline`) son atributos internos, no texto.
+- **Los mensajes de error que vienen del backend** ("Ya existe un pipeline con ese nombre en esta organización", "No se puede eliminar el último pipeline de la organización", "El stageId indicado no pertenece al pipeline especificado", "Pipeline no encontrado"). Se renderizan tal cual llegan, así que renombrarlos en el frontend era imposible; en los tests aparecen como respuestas mockeadas de MSW y quedaron igual a propósito. **Es la única inconsistencia de copy que sobrevive**, y se cierra el día que se renombren esos textos en el backend.
+- **Los comentarios de código** que hablan de la entidad, y en particular los que citan "Pipeline CRM": ese es el nombre del mockup de referencia del tablero Kanban, un concepto distinto que nunca se ve en pantalla.
+
+**Tests:** ninguno nuevo y ninguno borrado — el rename no agrega comportamiento. Se actualizaron **11 archivos de test**: `AdminRoute`, `Toast`, `DashboardPage`, `OpportunityFormPage`, `OpportunityListPage`, `OpportunityBoardView`, `PipelineFormPage`, `PipelineListPage`, `PipelineSelect`, `StageFormPage` y `AppLayout`. Dos assertions estaban escritas como regex (`/No hay pipelines todavía/`, `/No pudimos cargar los pipelines/`) y no aparecían en el `grep` de cadenas entre comillas: las encontró la corrida de tests. Una tercera, el `queryByLabelText(/pipeline/i)` de `StageFormPage` que verifica que el formulario de Etapa **no** muestre un selector de proceso de venta, pasó a `/proceso de venta/i`: con el rótulo nuevo el regex viejo habría seguido pasando sin comprobar nada.
+
+**`design-system/Card.test.tsx` quedó con "Pipeline" a propósito.** Ahí es un rótulo de ejemplo para probar el componente reutilizable, no texto de ninguna pantalla real — mismo criterio que el §45 con `Select.test.tsx`.
+
+**Suite de frontend en verde: 138 archivos y 1340 tests** — el mismo conteo que el §45 y el §44, como corresponde a un cambio de copy. `tsc -b`, ESLint y Prettier limpios. Sin backend, sin migraciones y sin dependencias nuevas.

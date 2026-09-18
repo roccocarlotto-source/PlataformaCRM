@@ -19,18 +19,18 @@ export function PipelineStageSummary() {
   const maxTotal = Math.max(0, ...summary.stages.map((stage) => stage.total ?? 0));
 
   return (
-    <Card aria-label="Pipeline" heading="Pipeline">
+    <Card aria-label="Proceso de venta" heading="Proceso de venta">
       {summary.isLoadingPipelines ? <LoadingState /> : null}
 
       {summary.isErrorPipelines ? (
         <ErrorState>
-          No pudimos cargar el pipeline
+          No pudimos cargar el proceso de venta
           {summary.errorPipelines ? `: ${summary.errorPipelines.message}` : "."}
         </ErrorState>
       ) : null}
 
       {!summary.isLoadingPipelines && !summary.isErrorPipelines && !summary.hasDefaultPipeline ? (
-        <EmptyState>No hay un pipeline configurado como predeterminado.</EmptyState>
+        <EmptyState>No hay un proceso de venta configurado como predeterminado.</EmptyState>
       ) : null}
 
       {summary.hasDefaultPipeline ? (
@@ -45,7 +45,7 @@ export function PipelineStageSummary() {
           ) : null}
 
           {!summary.isLoadingStages && !summary.isErrorStages && summary.stages.length === 0 ? (
-            <EmptyState>El pipeline predeterminado todavía no tiene etapas.</EmptyState>
+            <EmptyState>El proceso de venta predeterminado todavía no tiene etapas.</EmptyState>
           ) : null}
 
           {summary.stages.length > 0 ? (

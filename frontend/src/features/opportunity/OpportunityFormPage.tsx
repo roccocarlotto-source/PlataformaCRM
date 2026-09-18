@@ -380,7 +380,7 @@ export function OpportunityFormPage() {
     // casos con un mensaje propio en vez de un 400 "pipelineId inválido", y es
     // la garantía de que el asterisco no miente: sin los dos, no hay mutación.
     if (!values.pipelineId) {
-      setError("Elegí un pipeline antes de guardar.");
+      setError("Elegí un proceso de venta antes de guardar.");
       return;
     }
     if (!values.stageId) {
@@ -481,7 +481,7 @@ export function OpportunityFormPage() {
             <div className="ds-field-grid">
               <PipelineSelect
                 id="opportunity-form-pipeline"
-                label="Pipeline"
+                label="Proceso de venta"
                 value={values.pipelineId}
                 onChange={handlePipelineChange}
                 required
