@@ -41,7 +41,7 @@ export function ContactListPage() {
   // Ocultar acciones de escritura para no-ADMIN es cortesía de UX: la
   // autorización real la sigue aplicando authorize("ADMIN") en el backend.
   //
-  // La columna Propietario usa este MISMO booleano, y ahí no es solo cortesía:
+  // La columna Asignado usa este MISMO booleano, y ahí no es solo cortesía:
   // resolver un ownerId a nombre necesita GET /api/users, que es ADMIN-only.
   const isAdmin = me?.role === "ADMIN";
 
@@ -91,9 +91,9 @@ export function ContactListPage() {
   // no es defensivo de más: sin él, un owner sin asignar entraría a
   // byId.get(null). Sin dueño y dueño que no se pudo resolver muestran lo
   // mismo — "—" —, y es correcto: para quien lee, las dos cosas son "no hay
-  // nombre que mostrar acá". Compartido por la columna Propietario y el
+  // nombre que mostrar acá". Compartido por la columna Asignado y el
   // detalle.
-  function nombreDePropietario(ownerId: string | null): string | null {
+  function nombreDeAsignado(ownerId: string | null): string | null {
     return ownerId ? (ownerNames.byId.get(ownerId) ?? null) : null;
   }
 
@@ -249,7 +249,7 @@ export function ContactListPage() {
                 <th>Teléfono</th>
                 <th>Etapa</th>
                 <th>Origen</th>
-                {isAdmin ? <th>Propietario</th> : null}
+                {isAdmin ? <th>Asignado</th> : null}
                 {isAdmin ? <th>Acciones</th> : null}
               </tr>
             </thead>
@@ -258,7 +258,7 @@ export function ContactListPage() {
                 const fullName = `${contact.firstName} ${contact.lastName}`;
                 // Sin nombre no hay avatar: un círculo con "—" adentro no
                 // representa a nadie.
-                const ownerName = nombreDePropietario(contact.ownerId);
+                const ownerName = nombreDeAsignado(contact.ownerId);
                 return (
                   <tr key={contact.id}>
                     <td>
@@ -330,7 +330,7 @@ export function ContactListPage() {
       </div>
 
       {/* Los mismos campos que ContactFormPage, en solo lectura, con la
-          empresa, la etapa (mismo Badge) y el propietario resueltos igual que
+          empresa, la etapa (mismo Badge) y el asignado resueltos igual que
           en sus columnas. */}
       {detalle ? (
         <Modal
@@ -357,7 +357,7 @@ export function ContactListPage() {
                       </Badge>
                     ),
                   },
-                  { label: "Propietario", value: nombreDePropietario(detalle.ownerId) },
+                  { label: "Asignado", value: nombreDeAsignado(detalle.ownerId) },
                 ],
               },
             ]}

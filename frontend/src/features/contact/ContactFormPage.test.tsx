@@ -284,14 +284,14 @@ describe("ContactFormPage", () => {
     // Se espera a que la query de usuarios resuelva antes de terminar: si el
     // test corta con la request en vuelo, el afterEach resetea los handlers y
     // la respuesta aterriza sin nadie que la atienda.
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Asignado")).toBeInTheDocument());
   });
 
   // -------------------------------------------------------------------------
   // ownerId — el gap de M3 cerrado (ver el comentario de ContactFormPage.tsx).
   // -------------------------------------------------------------------------
 
-  it("create: elegir un propietario lo manda en el POST", async () => {
+  it("create: elegir un asignado lo manda en el POST", async () => {
     let postedBody: unknown;
     server.use(
       usersHandler(),
@@ -308,8 +308,8 @@ describe("ContactFormPage", () => {
     await user.type(screen.getByLabelText("Apellido"), "Persona");
     // El combobox recien existe cuando la query de usuarios resolvio: UserSelect
     // no renderiza nada hasta isSuccess.
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toBeInTheDocument());
-    await chooseSelectOption(user, screen.getByLabelText("Propietario"), "Beto Díaz");
+    await waitFor(() => expect(screen.getByLabelText("Asignado")).toBeInTheDocument());
+    await chooseSelectOption(user, screen.getByLabelText("Asignado"), "Beto Díaz");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(screen.getByText("lista de contactos")).toBeInTheDocument());
@@ -321,7 +321,7 @@ describe("ContactFormPage", () => {
     });
   });
 
-  it("create: el propietario arranca preseleccionado en quien crea, sin opción 'por defecto', y viaja en el POST", async () => {
+  it("create: el asignado arranca preseleccionado en quien crea, sin opción 'por defecto', y viaja en el POST", async () => {
     let postedBody: unknown;
     server.use(
       usersHandler(),
@@ -340,9 +340,9 @@ describe("ContactFormPage", () => {
     // Ana Pérez) ya está marcado, y la antigua opción "Asignado a quien crea
     // (por defecto)" —que decía lo mismo que elegirse a uno mismo— no existe
     // más. Tampoco hay opción vacía de ningún tipo mientras haya un valor.
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("Ana Pérez"));
+    await waitFor(() => expect(screen.getByLabelText("Asignado")).toHaveValue("Ana Pérez"));
     // Abrir el panel muestra solo usuarios: ninguna fila vacía.
-    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
+    expect(await listSelectOptions(user, screen.getByLabelText("Asignado"))).toEqual([
       "Ana Pérez",
       "Beto Díaz",
     ]);
@@ -360,7 +360,7 @@ describe("ContactFormPage", () => {
     });
   });
 
-  it("edit: hidrata el propietario existente en el selector, sin opción vacía", async () => {
+  it("edit: hidrata el asignado existente en el selector, sin opción vacía", async () => {
     server.use(
       usersHandler(),
       http.get(`${contactsUrl}/:id`, ({ params }) =>
@@ -371,16 +371,16 @@ describe("ContactFormPage", () => {
     const user = userEvent.setup();
     renderForm("/contacts/ct1/edit");
 
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("Beto Díaz"));
+    await waitFor(() => expect(screen.getByLabelText("Asignado")).toHaveValue("Beto Díaz"));
     // Con un dueño real, "Sin asignar" no se ofrece: el PATCH no podría
     // limpiar ownerId de todos modos (chequeo truthy en contact.service.ts).
-    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
+    expect(await listSelectOptions(user, screen.getByLabelText("Asignado"))).toEqual([
       "Ana Pérez",
       "Beto Díaz",
     ]);
   });
 
-  it("edit: un contacto SIN propietario muestra 'Sin asignar', no al usuario actual ni un valor inventado", async () => {
+  it("edit: un contacto SIN asignado muestra 'Sin asignar', no al usuario actual ni un valor inventado", async () => {
     // Contact.ownerId es nullable, a diferencia de Opportunity.ownerId, y por
     // eso la hidratacion hace ?? undefined. Sin eso, un null llegaria al
     // select como value={null} y React lo pasaria a no controlado, con la
@@ -402,17 +402,17 @@ describe("ContactFormPage", () => {
     renderForm("/contacts/ct1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Juana"));
-    // waitFor también sobre Propietario, y no es cosmético: desde que los valores
+    // waitFor también sobre Asignado, y no es cosmético: desde que los valores
     // se derivan en render (lib/useFormDraft.ts) en vez de sembrarse con un
     // efecto, "Nombre" ya tiene su valor un ciclo ANTES — el efecto forzaba un
     // render extra que este assert aprovechaba sin decirlo para que la query de
     // usuarios llegara a resolver. UserSelect no renderiza el combobox hasta
     // isSuccess, así que hay que esperarlo explícitamente.
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
+    await waitFor(() => expect(screen.getByLabelText("Asignado")).toHaveValue(""));
     // Sin valor, "Sin asignar" es el placeholder cerrado y la fila vacía
     // (primera y marcada) al abrir.
-    expect(screen.getByLabelText("Propietario")).toHaveAttribute("placeholder", "Sin asignar");
-    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
+    expect(screen.getByLabelText("Asignado")).toHaveAttribute("placeholder", "Sin asignar");
+    expect(await listSelectOptions(user, screen.getByLabelText("Asignado"))).toEqual([
       "Sin asignar",
       "Ana Pérez",
       "Beto Díaz",

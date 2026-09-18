@@ -249,10 +249,10 @@ describe("CompanyListPage", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Columna Owner — el gap de M2 cerrado (ver CompanyListPage.tsx).
+  // Columna Asignado — el gap de M2 cerrado (ver CompanyListPage.tsx).
   // -------------------------------------------------------------------------
 
-  it("ADMIN ve la columna Owner resuelta a fullName", async () => {
+  it("ADMIN ve la columna Asignado resuelta a fullName", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       usersHandler(),
@@ -266,18 +266,18 @@ describe("CompanyListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Owner")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Asignado")).toBeInTheDocument());
     await waitFor(() => {
       const fila = screen.getByText("Acme").closest("tr");
       expect(fila).toHaveTextContent("Ana Pérez");
     });
   });
 
-  it("una empresa SIN propietario muestra el guion, no un ownerId crudo ni un nombre ajeno", async () => {
+  it("una empresa SIN asignado muestra el guion, no un ownerId crudo ni un nombre ajeno", async () => {
     // Caso que Opportunity no tiene y por eso no esta cubierto alla:
     // Company.ownerId es nullable. Sin el guard del render, esto entraria a
     // byId.get(null) y, peor, un cambio futuro descuidado podria mostrar el
-    // primer nombre del mapa. Columnas: Nombre | Industria | Dominio | Owner |
+    // primer nombre del mapa. Columnas: Nombre | Industria | Dominio | Asignado |
     // Acciones.
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
@@ -292,13 +292,13 @@ describe("CompanyListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Owner")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Asignado")).toBeInTheDocument());
     const fila = screen.getByText("Acme").closest("tr");
     expect(fila?.querySelectorAll("td")[3]).toHaveTextContent("—");
     expect(fila).not.toHaveTextContent("Ana Pérez");
   });
 
-  it("USER: no ve la columna Owner ni el ownerId crudo", async () => {
+  it("USER: no ve la columna Asignado ni el ownerId crudo", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       http.get(baseUrl, () =>
@@ -312,7 +312,7 @@ describe("CompanyListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
-    expect(screen.queryByText("Owner")).not.toBeInTheDocument();
+    expect(screen.queryByText("Asignado")).not.toBeInTheDocument();
     expect(screen.queryByText("u1")).not.toBeInTheDocument();
   });
 
@@ -353,7 +353,7 @@ describe("CompanyListPage", () => {
   // lectura con los mismos campos que el formulario, desde la fila ya cargada.
   // -------------------------------------------------------------------------
 
-  it("§28 Ver detalle abre el pop up con los campos del formulario y el propietario resuelto; cierra con × y con Escape", async () => {
+  it("§28 Ver detalle abre el pop up con los campos del formulario y el asignado resuelto; cierra con × y con Escape", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     let listRequestCount = 0;
     server.use(

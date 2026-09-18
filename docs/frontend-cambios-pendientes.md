@@ -2160,3 +2160,29 @@ componente) elige el formateador según la granularidad activa.
 - `UserSelect.test.tsx` (9 → 11) y `BranchSelect.test.tsx` (7 → 8): reescritos para el combobox, sumando que tipear no pide `search`, el email como segunda línea, la búsqueda por email y el filtro de sucursales.
 - Actualizados: `ActivityFormPage`, `CompanyFormPage`, `ContactFormPage`, `OpportunityFormPage`, `VehicleFormPage`, `VehicleListPage`, `QrFormDialog`, `QrListPage` y `ClaimPage`.
 - **Suite de frontend en verde:** 138 archivos y **1340** tests (1312 en el §43), `tsc -b`, ESLint, Prettier y `npm run build`. Sin backend, sin migraciones y sin dependencias nuevas.
+
+## 45. Renombrar "Propietario" a "Asignado"
+
+**Estado:** hecho
+
+**Contexto:** el campo que indica qué vendedor de la organización es responsable de una cuenta u oportunidad (`ownerId` en el backend) se mostraba en la UI como "Propietario". El término generaba confusión: no es el dueño real del cliente, sino la persona de la organización a cargo. Rocco pidió renombrarlo a "Asignado" en toda la interfaz. Es un cambio de copy puro.
+
+**Alcance:**
+
+- **Tres entidades:** Empresa, Contacto y Oportunidad — las tres que usan `ownerId` y lo exponen en pantalla.
+- **Tres lugares por entidad:** el rótulo del campo en el formulario de alta/edición (`<UserSelect label="Asignado">`), el encabezado de la columna en el listado (`<th>`, solo visible para ADMIN) y el rótulo en el pop up "Ver detalle" (§28).
+- **El encabezado de Empresas decía `Owner`, no "Propietario".** Era el único de los tres listados con el rótulo en inglés — mismo campo, mismo concepto, distinto texto. Se renombró a "Asignado" junto con los otros dos: dejarlo como estaba habría mantenido la inconsistencia que motivó el ítem, y encima en otro idioma.
+
+**Qué NO se tocó, y por qué:**
+
+- **Nada del backend.** `ownerId`, los services, los contratos de API, `resolveOwnerId` y los nombres de propiedades del frontend (`ownerId`, `ownerNames`, `useOwnerNames`, `ownerName`) siguen igual. El rename es de texto visible, no de modelo de datos.
+- **Actividad y Vehículo.** Sus campos ya se llaman "Asignado a" (`assigneeId`, `assignedSalespersonId`), son conceptualmente distintos de `ownerId` y ya estaban bien nombrados.
+- **`design-system/Select.test.tsx` y `features/user/UserSelect.test.tsx`.** Ahí "Propietario" es un rótulo de ejemplo genérico para probar el componente reutilizable, no texto de ninguna pantalla real. Cambiarlo agrandaría el diff sin cambiar nada de lo que ve el usuario. Son las dos únicas ocurrencias de "Propietario" que quedan en `frontend/src`, y quedan a propósito.
+
+**Consistencia interna (sin cambio de comportamiento):**
+
+- La función local `nombreDePropietario` de `CompanyListPage.tsx` y `ContactListPage.tsx` pasó a `nombreDeAsignado`. Es la resolución compartida por la columna y el detalle (§28); el nombre viejo habría quedado describiendo un rótulo inexistente.
+- Los comentarios que nombraban la columna ("la columna Owner", "la columna Propietario", el orden de columnas documentado arriba de cada `<Table>`) se actualizaron al rótulo nuevo, incluidos los dos de `design-system.css` y el de `detailFormat.ts`, que citaban "Propietario" como ejemplo de celda. Los nombres de los tests también, para que buscar "Asignado" encuentre el test correspondiente.
+- `docs/project-overview.md` (deuda cosmética del layout del formulario de Oportunidad) pasó a decir "campo Asignado".
+
+**Tests:** ninguno nuevo y ninguno borrado — el rename no agrega comportamiento. Se actualizaron **7 archivos de test** (`CompanyFormPage`, `CompanyListPage`, `ContactFormPage`, `ContactListPage`, `OpportunityFormPage`, `OpportunityListPage` y `OpportunityBoardView`): los `getByLabelText("Propietario")` de los formularios, los `getByText`/`queryByText`/`cellByHeader` de las columnas y el `getByText("Owner")` de Empresas. **Suite de frontend en verde: 138 archivos y 1340 tests** — el mismo conteo que el §44, como corresponde a un cambio de copy. `tsc -b`, ESLint y Prettier limpios. Sin backend, sin migraciones y sin dependencias nuevas.

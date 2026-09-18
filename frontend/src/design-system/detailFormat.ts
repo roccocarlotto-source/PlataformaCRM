@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 
 // Lo que se muestra cuando un dato falta. Es el mismo guión que los listados
-// ya usan en sus celdas ("—" para un propietario sin resolver, una sucursal
+// ya usan en sus celdas ("—" para un asignado sin resolver, una sucursal
 // que no se pudo resolver, un precio sin cargar), no uno nuevo.
 export const EMPTY_VALUE = "—";
 

@@ -214,7 +214,7 @@ describe("CompanyFormPage", () => {
   // ownerId — el gap de M2 cerrado (ver el comentario de CompanyFormPage.tsx).
   // -------------------------------------------------------------------------
 
-  it("create: elegir un propietario lo manda en el POST", async () => {
+  it("create: elegir un asignado lo manda en el POST", async () => {
     let postedBody: unknown;
     server.use(
       usersHandler(),
@@ -230,15 +230,15 @@ describe("CompanyFormPage", () => {
     await user.type(screen.getByLabelText("Nombre"), "Acme Owner");
     // El combobox recien existe cuando la query de usuarios resolvio: UserSelect
     // no renderiza nada hasta isSuccess.
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toBeInTheDocument());
-    await chooseSelectOption(user, screen.getByLabelText("Propietario"), "Beto Díaz");
+    await waitFor(() => expect(screen.getByLabelText("Asignado")).toBeInTheDocument());
+    await chooseSelectOption(user, screen.getByLabelText("Asignado"), "Beto Díaz");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
     expect(postedBody).toEqual({ name: "Acme Owner", ownerId: "u2" });
   });
 
-  it("create: el propietario arranca preseleccionado en quien crea, sin opción 'por defecto', y viaja en el POST", async () => {
+  it("create: el asignado arranca preseleccionado en quien crea, sin opción 'por defecto', y viaja en el POST", async () => {
     let postedBody: unknown;
     server.use(
       usersHandler(),
@@ -256,9 +256,9 @@ describe("CompanyFormPage", () => {
     // Ana Pérez) ya está marcado, y la antigua opción "Asignado a quien crea
     // (por defecto)" —que decía lo mismo que elegirse a uno mismo— no existe
     // más. Tampoco hay opción vacía de ningún tipo mientras haya un valor.
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("Ana Pérez"));
+    await waitFor(() => expect(screen.getByLabelText("Asignado")).toHaveValue("Ana Pérez"));
     // Abrir el panel muestra solo usuarios: ninguna fila vacía.
-    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
+    expect(await listSelectOptions(user, screen.getByLabelText("Asignado"))).toEqual([
       "Ana Pérez",
       "Beto Díaz",
     ]);
@@ -271,7 +271,7 @@ describe("CompanyFormPage", () => {
     expect(postedBody).toEqual({ name: "Acme Owner Actual", ownerId: "u1" });
   });
 
-  it("edit: hidrata el propietario existente en el selector, sin opción vacía", async () => {
+  it("edit: hidrata el asignado existente en el selector, sin opción vacía", async () => {
     server.use(
       usersHandler(),
       http.get(`${baseUrl}/:id`, ({ params }) =>
@@ -282,16 +282,16 @@ describe("CompanyFormPage", () => {
     const user = userEvent.setup();
     renderForm("/companies/c1/edit");
 
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("Beto Díaz"));
+    await waitFor(() => expect(screen.getByLabelText("Asignado")).toHaveValue("Beto Díaz"));
     // Con un dueño real, "Sin asignar" no se ofrece: el PATCH no podría
     // limpiar ownerId de todos modos (chequeo truthy en company.service.ts).
-    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
+    expect(await listSelectOptions(user, screen.getByLabelText("Asignado"))).toEqual([
       "Ana Pérez",
       "Beto Díaz",
     ]);
   });
 
-  it("edit: una empresa SIN propietario muestra 'Sin asignar', no al usuario actual ni un valor inventado", async () => {
+  it("edit: una empresa SIN asignado muestra 'Sin asignar', no al usuario actual ni un valor inventado", async () => {
     // Company.ownerId es nullable, a diferencia de Opportunity.ownerId, y por
     // eso la hidratacion hace ?? undefined. Sin eso, un null llegaria al
     // select como value={null} y React lo pasaria a no controlado, con la
@@ -313,17 +313,17 @@ describe("CompanyFormPage", () => {
     renderForm("/companies/c1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Acme"));
-    // waitFor también sobre Propietario, y no es un ajuste cosmético: desde que
+    // waitFor también sobre Asignado, y no es un ajuste cosmético: desde que
     // los valores se derivan en render (lib/useFormDraft.ts) en vez de sembrarse
     // con un efecto, "Nombre" ya tiene su valor un ciclo ANTES — el efecto
     // forzaba un render extra que este assert aprovechaba sin decirlo para que
     // la query de usuarios llegara a resolver. UserSelect no renderiza el
     // combobox hasta isSuccess, así que hay que esperarlo explícitamente.
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue(""));
+    await waitFor(() => expect(screen.getByLabelText("Asignado")).toHaveValue(""));
     // Sin valor, "Sin asignar" es el placeholder cerrado y la fila vacía
     // (primera y marcada) al abrir.
-    expect(screen.getByLabelText("Propietario")).toHaveAttribute("placeholder", "Sin asignar");
-    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
+    expect(screen.getByLabelText("Asignado")).toHaveAttribute("placeholder", "Sin asignar");
+    expect(await listSelectOptions(user, screen.getByLabelText("Asignado"))).toEqual([
       "Sin asignar",
       "Ana Pérez",
       "Beto Díaz",

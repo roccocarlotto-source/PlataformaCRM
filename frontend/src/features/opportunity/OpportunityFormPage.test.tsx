@@ -260,7 +260,7 @@ describe("OpportunityFormPage", () => {
   // Company y Contact — el usuario actual ya está marcado, la antigua opción
   // "Asignado a quien crea (por defecto)" no existe más, y el id viaja
   // explícito en el POST (resolveOwnerId haría lo mismo si no se mandara).
-  it("create: Propietario arranca preseleccionado en quien crea, sin opción 'por defecto', y viaja en el POST", async () => {
+  it("create: Asignado arranca preseleccionado en quien crea, sin opción 'por defecto', y viaja en el POST", async () => {
     let postedBody: unknown;
     server.use(
       ...baseHandlers(),
@@ -272,11 +272,9 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/new?pipelineId=pl1&stageId=st1");
 
-    await waitFor(() => expect(screen.getByLabelText("Propietario")).toHaveValue("Ana Pérez"));
+    await waitFor(() => expect(screen.getByLabelText("Asignado")).toHaveValue("Ana Pérez"));
     // Abrir el panel muestra solo usuarios: ninguna fila vacía.
-    expect(await listSelectOptions(user, screen.getByLabelText("Propietario"))).toEqual([
-      "Ana Pérez",
-    ]);
+    expect(await listSelectOptions(user, screen.getByLabelText("Asignado"))).toEqual(["Ana Pérez"]);
     await user.keyboard("{Escape}");
 
     await user.type(screen.getByLabelText("Título"), "Con dueño actual");

@@ -81,7 +81,7 @@ function applyLocalMove(opportunity: Opportunity, move: LocalMove | undefined): 
 export function OpportunityBoardView() {
   const { me } = useAuth();
   // Mismo gating que la tabla: GET /api/users es ADMIN-only, así que el
-  // avatar del propietario solo existe para ADMIN — no se expande ningún
+  // avatar del asignado solo existe para ADMIN — no se expande ningún
   // permiso. Y las acciones de escritura ("+ Añadir", editar) también.
   const isAdmin = me?.role === "ADMIN";
 

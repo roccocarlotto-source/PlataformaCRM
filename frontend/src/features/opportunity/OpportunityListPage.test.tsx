@@ -256,7 +256,7 @@ describe("OpportunityListPage", () => {
     expect(row).not.toHaveTextContent("co-borrada");
   });
 
-  it("ADMIN ve la columna Propietario resuelta a fullName", async () => {
+  it("ADMIN ve la columna Asignado resuelta a fullName", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       http.get(opportunitiesUrl, () =>
@@ -271,7 +271,7 @@ describe("OpportunityListPage", () => {
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByText("Propietario")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Asignado")).toBeInTheDocument());
     await waitFor(() => {
       const row = screen.getByText("Renovación anual").closest("tr");
       expect(row).toHaveTextContent("Ana Pérez");
@@ -311,7 +311,7 @@ describe("OpportunityListPage", () => {
     expect(usersRequestCount).toBe(0);
   });
 
-  it("USER: no ve la columna Propietario ni el ownerId crudo", async () => {
+  it("USER: no ve la columna Asignado ni el ownerId crudo", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       http.get(opportunitiesUrl, () =>
@@ -326,7 +326,7 @@ describe("OpportunityListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Renovación anual")).toBeInTheDocument());
-    expect(screen.queryByText("Propietario")).not.toBeInTheDocument();
+    expect(screen.queryByText("Asignado")).not.toBeInTheDocument();
     expect(screen.queryByText("u1")).not.toBeInTheDocument();
   });
 

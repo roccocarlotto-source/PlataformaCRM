@@ -24,7 +24,7 @@ export function CompanyListPage() {
   // autorización real la sigue aplicando authorize("ADMIN") en el backend
   // (POST/PATCH/DELETE /companies). Este chequeo no reemplaza eso.
   //
-  // La columna Owner usa este MISMO booleano, y ahí no es solo cortesía:
+  // La columna Asignado usa este MISMO booleano, y ahí no es solo cortesía:
   // resolver un ownerId a nombre necesita GET /api/users, que es ADMIN-only.
   const isAdmin = me?.role === "ADMIN";
 
@@ -61,8 +61,8 @@ export function CompanyListPage() {
   // no es defensivo de más: sin él, un owner sin asignar entraría a
   // byId.get(null). Sin dueño y dueño que no se pudo resolver muestran lo
   // mismo — "—" —, y es correcto: para quien lee, las dos cosas son "no hay
-  // nombre que mostrar acá". Compartido por la columna Owner y el detalle.
-  function nombreDePropietario(ownerId: string | null): string | null {
+  // nombre que mostrar acá". Compartido por la columna Asignado y el detalle.
+  function nombreDeAsignado(ownerId: string | null): string | null {
     return ownerId ? (ownerNames.byId.get(ownerId) ?? null) : null;
   }
 
@@ -172,7 +172,7 @@ export function CompanyListPage() {
         ) : null}
 
         {/* Mismas columnas y mismo orden de siempre (Nombre | Industria |
-          Dominio | Owner | Acciones): CompanyListPage.test.tsx ubica Owner por
+          Dominio | Asignado | Acciones): CompanyListPage.test.tsx ubica Asignado por
           posición. El diseño muestra otro set de columnas (Teléfono, Ciudad,
           País, sin Dominio ni Acciones); cambiarlo toca datos, no es parte de
           este restyle. */}
@@ -183,7 +183,7 @@ export function CompanyListPage() {
                 <th>Nombre</th>
                 <th>Industria</th>
                 <th>Dominio</th>
-                {isAdmin ? <th>Owner</th> : null}
+                {isAdmin ? <th>Asignado</th> : null}
                 {isAdmin ? <th>Acciones</th> : null}
               </tr>
             </thead>
@@ -191,7 +191,7 @@ export function CompanyListPage() {
               {companiesQuery.data.data.map((company) => {
                 // Sin nombre no hay avatar: un círculo con "—" adentro no
                 // representa a nadie.
-                const ownerName = nombreDePropietario(company.ownerId);
+                const ownerName = nombreDeAsignado(company.ownerId);
                 return (
                   <tr key={company.id}>
                     <td className="ds-cell-primary">{company.name}</td>
@@ -254,7 +254,7 @@ export function CompanyListPage() {
       </div>
 
       {/* Los mismos campos que CompanyFormPage, en solo lectura, con el
-          propietario resuelto igual que en la columna Owner. */}
+          asignado resuelto igual que en la columna Asignado. */}
       {detalle ? (
         <Modal
           variant="dialog"
@@ -271,7 +271,7 @@ export function CompanyListPage() {
                   { label: "Teléfono", value: detalle.phone },
                   { label: "Ciudad", value: detalle.city },
                   { label: "País", value: detalle.country },
-                  { label: "Propietario", value: nombreDePropietario(detalle.ownerId) },
+                  { label: "Asignado", value: nombreDeAsignado(detalle.ownerId) },
                 ],
               },
             ]}

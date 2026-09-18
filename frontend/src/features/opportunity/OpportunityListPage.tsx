@@ -77,7 +77,7 @@ export function OpportunityListPage() {
 // vive acá arriba de los filtros.
 function OpportunityTableView() {
   const { me } = useAuth();
-  // Ocultar acciones de escritura y la columna Propietario para no-ADMIN es
+  // Ocultar acciones de escritura y la columna Asignado para no-ADMIN es
   // cortesía de UX / respeto al contrato de autorización real: GET
   // /api/users es ADMIN-only (user.routes.ts), así que useOwnerNames se
   // gatea con este mismo booleano — para USER, ese fetch nunca se dispara.
@@ -159,7 +159,7 @@ function OpportunityTableView() {
       ) : null}
 
       {/* Los mismos filtros que ya existían, con el look del sistema. El
-          diseño muestra además Etapa y Propietario, y no muestra el orden:
+          diseño muestra además Etapa y Asignado, y no muestra el orden:
           agregar filtros es funcionalidad nueva y sacar los que funcionan
           sería una regresión, así que ni una cosa ni la otra. */}
       <div className="ds-list-card">
@@ -296,7 +296,7 @@ function OpportunityTableView() {
                 <th>Embudo · Etapa</th>
                 <th>Monto</th>
                 <th>Cierre</th>
-                {isAdmin ? <th>Propietario</th> : null}
+                {isAdmin ? <th>Asignado</th> : null}
                 <th>Estado</th>
                 {isAdmin ? <th>Acciones</th> : null}
               </tr>
@@ -437,7 +437,7 @@ function OpportunityTableView() {
                     label: "Fecha estimada de cierre",
                     value: detalle.expectedCloseDate ? formatDate(detalle.expectedCloseDate) : null,
                   },
-                  { label: "Propietario", value: ownerNames.byId.get(detalle.ownerId) ?? null },
+                  { label: "Asignado", value: ownerNames.byId.get(detalle.ownerId) ?? null },
                 ],
               },
               {
