@@ -12,6 +12,7 @@ import { openActionsMenu } from "../../test/openActionsMenu";
 import { CompanyListPage } from "./CompanyListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { CompanyListResponse } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -159,7 +160,7 @@ describe("CompanyListPage", () => {
     await user.type(screen.getByLabelText("Industria"), "tech");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("industry")).toBe("tech"));
 
-    await user.selectOptions(screen.getByLabelText("Ordenar por"), "name");
+    await chooseSelectOption(user, screen.getByLabelText("Ordenar por"), "Nombre");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("sortBy")).toBe("name"));
 
     await user.click(screen.getByText("Siguiente"));

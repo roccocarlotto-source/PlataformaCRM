@@ -68,6 +68,14 @@ export interface SelectProps<T extends string> {
   // (mismo contrato que BranchSelect/PipelineSelect).
   required?: boolean;
   disabled?: boolean;
+  // El rótulo existe pero no se ve: se oculta con .ds-sr-only, la misma
+  // utilidad que ya usan los buscadores de los listados. Para los selectores
+  // que viven dentro de una celda de tabla, donde la columna YA dice qué es
+  // (§46: el rol de cada fila en UserListPage) y un rótulo por fila sería
+  // ruido. El nombre accesible NO cambia: el <label> sigue en el DOM y sigue
+  // asociado por for/id, así que getByLabelText y los lectores de pantalla lo
+  // ven igual — por eso se oculta en vez de no renderizarlo.
+  labelHidden?: boolean;
 }
 
 interface Row<T extends string> {
@@ -85,6 +93,7 @@ export function Select<T extends string>({
   emptyOption,
   required = false,
   disabled = false,
+  labelHidden = false,
 }: SelectProps<T>) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
@@ -190,7 +199,7 @@ export function Select<T extends string>({
 
   return (
     <div ref={rootRef} className="ds-select">
-      <label id={labelId} htmlFor={inputId}>
+      <label id={labelId} htmlFor={inputId} className={labelHidden ? "ds-sr-only" : undefined}>
         {required ? <span className="ds-required">{label}</span> : label}
       </label>
       {/*

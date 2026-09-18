@@ -17,6 +17,7 @@ import { openActionsMenu } from "../../test/openActionsMenu";
 import { OpportunityListPage } from "./OpportunityListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { OpportunityListResponse } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -187,11 +188,11 @@ describe("OpportunityListPage", () => {
     await user.type(screen.getByPlaceholderText("Buscar por título"), "renovación");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("search")).toBe("renovación"));
 
-    await user.selectOptions(screen.getByLabelText("Estado"), "WON");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Ganada");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("status")).toBe("WON"));
 
     await waitFor(() => expect(screen.getByLabelText("Proceso de venta")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
     await waitFor(() => expect(captured.at(-1)?.searchParams.get("pipelineId")).toBe("pl1"));
 
     await user.click(screen.getByText("Siguiente"));

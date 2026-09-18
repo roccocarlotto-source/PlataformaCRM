@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { listSelectOptions } from "../../test/chooseSelectOption";
+import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
@@ -213,10 +213,10 @@ describe("OpportunityFormPage", () => {
     await waitFor(() => expect(screen.getByText("Acme Corp")).toBeInTheDocument());
     await user.click(screen.getByText("Acme Corp"));
 
-    await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await screen.findByRole("combobox", { name: "Proceso de venta" });
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
 
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
@@ -246,8 +246,8 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/new?pipelineId=pl2&stageId=st2");
 
-    await waitFor(() => expect(screen.getByLabelText("Proceso de venta")).toHaveValue("pl2"));
-    await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("st2"));
+    await waitFor(() => expect(screen.getByLabelText("Proceso de venta")).toHaveValue("Postventa"));
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("Cierre"));
 
     await user.type(screen.getByLabelText("Título"), "Desde el embudo");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
@@ -301,10 +301,10 @@ describe("OpportunityFormPage", () => {
     // Pipeline y Etapa se exigen en el cliente desde el ítem 10 de
     // docs/frontend-cambios-pendientes.md (test de abajo): hay que elegirlos
     // para que el submit llegue al backend y sea SU mensaje el que se muestre.
-    await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await screen.findByRole("combobox", { name: "Proceso de venta" });
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() =>
@@ -354,7 +354,7 @@ describe("OpportunityFormPage", () => {
       ),
     );
 
-    await user.selectOptions(pipeline, "pl1");
+    await chooseSelectOption(user, pipeline, "Ventas");
     fireEvent.submit(form);
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("Elegí una etapa antes de guardar."),
@@ -364,6 +364,7 @@ describe("OpportunityFormPage", () => {
   });
 
   it("edit: hidrata todos los campos correctamente (amount, fechas slice(0,10), lostReason, relaciones)", async () => {
+    const user = userEvent.setup();
     server.use(
       ...baseHandlers(),
       http.get(`${opportunitiesUrl}/:id`, ({ params }) =>
@@ -395,17 +396,17 @@ describe("OpportunityFormPage", () => {
     // persistido — se muestra como opción extra mientras sea el vigente, en
     // vez de un select que dice "USD" y un PATCH que manda "ARS".
     expect(screen.getByLabelText("Moneda")).toHaveValue("ARS");
-    expect(
-      within(screen.getByLabelText("Moneda"))
-        .getAllByRole("option")
-        .map((option) => option.textContent),
-    ).toEqual(["ARS", "USD", "UYU"]);
-    expect(screen.getByLabelText("Estado")).toHaveValue("LOST");
+    expect(await listSelectOptions(user, screen.getByLabelText("Moneda"))).toEqual([
+      "ARS",
+      "USD",
+      "UYU",
+    ]);
+    expect(screen.getByLabelText("Estado")).toHaveValue("Perdida");
     expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio");
     expect(screen.getByLabelText("Fecha estimada de cierre")).toHaveValue("2026-08-15");
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
-    await waitFor(() => expect(screen.getByLabelText("Proceso de venta")).toHaveValue("pl1"));
-    await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("st1"));
+    await waitFor(() => expect(screen.getByLabelText("Proceso de venta")).toHaveValue("Ventas"));
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("Prospecto"));
   });
 
   // -------------------------------------------------------------------------
@@ -425,15 +426,12 @@ describe("OpportunityFormPage", () => {
     );
     renderForm("/opportunities/op1/edit");
 
+    const user = userEvent.setup();
     const estado = await screen.findByLabelText("Estado");
-    const options = within(estado).getAllByRole("option");
-    expect(options.map((option) => option.textContent)).toEqual(["Abierta", "Ganada", "Perdida"]);
-    expect(options.map((option) => (option as HTMLOptionElement).value)).toEqual([
-      "OPEN",
-      "WON",
-      "LOST",
-    ]);
-    expect(within(estado).queryByRole("option", { name: "OPEN" })).not.toBeInTheDocument();
+    // Los values del enum ya no se ven en el DOM (§46): que viajan intactos lo
+    // verifican los tests que miran el cuerpo del PATCH.
+    expect(await listSelectOptions(user, estado)).toEqual(["Abierta", "Ganada", "Perdida"]);
+    expect(screen.queryByRole("option", { name: "OPEN" })).not.toBeInTheDocument();
   });
 
   it("edit: Motivo de pérdida solo se ve con Perdida; Fecha real de cierre se ve con Ganada o Perdida", async () => {
@@ -446,19 +444,19 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/op1/edit");
 
-    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("OPEN"));
+    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Abierta"));
     expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fecha real de cierre")).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Estado"), "WON");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Ganada");
     expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Fecha real de cierre")).toBeVisible();
 
-    await user.selectOptions(screen.getByLabelText("Estado"), "LOST");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Perdida");
     expect(screen.getByLabelText("Motivo de pérdida")).toBeVisible();
     expect(screen.getByLabelText("Fecha real de cierre")).toBeVisible();
 
-    await user.selectOptions(screen.getByLabelText("Estado"), "OPEN");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Abierta");
     expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fecha real de cierre")).not.toBeInTheDocument();
   });
@@ -490,8 +488,8 @@ describe("OpportunityFormPage", () => {
       const user = userEvent.setup();
       renderForm("/opportunities/op1/edit");
 
-      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("OPEN"));
-      await user.selectOptions(screen.getByLabelText("Estado"), label);
+      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Abierta"));
+      await chooseSelectOption(user, screen.getByLabelText("Estado"), label);
 
       const fechaReal = screen.getByLabelText("Fecha real de cierre");
       expect(fechaReal).toHaveValue(todayIsoDate());
@@ -525,11 +523,11 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/op1/edit");
 
-    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("OPEN"));
-    await user.selectOptions(screen.getByLabelText("Estado"), "LOST");
+    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Abierta"));
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Perdida");
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
 
-    await user.selectOptions(screen.getByLabelText("Estado"), "WON");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Ganada");
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
   });
 
@@ -550,10 +548,10 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/op1/edit");
 
-    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("LOST"));
+    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Perdida"));
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("");
 
-    await user.selectOptions(screen.getByLabelText("Estado"), "WON");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Ganada");
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("");
   });
 
@@ -584,16 +582,16 @@ describe("OpportunityFormPage", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio muy alto"),
     );
-    await user.selectOptions(screen.getByLabelText("Estado"), "OPEN");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Abierta");
     expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
 
     // Volver a cerrar arranca limpio: sin el motivo viejo, con la fecha de
     // hoy (la transición desde Abierta se vuelve a vivir).
-    await user.selectOptions(screen.getByLabelText("Estado"), "LOST");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Perdida");
     expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("");
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue(todayIsoDate());
 
-    await user.selectOptions(screen.getByLabelText("Estado"), "OPEN");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Abierta");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(patchedBody).toBeDefined());
@@ -625,7 +623,7 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/op1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio"));
-    await user.selectOptions(screen.getByLabelText("Estado"), "WON");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Ganada");
     // El campo desaparece: un motivo de pérdida en una oportunidad ganada no
     // tiene sentido, y el valor viejo no puede quedar viajando fantasma.
     expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
@@ -721,9 +719,9 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await user.type(screen.getByLabelText("Título"), "Nueva");
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(postedBody).toBeDefined());
@@ -744,9 +742,9 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await user.type(screen.getByLabelText("Título"), "Nueva");
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
     await user.type(screen.getByLabelText("Fecha estimada de cierre"), "2026-08-15");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
@@ -760,14 +758,14 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await waitFor(() => expect(screen.getByLabelText("Proceso de venta")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
-    expect(screen.getByLabelText("Etapa")).toHaveValue("st1");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
+    expect(screen.getByLabelText("Etapa")).toHaveValue("Prospecto");
 
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl2");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Postventa");
 
-    await waitFor(() => expect(screen.getByText("Cierre")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
     expect(screen.getByLabelText("Etapa")).toHaveValue("");
   });
 
@@ -912,9 +910,9 @@ describe("OpportunityFormPage", () => {
     expect(monto).toHaveValue("20.000,5");
     await user.tab();
     expect(monto).toHaveValue("20.000,50");
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(postedBody).toBeDefined());
@@ -937,9 +935,9 @@ describe("OpportunityFormPage", () => {
     await user.type(screen.getByLabelText("Título"), "Nueva");
     await user.type(screen.getByLabelText("Monto"), "2500.75");
     expect(screen.getByLabelText("Monto")).toHaveValue("2.500,75");
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(postedBody).toBeDefined());
@@ -974,9 +972,9 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await user.type(screen.getByLabelText("Título"), "Nueva");
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() =>
@@ -1002,17 +1000,14 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/new?pipelineId=pl1&stageId=st1");
 
+    // Desde §46 es el combobox del design system (un input con role
+    // combobox), pero sigue siendo una lista cerrada: solo USD y UYU.
     const moneda = screen.getByLabelText("Moneda");
-    expect(moneda.tagName).toBe("SELECT");
     expect(moneda).toHaveValue("USD");
-    expect(
-      within(moneda)
-        .getAllByRole("option")
-        .map((o) => o.textContent),
-    ).toEqual(["USD", "UYU"]);
+    expect(await listSelectOptions(user, moneda)).toEqual(["USD", "UYU"]);
 
     await user.type(screen.getByLabelText("Título"), "En pesos");
-    await user.selectOptions(moneda, "UYU");
+    await chooseSelectOption(user, moneda, "UYU");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(postedBody).toBeDefined());
@@ -1095,9 +1090,9 @@ describe("OpportunityFormPage", () => {
     expect(screen.queryByText(PRICE_HINT)).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Título"), "Corolla para Ana");
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
 
     await user.type(screen.getByPlaceholderText(VEHICLE_PLACEHOLDER), "corolla");
     await user.click(
@@ -1105,17 +1100,19 @@ describe("OpportunityFormPage", () => {
     );
 
     expect(screen.getByLabelText("Monto")).toHaveValue("");
-    // Ítem 18.B: mientras Moneda está vacía por el vínculo, el <select>
-    // cerrado muestra la opción "Según la unidad" (value "") para no
-    // mentir con "USD".
+    // Ítem 18.B: mientras Moneda está vacía por el vínculo, el control
+    // cerrado dice "Según la unidad" para no mentir con "USD". Desde §46 ese
+    // texto es el placeholder del combobox (la fila vacía), no una <option>.
     expect(screen.getByLabelText("Moneda")).toHaveValue("");
-    expect(
-      within(screen.getByLabelText("Moneda")).getByRole("option", { name: "Según la unidad" }),
-    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Moneda")).toHaveAttribute("placeholder", "Según la unidad");
     expect(screen.getByText(PRICE_HINT)).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Financiación"), "INSTALLMENT_24M");
-    await user.selectOptions(screen.getByLabelText("Origen del cliente"), "WHATSAPP");
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Financiación"),
+      "Crédito prendario 24 meses",
+    );
+    await chooseSelectOption(user, screen.getByLabelText("Origen del cliente"), "WhatsApp");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(postedBody).toBeDefined());
@@ -1142,9 +1139,9 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await user.type(screen.getByLabelText("Título"), "Con precio propio");
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
-    await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
+    await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
     await user.type(screen.getByPlaceholderText(VEHICLE_PLACEHOLDER), "corolla");
     await user.click(
       await screen.findByRole("button", { name: "Toyota Corolla 2020 · 25000.00 USD" }),
@@ -1153,7 +1150,7 @@ describe("OpportunityFormPage", () => {
 
     await user.type(screen.getByLabelText("Monto"), "23500");
     expect(screen.queryByText(PRICE_HINT)).not.toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText("Moneda"), "UYU");
+    await chooseSelectOption(user, screen.getByLabelText("Moneda"), "UYU");
     // Elegida una moneda real, "Según la unidad" desaparece.
     expect(
       within(screen.getByLabelText("Moneda")).queryByRole("option", { name: "Según la unidad" }),
@@ -1200,8 +1197,8 @@ describe("OpportunityFormPage", () => {
     expect(screen.getByLabelText("Monto")).toHaveValue("1.234,50");
     expect(screen.getByLabelText("Moneda")).toHaveValue("ARS");
     expect(screen.queryByText(PRICE_HINT)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Financiación")).toHaveValue("OWN_FINANCING");
-    expect(screen.getByLabelText("Origen del cliente")).toHaveValue("SHOWROOM");
+    expect(screen.getByLabelText("Financiación")).toHaveValue("Financiación propia");
+    expect(screen.getByLabelText("Origen del cliente")).toHaveValue("Showroom");
 
     await user.click(screen.getByRole("button", { name: "Quitar vínculo" }));
     expect(screen.queryByText("Quitar vínculo")).not.toBeInTheDocument();
@@ -1286,12 +1283,12 @@ describe("OpportunityFormPage", () => {
       expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
     }
 
-    await user.selectOptions(financiacion, "NONE");
+    await chooseSelectOption(user, financiacion, "Sin financiación");
     for (const label of FINANCING_DETAIL_LABELS) {
       expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
     }
 
-    await user.selectOptions(financiacion, "INSTALLMENT_24M");
+    await chooseSelectOption(user, financiacion, "Crédito prendario 24 meses");
     for (const label of FINANCING_DETAIL_LABELS) {
       expect(screen.getByLabelText(label)).toBeInTheDocument();
     }
@@ -1329,7 +1326,11 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/new?pipelineId=pl1&stageId=st1");
 
-    await user.selectOptions(await screen.findByLabelText("Financiación"), "OWN_FINANCING");
+    await chooseSelectOption(
+      user,
+      await screen.findByLabelText("Financiación"),
+      "Financiación propia",
+    );
     await user.type(screen.getByLabelText("Título"), "Sin plan");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
@@ -1417,7 +1418,7 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/op1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Cantidad de cuotas")).toHaveValue(12));
-    await user.selectOptions(screen.getByLabelText("Financiación"), "NONE");
+    await chooseSelectOption(user, screen.getByLabelText("Financiación"), "Sin financiación");
     for (const label of FINANCING_DETAIL_LABELS) {
       expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
     }

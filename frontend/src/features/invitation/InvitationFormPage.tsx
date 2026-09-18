@@ -5,6 +5,7 @@ import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
+import { Select } from "../../design-system/Select";
 import { useCreateInvitation } from "./mutations";
 import type { CreateInvitationInput } from "./types";
 
@@ -59,17 +60,19 @@ export function InvitationFormPage() {
               </FormField>
             </div>
             <div className="ds-field-grid--full">
-              <FormField label="Rol">
-                <select
-                  value={values.role}
-                  onChange={(event) =>
-                    setValues({ ...values, role: event.target.value as "ADMIN" | "USER" })
-                  }
-                >
-                  <option value="USER">USER</option>
-                  <option value="ADMIN">ADMIN</option>
-                </select>
-              </FormField>
+              {/* Suelto, sin FormField: Select trae su propio <label htmlFor>
+                  y FormField ES un <label>. */}
+              <Select
+                label="Rol"
+                value={values.role}
+                options={[
+                  { value: "USER", label: "USER" },
+                  { value: "ADMIN", label: "ADMIN" },
+                ]}
+                onChange={(role) => {
+                  if (role) setValues({ ...values, role });
+                }}
+              />
             </div>
           </div>
         </Card>

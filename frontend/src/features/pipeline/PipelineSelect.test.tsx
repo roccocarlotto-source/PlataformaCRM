@@ -7,12 +7,15 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makePipeline } from "../../test/pipelineFixtures";
 import { PipelineSelect } from "./PipelineSelect";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
 const baseUrl = `${env.apiUrl}/api/pipelines`;
+
+const combobox = () => screen.findByRole("combobox", { name: "Proceso de venta" });
 
 function renderSelect(value: string | undefined, onChange = vi.fn()) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -42,6 +45,8 @@ describe("PipelineSelect", () => {
       }),
     );
 
+    const user = userEvent.setup();
+
     renderSelect(undefined);
 
     await waitFor(() => expect(captured.length).toBeGreaterThan(0));
@@ -49,10 +54,15 @@ describe("PipelineSelect", () => {
     expect(captured[0].searchParams.get("sortBy")).toBe("name");
     expect(captured[0].searchParams.get("sortOrder")).toBe("asc");
     expect(captured[0].searchParams.has("search")).toBe(false);
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+
+    // Desde §46 el control SÍ tiene buscador, pero filtra local: tipear no
+    // dispara otra request (mismo criterio que BranchSelect en §44).
+    await user.click(await combobox());
+    await user.keyboard("vent");
+    expect(captured).toHaveLength(1);
   });
 
-  it("renderiza un <select> con los pipelines devueltos y dispara onChange al elegir", async () => {
+  it("ofrece los pipelines devueltos y dispara onChange al elegir", async () => {
     server.use(
       http.get(baseUrl, () =>
         HttpResponse.json({
@@ -67,8 +77,7 @@ describe("PipelineSelect", () => {
     const user = userEvent.setup();
     const onChange = renderSelect(undefined);
 
-    await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl2");
+    await chooseSelectOption(user, await combobox(), "Postventa");
 
     expect(onChange).toHaveBeenCalledWith("pl2");
   });
@@ -90,7 +99,7 @@ describe("PipelineSelect", () => {
   // Ítem 10 de docs/frontend-cambios-pendientes.md: el asterisco y el bloqueo
   // van siempre juntos, así la señal visual coincide con lo que pasa al
   // guardar. El "*" lo dibuja CSS (::after), no forma parte del texto.
-  it("con required: el rótulo lleva la marca .ds-required y el <select> es required", async () => {
+  it("con required: el rótulo lleva la marca .ds-required y el control es required", async () => {
     server.use(
       http.get(baseUrl, () =>
         HttpResponse.json({
@@ -116,7 +125,7 @@ describe("PipelineSelect", () => {
     expect(screen.getByText("Proceso de venta")).toHaveClass("ds-required");
   });
 
-  it("sin required (default): ni marca en el rótulo ni required en el <select>", async () => {
+  it("sin required (default): ni marca en el rótulo ni required en el control", async () => {
     server.use(
       http.get(baseUrl, () =>
         HttpResponse.json({

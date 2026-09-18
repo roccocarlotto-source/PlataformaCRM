@@ -11,6 +11,7 @@ import { AdminRoute } from "../../auth/AdminRoute";
 import { ProtectedRoute } from "../../auth/ProtectedRoute";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { BranchFormPage } from "./BranchFormPage";
+import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -60,23 +61,26 @@ function renderForm(ruta: string) {
 }
 
 describe("BranchFormPage — creación", () => {
-  it("Zona horaria arranca en America/Montevideo y ofrece la lista acotada de la región", () => {
+  it("Zona horaria arranca en America/Montevideo y ofrece la lista acotada de la región", async () => {
+    const user = userEvent.setup();
     renderForm("/branches/new");
 
+    // Desde §46 el control es el combobox del design system: lo que muestra es
+    // el RÓTULO de la zona elegida, no su identificador IANA, y sus filas solo
+    // están en el DOM con el panel abierto (de ahí listSelectOptions).
     const zona = screen.getByLabelText("Zona horaria");
-    expect(zona).toHaveValue("America/Montevideo");
-    // La lista es una restricción del cliente (timezones.ts); el select no
+    expect(zona).toHaveValue("Montevideo (America/Montevideo)");
+    // La lista es una restricción del cliente (timezones.ts); el control no
     // ofrece texto libre. Tres opciones, una por comportamiento real de
     // horarios (§26): Buenos Aires y São Paulo son UTC-3 fijo igual que
     // Montevideo, así que ya no se ofrecen como opciones "distintas".
-    expect(screen.getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual([
-      "America/Montevideo",
-      "America/Santiago",
-      "America/Asuncion",
+    expect(await listSelectOptions(user, zona)).toEqual([
+      "Montevideo (America/Montevideo)",
+      "Santiago (America/Santiago)",
+      "Asunción (America/Asuncion)",
     ]);
     expect(screen.queryByRole("option", { name: /Buenos Aires/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Paulo/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "Zona horaria" })).not.toBeInTheDocument();
   });
 
   it("crea la sucursal con name + timezone (Montevideo por defecto) y vuelve al listado", async () => {
@@ -112,7 +116,11 @@ describe("BranchFormPage — creación", () => {
     renderForm("/branches/new");
 
     await user.type(screen.getByLabelText("Nombre"), "Sucursal Santiago");
-    await user.selectOptions(screen.getByLabelText("Zona horaria"), "America/Santiago");
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Zona horaria"),
+      "Santiago (America/Santiago)",
+    );
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(body).toBeDefined());
@@ -168,7 +176,7 @@ describe("BranchFormPage — edición", () => {
     renderForm("/branches/b1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Casa Central"));
-    expect(screen.getByLabelText("Zona horaria")).toHaveValue("America/Santiago");
+    expect(screen.getByLabelText("Zona horaria")).toHaveValue("Santiago (America/Santiago)");
 
     await user.clear(screen.getByLabelText("Nombre"));
     await user.type(screen.getByLabelText("Nombre"), "Casa Matriz");
@@ -199,9 +207,15 @@ describe("BranchFormPage — edición", () => {
     renderForm("/branches/b1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Zona horaria")).toHaveValue("UTC"));
-    expect(screen.getByRole("option", { name: "UTC" })).toBeInTheDocument();
-    // La lista de la región sigue disponible para corregirla.
-    expect(screen.getByRole("option", { name: /Montevideo/ })).toBeInTheDocument();
+    // Una zona fuera de la lista no tiene rótulo propio: se ofrece con su
+    // identificador tal cual, primera y antes de las tres de la región, que
+    // siguen disponibles para corregirla.
+    expect(await listSelectOptions(user, screen.getByLabelText("Zona horaria"))).toEqual([
+      "UTC",
+      "Montevideo (America/Montevideo)",
+      "Santiago (America/Santiago)",
+      "Asunción (America/Asuncion)",
+    ]);
 
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
@@ -216,14 +230,15 @@ describe("BranchFormPage — edición", () => {
       ),
     );
 
+    const user = userEvent.setup();
     renderForm("/branches/b1/edit");
 
     await waitFor(() =>
-      expect(screen.getByLabelText("Zona horaria")).toHaveValue("America/Montevideo"),
+      expect(screen.getByLabelText("Zona horaria")).toHaveValue("Montevideo (America/Montevideo)"),
     );
     // Tres de timezones.ts, ni una más: la extra solo aparece con un valor
     // desconocido.
-    expect(screen.getAllByRole("option")).toHaveLength(3);
+    expect(await listSelectOptions(user, screen.getByLabelText("Zona horaria"))).toHaveLength(3);
   });
 
   it("una sucursal guardada con una zona que SALIÓ de la lista (Buenos Aires, §26) sigue editable: opción extra, valor intacto al guardar, y elegir otra zona la reemplaza", async () => {
@@ -249,10 +264,12 @@ describe("BranchFormPage — edición", () => {
       expect(screen.getByLabelText("Zona horaria")).toHaveValue("America/Argentina/Buenos_Aires"),
     );
     // La extra es la vigente, más las tres de la lista: cuatro en total.
-    expect(screen.getByRole("option", { name: "America/Argentina/Buenos_Aires" })).toHaveValue(
+    expect(await listSelectOptions(user, screen.getByLabelText("Zona horaria"))).toEqual([
       "America/Argentina/Buenos_Aires",
-    );
-    expect(screen.getAllByRole("option")).toHaveLength(4);
+      "Montevideo (America/Montevideo)",
+      "Santiago (America/Santiago)",
+      "Asunción (America/Asuncion)",
+    ]);
 
     // Guardar sin tocar la zona: el PATCH manda la vieja tal cual, no
     // Montevideo.
@@ -267,11 +284,16 @@ describe("BranchFormPage — edición", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Zona horaria")).toHaveValue("America/Argentina/Buenos_Aires"),
     );
-    await user.selectOptions(screen.getByLabelText("Zona horaria"), "America/Montevideo");
-    expect(screen.getAllByRole("option")).toHaveLength(3);
-    expect(
-      screen.queryByRole("option", { name: "America/Argentina/Buenos_Aires" }),
-    ).not.toBeInTheDocument();
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Zona horaria"),
+      "Montevideo (America/Montevideo)",
+    );
+    expect(await listSelectOptions(user, screen.getByLabelText("Zona horaria"))).toEqual([
+      "Montevideo (America/Montevideo)",
+      "Santiago (America/Santiago)",
+      "Asunción (America/Asuncion)",
+    ]);
 
     await user.click(screen.getByRole("button", { name: "Guardar" }));
     await waitFor(() => expect(bodies).toHaveLength(2));

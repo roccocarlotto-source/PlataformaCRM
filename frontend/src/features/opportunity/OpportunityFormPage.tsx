@@ -8,6 +8,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
+import { Select } from "../../design-system/Select";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
 import { DeliverySection } from "../delivery/DeliverySection";
@@ -82,7 +83,7 @@ const EMPTY_FORM: OpportunityFormValues = {
 const FINANCING_TYPE_OPTIONS = Object.keys(FINANCING_TYPE_LABELS) as OpportunityFinancingType[];
 const LEAD_SOURCE_OPTIONS = Object.keys(LEAD_SOURCE_LABELS) as OpportunityLeadSource[];
 
-// Moneda: <select> cerrado con las dos monedas de la operación real (ítem
+// Moneda: desplegable cerrado con las dos monedas de la operación real (ítem
 // 18.B de docs/frontend-cambios-pendientes.md). Antes era texto libre
 // normalizado a 3 letras porque el backend acepta cualquier código ISO 4217
 // (^[A-Z]{3}$, opportunity.controller.ts) y una lista parecía inventar una
@@ -380,8 +381,8 @@ export function OpportunityFormPage() {
     event.preventDefault();
     setError(null);
     // Pipeline y Etapa son obligatorios en el contrato (opportunity.service.ts
-    // los valida) y sus <select> llevan `required` (asterisco + bloqueo nativo
-    // del navegador). Pero ese bloqueo tiene huecos: el <select> solo existe
+    // los valida) y sus selectores llevan `required` (asterisco + bloqueo nativo
+    // del navegador). Pero ese bloqueo tiene huecos: el selector solo existe
     // cuando su lista cargó, y el de Etapa está deshabilitado sin pipeline (un
     // control disabled no participa de la validación). Este chequeo cubre esos
     // casos con un mensaje propio en vez de un 400 "pipelineId inválido", y es
@@ -421,7 +422,7 @@ export function OpportunityFormPage() {
 
   // Una moneda persistida fuera de la lista (datos viejos, o cargados por
   // API: el backend acepta cualquier ISO 4217) se muestra como opción extra
-  // mientras sea el valor vigente. Sin esto el <select> mostraría "USD"
+  // mientras sea el valor vigente. Sin esto el selector mostraría "USD"
   // (la primera opción) mientras el PATCH sigue mandando el valor real.
   const hasKnownCurrency = isKnownCurrency(values.currency);
 
@@ -431,7 +432,7 @@ export function OpportunityFormPage() {
   // lo ancho, Empresa + Contacto; Pipeline + Etapa, (Monto + Moneda) + Fecha
   // estimada, Asignado solo a media columna. El "*" va en Título (input
   // con `required`) y, desde el ítem 10 de docs/frontend-cambios-pendientes.md,
-  // también en Pipeline y Etapa: sus <select> llevan `required` y handleSubmit
+  // también en Pipeline y Etapa: sus selectores llevan `required` y handleSubmit
   // los chequea, así que el asterisco coincide con lo que pasa al dejarlos
   // vacíos. El diseño marca además Monto y Asignado, pero son opcionales en
   // el contrato (ver toCreateInput) y un asterisco ahí mentiría.
@@ -514,25 +515,27 @@ export function OpportunityFormPage() {
                       onChange={(amount) => setValues({ ...values, amount })}
                     />
                   </FormField>
-                  <FormField label="Moneda">
-                    <select
-                      value={values.currency}
-                      onChange={(event) => setValues({ ...values, currency: event.target.value })}
-                    >
-                      {/* Vacía solo mientras handleVehicleChange la dejó así:
-                        el backend va a tomar la moneda del precio de la
-                        unidad. Desaparece apenas se elige USD o UYU. */}
-                      {values.currency === "" ? <option value="">Según la unidad</option> : null}
-                      {hasKnownCurrency || values.currency === "" ? null : (
-                        <option value={values.currency}>{values.currency}</option>
-                      )}
-                      {CURRENCY_OPTIONS.map((currency) => (
-                        <option key={currency} value={currency}>
-                          {currency}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
+                  {/* Suelto, sin FormField: Select trae su propio <label
+                    htmlFor> y FormField ES un <label>.
+
+                    La fila vacía existe solo mientras handleVehicleChange la
+                    dejó así: el backend va a tomar la moneda del precio de la
+                    unidad. Desaparece apenas se elige USD o UYU. */}
+                  <Select
+                    label="Moneda"
+                    value={values.currency}
+                    options={[
+                      ...(hasKnownCurrency || values.currency === ""
+                        ? []
+                        : [{ value: values.currency, label: values.currency }]),
+                      ...CURRENCY_OPTIONS.map((currency) => ({
+                        value: currency,
+                        label: currency,
+                      })),
+                    ]}
+                    emptyOption={values.currency === "" ? { label: "Según la unidad" } : undefined}
+                    onChange={(currency) => setValues({ ...values, currency })}
+                  />
                 </div>
                 {/* Explica por qué los dos quedaron vacíos al vincular una
                   unidad (ver handleVehicleChange), para que no parezca un
@@ -601,45 +604,29 @@ export function OpportunityFormPage() {
                   onChange={handleVehicleChange}
                 />
               </div>
-              <FormField label="Financiación">
-                <select
-                  value={values.financingType}
-                  onChange={(event) =>
-                    setValues({
-                      ...values,
-                      financingType: event.target.value as OpportunityFinancingType | "",
-                    })
-                  }
-                >
-                  <option value="">Sin especificar</option>
-                  {FINANCING_TYPE_OPTIONS.map((financingType) => (
-                    <option key={financingType} value={financingType}>
-                      {FINANCING_TYPE_LABELS[financingType]}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
+              <Select
+                label="Financiación"
+                value={values.financingType}
+                options={FINANCING_TYPE_OPTIONS.map((financingType) => ({
+                  value: financingType,
+                  label: FINANCING_TYPE_LABELS[financingType],
+                }))}
+                emptyOption={{ label: "Sin especificar" }}
+                onChange={(financingType) => setValues({ ...values, financingType })}
+              />
               {/* "Origen del cliente" es solo el texto visible (ítem 18.D):
                 leadSource/OpportunityLeadSource/LEAD_SOURCE_* son nombres
                 internos y siguen igual. */}
-              <FormField label="Origen del cliente">
-                <select
-                  value={values.leadSource}
-                  onChange={(event) =>
-                    setValues({
-                      ...values,
-                      leadSource: event.target.value as OpportunityLeadSource | "",
-                    })
-                  }
-                >
-                  <option value="">Sin especificar</option>
-                  {LEAD_SOURCE_OPTIONS.map((leadSource) => (
-                    <option key={leadSource} value={leadSource}>
-                      {LEAD_SOURCE_LABELS[leadSource]}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
+              <Select
+                label="Origen del cliente"
+                value={values.leadSource}
+                options={LEAD_SOURCE_OPTIONS.map((leadSource) => ({
+                  value: leadSource,
+                  label: LEAD_SOURCE_LABELS[leadSource],
+                }))}
+                emptyOption={{ label: "Sin especificar" }}
+                onChange={(leadSource) => setValues({ ...values, leadSource })}
+              />
               {/* Detalle del plan (§42), solo con una financiación elegida (ver
                 hasFinancing). De a pares como el resto de la grilla: Entidad +
                 Entrega, Cuotas + Monto de cuota. Sin cálculo automático entre
@@ -702,20 +689,20 @@ export function OpportunityFormPage() {
           {isEditMode ? (
             <Card heading="Estado y cierre">
               <div className="ds-field-grid">
-                <FormField label="Estado">
-                  <select
-                    value={values.status}
-                    onChange={(event) =>
-                      handleStatusChange(event.target.value as OpportunityStatus)
-                    }
-                  >
-                    {STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {STATUS_LABEL[status]}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
+                {/* El combobox del design system (§46), suelto y sin FormField:
+                    Select trae su propio <label htmlFor> y FormField ES un
+                    <label>. */}
+                <Select
+                  label="Estado"
+                  value={values.status}
+                  options={STATUSES.map((status) => ({
+                    value: status,
+                    label: STATUS_LABEL[status],
+                  }))}
+                  onChange={(status) => {
+                    if (status) handleStatusChange(status);
+                  }}
+                />
                 {values.status === "LOST" ? (
                   <FormField label="Motivo de pérdida">
                     <input

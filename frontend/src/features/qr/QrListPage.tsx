@@ -11,6 +11,8 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
+import { Select } from "../../design-system/Select";
+import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { buildPublicResolutionUrl } from "../../lib/publicUrl";
 import { BranchSelect } from "../branch/BranchSelect";
@@ -163,26 +165,18 @@ export function QrListPage() {
               setPage(1);
             }}
           />
-          <label>
-            Ordenar por
-            <select
-              value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as QrCodeSortBy)}
-            >
-              <option value="createdAt">Fecha de creación</option>
-              <option value="displayNumber">Número</option>
-            </select>
-          </label>
-          <label>
-            Orden
-            <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-            >
-              <option value="desc">Descendente</option>
-              <option value="asc">Ascendente</option>
-            </select>
-          </label>
+          <Select
+            label="Ordenar por"
+            value={sortBy}
+            options={[
+              { value: "createdAt", label: "Fecha de creación" },
+              { value: "displayNumber", label: "Número" },
+            ]}
+            onChange={(value) => {
+              if (value) setSortBy(value);
+            }}
+          />
+          <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
         {qrCodesQuery.isLoading ? <LoadingState /> : null}

@@ -8,6 +8,7 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeSource } from "../../test/sourceFixtures";
 import { SourceFormPage } from "./SourceFormPage";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -40,10 +41,10 @@ describe("SourceFormPage — creación", () => {
     // WEBHOOK es el default: no hay mapeo que configurar.
     expect(screen.queryByText("Mapeo de columnas")).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Tipo"), "FILE_IMPORT");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Importación de archivo");
     expect(screen.getByText("Mapeo de columnas")).toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Tipo"), "WEBHOOK");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Webhook");
     expect(screen.queryByText("Mapeo de columnas")).not.toBeInTheDocument();
   });
 
@@ -81,11 +82,11 @@ describe("SourceFormPage — creación", () => {
     renderForm("/sources/new");
 
     await user.type(screen.getByLabelText("Nombre"), "Planilla feria");
-    await user.selectOptions(screen.getByLabelText("Tipo"), "FILE_IMPORT");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Importación de archivo");
 
     await user.click(screen.getByRole("button", { name: "Agregar columna" }));
     await user.type(screen.getByLabelText("Columna del archivo"), "Nombre");
-    await user.selectOptions(screen.getByLabelText("Campo del contacto"), "firstName");
+    await chooseSelectOption(user, screen.getByLabelText("Campo del contacto"), "Nombre");
 
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
@@ -111,7 +112,7 @@ describe("SourceFormPage — creación", () => {
     renderForm("/sources/new");
 
     await user.type(screen.getByLabelText("Nombre"), "Planilla");
-    await user.selectOptions(screen.getByLabelText("Tipo"), "FILE_IMPORT");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Importación de archivo");
 
     await user.click(screen.getByRole("button", { name: "Agregar columna" }));
     await user.click(screen.getByRole("button", { name: "Agregar columna" }));
@@ -119,9 +120,9 @@ describe("SourceFormPage — creación", () => {
     const encabezados = screen.getAllByLabelText("Columna del archivo");
     const destinos = screen.getAllByLabelText("Campo del contacto");
     await user.type(encabezados[0], "Nombre");
-    await user.selectOptions(destinos[0], "firstName");
+    await chooseSelectOption(user, destinos[0], "Nombre");
     await user.type(encabezados[1], "Nombre de pila");
-    await user.selectOptions(destinos[1], "firstName");
+    await chooseSelectOption(user, destinos[1], "Nombre");
 
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
@@ -133,7 +134,7 @@ describe("SourceFormPage — creación", () => {
     const user = userEvent.setup();
     renderForm("/sources/new");
 
-    await user.selectOptions(screen.getByLabelText("Tipo"), "FILE_IMPORT");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Importación de archivo");
     await user.click(screen.getByRole("button", { name: "Agregar columna" }));
     expect(screen.getAllByLabelText("Columna del archivo")).toHaveLength(1);
 
@@ -173,7 +174,7 @@ describe("SourceFormPage — edición", () => {
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Feria"));
     const tipo = screen.getByLabelText("Tipo");
     expect(tipo).toBeDisabled();
-    expect(tipo).toHaveValue("FILE_IMPORT");
+    expect(tipo).toHaveValue("Importación de archivo");
     expect(screen.getByText(/El tipo no se puede cambiar/)).toBeInTheDocument();
   });
 
@@ -200,7 +201,7 @@ describe("SourceFormPage — edición", () => {
 
     await waitFor(() => expect(screen.getAllByLabelText("Columna del archivo")).toHaveLength(2));
     expect(screen.getAllByLabelText("Columna del archivo")[0]).toHaveValue("Nombre");
-    expect(screen.getAllByLabelText("Campo del contacto")[0]).toHaveValue("firstName");
+    expect(screen.getAllByLabelText("Campo del contacto")[0]).toHaveValue("Nombre");
 
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
@@ -295,7 +296,7 @@ describe("SourceFormPage — sugerencia de mapeo desde un archivo", () => {
       screen.queryByRole("button", { name: "Sugerir mapeo desde un archivo" }),
     ).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Tipo"), "FILE_IMPORT");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Importación de archivo");
     expect(
       screen.getByRole("button", { name: "Sugerir mapeo desde un archivo" }),
     ).toBeInTheDocument();
@@ -310,7 +311,7 @@ describe("SourceFormPage — sugerencia de mapeo desde un archivo", () => {
 
     const user = userEvent.setup();
     renderForm("/sources/new");
-    await user.selectOptions(screen.getByLabelText("Tipo"), "FILE_IMPORT");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Importación de archivo");
 
     await user.upload(screen.getByLabelText(/archivo de muestra/i), csv());
     await user.click(screen.getByRole("button", { name: "Sugerir mapeo desde un archivo" }));
@@ -321,9 +322,9 @@ describe("SourceFormPage — sugerencia de mapeo desde un archivo", () => {
     const destinos = screen.getAllByLabelText("Campo del contacto");
 
     expect(encabezados[0]).toHaveValue("Nombre");
-    expect(destinos[0]).toHaveValue("firstName");
+    expect(destinos[0]).toHaveValue("Nombre");
     expect(encabezados[1]).toHaveValue("Mail");
-    expect(destinos[1]).toHaveValue("email");
+    expect(destinos[1]).toHaveValue("Email");
     // "Observación" no tiene destino razonable: queda para que la persona
     // decida, no se le inventa uno.
     expect(encabezados[2]).toHaveValue("Observación");
@@ -335,12 +336,12 @@ describe("SourceFormPage — sugerencia de mapeo desde un archivo", () => {
 
     const user = userEvent.setup();
     renderForm("/sources/new");
-    await user.selectOptions(screen.getByLabelText("Tipo"), "FILE_IMPORT");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Importación de archivo");
 
     // Se configura "Mail" a mano, con un destino que la heurística NO elegiría.
     await user.click(screen.getByRole("button", { name: "Agregar columna" }));
     await user.type(screen.getByLabelText("Columna del archivo"), "Mail");
-    await user.selectOptions(screen.getByLabelText("Campo del contacto"), "jobTitle");
+    await chooseSelectOption(user, screen.getByLabelText("Campo del contacto"), "Puesto");
 
     await user.upload(screen.getByLabelText(/archivo de muestra/i), csv());
     await user.click(screen.getByRole("button", { name: "Sugerir mapeo desde un archivo" }));
@@ -351,10 +352,10 @@ describe("SourceFormPage — sugerencia de mapeo desde un archivo", () => {
     const encabezados = screen.getAllByLabelText("Columna del archivo");
     const destinos = screen.getAllByLabelText("Campo del contacto");
     expect(encabezados[0]).toHaveValue("Mail");
-    expect(destinos[0]).toHaveValue("jobTitle");
+    expect(destinos[0]).toHaveValue("Puesto");
     // Y "Nombre", que no estaba, se agregó con su sugerencia.
     expect(encabezados[1]).toHaveValue("Nombre");
-    expect(destinos[1]).toHaveValue("firstName");
+    expect(destinos[1]).toHaveValue("Nombre");
   });
 
   it("un fallo al leer el archivo se muestra y NO rompe el resto del formulario", async () => {
@@ -370,7 +371,7 @@ describe("SourceFormPage — sugerencia de mapeo desde un archivo", () => {
     const user = userEvent.setup();
     renderForm("/sources/new");
     await user.type(screen.getByLabelText("Nombre"), "Planilla");
-    await user.selectOptions(screen.getByLabelText("Tipo"), "FILE_IMPORT");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Importación de archivo");
 
     await user.upload(screen.getByLabelText(/archivo de muestra/i), csv());
     await user.click(screen.getByRole("button", { name: "Sugerir mapeo desde un archivo" }));
@@ -393,7 +394,7 @@ describe("SourceFormPage — sugerencia de mapeo desde un archivo", () => {
 
     const user = userEvent.setup({ applyAccept: false });
     renderForm("/sources/new");
-    await user.selectOptions(screen.getByLabelText("Tipo"), "FILE_IMPORT");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Importación de archivo");
 
     await user.upload(
       screen.getByLabelText(/archivo de muestra/i),

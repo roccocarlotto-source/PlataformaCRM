@@ -6,6 +6,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
+import { Select } from "../../design-system/Select";
 import { CompanySelect } from "../company/CompanySelect";
 import { ContactSelect } from "../opportunity/ContactSelect";
 import { UserSelect } from "../user/UserSelect";
@@ -140,12 +141,12 @@ function toFormValues(data: Activity): ActivityFormValues {
 //   completo y este formulario permite cargar la hora real de cierre; un
 //   toggle perdería esa precisión. Vencimiento y Completada siguen siendo
 //   datetime-local.
-// - "Tipo" como fila de botones: sigue siendo un <select>, como en el resto
-//   de los formularios migrados.
+// - "Tipo" como fila de botones: sigue siendo un desplegable, como en el resto
+//   de los formularios migrados (desde §46, el combobox del design system).
 //
-// Los selectores (UserSelect, CompanySelect, ContactSelect, OpportunitySelect)
-// se montan sueltos, sin FormField: traen su propio <label htmlFor>, y
-// FormField ES un <label>. Mismo trato que en CompanyFormPage.
+// Los selectores (Select de Tipo, UserSelect, CompanySelect, ContactSelect,
+// OpportunitySelect) se montan sueltos, sin FormField: traen su propio <label
+// htmlFor>, y FormField ES un <label>. Mismo trato que en CompanyFormPage.
 export function ActivityFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
@@ -232,20 +233,17 @@ export function ActivityFormPage() {
         <Card heading="Datos de la actividad">
           <div className="ds-field-grid">
             <div className="ds-field-grid--full">
-              <FormField label="Tipo">
-                <select
-                  value={values.type}
-                  onChange={(event) =>
-                    setValues({ ...values, type: event.target.value as ActivityType })
-                  }
-                >
-                  {ACTIVITY_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {ACTIVITY_TYPE_LABELS[type]}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
+              <Select
+                label="Tipo"
+                value={values.type}
+                options={ACTIVITY_TYPES.map((type) => ({
+                  value: type,
+                  label: ACTIVITY_TYPE_LABELS[type],
+                }))}
+                onChange={(type) => {
+                  if (type) setValues({ ...values, type });
+                }}
+              />
             </div>
             <div className="ds-field-grid--full">
               <FormField label={<span className="ds-required">Asunto</span>}>

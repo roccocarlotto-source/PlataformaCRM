@@ -354,7 +354,7 @@ describe("VehicleListPage", () => {
     await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Casa Central");
     await waitFor(() => expect(lastListQuery()?.get("branchId")).toBe("b1"));
 
-    await user.selectOptions(screen.getByLabelText("Condición"), "NEW");
+    await chooseSelectOption(user, screen.getByLabelText("Condición"), "Nuevo");
     await waitFor(() => expect(lastListQuery()?.get("condition")).toBe("NEW"));
 
     await user.type(screen.getByLabelText("Marca"), "Toyota");
@@ -373,7 +373,7 @@ describe("VehicleListPage", () => {
     await user.click(screen.getByLabelText("Solo consignación"));
     await waitFor(() => expect(lastListQuery()?.get("consignmentOnly")).toBe("true"));
 
-    await user.selectOptions(screen.getByLabelText("Ordenar por"), "priceListUsd");
+    await chooseSelectOption(user, screen.getByLabelText("Ordenar por"), "Precio (USD)");
     await waitFor(() => expect(lastListQuery()?.get("sortBy")).toBe("priceListUsd"));
   });
 

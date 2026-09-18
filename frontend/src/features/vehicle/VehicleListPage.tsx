@@ -11,6 +11,8 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
 import { MultiSelect } from "../../design-system/MultiSelect";
 import { Pagination } from "../../design-system/Pagination";
+import { Select } from "../../design-system/Select";
+import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { BranchSelect } from "../branch/BranchSelect";
 import { useOwnerNames } from "../opportunity/relationResolution";
@@ -146,20 +148,19 @@ export function VehicleListPage() {
               setPage(1);
             }}
           />
-          <label>
-            Condición
-            <select
-              value={condition}
-              onChange={(event) => {
-                setCondition(event.target.value as VehicleCondition | "");
-                setPage(1);
-              }}
-            >
-              <option value="">Todas</option>
-              <option value="NEW">{CONDITION_LABELS.NEW}</option>
-              <option value="USED">{CONDITION_LABELS.USED}</option>
-            </select>
-          </label>
+          <Select
+            label="Condición"
+            value={condition}
+            options={[
+              { value: "NEW", label: CONDITION_LABELS.NEW },
+              { value: "USED", label: CONDITION_LABELS.USED },
+            ]}
+            emptyOption={{ label: "Todas" }}
+            onChange={(value) => {
+              setCondition(value);
+              setPage(1);
+            }}
+          />
           <label>
             Marca
             <input
@@ -217,27 +218,19 @@ export function VehicleListPage() {
             />
             Solo consignación
           </label>
-          <label>
-            Ordenar por
-            <select
-              value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as VehicleSortBy)}
-            >
-              <option value="createdAt">Fecha de alta</option>
-              <option value="priceListUsd">Precio (USD)</option>
-              <option value="stockEnteredAt">Ingreso al stock</option>
-            </select>
-          </label>
-          <label>
-            Orden
-            <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-            >
-              <option value="desc">Descendente</option>
-              <option value="asc">Ascendente</option>
-            </select>
-          </label>
+          <Select
+            label="Ordenar por"
+            value={sortBy}
+            options={[
+              { value: "createdAt", label: "Fecha de alta" },
+              { value: "priceListUsd", label: "Precio (USD)" },
+              { value: "stockEnteredAt", label: "Ingreso al stock" },
+            ]}
+            onChange={(value) => {
+              if (value) setSortBy(value);
+            }}
+          />
+          <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
         {vehiclesQuery.isLoading ? <LoadingState /> : null}

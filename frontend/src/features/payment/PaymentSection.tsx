@@ -4,6 +4,7 @@ import { Card } from "../../design-system/Card";
 import { CurrencyInput } from "../../design-system/CurrencyInput";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
+import { Select } from "../../design-system/Select";
 import { formatDate } from "../opportunity/format";
 import type { Opportunity } from "../opportunity/types";
 import { formatMoney } from "../quote/format";
@@ -240,20 +241,21 @@ function PaymentForm({
             onChange={(amount) => setValues((current) => ({ ...current, amount }))}
           />
         </FormField>
-        <FormField label={<span className="ds-required">Método</span>}>
-          <select
-            value={values.method}
-            onChange={(event) =>
-              setValues((current) => ({ ...current, method: event.target.value as PaymentMethod }))
-            }
-          >
-            {METHODS.map((method) => (
-              <option key={method} value={method}>
-                {PAYMENT_METHOD_LABEL[method]}
-              </option>
-            ))}
-          </select>
-        </FormField>
+        {/* Suelto, sin FormField: Select trae su propio <label htmlFor> y
+            FormField ES un <label> (mismo trato que UserSelect y compañía en
+            los formularios). */}
+        <Select
+          label="Método"
+          required
+          value={values.method}
+          options={METHODS.map((method) => ({
+            value: method,
+            label: PAYMENT_METHOD_LABEL[method],
+          }))}
+          onChange={(method) => {
+            if (method) setValues((current) => ({ ...current, method }));
+          }}
+        />
         <FormField label={<span className="ds-required">Fecha</span>}>
           <input
             type="date"

@@ -13,6 +13,7 @@ import { ProtectedRoute } from "../../auth/ProtectedRoute";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { BranchListPage } from "./BranchListPage";
 import type { BranchListResponse } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -129,10 +130,10 @@ describe("BranchListPage", () => {
     await user.click(screen.getByRole("button", { name: "Siguiente" }));
     await waitFor(() => expect(urls.at(-1)?.searchParams.get("page")).toBe("2"));
 
-    await user.selectOptions(screen.getByLabelText("Ordenar por"), "name");
+    await chooseSelectOption(user, screen.getByLabelText("Ordenar por"), "Nombre");
     await waitFor(() => expect(urls.at(-1)?.searchParams.get("sortBy")).toBe("name"));
 
-    await user.selectOptions(screen.getByLabelText("Orden"), "asc");
+    await chooseSelectOption(user, screen.getByLabelText("Orden"), "Ascendente");
     await waitFor(() => expect(urls.at(-1)?.searchParams.get("sortOrder")).toBe("asc"));
 
     await user.type(screen.getByLabelText("Buscar"), "chuy");

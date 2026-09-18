@@ -15,6 +15,7 @@ import { openActionsMenu } from "../../test/openActionsMenu";
 import { ActivityListPage } from "./ActivityListPage";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import type { ActivityListResponse } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -160,7 +161,7 @@ describe("ActivityListPage", () => {
     await waitFor(() => expect(screen.getByText("Llamar para renovación")).toBeInTheDocument());
 
     await user.type(screen.getByPlaceholderText("Buscar por asunto o notas"), "renov");
-    await user.selectOptions(screen.getByLabelText("Tipo"), "CALL");
+    await chooseSelectOption(user, screen.getByLabelText("Tipo"), "Llamada");
     await user.click(screen.getByText("Siguiente"));
 
     await waitFor(() =>
@@ -680,7 +681,7 @@ describe("ActivityListPage", () => {
     expect(initial?.searchParams.has("confirmed")).toBe(false);
 
     const select = screen.getByLabelText("Confirmación");
-    await user.selectOptions(select, "AWAITING_CONFIRMATION");
+    await chooseSelectOption(user, select, "Pendiente de confirmar");
     await waitFor(() =>
       expect(
         captured.some(
@@ -691,7 +692,7 @@ describe("ActivityListPage", () => {
       ).toBe(true),
     );
 
-    await user.selectOptions(select, "CONFIRMED");
+    await chooseSelectOption(user, select, "Confirmada");
     await waitFor(() =>
       expect(
         captured.some(
@@ -703,7 +704,7 @@ describe("ActivityListPage", () => {
     );
 
     const before = captured.length;
-    await user.selectOptions(select, "");
+    await chooseSelectOption(user, select, "Todas");
     await waitFor(() => expect(captured.length).toBeGreaterThan(before));
     const last = captured.at(-1);
     expect(last?.searchParams.has("completed")).toBe(false);

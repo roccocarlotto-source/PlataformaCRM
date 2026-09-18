@@ -10,6 +10,7 @@ import { makeApiKey, makeCreatedApiKey } from "../../test/apiKeyFixtures";
 import { makeSource } from "../../test/sourceFixtures";
 import { ApiKeyListPage } from "./ApiKeyListPage";
 import type { ApiKeyListResponse } from "./types";
+import { chooseSelectOption } from "../../test/chooseSelectOption";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -150,8 +151,10 @@ describe("ApiKeyListPage — listado", () => {
     renderPage("/api-keys?sourceId=src2");
 
     await waitFor(() => expect(urls[0]?.searchParams.get("sourceId")).toBe("src2"));
-    // Y el select lo refleja, no queda en "Todas" mientras la lista está filtrada.
-    await waitFor(() => expect(screen.getByLabelText("Fuente")).toHaveValue("src2"));
+    // Y el control lo refleja (con el NOMBRE de la fuente, que es lo que
+    // muestra el combobox), no queda en "Todas" mientras la lista está
+    // filtrada.
+    await waitFor(() => expect(screen.getByLabelText("Fuente")).toHaveValue("Feria"));
   });
 
   it("el filtro de estado viaja en la query", async () => {
@@ -169,7 +172,7 @@ describe("ApiKeyListPage — listado", () => {
     renderPage();
     await screen.findByRole("table");
 
-    await user.selectOptions(screen.getByLabelText("Estado"), "REVOKED");
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Revocadas");
     await waitFor(() => expect(urls.at(-1)?.searchParams.get("status")).toBe("REVOKED"));
   });
 
@@ -218,7 +221,7 @@ describe("ApiKeyListPage — creación y el secreto", () => {
     // El handler de detalle solo conoce src1: si el nombre del modal se
     // resolviera contra useSourcesByIds —que solo sabe de las fuentes de las
     // claves visibles— acá daría "—" y el test fallaría. Tiene que salir de la
-    // lista que alimenta el propio <select>.
+    // lista que alimenta el propio selector.
     let detallesPedidos = 0;
     server.use(
       sourcesHandler([
@@ -251,7 +254,11 @@ describe("ApiKeyListPage — creación y el secreto", () => {
     await screen.findByRole("table");
     const detallesAntes = detallesPedidos;
 
-    await user.selectOptions(screen.getByLabelText("Fuente para la clave nueva"), "src2");
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Fuente para la clave nueva"),
+      "Feria de otoño",
+    );
     await user.click(screen.getByRole("button", { name: "Crear clave" }));
 
     const dialog = await screen.findByRole("dialog");
@@ -274,7 +281,7 @@ describe("ApiKeyListPage — creación y el secreto", () => {
   // Ítem 10 de docs/frontend-cambios-pendientes.md: el `disabled` del botón
   // es lo que bloquea (acá no hay <form>); la marca de obligatorio del campo
   // (.ds-required + required) es la misma que en los formularios, aunque el
-  // <label> sea nativo y no FormField.
+  // control vaya suelto y no dentro de un FormField.
   it("el botón de crear está deshabilitado sin fuente elegida, el campo lleva la marca de obligatorio y la referencia del asterisco va una sola vez", async () => {
     server.use(
       sourcesHandler(),
@@ -304,7 +311,11 @@ describe("ApiKeyListPage — creación y el secreto", () => {
     renderPage();
     await screen.findByRole("table");
 
-    await user.selectOptions(screen.getByLabelText("Fuente para la clave nueva"), "src1");
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Fuente para la clave nueva"),
+      "Landing de precios",
+    );
     await user.click(screen.getByRole("button", { name: "Crear clave" }));
 
     expect(await screen.findByText(/No pudimos crear la clave/)).toBeInTheDocument();

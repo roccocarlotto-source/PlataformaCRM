@@ -6,6 +6,8 @@ import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Pagination } from "../../design-system/Pagination";
+import { Select } from "../../design-system/Select";
+import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { useOwnerNames } from "../opportunity/relationResolution";
 import { useRevokeInvitation } from "./mutations";
@@ -77,45 +79,33 @@ export function InvitationListPage() {
 
       <h2 className="ds-filters-title">Filtros</h2>
       <div className="ds-filters">
-        <label>
-          Estado
-          <select
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value as InvitationStatus | "");
-              setPage(1);
-            }}
-          >
-            <option value="">Todos</option>
-            {INVITATION_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {INVITATION_STATUS_LABELS[s]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Ordenar por
-          <select
-            value={sortBy}
-            onChange={(event) => setSortBy(event.target.value as InvitationSortBy)}
-          >
-            <option value="createdAt">Fecha de creación</option>
-            <option value="expiresAt">Vencimiento</option>
-          </select>
-        </label>
-        {/* Antes era un <select> suelto sin rótulo; ahora lleva "Orden" como
+        <Select
+          label="Estado"
+          value={status}
+          options={INVITATION_STATUSES.map((s) => ({
+            value: s,
+            label: INVITATION_STATUS_LABELS[s],
+          }))}
+          emptyOption={{ label: "Todos" }}
+          onChange={(value) => {
+            setStatus(value);
+            setPage(1);
+          }}
+        />
+        <Select
+          label="Ordenar por"
+          value={sortBy}
+          options={[
+            { value: "createdAt", label: "Fecha de creación" },
+            { value: "expiresAt", label: "Vencimiento" },
+          ]}
+          onChange={(value) => {
+            if (value) setSortBy(value);
+          }}
+        />
+        {/* Antes era un desplegable suelto sin rótulo; ahora lleva "Orden" como
             en el resto de los listados. */}
-        <label>
-          Orden
-          <select
-            value={sortOrder}
-            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-          >
-            <option value="desc">Descendente</option>
-            <option value="asc">Ascendente</option>
-          </select>
-        </label>
+        <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
       </div>
 
       {invitationsQuery.isLoading ? <LoadingState /> : null}

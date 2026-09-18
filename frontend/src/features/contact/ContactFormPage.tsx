@@ -7,6 +7,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
+import { Select } from "../../design-system/Select";
 import { CompanySelect } from "../company/CompanySelect";
 import { UserSelect } from "../user/UserSelect";
 import { LIFECYCLE_STAGE_LABELS, LIFECYCLE_STAGES } from "./labels";
@@ -104,8 +105,9 @@ function toFormValues(data: Contact): ContactFormValues {
 // que en CompanyFormPage y OpportunityFormPage. Su restyle interno es una
 // tarea aparte, compartida por varios módulos.
 //
-// Etapa es un <select> normal, no un Badge: Badge es solo para mostrar el
-// estado, no para elegirlo.
+// Etapa es un desplegable normal (el combobox del design system desde §46), no
+// un Badge: Badge es solo para mostrar el estado, no para elegirlo. Va suelto,
+// sin FormField, por el mismo motivo que los demás selectores.
 export function ContactFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
@@ -226,20 +228,17 @@ export function ContactFormPage() {
                 onChange={(event) => setValues({ ...values, source: event.target.value })}
               />
             </FormField>
-            <FormField label="Etapa">
-              <select
-                value={values.lifecycleStage}
-                onChange={(event) =>
-                  setValues({ ...values, lifecycleStage: event.target.value as LifecycleStage })
-                }
-              >
-                {LIFECYCLE_STAGES.map((stage) => (
-                  <option key={stage} value={stage}>
-                    {LIFECYCLE_STAGE_LABELS[stage]}
-                  </option>
-                ))}
-              </select>
-            </FormField>
+            <Select
+              label="Etapa"
+              value={values.lifecycleStage}
+              options={LIFECYCLE_STAGES.map((stage) => ({
+                value: stage,
+                label: LIFECYCLE_STAGE_LABELS[stage],
+              }))}
+              onChange={(lifecycleStage) => {
+                if (lifecycleStage) setValues({ ...values, lifecycleStage });
+              }}
+            />
             <UserSelect
               id="contact-form-owner"
               label="Asignado"

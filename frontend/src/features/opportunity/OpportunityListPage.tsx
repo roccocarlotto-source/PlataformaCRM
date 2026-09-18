@@ -12,6 +12,8 @@ import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
+import { Select } from "../../design-system/Select";
+import { SortOrderSelect } from "../../design-system/SortOrderSelect";
 import { Table } from "../../design-system/Table";
 import { CompanySelect } from "../company/CompanySelect";
 import { PipelineSelect } from "../pipeline/PipelineSelect";
@@ -179,23 +181,16 @@ function OpportunityTableView() {
               }}
             />
           </label>
-          <label>
-            Estado
-            <select
-              value={status}
-              onChange={(event) => {
-                setStatus(event.target.value as OpportunityStatus | "");
-                setPage(1);
-              }}
-            >
-              <option value="">Todos</option>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABEL[s]}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Select
+            label="Estado"
+            value={status}
+            options={STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }))}
+            emptyOption={{ label: "Todos" }}
+            onChange={(value) => {
+              setStatus(value);
+              setPage(1);
+            }}
+          />
           <div>
             <CompanySelect
               id="opportunity-filter-company"
@@ -238,28 +233,20 @@ function OpportunityTableView() {
               </Button>
             ) : null}
           </div>
-          <label>
-            Ordenar por
-            <select
-              value={sortBy}
-              onChange={(event) => setSortBy(event.target.value as OpportunitySortBy)}
-            >
-              <option value="createdAt">Fecha de creación</option>
-              <option value="updatedAt">Última actualización</option>
-              <option value="amount">Monto</option>
-              <option value="title">Título</option>
-            </select>
-          </label>
-          <label>
-            Orden
-            <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as SortOrder)}
-            >
-              <option value="desc">Descendente</option>
-              <option value="asc">Ascendente</option>
-            </select>
-          </label>
+          <Select
+            label="Ordenar por"
+            value={sortBy}
+            options={[
+              { value: "createdAt", label: "Fecha de creación" },
+              { value: "updatedAt", label: "Última actualización" },
+              { value: "amount", label: "Monto" },
+              { value: "title", label: "Título" },
+            ]}
+            onChange={(value) => {
+              if (value) setSortBy(value);
+            }}
+          />
+          <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
         {opportunitiesQuery.isLoading ? <LoadingState /> : null}
