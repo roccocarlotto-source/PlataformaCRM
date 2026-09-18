@@ -417,11 +417,11 @@ export function AgentFormPage() {
                   required
                 />
               </FormField>
-              <p className="ds-hint">
-                Es lo que el modelo lee antes de cada conversación: qué hace el negocio, qué tiene
-                que lograr el agente y cómo tiene que hablar.
-              </p>
             </div>
+            <p className="ds-hint ds-field-grid--full">
+              Es lo que el modelo lee antes de cada conversación: qué hace el negocio, qué tiene que
+              lograr el agente y cómo tiene que hablar.
+            </p>
           </div>
         </Card>
 
@@ -501,13 +501,13 @@ export function AgentFormPage() {
                   onChange={(event) => setValues({ ...values, guardrailsText: event.target.value })}
                 />
               </FormField>
-              <p className="ds-hint">
-                Escribilo con tus palabras: qué temas no puede tocar, qué acciones no puede hacer,
-                qué datos no puede modificar y cuándo tiene que pasarle la conversación a una
-                persona. Al guardar te mostramos qué entendimos, para que lo confirmes. Si lo dejás
-                vacío, el agente no tiene ninguna restricción además de los permisos de arriba.
-              </p>
             </div>
+            <p className="ds-hint ds-field-grid--full">
+              Escribilo con tus palabras: qué temas no puede tocar, qué acciones no puede hacer, qué
+              datos no puede modificar y cuándo tiene que pasarle la conversación a una persona. Al
+              guardar te mostramos qué entendimos, para que lo confirmes. Si lo dejás vacío, el
+              agente no tiene ninguna restricción además de los permisos de arriba.
+            </p>
           </div>
         </Card>
 

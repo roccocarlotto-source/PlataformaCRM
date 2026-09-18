@@ -2919,3 +2919,23 @@ En producción hay que correr `npm run migrate:deploy` después del merge, como 
 **Qué NO cambió:** el enforcement (`puedeEjecutarTool()`, `armarSystemPrompt()`), el contrato HTTP, el schema de Prisma, el flujo de traducción y confirmación del §56, y el backend entero — no tiene un solo cambio de código, solo la migración.
 
 **Tests:** el frontend queda en **1418 casos en 142 archivos**, los mismos que dejó el §56: este ítem no agrega ni saca casos, cambia los selectores de los que ya había. `npm run typecheck`, `npm run lint` y `prettier --check` limpios en frontend.
+
+---
+
+## 58. El espaciado de dos hints del formulario de Agentes
+
+**Estado:** hecho
+
+**El problema.** En `frontend/src/features/agent/AgentFormPage.tsx`, dos textos de ayuda quedaban pegados al cuadro de arriba, sin el aire que tienen los demás hints de esa misma pantalla: el de **Instrucciones** ("Es lo que el modelo lee antes de cada conversación…") y el del campo de guardrails ("Escribilo con tus palabras…").
+
+**La causa.** `.ds-hint` (`design-system.css`) tiene `margin: calc(var(--space-1) * -1) 0 var(--space-3)` — un margen superior **negativo a propósito**. Ese valor está calculado para el patrón correcto: el `<p className="ds-hint ds-field-grid--full">` como **hijo directo** de `.ds-field-grid`. Ahí el espacio real entre el campo y su hint lo pone el `gap` de la grilla (`gap: var(--space-4) 20px`), y el margen negativo solo lo recorta un poco para que el hint quede visualmente atado a *su* campo. Es lo que ya hacían, en este mismo archivo, el hint de Sucursal y el de Objetivo/Tono.
+
+En los dos casos rotos el `<p>` **no** era hijo directo de la grilla: estaba metido adentro del mismo `<div className="ds-field-grid--full">` que envuelve al `FormField`, como hermano suyo. Entre esos dos elementos no hay `gap` — son flujo normal de bloque — así que no había nada que recortar y el margen negativo se comía el margen inferior del `FormField` de arriba.
+
+**El arreglo.** Sacar el `<p className="ds-hint">` de adentro del `<div>` que envuelve al `FormField` y ponerlo como hermano directo dentro de `.ds-field-grid`, con `ds-field-grid--full` en el propio `<p>`. Es exactamente el patrón que ya existe y funciona unas líneas más arriba.
+
+**Lo que NO se tocó:** `design-system.css` (no hace falta ninguna regla nueva — el bug era de uso del patrón, no del patrón), el texto de ningún hint, y ningún atributo de los `<textarea>`. Es puramente reordenar JSX; el único cambio de texto es el reacomodo de los saltos de línea que impone `prettier` al bajar dos niveles de indentación.
+
+**Tests.** Ninguno cambió ni hizo falta agregar: los casos de `AgentFormPage.test.tsx` buscan por rol y por texto, no por el DOM padre de los hints. Suite del frontend en verde (142 archivos, 1418 casos), más `npm run typecheck`, `npm run lint` y `prettier --check` limpios.
+
+**Se trabajó en paralelo con el ítem 57**, que renombra "Guardrails" a "Reglas del agente" en este mismo archivo. El 57 se mergeó primero (PR #250), así que el conflicto esperable entre los dos ya se resolvió acá, al rebasar esta rama sobre `master`: `AgentFormPage.tsx` se auto-mergeó sin intervención —el 57 cambia rótulos y textos, este ítem mueve nodos del JSX, y no se pisan— y lo único que hubo que resolver a mano fue esta misma sección del documento, donde los dos ítems agregaban su bloque al final.
