@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Check, Eye, Info, Link2, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
-import { Badge, type BadgeVariant } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { DetailList } from "../../design-system/DetailList";
 import { formatDateTime } from "../../design-system/detailFormat";
@@ -22,13 +21,7 @@ import { QrFormDialog } from "./QrFormDialog";
 import { QrImageDialog } from "./QrImageDialog";
 import { QrSendDialog } from "./QrSendDialog";
 import { useQrCodes } from "./queries";
-import {
-  estadoDeQr,
-  type QrCode,
-  type QrCodeSortBy,
-  type QrCodeStatus,
-  type SortOrder,
-} from "./types";
+import { type QrCode, type QrCodeSortBy, type SortOrder } from "./types";
 
 const PAGE_SIZE = 20;
 
@@ -37,20 +30,21 @@ const PAGE_SIZE = 20;
 // ApiKeyListPage con una fuente que no resuelve.
 const SIN_RESOLVER = "—";
 
-const ESTADO_LABEL: Record<QrCodeStatus, string> = {
-  SIN_RECLAMAR: "Sin reclamar",
-  USADO: "Usado",
-  ACTIVO: "Activo",
-};
-
-// Color del badge de estado, decidido acá y no en Badge (ver Badge.tsx). Sin
-// reclamar es el único estado en que el QR no redirige a nadie: es el que
-// tiene que llamar la atención.
-const ESTADO_BADGE: Record<QrCodeStatus, BadgeVariant> = {
-  SIN_RECLAMAR: "danger",
-  USADO: "neutral",
-  ACTIVO: "success",
-};
+// Acá vivían las columnas "Estado" y "Tipo" (y en el pop up, sus filas). Las
+// sacó el ítem 53 de docs/frontend-cambios-pendientes.md: las dos derivaban de
+// `claimedAt` / `usedAt` / `qrType`, columnas que la migración
+// 20260904120000_remove_qr_claim_and_single_use eliminó. Al no venir en la
+// respuesta llegaban `undefined`, así que "Estado" decía "Activo" y "Tipo"
+// decía "Reusable" en TODAS las filas, siempre — no porque se hubiera decidido
+// mostrarlo así, sino por cómo caían las comparaciones. Una columna con el
+// mismo valor en cada fila no distingue nada, y dejarla fija hacía creer que
+// esta pantalla sabe leer un estado que no lee.
+//
+// El "activo/inactivo" que sí existe hoy es otro: depende de la suscripción de
+// QR de la organización (`qrSubscriptionStatus` / `qrBillingExempt`, ver
+// findQrCodePublicState en src/repositories/qrCode.repository.ts) y es lo que
+// decide si el QR redirige o no. GET /api/qr no lo expone, así que traerlo
+// hasta acá es un ítem propio con backend incluido, no éste.
 
 // Tamaño de los íconos de las acciones de fila (export "Reseñas QR": 15px,
 // trazo 1.5). Son decorativos: el nombre accesible del botón sigue siendo
@@ -213,9 +207,7 @@ export function QrListPage() {
                 <th>N°</th>
                 <th>Nombre</th>
                 <th>Sucursal</th>
-                <th>Estado</th>
                 <th>Destino</th>
-                <th>Tipo</th>
                 <th>Acciones</th>
               </tr>
             </thead>
@@ -229,23 +221,11 @@ export function QrListPage() {
                       ? (nombreDeSucursal.get(qr.branchId) ?? SIN_RESOLVER)
                       : SIN_RESOLVER}
                   </td>
-                  <td>
-                    <Badge variant={ESTADO_BADGE[estadoDeQr(qr)]}>
-                      {ESTADO_LABEL[estadoDeQr(qr)]}
-                    </Badge>
-                  </td>
                   <td
                     className="ds-cell-muted ds-cell-truncate"
                     title={qr.destinationUrl ?? undefined}
                   >
                     {qr.destinationUrl ?? SIN_RESOLVER}
-                  </td>
-                  <td>
-                    {qr.qrType === "SINGLE_USE" ? (
-                      <Badge variant="info">Un solo uso</Badge>
-                    ) : (
-                      <Badge variant="neutral">Reusable</Badge>
-                    )}
                   </td>
                   <td>
                     {/* Mismas acciones, mismos textos y mismos íconos que antes;
@@ -334,10 +314,9 @@ export function QrListPage() {
       {dialogo?.kind === "enviar" ? (
         <QrSendDialog qr={dialogo.qr} onClose={() => setDialogo(null)} />
       ) : null}
-      {/* Los campos de QrFormDialog (sucursal, nombre, destino, mensaje, tipo)
-          más lo que el listado ya muestra o el registro guarda y ningún
-          formulario edita: número, estado derivado (mismo Badge que la
-          columna) y las fechas de reclamo, uso y creación. */}
+      {/* Los campos de QrFormDialog (sucursal, nombre, destino, mensaje) más lo
+          que el listado ya muestra o el registro guarda y ningún formulario
+          edita: el número y la fecha de creación. */}
       {dialogo?.kind === "detalle" ? (
         <Modal variant="dialog" title="Detalle del QR" onClose={() => setDialogo(null)}>
           <DetailList
@@ -352,27 +331,8 @@ export function QrListPage() {
                       ? (nombreDeSucursal.get(dialogo.qr.branchId) ?? SIN_RESOLVER)
                       : null,
                   },
-                  {
-                    label: "Estado",
-                    value: (
-                      <Badge variant={ESTADO_BADGE[estadoDeQr(dialogo.qr)]}>
-                        {ESTADO_LABEL[estadoDeQr(dialogo.qr)]}
-                      </Badge>
-                    ),
-                  },
-                  {
-                    label: "Tipo",
-                    value:
-                      dialogo.qr.qrType === "SINGLE_USE" ? (
-                        <Badge variant="info">Un solo uso</Badge>
-                      ) : (
-                        <Badge variant="neutral">Reusable</Badge>
-                      ),
-                  },
                   { label: "Enlace de destino", value: dialogo.qr.destinationUrl },
                   { label: "Mensaje", value: dialogo.qr.message },
-                  { label: "Reclamado el", value: formatDateTime(dialogo.qr.claimedAt) },
-                  { label: "Usado el", value: formatDateTime(dialogo.qr.usedAt) },
                   { label: "Creado el", value: formatDateTime(dialogo.qr.createdAt) },
                 ],
               },

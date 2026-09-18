@@ -3049,9 +3049,9 @@ a.ds-button--secondary:hover {
 
    La ayuda (.ds-radio-card-hint) va como HERMANA del <label>, nunca adentro:
    si entrara en el label formaría parte del nombre accesible del radio
-   ("Un solo uso Deja de redirigir…") y rompería getByRole("radio", { name })
-   en los tests. Primeros consumidores: features/qr/QrFormDialog.tsx y
-   QrSendDialog.tsx.
+   ("Email Se abre el cliente de correo…") y rompería getByRole("radio",
+   { name }) en los tests. Único consumidor hoy: features/qr/QrSendDialog.tsx
+   (el otro, los radios de tipo de QR de QrFormDialog, los sacó el ítem 53).
    --------------------------------------------------------------------------- */
 .ds-radio-cards {
   display: flex;

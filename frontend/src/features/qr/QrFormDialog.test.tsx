@@ -68,7 +68,7 @@ describe("QrFormDialog — crear", () => {
     expect(posted).toBe(false);
   });
 
-  it("POST /api/qr/digital con qrType REUSABLE por defecto, message null si vacío, y llama a onSaved con la respuesta", async () => {
+  it("POST /api/qr/digital con message null si vacío, sin qrType, y llama a onSaved con la respuesta", async () => {
     let body: unknown;
     const creado = makeQrCode({ displayNumber: 9, name: "Caja" });
     server.use(
@@ -88,37 +88,50 @@ describe("QrFormDialog — crear", () => {
     await user.click(dialog.getByRole("button", { name: "Crear QR" }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(creado));
+    // Sin qrType: la migración 20260904120000 sacó la columna y
+    // createDigitalQrSchema dejó de declararla (ítem 53). Al no ser un Zod
+    // .strict(), el backend la venía descartando en silencio — mandarla no
+    // fallaba, simplemente no hacía nada.
     expect(body).toEqual({
       branchId: "b1",
       name: "Caja",
       destinationUrl: "https://g.page/r/x/review",
       message: null,
-      qrType: "REUSABLE",
     });
+    expect(body).not.toHaveProperty("qrType");
   });
 
-  it("con 'Un solo uso' marcado manda qrType SINGLE_USE y el mensaje recortado", async () => {
+  // Hasta el ítem 53 este caso además marcaba el radio "Un solo uso" y
+  // afirmaba que el body llevaba qrType SINGLE_USE. Los radios se sacaron: la
+  // columna no existe desde 20260904120000 y el backend descartaba el campo en
+  // silencio, así que elegir esa opción creaba un QR reusable igual. Queda lo
+  // que sí sigue vivo —el mensaje se recorta antes de viajar— y se afirma de
+  // paso que el alta ya no ofrece ningún radiogroup.
+  it("el mensaje viaja recortado y el alta ya no ofrece elegir tipo de QR", async () => {
     let body: unknown;
     server.use(
       branchesHandler(),
       http.post(`${qrUrl}/digital`, async ({ request }) => {
         body = await request.json();
-        return HttpResponse.json(makeQrCode({ qrType: "SINGLE_USE" }), { status: 201 });
+        return HttpResponse.json(makeQrCode(), { status: 201 });
       }),
     );
     const user = userEvent.setup();
     const { dialog } = renderDialog();
     await dialog.findByRole("combobox", { name: "Sucursal" });
 
+    expect(dialog.queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(dialog.queryByText("Tipo de QR")).not.toBeInTheDocument();
+
     await chooseSelectOption(user, dialog.getByLabelText("Sucursal"), "Casa Central");
     await user.type(dialog.getByLabelText("Nombre"), "Evento");
     await user.type(dialog.getByLabelText("Enlace de destino"), "https://g.page/r/x/review");
     await user.type(dialog.getByLabelText("Mensaje (opcional)"), " ¡Gracias! ");
-    await user.click(dialog.getByRole("radio", { name: "Un solo uso" }));
     await user.click(dialog.getByRole("button", { name: "Crear QR" }));
 
     await waitFor(() => expect(body).toBeDefined());
-    expect(body).toMatchObject({ qrType: "SINGLE_USE", message: "¡Gracias!" });
+    expect(body).toMatchObject({ message: "¡Gracias!" });
+    expect(body).not.toHaveProperty("qrType");
   });
 
   it("muestra el 400 del backend si igual llega inválido", async () => {
@@ -155,7 +168,7 @@ describe("QrFormDialog — crear", () => {
 });
 
 describe("QrFormDialog — editar", () => {
-  it("hidrata desde la fila (sin fetch de detalle), no muestra sucursal ni tipo, y el PATCH no lleva branchId ni qrType", async () => {
+  it("hidrata desde la fila (sin fetch de detalle), no muestra sucursal, y el PATCH no lleva branchId", async () => {
     let body: unknown;
     let patchedId: string | undefined;
     let branchesFetched = false;
@@ -181,7 +194,6 @@ describe("QrFormDialog — editar", () => {
     expect(dialog.getByLabelText("Enlace de destino")).toHaveValue("https://g.page/r/abc/review");
     expect(dialog.getByLabelText("Mensaje (opcional)")).toHaveValue("Hola");
     expect(dialog.queryByLabelText("Sucursal")).not.toBeInTheDocument();
-    expect(dialog.queryByRole("radiogroup")).not.toBeInTheDocument();
 
     await user.clear(dialog.getByLabelText("Nombre"));
     await user.type(dialog.getByLabelText("Nombre"), "Caja");
@@ -197,7 +209,6 @@ describe("QrFormDialog — editar", () => {
       message: null,
     });
     expect(body).not.toHaveProperty("branchId");
-    expect(body).not.toHaveProperty("qrType");
     expect(branchesFetched).toBe(false);
   });
 });

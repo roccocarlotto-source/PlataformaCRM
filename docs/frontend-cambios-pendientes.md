@@ -2512,3 +2512,53 @@ No hizo falta ningún test nuevo: el ítem no agrega comportamiento, saca un cam
 Los importes de Pagos y Cotizaciones llegan ahí por `formatMoney` (`features/quote/format.ts`), que arma el texto con la moneda y el signo menos tipográfico y por dentro llama a `formatAmount`: `"−500,00 UYU"` pasó a `"−500 UYU"` y `"0,00 USD"` a `"0 USD"`, sin tocar su lógica de centavos enteros.
 
 **Tests.** No se agregó ningún archivo: las funciones puras de `currencyFormat.ts` ya se prueban en `CurrencyInput.test.tsx` (junto al componente, como desde el ítem 18.A), así que ahí quedó el caso de `formatAmount` reescrito con los dos caminos explícitos — entero y decimales en cero sin coma, centavos reales con coma y relleno a dos — más el borde de un solo decimal no-cero (`"20000.5"` → `20.000,50`). Se sumó un caso de componente: tipear un importe redondo y salir del campo **no** hace aparecer una coma de la nada. En los cinco archivos de features (`OpportunityFormPage`, `PaymentSection`, `format` y `QuoteSection` de cotizaciones, `VehicleFormPage`, `VehicleListPage`) se ajustó **solo el texto mostrado** de los importes redondos; los valores de prueba con centavos reales (`"1234.50"`, `"7500.25"`, `"17499.75"`, `"812,25"`) se dejaron como estaban, porque ese caso no cambia. Suite completa del frontend en verde.
+## 53. Limpiar los campos muertos del módulo QR: "Reclamado el", "Usado el", "Estado" y "Tipo"
+
+**Estado:** hecho
+
+**Contexto — qué pasaba.** El pop up "Ver detalle" de un QR (§28) mostraba dos fechas que estaban **siempre vacías**, "Reclamado el" y "Usado el", las dos con un guion. Al lado, dos badges que decían **lo mismo en todos los QR de todas las organizaciones**: "Estado: Activo" y "Tipo: Reusable". Esos dos badges también eran dos columnas de la tabla del listado, repitiendo el mismo par de valores en cada fila. Y el formulario de alta ofrecía elegir entre "Reusable (usos ilimitados)" y "Un solo uso" con una explicación de lo que cada opción hacía — elegir "Un solo uso" no cambiaba nada.
+
+**La causa raíz: una migración que el frontend nunca acompañó.** El modelo `QrCode` de `prisma/schema.prisma` **no tiene** las columnas `qrType`, `usedAt` ni `claimedAt` desde la migración **`20260904120000_remove_qr_claim_and_single_use`**, la que sacó el QR físico reclamable y el de un solo uso (el comentario arriba del modelo cuenta el porqué: el módulo QR es un link digital reusable por sucursal, y la fidelización se resuelve mandando el link desde el CRM). El backend quedó limpio en esa misma migración — `src/` no menciona ninguno de los tres campos en ningún lado, `createDigitalQrSchema` dejó de declarar `qrType` y `POST /api/qr/claim` desapareció de `qr.routes.ts`.
+
+El frontend no. `features/qr/types.ts` siguió declarando los tres campos en la interfaz `QrCode` como si el backend los devolviera, y de ahí colgaba todo lo demás. Como el backend nunca los manda, llegaban **`undefined`, no `null`**, y la lógica derivada caía siempre en la misma rama por accidente de comparación:
+
+```ts
+export function estadoDeQr(qr: QrCode): QrCodeStatus {
+  if (qr.claimedAt === null) return "SIN_RECLAMAR";   // undefined !== null  → sigue
+  if (qr.qrType === "SINGLE_USE" && qr.usedAt !== null) return "USADO";  // undefined !== "SINGLE_USE" → sigue
+  return "ACTIVO";                                     // siempre acá
+}
+```
+
+Nadie decidió que todos los QR se vieran "Activo" y "Reusable": es lo que queda cuando se comparan campos que no existen. Las fechas, por el mismo motivo, pasaban por `formatDateTime(undefined)` y salían como guion.
+
+**Cómo apareció.** Buscando por qué el detalle mostraba fechas vacías. Vale anotar el hallazgo de fondo: la sección *"Frontend, en el worktree `plataforma-crm-qr-integration-fase3`"* de `docs/qr-integration.md` **ya describía exactamente esta limpieza**, hecha en una rama paralela a la del restyle. Esa rama nunca llegó a `master`, así que la mitad del backend se mergeó por otro camino y la del frontend se perdió. Este ítem retoma la parte que faltaba.
+
+**Qué se sacó.**
+
+- **`types.ts`:** los campos `qrType`, `usedAt` y `claimedAt` de la interfaz `QrCode`; el tipo `QrType`; el tipo `QrCodeStatus` y la función `estadoDeQr` (sin ningún otro consumidor, verificado con grep en todo `frontend/src`); y el `qrType?` de `CreateDigitalQrInput`. El comentario que encabeza el archivo prometía "no se agrega ningún campo que el backend no devuelva o no acepte" y hacía rato que no era cierto — se reescribió contando la migración, para que el próximo que lo lea sepa contra qué está verificado.
+- **`QrListPage.tsx`:** las columnas **"Estado"** y **"Tipo"** de la tabla, las filas **"Estado"**, **"Tipo"**, **"Reclamado el"** y **"Usado el"** del pop up, y las constantes `ESTADO_LABEL`/`ESTADO_BADGE` con el import de `Badge`. La tabla queda en N° · Nombre · Sucursal · Destino · Acciones.
+- **`QrFormDialog.tsx`:** los radios "Tipo de QR" del alta y el `qrType` del payload. Este era el peor de los cuatro, porque no era solo ruido: `createDigitalQrSchema` **no es un Zod `.strict()`**, así que el campo de más no daba error — el backend lo **descartaba en silencio**. Elegir "Un solo uso" creaba un QR reusable y la pantalla no lo desmentía nunca.
+
+**La decisión sobre el Badge de "Estado": se elimina, no se deja fijo en "Activo".** La alternativa era dejar un badge constante como placeholder. Se descartó por dos razones. Una columna cuyo valor es idéntico en todas las filas no distingue nada, y ocupa el lugar de las que sí; y un badge fijo es *peor* que ninguno, porque sugiere que esta pantalla sabe leer un estado — alguien lo ve en verde y concluye que el QR está funcionando.
+
+Porque además **hay** un "activo/inactivo" real, y no es éste: depende de la suscripción de QR de la organización (`qrSubscriptionStatus` / `qrBillingExempt`, ver `findQrCodePublicState` en `src/repositories/qrCode.repository.ts`), y es lo que de verdad decide si el QR redirige o si el visitante ve la página de QR inactivo. `GET /api/qr` no lo expone. Traerlo hasta acá es un ítem propio con backend incluido; mientras tanto es mejor no mostrar nada que mostrar un verde que no significa eso. El porqué quedó como comentario en `QrListPage.tsx`, donde estaban las constantes, para que la columna no vuelva por olvido.
+
+**Qué NO cambió:**
+
+- **El backend, el schema y las migraciones.** No había nada que hacer: la limpieza del backend ya estaba hecha desde `20260904120000`. Este ítem es puramente el frontend poniéndose al día.
+- **El flujo público de resolución del QR** (`qrLanding.ts`, `qrPublic.routes.ts`, `requireInternalProxySecret.ts`, el Worker). Ni se tocó ni se leyó como parte de esto: el ítem es la pantalla de gestión interna.
+- **`QrImageDialog` y `QrSendDialog`.** Reciben el objeto `qr` completo pero no usaban ninguno de los tres campos — "ver imagen" y "enviar" siempre fueron agnósticos del tipo de QR. Solo se corrigió un comentario de `QrSendDialog.tsx` que citaba los radios de "Tipo de QR" como referencia de estilo, y otro igual en `design-system.css`: la clase `.ds-radio-card` sigue viva y su único consumidor ahora es el selector de canal de envío.
+- **La nulabilidad de `branchId` / `name` / `destinationUrl` en `QrCode`.** La misma migración los dejó `NOT NULL`, y el tipo del frontend los sigue declarando nullable. Es un tipo más laxo que el contrato, no uno inventado: no muestra nada de más y los `?? "—"` que sobran son inofensivos. Ajustarlo toca los consumidores de los tres campos y no tiene nada que ver con lo que se ve en pantalla, así que va aparte. Queda anotado en el comentario de `types.ts`.
+
+**Lo que este ítem deja a la vista y NO resuelve: la página de reclamo apunta a un endpoint que ya no existe.** `ClaimPage.tsx` sigue ruteada, y `api.ts::claimQrCode` le pega a `POST /api/qr/claim`, que la misma migración eliminó de `qr.routes.ts`. Esa pantalla hoy no puede funcionar: da 404. No se toca acá porque es borrar una página entera con su ruta, su test y sus mutaciones — un diff de otra naturaleza que el de limpiar campos muertos de un modal. La sección del worktree en `docs/qr-integration.md` ya tiene escrito qué hay que sacar (`ClaimPage.tsx`, `ClaimPage.test.tsx`, la ruta de `router.tsx`, `claimQrCode`/`useClaimQrCode` y `ClaimQrInput`). Queda como ítem propio, y el comentario de `ClaimQrInput` en `types.ts` lo avisa en el código.
+
+**Tests:** la suite pasó de **1352 a 1351** casos. Los que tocaban los campos eliminados se revisaron uno por uno:
+
+- **Borrado (1), el único:** `QrListPage.test.tsx` → *"el estado se DERIVA: single-use con usedAt → Usado; sin claimedAt → Sin reclamar"*. Armaba cuatro QR con combinaciones de `qrType`/`usedAt`/`claimedAt` y afirmaba los tres estados. Probaba, con fixtures que el backend no puede producir, exactamente la función que este ítem borra: no hay nada que migrarle.
+- **Reescrito (1):** *"con 'Un solo uso' marcado manda qrType SINGLE_USE y el mensaje recortado"* de `QrFormDialog.test.tsx` cubría dos cosas, y una sigue viva. Quedó como *"el mensaje viaja recortado y el alta ya no ofrece elegir tipo de QR"*: mismo recorte de `message`, y en lugar de marcar el radio, afirma que ya no hay ningún `radiogroup` ni rótulo "Tipo de QR" en el alta. Esa parte reemplaza la cobertura del borrado: en vez de probar que el estado se deriva bien, prueba que el control que lo alimentaba no está.
+- **Asserts adaptados (3):** el test del listado y el del pop up dejaron de afirmar "Activo"/"Reusable" y ahora afirman que **no** están (`queryByText(...).not.toBeInTheDocument()`), junto con "Reclamado el" y "Usado el" — el listado no pierde nada, porque número, nombre, sucursal por nombre y destino los sigue verificando igual. El del pop up cambió la fecha que comprueba: usaba `claimedAt` como valor de prueba y pasó a `createdAt`, que es la fecha que el pop up sigue mostrando. El de `api.test.ts` dejó de mandar y esperar `qrType` en el body de `createDigitalQrCode`.
+- **Títulos corregidos (2):** los de "…sin sucursal **ni tipo**" en `QrListPage.test.tsx` y `QrFormDialog.test.tsx` nombraban un control que ya no existe en ninguno de los dos modos del formulario.
+- **Fixture:** `test/qrFixtures.ts` perdió los tres campos. Es la única fixture de QR y la comparten los cinco archivos de test del módulo, así que alcanzó con tocarla ahí.
+
+`tsc --noEmit`, ESLint y Prettier limpios. **Suite de frontend en verde: 139 archivos y 1351 tests.** Sin backend, sin migraciones y sin dependencias nuevas.

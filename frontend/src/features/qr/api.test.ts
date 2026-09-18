@@ -64,10 +64,11 @@ describe("features/qr/api", () => {
 
   it("createDigitalQrCode: POST /api/qr/digital con el body tal cual", async () => {
     let body: unknown;
+    const creado = makeQrCode({ name: "Mostrador" });
     server.use(
       http.post(`${baseUrl}/digital`, async ({ request }) => {
         body = await request.json();
-        return HttpResponse.json(makeQrCode({ qrType: "SINGLE_USE" }), { status: 201 });
+        return HttpResponse.json(creado, { status: 201 });
       }),
     );
 
@@ -76,7 +77,6 @@ describe("features/qr/api", () => {
       name: "Mostrador",
       destinationUrl: "https://g.page/r/abc/review",
       message: null,
-      qrType: "SINGLE_USE",
     });
 
     expect(body).toEqual({
@@ -84,9 +84,8 @@ describe("features/qr/api", () => {
       name: "Mostrador",
       destinationUrl: "https://g.page/r/abc/review",
       message: null,
-      qrType: "SINGLE_USE",
     });
-    expect(created.qrType).toBe("SINGLE_USE");
+    expect(created).toEqual(creado);
   });
 
   it("claimQrCode: POST /api/qr/claim con qrId en el body (nunca en el path)", async () => {

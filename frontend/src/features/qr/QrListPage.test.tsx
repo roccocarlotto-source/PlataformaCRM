@@ -77,7 +77,7 @@ afterEach(() => {
 });
 
 describe("QrListPage — listado", () => {
-  it("muestra número, nombre, NOMBRE de sucursal (no el uuid), estado derivado, destino y tipo", async () => {
+  it("muestra número, nombre, NOMBRE de sucursal (no el uuid) y destino", async () => {
     server.use(
       branchesHandler(),
       http.get(qrUrl, () => HttpResponse.json(listResponse())),
@@ -90,50 +90,12 @@ describe("QrListPage — listado", () => {
     expect(tabla.queryByText("b1")).not.toBeInTheDocument();
     expect(tabla.getByText("1")).toBeInTheDocument();
     expect(tabla.getByText("Mostrador")).toBeInTheDocument();
-    expect(tabla.getByText("Activo")).toBeInTheDocument();
     expect(tabla.getByText("https://g.page/r/abc/review")).toBeInTheDocument();
-    expect(tabla.getByText("Reusable")).toBeInTheDocument();
-  });
-
-  it("el estado se DERIVA: single-use con usedAt → Usado; sin claimedAt → Sin reclamar", async () => {
-    server.use(
-      branchesHandler(),
-      http.get(qrUrl, () =>
-        HttpResponse.json(
-          listResponse({
-            data: [
-              makeQrCode({ id: "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11", displayNumber: 1 }),
-              makeQrCode({
-                id: "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a12",
-                displayNumber: 2,
-                qrType: "SINGLE_USE",
-                usedAt: "2026-02-01T00:00:00.000Z",
-              }),
-              makeQrCode({
-                id: "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a13",
-                displayNumber: 3,
-                qrType: "SINGLE_USE",
-                usedAt: null,
-              }),
-              makeQrCode({
-                id: "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a14",
-                displayNumber: 4,
-                claimedAt: null,
-              }),
-            ],
-            pagination: { page: 1, pageSize: 20, total: 4, totalPages: 1 },
-          }),
-        ),
-      ),
-    );
-
-    renderPage();
-
-    const tabla = within(await screen.findByRole("table"));
-    expect(tabla.getAllByText("Activo")).toHaveLength(2);
-    expect(tabla.getByText("Usado")).toBeInTheDocument();
-    expect(tabla.getByText("Sin reclamar")).toBeInTheDocument();
-    expect(tabla.getAllByText("Un solo uso")).toHaveLength(2);
+    // Las columnas Estado y Tipo se sacaron en el ítem 53: derivaban de
+    // claimedAt/usedAt/qrType, que el backend no manda desde la migración
+    // 20260904120000, así que decían "Activo" y "Reusable" en todas las filas.
+    expect(tabla.queryByText("Activo")).not.toBeInTheDocument();
+    expect(tabla.queryByText("Reusable")).not.toBeInTheDocument();
   });
 
   it("un QR cuya sucursal no está entre las cargadas muestra un guion, no rompe la fila", async () => {
@@ -376,7 +338,7 @@ describe("QrListPage — diálogos", () => {
     expect(screen.queryByText("Generar QR digital", { selector: "h2" })).not.toBeInTheDocument();
   });
 
-  it("Editar abre el formulario hidratado con la fila, sin sucursal ni tipo", async () => {
+  it("Editar abre el formulario hidratado con la fila, sin sucursal", async () => {
     server.use(
       branchesHandler(),
       http.get(qrUrl, () => HttpResponse.json(listResponse())),
@@ -392,7 +354,6 @@ describe("QrListPage — diálogos", () => {
     expect(dialog.getByLabelText("Nombre")).toHaveValue("Mostrador");
     expect(dialog.getByLabelText("Enlace de destino")).toHaveValue("https://g.page/r/abc/review");
     expect(dialog.queryByLabelText("Sucursal")).not.toBeInTheDocument();
-    expect(dialog.queryByRole("radiogroup")).not.toBeInTheDocument();
   });
 
   it("Enviar abre el diálogo de envío; Cancelar lo cierra", async () => {
@@ -419,14 +380,14 @@ describe("QrListPage — diálogos", () => {
 // lectura con los datos del QR —no la imagen—, desde la fila ya cargada.
 // ---------------------------------------------------------------------------
 describe("QrListPage — ver detalle", () => {
-  it("abre el pop up con los datos del registro (sucursal por nombre, estado y tipo como badge, fechas); cierra con × y con Escape", async () => {
-    const claimedAt = "2026-01-15T14:30:00.000Z";
+  it("abre el pop up con los datos del registro (sucursal por nombre, mensaje, fecha de creación); cierra con × y con Escape", async () => {
+    const createdAt = "2026-01-15T14:30:00.000Z";
     server.use(
       branchesHandler(),
       http.get(qrUrl, () =>
         HttpResponse.json(
           listResponse({
-            data: [makeQrCode({ message: "Gracias por su visita", claimedAt })],
+            data: [makeQrCode({ message: "Gracias por su visita", createdAt })],
           }),
         ),
       ),
@@ -443,11 +404,17 @@ describe("QrListPage — ver detalle", () => {
     expect(dialog).toHaveTextContent("Mostrador");
     expect(dialog).toHaveTextContent("Casa Central");
     expect(dialog).not.toHaveTextContent("b1");
-    expect(within(dialog).getByText("Activo")).toHaveClass("ds-badge");
-    expect(within(dialog).getByText("Reusable")).toHaveClass("ds-badge");
     expect(dialog).toHaveTextContent("https://g.page/r/abc/review");
     expect(dialog).toHaveTextContent("Gracias por su visita");
-    expect(dialog).toHaveTextContent(new Date(claimedAt).toLocaleString());
+    expect(dialog).toHaveTextContent(new Date(createdAt).toLocaleString());
+    // Ítem 53: las filas Estado, Tipo, "Reclamado el" y "Usado el" ya no
+    // están. Las dos primeras eran badges fijos y las dos fechas mostraban
+    // siempre "—", porque sus columnas no existen desde la migración
+    // 20260904120000.
+    expect(within(dialog).queryByText("Activo")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Reusable")).not.toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent("Reclamado el");
+    expect(dialog).not.toHaveTextContent("Usado el");
     // Es el detalle, no la imagen: sin <img> ni <svg> del código adentro.
     expect(dialog.querySelector("img, svg.qr")).toBeNull();
     expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
