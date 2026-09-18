@@ -109,9 +109,28 @@ function baseHandlers() {
     ),
     http.get(stagesUrl, ({ request }) => {
       const pipelineId = new URL(request.url).searchParams.get("pipelineId");
+      // "Ventas" (pl1) tiene las tres variantes que gobiernan §50: una etapa
+      // normal y las dos marcadas. Los flags son los REALES del contrato
+      // (isWon/isLost), nunca el nombre.
       const stages =
         pipelineId === "pl1"
-          ? [makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto" })]
+          ? [
+              makeStage({ id: "st1", pipelineId: "pl1", name: "Prospecto", order: 1 }),
+              makeStage({
+                id: "st-ganada",
+                pipelineId: "pl1",
+                name: "Cierre ganado",
+                order: 2,
+                isWon: true,
+              }),
+              makeStage({
+                id: "st-perdida",
+                pipelineId: "pl1",
+                name: "Cierre perdido",
+                order: 3,
+                isLost: true,
+              }),
+            ]
           : pipelineId === "pl2"
             ? [makeStage({ id: "st2", pipelineId: "pl2", name: "Cierre" })]
             : [];
@@ -767,6 +786,271 @@ describe("OpportunityFormPage", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
     expect(screen.getByLabelText("Etapa")).toHaveValue("");
+  });
+
+  // §50: elegir una Etapa sincroniza el Estado con la misma regla que el
+  // embudo al arrastrar (stageStatus.ts, compartido con boardMove.ts).
+  describe("la Etapa sincroniza el Estado (§50)", () => {
+    async function chooseVentasY(user: ReturnType<typeof userEvent.setup>, etapa: string) {
+      await screen.findByRole("combobox", { name: "Proceso de venta" });
+      await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
+      await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+      await chooseSelectOption(user, screen.getByLabelText("Etapa"), etapa);
+    }
+
+    it("create: una Etapa marcada isLost muestra la tarjeta de Estado con Perdida y Motivo, y el POST manda LOST", async () => {
+      let postedBody: Record<string, unknown> | undefined;
+      server.use(
+        ...baseHandlers(),
+        http.post(opportunitiesUrl, async ({ request }) => {
+          postedBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(makeOpportunity(), { status: 201 });
+        }),
+      );
+      const user = userEvent.setup();
+      renderForm("/opportunities/new");
+
+      // En Alta la tarjeta no existe hasta que una etapa cierra la
+      // oportunidad — es el gate nuevo de §50.
+      expect(screen.queryByLabelText("Estado")).not.toBeInTheDocument();
+
+      await user.type(screen.getByLabelText("Título"), "Se perdió de entrada");
+      await chooseVentasY(user, "Cierre perdido");
+
+      expect(await screen.findByLabelText("Estado")).toHaveValue("Perdida");
+      expect(screen.getByLabelText("Motivo de pérdida")).toBeVisible();
+      expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue(todayIsoDate());
+
+      await user.type(screen.getByLabelText("Motivo de pérdida"), "Compró en otro lado");
+      await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+      await waitFor(() => expect(postedBody).toBeDefined());
+      expect(postedBody).toMatchObject({
+        stageId: "st-perdida",
+        status: "LOST",
+        lostReason: "Compró en otro lado",
+        actualCloseDate: todayIsoDate(),
+      });
+    });
+
+    it("create: una Etapa marcada isWon muestra Ganada y Fecha real, sin Motivo", async () => {
+      let postedBody: Record<string, unknown> | undefined;
+      server.use(
+        ...baseHandlers(),
+        http.post(opportunitiesUrl, async ({ request }) => {
+          postedBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(makeOpportunity(), { status: 201 });
+        }),
+      );
+      const user = userEvent.setup();
+      renderForm("/opportunities/new");
+
+      await user.type(screen.getByLabelText("Título"), "Cerrada al toque");
+      await chooseVentasY(user, "Cierre ganado");
+
+      expect(await screen.findByLabelText("Estado")).toHaveValue("Ganada");
+      expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue(todayIsoDate());
+      expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+      await waitFor(() => expect(postedBody).toBeDefined());
+      expect(postedBody).toMatchObject({
+        stageId: "st-ganada",
+        status: "WON",
+        actualCloseDate: todayIsoDate(),
+      });
+    });
+
+    it("create: volver a una Etapa normal hace desaparecer la tarjeta y el POST vuelve a OPEN", async () => {
+      let postedBody: Record<string, unknown> | undefined;
+      server.use(
+        ...baseHandlers(),
+        http.post(opportunitiesUrl, async ({ request }) => {
+          postedBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(makeOpportunity(), { status: 201 });
+        }),
+      );
+      const user = userEvent.setup();
+      renderForm("/opportunities/new");
+
+      await user.type(screen.getByLabelText("Título"), "Falsa alarma");
+      await chooseVentasY(user, "Cierre perdido");
+      await user.type(await screen.findByLabelText("Motivo de pérdida"), "Precio");
+
+      await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
+      await waitFor(() => expect(screen.queryByLabelText("Estado")).not.toBeInTheDocument());
+
+      await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+      await waitFor(() => expect(postedBody).toBeDefined());
+      expect(postedBody).toMatchObject({ stageId: "st1", status: "OPEN" });
+      // Reabrir limpia motivo y fecha; en create los vacíos ni se mandan.
+      expect(postedBody).not.toHaveProperty("lostReason");
+      expect(postedBody).not.toHaveProperty("actualCloseDate");
+    });
+
+    it("edit: cambiar la Etapa a una marcada isLost revela Motivo de pérdida sin tocar Estado a mano", async () => {
+      server.use(
+        ...baseHandlers(),
+        http.get(`${opportunitiesUrl}/:id`, () =>
+          HttpResponse.json(
+            makeOpportunity({
+              status: "OPEN",
+              actualCloseDate: null,
+              pipelineId: "pl1",
+              stageId: "st1",
+            }),
+          ),
+        ),
+      );
+      const user = userEvent.setup();
+      renderForm("/opportunities/op1/edit");
+
+      await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("Prospecto"));
+      expect(screen.getByLabelText("Estado")).toHaveValue("Abierta");
+      expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
+
+      await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Cierre perdido");
+
+      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Perdida"));
+      expect(screen.getByLabelText("Motivo de pérdida")).toBeVisible();
+      expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue(todayIsoDate());
+    });
+
+    it("edit: de una Etapa marcada isLost a una normal reabre y el PATCH manda OPEN con motivo y fecha en null", async () => {
+      let patchedBody: Record<string, unknown> | undefined;
+      server.use(
+        ...baseHandlers(),
+        http.get(`${opportunitiesUrl}/:id`, () =>
+          HttpResponse.json(
+            makeOpportunity({
+              id: "op1",
+              status: "LOST",
+              lostReason: "Precio muy alto",
+              actualCloseDate: "2026-08-20T00:00:00.000Z",
+              pipelineId: "pl1",
+              stageId: "st-perdida",
+            }),
+          ),
+        ),
+        http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
+          patchedBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(makeOpportunity());
+        }),
+      );
+      const user = userEvent.setup();
+      renderForm("/opportunities/op1/edit");
+
+      await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("Cierre perdido"));
+      expect(screen.getByLabelText("Estado")).toHaveValue("Perdida");
+
+      await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
+
+      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Abierta"));
+      expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Fecha real de cierre")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+      await waitFor(() => expect(patchedBody).toBeDefined());
+      expect(patchedBody).toMatchObject({
+        stageId: "st1",
+        status: "OPEN",
+        lostReason: null,
+        actualCloseDate: null,
+      });
+    });
+
+    it("edit: cambiar de Proceso de venta estando cerrada por una Etapa también reabre", async () => {
+      let patchedBody: Record<string, unknown> | undefined;
+      server.use(
+        ...baseHandlers(),
+        http.get(`${opportunitiesUrl}/:id`, () =>
+          HttpResponse.json(
+            makeOpportunity({
+              id: "op1",
+              status: "LOST",
+              lostReason: "Precio muy alto",
+              actualCloseDate: "2026-08-20T00:00:00.000Z",
+              pipelineId: "pl1",
+              stageId: "st-perdida",
+            }),
+          ),
+        ),
+        http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
+          patchedBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(makeOpportunity());
+        }),
+      );
+      const user = userEvent.setup();
+      renderForm("/opportunities/op1/edit");
+
+      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Perdida"));
+
+      await screen.findByRole("combobox", { name: "Proceso de venta" });
+      await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Postventa");
+
+      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Abierta"));
+      expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
+
+      // La etapa quedó limpia al cambiar de proceso: hay que elegir una nueva
+      // para poder guardar (chequeo propio de handleSubmit).
+      await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+      await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Cierre");
+      await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+      await waitFor(() => expect(patchedBody).toBeDefined());
+      expect(patchedBody).toMatchObject({
+        pipelineId: "pl2",
+        stageId: "st2",
+        status: "OPEN",
+        lostReason: null,
+        actualCloseDate: null,
+      });
+    });
+
+    // El punto delicado: la sincronización es una reacción a que ALGUIEN
+    // cambie la Etapa, no una corrección automática. Un registro histórico
+    // cuyo Estado no coincide con los flags de su Etapa se muestra tal cual
+    // está persistido — recalcularlo al abrir la edición sería reescribir
+    // datos que nadie pidió tocar.
+    it("edit: la carga inicial NO recalcula nada — Etapa isLost con status WON persistido sigue mostrando Ganada", async () => {
+      let patchedBody: Record<string, unknown> | undefined;
+      server.use(
+        ...baseHandlers(),
+        http.get(`${opportunitiesUrl}/:id`, () =>
+          HttpResponse.json(
+            makeOpportunity({
+              id: "op1",
+              status: "WON",
+              actualCloseDate: "2026-08-20T00:00:00.000Z",
+              pipelineId: "pl1",
+              stageId: "st-perdida",
+            }),
+          ),
+        ),
+        http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
+          patchedBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(makeOpportunity());
+        }),
+      );
+      const user = userEvent.setup();
+      renderForm("/opportunities/op1/edit");
+
+      // Se espera a que la lista de etapas haya cargado (el selector muestra
+      // el nombre, no el id): recién ahí los flags estarían disponibles para
+      // recalcular, y justamente no se recalcula.
+      await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("Cierre perdido"));
+      expect(screen.getByLabelText("Estado")).toHaveValue("Ganada");
+      expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
+
+      // Y guardar sin tocar nada conserva el estado persistido.
+      await user.click(screen.getByRole("button", { name: /guardar/i }));
+      await waitFor(() => expect(patchedBody).toBeDefined());
+      expect(patchedBody).toMatchObject({ stageId: "st-perdida", status: "WON" });
+    });
   });
 
   it("Company y Contact son independientes: elegir Company primero NO filtra la búsqueda de Contact, y cambiar Company no modifica el Contact ya elegido", async () => {
