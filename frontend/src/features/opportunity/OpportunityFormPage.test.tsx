@@ -436,7 +436,7 @@ describe("OpportunityFormPage", () => {
     expect(within(estado).queryByRole("option", { name: "OPEN" })).not.toBeInTheDocument();
   });
 
-  it("edit: con Estado Abierta no se ven Motivo de pérdida ni Fecha real de cierre; con Ganada o Perdida sí, los dos", async () => {
+  it("edit: Motivo de pérdida solo se ve con Perdida; Fecha real de cierre se ve con Ganada o Perdida", async () => {
     server.use(
       ...baseHandlers(),
       http.get(`${opportunitiesUrl}/:id`, () =>
@@ -451,7 +451,7 @@ describe("OpportunityFormPage", () => {
     expect(screen.queryByLabelText("Fecha real de cierre")).not.toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("Estado"), "WON");
-    expect(screen.getByLabelText("Motivo de pérdida")).toBeVisible();
+    expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Fecha real de cierre")).toBeVisible();
 
     await user.selectOptions(screen.getByLabelText("Estado"), "LOST");
@@ -600,7 +600,7 @@ describe("OpportunityFormPage", () => {
     expect(patchedBody).toMatchObject({ status: "OPEN", lostReason: null, actualCloseDate: null });
   });
 
-  it("editar sin tocar lostReason y cambiar de Perdida a Ganada reenvía el mismo lostReason (nunca null/undefined por accidente)", async () => {
+  it("edit: cambiar de Perdida a Ganada limpia lostReason y el PATCH lo manda como null", async () => {
     let patchedBody: Record<string, unknown> | undefined;
     server.use(
       ...baseHandlers(),
@@ -626,12 +626,15 @@ describe("OpportunityFormPage", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio"));
     await user.selectOptions(screen.getByLabelText("Estado"), "WON");
+    // El campo desaparece: un motivo de pérdida en una oportunidad ganada no
+    // tiene sentido, y el valor viejo no puede quedar viajando fantasma.
+    expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() => expect(patchedBody).toBeDefined());
     expect(patchedBody).toMatchObject({
       status: "WON",
-      lostReason: "Precio",
+      lostReason: null,
       actualCloseDate: "2026-08-20",
     });
   });

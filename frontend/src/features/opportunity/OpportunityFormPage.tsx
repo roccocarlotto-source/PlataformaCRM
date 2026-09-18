@@ -227,7 +227,8 @@ function hasFinancing(financingType: OpportunityFinancingType | ""): boolean {
 // nueva arranca abierta (EMPTY_FORM.status es "OPEN") y el cierre se haría
 // desde el Kanban; pero el Kanban todavía no existe, así que sacarlos también
 // de la edición dejaría sin forma de cerrar una oportunidad. Dentro de esa
-// tarjeta, Motivo y Fecha real aparecen solo al cerrar (ver handleStatusChange).
+// tarjeta, Fecha real aparece al cerrar (Ganada o Perdida) y Motivo solo con
+// Perdida (ver handleStatusChange).
 //
 // Los selectores (CompanySelect, ContactSelect, PipelineSelect, StageSelect,
 // UserSelect) se montan sueltos, sin FormField: traen su propio <label
@@ -342,23 +343,29 @@ export function OpportunityFormPage() {
   //   pasando por "OPEN" —, nunca por el valor con el que cargó el registro:
   //   una oportunidad que ya estaba cerrada, o con fecha cargada a mano, no
   //   se pisa.
-  // - Ganada/Perdida → Abierta: se limpian Fecha real y Motivo en el mismo
-  //   setValues (mismo criterio que handlePipelineChange con stageId). Si no,
-  //   quedarían ocultos pero viajarían igual en el PATCH y reabrir arrastraría
-  //   datos del cierre anterior; en edición viajan como null explícito, que es
-  //   lo que el backend espera para limpiar.
+  // - Ganada/Perdida → Abierta: se limpia Fecha real en el mismo setValues
+  //   (mismo criterio que handlePipelineChange con stageId). Si no, quedaría
+  //   oculta pero viajaría igual en el PATCH y reabrir arrastraría datos del
+  //   cierre anterior; en edición viaja como null explícito, que es lo que el
+  //   backend espera para limpiar.
+  // - Cualquier estado que no sea Perdida: se limpia el Motivo, por el mismo
+  //   motivo pero con su propio criterio — el campo solo se muestra con
+  //   Perdida, así que tanto reabrir como pasar a Ganada tienen que dejarlo
+  //   vacío para que el motivo de la pérdida anterior no viaje fantasma en el
+  //   PATCH.
   //
   // El backend sigue sin sincronizar nada de esto: es comportamiento del
   // formulario, y el embudo tiene el suyo (boardMove.ts).
   function handleStatusChange(status: OpportunityStatus) {
     setValues((current) => {
+      const base = status === "LOST" ? current : { ...current, lostReason: "" };
       if (status === "OPEN") {
-        return { ...current, status, actualCloseDate: "", lostReason: "" };
+        return { ...base, status, actualCloseDate: "" };
       }
       if (current.status === "OPEN" && isClosed(status) && !current.actualCloseDate) {
-        return { ...current, status, actualCloseDate: todayIsoDate() };
+        return { ...base, status, actualCloseDate: todayIsoDate() };
       }
-      return { ...current, status };
+      return { ...base, status };
     });
   }
 
@@ -687,10 +694,11 @@ export function OpportunityFormPage() {
           </Card>
 
           {/* Sin mockup: el diseño cierra desde el embudo. Misma grilla por
-            criterio propio — Estado + Motivo de pérdida como par, el hint a
-            lo ancho debajo de los dos (suelto ocuparía una celda), Fecha real
-            sola. Motivo y Fecha real solo con Ganada/Perdida — un solo
-            criterio para los dos (ver handleStatusChange). */}
+            criterio propio — Estado + el campo que corresponda como par.
+            Dos criterios distintos, uno por campo: Motivo de pérdida solo con
+            Perdida (pedir un motivo de pérdida en una oportunidad ganada no
+            tiene sentido), Fecha real de cierre con Ganada o Perdida
+            (ver handleStatusChange). */}
           {isEditMode ? (
             <Card heading="Estado y cierre">
               <div className="ds-field-grid">
@@ -708,30 +716,25 @@ export function OpportunityFormPage() {
                     ))}
                   </select>
                 </FormField>
+                {values.status === "LOST" ? (
+                  <FormField label="Motivo de pérdida">
+                    <input
+                      type="text"
+                      value={values.lostReason}
+                      onChange={(event) => setValues({ ...values, lostReason: event.target.value })}
+                    />
+                  </FormField>
+                ) : null}
                 {isClosed(values.status) ? (
-                  <>
-                    <FormField label="Motivo de pérdida">
-                      <input
-                        type="text"
-                        value={values.lostReason}
-                        onChange={(event) =>
-                          setValues({ ...values, lostReason: event.target.value })
-                        }
-                      />
-                    </FormField>
-                    <p className="ds-hint ds-field-grid--full">
-                      Especialmente relevante cuando el estado es Perdida.
-                    </p>
-                    <FormField label="Fecha real de cierre">
-                      <input
-                        type="date"
-                        value={values.actualCloseDate}
-                        onChange={(event) =>
-                          setValues({ ...values, actualCloseDate: event.target.value })
-                        }
-                      />
-                    </FormField>
-                  </>
+                  <FormField label="Fecha real de cierre">
+                    <input
+                      type="date"
+                      value={values.actualCloseDate}
+                      onChange={(event) =>
+                        setValues({ ...values, actualCloseDate: event.target.value })
+                      }
+                    />
+                  </FormField>
                 ) : null}
               </div>
             </Card>
