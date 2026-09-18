@@ -220,7 +220,7 @@ function OpportunityTableView() {
           <div>
             <PipelineSelect
               id="opportunity-filter-pipeline"
-              label="Pipeline"
+              label="Proceso de venta"
               value={pipelineId}
               onChange={(id) => {
                 setPipelineId(id);
@@ -234,7 +234,7 @@ function OpportunityTableView() {
                   setPage(1);
                 }}
               >
-                Quitar filtro de pipeline
+                Quitar filtro de proceso de venta
               </Button>
             ) : null}
           </div>
@@ -429,7 +429,10 @@ function OpportunityTableView() {
               {
                 heading: "Embudo y valor",
                 items: [
-                  { label: "Pipeline", value: pipelineNames.byId.get(detalle.pipelineId) ?? "—" },
+                  {
+                    label: "Proceso de venta",
+                    value: pipelineNames.byId.get(detalle.pipelineId) ?? "—",
+                  },
                   { label: "Etapa", value: stageNames.byId.get(detalle.stageId) ?? "—" },
                   { label: "Monto", value: formatAmount(detalle.amount, detalle.currency) },
                   { label: "Moneda", value: detalle.currency },

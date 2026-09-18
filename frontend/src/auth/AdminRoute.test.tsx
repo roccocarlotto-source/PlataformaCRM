@@ -239,7 +239,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Pipeline", 
     renderPipelineRouteAt("/pipelines/new");
 
     await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
-    expect(screen.queryByText("Nuevo pipeline")).not.toBeInTheDocument();
+    expect(screen.queryByText("Nuevo proceso de venta")).not.toBeInTheDocument();
   });
 
   it("USER entrando directamente a /pipelines/:id/edit no renderiza el formulario ni pide el detail", async () => {
@@ -255,7 +255,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Pipeline", 
     renderPipelineRouteAt("/pipelines/pl1/edit");
 
     await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
-    expect(screen.queryByText("Editar pipeline")).not.toBeInTheDocument();
+    expect(screen.queryByText("Editar proceso de venta")).not.toBeInTheDocument();
     expect(detailRequested).toBe(false);
   });
 
@@ -264,7 +264,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Pipeline", 
 
     renderPipelineRouteAt("/pipelines/new");
 
-    await waitFor(() => expect(screen.getByText("Nuevo pipeline")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Nuevo proceso de venta")).toBeInTheDocument());
   });
 
   it("ADMIN sí accede a /pipelines/:id/edit", async () => {
@@ -283,7 +283,7 @@ describe("AdminRoute — protección visual de rutas de escritura de Pipeline", 
 
     renderPipelineRouteAt("/pipelines/pl1/edit");
 
-    await waitFor(() => expect(screen.getByText("Editar pipeline")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Editar proceso de venta")).toBeInTheDocument());
   });
 });
 

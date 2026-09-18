@@ -320,7 +320,7 @@ export function StageEditor({ pipelineId }: StageEditorProps) {
 
         {stagesQuery.isSuccess && stages.length === 0 ? (
           <EmptyState>
-            Este pipeline todavía no tiene etapas. Agregá la primera acá abajo.
+            Este proceso de venta todavía no tiene etapas. Agregá la primera acá abajo.
           </EmptyState>
         ) : null}
 

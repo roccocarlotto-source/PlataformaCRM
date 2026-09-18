@@ -92,7 +92,7 @@ export function StageListPage() {
   if (pipelineQuery.isError || !pipelineQuery.data) {
     return (
       <ErrorState>
-        No pudimos cargar el pipeline
+        No pudimos cargar el proceso de venta
         {pipelineQuery.error instanceof Error ? `: ${pipelineQuery.error.message}` : "."}
       </ErrorState>
     );

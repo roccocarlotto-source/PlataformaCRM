@@ -90,7 +90,7 @@ export function PipelineFormPage() {
     try {
       if (isEditMode) {
         await updatePipelineMutation.mutateAsync(toInput(values));
-        toast.show("Pipeline guardado");
+        toast.show("Proceso de venta guardado");
         navigate("/pipelines");
       } else {
         const created = await createPipelineMutation.mutateAsync(toInput(values));
@@ -120,11 +120,11 @@ export function PipelineFormPage() {
         // modo edición arranque con los datos ya cargados (sin pasar por
         // LoadingState) y sin un GET redundante mientras sean frescos.
         queryClient.setQueryData(pipelineKeys.detail(created.id), created);
-        toast.show("Pipeline guardado");
+        toast.show("Proceso de venta guardado");
         navigate(`/pipelines/${created.id}/edit`, { replace: true });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar el pipeline");
+      setError(err instanceof Error ? err.message : "No se pudo guardar el proceso de venta");
     }
   }
 
@@ -135,7 +135,7 @@ export function PipelineFormPage() {
   if (isEditMode && pipelineQuery.isError) {
     return (
       <ErrorState>
-        No pudimos cargar el pipeline
+        No pudimos cargar el proceso de venta
         {pipelineQuery.error instanceof Error ? `: ${pipelineQuery.error.message}` : "."}
       </ErrorState>
     );
@@ -149,10 +149,10 @@ export function PipelineFormPage() {
   // regla .ds-field:has(input[type="checkbox"]) solo lo pone en fila.
   return (
     <div className="ds-form">
-      <h1>{isEditMode ? "Editar pipeline" : "Nuevo pipeline"}</h1>
+      <h1>{isEditMode ? "Editar proceso de venta" : "Nuevo proceso de venta"}</h1>
       <div className="ds-stack">
         <form onSubmit={handleSubmit} className="ds-stack">
-          <Card heading="Datos del pipeline">
+          <Card heading="Datos del proceso de venta">
             <div className="ds-field-grid">
               <div className="ds-field-grid--full">
                 <FormField label={<span className="ds-required">Nombre</span>}>
@@ -188,7 +188,7 @@ export function PipelineFormPage() {
           <StageEditor pipelineId={id} />
         ) : (
           <Card heading="Etapas">
-            <EmptyState>Guardá el pipeline para poder agregar sus etapas.</EmptyState>
+            <EmptyState>Guardá el proceso de venta para poder agregar sus etapas.</EmptyState>
           </Card>
         )}
       </div>

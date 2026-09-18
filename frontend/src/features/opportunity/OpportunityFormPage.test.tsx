@@ -214,7 +214,7 @@ describe("OpportunityFormPage", () => {
     await user.click(screen.getByText("Acme Corp"));
 
     await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
 
@@ -246,7 +246,7 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/new?pipelineId=pl2&stageId=st2");
 
-    await waitFor(() => expect(screen.getByLabelText("Pipeline")).toHaveValue("pl2"));
+    await waitFor(() => expect(screen.getByLabelText("Proceso de venta")).toHaveValue("pl2"));
     await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("st2"));
 
     await user.type(screen.getByLabelText("Título"), "Desde el embudo");
@@ -302,7 +302,7 @@ describe("OpportunityFormPage", () => {
     // docs/frontend-cambios-pendientes.md (test de abajo): hay que elegirlos
     // para que el submit llegue al backend y sea SU mensaje el que se muestre.
     await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
@@ -335,9 +335,9 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await user.type(screen.getByLabelText("Título"), "Sin embudo");
-    const pipeline = await screen.findByLabelText("Pipeline");
+    const pipeline = await screen.findByLabelText("Proceso de venta");
     expect(pipeline).toBeRequired();
-    expect(screen.getByText("Pipeline")).toHaveClass("ds-required");
+    expect(screen.getByText("Proceso de venta")).toHaveClass("ds-required");
     expect(screen.getByLabelText("Etapa")).toBeRequired();
     expect(screen.getByText("Etapa")).toHaveClass("ds-required");
     expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
@@ -349,7 +349,9 @@ describe("OpportunityFormPage", () => {
     const form = pipeline.closest("form") as HTMLFormElement;
     fireEvent.submit(form);
     await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("Elegí un pipeline antes de guardar."),
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Elegí un proceso de venta antes de guardar.",
+      ),
     );
 
     await user.selectOptions(pipeline, "pl1");
@@ -402,7 +404,7 @@ describe("OpportunityFormPage", () => {
     expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio");
     expect(screen.getByLabelText("Fecha estimada de cierre")).toHaveValue("2026-08-15");
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
-    await waitFor(() => expect(screen.getByLabelText("Pipeline")).toHaveValue("pl1"));
+    await waitFor(() => expect(screen.getByLabelText("Proceso de venta")).toHaveValue("pl1"));
     await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("st1"));
   });
 
@@ -716,7 +718,7 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await user.type(screen.getByLabelText("Título"), "Nueva");
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
@@ -739,7 +741,7 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await user.type(screen.getByLabelText("Título"), "Nueva");
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
     await user.type(screen.getByLabelText("Fecha estimada de cierre"), "2026-08-15");
@@ -754,13 +756,13 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/new");
 
-    await waitFor(() => expect(screen.getByLabelText("Pipeline")).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await waitFor(() => expect(screen.getByLabelText("Proceso de venta")).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
     expect(screen.getByLabelText("Etapa")).toHaveValue("st1");
 
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl2");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl2");
 
     await waitFor(() => expect(screen.getByText("Cierre")).toBeInTheDocument());
     expect(screen.getByLabelText("Etapa")).toHaveValue("");
@@ -907,7 +909,7 @@ describe("OpportunityFormPage", () => {
     expect(monto).toHaveValue("20.000,5");
     await user.tab();
     expect(monto).toHaveValue("20.000,50");
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
@@ -932,7 +934,7 @@ describe("OpportunityFormPage", () => {
     await user.type(screen.getByLabelText("Título"), "Nueva");
     await user.type(screen.getByLabelText("Monto"), "2500.75");
     expect(screen.getByLabelText("Monto")).toHaveValue("2.500,75");
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
@@ -969,7 +971,7 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await user.type(screen.getByLabelText("Título"), "Nueva");
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
     await user.click(screen.getByRole("button", { name: /guardar/i }));
@@ -1090,7 +1092,7 @@ describe("OpportunityFormPage", () => {
     expect(screen.queryByText(PRICE_HINT)).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Título"), "Corolla para Ana");
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
 
@@ -1137,7 +1139,7 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/new");
 
     await user.type(screen.getByLabelText("Título"), "Con precio propio");
-    await user.selectOptions(screen.getByLabelText("Pipeline"), "pl1");
+    await user.selectOptions(screen.getByLabelText("Proceso de venta"), "pl1");
     await waitFor(() => expect(screen.getByText("Prospecto")).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Etapa"), "st1");
     await user.type(screen.getByPlaceholderText(VEHICLE_PLACEHOLDER), "corolla");

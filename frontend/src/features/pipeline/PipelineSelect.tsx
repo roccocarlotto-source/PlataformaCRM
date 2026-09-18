@@ -35,7 +35,7 @@ export function PipelineSelect({
       {pipelinesQuery.isLoading ? <p>Cargando…</p> : null}
       {pipelinesQuery.isError ? (
         <p role="alert">
-          No pudimos cargar los pipelines
+          No pudimos cargar los procesos de venta
           {pipelinesQuery.error instanceof Error ? `: ${pipelinesQuery.error.message}` : "."}
         </p>
       ) : null}

@@ -105,7 +105,7 @@ describe("PipelineListPage", () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay pipelines para mostrar.")).toBeInTheDocument(),
+      expect(screen.getByText("No hay procesos de venta para mostrar.")).toBeInTheDocument(),
     );
   });
 
@@ -157,7 +157,7 @@ describe("PipelineListPage", () => {
     expect(rowB).not.toHaveTextContent("Default");
   });
 
-  it("P13 USER no ve Nuevo pipeline / Editar / Eliminar", async () => {
+  it("P13 USER no ve Nuevo proceso de venta / Editar / Eliminar", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     server.use(
       http.get(baseUrl, () =>
@@ -171,12 +171,12 @@ describe("PipelineListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
-    expect(screen.queryByText("Nuevo pipeline")).not.toBeInTheDocument();
+    expect(screen.queryByText("Nuevo proceso de venta")).not.toBeInTheDocument();
     expect(screen.queryByText("Editar")).not.toBeInTheDocument();
     expect(screen.queryByText("Eliminar")).not.toBeInTheDocument();
   });
 
-  it("P14 ADMIN sí ve Nuevo pipeline / Editar / Eliminar", async () => {
+  it("P14 ADMIN sí ve Nuevo proceso de venta / Editar / Eliminar", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     server.use(
       http.get(baseUrl, () =>
@@ -190,7 +190,7 @@ describe("PipelineListPage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Ventas")).toBeInTheDocument());
-    expect(screen.getByText("Nuevo pipeline")).toBeInTheDocument();
+    expect(screen.getByText("Nuevo proceso de venta")).toBeInTheDocument();
     // Editar/Eliminar viven en el menú de 3 puntos de la fila (§8); "Ver
     // etapas" sigue en su propia columna, afuera del menú.
     expect(screen.getByText("Ver etapas")).toBeInTheDocument();
@@ -398,7 +398,7 @@ describe("PipelineListPage", () => {
     expect(screen.getAllByRole("menuitem")[0]).toHaveTextContent("Ver detalle");
     await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Detalle del pipeline" });
+    const dialog = await screen.findByRole("dialog", { name: "Detalle del proceso de venta" });
     expect(dialog).toHaveTextContent("Ventas mayoristas");
     // El checkbox "Default" del formulario se lee como Sí/No, no como casilla.
     expect(dialog).toHaveTextContent("Sí");

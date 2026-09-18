@@ -233,7 +233,7 @@ describe("StageFormPage", () => {
     renderForm("/pipelines/pl1/stages/st1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Prospecto"));
-    expect(screen.queryByLabelText(/pipeline/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/proceso de venta/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 

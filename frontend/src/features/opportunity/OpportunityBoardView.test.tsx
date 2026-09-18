@@ -456,6 +456,8 @@ describe("OpportunityBoardView", () => {
     );
 
     renderBoard();
-    await waitFor(() => expect(screen.getByText(/No hay pipelines todavía/)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/No hay procesos de venta todavía/)).toBeInTheDocument(),
+    );
   });
 });

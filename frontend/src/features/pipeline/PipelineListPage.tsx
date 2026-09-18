@@ -51,18 +51,18 @@ export function PipelineListPage() {
   const deletePipelineMutation = useDeletePipeline();
 
   function handleDelete(id: string) {
-    if (!window.confirm("¿Eliminar este pipeline?")) return;
+    if (!window.confirm("¿Eliminar este proceso de venta?")) return;
     deletePipelineMutation.mutate(id);
   }
 
   return (
     <div>
       <div className="ds-page-header">
-        <h1>Pipelines</h1>
+        <h1>Procesos de venta</h1>
         {isAdmin ? (
           <Link to="/pipelines/new" className="ds-link-button">
             <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-            Nuevo pipeline
+            Nuevo proceso de venta
           </Link>
         ) : null}
       </div>
@@ -110,14 +110,14 @@ export function PipelineListPage() {
 
         {pipelinesQuery.isError ? (
           <ErrorState>
-            No pudimos cargar los pipelines
+            No pudimos cargar los procesos de venta
             {pipelinesQuery.error instanceof Error ? `: ${pipelinesQuery.error.message}` : "."}
           </ErrorState>
         ) : null}
 
         {deletePipelineMutation.isError ? (
           <ErrorState>
-            No pudimos eliminar el pipeline
+            No pudimos eliminar el proceso de venta
             {deletePipelineMutation.error instanceof Error
               ? `: ${deletePipelineMutation.error.message}`
               : "."}
@@ -125,7 +125,7 @@ export function PipelineListPage() {
         ) : null}
 
         {pipelinesQuery.isSuccess && pipelinesQuery.data.data.length === 0 ? (
-          <EmptyState>No hay pipelines para mostrar.</EmptyState>
+          <EmptyState>No hay procesos de venta para mostrar.</EmptyState>
         ) : null}
 
         {pipelinesQuery.isSuccess && pipelinesQuery.data.data.length > 0 ? (
@@ -184,14 +184,14 @@ export function PipelineListPage() {
         ) : null}
       </div>
 
-      {/* Los mismos campos que la tarjeta "Datos del pipeline" de
+      {/* Los mismos campos que la tarjeta "Datos del proceso de venta" de
           PipelineFormPage, en solo lectura. Las etapas no son un campo del
           pipeline (el editor integrado del formulario es otra entidad) y
           tienen su propia pantalla, "Ver etapas". */}
       {detalle ? (
         <Modal
           variant="dialog"
-          title="Detalle del pipeline"
+          title="Detalle del proceso de venta"
           onClose={() => setDetalleAbierto(null)}
         >
           <DetailList
