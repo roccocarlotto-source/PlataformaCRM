@@ -89,6 +89,10 @@ export interface CreateAgentData {
   enabledTools: string[];
   channels: ConversationChannel[];
   guardrails: Prisma.InputJsonValue;
+  // El mismo límite, en las palabras del ADMIN (ítem 56). Texto plano, sin
+  // cast: no es Json. NOT NULL con default '' en la base, así que omitirlo
+  // dejaría "" — pero el service siempre lo manda, porque el borde lo exige.
+  guardrailsText: string;
   // Ya normalizados por utils/origin.ts. Vacío = widget deshabilitado.
   allowedOrigins?: string[];
   isActive?: boolean;
@@ -113,6 +117,8 @@ export interface UpdateAgentData {
   // Se reemplaza entero, nunca se mergea: guardrails es NOT NULL sin default
   // en el schema, así que acá no hay DbNull que contemplar.
   guardrails?: Prisma.InputJsonValue;
+  // Se actualiza SIEMPRE junto con guardrails — updateAgentSchema lo exige.
+  guardrailsText?: string;
   isActive?: boolean;
 }
 

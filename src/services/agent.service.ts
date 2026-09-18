@@ -92,6 +92,9 @@ export interface CreateAgentInput {
   enabledTools: string[];
   channels: ConversationChannel[];
   guardrails: Record<string, unknown>;
+  // El texto en lenguaje natural del que salio `guardrails` (item 56). Viaja
+  // como texto plano: no necesita el cast de Prisma.InputJsonValue.
+  guardrailsText: string;
   allowedOrigins: string[];
   isActive?: boolean;
 }
@@ -132,6 +135,7 @@ export async function createAgent(organizationId: string, input: CreateAgentInpu
         // Record<string, unknown> no declara, aunque cualquier objeto JSON la
         // cumple. Zod ya garantizó que es un objeto plano.
         guardrails: input.guardrails as Prisma.InputJsonValue,
+        guardrailsText: input.guardrailsText,
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
       },
       tx,
@@ -157,7 +161,9 @@ export interface UpdateAgentInput {
   modelName?: string;
   enabledTools?: string[];
   channels?: ConversationChannel[];
+  // Los dos o ninguno: updateAgentSchema lo exige en el borde (agent.controller.ts).
   guardrails?: Record<string, unknown>;
+  guardrailsText?: string;
   allowedOrigins?: string[];
   isActive?: boolean;
 }

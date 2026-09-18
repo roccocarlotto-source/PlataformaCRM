@@ -5,6 +5,7 @@ import type {
   AgentListQuery,
   AgentListResponse,
   CreateAgentInput,
+  GuardrailsTranslation,
   UpdateAgentInput,
 } from "./types";
 
@@ -52,4 +53,17 @@ export function updateAgent(id: string, input: UpdateAgentInput): Promise<Agent>
 // (agent.service.ts); acá no hay nada que hacer con eso, es transparente.
 export function deleteAgent(id: string): Promise<void> {
   return request<void>(`/agents/${id}`, { method: "DELETE", getAccessToken });
+}
+
+// Traductor de guardrails en lenguaje natural (ítem 56). NO guarda nada: el
+// formulario lo llama al hacer submit, muestra lo que se entendió, y recién
+// con la confirmación del ADMIN manda el POST/PATCH real llevando el mismo
+// objeto que devolvió acá. Por eso NO hay `signal`: no es una lectura de
+// pantalla que se cancele al desmontar, es un paso del guardado.
+export function translateGuardrails(text: string): Promise<GuardrailsTranslation> {
+  return request<GuardrailsTranslation>("/agents/guardrails/translate", {
+    method: "POST",
+    body: { text },
+    getAccessToken,
+  });
 }

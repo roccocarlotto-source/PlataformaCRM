@@ -2696,6 +2696,8 @@ Las descripciones son **las mismas que lee el modelo**, copiadas textual, no un 
 
 **`guardrails` es un textarea de JSON crudo — decisión de Rocco, no un atajo.** La forma de §6 (temas prohibidos, acciones prohibidas, info no modificable, condiciones de derivación…) está **documentada, no impuesta**: ni Postgres ni el `z.record` del backend la validan, mismo criterio que `Contact.customFields`. Un mini-formulario con seis campos fijos le pondría a la pantalla una forma que el backend no garantiza y dejaría sin manera de escribir una clave que el diseño todavía no previó. Cuando la forma se estabilice, el formulario se construye encima de este mismo campo.
 
+> **Superado por el §56.** Al ver el campo en uso, Rocco pidió que la interfaz entera fuera en lenguaje natural, así que el textarea dejó de pedir JSON: ahora el ADMIN escribe con sus palabras, el backend traduce a este mismo objeto y la pantalla se lo muestra para que lo confirme antes de guardar. Lo que sigue describe cómo era en el §55 y por qué se decidió así; el campo `guardrails` de la base, su forma y su enforcement no cambiaron ni un milímetro.
+
 La conversión texto ↔ objeto vive en `features/agent/guardrails.ts`, aparte del componente y por la misma razón que `fieldMapping.ts` en `features/source`: es lógica pura con casos borde que conviene probar sin montar una pantalla. Se muestra con `JSON.stringify(valor, null, 2)` y se manda parseado. **La validación del cliente es la misma que la del backend, no una más estricta**: tiene que parsear y ser un objeto plano (array, `null` y primitivos se rechazan, igual que `z.record`), y el **contenido no se valida en ningún lado**. Un textarea vacío se toma como `{}` en vez de como error: la intención es evidente y es lo mismo que dice el default de creación.
 
 **`allowedOrigins` NO está en este formulario, y la omisión es la parte importante.** Es el campo que habilita el widget embebible del canal Web (§10) y la pantalla que lo acompaña —tokens de embed y snippet para copiar— no existe todavía; un campo de orígenes permitidos sin esa pantalla al lado es configuración huérfana. En el POST se omite y el backend lo default-ea a `[]` (widget deshabilitado, fail-closed). **En el PATCH omitirlo es lo que lo deja intacto**: mandarlo como `[]` borraría la configuración del widget de un agente que ya la tuviera. Hay un test por cada mitad.
@@ -2745,3 +2747,120 @@ La parte que no es cosmética: **el nombre accesible**. El `<label>` que envuelv
 - **Verificado que los tests distinguen:** el caso de la tool fuera de catálogo se corrió con el `agentToolOptions` reducido a la lista fija, y falla; el del nombre accesible se corrió sin el `aria-labelledby`, y falla. No se dieron por buenos porque pasaran.
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en el frontend. **Suite en verde: 142 archivos y 1407 tests.** Sin backend, sin migraciones y sin dependencias nuevas.
+
+---
+
+## 56. Guardrails en lenguaje natural, con traducción a JSON y confirmación antes de guardar
+
+**Estado:** hecho
+
+**Qué es.** El §55 estrenó el CRUD de agentes con un campo **"Guardrails (JSON)"**: un `<textarea>` donde el ADMIN escribía a mano el objeto que documenta `docs/ai-agent-architecture.md` §6 — temas prohibidos, acciones prohibidas, información no modificable, condiciones de derivación, promesas prohibidas y datos requeridos antes de una acción. Fue una decisión explícita de Rocco para arrancar rápido, con el mini-formulario por clave anotado como el paso siguiente.
+
+Al ver el campo en uso, Rocco pidió otra cosa, y es la que resolvió este ítem. Textual: *"quiero que todo en la interfaz sea en lenguaje natural. Si luego el programa tiene que traducir a JSON para que el agente trabaje mejor, bueno, pero el usuario debe manejarse en lenguaje natural."* Y sobre si esa traducción tenía que verse antes de guardar, eligió explícitamente **"mostrar un resumen para confirmar"**: el ADMIN tiene que ver qué entendió el sistema de su texto **antes** de que quede activo, no después.
+
+Así que no hubo mini-formulario. El ADMIN escribe en sus palabras, el backend traduce, y la pantalla le muestra lo que se entendió para que lo confirme.
+
+---
+
+### Lo que NO cambió, y es el punto entero del ítem
+
+**`Agent.guardrails` (Json) sigue siendo la única fuente del enforcement.** Su forma de §6 no cambió, `puedeEjecutarTool()` (`src/services/agentPermissions.service.ts`) no cambió, y `armarSystemPrompt()` (`src/services/agentOrchestration.service.ts`) tampoco. Son las dos piezas que de verdad hacen cumplir un guardrail —código para las tres comprobaciones críticas, prompt para las otras tres— y siguen leyendo exactamente el mismo objeto que leían ayer.
+
+Lo único que cambió es **cómo un ADMIN llega hasta ese objeto**: antes tipeándolo, ahora describiéndolo. Un agente creado con el §55 y uno creado con el §56 son indistinguibles para el motor.
+
+El texto nuevo vive en una columna aparte, `Agent.guardrailsText`, y es **para mostrar y re-editar**. Nunca se lee en `puedeEjecutarTool` ni en `armarSystemPrompt`, y no puede: un texto libre no puede decidir si una tool se ejecuta. Es `TEXT NOT NULL DEFAULT ''`, con el mismo criterio que `guardrails`: declarar "ningún límite" es `''`, igual que del otro lado es `{}`.
+
+---
+
+### El catálogo de valores válidos se lee del catálogo, nunca se copia
+
+La traducción no puede ser un prompt genérico que diga "devolveme un JSON": el modelo tiene que saber **qué acciones existen de verdad** y **qué campos tiene cada una**, porque las tres claves que se hacen cumplir con código (`accionesProhibidas`, `infoNoModificable`, `datosRequeridosAntesDeAccion`) solo significan algo si sus valores son nombres reales.
+
+`src/services/agentGuardrailsTranslation.service.ts` los arma **leyendo `CATALOGO_DE_TOOLS`** (`agentTools.service.ts`): los nombres de tool salen de `CATALOGO_DE_TOOLS.keys()`, y los nombres de campo de los `properties` del JSON Schema de cada tool, más las diez claves de ambiente que ya arma `datosDisponiblesDeLaConversacion()` (`conversationId`, `contactId`, `branchId`, `agentId`, `channel`, `firstName`, `lastName`, `email`, `phone`, `companyId`).
+
+Esto es a propósito y contrasta con `features/agent/tools.ts`, que **sí** duplica la lista a mano y lo documenta: el frontend no puede importar código del backend, así que ahí no queda otra. Este archivo vive en el propio backend, así que copiar la lista habría sido pagar por obligación un precio que acá no existe. Hay un test que recorre `CATALOGO_DE_TOOLS` entero y verifica que cada tool, cada campo de cada tool y cada clave de ambiente aparecen en el prompt: si mañana se agrega una tool, el prompt la incluye solo.
+
+**Un detalle real de `puedeEjecutarTool` que la sanitización tuvo que respetar:** la comparación de `infoNoModificable` es por **nombre de campo pelado**, sin importar la tool ni el prefijo de entidad — `nombreDeCampo()` corta todo antes del último punto y compara en minúsculas (nota del 12/09/2026 bajo §6, punto 4). O sea que "no dejes que toque el email del contacto" rige como `"email"` a secas. Esa función pasó a estar exportada y la sanitización la **importa** en vez de reimplementarla: el filtro que decide qué entra al guardrail tiene que usar exactamente el mismo criterio con el que después se va a evaluar, y duplicar dos líneas ahí habría sido duplicar la regla.
+
+---
+
+### Nada se descarta en silencio
+
+Un modelo puede devolver una acción que no existe (`enviar_email`) o un campo que ninguna tool toca (`numeroDeSocio`). Eso no bloquearía nada en tiempo de ejecución: quedaría como una **entrada muerta** en el guardrail, y el ADMIN creería que declaró un límite que en realidad no rige. Es exactamente el malentendido que ya había dejado un `{ maxTurns: 20 }` en la semilla de desarrollo, una clave que ninguna de las dos piezas de enforcement lee (se reemplazó en este mismo PR por dos guardrails que sí hacen cumplir algo).
+
+Así que el backend sanitiza contra el catálogo real:
+
+- **`accionesProhibidas`**: solo nombres de tool que existen.
+- **`infoNoModificable`**: solo strings cuyo nombre de campo pelado esté entre los campos reales de las tools o las claves de ambiente. El valor se guarda **tal cual** lo escribió el modelo (`Opportunity.amount` se guarda así, no como `amount`): es lo que el §6 ya ejemplificaba y `nombreDeCampo` lo resuelve igual.
+- **`datosRequeridosAntesDeAccion`**: solo claves que son tools reales, y dentro de cada una, solo campos **de esa tool** o de ambiente. Pedir `startsAt` antes de `create_opportunity` habría bloqueado esa tool para siempre, porque `puedeEjecutarTool` no lo encontraría ni en los `args` ni en la conversación.
+- **`temasProhibidos`, `promesasProhibidas`, `condicionesDeDerivacion`**: son frases libres, no hay catálogo contra el que validar. Solo límites de cordura — máximo 20 entradas por lista, máximo 300 caracteres por frase. Una frase que se pasa se **descarta entera**, no se trunca: media instrucción es peor que ninguna, porque parece completa.
+- Una clave que no es una de las seis (el caso `maxTurns`) también se descarta: las dos piezas de enforcement leen esas seis y ninguna otra.
+- Duplicados fuera, en todas las listas.
+
+Todo lo descartado vuelve en la respuesta como `descartado: { clave, valor, motivo }[]`, y el panel de confirmación lo muestra como advertencia. **Nunca como si el ADMIN nunca lo hubiera escrito.** Una lista que queda vacía después de sanitizar no entra al objeto como `[]`: la clave se omite entera.
+
+---
+
+### Por qué el create/update NO vuelve a traducir
+
+El endpoint nuevo, `POST /api/agents/guardrails/translate`, **no guarda nada**: recibe `{ text }` y devuelve `{ guardrails, descartado }`. El formulario lo llama al hacer submit, muestra el panel, y recién con la confirmación del ADMIN manda el `POST`/`PATCH` real **llevando ese mismo objeto**.
+
+La alternativa era mandar solo el texto y que el create/update tradujera server-side. Se descartó por una razón concreta: una segunda llamada al modelo **no es determinística**. Podría devolver un objeto distinto del que el ADMIN acaba de leer y aceptar, y entonces la pantalla habría mostrado una cosa y la base guardado otra — que es precisamente lo que el "mostrar un resumen para confirmar" vino a impedir. Se guarda exactamente lo que se confirmó.
+
+De ahí sale la regla del PATCH: **`guardrails` y `guardrailsText` se actualizan juntos o no van**. Un `.refine()` nuevo en `updateAgentSchema` rechaza un body que traiga uno solo, con el mismo tipo de regla que ya existe para `budgetAmount`/`budgetCurrency` en `LEAD_PARAMETERS` ("van siempre juntos"). Sin eso, un PATCH podría dejar el texto que la pantalla muestra y el objeto que hace cumplir los guardrails diciendo cosas distintas — el ADMIN leería sus palabras y el agente obedecería otra cosa. Es el único desacople que este ítem no puede permitirse.
+
+El endpoint es **ADMIN-only y lleva el mismo `businessWriteRateLimiter`** que las escrituras, aunque no escriba: dispara una llamada real y paga a un LLM. No es una lectura abierta.
+
+**Dos casos no llegan nunca al proveedor.** Texto vacío ⇒ `{}` directo (mismo criterio que tenía el textarea de JSON vacío), y texto que no cambió desde la última confirmación ⇒ se reenvía el objeto ya confirmado. En edición, lo que el agente ya tiene **cuenta como confirmado**: guardar sin tocar el campo no gasta una llamada por algo que nadie editó.
+
+**Y si la traducción falla, no se guarda.** Red caída, proveedor caído, o una respuesta que no se puede interpretar como JSON: se corta ahí, el ADMIN ve el error y un botón "Reintentar", y lo escrito no se pierde. Nada de caer a `{}` en silencio — un agente con los guardrails vacíos porque se cayó la red es exactamente el accidente que este flujo tiene que impedir. Mismo criterio "fail closed" que `allowedOrigins`.
+
+---
+
+### Qué pasa con los agentes que ya existían
+
+La migración `20260922120000_agregar_guardrails_text_a_agent` agrega la columna con `DEFAULT ''` y hace un backfill:
+
+```sql
+UPDATE "agents"
+SET "guardrails_text" = "guardrails"::text
+WHERE "guardrails"::text <> '{}';
+```
+
+Es un **volcado crudo del JSON como texto**, no una traducción a prosa, y hay que decirlo claro porque se ve feo: no existe forma de reconstruir la frase original del ADMIN a partir del objeto. La alternativa era dejarlo en blanco, y es peor: el ADMIN abriría el formulario, vería el campo vacío y creería que su agente no tiene ningún guardrail declarado, cuando `guardrails` sigue haciendo cumplir lo que tenía. Con el volcado ve **algo** —aunque sea el JSON— y lo reescribe con sus palabras la próxima vez que edite ese agente. Un agente con `{}` queda en `''`, que es lo correcto.
+
+---
+
+### El formulario
+
+El `<textarea>` dejó de pedir JSON. Ahora se llama **"Guardrails"** a secas, tiene un placeholder de ejemplo tomado de §6 y un hint que explica qué se espera adentro. El estado del formulario guarda `guardrailsText` — antes ese campo del estado se llamaba `guardrails` y guardaba el JSON, con el **mismo nombre** que el `guardrails` del payload: dos cosas distintas llamadas igual. Ahora el nombre dice cuál de las dos es, y el objeto que viaja al backend no vive en el estado del formulario sino en una confirmación aparte.
+
+El submit resuelve el objeto en tres pasos: texto vacío ⇒ `{}`; texto igual al confirmado ⇒ el objeto ya confirmado; texto nuevo ⇒ se traduce y se abre el panel.
+
+**El panel es `Modal` en su variante `panel`, no `dialog`, y no es un detalle.** El panel **no se cierra al hacer click afuera ni con Escape** (la decisión central de esa variante, ver `Modal.tsx`), que es justo lo que hace falta acá: un cierre accidental sobre una confirmación pendiente dejaría al ADMIN sin saber si guardó o no. Los dos caminos son explícitos: **"Confirmar y guardar"** (la `primaryAction` del pie) o **"Volver a editar"** (el `closeLabel`, que cierra sin mandar nada y deja el texto intacto). Es el mismo componente que ya usan `QuoteFormPanel` y `QrSendDialog`: no se inventó un patrón nuevo para confirmar.
+
+Adentro, el resumen en español: una línea por clave presente, **primero las tres que se hacen cumplir con código** y después las tres que van al prompt. No es cosmético — lo primero que el ADMIN lee es lo que de verdad bloquea una acción. Las tools se muestran con su rótulo en castellano (`Modificar oportunidad`, no `update_opportunity`), tomado de `features/agent/tools.ts`; una tool que no está en ese catálogo se muestra con el nombre crudo, mismo criterio que `agentToolOptions()`. Los nombres de campo van tal cual: no hay catálogo de etiquetas para ellos y traducirlos a mano sería inventar un diccionario que envejece aparte del backend.
+
+Si hay descartes, van en un bloque aparte con el tratamiento visual de error (el design system no distingue advertencia de error, así que se usó el que hay en vez de inventar un color). Y un colapsable **"Ver JSON"** de solo lectura, para quien quiera revisar el objeto en crudo — un `<pre>` y no un textarea, porque no se edita y un control de formulario habría prometido lo contrario.
+
+Si `guardrails` queda en `{}`, el resumen **no es una lista vacía**: dice *"Sin guardrails: el agente no tiene ninguna restricción adicional más allá de los permisos generales."* "No hay nada declarado" y "no se entendió nada" se ven igual con una lista vacía, y son cosas muy distintas para quien está por guardar.
+
+`features/agent/guardrails.ts` se reescribió con ese reparto: se fueron `parseGuardrails` y `EMPTY_GUARDRAILS_TEXT` (ya no hay JSON que parsear en la pantalla), quedó `formatGuardrails` para el "Ver JSON", y entraron `resumirGuardrails()` y `resumirDescartes()`. Devuelven `string[]` y no JSX a propósito: es lo que permite probar el resumen entero sin renderizar nada.
+
+---
+
+**Qué NO cambió:**
+
+- **`Agent.guardrails`, su forma de §6, `puedeEjecutarTool()` y `armarSystemPrompt()`.** Ni una línea. Dicho arriba, repetido acá porque es lo que más importa de este ítem.
+- **El resto del CRUD de agentes**: listado, filtros, permisos, rutas. `AgentListPage` no muestra guardrails y no se tocó.
+- **El design system**, salvo una regla CSS nueva y aditiva (`.ds-json-preview`, para que una línea larga del JSON corte en vez de sacarle scroll horizontal al panel). Ninguna pantalla existente cambia de aspecto.
+
+**Tests:** el backend pasó de **824 a 842** casos unitarios; el frontend, de **1407 a 1418**, con los mismos 142 archivos (los dos tests nuevos reemplazaron a los que ya existían).
+
+- **`agentGuardrailsTranslation.service.test.ts` (nuevo, 18 casos, unitario — proveedor inyectado, sin red y sin base, mismo patrón que `llmProvider.service.test.ts`):** que el prompt se arma recorriendo `CATALOGO_DE_TOOLS` (cada tool, cada campo de cada tool y cada clave de ambiente tienen que aparecer), la traducción feliz con las seis claves, el texto vacío que no llama al proveedor, la respuesta envuelta en un bloque de código, las cinco formas de respuesta ininteligible que dan 502 y **no** `{}`, la tool inventada que se descarta y aparece en `descartado`, la clave que queda fuera del objeto en vez de quedar en `[]`, el campo inventado en `infoNoModificable`, la comparación por nombre pelado (`Opportunity.amount` pasa y se guarda tal cual), la tool inexistente en `datosRequeridosAntesDeAccion`, el dato que no es de esa tool, las claves de ambiente que sí valen, la frase de 400 caracteres descartada entera, la lista de 23 entradas recortada a 20, los duplicados en las cuatro listas, la clave que no es de §6, la clave de §6 con el tipo equivocado, y el `{}` del modelo como resultado válido.
+- **`agent.controller.integration-test.ts` (25 casos, 5 nuevos):** el endpoint de traducción por HTTP real (ADMIN traduce y recibe `guardrails` + `descartado`, sin tools y sin `model`; texto vacío que no llama al proveedor; USER 403, sin token 401, texto de 4001 caracteres 400; respuesta ininteligible 502), y que `guardrails`/`guardrailsText` **van juntos o no van** en el PATCH (cada uno solo es 400 y la fila no cambia; un PATCH que no menciona ninguno de los dos sigue siendo válido). Los casos que ya existían se ajustaron al contrato nuevo: `guardrailsText` en el cuerpo mínimo, el texto que se persiste tal cual, y el `""` del agente recién creado. Corridos contra el Supabase local y también en CI, que tiene un job propio ("Backend — migraciones + suite de integración") que levanta su propio Supabase: **25 en verde** en los dos lados.
+- **`guardrails.test.ts` (reescrito, 9 → 14 casos):** ya no prueba el parseo de JSON, prueba el resumen. Las seis claves por separado y las seis juntas en su orden fijo, el rótulo en castellano de cada tool, la tool fuera de catálogo con su nombre crudo, el `{}` que dice "Sin guardrails" en vez de devolver una lista vacía, una clave presente pero vacía, una clave con el tipo equivocado que se ignora sin romper, el formateo del "Ver JSON", y los tres casos de `resumirDescartes`.
+- **`AgentFormPage.test.tsx` (17 → 23 casos):** los nuevos son el POST completo con el texto **y** el JSON confirmado, el panel que muestra el resumen en español y todavía no manda nada, el descarte que se ve como advertencia, "Volver a editar" que cierra sin mandar nada y deja el texto intacto, el texto vacío que no traduce y manda `{}`, el fallo de traducción que **no guarda** más el "Reintentar" que vuelve a intentarlo, el segundo Guardar que no vuelve a traducir, y en edición: guardar sin tocar el texto no traduce y reenvía el `guardrails` existente, cambiar el texto sí traduce y el PATCH lleva lo confirmado.
+- **Verificado que los tests distinguen:** el caso de la comparación por nombre pelado se corrió con la sanitización filtrando por el string completo en vez de por `nombreDeCampo()`, y fallan dos casos; el de "guardar sin tocar el texto no traduce" se corrió sin la inicialización de la confirmación desde la query, y falla. No se dieron por buenos porque pasaran.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.

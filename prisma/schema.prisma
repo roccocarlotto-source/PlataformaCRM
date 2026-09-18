@@ -1917,6 +1917,14 @@ model Agent {
   // declarados no debería poder existir, aunque su valor sea `{}`.
   guardrails Json
 
+  // El texto en lenguaje natural que escribió el ADMIN y que el sistema tradujo
+  // a `guardrails` (docs/ai-agent-architecture.md §6, ítem 56 del frontend). Es
+  // lo que se muestra y se vuelve a editar en el formulario — el enforcement
+  // real sigue siendo 100% sobre `guardrails`, esto nunca se lee en
+  // puedeEjecutarTool ni en armarSystemPrompt. NOT NULL con default '': mismo
+  // criterio que guardrails, declarar "nada" es "", no ausencia del campo.
+  guardrailsText String @default("") @map("guardrails_text") @db.Text
+
   // Orígenes (esquema + host, sin path) desde los que el widget del canal Web
   // puede escribirle a este agente — paso 5a, nota del canal Web en §10 de
   // docs/ai-agent-architecture.md. VACÍO = widget deshabilitado, fail-closed:

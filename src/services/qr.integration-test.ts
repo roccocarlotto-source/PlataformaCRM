@@ -444,10 +444,19 @@ test("listar: solo los QRs de la organización, sin los borrados, con filtro por
       sortBy: "displayNumber",
       sortOrder: "asc",
     });
-    assert.deepEqual(
-      todos.data.map((q) => q.id),
-      [q1.id, q2.id],
-    );
+    // SIN asertar el ORDEN, y es a propósito. q1 y q2 están en sucursales
+    // distintas y desde el §54 el displayNumber es una serie POR SUCURSAL: los
+    // dos valen 1. `buildOrderBy` ordena por esa única columna, así que el
+    // empate lo desempata Postgres como quiere y este deepEqual acertaba o
+    // fallaba según la corrida (falso rojo visto en los PR #248 y #249).
+    // Lo que este caso existe para probar es el SCOPING —solo los de la
+    // organización, sin los borrados—, y eso sí se asegura acá.
+    //
+    // OJO: el empate no es solo un problema del test. Un orden sin desempate
+    // estable hace que la paginación real pueda repetir o saltear una fila
+    // entre páginas. Arreglarlo es un cambio de `qrCode.repository.ts` y va en
+    // su propio ítem, no en uno de guardrails.
+    assert.deepEqual(todos.data.map((q) => q.id).sort(), [q1.id, q2.id].sort());
     assert.equal(todos.pagination.total, 2);
 
     const soloNorte = await listQrCodes(a.organizationId, {
