@@ -2562,3 +2562,94 @@ Porque además **hay** un "activo/inactivo" real, y no es éste: depende de la s
 - **Fixture:** `test/qrFixtures.ts` perdió los tres campos. Es la única fixture de QR y la comparten los cinco archivos de test del módulo, así que alcanzó con tocarla ahí.
 
 `tsc --noEmit`, ESLint y Prettier limpios. **Suite de frontend en verde: 139 archivos y 1351 tests.** Sin backend, sin migraciones y sin dependencias nuevas.
+
+## 54. El N° del QR: sugerido por sucursal, reusando los números liberados, y editable a mano
+
+**Estado:** hecho
+
+**Contexto — qué pasaba.** El "N°" de un QR (`displayNumber`, columna `display_number` de `qr_codes`) lo asignaba el backend solo. No había ningún campo para verlo ni tocarlo en `QrFormDialog.tsx`: el número aparecía recién en la columna "N°" del listado, ya decidido. Y lo decidía un **contador durable por organización** —`Organization.nextQrDisplayNumber`, de `20260903120000_qr_integration`, portado del DEC-064/066 del sistema original— que **solo subía y nunca liberaba nada**: `assignNextQrDisplayNumber` hacía `next_qr_display_number = next_qr_display_number + 1` y devolvía el valor anterior, dentro de una transacción con `lockOrganizationForUpdate` para que dos altas concurrentes del mismo tenant no se repartieran el mismo número.
+
+El efecto, con las palabras de Rocco: *"suponemos que el usuario hizo 10 QRs distintos, pero borró todos y dejó solo 1 (con número 1), el siguiente número sugerido tiene que ser 2, no 11"*. Hasta este ítem daba **11**. Un QR borrado (soft delete) se llevaba su número a la tumba, y el contador ni sabía ni le importaba que 9 de los 10 anteriores estuvieran borrados. Para una agencia con una sucursal y rotación de QRs, el rótulo del mostrador terminaba siendo un número de tres cifras sin ninguna relación con cuántos carteles hay colgados.
+
+**Las dos decisiones de Rocco, que gobiernan todo el resto.**
+
+1. **La serie es por SUCURSAL, no por organización.** Cada sucursal lleva su propia numeración 1, 2, 3…, y no hay ningún problema en que dos sucursales distintas tengan cada una un "QR 1" al mismo tiempo. Tiene sentido porque el N° es un rótulo que se lee parado frente al mostrador de una sucursal, no un identificador global del tenant (el identificador real es el uuid, y es el único que participa del routing público).
+2. **Un número repetido se RECHAZA, no se acomoda.** Si alguien escribe a mano un número que ya está usando otro QR **activo** de esa misma sucursal, la operación falla. Nunca se guardan dos QR activos de la misma sucursal con el mismo número — ni por escritura a mano ni por una carrera entre dos altas.
+
+**Qué se construyó.**
+
+**1. La migración `20260921120000_qr_display_number_por_sucursal`, escrita a mano.** Hace dos cosas:
+
+- **Crea el índice único PARCIAL** `qr_codes_branch_display_number_unique` sobre `(organization_id, branch_id, display_number) WHERE deleted_at IS NULL`. Es la decisión 2 de Rocco expresada donde no se puede esquivar.
+- **Elimina la columna `organizations.next_qr_display_number`**, que se queda sin un solo lector.
+
+**Por qué el índice va en SQL crudo y no como `@@unique` en `schema.prisma`.** El DSL de Prisma no expresa el predicado `WHERE deleted_at IS NULL`, y el predicado no es una optimización: es la mitad del requerimiento. Un `@@unique` declarativo bloquearía reusar el número de un QR borrado, que es **exactamente lo que este ítem viene a permitir**. Es el mismo criterio con el que `vehicle_photos_vehicle_cover_unique` vive en su migración, y el modelo `QrCode` lo documenta en un comentario para que nadie busque en el schema una garantía que está en la base.
+
+`(organization_id, branch_id, display_number)` y no `(branch_id, display_number)` a secas, por el mismo razonamiento que ya había elegido `vehicle_photos_vehicle_cover_unique`: la FK compuesta `(organization_id, branch_id) → branches(organization_id, id)` ya fuerza que `organization_id` sea el de la sucursal, así que la garantía es idéntica, y de paso el índice sirve para buscar los QR activos de una sucursal dentro del tenant. El `@@index([organization_id, branch_id])` que ya existía **no se sacó**: es total, éste es parcial, y una lectura que no filtre por `deleted_at` sigue necesitando aquél.
+
+**La migración no podía fallar sobre datos existentes**, y vale decir por qué: hasta ella los números los repartía un contador por organización, así que ya eran únicos dentro del tenant entero — con más razón dentro de cada sucursal. Las filas con `display_number` NULL tampoco chocan: Postgres considera distintos a dos NULL en un índice único.
+
+**Por qué la columna del contador se va en la misma tanda.** Con el número calculado por sucursal, `next_qr_display_number` no tiene ningún lector — verificado con grep en todo el repo antes de tocarla: solo la escribía `assignNextQrDisplayNumber`, que se elimina acá, y la leían cuatro asserts del test de integración. Dejar una columna que nadie lee es el mismo código muerto que se limpió en el §53, con el agravante de que en la base además **engaña**: quien lea el schema buscando de dónde sale un número la va a encontrar primero.
+
+**Lo que NO se tocó, y es la contracara:** `Organization.nextVehicleStockNumber` sigue vivo y sigue siendo un contador durable. El requerimiento ahí es el **opuesto**: el código interno de una unidad ("STK-000123") puede estar escrito en un remito, así que el número de una unidad borrada **no** se quiere reusar. Son dos necesidades distintas sobre el mismo patrón; por eso uno se va y el otro se queda, y los comentarios de `schema.prisma` que se referían "al patrón de `nextQrDisplayNumber`" se reescribieron para decirlo en vez de apuntar a algo que ya no existe.
+
+**2. El cálculo, en el repositorio y el servicio.**
+
+- `findNextDisplayNumberByBranch(branchId, organizationId, db)` en `qrCode.repository.ts`: `aggregate` con `_max` sobre los QR con `deletedAt: null` de esa sucursal, `+ 1`, y `1` si no hay ninguno. Se usó `aggregate`/`_max` y no SQL crudo porque es la forma que este repositorio ya tiene para esto (`sumOpportunityAmount` en `opportunity.repository.ts`). Lleva `organizationId` además de `branchId` aunque la FK compuesta lo determine: lo que decide una escritura lleva el aislamiento en su propio `WHERE`, mismo criterio que `countActiveQrCodesByBranch`.
+- `crearConDisplayNumber` en `qr.service.ts` pasó de `lockOrganizationForUpdate` a **`lockBranchForUpdate`**, el primitivo que ya existía en `branch.repository.ts` y que ya usaba el RESTRICT de `deleteBranch`.
+
+**El lock no cambió de razón, cambió de alcance.** El número se lee-decide-usa dentro de la transacción, y sin serializar, dos altas concurrentes leerían el mismo máximo. Lo que cambió es *quién compite con quién*: la serie ya no es del tenant sino de la sucursal, así que un lock de organización serializaría de más — dos altas en sucursales distintas no pueden chocar entre sí y no tienen por qué esperarse. Hay un test por cada mitad de esa frase: uno que verifica que la segunda alta de la **misma** sucursal se bloquea de verdad (vía `pg_blocking_pids`, no por tiempo), y otro que verifica que un alta en **otra** sucursal del mismo tenant **no** espera.
+
+**Y el lock no es la garantía.** La unicidad la sostiene el índice, que es lo único que cubre los dos casos donde no hay nada que serializar: el número escrito a mano (lo eligió una persona, no se derivó de ninguna lectura) y la ventana entre la sugerencia y el alta. Es el mismo criterio que este repo ya aplica al ledger de idempotencia del webhook de MercadoPago: *la violación de unicidad ES la barrera, no un chequeo previo*.
+
+**3. El manejo del rechazo: 409, no 400.** `rethrowNumeroRepetido` traduce el `P2002` a `AppError("Ya existe un QR activo con ese número en esta sucursal", 409)`. Se eligió **409 y no 400** siguiendo lo que hace el resto del proyecto sin excepción: contacto con ese email, pipeline con ese nombre, etapa con ese nombre, invitación pendiente, organización con ese nombre, entrega duplicada — las ocho colisiones de unicidad traducidas en `src/services/` contestan 409. Significa lo mismo acá: el request está bien formado, choca con el estado actual.
+
+Reconoce el error **por el nombre del índice** dentro de `err.meta.target`, igual que `rethrowAsConflict` en `contact.service.ts` y por el mismo motivo: el índice es parcial, una forma que el DSL de Prisma no expresa, así que Prisma no lo mapea a nombres de campo y reporta el nombre crudo. Cualquier otro `P2002` de la tabla —hoy solo podría ser la PK, o sea una colisión de `gen_random_uuid()`— se relanza sin tocar.
+
+**4. El endpoint nuevo: `GET /api/qr/next-display-number?branchId=<uuid>`.** Sin esto el formulario no tendría con qué prellenar el campo antes de crear nada. Devuelve `{ branchId, suggestedDisplayNumber }` y valida la sucursal con el mismo 400 anti-enumeración de siempre.
+
+**Es una sugerencia, no una reserva**, y por eso **no toma el lock**: bloquear una fila para contestar una lectura dejaría el lock tomado sin ninguna escritura que lo justifique, y aun así dos formularios abiertos a la vez verían el mismo número (el lock se libera al contestar). Quién se queda con el número se decide recién al crear. Va montado con `authenticate` y sin `authorize("ADMIN")`, como el listado: es una lectura, la regla del router es "lectura para cualquier usuario de la organización", y no expone nada que `GET /api/qr` no exponga ya.
+
+**Un detalle del orden de rutas que sí importó:** `qr.routes.ts` no tiene `GET /qr/:id`, así que el segmento literal no compite con ninguno dinámico. Igual se montó **antes** que las rutas con parámetro, para que el día que aparezca un `GET /qr/:id` el orden ya esté previsto.
+
+**5. Zod.** `displayNumberSchema` es un entero positivo con tope `2_147_483_647` — el de la columna `INTEGER`. El tope está por la misma razón que `MAX_AMOUNT` en `utils/validation.ts`: sin él, un número más grande llegaría a Postgres y volvería como **500** (`integer out of range`) en vez de un 400 legible. **Sin `z.coerce`**, a diferencia de los schemas de query: esto viaja en un body JSON, donde un número es un número, y coercionar aceptaría además `"3"`, `true` y `[]`. Se reusa opcional en `createDigitalQrSchema` (ausente = "usá el sugerido") y en el `.partial()` de `updateQrSchema` (ausente = "no lo toques").
+
+**6. El campo "N°" en `QrFormDialog.tsx`**, en creación y en edición.
+
+Al **crear**, elegir la sucursal dispara `useSuggestedQrDisplayNumber(branchId)` y el campo se prellena apenas la respuesta llega, con el hint *"Sugerido: el siguiente libre en esta sucursal. Podés cambiarlo."* debajo. Al **editar** se hidrata con el `displayNumber` de la fila, con el hint *"Tiene que ser único entre los QR activos de la sucursal."*, y no se consulta ningún sugerido — el número que corresponde ahí es el que el QR ya tiene.
+
+**La sugerencia no pisa lo que la persona ya escribió**, mismo criterio que `derivedPriceField` en `VehicleFormPage`. Dos cosas de la implementación no son obvias y conviene dejarlas dichas:
+
+- **El valor del campo se DERIVA en el render, no lo escribe ningún efecto.** Un `setState` en efecto es precisamente lo que `useFormDraft` existe para no hacer (pisa lo tipeado cuando la query responde), y hacerlo en render el lint lo prohíbe. Mientras nadie tocó el campo manda la sugerencia; apenas lo tocan, manda el borrador.
+- **Hace falta un flag `numeroTocado` y no alcanza con "el campo está vacío"**, que era el criterio que parecía suficiente: borrar el número para escribir otro deja el campo vacío por un instante, y ahí la sugerencia volvería a meterse encima de lo que se está tipeando. Es el mismo razonamiento que el comentario de `derivedPriceField` ya dejaba escrito para los precios.
+
+Cambiar de sucursal **sin** haber tocado el campo trae el sugerido de la nueva; habiéndolo tocado, se respeta lo escrito.
+
+**El asterisco de obligatorio depende del modo**, y es a propósito. Al **crear**, vacío es válido: el POST sale sin `displayNumber` y el backend asigna el sugerido — que es lo que corresponde si alguien guarda antes de que la sugerencia llegue, y hacerlo fallar por una carrera que no provocó sería peor. Al **editar**, vacío se frena en el cliente: el QR ya tiene un número, el PATCH parcial simplemente no lo tocaría, y la pantalla habría dicho "guardado" sobre un campo que se dejó en blanco a propósito.
+
+**El 409 del backend no necesitó ningún manejo especial:** el `catch` de `handleSubmit` ya muestra el mensaje del servidor tal cual. Hay un test que lo fija, justamente para que nadie lo "mejore" después con una traducción propia que quede desactualizada.
+
+**7. La invalidación de react-query pasó de `qrKeys.lists()` a `qrKeys.all`.** Crear, editar o borrar un QR cambia también cuál es el próximo N° libre de esa sucursal, y ese sugerido es otra query. Invalidando solo el listado, el formulario habría propuesto un número que el QR recién creado ya se llevó — se lo rechazaría con el 409, correcto pero desconcertante. `all` es el prefijo común de las dos y sigue siendo exactamente lo que estas mutaciones afectan.
+
+**8. El diagnóstico de esquema.** `qr_codes_branch_display_number_unique` entró a la **fila 7** de `docs/auditoria-2026-08-21-diagnostico.sql` (índices únicos parciales comparados por `pg_get_indexdef` completo), que es donde `npm run verify:schema` lo afirma por definición y no por existencia — un índice recreado sin su predicado no pasaría. De paso se corrigió un conteo que estaba viejo: el encabezado de esa fila y su descripción en `verify-schema.ts` decían "los 10 índices únicos parciales" desde antes de que `20260910120000_stages_won_lost_no_exclusivos` borrara dos; eran 8, y con éste son **9**.
+
+**Qué NO cambió:**
+
+- **El flujo público de resolución del QR** (`qrLanding.ts`, `qrPublic.routes.ts`, `requireInternalProxySecret.ts`, `findQrCodePublicState`, el Worker). No usa `displayNumber` para nada: resuelve por id, y el N° es puramente un rótulo de gestión interna. Ni se tocó ni cambió de significado.
+- **`branchId` sigue siendo inmutable.** `updateQrSchema` no lo acepta y este ítem no lo agregó. Es justamente lo que hace que la unicidad del PATCH se evalúe contra la misma sucursal de siempre, sin que el service tenga que averiguar cuál es.
+- **El `displayNumber` de un QR borrado sigue guardado en su fila.** El soft delete no lo limpia (nunca lo limpió). Lo que cambió es que deja de **ocuparlo**: el índice es parcial y el cálculo ignora los borrados.
+- **La nulabilidad de `display_number`.** La columna nació nullable y sigue así; ninguna fila real llega sin número porque el service siempre asigna uno. Dos NULL no chocan entre sí en un índice único de Postgres, así que la nulabilidad no debilita la garantía para las filas que sí tienen número.
+- **La columna "N°" del listado y el pop up "Ver detalle".** Ya mostraban `displayNumber`; ahora el número que muestran simplemente significa algo mejor.
+
+**Un desvío del plan, dicho explícitamente:** el pedido inicial pedía traducir la violación de unicidad a un **400**. Se implementó como **409** después de leer cómo el repo ya resuelve exactamente este caso en otros ocho lugares, todos 409. La alternativa —un 400 solo acá— habría hecho que el mismo tipo de error tuviera dos códigos distintos según la entidad.
+
+**Tests.** La suite de frontend pasó de **1351 a 1361** casos; la de backend, de 818 a **824** unitarios (6 casos nuevos) y de 770 a **779** de integración (13 nuevos, 4 que ya no pueden existir).
+
+- **Backend, integración (`qr.integration-test.ts`), reescrita entera la sección de `display_number`:** los cuatro casos que afirmaban sobre el contador por organización ya no podían existir (la columna no está). En su lugar hay 13, incluido el que da nombre al ítem: **"10 QRs, se borran 9 y queda el N° 1 — el siguiente es 2, no 11"**, con los números exactos del pedido de Rocco. Está escrito entero y explícito aunque los casos más chicos lo cubran de a pedazos, porque es LA razón del ítem y tiene que fallar ruidosamente si alguien revive el contador. Los demás: la serie por sucursal (dos sucursales del mismo tenant arrancan las dos en 1), el aislamiento entre organizaciones, que un alta fallida no adelante la serie, que borrar libere el número, el N° a mano (se usa tal cual / repetido en la misma sucursal da 409 y no crea nada / el mismo número sí se permite en otra sucursal y reusando el de un borrado / se corrige al editar y también choca con 409), el sugerido (1 en una sucursal vacía, y el 400 anti-enumeración para una sucursal ajena), las dos carreras reales del lock de sucursal, y uno que viola el índice **desde Prisma crudo, sin pasar por el service**, para afirmar que la constraint está en la base con el predicado correcto.
+- **Backend, unitarios (`qr.service.test.ts`, nuevo):** 6 casos sobre `rethrowNumeroRepetido` — las dos formas de `target` que Prisma puede devolver, y los cuatro relanzados intactos (otro P2002 de la tabla, P2002 sin target, un P2025, y un `Error` cualquiera). Ese último grupo importa más de lo que parece: si el catch se tragara todo, un "QR no encontrado" o un P2028 de `prismaErrors.ts` se convertirían en "ya existe un QR con ese número".
+- **Frontend (`QrFormDialog.test.tsx`), 9 casos nuevos:** que se pide el sugerido de **esa** sucursal y prellena; que **no** se pide antes de elegir sucursal; que la sugerencia que llega tarde **no pisa** lo que la persona escribió; que cambiar de sucursal sin haber tocado el campo trae el sugerido nuevo; que guardar antes de que llegue la sugerencia manda el POST **sin** `displayNumber`; que un N° no positivo se frena en el cliente sin pegarle al backend; que el 409 del backend se muestra tal cual; y los dos de edición (hidrata con el N° de la fila, viaja editado, no consulta sugerido; vaciarlo se frena en el cliente).
+- **Verificado que los tests distinguen:** el caso de "no pisa lo que ya escribió" se corrió con el flag `numeroTocado` quitado del componente, y falla con 4 en vez de 12. No se dio por bueno porque pasara.
+- **Adaptados (3):** el POST del alta y el PATCH de la edición ahora afirman el `displayNumber` que viaja; el de campos obligatorios agrega que el N° **no** lleva la marca al crear (y hay un caso aparte para que sí la lleve al editar).
+- **`api.test.ts`:** un caso nuevo para `getSuggestedQrDisplayNumber` (path, query y Bearer).
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend. `npm run migrate:deploy` y `npm run verify:schema` corridos contra el Supabase local: **14 de 14 chequeos afirmados en verde**, con el índice nuevo entre ellos. **Backend: 824 unitarios y 779 de integración. Frontend: 139 archivos y 1361 tests.** Sin dependencias nuevas.

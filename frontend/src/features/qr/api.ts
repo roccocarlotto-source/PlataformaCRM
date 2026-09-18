@@ -6,6 +6,7 @@ import type {
   QrCode,
   QrCodeListQuery,
   QrCodeListResponse,
+  SuggestedQrDisplayNumber,
   UpdateQrInput,
 } from "./types";
 
@@ -34,6 +35,20 @@ export function listQrCodes(
   signal?: AbortSignal,
 ): Promise<QrCodeListResponse> {
   return request<QrCodeListResponse>(`/qr${buildListQueryString(query)}`, {
+    getAccessToken,
+    signal,
+  });
+}
+
+// El N° que el formulario de alta propone para un QR nuevo de esa sucursal
+// (§54). Lo pide ANTES de crear nada: sin esta llamada no habría con qué
+// prellenar el campo.
+export function getSuggestedQrDisplayNumber(
+  branchId: string,
+  signal?: AbortSignal,
+): Promise<SuggestedQrDisplayNumber> {
+  const params = new URLSearchParams({ branchId });
+  return request<SuggestedQrDisplayNumber>(`/qr/next-display-number?${params.toString()}`, {
     getAccessToken,
     signal,
   });

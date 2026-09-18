@@ -241,7 +241,13 @@ from (
 
   union all
 
-  -- V-2 ─ Los 10 índices únicos parciales, comparados por DEFINICIÓN COMPLETA.
+  -- V-2 ─ Los 9 índices únicos parciales, comparados por DEFINICIÓN COMPLETA.
+  --
+  -- Eran 10 cuando esta fila se escribió; 20260910120000_stages_won_lost_no_
+  -- exclusivos borró dos (ver más abajo) y quedaron 8, sin que este conteo se
+  -- actualizara. El §54 agrega qr_codes_branch_display_number_unique y los
+  -- deja en 9. La lista de abajo es la fuente de verdad: este número es una
+  -- ayuda para leerla, no algo que el chequeo use.
   --
   -- Antes esto buscaba el NOMBRE en pg_indexes y nada más. Los tres agujeros que
   -- eso dejaba, todos con historia en este proyecto:
@@ -288,7 +294,16 @@ from (
     -- más de una foto; sin el UNIQUE, dos escrituras concurrentes dejarían dos
     -- portadas y el listado mostraría una cualquiera.
     ('vehicle_photos_vehicle_cover_unique',
-     'CREATE UNIQUE INDEX vehicle_photos_vehicle_cover_unique ON public.vehicle_photos USING btree (organization_id, vehicle_id) WHERE (is_cover = true)')
+     'CREATE UNIQUE INDEX vehicle_photos_vehicle_cover_unique ON public.vehicle_photos USING btree (organization_id, vehicle_id) WHERE (is_cover = true)'),
+    -- §54 de docs/frontend-cambios-pendientes.md (migración 20260921120000):
+    -- el N° de un QR es único entre los QRs ACTIVOS de una sucursal. El
+    -- predicado es la mitad del requerimiento, no una optimización — sin él,
+    -- el número de un QR borrado quedaría ocupado para siempre, que es
+    -- justamente lo que ese ítem vino a arreglar. Es también la barrera que
+    -- rechaza un N° escrito a mano que ya esté en uso: ahí no hay lock que
+    -- sirva, porque no hay ninguna lectura que serializar.
+    ('qr_codes_branch_display_number_unique',
+     'CREATE UNIQUE INDEX qr_codes_branch_display_number_unique ON public.qr_codes USING btree (organization_id, branch_id, display_number) WHERE (deleted_at IS NULL)')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def

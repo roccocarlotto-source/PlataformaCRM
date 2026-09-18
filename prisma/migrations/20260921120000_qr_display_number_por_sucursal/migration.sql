@@ -1,0 +1,73 @@
+-- ---------------------------------------------------------------------------
+-- El "N°" de un QR pasa a ser una serie POR SUCURSAL que reusa los números
+-- liberados (docs/frontend-cambios-pendientes.md §54).
+--
+-- QUÉ HABÍA. `organizations.next_qr_display_number` (DEC-064/066 del original,
+-- creado en 20260903120000_qr_integration) era un contador durable por
+-- organización que solo subía: cada create leía-incrementaba-usaba el valor
+-- dentro de una transacción con lock de la organización, y un QR borrado
+-- conservaba su número para siempre sin liberarlo nunca. Con 10 QRs creados y
+-- 9 borrados, el siguiente nacía con el 11 aunque el único vivo fuera el 1.
+--
+-- QUÉ PASA AHORA. El número se calcula al crear como max(display_number) + 1
+-- sobre los QRs ACTIVOS de la sucursal, así que un número borrado vuelve a
+-- estar disponible. Decisión de Rocco: la serie es por SUCURSAL y no por
+-- organización — dos sucursales distintas pueden tener cada una su "QR 1" al
+-- mismo tiempo, porque el rótulo se lee en el mostrador de una sucursal, no
+-- en una lista global del tenant.
+--
+-- 1. EL ÍNDICE ÚNICO PARCIAL es lo que sostiene la otra decisión de Rocco: el
+--    número también se puede escribir a mano (al crear y al editar), y si el
+--    que se escribe ya lo está usando otro QR ACTIVO de la misma sucursal se
+--    rechaza. Esa garantía tiene que vivir en la base y no en un SELECT previo
+--    del service: entre leer y escribir hay una ventana, y dos altas
+--    concurrentes de la misma sucursal la atraviesan (es el mismo criterio con
+--    el que el ledger de idempotencia del webhook de MercadoPago se apoya en
+--    la violación de unicidad en vez de en un chequeo previo).
+--
+--    VA ACÁ Y NO COMO @@unique EN schema.prisma porque el DSL de Prisma no
+--    expresa el predicado `WHERE deleted_at IS NULL`, y sin el predicado el
+--    índice bloquearía justamente lo que este cambio viene a permitir: reusar
+--    el número de un QR borrado. Es la fila 7 del diagnóstico
+--    (docs/auditoria-2026-08-21-diagnostico.sql), donde queda afirmado por
+--    definición completa. El modelo QrCode de schema.prisma lo documenta en un
+--    comentario, mismo criterio que vehicle_photos_vehicle_cover_unique.
+--
+--    (organization_id, branch_id, display_number) y no (branch_id,
+--    display_number) a secas, por lo mismo que eligió
+--    vehicle_photos_vehicle_cover_unique: la FK compuesta
+--    (organization_id, branch_id) -> branches(organization_id, id) ya fuerza
+--    que organization_id sea el de la sucursal, así que la garantía es
+--    idéntica, y de paso el índice sirve para buscar los QRs activos de una
+--    sucursal dentro del tenant. El @@index([organization_id, branch_id]) que
+--    ya existía NO se saca: es total, y este es parcial — una lectura que no
+--    filtre por deleted_at sigue necesitando aquél.
+--
+--    SIN RIESGO DE FALLAR SOBRE DATOS EXISTENTES: hasta esta migración los
+--    números los repartía un contador por ORGANIZACIÓN, así que ya eran únicos
+--    dentro del tenant entero y con más razón dentro de cada sucursal. Las
+--    filas con display_number NULL (la columna es nullable) tampoco chocan:
+--    Postgres considera distintos a dos NULL en un índice único.
+--
+-- 2. LA COLUMNA DEL CONTADOR SE VA. Una vez que el número sale de
+--    max(display_number) + 1 por sucursal, `next_qr_display_number` no tiene
+--    ningún lector: se verificó con grep en todo el repo antes de tocarla
+--    (solo la escribía assignNextQrDisplayNumber, que se elimina en el mismo
+--    cambio). Dejar una columna que nadie lee es el mismo código muerto que se
+--    limpió en §53 — la diferencia es que en la base, además, engaña a quien
+--    lea el schema buscando de dónde sale un número.
+--
+--    NO se toca Organization.next_vehicle_stock_number, que sigue vivo y sigue
+--    siendo un contador durable: el código interno de una unidad ("STK-000123")
+--    puede estar escrito en un remito, así que ahí NO se quiere reusar el
+--    número de una unidad borrada. Son dos requerimientos distintos sobre el
+--    mismo patrón, y por eso uno se va y el otro se queda.
+-- ---------------------------------------------------------------------------
+
+-- CreateIndex
+create unique index "qr_codes_branch_display_number_unique"
+  on public.qr_codes (organization_id, branch_id, display_number)
+  where deleted_at is null;
+
+-- DropColumn
+alter table "organizations" drop column "next_qr_display_number";

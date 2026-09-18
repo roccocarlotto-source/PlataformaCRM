@@ -51,6 +51,14 @@ export interface QrCodeListResponse {
 export type QrCodeSortBy = "createdAt" | "displayNumber";
 export type SortOrder = "asc" | "desc";
 
+// GET /api/qr/next-display-number?branchId=... (§54 de
+// docs/frontend-cambios-pendientes.md). Es una SUGERENCIA, no una reserva: el
+// backend no bloquea nada al contestar y el número se decide recién al crear.
+export interface SuggestedQrDisplayNumber {
+  branchId: string;
+  suggestedDisplayNumber: number;
+}
+
 // listQrQuerySchema de qr.controller.ts. Sin `search`: el contrato no lo
 // tiene, no se inventa del lado del frontend.
 export interface QrCodeListQuery {
@@ -71,6 +79,10 @@ export interface CreateDigitalQrInput {
   name: string;
   destinationUrl: string;
   message?: string | null;
+  // §54: ausente = el backend usa el sugerido de la sucursal (max + 1 sobre
+  // los QR activos). Presente = ese número, y si ya lo usa otro QR activo de
+  // la misma sucursal el backend contesta 409.
+  displayNumber?: number;
 }
 
 // claimQrSchema: mismo shape que digital más el qrId del sticker.
@@ -95,4 +107,7 @@ export interface UpdateQrInput {
   name?: string;
   destinationUrl?: string;
   message?: string | null;
+  // §54: el N° también se corrige al editar. Sigue sin haber branchId, así que
+  // la unicidad se evalúa contra la misma sucursal de siempre.
+  displayNumber?: number;
 }

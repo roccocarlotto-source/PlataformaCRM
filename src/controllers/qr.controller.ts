@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   createDigitalQrCode,
   deleteQrCode,
+  getNextQrDisplayNumber,
   listQrCodes,
   updateQrCode,
 } from "../services/qr.service";
@@ -49,11 +50,38 @@ const messageSchema = z
   .nullable()
   .transform((valor) => (valor === null || valor.length === 0 ? null : valor));
 
+// N° del QR (§54 de docs/frontend-cambios-pendientes.md). Entero positivo: es
+// un rótulo que se lee en el mostrador ("QR 1"), no un identificador, y ni un
+// 0 ni un negativo son un rótulo. Cuánto vale el número lo decide quien lo
+// escribe; si está libre en esa sucursal lo decide el índice único.
+//
+// EL TOPE ES EL DE LA COLUMNA (INTEGER de Postgres, 2^31 - 1), y está por la
+// misma razón que MAX_AMOUNT en utils/validation.ts: sin él, un número más
+// grande llegaría a Postgres y volvería como 500 ("integer out of range") en
+// vez de un 400 legible.
+//
+// Sin z.coerce, a diferencia de los schemas de query: esto viaja en un body
+// JSON, donde un número es un número. Coercionar acá aceptaría además
+// `"3"`, `true` y `[]` — ninguno de los tres es algo que un cliente correcto
+// mande, y todos terminarían escribiendo algo en la columna.
+//
+// OPCIONAL EN LOS DOS SCHEMAS, y significa cosas distintas en cada uno: en el
+// alta, ausente = "usá el sugerido de la sucursal"; en el PATCH, ausente = "no
+// lo toques", igual que el resto de los campos parciales.
+export const QR_DISPLAY_NUMBER_MAX = 2_147_483_647;
+
+const displayNumberSchema = z
+  .number()
+  .int("displayNumber tiene que ser un número entero")
+  .positive("displayNumber tiene que ser mayor que 0")
+  .max(QR_DISPLAY_NUMBER_MAX, `displayNumber no puede superar ${QR_DISPLAY_NUMBER_MAX}`);
+
 const createFields = {
   branchId: z.string().uuid("branchId inválido"),
   name: nameSchema,
   destinationUrl: destinationUrlSchema,
   message: messageSchema.optional().default(null),
+  displayNumber: displayNumberSchema.optional(),
 };
 
 // Único camino de creación desde 20260904120000_remove_qr_claim_and_single_use:
@@ -69,6 +97,9 @@ export const updateQrSchema = z
     name: nameSchema,
     destinationUrl: destinationUrlSchema,
     message: messageSchema,
+    // §54: el N° también se corrige después de crear. La sucursal no cambia
+    // en el PATCH, así que la unicidad se sigue evaluando contra la misma.
+    displayNumber: displayNumberSchema,
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
@@ -83,6 +114,21 @@ export const listQrQuerySchema = z.object({
   sortBy: z.enum(["createdAt", "displayNumber"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
+
+// GET /api/qr/next-display-number?branchId=... (§54). branchId requerido: sin
+// sucursal no hay serie que consultar, y un default silencioso sugeriría el
+// número de una sucursal que nadie eligió.
+export const nextQrDisplayNumberQuerySchema = z.object({
+  branchId: z.string().uuid("branchId inválido"),
+});
+
+export const nextQrDisplayNumberHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const { branchId } = parseOrThrow(nextQrDisplayNumberQuerySchema, req.query);
+    const result = await getNextQrDisplayNumber(req.auth.organizationId, branchId);
+    res.status(200).json(result);
+  },
+);
 
 export const createDigitalQrHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {

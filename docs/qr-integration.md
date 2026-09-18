@@ -31,7 +31,8 @@ parar cada pieza y qué falta para terminar de aplicarla.
   `QrSubscriptionStatusChange`, `QrBillingExemptionChange`,
   `PlatformAdmin`) y los campos nuevos en `Organization`
   (`qrSubscriptionStatus`, `qrMercadopagoSubscriptionId`,
-  `qrBillingExempt`, `nextQrDisplayNumber`). La migración es
+  `qrBillingExempt`, `nextQrDisplayNumber` — este último eliminado después
+  por el §54, ver "Qué se desvió"). La migración es
   `prisma/migrations/20260903120000_qr_integration` — aplicada al proyecto
   Supabase del `.env` con `npm run migrate:deploy`, `prisma generate`
   corrido, y `npm run verify:schema` en verde (14/14 chequeos afirmados,
@@ -651,6 +652,21 @@ porqué, para que quede a la vista en el PR.
   nada lo rechace. El test de carrera real (`carreras.test-helper`) lo
   afirma. Traer esas dos constraints al schema queda como candidato para
   una migración chica posterior, no bloquea nada hoy.
+
+  **SUPERADO POR EL §54 de `docs/frontend-cambios-pendientes.md`
+  (migración `20260921120000_qr_display_number_por_sucursal`).** Esa
+  "migración chica posterior" se hizo, con el alcance que Rocco definió
+  después: la unicidad es POR SUCURSAL y solo entre los QR ACTIVOS —índice
+  único parcial `qr_codes_branch_display_number_unique` sobre
+  `(organization_id, branch_id, display_number) WHERE deleted_at IS NULL`—,
+  no `(organization_id, display_number)`. En el mismo cambio,
+  `crearConDisplayNumber` pasó de `lockOrganizationForUpdate` a
+  `lockBranchForUpdate` (la serie es de la sucursal, no del tenant), el N°
+  se volvió escribible a mano desde el formulario, y
+  `Organization.nextQrDisplayNumber` se eliminó: el número sale de
+  `max(display_number) + 1` sobre los activos de la sucursal, así que un QR
+  borrado libera el suyo. Todo lo que este documento dice más arriba sobre
+  el contador describe cómo funcionó entre el 2026-09-02 y el 2026-09-18.
 - **La sucursal ajena responde 400, no 404/403.** La guía decía "404/403
   genérico, mismo criterio que el resto del repo"; el criterio real del
   repo para ese caso es `validateBranchId` en `resource.service.ts`:
