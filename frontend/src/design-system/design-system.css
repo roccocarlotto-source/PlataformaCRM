@@ -293,6 +293,22 @@ fieldset.ds-field {
   color: var(--color-text-muted);
 }
 
+/* Valor de solo lectura donde iría el control de un campo (único consumidor
+   hoy: el Estado del formulario de Oportunidad, §51 — se deriva de la Etapa y
+   no se edita a mano). Es un <p>, no un input readOnly ni un select disabled:
+   una caja con borde invita a tocarla y acá no hay nada que tocar.
+   --control-height y el mismo margin-top que los controles lo mantienen
+   alineado con el input que le toque al lado en .ds-field-grid; sin borde ni
+   fondo, porque no es una caja editable. */
+.ds-field-value {
+  display: flex;
+  align-items: center;
+  margin-top: var(--space-1);
+  min-height: var(--control-height);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+}
+
 /* El rótulo propio de un Select (design-system/Select.tsx) toma el MISMO trato
    que el de un FormField. Select no puede ir adentro de un FormField —FormField
    ES un <label> y Select trae el suyo—, así que en un formulario queda como

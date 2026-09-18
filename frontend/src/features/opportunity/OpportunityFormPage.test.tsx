@@ -420,7 +420,7 @@ describe("OpportunityFormPage", () => {
       "USD",
       "UYU",
     ]);
-    expect(screen.getByLabelText("Estado")).toHaveValue("Perdida");
+    expect(screen.getByLabelText("Estado")).toHaveTextContent("Perdida");
     expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio");
     expect(screen.getByLabelText("Fecha estimada de cierre")).toHaveValue("2026-08-15");
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
@@ -429,31 +429,36 @@ describe("OpportunityFormPage", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Estado y cierre (ítems 18.E y 18.F de docs/frontend-cambios-pendientes.md).
+  // Estado y cierre (ítems 18.E y 18.F, más §50 y §51 de
+  // docs/frontend-cambios-pendientes.md).
+  //
   // Reemplaza a propósito la decisión de M5 ("lostReason siempre visible,
   // status nunca lo toca"): Motivo de pérdida y Fecha real de cierre solo se
-  // ven con Ganada/Perdida, cerrar desde Abierta completa la fecha con hoy
-  // si estaba vacía, y reabrir limpia los dos.
+  // ven con Ganada/Perdida, cerrar completa la fecha con hoy si estaba vacía,
+  // y reabrir limpia los dos.
+  //
+  // Desde §51 el cierre se vive CAMBIANDO LA ETAPA y no con un selector de
+  // Estado: ese selector se sacó porque permitía guardar Etapa y Estado
+  // contradictorios entre sí (etapa marcada "Perdida" + Estado "Ganada"). El
+  // Estado quedó como texto de solo lectura, así que se afirma con
+  // toHaveTextContent en vez de toHaveValue, y con la oportunidad abierta la
+  // tarjeta entera no existe en ninguno de los dos modos.
+  //
+  // La regla de sincronización pura tiene sus propios casos en
+  // stageStatus.test.ts; acá se prueba qué hace el formulario con Motivo y
+  // Fecha real alrededor de ella.
   // -------------------------------------------------------------------------
 
-  it("edit: el select de Estado muestra Abierta/Ganada/Perdida con los values del enum", async () => {
-    server.use(
-      ...baseHandlers(),
-      http.get(`${opportunitiesUrl}/:id`, () =>
-        HttpResponse.json(makeOpportunity({ pipelineId: "pl1", stageId: "st1" })),
-      ),
-    );
-    renderForm("/opportunities/op1/edit");
+  // En edición el Proceso de venta ya viene elegido, así que para cerrar o
+  // reabrir alcanza con mover la Etapa. Esperar a que el selector esté
+  // habilitado es esperar a que su lista haya cargado: StageSelect no monta
+  // el combobox mientras la query está en vuelo (ver StageSelect.tsx).
+  async function chooseEtapa(user: ReturnType<typeof userEvent.setup>, etapa: string) {
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toBeEnabled());
+    await chooseSelectOption(user, screen.getByLabelText("Etapa"), etapa);
+  }
 
-    const user = userEvent.setup();
-    const estado = await screen.findByLabelText("Estado");
-    // Los values del enum ya no se ven en el DOM (§46): que viajan intactos lo
-    // verifican los tests que miran el cuerpo del PATCH.
-    expect(await listSelectOptions(user, estado)).toEqual(["Abierta", "Ganada", "Perdida"]);
-    expect(screen.queryByRole("option", { name: "OPEN" })).not.toBeInTheDocument();
-  });
-
-  it("edit: Motivo de pérdida solo se ve con Perdida; Fecha real de cierre se ve con Ganada o Perdida", async () => {
+  it("edit: la tarjeta de Estado y cierre no existe con la oportunidad abierta; una Etapa marcada la trae, con Motivo solo en Perdida y Fecha real en las dos", async () => {
     server.use(
       ...baseHandlers(),
       http.get(`${opportunitiesUrl}/:id`, () =>
@@ -463,29 +468,35 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/op1/edit");
 
-    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Abierta"));
+    // Abierta: §51 unificó el gate de la tarjeta con el de Alta, así que acá
+    // no hay ni Estado a la vista.
+    await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("Prospecto"));
+    expect(screen.queryByLabelText("Estado")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fecha real de cierre")).not.toBeInTheDocument();
 
-    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Ganada");
+    await chooseEtapa(user, "Cierre ganado");
+    expect(await screen.findByLabelText("Estado")).toHaveTextContent("Ganada");
     expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Fecha real de cierre")).toBeVisible();
 
-    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Perdida");
+    await chooseEtapa(user, "Cierre perdido");
+    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveTextContent("Perdida"));
     expect(screen.getByLabelText("Motivo de pérdida")).toBeVisible();
     expect(screen.getByLabelText("Fecha real de cierre")).toBeVisible();
 
-    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Abierta");
+    await chooseEtapa(user, "Prospecto");
+    await waitFor(() => expect(screen.queryByLabelText("Estado")).not.toBeInTheDocument());
     expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Fecha real de cierre")).not.toBeInTheDocument();
   });
 
   it.each([
-    ["LOST", "Perdida"],
-    ["WON", "Ganada"],
+    ["LOST", "Cierre perdido", "Perdida"],
+    ["WON", "Cierre ganado", "Ganada"],
   ])(
-    "edit: pasar de Abierta a %s con Fecha real vacía la completa con hoy, y sigue editable",
-    async (status, label) => {
+    "edit: cerrar como %s eligiendo una Etapa marcada, con Fecha real vacía, la completa con hoy, y sigue editable",
+    async (status, etapa, label) => {
       let patchedBody: Record<string, unknown> | undefined;
       server.use(
         ...baseHandlers(),
@@ -507,8 +518,8 @@ describe("OpportunityFormPage", () => {
       const user = userEvent.setup();
       renderForm("/opportunities/op1/edit");
 
-      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Abierta"));
-      await chooseSelectOption(user, screen.getByLabelText("Estado"), label);
+      await chooseEtapa(user, etapa);
+      expect(await screen.findByLabelText("Estado")).toHaveTextContent(label);
 
       const fechaReal = screen.getByLabelText("Fecha real de cierre");
       expect(fechaReal).toHaveValue(todayIsoDate());
@@ -525,7 +536,7 @@ describe("OpportunityFormPage", () => {
     },
   );
 
-  it("edit: si Fecha real ya tenía valor, cambiar el Estado no lo pisa (ni Abierta → Perdida, ni Perdida → Ganada)", async () => {
+  it("edit: si Fecha real ya tenía valor, cerrar por una Etapa marcada no lo pisa (ni Abierta → Perdida, ni Perdida → Ganada)", async () => {
     server.use(
       ...baseHandlers(),
       http.get(`${opportunitiesUrl}/:id`, () =>
@@ -542,40 +553,20 @@ describe("OpportunityFormPage", () => {
     const user = userEvent.setup();
     renderForm("/opportunities/op1/edit");
 
-    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Abierta"));
-    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Perdida");
+    await chooseEtapa(user, "Cierre perdido");
+    expect(await screen.findByLabelText("Estado")).toHaveTextContent("Perdida");
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
 
-    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Ganada");
+    await chooseEtapa(user, "Cierre ganado");
+    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveTextContent("Ganada"));
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
   });
 
-  it("edit: una oportunidad que ya cargó cerrada con fecha vacía no se autocompleta al cambiar entre Ganada y Perdida (solo la transición desde Abierta)", async () => {
-    server.use(
-      ...baseHandlers(),
-      http.get(`${opportunitiesUrl}/:id`, () =>
-        HttpResponse.json(
-          makeOpportunity({
-            status: "LOST",
-            actualCloseDate: null,
-            pipelineId: "pl1",
-            stageId: "st1",
-          }),
-        ),
-      ),
-    );
-    const user = userEvent.setup();
-    renderForm("/opportunities/op1/edit");
-
-    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Perdida"));
-    expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("");
-
-    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Ganada");
-    expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("");
-  });
-
-  it("edit: reabrir (Perdida → Abierta) limpia Motivo y Fecha real, y el PATCH los manda como null", async () => {
-    let patchedBody: Record<string, unknown> | undefined;
+  // Que reabrir limpie Motivo y Fecha real y los mande como null ya lo cubre
+  // el describe de §50 ("de una Etapa marcada isLost a una normal reabre…").
+  // Lo que falta probar es lo de después: volver a cerrar no arrastra nada del
+  // cierre anterior.
+  it("edit: reabrir con una Etapa normal y volver a cerrar arranca limpio (sin el motivo viejo, con la fecha de hoy)", async () => {
     server.use(
       ...baseHandlers(),
       http.get(`${opportunitiesUrl}/:id`, () =>
@@ -586,14 +577,10 @@ describe("OpportunityFormPage", () => {
             lostReason: "Precio muy alto",
             actualCloseDate: "2026-08-20T00:00:00.000Z",
             pipelineId: "pl1",
-            stageId: "st1",
+            stageId: "st-perdida",
           }),
         ),
       ),
-      http.patch(`${opportunitiesUrl}/:id`, async ({ request }) => {
-        patchedBody = (await request.json()) as Record<string, unknown>;
-        return HttpResponse.json(makeOpportunity());
-      }),
     );
     const user = userEvent.setup();
     renderForm("/opportunities/op1/edit");
@@ -601,23 +588,17 @@ describe("OpportunityFormPage", () => {
     await waitFor(() =>
       expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio muy alto"),
     );
-    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Abierta");
-    expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
 
-    // Volver a cerrar arranca limpio: sin el motivo viejo, con la fecha de
-    // hoy (la transición desde Abierta se vuelve a vivir).
-    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Perdida");
+    await chooseEtapa(user, "Prospecto");
+    await waitFor(() => expect(screen.queryByLabelText("Estado")).not.toBeInTheDocument());
+
+    await chooseEtapa(user, "Cierre perdido");
+    expect(await screen.findByLabelText("Estado")).toHaveTextContent("Perdida");
     expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("");
     expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue(todayIsoDate());
-
-    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Abierta");
-    await user.click(screen.getByRole("button", { name: /guardar/i }));
-
-    await waitFor(() => expect(patchedBody).toBeDefined());
-    expect(patchedBody).toMatchObject({ status: "OPEN", lostReason: null, actualCloseDate: null });
   });
 
-  it("edit: cambiar de Perdida a Ganada limpia lostReason y el PATCH lo manda como null", async () => {
+  it("edit: pasar de una Etapa perdida a una ganada limpia lostReason y el PATCH lo manda como null", async () => {
     let patchedBody: Record<string, unknown> | undefined;
     server.use(
       ...baseHandlers(),
@@ -629,7 +610,7 @@ describe("OpportunityFormPage", () => {
             lostReason: "Precio",
             actualCloseDate: "2026-08-20T00:00:00.000Z",
             pipelineId: "pl1",
-            stageId: "st1",
+            stageId: "st-perdida",
           }),
         ),
       ),
@@ -642,7 +623,8 @@ describe("OpportunityFormPage", () => {
     renderForm("/opportunities/op1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Motivo de pérdida")).toHaveValue("Precio"));
-    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Ganada");
+    await chooseEtapa(user, "Cierre ganado");
+    await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveTextContent("Ganada"));
     // El campo desaparece: un motivo de pérdida en una oportunidad ganada no
     // tiene sentido, y el valor viejo no puede quedar viajando fantasma.
     expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
@@ -650,6 +632,7 @@ describe("OpportunityFormPage", () => {
 
     await waitFor(() => expect(patchedBody).toBeDefined());
     expect(patchedBody).toMatchObject({
+      stageId: "st-ganada",
       status: "WON",
       lostReason: null,
       actualCloseDate: "2026-08-20",
@@ -789,8 +772,11 @@ describe("OpportunityFormPage", () => {
   });
 
   // §50: elegir una Etapa sincroniza el Estado con la misma regla que el
-  // embudo al arrastrar (stageStatus.ts, compartido con boardMove.ts).
-  describe("la Etapa sincroniza el Estado (§50)", () => {
+  // embudo al arrastrar (stageStatus.ts, compartido con boardMove.ts). Desde
+  // §51 es el único camino: el selector de Estado editable a mano ya no
+  // existe, el Estado se muestra como texto y la tarjeta "Estado y cierre"
+  // aparece solo con la oportunidad cerrada, también en Edición.
+  describe("la Etapa gobierna el Estado (§50, §51)", () => {
     async function chooseVentasY(user: ReturnType<typeof userEvent.setup>, etapa: string) {
       await screen.findByRole("combobox", { name: "Proceso de venta" });
       await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Ventas");
@@ -817,7 +803,7 @@ describe("OpportunityFormPage", () => {
       await user.type(screen.getByLabelText("Título"), "Se perdió de entrada");
       await chooseVentasY(user, "Cierre perdido");
 
-      expect(await screen.findByLabelText("Estado")).toHaveValue("Perdida");
+      expect(await screen.findByLabelText("Estado")).toHaveTextContent("Perdida");
       expect(screen.getByLabelText("Motivo de pérdida")).toBeVisible();
       expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue(todayIsoDate());
 
@@ -848,7 +834,7 @@ describe("OpportunityFormPage", () => {
       await user.type(screen.getByLabelText("Título"), "Cerrada al toque");
       await chooseVentasY(user, "Cierre ganado");
 
-      expect(await screen.findByLabelText("Estado")).toHaveValue("Ganada");
+      expect(await screen.findByLabelText("Estado")).toHaveTextContent("Ganada");
       expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue(todayIsoDate());
       expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
 
@@ -890,7 +876,7 @@ describe("OpportunityFormPage", () => {
       expect(postedBody).not.toHaveProperty("actualCloseDate");
     });
 
-    it("edit: cambiar la Etapa a una marcada isLost revela Motivo de pérdida sin tocar Estado a mano", async () => {
+    it("edit: cambiar la Etapa a una marcada isLost trae la tarjeta cerrada, con Estado Perdida y Motivo de pérdida", async () => {
       server.use(
         ...baseHandlers(),
         http.get(`${opportunitiesUrl}/:id`, () =>
@@ -908,12 +894,12 @@ describe("OpportunityFormPage", () => {
       renderForm("/opportunities/op1/edit");
 
       await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("Prospecto"));
-      expect(screen.getByLabelText("Estado")).toHaveValue("Abierta");
+      expect(screen.queryByLabelText("Estado")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
 
       await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Cierre perdido");
 
-      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Perdida"));
+      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveTextContent("Perdida"));
       expect(screen.getByLabelText("Motivo de pérdida")).toBeVisible();
       expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue(todayIsoDate());
     });
@@ -943,11 +929,11 @@ describe("OpportunityFormPage", () => {
       renderForm("/opportunities/op1/edit");
 
       await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("Cierre perdido"));
-      expect(screen.getByLabelText("Estado")).toHaveValue("Perdida");
+      expect(screen.getByLabelText("Estado")).toHaveTextContent("Perdida");
 
       await chooseSelectOption(user, screen.getByLabelText("Etapa"), "Prospecto");
 
-      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Abierta"));
+      await waitFor(() => expect(screen.queryByLabelText("Estado")).not.toBeInTheDocument());
       expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Fecha real de cierre")).not.toBeInTheDocument();
 
@@ -986,12 +972,12 @@ describe("OpportunityFormPage", () => {
       const user = userEvent.setup();
       renderForm("/opportunities/op1/edit");
 
-      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Perdida"));
+      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveTextContent("Perdida"));
 
       await screen.findByRole("combobox", { name: "Proceso de venta" });
       await chooseSelectOption(user, screen.getByLabelText("Proceso de venta"), "Postventa");
 
-      await waitFor(() => expect(screen.getByLabelText("Estado")).toHaveValue("Abierta"));
+      await waitFor(() => expect(screen.queryByLabelText("Estado")).not.toBeInTheDocument());
       expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
 
       // La etapa quedó limpia al cambiar de proceso: hay que elegir una nueva
@@ -1042,7 +1028,7 @@ describe("OpportunityFormPage", () => {
       // el nombre, no el id): recién ahí los flags estarían disponibles para
       // recalcular, y justamente no se recalcula.
       await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("Cierre perdido"));
-      expect(screen.getByLabelText("Estado")).toHaveValue("Ganada");
+      expect(screen.getByLabelText("Estado")).toHaveTextContent("Ganada");
       expect(screen.queryByLabelText("Motivo de pérdida")).not.toBeInTheDocument();
       expect(screen.getByLabelText("Fecha real de cierre")).toHaveValue("2026-08-20");
 

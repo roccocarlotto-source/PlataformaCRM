@@ -27,9 +27,8 @@ import type { OpportunityStatus } from "./types";
 // Lo que NO decide este módulo:
 //   - lostReason. El embudo nunca lo toca (el PATCH del drag no lo incluye) y
 //     el formulario lo limpia en toda transición cuyo estado resultante no
-//     sea LOST, mismo criterio que handleStatusChange (§48). Son dos
-//     políticas distintas sobre el mismo campo, así que cada consumidor la
-//     aplica por su cuenta.
+//     sea LOST, con el criterio que estrenó §48. Son dos políticas distintas
+//     sobre el mismo campo, así que cada consumidor la aplica por su cuenta.
 //   - "hoy". todayIsoDate() vive en boardMove.ts y lo llama quien necesite el
 //     valor concreto.
 // ---------------------------------------------------------------------------
