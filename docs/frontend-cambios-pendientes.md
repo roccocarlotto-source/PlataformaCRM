@@ -2479,3 +2479,36 @@ Y su gate pasó a ser el **inverso del de la tarjeta** (`isClosed(values.status)
 No hizo falta ningún test nuevo: el ítem no agrega comportamiento, saca un camino. El `describe` de §50 se renombró a "la Etapa gobierna el Estado (§50, §51)" — "sincroniza" describía dos campos editables que se seguían; ahora uno manda.
 
 **Suite de frontend en verde: 139 archivos y 1351 tests** (los 1353 del §50 menos los 2 borrados). `tsc --noEmit`, ESLint y Prettier limpios. Sin backend, sin migraciones y sin dependencias nuevas.
+
+## 52. Sacar el `,00` innecesario de los montos enteros
+
+**Estado:** hecho
+
+**El problema.** Desde el ítem 18.A, todo importe de la app se muestra con el formato uruguayo de `formatAmount` (`frontend/src/design-system/currencyFormat.ts`), que **siempre** completaba a dos decimales. Un precio de lista de 60.000 dólares se leía `60.000,00`, una entrega inicial de 5.000 se leía `5.000,00`, y el total de una cotización redonda, `24.150,00 USD`. En este negocio la enorme mayoría de los importes son redondos: la coma y los dos ceros no agregaban ningún dato y aparecían en cada campo, cada fila y cada total, compitiendo con los dígitos que sí importan.
+
+**El cambio es solo de presentación.** Se tocó **únicamente `formatAmount`**, la función del formato "en reposo" — el que se ve al cargar un valor persistido y al salir del campo con blur. La regla nueva:
+
+- si la parte decimal del canónico es `""`, `"0"` o `"00"` (todo lo que `Number()` lee como cero), se muestra **solo la parte entera** con sus puntos de miles: `"60000"`, `"60000.0"` y `"60000.00"` se ven los tres `60.000`;
+- si hay centavos de verdad, **no cambia nada**: sigue el separador decimal y el `padEnd` a dos posiciones, así que `"20000.5"` se ve `20.000,50` (con su cero de relleno) y `"20000.25"`, `20.000,25`;
+- `""` sigue siendo `""`.
+
+**Lo que NO se tocó, a propósito:**
+
+- **El contrato de `CurrencyInput`.** Sigue siendo el mismo string canónico con punto decimal (`"20000.5"`, `"20000"` o `""`): lo que sale por `onChange` y lo que viaja al backend es idéntico a antes. Esto no cambia ningún valor guardado, ninguna validación y ningún payload — los tests que afirman los `PATCH`/`POST` quedaron intactos.
+- **`formatAmountWhileTyping`**, el formato en vivo. Ya no forzaba el relleno mientras se tipea (por eso borrar hacia atrás no peleaba con los decimales), así que no tenía nada que sacarle.
+- **`IntegerInput.tsx` / `integerFormat.ts`.** Para las cantidades que nunca tienen decimales (Kilometraje) existe desde el ítem 23 un componente aparte, y sigue siendo el correcto para eso. Este ítem **no** migra ningún importe a enteros puros: un monto sigue admitiendo centavos, simplemente no los inventa cuando no los hay.
+- **`formatAmount` de `features/opportunity/format.ts`**, que es **otra función con el mismo nombre** (`${Number(amount).toFixed(2)} ${currency}` → `"25000.00 USD"`). Es la que usan la columna Monto del listado de Oportunidades, las tarjetas del embudo, el dashboard y la portada del listado de unidades. No comparte código con la del design system y queda exactamente igual; unificar los dos formatos de importe de la app es un ítem propio, no éste.
+
+**Pantallas afectadas, por ser un componente compartido.** Todo lo que pasa por `formatAmount` del design system, sea un campo editable o un texto de solo lectura:
+
+| Dónde | Qué importes |
+| --- | --- |
+| Oportunidad — formulario | Monto, y los de financiación: Entrega inicial y Monto de cuota |
+| Pagos (`PaymentSection`) | el Monto del formulario de pago, el importe de cada pago de la lista, los rótulos de los botones Editar/Borrar y el texto del `confirm`, y la línea "Pagado: … de … · Saldo: …" |
+| Cotizaciones (`QuoteFormPanel`, `QuoteDetail`, `QuoteSection`) | Precio ofertado, el importe de cada línea (accesorios y descuentos) y el total |
+| Vehículo — formulario | los seis precios: Precio de lista (USD), Precio de lista (moneda local), Precio mínimo aceptable, Costo de adquisición, Precio acordado (consignación) y Deuda de patente |
+| Vehículo — pop up "Ver detalle" (§28) | los mismos seis, en solo lectura |
+
+Los importes de Pagos y Cotizaciones llegan ahí por `formatMoney` (`features/quote/format.ts`), que arma el texto con la moneda y el signo menos tipográfico y por dentro llama a `formatAmount`: `"−500,00 UYU"` pasó a `"−500 UYU"` y `"0,00 USD"` a `"0 USD"`, sin tocar su lógica de centavos enteros.
+
+**Tests.** No se agregó ningún archivo: las funciones puras de `currencyFormat.ts` ya se prueban en `CurrencyInput.test.tsx` (junto al componente, como desde el ítem 18.A), así que ahí quedó el caso de `formatAmount` reescrito con los dos caminos explícitos — entero y decimales en cero sin coma, centavos reales con coma y relleno a dos — más el borde de un solo decimal no-cero (`"20000.5"` → `20.000,50`). Se sumó un caso de componente: tipear un importe redondo y salir del campo **no** hace aparecer una coma de la nada. En los cinco archivos de features (`OpportunityFormPage`, `PaymentSection`, `format` y `QuoteSection` de cotizaciones, `VehicleFormPage`, `VehicleListPage`) se ajustó **solo el texto mostrado** de los importes redondos; los valores de prueba con centavos reales (`"1234.50"`, `"7500.25"`, `"17499.75"`, `"812,25"`) se dejaron como estaban, porque ese caso no cambia. Suite completa del frontend en verde.

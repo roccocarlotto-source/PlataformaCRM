@@ -1569,7 +1569,7 @@ describe("OpportunityFormPage", () => {
     await user.type(screen.getByLabelText("Cantidad de cuotas"), "23");
     await user.type(screen.getByLabelText("Monto de cuota"), "812,25");
     // Ya salió del campo: CurrencyInput lo muestra con los dos decimales.
-    expect(screen.getByLabelText("Entrega inicial")).toHaveValue("5.000,00");
+    expect(screen.getByLabelText("Entrega inicial")).toHaveValue("5.000");
 
     // Sin Empresa ni Contacto el backend real respondería 400; acá lo que
     // importa es el payload, y el handler lo acepta igual.

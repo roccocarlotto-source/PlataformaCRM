@@ -32,7 +32,7 @@ import type { VehicleListItem } from "./types";
 // el historial de cambios— no está acá.
 //
 // FORMATO, el que ya usa cada dato en pantalla: importes con el mismo
-// formatAmount de CurrencyInput ("25.000,00", ítem 23), kilometraje con el
+// formatAmount de CurrencyInput ("25.000", ítem 23 y §52), kilometraje con el
 // de IntegerInput, fechas de solo día (@db.Date) con el formatDate de
 // Oportunidades, fechas con hora como en la tarjeta "Registro" del
 // formulario, enums con sus mapas de labels.ts y el estado con el mismo
@@ -52,7 +52,8 @@ export interface VehicleDetailProps {
   salespersonName: string | null;
 }
 
-// Decimal(14,2) de la API ("25000.00") → "25.000,00"; null → vacío.
+// Decimal(14,2) de la API ("25000.00") → "25.000", con centavos solo si los
+// hay (§52); null → vacío.
 function importe(value: string | null): string {
   return value === null ? "" : formatAmount(value);
 }
