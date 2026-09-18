@@ -1014,11 +1014,14 @@ máquina); se volvieron a confirmar contra el código antes de escribirlos.
   `apiKey` compone lo suyo con `server.use(...)`. Se siguió la convención
   real del repo. Las fixtures sí son compartidas (`test/qrFixtures.ts`,
   `test/branchFixtures.ts`).
-- **El estado "Sin reclamar" existe en el código pero no puede aparecer
+- **El estado "Sin reclamar" existía en el código pero no podía aparecer
   hoy.** Con el modelo de Fase 2 (la fila nace en el claim, ya con
-  `claimedAt`) todo QR listado tiene `claimedAt`; la rama se conserva en
-  `estadoDeQr` por si el stock pre-insertado termina siendo el elegido
-  (candidato abierto de la nota de Fase 2).
+  `claimedAt`) todo QR listado tenía `claimedAt`; la rama se conservaba en
+  `estadoDeQr` por si el stock pre-insertado terminaba siendo el elegido.
+  **Ya no aplica:** `20260904120000_remove_qr_claim_and_single_use` eliminó
+  las columnas, y el ítem 53 de `docs/frontend-cambios-pendientes.md` sacó
+  `estadoDeQr` junto con las columnas "Estado" y "Tipo" del listado y las
+  filas equivalentes del pop up de detalle.
 - **"Copiar link" tiene un respaldo visible cuando el portapapeles no está
   disponible** (contexto no seguro o permiso denegado — es lo que pasa en un
   browser headless): el listado muestra el link como texto para copiar a
@@ -1495,6 +1498,15 @@ commit/PR lo hacés vos):**
 **Frontend, en el worktree `plataforma-crm-qr-integration-fase3` (por pedido
 explícito de Rocco: la limpieza va ahí, antes de retomar el restyle en curso
 en esa misma rama — no en el checkout principal):**
+
+> **Estado real de esta lista.** Esa rama nunca llegó a `master`, así que el
+> frontend se quedó con los campos muertos hasta el **ítem 53** de
+> `docs/frontend-cambios-pendientes.md`, que retomó la parte de `types.ts`,
+> `QrFormDialog.tsx`, `QrListPage.tsx`, las fixtures y los tests. **Sigue
+> pendiente** lo que toca al claim: `ClaimPage.tsx`/`ClaimPage.test.tsx`, su
+> ruta en `router.tsx`, `claimQrCode`/`useClaimQrCode` y `ClaimQrInput` —
+> `POST /api/qr/claim` ya no existe, así que esa pantalla da 404. Tampoco se
+> hizo el paso de `branchId`/`name`/`destinationUrl` a no-nulables.
 
 - `router.tsx`: sin la ruta `/claim/:qrId` ni el import de `ClaimPage`.
 - `ClaimPage.tsx`/`ClaimPage.test.tsx` quedaron **vacíos, no borrados**: esta

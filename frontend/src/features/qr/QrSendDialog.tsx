@@ -106,8 +106,8 @@ export function QrSendDialog({ qr, onClose }: QrSendDialogProps) {
         onClick: handleSend,
       }}
     >
-      {/* Radios en tarjeta (.ds-radio-card, mismo trato que "Tipo de QR" en
-          QrFormDialog). La línea de ayuda va como HERMANA del <label>, nunca
+      {/* Radios en tarjeta (.ds-radio-card). La línea de ayuda va como
+          HERMANA del <label>, nunca
           adentro: si no, entraría en el nombre accesible del radio y
           getByRole("radio", { name: "Email" }) dejaría de encontrarlo. Cada
           ayuda describe lo que handleSend hace de verdad con ese canal. */}

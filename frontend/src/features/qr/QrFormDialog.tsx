@@ -7,7 +7,7 @@ import { looksLikeUrl } from "../../lib/validation";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { BranchSelect } from "../branch/BranchSelect";
 import { useCreateDigitalQrCode, useUpdateQrCode } from "./mutations";
-import type { CreateDigitalQrInput, QrCode, QrType, UpdateQrInput } from "./types";
+import type { CreateDigitalQrInput, QrCode, UpdateQrInput } from "./types";
 
 // ---------------------------------------------------------------------------
 // Crear y editar un QR en un solo componente, en un Modal y no en una ruta
@@ -17,10 +17,18 @@ import type { CreateDigitalQrInput, QrCode, QrType, UpdateQrInput } from "./type
 // disponible como fila del listado ya cargado. El diálogo lo recibe por prop
 // y no fetchea nada. Documentado como desvío de la guía de Fase 3.
 //
-// Crear: sucursal + nombre + destino + mensaje opcional + tipo (REUSABLE por
-// defecto, mismo default que el backend). Editar: solo nombre/destino/mensaje
-// — branchId y qrType son inmutables tras la creación (updateQrSchema no los
-// acepta), así que ni se muestran ni viajan en el PATCH.
+// Crear: sucursal + nombre + destino + mensaje opcional. Editar: solo
+// nombre/destino/mensaje — branchId es inmutable tras la creación
+// (updateQrSchema no lo acepta), así que ni se muestra ni viaja en el PATCH.
+//
+// Hasta el ítem 53 de docs/frontend-cambios-pendientes.md había un cuarto
+// campo al crear: los radios "Reusable / Un solo uso", que mandaban `qrType`
+// en el POST. Ese campo no existe desde
+// 20260904120000_remove_qr_claim_and_single_use — todo QR es digital y
+// reusable, y createDigitalQrSchema ya no lo declara. Como ese Zod no es
+// `.strict()`, el backend lo venía DESCARTANDO en silencio en vez de
+// rechazarlo: elegir "Un solo uso" creaba un QR reusable igual, sin ningún
+// error a la vista. Se sacaron los radios.
 //
 // Validación en el cliente para feedback inmediato (mismos mensajes que el
 // Dashboard original); la fuente de verdad sigue siendo el Zod del backend
@@ -39,7 +47,6 @@ interface QrFormValues {
   name: string;
   destinationUrl: string;
   message: string;
-  qrType: QrType;
 }
 
 const EMPTY_FORM: QrFormValues = {
@@ -47,7 +54,6 @@ const EMPTY_FORM: QrFormValues = {
   name: "",
   destinationUrl: "",
   message: "",
-  qrType: "REUSABLE",
 };
 
 function toFormValues(qr: QrCode): QrFormValues {
@@ -56,7 +62,6 @@ function toFormValues(qr: QrCode): QrFormValues {
     name: qr.name ?? "",
     destinationUrl: qr.destinationUrl ?? "",
     message: qr.message ?? "",
-    qrType: qr.qrType,
   };
 }
 
@@ -70,7 +75,6 @@ function toCreateInput(values: QrFormValues): CreateDigitalQrInput {
     name: values.name.trim(),
     destinationUrl: values.destinationUrl.trim(),
     message: values.message.trim() || null,
-    qrType: values.qrType,
   };
 }
 
@@ -187,46 +191,6 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
             maxLength={500}
           />
         </FormField>
-        {isEditMode ? null : (
-          // Un solo uso solo al crear un QR digital, exactamente en este
-          // formulario (Cycle 28 del original): reusable es el default, el
-          // mismo que el backend.
-          //
-          // Radios en tarjeta (.ds-radio-card), como el "Tipo" del panel del
-          // diseño. La línea de ayuda va como HERMANA del <label>, nunca
-          // adentro: si no, entraría en el nombre accesible del radio y
-          // getByRole("radio", { name: "Un solo uso" }) dejaría de
-          // encontrarlo. Los textos de los radios son los de siempre.
-          <div className="ds-field">
-            <span className="ds-field-label">Tipo de QR</span>
-            <div className="ds-radio-cards" role="radiogroup" aria-label="Tipo de QR">
-              <div className="ds-radio-card">
-                <label>
-                  <input
-                    type="radio"
-                    name="qr-form-type"
-                    checked={values.qrType === "REUSABLE"}
-                    onChange={() => setValues({ ...values, qrType: "REUSABLE" })}
-                  />{" "}
-                  Reusable (usos ilimitados)
-                </label>
-                <p className="ds-radio-card-hint">Se puede escanear las veces que haga falta.</p>
-              </div>
-              <div className="ds-radio-card">
-                <label>
-                  <input
-                    type="radio"
-                    name="qr-form-type"
-                    checked={values.qrType === "SINGLE_USE"}
-                    onChange={() => setValues({ ...values, qrType: "SINGLE_USE" })}
-                  />{" "}
-                  Un solo uso
-                </label>
-                <p className="ds-radio-card-hint">Deja de redirigir después del primer escaneo.</p>
-              </div>
-            </div>
-          </div>
-        )}
         {error ? <ErrorState>{error}</ErrorState> : null}
         {/* Al final del cuerpo: el botón de guardar vive en el pie del Modal,
             fuera del <form>, y esto es lo más cerca que se le puede poner. */}

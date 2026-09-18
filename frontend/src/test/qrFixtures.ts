@@ -1,7 +1,7 @@
 import type { QrCode } from "../features/qr/types";
 
 // Fixture compartida entre los tests de features/qr/ — mismo criterio que
-// companyFixtures.ts. Un QR digital REUSABLE recién creado: la forma que
+// companyFixtures.ts. Un QR digital recién creado: la forma que
 // devuelve POST /api/qr/digital y que trae el listado. El id es un uuid real
 // porque buildPublicResolutionUrl lo exige.
 export function makeQrCode(overrides: Partial<QrCode> = {}): QrCode {
@@ -13,9 +13,6 @@ export function makeQrCode(overrides: Partial<QrCode> = {}): QrCode {
     name: "Mostrador",
     message: null,
     destinationUrl: "https://g.page/r/abc/review",
-    qrType: "REUSABLE",
-    usedAt: null,
-    claimedAt: "2026-01-01T00:00:00.000Z",
     deletedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
