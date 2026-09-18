@@ -2255,3 +2255,43 @@ Son **dos criterios distintos**, uno por campo: Motivo con `status === "LOST"`, 
 El de reabrir (`"edit: reabrir (Perdida → Abierta) limpia Motivo y Fecha real, y el PATCH los manda como null"`) pasó sin cambios, como correspondía: reabrir ya limpiaba. Los de `boardMove`, `OpportunityBoardView`, `OpportunityListPage` y `api.test.ts` que nombran `lostReason` tampoco necesitaron cambios — ninguno depende de la visibilidad del campo en el formulario.
 
 **Suite de frontend en verde: 138 archivos y 1340 tests** — el mismo conteo que el §47 y el §45: el cambio corrige comportamiento sin agregar casos nuevos. `tsc -b`, ESLint y Prettier limpios. Sin backend, sin migraciones y sin dependencias nuevas.
+
+## 49. Centrar los formularios de "Nueva X" / "Editar X"
+
+**Estado:** hecho
+
+**Contexto:** las trece pantallas de alta y edición comparten la clase `.ds-form` (`frontend/src/design-system/design-system.css`), que les pone un tope de ancho:
+
+```css
+.ds-form {
+  max-width: 920px;
+}
+```
+
+El tope estaba, el centrado no. `.ds-form` es un bloque sin márgenes laterales dentro de un `<main>` que **no tiene ancho máximo propio** (decisión del R1.1: el contenido usa todo el ancho al lado de la sidebar). Un bloque con `max-width` y márgenes en `0` se apoya contra el borde de arranque de su contenedor, así que el formulario quedaba pegado a la izquierda y todo el aire sobrante se acumulaba a la derecha. Medido en la app, viewport de 1440px: **0px de aire a la izquierda y 224px a la derecha**. No era una decisión de diseño, era un margen que faltaba.
+
+**El fix:** dos longhand en la misma regla.
+
+```css
+.ds-form {
+  max-width: 920px;
+  margin-left: auto;
+  margin-right: auto;
+}
+```
+
+Con `margin` a `auto` de los dos lados, el navegador reparte el sobrante en partes iguales. Mismo viewport de 1440px, después: **112px y 112px**.
+
+**Por qué las longhand y no `margin: 0 auto`.** El shorthand también setea `margin-top: 0`, y cuatro clases de la ficha de Oportunidad comparten el elemento con `.ds-form` para heredar su ancho — `.ds-quote-section`, `.ds-delivery-section`, `.ds-trade-in-section` y `.ds-payment-section` (§39 a §43) — cada una con su propio `margin-top: var(--space-5)` para separarse de la tarjeta anterior. Con el shorthand esos `margin-top` sobrevivirían solo por orden de aparición en el archivo (las secciones están más abajo que `.ds-form`): una reordenación futura los apagaría sin que nada lo avise. Las longhand no tocan el eje vertical, así que la dependencia deja de existir. Verificado en Editar oportunidad: los cuatro bloques siguen con `margin-top: 24px` y arrancan en el mismo `left` que el formulario.
+
+**Las trece pantallas que comparten `.ds-form`:** Actividad, Sucursal, Empresa, Contacto, Invitación, Oportunidad, Configuración de organización, Proceso de venta, Nueva organización, Reclamo de QR, Fuente, Etapa y Vehículo — cada una en su variante de alta y de edición, según corresponda.
+
+**Qué NO cambió:**
+
+- **Nada de `.tsx`.** Es una regla de CSS; ningún componente conoce su propio margen.
+- **El interior del formulario.** `Card`, `.ds-field-grid` y los campos no se enteran: lo que se movió es el bloque entero, no su contenido. La grilla sigue colapsando de dos columnas a una en el mismo punto (medido: dos columnas hasta 1100px de viewport, una sola desde 1000px).
+- **El comportamiento en ventana angosta.** Cuando el espacio disponible baja de 920px, el formulario lo ocupa entero y los márgenes automáticos se resuelven en `0` — igual que antes. Medido a 1200, 1100, 1000, 900, 768 y 375px: sin scroll horizontal en ninguno.
+
+**Verificación visual:** Nueva oportunidad, Editar empresa y Nuevo proceso de venta, en modo claro y oscuro, contra el Supabase local con datos sembrados. Los tres formularios centrados, con 112px de aire a cada lado en 1440px.
+
+**Suite de frontend en verde: 138 archivos y 1340 tests** — el mismo conteo que el §48: un cambio de CSS puro no agrega ni rompe casos. Ningún test menciona `.ds-form` ni depende de posiciones. Sin backend, sin migraciones y sin dependencias nuevas.
