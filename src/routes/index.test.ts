@@ -322,6 +322,21 @@ test("el CRUD de agentes de IA (paso 2a) está montado bajo /api", async () => {
   }
 });
 
+test("el CRUD de la base de conocimiento (ítem 59) está montado bajo /api", async () => {
+  const id = randomUUID();
+  const casos: [string, string][] = [
+    ["GET", "/api/knowledge-base"],
+    ["GET", `/api/knowledge-base/${id}`],
+    ["POST", "/api/knowledge-base"],
+    ["PATCH", `/api/knowledge-base/${id}`],
+    ["DELETE", `/api/knowledge-base/${id}`],
+  ];
+  for (const [method, path] of casos) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+  }
+});
+
 test("el CRUD de automatizaciones (docs/automations-architecture.md §8) está montado bajo /api", async () => {
   const id = randomUUID();
   const casos: [string, string][] = [

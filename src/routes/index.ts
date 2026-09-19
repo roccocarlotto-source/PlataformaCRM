@@ -15,6 +15,7 @@ import { healthRouter } from "./health.routes";
 import { importRouter } from "./import.routes";
 import { ingestionEventRouter } from "./ingestionEvent.routes";
 import { invitationRouter } from "./invitation.routes";
+import { knowledgeBaseEntryRouter } from "./knowledgeBaseEntry.routes";
 import { meRouter } from "./me.routes";
 import { onboardingRouter } from "./onboarding.routes";
 import { opportunityRouter } from "./opportunity.routes";
@@ -106,6 +107,14 @@ routes.use("/api", agentRouter);
 // endpoint público que los consume (5b) NO va acá: será sin authenticate y
 // sin /api, junto a qrPublicRouter.
 routes.use("/api", agentEmbedTokenRouter);
+// Base de conocimiento por sucursal (ítem 59 de
+// docs/frontend-cambios-pendientes.md): las entradas de texto que se suman
+// automáticamente al system prompt de todos los agentes de esa sucursal. Va
+// pegada a agentRouter porque es el dato que ese módulo consume, y comparte
+// exactamente su forma de permisos — authenticate para leer, + authorize
+// ("ADMIN") para escribir. Quien las LEE para armar el prompt no pasa por
+// HTTP: es agentOrchestration.service.ts, en cada turno.
+routes.use("/api", knowledgeBaseEntryRouter);
 
 // Motor de automatizaciones (docs/automations-architecture.md §8): CRUD de las
 // reglas trigger -> acción de la organización. Va acá, con los demás CRUD de

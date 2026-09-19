@@ -2939,3 +2939,82 @@ En los dos casos rotos el `<p>` **no** era hijo directo de la grilla: estaba met
 **Tests.** Ninguno cambió ni hizo falta agregar: los casos de `AgentFormPage.test.tsx` buscan por rol y por texto, no por el DOM padre de los hints. Suite del frontend en verde (142 archivos, 1418 casos), más `npm run typecheck`, `npm run lint` y `prettier --check` limpios.
 
 **Se trabajó en paralelo con el ítem 57**, que renombra "Guardrails" a "Reglas del agente" en este mismo archivo. El 57 se mergeó primero (PR #250), así que el conflicto esperable entre los dos ya se resolvió acá, al rebasar esta rama sobre `master`: `AgentFormPage.tsx` se auto-mergeó sin intervención —el 57 cambia rótulos y textos, este ítem mueve nodos del JSX, y no se pisan— y lo único que hubo que resolver a mano fue esta misma sección del documento, donde los dos ítems agregaban su bloque al final.
+
+## 59. Base de conocimiento: entradas de texto por sucursal, incluidas automáticamente en el agente
+
+**Estado:** hecho
+
+**Qué pidió Rocco.** Que el agente de IA pueda contestar con información real del negocio —horarios, políticas, catálogo, preguntas frecuentes— sin que haya que derivarla de otras tablas ni meterla a mano dentro de las instrucciones de cada agente. La idea ya estaba anotada en `docs/ai-agent-architecture.md` §10 como "Contexto de negocio por cliente", **explícitamente diferida** hasta que el loop básico estuviera probado. Con el loop probado (pasos 2b a 5b, ítems 55 a 58), Rocco decidió arrancarla.
+
+Esto es Knowledge Base **de verdad** —uno de los cinco pilares del producto, no algo periférico—, solo que esta primera versión es la más simple posible: texto que se suma al prompt, punto.
+
+### Las dos decisiones de producto, tomadas antes de escribir código
+
+**1. Una lista de entradas con título, no un cuadro de texto único.** El pendiente original imaginaba un campo `.md` en `Organization` o en `Branch`. Se construyó como una lista: cada entrada es una FAQ, una política o un dato suelto ("Horarios", "Política de cancelación", "Obras sociales que aceptamos"), con su propio título y editable por separado.
+
+Dos motivos. El primero es de mantenimiento: un cuadro de texto único de 10.000 caracteres se vuelve imposible de editar sin releerlo entero, y no hay forma de desactivar una parte. El segundo mira más lejos: el día que esto se indexe de verdad —RAG con embeddings, el bullet de "Knowledge Base / RAG" del mismo §10— cada entrada ya es la unidad natural para trocear y embeber, así que ese día no hay que migrar un blob a pedazos. **Ese día no es hoy**: esta vuelta es texto plano, sin embeddings, sin búsqueda semántica y sin ninguna librería nueva.
+
+**2. Se incluye automáticamente en TODOS los agentes de la sucursal, sin toggle por agente.** Hoy en la práctica hay un agente por sucursal, así que un toggle sería configuración sin beneficio real todavía — mismo criterio que el proyecto ya usó en otros lados (defaults razonables, no forzar configuración exhaustiva). Si el día de mañana hay varios agentes por sucursal con roles distintos, el toggle se agrega ahí, no ahora.
+
+### Modelo de datos
+
+Entidad nueva `KnowledgeBaseEntry` (`knowledge_base_entries`), migración `20260924120000_agregar_knowledge_base_entry`. Branch-scoped, mismo patrón que `Agent`: `organizationId` + `branchId`, `title` VarChar(200), `content` Text, `isActive` con default `true`, `createdAt`/`updatedAt`/`deletedAt`.
+
+- **Cuelga de la SUCURSAL y no de la organización**, mismo alcance que `Agent`: los horarios y las políticas son de la sucursal.
+- **La FK a `branches` es COMPUESTA** `(organization_id, branch_id) -> branches(organization_id, id)`, no la FK simple que el pedido esbozaba. Es el estándar del proyecto desde C-3 y lo que la fila 14 del diagnóstico exige de toda FK entre tablas con `organization_id`: hace imposible a nivel motor que una entrada cuelgue de una sucursal de otro tenant. Es la misma forma exacta que `agents_organization_id_branch_id_fkey`.
+- **Un solo índice, `(organization_id, branch_id, created_at)`** en vez de `(organization_id, branch_id)`: cubre el listado filtrado por sucursal, la lectura ordenada que hace el loop del agente en cada turno, y el lado referenciante de la FK compuesta —que Postgres no indexa por su cuenta—. Mismo criterio que `payments_organization_id_opportunity_id_paid_at_idx`.
+- **`isActive` y `deletedAt` significan cosas distintas**: desactivar es "hoy no quiero que el agente diga esto" (reversible desde la pantalla, para una promo de temporada); borrar es una baja. Las dos sacan la entrada del prompt.
+- **Sin `@@unique([organizationId, id])`**: nada referencia a una entrada de KB con una FK compuesta, así que ese UNIQUE no habilitaría nada.
+- **RLS:** la política de aislamiento uniforme (`for all` sobre `current_organization_id()`) va **en la migración**, que es donde la convención del proyecto las pone desde M-5 (`20260901120000`) y donde las pusieron `quotes`, `deliveries` y `payments`. El pedido decía "siguiendo el patrón de `Agent` en `prisma/sql/rls_policies.sql`", pero `agents` no tiene política en ninguno de los dos lados —el encabezado de `20260912130000` lo justifica por paralelismo con `bookings`, anterior a M-5— y ese hueco no es un modelo a seguir. Al diagnóstico entran la política (fila 5) y la FK compuesta (fila 16, 52 → 53) en este mismo cambio.
+
+### El CRUD
+
+`knowledgeBaseEntry.controller.ts` / `.service.ts` / `.repository.ts` / `.routes.ts`, calcados de los de `Agent` con cuatro campos en vez de trece. `GET /api/knowledge-base` y `GET /api/knowledge-base/:id` son lectura abierta a cualquier autenticado; `POST`/`PATCH`/`DELETE` llevan `authorize("ADMIN")` — mismo esquema que `Agent` y `Branch`. `DELETE` es soft delete sin ninguna cascada: nada cuelga de una entrada. El `search` del listado filtra por **título** y no por contenido, y es una decisión: un `ILIKE '%x%'` sobre un Text de 10.000 caracteres sin índice trigrama es un seq scan que además devolvería filas cuyo motivo de coincidencia no se ve en la tabla. Buscar dentro del contenido es búsqueda de verdad (RAG), no un `contains` más.
+
+**La sucursal SÍ se puede cambiar, a diferencia de `Agent`.** Un `Agent` no se mueve porque cada `Conversation` lleva su `branchId` denormalizado desde él, y moverlo dejaría conversaciones históricas apuntando a una sucursal que no las atendió. Una entrada de KB no tiene nada equivalente: nada la referencia, y el prompt se arma leyendo el estado actual en cada turno. Sin esa razón de integridad, prohibir el cambio sería inventar una restricción — mover una FAQ cargada en la sucursal equivocada es exactamente lo que alguien quiere poder hacer. El `PATCH` valida la sucursal nueva contra la organización igual que el `POST`, así que una sucursal ajena, inexistente o borrada es un 400 y no un 500 de la FK.
+
+### Cómo se engancha al prompt sin romper la pureza de `armarSystemPrompt`
+
+`armarSystemPrompt()` (`agentOrchestration.service.ts`) era una función **pura** que recibía `{ instructions, tone, guardrails }` — no tocaba la base, a propósito, para poder testearla como unitario. Sigue siéndolo: se le agregó un **cuarto parámetro** `knowledgeBaseEntries` (con default `[]`), ya leído por el llamador. Quien consulta es `runAgentTurn`, una vez por turno, con `findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId)`.
+
+El bloque queda así:
+
+```
+Información real del negocio (Knowledge Base) — usala para responder, no inventes datos que no estén acá:
+
+### Horarios
+Lunes a viernes de 9 a 18.
+
+### Política de cancelación
+Se puede cancelar hasta 24 h antes.
+```
+
+Cuatro detalles que sostienen el diseño:
+
+1. **Va después de `agent.instructions` y ANTES de los guardrails.** Es contexto informativo, no una regla: el modelo lee primero qué es el negocio y recién después qué no puede decir sobre él.
+2. **Sin entradas activas, el bloque no aparece** — ni siquiera el encabezado. Mismo criterio que ya usan `temas`/`promesas`/`condiciones`: si no hay nada configurado, no se menciona nada. Un encabezado seguido de nada le estaría diciendo al modelo que el negocio no tiene información, que es distinto de no habérsela dado.
+3. **Todo el filtrado vive en el repositorio.** `findActiveKnowledgeBaseEntriesByBranch` exige `isActive: true` y `deletedAt: null`, y ordena por `createdAt asc` — orden estable para que el prompt sea reproducible entre turnos. Por eso el unitario de `armarSystemPrompt` no tiene ninguna lógica de "esta entrada no va": esa decisión termina antes.
+4. **`agent.branchId` y no `conversation.branchId`**, aunque hoy sean siempre el mismo valor: el prompt describe al agente que está contestando, y es su sucursal la que define qué información del negocio le corresponde.
+
+Es una consulta más por turno, sin caché: unas pocas filas indexadas, al lado de una llamada a un LLM que cuesta órdenes de magnitud más. Cachearla traería el problema de invalidarla cuando un ADMIN edita una entrada, a cambio de nada medible.
+
+**`puedeEjecutarTool` no se tocó**, y ningún guardrail tampoco: esto es contexto de lectura, no una acción ni un permiso.
+
+### Frontend
+
+Módulo nuevo `features/knowledgeBase/` (`types.ts`, `api.ts`, `queries.ts`, `mutations.ts`, `KnowledgeBaseListPage.tsx`, `KnowledgeBaseFormPage.tsx`), calcado de `features/agent/`.
+
+- **Listado:** Título · Sucursal · Estado · Acciones. Filtros: buscador por título, `BranchSelect`, Estado (Activas/Inactivas), orden. La sucursal se resuelve por nombre contra la misma query que alimenta el filtro (misma `queryKey` que `BranchSelect`), igual que `AgentListPage`/`QrListPage`. **Sin columna de contenido**: son hasta 10.000 caracteres y un recorte en la tabla no dice nada que el título no diga mejor.
+- **Formulario:** Título (input, `maxLength` 200), Sucursal (`BranchSelect`, **habilitado también en edición** — a diferencia de `AgentFormPage`, que lo muestra deshabilitado con la razón escrita), Contenido (`<textarea>` de 10 filas, `maxLength` 10000), Activa (checkbox, default `true`). Sin traducción y sin panel de confirmación, a diferencia de las reglas del agente del ítem 56: acá no hay nada que interpretar, lo que se escribe es lo que el modelo lee.
+- **Rutas:** `/knowledge-base`, `/knowledge-base/new`, `/knowledge-base/:id/edit`, dentro del mismo bloque `<AdminRoute />` que `/agents` y `/branches` — mismo criterio exacto: lectura abierta en el backend, pero pantalla de configuración ADMIN-only, y hoy no hay ninguna otra pantalla que necesite mostrarle esto a un USER (quien lo "lee" de verdad es el agente, del lado del backend).
+- **Sidebar:** link "Base de conocimiento" (ícono `BookOpen`) al lado de "Agentes de IA", en el grupo Administración. El comentario del encabezado de `AppLayout.tsx` listaba "Base de conocimiento" entre las secciones del mockup original que este producto todavía no tenía: se actualizó para sacarla, igual que el ítem 55 sacó "Agentes IA".
+
+### Tests (corridos de verdad)
+
+**Backend.** Unitarios: **846 casos, 846 en verde** — incluye 3 nuevos en `agentOrchestration.service.test.ts` (con entradas, sin entradas, y la ubicación del bloque respecto de instructions/tono/guardrails) y 1 en `routes/index.test.ts` (las cinco rutas montadas bajo `/api`). Integración: **805 casos, 797 en verde y 8 en rojo**, los 8 en `googleCalendarSync.integration-test.ts` y **preexistentes en el entorno local** — se verificó corriendo la misma suite sobre la rama sin estos cambios (785 casos, 9 en rojo, los mismos archivos). Los nuevos son 18 en `knowledgeBaseEntry.controller.integration-test.ts` (CRUD, trim, topes inclusivos de 200/10000, filtro por sucursal, `search` que no mira el contenido, ADMIN vs USER, aislamiento entre organizaciones, el 400 de `branchId` inválido en POST **y en PATCH**, el `branchId` editable, soft delete, y `findActiveKnowledgeBaseEntriesByBranch` contra Postgres real) y 3 en `agentOrchestration.integration-test.ts` (las entradas llegan al `systemPrompt` del `LlmProvider` falso en orden; una inactiva, una borrada y una de otra sucursal no llegan; sin entradas el prompt queda igual que antes del ítem).
+
+**Frontend.** **144 archivos, 1448 casos, todos en verde** (antes del ítem: 142 archivos, 1418 casos). Los 30 nuevos: 15 en `KnowledgeBaseListPage.test.tsx`, 12 en `KnowledgeBaseFormPage.test.tsx`, 2 en `AppLayout.test.tsx` (el link por rol) y 1 en `router.test.tsx` (las tres rutas bajo `AdminRoute`).
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend. `npm run verify:schema` en verde, 14/14 chequeos afirmados, con la política de RLS y la FK compuesta nuevas ya dentro de las filas 5 y 16.
+
+**Producción necesita `migrate:deploy`** de `20260924120000_agregar_knowledge_base_entry` después del merge.

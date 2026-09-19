@@ -14,6 +14,7 @@ import {
   findOpenConversation,
   updateConversation,
 } from "../repositories/conversation.repository";
+import { findActiveKnowledgeBaseEntriesByBranch } from "../repositories/knowledgeBaseEntry.repository";
 import { createMessage, findLastMessages } from "../repositories/message.repository";
 import { AppError } from "../utils/AppError";
 import { createActivity } from "./activity.service";
@@ -163,22 +164,66 @@ function enumerar(items: string[]): string {
   return items.map((item) => `- ${item.trim()}`).join("\n");
 }
 
-// instructions + tono + lo que gobierna lo que el modelo puede DECIR (nota
-// del paso 4 bajo §6, punto 3): temasProhibidos, promesasProhibidas y
-// condicionesDeDerivacion no son gates de ejecución de tools —eso es
-// puedeEjecutarTool— sino instrucciones que el modelo tiene que conocer de
-// antemano. La instrucción de derivación va SIEMPRE, con o sin condiciones
-// configuradas: los otros dos disparadores de §6 (el contacto lo pide, una
-// acción bloqueada es la única forma de seguir) no dependen de configuración.
-export function armarSystemPrompt(agent: {
-  instructions: string;
-  tone: string | null;
-  guardrails: unknown;
-}): string {
+// El encabezado del bloque de la base de conocimiento (ítem 59). Constante
+// exportada porque es lo que los tests buscan en el prompt: si el texto
+// cambia, cambia en un solo lugar y no hay un test que siga pasando contra una
+// frase que ya no existe.
+export const ENCABEZADO_KNOWLEDGE_BASE =
+  "Información real del negocio (Knowledge Base) — usala para responder, no inventes datos que no estén acá:";
+
+// Una entrada de la base de conocimiento, tal como llega al prompt. Es
+// exactamente el `select` de findActiveKnowledgeBaseEntriesByBranch: esta
+// función no necesita saber nada más de la fila, y declararlo así la mantiene
+// pura y testeable sin base.
+export interface EntradaDeKnowledgeBase {
+  title: string;
+  content: string;
+}
+
+// instructions + tono + el contexto del negocio + lo que gobierna lo que el
+// modelo puede DECIR (nota del paso 4 bajo §6, punto 3): temasProhibidos,
+// promesasProhibidas y condicionesDeDerivacion no son gates de ejecución de
+// tools —eso es puedeEjecutarTool— sino instrucciones que el modelo tiene que
+// conocer de antemano. La instrucción de derivación va SIEMPRE, con o sin
+// condiciones configuradas: los otros dos disparadores de §6 (el contacto lo
+// pide, una acción bloqueada es la única forma de seguir) no dependen de
+// configuración.
+//
+// SIGUE SIENDO PURA con el agregado del ítem 59, y es a propósito: la base de
+// conocimiento entra como PARÁMETRO ya leído, no como una consulta de adentro.
+// Quien la lee es runAgentTurn, una vez por turno. Eso es lo que permite
+// testear en unitario —sin Postgres— cada forma que puede tomar el bloque.
+export function armarSystemPrompt(
+  agent: {
+    instructions: string;
+    tone: string | null;
+    guardrails: unknown;
+  },
+  knowledgeBaseEntries: EntradaDeKnowledgeBase[] = [],
+): string {
   const partes = [agent.instructions.trim()];
 
   if (agent.tone && agent.tone.trim().length > 0) {
     partes.push(`Tono de la conversación: ${agent.tone.trim()}.`);
+  }
+
+  // DESPUÉS de instructions y ANTES de los guardrails: es contexto
+  // informativo, no una regla. El modelo lee primero qué es el negocio y
+  // recién después qué no puede decir sobre él.
+  //
+  // Vacío = el bloque no aparece, mismo criterio que temas/promesas/
+  // condiciones: si no hay nada configurado, no se menciona nada. Un
+  // encabezado seguido de nada le estaría diciendo al modelo que el negocio no
+  // tiene información, que es distinto de no habérsela dado.
+  //
+  // El filtrado de las inactivas y las borradas ya ocurrió en el repositorio
+  // (findActiveKnowledgeBaseEntriesByBranch): acá no se vuelve a decidir qué
+  // entra, solo cómo se escribe.
+  if (knowledgeBaseEntries.length > 0) {
+    const bloques = knowledgeBaseEntries
+      .map((entrada) => `### ${entrada.title.trim()}\n${entrada.content.trim()}`)
+      .join("\n\n");
+    partes.push(`${ENCABEZADO_KNOWLEDGE_BASE}\n\n${bloques}`);
   }
 
   const temas = listaDeGuardrails(agent.guardrails, "temasProhibidos");
@@ -397,7 +442,24 @@ export async function runAgentTurn(
   }
 
   // Paso 2 de §4: el contexto.
-  const systemPrompt = armarSystemPrompt(agent);
+  //
+  // La base de conocimiento de la sucursal DEL AGENTE (ítem 59), leída en cada
+  // turno y sin caché: es una consulta más por turno, indexada por
+  // (organization_id, branch_id, created_at) y de unas pocas filas, al lado de
+  // una llamada a un LLM que cuesta órdenes de magnitud más. Cachearla
+  // introduciría el problema de invalidarla cuando un ADMIN edita una entrada,
+  // a cambio de nada medible.
+  //
+  // agent.branchId y no conversation.branchId, aunque hoy sean siempre el
+  // mismo valor: el prompt describe al agente que está contestando, y es su
+  // sucursal la que define qué información del negocio le corresponde. Si
+  // alguna vez el branchId denormalizado de una conversación vieja difiriera,
+  // el agente tiene que seguir hablando de SU sucursal.
+  const knowledgeBaseEntries = await findActiveKnowledgeBaseEntriesByBranch(
+    agent.branchId,
+    organizationId,
+  );
+  const systemPrompt = armarSystemPrompt(agent, knowledgeBaseEntries);
   const mensajes = await findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES);
   const historial = aHistorial(mensajes);
   const tools = toolsHabilitadas(agent.enabledTools);

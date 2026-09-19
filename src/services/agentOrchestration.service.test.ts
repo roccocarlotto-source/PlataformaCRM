@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  ENCABEZADO_KNOWLEDGE_BASE,
   REQUEST_HUMAN_HANDOFF_TOOL,
   REQUEST_HUMAN_HANDOFF_TOOL_NAME,
   armarSystemPrompt,
@@ -105,6 +106,76 @@ test("guardrails mal formado o con entradas no textuales se trata como no config
     assert.doesNotMatch(prompt, /Nunca prometas/, JSON.stringify(guardrails));
     assert.doesNotMatch(prompt, /coincide con alguna/, JSON.stringify(guardrails));
   }
+});
+
+// ---------------------------------------------------------------------------
+// La base de conocimiento de la sucursal (ítem 59). El cuarto parámetro llega
+// YA FILTRADO por el repositorio —solo entradas activas y no borradas—, así
+// que acá no hay ninguna lógica de filtrado que probar: eso se cubre en el
+// test de integración de findActiveKnowledgeBaseEntriesByBranch. Lo que se
+// prueba acá es la FORMA del bloque y su UBICACIÓN.
+// ---------------------------------------------------------------------------
+
+test("sin entradas de knowledge base, el bloque no aparece — ni siquiera el encabezado", () => {
+  // Los dos caminos a "vacío": el parámetro omitido (su default) y el array
+  // vacío explícito. Un encabezado suelto le diría al modelo que el negocio no
+  // tiene información, que no es lo mismo que no habérsela dado.
+  for (const prompt of [
+    armarSystemPrompt({ ...BASE, guardrails: {} }),
+    armarSystemPrompt({ ...BASE, guardrails: {} }, []),
+  ]) {
+    assert.doesNotMatch(prompt, /Knowledge Base/);
+    assert.doesNotMatch(prompt, /###/);
+  }
+});
+
+test("con entradas: encabezado + un bloque ### por entrada, en el orden recibido", () => {
+  const prompt = armarSystemPrompt({ ...BASE, guardrails: {} }, [
+    { title: "  Horarios  ", content: "  Lunes a viernes de 9 a 18.  " },
+    { title: "Política de cancelación", content: "Se puede cancelar hasta 24 h antes." },
+  ]);
+
+  assert.ok(prompt.includes(ENCABEZADO_KNOWLEDGE_BASE));
+  // Trim en título y contenido: el ADMIN pega texto de otro lado y el backend
+  // ya guarda trimeado, pero el prompt no depende de eso para estar prolijo.
+  assert.match(prompt, /### Horarios\nLunes a viernes de 9 a 18\./);
+  assert.match(prompt, /### Política de cancelación\nSe puede cancelar hasta 24 h antes\./);
+  // El orden del repositorio (createdAt asc) se respeta tal cual.
+  assert.ok(prompt.indexOf("### Horarios") < prompt.indexOf("### Política de cancelación"));
+});
+
+test("el bloque va después de instructions y tono, y ANTES de los guardrails", () => {
+  const prompt = armarSystemPrompt(
+    {
+      instructions: "Instrucciones.",
+      tone: "formal",
+      guardrails: {
+        temasProhibidos: ["política"],
+        promesasProhibidas: ["plazos"],
+        condicionesDeDerivacion: ["reclamo"],
+      },
+    },
+    [{ title: "Horarios", content: "Lunes a viernes de 9 a 18." }],
+  );
+
+  // Es contexto informativo, no una regla: el modelo lee primero qué es el
+  // negocio y recién después qué no puede decir sobre él.
+  const orden = [
+    prompt.indexOf("Instrucciones."),
+    prompt.indexOf("Tono de la conversación"),
+    prompt.indexOf(ENCABEZADO_KNOWLEDGE_BASE),
+    prompt.indexOf("No respondas ni opines"),
+    prompt.indexOf("Nunca prometas"),
+    prompt.indexOf("Llamá a request_human_handoff"),
+  ];
+  assert.ok(
+    orden.every((i) => i >= 0),
+    `faltó alguna sección: ${orden.join(",")}`,
+  );
+  assert.deepEqual(
+    orden,
+    [...orden].sort((a, b) => a - b),
+  );
 });
 
 test("la tool del sistema exige reason y no pide nada más", () => {

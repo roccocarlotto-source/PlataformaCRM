@@ -129,6 +129,12 @@ interface OpcionesDeEscenario {
   conVendedor?: boolean;
   conPipeline?: boolean;
   tone?: string;
+  // Base de conocimiento de la sucursal DEL AGENTE (ítem 59). Se crean en
+  // serie, en el orden del array, para que createdAt tenga un orden real.
+  knowledgeBase?: { title: string; content: string; isActive?: boolean }[];
+  // Una entrada en OTRA sucursal de la misma organización, para probar que el
+  // prompt no la trae.
+  knowledgeBaseDeOtraSucursal?: { title: string; content: string };
 }
 
 async function crearAuthUser(etiqueta: string) {
@@ -213,6 +219,32 @@ async function montar(etiqueta: string, opciones: OpcionesDeEscenario = {}): Pro
     },
   });
 
+  // En serie y no con createMany: el orden del bloque del prompt es por
+  // createdAt asc, y un createMany no garantiza timestamps distintos.
+  for (const entrada of opciones.knowledgeBase ?? []) {
+    await prisma.knowledgeBaseEntry.create({
+      data: {
+        organizationId: org.id,
+        branchId: branch.id,
+        title: entrada.title,
+        content: entrada.content,
+        ...(entrada.isActive !== undefined ? { isActive: entrada.isActive } : {}),
+      },
+    });
+  }
+
+  if (opciones.knowledgeBaseDeOtraSucursal) {
+    const vecina = await createBranch(org.id, { name: "Vecina", timezone: TZ });
+    await prisma.knowledgeBaseEntry.create({
+      data: {
+        organizationId: org.id,
+        branchId: vecina.id,
+        title: opciones.knowledgeBaseDeOtraSucursal.title,
+        content: opciones.knowledgeBaseDeOtraSucursal.content,
+      },
+    });
+  }
+
   return {
     organizationId: org.id,
     branchId: branch.id,
@@ -243,6 +275,8 @@ async function desmontar(e: Escenario) {
   await prisma.pipeline.deleteMany({ where });
   await prisma.agent.deleteMany({ where });
   await prisma.contact.deleteMany({ where });
+  // Antes que branches: la FK compuesta a branches es RESTRICT.
+  await prisma.knowledgeBaseEntry.deleteMany({ where });
   await prisma.branch.deleteMany({ where });
   await prisma.user.deleteMany({ where });
   await prisma.organization.delete({ where: { id: e.organizationId } });
@@ -1111,6 +1145,95 @@ test("ejecutarHandoff es idempotente: una conversación ya derivada no genera un
     });
     assert.equal(segunda.activityId, null);
     assert.equal((await activitiesDe(e)).length, 1);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 8. La base de conocimiento de la sucursal llega al system prompt (ítem 59)
+//
+// armarSystemPrompt es pura y su unitario cubre la FORMA del bloque. Lo que
+// solo se puede probar acá, contra Postgres real y a través de runAgentTurn,
+// es lo otro: que el loop efectivamente CONSULTA las entradas de la sucursal
+// del agente y se las pasa, y que lo que no corresponde no llega.
+// ---------------------------------------------------------------------------
+
+test("las entradas activas de la sucursal del agente llegan al system prompt, en orden", async () => {
+  const e = await montar("kb", {
+    knowledgeBase: [
+      { title: "Horarios", content: "Lunes a viernes de 9 a 18." },
+      { title: "Política de cancelación", content: "Se puede cancelar hasta 24 h antes." },
+    ],
+  });
+  try {
+    const doble = doblarProveedor([texto("Abrimos de 9 a 18.")]);
+
+    await turno(e, "¿A qué hora abren?", doble.proveedor);
+
+    const prompt = doble.requests[0].systemPrompt;
+    assert.match(prompt, /Información real del negocio \(Knowledge Base\)/);
+    assert.match(prompt, /### Horarios\nLunes a viernes de 9 a 18\./);
+    assert.match(prompt, /### Política de cancelación\nSe puede cancelar hasta 24 h antes\./);
+    // createdAt asc, el orden en que se cargaron.
+    assert.ok(prompt.indexOf("### Horarios") < prompt.indexOf("### Política de cancelación"));
+    // Después de instructions y antes de la instrucción de derivación: es
+    // contexto, no una regla.
+    assert.ok(
+      prompt.indexOf("agente comercial de la sucursal Centro") <
+        prompt.indexOf("Información real del negocio"),
+    );
+    assert.ok(
+      prompt.indexOf("Información real del negocio") <
+        prompt.indexOf(`Usá ${REQUEST_HUMAN_HANDOFF_TOOL_NAME}`),
+    );
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("una entrada inactiva, una borrada y una de otra sucursal NO llegan al prompt", async () => {
+  const e = await montar("kb-filtrado", {
+    knowledgeBase: [
+      { title: "Vigente", content: "Esto sí lo sabe el agente." },
+      { title: "Promo vieja", content: "Esto ya no corre.", isActive: false },
+      { title: "Para borrar", content: "Esto se dio de baja." },
+    ],
+    knowledgeBaseDeOtraSucursal: { title: "De la vecina", content: "Es de otra sucursal." },
+  });
+  try {
+    await prisma.knowledgeBaseEntry.updateMany({
+      where: { organizationId: e.organizationId, title: "Para borrar" },
+      data: { deletedAt: new Date() },
+    });
+
+    const doble = doblarProveedor([texto("Listo.")]);
+    await turno(e, "Contame todo", doble.proveedor);
+
+    const prompt = doble.requests[0].systemPrompt;
+    assert.match(prompt, /### Vigente/);
+    // Desactivar y borrar son decisiones distintas del negocio, y las dos
+    // sacan la entrada del prompt.
+    assert.doesNotMatch(prompt, /Promo vieja/);
+    assert.doesNotMatch(prompt, /Para borrar/);
+    // El alcance es la sucursal DEL AGENTE, no la organización.
+    assert.doesNotMatch(prompt, /De la vecina/);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("sin entradas cargadas, el prompt queda exactamente como antes del ítem 59", async () => {
+  const e = await montar("kb-vacia");
+  try {
+    const doble = doblarProveedor([texto("Hola.")]);
+    await turno(e, "Hola", doble.proveedor);
+
+    const prompt = doble.requests[0].systemPrompt;
+    // Ni el encabezado ni un bloque vacío: una sucursal sin base de
+    // conocimiento no le dice nada al modelo sobre eso.
+    assert.doesNotMatch(prompt, /Knowledge Base/);
+    assert.doesNotMatch(prompt, /###/);
   } finally {
     await desmontar(e);
   }

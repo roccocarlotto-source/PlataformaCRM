@@ -39,6 +39,8 @@ import { BranchFormPage } from "../features/branch/BranchFormPage";
 import { BranchListPage } from "../features/branch/BranchListPage";
 import { AgentFormPage } from "../features/agent/AgentFormPage";
 import { AgentListPage } from "../features/agent/AgentListPage";
+import { KnowledgeBaseFormPage } from "../features/knowledgeBase/KnowledgeBaseFormPage";
+import { KnowledgeBaseListPage } from "../features/knowledgeBase/KnowledgeBaseListPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -182,6 +184,17 @@ export const router = createBrowserRouter([
               { path: "/agents", element: <AgentListPage /> },
               { path: "/agents/new", element: <AgentFormPage /> },
               { path: "/agents/:id/edit", element: <AgentFormPage /> },
+              // Base de conocimiento (ítem 59 de
+              // docs/frontend-cambios-pendientes.md): el texto del negocio que
+              // se suma automáticamente al prompt de los agentes de cada
+              // sucursal. MISMO criterio exacto que /agents y /branches —
+              // GET /api/knowledge-base es lectura abierta, pero la pantalla
+              // es toda configuración ADMIN-only y hoy no hay ninguna otra
+              // pantalla que necesite mostrarle esto a un USER: quien lo lee
+              // de verdad es el agente, del lado del backend.
+              { path: "/knowledge-base", element: <KnowledgeBaseListPage /> },
+              { path: "/knowledge-base/new", element: <KnowledgeBaseFormPage /> },
+              { path: "/knowledge-base/:id/edit", element: <KnowledgeBaseFormPage /> },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/contacts/new", element: <ContactFormPage /> },
