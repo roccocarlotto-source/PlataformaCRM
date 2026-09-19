@@ -207,6 +207,16 @@ describe("router.tsx — wiring real de Sucursales (ítem 20)", () => {
   });
 });
 
+describe("router.tsx — wiring real de Base de conocimiento (ítem 59)", () => {
+  it("las tres rutas existen y están bajo AdminRoute — el listado también, aunque GET /api/knowledge-base sea de lectura abierta", () => {
+    for (const path of ["/knowledge-base", "/knowledge-base/new", "/knowledge-base/:id/edit"]) {
+      expect(findRoute(router.routes, path)).toBeDefined();
+      const parent = findParentElement(router.routes, path) as { type: unknown } | undefined;
+      expect(parent?.type).toBe(AdminRoute);
+    }
+  });
+});
+
 describe("router.tsx — wiring real de platform admin (Fase 4a del módulo SaaS)", () => {
   it("/admin/organizations/new está anidada bajo PlatformAdminRoute, no bajo AdminRoute", () => {
     const parent = findParentElement(router.routes, "/admin/organizations/new") as {

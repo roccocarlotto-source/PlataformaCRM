@@ -509,10 +509,14 @@ model Organization {
   workingHours WorkingHours[]
   bookings     Booking[]
 
-  agents           Agent[]
-  conversations    Conversation[]
-  messages         Message[]
-  agentEmbedTokens AgentEmbedToken[]
+  agents               Agent[]
+  conversations        Conversation[]
+  messages             Message[]
+  agentEmbedTokens     AgentEmbedToken[]
+  // La información del negocio que los agentes usan para responder (ítem 59).
+  // Cuelga de una sucursal, igual que Agent; acá está por el organizationId,
+  // como todas las demás.
+  knowledgeBaseEntries KnowledgeBaseEntry[]
 
   qrCodes                     QrCode[]
   qrPaymentEvents             PaymentEvent[]
@@ -1456,6 +1460,11 @@ model Branch {
   // las conversaciones que atendieron (branchId denormalizado desde Agent).
   agents        Agent[]
   conversations Conversation[]
+
+  // Base de conocimiento de la sucursal (ítem 59): las entradas de texto que
+  // se suman automáticamente al prompt de TODOS sus agentes. Branch y no
+  // Organization porque horarios y políticas son de la sucursal.
+  knowledgeBaseEntries KnowledgeBaseEntry[]
 
   // Módulo QR: los QR digitales de esta sucursal.
   qrCodes QrCode[]
@@ -2921,4 +2930,71 @@ model Payment {
   // @@unique([organizationId, id]): nada referencia a un pago.
   @@index([organizationId, opportunityId, paidAt])
   @@map("payments")
+}
+
+// ---------------------------------------------------------------------------
+// KnowledgeBaseEntry — la información real del negocio que los agentes de IA
+// de una sucursal usan para responder (ítem 59 de
+// docs/frontend-cambios-pendientes.md). Cierra el pendiente "Contexto de
+// negocio por cliente" de docs/ai-agent-architecture.md §10.
+//
+// UNA LISTA DE ENTRADAS CON TÍTULO, Y NO UN CAMPO DE TEXTO ÚNICO en
+// Organization o en Branch, que era la forma que el pendiente imaginaba. Cada
+// entrada es una FAQ, una política o un dato suelto ("Horarios", "Política de
+// cancelación"), editable por separado: es más mantenible a medida que crece,
+// y deja preparado el terreno para el día que esto se indexe de verdad
+// (embeddings / RAG), porque cada entrada ya es la unidad natural para
+// trocear. ESE DÍA NO ES HOY: acá es texto plano que se suma al system prompt,
+// sin embeddings, sin búsqueda semántica y sin ninguna dependencia nueva.
+//
+// BRANCH-SCOPED, mismo alcance que Agent: los horarios y las políticas son de
+// la sucursal, no de la cuenta. Todos los agentes de esa sucursal reciben
+// TODAS sus entradas activas, sin ningún toggle por agente — hoy hay un agente
+// por sucursal y un toggle sería configuración sin beneficio. Si algún día hay
+// varios agentes con roles distintos, el toggle se agrega ahí.
+//
+// SIN el @@unique([organizationId, id]) que tienen Agent y Branch: nada
+// referencia a una entrada de KB con una FK compuesta, así que ese UNIQUE no
+// habilitaría nada.
+// ---------------------------------------------------------------------------
+
+model KnowledgeBaseEntry {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  branchId       String @map("branch_id") @db.Uuid
+
+  // Corto: es lo que identifica la entrada en el listado y lo que el agente ve
+  // como encabezado de su bloque en el prompt.
+  title   String @db.VarChar(200)
+  // El contenido real: la respuesta de la FAQ, el texto de la política. Tope
+  // de cordura en el borde HTTP (10.000 caracteres, ~2000 palabras), no en la
+  // columna: es Text como Agent.instructions. El tope no es un límite técnico
+  // sino una forma de que quien carga esto piense en una entrada por tema y no
+  // pegue un PDF entero como texto.
+  content String @db.Text
+
+  // Oculta la entrada del prompt sin borrarla — una promoción de temporada que
+  // se va a querer reactivar. Mismo patrón que Agent.isActive, y distinto de
+  // deletedAt: inactivo es una decisión del negocio, borrado es una baja.
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  // FK COMPUESTA contra (organization_id, id) de branches, el estándar del
+  // proyecto desde C-3 y lo que la fila 14 del diagnóstico exige de toda FK
+  // entre tablas con organization_id. Es la misma forma que usa Agent.branch, y
+  // no la FK simple a branches(id): esta hace imposible a nivel motor que una
+  // entrada cuelgue de una sucursal de otra organización.
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+
+  // Un solo índice para los dos accesos reales, mismo criterio que
+  // payments_organization_id_opportunity_id_paid_at_idx: el listado filtrado
+  // por sucursal y la lectura ordenada que hace el loop del agente en cada
+  // turno (las entradas activas de su sucursal, por createdAt). Cubre además
+  // el lado referenciante de la FK compuesta, que Postgres no indexa solo.
+  @@index([organizationId, branchId, createdAt])
+  @@map("knowledge_base_entries")
 }

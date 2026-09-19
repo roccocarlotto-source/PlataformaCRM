@@ -122,15 +122,23 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // information_schema que se consultaba antes.
   [1, { descripcion: "C-1 · anon/authenticated sin escritura sobre public", esperado: "ninguno" }],
   [2, { descripcion: "C-1 · anon/authenticated sin lectura sobre public", esperado: "ninguno" }],
-  // Las 23 políticas de RLS comparadas por definición (cmd, permissive, roles,
+  // Las 29 políticas de RLS comparadas por definición (cmd, permissive, roles,
   // USING y WITH CHECK), con FULL OUTER JOIN para atrapar tanto la que falta
-  // como la que sobra: 20 de aislamiento uniforme (10 originales + las 6 del
+  // como la que sobra: 26 de aislamiento uniforme (10 originales + las 6 del
   // outbox y de agenda que agregó 20260901120000, M-5 + qr_codes, que agregó
-  // 20260903120000 + las 3 del módulo de stock de vehículos, 20260907120000)
-  // más las 3 especiales (organizations solo SELECT; roles y exchange_rates
-  // lectura para autenticados). api_keys, google_calendar_connections y las
-  // cuatro tablas internas del módulo QR no tienen política a propósito
-  // (deny-all).
+  // 20260903120000 + las 3 del módulo de stock de vehículos, 20260907120000 +
+  // las 2 del motor de automatizaciones, 20260913120000 + quotes, deliveries
+  // y payments, §39/§40/§43 + knowledge_base_entries, §59) más las 3
+  // especiales (organizations solo SELECT; roles y exchange_rates lectura
+  // para autenticados). api_keys, google_calendar_connections, las tres
+  // tablas del módulo de Agentes de IA y las cuatro tablas internas del
+  // módulo QR no tienen política — las dos primeras a propósito (deny-all,
+  // guardan secretos), las de agentes por el paralelismo con bookings que
+  // 20260912130000 documenta.
+  //
+  // El número de arriba es descriptivo: la fila no cuenta, compara firmas. Si
+  // queda desactualizado, lo que falla es la lectura de este comentario, no el
+  // chequeo.
   [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
   [7, { descripcion: "Los 9 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
   [8, { descripcion: "Los 28 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
@@ -199,7 +207,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   [
     16,
     {
-      descripcion: "C-3 · las 52 FKs conocidas siguen apuntando a la tabla padre de su diseño",
+      descripcion: "C-3 · las 53 FKs conocidas siguen apuntando a la tabla padre de su diseño",
       esperado: "ninguna",
     },
   ],

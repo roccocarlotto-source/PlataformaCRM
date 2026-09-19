@@ -207,7 +207,13 @@ from (
       -- Entrega (§40, migración 20260917120000): ídem.
       ('deliveries'),
       -- Pago del cliente (§43, migración 20260920120000): ídem.
-      ('payments')
+      ('payments'),
+      -- Base de conocimiento por sucursal (§59, migración 20260924120000):
+      -- organization_id propio y la política uniforme. A diferencia de
+      -- `agents` —el modelo del que copia todo lo demás, y que no tiene
+      -- política en ningún lado (ver el encabezado de 20260912130000)— esta
+      -- nace con la suya, que es la convención vigente desde M-5.
+      ('knowledge_base_entries')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -835,7 +841,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 52 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 53 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -859,7 +865,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 52 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 53 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -945,7 +951,14 @@ from (
     ('vehicles_organization_id_trade_in_opportunity_id_fkey|vehicles(organization_id,trade_in_opportunity_id)->opportunities(organization_id,id)'),
     -- Pago del cliente (§43, migración 20260920120000): cuelga de su
     -- oportunidad, igual que quotes/deliveries.
-    ('payments_organization_id_opportunity_id_fkey|payments(organization_id,opportunity_id)->opportunities(organization_id,id)')
+    ('payments_organization_id_opportunity_id_fkey|payments(organization_id,opportunity_id)->opportunities(organization_id,id)'),
+    -- Base de conocimiento por sucursal (§59, migración 20260924120000):
+    -- cuelga de una SUCURSAL, igual que agents — no de la organización ni de
+    -- un agente. Una FK bien formada hacia agents (que también tiene su
+    -- UNIQUE (organization_id, id)) pasaría la 14 y sería el error de diseño
+    -- que esta fila existe para atrapar: la base de conocimiento es del
+    -- negocio, no de un agente en particular.
+    ('knowledge_base_entries_organization_id_branch_id_fkey|knowledge_base_entries(organization_id,branch_id)->branches(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

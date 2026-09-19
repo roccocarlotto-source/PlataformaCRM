@@ -164,6 +164,28 @@ describe("AppLayout — nav de Agentes de IA (ítem 55)", () => {
   });
 });
 
+describe("AppLayout — nav de Base de conocimiento (ítem 59)", () => {
+  it("ADMIN ve 'Base de conocimiento' al lado de Agentes de IA, apuntando a /knowledge-base", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+
+    const link = screen.getByRole("link", { name: "Base de conocimiento" });
+    expect(link).toHaveAttribute("href", "/knowledge-base");
+    // En el mismo grupo que Agentes de IA, que es el módulo que consume estas
+    // entradas.
+    expect(link.closest(".ds-sidebar-group")).toBe(
+      screen.getByRole("link", { name: "Agentes de IA" }).closest(".ds-sidebar-group"),
+    );
+  });
+
+  it("USER no ve 'Base de conocimiento': la pantalla es toda configuración ADMIN-only", () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout();
+
+    expect(screen.queryByText("Base de conocimiento")).not.toBeInTheDocument();
+  });
+});
+
 describe("AppLayout — nav del módulo QR (Fase 3)", () => {
   it("el link QR se muestra para ambos roles: el listado es de lectura abierta", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));

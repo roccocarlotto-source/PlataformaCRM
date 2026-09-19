@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import {
   Activity,
+  BookOpen,
   Bot,
   Building,
   Building2,
@@ -62,9 +63,11 @@ function SidebarLink({
 // tomados de Dashboard CRM.html (ver design-system.css, sección AppLayout).
 // Grupos propios (CRM/Actividad/QR/Administración) en vez de los del
 // mockup (CRM/Automatización) porque el mockup es de otro rubro y tiene
-// secciones — Conversaciones, Agentes IA, Calendario, Notificaciones,
-// Base de conocimiento, Automatizaciones, Integraciones — que este
-// producto no tiene; Rocco eligió mostrar solo lo que existe hoy.
+// secciones — Conversaciones, Calendario, Notificaciones,
+// Automatizaciones, Integraciones — que este producto todavía no tiene;
+// Rocco eligió mostrar solo lo que existe hoy. Dos de esas secciones ya
+// dejaron esta lista: "Agentes IA" con el ítem 55 y "Base de conocimiento"
+// con el 59, las dos abajo, en el grupo Administración.
 export function AppLayout() {
   const { me, logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -189,6 +192,12 @@ export function AppLayout() {
                   pantalla donde un USER necesite ver agentes. */}
               <SidebarLink to="/agents" icon={Bot}>
                 Agentes de IA
+              </SidebarLink>
+              {/* Base de conocimiento (ítem 59): al lado de Agentes de IA
+                  porque es el dato que ellos consumen, y con el mismo criterio
+                  de permisos — GET abierto, pantalla ADMIN-only. */}
+              <SidebarLink to="/knowledge-base" icon={BookOpen}>
+                Base de conocimiento
               </SidebarLink>
             </div>
           ) : null}
