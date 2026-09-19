@@ -145,6 +145,33 @@ describe("ImportPage — validación antes de la red", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/Elegí un archivo/);
     expect(subidas).toBe(0);
   });
+
+  // Ítem 61 — el control de selección pasó a ser FileInputButton. Elegir y
+  // importar siguen separados: el archivo elegido se ve al lado del botón y no
+  // sale nada a la red hasta el submit.
+  it("el archivo se elige con el botón del design system y recién se importa al submit", async () => {
+    let subidas = 0;
+    server.use(
+      sourceHandler(),
+      http.post(importsUrl, () => {
+        subidas += 1;
+        return HttpResponse.json({}, { status: 202 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    const input = await screen.findByLabelText(/Archivo/);
+
+    expect(input).toHaveClass("ds-sr-only");
+    expect(screen.getByRole("button", { name: "Elegir archivo" })).toBeInTheDocument();
+    expect(screen.getByText("Ningún archivo elegido")).toBeInTheDocument();
+
+    await user.upload(input, csv("leads.csv"));
+
+    expect(screen.getByText("leads.csv")).toBeInTheDocument();
+    expect(subidas).toBe(0);
+  });
 });
 
 describe("ImportPage — subida y resultado", () => {

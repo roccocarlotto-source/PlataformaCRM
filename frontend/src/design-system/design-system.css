@@ -214,6 +214,33 @@ button:disabled {
   background: var(--color-danger-soft);
 }
 
+/* ---------------------------------------------------------------------- */
+/* FileInputButton.tsx                                                     */
+/* ---------------------------------------------------------------------- */
+
+/* La fila del selector de archivo: el botón (un .ds-button--secondary común)
+   con el nombre del archivo elegido al lado. El <input type="file"> real
+   también vive acá, pero escondido con .ds-sr-only, así que no ocupa lugar en
+   el flex. */
+.ds-file-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* El nombre del archivo tiene el mismo trato que un texto auxiliar: lo que
+   importa es el botón. min-width: 0 es lo que habilita el recorte — un ítem
+   flex no baja de su ancho de contenido sin eso, y un archivo de nombre largo
+   empujaría la fila fuera de la Card en vez de cortarse. */
+.ds-file-input__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
 /* Aplicable directo sobre un <Link> (react-router) para las acciones
    primarias que hoy son navegación, no un submit — "Nueva empresa", etc.
    Mismos tokens visuales que .ds-button--primary, sin duplicar el <button>

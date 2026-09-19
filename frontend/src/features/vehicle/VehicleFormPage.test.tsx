@@ -509,6 +509,10 @@ describe("VehicleFormPage — galería", () => {
     const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], "frente.jpg", {
       type: "image/jpeg",
     });
+    // Ítem 61: el input sigue en el DOM (user.upload no cambió) pero ahora está
+    // escondido detrás del botón del design system.
+    expect(screen.getByLabelText("Subir foto")).toHaveClass("ds-sr-only");
+    expect(screen.getByRole("button", { name: "Elegir archivo" })).toBeInTheDocument();
     await user.upload(screen.getByLabelText("Subir foto"), file);
 
     await waitFor(() => expect(calls).toHaveLength(1));

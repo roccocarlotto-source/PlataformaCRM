@@ -1,7 +1,7 @@
-import type { ChangeEvent } from "react";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
+import { FileInputButton } from "../../design-system/FileInputButton";
 import {
   useDeleteVehiclePhoto,
   useReorderVehiclePhotos,
@@ -38,13 +38,12 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
     deleteMutation.isPending ||
     reorderMutation.isPending;
 
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+  // Acá el archivo se sube apenas se elige: no hay un botón "Subir" aparte, y
+  // por eso tampoco hay estado propio con el archivo elegido. Limpiar el input
+  // para poder reelegir la misma foto lo hace FileInputButton.
+  function handleFileSelected(file: File | null) {
     if (!file) return;
     uploadMutation.mutate({ file });
-    // Limpiar el input para que elegir el mismo archivo otra vez vuelva a
-    // disparar onChange (el navegador no lo hace si el valor no cambió).
-    event.target.value = "";
   }
 
   function handleDelete(photoId: string) {
@@ -75,15 +74,19 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
         primera foto que se sube queda como portada.
       </p>
       <div className="ds-card-actions">
-        <label className="ds-field">
-          <span className="ds-field-label">Subir foto</span>
-          <input
-            type="file"
-            accept="image/jpeg,image/png"
-            onChange={handleFileChange}
-            disabled={isBusy}
-          />
-        </label>
+        {/* El nombre al lado del botón dura lo que dura la subida: cuando
+            termina, la foto ya se ve en la grilla de abajo y no hay ningún
+            archivo "elegido" esperando nada. Sale de la mutation en vuelo, sin
+            estado propio. */}
+        <FileInputButton
+          label="Subir foto"
+          accept="image/jpeg,image/png"
+          disabled={isBusy}
+          selectedFileName={
+            uploadMutation.isPending ? (uploadMutation.variables?.file.name ?? null) : null
+          }
+          onFileSelected={handleFileSelected}
+        />
       </div>
       {error ? (
         <ErrorState>
