@@ -3018,3 +3018,94 @@ Módulo nuevo `features/knowledgeBase/` (`types.ts`, `api.ts`, `queries.ts`, `mu
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend. `npm run verify:schema` en verde, 14/14 chequeos afirmados, con la política de RLS y la FK compuesta nuevas ya dentro de las filas 5 y 16.
 
 **Producción necesita `migrate:deploy`** de `20260924120000_agregar_knowledge_base_entry` después del merge.
+
+## 60. Base de conocimiento: completar una entrada importando un archivo (.txt/.docx/.pdf)
+
+**Estado:** hecho
+
+**Qué pidió Rocco.** Poder completar el campo "Contenido" de una entrada subiendo un archivo en vez de escribirlo a mano, para cargar las políticas y los FAQs que el negocio ya tiene en un documento. Rocco daba por hecho que el ítem 59 ya lo contemplaba: no era así — el 59 dejó un `<textarea>` y nada más, porque la decisión de esa vuelta fue "texto que se suma al prompt, punto".
+
+Van dos cambios: una corrección de copy chica y el grueso de la importación.
+
+### 1. El hint del checkbox "Activa"
+
+Decía *"Desactivarla la saca del prompt sin borrarla: sirve para algo de temporada que después se quiere volver a usar"* — dos "la" seguidos, mal construido, y la segunda mitad no se entiende ni releyéndola. Pasa a: *"Si la desactivás, sale del prompt sin borrarse — por ejemplo, una promoción de temporada que después vas a querer reactivar."* El ejemplo es el mismo que ya usa el comentario del modelo en `schema.prisma`, no uno nuevo. Ningún test comparaba ese texto literal, así que no hubo nada que ajustar.
+
+### 2. La importación: qué se guarda y qué no
+
+**El archivo NO se guarda en ningún lado.** Se sube, se le extrae el texto, y se descarta con el request. Es el mismo criterio que ya usan `import.controller.ts` y `utils/spreadsheet.ts` para las planillas: `multer.memoryStorage()`, buffer en memoria, nada a disco y nada a Supabase Storage.
+
+Esto es **deliberadamente distinto** del patrón de `vehiclePhotoUpload.ts` + `supabaseStorage.ts`, que sí persiste el archivo, y la diferencia es la que importa: una foto de una unidad **es** el dato —hay que poder volver a mostrarla—, mientras que para una entrada de KB el dato es el texto y nada más. No existe ningún concepto de "archivo original" acá: lo único que hay es `content`, exactamente igual que antes de este ítem. Un archivo guardado que nadie vuelve a leer sería un segundo lugar donde la misma información puede quedar desincronizada, con su ciclo de vida, su borrado y su costo de storage, a cambio de nada.
+
+Del lado de la pantalla, la consecuencia es que **el texto extraído es una carga inicial del campo, no una fuente de verdad aparte**. Apenas cae en el `<textarea>` es texto común: editable, y lo que se guarda al final es lo que esté ahí. El archivo no se vuelve a tocar nunca.
+
+### Solo `.docx` moderno, no el `.doc` binario viejo
+
+Decisión de producto, confirmada explícitamente por Rocco antes de escribir código. El `.doc` de Word 97-2003 es un contenedor OLE2 propietario que ninguna librería pura de Node lee bien; soportarlo significaría una dependencia con **binarios externos instalados en el servidor** (antiword, o LibreOffice headless). Un `.doc` se convierte a `.docx` desde el propio Word en dos clics, así que el costo recae una vez sobre quien tiene el archivo viejo y no sobre el despliegue de todas las organizaciones. Un `.doc` que llegue igual se rechaza con 400 (`application/msword` no está en la lista de mimetypes), y hay un caso de integración que lo afirma con ese mimetype exacto.
+
+### El endpoint
+
+`POST /api/knowledge-base/extract-text`, en el mismo router que el CRUD del ítem 59. **Mismo espíritu que `POST /api/imports/preview`**: extrae y devuelve, no guarda nada, no toca la base. Por eso responde 200 y no 201/202 — la respuesta **es** el resultado completo y la operación ya terminó. El handler no lee `req.auth.organizationId` y no es un olvido: no hay nada que aislar cuando no se toca Postgres, mismo razonamiento que `previsualizarEncabezadosHandler`.
+
+La cadena es `authenticate → knowledgeBaseExtractRateLimiter → authorize("ADMIN") → knowledgeBaseUpload → handler`, en ese orden y por las mismas razones que `import.routes.ts` documenta para la suya:
+
+- **El middleware de subida va DESPUÉS de `authorize`.** Parsear un multipart —y después abrir un PDF con pdfjs o descomprimir un `.docx`— es el trabajo más caro de la cadena, y no hay ninguna razón para hacerlo por alguien que todavía no probó ser ADMIN de la organización.
+- **El limiter va entre `authenticate` y `authorize`** porque necesita `req.auth.userId`.
+- **`authorize("ADMIN")` aunque el endpoint no escriba nada**, igual que el resto de este router: quien carga la base de conocimiento es un ADMIN y un USER no tiene ninguna pantalla desde la que subir un archivo acá.
+
+**Cuota propia: `knowledgeBaseExtractRateLimiter`, 10 por minuto por identidad**, mismo patrón y mismo número que `importPreviewRateLimiter` pero **una cuota separada**, no compartida. Los tres limiters acotan cosas distintas y compartir una significa que agotar una deja sin cupo a las otras: alguien que estuvo probando mapeos de columnas no puede quedarse sin poder subir un PDF a la KB, ni al revés. No sirve `businessWriteRateLimiter` por el motivo que el preview ya dejó escrito: este endpoint **no escribe nada**, así que no tiene ninguna de las precondiciones baratas que frenan naturalmente a una escritura — lo único antes del trabajo caro es `authenticate` + `authorize`.
+
+**Tope de 5 MB** (`KNOWLEDGE_BASE_EXTRACT_MAX_FILE_BYTES`), la mitad de los 10 MB de la importación de planillas y a propósito: allá el cuerpo es un Excel de miles de filas de datos, acá es una política o un instructivo. Superarlo es **413**, el mismo código que ya usa `importUpload.ts` para `LIMIT_FILE_SIZE`.
+
+**El rechazo por formato ocurre en el `fileFilter` de multer**, antes de leer un solo byte — que es la diferencia con `importUpload.ts`, que acepta cualquier mimetype y decide por la extensión adentro del parser porque para un `.csv` el navegador manda cualquier cosa. Acá los tres formatos tienen mimetypes estables (`text/plain`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`, `application/pdf`), así que el filtro barato alcanza. **No es un control de seguridad**: el mimetype lo declara el cliente y es tan manipulable como una extensión. Lo que decide de verdad es el parser de cada formato, que falla con 400 si el contenido no es lo que dice ser.
+
+### El servicio de extracción
+
+`src/services/knowledgeBaseExtraction.service.ts`, aislado igual que `llmProvider.service.ts` o `googleCalendar.service.ts`: recibe buffer + mimetype, devuelve `{ text, truncated }`, no toca Postgres y no conoce `KnowledgeBaseEntry`. Eso es lo que lo hace testeable como unitario con archivos de verdad, que es donde vive casi todo lo que puede salir mal.
+
+Dependencias nuevas, las dos puras de Node y sin binarios externos: **`mammoth`** (`.docx` → texto) y **`pdf-parse`** (`.pdf` → texto).
+
+- **`.txt`:** no es `buffer.toString("utf-8")` a secas, por dos razones concretas. Primero, un **byte NUL** aborta con 400 (`"El archivo no parece ser texto plano"`): un `.txt` no puede estar "corrupto" —no tiene estructura que validar— pero sí puede no ser texto, y sin ese chequeo el resultado sería una entrada llena de basura que después se le manda al modelo en cada turno. Segundo, se decodifica en **UTF-8 estricto** y recién si eso falla se cae a **latin1**: `toString("utf-8")` nunca falla, reemplaza cada byte inválido por U+FFFD, así que un `.txt` guardado en Windows-1252 —lo normal en un Bloc de notas viejo de por acá— entraría con "pol�tica" en vez de "política", y eso termina textual en el prompt. No se hace al revés porque latin1 tampoco falla nunca: leer un UTF-8 como latin1 da mojibake sin ningún error que lo delate.
+- **`.docx`:** `mammoth.extractRawText({ buffer })` y su `.value`. `extractRawText` y no `convertToHtml`: negritas y títulos no le aportan nada al modelo y sí sumarían etiquetas al conteo de caracteres.
+- **`.pdf`:** **`pdf-parse` 2.x, la clase `PDFParse`, no la firma `pdfParse(buffer)` de la 1.x** que el pedido mencionaba. La 1.x lleva años sin mantenimiento, no trae tipos, y arrastra en su `index.js` un bloque de debug que lee un PDF de ejemplo del propio paquete cuando `module.parent` es undefined — lo que revienta según cómo se cargue el módulo. La 2.x es dual ESM/CJS, trae sus `.d.ts` y no tiene ese bloque. Se **concatenan las páginas a mano** (`resultado.pages.map(p => p.text)`) en vez de usar `resultado.text`, y no es un detalle: `text` intercala separadores de página (`-- 1 of 3 --`) que son ruido para un prompt y, peor, harían que un PDF escaneado —sin una sola letra extraíble— devolviera un string no vacío y se colara como contenido válido.
+- **Archivo corrupto → 400**, con el mensaje de la librería adentro, mismo tono que `parsearXlsx` en `utils/spreadsheet.ts` (`"No se pudo leer el archivo Word: …"`, `"No se pudo leer el PDF: …"`). Es 400 y no 500 porque el que rompió algo fue el archivo del cliente, no el servidor.
+
+### El PDF escaneado: 422, y sin OCR
+
+Si el texto extraído queda vacío o es solo espacios, la respuesta es **422**, no 500 y no 400: el archivo se procesó bien de punta a punta, simplemente no había nada adentro; el request estaba perfectamente formado. El mensaje para un PDF nombra el caso: *"No se pudo extraer texto de este archivo. Puede ser un PDF escaneado (imagen, sin texto seleccionable) — probá copiarlo y pegarlo a mano."*
+
+**No se hace OCR en este ítem, y es una limitación conocida y declarada, no algo que se pasó por alto.** Un PDF escaneado es una imagen adentro de un PDF, y sacarle texto necesita un motor de OCR (tesseract y sus datos de idioma) que no es una librería pura de Node — exactamente el mismo tipo de dependencia con binarios externos que hizo descartar el `.doc` viejo. El mensaje dice el camino que sí funciona hoy en vez de dejar a la persona adivinando por qué un archivo "que se ve bien" falla.
+
+### Los dos topes de caracteres, que son distintos
+
+- **20.000 caracteres** (`MAX_CARACTERES_EXTRAIDOS`) es lo máximo que el endpoint devuelve. Un PDF de 80 páginas son megabytes de texto que igual no iban a entrar en el campo, y mandarlos de vuelta para que el cliente los tire es gastar red y memoria por nada. Si se recortó, la respuesta trae `truncated: true` — un recorte silencioso es el modo de falla peligroso, el mismo que `utils/spreadsheet.ts` evita rechazando en vez de truncar filas.
+- **10.000 caracteres** es lo máximo que acepta `content` en el POST/PATCH de la entrada, y **el endpoint de extracción no lo valida**. Esa regla ya vive donde el dato se guarda de verdad y duplicarla sería dos fuentes de verdad para lo mismo: el día que cambie una, la otra queda mintiendo.
+- **Por qué el tope de extracción es el DOBLE y no exactamente 10.000:** para que quien sube un archivo apenas más largo **vea** que se pasó y recorte a mano lo que le sobra, en vez de recibir un texto ya cortado justo en el límite sin saber cuánto se perdió.
+
+### Frontend
+
+En `KnowledgeBaseFormPage.tsx`, adentro de la misma `Card` que el `<textarea>` —no en una Card propia: no es otro dato de la entrada, es otra forma de llenar el **mismo** campo— un `<input type="file" accept=".txt,.docx,.pdf">` dentro de un `FormField`, que es el look que ya usa `SugerirMapeoDesdeArchivo` en el módulo de fuentes. No se inventó ningún componente nuevo.
+
+- **Al elegir el archivo se sube solo**, con "Extrayendo texto…" en el hint mientras responde, el `<textarea>` y el botón Guardar deshabilitados.
+- **Si `content` ya tiene texto, se confirma antes de pisarlo** con un `window.confirm` —el proyecto no tiene hoy ningún diálogo de confirmación compartido y el ítem 60 no es razón para inventar uno; es lo mismo que hace `ContactListPage` antes de borrar—. **La confirmación va ANTES de subir**, no después de recibir el texto: subir primero gastaría el request y una de las diez extracciones por minuto para algo que la persona va a cancelar igual.
+- **El `<input>` se limpia siempre**, pase lo que pase. Sin eso, elegir el mismo archivo dos veces seguidas no dispara un segundo `change` —el valor no cambió— y reintentar después de un error obligaría a elegir otro archivo en el medio.
+- **`truncated: true`** muestra "El archivo era muy largo, se cortó el texto — revisalo antes de guardar."
+- **Los errores del endpoint (400/413/422) salen donde salen los demás errores del formulario** y no tocan nada de lo ya cargado: un archivo que no se pudo leer no puede costarle a nadie el título ni el texto que venía escribiendo.
+- **Aviso extra que el pedido no listaba pero hacía falta:** el `maxLength` del `<textarea>` frena lo que se **tipea**, no lo que se asigna desde el archivo, así que un documento de 12.000 caracteres entra entero y se ve bien hasta que el POST lo rechaza con el mensaje crudo de la API. Cuando el contenido pasa los 10.000 aparece un hint con cuántos caracteres sobran. No corta nada: el tope sigue validándose en un solo lugar de verdad, el backend.
+- El hint del campo Contenido suma "Si ya lo tenés en un documento, podés subirlo acá abajo en vez de escribirlo", sin sacar la explicación de que se suma tal cual al prompt.
+
+### Tests (corridos de verdad)
+
+**Backend.** Unitarios: **861 casos, 861 en verde** (antes del ítem: 846). Los 15 nuevos están en `knowledgeBaseExtraction.service.test.ts`: los tres formatos con archivos reales, los acentos en UTF-8 y el respaldo a latin1, el binario disfrazado de `.txt`, el corrupto de cada formato, el `.txt`/`.docx` vacío y el PDF sin texto (422), el mimetype fuera de lista y los tres casos de recorte (justo en el tope, uno por encima, y un `.docx`).
+
+Integración: **819 casos, 812 en verde y 7 en rojo**, los 7 en `googleCalendarSync.integration-test.ts` y **preexistentes en el entorno local** — se verificó corriendo ese archivo solo (27 casos, 20 verdes, los mismos 7 rojos), y es el mismo archivo que el ítem 59 ya había documentado como rojo local por motivos ajenos. No comparte una línea de código con este ítem. Los 14 nuevos están en `knowledgeBaseExtraction.controller.integration-test.ts`: los tres formatos por HTTP real con multipart real, el truncamiento, el mimetype no soportado (400, con `application/msword`), el archivo de más de 5 MB (413), el PDF escaneado (422), el corrupto de cada formato (400), el multipart sin el campo `file` (400), sin token (401), un USER (403) y la cuota propia agotada (429). Más 1 caso ampliado en `routes/index.test.ts`, que ahora también afirma que la ruta nueva está montada.
+
+**Los archivos de prueba se GENERAN, no se versionan como binarios.** `knowledgeBaseExtraction.test-helper.ts` arma un `.txt`, un `.docx` (un ZIP válido con entradas almacenadas, su `[Content_Types].xml` y su `word/document.xml`) y un `.pdf` (con su tabla `xref` y los offsets bien calculados) al vuelo. Son archivos **reales** que parsean mammoth y pdfjs de verdad, no mocks —un mock de la librería probaría el mock, y el trato con esas librerías es justamente lo que puede salir mal—. Versionarlos habría dejado dos binarios opacos que nadie revisa en un diff, que hay que regenerar a mano para cada caso nuevo y que invitan a subir muestras reales con datos de alguien. El CRC-32 del ZIP está escrito a mano en vez de usar `zlib.crc32` porque esa función nativa existe recién desde Node 22.2 y el helper no tiene por qué atarse a una versión puntual del runtime.
+
+**Frontend.** **144 archivos, 1463 casos, todos en verde** (antes del ítem: 144 archivos, 1448 casos). Los 15 nuevos están en `KnowledgeBaseFormPage.test.tsx`: la subida feliz de cada uno de los tres formatos con la respuesta mockeada por MSW, el texto extraído editable y guardado con los cambios, que con el campo vacío no pregunta nada, la confirmación antes de pisar, que cancelarla no pisa **ni sube el archivo**, el aviso de truncamiento presente y ausente, los tres códigos de error sin perder el resto del formulario, el estado de carga con el botón bloqueado, y el aviso de exceso de caracteres (presente y ausente).
+
+Un detalle del entorno que quedó anotado en el propio test: `request.formData()` no funciona del lado del handler de MSW acá, así que la verificación del multipart lee el **cuerpo crudo** —igual que ya hace `ImportPage.test.tsx`, que lo dejó documentado— y afirma sobre el campo `file` y el mimetype. El **nombre** del archivo no se afirma porque el `FormData` de undici en este entorno serializa la parte como `filename="blob"` y lo pierde; es una limitación del test, no del navegador, y no es lo que decide nada del lado del backend — ahí manda el mimetype.
+
+`npm run typecheck`, `npm run lint`, `npm run build` y `prettier --check` limpios en backend y frontend. El gate de auditoría de dependencias pasa sin advisories high/critical nuevas: las 4 moderate que reporta `npm audit` son las preexistentes de `exceljs`/`uuid` y `express`/`qs`, ninguna viene de `mammoth` ni de `pdf-parse`.
+
+**Sin migración y sin cambios de esquema:** este ítem no toca Prisma. Producción no necesita ningún `migrate:deploy` por el ítem 60 (siguen pendientes los de los ítems 56, 57 y 59).

@@ -2,13 +2,18 @@ import { Router } from "express";
 import {
   createKnowledgeBaseEntryHandler,
   deleteKnowledgeBaseEntryHandler,
+  extraerTextoDeArchivoHandler,
   getKnowledgeBaseEntryHandler,
   listKnowledgeBaseEntriesHandler,
   updateKnowledgeBaseEntryHandler,
 } from "../controllers/knowledgeBaseEntry.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { authorize } from "../middlewares/authorize";
-import { businessWriteRateLimiter } from "../middlewares/rateLimit";
+import { knowledgeBaseUpload } from "../middlewares/knowledgeBaseUpload";
+import {
+  businessWriteRateLimiter,
+  knowledgeBaseExtractRateLimiter,
+} from "../middlewares/rateLimit";
 
 export const knowledgeBaseEntryRouter = Router();
 
@@ -40,4 +45,37 @@ knowledgeBaseEntryRouter.delete(
   businessWriteRateLimiter,
   authorize("ADMIN"),
   deleteKnowledgeBaseEntryHandler,
+);
+
+// ---------------------------------------------------------------------------
+// Extracción de texto de un archivo (ítem 60). No guarda nada: sube, extrae y
+// devuelve. Es a POST /knowledge-base lo que POST /imports/preview es a POST
+// /imports, y por eso comparte casi todo su armado con import.routes.ts.
+//
+// SE DECLARA ÚLTIMO y no choca con nada: los únicos handlers que matchean un
+// path de dos segmentos bajo /knowledge-base son PATCH y DELETE sobre /:id, y
+// este es un POST. El POST que existe es sobre /knowledge-base a secas.
+//
+// LLEVA authorize("ADMIN") AUNQUE NO ESCRIBA NADA, igual que el resto de este
+// router: quien carga la base de conocimiento es un ADMIN, y un USER no tiene
+// ninguna pantalla desde la que subir un archivo acá.
+//
+// EL ORDEN DE LOS CUATRO MIDDLEWARES ES EL MISMO QUE EL DE import.routes.ts y
+// por la misma razón: knowledgeBaseUpload va DESPUÉS de authorize porque
+// parsear un multipart —y después abrir un PDF o descomprimir un .docx— es el
+// trabajo más caro de la cadena, y no hay ninguna razón para hacerlo por
+// alguien que todavía no probó ser ADMIN de la organización. El limiter va
+// entre authenticate y authorize porque necesita req.auth.userId.
+//
+// SU PROPIO LIMITER y no businessWriteRateLimiter: acá no hay ninguna escritura
+// que frene naturalmente el costo. El razonamiento completo está en
+// middlewares/rateLimit.ts.
+// ---------------------------------------------------------------------------
+knowledgeBaseEntryRouter.post(
+  "/knowledge-base/extract-text",
+  authenticate,
+  knowledgeBaseExtractRateLimiter,
+  authorize("ADMIN"),
+  knowledgeBaseUpload,
+  extraerTextoDeArchivoHandler,
 );

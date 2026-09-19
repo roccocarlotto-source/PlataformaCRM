@@ -1,8 +1,9 @@
-import { request } from "../../lib/api";
+import { request, uploadFile } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type {
   CreateKnowledgeBaseEntryInput,
   KnowledgeBaseEntry,
+  KnowledgeBaseExtractedText,
   KnowledgeBaseListQuery,
   KnowledgeBaseListResponse,
   UpdateKnowledgeBaseEntryInput,
@@ -67,4 +68,25 @@ export function updateKnowledgeBaseEntry(
 // ninguna cascada: nada cuelga de una entrada de la base de conocimiento.
 export function deleteKnowledgeBaseEntry(id: string): Promise<void> {
   return request<void>(`/knowledge-base/${id}`, { method: "DELETE", getAccessToken });
+}
+
+// POST /api/knowledge-base/extract-text — ítem 60. Va por uploadFile
+// (multipart) y no por request(), que siempre serializa a JSON: un FormData
+// por ese camino llegaría al backend como "[object Object]". Mismo uso que
+// previewImport en features/import/api.ts.
+//
+// NO CREA NI MODIFICA NINGUNA ENTRADA y no guarda el archivo: devuelve el
+// texto y ahí termina. Por eso no invalida ninguna query y vive en api.ts sin
+// una mutation de react-query alrededor — no hay cache que tocar.
+export function extractKnowledgeBaseText(
+  file: File,
+  options: { signal?: AbortSignal } = {},
+): Promise<KnowledgeBaseExtractedText> {
+  const form = new FormData();
+  form.append("file", file);
+
+  return uploadFile<KnowledgeBaseExtractedText>("/knowledge-base/extract-text", form, {
+    getAccessToken,
+    ...options,
+  });
 }

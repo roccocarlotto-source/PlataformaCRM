@@ -67,3 +67,25 @@ export interface CreateKnowledgeBaseEntryInput {
 // razón de integridad para prohibirlo. Ver la nota de
 // UpdateKnowledgeBaseEntryInput en src/services/knowledgeBaseEntry.service.ts.
 export type UpdateKnowledgeBaseEntryInput = Partial<CreateKnowledgeBaseEntryInput>;
+
+// ---------------------------------------------------------------------------
+// Ítem 60 — completar el contenido desde un archivo.
+// ---------------------------------------------------------------------------
+
+// Lo que devuelve POST /api/knowledge-base/extract-text. El archivo NO se
+// guarda en ningún lado: sube, se le extrae el texto y se descarta. Lo único
+// que queda es este string, que entra al campo Contenido como una carga
+// inicial editable — no como una fuente de verdad aparte.
+export interface KnowledgeBaseExtractedText {
+  text: string;
+  // El backend recorta a 20.000 caracteres (MAX_CARACTERES_EXTRAIDOS) para no
+  // mandar de vuelta un PDF de 80 páginas que igual no iba a entrar en el
+  // campo. Cuando es true, lo que se ve NO es todo el documento.
+  truncated: boolean;
+}
+
+// Los tres formatos que el backend acepta, en el orden en que se nombran en
+// los textos de la pantalla. Solo .docx moderno: el .doc binario viejo no
+// entra, y es una decisión —ver el comentario de MIMETYPES_SOPORTADOS en
+// src/services/knowledgeBaseExtraction.service.ts.
+export const EXTENSIONES_ARCHIVO_SOPORTADAS = [".txt", ".docx", ".pdf"] as const;

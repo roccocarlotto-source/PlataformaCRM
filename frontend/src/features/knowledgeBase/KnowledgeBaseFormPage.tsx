@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type ChangeEvent, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -8,12 +8,14 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { BranchSelect } from "../branch/BranchSelect";
+import { extractKnowledgeBaseText } from "./api";
 import { useCreateKnowledgeBaseEntry, useUpdateKnowledgeBaseEntry } from "./mutations";
 import { useKnowledgeBaseEntry } from "./queries";
-import type {
-  CreateKnowledgeBaseEntryInput,
-  KnowledgeBaseEntry,
-  UpdateKnowledgeBaseEntryInput,
+import {
+  EXTENSIONES_ARCHIVO_SOPORTADAS,
+  type CreateKnowledgeBaseEntryInput,
+  type KnowledgeBaseEntry,
+  type UpdateKnowledgeBaseEntryInput,
 } from "./types";
 
 // Los mismos topes que el backend (knowledgeBaseEntry.controller.ts). El
@@ -37,6 +39,15 @@ const EMPTY_FORM: KnowledgeBaseFormValues = {
 
 const PLACEHOLDER_CONTENIDO =
   "Ej.: Atendemos de lunes a viernes de 9 a 18 y los sábados de 9 a 13. El último turno se da media hora antes del cierre.";
+
+const ETIQUETA_ARCHIVO = "Completar desde un archivo (.txt, .docx o .pdf)";
+
+// El aviso antes de pisar lo que ya estaba escrito. window.confirm y no un
+// componente nuevo: el proyecto no tiene hoy ningún diálogo de confirmación
+// compartido, y el ítem 60 no es razón para inventar uno — lo mismo hace
+// ContactListPage antes de borrar.
+const CONFIRMAR_PISAR_CONTENIDO =
+  "El campo Contenido ya tiene texto. Si seguís, el archivo lo reemplaza por completo. ¿Seguimos?";
 
 function toFormValues(entry: KnowledgeBaseEntry): KnowledgeBaseFormValues {
   return {
@@ -96,8 +107,63 @@ export function KnowledgeBaseFormPage() {
     entryQuery.data ? toFormValues(entryQuery.data) : EMPTY_FORM,
   );
   const [error, setError] = useState<string | null>(null);
+  const [extrayendo, setExtrayendo] = useState(false);
+  const [truncado, setTruncado] = useState(false);
 
   const isSubmitting = createEntryMutation.isPending || updateEntryMutation.isPending;
+
+  // -------------------------------------------------------------------------
+  // Completar el Contenido desde un archivo (ítem 60).
+  //
+  // El archivo se sube, el backend extrae el texto y lo devuelve; el archivo
+  // no se guarda en ningún lado ni queda asociado a la entrada. Lo que llega
+  // es una CARGA INICIAL del campo, no una fuente de verdad separada: apenas
+  // cae en el textarea es texto común y corriente, editable, y lo que se
+  // guarda al final es lo que esté ahí.
+  //
+  // LA CONFIRMACIÓN VA ANTES DE SUBIR, no después de recibir el texto. Subir
+  // primero gastaría el request y una de las diez extracciones por minuto que
+  // permite el endpoint para algo que la persona va a cancelar igual.
+  // -------------------------------------------------------------------------
+  async function handleArchivo(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const archivo = input.files?.[0];
+
+    // EL INPUT SE LIMPIA SIEMPRE, pase lo que pase. Sin esto, elegir el mismo
+    // archivo dos veces seguidas no dispara un segundo change —el valor no
+    // cambió— y reintentar después de un error obligaría a elegir otro archivo
+    // en el medio.
+    input.value = "";
+
+    if (!archivo) return;
+
+    if (values.content.trim() !== "" && !window.confirm(CONFIRMAR_PISAR_CONTENIDO)) {
+      return;
+    }
+
+    setError(null);
+    setTruncado(false);
+    setExtrayendo(true);
+    try {
+      const { text, truncated } = await extractKnowledgeBaseText(archivo);
+      setValues({ ...values, content: text });
+      setTruncado(truncated);
+    } catch (err) {
+      // El error se muestra donde se muestran los del formulario y NO toca
+      // nada de lo que ya estaba cargado: un archivo que no se pudo leer no
+      // puede costarle a nadie el título ni el texto que venía escribiendo.
+      // Los tres casos que llegan acá son 400 (formato o archivo roto), 413
+      // (más de 5 MB) y 422 (el documento no tiene texto), cada uno con su
+      // mensaje del backend.
+      setError(
+        err instanceof Error
+          ? `No pudimos leer el archivo: ${err.message}`
+          : "No pudimos leer el archivo.",
+      );
+    } finally {
+      setExtrayendo(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -195,8 +261,8 @@ export function KnowledgeBaseFormPage() {
             </div>
 
             <p className="ds-hint ds-field-grid--full">
-              Desactivarla la saca del prompt sin borrarla: sirve para algo de temporada que después
-              se quiere volver a usar.
+              Si la desactivás, sale del prompt sin borrarse — por ejemplo, una promoción de
+              temporada que después vas a querer reactivar.
             </p>
           </div>
         </Card>
@@ -211,6 +277,7 @@ export function KnowledgeBaseFormPage() {
                   maxLength={MAX_CONTENT}
                   placeholder={PLACEHOLDER_CONTENIDO}
                   onChange={(event) => setValues({ ...values, content: event.target.value })}
+                  disabled={extrayendo}
                   required
                 />
               </FormField>
@@ -218,8 +285,52 @@ export function KnowledgeBaseFormPage() {
             <p className="ds-hint ds-field-grid--full">
               Se suma tal cual al prompt de todos los agentes de esa sucursal, sin traducción ni
               confirmación. Escribilo como se lo contarías a alguien que recién entra a trabajar.
-              Hasta {MAX_CONTENT.toLocaleString("es-UY")} caracteres por entrada.
+              Hasta {MAX_CONTENT.toLocaleString("es-UY")} caracteres por entrada. Si ya lo tenés en
+              un documento, podés subirlo acá abajo en vez de escribirlo.
             </p>
+
+            {/* Suelto adentro de la misma Card que el textarea, y no en una
+                Card propia: no es otro dato de la entrada, es otra forma de
+                llenar el MISMO campo. El archivo no se guarda ni queda
+                asociado a nada — lo único que sobrevive es el texto que cae
+                en el textarea de arriba, editable como cualquier otra cosa
+                que se hubiera tipeado. */}
+            <div className="ds-field-grid--full">
+              <FormField label={ETIQUETA_ARCHIVO}>
+                <input
+                  type="file"
+                  accept={EXTENSIONES_ARCHIVO_SOPORTADAS.join(",")}
+                  disabled={extrayendo || isSubmitting}
+                  onChange={(event) => void handleArchivo(event)}
+                />
+              </FormField>
+            </div>
+            <p className="ds-hint ds-field-grid--full">
+              {extrayendo
+                ? "Extrayendo texto…"
+                : "Se lee el texto del documento y se pega acá arriba; el archivo no se guarda. " +
+                  "Un PDF escaneado (una foto del papel, sin texto seleccionable) no sirve: ese hay " +
+                  "que copiarlo a mano."}
+            </p>
+            {truncado ? (
+              <p className="ds-hint ds-field-grid--full">
+                El archivo era muy largo, se cortó el texto — revisalo antes de guardar.
+              </p>
+            ) : null}
+            {/* El maxLength del textarea frena lo que se TIPEA, no lo que se
+                asigna desde el archivo: un documento de 12.000 caracteres
+                entra entero y se vería bien hasta que el POST lo rechaza con
+                el mensaje crudo de la API. Este aviso existe para que se vea
+                antes, con el número exacto que sobra, y se pueda recortar a
+                mano. El tope sigue validándose en un solo lugar de verdad —el
+                backend—; acá no se corta nada. */}
+            {values.content.length > MAX_CONTENT ? (
+              <p className="ds-hint ds-field-grid--full">
+                El texto tiene {values.content.length.toLocaleString("es-UY")} caracteres y el
+                máximo por entrada es {MAX_CONTENT.toLocaleString("es-UY")}. Recortá{" "}
+                {(values.content.length - MAX_CONTENT).toLocaleString("es-UY")} antes de guardar.
+              </p>
+            ) : null}
           </div>
         </Card>
 
@@ -227,7 +338,7 @@ export function KnowledgeBaseFormPage() {
 
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" disabled={isSubmitting || extrayendo}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>

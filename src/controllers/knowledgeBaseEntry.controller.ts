@@ -7,6 +7,7 @@ import {
   listKnowledgeBaseEntries,
   updateKnowledgeBaseEntry,
 } from "../services/knowledgeBaseEntry.service";
+import { extraerTextoDeArchivo } from "../services/knowledgeBaseExtraction.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -120,5 +121,48 @@ export const deleteKnowledgeBaseEntryHandler = asyncHandler<AuthenticatedRequest
     const id = parseOrThrow(idParamSchema, req.params.id);
     await deleteKnowledgeBaseEntry(req.auth.organizationId, id);
     res.status(204).send();
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /api/knowledge-base/extract-text — ítem 60.
+//
+// MISMO ESPÍRITU QUE POST /api/imports/preview: extrae y devuelve, no guarda
+// nada. No crea ni toca ninguna entrada, no escribe en la base y el archivo se
+// va con el request. Por eso es 200 y no 201 ni 202 — la respuesta ES el
+// resultado completo de la operación y la operación ya terminó.
+//
+// NO LEE req.auth.organizationId, y no es un olvido: no hay nada que aislar
+// porque no toca la base. req.auth sirve para llegar hasta acá —authenticate y
+// authorize("ADMIN") ya corrieron— y nada más. Mismo razonamiento que
+// previsualizarEncabezadosHandler.
+//
+// NO VALIDA EL TOPE DE 10.000 CARACTERES de `content`. Esa regla vive en el
+// POST/PATCH de la entrada, que es donde el dato se guarda de verdad, y
+// duplicarla acá sería dos fuentes de verdad para la misma regla: el día que
+// cambie una, la otra queda mintiendo. Lo que este endpoint devuelve es texto;
+// si no entra en el campo, el formulario ya lo muestra con su contador y su
+// maxLength y quien lo subió lo recorta a mano.
+//
+// SIN logAccesoADatosPersonales, a diferencia de resumenDeLoteHandler: lo que
+// se extrae acá es documentación del negocio —horarios, políticas, un FAQ—, no
+// datos personales de terceros como las filas de una importación de leads. Si
+// alguien sube un archivo con datos personales adentro, el registro que
+// corresponde es el del guardado de la entrada, no el de la lectura del
+// archivo.
+// ---------------------------------------------------------------------------
+export const extraerTextoDeArchivoHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    // knowledgeBaseUpload ya garantizó que existe y cortó con 400 si no — el
+    // non-null está respaldado por el middleware, igual que req.auth lo está
+    // por authenticate.
+    const archivo = req.file!;
+
+    const resultado = await extraerTextoDeArchivo({
+      contenido: archivo.buffer,
+      mimetype: archivo.mimetype,
+    });
+
+    res.status(200).json(resultado);
   },
 );

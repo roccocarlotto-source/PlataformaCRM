@@ -448,6 +448,60 @@ export function createImportPreviewRateLimiter(overrides?: { windowMs?: number; 
 export const importPreviewRateLimiter = createImportPreviewRateLimiter();
 
 // ---------------------------------------------------------------------------
+// Ítem 60 — extracción de texto de un archivo, POST /api/knowledge-base/extract-text.
+//
+// CUOTA PROPIA, no businessWriteRateLimiter y tampoco el de la vista previa de
+// importación. Los tres acotan cosas distintas y compartir una cuota entre
+// ellos significa que agotar una deja sin cupo a las otras.
+//
+// POR QUÉ NO LA DE NEGOCIO. Este endpoint NO ESCRIBE NADA —no crea la entrada,
+// solo devuelve el texto— así que no tiene ninguna de las precondiciones
+// baratas que frenan naturalmente a una escritura. Lo único que hay antes del
+// trabajo caro es authenticate + authorize. Y el trabajo caro es real: abrir un
+// PDF con pdfjs o descomprimir un .docx (que es un ZIP, con el mismo problema
+// de expansión que el XLSX documenta en utils/spreadsheet.ts) es de lo más caro
+// que hace el proceso, al lado de un INSERT.
+//
+// POR QUÉ NO LA DEL PREVIEW DE IMPORTACIÓN, que tiene exactamente el mismo
+// número. Son dos capacidades distintas que se usan en pantallas distintas, y
+// lo que se quiere evitar es que un ADMIN que estuvo probando mapeos de
+// columnas se encuentre con que no puede subir un PDF a la base de
+// conocimiento, o al revés. El número igual es coincidencia de calibración, no
+// una relación entre los dos.
+//
+// POR QUÉ 10 POR MINUTO. El uso legítimo es de a un archivo: alguien abre el
+// formulario de una entrada, sube el documento que ya tenía, revisa el texto y
+// guarda. Diez intentos por minuto cubre con holgura equivocarse de archivo
+// varias veces seguidas, y es un orden de magnitud menos que la cuota de
+// escritura de negocio.
+//
+// MISMO keying que los otros dos limiters de identidad: por req.auth.userId,
+// nunca por req.ip — ver el encabezado de este archivo sobre trust proxy.
+//
+// Baseline operacional, no un umbral definitivo, igual que el resto.
+// ---------------------------------------------------------------------------
+export const KNOWLEDGE_BASE_EXTRACT_WINDOW_MS = 60 * 1000;
+export const KNOWLEDGE_BASE_EXTRACT_MAX = 10;
+
+// overrides es solo para tests de integración, mismo criterio que las otras
+// factories. La instancia de producción no los pasa.
+export function createKnowledgeBaseExtractRateLimiter(overrides?: {
+  windowMs?: number;
+  max?: number;
+}) {
+  return rateLimit({
+    windowMs: overrides?.windowMs ?? KNOWLEDGE_BASE_EXTRACT_WINDOW_MS,
+    max: overrides?.max ?? KNOWLEDGE_BASE_EXTRACT_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    keyGenerator: authUserIdKeyGenerator("knowledgeBaseExtractRateLimiter"),
+    handler: buildRateLimitHandler("Demasiados archivos seguidos. Probá de nuevo en un momento."),
+  });
+}
+
+export const knowledgeBaseExtractRateLimiter = createKnowledgeBaseExtractRateLimiter();
+
+// ---------------------------------------------------------------------------
 // Ítem 4 — ingesta, POST /api/ingest. §3: "Rate limit propio y más estricto por
 // clave, independiente del existente. Un endpoint público es spameable por
 // definición."
