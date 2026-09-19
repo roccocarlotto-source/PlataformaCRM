@@ -40,6 +40,7 @@ import { BranchListPage } from "../features/branch/BranchListPage";
 import { AgentEmbedPage } from "../features/agent/AgentEmbedPage";
 import { AgentFormPage } from "../features/agent/AgentFormPage";
 import { AgentListPage } from "../features/agent/AgentListPage";
+import { AgentPlaygroundPage } from "../features/agent/AgentPlaygroundPage";
 import { KnowledgeBaseFormPage } from "../features/knowledgeBase/KnowledgeBaseFormPage";
 import { KnowledgeBaseListPage } from "../features/knowledgeBase/KnowledgeBaseListPage";
 import { AutomationFormPage } from "../features/automation/AutomationFormPage";
@@ -195,6 +196,13 @@ export const router = createBrowserRouter([
               // authorize("ADMIN") en el backend —la LECTURA incluida, a
               // diferencia del GET del agente— porque son credenciales.
               { path: "/agents/:id/embed", element: <AgentEmbedPage /> },
+              // "Probar agente" (ítem 65): mandarle mensajes a mano al agente
+              // como si fueran del contacto. Acá adentro por el mismo motivo
+              // concreto que /embed: POST /api/agents/:id/test-message es
+              // authorize("ADMIN"). Y además porque no es un simulador —
+              // corre el loop de orquestación real y puede crear
+              // oportunidades, calificar al lead o derivar a un vendedor.
+              { path: "/agents/:id/playground", element: <AgentPlaygroundPage /> },
               // Base de conocimiento (ítem 59 de
               // docs/frontend-cambios-pendientes.md): el texto del negocio que
               // se suma automáticamente al prompt de los agentes de cada

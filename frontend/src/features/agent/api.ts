@@ -6,6 +6,8 @@ import type {
   AgentListResponse,
   CreateAgentInput,
   GuardrailsTranslation,
+  TestMessageInput,
+  TestMessageResult,
   UpdateAgentInput,
 } from "./types";
 import type { CreatedEmbedToken, EmbedToken, EmbedTokenListResponse } from "./embedToken.types";
@@ -65,6 +67,23 @@ export function translateGuardrails(text: string): Promise<GuardrailsTranslation
   return request<GuardrailsTranslation>("/agents/guardrails/translate", {
     method: "POST",
     body: { text },
+    getAccessToken,
+  });
+}
+
+// Un turno de prueba contra el agente (ítem 65). NO es una simulación: el
+// backend corre runAgentTurn completo —conversación real, mensajes
+// persistidos, tools ejecutadas de verdad—, así que esta función escribe en
+// la base tanto como cualquier POST del sistema. Sin `signal` por eso mismo:
+// abortar el fetch no cancelaría nada de lo que ya pasó del otro lado, solo
+// escondería el resultado.
+export function sendTestMessage(
+  agentId: string,
+  input: TestMessageInput,
+): Promise<TestMessageResult> {
+  return request<TestMessageResult>(`/agents/${agentId}/test-message`, {
+    method: "POST",
+    body: input,
     getAccessToken,
   });
 }

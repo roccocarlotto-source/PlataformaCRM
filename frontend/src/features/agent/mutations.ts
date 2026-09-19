@@ -1,7 +1,22 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createAgent, createEmbedToken, deleteAgent, revokeEmbedToken, updateAgent } from "./api";
+import { activityKeys } from "../activity/queries";
+import { contactKeys } from "../contact/queries";
+import { opportunityKeys } from "../opportunity/queries";
+import {
+  createAgent,
+  createEmbedToken,
+  deleteAgent,
+  revokeEmbedToken,
+  sendTestMessage,
+  updateAgent,
+} from "./api";
 import { agentKeys } from "./queries";
-import type { CreateAgentInput, UpdateAgentInput } from "./types";
+import type {
+  CreateAgentInput,
+  TestMessageInput,
+  TestMessageResult,
+  UpdateAgentInput,
+} from "./types";
 
 // Invalidación mínima y correcta, mismo patrón que Branch: cada mutación solo
 // invalida las queries de Agent que efectivamente pudo afectar. Nunca
@@ -75,6 +90,43 @@ export function useRevokeEmbedToken(agentId: string) {
     mutationFn: (tokenId: string) => revokeEmbedToken(agentId, tokenId),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: agentKeys.embedTokens(agentId) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Un turno de prueba contra el agente (ítem 65).
+//
+// ES LA ÚNICA MUTACIÓN DEL PROYECTO QUE INVALIDA FUERA DE SU PROPIO FEATURE, y
+// no es una licencia: es la consecuencia directa de que este endpoint NO sea
+// un sandbox. Un turno puede crear una Oportunidad (create_opportunity),
+// escribir los campos de calificación del Contacto (create_lead/update_lead) o
+// crear una Activity de derivación — datos que otras pantallas ya tienen
+// cacheados. Mismo criterio que useCreateDelivery invalidando vehicleKeys: se
+// invalida lo que la escritura realmente pudo tocar, esté donde esté.
+//
+// SOLO CUANDO ALGO PASÓ DE VERDAD: un turno en el que el modelo contestó y no
+// ejecutó ninguna tool no escribió nada fuera de la conversación, y tirar tres
+// invalidaciones por cada mensaje de una charla de prueba sería trabajo de red
+// por nada. `hayEfectos` mira las tools EJECUTADAS (allowed + result), no las
+// pedidas: una bloqueada por los guardrails no llegó a correr.
+//
+// La conversación y sus mensajes NO se invalidan porque no hay nada que
+// invalidar: no existe ningún GET de Conversation/Message en el backend
+// todavía (ver el comentario de cabecera de AgentPlaygroundPage).
+function hayEfectosFueraDeLaConversacion(resultado: TestMessageResult): boolean {
+  return resultado.handoff || resultado.toolCalls.some((llamada) => llamada.result !== undefined);
+}
+
+export function useTestMessage(agentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: TestMessageInput) => sendTestMessage(agentId, input),
+    onSuccess: (resultado) => {
+      if (!hayEfectosFueraDeLaConversacion(resultado)) return;
+      queryClient.invalidateQueries({ queryKey: opportunityKeys.all });
+      queryClient.invalidateQueries({ queryKey: activityKeys.all });
+      queryClient.invalidateQueries({ queryKey: contactKeys.all });
     },
   });
 }

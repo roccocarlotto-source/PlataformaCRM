@@ -194,6 +194,24 @@ describe("AgentListPage", () => {
     );
   });
 
+  it("la acción Probar agente lleva al probador de ESE agente", async () => {
+    server.use(
+      mockBranches(),
+      http.get(baseUrl, () =>
+        HttpResponse.json(listResponse({ data: [makeAgent({ id: "ag9" })] })),
+      ),
+    );
+    renderPage();
+
+    const tabla = within(await screen.findByRole("table"));
+    await openActionsMenu(userEvent.setup());
+
+    expect(tabla.getByRole("menuitem", { name: "Probar agente" })).toHaveAttribute(
+      "href",
+      "/agents/ag9/playground",
+    );
+  });
+
   it("Instalar en un sitio va entre Editar y Eliminar", async () => {
     server.use(
       mockBranches(),
@@ -208,6 +226,7 @@ describe("AgentListPage", () => {
     expect(tabla.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
       "Editar",
       "Instalar en un sitio",
+      "Probar agente",
       "Eliminar",
     ]);
   });

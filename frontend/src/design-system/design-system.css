@@ -3657,6 +3657,133 @@ a.ds-button--secondary:hover {
 }
 
 /* ---------------------------------------------------------------------------
+   Transcripción del probador del agente (ítem 65). Es el único chat del
+   proyecto —el widget embebible tiene su propio CSS, aislado en un Shadow
+   DOM— así que estas reglas nacen acá y no reusan nada: no había ninguna
+   burbuja de conversación en el design system.
+
+   La transcripción es un <ol>: el orden ES el contenido. Las notas de sistema
+   y las tool calls NO son burbujas y ocupan el ancho completo, centradas o
+   alineadas a la izquierda según el caso — lo que pasó en el turno no lo dijo
+   nadie, y darle forma de burbuja se lo atribuiría a alguien.
+   --------------------------------------------------------------------------- */
+.ds-chat {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: 28rem;
+  overflow-y: auto;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.ds-chat-row {
+  display: flex;
+}
+
+/* El contacto (o sea, quien está probando) a la derecha; el agente a la
+   izquierda. Es la convención de cualquier chat y acá además refuerza la
+   advertencia de la pantalla: lo que se escribe entra del lado del contacto,
+   no del lado del negocio. */
+.ds-chat-row--contacto {
+  justify-content: flex-end;
+}
+
+.ds-chat-row--agente {
+  justify-content: flex-start;
+}
+
+.ds-chat-row--sistema,
+.ds-chat-row--error,
+.ds-chat-row--tool {
+  justify-content: stretch;
+}
+
+.ds-chat-bubble {
+  max-width: 34rem;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ds-chat-row--contacto .ds-chat-bubble {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent-soft);
+}
+
+.ds-chat-author {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.ds-chat-note {
+  flex: 1;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  text-align: center;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-md);
+}
+
+.ds-chat-note--error {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+/* El bloque de diagnóstico de una tool call: monoespaciado y chico, a
+   propósito parecido a un log y no a un mensaje. */
+.ds-chat-tool {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.ds-chat-tool-head {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.ds-chat-tool-line {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.ds-chat-tool-line--blocked {
+  color: var(--color-danger);
+}
+
+.ds-chat-tool code {
+  font-family: var(--font-mono);
+}
+
+.ds-chat-form {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.ds-chat-form textarea {
+  flex: 1;
+  max-width: none;
+  resize: vertical;
+}
+
+/* ---------------------------------------------------------------------------
    Impresión de la cotización activa (botón "Imprimir" → window.print()). En
    papel queda SOLO .ds-quote-printable: todo lo demás se oculta con
    visibility y no con display, porque la cotización está anidada adentro del

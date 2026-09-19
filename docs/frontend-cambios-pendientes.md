@@ -3518,3 +3518,88 @@ Todo con tokens existentes, y por lo tanto correcto en tema claro y oscuro sin u
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en frontend. **Este ítem no toca backend:** no hay suite de backend que corra ni migración que aplicar.
 
 **No se levantó el entorno para probarlo a mano.** Requiere Docker + el Supabase local + el backend + una sesión, y el magic link de admin local está bloqueado por el clasificador (ver la nota del ítem 38); no se hizo esa verificación y no se la reporta como hecha. Lo que sí cubre el automatizado es el flujo completo contra la API mockeada con MSW —incluida la falla parcial, que es donde este ítem puede fallar de verdad.
+
+---
+
+## 65. Probador del agente: hablarle a mano y ver qué contesta y qué hace
+
+**Estado:** hecho
+
+### El backend ya estaba entero; faltaba la pantalla
+
+`POST /api/agents/:id/test-message` existe desde el **paso 2b** de `docs/ai-agent-architecture.md` §9: `agent.routes.ts` lo monta con la misma cadena que cualquier escritura administrativa (`authenticate` + `businessWriteRateLimiter` + `authorize("ADMIN")`), `testMessageHandler`/`testMessageSchema` lo validan en `src/controllers/agent.controller.ts`, y adentro corre `runAgentTurn()` completo — el loop de orquestación de §4, el mismo para todos los canales.
+
+Hasta acá **el único modo de ejercitarlo era un `curl` a mano**, con un `contactId` copiado de la base. Este ítem es 100% frontend: **cero rutas nuevas, cero cambios de esquema, cero migración, cero dependencias**. Producción no necesita nada por este ítem (siguen pendientes los `migrate:deploy` de los ítems 56, 57 y 59).
+
+### Esto NO es un sandbox, y la pantalla lo dice antes que cualquier otra cosa
+
+Es la parte que hay que leer entera antes de usarla, así que está arriba de todo, en `role="alert"` y con el estilo de error:
+
+> *Esto no es un entorno de prueba aislado: los mensajes generan una conversación real con el contacto que elijas, y si el agente tiene herramientas habilitadas puede crear oportunidades, calificar al lead o derivar la conversación a un vendedor de verdad.*
+
+No es una advertencia defensiva escrita por las dudas. Es literal, y sale de leer `runAgentTurn`:
+
+- **El `contactId` tiene que ser de un Contacto real de la organización** (`findContactById`, 404 si no). No hay ningún concepto de contacto de prueba en el modelo de datos.
+- **La `Conversation` es real:** `findOpenConversation` la reutiliza si ya había una abierta para ese agente + contacto + canal, o `createConversation` la crea. Los `Message` del turno se persisten los dos, el del contacto y el del agente.
+- **Las tools se ejecutan de verdad.** `create_opportunity` crea una Oportunidad; `create_lead`/`update_lead` escriben los campos de calificación del Contacto; `create_booking` reserva; `request_human_handoff` —que está SIEMPRE disponible, sin pasar por `Agent.enabledTools`— deriva la conversación y crea una `Activity` para el vendedor del contacto.
+
+Es **exactamente el mismo camino de código** que un mensaje entrante de un canal externo. Lo único distinto es quién lo dispara: un ADMIN a mano en vez de el widget o un webhook.
+
+**La decisión, tomada de antemano:** se elige un contacto real existente —con el mismo `ContactSelect` que ya usa Oportunidades— y se avisa bien fuerte, en vez de inventar un "contacto de prueba" descartable o un modo de ejecución sin efectos. Las dos alternativas son peores por el mismo motivo: un probador que no ejecuta las tools **prueba otra cosa que la que uno quiere probar** (justamente si el agente sabe cuándo crear una oportunidad), y un contacto descartable metería en el modelo de datos un concepto que hoy no existe, con su propia limpieza y sus propios bordes.
+
+### Lo que se puede ver, y lo que no: no hay historial
+
+**No existe ningún `GET` de `Conversation` ni de `Message` en el backend** — ni admin ni público. Se puede verificar en `src/routes/`: hay repositorios (`conversation.repository.ts`, `message.repository.ts`) porque el loop los necesita, pero ninguna ruta los expone. La bandeja de conversaciones es trabajo aparte, todavía no construido.
+
+La consecuencia directa es que **la pantalla solo puede mostrar lo que pasó en esta visita**. Al recargar o volver más tarde, los mensajes anteriores no se pueden recuperar aunque la `Conversation` siga viva en la base — y el turno siguiente igual va a continuar esa misma conversación del lado del servidor, con su ventana de contexto de 20 mensajes. La pantalla lo dice con un hint corto en vez de dejar que se lea como que se perdió algo, y **no se inventó ninguna solución** (ni `localStorage`, ni un endpoint nuevo): un espejo local del hilo sería una segunda fuente de verdad que se desincroniza sola apenas alguien conteste desde otro lado.
+
+### La pantalla
+
+`frontend/src/features/agent/AgentPlaygroundPage.tsx`, en `/agents/:id/playground`, dentro de `<AdminRoute />` — mismo criterio que `/agents/:id/embed`, y acá con un motivo extra: el endpoint no solo es `authorize("ADMIN")`, además ejecuta acciones reales. Se entra por **"Probar agente"** en el menú de 3 puntos de `AgentListPage`, entre "Instalar en un sitio" y "Eliminar" (la destructiva sigue última).
+
+De arriba hacia abajo: la advertencia, **con quién hablás** (contacto + canal) y **la conversación** (transcripción + caja de texto).
+
+- **Cambiar de contacto limpia la transcripción.** Para la pantalla es otra conversación, aunque del lado del backend `runAgentTurn` reutilice una `Conversation` existente. Dejar los mensajes del contacto anterior a la vista mientras se le escribe a otro sería la peor confusión posible en una herramienta que escribe datos reales.
+- **El canal se filtra a `agent.channels`.** El backend tira 400 si el agente no atiende el canal, así que ofrecer uno que no tiene sería ofrecer un error. Con **uno solo** se muestra fijo, sin selector: no es una elección. Con **ninguno** no hay nada con qué probar, y la pantalla se **reemplaza entera** por "Este agente no tiene ningún canal habilitado" + link a su configuración — un chat gris y deshabilitado no explicaría por qué.
+- **Se escribe COMO el contacto**, y se dice de dos formas: el rótulo de la burbuja es "Contacto (vos)" y el hint lo repite en palabras.
+
+### Lo que NO es una burbuja, y por qué
+
+Tres cosas del turno **no las dijo nadie**, así que entran como notas de sistema y no como mensajes:
+
+1. **`respuesta: null`** → *"El agente no respondió — la conversación ya estaba derivada a un humano."* Una burbuja vacía se leería como "el agente contestó nada"; lo que pasó es otra cosa (`runAgentTurn` corta antes de llamar al modelo cuando el hilo ya está en `TRANSFERRED_TO_HUMAN`, y solo registra el mensaje).
+2. **`handoff: true`** → *"Se derivó esta conversación a un humano."* Si además vino `handoffActivityId`, debajo aparece un link a `/activities/:id/edit`, que existe y también es ADMIN-only. Si vino `null` —el contacto no tiene vendedor asignado— **no se inventa ningún link**: no hay nada que abrir.
+3. **Un error del backend** → el `message` **tal cual** ("El agente está desactivado", "El agente no atiende el canal WEB", "Contacto no encontrado"). Son errores de negocio escritos para que se lean; reinterpretarlos solo podría empeorarlos. Entra como nota de error en la transcripción **sin perder los mensajes previos**, el que falló incluido.
+
+Las **tool calls** se muestran en un bloque chico y monoespaciado, arriba de la burbuja de la respuesta porque es el orden en que ocurrieron: rótulo en castellano + el nombre crudo, los argumentos, y el resultado o el motivo del bloqueo. Los argumentos y el `data` van como **JSON crudo a propósito** — cada tool devuelve una forma distinta y esto es diagnóstico para el ADMIN, no una UI de cara al cliente. Un formateador por tool serían seis vistas para mantener; un resumen genérico escondería justo lo que se vino a mirar.
+
+`toolLabel()` vive en `tools.ts` junto al espejo del catálogo, e incluye `request_human_handoff` —que **no está** en `AGENT_TOOL_OPTIONS` y no puede estar, porque siempre está disponible y una casilla para habilitarla no cambiaría nada, pero sí aparece en las tool calls de un turno—. Un nombre fuera del catálogo se muestra crudo, mismo criterio que `modelProviderLabel`.
+
+### El agente desactivado se frena acá, pero el 400 se sigue mostrando si llega
+
+Si `agent.isActive` es `false`, la caja queda deshabilitada y hay un aviso con link a su configuración: el backend responde 400 con "El agente está desactivado", y ofrecer un botón que solo puede fallar es peor que no ofrecerlo — mismo criterio que "Revocar" sobre un token ya revocado (ítem 63). Eso **no reemplaza** mostrar el error del backend: si alguien desactiva el agente desde otra pestaña mientras esta está abierta, el 400 llega y se muestra con su texto, sin tocarlo. Está probado en los dos sentidos.
+
+### La única mutación del proyecto que invalida fuera de su feature
+
+`useTestMessage` invalida `opportunityKeys.all`, `activityKeys.all` y `contactKeys.all`. No es una licencia: es la consecuencia directa de que el endpoint no sea un sandbox. Un turno puede crear una Oportunidad, escribir los campos de calificación del Contacto o dejar una Activity de derivación, y esas pantallas ya tienen esos datos cacheados. Mismo criterio que `useCreateDelivery` invalidando `vehicleKeys` (§40): se invalida lo que la escritura realmente pudo tocar, esté donde esté.
+
+**Solo cuando algo pasó de verdad:** `hayEfectosFueraDeLaConversacion` mira `handoff` y las tools **ejecutadas** (las que traen `result`), no las pedidas — una bloqueada por las reglas del agente no llegó a correr. Un turno en el que el modelo simplemente contestó no escribió nada fuera de la conversación, y tirar tres invalidaciones por cada mensaje de una charla de prueba sería trabajo de red por nada.
+
+La conversación y sus mensajes **no** se invalidan porque no hay nada que invalidar: no existe query que los traiga.
+
+### CSS: el primer chat del design system
+
+`.ds-chat*` son reglas nuevas y no reuso de nada, porque **no había ninguna burbuja de conversación en el proyecto**: el widget embebible tiene su propio CSS, aislado adentro de un Shadow DOM (`frontend/src/widget/`), y no se puede compartir ni tendría sentido.
+
+La transcripción es un `<ol>` —el orden **es** el contenido—, con el contacto a la derecha y el agente a la izquierda. Las notas de sistema y los bloques de tool call ocupan el ancho completo y **no tienen forma de burbuja**: darles una se las atribuiría a alguien. El bloque de tool call va con borde punteado y monoespaciado, a propósito parecido a un log. Todo con tokens existentes, así que es correcto en tema claro y oscuro sin una sola regla duplicada.
+
+### Tests (corridos de verdad)
+
+**Frontend: 153 archivos, 1610 casos, todos en verde** (antes del ítem: 152 archivos, 1589). Los 21 nuevos:
+
+- **20 en `AgentPlaygroundPage.test.tsx`** (archivo nuevo): la advertencia presente desde que carga; sin contacto elegido la caja y el botón deshabilitados; elegir un contacto habilitando la caja; el mensaje que agrega **las dos burbujas** con el rótulo de cada lado; el `POST` llevando exactamente `{ contactId, message, channel }` y la caja quedando vacía; `respuesta: null` mostrando la nota en vez de una burbuja vacía; `handoff: true` con la nota **y** el link a `/activities/act-9/edit`; el handoff **sin** actividad que no inventa ningún link; una tool ejecutada con su rótulo, su nombre crudo, sus argumentos y su resultado; una tool **bloqueada** con el motivo; cambiar de contacto **limpiando** la transcripción; un solo canal mostrado fijo sin selector; dos canales con el elegido viajando en el `POST`; **ningún canal** reemplazando la pantalla y sin caja de texto; el agente desactivado avisando y sin dejar mandar ni con contacto elegido; el **400 mostrado tal cual sin perder los mensajes previos** (segundo turno que falla, los tres mensajes anteriores en pie); el 400 de canal no habilitado; el agente que no carga; y los dos de `AdminRoute` (un USER redirigido **sin que salga el GET**, un ADMIN que sí ve la pantalla).
+- **1 en `AgentListPage.test.tsx`:** "Probar agente" con el `href` del agente de la fila. El caso de orden del menú pasó a esperar cuatro acciones (`Editar`, `Instalar en un sitio`, `Probar agente`, `Eliminar`).
+
+`npm run typecheck`, `npm run lint` y `prettier --check src` limpios en frontend. **Este ítem no toca backend:** no hay suite de backend que corra ni migración que aplicar.
+
+**No se probó a mano contra el Supabase local**, y no se lo reporta como hecho. Además del impedimento de siempre (el magic link de admin local bloqueado por el clasificador, nota del ítem 38), acá hay uno propio del ítem: un turno real dispara una llamada **paga** a OpenRouter y, si el agente tiene tools habilitadas, **escribe datos de verdad** en la base local. Eso es exactamente lo que la pantalla advierte, y no es algo para hacer sin que Rocco lo decida. Lo que sí cubre el automatizado es el flujo completo contra la API mockeada con MSW, incluidos los tres casos que este ítem puede tener mal de verdad: `respuesta: null`, el handoff y el error que pierde el hilo.
