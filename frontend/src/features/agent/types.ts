@@ -39,8 +39,9 @@ export interface Agent {
   // viene — "" es la contraparte exacta de `{}`.
   guardrailsText: string;
   // Orígenes habilitados para el widget embebible (§10). Viene en la
-  // respuesta, pero NINGUNA pantalla lo edita todavía — ver el comentario de
-  // CreateAgentInput.
+  // respuesta y lo EDITA AgentEmbedPage (ítem 63), no el formulario del
+  // agente — ver el comentario de CreateAgentInput. Vacío = widget
+  // deshabilitado (fail-closed), que es el default del backend.
   allowedOrigins: string[];
   isActive: boolean;
   createdAt: string;
@@ -77,13 +78,15 @@ export interface AgentListQuery {
 // createAgentSchema de agent.controller.ts. Requeridos de verdad: branchId,
 // name, instructions y guardrails; el resto tiene default en el schema.
 //
-// SIN allowedOrigins, y es una decisión, no un olvido: es el campo que
-// habilita el widget embebible del canal Web (docs/ai-agent-architecture.md
-// §10) y la pantalla que lo acompaña —tokens de embed y snippet para copiar—
-// no existe todavía. Un campo de orígenes permitidos sin esa pantalla al lado
-// sería una configuración huérfana: se puede llenar, no sirve para nada hasta
-// que haya un token. El backend lo default-ea a [] (widget deshabilitado,
-// fail-closed) cuando no se manda, así que omitirlo es el estado correcto.
+// SIN allowedOrigins, y sigue siendo una decisión: es el campo que habilita el
+// widget embebible del canal Web (docs/ai-agent-architecture.md §10) y se
+// administra en la pantalla que lo acompaña —AgentEmbedPage, ítem 63, con los
+// tokens de embed y el snippet al lado—, no al crear el agente. Un token de
+// embed cuelga del id del agente, así que no puede existir antes de que el
+// agente exista: dar de alta con dominios ya cargados habilitaría un widget
+// que todavía no tiene con qué autenticarse. El backend lo default-ea a []
+// (widget deshabilitado, fail-closed) cuando no se manda, así que omitirlo al
+// crear es el estado correcto.
 export interface CreateAgentInput {
   branchId: string;
   name: string;
@@ -109,7 +112,14 @@ export interface CreateAgentInput {
 // agente dejaría sus conversaciones históricas, que llevan el branchId
 // denormalizado, apuntando a una sucursal distinta de la que las atendió.
 // Mandarlo sería un 400, así que el tipo no lo deja ni intentarlo.
-export type UpdateAgentInput = Partial<Omit<CreateAgentInput, "branchId">>;
+export type UpdateAgentInput = Partial<Omit<CreateAgentInput, "branchId">> & {
+  // SÍ está en el PATCH aunque no esté en el POST: updateAgentSchema es el
+  // schema completo .partial(), y allowedOrigins es uno de sus campos.
+  // AgentEmbedPage manda un PATCH con SOLO este campo (ítem 63), que es lo
+  // que hace que esa pantalla no pueda pisar nada de lo que configura
+  // AgentFormPage.
+  allowedOrigins?: string[];
+};
 
 // La respuesta de POST /api/agents/guardrails/translate (ítem 56). NO guarda
 // nada: es lo que el formulario muestra en el panel de confirmación antes de

@@ -37,6 +37,7 @@ import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPa
 import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
 import { BranchFormPage } from "../features/branch/BranchFormPage";
 import { BranchListPage } from "../features/branch/BranchListPage";
+import { AgentEmbedPage } from "../features/agent/AgentEmbedPage";
 import { AgentFormPage } from "../features/agent/AgentFormPage";
 import { AgentListPage } from "../features/agent/AgentListPage";
 import { KnowledgeBaseFormPage } from "../features/knowledgeBase/KnowledgeBaseFormPage";
@@ -186,6 +187,14 @@ export const router = createBrowserRouter([
               { path: "/agents", element: <AgentListPage /> },
               { path: "/agents/new", element: <AgentFormPage /> },
               { path: "/agents/:id/edit", element: <AgentFormPage /> },
+              // "Instalar en un sitio" (ítem 63 de
+              // docs/frontend-cambios-pendientes.md): los dominios permitidos,
+              // los tokens de embed y el <script> del widget de ESE agente.
+              // Acá adentro como el resto del módulo, y con un motivo propio
+              // además del criterio general: las tres rutas de tokens son
+              // authorize("ADMIN") en el backend —la LECTURA incluida, a
+              // diferencia del GET del agente— porque son credenciales.
+              { path: "/agents/:id/embed", element: <AgentEmbedPage /> },
               // Base de conocimiento (ítem 59 de
               // docs/frontend-cambios-pendientes.md): el texto del negocio que
               // se suma automáticamente al prompt de los agentes de cada

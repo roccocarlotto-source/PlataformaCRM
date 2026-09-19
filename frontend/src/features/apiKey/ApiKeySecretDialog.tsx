@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { Button } from "../../design-system/Button";
+import { CopyButton } from "../../design-system/CopyButton";
 import { Modal } from "../../design-system/Modal";
 
 // ---------------------------------------------------------------------------
@@ -17,12 +16,12 @@ import { Modal } from "../../design-system/Modal";
 // (ApiKeyListPage) llama además a `reset()` sobre la mutación. Recién ahí no
 // queda forma de volver a leer la clave, que es lo que promete el backend,
 // donde solo vive el hash.
+//
+// EL BOTÓN DE COPIAR es design-system/CopyButton desde el ítem 63, que lo
+// estrenó con dos usos más en una misma pantalla. Lo que es propio de este
+// dominio —la clave, la advertencia, el rótulo femenino de la confirmación—
+// se quedó acá; copiar y confirmar no era de nadie en particular.
 // ---------------------------------------------------------------------------
-
-// Cuánto dura el "¡Copiada!" antes de volver a "Copiar". Dos segundos: suficiente
-// para leerlo, corto para no dejar el botón mintiendo si alguien copia otra cosa
-// en el medio.
-const CONFIRMACION_MS = 2000;
 
 export interface ApiKeySecretDialogProps {
   apiKey: string;
@@ -31,33 +30,6 @@ export interface ApiKeySecretDialogProps {
 }
 
 export function ApiKeySecretDialog({ apiKey, sourceName, onClose }: ApiKeySecretDialogProps) {
-  const [copiada, setCopiada] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Si el modal se cierra mientras el "¡Copiada!" está en pantalla, el timer
-  // quedaría vivo apuntando a un componente desmontado.
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
-    };
-  }, []);
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(apiKey);
-      setCopiada(true);
-      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => setCopiada(false), CONFIRMACION_MS);
-    } catch {
-      // navigator.clipboard no existe (contexto no seguro) o el permiso fue
-      // denegado. NO se muestra un error: el campo de abajo es de solo lectura
-      // pero seleccionable, así que copiar a mano sigue funcionando y es el
-      // respaldo. Un mensaje de error acá asustaría sobre algo que no impide
-      // completar la tarea.
-      setCopiada(false);
-    }
-  }
-
   return (
     <Modal title="Clave de ingesta creada" onClose={onClose} closeLabel="Listo, ya la guardé">
       <p role="alert" className="ds-error">
@@ -83,7 +55,7 @@ export function ApiKeySecretDialog({ apiKey, sourceName, onClose }: ApiKeySecret
         />
       </label>
 
-      <Button onClick={() => void handleCopy()}>{copiada ? "¡Copiada!" : "Copiar"}</Button>
+      <CopyButton text={apiKey} confirmLabel="¡Copiada!" />
     </Modal>
   );
 }

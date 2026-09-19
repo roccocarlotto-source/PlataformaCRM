@@ -174,6 +174,44 @@ describe("AgentListPage", () => {
     expect(tabla.getByRole("menuitem", { name: "Eliminar" })).toBeInTheDocument();
   });
 
+  it("la acción Instalar en un sitio lleva a la pantalla del widget de ESE agente", async () => {
+    server.use(
+      mockBranches(),
+      http.get(baseUrl, () =>
+        HttpResponse.json(listResponse({ data: [makeAgent({ id: "ag7" })] })),
+      ),
+    );
+    renderPage();
+
+    const tabla = within(await screen.findByRole("table"));
+    await openActionsMenu(userEvent.setup());
+
+    // Es un <Link> de verdad (href real), no un onClick + navigate: abrir en
+    // otra pestaña y copiar la dirección tienen que seguir funcionando.
+    expect(tabla.getByRole("menuitem", { name: "Instalar en un sitio" })).toHaveAttribute(
+      "href",
+      "/agents/ag7/embed",
+    );
+  });
+
+  it("Instalar en un sitio va entre Editar y Eliminar", async () => {
+    server.use(
+      mockBranches(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse())),
+    );
+    renderPage();
+
+    const tabla = within(await screen.findByRole("table"));
+    await openActionsMenu(userEvent.setup());
+
+    // El orden importa: la acción destructiva queda última, lejos del resto.
+    expect(tabla.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Editar",
+      "Instalar en un sitio",
+      "Eliminar",
+    ]);
+  });
+
   it("los filtros viajan en la query y resetean la página a 1", async () => {
     const urls: URL[] = [];
     server.use(

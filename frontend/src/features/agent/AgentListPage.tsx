@@ -202,6 +202,15 @@ export function AgentListPage() {
                       actions={[
                         { label: "Editar", to: `/agents/${agent.id}/edit` },
                         {
+                          // El widget del canal Web se instala por agente:
+                          // dominios permitidos, tokens de embed y el
+                          // <script> para pegar (ítem 63). Está acá y no en
+                          // AgentFormPage porque solo existe para un agente
+                          // YA guardado — un token cuelga de su id.
+                          label: "Instalar en un sitio",
+                          to: `/agents/${agent.id}/embed`,
+                        },
+                        {
                           label: "Eliminar",
                           onClick: () => handleDelete(agent.id),
                           destructive: true,
