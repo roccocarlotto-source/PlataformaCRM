@@ -211,6 +211,15 @@ export function AgentListPage() {
                           to: `/agents/${agent.id}/embed`,
                         },
                         {
+                          // El probador (ítem 65): mandarle mensajes a mano
+                          // al agente como si fueran del contacto. También
+                          // por agente y también solo para uno ya guardado —
+                          // y, como la pantalla avisa bien fuerte, NO es un
+                          // sandbox: el turno se ejecuta de verdad.
+                          label: "Probar agente",
+                          to: `/agents/${agent.id}/playground`,
+                        },
+                        {
                           label: "Eliminar",
                           onClick: () => handleDelete(agent.id),
                           destructive: true,

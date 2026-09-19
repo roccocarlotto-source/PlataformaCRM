@@ -11,6 +11,10 @@
 // Espejo del enum ConversationChannel de Prisma. Dos valores y nada más.
 export type ConversationChannel = "WHATSAPP" | "WEB";
 
+// Espejo del enum ConversationStatus de Prisma. Lo devuelve el turno de
+// prueba (ítem 65) y es el estado de la conversación DESPUÉS del turno.
+export type ConversationStatus = "ACTIVE" | "TRANSFERRED_TO_HUMAN" | "CLOSED";
+
 export interface Agent {
   id: string;
   organizationId: string;
@@ -142,4 +146,58 @@ export interface GuardrailsDiscard {
 export interface GuardrailsTranslation {
   guardrails: Record<string, unknown>;
   descartado: GuardrailsDiscard[];
+}
+
+// ---------------------------------------------------------------------------
+// Probador del agente (ítem 65): POST /api/agents/:id/test-message.
+//
+// Calcados de RunAgentTurnInput y ResultadoDelTurno
+// (src/services/agentOrchestration.service.ts), que es lo que ese endpoint
+// devuelve TAL CUAL —testMessageHandler hace res.json(resultado) sin
+// proyectar nada—, cruzados contra testMessageSchema del controller para lo
+// que acepta.
+//
+// ESTO NO ES UN SANDBOX, y el tipo no puede decirlo pero la pantalla sí:
+// runAgentTurn resuelve o crea una Conversation real, persiste Messages
+// reales y ejecuta las tools habilitadas de verdad (crear una oportunidad,
+// calificar al lead, derivar a un vendedor). Es el mismo camino de código que
+// un mensaje entrante de un canal externo.
+// ---------------------------------------------------------------------------
+
+// `organizationId` y `agentId` NO están: el primero sale del JWT server-side
+// y el segundo del path. `channel` tiene default WEB en el backend, pero acá
+// es requerido: la pantalla siempre elige uno de los canales habilitados del
+// agente, y dejar que el default decida escondería un 400 ("El agente no
+// atiende el canal WEB") detrás de un campo que nadie mandó.
+export interface TestMessageInput {
+  contactId: string;
+  message: string;
+  channel: ConversationChannel;
+}
+
+// El resultado de UNA tool call del turno (ToolCallDelTurno). `allowed: false`
+// trae el motivo de puedeEjecutarTool; `result` solo existe si se ejecutó.
+export interface TestMessageToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+  allowed: boolean;
+  reason?: string;
+  // ResultadoDeTool del backend: unión discriminada por `ok`, con `data`
+  // sin forma conocida (cada tool devuelve la suya).
+  result?: { ok: true; data: unknown } | { ok: false; error: string };
+}
+
+export interface TestMessageResult {
+  conversationId: string;
+  status: ConversationStatus;
+  // null cuando el agente NO respondió: la conversación ya estaba derivada a
+  // un humano y el mensaje solo se registró en el hilo.
+  respuesta: string | null;
+  toolCalls: TestMessageToolCall[];
+  // true si ESTE turno disparó la derivación.
+  handoff: boolean;
+  // El id de la Activity creada por la derivación de ESTE turno, o null: sin
+  // handoff, o con handoff pero sin vendedor asignado al contacto.
+  handoffActivityId: string | null;
 }

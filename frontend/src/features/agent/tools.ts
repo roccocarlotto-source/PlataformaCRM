@@ -70,6 +70,23 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
 // el nombre crudo: mismo criterio que la zona horaria fuera de lista en
 // BranchFormPage. Sin esto el selector mostraría la tool como no elegida y el
 // PATCH la borraría sin que nadie lo haya pedido.
+// La tool del SISTEMA (REQUEST_HUMAN_HANDOFF_TOOL_NAME en
+// agentOrchestration.service.ts). NO está en el catálogo de arriba y no puede
+// estarlo: siempre está disponible, sin importar Agent.enabledTools, así que
+// ofrecerla en el selector de tools habilitadas sería una casilla que no
+// cambia nada. Pero el probador (ítem 65) SÍ la ve aparecer en las tool calls
+// de un turno, y ahí necesita un nombre.
+export const REQUEST_HUMAN_HANDOFF_TOOL_NAME = "request_human_handoff";
+
+// El rótulo corto de una tool tal como llega en una tool call. Un nombre
+// fuera del catálogo se muestra crudo —mismo criterio que
+// modelProviderLabel—: el dato real informa más que un "—", y en una
+// herramienta de diagnóstico es justamente lo que hay que poder leer.
+export function toolLabel(name: string): string {
+  if (name === REQUEST_HUMAN_HANDOFF_TOOL_NAME) return "Derivar a una persona";
+  return AGENT_TOOL_OPTIONS.find((option) => option.value === name)?.label ?? name;
+}
+
 export function agentToolOptions(selected: string[]): MultiSelectOption<string>[] {
   const conocidas = new Set(AGENT_TOOL_OPTIONS.map((option) => option.value));
   const extras = selected
