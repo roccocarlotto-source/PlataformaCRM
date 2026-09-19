@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -373,5 +373,282 @@ describe("KnowledgeBaseFormPage — bajo AdminRoute", () => {
     renderUnderAdminRoute("/knowledge-base/new");
 
     expect(await screen.findByRole("heading", { name: "Nueva entrada" })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 60 — completar el Contenido subiendo un archivo.
+//
+// El endpoint se mockea con MSW: procesar un .docx o un .pdf de verdad es el
+// trabajo del backend y ya está probado ahí (knowledgeBaseExtraction.service
+// .test.ts y su integración). Lo que se prueba acá es lo que SOLO se ve desde
+// la pantalla: que el texto cae en el campo, la confirmación antes de pisar lo
+// que ya estaba escrito, el aviso de truncamiento y que un error del endpoint
+// no le cuesta a nadie lo que venía cargando.
+// ---------------------------------------------------------------------------
+
+const extractUrl = `${baseUrl}/extract-text`;
+const ETIQUETA_ARCHIVO = "Completar desde un archivo (.txt, .docx o .pdf)";
+
+// El contenido del File no importa —MSW responde lo que el test diga— pero el
+// nombre y el mimetype sí son los reales, y son lo que el test verifica que
+// viaje en el multipart.
+function archivo(nombre: string, tipo: string): File {
+  return new File(["da igual: el backend es quien lo lee"], nombre, { type: tipo });
+}
+
+const TXT = ["un .txt", "horarios.txt", "text/plain"] as const;
+const DOCX = [
+  "un .docx",
+  "politica.docx",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+] as const;
+const PDF = ["un .pdf", "formas-de-pago.pdf", "application/pdf"] as const;
+
+function extractOk(text: string, truncated = false) {
+  return http.post(extractUrl, () => HttpResponse.json({ text, truncated }));
+}
+
+function extractError(status: number, message: string) {
+  return http.post(extractUrl, () => HttpResponse.json({ error: { message } }, { status }));
+}
+
+// La sucursal es lo único que no se puede tocar hasta que su lista cargó, así
+// que cada caso espera por ella antes de empezar.
+async function abrirFormularioNuevo() {
+  renderForm("/knowledge-base/new");
+  await waitFor(() => expect(screen.getByLabelText("Sucursal")).toBeInTheDocument());
+}
+
+function inputDeArchivo(): HTMLElement {
+  return screen.getByLabelText(ETIQUETA_ARCHIVO);
+}
+
+describe("KnowledgeBaseFormPage — completar desde un archivo (ítem 60)", () => {
+  afterEach(() => {
+    // window.confirm se espía en varios casos de abajo y este proyecto no tiene
+    // restoreMocks global: sin esto el espía sobreviviría al test que lo puso.
+    vi.restoreAllMocks();
+  });
+
+  it.each([TXT, DOCX, PDF])(
+    "%s sube al endpoint de extracción y su texto cae en el campo Contenido",
+    async (_etiqueta, nombre, tipo) => {
+      let cuerpoCrudo: string | undefined;
+      server.use(
+        mockBranches(),
+        // Se lee el cuerpo CRUDO y no request.formData(): el parseo de
+        // multipart del lado del servidor no está disponible en este entorno
+        // de test — mismo camino que ImportPage.test.tsx, que lo deja anotado.
+        // Sirve igual, o mejor: afirma sobre el multipart real que salió por
+        // la red, con su boundary y sus encabezados de parte.
+        http.post(extractUrl, async ({ request }) => {
+          cuerpoCrudo = await request.text();
+          return HttpResponse.json({ text: "Lunes a viernes de 9 a 18.", truncated: false });
+        }),
+      );
+
+      const user = userEvent.setup();
+      await abrirFormularioNuevo();
+
+      await user.upload(inputDeArchivo(), archivo(nombre, tipo));
+
+      await waitFor(() =>
+        expect(screen.getByLabelText("Contenido")).toHaveValue("Lunes a viernes de 9 a 18."),
+      );
+      // Viaja en el campo "file" —el que espera knowledgeBaseUpload— y con su
+      // mimetype, que es exactamente lo que mira el fileFilter del middleware
+      // para aceptar o rechazar el formato.
+      //
+      // El nombre del archivo NO se afirma: el FormData de undici en este
+      // entorno serializa la parte como filename="blob" y pierde el nombre
+      // real. Es una limitación del test, no del navegador, y no es lo que
+      // decide nada del lado del backend — ahí manda el mimetype.
+      expect(cuerpoCrudo).toContain('name="file"');
+      expect(cuerpoCrudo).toContain(`Content-Type: ${tipo}`);
+    },
+  );
+
+  it("el texto extraído queda editable: es una carga inicial, no otra fuente de verdad", async () => {
+    const bodies: { content?: string }[] = [];
+    server.use(
+      mockBranches(),
+      extractOk("Lunes a viernes de 9 a 18."),
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push((await request.json()) as { content?: string });
+        return HttpResponse.json(makeKnowledgeBaseEntry(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Contenido")).toHaveValue("Lunes a viernes de 9 a 18."),
+    );
+
+    await user.type(screen.getByLabelText("Contenido"), " Sábados de 9 a 13.");
+    await user.type(screen.getByLabelText("Título"), "Horarios");
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Sucursal Chuy");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() =>
+      expect(bodies[0]?.content).toBe("Lunes a viernes de 9 a 18. Sábados de 9 a 13."),
+    );
+  });
+
+  it("con el campo Contenido vacío no pregunta nada", async () => {
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(mockBranches(), extractOk("Horarios nuevos."));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+
+    await waitFor(() => expect(screen.getByLabelText("Contenido")).toHaveValue("Horarios nuevos."));
+    expect(confirmar).not.toHaveBeenCalled();
+  });
+
+  it("con contenido ya escrito pide confirmación antes de pisarlo", async () => {
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(mockBranches(), extractOk("Lo que dice el archivo."));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+    await escribirContenido(user, "Lo que ya estaba escrito a mano.");
+
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Contenido")).toHaveValue("Lo que dice el archivo."),
+    );
+  });
+
+  it("cancelar la confirmación no pisa nada y ni siquiera sube el archivo", async () => {
+    let llamadas = 0;
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    server.use(
+      mockBranches(),
+      http.post(extractUrl, () => {
+        llamadas += 1;
+        return HttpResponse.json({ text: "No debería llegar acá.", truncated: false });
+      }),
+    );
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+    await escribirContenido(user, "Lo que ya estaba escrito a mano.");
+
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+
+    expect(screen.getByLabelText("Contenido")).toHaveValue("Lo que ya estaba escrito a mano.");
+    // La confirmación va ANTES de subir: cancelar no gasta el request ni una
+    // de las diez extracciones por minuto que permite el endpoint.
+    expect(llamadas).toBe(0);
+  });
+
+  it("truncated: true muestra el aviso de que el texto se cortó", async () => {
+    server.use(mockBranches(), extractOk("Un documento larguísimo.", true));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    await user.upload(inputDeArchivo(), archivo(PDF[1], PDF[2]));
+
+    expect(await screen.findByText(/se cortó el texto/)).toBeInTheDocument();
+  });
+
+  it("truncated: false no muestra ningún aviso de recorte", async () => {
+    server.use(mockBranches(), extractOk("Corto y al pie."));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+
+    await waitFor(() => expect(screen.getByLabelText("Contenido")).toHaveValue("Corto y al pie."));
+    expect(screen.queryByText(/se cortó el texto/)).not.toBeInTheDocument();
+  });
+
+  // Los tres códigos que el endpoint puede devolver, con el mensaje real de
+  // cada uno. En los tres el formulario tiene que quedar como estaba.
+  it.each([
+    [400, "Formato no soportado: se aceptan .txt, .docx y .pdf"],
+    [413, "El archivo supera el máximo de 5 MB"],
+    [
+      422,
+      "No se pudo extraer texto de este archivo. Puede ser un PDF escaneado (imagen, sin texto seleccionable) — probá copiarlo y pegarlo a mano.",
+    ],
+  ] as const)(
+    "un %i del endpoint se muestra sin perder lo que ya estaba cargado",
+    async (status, mensaje) => {
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      server.use(mockBranches(), extractError(status, mensaje));
+
+      const user = userEvent.setup();
+      await abrirFormularioNuevo();
+      await user.type(screen.getByLabelText("Título"), "Horarios");
+      await escribirContenido(user, "Lo que ya estaba escrito a mano.");
+
+      await user.upload(inputDeArchivo(), archivo(PDF[1], PDF[2]));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(mensaje);
+      expect(screen.getByLabelText("Título")).toHaveValue("Horarios");
+      expect(screen.getByLabelText("Contenido")).toHaveValue("Lo que ya estaba escrito a mano.");
+    },
+  );
+
+  it("mientras extrae avisa que está trabajando y no deja guardar", async () => {
+    let responder: (() => void) | undefined;
+    server.use(
+      mockBranches(),
+      http.post(extractUrl, async () => {
+        await new Promise<void>((resolve) => {
+          responder = resolve;
+        });
+        return HttpResponse.json({ text: "Listo.", truncated: false });
+      }),
+    );
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+
+    expect(await screen.findByText("Extrayendo texto…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Guardar" })).toBeDisabled();
+
+    responder?.();
+    await waitFor(() => expect(screen.getByLabelText("Contenido")).toHaveValue("Listo."));
+    expect(screen.queryByText("Extrayendo texto…")).not.toBeInTheDocument();
+  });
+
+  // El maxLength del textarea frena lo que se TIPEA, no lo que se asigna desde
+  // el archivo: sin este aviso el primer indicio de que el texto no entra
+  // sería el 400 crudo del POST al guardar.
+  it("un texto más largo que el máximo de la entrada avisa cuánto hay que recortar", async () => {
+    server.use(mockBranches(), extractOk("x".repeat(10_050)));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    await user.upload(inputDeArchivo(), archivo(PDF[1], PDF[2]));
+
+    expect(await screen.findByText(/Recortá 50 antes de guardar/)).toBeInTheDocument();
+  });
+
+  it("un texto que entra justo en el máximo no avisa nada", async () => {
+    server.use(mockBranches(), extractOk("x".repeat(10_000)));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    await user.upload(inputDeArchivo(), archivo(PDF[1], PDF[2]));
+
+    await waitFor(() => expect(screen.getByLabelText("Contenido")).toHaveValue("x".repeat(10_000)));
+    expect(screen.queryByText(/antes de guardar/)).not.toBeInTheDocument();
   });
 });

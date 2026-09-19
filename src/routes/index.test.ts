@@ -330,6 +330,8 @@ test("el CRUD de la base de conocimiento (ítem 59) está montado bajo /api", as
     ["POST", "/api/knowledge-base"],
     ["PATCH", `/api/knowledge-base/${id}`],
     ["DELETE", `/api/knowledge-base/${id}`],
+    // La extracción de texto de un archivo (ítem 60) vive en el mismo router.
+    ["POST", "/api/knowledge-base/extract-text"],
   ];
   for (const [method, path] of casos) {
     const res = await fetch(`${baseUrl}${path}`, { method });
