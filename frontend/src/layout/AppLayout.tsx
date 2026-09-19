@@ -21,6 +21,7 @@ import {
   UserCog,
   UserRound,
   Users,
+  Zap,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { Button } from "../design-system/Button";
@@ -63,11 +64,11 @@ function SidebarLink({
 // tomados de Dashboard CRM.html (ver design-system.css, sección AppLayout).
 // Grupos propios (CRM/Actividad/QR/Administración) en vez de los del
 // mockup (CRM/Automatización) porque el mockup es de otro rubro y tiene
-// secciones — Conversaciones, Calendario, Notificaciones,
-// Automatizaciones, Integraciones — que este producto todavía no tiene;
-// Rocco eligió mostrar solo lo que existe hoy. Dos de esas secciones ya
-// dejaron esta lista: "Agentes IA" con el ítem 55 y "Base de conocimiento"
-// con el 59, las dos abajo, en el grupo Administración.
+// secciones — Conversaciones, Calendario, Notificaciones, Integraciones —
+// que este producto todavía no tiene; Rocco eligió mostrar solo lo que
+// existe hoy. Tres de esas secciones ya dejaron esa lista de pendientes:
+// "Agentes IA" con el ítem 55, "Base de conocimiento" con el 59 y
+// "Automatizaciones" con el 62, las tres abajo, en el grupo Administración.
 export function AppLayout() {
   const { me, logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -198,6 +199,13 @@ export function AppLayout() {
                   de permisos — GET abierto, pantalla ADMIN-only. */}
               <SidebarLink to="/knowledge-base" icon={BookOpen}>
                 Base de conocimiento
+              </SidebarLink>
+              {/* Automatizaciones (ítem 62): las reglas trigger → acción del
+                  motor construido en docs/automations-architecture.md, con el
+                  mismo criterio de permisos que las dos de arriba — GET
+                  abierto, pantalla ADMIN-only. */}
+              <SidebarLink to="/automations" icon={Zap}>
+                Automatizaciones
               </SidebarLink>
             </div>
           ) : null}
