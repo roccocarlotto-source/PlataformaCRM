@@ -3182,3 +3182,117 @@ Y en la captura: el botón toma el trato de `.ds-button--secondary`, el nombre q
 `VehicleFormPage.test.tsx` y `SourceFormPage.test.tsx` no suman casos: se les agregaron aserciones adentro de los casos de subida que ya existían (el input tiene `.ds-sr-only`, el botón "Elegir archivo" está, y en Fuentes el nombre del archivo se muestra al elegirlo). Los 103 casos de las cuatro pantallas afectadas pasaron **sin tocar una línea** antes de agregar nada: el `aria-labelledby` mantuvo intactos los `getByLabelText` y los `user.upload` sobre el input oculto.
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en frontend. **Este ítem no toca backend**: sin cambios de esquema, sin migración, sin dependencias nuevas. Producción no necesita nada por el ítem 61 (siguen pendientes los `migrate:deploy` de los ítems 56, 57 y 59).
+
+---
+
+## 62. Automatizaciones: la pantalla que le faltaba a un motor que ya estaba construido
+
+**Estado:** hecho
+
+### Qué había antes de este ítem
+
+El motor de automatizaciones (`docs/automations-architecture.md`) ya estaba **construido y probado del lado del backend**: el modelo (`Automation`, `AutomationExecution`), el CRUD completo en `/api/automations`, el catálogo de triggers, el catálogo de acciones y el dispatcher idempotente montado sobre el outbox que ya existía. Lo único que faltaba era la forma de crear una regla **sin pegarle a la API a mano**.
+
+Este ítem es **solo la pantalla**: cero cambios de backend, cero cambios de esquema, cero migración, cero dependencias nuevas.
+
+### El catálogo: por qué hoy hay un trigger y una acción, y por qué eso no es una limitación de diseño
+
+El motor se construyó genérico, pero su catálogo arranca chico **a propósito**, y el motivo no es técnico. Los dos casos de uso reales con los que se pensaba estrenarlo están bloqueados por trámites que no se resuelven en este repositorio (`docs/automations-architecture.md` §1-2):
+
+- **Recordatorio de turno por WhatsApp** — depende del trámite con Meta/Twilio, en curso por fuera del repo y sin fecha.
+- **Envío del QR de reseña cuando una oportunidad pasa a ganada** — depende de una decisión cruzada con Resea (`DEC-069`) que todavía no está confirmada, y de un endpoint que del lado de Resea no existe.
+
+Así que el catálogo de hoy es:
+
+| | Valor técnico | Cómo se ve en la pantalla |
+|---|---|---|
+| **Trigger** | `opportunity.won` | "Oportunidad ganada" |
+| **Acción** | `activity.create_follow_up` | "Crear actividad de seguimiento" |
+
+Construir la pantalla igual, con un catálogo de una entrada por lado, es lo que hace que el día que WhatsApp o Resea se desbloqueen **no haya que tocar la pantalla**: se agrega la entrada al catálogo y el formulario la ofrece solo.
+
+### Cómo quedó armado el catálogo del frontend
+
+**No hay ningún endpoint que exponga el catálogo del backend.** Vive en código: `TRIGGERS_CONOCIDOS` en `src/services/automationTriggers.ts`, y el registro de acciones que se arma al arrancar el servidor (`src/services/automationActions.ts`). Así que la pantalla necesita **su propio espejo**, en `frontend/src/features/automation/catalog.ts` — exactamente el mismo criterio que `MODEL_PROVIDER_OPTIONS` en `features/agent/labels.ts`, que es el espejo de `LLM_PROVIDER_NAMES`.
+
+El espejo tiene tres partes:
+
+1. **`TRIGGER_OPTIONS` y `ACTION_OPTIONS`** — las opciones de los dos `<Select>`, con la etiqueta legible y un subtítulo. Son listas y no inputs de texto libre porque el backend rechaza con 400 cualquier string fuera de su catálogo: ofrecer texto libre sería invitar a un error que nadie puede resolver desde la pantalla.
+2. **`triggerLabel()` / `actionLabel()`** — la traducción para el listado. Un valor **fuera** de la lista se muestra **crudo**, no como "—": es el caso de un backend que ya sumó un trigger y un frontend desplegado antes, y ahí el dato real informa más que su ausencia (mismo criterio que `modelProviderLabel` y que la zona horaria IANA en `BranchListPage`).
+3. **`CONFIG_DE_ACCION`** — un mapa de `actionType` → cómo se lee, se valida y se arma el `actionConfig` de esa acción. Cuatro funciones por acción: `draftVacio`, `draftDesde` (del JSON del backend al borrador del formulario), `validar` y `aPayload` (del borrador al JSON que espera el schema del backend).
+
+**El borrador de la config guarda todos los campos como string, incluso los numéricos.** Es lo que un `<input>` produce, y guardarlo así evita el problema clásico del campo numérico controlado —que `""` y `0` se confundan mientras se está borrando el contenido—. La conversión al tipo real ocurre **en un solo lugar**, `aPayload`, y recién al guardar: `daysUntilDue` viaja como número, no como `"3"`, que sería un 400.
+
+### Agregar un trigger o una acción mañana
+
+- **Un trigger:** una entrada en `TRIGGER_OPTIONS`. Nada más.
+- **Una acción:** una entrada en `ACTION_OPTIONS`, una en `CONFIG_DE_ACCION`, y un `case` en el `switch` de `CamposDeLaAccion` dentro de `AutomationFormPage.tsx`.
+
+Tres lugares, ninguno de ellos una reescritura del formulario. **No se armó un motor de formularios manejado por metadata** —con un catálogo de una sola acción sería más código del que evita— pero el punto de extensión está donde tiene que estar: el bloque de campos condicional a la acción elegida, y el resto del formulario indiferente a cuál sea.
+
+Hay un invariante que se prueba explícitamente: **toda acción ofrecida en el selector tiene su entrada en `CONFIG_DE_ACCION`**. Una opción sin su configuración sería un formulario que no puede guardar, y es el error fácil de cometer al sumar la segunda acción.
+
+### La pantalla
+
+**`AutomationListPage.tsx`** — tabla con nombre, **Cuándo** (la etiqueta del trigger), **Qué hace** (la de la acción), estado Activa/Inactiva como `Badge`, y el menú de acciones con Editar/Eliminar. Buscador por nombre, filtro de estado, orden — el mismo molde exacto que `KnowledgeBaseListPage`.
+
+Dos ausencias deliberadas:
+
+- **Sin columna con la configuración de la acción.** Su forma depende de la acción elegida (hoy `subject` + `daysUntilDue`, mañana otra cosa): una columna que cambia de significado según la fila no se lee. Para verla está el formulario.
+- **Sin filtro por evento, aunque el backend lo soporte** (`triggerType` está en `listQuerySchema`). Con un solo trigger en el catálogo, elegir la única opción no achica nada — es un filtro que no puede filtrar. Es un `<Select>` más sobre `TRIGGER_OPTIONS` el día que haya un segundo trigger, y hay un test que deja constancia de que hoy no está.
+
+**`AutomationFormPage.tsx`** — tres tarjetas: *Datos de la automatización* (nombre + el checkbox Activa), *Cuándo se ejecuta* (el selector de evento) y *Qué hace* (el selector de acción más sus campos de configuración).
+
+Los dos selectores son **selectores de verdad** aunque hoy tengan una sola opción cada uno y vengan preseleccionados — misma decisión que el proveedor de modelo en `AgentFormPage`, y por el mismo motivo: sumar el segundo no cambia el formulario.
+
+El hint de **Activa** dice lo que no se ve: desactivarla **no la borra**, simplemente deja de ejecutarse y se puede volver a prender. Es el mismo criterio de copy que el hint de "Activa" de Knowledge Base, adaptado.
+
+### Dónde se valida el rango, y cuál capa gana
+
+`daysUntilDue` acepta enteros de 0 a 365 (`configDeSeguimientoSchema`). La pantalla lo frena en **dos capas**, y vale la pena ser preciso sobre cuál actúa:
+
+1. **El `min`/`max`/`step` del propio `<input type="number">`.** Es el que gana en la práctica: la validación nativa del navegador corre **antes** del evento de submit, así que con un 400 escrito en el campo el request nunca sale y el mensaje de la capa 2 nunca llega a verse. Esto se verificó, no se supuso.
+2. **`validar()` de la acción, en `CONFIG_DE_ACCION`.** Es el backstop, y no es decorativo: la regla pertenece a la **acción**, no al input que hoy le toca dibujar. Una acción futura cuyos campos no tengan un equivalente nativo de `min`/`max` la sigue teniendo. Por eso se prueba directamente, en `catalog.test.ts`, en vez de simular que el formulario la ejercita.
+
+En las dos capas el punto es el mismo: **no depender del 400 del backend** para algo que se sabe de antemano. El backend sigue siendo quien decide; esto se adelanta.
+
+Un caso que se cuida explícitamente: **`Number("")` es `0`**. Sin un chequeo de string vacío antes, un campo en blanco se guardaría en silencio como "vence hoy". Está probado en los dos sentidos — el vacío se rechaza, y el `0` explícito se acepta y viaja como `0`.
+
+### Los errores del backend
+
+Se muestran **tal cual, como error general del formulario**, y no se mapean a un campo concreto. No es pereza: **ningún formulario del proyecto tiene hoy infraestructura de errores por campo**, y el ítem 62 no es razón para inventarla para una pantalla. Los mensajes de Zod del backend ya nombran el campo (`actionConfig inválido para "activity.create_follow_up": subject es requerido`), y los rangos se adelantan en la pantalla con el nombre que se ve ahí.
+
+Lo que sí se garantiza, y está probado: **un 400 no cuesta lo que el ADMIN ya tenía escrito.** El formulario no se limpia, no navega, y el nombre, el título de la tarea y los días siguen donde estaban.
+
+### El caso raro que igual se cubrió
+
+**Una regla guardada con un trigger o una acción que este espejo todavía no conoce** — el backend suma una acción y el frontend desplegado va una versión atrás. Sin cuidarlo, el `<Select>` mostraría un rótulo vacío y el `required` del navegador bloquearía el guardado **para siempre**: la pantalla no podría ni corregir la regla ni dejarla como estaba.
+
+Se resolvió con `opcionesCon()`, cuatro líneas: el valor guardado entra como **una opción más del selector, mostrada cruda**. Es exactamente lo que hace `isKnownTimezone` en `BranchFormPage` con una zona horaria legacy (ítem 26). Y si la acción no está en `CONFIG_DE_ACCION`, el formulario **no inventa un editor de JSON crudo**: dice que esa acción todavía no se configura desde ahí y frena el guardado, en vez de mandar una config a medias.
+
+### Permisos: lectura abierta en la API, pantalla ADMIN-only
+
+`GET /api/automations` (listado y detalle) es de **cualquier usuario autenticado**; `POST`, `PATCH` y `DELETE` son `authorize("ADMIN")`. Es el **mismo esquema exacto** que `/api/knowledge-base` y `/api/agents`.
+
+Y, como en esos dos, **las tres rutas van dentro de `<AdminRoute />`** — listado incluido. El razonamiento es el mismo que dejó anotado el ítem 59: es una pantalla 100 % de configuración, y hoy no hay ningún caso de un USER no-admin que necesite verla. Quien "lee" estas reglas de verdad es el dispatcher, del lado del backend. La autorización real de escritura sigue siendo del servidor; esto es UX, no seguridad. Por eso tampoco hay ningún gate `isAdmin` dentro de las páginas: sería una condición que nunca evalúa a `false`.
+
+### Sidebar
+
+"Automatizaciones" entra en el grupo **Administración**, al lado de "Agentes de IA" y "Base de conocimiento", con el ícono `Zap`.
+
+El comentario de cabecera de `AppLayout.tsx` venía llevando la cuenta de las secciones del mockup original que este producto todavía no tenía — y nombraba a "Automatizaciones" entre ellas. Se actualizó: ahora son **tres** las que dejaron esa lista (Agentes IA con el ítem 55, Base de conocimiento con el 59, Automatizaciones con el 62), y las que quedan son Conversaciones, Calendario, Notificaciones e Integraciones.
+
+### Tests (corridos de verdad)
+
+**Frontend: 148 archivos, 1520 casos, todos en verde** (antes del ítem: 145 archivos, 1473). Los 47 nuevos:
+
+- **16 en `AutomationListPage.test.tsx`:** las etiquetas legibles en lugar del string técnico (y que el string técnico **no** aparece), un trigger y una acción desconocidos mostrados crudos, la regla inactiva como tal y no como borrada, los links y el menú de acciones, los filtros viajando en la query y reseteando la página, `isActive=false` que un `if` se comería, "Todas" sacando el parámetro, la ausencia del filtro por evento, la paginación, los tres casos de eliminar (confirmación cancelada sin request, el DELETE del id correcto, el fallo con el mensaje del backend y la fila que sigue ahí), carga/error/vacío, y los dos de `AdminRoute` (un USER redirigido **sin que salga el GET**, un ADMIN que sí ve la pantalla).
+- **17 en `AutomationFormPage.test.tsx`:** que los dos selectores son `<Select>` reales con la opción ya elegida, que los campos de configuración son los de la acción elegida, el POST completo con `daysUntilDue` como **número**, guardar como inactiva, el `0` explícito aceptado, el fuera de rango que no sale del formulario, los campos requeridos con los topes del backend, el 400 mostrado **sin perder lo escrito**, la hidratación completa en edición (config incluida), el PATCH con la regla entera y no un diff, desactivar y volver a activar, la acción desconocida que se abre pero no se guarda a ciegas, carga y error del GET, y los dos de `AdminRoute`.
+- **12 en `catalog.test.ts`:** los rótulos y el valor desconocido mostrado crudo, los defaults como primera entrada del catálogo, el invariante de que toda acción ofrecida sabe configurarse, y el `validar`/`draftDesde`/`aPayload` de `activity.create_follow_up` — los dos extremos del rango, el título vacío o de solo espacios, el título de más de 200, los días vacíos **sin confundirlos con 0**, los no enteros y los fuera de rango, y una config guardada con otra forma que no rompe la pantalla.
+- **2 en `AppLayout.test.tsx`:** el ADMIN ve "Automatizaciones" apuntando a `/automations` y **en el mismo grupo** que Agentes de IA; el USER no lo ve.
+
+`npm run typecheck`, `npm run lint`, `npm run build` y `prettier --check` limpios en frontend.
+
+**No se levantó el entorno para probarlo a mano.** Requiere Docker + el Supabase local + el backend + una sesión, y el magic link de admin local está bloqueado por el clasificador (ver la nota del ítem 38); no se hizo esa verificación y no se la reporta como hecha. Lo que sí cubre el automatizado es el contrato completo contra la API mockeada con MSW, que es donde este ítem puede fallar.
+
+**Sin migración y sin cambios de esquema:** este ítem no toca Prisma ni backend. Producción no necesita nada por el ítem 62 (siguen pendientes los `migrate:deploy` de los ítems 56, 57 y 59).

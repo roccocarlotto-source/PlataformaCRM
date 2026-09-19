@@ -186,6 +186,26 @@ describe("AppLayout — nav de Base de conocimiento (ítem 59)", () => {
   });
 });
 
+describe("AppLayout — nav de Automatizaciones (ítem 62)", () => {
+  it("ADMIN ve 'Automatizaciones' en el mismo grupo que Agentes de IA, apuntando a /automations", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+
+    const link = screen.getByRole("link", { name: "Automatizaciones" });
+    expect(link).toHaveAttribute("href", "/automations");
+    expect(link.closest(".ds-sidebar-group")).toBe(
+      screen.getByRole("link", { name: "Agentes de IA" }).closest(".ds-sidebar-group"),
+    );
+  });
+
+  it("USER no ve 'Automatizaciones': la pantalla es toda configuración ADMIN-only", () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout();
+
+    expect(screen.queryByText("Automatizaciones")).not.toBeInTheDocument();
+  });
+});
+
 describe("AppLayout — nav del módulo QR (Fase 3)", () => {
   it("el link QR se muestra para ambos roles: el listado es de lectura abierta", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));

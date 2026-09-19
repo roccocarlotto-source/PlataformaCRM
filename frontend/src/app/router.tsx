@@ -41,6 +41,8 @@ import { AgentFormPage } from "../features/agent/AgentFormPage";
 import { AgentListPage } from "../features/agent/AgentListPage";
 import { KnowledgeBaseFormPage } from "../features/knowledgeBase/KnowledgeBaseFormPage";
 import { KnowledgeBaseListPage } from "../features/knowledgeBase/KnowledgeBaseListPage";
+import { AutomationFormPage } from "../features/automation/AutomationFormPage";
+import { AutomationListPage } from "../features/automation/AutomationListPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -195,6 +197,19 @@ export const router = createBrowserRouter([
               { path: "/knowledge-base", element: <KnowledgeBaseListPage /> },
               { path: "/knowledge-base/new", element: <KnowledgeBaseFormPage /> },
               { path: "/knowledge-base/:id/edit", element: <KnowledgeBaseFormPage /> },
+              // Automatizaciones (ítem 62 de
+              // docs/frontend-cambios-pendientes.md): las reglas trigger →
+              // acción del motor que ya estaba construido del lado del backend
+              // (docs/automations-architecture.md). MISMO criterio exacto que
+              // /knowledge-base y /agents — GET /api/automations es lectura
+              // abierta a cualquier autenticado, pero la pantalla es toda
+              // configuración ADMIN-only (POST/PATCH/DELETE son
+              // authorize("ADMIN")) y hoy no hay ninguna otra pantalla que
+              // necesite mostrarle reglas a un USER: quien las lee de verdad
+              // es el dispatcher, del lado del backend.
+              { path: "/automations", element: <AutomationListPage /> },
+              { path: "/automations/new", element: <AutomationFormPage /> },
+              { path: "/automations/:id/edit", element: <AutomationFormPage /> },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/contacts/new", element: <ContactFormPage /> },
