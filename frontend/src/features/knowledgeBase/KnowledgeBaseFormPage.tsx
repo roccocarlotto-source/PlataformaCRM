@@ -1,8 +1,9 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
+import { FileInputButton } from "../../design-system/FileInputButton";
 import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
@@ -109,6 +110,9 @@ export function KnowledgeBaseFormPage() {
   const [error, setError] = useState<string | null>(null);
   const [extrayendo, setExtrayendo] = useState(false);
   const [truncado, setTruncado] = useState(false);
+  // El nombre que muestra el FileInputButton. Existe solo para eso: el archivo
+  // en sí no se guarda en ningún estado porque no sobrevive a la extracción.
+  const [nombreArchivo, setNombreArchivo] = useState<string | null>(null);
 
   const isSubmitting = createEntryMutation.isPending || updateEntryMutation.isPending;
 
@@ -125,22 +129,22 @@ export function KnowledgeBaseFormPage() {
   // primero gastaría el request y una de las diez extracciones por minuto que
   // permite el endpoint para algo que la persona va a cancelar igual.
   // -------------------------------------------------------------------------
-  async function handleArchivo(event: ChangeEvent<HTMLInputElement>) {
-    const input = event.currentTarget;
-    const archivo = input.files?.[0];
-
-    // EL INPUT SE LIMPIA SIEMPRE, pase lo que pase. Sin esto, elegir el mismo
-    // archivo dos veces seguidas no dispara un segundo change —el valor no
-    // cambió— y reintentar después de un error obligaría a elegir otro archivo
-    // en el medio.
-    input.value = "";
-
-    if (!archivo) return;
-
-    if (values.content.trim() !== "" && !window.confirm(CONFIRMAR_PISAR_CONTENIDO)) {
+  async function handleArchivo(archivo: File | null) {
+    // Cancelar el explorador, o cancelar la confirmación, dejan el control como
+    // estaba: sin nombre a la vista, porque no se leyó ningún archivo. Limpiar
+    // el value del input para poder reelegir el mismo archivo ya no es asunto
+    // de esta pantalla — lo hace FileInputButton.
+    if (!archivo) {
+      setNombreArchivo(null);
       return;
     }
 
+    if (values.content.trim() !== "" && !window.confirm(CONFIRMAR_PISAR_CONTENIDO)) {
+      setNombreArchivo(null);
+      return;
+    }
+
+    setNombreArchivo(archivo.name);
     setError(null);
     setTruncado(false);
     setExtrayendo(true);
@@ -160,6 +164,9 @@ export function KnowledgeBaseFormPage() {
           ? `No pudimos leer el archivo: ${err.message}`
           : "No pudimos leer el archivo.",
       );
+      // El nombre se va con el error: lo que quedó cargado en Contenido NO
+      // salió de ese archivo, y dejarlo a la vista diría lo contrario.
+      setNombreArchivo(null);
     } finally {
       setExtrayendo(false);
     }
@@ -296,14 +303,13 @@ export function KnowledgeBaseFormPage() {
                 en el textarea de arriba, editable como cualquier otra cosa
                 que se hubiera tipeado. */}
             <div className="ds-field-grid--full">
-              <FormField label={ETIQUETA_ARCHIVO}>
-                <input
-                  type="file"
-                  accept={EXTENSIONES_ARCHIVO_SOPORTADAS.join(",")}
-                  disabled={extrayendo || isSubmitting}
-                  onChange={(event) => void handleArchivo(event)}
-                />
-              </FormField>
+              <FileInputButton
+                label={ETIQUETA_ARCHIVO}
+                accept={EXTENSIONES_ARCHIVO_SOPORTADAS.join(",")}
+                disabled={extrayendo || isSubmitting}
+                selectedFileName={nombreArchivo}
+                onFileSelected={(archivo) => void handleArchivo(archivo)}
+              />
             </div>
             <p className="ds-hint ds-field-grid--full">
               {extrayendo

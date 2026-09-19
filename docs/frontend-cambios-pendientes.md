@@ -3109,3 +3109,76 @@ Un detalle del entorno que quedó anotado en el propio test: `request.formData()
 `npm run typecheck`, `npm run lint`, `npm run build` y `prettier --check` limpios en backend y frontend. El gate de auditoría de dependencias pasa sin advisories high/critical nuevas: las 4 moderate que reporta `npm audit` son las preexistentes de `exceljs`/`uuid` y `express`/`qs`, ninguna viene de `mammoth` ni de `pdf-parse`.
 
 **Sin migración y sin cambios de esquema:** este ítem no toca Prisma. Producción no necesita ningún `migrate:deploy` por el ítem 60 (siguen pendientes los de los ítems 56, 57 y 59).
+
+---
+
+## 61. Un solo componente de "subir archivo" para los cuatro lugares que usaban el input nativo
+
+**Estado:** hecho
+
+**Qué pidió Rocco.** Al ver el campo de importación que dejó el ítem 60:
+
+> "el campo de importación está feo con ese select sin padding, además, si clickeo en la caja en general me abre el explorador de archivos, quiero que sea solo clickeando el botón y que el botón esté lindo, el diseño tiene que ser coherente con el resto de la plataforma."
+
+Son dos quejas distintas y las dos tenían razón:
+
+1. **El botón feo.** El `<input type="file">` nativo dibuja su propio botón ("Examinar…" / "Choose File") con la tipografía del sistema operativo y sin padding. No hay forma de estilarlo desde CSS: es el único control del navegador que no se puede tocar. Mismo motivo por el que el ítem 44 reemplazó al `<select>` nativo con `Select.tsx`.
+2. **Toda la caja abría el explorador.** El input vivía adentro de un `FormField`, que **es un `<label>`**. Un `<label>` asociado a un input de archivo le **reenvía** sus clicks, así que clickear el rótulo, el espacio en blanco del campo o cualquier parte de esa caja abría el explorador.
+
+### La decisión: un componente, cuatro lugares, no un parche
+
+Al ir a arreglarlo apareció el dato que cambió el alcance: **no había un solo lugar en toda la plataforma con un input de archivo estilado**. Los cuatro que existen usaban el nativo pelado:
+
+| Pantalla | Para qué |
+|---|---|
+| `features/knowledgeBase/KnowledgeBaseFormPage.tsx` | Completar el Contenido desde un archivo (ítem 60) |
+| `features/import/ImportPage.tsx` | Importar contactos de un `.csv`/`.xlsx` |
+| `features/vehicle/VehiclePhotoGallery.tsx` | Subir una foto de la unidad |
+| `features/source/SugerirMapeoDesdeArchivo.tsx` | Sugerir el mapeo desde un archivo de muestra |
+
+Parchear solo el de Knowledge Base habría dejado tres pantallas con el control viejo y una cuarta distinta — que es exactamente la inconsistencia que Rocco señala. Se armó **un componente del design system, `FileInputButton.tsx`**, y se aplicó en los cuatro de una sola vez. Ninguna lógica de negocio cambió: mismo endpoint, mismas validaciones, mismo `accept`, mismo `disabled`. Es el reemplazo del control de selección y nada más.
+
+### Cómo funciona el componente
+
+El `<input type="file">` **sigue existiendo y sigue siendo quien abre el explorador**. Lo único que se hace es sacarlo de la vista con `.ds-sr-only` —la clase que ya estaba en `design-system.css` para esto— y disparar su `click()` desde un `<Button variant="secondary">` nuestro, vía `useRef`. No se usa `display: none` a propósito: `.ds-sr-only` deja al elemento en el árbol de accesibilidad, mientras que `display: none` lo saca del todo y rompería el nombre accesible del control.
+
+Al lado del botón, un `<span>` con el nombre del archivo elegido, o "Ningún archivo elegido" si no hay ninguno — el mismo copy que muestra el navegador, pero ahora dibujado por nosotros y con los tokens del design system.
+
+**El rótulo es un `<span>`, no un `<label htmlFor>`, y es la única decisión de accesibilidad no obvia del archivo.** Un `<label>` asociado reenvía sus clicks al input, que es precisamente el bug que este ítem vino a arreglar: volvería a abrir el explorador al clickear el texto del rótulo. El nombre accesible se conserva con **`aria-labelledby`** apuntando al rótulo visible, que para un lector de pantalla da el mismo resultado sin arrastrar el comportamiento de click. Sin rótulo visible, el nombre sale de `aria-label` = `buttonLabel`. Efecto colateral bienvenido: los tests de las cuatro pantallas, que buscaban el input con `getByLabelText`, lo siguen encontrando igual.
+
+**El input queda fuera del Tab (`tabIndex={-1}`)** porque un foco en algo invisible no se ve. El recorrido de teclado para en el botón, que abre lo mismo con Enter. El botón lleva `aria-describedby` al rótulo: se llama "Elegir archivo" en los cuatro lugares y lo que cambia entre ellos es **qué** archivo.
+
+**El `value` del input se resetea en cada `onChange`, después de leer `files`.** Un input de archivo es no controlado: sin ese reset, elegir el mismo archivo dos veces seguidas no dispara un segundo `change` —el valor no cambió— y reintentar después de corregirlo obligaría a elegir otro archivo en el medio. Estaba resuelto así en `KnowledgeBaseFormPage` y en `VehiclePhotoGallery`, cada una por su cuenta, y **no** estaba en `ImportPage` ni en `SugerirMapeoDesdeArchivo`. Ahora vive en el componente y ninguna pantalla tiene que acordarse.
+
+CSS nuevo, al lado del bloque de `Button.tsx`: `.ds-file-input` (la fila flex) y `.ds-file-input__name` (el nombre, en `--color-text-muted` y `--font-size-sm`, recortado con elipsis). El `min-width: 0` del nombre no es decorativo: sin él un ítem flex no baja de su ancho de contenido y un archivo de nombre largo empujaría la fila fuera de la Card en vez de cortarse.
+
+### Qué cambió en cada pantalla
+
+- **`KnowledgeBaseFormPage`:** `handleArchivo` pasa de recibir un `ChangeEvent` a recibir el `File | null`, y pierde el reseteo del input (ahora lo hace el componente). Estado nuevo `nombreArchivo`, que **se limpia si la extracción falla o si se cancela la confirmación**: el Contenido que quedó no salió de ese archivo, y dejar el nombre a la vista diría lo contrario.
+- **`ImportPage`:** elegir e importar siguen separados. El `FileInputButton` solo elige; la subida sigue siendo el submit del botón "Importar". El nombre sale del `File` que ya estaba en estado (`archivo?.name`), sin estado nuevo. Se fue el `FormField`, que ya no se usaba en esa pantalla.
+- **`VehiclePhotoGallery`:** reemplaza el `<label className="ds-field">` completo. Acá la foto se sube apenas se elige —no hay botón aparte—, así que no hay archivo "elegido" esperando nada: el nombre se muestra **mientras dura la subida** y sale de `uploadMutation.variables?.file.name`, sin estado nuevo.
+- **`SugerirMapeoDesdeArchivo`:** mismo criterio que `ImportPage`; el botón "Sugerir mapeo desde un archivo" sigue siendo el que dispara la lectura.
+
+### Verificación en el navegador
+
+Además de los tests, se levantó un harness HTML estático con los CSS reales (`tokens.css` + `global.css` + `design-system.css`) y se midió con `/browse` el comportamiento que motivó el pedido, contando los clicks que llegan al input real:
+
+| Dónde se clickea | Clicks que llegan al input |
+|---|---|
+| El rótulo del campo | 0 |
+| El área vacía de la caja (`.ds-card`) | 0 |
+| El botón "Elegir archivo" | 1 |
+
+Y en la captura: el botón toma el trato de `.ds-button--secondary`, el nombre queda en texto auxiliar, un nombre largo se corta con elipsis sin romper la fila, y el estado `disabled` atenúa el botón. El harness no se versiona.
+
+### Tests (corridos de verdad)
+
+**Frontend: 145 archivos, 1473 casos, todos en verde** (antes del ítem: 144 archivos, 1463). Los 10 nuevos:
+
+- **8 en `FileInputButton.test.tsx`**, el archivo nuevo: que el input real está en el DOM con `.ds-sr-only`, `tabIndex="-1"` y nombre accesible; que sin rótulo visible el nombre sale del texto del botón; que **clickear el rótulo NO dispara el click del input y clickear el botón sí** (el bug del pedido, afirmado explícitamente); que elegir un archivo llama a `onFileSelected` con el `File`; que el mismo archivo dos veces seguidas vuelve a avisar (el reset del `value`); el nombre y el placeholder; que `disabled` deshabilita el botón **y** el input; y que el `accept` viaja tal cual.
+- **1 en `ImportPage.test.tsx`:** el input está escondido, el botón del design system está, y elegir un archivo lo muestra al lado **sin llamar al backend** — elegir e importar siguen separados.
+- **1 en `KnowledgeBaseFormPage.test.tsx`:** el nombre aparece al elegir el archivo y **se borra cuando la extracción falla**.
+
+`VehicleFormPage.test.tsx` y `SourceFormPage.test.tsx` no suman casos: se les agregaron aserciones adentro de los casos de subida que ya existían (el input tiene `.ds-sr-only`, el botón "Elegir archivo" está, y en Fuentes el nombre del archivo se muestra al elegirlo). Los 103 casos de las cuatro pantallas afectadas pasaron **sin tocar una línea** antes de agregar nada: el `aria-labelledby` mantuvo intactos los `getByLabelText` y los `user.upload` sobre el input oculto.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en frontend. **Este ítem no toca backend**: sin cambios de esquema, sin migración, sin dependencias nuevas. Producción no necesita nada por el ítem 61 (siguen pendientes los `migrate:deploy` de los ítems 56, 57 y 59).

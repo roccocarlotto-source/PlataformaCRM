@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
-import { FormField } from "../../design-system/FormField";
+import { FileInputButton } from "../../design-system/FileInputButton";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Table } from "../../design-system/Table";
 import { useSource } from "../source/queries";
@@ -112,16 +112,17 @@ export function ImportPage() {
       ) : null}
 
       <form onSubmit={handleSubmit}>
-        <FormField label="Archivo (.csv o .xlsx, hasta 10 MB)">
-          <input
-            type="file"
-            accept=".csv,.xlsx"
-            onChange={(event) => {
-              setArchivo(event.target.files?.[0] ?? null);
-              setErrorLocal(null);
-            }}
-          />
-        </FormField>
+        {/* Solo la ELECCIÓN del archivo: la importación sigue siendo el submit
+            del botón de abajo, que es lo que gasta la subida. */}
+        <FileInputButton
+          label="Archivo (.csv o .xlsx, hasta 10 MB)"
+          accept=".csv,.xlsx"
+          selectedFileName={archivo?.name ?? null}
+          onFileSelected={(elegido) => {
+            setArchivo(elegido);
+            setErrorLocal(null);
+          }}
+        />
 
         <Button type="submit" variant="primary" disabled={importFileMutation.isPending}>
           {importFileMutation.isPending ? "Importando…" : "Importar"}

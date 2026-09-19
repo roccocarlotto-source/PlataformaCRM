@@ -651,4 +651,34 @@ describe("KnowledgeBaseFormPage — completar desde un archivo (ítem 60)", () =
     await waitFor(() => expect(screen.getByLabelText("Contenido")).toHaveValue("x".repeat(10_000)));
     expect(screen.queryByText(/antes de guardar/)).not.toBeInTheDocument();
   });
+
+  // Ítem 61 — el control pasó a ser FileInputButton: el input nativo sigue en
+  // el DOM (por eso user.upload no cambió) pero escondido, y el nombre del
+  // archivo lo muestra la pantalla.
+  it("el nombre del archivo se muestra al elegirlo y se borra si la extracción falla", async () => {
+    // El segundo archivo llega con el Contenido ya cargado por el primero, así
+    // que pasa por la confirmación de pisar el texto.
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(mockBranches(), extractOk("Horarios nuevos."));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    expect(inputDeArchivo()).toHaveClass("ds-sr-only");
+    expect(screen.getByRole("button", { name: "Elegir archivo" })).toBeInTheDocument();
+    expect(screen.getByText("Ningún archivo elegido")).toBeInTheDocument();
+
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+
+    await waitFor(() => expect(screen.getByText(TXT[1])).toBeInTheDocument());
+
+    // Un archivo que el backend no pudo leer NO deja su nombre a la vista: el
+    // Contenido no salió de ahí.
+    server.use(extractError(422, "No se pudo extraer texto de este archivo."));
+    await user.upload(inputDeArchivo(), archivo(PDF[1], PDF[2]));
+
+    await screen.findByRole("alert");
+    expect(screen.queryByText(PDF[1])).not.toBeInTheDocument();
+    expect(screen.getByText("Ningún archivo elegido")).toBeInTheDocument();
+  });
 });

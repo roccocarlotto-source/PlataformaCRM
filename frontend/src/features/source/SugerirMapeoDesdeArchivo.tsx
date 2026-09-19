@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
-import { FormField } from "../../design-system/FormField";
+import { FileInputButton } from "../../design-system/FileInputButton";
 import { previewImport } from "../import/api";
 import { validarArchivo } from "../import/fileValidation";
 
@@ -68,17 +68,17 @@ export function SugerirMapeoDesdeArchivo({ onSugerir, disabled }: SugerirMapeoDe
 
   return (
     <div>
-      <FormField label="Sugerir mapeo desde un archivo de muestra (.csv o .xlsx)">
-        <input
-          type="file"
-          accept=".csv,.xlsx"
-          disabled={disabled}
-          onChange={(event) => {
-            setArchivo(event.target.files?.[0] ?? null);
-            setError(null);
-          }}
-        />
-      </FormField>
+      {/* Solo elige el archivo: la lectura sigue siendo el botón de abajo. */}
+      <FileInputButton
+        label="Sugerir mapeo desde un archivo de muestra (.csv o .xlsx)"
+        accept=".csv,.xlsx"
+        disabled={disabled}
+        selectedFileName={archivo?.name ?? null}
+        onFileSelected={(elegido) => {
+          setArchivo(elegido);
+          setError(null);
+        }}
+      />
       <p className="ds-hint">
         Se leen solo los nombres de las columnas. El archivo no se importa y no se guarda: las filas
         sugeridas quedan editables y se persisten recién al guardar la fuente.

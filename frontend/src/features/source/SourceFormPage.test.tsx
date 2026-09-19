@@ -300,6 +300,17 @@ describe("SourceFormPage — sugerencia de mapeo desde un archivo", () => {
     expect(
       screen.getByRole("button", { name: "Sugerir mapeo desde un archivo" }),
     ).toBeInTheDocument();
+
+    // Ítem 61: la elección del archivo es el FileInputButton del design system
+    // —input nativo escondido detrás de un botón—, y sigue siendo el botón de
+    // arriba el que dispara la lectura.
+    const input = screen.getByLabelText(/archivo de muestra/i);
+    expect(input).toHaveClass("ds-sr-only");
+    expect(screen.getByRole("button", { name: "Elegir archivo" })).toBeInTheDocument();
+    expect(screen.getByText("Ningún archivo elegido")).toBeInTheDocument();
+
+    await user.upload(input, csv("muestra.csv"));
+    expect(screen.getByText("muestra.csv")).toBeInTheDocument();
   });
 
   it("precarga una fila por encabezado, con el destino sugerido", async () => {
