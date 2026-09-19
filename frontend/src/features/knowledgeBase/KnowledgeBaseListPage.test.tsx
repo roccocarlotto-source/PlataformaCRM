@@ -15,7 +15,7 @@ import { AdminRoute } from "../../auth/AdminRoute";
 import { ProtectedRoute } from "../../auth/ProtectedRoute";
 import type { AuthContextValue } from "../../auth/AuthContext";
 import { KnowledgeBaseListPage } from "./KnowledgeBaseListPage";
-import type { KnowledgeBaseListResponse } from "./types";
+import type { KnowledgeBaseEntry, KnowledgeBaseListResponse } from "./types";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
@@ -420,5 +420,294 @@ describe("KnowledgeBaseListPage — bajo AdminRoute", () => {
       await screen.findByRole("heading", { name: "Base de conocimiento" }),
     ).toBeInTheDocument();
     expect(await screen.findByText("Horarios de atención")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 64 — selección múltiple con casillas y borrado en lote.
+// ---------------------------------------------------------------------------
+
+// El "servidor" del listado: una lista que el DELETE achica de verdad, un
+// conjunto de ids cuyo borrado falla (para la falla parcial) y los ids
+// efectivamente borrados, para no tener que espiar la red a mano.
+function mockEntries(
+  initial: KnowledgeBaseEntry[],
+  options: { fallan?: string[]; totalPages?: number } = {},
+) {
+  let entries = initial;
+  const borrados: string[] = [];
+  const fallan = options.fallan ?? [];
+
+  server.use(
+    mockBranches(),
+    http.get(baseUrl, () =>
+      HttpResponse.json({
+        data: entries,
+        pagination: {
+          page: 1,
+          pageSize: 20,
+          total: entries.length,
+          totalPages: options.totalPages ?? 1,
+        },
+      }),
+    ),
+    http.delete(`${baseUrl}/:id`, ({ params }) => {
+      const id = params.id as string;
+      if (fallan.includes(id)) {
+        return HttpResponse.json({ error: { message: "No pudimos borrarla" } }, { status: 500 });
+      }
+      borrados.push(id);
+      entries = entries.filter((entry) => entry.id !== id);
+      return new HttpResponse(null, { status: 204 });
+    }),
+  );
+
+  return borrados;
+}
+
+function tresEntradas() {
+  return [
+    makeKnowledgeBaseEntry({ id: "kb1", title: "Horarios de atención" }),
+    makeKnowledgeBaseEntry({ id: "kb2", title: "Política de cancelación" }),
+    makeKnowledgeBaseEntry({ id: "kb3", title: "Formas de pago" }),
+  ];
+}
+
+function casilla(titulo: string) {
+  return screen.getByLabelText(`Seleccionar la entrada "${titulo}"`);
+}
+
+function casillaDeTodas() {
+  return screen.getByLabelText("Seleccionar todas las de esta página");
+}
+
+describe("KnowledgeBaseListPage — selección múltiple", () => {
+  let confirmSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    confirmSpy = vi.spyOn(window, "confirm");
+  });
+
+  afterEach(() => {
+    confirmSpy.mockRestore();
+  });
+
+  it("la casilla es la primera columna y no rompe la lectura de las demás", async () => {
+    mockEntries(tresEntradas());
+    renderPage();
+
+    const fila = (await screen.findByText("Horarios de atención")).closest("tr");
+    // La columna nueva no tiene rótulo de texto (su nombre accesible lo pone
+    // el aria-label), así que las demás se siguen ubicando por cabecera.
+    expect(fila?.querySelectorAll("td")[0]).toContainElement(casilla("Horarios de atención"));
+    expect(cellByHeader(fila, "Título")).toHaveTextContent("Horarios de atención");
+    expect(cellByHeader(fila, "Estado")).toHaveTextContent("Activa");
+  });
+
+  it("sin nada tildado no hay barra de acciones", async () => {
+    mockEntries(tresEntradas());
+    renderPage();
+
+    await screen.findByText("Horarios de atención");
+    expect(
+      screen.queryByRole("button", { name: "Eliminar seleccionadas" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("tildar de a una muestra el conteo, en singular y en plural", async () => {
+    mockEntries(tresEntradas());
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await user.click(casilla("Horarios de atención"));
+    expect(screen.getByText("1 entrada seleccionada")).toBeInTheDocument();
+
+    await user.click(casilla("Formas de pago"));
+    expect(screen.getByText("2 entradas seleccionadas")).toBeInTheDocument();
+
+    await user.click(casilla("Formas de pago"));
+    expect(screen.getByText("1 entrada seleccionada")).toBeInTheDocument();
+  });
+
+  it("la casilla del encabezado tilda y destilda todas las de la página", async () => {
+    mockEntries(tresEntradas());
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await user.click(casillaDeTodas());
+    expect(screen.getByText("3 entradas seleccionadas")).toBeInTheDocument();
+    expect(casilla("Horarios de atención")).toBeChecked();
+    expect(casilla("Política de cancelación")).toBeChecked();
+    expect(casilla("Formas de pago")).toBeChecked();
+
+    await user.click(casillaDeTodas());
+    expect(screen.queryByText(/seleccionada/)).not.toBeInTheDocument();
+    expect(casilla("Horarios de atención")).not.toBeChecked();
+  });
+
+  it("con algunas tildadas, la casilla del encabezado queda indeterminada", async () => {
+    mockEntries(tresEntradas());
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await user.click(casilla("Horarios de atención"));
+    // indeterminate no es un atributo de HTML: se lee como propiedad del DOM.
+    expect((casillaDeTodas() as HTMLInputElement).indeterminate).toBe(true);
+    expect(casillaDeTodas()).not.toBeChecked();
+
+    await user.click(casilla("Política de cancelación"));
+    await user.click(casilla("Formas de pago"));
+    expect((casillaDeTodas() as HTMLInputElement).indeterminate).toBe(false);
+    expect(casillaDeTodas()).toBeChecked();
+  });
+
+  it("'Cancelar selección' destilda todo y NO borra nada", async () => {
+    const borrados = mockEntries(tresEntradas());
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await user.click(casillaDeTodas());
+    await user.click(screen.getByRole("button", { name: "Cancelar selección" }));
+
+    expect(screen.queryByText(/seleccionada/)).not.toBeInTheDocument();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(borrados).toEqual([]);
+    expect(screen.getByText("Horarios de atención")).toBeInTheDocument();
+  });
+
+  it("confirmar el borrado en lote manda un DELETE por entrada seleccionada", async () => {
+    const borrados = mockEntries(tresEntradas());
+    confirmSpy.mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await user.click(casilla("Horarios de atención"));
+    await user.click(casilla("Formas de pago"));
+    await user.click(screen.getByRole("button", { name: "Eliminar seleccionadas" }));
+
+    // La misma consecuencia que nombra el borrado individual, en plural.
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "¿Eliminar las 2 entradas seleccionadas? Los agentes de esas sucursales dejan de usarlas para responder.",
+    );
+
+    await waitFor(() => expect([...borrados].sort()).toEqual(["kb1", "kb3"]));
+    await waitFor(() => expect(screen.queryByText("Horarios de atención")).not.toBeInTheDocument());
+    expect(screen.getByText("Política de cancelación")).toBeInTheDocument();
+    expect(screen.queryByText(/seleccionada/)).not.toBeInTheDocument();
+  });
+
+  it("una sola tildada usa el singular en la confirmación", async () => {
+    const borrados = mockEntries(tresEntradas());
+    confirmSpy.mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await user.click(casilla("Política de cancelación"));
+    await user.click(screen.getByRole("button", { name: "Eliminar seleccionadas" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "¿Eliminar la entrada seleccionada? Los agentes de esa sucursal dejan de usarla para responder.",
+    );
+    await waitFor(() => expect(borrados).toEqual(["kb2"]));
+  });
+
+  it("cancelar la confirmación no borra nada y deja la selección como estaba", async () => {
+    const borrados = mockEntries(tresEntradas());
+    confirmSpy.mockReturnValue(false);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await user.click(casillaDeTodas());
+    await user.click(screen.getByRole("button", { name: "Eliminar seleccionadas" }));
+
+    expect(borrados).toEqual([]);
+    expect(screen.getByText("3 entradas seleccionadas")).toBeInTheDocument();
+  });
+
+  it("una falla parcial borra las demás, avisa, y deja tildada la fila que falló", async () => {
+    const borrados = mockEntries(tresEntradas(), { fallan: ["kb2"] });
+    confirmSpy.mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await user.click(casillaDeTodas());
+    await user.click(screen.getByRole("button", { name: "Eliminar seleccionadas" }));
+
+    // kb2 falló y NO abortó a kb3: allSettled y no all.
+    await waitFor(() => expect([...borrados].sort()).toEqual(["kb1", "kb3"]));
+    expect(
+      await screen.findByText(
+        "No se pudieron eliminar 1 de 3 entradas. Siguen seleccionadas para reintentar.",
+      ),
+    ).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.queryByText("Horarios de atención")).not.toBeInTheDocument());
+    expect(casilla("Política de cancelación")).toBeChecked();
+    expect(screen.getByText("1 entrada seleccionada")).toBeInTheDocument();
+  });
+
+  it("cambiar de página limpia la selección", async () => {
+    mockEntries(tresEntradas(), { totalPages: 3 });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await user.click(casillaDeTodas());
+    expect(screen.getByText("3 entradas seleccionadas")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Siguiente" }));
+
+    // No tiene sentido dejar tildada una fila que ya no está a la vista — y
+    // menos un botón de borrar que cuente filas de otra página.
+    expect(screen.queryByText(/seleccionada/)).not.toBeInTheDocument();
+    await waitFor(() => expect(casilla("Horarios de atención")).not.toBeChecked());
+  });
+
+  it("cambiar un filtro limpia la selección", async () => {
+    mockEntries(tresEntradas());
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await user.click(casilla("Horarios de atención"));
+    await user.type(screen.getByLabelText("Buscar"), "h");
+    expect(screen.queryByText(/seleccionada/)).not.toBeInTheDocument();
+
+    await user.click(casilla("Horarios de atención"));
+    await chooseSelectOption(user, screen.getByLabelText("Estado"), "Activas");
+    expect(screen.queryByText(/seleccionada/)).not.toBeInTheDocument();
+
+    await user.click(casilla("Horarios de atención"));
+    await chooseSelectOption(user, screen.getByLabelText("Orden"), "Ascendente");
+    expect(screen.queryByText(/seleccionada/)).not.toBeInTheDocument();
+  });
+
+  it("el 'Eliminar' del menú de cada fila sigue funcionando igual que antes", async () => {
+    const borrados = mockEntries(tresEntradas());
+    confirmSpy.mockReturnValue(true);
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    // Con otra fila tildada: el borrado de a uno es independiente de la
+    // selección, no la usa ni la pisa.
+    await user.click(casilla("Formas de pago"));
+    const fila = screen.getByText("Horarios de atención").closest("tr") as HTMLElement;
+    await openActionsMenu(user, fila);
+    await user.click(within(fila).getByRole("menuitem", { name: "Eliminar" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      "¿Eliminar esta entrada? Los agentes de esa sucursal dejan de usarla para responder.",
+    );
+    await waitFor(() => expect(borrados).toEqual(["kb1"]));
+    expect(screen.getByText("1 entrada seleccionada")).toBeInTheDocument();
   });
 });

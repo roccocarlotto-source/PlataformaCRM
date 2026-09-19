@@ -437,6 +437,70 @@ fieldset.ds-field {
   background: var(--color-surface-muted);
 }
 
+/* Columna de casillas de selección múltiple (ítem 64), siempre la primera.
+   width: 1% es el truco de tabla de siempre: con el resto de las columnas
+   sin ancho fijo, el navegador le da a esta lo mínimo que necesita su
+   contenido en vez de repartirle una parte proporcional. */
+.ds-table th.ds-cell-pick,
+.ds-table td.ds-cell-pick {
+  width: 1%;
+}
+
+/* ---------------------------------------------------------------------- */
+/* BulkSelectionBar.tsx                                                    */
+/* ---------------------------------------------------------------------- */
+
+/* Aparece solo cuando hay algo tildado, entre los filtros y la lista. Fondo
+   apagado y no un color de acento: es una barra de contexto, no una alerta;
+   lo que llama la atención adentro es el botón rojo. */
+.ds-bulk-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-3) 0;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* margin-right: auto empuja los dos botones contra el borde derecho sin
+   necesidad de un div extra entre el conteo y ellos. */
+.ds-bulk-bar-count {
+  margin-right: auto;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* Casilla de la galería de fotos (features/vehicle/VehiclePhotoGallery.tsx).
+   Va SUPERPUESTA arriba a la derecha de la miniatura, como en la galería de
+   un teléfono, y no en la fila de botones de abajo: la casilla pertenece a la
+   foto, no a la botonera.
+
+   El tamaño va forzado porque la regla base (input[type="checkbox"] con
+   width/height auto) deja el checkbox nativo en 13px, demasiado chico para
+   apuntarle encima de una imagen. El box-shadow es el "papel" blanco que lo
+   despega de una foto clara u oscura sin dibujar un recuadro aparte. */
+.ds-photo-pick {
+  position: relative;
+}
+
+.ds-photo-pick > input[type="checkbox"] {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 3px var(--color-surface);
+}
+
 /* ---------------------------------------------------------------------- */
 /* Pagination.tsx                                                          */
 /* ---------------------------------------------------------------------- */

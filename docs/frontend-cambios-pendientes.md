@@ -3404,3 +3404,117 @@ La pantalla no agrega **ninguna regla** al design system. Reusa `.ds-chip-list`/
 **No se levantó el entorno para probarlo a mano.** Requiere Docker + el Supabase local + el backend + una sesión, y el magic link de admin local está bloqueado por el clasificador (ver la nota del ítem 38); no se hizo esa verificación y no se la reporta como hecha. Lo que sí cubre el automatizado es el contrato completo contra la API mockeada con MSW, que es donde este ítem puede fallar.
 
 **Sin migración y sin cambios de backend:** producción no necesita nada por el ítem 63 (siguen pendientes los `migrate:deploy` de los ítems 56, 57 y 59).
+
+---
+
+## 64. Marcar archivos con casillas para borrarlos de a varios, "como la galería de un celu"
+
+**Estado:** hecho
+
+### El pedido
+
+Textual de Rocco: **"quiero que se puedan marcar con casillas los archivos para poder borrarlos, como la galería de un celu"**.
+
+La comparación es precisa y vale la pena tomarla en serio: en la galería de un teléfono uno no borra una foto, confirma, borra la siguiente, confirma. Marca las que no quiere, aprieta el tacho una vez y se terminó. Lo que faltaba acá no era *poder borrar* —eso ya estaba en las dos pantallas— sino **poder borrar varios sin repetir el mismo ritual N veces**.
+
+Se aplicó en las dos pantallas donde hoy se acumulan elementos que después hay que limpiar en tanda:
+
+1. **Galería de fotos de una unidad** (`frontend/src/features/vehicle/VehiclePhotoGallery.tsx`) — la que Rocco tenía en la cabeza al pedirlo, porque es literalmente una grilla de miniaturas.
+2. **Base de conocimiento** (`frontend/src/features/knowledgeBase/KnowledgeBaseListPage.tsx`) — una tabla que crece sola a medida que se le carga material a los agentes.
+
+### La casilla está en un lugar distinto en cada pantalla, a propósito
+
+Esto no es una inconsistencia que se coló: son dos objetos distintos.
+
+- En la **galería**, la casilla va **superpuesta arriba a la derecha de cada miniatura** (`.ds-photo-pick`), no en la fila de botones de abajo. Rocco fue explícito en que iba "del lado de la foto". Y además es lo correcto: lo que se tilda es **la foto**, no la botonera que le cuelga debajo. Una casilla metida entre "Marcar portada", "Subir", "Bajar" y "Eliminar" se leería como un quinto control de esa fila.
+- En **Base de conocimiento**, la casilla va en la **primera columna de la tabla**, con una casilla en el encabezado que tilda todo lo que está a la vista. No hay ninguna instrucción en contra para esta pantalla, y es la convención que cualquiera que haya usado una tabla con selección ya tiene incorporada: la columna de tildes a la izquierda del primer dato.
+
+El `<th>` de esa columna queda **sin texto** a propósito: el nombre accesible lo pone el `aria-label` de la casilla ("Seleccionar todas las de esta página"), y así `test/cellByHeader.ts` —que ubica celdas por el rótulo de su cabecera— sigue encontrando "Título", "Sucursal" y "Estado" sin cambios, a pesar de que todas corrieron un lugar a la derecha.
+
+Cada casilla de fila se llama con el dato que identifica la fila: `Seleccionar foto 3` en la galería, `Seleccionar la entrada "Horarios de atención"` en la tabla. Un lector de pantalla que recorre diez casillas necesita saber cuál es cuál; diez "Seleccionar" idénticos no sirven para nada.
+
+### No se creó ningún endpoint de borrado en lote, y ese es el punto
+
+El backend ya expone un `DELETE` por elemento en las dos pantallas (`DELETE /api/vehicles/:id/photos/:photoId` y `DELETE /api/knowledge-base/:id`), **con su permiso, su aislamiento por organización y su soft delete ya resueltos**. El lote son N llamadas a esa misma ruta: **cero rutas nuevas, cero cambios de esquema, cero migración, cero dependencias**. Producción no necesita nada por este ítem (siguen pendientes los `migrate:deploy` de los ítems 56, 57 y 59).
+
+Un `POST /bulk-delete` habría tenido que volver a decidir, del lado del servidor, qué pasa cuando **uno solo de los N falla**: ¿transacción que revierte todo y deja al usuario sin saber cuál era el problemático? ¿204 que miente? Es exactamente la decisión que este ítem resuelve del lado del cliente, donde además está la información para mostrarla. Si algún día el volumen justifica una sola request (cientos de elementos), el endpoint se agrega y `deleteInBulk` cambia de implementación sin que ninguna de las dos pantallas se entere.
+
+### `Promise.allSettled` y no `Promise.all`: qué pasa cuando una falla
+
+`frontend/src/lib/bulkDelete.ts` es el único lugar donde vive esa decisión:
+
+```ts
+const results = await Promise.allSettled(ids.map((id) => deleteOne(id)));
+```
+
+Con `Promise.all`, **el primer rechazo corta el `await`** y deja al usuario sin saber cuáles se borraron y cuáles no — y las demás requests salieron igual, porque `all` no cancela nada: lo único que se pierde es el resultado. Con `allSettled` se espera a las N y se devuelve la lista partida en dos (`deleted` / `failed`), que es lo que la pantalla necesita para:
+
+- **dejar tildadas solo las que fallaron**, listas para reintentar sin tener que volver a buscarlas entre las demás;
+- **decir cuántas fueron**: *"No se pudieron eliminar 1 de 3 fotos. Siguen seleccionadas para reintentar."*
+
+Ese aviso es **aparte** del `ErrorState` genérico que ya mostraban las dos pantallas. El genérico muestra el mensaje crudo del último `DELETE` que falló ("No pudimos actualizar la galería: …"), que es información real pero no puede decir *cuántas de cuántas*. Los dos conviven porque dicen cosas distintas.
+
+### La selección se DERIVA contra lo que está a la vista
+
+`frontend/src/lib/useBulkSelection.ts`, compartido por las dos pantallas. El estado interno es el conjunto de ids que el usuario marcó; lo que el resto del código consume (`selectedIds`) es **ese conjunto intersecado con los ids visibles**, en el orden de la lista.
+
+Parece un detalle y resuelve solos los dos casos molestos, sin un `useEffect` que sincronice nada:
+
+- una foto que **se borró** deja de contar apenas desaparece de la grilla, aunque su id siga en el conjunto;
+- la lista **cambia de identidad entera** (recarga de la ficha, otra página de resultados) y la barra de acciones se apaga sola.
+
+Es el mismo criterio que `useFormDraft`: derivar en vez de escribir un segundo estado que después hay que mantener en sincronía.
+
+En Base de conocimiento, **además**, se llama a `clear()` explícito al cambiar de página o de filtro (`irAPagina` / `aplicarFiltro`). Ahí el usuario dejó atrás lo que había marcado a propósito: volver a esa página y encontrar todo todavía tildado sorprendería, y peor sería un botón "Eliminar seleccionadas" contando filas que no se ven.
+
+La casilla del encabezado queda **indeterminada** cuando hay algunas tildadas y no todas. `indeterminate` no es un atributo de HTML sino una propiedad del DOM, así que se escribe por `ref` — es la única forma de hacerlo sin librería.
+
+### El "Eliminar" de a uno quedó intacto
+
+Decisión explícita, no un olvido: **el botón "Eliminar" de cada foto y la acción "Eliminar" del menú de 3 puntos de cada fila siguen exactamente como estaban**, con su propio `window.confirm` en singular. La selección múltiple es una capacidad **adicional** para borrar varios de una, no un reemplazo del borrado de a uno: para una sola foto, tildar → confirmar → destildar es más trabajo que apretar "Eliminar".
+
+Está probado en las dos pantallas, y en la tabla se prueba además con **otra fila tildada**: el borrado individual no usa la selección ni la pisa.
+
+### Las confirmaciones dicen cuántas, y qué se pierde
+
+```
+¿Eliminar las 3 fotos seleccionadas?
+¿Eliminar la foto seleccionada?
+
+¿Eliminar las 3 entradas seleccionadas? Los agentes de esas sucursales dejan de usarlas para responder.
+¿Eliminar la entrada seleccionada? Los agentes de esa sucursal dejan de usarla para responder.
+```
+
+El singular y el plural son dos textos y no un `${n} foto(s)`: la frase completa cambia, no solo la `s`.
+
+La segunda mitad del texto de Base de conocimiento es **la misma consecuencia que ya nombraba el borrado individual**, adaptada a plural. Lo que se pierde al borrar una entrada no se ve en la pantalla —los agentes de esa sucursal dejan de tener esa información para responder— así que la pregunta lo dice; con varias seleccionadas, las sucursales pueden ser distintas, y por eso el plural es "de esas sucursales".
+
+### Dos botones en la barra, y el segundo no borra nada
+
+`frontend/src/design-system/BulkSelectionBar.tsx` aparece **solo cuando hay algo tildado**, entre los filtros y la lista: el conteo ("3 fotos seleccionadas"), **"Eliminar seleccionadas"** (`variant="danger"`) y **"Cancelar selección"** (`variant="secondary"`).
+
+"Cancelar selección" **destilda y se va, sin tocar nada**. Es la vía de escape de quien tildó de más, y por eso está al lado del botón rojo y no escondida: la alternativa —destildar siete casillas a mano— es justo lo que este ítem vino a evitar.
+
+Vive en el design system y no duplicada en cada pantalla porque las dos muestran exactamente lo mismo. El texto del conteo lo arma la pantalla y viaja como prop (`label`): el género y el sustantivo son texto, no una regla que valga la pena parametrizar.
+
+Mientras el lote está en vuelo, **las casillas y los dos botones quedan deshabilitados**. La galería tiene un `isBulkDeleting` propio además del `isPending` del delete: entre una foto y la siguiente del mismo lote la mutation puede quedar un instante en reposo, y en ese hueco un segundo click dispararía un lote en paralelo.
+
+### CSS: tres reglas, ningún componente nuevo de layout
+
+- `.ds-photo-pick` — la miniatura pasa a `position: relative` y la casilla se posiciona encima, arriba a la derecha. El tamaño va forzado (20px) porque la regla base del design system deja los checkbox en su tamaño nativo (13px), demasiado chico para apuntarle encima de una imagen; el `box-shadow` sólido es el "papel" que lo despega de una foto clara u oscura sin dibujar un recuadro aparte.
+- `.ds-cell-pick` — la columna de casillas de la tabla, con `width: 1%` (el truco de tabla de siempre: con el resto de las columnas sin ancho fijo, el navegador le da a esta lo mínimo que necesita su contenido).
+- `.ds-bulk-bar` / `.ds-bulk-bar-count` — la barra. Fondo apagado y no un color de acento: es una barra de contexto, no una alerta; lo que tiene que llamar la atención adentro es el botón rojo.
+
+Todo con tokens existentes, y por lo tanto correcto en tema claro y oscuro sin una sola regla duplicada.
+
+### Tests (corridos de verdad)
+
+**Frontend: 152 archivos, 1589 casos, todos en verde** (antes del ítem: 150 archivos, 1563). Los 26 nuevos:
+
+- **9 en `VehiclePhotoGallery.test.tsx`** (archivo nuevo: la galería se probaba indirectamente desde `VehicleFormPage.test.tsx`, y este ítem le da entidad propia). Sin nada tildado no hay barra; el conteo en singular y en plural, y destildar volviendo atrás; "Cancelar selección" que destilda sin borrar ni preguntar; el lote que manda un `DELETE` por foto con el texto de confirmación correcto y vacía la selección sola; el singular de la confirmación con una sola tildada; cancelar la pregunta sin perder la selección; **la falla parcial** (una foto que falla, las otras dos borradas igual, el aviso con el conteo y esa foto todavía tildada); el "Eliminar" individual funcionando igual que antes; y una foto **sin vista previa** —`url: null`, el objeto que Storage no pudo firmar— que también se puede seleccionar, porque borrar una foto rota es justamente para lo que sirve.
+- **13 en `KnowledgeBaseListPage.test.tsx`:** la casilla como primera columna sin romper la lectura de las demás por cabecera; sin selección no hay barra; el conteo tildando de a una; la casilla del encabezado tildando y destildando toda la página; el estado **indeterminado** con algunas; "Cancelar selección"; el lote con su `DELETE` por entrada y el texto en plural que nombra a los agentes; el singular; cancelar la pregunta; **la falla parcial**; **cambiar de página** limpiando la selección; **cambiar cada filtro** (búsqueda, estado, orden) limpiándola; y el "Eliminar" del menú de 3 puntos funcionando con otra fila tildada.
+- **4 en `bulkDelete.test.ts`** (archivo nuevo): todos borrados; **uno que falla sin abortar a los demás** —el caso que justifica `allSettled`, verificado sobre los ids efectivamente intentados—; todos fallando sin rechazar la promesa; y la lista vacía que no llama a nada.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en frontend. **Este ítem no toca backend:** no hay suite de backend que corra ni migración que aplicar.
+
+**No se levantó el entorno para probarlo a mano.** Requiere Docker + el Supabase local + el backend + una sesión, y el magic link de admin local está bloqueado por el clasificador (ver la nota del ítem 38); no se hizo esa verificación y no se la reporta como hecha. Lo que sí cubre el automatizado es el flujo completo contra la API mockeada con MSW —incluida la falla parcial, que es donde este ítem puede fallar de verdad.
