@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getAgent, listAgents } from "./api";
+import { getAgent, listAgents, listEmbedTokens } from "./api";
 import type { AgentListQuery } from "./types";
 
 // Misma forma jerárquica que branchKeys/sourceKeys. Sin namespacing manual por
@@ -11,6 +11,7 @@ export const agentKeys = {
   list: (query: AgentListQuery) => [...agentKeys.lists(), query] as const,
   details: () => [...agentKeys.all, "detail"] as const,
   detail: (id: string) => [...agentKeys.details(), id] as const,
+  embedTokens: (id: string) => [...agentKeys.detail(id), "embed-tokens"] as const,
 };
 
 export function useAgents(query: AgentListQuery, options?: { enabled?: boolean }) {
@@ -29,5 +30,21 @@ export function useAgent(id: string | undefined) {
     queryKey: agentKeys.detail(id ?? ""),
     queryFn: ({ signal }) => getAgent(id ?? "", signal),
     enabled: id !== undefined,
+  });
+}
+
+// Los tokens de embed de UN agente (ítem 63). Cuelgan de agentKeys.detail(id)
+// y no de una raíz propia: son un sub-recurso del agente, así que invalidar
+// el detalle del agente arrastra también sus tokens, que es el comportamiento
+// correcto (borrar el agente revoca sus tokens en cascada, agent.service.ts).
+//
+// Sin paginación: el backend devuelve `{ data }` a secas — son unas pocas
+// filas por agente (uno o dos activos durante una rotación, más los revocados
+// como auditoría, que SIGUEN listándose a propósito).
+export function useEmbedTokens(agentId: string | undefined) {
+  return useQuery({
+    queryKey: agentKeys.embedTokens(agentId ?? ""),
+    queryFn: ({ signal }) => listEmbedTokens(agentId ?? "", signal),
+    enabled: agentId !== undefined,
   });
 }

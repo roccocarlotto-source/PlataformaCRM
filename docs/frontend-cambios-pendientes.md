@@ -3296,3 +3296,111 @@ El comentario de cabecera de `AppLayout.tsx` venía llevando la cuenta de las se
 **No se levantó el entorno para probarlo a mano.** Requiere Docker + el Supabase local + el backend + una sesión, y el magic link de admin local está bloqueado por el clasificador (ver la nota del ítem 38); no se hizo esa verificación y no se la reporta como hecha. Lo que sí cubre el automatizado es el contrato completo contra la API mockeada con MSW, que es donde este ítem puede fallar.
 
 **Sin migración y sin cambios de esquema:** este ítem no toca Prisma ni backend. Producción no necesita nada por el ítem 62 (siguen pendientes los `migrate:deploy` de los ítems 56, 57 y 59).
+
+## 63. Instalar el widget de un agente en un sitio: dominios, tokens y el código para pegar
+
+**Estado:** hecho
+
+### Qué había antes de este ítem, y por qué no se había hecho
+
+Todo el backend. Las tres piezas que necesita esta pantalla están construidas desde el paso **5a** del módulo de Agentes de IA (`docs/ai-agent-architecture.md` §9): `Agent.allowedOrigins` con su validación (`originSchema`/`allowedOriginsSchema` en `src/controllers/agent.controller.ts`, sobre `src/utils/origin.ts`), el CRUD completo de tokens de embed (`agentEmbedToken.routes/controller/service/repository.ts`) y el script embebible en sí (`frontend/src/widget/`, construido el 13/09/2026 y desplegado en el mismo Vercel que la SPA).
+
+Lo que faltaba era **la pantalla**, y estaba anotado con nombre y apellido. La nota fechada del **13/09/2026** bajo la sección 9 de `docs/ai-agent-architecture.md`, punto **10**, dice:
+
+> **Sin pantalla en el CRM para copiar el snippet.** No existe todavía ningún `frontend/src/features/agent*` — el módulo de Agentes de IA no tiene UI de administración en absoluto (…). Armar una pantalla que genere el snippet sin que exista el resto de la administración de Agentes (crear agente, configurar guardrails, ver conversaciones) sería una pantalla huérfana. Por ahora el `<script>` se arma a mano con los datos que ya devuelve el CRUD admin existente (…). Queda anotado como trabajo futuro, no en el alcance de este PR.
+
+Esa condición se cumplió con el **ítem 55** (`AgentListPage`/`AgentFormPage`) y se completó con el 56, el 57 y el 59. Este ítem es exactamente el trabajo que esa nota difirió, ni más ni menos: **cero rutas nuevas, cero cambios de esquema, cero migración, cero dependencias**. En `ai-agent-architecture.md` el punto 10 quedó marcado como resuelto acá.
+
+### La pantalla: tres pasos, en el orden en que hay que hacerlos
+
+`frontend/src/features/agent/AgentEmbedPage.tsx`, en `/agents/:id/embed`, dentro de `<AdminRoute />`. Se entra por la acción **"Instalar en un sitio"** del menú de 3 puntos de `AgentListPage`, entre "Editar" y "Eliminar" (la destructiva queda última, lejos del resto). No hay acceso desde el formulario en modo alta, y es a propósito: un token de embed cuelga del `id` del agente, así que no puede existir antes que él.
+
+El orden de las tres secciones **no es decorativo**, es la secuencia real de la instalación:
+
+1. **Dominios permitidos.** Sin al menos uno, el CORS del widget (`widgetCors.ts`) es fail-closed y el chat no carga en ningún lado.
+2. **Tokens de embed.** Sin token, el widget carga pero no autentica.
+3. **El código para pegar.** Es lo único que se va al sitio del cliente, y solo tiene sentido copiarlo cuando los dos pasos anteriores están hechos.
+
+La lista vacía de dominios **no se muestra como un vacío neutro**: dice "El widget no va a funcionar en ningún sitio hasta que agregues al menos un dominio". Que esté vacío por defecto es la decisión de seguridad del 5a (fail-closed), no un dato que alguien se olvidó de cargar, y la pantalla lo dice en lugar de dejar que se lea como un bug.
+
+### El token que se muestra una sola vez: dónde vive y por qué
+
+`POST /api/agents/:id/embed-tokens` devuelve el token en claro **en la respuesta de ese request y nunca más**: el backend guarda solo su hash (`agentEmbedToken.service.ts`). La pantalla no finge lo contrario en ningún lado.
+
+- **Vive en un único lugar:** `tokenEnClaro`, estado de React de la pantalla. El listado (`GET`) nunca lo trae —no existe en esa respuesta— y el tipo lo garantiza: `EmbedToken` no tiene la propiedad y `CreatedEmbedToken` es un tipo aparte que la agrega, así que leer `.token` sobre una fila del listado es un error de compilación, no un `undefined` en runtime. Es la misma garantía que `ApiKey`/`CreatedApiKey`.
+- **No queda en el `MutationCache`,** que es el matiz que este ítem resuelve un paso mejor que `ApiKeyListPage`. `useMutation` guarda su resultado como `.data`, con el secreto adentro, hasta que el `gcTime` lo recoja — es el hallazgo **S2-4** de `docs/review-fase2-2026-08-28.md`. Ahí se limpia con un `reset()` al cerrar el modal; acá no hay nada que cerrar (el token queda a la vista mientras dure la visita), así que el `reset()` se hace **en el acto**, apenas el valor se copió al estado de React: una sola copia en memoria en vez de dos.
+- **Al navegar afuera se pierde, y está probado** (`primera.unmount()` + volver a montar): queda el prefijo en la tabla y el código vuelve a mostrar el marcador. Es exactamente lo que promete el backend.
+
+En la tabla se muestra el **`tokenPrefix`**, que es lo único que permite saber cuál de varios se está por revocar, y **nunca se lo ofrece como si fuera el token**: el marcador del snippet es `PEGÁ_ACÁ_TU_TOKEN`, no el prefijo. Poner ahí un fragmento que no autentica sugeriría que sirve.
+
+Un token revocado **sigue en la lista** (es auditoría) pero no ofrece "Revocar" de nuevo: el backend responde 409 y ofrecer una acción que solo puede fallar es peor que no ofrecerla — mismo criterio que `ApiKeyListPage`.
+
+### El 409 de "ya estaba revocado" no es un error del sistema
+
+`DELETE /agents/:id/embed-tokens/:tokenId` **no es idempotente a propósito**: revocar dos veces da 409. Eso solo pasa en una carrera real —otra pestaña, otro ADMIN, o el borrado del agente que revoca en cascada— y en todos esos casos significa lo mismo: **la lista en pantalla está vieja justo cuando falla**.
+
+Por eso `useRevokeEmbedToken` invalida en **`onSettled`** y no en `onSuccess`. El mensaje del backend se muestra tal cual ("Este token ya fue revocado") y la tabla se refresca sola, así el cartel y la tabla terminan diciendo lo mismo en vez de contradecirse.
+
+### El dominio del `src` se calcula, no se hardcodea
+
+```html
+<script
+  src="<window.location.origin>/widget.js"
+  data-agent-id="<id del agente>"
+  data-embed-token="<el token en claro>"
+  async
+></script>
+```
+
+El origen sale de **`window.location.origin` en tiempo de render**. No es una comodidad: el widget se sirve del **mismo deploy que la SPA** —el segundo build de Vite (`vite.widget.config.ts`, modo lib, sin hash en el nombre) escribe `widget.js` en el mismo `dist/`, decisión 2 de la nota del 13/09— así que **el origen desde el que se está viendo el CRM es por construcción el correcto**, en producción y en `localhost:5173`. Un dominio de Vercel escrito a mano acá sería una constante que se desactualiza sola el día que cambie el dominio, y nadie se enteraría hasta que un cliente reporte que el chat no carga.
+
+`data-api-url` y `data-primary-color` **no se incluyen en el código generado**: son opcionales y tienen fallback (`VITE_API_URL` y el color default del widget). Un snippet con cuatro atributos de los cuales dos no hacen falta es más superficie para equivocarse al pegarlo.
+
+La advertencia de "este código todavía no va a funcionar" mira los dominios **guardados**, no los del borrador: lo que decide si el widget carga es lo que está en la base, así que agregar un chip sin apretar Guardar no la apaga. Está probado en los dos sentidos.
+
+### La validación de dominios: un espejo, no un reemplazo
+
+`frontend/src/features/agent/origin.ts` repite la regla de `src/utils/origin.ts` (mismo parser `URL`, mismos rechazos: esquema distinto de http/https, path, query, fragmento, credenciales; misma tolerancia con la barra final sola) y los topes de `originSchema`/`allowedOriginsSchema` (255 caracteres por entrada, 50 entradas).
+
+Quien decide **sigue siendo el backend**. El espejo existe por dos razones concretas:
+
+1. Un dominio mal escrito se ve **al agregarlo**, no después de guardar.
+2. Lo que se muestra es **lo que se va a guardar**: las dos puntas normalizan igual, así que `HTTPS://Ejemplo.com/` se convierte en `https://ejemplo.com` **antes** de viajar y no cambia de forma al recargar la pantalla.
+
+Mismo criterio de "espejo en código" que `MODEL_PROVIDER_OPTIONS` (`labels.ts`) o `catalog.ts` en `features/automation`: no hay endpoint que exponga estas reglas, así que la alternativa sería preguntarle al servidor por cada dominio tipeado. `origin.test.ts` es la prueba de que el espejo sigue siendo un espejo: sus casos son los que documenta el archivo del backend.
+
+Un **duplicado avisa** en vez de desaparecer en silencio. El backend lo deduplica (`sinDuplicados`), lo cual está bien del lado del servidor, pero en la pantalla un dominio que se agrega y no aparece parece un bug.
+
+### Lo que se guarda, y lo que esta pantalla NO puede pisar
+
+Guardar dispara `PATCH /api/agents/:id` con **`{ allowedOrigins }` y nada más**: `updateAgentSchema` es `.partial()`, así que un PATCH de un solo campo es un PATCH válido. Se manda **la lista entera, no un diff** —mismo criterio "se manda cómo queda" que el resto de los formularios— y, como el body lleva un único campo, esta pantalla **no puede pisar sin querer nada de lo que configura `AgentFormPage`** (instrucciones, reglas del agente, modelo, canales).
+
+`UpdateAgentInput` tuvo que crecer para admitirlo: `allowedOrigins` **sí** existe en el PATCH aunque **no** esté en `CreateAgentInput`. El comentario de ese tipo, que decía que el campo no lo editaba ninguna pantalla "todavía", se actualizó: la razón por la que sigue fuera del alta ya no es que falte la pantalla, es que un token no puede existir antes que el agente.
+
+La lista editable usa `useFormDraft`, como cualquier formulario del proyecto: con `refetchOnWindowFocus` prendido, un refetch del agente no puede pisar dominios recién agregados y todavía sin guardar.
+
+### `CopyButton`: la tercera vez que había que copiar algo
+
+Copiar al portapapeles y confirmar con un cambio de rótulo por dos segundos vivía dentro de `ApiKeySecretDialog`. Esta pantalla lo necesita **dos veces más** (el token y el código), así que se promovió a `design-system/CopyButton.tsx` y `ApiKeySecretDialog` pasó a usarlo. Tres consumidores es el umbral con el que se promovieron `Badge` y `Avatar`; el rótulo de la confirmación es un prop (`"¡Copiada!"` para una clave, `"¡Copiado!"` para un token) porque el género del sustantivo es texto, no una regla.
+
+Lo que se conservó al mover el código: **un fallo del portapapeles no se muestra como error**. `navigator.clipboard` no existe fuera de un contexto seguro y el permiso se puede denegar, pero en los tres usos el texto está visible y seleccionable al lado, así que copiar a mano sigue funcionando; un cartel de error asustaría sobre algo que no impide completar la tarea. El botón simplemente no confirma.
+
+### Sin CSS nuevo
+
+La pantalla no agrega **ninguna regla** al design system. Reusa `.ds-chip-list`/`.ds-chip-remove`/`.ds-chip-add` (los chips del equipamiento de vehículo, ítem 21), `.ds-secret` (el campo monoespaciado de la clave de ingesta), `.ds-code-field` + `.ds-json-preview` (la vista de solo lectura del JSON de reglas del agente) y `.ds-form` + `.ds-stack` + `Card`, que es la forma que ya tiene `AgentFormPage`.
+
+`role="alert"` quedó para lo que **irrumpe** —el cuadro del token recién generado, los errores de red, el dominio rechazado— y no para el aviso estático de "falta un dominio", que está desde que la pantalla carga: un lector de pantalla lo lee al llegar, en su orden, sin interrumpir.
+
+### Tests (corridos de verdad)
+
+**Frontend: 150 archivos, 1563 casos, todos en verde** (antes del ítem: 148 archivos, 1520). Los 43 nuevos:
+
+- **30 en `AgentEmbedPage.test.tsx`:** agregar y quitar un dominio con el PATCH llevando la lista completa y solo ese campo; la normalización visible antes de guardar; el formato inválido frenado sin request y sin colarse en el guardado; el duplicado avisado; el PATCH fallido que no pierde lo editado; la lista vacía diciendo que el widget está apagado; el listado de tokens con prefijo, estado, último uso y "Nunca"; el revocado que sigue listado y no ofrece revocar; el token en claro mostrado una sola vez con la tabla trayendo solo el prefijo; el campo `readOnly` pero no `disabled`; el botón que copia el token entero; el token que **no vuelve** al remontar la pantalla; el segundo token que reemplaza al primero; el POST fallido que no inventa un token; los tres casos de revocar (confirmación cancelada sin DELETE, el DELETE del id correcto, el 409 legible que además refresca la lista); el snippet con el id real y el origen actual; el marcador cuando no hay token en claro y la verificación de que **no** aparece el prefijo ahí; el token nuevo entrando solo al snippet; "Copiar código"; la advertencia sin dominios guardados y que agregar sin guardar **no** la apaga; carga, error del agente, y el fallo del listado de tokens que deja el resto de la pantalla en pie; y los dos de `AdminRoute` (un USER redirigido **sin que salgan los GET**, un ADMIN que sí ve la pantalla).
+- **11 en `origin.test.ts`:** la normalización de esquema/host/barra final, el puerto conservado y el default omitido, los seis rechazos (path, query, fragmento, sin esquema, otro esquema, credenciales), el subdominio como otro origen, el duplicado comparado ya normalizado, el mensaje de formato con el texto escrito, el largo chequeado **antes** que la forma, el tope de 50 y el duplicado que avisa del duplicado y no del tope.
+- **2 en `AgentListPage.test.tsx`:** la acción "Instalar en un sitio" con `href` real a `/agents/<id>/embed`, y su posición entre "Editar" y "Eliminar".
+
+`npm run typecheck`, `npm run lint`, `npm run build` (SPA + widget) y `prettier --check` limpios en frontend.
+
+**No se levantó el entorno para probarlo a mano.** Requiere Docker + el Supabase local + el backend + una sesión, y el magic link de admin local está bloqueado por el clasificador (ver la nota del ítem 38); no se hizo esa verificación y no se la reporta como hecha. Lo que sí cubre el automatizado es el contrato completo contra la API mockeada con MSW, que es donde este ítem puede fallar.
+
+**Sin migración y sin cambios de backend:** producción no necesita nada por el ítem 63 (siguen pendientes los `migrate:deploy` de los ítems 56, 57 y 59).

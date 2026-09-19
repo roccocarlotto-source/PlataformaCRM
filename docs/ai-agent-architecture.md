@@ -532,9 +532,10 @@ El costo real depende del proveedor de LLM elegido (sección 10, sin decidir) y 
    >    futuro si hace falta evidencia real de que los usuarios recargan la
    >    página en medio de una conversación — no se construye
    >    especulativamente ahora.
-   > 10. **Sin pantalla en el CRM para copiar el snippet.** No existe todavía
+   > 10. **Sin pantalla en el CRM para copiar el snippet. RESUELTO el
+   >     19/09/2026 — ver el cierre de este punto.** No existía todavía
    >     ningún `frontend/src/features/agent*` — el módulo de Agentes de IA no
-   >     tiene UI de administración en absoluto (a diferencia de casi todos
+   >     tenía UI de administración en absoluto (a diferencia de casi todos
    >     los demás módulos del backend, que sí la tienen). Armar una pantalla
    >     que genere el snippet sin que exista el resto de la administración de
    >     Agentes (crear agente, configurar guardrails, ver conversaciones)
@@ -542,6 +543,20 @@ El costo real depende del proveedor de LLM elegido (sección 10, sin decidir) y 
    >     con los datos que ya devuelve el CRUD admin existente
    >     (`POST /api/agents`, `POST /api/agents/:id/embed-tokens`, ambos de
    >     5a). Queda anotado como trabajo futuro, no en el alcance de este PR.
+   >
+   >     **Resuelto el 19/09/2026 (ítem 63 de
+   >     `docs/frontend-cambios-pendientes.md`).** La condición que faltaba se
+   >     cumplió: el módulo de Agentes ya tiene UI de administración desde el
+   >     ítem 55. `frontend/src/features/agent/AgentEmbedPage.tsx`
+   >     (`/agents/:id/embed`, dentro de `AdminRoute`) administra los tres
+   >     pasos de la instalación —los dominios permitidos vía `PATCH
+   >     /api/agents/:id`, los tokens de embed vía el CRUD de 5a, y el
+   >     `<script>` listo para copiar— sin una sola ruta nueva del backend ni
+   >     cambios de esquema. El dominio del `src` sale de
+   >     `window.location.origin` y no de una constante, justamente por la
+   >     decisión 2 de esta misma nota: el widget se sirve del mismo `dist/`
+   >     que la SPA, así que el origen desde el que se ve el CRM es por
+   >     construcción el correcto.
    > 11. **Sin retry automático ante fallo de red.** Cada mensaje dispara una
    >     llamada real y paga a un LLM; reintentar solo automáticamente podría
    >     duplicar mensajes o cobrar dos veces si el POST llegó a procesarse
