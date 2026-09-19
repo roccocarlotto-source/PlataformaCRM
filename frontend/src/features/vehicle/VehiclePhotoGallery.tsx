@@ -1,7 +1,11 @@
+import { useState } from "react";
 import { Badge } from "../../design-system/Badge";
+import { BulkSelectionBar } from "../../design-system/BulkSelectionBar";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FileInputButton } from "../../design-system/FileInputButton";
+import { deleteInBulk } from "../../lib/bulkDelete";
+import { useBulkSelection } from "../../lib/useBulkSelection";
 import {
   useDeleteVehiclePhoto,
   useReorderVehiclePhotos,
@@ -26,17 +30,31 @@ export interface VehiclePhotoGalleryProps {
 // Las fotos se muestran en el orden que trae el backend (position asc). Cada
 // escritura devuelve la galería que quedó y las mutations la escriben en el
 // cache del detalle, así que esta prop se actualiza sola.
+//
+// Ítem 64 — selección múltiple: cada miniatura tiene su casilla arriba a la
+// derecha, "como la galería de un celu", y con al menos una tildada aparece
+// la barra para borrarlas todas juntas. El botón "Eliminar" de cada foto
+// sigue intacto: el lote es una capacidad de más, no un reemplazo del borrado
+// de a una.
 export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryProps) {
   const uploadMutation = useUploadVehiclePhoto(vehicleId);
   const updateMutation = useUpdateVehiclePhoto(vehicleId);
   const deleteMutation = useDeleteVehiclePhoto(vehicleId);
   const reorderMutation = useReorderVehiclePhotos(vehicleId);
 
+  const seleccion = useBulkSelection(photos.map((photo) => photo.id));
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
   const isBusy =
     uploadMutation.isPending ||
     updateMutation.isPending ||
     deleteMutation.isPending ||
-    reorderMutation.isPending;
+    reorderMutation.isPending ||
+    // Estado propio además del isPending del delete: entre una foto y la
+    // siguiente del mismo lote la mutation puede quedar un instante en
+    // reposo, y en ese hueco un segundo click dispararía un lote en paralelo.
+    isBulkDeleting;
 
   // Acá el archivo se sube apenas se elige: no hay un botón "Subir" aparte, y
   // por eso tampoco hay estado propio con el archivo elegido. Limpiar el input
@@ -61,11 +79,40 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
     reorderMutation.mutate(orderedIds);
   }
 
+  async function handleBulkDelete() {
+    const ids = seleccion.selectedIds;
+    if (ids.length === 0) return;
+    const pregunta =
+      ids.length === 1
+        ? "¿Eliminar la foto seleccionada?"
+        : `¿Eliminar las ${ids.length} fotos seleccionadas?`;
+    if (!window.confirm(pregunta)) return;
+
+    setBulkError(null);
+    setIsBulkDeleting(true);
+    const { failed } = await deleteInBulk(ids, (photoId) => deleteMutation.mutateAsync(photoId));
+    setIsBulkDeleting(false);
+
+    // Las que se borraron salen de la selección porque salen de la galería;
+    // las que fallaron quedan tildadas para poder reintentar sin volver a
+    // buscarlas entre las demás.
+    seleccion.select(failed);
+    setBulkError(
+      failed.length > 0
+        ? `No se pudieron eliminar ${failed.length} de ${ids.length} ${
+            ids.length === 1 ? "foto" : "fotos"
+          }. Siguen seleccionadas para reintentar.`
+        : null,
+    );
+  }
+
   // El primer error de las cuatro mutations, si hay alguno: no hace falta
   // mostrar cuatro alertas a la vez.
   const error = [uploadMutation, updateMutation, deleteMutation, reorderMutation].find(
     (mutation) => mutation.isError,
   )?.error;
+
+  const seleccionadas = seleccion.selectedIds.length;
 
   return (
     <div className="ds-stack">
@@ -94,21 +141,47 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
           {error instanceof Error ? `: ${error.message}` : "."}
         </ErrorState>
       ) : null}
+      {/* Aparte del ErrorState de arriba, que muestra el mensaje crudo de la
+          última mutation que falló: este dice cuántas del lote no se pudieron
+          borrar, que es lo que el otro no puede decir. */}
+      {bulkError ? <ErrorState>{bulkError}</ErrorState> : null}
+      {seleccionadas > 0 ? (
+        <BulkSelectionBar
+          label={
+            seleccionadas === 1 ? "1 foto seleccionada" : `${seleccionadas} fotos seleccionadas`
+          }
+          onDelete={handleBulkDelete}
+          onCancel={seleccion.clear}
+          disabled={isBusy}
+        />
+      ) : null}
       {photos.length > 0 ? (
         <ul className="ds-card-grid" aria-label="Fotos de la unidad">
           {photos.map((photo, index) => (
             <li key={photo.id} className="ds-card ds-stack">
-              {photo.url ? (
-                <img
-                  src={photo.url}
-                  alt={`Foto ${index + 1}${photo.isCover ? " (portada)" : ""}`}
-                  style={{ width: "100%", aspectRatio: "4 / 3", objectFit: "cover" }}
+              <div className="ds-photo-pick">
+                {photo.url ? (
+                  <img
+                    src={photo.url}
+                    alt={`Foto ${index + 1}${photo.isCover ? " (portada)" : ""}`}
+                    style={{ width: "100%", aspectRatio: "4 / 3", objectFit: "cover" }}
+                  />
+                ) : (
+                  // url null: el objeto en Storage no pudo firmarse. Se muestra
+                  // igual para que se pueda borrar.
+                  <p className="ds-empty">Sin vista previa</p>
+                )}
+                {/* La casilla va del lado de la foto y no en la botonera de
+                    abajo: pertenece a la miniatura, no a las acciones de esa
+                    miniatura. */}
+                <input
+                  type="checkbox"
+                  checked={seleccion.isSelected(photo.id)}
+                  disabled={isBusy}
+                  onChange={() => seleccion.toggle(photo.id)}
+                  aria-label={`Seleccionar foto ${index + 1}`}
                 />
-              ) : (
-                // url null: el objeto en Storage no pudo firmarse. Se muestra
-                // igual para que se pueda borrar.
-                <p className="ds-empty">Sin vista previa</p>
-              )}
+              </div>
               <div className="ds-card-actions">
                 {photo.isCover ? (
                   <Badge variant="info">Portada</Badge>
