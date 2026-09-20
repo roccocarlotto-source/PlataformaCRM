@@ -52,6 +52,14 @@ export interface UpdateConversationData {
   status?: ConversationStatus;
   lastMessageAt?: Date;
   assignedUserId?: string | null;
+  // Ítem 73. Los dos SIEMPRE juntos en cada escritura, y es la invariante de
+  // la feature: `briefEditedByUserId` describe quién escribió el texto que
+  // quedó en `brief`, así que dejar uno sin el otro los desincroniza — un
+  // brief nuevo de la IA con el editor de la versión anterior todavía puesto.
+  // Los dos únicos llamadores lo respetan: generarBriefDeConversacion manda
+  // `null` en el editor, y el PATCH manda el usuario autenticado.
+  brief?: string | null;
+  briefEditedByUserId?: string | null;
 }
 
 // updateMany: el WHERE exige organizationId además de id (M4).
@@ -221,11 +229,19 @@ export function countConversations(
 // messages_sender_user_id_consistency_check lo exige ahí y lo prohíbe en el
 // resto), y es lo que deja que el hilo diga QUIÉN de la organización
 // contestó después de una derivación, en vez de un "un humano" anónimo.
+//
+// `briefEditedBy` se resuelve ACÁ Y NO en conversationInclude (ítem 73), a
+// diferencia de contact/agent/branch: el nombre de quien corrigió el resumen
+// solo se muestra en el detalle, y meterlo en el include compartido le
+// agregaría un join por fila al listado para un dato que esa pantalla no
+// dibuja. El listado muestra el brief truncado, que ya viaja en la propia
+// columna.
 export function findConversationWithMessages(id: string, organizationId: string, db: Db = prisma) {
   return db.conversation.findFirst({
     where: { id, organizationId },
     include: {
       ...conversationInclude,
+      briefEditedBy: { select: { id: true, fullName: true } },
       messages: {
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         include: { senderUser: { select: { id: true, fullName: true } } },

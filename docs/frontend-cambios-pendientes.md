@@ -4132,3 +4132,143 @@ preservarGuardrailsHeredados(actuales: unknown, nuevos: Record<string, unknown>)
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
 
 **La suite de integración no se corrió en local, y no se reporta como hecha**: el `.env` de este worktree apuntaba a la base de **producción**, así que correrla habría escrito filas reales en la base del cliente. Los 904 unitarios sí se corrieron acá; los de integración —incluido el caso nuevo del PATCH que preserva lo heredado— los corre el CI contra su propio Postgres.
+
+---
+
+## 73. Brief de cada conversación, y verla en un popup sin salir de la bandeja
+
+**Estado:** hecho
+
+**Qué marcó Rocco.** Dos cosas sobre la bandeja de Conversaciones del ítem 66:
+
+1. Clickear una fila **navegaba a una página aparte** (`/conversations/:id`). Prefiere que el hilo se abra como un **popup**, sin salir del listado.
+2. Cada conversación tendría que tener **un breve resumen**. No existía nada parecido.
+
+Lo más cercano que había era la `Activity` que `ejecutarHandoff` crea al derivar, con el motivo que dio el propio agente. Pero eso es **una tarea en la bandeja de otro módulo**, no algo que se vea en la conversación; y una conversación que **nunca se derivó** no tenía nada equivalente.
+
+### El brief lo redacta la IA, y se puede corregir
+
+Es la decisión central del ítem, y es el **mismo criterio que la asignación provisoria de vendedor del ítem 69**: siempre hay algo generado, y la persona lo corrige si quiere. Nadie tiene que sentarse a escribir un resumen de cero.
+
+**Dos disparadores:**
+
+- **Automático al derivar**, dentro de `ejecutarHandoff`.
+- **Manual en cualquier momento**, con un botón en la pantalla — para conversaciones que nunca se derivaron, o para volver a intentarlo.
+
+**Es best-effort dentro del handoff**, exactamente igual que la `Activity` de aviso que esa misma función ya creaba: si falla, se loguea y la conversación **se deriva igual**. Nunca puede ser lo que rompa un handoff. Desde el endpoint manual es al revés y a propósito: ahí el error **sube como 500/502**, porque no hay ningún handoff que proteger y quien apretó el botón tiene que poder ver que falló en vez de quedarse mirando un resumen que no cambió.
+
+### La columna dice quién escribió el TEXTO, no quién apretó el botón
+
+`Conversation.briefEditedByUserId` es `NULL` cuando el brief está vacío **o lo redactó la IA**, y se completa **solo** cuando una persona lo edita a mano por el `PATCH`.
+
+Generar y regenerar **los dispara una persona** desde la pantalla y **aun así dejan la columna en `NULL`**: lo que quedó guardado lo escribió el modelo. Al revés, **regenerar pisa una edición humana previa** y devuelve la columna a `NULL` — es lo esperado, quien regenera está pidiendo el texto de la IA. Por eso la pantalla **pregunta antes** de regenerar cuando hay una edición a mano, y solo en ese caso: es la única acción de la tarjeta que destruye algo que escribió una persona.
+
+Se guarda el **usuario** y no un booleano porque no cuesta nada más —es la misma forma que `assignedUserId`— y deja que la pantalla diga **de quién** fue la corrección sin una tabla de auditoría aparte.
+
+### El brief se genera en los dos caminos del handoff, incluido el silencioso
+
+`ejecutarHandoff` tenía un `return` temprano cuando no hay vendedor (ni del contacto ni por defecto en la sucursal): la **derivación silenciosa**, sin `Activity`. La creación del aviso se extrajo a `crearActivityDeAviso` —**sin un solo cambio de comportamiento**— justamente para que el brief corra **después** de ese camino también.
+
+No es un detalle: la derivación silenciosa es la que **nadie recibe como tarea**, y alguien va a tener que levantarla desde la bandeja. Es la que **más** necesita un resumen a la vista. Hay un test dedicado a ese caso.
+
+### Qué se le manda al modelo, y qué no
+
+`armarTranscript` arma una línea por mensaje con el rótulo del autor — `Cliente:` / `Agente:` / `Humano:` —, en el orden real de `createdAt`. El rótulo sale de **`senderType` y no de `direction`**, y eso importa: los dos enums son ortogonales, un mensaje del agente y uno de una persona son los dos `OUTBOUND`, y mirando la dirección el resumen no podría contar que hubo una derivación.
+
+**Rótulos genéricos y no los nombres reales** del contacto, el agente y el vendedor. Dos motivos: meter tres nombres propios empuja al modelo a repetirlos en el resumen —que es justo lo que la pantalla ya muestra al lado—, y evita mandarle datos personales al proveedor sin necesidad (`docs/data-classification.md`).
+
+**Sin `toolCalls`, sin fechas y sin ids.** Lo que el brief tiene que contar está en lo que se dijeron; la auditoría del turno es otra cosa y ya tiene su lugar en el hilo.
+
+El prompt es **fijo**: pide 2 a 4 oraciones en español rioplatense, qué quería el cliente, qué se resolvió y por qué se derivó, y prohíbe inventar. **Sin tools y sin `model`** — mismo molde que `translateGuardrailsText`: resumir es una tarea de criterio fijo, no parte del comportamiento configurable de ningún agente, así que no depende del `modelName` del `Agent` que atendió.
+
+Dos recortes deterministas del lado del código, en vez de pedírselos al modelo una vez más: **las comillas envolventes se sacan** (el desvío más común del "respondé solo con el texto") y el resultado **se corta en 2.000 caracteres**. Un modelo que no devuelve texto **no guarda un brief vacío**: falla, porque `""` mostraría un resumen en blanco en vez de volver a ofrecer generarlo.
+
+**Una conversación sin mensajes es 400 y no llama al proveedor**: no hay nada que resumir y gastar una llamada para que conteste eso cuesta, tarda y puede fallar.
+
+### El popup
+
+`ConversationDetail` ganó un prop opcional `id`. Sin él sale de `useParams()` y es la pantalla de siempre; con él es el contenido del popup. **Un prop y no dos componentes**: lo que se muestra es exactamente lo mismo en los dos usos, y partirlo habría dejado dos copias de la pantalla para mantener. Lo único que cambia es el encabezado, que adentro del `Modal` no va porque el `Modal` ya tiene el suyo.
+
+**`/conversations/:id` se dejó viva** tal cual, por si algo linkea directo.
+
+En el listado, el nombre del contacto pasó de `<Link>` a `<button class="ds-linklike">`: ya no navega, así que un link sería mentira — pero sigue siendo **un control tabulable, activable con Enter y con nombre accesible**, que es lo que el comentario original de ese lugar cuidaba, y con el mismo aspecto de antes.
+
+**Variante `dialog` del `Modal`, no `panel`**: el contenido es de lectura y lo único que se puede perder al cerrar es una edición del brief a medias, que se vuelve a escribir — nada parecido al secreto irreversible que motivó el panel. Así que acá **sí** valen los dos gestos de descarte, click afuera y Escape.
+
+**El popup NO toca la URL** — ni querystring ni ruta nueva, que es lo que Rocco pidió. Cerrar devuelve al mismo listado, con los mismos filtros, en la misma página y sin un remount: exactamente lo que la página aparte hacía mal. Y **se monta solo cuando hay una fila elegida**, así que una bandeja de 20 filas no dispara 20 requests del hilo completo.
+
+### La pantalla del brief
+
+`ConversationBriefCard` va **arriba del hilo**: la pregunta que trae a alguien a esta pantalla es "¿de qué va esto?", y leerlo entero es el plan B. Tres estados y nada más: **sin brief** (`EmptyState` + "Generar resumen"), **con brief** (el texto + "Editar" y "Regenerar resumen") y **editando** (`textarea` + "Guardar" y "Cancelar").
+
+Mientras algo está en curso se deshabilitan **todos** los controles de la tarjeta, no solo el que se apretó: las dos mutaciones escriben la misma columna y dejar "Regenerar" vivo mientras se guarda una edición sería ofrecer una carrera entre dos escrituras del mismo dato.
+
+**Vaciar el textarea y guardar borra el resumen** (manda `null`) y vuelve al estado inicial: es la única forma de borrarlo y no hace falta un botón "Eliminar" aparte. Si falla, **el brief que había sigue a la vista** con el error al lado, que es lo correcto cuando lo que falló es generar uno nuevo.
+
+En el listado, el brief aparece **truncado a 120 caracteres** como segunda línea bajo el nombre — solo cuando existe, porque una segunda línea vacía en cada fila sería ruido.
+
+**Archivo propio y no un bloque dentro de `ConversationDetail.tsx`**: es la única parte de esa pantalla con estado propio, dos mutaciones y cuatro botones, y dejarlo adentro habría duplicado el largo de un componente que hasta hoy no tenía un solo `useState`.
+
+### Permisos: las dos escrituras NO son ADMIN-only
+
+Es lo contrario del resto del módulo de agentes, y es deliberado. `/api/conversations` es **dato del CRM**, como `/api/contacts` o `/api/vehicles` — no una pantalla de configuración como Agentes, Base de conocimiento o Automatizaciones. Corregir el resumen de una conversación es **trabajo del vendedor que la atiende**, y un gate de ADMIN dejaría la pantalla con un botón que la mayoría de quienes la usan no podría apretar. Las cuatro rutas llevan `authenticate` a secas.
+
+Las dos escrituras sí llevan `businessWriteRateLimiter`, **incluida la que llama al modelo**: es el precedente exacto de `POST /api/agents/:id/test-message`, que también gasta una llamada por request y usa ese limiter y no uno propio. Los que tienen limiter propio (`import/preview`, `knowledge-base/extract-text`) son los que **no escriben nada** y por eso no tienen ningún costo que los frene naturalmente; acá cada generación deja una fila escrita.
+
+### La barrera del ítem 66 no se movió
+
+`conversation.service.ts`, `api.ts` y `index.test.ts` decían, cada uno a su manera, que esta feature **no tiene ni una escritura**. Ahora tiene dos, y la barrera que esos comentarios cuidaban **sigue intacta**: el brief es una **anotación interna** que no viaja por ningún canal y que el contacto nunca ve. Lo que sigue sin existir es **responder** — y eso exige antes poder ENTREGAR el mensaje por el canal (el widget Web solo contesta a su propio mensaje; WhatsApp no existe todavía, paso 6 de `docs/ai-agent-architecture.md` §9).
+
+El test de `src/routes/index.test.ts` se actualizó para afirmar la barrera **donde de verdad está**: `POST /api/conversations`, `DELETE /api/conversations/:id` y `POST /api/conversations/:id/messages` siguen dando **404**, y hay un test de pantalla que abre el editor del brief a propósito y comprueba que **aun así no aparece ningún "Enviar"**.
+
+### Unificar Web y WhatsApp queda explícitamente AFUERA
+
+Rocco había pedido, junto con esto, **unificar las conversaciones de Web y WhatsApp de un mismo cliente**. **No está en este ítem, y no se dejó nada a mitad de camino pensando en eso.**
+
+El motivo es concreto: **WhatsApp todavía no funciona** — está bloqueado por trámites externos con Meta/Twilio (`docs/roadmap-implementacion.md` §2.2, paso 6 de `docs/ai-agent-architecture.md` §9). Construir esa unificación **sin tráfico real de WhatsApp contra el cual probarla** es más riesgo que valor: habría que decidir a ciegas cómo se identifica al mismo cliente en dos canales, qué pasa con dos hilos abiertos a la vez y cómo se ve eso en la bandeja, y descubrir después que ninguna de las tres decisiones aguanta el primer mensaje real.
+
+Queda para **cuando ese canal esté activo**, como ítem aparte.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `prisma/schema.prisma` | `Conversation.brief` (`Text`) + `briefEditedByUserId` + relación `briefEditedBy` (FK compuesta, `onDelete: NoAction`); back-relation en `User` |
+| `prisma/migrations/20260927120000_conversation_brief/` | Las dos columnas y la FK compuesta contra `users(organization_id, id)` |
+| `docs/auditoria-2026-08-21-diagnostico.sql` + `scripts/verify-schema.ts` | La FK nueva entra a la fila 16 (55 → 56 FKs conocidas) |
+| `src/services/conversationBrief.service.ts` | **Archivo nuevo**: `armarTranscript`, `armarPromptDeBrief`, `generarBriefDeConversacion` |
+| `src/services/agentOrchestration.service.ts` | El disparador best-effort dentro de `ejecutarHandoff` + `crearActivityDeAviso` extraída |
+| `src/services/conversation.service.ts` | `updateConversationBrief` y `generateConversationBrief` |
+| `src/repositories/conversation.repository.ts` | `brief`/`briefEditedByUserId` en `UpdateConversationData`; `briefEditedBy` resuelto solo en el detalle |
+| `src/controllers/conversation.controller.ts` + `src/routes/conversation.routes.ts` | `PATCH /api/conversations/:id` y `POST /api/conversations/:id/generate-brief` |
+| `frontend/src/features/conversation/ConversationBriefCard.tsx` | **Archivo nuevo**: la tarjeta del resumen |
+| `frontend/src/features/conversation/mutations.ts` | **Archivo nuevo**: las dos mutaciones |
+| `frontend/src/features/conversation/ConversationDetail.tsx` | El prop `id` opcional + la tarjeta del brief |
+| `frontend/src/features/conversation/ConversationListPage.tsx` | El `Modal`, el botón en vez del link y el brief truncado |
+| `frontend/src/design-system/design-system.css` | `.ds-brief-text`, `.ds-linklike` y `.ds-cell-secondary` |
+
+**`briefEditedBy` se resuelve solo en el DETALLE** y no en `conversationInclude`, a diferencia de contacto/agente/sucursal: el nombre de quien corrigió el resumen **solo se muestra en el popup**, y meterlo en el include compartido le agregaría un join por fila al listado para un dato que esa pantalla no dibuja. El listado muestra el brief truncado, que ya viaja en la propia columna.
+
+**Sin índice sobre ninguna de las dos columnas**, a propósito y con el mismo criterio explícito que `branches.default_owner_id` y `activities.confirmed_by_id`: ningún listado filtra ni ordena conversaciones por su brief ni por quién lo editó.
+
+**Producción necesita `migrate:deploy`** con `20260927120000_conversation_brief` después del merge.
+
+### Tests (corridos de verdad)
+
+**Backend: 910 unitarios y 899 de integración, todos en verde** (antes del ítem, con el ítem 70 ya mergeado en master: 899 y 875).
+
+Los de integración **los corrió el CI y no esta máquina**, y no es un atajo: el `.env` de este worktree apunta a la base de **producción** —quedó de antes del cambio a local del 10/09— así que correrlos acá habría creado y borrado organizaciones, usuarios y usuarios de Supabase Auth reales. El job `integration` levanta su propio Postgres desde cero en cada corrida, que es la referencia de siempre.
+
+- **9 de integración nuevos en `src/services/conversationBrief.integration-test.ts`** (archivo nuevo, Postgres real con un `LlmProvider` doblado): el transcript sale de los mensajes reales **en el orden de `createdAt`** y con el rótulo de cada autor; se llama **sin tools y sin `model`**; el brief queda guardado y la función devuelve el mismo texto trimeado; **regenerar pisa una edición humana previa y devuelve `briefEditedByUserId` a `null`**; un resumen entrecomillado se guarda sin comillas; uno desbocado se recorta al tope; una conversación **sin mensajes es 400 y no gasta una llamada al proveedor**; una con mensajes todos en blanco también; si el modelo no devuelve texto **no se guarda un brief vacío**; y el aislamiento — con el `organizationId` de otra organización no hay transcript y no se llama al modelo.
+- **11 de integración nuevos en `src/controllers/conversation.controller.integration-test.ts`** (por HTTP, con JWT reales): el `PATCH` guarda el brief y lo **atribuye al usuario autenticado**, devolviendo el detalle entero; `brief: null` lo vacía **y borra también la marca de editado**; un texto en blanco equivale a vaciarlo; **un USER también puede corregirlo**; un `PATCH` sin el campo es 400; un brief más largo que el tope es 400; las dos escrituras exigen sesión; las dos respetan el aislamiento con **404 y sin escribir nada**; un id que no es UUID es 400 y no 404; y generar el brief de una conversación sin mensajes es 400.
+- **4 de integración nuevos en `src/services/agentOrchestration.integration-test.ts`**: al derivar, **el brief se genera solo** y queda con `briefEditedByUserId` en `null`; **si el brief falla, la derivación se completa igual** —status, `assignedUserId` y `Activity`— y lo único que se pierde es el resumen; **una derivación silenciosa también genera el brief**, que es el caso que motivó mover el `return` temprano; y una conversación que **no se deriva no recibe brief automático**, así que un turno normal no gasta una llamada al modelo por cada mensaje que entra.
+
+- **11 unitarios nuevos en `src/services/conversationBrief.service.test.ts`** (archivo nuevo) sobre las dos funciones puras: una línea por mensaje con el rótulo de cada uno de los tres autores; que el rótulo salga de **`senderType` y no de `direction`** (el caso que impide que un mensaje del agente y uno de una persona se confundan); el orden recibido se respeta; un mensaje en blanco no produce una línea huérfana; el trim; el transcript vacío; y cuatro sobre el prompt — que explique **los tres rótulos que el transcript usa** (si alguien renombra uno en un lado y no en el otro, el modelo recibe etiquetas que su propio prompt no describe), que pida las tres cosas que el brief tiene que contar, que prohíba inventar y pida solo el texto, y que sea **fijo**.
+- **1 actualizado en `src/routes/index.test.ts`**: las dos rutas nuevas ahora dan 401 (montadas) y la barrera pasó a afirmar lo que de verdad no existe — crear, borrar y **responder**.
+
+**Frontend: 156 archivos, 1692 casos, todos en verde** (antes: 1674). Un archivo nuevo de código, ninguno de test.
+
+- **5 nuevos en `ConversationListPage.test.tsx`** (y 1 reescrito, el que afirmaba el `<Link>`): clickear el contacto **abre el popup sin navegar** —con un espía de `useLocation` que comprueba que la URL sigue en `/conversations`— y ya no hay link; **cerrar** vuelve al listado sin navegar tampoco; **el detalle no se pide hasta que alguien abre una fila**; el brief aparece **truncado** bajo el nombre; y una conversación sin brief **no muestra una segunda línea vacía**.
+- **16 nuevos en `ConversationDetail.test.tsx`**: el estado vacío ofrece generar; con brief aparece el texto con "Editar" y "Regenerar" y **antes del hilo** (verificado con `compareDocumentPosition`, no por orden de aserciones); un brief de la IA **no** se marca como editado y uno corregido **sí, con el nombre**; **editar y guardar manda el `PATCH`** con el texto nuevo y el textarea arranca con el brief que había; **guardar vacío manda `null`**; **cancelar no manda nada**; **"Generar" llama al `POST`**; **"Regenerar" sobre texto de la IA no pregunta** y sobre una edición a mano **sí, y cancelar no llama al backend**; si generar falla **el brief anterior sigue a la vista**; el componente funciona igual **con el prop `id` que con `useParams`**, sin encabezado en el primer caso y con él en el segundo; y el caso que **abre el editor del brief a propósito** para comprobar que la barrera de "no se responde" sigue en pie.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.

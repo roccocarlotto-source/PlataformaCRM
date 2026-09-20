@@ -354,25 +354,36 @@ test("el CRUD de automatizaciones (docs/automations-architecture.md §8) está m
   }
 });
 
-test("la bandeja de conversaciones (ítem 66) está montada bajo /api, y es SOLO lectura", async () => {
+test("la bandeja de conversaciones (ítem 66) está montada bajo /api, y NO se puede responder", async () => {
   const id = randomUUID();
-  // Las dos que existen: 401 desde authenticate = montadas.
-  for (const path of ["/api/conversations", `/api/conversations/${id}`]) {
-    const res = await fetch(`${baseUrl}${path}`);
-    assert.equal(res.status, 401, `GET ${path} no está montado`);
+  // Las que existen: 401 desde authenticate = montadas. Los dos GET del ítem
+  // 66 y las dos escrituras del brief del ítem 73.
+  const montadas: [string, string][] = [
+    ["GET", "/api/conversations"],
+    ["GET", `/api/conversations/${id}`],
+    ["PATCH", `/api/conversations/${id}`],
+    ["POST", `/api/conversations/${id}/generate-brief`],
+  ];
+  for (const [method, path] of montadas) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
   }
 
-  // Y las que NO existen: 404 desde notFound, no 401. Es la barrera del ítem
-  // —no hay forma de escribir una conversación por HTTP— comprobada donde de
-  // verdad se ve, que es la app compuesta. Si alguien agrega un POST sin
-  // resolver antes la entrega del mensaje por el canal, este test se cae.
-  const escrituras: [string, string][] = [
+  // Y las que NO existen: 404 desde notFound, no 401.
+  //
+  // ESTA ES LA BARRERA DEL ÍTEM 66, y el ítem 73 NO la movió: las dos
+  // escrituras que agregó son sobre el BRIEF —una anotación interna que no
+  // viaja por ningún canal—, no sobre los mensajes. Lo que sigue sin existir
+  // es crear una conversación, borrarla y, sobre todo, RESPONDER: eso exige
+  // antes poder ENTREGAR el mensaje por el canal (el widget Web solo contesta
+  // a su propio mensaje; WhatsApp no existe todavía). Si alguien agrega
+  // POST /:id/messages sin resolver eso, este test se cae.
+  const inexistentes: [string, string][] = [
     ["POST", "/api/conversations"],
-    ["PATCH", `/api/conversations/${id}`],
     ["DELETE", `/api/conversations/${id}`],
     ["POST", `/api/conversations/${id}/messages`],
   ];
-  for (const [method, path] of escrituras) {
+  for (const [method, path] of inexistentes) {
     const res = await fetch(`${baseUrl}${path}`, { method });
     assert.equal(res.status, 404, `${method} ${path} no debería existir`);
   }

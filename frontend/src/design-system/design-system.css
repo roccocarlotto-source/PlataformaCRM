@@ -1712,6 +1712,18 @@ fieldset.ds-field {
   white-space: pre-line;
 }
 
+/* El resumen de una conversación (ítem 73), en la tarjeta que va arriba del
+   hilo. Lo único propio es conservar los saltos de línea: el modelo puede
+   separar en dos párrafos y una edición a mano casi siempre los tiene, y sin
+   esto el resumen se leería como un bloque corrido. Mismo pre-line que
+   .ds-detail-value, por el mismo motivo. El resto —tipografía, color— lo pone
+   el <p> dentro de .ds-card. */
+.ds-brief-text {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
 /* Campo de solo lectura con un secreto: monoespaciado para poder leer carácter
    por carácter, y seleccionable —readOnly, nunca disabled— porque seleccionar a
    mano es el respaldo cuando el portapapeles no está disponible. */
@@ -2917,6 +2929,38 @@ a.ds-button--secondary:hover {
 }
 
 .ds-cell-muted {
+  color: var(--color-text-muted);
+}
+
+/* Un <button> con el aspecto de un link de texto (ítem 73). Nace porque la
+   celda del contacto en la bandeja de Conversaciones dejó de navegar —abre un
+   pop up— pero tenía que seguir viéndose y comportándose igual: un <Link> que
+   no lleva a ninguna parte sería mentira, y un .ds-button ahí adentro habría
+   cambiado el diseño de un listado que nadie pidió rediseñar.
+   `font: inherit` es lo que borra la tipografía propia del <button> y lo deja
+   heredar el 600 de .ds-cell-primary, igual que hacía el <a>. */
+.ds-linklike {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--color-accent);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ds-linklike:hover {
+  color: var(--color-accent-hover);
+}
+
+/* La segunda línea de una celda: hoy el resumen truncado bajo el nombre del
+   contacto (ítem 73). Bloque propio, en el gris mutado y sin el 600 que la
+   celda principal le impone al nombre — es contexto, no el dato de la fila. */
+.ds-cell-secondary {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--font-size-sm);
+  font-weight: 400;
   color: var(--color-text-muted);
 }
 

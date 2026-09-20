@@ -9,6 +9,7 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { CHANNEL_LABEL } from "../agent/labels";
 import { ToolCallBlock } from "../agent/ToolCallBlock";
+import { ConversationBriefCard } from "./ConversationBriefCard";
 import { STATUS_BADGE_VARIANT, STATUS_LABEL } from "./labels";
 import { useConversation } from "./queries";
 import { parseToolCalls } from "./toolCalls";
@@ -28,6 +29,18 @@ import type { Conversation, ConversationMessage } from "./types";
 // como enviado algo que el contacto nunca va a recibir. Hay un test que
 // afirma que acá no hay ningún control para escribir, justamente para que
 // nadie lo agregue sin resolver antes la entrega.
+//
+// DOS USOS, UN SOLO COMPONENTE (ítem 73). Sin el prop `id` es la pantalla de
+// /conversations/:id, igual que nació; con él es el contenido del pop up que
+// abre la bandeja al clickear una fila, que es como se lee normalmente desde
+// el ítem 73. La ruta se dejó viva a propósito, por si algo linkea directo a
+// una conversación. Lo único que cambia entre los dos usos es el encabezado:
+// adentro del Modal no va, porque el Modal ya tiene el suyo.
+//
+// LO QUE SÍ SE ESCRIBE DESDE ACÁ, y es la única escritura de toda la feature:
+// el brief (ConversationBriefCard). Sigue sin haber forma de responder ni de
+// cerrar una conversación, por el motivo de abajo — un brief no es un mensaje
+// y no se entrega por ningún canal.
 //
 // FUERA DE AdminRoute, como el listado. El único gate por rol de toda la
 // feature está abajo, en el link a la ficha del contacto, y es por una razón
@@ -77,11 +90,33 @@ function claseDeBurbuja(message: ConversationMessage): string {
     : "ds-chat-bubble";
 }
 
-export function ConversationDetail() {
-  const { id } = useParams<{ id: string }>();
+export interface ConversationDetailProps {
+  // El id de la conversación a mostrar. SIN ÉL, sale de useParams() y el
+  // componente es la pantalla de /conversations/:id, igual que siempre; CON
+  // él, es el contenido del pop up que abre la bandeja (ítem 73), montado
+  // dentro de un Modal que ya sabe qué fila se clickeó.
+  //
+  // Un prop opcional y no dos componentes: lo que se muestra es exactamente lo
+  // mismo en los dos usos —los datos, el brief y el hilo entero—, y lo único
+  // que cambia es de dónde sale el id. Partirlo en dos habría dejado dos
+  // copias de la pantalla para mantener.
+  //
+  // useParams() se sigue llamando siempre, aunque el prop venga: un hook no se
+  // puede llamar condicionalmente. Fuera de un Router devuelve {} sin romper,
+  // así que no le pone ningún requisito al Modal que lo monte.
+  id?: string;
+}
+
+export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = {}) {
+  const { id: idDeLaRuta } = useParams<{ id: string }>();
+  const id = idDelProp ?? idDeLaRuta;
   const conversationQuery = useConversation(id);
   const { me } = useAuth();
   const isAdmin = me?.role === "ADMIN";
+  // El pop up ya tiene su propio encabezado (el título del Modal) y su propio
+  // cierre: repetir adentro un <h1> "Conversación" y un "Volver a
+  // Conversaciones" que vuelve a donde ya se está sería ruido.
+  const esPopup = idDelProp !== undefined;
 
   if (conversationQuery.isLoading) {
     return <LoadingState />;
@@ -129,15 +164,23 @@ export function ConversationDetail() {
 
   return (
     <div className="ds-form">
-      <div className="ds-page-header">
-        <h1>Conversación</h1>
-        <Link to="/conversations">Volver a Conversaciones</Link>
-      </div>
+      {/* Dentro del pop up no va: el Modal ya pone el título y el cierre. */}
+      {esPopup ? null : (
+        <div className="ds-page-header">
+          <h1>Conversación</h1>
+          <Link to="/conversations">Volver a Conversaciones</Link>
+        </div>
+      )}
 
       <div className="ds-stack">
         <Card heading="Datos de la conversación">
           <DetailList sections={sections} />
         </Card>
+
+        {/* El resumen va ANTES del hilo (ítem 73): la pregunta que trae a
+            alguien a esta pantalla es "¿de qué va esto?", y leerlo entero es
+            el plan B, no el primero. */}
+        <ConversationBriefCard conversation={conversation} />
 
         <Card heading="Mensajes">
           {conversation.messages.length === 0 ? (

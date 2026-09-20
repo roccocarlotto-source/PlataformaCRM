@@ -607,6 +607,10 @@ model User {
   assignedConversations Conversation[] @relation("ConversationAssignee")
   sentMessages          Message[]      @relation("MessageSender")
 
+  // Los briefs de conversación que esta persona corrigió A MANO (ítem 73).
+  // Un brief redactado por la IA no cuenta acá aunque lo haya disparado ella.
+  editedConversationBriefs Conversation[] @relation("ConversationBriefEditor")
+
   // Las sucursales que lo tienen como vendedor por defecto (ítem 69).
   defaultOwnerOfBranches Branch[] @relation("BranchDefaultOwner")
 
@@ -2039,14 +2043,34 @@ model Conversation {
   // futuro listado sin agregar sobre messages. Lo mantiene el loop del paso 2.
   lastMessageAt    DateTime? @map("last_message_at")
 
+  // Resumen corto de la conversación, de 2 a 4 oraciones (ítem 73 de
+  // docs/frontend-cambios-pendientes.md). Lo REDACTA LA IA: se genera solo al
+  // derivar a una persona (ejecutarHandoff) y a pedido desde la pantalla, en
+  // cualquier momento. Nadie tiene que escribirlo de cero, y por eso es
+  // nullable sin default: "todavía no se generó" es un estado válido, y es el
+  // de todas las conversaciones anteriores a este ítem.
+  brief               String? @db.Text
+  // QUIÉN ESCRIBIÓ EL TEXTO QUE HOY ESTÁ EN `brief`, no quién apretó un botón.
+  // NULL cuando el brief está vacío o lo redactó la IA; se completa SOLO
+  // cuando una persona lo edita a mano (PATCH /api/conversations/:id).
+  //
+  // La distinción es toda la razón de ser de la columna: generar y regenerar
+  // los dispara una persona desde la pantalla, y aun así dejan esto en NULL,
+  // porque lo que quedó guardado lo escribió el modelo. Al revés, una
+  // regeneración explícita PISA una edición humana previa y vuelve la columna
+  // a NULL — es lo esperado: quien regenera está pidiendo el texto de la IA.
+  briefEditedByUserId String? @map("brief_edited_by_user_id") @db.Uuid
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
-  agent        Agent        @relation(fields: [organizationId, agentId], references: [organizationId, id])
-  contact      Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
-  assignedUser User?        @relation("ConversationAssignee", fields: [organizationId, assignedUserId], references: [organizationId, id], onDelete: NoAction)
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  branch        Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+  agent         Agent        @relation(fields: [organizationId, agentId], references: [organizationId, id])
+  contact       Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
+  assignedUser  User?        @relation("ConversationAssignee", fields: [organizationId, assignedUserId], references: [organizationId, id], onDelete: NoAction)
+  // Nullable, y por eso NO ACTION, igual que assignedUser.
+  briefEditedBy User?        @relation("ConversationBriefEditor", fields: [organizationId, briefEditedByUserId], references: [organizationId, id], onDelete: NoAction)
 
   messages Message[]
 

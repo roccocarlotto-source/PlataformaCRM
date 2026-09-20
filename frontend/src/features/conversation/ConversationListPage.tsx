@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
+import { Modal } from "../../design-system/Modal";
 import { Pagination } from "../../design-system/Pagination";
 import { Select } from "../../design-system/Select";
 import { Table } from "../../design-system/Table";
@@ -11,11 +11,24 @@ import { EMPTY_VALUE, formatDateTime } from "../../design-system/detailFormat";
 import { AGENTS_PARA_SELECT, useAgents } from "../agent/queries";
 import { CHANNEL_LABEL, CHANNEL_OPTIONS } from "../agent/labels";
 import { BranchSelect } from "../branch/BranchSelect";
+import { ConversationDetail } from "./ConversationDetail";
 import { STATUS_BADGE_VARIANT, STATUS_LABEL, STATUS_OPTIONS } from "./labels";
 import { useConversations } from "./queries";
 import type { ConversationChannel, ConversationStatus } from "./types";
 
 const PAGE_SIZE = 20;
+
+// Largo del brief en la fila. No es el largo del brief: el resumen entero son
+// 2 a 4 oraciones y entra cómodo en el pop up; acá se muestra el arranque, que
+// es lo que sirve para decidir cuál abrir.
+const BRIEF_EN_LA_FILA = 120;
+
+function truncar(texto: string): string {
+  const limpio = texto.trim().replace(/\s+/g, " ");
+  return limpio.length > BRIEF_EN_LA_FILA
+    ? `${limpio.slice(0, BRIEF_EN_LA_FILA).trimEnd()}…`
+    : limpio;
+}
 
 // ---------------------------------------------------------------------------
 // Bandeja de conversaciones (ítem 66 de docs/frontend-cambios-pendientes.md):
@@ -35,6 +48,13 @@ const PAGE_SIZE = 20;
 // agente cuando entra un mensaje— y no se borra: es la transcripción de algo
 // que pasó con un tercero. El único destino de una fila es su hilo.
 //
+// Y ESE HILO SE ABRE EN UN POP UP (ítem 73), no en una página aparte. Cambió
+// porque leer la bandeja es ir entrando y saliendo de conversaciones, y cada
+// ida a /conversations/:id perdía el listado entero —filtros, página, scroll—
+// para devolverlo recién al volver. La ruta sigue existiendo para quien linkee
+// directo; lo que cambió es el camino normal. El pop up no toca la URL: cerrar
+// deja todo exactamente como estaba, que es el punto.
+//
 // EL ORDEN ES FIJO: lo último que se movió, arriba, que es lo que se espera
 // de una bandeja. La API admite también ordenar por fecha de inicio
 // (sortBy=createdAt) y no se expone control para eso: sería una preferencia
@@ -48,6 +68,12 @@ export function ConversationListPage() {
   const [channel, setChannel] = useState<ConversationChannel | "">("");
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
   const [agentId, setAgentId] = useState<string | undefined>(undefined);
+  // La conversación abierta en el pop up, o null (ítem 73). SIN SINCRONIZAR
+  // CON LA URL, a propósito y es lo que Rocco pidió: ni querystring ni ruta
+  // nueva. Cerrar el pop up devuelve al MISMO listado, con los mismos filtros
+  // y en la misma página, sin un remount ni una vuelta al servidor — que es
+  // justamente lo que la página aparte hacía mal.
+  const [conversacionAbierta, setConversacionAbierta] = useState<string | null>(null);
 
   const conversationsQuery = useConversations({
     page,
@@ -158,16 +184,31 @@ export function ConversationListPage() {
             <tbody>
               {conversations.map((conversation) => (
                 <tr key={conversation.id}>
-                  {/* El link va en el nombre del contacto y no en la fila
-                      entera: una <tr> con onClick no se puede tabular, no se
-                      abre en otra pestaña con el botón del medio y no dice a
-                      dónde lleva. El resto de los listados del proyecto llega
-                      a su pantalla por un <Link> o por el menú de 3 puntos;
-                      acá no hay acciones, así que el link es directo. */}
+                  {/* Un <button> y no un <Link> desde el ítem 73: esto ya no
+                      navega, abre el pop up. Sigue siendo un control y no un
+                      onClick sobre la <tr> —se tabula, se activa con Enter y
+                      tiene un nombre accesible—, que es lo que el comentario
+                      original de este lugar cuidaba.
+
+                      .ds-linklike lo deja con el aspecto del link que era: es
+                      la misma acción para quien la usa, y cambiarle la pinta
+                      habría sido un cambio de diseño que nadie pidió. */}
                   <td className="ds-cell-primary">
-                    <Link to={`/conversations/${conversation.id}`}>
+                    <button
+                      type="button"
+                      className="ds-linklike"
+                      onClick={() => setConversacionAbierta(conversation.id)}
+                    >
                       {conversation.contact.firstName} {conversation.contact.lastName}
-                    </Link>
+                    </button>
+                    {/* El brief truncado, debajo del nombre: es lo que deja
+                        escanear la bandeja sin abrir una por una. Solo cuando
+                        existe — una segunda línea vacía en cada fila sería
+                        ruido, y la fila sin resumen ya se explica sola al
+                        abrirla. */}
+                    {conversation.brief ? (
+                      <span className="ds-cell-secondary">{truncar(conversation.brief)}</span>
+                    ) : null}
                   </td>
                   <td>{CHANNEL_LABEL[conversation.channel]}</td>
                   <td>
@@ -195,6 +236,20 @@ export function ConversationListPage() {
           />
         ) : null}
       </div>
+
+      {/* El hilo, en un pop up (ítem 73). Variante "dialog" y no "panel": el
+          contenido es de lectura y el único estado que se puede perder al
+          cerrar es una edición del brief a medias, que se vuelve a escribir
+          — nada parecido al secreto irreversible que motivó el panel. Por eso
+          acá SÍ valen los dos gestos de descarte, click afuera y Escape.
+
+          Se monta solo cuando hay una elegida, así que el detalle no se pide
+          hasta que alguien abre una fila. */}
+      {conversacionAbierta ? (
+        <Modal title="Conversación" onClose={() => setConversacionAbierta(null)} variant="dialog">
+          <ConversationDetail id={conversacionAbierta} />
+        </Modal>
+      ) : null}
     </div>
   );
 }

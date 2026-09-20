@@ -223,10 +223,14 @@ async function crearConversacion(datos: DatosDeConversacion): Promise<string> {
   return conversation.id;
 }
 
-function call(method: string, path: string, token?: string): Promise<Response> {
+function call(method: string, path: string, token?: string, body?: unknown): Promise<Response> {
   return fetch(`${baseUrl}${path}`, {
     method,
-    headers: token ? { authorization: `Bearer ${token}` } : {},
+    headers: {
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
 
@@ -256,6 +260,10 @@ interface Fila {
   channel: string;
   status: string;
   lastMessageAt: string | null;
+  // Ítem 73. El brief viaja en la fila del listado (se muestra truncado); el
+  // NOMBRE de quien lo editó, no — eso es solo del detalle.
+  brief: string | null;
+  briefEditedByUserId: string | null;
   contact: { id: string; firstName: string; lastName: string };
   agent: { id: string; name: string };
   branch: { id: string; name: string };
@@ -558,6 +566,8 @@ test("el total respeta los filtros, no cuenta todas las de la organización", as
 // ---------------------------------------------------------------------------
 
 interface Detalle extends Fila {
+  // Solo en el detalle: el listado no lo trae porque no lo muestra (ítem 73).
+  briefEditedBy: { id: string; fullName: string } | null;
   messages: {
     id: string;
     direction: string;
@@ -630,4 +640,137 @@ test("el detalle también resuelve contacto, agente y sucursal por nombre", asyn
   assert.equal(conversacion.agent.id, orgA.agentA);
   assert.equal(conversacion.branch.id, orgA.branchA);
   assert.match(conversacion.branch.name, /^Centro /);
+});
+
+// ---------------------------------------------------------------------------
+// El brief (ítem 73) — los dos endpoints nuevos, por HTTP real
+//
+// El PATCH se prueba entero acá; del POST solo se prueban los BORDES (auth,
+// aislamiento, id inválido), porque su camino feliz llama al proveedor de LLM
+// y eso vive en conversationBrief.integration-test.ts, que inyecta un doble.
+// Duplicar acá el proveedor falso sería mantener dos veces lo mismo.
+// ---------------------------------------------------------------------------
+
+async function patchBrief(id: string, token: string, body: unknown): Promise<Response> {
+  return call("PATCH", `/api/conversations/${id}`, token, body);
+}
+
+test("PATCH guarda el brief y lo atribuye al usuario autenticado", async () => {
+  const res = await patchBrief(convWebBruno, adminA.accessToken, {
+    brief: "Bruno preguntó por el plan de financiación.",
+  });
+  const cuerpo = (await res.json()) as Detalle;
+
+  assert.equal(res.status, 200);
+  assert.equal(cuerpo.brief, "Bruno preguntó por el plan de financiación.");
+  // Esta SÍ es una edición humana: es el único camino que completa la columna.
+  assert.equal(cuerpo.briefEditedByUserId, adminA.userId);
+  assert.equal(cuerpo.briefEditedBy?.fullName, "Conv Test admin-a");
+  // Devuelve el DETALLE entero, no solo el brief: es lo que deja que la
+  // pantalla lo meta en la cache sin una segunda lectura.
+  assert.ok(Array.isArray(cuerpo.messages));
+  assert.equal(cuerpo.contact.firstName, "Bruno");
+
+  // Y quedó guardado de verdad, no solo devuelto.
+  const releido = await detalle(convWebBruno, adminA.accessToken);
+  assert.equal(releido.brief, "Bruno preguntó por el plan de financiación.");
+});
+
+test("PATCH con brief: null lo vacía y borra también la marca de editado", async () => {
+  await patchBrief(convCerradaAna, adminA.accessToken, { brief: "Algo para después borrar." });
+
+  const res = await patchBrief(convCerradaAna, adminA.accessToken, { brief: null });
+  const cuerpo = (await res.json()) as Detalle;
+
+  assert.equal(res.status, 200);
+  assert.equal(cuerpo.brief, null);
+  // Un editor registrado sobre un brief inexistente no querría decir nada.
+  assert.equal(cuerpo.briefEditedByUserId, null);
+});
+
+test("PATCH con un texto en blanco equivale a vaciarlo", async () => {
+  await patchBrief(convCerradaAna, adminA.accessToken, { brief: "Algo." });
+
+  const res = await patchBrief(convCerradaAna, adminA.accessToken, { brief: "   " });
+  const cuerpo = (await res.json()) as Detalle;
+
+  assert.equal(cuerpo.brief, null);
+  assert.equal(cuerpo.briefEditedByUserId, null);
+});
+
+test("un USER también puede corregir el brief: no es una pantalla de configuración", async () => {
+  // Lo contrario del resto del módulo de agentes, y es deliberado: corregir el
+  // resumen de una conversación es trabajo del vendedor que la atiende.
+  const res = await patchBrief(convSinMensajes, userA.accessToken, {
+    brief: "Lo escribió un USER.",
+  });
+  const cuerpo = (await res.json()) as Detalle;
+
+  assert.equal(res.status, 200);
+  assert.equal(cuerpo.brief, "Lo escribió un USER.");
+  assert.equal(cuerpo.briefEditedByUserId, userA.userId);
+});
+
+test("PATCH sin el campo `brief` es 400: un PATCH vacío no significa nada acá", async () => {
+  const res = await patchBrief(convWebBruno, adminA.accessToken, {});
+  assert.equal(res.status, 400);
+});
+
+test("PATCH con un brief más largo que el tope es 400", async () => {
+  const res = await patchBrief(convWebBruno, adminA.accessToken, { brief: "x".repeat(2001) });
+  assert.equal(res.status, 400);
+  assert.match(await mensajeDeError(res), /2000 caracteres/);
+});
+
+test("las dos escrituras del brief exigen sesión", async () => {
+  const sinTokenPatch = await call("PATCH", `/api/conversations/${convWebBruno}`, undefined, {
+    brief: "x",
+  });
+  assert.equal(sinTokenPatch.status, 401);
+
+  const sinTokenPost = await call("POST", `/api/conversations/${convWebBruno}/generate-brief`);
+  assert.equal(sinTokenPost.status, 401);
+});
+
+test("las dos escrituras del brief respetan el aislamiento: 404 sobre otra organización", async () => {
+  // Y el 404 sale ANTES de escribir nada o de llamar al proveedor.
+  const patch = await patchBrief(convDeOtraOrg, adminA.accessToken, { brief: "no debería entrar" });
+  assert.equal(patch.status, 404);
+
+  const post = await call(
+    "POST",
+    `/api/conversations/${convDeOtraOrg}/generate-brief`,
+    adminA.accessToken,
+  );
+  assert.equal(post.status, 404);
+
+  // La conversación de la organización B quedó intacta.
+  const deB = await detalle(convDeOtraOrg, adminB.accessToken);
+  assert.equal(deB.brief, null);
+});
+
+test("un id que no es UUID es 400 en las dos, no 404", async () => {
+  const patch = await patchBrief("no-es-uuid", adminA.accessToken, { brief: "x" });
+  assert.equal(patch.status, 400);
+  assert.match(await mensajeDeError(patch), /id inválido/);
+
+  const post = await call(
+    "POST",
+    "/api/conversations/no-es-uuid/generate-brief",
+    adminA.accessToken,
+  );
+  assert.equal(post.status, 400);
+});
+
+test("generar el brief de una conversación SIN mensajes es 400 y no llama al modelo", async () => {
+  // No hay nada que resumir: se corta antes de gastar una llamada al
+  // proveedor, que en este entorno ni siquiera está configurado.
+  const res = await call(
+    "POST",
+    `/api/conversations/${convSinMensajes}/generate-brief`,
+    adminA.accessToken,
+  );
+
+  assert.equal(res.status, 400);
+  assert.match(await mensajeDeError(res), /todavía no tiene mensajes/);
 });
