@@ -3785,3 +3785,70 @@ Las tres suites de los otros consumidores (`ImportPage.test.tsx`, `VehiclePhotoG
 `npm run typecheck`, `npm run lint` y `prettier --check src` limpios en frontend. El backend no se tocó.
 
 **No se probó a mano contra el stack local levantado**, y no se lo reporta como hecho: sigue el impedimento del ítem 38 (el magic link de admin local lo bloquea el clasificador), y esta pantalla vive bajo `AdminRoute`. Lo que el botón hace es enteramente de la pantalla —dos `setState` detrás de un `confirm`—, sin red ni backend de por medio, y está cubierto de punta a punta por los casos de arriba, que renderizan el formulario real con el `FileInputButton` real.
+
+---
+
+## 68. Campo "Notas" en la automatización de seguimiento
+
+**Estado:** hecho
+
+**Qué preguntó Rocco.** Mirando la pantalla "Nueva automatización", preguntó dos cosas. Son dos cosas distintas y solo una es un problema.
+
+**La primera —por qué el Evento ofrece una sola opción— no se toca, y no es un pendiente.** Es la decisión ya documentada en `docs/automations-architecture.md` §1-2: los otros dos triggers reales —recordatorio de turno por WhatsApp y envío del QR de reseña— están bloqueados por trámites externos a este repo, no por diseño. El motor se construyó genérico igual, el selector es un selector de verdad, y la propia pantalla ya lo explica en el hint de abajo: *"Hoy hay uno solo: los otros dos casos previstos —recordatorio por WhatsApp y envío del QR de reseña— dependen de trámites que no se resuelven desde acá."* Sumar el segundo trigger el día que se desbloquee es agregar una entrada a `catalog.ts`.
+
+**La segunda —"no me deja poner instrucciones"— sí era un hueco real, y es lo único que corrige este ítem.** La única acción del catálogo, `activity.create_follow_up` ("Crear actividad de seguimiento"), creaba una `Activity` con `type: TASK`, `subject`, `dueDate` y `assigneeId`, y **nunca escribía `Activity.body`**. La tarea que nacía de una regla no podía llevar ningún detalle más allá del título — algo que el formulario **manual** de actividades sí permite desde siempre, con un `<textarea>` opcional bajo el rótulo **"Notas"** (`ActivityFormPage.tsx`).
+
+No es que se hubiera decidido dejarlo afuera: al construir la acción se cubrieron los campos que la regla necesita para *existir* (a quién, con qué título, para cuándo) y el texto libre simplemente no se pensó. Se ve usando la pantalla, no leyendo el schema.
+
+### Por qué `Activity.body` y no un campo nuevo
+
+Porque es literalmente el mismo dato. Lo que la regla configura es el contenido de la tarea que va a crear, y esa tarea es una `Activity` como cualquier otra: el lugar donde vive su texto libre ya existe, se llama `body`, y la pantalla de Actividades ya lo muestra y lo edita bajo el rótulo "Notas".
+
+Un campo aparte en el `actionConfig` —un `instructions`, un `description`— habría sido **un concepto nuevo con otro nombre para la misma cosa**: quien abriera la tarea creada seguiría viendo "Notas" vacío mientras el texto que escribió vive en otro lado. Por eso el rótulo de la pantalla de automatizaciones es también **"Notas"**, palabra por palabra: el mismo nombre para el mismo campo, en las dos pantallas que lo escriben.
+
+### "Sin notas" se expresa omitiendo la clave, no con un `""`
+
+El campo es **opcional**, y el vacío **no viaja**:
+
+- `configDeSeguimientoSchema` lo declara `.trim().min(1).optional()` — o sea que **el string vacío se rechaza con un 400**, en vez de aceptarse como "sin notas".
+- `aPayload` en `catalog.ts` omite la clave cuando el `<textarea>` quedó vacío (o con puros espacios), en lugar de mandar `""`.
+- El handler manda `body` a `createActivity` **solo si `notes` está presente**, con el mismo criterio que el `body: input.body || undefined` del formulario manual.
+
+El resultado es que una tarea sin notas queda con `body = null`, que es lo que "sin notas" significa en la base. Aceptar el `""` habría dejado dos formas distintas de decir lo mismo —una regla guardada con `notes: ""` y otra sin la clave— y un `Activity.body` vacío indistinguible de uno nunca escrito.
+
+### El tope de caracteres: 5.000, elegido acá y explícito
+
+`Activity.body` es `Text` en Postgres: **sin largo máximo**. Y el endpoint manual (`createActivitySchema` en `activity.controller.ts`) tampoco le pone uno, así que este campo no *hereda* ningún límite de ningún lado — hubo que elegir uno.
+
+Se eligió **5.000** (`MAX_NOTES`, exportada de los dos lados). El motivo no es el tipo de la columna sino lo que cuelga de él: **de esta config sale una fila por cada oportunidad ganada**, para siempre, sin que nadie la escriba a mano cada vez. Un campo sin tope del que cuelga una fila por evento es una forma silenciosa de llenar la tabla. 5.000 es holgado para lo que el campo es —el detalle de una tarea, no un documento— y queda lejos de cualquier uso legítimo.
+
+Lo importante es que **es explícito y lo dice**: el mensaje del 400 es `"notes no puede superar los 5000 caracteres"`, no un rechazo mudo del tipo de la columna. La pantalla lo replica con su propio mensaje en el idioma de la pantalla (`"Las notas no pueden superar los 5000 caracteres."`) por el mismo motivo que ya replicaba `MAX_SUBJECT`. Como con el título, el `maxLength` del `<textarea>` hace que desde el teclado no se llegue a ese mensaje: `validar()` es el backstop de la **acción**, no del input que hoy le toca dibujarla, y por eso se prueba directo en `catalog.test.ts`.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/automationActions/createFollowUpActivity.ts` | `MAX_NOTES` + `notes` opcional en `configDeSeguimientoSchema`; el handler pasa `body: notes` solo si está |
+| `frontend/src/features/automation/catalog.ts` | `MAX_NOTES`; `notes` en `draftVacio`/`draftDesde`; el tope en `validar`; `aPayload` omite la clave si quedó vacía |
+| `frontend/src/features/automation/AutomationFormPage.tsx` | `<FormField label="Notas">` con `<textarea>` a lo ancho, entre "Vence en (días)" y el hint; el hint ahora las menciona |
+
+El `<textarea>` va **sin `ds-required`** y sin `required`, calcado del "Notas" del formulario manual —mismo control, mismo rótulo, sin placeholder—, dentro de un `<div className="ds-field-grid--full">` que es hijo directo de la grilla, como pide la regla del ítem 58.
+
+**Sin migración y sin cambios de contrato.** `Activity.body` ya existía; `actionConfig` es `Json`, así que una clave opcional más no toca el schema de la base. Las reglas ya guardadas siguen valiendo tal cual: sin la clave `notes`, que es exactamente el comportamiento de hoy.
+
+### Tests (corridos de verdad)
+
+**Backend: 879 unitarios y 848 de integración.** Los unitarios pasan los 879. De los de integración pasan 841 y **fallan 7, todos preexistentes y ajenos a este ítem**: son los de `googleCalendarSync.integration-test.ts` que necesitan `GOOGLE_WEBHOOK_URL`, una variable que el `.env` local no tiene y que el CI sí define (`.github/workflows/ci.yml`). Fallan con `"GOOGLE_WEBHOOK_URL no está configurada en el servidor"` antes de tocar nada de automatizaciones. Las tres suites de automatizaciones se corrieron además por separado: **40 casos, todos en verde**.
+
+- **5 unitarios nuevos en `src/services/automationActions.test.ts`**, el contrato del schema: sin la clave el config es válido y `notes` queda `undefined` (y la clave **no aparece** en el objeto parseado, que es lo que hace que el handler no mande `body`); presente se trimea como `subject`; vacío, con espacios o con `\n\t` se rechaza con `"notes no puede ser un string vacío"`; 5.000 justos pasa y 5.001 falla **con el tope en el mensaje**; y un `notes` que no es string falla.
+- **1 de integración nuevo en `src/services/automationOpportunityWon.integration-test.ts`** (contra Postgres real, el camino entero: `updateOpportunity` a WON → evento → worker → dispatcher → `Activity`): una regla con `notes` deja esas notas **tal cual** en el `body` de la tarea creada. Y al caso que ya existía se le sumó la afirmación inversa: una regla **sin** `notes` deja `body = null`, no `""`.
+- **2 de integración nuevos en `src/controllers/automation.controller.integration-test.ts`** (por HTTP, con JWT reales): las notas se guardan trimeadas en el `actionConfig`, y una regla sin notas se guarda **sin la clave**; y los tres 400 —`""`, puros espacios y 5.001 caracteres— con el motivo en el mensaje y sin crear ninguna fila.
+
+**Frontend: 156 archivos, 1659 casos, todos en verde** (antes del ítem: 156 archivos, 1651). Ningún archivo nuevo.
+
+- **5 en `features/automation/catalog.test.ts`**: el borrador abre las notas guardadas tal cual; **sin notas la clave no viaja en el payload, ni siquiera como `""`**; con notas viajan trimeadas; son opcionales (vacías, con espacios, cargadas y con los 5.000 justos, todas pasan `validar`); y 5.001 devuelve el mensaje de la pantalla. Los casos que ya existían se completaron con el campo nuevo, incluido el del borrador vacío, que ahora afirma **tres** campos.
+- **3 en `features/automation/AutomationFormPage.test.tsx`**: se puede guardar **sin llenar** las Notas y el POST sale sin la clave —si un `required` se hubiera colado, el `<form>` nativo habría frenado el submit y no habría habido POST—; lo que se escribe viaja en el `actionConfig` del POST; y **borrar las notas de una regla que las tenía saca la clave del PATCH** en vez de mandar `""`, que es el único camino por el que una regla vuelve a "sin notas". A los casos existentes se les sumó el campo: aparece en el bloque de la acción, **no es requerido** y lleva el `maxLength` del backend, la edición lo hidrata, y una acción que el catálogo no conoce tampoco lo dibuja.
+
+`npm run typecheck`, `npm run lint` y `prettier --check src` limpios en backend y frontend.
+
+**No se probó a mano contra el stack local levantado**, y no se lo reporta como hecho: sigue el impedimento del ítem 38 —el magic link de admin local lo bloquea el clasificador— y esta pantalla vive bajo `AdminRoute`. Lo que sí está verificado contra Postgres real es **exactamente el recorrido que se pediría a mano**: el caso de integración nuevo crea la regla con notas, gana una oportunidad, deja que el worker entregue el evento y comprueba que la `Activity` resultante trae esas notas en su `body` — que es el campo que la pantalla de Actividades muestra como "Notas".

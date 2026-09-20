@@ -207,6 +207,9 @@ test("flujo completo: updateOpportunity a WON -> evento -> worker -> Activity de
   assert.equal(actividades.length, 1);
   assert.equal(actividades[0].type, "TASK");
   assert.equal(actividades[0].subject, "Llamar para agradecer la compra");
+  // La regla no tiene `notes`: la tarea queda SIN notas, y eso es un null y no
+  // un "" (el handler ni siquiera manda la clave `body`). Ítem 68.
+  assert.equal(actividades[0].body, null);
   assert.equal(actividades[0].assigneeId, e.userId);
   assert.equal(actividades[0].authorId, e.userId);
   assert.ok(actividades[0].dueDate);
@@ -220,6 +223,29 @@ test("flujo completo: updateOpportunity a WON -> evento -> worker -> Activity de
   const segunda = await drenar();
   assert.equal(segunda.entregados + segunda.reprogramados + segunda.muertos, 0);
   assert.equal((await actividadesDeOportunidad(opp.id)).length, 1);
+
+  await prisma.automation.update({ where: { id: regla.id }, data: { deletedAt: new Date() } });
+});
+
+test("una regla con notes deja esas notas en el body de la Activity creada", async () => {
+  // El agujero que cerró el ítem 68: hasta acá la tarea que creaba una regla
+  // no podía llevar ningún detalle más allá del título, porque el handler
+  // nunca escribía Activity.body — el mismo campo que el formulario MANUAL de
+  // actividades muestra bajo el rótulo "Notas".
+  const notas = "Preguntar si quiere agendar el primer service y anotar la patente definitiva.";
+  const regla = await crearRegla(e, {
+    actionConfig: { subject: "Llamar para agradecer la compra", daysUntilDue: 2, notes: notas },
+  });
+  const opp = await oportunidad();
+
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { status: "WON" });
+  await drenar();
+
+  const actividades = await actividadesDeOportunidad(opp.id);
+  assert.equal(actividades.length, 1);
+  assert.equal(actividades[0].subject, "Llamar para agradecer la compra");
+  // Tal cual, sin recortes ni prefijos: lo que se configuró es lo que se lee.
+  assert.equal(actividades[0].body, notas);
 
   await prisma.automation.update({ where: { id: regla.id }, data: { deletedAt: new Date() } });
 });

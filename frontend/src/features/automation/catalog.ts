@@ -101,14 +101,24 @@ export interface ConfigDeAccion {
 export const MAX_SUBJECT = 200;
 export const MIN_DAYS_UNTIL_DUE = 0;
 export const MAX_DAYS_UNTIL_DUE = 365;
+// El tope de `notes`. Se replica acá —y se chequea en validar()— por el mismo
+// motivo que MAX_SUBJECT: que el mensaje salga en el idioma de la pantalla y
+// no como el "notes no puede superar los 5000 caracteres" de Zod. Igual que
+// con el título, el maxLength del <textarea> hace que desde el teclado no se
+// llegue a ese mensaje; validar() es el backstop de la ACCIÓN, no del input
+// que hoy le toca dibujar, y por eso se prueba en catalog.test.ts.
+export const MAX_NOTES = 5000;
 
 const configDeSeguimiento: ConfigDeAccion = {
-  draftVacio: () => ({ subject: "", daysUntilDue: "" }),
+  draftVacio: () => ({ subject: "", daysUntilDue: "", notes: "" }),
 
   draftDesde: (config) => ({
     subject: typeof config.subject === "string" ? config.subject : "",
     // El número llega como number en el JSON; al borrador entra como texto.
     daysUntilDue: typeof config.daysUntilDue === "number" ? String(config.daysUntilDue) : "",
+    // `notes` es opcional: una regla guardada sin notas no trae la clave, y el
+    // borrador la abre vacía — el mismo "" con el que arranca una regla nueva.
+    notes: typeof config.notes === "string" ? config.notes : "",
   }),
 
   validar: (draft) => {
@@ -132,13 +142,26 @@ const configDeSeguimiento: ConfigDeAccion = {
     if (dias < MIN_DAYS_UNTIL_DUE || dias > MAX_DAYS_UNTIL_DUE) {
       return `Los días hasta el vencimiento tienen que estar entre ${MIN_DAYS_UNTIL_DUE} y ${MAX_DAYS_UNTIL_DUE}.`;
     }
+    // Las notas son OPCIONALES: acá no se pide que estén, solo que si están no
+    // sean más largas que lo que el backend acepta.
+    if (draft.notes.trim().length > MAX_NOTES) {
+      return `Las notas no pueden superar los ${MAX_NOTES} caracteres.`;
+    }
     return null;
   },
 
-  aPayload: (draft) => ({
-    subject: draft.subject.trim(),
-    daysUntilDue: Number(draft.daysUntilDue),
-  }),
+  aPayload: (draft) => {
+    const notes = draft.notes.trim();
+    return {
+      subject: draft.subject.trim(),
+      daysUntilDue: Number(draft.daysUntilDue),
+      // Sin notas NO VIAJA LA CLAVE, y no un "": el schema del backend rechaza
+      // el string vacío a propósito, y guardar "" en la regla sería anotar una
+      // intención que nadie tuvo. Mismo criterio que `body: input.body ||
+      // undefined` en el formulario manual de actividades.
+      ...(notes === "" ? {} : { notes }),
+    };
+  },
 };
 
 export const CONFIG_DE_ACCION: Record<string, ConfigDeAccion> = {

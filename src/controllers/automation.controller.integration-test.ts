@@ -221,6 +221,56 @@ test("POST /api/automations — ADMIN crea la regla; el actionConfig se guarda y
   assert.match(String(regla.id), /^[0-9a-f-]{36}$/, "id UUID, como el resto del schema");
 });
 
+test("POST /api/automations — notes opcional: con notas se guardan trimeadas; sin notas la clave NO queda en el actionConfig", async () => {
+  const conNotas = await crearReglaPorHttp(adminA.accessToken, {
+    actionConfig: {
+      subject: "Llamar para agradecer la compra",
+      daysUntilDue: 3,
+      notes: "  Preguntar por la patente definitiva  ",
+    },
+  });
+  assert.deepEqual(conNotas.actionConfig, {
+    subject: "Llamar para agradecer la compra",
+    daysUntilDue: 3,
+    notes: "Preguntar por la patente definitiva",
+  });
+
+  // "Sin notas" se guarda como la AUSENCIA de la clave, no como "": es lo que
+  // hace que la Activity quede con body null. Ítem 68.
+  const sinNotas = await crearReglaPorHttp(adminA.accessToken, {
+    actionConfig: { subject: "Llamar", daysUntilDue: 1 },
+  });
+  assert.deepEqual(sinNotas.actionConfig, { subject: "Llamar", daysUntilDue: 1 });
+});
+
+test("POST /api/automations — notes vacío, solo espacios o de más de 5.000 caracteres es 400 y no crea la regla", async () => {
+  const antes = await contarReglasDe(orgA);
+
+  for (const notes of ["", "   "]) {
+    const res = await call(
+      "POST",
+      "/api/automations",
+      adminA.accessToken,
+      cuerpoValido({ actionConfig: { subject: "Llamar", daysUntilDue: 3, notes } }),
+    );
+    assert.equal(res.status, 400, `notes=${JSON.stringify(notes)} debía ser 400`);
+    assert.match(await mensajeDeError(res), /notes no puede ser un string vacío/);
+  }
+
+  const demasiadoLargo = await call(
+    "POST",
+    "/api/automations",
+    adminA.accessToken,
+    cuerpoValido({
+      actionConfig: { subject: "Llamar", daysUntilDue: 3, notes: "x".repeat(5001) },
+    }),
+  );
+  assert.equal(demasiadoLargo.status, 400);
+  assert.match(await mensajeDeError(demasiadoLargo), /notes no puede superar los 5000 caracteres/);
+
+  assert.equal(await contarReglasDe(orgA), antes);
+});
+
 test("POST /api/automations — isActive: false se respeta al crear", async () => {
   const regla = await crearReglaPorHttp(adminA.accessToken, { isActive: false });
   assert.equal(regla.isActive, false);

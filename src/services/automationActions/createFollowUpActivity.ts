@@ -20,6 +20,15 @@ export const ACTION_CREATE_FOLLOW_UP = "activity.create_follow_up";
 // SIN DEFAULTS OCULTOS: si a la regla le falta daysUntilDue, falla la
 // validación al crearla (400 del CRUD), no en tiempo de ejecución. max(200)
 // en subject deja margen bajo el VarChar(255) de Activity.subject.
+//
+// EL TOPE DE `notes` ES NUESTRO, NO DE LA BASE: Activity.body es `Text`, sin
+// largo máximo, y el endpoint manual de actividades tampoco le pone uno. 5.000
+// es un límite de cordura elegido acá —holgado para lo que es (el detalle de
+// una tarea, no un documento) y lejos de cualquier uso legítimo—, explícito y
+// con su motivo en el mensaje de error: un campo sin tope del que cuelga una
+// fila por cada oportunidad ganada es una forma silenciosa de llenar la tabla.
+export const MAX_NOTES = 5000;
+
 export const configDeSeguimientoSchema = z.object({
   subject: z
     .string({ required_error: "subject es requerido" })
@@ -34,6 +43,16 @@ export const configDeSeguimientoSchema = z.object({
     .int("daysUntilDue debe ser un número entero")
     .min(0, "daysUntilDue no puede ser negativo")
     .max(365, "daysUntilDue no puede superar los 365 días"),
+  // OPCIONAL, y "vacío" no es un valor: el string vacío se rechaza en vez de
+  // aceptarse como "sin notas". Quien no quiere notas omite la clave; mandar
+  // "" sería guardar en la regla una intención que no existe, y terminaría en
+  // un Activity.body vacío indistinguible de uno nunca escrito.
+  notes: z
+    .string()
+    .trim()
+    .min(1, "notes no puede ser un string vacío")
+    .max(MAX_NOTES, "notes no puede superar los 5000 caracteres")
+    .optional(),
 });
 
 export type ConfigDeSeguimiento = z.infer<typeof configDeSeguimientoSchema>;
@@ -63,7 +82,7 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
     // parsear acá solo para recuperar el TIPO (config llega como
     // Record<string, unknown>), no porque se desconfíe. Es un objeto de dos
     // campos: el costo es nulo y el handler queda autocontenido.
-    const { subject, daysUntilDue } = configDeSeguimientoSchema.parse(config);
+    const { subject, daysUntilDue, notes } = configDeSeguimientoSchema.parse(config);
     const { opportunityId, ownerId } = payloadDeOportunidadGanadaSchema.parse(payload);
 
     // Por createActivity() de activity.service.ts y no por el repositorio: sus
@@ -81,12 +100,19 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
     // no existe un "usuario sistema" en el codebase y Activity.authorId es NOT
     // NULL con FK a users. Es el default reversible más simple; queda anotado
     // como decisión abierta en §10 del documento de arquitectura.
+    //
+    // `notes` -> Activity.body: el mismo campo de texto libre que el formulario
+    // manual de actividades muestra bajo el rótulo "Notas". Sin notas la clave
+    // NO se manda —y no un ""—, igual que hace ese formulario con
+    // `body: input.body || undefined`: la actividad queda con body null, que es
+    // lo que significa "sin notas".
     await createActivity(organizationId, ownerId, {
       type: ActivityType.TASK,
       subject,
       dueDate: fechaDeVencimiento(new Date(), daysUntilDue),
       assigneeId: ownerId,
       opportunityId,
+      ...(notes === undefined ? {} : { body: notes }),
     });
   },
 };

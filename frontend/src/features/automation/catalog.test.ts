@@ -5,6 +5,7 @@ import {
   CONFIG_DE_ACCION,
   DEFAULT_ACTION,
   DEFAULT_TRIGGER,
+  MAX_NOTES,
   TRIGGER_OPPORTUNITY_WON,
   TRIGGER_OPTIONS,
   actionLabel,
@@ -47,14 +48,28 @@ describe("catálogo de triggers y acciones", () => {
 describe("configuración de activity.create_follow_up", () => {
   const config = CONFIG_DE_ACCION[ACTION_CREATE_FOLLOW_UP];
 
-  it("el borrador vacío tiene los dos campos del schema del backend", () => {
-    expect(config.draftVacio()).toEqual({ subject: "", daysUntilDue: "" });
+  it("el borrador vacío tiene los tres campos del schema del backend", () => {
+    // notes incluido, aunque sea opcional: el borrador es lo que dibuja el
+    // formulario, y un <textarea> controlado necesita su "" desde el arranque.
+    expect(config.draftVacio()).toEqual({ subject: "", daysUntilDue: "", notes: "" });
   });
 
   it("abre el actionConfig guardado, con el número como texto", () => {
     expect(config.draftDesde({ subject: "Llamar", daysUntilDue: 7 })).toEqual({
       subject: "Llamar",
       daysUntilDue: "7",
+      // La regla se guardó sin notas: la clave no viene, y el campo abre vacío.
+      notes: "",
+    });
+  });
+
+  it("abre las notas guardadas tal cual", () => {
+    expect(
+      config.draftDesde({ subject: "Llamar", daysUntilDue: 7, notes: "Preguntar la patente" }),
+    ).toEqual({
+      subject: "Llamar",
+      daysUntilDue: "7",
+      notes: "Preguntar la patente",
     });
   });
 
@@ -64,32 +79,65 @@ describe("configuración de activity.create_follow_up", () => {
     expect(config.draftDesde({ template: "recordatorio" })).toEqual({
       subject: "",
       daysUntilDue: "",
+      notes: "",
     });
   });
 
   it("arma el payload con daysUntilDue como número y el título sin espacios de más", () => {
-    expect(config.aPayload({ subject: "  Llamar  ", daysUntilDue: "3" })).toEqual({
+    expect(config.aPayload({ subject: "  Llamar  ", daysUntilDue: "3", notes: "" })).toEqual({
       subject: "Llamar",
       daysUntilDue: 3,
     });
   });
 
+  it('sin notas la clave NO viaja en el payload, ni siquiera como ""', () => {
+    // El schema del backend rechaza el string vacío a propósito: "sin notas"
+    // se expresa omitiendo la clave. Ítem 68.
+    const payload = config.aPayload({ subject: "Llamar", daysUntilDue: "3", notes: "   " });
+    expect("notes" in payload).toBe(false);
+    expect(payload).toEqual({ subject: "Llamar", daysUntilDue: 3 });
+  });
+
+  it("con notas viajan trimeadas", () => {
+    expect(
+      config.aPayload({ subject: "Llamar", daysUntilDue: "3", notes: "  Preguntar la patente  " }),
+    ).toEqual({
+      subject: "Llamar",
+      daysUntilDue: 3,
+      notes: "Preguntar la patente",
+    });
+  });
+
   it("acepta los dos extremos del rango", () => {
-    expect(config.validar({ subject: "Llamar", daysUntilDue: "0" })).toBeNull();
-    expect(config.validar({ subject: "Llamar", daysUntilDue: "365" })).toBeNull();
+    expect(config.validar({ subject: "Llamar", daysUntilDue: "0", notes: "" })).toBeNull();
+    expect(config.validar({ subject: "Llamar", daysUntilDue: "365", notes: "" })).toBeNull();
+  });
+
+  it("las notas son opcionales: vacías, con espacios o cargadas, todas pasan", () => {
+    for (const notes of ["", "   ", "Preguntar la patente", "x".repeat(MAX_NOTES)]) {
+      expect(config.validar({ subject: "Llamar", daysUntilDue: "3", notes })).toBeNull();
+    }
+  });
+
+  it("rechaza notas de más de 5000 caracteres, con el tope en el mensaje", () => {
+    // Desde el teclado no se llega —el <textarea> lleva maxLength— pero
+    // validar() es el backstop de la ACCIÓN, no del input que hoy la dibuja.
+    expect(
+      config.validar({ subject: "Llamar", daysUntilDue: "3", notes: "x".repeat(MAX_NOTES + 1) }),
+    ).toBe("Las notas no pueden superar los 5000 caracteres.");
   });
 
   it("rechaza el título vacío o solo de espacios", () => {
-    expect(config.validar({ subject: "", daysUntilDue: "3" })).toBe(
+    expect(config.validar({ subject: "", daysUntilDue: "3", notes: "" })).toBe(
       "Escribí el título de la tarea que se va a crear.",
     );
-    expect(config.validar({ subject: "   ", daysUntilDue: "3" })).toBe(
+    expect(config.validar({ subject: "   ", daysUntilDue: "3", notes: "" })).toBe(
       "Escribí el título de la tarea que se va a crear.",
     );
   });
 
   it("rechaza un título de más de 200 caracteres", () => {
-    expect(config.validar({ subject: "x".repeat(201), daysUntilDue: "3" })).toBe(
+    expect(config.validar({ subject: "x".repeat(201), daysUntilDue: "3", notes: "" })).toBe(
       "El título de la tarea no puede superar los 200 caracteres.",
     );
   });
@@ -97,22 +145,22 @@ describe("configuración de activity.create_follow_up", () => {
   it("rechaza los días vacíos sin confundirlos con 0", () => {
     // Number("") es 0: sin este chequeo, un campo en blanco se guardaría como
     // "vence hoy" en silencio.
-    expect(config.validar({ subject: "Llamar", daysUntilDue: "" })).toBe(
+    expect(config.validar({ subject: "Llamar", daysUntilDue: "", notes: "" })).toBe(
       "Indicá en cuántos días vence la tarea.",
     );
   });
 
   it("rechaza días no enteros y días fuera del rango", () => {
-    expect(config.validar({ subject: "Llamar", daysUntilDue: "3,5" })).toBe(
+    expect(config.validar({ subject: "Llamar", daysUntilDue: "3,5", notes: "" })).toBe(
       "Los días hasta el vencimiento tienen que ser un número entero.",
     );
-    expect(config.validar({ subject: "Llamar", daysUntilDue: "2.5" })).toBe(
+    expect(config.validar({ subject: "Llamar", daysUntilDue: "2.5", notes: "" })).toBe(
       "Los días hasta el vencimiento tienen que ser un número entero.",
     );
-    expect(config.validar({ subject: "Llamar", daysUntilDue: "-1" })).toBe(
+    expect(config.validar({ subject: "Llamar", daysUntilDue: "-1", notes: "" })).toBe(
       "Los días hasta el vencimiento tienen que estar entre 0 y 365.",
     );
-    expect(config.validar({ subject: "Llamar", daysUntilDue: "400" })).toBe(
+    expect(config.validar({ subject: "Llamar", daysUntilDue: "400", notes: "" })).toBe(
       "Los días hasta el vencimiento tienen que estar entre 0 y 365.",
     );
   });
