@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { prisma } from "../lib/prisma";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import { AppError } from "../utils/AppError";
 import { BRIEF_MAX_LENGTH, generarBriefDeConversacion } from "./conversationBrief.service";
@@ -56,6 +57,41 @@ interface Escenario {
   organizationId: string;
   conversationId: string;
   userId: string;
+  authUserId: string;
+}
+
+// Identidad REAL en Supabase Auth, igual que agentOrchestration.integration-test.ts
+// y conversation.controller.integration-test.ts. No es opcional: el trigger
+// trg_set_user_email_from_auth lee auth.users para completar users.email, así
+// que un id inventado deja el email en NULL y el INSERT muere contra el NOT
+// NULL de la columna.
+async function crearAuthUser(etiqueta: string): Promise<string> {
+  const email = `brief-${etiqueta}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+  const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
+    email,
+    email_confirm: true,
+  });
+  if (error || !data.user) {
+    throw new Error(
+      `No se pudo crear usuario real de Supabase Auth (${etiqueta}): ${error?.message}`,
+    );
+  }
+  return data.user.id;
+}
+
+// Cada test limpia lo suyo: el runner corre los archivos de integración en
+// paralelo contra una base compartida, y dejar organizaciones colgadas ensucia
+// los conteos de los demás. El orden respeta las FKs.
+async function desmontar(e: Escenario) {
+  const where = { organizationId: e.organizationId };
+  await prisma.message.deleteMany({ where });
+  await prisma.conversation.deleteMany({ where });
+  await prisma.agent.deleteMany({ where });
+  await prisma.contact.deleteMany({ where });
+  await prisma.branch.deleteMany({ where });
+  await prisma.user.deleteMany({ where });
+  await prisma.organization.delete({ where: { id: e.organizationId } });
+  await getSupabaseAdmin().auth.admin.deleteUser(e.authUserId);
 }
 
 // Un mensaje por entrada, con createdAt explícito y separado, para poder
@@ -79,12 +115,15 @@ async function montar(etiqueta: string, mensajes: MensajeDeEscenario[]): Promise
     },
   });
 
+  const authUserId = await crearAuthUser(etiqueta);
   const user = await prisma.user.create({
     data: {
-      id: randomUUID(),
+      id: authUserId,
       organizationId: org.id,
       roleId: adminRole.id,
-      email: `brief-${etiqueta}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`,
+      // El trigger lo pisa con el de auth.users; este es solo el placeholder
+      // que satisface el NOT NULL, mismo patrón que el resto de los tests.
+      email: `placeholder-${authUserId}@example.test`,
       fullName: `Vendedor ${etiqueta}`,
     },
   });
@@ -135,7 +174,12 @@ async function montar(etiqueta: string, mensajes: MensajeDeEscenario[]): Promise
     });
   }
 
-  return { organizationId: org.id, conversationId: conversation.id, userId: user.id };
+  return {
+    organizationId: org.id,
+    conversationId: conversation.id,
+    userId: user.id,
+    authUserId,
+  };
 }
 
 function leerConversacion(id: string) {
@@ -158,162 +202,194 @@ const HILO: MensajeDeEscenario[] = [
 
 test("el transcript sale de los mensajes reales, en orden y con el rótulo de cada autor", async () => {
   const e = await montar("transcript", HILO);
-  const doble = doblarProveedor(texto("Ana consultó precio y financiación del Corolla."));
+  try {
+    const doble = doblarProveedor(texto("Ana consultó precio y financiación del Corolla."));
 
-  await generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor);
+    await generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor);
 
-  assert.equal(doble.requests.length, 1, "una sola llamada al proveedor");
-  const [request] = doble.requests;
-  assert.equal(request.messages.length, 1);
-  assert.equal(request.messages[0].role, "user");
+    assert.equal(doble.requests.length, 1, "una sola llamada al proveedor");
+    const [request] = doble.requests;
+    assert.equal(request.messages.length, 1);
+    assert.equal(request.messages[0].role, "user");
 
-  // El orden es el de createdAt, que es el del índice (conversation_id,
-  // created_at) — no el de inserción ni el de la PK.
-  assert.equal(
-    (request.messages[0] as { content: string }).content,
-    [
-      "Cliente: Hola, quiero saber el precio del Corolla",
-      "Agente: Te paso la lista de precios",
-      "Cliente: ¿Y financiación?",
-      "Humano: Sigo yo, te llamo en un rato",
-    ].join("\n"),
-  );
+    // El orden es el de createdAt, que es el del índice (conversation_id,
+    // created_at) — no el de inserción ni el de la PK.
+    assert.equal(
+      (request.messages[0] as { content: string }).content,
+      [
+        "Cliente: Hola, quiero saber el precio del Corolla",
+        "Agente: Te paso la lista de precios",
+        "Cliente: ¿Y financiación?",
+        "Humano: Sigo yo, te llamo en un rato",
+      ].join("\n"),
+    );
+  } finally {
+    await desmontar(e);
+  }
 });
 
 test("se llama SIN tools y con el system prompt del brief", async () => {
   const e = await montar("sin-tools", HILO);
-  const doble = doblarProveedor(texto("Resumen."));
+  try {
+    const doble = doblarProveedor(texto("Resumen."));
 
-  await generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor);
+    await generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor);
 
-  const [request] = doble.requests;
-  // Sin tools: esto es un resumen, no una conversación con tool-calling.
-  assert.deepEqual(request.tools, []);
-  // Y sin `model`: resumir es una tarea de criterio fijo, no depende del
-  // modelName del agente que atendió.
-  assert.equal(request.model, undefined);
-  assert.match(request.systemPrompt, /2 a 4 oraciones/);
+    const [request] = doble.requests;
+    // Sin tools: esto es un resumen, no una conversación con tool-calling.
+    assert.deepEqual(request.tools, []);
+    // Y sin `model`: resumir es una tarea de criterio fijo, no depende del
+    // modelName del agente que atendió.
+    assert.equal(request.model, undefined);
+    assert.match(request.systemPrompt, /2 a 4 oraciones/);
+  } finally {
+    await desmontar(e);
+  }
 });
-
-// ---------------------------------------------------------------------------
-// Lo que queda guardado
-// ---------------------------------------------------------------------------
 
 test("el brief queda guardado en la fila, y la función devuelve el mismo texto", async () => {
   const e = await montar("guardar", HILO);
-  const doble = doblarProveedor(texto("  Ana consultó el precio del Corolla.  "));
+  try {
+    const doble = doblarProveedor(texto("  Ana consultó el precio del Corolla.  "));
 
-  const devuelto = await generarBriefDeConversacion(
-    e.organizationId,
-    e.conversationId,
-    doble.proveedor,
-  );
+    const devuelto = await generarBriefDeConversacion(
+      e.organizationId,
+      e.conversationId,
+      doble.proveedor,
+    );
 
-  // Trimeado: el modelo suele devolver el texto con espacios alrededor.
-  assert.equal(devuelto, "Ana consultó el precio del Corolla.");
-  const fila = await leerConversacion(e.conversationId);
-  assert.equal(fila.brief, "Ana consultó el precio del Corolla.");
-  // Es contenido de la IA, aunque lo haya disparado una persona.
-  assert.equal(fila.briefEditedByUserId, null);
+    // Trimeado: el modelo suele devolver el texto con espacios alrededor.
+    assert.equal(devuelto, "Ana consultó el precio del Corolla.");
+    const fila = await leerConversacion(e.conversationId);
+    assert.equal(fila.brief, "Ana consultó el precio del Corolla.");
+    // Es contenido de la IA, aunque lo haya disparado una persona.
+    assert.equal(fila.briefEditedByUserId, null);
+  } finally {
+    await desmontar(e);
+  }
 });
 
 test("regenerar PISA una edición humana previa y devuelve briefEditedByUserId a null", async () => {
   const e = await montar("pisa", HILO);
-  // Una persona lo había corregido a mano.
-  await prisma.conversation.update({
-    where: { id: e.conversationId },
-    data: { brief: "Lo escribí yo a mano.", briefEditedByUserId: e.userId },
-  });
+  try {
+    // Una persona lo había corregido a mano.
+    await prisma.conversation.update({
+      where: { id: e.conversationId },
+      data: { brief: "Lo escribí yo a mano.", briefEditedByUserId: e.userId },
+    });
 
-  const doble = doblarProveedor(texto("Resumen nuevo del modelo."));
-  await generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor);
+    const doble = doblarProveedor(texto("Resumen nuevo del modelo."));
+    await generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor);
 
-  const fila = await leerConversacion(e.conversationId);
-  assert.equal(fila.brief, "Resumen nuevo del modelo.");
-  // No es un efecto colateral: quien regenera está pidiendo el texto de la IA,
-  // y la columna dice quién escribió el texto que HOY está guardado.
-  assert.equal(fila.briefEditedByUserId, null);
+    const fila = await leerConversacion(e.conversationId);
+    assert.equal(fila.brief, "Resumen nuevo del modelo.");
+    // No es un efecto colateral: quien regenera está pidiendo el texto de la IA,
+    // y la columna dice quién escribió el texto que HOY está guardado.
+    assert.equal(fila.briefEditedByUserId, null);
+  } finally {
+    await desmontar(e);
+  }
 });
 
 test("un resumen entrecomillado por el modelo se guarda sin las comillas", async () => {
   const e = await montar("comillas", HILO);
-  const doble = doblarProveedor(texto('"Ana consultó el precio."'));
+  try {
+    const doble = doblarProveedor(texto('"Ana consultó el precio."'));
 
-  await generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor);
+    await generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor);
 
-  assert.equal((await leerConversacion(e.conversationId)).brief, "Ana consultó el precio.");
+    assert.equal((await leerConversacion(e.conversationId)).brief, "Ana consultó el precio.");
+  } finally {
+    await desmontar(e);
+  }
 });
 
 test("un resumen desbocado se recorta al tope de la columna", async () => {
   const e = await montar("largo", HILO);
-  const doble = doblarProveedor(texto("x".repeat(BRIEF_MAX_LENGTH + 500)));
+  try {
+    const doble = doblarProveedor(texto("x".repeat(BRIEF_MAX_LENGTH + 500)));
 
-  const devuelto = await generarBriefDeConversacion(
-    e.organizationId,
-    e.conversationId,
-    doble.proveedor,
-  );
+    const devuelto = await generarBriefDeConversacion(
+      e.organizationId,
+      e.conversationId,
+      doble.proveedor,
+    );
 
-  assert.equal(devuelto.length, BRIEF_MAX_LENGTH);
-  assert.equal((await leerConversacion(e.conversationId)).brief?.length, BRIEF_MAX_LENGTH);
+    assert.equal(devuelto.length, BRIEF_MAX_LENGTH);
+    assert.equal((await leerConversacion(e.conversationId)).brief?.length, BRIEF_MAX_LENGTH);
+  } finally {
+    await desmontar(e);
+  }
 });
-
-// ---------------------------------------------------------------------------
-// Lo que no se hace
-// ---------------------------------------------------------------------------
 
 test("una conversación sin mensajes es 400 y NO gasta una llamada al proveedor", async () => {
   const e = await montar("vacia", []);
-  const doble = doblarProveedor(texto("no debería llamarse"));
+  try {
+    const doble = doblarProveedor(texto("no debería llamarse"));
 
-  await assert.rejects(
-    () => generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor),
-    (err: unknown) =>
-      err instanceof AppError &&
-      err.statusCode === 400 &&
-      /todavía no tiene mensajes/.test(err.message),
-  );
+    await assert.rejects(
+      () => generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor),
+      (err: unknown) =>
+        err instanceof AppError &&
+        err.statusCode === 400 &&
+        /todavía no tiene mensajes/.test(err.message),
+    );
 
-  assert.equal(doble.requests.length, 0, "no se llama al modelo si no hay nada que resumir");
-  assert.equal((await leerConversacion(e.conversationId)).brief, null);
+    assert.equal(doble.requests.length, 0, "no se llama al modelo si no hay nada que resumir");
+    assert.equal((await leerConversacion(e.conversationId)).brief, null);
+  } finally {
+    await desmontar(e);
+  }
 });
 
 test("una conversación con mensajes todos en blanco también es 400", async () => {
   const e = await montar("en-blanco", [{ senderType: "CONTACT", content: "   ", minuto: 1 }]);
-  const doble = doblarProveedor(texto("no debería llamarse"));
+  try {
+    const doble = doblarProveedor(texto("no debería llamarse"));
 
-  await assert.rejects(() =>
-    generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor),
-  );
-  assert.equal(doble.requests.length, 0);
+    await assert.rejects(() =>
+      generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor),
+    );
+    assert.equal(doble.requests.length, 0);
+  } finally {
+    await desmontar(e);
+  }
 });
 
 test("si el modelo no devuelve texto, no se guarda un brief vacío", async () => {
   const e = await montar("sin-texto", HILO);
+  try {
+    for (const respuesta of [texto(null), texto("   ")]) {
+      const doble = doblarProveedor(respuesta);
+      await assert.rejects(() =>
+        generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor),
+      );
+    }
 
-  for (const respuesta of [texto(null), texto("   ")]) {
-    const doble = doblarProveedor(respuesta);
-    await assert.rejects(() =>
-      generarBriefDeConversacion(e.organizationId, e.conversationId, doble.proveedor),
-    );
+    // Guardar "" sería peor que no guardar nada: la pantalla lo mostraría como
+    // un brief vacío en vez de volver a ofrecer generarlo.
+    assert.equal((await leerConversacion(e.conversationId)).brief, null);
+  } finally {
+    await desmontar(e);
   }
-
-  // Guardar "" sería peor que no guardar nada: la pantalla lo mostraría como
-  // un brief vacío en vez de volver a ofrecer generarlo.
-  assert.equal((await leerConversacion(e.conversationId)).brief, null);
 });
 
 test("el aislamiento: con el organizationId de otra organización no hay transcript", async () => {
   const e = await montar("aislada", HILO);
   const otra = await montar("aislada-otra", []);
-  const doble = doblarProveedor(texto("no debería llamarse"));
+  try {
+    const doble = doblarProveedor(texto("no debería llamarse"));
 
-  // Los mensajes se leen con organizationId en el WHERE, así que desde otra
-  // organización la conversación se ve vacía y no hay nada que resumir — nunca
-  // el transcript de una conversación ajena.
-  await assert.rejects(() =>
-    generarBriefDeConversacion(otra.organizationId, e.conversationId, doble.proveedor),
-  );
-  assert.equal(doble.requests.length, 0);
-  assert.equal((await leerConversacion(e.conversationId)).brief, null);
+    // Los mensajes se leen con organizationId en el WHERE, así que desde otra
+    // organización la conversación se ve vacía y no hay nada que resumir — nunca
+    // el transcript de una conversación ajena.
+    await assert.rejects(() =>
+      generarBriefDeConversacion(otra.organizationId, e.conversationId, doble.proveedor),
+    );
+    assert.equal(doble.requests.length, 0);
+    assert.equal((await leerConversacion(e.conversationId)).brief, null);
+  } finally {
+    await desmontar(otra);
+    await desmontar(e);
+  }
 });
