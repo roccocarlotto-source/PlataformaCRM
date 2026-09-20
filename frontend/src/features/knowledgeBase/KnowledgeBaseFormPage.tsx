@@ -280,6 +280,25 @@ export function KnowledgeBaseFormPage() {
               required
             />
 
+            {/* Ítem 70 — esta entrada la escribió "Sincronizar stock", no una
+                persona, y la próxima corrida de esa sucursal la va a volver a
+                escribir. El aviso va ANTES que el resto de los hints porque
+                cambia lo que significa todo lo de abajo.
+
+                NO SE BLOQUEA LA EDICIÓN, y es una decisión: bloquearla
+                obligaría a inventar qué pasa con los cuatro campos (¿se puede
+                desactivar? ¿mover de sucursal?) y dejaría sin arreglar el caso
+                real de un texto generado que alguien quiere corregir hoy, antes
+                de la próxima sincronización. El aviso dice exactamente qué va a
+                pasar; con eso alcanza para decidir. */}
+            {entryQuery.data?.sourceVehicleId != null ? (
+              <p className="ds-hint ds-field-grid--full">
+                Esta entrada la generó la sincronización del stock a partir de una unidad. Podés
+                editarla, pero la próxima vez que sincronices el stock de esa sucursal se va a
+                reescribir con los datos del vehículo.
+              </p>
+            ) : null}
+
             {/* Hijo DIRECTO de .ds-field-grid, con ds-field-grid--full en el
                 propio <p>: es el patrón que el ítem 58 dejó documentado — el
                 margen negativo de .ds-hint está calculado contra el gap de la

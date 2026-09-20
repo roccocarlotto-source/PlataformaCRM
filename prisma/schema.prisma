@@ -2582,6 +2582,12 @@ model Vehicle {
   opportunities Opportunity[]      @relation("OpportunityVehicle")
   quotes        Quote[]
   deliveries    Delivery[]
+  // §70 — la entrada de la base de conocimiento que esta unidad genera, si
+  // califica. Lista y no `KnowledgeBaseEntry?` por cómo Prisma modela las
+  // relaciones: el UNIQUE que la hace 1 a 1 es el compuesto
+  // (organization_id, source_vehicle_id), y quien lo garantiza es ese
+  // @@unique, no la cardinalidad declarada acá.
+  knowledgeBaseEntries KnowledgeBaseEntry[]
 
   // El UNIQUE que habilita las FKs compuestas de sus hijos (C-3): photos,
   // change log, opportunities.vehicle_id, quotes.vehicle_id y
@@ -2614,6 +2620,18 @@ model Vehicle {
   // solo: sirve al filtro GET /vehicles?tradeInOpportunityId= de la sección
   // Permuta de la oportunidad.
   @@index([organizationId, tradeInOpportunityId])
+  // §70 — el WHERE exacto de la sincronización de stock con la base de
+  // conocimiento: las unidades de UNA sucursal que están publicadas Y
+  // disponibles. Es la primera consulta real que filtra por
+  // publish_on_website, y el comentario de esa columna lo anticipaba
+  // textualmente: "un índice se agrega cuando hay una consulta que lo use".
+  //
+  // Las cuatro columnas en el orden del WHERE, todas por igualdad. No parcial,
+  // mismo criterio que el resto de los índices de esta tabla (ver
+  // 20260828120000): deleted_at IS NULL lo agrega el repositorio a la consulta
+  // y un índice parcial acá sumaría una definición más que afirmar en la fila
+  // 17 del diagnóstico sin ganar nada medible con este volumen.
+  @@index([organizationId, branchId, publishOnWebsite, status])
   @@map("vehicles")
 }
 
@@ -3013,6 +3031,18 @@ model KnowledgeBaseEntry {
   // deletedAt: inactivo es una decisión del negocio, borrado es una baja.
   isActive Boolean @default(true) @map("is_active")
 
+  // §70 — la unidad del stock que generó esta entrada. NULL para TODA entrada
+  // escrita a mano (que son todas las que existían antes de §70), y se
+  // completa únicamente cuando la escribió la sincronización de stock
+  // (vehicleKnowledgeBaseSync.service.ts). Es lo que hace que la
+  // sincronización sea idempotente —correrla de nuevo actualiza la misma fila,
+  // no crea otra— y lo que le permite a la pantalla distinguir una entrada
+  // generada de una escrita a mano sin adivinar por el título ni por el texto.
+  //
+  // La sincronización NUNCA toca una entrada con NULL acá: esa es la garantía
+  // de que lo que alguien escribió a mano no se pisa ni se da de baja solo.
+  sourceVehicleId String? @map("source_vehicle_id") @db.Uuid
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
@@ -3024,6 +3054,13 @@ model KnowledgeBaseEntry {
   // no la FK simple a branches(id): esta hace imposible a nivel motor que una
   // entrada cuelgue de una sucursal de otra organización.
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+  // §70 — FK compuesta contra (organization_id, id) de vehicles, el mismo
+  // estándar que la de branches de arriba. NO ACTION porque la columna
+  // referenciante es NULLABLE (regla de 20260821140200): borrar un vehículo no
+  // tiene por qué tumbar la entrada, y de hecho no es así como se da de baja —
+  // la propia sincronización la da de baja (soft delete) en cuanto el vehículo
+  // deja de calificar, esté borrado, vendido o despublicado.
+  sourceVehicle Vehicle? @relation(fields: [organizationId, sourceVehicleId], references: [organizationId, id], onDelete: NoAction)
 
   // Un solo índice para los dos accesos reales, mismo criterio que
   // payments_organization_id_opportunity_id_paid_at_idx: el listado filtrado
@@ -3031,5 +3068,17 @@ model KnowledgeBaseEntry {
   // turno (las entradas activas de su sucursal, por createdAt). Cubre además
   // el lado referenciante de la FK compuesta, que Postgres no indexa solo.
   @@index([organizationId, branchId, createdAt])
+  // §70 — una entrada por vehículo, que es lo que hace idempotente a la
+  // sincronización. NULLABLE-SAFE en Postgres: un UNIQUE no compara dos NULL
+  // entre sí, así que todas las entradas escritas a mano (source_vehicle_id
+  // NULL) conviven sin chocar, y solo las generadas quedan restringidas a una
+  // por unidad. Cubre además el lado referenciante de la FK a vehicles.
+  //
+  // NO es parcial (no lleva `where deleted_at is null`), y eso tiene una
+  // consecuencia que el service respeta: una entrada dada de baja sigue
+  // ocupando el par (organización, vehículo), así que cuando una unidad vuelve
+  // a calificar la sincronización REVIVE esa misma fila en vez de insertar
+  // otra. Es lo correcto además de lo obligatorio: la entrada conserva su id.
+  @@unique([organizationId, sourceVehicleId])
   @@map("knowledge_base_entries")
 }

@@ -75,7 +75,13 @@ export async function getKnowledgeBaseEntryById(organizationId: string, id: stri
 // `db` explícito para poder revalidar DENTRO de la transacción con el lock de
 // la sucursal ya sostenido; el default es el pre-check rápido de afuera, que es
 // UX y no la defensa. Mismo patrón que validateBranchId en agent.service.ts.
-async function validateBranchId(organizationId: string, branchId: string, db: Db = prisma) {
+//
+// EXPORTADA desde §70: la sincronización de stock
+// (vehicleKnowledgeBaseSync.service.ts) valida la sucursal UNA vez al empezar,
+// y tiene que hacerlo con este mismo criterio y este mismo mensaje — un
+// branchId de otra organización devuelve el mismo 400 que en el POST de una
+// entrada, sin confirmar que esa sucursal exista en algún lado.
+export async function validateBranchId(organizationId: string, branchId: string, db: Db = prisma) {
   const branch = await findBranchById(branchId, organizationId, db);
   if (!branch) {
     throw new AppError("La sucursal indicada no existe o no pertenece a tu organización", 400);

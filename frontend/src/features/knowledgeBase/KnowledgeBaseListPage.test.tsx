@@ -711,3 +711,185 @@ describe("KnowledgeBaseListPage — selección múltiple", () => {
     expect(screen.getByText("1 entrada seleccionada")).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 70 — sincronizar el stock con la base de conocimiento.
+// ---------------------------------------------------------------------------
+describe("KnowledgeBaseListPage · sincronizar stock", () => {
+  let confirmSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    confirmSpy = vi.spyOn(window, "confirm");
+  });
+
+  afterEach(() => {
+    confirmSpy.mockRestore();
+  });
+
+  const syncUrl = `${baseUrl}/sync-vehicles`;
+
+  function boton() {
+    return screen.getByRole("button", { name: "Sincronizar stock" });
+  }
+
+  it("sin sucursal elegida el botón está deshabilitado y la pantalla dice qué falta", async () => {
+    server.use(
+      mockBranches(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse())),
+    );
+
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    expect(boton()).toBeDisabled();
+    expect(screen.getByText("Elegí una sucursal para sincronizar su stock.")).toBeInTheDocument();
+  });
+
+  it("elegir una sucursal lo habilita y el hint se va", async () => {
+    server.use(
+      mockBranches(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse())),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Sucursal Chuy");
+
+    await waitFor(() => expect(boton()).toBeEnabled());
+    expect(
+      screen.queryByText("Elegí una sucursal para sincronizar su stock."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("cancelar la confirmación no llama al endpoint", async () => {
+    const llamadas: unknown[] = [];
+    server.use(
+      mockBranches(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse())),
+      http.post(syncUrl, async ({ request }) => {
+        llamadas.push(await request.json());
+        return HttpResponse.json({ creadas: 0, actualizadas: 0, dadasDeBaja: 0 });
+      }),
+    );
+    confirmSpy.mockReturnValue(false);
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Sucursal Chuy");
+    await waitFor(() => expect(boton()).toBeEnabled());
+
+    await user.click(boton());
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(llamadas).toEqual([]);
+  });
+
+  it("confirmando manda el branchId elegido y muestra el resumen", async () => {
+    const llamadas: unknown[] = [];
+    server.use(
+      mockBranches(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse())),
+      http.post(syncUrl, async ({ request }) => {
+        llamadas.push(await request.json());
+        return HttpResponse.json({ creadas: 3, actualizadas: 7, dadasDeBaja: 2 });
+      }),
+    );
+    confirmSpy.mockReturnValue(true);
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Sucursal Chuy");
+    await waitFor(() => expect(boton()).toBeEnabled());
+
+    await user.click(boton());
+
+    // El branchId del filtro, que es el que la pantalla muestra.
+    await waitFor(() => expect(llamadas).toEqual([{ branchId: "b2" }]));
+    expect(
+      await screen.findByText(
+        "Stock sincronizado: 3 entradas nuevas, 7 actualizadas y 2 dadas de baja.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("una corrida sin cambios lo dice, en vez de mostrar tres ceros", async () => {
+    server.use(
+      mockBranches(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse())),
+      http.post(syncUrl, () => HttpResponse.json({ creadas: 0, actualizadas: 0, dadasDeBaja: 0 })),
+    );
+    confirmSpy.mockReturnValue(true);
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Sucursal Chuy");
+    await waitFor(() => expect(boton()).toBeEnabled());
+    await user.click(boton());
+
+    expect(
+      await screen.findByText("El stock de esta sucursal ya estaba al día: no hubo cambios."),
+    ).toBeInTheDocument();
+  });
+
+  it("un error del endpoint se muestra con el mensaje del backend", async () => {
+    server.use(
+      mockBranches(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse())),
+      http.post(syncUrl, () =>
+        HttpResponse.json(
+          { error: { message: "La sucursal indicada no existe o no pertenece a tu organización" } },
+          { status: 400 },
+        ),
+      ),
+    );
+    confirmSpy.mockReturnValue(true);
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("Horarios de atención");
+    await chooseSelectOption(user, screen.getByLabelText("Sucursal"), "Sucursal Chuy");
+    await waitFor(() => expect(boton()).toBeEnabled());
+    await user.click(boton());
+
+    expect(
+      await screen.findByText(
+        /No pudimos sincronizar el stock: La sucursal indicada no existe o no pertenece/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("el Badge 'Stock' aparece solo en las entradas generadas por la sincronización", async () => {
+    server.use(
+      mockBranches(),
+      http.get(baseUrl, () =>
+        HttpResponse.json(
+          listResponse({
+            data: [
+              makeKnowledgeBaseEntry({
+                id: "kb-gen",
+                title: "Stock: Toyota Corolla 2022 — STK-000123",
+                sourceVehicleId: "veh-1",
+              }),
+              makeKnowledgeBaseEntry({ id: "kb-mano", title: "Horarios de atención" }),
+            ],
+          }),
+        ),
+      ),
+    );
+
+    renderPage();
+
+    const generada = (await screen.findByText(/Stock: Toyota Corolla/)).closest(
+      "tr",
+    ) as HTMLElement;
+    expect(within(generada).getByText("Stock")).toHaveClass("ds-badge");
+
+    const aMano = screen.getByText("Horarios de atención").closest("tr") as HTMLElement;
+    expect(within(aMano).queryByText("Stock")).not.toBeInTheDocument();
+  });
+});

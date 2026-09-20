@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
+import { Button } from "../../design-system/Button";
 import { BulkSelectionBar } from "../../design-system/BulkSelectionBar";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -15,7 +16,7 @@ import { deleteInBulk } from "../../lib/bulkDelete";
 import { useBulkSelection } from "../../lib/useBulkSelection";
 import { BranchSelect } from "../branch/BranchSelect";
 import { BRANCHES_PARA_SELECT, useBranches } from "../branch/queries";
-import { useDeleteKnowledgeBaseEntry } from "./mutations";
+import { useDeleteKnowledgeBaseEntry, useSyncKnowledgeBaseVehicles } from "./mutations";
 import { useKnowledgeBaseEntries } from "./queries";
 import type { KnowledgeBaseSortBy, SortOrder } from "./types";
 
@@ -25,6 +26,33 @@ const PAGE_SIZE = 20;
 // primeras 100, o un fallo puntual de esa request) — mismo criterio que
 // AgentListPage y QrListPage.
 const SIN_RESOLVER = "—";
+
+// Ítem 70 — lo que se pregunta antes de sincronizar. window.confirm, igual que
+// el borrado: la sincronización REESCRIBE el contenido de las entradas
+// generadas y da de baja las de las unidades que ya no califican, y eso no se
+// deshace desde ningún lado.
+const CONFIRMAR_SINCRONIZAR =
+  "Se van a crear, actualizar y dar de baja entradas de esta sucursal según el stock " +
+  "publicado. Las entradas escritas a mano no se tocan. ¿Seguimos?";
+
+// El resumen de una corrida, en una frase. Los tres números son de ENTRADAS,
+// no de vehículos, y por eso no se suman en un total: una unidad puede no
+// haber generado ningún cambio.
+function textoDelResultado(resultado: {
+  creadas: number;
+  actualizadas: number;
+  dadasDeBaja: number;
+}): string {
+  const { creadas, actualizadas, dadasDeBaja } = resultado;
+  if (creadas === 0 && actualizadas === 0 && dadasDeBaja === 0) {
+    return "El stock de esta sucursal ya estaba al día: no hubo cambios.";
+  }
+  return (
+    `Stock sincronizado: ${creadas} ${creadas === 1 ? "entrada nueva" : "entradas nuevas"}, ` +
+    `${actualizadas} ${actualizadas === 1 ? "actualizada" : "actualizadas"} y ` +
+    `${dadasDeBaja} ${dadasDeBaja === 1 ? "dada de baja" : "dadas de baja"}.`
+  );
+}
 
 // SIN el gate `isAdmin` que usan CompanyListPage/ContactListPage, mismo
 // criterio que AgentListPage y BranchListPage: la pantalla entera vive dentro
@@ -71,13 +99,18 @@ export function KnowledgeBaseListPage() {
   );
 
   const deleteEntryMutation = useDeleteKnowledgeBaseEntry();
+  const syncMutation = useSyncKnowledgeBaseVehicles();
+  // El resumen de la última corrida. Se queda a la vista hasta la próxima (no
+  // es un toast que se va solo): son tres números que alguien puede querer
+  // leer dos veces, y el cambio que describen no se ve entero en la tabla.
+  const [resultadoSync, setResultadoSync] = useState<string | null>(null);
 
   const entries = entriesQuery.data?.data ?? [];
   const seleccion = useBulkSelection(entries.map((entry) => entry.id));
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
 
-  const isBusy = deleteEntryMutation.isPending || isBulkDeleting;
+  const isBusy = deleteEntryMutation.isPending || isBulkDeleting || syncMutation.isPending;
 
   // Cambiar de página o de filtro deja fuera de la vista lo que estaba
   // tildado. La selección se limpia junto con la navegación en vez de
@@ -107,6 +140,33 @@ export function KnowledgeBaseListPage() {
       return;
     }
     deleteEntryMutation.mutate(id);
+  }
+
+  // -------------------------------------------------------------------------
+  // Sincronizar el stock de la sucursal elegida (ítem 70).
+  //
+  // EXIGE UNA SUCURSAL porque la operación es por sucursal: la base de
+  // conocimiento cuelga de una, el stock también, y el agente que la lee
+  // también. Sin sucursal elegida el botón está deshabilitado y el hint dice
+  // qué falta, en vez de sincronizar "todas" —que sería otra operación, con
+  // otro costo y otra confirmación.
+  //
+  // El listado se refetchea solo: la mutation invalida las listas del módulo.
+  // -------------------------------------------------------------------------
+  async function handleSync() {
+    if (!branchId) return;
+    if (!window.confirm(CONFIRMAR_SINCRONIZAR)) return;
+
+    setResultadoSync(null);
+    try {
+      const resultado = await syncMutation.mutateAsync(branchId);
+      setResultadoSync(textoDelResultado(resultado));
+    } catch {
+      // El error se muestra con el mensaje crudo de la API en su propio
+      // ErrorState, igual que el del borrado; acá solo hay que asegurarse de
+      // no dejar colgado el resumen de una corrida anterior.
+      setResultadoSync(null);
+    }
   }
 
   async function handleBulkDelete() {
@@ -143,10 +203,21 @@ export function KnowledgeBaseListPage() {
     <div>
       <div className="ds-page-header">
         <h1>Base de conocimiento</h1>
-        <Link to="/knowledge-base/new" className="ds-link-button">
-          <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-          Nueva entrada
-        </Link>
+        {/* Dos acciones en el header por primera vez en el proyecto. El
+            envoltorio reusa .ds-card-actions —un flex con wrap y gap que ya
+            existe y que usan la galería de fotos y el formulario de vehículo—
+            en vez de sumar una clase nueva al design system para acomodar dos
+            botones. */}
+        <div className="ds-card-actions">
+          <Button onClick={() => void handleSync()} disabled={!branchId || isBusy}>
+            <RefreshCw size={16} strokeWidth={1.5} aria-hidden="true" />
+            {syncMutation.isPending ? "Sincronizando…" : "Sincronizar stock"}
+          </Button>
+          <Link to="/knowledge-base/new" className="ds-link-button">
+            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+            Nueva entrada
+          </Link>
+        </div>
       </div>
 
       <div className="ds-list-card">
@@ -200,6 +271,29 @@ export function KnowledgeBaseListPage() {
             }}
           />
         </div>
+
+        {/* El porqué del botón deshabilitado, al lado del filtro que lo
+            habilita y no arriba junto al botón: lo que falta elegir es
+            justamente esta Sucursal. */}
+        {!branchId ? (
+          <p className="ds-hint">Elegí una sucursal para sincronizar su stock.</p>
+        ) : null}
+
+        {/* role="status" para que un lector de pantalla anuncie el resultado:
+            la corrida no navega a ningún lado y el cambio en la tabla puede
+            ser de una fila entre veinte. */}
+        {resultadoSync ? (
+          <p className="ds-hint" role="status">
+            {resultadoSync}
+          </p>
+        ) : null}
+
+        {syncMutation.isError ? (
+          <ErrorState>
+            No pudimos sincronizar el stock
+            {syncMutation.error instanceof Error ? `: ${syncMutation.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
         {entriesQuery.isLoading ? <LoadingState /> : null}
 
@@ -280,7 +374,14 @@ export function KnowledgeBaseListPage() {
                       aria-label={`Seleccionar la entrada "${entry.title}"`}
                     />
                   </td>
-                  <td className="ds-cell-primary">{entry.title}</td>
+                  <td className="ds-cell-primary">
+                    {entry.title}{" "}
+                    {/* Ítem 70 — una entrada generada por "Sincronizar stock"
+                        se distingue de una escrita a mano, porque la próxima
+                        corrida la va a reescribir. El dato es el
+                        sourceVehicleId, no el título ni el texto. */}
+                    {entry.sourceVehicleId !== null ? <Badge variant="info">Stock</Badge> : null}
+                  </td>
                   <td>{nombreDeSucursal.get(entry.branchId) ?? SIN_RESOLVER}</td>
                   <td>
                     {/* Estado real y editable: una entrada inactiva existe,

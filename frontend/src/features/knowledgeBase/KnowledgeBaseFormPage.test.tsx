@@ -840,3 +840,52 @@ describe("KnowledgeBaseFormPage — quitar el archivo elegido (ítem 67)", () =>
     expect(botonQuitar()).toBeEnabled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 70 — el aviso de una entrada generada por la sincronización del stock.
+// ---------------------------------------------------------------------------
+describe("KnowledgeBaseFormPage — entrada generada desde el Stock", () => {
+  const AVISO = /Esta entrada la generó la sincronización del stock/;
+
+  it("editando una entrada generada avisa que la próxima sincronización la reescribe", async () => {
+    server.use(
+      mockBranches(),
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(
+          makeKnowledgeBaseEntry({
+            title: "Stock: Toyota Corolla 2022 — STK-000123",
+            sourceVehicleId: "veh-1",
+          }),
+        ),
+      ),
+    );
+
+    renderForm("/knowledge-base/kb1/edit");
+
+    expect(await screen.findByText(AVISO)).toBeInTheDocument();
+    // Avisa, no bloquea: los campos siguen siendo editables.
+    expect(await screen.findByLabelText("Título")).toBeEnabled();
+    expect(screen.getByLabelText("Contenido")).toBeEnabled();
+  });
+
+  it("una entrada escrita a mano no lo muestra", async () => {
+    server.use(
+      mockBranches(),
+      http.get(`${baseUrl}/:id`, () => HttpResponse.json(makeKnowledgeBaseEntry())),
+    );
+
+    renderForm("/knowledge-base/kb1/edit");
+
+    expect(await screen.findByLabelText("Título")).toHaveValue("Horarios de atención");
+    expect(screen.queryByText(AVISO)).not.toBeInTheDocument();
+  });
+
+  it("el formulario de alta tampoco lo muestra: no hay entrada todavía", async () => {
+    server.use(mockBranches());
+
+    renderForm("/knowledge-base/new");
+
+    expect(await screen.findByLabelText("Título")).toHaveValue("");
+    expect(screen.queryByText(AVISO)).not.toBeInTheDocument();
+  });
+});

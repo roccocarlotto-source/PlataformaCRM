@@ -5,6 +5,7 @@ import {
   extraerTextoDeArchivoHandler,
   getKnowledgeBaseEntryHandler,
   listKnowledgeBaseEntriesHandler,
+  syncVehiclesHandler,
   updateKnowledgeBaseEntryHandler,
 } from "../controllers/knowledgeBaseEntry.controller";
 import { authenticate } from "../middlewares/authenticate";
@@ -78,4 +79,22 @@ knowledgeBaseEntryRouter.post(
   authorize("ADMIN"),
   knowledgeBaseUpload,
   extraerTextoDeArchivoHandler,
+);
+
+// ---------------------------------------------------------------------------
+// Sincronizar el stock con la base de conocimiento (ítem 70). Escribe entradas
+// —las crea, las actualiza y las da de baja—, así que lleva exactamente la
+// misma cadena que el POST de una entrada: authenticate, el limiter de
+// escrituras de negocio y authorize("ADMIN").
+//
+// NO CHOCA CON NINGUNA RUTA de arriba por la misma razón que extract-text: los
+// únicos handlers sobre un path de dos segmentos bajo /knowledge-base son
+// PATCH y DELETE de /:id, y este es un POST.
+// ---------------------------------------------------------------------------
+knowledgeBaseEntryRouter.post(
+  "/knowledge-base/sync-vehicles",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  syncVehiclesHandler,
 );
