@@ -682,3 +682,161 @@ describe("KnowledgeBaseFormPage — completar desde un archivo (ítem 60)", () =
     expect(screen.getByText("Ningún archivo elegido")).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 67 — quitar el archivo elegido.
+//
+// Hasta acá, una extracción exitosa dejaba el nombre del archivo a la vista
+// para siempre: se limpiaba solo si la extracción fallaba o si se cancelaba la
+// confirmación de pisar el contenido, nunca a pedido. Lo que se prueba es que
+// el botón deshace la extracción ENTERA —nombre y contenido— y que cancelar el
+// confirm no toca ninguna de las dos cosas.
+// ---------------------------------------------------------------------------
+describe("KnowledgeBaseFormPage — quitar el archivo elegido (ítem 67)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function botonQuitar(): HTMLElement {
+    return screen.getByRole("button", { name: "Quitar archivo elegido" });
+  }
+
+  it("sin archivo elegido no hay botón de quitar", async () => {
+    server.use(mockBranches());
+    await abrirFormularioNuevo();
+
+    expect(screen.getByText("Ningún archivo elegido")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Quitar archivo elegido" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("confirmar borra el nombre Y el contenido que el archivo trajo", async () => {
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(mockBranches(), extractOk("Lunes a viernes de 9 a 18."));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Contenido")).toHaveValue("Lunes a viernes de 9 a 18."),
+    );
+    // Con el Contenido vacío la extracción no pregunta nada: este confirm es el
+    // del botón de quitar y de nadie más.
+    expect(confirmar).not.toHaveBeenCalled();
+
+    await user.click(botonQuitar());
+
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    // Las dos cosas a la vez: dejar el texto con el nombre borrado diría que no
+    // se cargó ningún archivo, que es justo lo contrario de lo que pasó.
+    expect(screen.getByText("Ningún archivo elegido")).toBeInTheDocument();
+    expect(screen.queryByText(TXT[1])).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Contenido")).toHaveValue("");
+    // Y el botón se va con el archivo.
+    expect(
+      screen.queryByRole("button", { name: "Quitar archivo elegido" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("cancelar el confirm no cambia nada: ni el nombre ni el contenido", async () => {
+    server.use(mockBranches(), extractOk("Lunes a viernes de 9 a 18."));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Contenido")).toHaveValue("Lunes a viernes de 9 a 18."),
+    );
+
+    // El espía se pone recién acá para que la extracción de arriba no lo vea.
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await user.click(botonQuitar());
+
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(TXT[1])).toBeInTheDocument();
+    expect(screen.getByLabelText("Contenido")).toHaveValue("Lunes a viernes de 9 a 18.");
+  });
+
+  it("volver a vacío es todo lo que puede hacer: no restaura lo que había antes del archivo", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(mockBranches(), extractOk("Lo que dice el archivo."));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+    await escribirContenido(user, "Lo que ya estaba escrito a mano.");
+
+    // Este primer confirm es el de pisar el contenido; el segundo, el de quitar.
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Contenido")).toHaveValue("Lo que dice el archivo."),
+    );
+
+    await user.click(botonQuitar());
+
+    // "Lo que ya estaba escrito a mano." NO vuelve, y no es un caso sin cubrir:
+    // la extracción reemplaza el contenido por completo y ese texto no quedó
+    // guardado en ningún lado. El mensaje del confirm lo dice antes.
+    expect(screen.getByLabelText("Contenido")).toHaveValue("");
+  });
+
+  it("también se lleva el aviso de que el texto se había cortado", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(mockBranches(), extractOk("Un documento larguísimo.", true));
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    await user.upload(inputDeArchivo(), archivo(PDF[1], PDF[2]));
+    expect(await screen.findByText(/se cortó el texto/)).toBeInTheDocument();
+
+    await user.click(botonQuitar());
+
+    // El aviso hablaba del texto de ese archivo; sin el texto no tiene de qué
+    // hablar.
+    expect(screen.queryByText(/se cortó el texto/)).not.toBeInTheDocument();
+  });
+
+  it("mientras extrae, el botón de quitar está deshabilitado", async () => {
+    // Un solo handler con contador y no dos registrados: en MSW el primero que
+    // matchea gana para siempre, así que un segundo http.post a la misma URL
+    // nunca llegaría a correr.
+    let llamadas = 0;
+    let responder: (() => void) | undefined;
+    server.use(
+      mockBranches(),
+      http.post(extractUrl, async () => {
+        llamadas += 1;
+        if (llamadas === 1) {
+          return HttpResponse.json({ text: "Primero.", truncated: false });
+        }
+        await new Promise<void>((resolve) => {
+          responder = resolve;
+        });
+        return HttpResponse.json({ text: "Segundo.", truncated: false });
+      }),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const user = userEvent.setup();
+    await abrirFormularioNuevo();
+
+    // Hace falta un archivo YA elegido para que el botón exista, y una segunda
+    // extracción en curso para verlo deshabilitado.
+    await user.upload(inputDeArchivo(), archivo(TXT[1], TXT[2]));
+    await waitFor(() => expect(screen.getByText(TXT[1])).toBeInTheDocument());
+
+    await user.upload(inputDeArchivo(), archivo(PDF[1], PDF[2]));
+    await screen.findByText("Extrayendo texto…");
+
+    // Quitar a mitad de una extracción dejaría el formulario deshaciendo y
+    // cargando la misma cosa al mismo tiempo.
+    expect(botonQuitar()).toBeDisabled();
+
+    responder?.();
+    await waitFor(() => expect(screen.getByLabelText("Contenido")).toHaveValue("Segundo."));
+    expect(botonQuitar()).toBeEnabled();
+  });
+});
