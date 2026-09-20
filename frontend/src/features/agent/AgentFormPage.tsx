@@ -68,8 +68,35 @@ const EMPTY_FORM: AgentFormValues = {
   isActive: true,
 };
 
+// Solo las tres cosas que el sistema verifica con código antes de dejar pasar
+// una acción (ítem 72). Los temas prohibidos, las promesas prohibidas y las
+// condiciones de derivación se escriben en Instrucciones: nunca fueron un
+// candado, son texto que el modelo lee.
 const PLACEHOLDER_GUARDRAILS =
-  "Ej.: No hables de diagnósticos médicos ni de asesoramiento legal. No permitas cambiar el estado de una oportunidad a ganada sin que un humano lo confirme. Si el cliente pide hablar con una persona, derivá la conversación.";
+  "Ej.: No canceles ni cambies el estado de una oportunidad a ganada sin que un humano lo confirme. No modifiques el email ni el teléfono de un contacto. Antes de reservar un turno, asegurate de tener el nombre y el teléfono del cliente.";
+
+// Las tres claves que esta pantalla ya no escribe pero que un agente viejo
+// puede seguir teniendo guardadas — el backend las preserva en cada guardado
+// (preservarGuardrailsHeredados en src/services/agent.service.ts). Se
+// muestran en el panel de confirmación para que el ADMIN vea todo lo que va a
+// regir, no solo la parte que acaba de escribir.
+const CLAVES_HEREDADAS = ["temasProhibidos", "promesasProhibidas", "condicionesDeDerivacion"];
+
+function conGuardrailsHeredados(
+  actuales: Record<string, unknown> | undefined,
+  nuevos: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!actuales) {
+    return nuevos;
+  }
+  const fusionados: Record<string, unknown> = { ...nuevos };
+  for (const clave of CLAVES_HEREDADAS) {
+    if (actuales[clave] !== undefined) {
+      fusionados[clave] = actuales[clave];
+    }
+  }
+  return fusionados;
+}
 
 function toFormValues(agent: Agent): AgentFormValues {
   return {
@@ -143,6 +170,17 @@ function validar(values: AgentFormValues, isEditMode: boolean): string | null {
 //      un agente con los guardrails vacíos porque se cayó la red es
 //      exactamente el accidente que este flujo tiene que impedir. Mismo
 //      criterio "fail closed" que allowedOrigins.
+//
+// DESDE EL ÍTEM 72 ESE CAMPO SOLO CONFIGURA LOS TRES CANDADOS DE CÓDIGO
+// (acciones prohibidas, información protegida, datos requeridos antes de una
+// acción): son los únicos que puedeEjecutarTool() hace cumplir antes de dejar
+// pasar una acción. Los temas prohibidos, las promesas prohibidas y las
+// condiciones de derivación se escriben en Instrucciones, en texto libre —
+// nunca fueron un candado, iban al prompt con la misma fuerza que ese campo. A
+// los agentes que ya las tenían configuradas no se les migró nada: el backend
+// las preserva en cada guardado, y el panel de confirmación las sigue
+// mostrando (ver conGuardrailsHeredados) para que el ADMIN vea todo lo que
+// rige, aunque desde acá ya no lo pueda editar.
 //
 // LA SUCURSAL ES INMUTABLE, y es lo que más lo diferencia de los otros
 // formularios: branchId viaja en el POST pero NO existe en updateAgentSchema
@@ -333,6 +371,16 @@ export function AgentFormPage() {
 
   const descartes = traduccion ? resumirDescartes(traduccion.descartado) : [];
 
+  // Lo que el panel muestra al EDITAR no es solo lo que se acaba de traducir:
+  // es lo que va a regir. Las claves heredadas del ítem 72 siguen ahí después
+  // de guardar —el backend las preserva— así que esconderlas haría que la
+  // confirmación dijera menos de lo que el agente realmente hace cumplir. El
+  // PATCH sigue llevando `traduccion.guardrails` a secas: quién preserva lo
+  // heredado es el backend, no esta pantalla.
+  const guardrailsDelPanel = traduccion
+    ? conGuardrailsHeredados(agentQuery.data?.guardrails, traduccion.guardrails)
+    : {};
+
   return (
     <form onSubmit={handleSubmit} className="ds-form">
       <h1>{isEditMode ? "Editar agente" : "Nuevo agente"}</h1>
@@ -421,7 +469,9 @@ export function AgentFormPage() {
             </div>
             <p className="ds-hint ds-field-grid--full">
               Es lo que el modelo lee antes de cada conversación: qué hace el negocio, qué tiene que
-              lograr el agente y cómo tiene que hablar.
+              lograr el agente y cómo tiene que hablar. Incluí también, con tus palabras, los temas
+              que no puede tocar, las promesas que no puede hacer y cuándo tiene que derivar la
+              conversación a una persona.
             </p>
           </div>
         </Card>
@@ -504,10 +554,14 @@ export function AgentFormPage() {
               </FormField>
             </div>
             <p className="ds-hint ds-field-grid--full">
-              Escribilo con tus palabras: qué temas no puede tocar, qué acciones no puede hacer, qué
-              datos no puede modificar y cuándo tiene que pasarle la conversación a una persona. Al
-              guardar te mostramos qué entendimos, para que lo confirmes. Si lo dejás vacío, el
-              agente no tiene ninguna restricción además de los permisos de arriba.
+              Escribilo con tus palabras: qué acciones no puede ejecutar nunca (aunque estén
+              habilitadas arriba), qué datos no puede modificar y qué tiene que saber antes de
+              ejecutar una acción. Esto no es una instrucción más para el modelo: es lo que el
+              sistema verifica con código antes de dejar pasar cada acción, así que el agente no lo
+              puede saltear. Lo demás —los temas de los que no querés que hable, las promesas que no
+              puede hacer y cuándo tiene que derivar a una persona— va en Instrucciones. Al guardar
+              te mostramos qué entendimos, para que lo confirmes. Si lo dejás vacío, el agente no
+              tiene ninguna restricción además de los permisos de arriba.
             </p>
           </div>
         </Card>
@@ -551,7 +605,7 @@ export function AgentFormPage() {
             editar el texto.
           </p>
           <ul>
-            {resumirGuardrails(traduccion.guardrails, agentToolOptions(values.enabledTools)).map(
+            {resumirGuardrails(guardrailsDelPanel, agentToolOptions(values.enabledTools)).map(
               (linea) => (
                 <li key={linea}>{linea}</li>
               ),
@@ -575,7 +629,7 @@ export function AgentFormPage() {
           <details>
             <summary>Ver JSON</summary>
             <pre className="ds-code-field ds-json-preview">
-              {formatGuardrails(traduccion.guardrails)}
+              {formatGuardrails(guardrailsDelPanel)}
             </pre>
           </details>
         </Modal>

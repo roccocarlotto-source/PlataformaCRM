@@ -3955,3 +3955,80 @@ Sin asterisco y sin `required`. Debajo, un `ds-hint` —hijo directo de `.ds-fie
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend. `npm run verify:schema` pasa los 14 chequeos afirmados contra el Postgres local con la migración aplicada, y `prisma migrate diff` no reporta drift sobre `branches`.
 
 **No se probó a mano contra el stack local levantado**, y no se lo reporta como hecho: sigue el impedimento del ítem 38 —el magic link de admin local lo bloquea el clasificador— y esta pantalla vive bajo `AdminRoute`. Lo que sí está verificado contra Postgres real es **exactamente el recorrido que se pediría a mano**: los dos casos de integración nuevos configuran un vendedor por defecto en una sucursal, hacen que un agente de esa sucursal atienda a un contacto sin vendedor, y comprueban que `create_opportunity` crea la oportunidad con ese vendedor y que el `Contact` queda asignado a esa persona — que es la fila que la pantalla de Contactos muestra en la columna "Propietario".
+
+## 72. Guardrails acotados a lo que el sistema hace cumplir con código
+
+**Estado:** hecho
+
+**Qué marcó Rocco.** Configurando un agente vio que "Reglas del agente" e "Instrucciones" se pisaban: los dos campos son un textarea donde se escribe en castellano qué puede y qué no puede hacer el agente, y el primero encima se toma el trabajo de pasar por una traducción por IA y una pantalla de confirmación. Si al final es todo texto que el modelo puede llegar a ignorar, ¿por qué vive en una pantalla aparte en vez de estar directamente en Instrucciones?
+
+**El diagnóstico era correcto, para la mitad del campo.** `guardrails` tenía seis claves (§6 de `docs/ai-agent-architecture.md`) y las seis se escribían desde el mismo lugar, pero no eran la misma clase de cosa:
+
+| Clave | Quién la hace cumplir |
+|---|---|
+| `accionesProhibidas` | `puedeEjecutarTool()` — **código** |
+| `infoNoModificable` | `puedeEjecutarTool()` — **código** |
+| `datosRequeridosAntesDeAccion` | `puedeEjecutarTool()` — **código** |
+| `temasProhibidos` | `armarSystemPrompt()` — texto en el prompt |
+| `promesasProhibidas` | `armarSystemPrompt()` — texto en el prompt |
+| `condicionesDeDerivacion` | `armarSystemPrompt()` — texto en el prompt |
+
+Las tres de arriba son un candado: `puedeEjecutarTool()` corre **antes** de ejecutar cualquier tool y decide si la deja pasar, así que el modelo no puede saltearlas por más que quiera. Las tres de abajo terminan pegadas al system prompt — con exactamente la misma fuerza que el campo "Instrucciones", ni más ni menos. Lo dice el propio comentario de `agentOrchestration.service.ts`: _"no son gates de ejecución de tools [...] sino instrucciones que el modelo tiene que seguir"_.
+
+O sea: para esas tres, la pantalla aparte, la traducción por IA y la confirmación **no compraban nada**. Un viaje de ida y vuelta a un LLM para convertir "no hables de política" en `{"temasProhibidos": ["política"]}` y después volver a convertirlo en una línea de prompt que dice lo mismo. Escribirlo en Instrucciones tiene el mismo efecto y ningún intermediario.
+
+### La decisión
+
+**Instrucciones** pasa a ser también el lugar donde se escriben los temas prohibidos, las promesas prohibidas y cuándo derivar a una persona — en las palabras del ADMIN, sin traducir. **Reglas del agente** queda acotado a las tres cosas que sí son un candado de código, y el hint de la pantalla lo dice con todas las letras: _"es lo que el sistema verifica con código antes de dejar pasar cada acción, así que el agente no lo puede saltear"_. Esa frase es la única razón por la que el campo sigue existiendo aparte; sin ella los dos campos se vuelven a ver iguales.
+
+**Los agentes que ya existen no se migran.** Un agente que hoy tiene `temasProhibidos` guardado lo conserva, y `armarSystemPrompt()` lo sigue leyendo exactamente igual que antes — esa función **no se tocó** y no se va a tocar. Lo único que cambió es que la pantalla dejó de poder **escribir** esas tres claves de acá en adelante. Migrar el contenido de ese JSON al campo `instructions` de cada agente sería reescribirle a cada negocio el prompt que ajustó a mano, para quedar en el mismo lugar funcional en el que ya está.
+
+### El punto que no podía fallar: guardar no puede borrar lo viejo
+
+Es lo más fácil de pasar por alto de todo el ítem, y lo único capaz de destruir datos.
+
+El formulario manda **siempre** el objeto completo de `guardrails` en el PATCH, sin diferenciar qué cambió — es la misma convención que Sucursal y Fuente, y es deliberada ("el agente queda así" es más simple que un diff). Con la traducción acotada a tres claves, un ADMIN que abre un agente viejo **solo para corregirle el Nombre** manda igual un `guardrails` nuevo que ya no puede contener `temasProhibidos`. Guardarlo tal cual le habría borrado en silencio, a ese agente, restricciones que nadie pidió sacar — lo contrario exacto de "quedan como están".
+
+La fusión vive en `preservarGuardrailsHeredados()` (`src/services/agent.service.ts`), una función pura con la explicación escrita arriba:
+
+```ts
+// Las tres claves heredadas salen SIEMPRE de la fila actual y NUNCA del
+// input: no hay ningún camino por el que un guardado posterior pueda
+// pisarlas ni vaciarlas. Todo lo demás es lo que vino en el PATCH.
+preservarGuardrailsHeredados(actuales: unknown, nuevos: Record<string, unknown>);
+```
+
+`updateAgent()` ya leía el agente actual para decidir el 404, así que la fila está a mano sin una consulta extra. `createAgent()` no la necesita: un agente nuevo no tiene guardrails viejos que preservar.
+
+**El panel de confirmación muestra el objeto fusionado**, no solo lo que se acaba de traducir. Si escondiera lo heredado, la pantalla que se llama "Esto es lo que entendimos" estaría diciendo menos de lo que el agente realmente hace cumplir. El PATCH, en cambio, sigue llevando solo lo traducido: preservar lo heredado es tarea del backend, y que la única copia de esa regla esté de un solo lado es lo que evita que las dos se desincronicen.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentGuardrailsTranslation.service.ts` | El prompt pide tres claves en vez de seis; `sanitizarGuardrails` descarta las otras tres con un motivo propio; se borraron `sanitizarFrases()` y sus dos topes de cordura, que quedaron sin uso |
+| `src/services/agent.service.ts` | `preservarGuardrailsHeredados()` + su uso en `updateAgent()` |
+| `frontend/src/features/agent/AgentFormPage.tsx` | Hint de Instrucciones, hint y placeholder de Reglas del agente, y el objeto fusionado en el panel de confirmación |
+| `docs/ai-agent-architecture.md` | Nota en §6 apuntando acá |
+
+**Nada de migración ni de schema:** `Agent.guardrails` es una columna JSON y su forma no la fuerza Postgres. No hay `migrate:deploy` pendiente por este ítem.
+
+**`agentOrchestration.service.ts` no se tocó**, y es la otra mitad de la decisión: las tres claves heredadas siguen llegando al system prompt por el mismo camino de siempre.
+
+**Un motivo de descarte propio para las tres claves que se fueron.** Si el modelo de traducción las devuelve igual (no se le piden, pero un modelo puede insistir), no caen en la rama genérica de "clave inventada" — que para una clave que el agente **sí** lee habría sido directamente falso. El motivo dice lo que pasa de verdad: _`"temasProhibidos" ya no se traduce acá — escribilo directamente en Instrucciones`_.
+
+### Tests (corridos de verdad)
+
+**Backend: 892 unitarios, todos en verde** (antes del ítem: 887). Neto +5, porque además de los que se agregaron se fueron dos que probaban código borrado.
+
+- **5 unitarios nuevos en `src/services/agent.service.test.ts`** (archivo nuevo — `agent.service.ts` no tenía test unitario, su CRUD se prueba contra Postgres): las tres claves heredadas sobreviven a un guardado que solo trae las de código; un `guardrails` nuevo **vacío** tampoco las borra (el caso del ADMIN que solo cambia el Nombre); lo que el agente no tenía **no aparece** como clave vacía; un agente sin guardrails viejos —incluidos `null`, `[]` y valores que ni siquiera son un objeto— guarda exactamente lo que vino; y la función **no muta** ninguno de los dos objetos que recibe.
+- **2 unitarios nuevos en `src/services/agentGuardrailsTranslation.service.test.ts`**: el prompt **ya no nombra** ninguna de las tres claves viejas (no alcanza con descartarlas después: si el prompt las sigue pidiendo, el ADMIN ve una advertencia por algo que la pantalla le pidió escribir), y las tres se descartan con el motivo específico si el modelo las devuelve igual. Se **removieron** los dos que cubrían los topes de las frases libres (300 caracteres y 20 entradas), que probaban `sanitizarFrases()` — código que ya no existe. Los que usaban una de esas claves como vehículo para probar otra cosa (duplicados, clave inventada, tipo equivocado) pasaron a usar una de las tres que quedan.
+- **1 de integración nuevo en `src/controllers/agent.controller.integration-test.ts`**: el recorrido completo por HTTP contra Postgres real — un agente creado con las tres claves viejas **más** una de código recibe un PATCH que solo trae `accionesProhibidas`, y el resultado tiene las dos cosas, verificado en la respuesta **y en la fila**; después, un PATCH que ni menciona los guardrails los deja idénticos. Al caso que ya existía se le corrigió el comentario "se reemplaza entero, no se mergea", que sin la aclaración de que ese agente nació con `{}` ahora se leería como una contradicción; y el del endpoint de traducción dejó de esperar que `temasProhibidos` sobreviva a la sanitización.
+
+**Frontend: 156 archivos, 1667 casos, todos en verde** (antes del ítem: 156 archivos, 1664). Ningún archivo nuevo.
+
+- **3 en `features/agent/AgentFormPage.test.tsx`**: el hint de Instrucciones nombra los temas, las promesas y la derivación; el hint de Reglas del agente habla de las tres de código, **dice que es el sistema el que lo verifica con código** y dice dónde va lo otro, y el placeholder cambió sus ejemplos por los tres que corresponden; y en edición, el panel de confirmación de un agente con claves heredadas muestra las heredadas **y** lo recién traducido, mientras el PATCH sale con lo traducido solamente.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
+
+**La suite de integración no se corrió en local, y no se reporta como hecha**: el `.env` de este worktree apuntaba a la base de **producción**, así que correrla habría escrito filas reales en la base del cliente. Los 892 unitarios sí se corrieron acá; los de integración —incluido el caso nuevo del PATCH que preserva lo heredado— los corre el CI contra su propio Postgres.
