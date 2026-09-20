@@ -18,6 +18,11 @@ export interface KnowledgeBaseEntry {
   // NO es lo mismo que deletedAt: inactiva se lista, se edita y se puede
   // volver a activar.
   isActive: boolean;
+  // §70 — la unidad del stock que generó esta entrada, o null si la escribió
+  // una persona. Es lo único que distingue en la pantalla una entrada generada
+  // por "Sincronizar stock" de una escrita a mano: no se adivina por el título
+  // ni por el texto. Toda entrada anterior a §70 lo tiene en null.
+  sourceVehicleId: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -89,3 +94,18 @@ export interface KnowledgeBaseExtractedText {
 // entra, y es una decisión —ver el comentario de MIMETYPES_SOPORTADOS en
 // src/services/knowledgeBaseExtraction.service.ts.
 export const EXTENSIONES_ARCHIVO_SOPORTADAS = [".txt", ".docx", ".pdf"] as const;
+
+// ---------------------------------------------------------------------------
+// Ítem 70 — sincronizar el stock con la base de conocimiento.
+// ---------------------------------------------------------------------------
+
+// Lo que devuelve POST /api/knowledge-base/sync-vehicles: el resumen de una
+// corrida sobre UNA sucursal. Los tres números son de entradas, no de
+// vehículos: "creadas" incluye las que vuelven de una baja porque la unidad
+// volvió a calificar, y "actualizadas" cuenta solo las que efectivamente
+// cambiaron de texto — una corrida sobre un stock al día devuelve tres ceros.
+export interface SyncVehiclesResult {
+  creadas: number;
+  actualizadas: number;
+  dadasDeBaja: number;
+}

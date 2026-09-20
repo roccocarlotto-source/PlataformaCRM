@@ -30,6 +30,13 @@ export interface VehicleFilters {
   // Permuta (§41): "las unidades recibidas en esta venta", igualdad exacta
   // sobre el índice (organization_id, trade_in_opportunity_id).
   tradeInOpportunityId?: string;
+  // §70: la bandera de publicación hacia afuera. El único consumidor hoy es la
+  // sincronización de stock con la base de conocimiento, que la combina con
+  // status para quedarse con lo publicable Y disponible — son dos condiciones
+  // independientes (ver buscarVehiculosQueCalifican). Filtro opcional del
+  // mismo tipo que branchId y status, y no una consulta suelta en el service:
+  // el WHERE multi-tenant de esta entidad se arma en un solo lugar.
+  publishOnWebsite?: boolean;
   // Búsqueda de texto libre contra los identificadores y el título.
   q?: string;
 }
@@ -51,6 +58,11 @@ function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.Veh
     ...(filters.make ? { make: filters.make } : {}),
     ...(filters.model ? { model: filters.model } : {}),
     ...(filters.consignmentOnly ? { origin: "CONSIGNMENT" } : {}),
+    // Booleano explícito contra undefined: un `filters.publishOnWebsite ?` se
+    // comería el filtro "las no publicadas".
+    ...(filters.publishOnWebsite !== undefined
+      ? { publishOnWebsite: filters.publishOnWebsite }
+      : {}),
     ...(filters.tradeInOpportunityId ? { tradeInOpportunityId: filters.tradeInOpportunityId } : {}),
     ...(filters.minPriceUsd !== undefined || filters.maxPriceUsd !== undefined
       ? {

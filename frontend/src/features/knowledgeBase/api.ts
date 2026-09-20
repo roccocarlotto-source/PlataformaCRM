@@ -6,6 +6,7 @@ import type {
   KnowledgeBaseExtractedText,
   KnowledgeBaseListQuery,
   KnowledgeBaseListResponse,
+  SyncVehiclesResult,
   UpdateKnowledgeBaseEntryInput,
 } from "./types";
 
@@ -88,5 +89,20 @@ export function extractKnowledgeBaseText(
   return uploadFile<KnowledgeBaseExtractedText>("/knowledge-base/extract-text", form, {
     getAccessToken,
     ...options,
+  });
+}
+
+// POST /api/knowledge-base/sync-vehicles — ítem 70. Por sucursal, y por eso
+// branchId es el único dato del body: la base de conocimiento, el stock y el
+// agente que la lee son todos de una sucursal.
+//
+// Devuelve el RESUMEN de lo que pasó (creadas/actualizadas/dadas de baja) y no
+// las entradas: quien las quiera ver las ve en el listado, que esta llamada
+// invalida desde su mutation.
+export function syncKnowledgeBaseVehicles(branchId: string): Promise<SyncVehiclesResult> {
+  return request<SyncVehiclesResult>("/knowledge-base/sync-vehicles", {
+    method: "POST",
+    body: { branchId },
+    getAccessToken,
   });
 }
