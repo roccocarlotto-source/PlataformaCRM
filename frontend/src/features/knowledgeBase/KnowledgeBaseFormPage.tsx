@@ -50,6 +50,13 @@ const ETIQUETA_ARCHIVO = "Completar desde un archivo (.txt, .docx o .pdf)";
 const CONFIRMAR_PISAR_CONTENIDO =
   "El campo Contenido ya tiene texto. Si seguís, el archivo lo reemplaza por completo. ¿Seguimos?";
 
+// El aviso antes de quitar el archivo (ítem 67). Se pregunta por lo mismo que
+// arriba: quitar no es un gesto visual, borra el Contenido que el archivo
+// dejó, y eso puede ser un documento entero.
+const CONFIRMAR_QUITAR_ARCHIVO =
+  "Se quita el archivo y se borra el contenido que trajo, dejando el campo vacío. " +
+  "No se recupera lo que hubiera antes de elegirlo. ¿Seguimos?";
+
 function toFormValues(entry: KnowledgeBaseEntry): KnowledgeBaseFormValues {
   return {
     branchId: entry.branchId,
@@ -170,6 +177,32 @@ export function KnowledgeBaseFormPage() {
     } finally {
       setExtrayendo(false);
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Quitar el archivo elegido (ítem 67).
+  //
+  // BORRA DOS COSAS, NO UNA: el nombre a la vista y el texto que ese archivo
+  // puso en Contenido. No es una limpieza visual — es deshacer la extracción
+  // entera. Dejar el nombre en "Ningún archivo elegido" con el texto del
+  // archivo todavía en el campo sería peor que no tener el botón: la pantalla
+  // estaría diciendo que no se cargó nada.
+  //
+  // Y "deshacer" solo puede significar volver a vacío. La extracción REEMPLAZA
+  // el contenido por completo (setValues({ ...values, content: text })), no lo
+  // agrega al final, y no se guarda en ningún lado lo que hubiera antes —ya se
+  // pisó, con la confirmación de CONFIRMAR_PISAR_CONTENIDO de por medio—. Que
+  // no restaure el texto anterior no es un caso sin cubrir: es que ese texto
+  // no existe más. Por eso el mensaje lo dice antes de que la persona
+  // confirme.
+  // -------------------------------------------------------------------------
+  function handleQuitarArchivo() {
+    if (!window.confirm(CONFIRMAR_QUITAR_ARCHIVO)) return;
+    setNombreArchivo(null);
+    setValues({ ...values, content: "" });
+    // El aviso de recorte hablaba del texto de ESE archivo; sin el texto no
+    // tiene de qué hablar.
+    setTruncado(false);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -309,6 +342,7 @@ export function KnowledgeBaseFormPage() {
                 disabled={extrayendo || isSubmitting}
                 selectedFileName={nombreArchivo}
                 onFileSelected={(archivo) => void handleArchivo(archivo)}
+                onClear={handleQuitarArchivo}
               />
             </div>
             <p className="ds-hint ds-field-grid--full">

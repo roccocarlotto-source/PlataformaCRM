@@ -241,6 +241,20 @@ button:disabled {
   font-size: var(--font-size-sm);
 }
 
+/* La ✕ para quitar el archivo elegido (ítem 67). El aspecto entero lo pone
+   .ds-chip-remove —tamaño, radio, hover y foco— y acá solo se corrigen las dos
+   cosas que ese selector da por sentado porque vive adentro de un .ds-badge:
+   el margen negativo, que ahí pega la ✕ al borde del pill y acá solo la
+   encimaría con lo que siga; y el encogido, porque el nombre de al lado se
+   recorta con ellipsis pero esta ✕ tiene que medir lo mismo con un archivo de
+   nombre largo que con uno corto. El estado deshabilitado no se escribe acá:
+   lo pone la regla global button:disabled, que gana por especificidad sobre
+   el cursor: pointer de .ds-chip-remove. */
+.ds-file-input__clear {
+  flex: none;
+  margin-right: 0;
+}
+
 /* Aplicable directo sobre un <Link> (react-router) para las acciones
    primarias que hoy son navegación, no un submit — "Nueva empresa", etc.
    Mismos tokens visuales que .ds-button--primary, sin duplicar el <button>

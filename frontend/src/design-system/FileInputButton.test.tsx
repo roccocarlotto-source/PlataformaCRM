@@ -110,3 +110,81 @@ describe("FileInputButton", () => {
     expect(inputOculto()).toHaveAttribute("accept", ".csv,.xlsx");
   });
 });
+
+// Ítem 67 — la ✕ para volver a "Ningún archivo elegido". Es OPCIONAL: hoy la
+// usa solo KnowledgeBaseFormPage, y las otras tres pantallas
+// (ImportPage, VehiclePhotoGallery, SugerirMapeoDesdeArchivo) tienen que
+// seguir viéndose exactamente igual que antes de este ítem.
+const QUITAR = "Quitar archivo elegido";
+
+describe("FileInputButton — quitar el archivo elegido (ítem 67)", () => {
+  it("sin onClear no aparece el botón de quitar, aunque haya un archivo elegido", () => {
+    render(
+      <FileInputButton
+        label={ETIQUETA}
+        selectedFileName="contactos.csv"
+        onFileSelected={vi.fn()}
+      />,
+    );
+
+    // Lo que sigue haciendo el 75% de los consumidores: el nombre a la vista y
+    // nada más que el botón de elegir.
+    expect(screen.getByText("contactos.csv")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: QUITAR })).not.toBeInTheDocument();
+  });
+
+  it("con onClear pero sin archivo elegido tampoco aparece: no hay nada que quitar", () => {
+    render(<FileInputButton label={ETIQUETA} onFileSelected={vi.fn()} onClear={vi.fn()} />);
+
+    expect(screen.getByText("Ningún archivo elegido")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: QUITAR })).not.toBeInTheDocument();
+  });
+
+  it("con onClear y un archivo elegido aparece, y clickearlo lo llama", async () => {
+    const user = userEvent.setup();
+    const onClear = vi.fn();
+    render(
+      <FileInputButton
+        label={ETIQUETA}
+        selectedFileName="contactos.csv"
+        onFileSelected={vi.fn()}
+        onClear={onClear}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: QUITAR }));
+
+    // El componente no sabe QUÉ se deshace: avisa y la pantalla decide. Acá no
+    // hay nada más que afirmar, y ese es justamente el contrato.
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it("no es un submit encubierto: es type=button, como la ✕ de los chips", () => {
+    render(
+      <FileInputButton
+        label={ETIQUETA}
+        selectedFileName="contactos.csv"
+        onFileSelected={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: QUITAR })).toHaveAttribute("type", "button");
+  });
+
+  it("disabled también lo deshabilita, no solo al botón de elegir", () => {
+    render(
+      <FileInputButton
+        label={ETIQUETA}
+        selectedFileName="contactos.csv"
+        disabled
+        onFileSelected={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    );
+
+    // Mientras se está extrayendo o guardando, quitar el archivo dejaría el
+    // formulario a mitad de camino de dos cosas a la vez.
+    expect(screen.getByRole("button", { name: QUITAR })).toBeDisabled();
+  });
+});

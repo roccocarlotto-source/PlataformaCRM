@@ -1,4 +1,5 @@
 import { useId, useRef, type ChangeEvent } from "react";
+import { X } from "lucide-react";
 import { Button } from "./Button";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,16 @@ export interface FileInputButtonProps {
   // el input es no controlado y la pantalla puede querer volver a "Ningún
   // archivo elegido" después de un error, aunque el archivo siga elegido.
   selectedFileName?: string | null;
+  // La ✕ para volver a "Ningún archivo elegido" (ítem 67). OPCIONAL, y sin él
+  // el componente se comporta exactamente como antes de este ítem: no hay
+  // botón de quitar y no cambia nada de lo que ya se veía. Es opcional porque
+  // "quitar" no significa lo mismo en los cuatro consumidores —en ImportPage
+  // sería cancelar la elección antes del submit, en VehiclePhotoGallery la
+  // foto ya se subió sola y no hay nada que deshacer— así que el componente no
+  // puede decidirlo por ellos: qué se deshace lo sabe la pantalla. Hoy lo usa
+  // solo KnowledgeBaseFormPage, donde elegir un archivo PISA el campo
+  // Contenido y por eso hay algo concreto que revertir.
+  onClear?: () => void;
 }
 
 const SIN_ARCHIVO = "Ningún archivo elegido";
@@ -57,6 +68,7 @@ export function FileInputButton({
   disabled,
   buttonLabel = "Elegir archivo",
   selectedFileName,
+  onClear,
 }: FileInputButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const labelId = useId();
@@ -110,6 +122,33 @@ export function FileInputButton({
           {buttonLabel}
         </Button>
         <span className="ds-file-input__name">{selectedFileName ?? SIN_ARCHIVO}</span>
+        {/* Solo con las DOS condiciones: que la pantalla sepa qué deshacer
+            (onClear) y que haya algo elegido. Sin archivo no hay nada que
+            quitar, así que un ✕ al lado de "Ningún archivo elegido" sería un
+            control que no hace nada.
+
+            Mismo marcado que la ✕ de los chips de equipamiento
+            (features/vehicle/EquipmentField.tsx): <button type="button"> con
+            .ds-chip-remove, el ícono X de lucide en 12px y aria-hidden, y el
+            nombre accesible en el aria-label. Lo que NO se copia es el pill:
+            el nombre del archivo ya se muestra como texto auxiliar y meterlo
+            en un Badge cambiaría el aspecto de los cuatro consumidores por un
+            botón que solo tiene uno. De ahí la clase extra.
+
+            El aria-label es fijo y no incluye el nombre del archivo a
+            propósito: está escrito justo al lado, y repetirlo solo alargaría
+            lo que anuncia un lector de pantalla. */}
+        {onClear && selectedFileName ? (
+          <button
+            type="button"
+            className="ds-chip-remove ds-file-input__clear"
+            aria-label="Quitar archivo elegido"
+            disabled={disabled}
+            onClick={onClear}
+          >
+            <X size={12} aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
     </div>
   );

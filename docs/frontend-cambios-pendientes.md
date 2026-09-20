@@ -3718,3 +3718,70 @@ Las dos con tokens existentes, así que son correctas en tema claro y oscuro sin
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y en frontend (`--check src` en frontend: `dist/` son artefactos de build, como siempre).
 
 **No se probó a mano contra el stack local levantado**, y no se lo reporta como hecho: para ver una conversación real en la bandeja hay que generarla, y la única forma de generarla es un turno del probador, que dispara una llamada **paga** a OpenRouter y escribe datos de verdad —la misma razón por la que el ítem 65 tampoco se probó a mano—. A eso se suma el impedimento de siempre (el magic link de admin local bloqueado por el clasificador, nota del ítem 38). Lo que sí está verificado contra Postgres real es todo el contrato del backend, con filas creadas directo en la base: los 26 casos de integración incluyen el hilo de tres mensajes con sus tres autores y su auditoría de tools, que es exactamente lo que la pantalla dibuja.
+
+---
+
+## 67. Quitar el archivo elegido en "Base de conocimiento"
+
+**Estado:** hecho
+
+**Qué preguntó Rocco.** Usando la pantalla de Base de conocimiento, después de completar el Contenido desde un archivo, preguntó **dónde estaba el botón para quitar el archivo elegido** (resumen, no cita textual: la pregunta llegó parafraseada en el pedido de implementación).
+
+No estaba en ningún lado: nunca se construyó. El ítem 60 agregó la extracción y el ítem 61 reemplazó el control nativo por `FileInputButton`, pero **el 61 fue puramente de estilo** —un `<Button>` nuestro disparando el `click()` de un input escondido— y no sumó ninguna capacidad nueva. Quitar el archivo no era una función que se hubiera decidido dejar afuera: simplemente no se pensó, y solo se ve usando la pantalla.
+
+### El estado del que no se podía salir
+
+Hasta acá el nombre del archivo se limpiaba **solo en dos caminos, los dos de fracaso**: si la extracción fallaba (el Contenido que quedó no salió de ese archivo, así que dejar el nombre a la vista mentiría) o si se cancelaba la confirmación de pisar el contenido existente. Si la extracción salía **bien**, el nombre quedaba ahí para siempre. No había forma de volver a "Ningún archivo elegido" salvo recargar la pantalla y perder todo lo demás.
+
+Vale la pena decir por qué eso molesta aunque el archivo no se guarde en ningún lado: lo que el nombre afirma es *"el Contenido de acá arriba salió de este documento"*. Cuando alguien sube un `.pdf` por error, o sube el correcto y después decide escribirlo a mano, esa afirmación queda pegada a un texto que ya no le corresponde.
+
+### La decisión: quitar borra DOS cosas, no una
+
+El botón **"Quitar archivo elegido" limpia el nombre Y el contenido que ese archivo puso** (`content` vuelve a `""`). No es una limpieza visual: es deshacer la extracción entera.
+
+La alternativa —limpiar solo el nombre y dejar el texto— se descartó porque produce exactamente la mentira inversa a la que el botón viene a arreglar: la pantalla diría "Ningún archivo elegido" con el documento entero pegado en el campo.
+
+**Y "deshacer" solo puede significar volver a vacío.** La extracción **reemplaza** el contenido por completo (`setValues({ ...values, content: text })`, no un append), y lo que hubiera antes no se guarda en ningún lado — ya se pisó, con la confirmación de `CONFIRMAR_PISAR_CONTENIDO` de por medio. Que el botón no restaure el texto anterior al archivo **no es un caso sin cubrir ni un bug**: ese texto no existe más en ninguna parte. Habría hecho falta un snapshot que nunca se tomó, y tomarlo ahora sería una feature distinta ("deshacer la última acción del formulario"), no parte de este botón. Está documentado así en el comentario de `handleQuitarArchivo` para que no se lea como un pendiente.
+
+Por eso el `window.confirm` —mismo criterio que la confirmación de pisar el contenido, y que `ContactListPage` antes de borrar— dice qué se pierde **antes** de que la persona confirme:
+
+> "Se quita el archivo y se borra el contenido que trajo, dejando el campo vacío. No se recupera lo que hubiera antes de elegirlo. ¿Seguimos?"
+
+Se lleva también el aviso de truncamiento (`truncado`): hablaba del texto de ese archivo, y sin el texto no tiene de qué hablar.
+
+### Por qué el prop es opcional, y por qué los otros tres consumidores no lo usan
+
+`FileInputButton` gana un prop `onClear?: () => void`. La ✕ aparece **solo con las dos condiciones**: que la pantalla haya pasado `onClear` y que haya un `selectedFileName`. Sin archivo elegido no hay nada que quitar, así que una ✕ al lado de "Ningún archivo elegido" sería un control que no hace nada.
+
+**Sin `onClear` el componente se comporta exactamente como antes de este ítem** — ningún cambio visual ni de comportamiento. Es lo que siguen haciendo los otros tres consumidores, y no es un pendiente:
+
+| Pantalla | Por qué no lleva `onClear` |
+|---|---|
+| `features/import/ImportPage.tsx` | "Quitar" ahí sería **cancelar la elección antes del submit** de "Importar" — el archivo todavía no hizo nada, no hay nada que deshacer |
+| `features/vehicle/VehiclePhotoGallery.tsx` | La foto **se sube apenas se elige**; el nombre solo se muestra mientras dura la subida. Quitar una foto ya subida es otra acción, y vive en la galería |
+| `features/source/SugerirMapeoDesdeArchivo.tsx` | Mismo caso que `ImportPage`: el archivo es la entrada de un botón que se aprieta después |
+
+El componente **no puede decidirlo por ellos**: qué se deshace lo sabe la pantalla, no el control. Por eso el prop es un callback y no un flag — `FileInputButton` avisa que apretaron la ✕ y nada más. Si alguna de las tres lo necesita en algún momento, es una decisión de alcance aparte, no una consecuencia automática de este ítem.
+
+### El marcado: la ✕ de los chips, sin el pill
+
+Se reusa el patrón que ya existe en `features/vehicle/EquipmentField.tsx` (ítem 21): `<button type="button" className="ds-chip-remove">` con el ícono `X` de lucide en 12px y `aria-hidden`, y el nombre accesible en el `aria-label`. Lo que **no** se copia es el `Badge`: el nombre del archivo ya se muestra como texto auxiliar en los cuatro consumidores, y meterlo en un pill les cambiaría el aspecto a todos por un botón que tiene uno solo.
+
+De ahí la clase extra `.ds-file-input__clear`, que corrige las dos cosas que `.ds-chip-remove` da por sentadas porque vive adentro de un `.ds-badge`: el `margin-right: -4px`, que ahí pega la ✕ al borde del pill y acá solo la encimaría con lo que siga, y el `flex: none`, porque el nombre de al lado se recorta con elipsis pero la ✕ tiene que medir lo mismo con un archivo de nombre largo que con uno corto. El estado deshabilitado no se escribe: lo pone la regla global `button:disabled`, que gana por especificidad sobre el `cursor: pointer` de `.ds-chip-remove`.
+
+**`aria-label="Quitar archivo elegido"`, fijo y sin el nombre del archivo adentro.** El nombre se lee justo al lado; repetirlo solo alargaría lo que anuncia un lector de pantalla. El botón hereda el `disabled` del componente, así que queda deshabilitado mientras `extrayendo` o `isSubmitting`, mismo criterio que el resto de los controles de esa sección: quitar a mitad de una extracción dejaría al formulario deshaciendo y cargando la misma cosa al mismo tiempo.
+
+Este ítem **no toca el backend**: no hay endpoint nuevo, no hay migración. Es frontend puro.
+
+### Tests (corridos de verdad)
+
+**Frontend: 156 archivos, 1651 casos, todos en verde** (antes del ítem: 156 archivos, 1640). Ningún archivo nuevo: los 11 casos nuevos van en las dos suites que ya existían.
+
+- **5 en `design-system/FileInputButton.test.tsx`**, el contrato del prop opcional: **sin `onClear` no aparece el botón aunque haya `selectedFileName`** —que es lo que garantiza que las otras tres pantallas no cambiaron—; con `onClear` pero sin archivo elegido tampoco aparece; con las dos cosas aparece y clickearlo llama al callback; es `type="button"` y no un submit encubierto, como la ✕ de los chips; y el `disabled` del componente también lo alcanza a él, no solo al botón de elegir.
+- **6 en `features/knowledgeBase/KnowledgeBaseFormPage.test.tsx`**, el comportamiento de la pantalla: sin archivo elegido no hay botón; confirmar borra el nombre **y** el contenido (y el botón se va con el archivo); cancelar el `confirm` no toca ninguna de las dos cosas; **volver a vacío es todo lo que puede hacer** —se escribe un texto a mano, se lo pisa con un archivo, se quita, y el texto de antes no vuelve, que es la decisión documentada arriba y no un caso sin cubrir—; el aviso de truncamiento se va con el texto; y el botón queda deshabilitado mientras hay una extracción en curso.
+
+Las tres suites de los otros consumidores (`ImportPage.test.tsx`, `VehiclePhotoGallery.test.tsx`, `SourceFormPage.test.tsx`) **no necesitaron ningún cambio** y se corrieron igual, justamente porque la afirmación que interesa es que nada cambió para ellas: 39 casos, en verde.
+
+`npm run typecheck`, `npm run lint` y `prettier --check src` limpios en frontend. El backend no se tocó.
+
+**No se probó a mano contra el stack local levantado**, y no se lo reporta como hecho: sigue el impedimento del ítem 38 (el magic link de admin local lo bloquea el clasificador), y esta pantalla vive bajo `AdminRoute`. Lo que el botón hace es enteramente de la pantalla —dos `setState` detrás de un `confirm`—, sin red ni backend de por medio, y está cubierto de punta a punta por los casos de arriba, que renderizan el formulario real con el `FileInputButton` real.
