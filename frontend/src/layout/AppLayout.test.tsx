@@ -206,6 +206,24 @@ describe("AppLayout — nav de Automatizaciones (ítem 62)", () => {
   });
 });
 
+describe("AppLayout — nav de Conversaciones (ítem 66)", () => {
+  it("el link se muestra para ambos roles, en el grupo CRM y al lado de Contactos", () => {
+    for (const role of ["USER", "ADMIN"] as const) {
+      useAuthMock.mockReturnValue(mockAuth(role));
+      const { unmount } = renderLayout();
+
+      const link = screen.getByRole("link", { name: "Conversaciones" });
+      expect(link).toHaveAttribute("href", "/conversations");
+      // En el grupo CRM y no en Administración: es lectura de un dato del
+      // CRM, no configuración ADMIN-only como Agentes de IA.
+      expect(link.closest(".ds-sidebar-group")).toBe(
+        screen.getByRole("link", { name: "Contactos" }).closest(".ds-sidebar-group"),
+      );
+      unmount();
+    }
+  });
+});
+
 describe("AppLayout — nav del módulo QR (Fase 3)", () => {
   it("el link QR se muestra para ambos roles: el listado es de lectura abierta", () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));

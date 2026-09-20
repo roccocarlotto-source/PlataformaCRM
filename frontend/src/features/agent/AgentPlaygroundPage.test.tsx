@@ -142,6 +142,20 @@ describe("AgentPlaygroundPage — la advertencia y el contacto", () => {
     expect(await screen.findByText(ADVERTENCIA)).toBeInTheDocument();
   });
 
+  it("el hint manda a la bandeja para ver el hilo completo (ítem 66)", async () => {
+    server.use(mockAgent());
+    renderPage();
+
+    await screen.findByText(ADVERTENCIA);
+    // Hasta el ítem 66 este hint decía que no había forma de recuperar los
+    // mensajes de una sesión anterior. Ahora la hay, y el texto la nombra en
+    // vez de afirmar algo que dejó de ser cierto.
+    expect(screen.getByRole("link", { name: "Conversaciones" })).toHaveAttribute(
+      "href",
+      "/conversations",
+    );
+  });
+
   it("sin contacto elegido no se puede escribir ni enviar", async () => {
     server.use(mockAgent());
     renderPage();

@@ -8,6 +8,8 @@ import { CompanyFormPage } from "../features/company/CompanyFormPage";
 import { CompanyListPage } from "../features/company/CompanyListPage";
 import { ContactFormPage } from "../features/contact/ContactFormPage";
 import { ContactListPage } from "../features/contact/ContactListPage";
+import { ConversationDetail } from "../features/conversation/ConversationDetail";
+import { ConversationListPage } from "../features/conversation/ConversationListPage";
 import { PipelineFormPage } from "../features/pipeline/PipelineFormPage";
 import { PipelineListPage } from "../features/pipeline/PipelineListPage";
 import { StageFormPage } from "../features/stage/StageFormPage";
@@ -79,6 +81,19 @@ export const router = createBrowserRouter([
           { path: "/", element: <DashboardPage /> },
           { path: "/companies", element: <CompanyListPage /> },
           { path: "/contacts", element: <ContactListPage /> },
+          // Bandeja de conversaciones (ítem 66 de
+          // docs/frontend-cambios-pendientes.md): lo que hablaron los agentes
+          // de IA con los contactos. ACÁ AFUERA, y no dentro del AdminRoute
+          // donde viven /agents, /knowledge-base y /automations: esas tres
+          // son pantallas de configuración del módulo, y esto es un dato del
+          // CRM que un vendedor necesita leer, como /contacts o /vehicles.
+          // Las dos rutas del backend son `authenticate` a secas —no hay
+          // ninguna escritura que gatear, ver src/routes/conversation.routes.ts—
+          // así que un USER las lee sin 403. Mismo criterio que el GET abierto
+          // de /knowledge-base, con la conclusión contraria por lo que la
+          // pantalla ES.
+          { path: "/conversations", element: <ConversationListPage /> },
+          { path: "/conversations/:id", element: <ConversationDetail /> },
           { path: "/pipelines", element: <PipelineListPage /> },
           { path: "/pipelines/:pipelineId/stages", element: <StageListPage /> },
           { path: "/opportunities", element: <OpportunityListPage /> },
@@ -179,12 +194,17 @@ export const router = createBrowserRouter([
               // diseño en docs/ai-agent-architecture.md). MISMO esquema de
               // permisos que Branch —GET abierto, POST/PATCH/DELETE ADMIN-only
               // en agent.routes.ts— y el listado va igualmente acá adentro,
-              // por el mismo criterio y uno más: a diferencia de las
-              // sucursales, hoy NO hay ninguna otra pantalla que le muestre
-              // agentes a un USER (no existe un AgentSelect que alguien
-              // consuma), así que el módulo entero es configuración
-              // administrativa. La autorización real de escritura sigue siendo
-              // del backend.
+              // por el mismo criterio que /branches: la pantalla es toda
+              // configuración administrativa (crear, editar, borrar agentes,
+              // sus tokens de embed, su probador), y la autorización real de
+              // escritura sigue siendo del backend.
+              //
+              // Desde el ítem 66 un USER SÍ ve agentes en otra pantalla —la
+              // bandeja de conversaciones muestra qué agente atendió cada
+              // una y deja filtrar por agente, consumiendo el mismo GET
+              // abierto—. Eso no cambia nada de esto: lo que lo mantiene acá
+              // adentro es lo que la pantalla HACE, no que el dato sea
+              // secreto.
               { path: "/agents", element: <AgentListPage /> },
               { path: "/agents/new", element: <AgentFormPage /> },
               { path: "/agents/:id/edit", element: <AgentFormPage /> },

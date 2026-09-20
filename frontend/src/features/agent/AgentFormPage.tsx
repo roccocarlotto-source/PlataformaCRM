@@ -156,7 +156,8 @@ function validar(values: AgentFormValues, isEditMode: boolean): string | null {
 // LO QUE ESTA PANTALLA NO CONFIGURA, a propósito: `allowedOrigins` (ver el
 // comentario de CreateAgentInput en types.ts), los tokens de embed y su
 // snippet, el playground de prueba y la bandeja de conversaciones. No hay
-// lugares vacíos esperándolos: cuando existan, traen su propia pantalla.
+// lugares vacíos esperándolos: cada uno trajo su propia pantalla (ítems 63,
+// 65 y 66).
 // ---------------------------------------------------------------------------
 export function AgentFormPage() {
   const { id } = useParams<{ id?: string }>();

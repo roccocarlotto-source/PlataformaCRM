@@ -11,7 +11,7 @@ import { ContactSelect } from "../opportunity/ContactSelect";
 import { CHANNEL_LABEL, CHANNEL_OPTIONS } from "./labels";
 import { useTestMessage } from "./mutations";
 import { useAgent } from "./queries";
-import { toolLabel } from "./tools";
+import { ToolCallBlock } from "./ToolCallBlock";
 import type { ConversationChannel, TestMessageResult, TestMessageToolCall } from "./types";
 
 // El tope de `message` en testMessageSchema (agent.controller.ts). Espejo a
@@ -45,13 +45,17 @@ const MENSAJE_MAX_LENGTH = 4000;
 // ejecutara las tools probaría otra cosa que la que se quiere probar, y un
 // contacto descartable inventaría un concepto que el modelo de datos no tiene.
 //
-// LA TRANSCRIPCIÓN VIVE SOLO EN ESTA VISITA. No hay forma de traer el
-// historial de una conversación anterior: no existe ningún GET de
-// Conversation/Message en el backend, ni admin ni público — la bandeja de
-// conversaciones es trabajo aparte, todavía no construido. Así que al recargar
-// o volver más tarde, lo de antes no se puede recuperar aunque la Conversation
-// siga viva en la base. La pantalla lo dice en vez de dejar que se lea como
-// que se perdió algo.
+// LA TRANSCRIPCIÓN DE ESTA PANTALLA VIVE SOLO EN ESTA VISITA: al recargar o
+// volver más tarde, lo de antes no está acá. Hasta el ítem 65 eso era además
+// definitivo, porque no existía ningún GET de Conversation/Message; desde el
+// ítem 66 el hilo completo SÍ se puede ver, en /conversations, y el hint de
+// abajo manda ahí en vez de decir que no hay forma.
+//
+// Este probador sigue sin traer el historial, y es a propósito: mostrar
+// mensajes viejos en la misma caja donde se escriben los nuevos borraría la
+// distinción entre lo que uno acaba de mandar y lo que pasó antes — que es
+// justo lo que hay que tener claro en una herramienta que escribe datos
+// reales. La bandeja es de solo lectura y para eso está.
 //
 // TODA LA PANTALLA ES ADMIN-ONLY (vive dentro de <AdminRoute />, ver
 // app/router.tsx): el endpoint es authorize("ADMIN"), mismo criterio que
@@ -282,8 +286,8 @@ export function AgentPlaygroundPage() {
           <Card heading="Conversación">
             <p className="ds-hint">
               Escribís <strong>como el contacto</strong>, no como vos. Lo que se ve acá es solo lo
-              que pasó desde que abriste esta pantalla: todavía no hay forma de recuperar los
-              mensajes de una sesión anterior, aunque la conversación siga existiendo.
+              que pasó desde que abriste esta pantalla; el hilo completo, con lo de sesiones
+              anteriores, está en <Link to="/conversations">Conversaciones</Link>.
             </p>
 
             {entradas.length === 0 ? (
@@ -297,7 +301,7 @@ export function AgentPlaygroundPage() {
                 {entradas.map((entrada) => (
                   <li key={entrada.id} className={`ds-chat-row ds-chat-row--${entrada.tipo}`}>
                     {entrada.tipo === "tool" ? (
-                      <LlamadaDeTool llamada={entrada.llamada} />
+                      <ToolCallBlock llamada={entrada.llamada} />
                     ) : entrada.tipo === "sistema" || entrada.tipo === "error" ? (
                       <p className={`ds-chat-note ds-chat-note--${entrada.tipo}`}>
                         {entrada.texto}
@@ -357,45 +361,6 @@ export function AgentPlaygroundPage() {
             </form>
           </Card>
         </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Una tool call del turno. Bloque chico y legible, no una UI elaborada: esto
-// es diagnóstico para el ADMIN —qué pidió el modelo, si se le permitió y con
-// qué resultado—, no algo que vea un cliente.
-//
-// Los argumentos y el dato del resultado van como JSON crudo a propósito: cada
-// tool devuelve una forma distinta (ver CATALOGO_DE_TOOLS en
-// agentTools.service.ts) y no hay ninguna que el frontend conozca. Un
-// formateador por tool sería seis vistas para mantener, y un resumen genérico
-// escondería justo lo que se vino a mirar.
-// ---------------------------------------------------------------------------
-function LlamadaDeTool({ llamada }: { llamada: TestMessageToolCall }) {
-  return (
-    <div className="ds-chat-tool">
-      <p className="ds-chat-tool-head">
-        <strong>{toolLabel(llamada.name)}</strong> <code>{llamada.name}</code>
-      </p>
-      <p className="ds-chat-tool-line">
-        Argumentos: <code>{JSON.stringify(llamada.arguments)}</code>
-      </p>
-      {llamada.allowed ? null : (
-        <p className="ds-chat-tool-line ds-chat-tool-line--blocked">
-          Bloqueada por las reglas del agente
-          {llamada.reason !== undefined ? `: ${llamada.reason}` : "."}
-        </p>
-      )}
-      {llamada.result === undefined ? null : llamada.result.ok ? (
-        <p className="ds-chat-tool-line">
-          Resultado: <code>{JSON.stringify(llamada.result.data)}</code>
-        </p>
-      ) : (
-        <p className="ds-chat-tool-line ds-chat-tool-line--blocked">
-          Falló: {llamada.result.error}
-        </p>
       )}
     </div>
   );

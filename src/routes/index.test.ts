@@ -354,6 +354,30 @@ test("el CRUD de automatizaciones (docs/automations-architecture.md §8) está m
   }
 });
 
+test("la bandeja de conversaciones (ítem 66) está montada bajo /api, y es SOLO lectura", async () => {
+  const id = randomUUID();
+  // Las dos que existen: 401 desde authenticate = montadas.
+  for (const path of ["/api/conversations", `/api/conversations/${id}`]) {
+    const res = await fetch(`${baseUrl}${path}`);
+    assert.equal(res.status, 401, `GET ${path} no está montado`);
+  }
+
+  // Y las que NO existen: 404 desde notFound, no 401. Es la barrera del ítem
+  // —no hay forma de escribir una conversación por HTTP— comprobada donde de
+  // verdad se ve, que es la app compuesta. Si alguien agrega un POST sin
+  // resolver antes la entrega del mensaje por el canal, este test se cae.
+  const escrituras: [string, string][] = [
+    ["POST", "/api/conversations"],
+    ["PATCH", `/api/conversations/${id}`],
+    ["DELETE", `/api/conversations/${id}`],
+    ["POST", `/api/conversations/${id}/messages`],
+  ];
+  for (const [method, path] of escrituras) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 404, `${method} ${path} no debería existir`);
+  }
+});
+
 test("las cotizaciones (§39) están montadas bajo /api, sin DELETE", async () => {
   const id = randomUUID();
   const casos: [string, string][] = [
