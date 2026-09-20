@@ -66,36 +66,40 @@ test("el prompt se arma desde CATALOGO_DE_TOOLS, no desde una lista copiada a ma
     assert.ok(prompt.includes(clave), `el prompt debería nombrar la clave de ambiente ${clave}`);
   }
 
-  // Y las seis claves de §6.
-  for (const clave of [
-    "temasProhibidos",
-    "accionesProhibidas",
-    "infoNoModificable",
-    "condicionesDeDerivacion",
-    "promesasProhibidas",
-    "datosRequeridosAntesDeAccion",
-  ]) {
+  // Y las TRES claves que esta traducción produce — las tres que
+  // puedeEjecutarTool hace cumplir con código.
+  for (const clave of ["accionesProhibidas", "infoNoModificable", "datosRequeridosAntesDeAccion"]) {
     assert.ok(prompt.includes(clave), `el prompt debería explicar la clave ${clave}`);
   }
+});
+
+test("el prompt ya no pide las tres claves que se mudaron a Instrucciones (ítem 72)", () => {
+  const prompt = armarPromptDeTraduccion();
+
+  // No alcanza con que sanitizarGuardrails las descarte: si el prompt las
+  // sigue pidiendo, el modelo las va a devolver y el ADMIN va a ver una
+  // advertencia por algo que la pantalla le pidió escribir.
+  for (const clave of ["temasProhibidos", "promesasProhibidas", "condicionesDeDerivacion"]) {
+    assert.ok(!prompt.includes(clave), `el prompt no debería pedir ${clave}`);
+  }
+
+  assert.ok(prompt.includes("estas tres claves"), "el prompt debería declarar que son tres");
 });
 
 // ---------------------------------------------------------------------------
 // Camino feliz
 // ---------------------------------------------------------------------------
 
-test("traducción feliz: las seis claves de §6 pasan enteras", async () => {
+test("traducción feliz: las tres claves de código pasan enteras", async () => {
   const esperado = {
-    temasProhibidos: ["diagnósticos médicos", "asesoramiento legal"],
     accionesProhibidas: ["update_opportunity"],
     infoNoModificable: ["Contact.email"],
-    condicionesDeDerivacion: ["el cliente pide hablar con una persona"],
-    promesasProhibidas: ["descuentos no publicados"],
     datosRequeridosAntesDeAccion: { create_booking: ["serviceTypeId", "contactId"] },
   };
   const falso = proveedorQueResponde(respuesta(esperado));
 
   const resultado = await translateGuardrailsText(
-    "No hables de medicina ni de temas legales. No cambies oportunidades. No toques el mail del contacto.",
+    "No cambies oportunidades. No toques el mail del contacto. Antes de reservar pedí el servicio.",
     falso.provider,
   );
 
@@ -111,7 +115,7 @@ test("traducción feliz: las seis claves de §6 pasan enteras", async () => {
 });
 
 test("texto vacío devuelve {} sin llamar al proveedor", async () => {
-  const falso = proveedorQueResponde(respuesta({ temasProhibidos: ["no debería llegar acá"] }));
+  const falso = proveedorQueResponde(respuesta({ accionesProhibidas: ["update_opportunity"] }));
 
   for (const texto of ["", "   \n  "]) {
     const resultado = await translateGuardrailsText(texto, falso.provider);
@@ -122,11 +126,13 @@ test("texto vacío devuelve {} sin llamar al proveedor", async () => {
 });
 
 test("la respuesta envuelta en un bloque ```json se interpreta igual", async () => {
-  const falso = proveedorQueResponde('```json\n{"temasProhibidos": ["política"]}\n```');
+  const falso = proveedorQueResponde(
+    '```json\n{"accionesProhibidas": ["update_opportunity"]}\n```',
+  );
 
-  const resultado = await translateGuardrailsText("No hables de política.", falso.provider);
+  const resultado = await translateGuardrailsText("No modifiques oportunidades.", falso.provider);
 
-  assert.deepEqual(resultado.guardrails, { temasProhibidos: ["política"] });
+  assert.deepEqual(resultado.guardrails, { accionesProhibidas: ["update_opportunity"] });
 });
 
 // ---------------------------------------------------------------------------
@@ -269,39 +275,46 @@ test("datosRequeridosAntesDeAccion admite las claves de ambiente de la conversac
 });
 
 // ---------------------------------------------------------------------------
-// Frases libres: límites de cordura
+// Lo que dejó de traducirse (ítem 72)
 // ---------------------------------------------------------------------------
 
-test("una frase de 400 caracteres se descarta entera, no se trunca a la mitad", async () => {
-  const larga = "a".repeat(400);
+test("las tres claves que se mudaron a Instrucciones se descartan, con un motivo que lo dice", async () => {
+  // El prompt ya no se las pide, pero un modelo puede devolverlas igual. Si
+  // pasaran, la pantalla estaría escribiendo por la puerta de atrás justo lo
+  // que se sacó de esta pantalla.
   const falso = proveedorQueResponde(
-    respuesta({ temasProhibidos: [larga, "diagnósticos médicos"] }),
+    respuesta({
+      temasProhibidos: ["diagnósticos médicos"],
+      promesasProhibidas: ["descuentos no publicados"],
+      condicionesDeDerivacion: ["reclamo o queja"],
+      accionesProhibidas: ["update_opportunity"],
+    }),
   );
 
-  const resultado = await translateGuardrailsText("No hables de eso.", falso.provider);
+  const resultado = await translateGuardrailsText(
+    "No hables de medicina, no prometas descuentos, derivá los reclamos y no modifiques oportunidades.",
+    falso.provider,
+  );
 
-  assert.deepEqual(resultado.guardrails, { temasProhibidos: ["diagnósticos médicos"] });
-  assert.equal(resultado.descartado.length, 1);
-  assert.match(resultado.descartado[0].motivo, /supera los 300 caracteres/);
-  // Se reporta recortado para que la advertencia sea legible, pero la frase no
-  // entró al guardrail a medias.
-  assert.ok(resultado.descartado[0].valor.length < 100);
-});
-
-test("una lista de frases de más de 20 entradas se corta y reporta el sobrante", async () => {
-  const frases = Array.from({ length: 23 }, (_, i) => `tema ${i}`);
-  const falso = proveedorQueResponde(respuesta({ promesasProhibidas: frases }));
-
-  const resultado = await translateGuardrailsText("No prometas nada.", falso.provider);
-
-  assert.equal((resultado.guardrails.promesasProhibidas as string[]).length, 20);
+  assert.deepEqual(resultado.guardrails, { accionesProhibidas: ["update_opportunity"] });
   assert.equal(resultado.descartado.length, 3);
+  for (const clave of ["temasProhibidos", "promesasProhibidas", "condicionesDeDerivacion"]) {
+    const descarte = resultado.descartado.find((d) => d.clave === clave);
+    assert.ok(descarte, `debería reportar ${clave}`);
+    // El motivo es el específico, no el genérico de "clave inventada": la
+    // clave existe y el agente la sigue leyendo — lo que cambió es dónde se
+    // escribe.
+    assert.match(descarte.motivo, /ya no se traduce acá — escribilo directamente en Instrucciones/);
+  }
 });
+
+// ---------------------------------------------------------------------------
+// Listas: duplicados
+// ---------------------------------------------------------------------------
 
 test("los duplicados se deduplican en todas las listas", async () => {
   const falso = proveedorQueResponde(
     respuesta({
-      temasProhibidos: ["política", "política", "  política  "],
       accionesProhibidas: ["create_booking", "create_booking"],
       infoNoModificable: ["amount", "amount"],
       datosRequeridosAntesDeAccion: { create_booking: ["serviceTypeId", "serviceTypeId"] },
@@ -314,7 +327,6 @@ test("los duplicados se deduplican en todas las listas", async () => {
     accionesProhibidas: ["create_booking"],
     infoNoModificable: ["amount"],
     datosRequeridosAntesDeAccion: { create_booking: ["serviceTypeId"] },
-    temasProhibidos: ["política"],
   });
   assert.deepEqual(resultado.descartado, []);
 });
@@ -323,19 +335,22 @@ test("los duplicados se deduplican en todas las listas", async () => {
 // Formas equivocadas
 // ---------------------------------------------------------------------------
 
-test("una clave que no es de §6 no rige nada: se descarta y se reporta", async () => {
-  const falso = proveedorQueResponde(respuesta({ maxTurns: 3, temasProhibidos: ["política"] }));
+test("una clave inventada no rige nada: se descarta y se reporta", async () => {
+  const falso = proveedorQueResponde(
+    respuesta({ maxTurns: 3, accionesProhibidas: ["update_opportunity"] }),
+  );
 
   const resultado = await translateGuardrailsText("Máximo tres vueltas.", falso.provider);
 
-  assert.deepEqual(resultado.guardrails, { temasProhibidos: ["política"] });
+  assert.deepEqual(resultado.guardrails, { accionesProhibidas: ["update_opportunity"] });
   assert.equal(resultado.descartado.length, 1);
   assert.equal(resultado.descartado[0].clave, "maxTurns");
+  assert.match(resultado.descartado[0].motivo, /no es uno de los límites/);
 });
 
-test("una clave de §6 con el tipo equivocado se descarta entera, con su motivo", async () => {
+test("una clave válida con el tipo equivocado se descarta entera, con su motivo", async () => {
   const falso = proveedorQueResponde(
-    respuesta({ temasProhibidos: "política", accionesProhibidas: [42, "create_booking"] }),
+    respuesta({ infoNoModificable: "amount", accionesProhibidas: [42, "create_booking"] }),
   );
 
   const resultado = await translateGuardrailsText("Cualquiera.", falso.provider);
@@ -344,7 +359,7 @@ test("una clave de §6 con el tipo equivocado se descarta entera, con su motivo"
   assert.equal(resultado.descartado.length, 2);
   assert.ok(
     resultado.descartado.some(
-      (d) => d.clave === "temasProhibidos" && d.motivo === "no es una lista",
+      (d) => d.clave === "infoNoModificable" && d.motivo === "no es una lista",
     ),
   );
   assert.ok(

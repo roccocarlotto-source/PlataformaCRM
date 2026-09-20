@@ -328,7 +328,9 @@ test("GET /api/agents/:id y PATCH — ADMIN edita; USER lee el resultado", async
   assert.equal(editado.name, "Agente de turnos");
   assert.equal(editado.goal, null);
   assert.deepEqual(editado.enabledTools, ["get_availability", "create_booking"]);
-  // Se reemplaza entero, no se mergea.
+  // Se reemplaza entero: este agente nació con `{}`, así que no hay nada
+  // heredado que preservar (ver el caso del ítem 72 más abajo, que es el que
+  // cubre la otra mitad).
   assert.deepEqual(editado.guardrails, { condicionesDeDerivacion: ["reclamo"] });
   assert.equal(editado.guardrailsText, "Si el cliente hace un reclamo, derivá a una persona.");
   assert.equal(editado.isActive, false);
@@ -364,6 +366,55 @@ test("PATCH /api/agents/:id — guardrails y guardrailsText van juntos o no van"
     name: "Sin tocar los guardrails",
   });
   assert.equal(otro.status, 200);
+});
+
+test("PATCH /api/agents/:id — un guardado posterior NO le borra a un agente viejo lo que la pantalla ya no escribe (ítem 72)", async () => {
+  // Un agente de los de antes: tiene las tres claves que hoy se escriben en
+  // Instrucciones, más una de las tres que siguen siendo candado de código.
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    guardrails: {
+      temasProhibidos: ["diagnósticos médicos"],
+      promesasProhibidas: ["descuentos no publicados"],
+      condicionesDeDerivacion: ["reclamo o queja"],
+      accionesProhibidas: ["create_booking"],
+    },
+    guardrailsText: "El texto viejo, con todo mezclado.",
+  });
+
+  // Y el ADMIN lo edita desde la pantalla de hoy, que solo puede mandar las
+  // tres de código.
+  const patch = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
+    name: "Agente con nombre nuevo",
+    guardrails: { accionesProhibidas: ["update_opportunity"] },
+    guardrailsText: "No modifiques oportunidades.",
+  });
+  const crudo = await patch.text();
+  assert.equal(patch.status, 200, crudo);
+  const editado = JSON.parse(crudo) as Record<string, unknown>;
+
+  assert.equal(editado.name, "Agente con nombre nuevo");
+  assert.deepEqual(editado.guardrails, {
+    // Lo nuevo manda donde la pantalla sí escribe…
+    accionesProhibidas: ["update_opportunity"],
+    // …y las tres heredadas siguen enteras, que es lo que armarSystemPrompt
+    // va a seguir leyendo.
+    temasProhibidos: ["diagnósticos médicos"],
+    promesasProhibidas: ["descuentos no publicados"],
+    condicionesDeDerivacion: ["reclamo o queja"],
+  });
+
+  // En la fila, no solo en la respuesta.
+  const enBase = await prisma.agent.findUniqueOrThrow({ where: { id: String(agente.id) } });
+  assert.deepEqual(enBase.guardrails, editado.guardrails);
+
+  // Y un PATCH que ni menciona los guardrails los deja exactamente igual.
+  const soloNombre = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
+    name: "Otro nombre más",
+  });
+  assert.equal(soloNombre.status, 200);
+  const despues = await prisma.agent.findUniqueOrThrow({ where: { id: String(agente.id) } });
+  assert.deepEqual(despues.guardrails, editado.guardrails);
+  assert.equal(despues.guardrailsText, "No modifiques oportunidades.");
 });
 
 test("PATCH /api/agents/:id — sin campos es 400, y branchId NO es editable", async () => {
@@ -833,7 +884,7 @@ test("POST /api/agents/guardrails/translate — ADMIN traduce y recibe guardrail
   const doble = proveedorGuionado([
     {
       text: JSON.stringify({
-        temasProhibidos: ["diagnósticos médicos"],
+        infoNoModificable: ["email"],
         accionesProhibidas: ["update_opportunity", "enviar_email"],
       }),
       toolCalls: [],
@@ -842,7 +893,7 @@ test("POST /api/agents/guardrails/translate — ADMIN traduce y recibe guardrail
   setLlmProviderForTests(doble.proveedor);
   try {
     const res = await translate(adminA.accessToken, {
-      text: "No hables de medicina y no modifiques oportunidades ni mandes mails.",
+      text: "No toques el mail del contacto y no modifiques oportunidades ni mandes mails.",
     });
     const crudo = await res.text();
     assert.equal(res.status, 200, crudo);
@@ -853,7 +904,7 @@ test("POST /api/agents/guardrails/translate — ADMIN traduce y recibe guardrail
 
     assert.deepEqual(body.guardrails, {
       accionesProhibidas: ["update_opportunity"],
-      temasProhibidos: ["diagnósticos médicos"],
+      infoNoModificable: ["email"],
     });
     // Lo que no se pudo aplicar vuelve como advertencia, nunca en silencio.
     assert.equal(body.descartado.length, 1);
@@ -870,7 +921,7 @@ test("POST /api/agents/guardrails/translate — ADMIN traduce y recibe guardrail
 
 test("POST /api/agents/guardrails/translate — texto vacío devuelve {} sin llamar al proveedor", async () => {
   const doble = proveedorGuionado([
-    { text: '{"temasProhibidos":["no debería llegar"]}', toolCalls: [] },
+    { text: '{"accionesProhibidas":["no debería llegar"]}', toolCalls: [] },
   ]);
   setLlmProviderForTests(doble.proveedor);
   try {

@@ -444,6 +444,26 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >    función de ejecución de handoff que la tool nueva, con motivo "el agente
 >    no pudo resolver el caso en el tiempo esperado".
 
+> **Nota del 20/09/2026 — de dónde sale cada clave a partir del ítem 72** de
+> `docs/frontend-cambios-pendientes.md`. La forma de `guardrails` documentada
+> arriba **no cambió**, y las seis claves se siguen leyendo exactamente igual:
+> `puedeEjecutarTool()` las tres de ejecución y `armarSystemPrompt()` las tres
+> de prompt (punto 3 de la nota anterior). Lo que cambió es **quién escribe
+> cada una**: la pantalla de "Reglas del agente" y su traducción por IA ahora
+> producen solo `accionesProhibidas`, `infoNoModificable` y
+> `datosRequeridosAntesDeAccion` — las tres que son un candado de código. Las
+> otras tres se escriben en texto libre en el campo `instructions` del agente,
+> porque iban al prompt con exactamente la misma fuerza que ese campo y la
+> traducción intermedia no compraba nada.
+>
+> **No hubo migración de datos.** Los agentes que ya tienen `temasProhibidos`,
+> `promesasProhibidas` o `condicionesDeDerivacion` guardados los conservan y
+> siguen rigiendo; `updateAgent()` las preserva en cada guardado
+> (`preservarGuardrailsHeredados` en `src/services/agent.service.ts`), porque
+> el formulario manda el objeto entero en cada PATCH y sin esa fusión un
+> guardado posterior las habría borrado en silencio. Un `guardrails` armado a
+> mano contra la API puede seguir trayendo las seis.
+
 **La restricción de cumplimiento de Meta (documento de visión, roadmap 2.2) se aplica estructuralmente, no como un guardrail más que un admin pueda desactivar.** El catálogo de tools de la sección 7 solo incluye acciones de negocio acotadas (calificar, agendar, crear oportunidades, links de pago) — no existe ninguna tool de "responder cualquier cosa", así que un agente no puede convertirse en un asistente de propósito general aunque un admin deshabilite todos los guardrails configurables. Es una propiedad del catálogo de tools, no de la configuración.
 
 ## 7. Tools del agente de IA — estado real
