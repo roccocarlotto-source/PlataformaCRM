@@ -20,6 +20,13 @@ import { LlmProviderError, getLlmProvider, type LlmProvider } from "./llmProvide
 // en semántica. El enforcement no se movió ni un milímetro; lo que cambió es
 // cómo un ADMIN llega hasta ese objeto.
 //
+// DESDE EL ÍTEM 72, ESTA TRADUCCIÓN PRODUCE SOLO TRES DE LAS SEIS CLAVES DE §6
+// —las tres que son un candado de código, ver CLAVES_QUE_YA_NO_SE_TRADUCEN más
+// abajo—. Las otras tres se escriben en el campo "Instrucciones" del agente,
+// en texto libre y sin traducción. No hubo migración de datos: los agentes que
+// ya las tenían las conservan, armarSystemPrompt() las sigue leyendo igual y
+// agent.service.ts las preserva en cada guardado.
+//
 // EL CATÁLOGO SE LEE DEL CATÁLOGO, NUNCA SE COPIA. Tanto el prompt que se le
 // manda al modelo como la sanitización de su respuesta salen de
 // CATALOGO_DE_TOOLS y de los `properties` de cada tool. features/agent/tools.ts
@@ -47,21 +54,33 @@ export interface ResultadoDeTraduccion {
   descartado: DescarteDeGuardrail[];
 }
 
-// Las seis claves de §6, y nada más. Una clave que el modelo invente se
-// descarta igual que un valor inventado: la forma de §6 está documentada y es
-// la que las dos piezas de enforcement saben leer.
-const CLAVES_DE_FRASES = [
+// Las TRES claves que esta traducción produce, y nada más: exactamente las
+// tres que puedeEjecutarTool() hace cumplir CON CÓDIGO antes de dejar pasar
+// una acción. Una clave que el modelo invente se descarta igual que un valor
+// inventado: la forma de §6 está documentada y es la que el enforcement sabe
+// leer.
+//
+// LAS OTRAS TRES DE §6 —temasProhibidos, promesasProhibidas,
+// condicionesDeDerivacion— YA NO SE TRADUCEN ACÁ (ítem 72 de
+// docs/frontend-cambios-pendientes.md). Nunca fueron un gate de ejecución:
+// armarSystemPrompt() las pega al system prompt con exactamente la misma
+// fuerza que el campo "Instrucciones" del agente, ni más ni menos. Tener una
+// pantalla aparte, con su propia traducción por IA y su propia confirmación,
+// para escribir lo mismo que se puede escribir en Instrucciones era una vuelta
+// larga que terminaba en el mismo lugar. Ahora se piden en Instrucciones, en
+// las palabras del ADMIN y sin traducir.
+//
+// Lo que NO cambió, y por eso esta lista sigue existiendo: armarSystemPrompt()
+// sigue leyendo esas tres claves de los agentes que YA las tienen guardadas
+// —no hay migración de datos— y preservarGuardrailsHeredados() en
+// agent.service.ts se encarga de que un guardado posterior no las borre. Acá
+// viven solo para poder descartarlas con un motivo que se entienda, si el
+// modelo insiste en devolverlas aunque ya no se le pidan.
+const CLAVES_QUE_YA_NO_SE_TRADUCEN = [
   "temasProhibidos",
   "promesasProhibidas",
   "condicionesDeDerivacion",
 ] as const;
-
-// Topes de cordura para las listas de frases libres (las únicas tres claves
-// que no tienen un catálogo contra el que validar). No son reglas de negocio:
-// son el límite entre "un guardrail" y "un modelo que se fue de tema y
-// devolvió media conversación".
-const MAX_ENTRADAS_POR_LISTA = 20;
-const MAX_LARGO_DE_FRASE = 300;
 
 // ---------------------------------------------------------------------------
 // (a) Los valores válidos, armados desde el catálogo real
@@ -151,13 +170,10 @@ export function armarPromptDeTraduccion(): string {
   return [
     "Sos un traductor. Convertís la descripción en lenguaje natural que un administrador escribió sobre los límites de su agente de IA en un objeto JSON con una forma fija. No conversás, no opinás, no pedís aclaraciones: devolvés el objeto y nada más.",
 
-    "El objeto tiene exactamente estas seis claves, TODAS OPCIONALES (omitir la que no aplique; nunca inventar una clave que no esté en esta lista):",
+    "El objeto tiene exactamente estas tres claves, TODAS OPCIONALES (omitir la que no aplique; nunca inventar una clave que no esté en esta lista):",
     [
-      '- "temasProhibidos": lista de frases. Temas sobre los que el agente no puede responder ni opinar (ej. "diagnósticos médicos", "asesoramiento legal").',
       '- "accionesProhibidas": lista de NOMBRES DE ACCIÓN. Acciones que el agente no puede ejecutar nunca, aunque estén habilitadas.',
       '- "infoNoModificable": lista de NOMBRES DE CAMPO. Datos que ninguna acción del agente puede modificar.',
-      '- "condicionesDeDerivacion": lista de frases. Situaciones en las que el agente tiene que derivar la conversación a una persona (ej. "el cliente pide hablar con una persona", "reclamo o queja").',
-      '- "promesasProhibidas": lista de frases. Cosas que el agente nunca puede prometer ni confirmar (ej. "descuentos no publicados", "plazos de entrega no confirmados").',
       '- "datosRequeridosAntesDeAccion": objeto donde cada clave es un NOMBRE DE ACCIÓN y su valor es una lista de NOMBRES DE CAMPO que tienen que conocerse antes de ejecutarla.',
     ].join("\n"),
 
@@ -168,9 +184,8 @@ export function armarPromptDeTraduccion(): string {
     "Reglas:",
     [
       '1. Si el administrador menciona una acción, un campo o un dato que no corresponde exactamente a un nombre de la lista, elegí el más cercano que SÍ esté en la lista (ej. "no cambies el monto" → el campo amount de update_opportunity). NUNCA inventes un nombre que no esté listado.',
-      "2. Si no encontrás ninguno razonablemente cercano, omití esa parte en vez de inventar.",
-      "3. Las frases de temasProhibidos, promesasProhibidas y condicionesDeDerivacion van cortas y en español, una idea por entrada.",
-      "4. Si el texto no declara ningún límite, devolvé {}.",
+      "2. Si no encontrás ninguno razonablemente cercano, omití esa parte en vez de inventar. Si el administrador escribió algo que no entra en ninguna de las tres claves (temas de los que no quiere que se hable, promesas que no quiere que se hagan, cuándo derivar a una persona), omitilo también: eso no se configura acá.",
+      "3. Si el texto no declara ningún límite de los de esta lista, devolvé {}.",
     ].join("\n"),
 
     "Respondé ÚNICAMENTE con el objeto JSON. Sin texto antes ni después, sin explicaciones y sin bloques de código de markdown.",
@@ -357,72 +372,44 @@ function sanitizarDatosRequeridos(
   return salida;
 }
 
-function sanitizarFrases(
-  clave: string,
-  valor: unknown,
-  descartado: DescarteDeGuardrail[],
-): string[] {
-  const entradas = comoListaDeStrings(clave, valor, descartado);
-  if (entradas === null) {
-    return [];
-  }
-
-  const aceptadas: string[] = [];
-  for (const entrada of entradas) {
-    const frase = entrada.trim();
-    if (frase === "") {
-      continue;
-    }
-    // Se descarta ENTERA y se reporta, no se trunca: media instrucción es peor
-    // que ninguna, porque parece completa.
-    if (frase.length > MAX_LARGO_DE_FRASE) {
-      descartado.push({
-        clave,
-        valor: `${frase.slice(0, 60)}…`,
-        motivo: `supera los ${MAX_LARGO_DE_FRASE} caracteres`,
-      });
-      continue;
-    }
-    aceptadas.push(frase);
-  }
-
-  const unicas = sinDuplicados(aceptadas);
-  if (unicas.length > MAX_ENTRADAS_POR_LISTA) {
-    for (const sobrante of unicas.slice(MAX_ENTRADAS_POR_LISTA)) {
-      descartado.push({
-        clave,
-        valor: sobrante,
-        motivo: `la lista no puede tener más de ${MAX_ENTRADAS_POR_LISTA} entradas`,
-      });
-    }
-    return unicas.slice(0, MAX_ENTRADAS_POR_LISTA);
-  }
-  return unicas;
-}
-
 export function sanitizarGuardrails(crudo: Record<string, unknown>): ResultadoDeTraduccion {
   const descartado: DescarteDeGuardrail[] = [];
   const guardrails: Record<string, unknown> = {};
 
   const claves = new Set<string>([
-    ...CLAVES_DE_FRASES,
     "accionesProhibidas",
     "infoNoModificable",
     "datosRequeridosAntesDeAccion",
   ]);
+  const yaNoSeTraducen = new Set<string>(CLAVES_QUE_YA_NO_SE_TRADUCEN);
 
   for (const clave of Object.keys(crudo)) {
-    if (!claves.has(clave)) {
-      // Una clave que el modelo inventó no rige nada: puedeEjecutarTool y
-      // armarSystemPrompt leen las seis de §6 y ninguna otra. Se descarta y se
-      // reporta — es exactamente el caso que dejó viva una clave muerta antes
-      // de que existiera esta sanitización.
+    if (claves.has(clave)) {
+      continue;
+    }
+    // Las tres del ítem 72 se descartan como cualquier otra clave que no rija
+    // nada, pero con su motivo propio: "no es uno de los límites que el agente
+    // sabe hacer cumplir" sería confuso para una clave que el agente SÍ lee
+    // —armarSystemPrompt la sigue leyendo— y que hasta hace poco se traducía
+    // acá. Lo que dejó de ser cierto no es que exista, es que este campo sea
+    // el lugar donde se escribe.
+    if (yaNoSeTraducen.has(clave)) {
       descartado.push({
         clave,
         valor: JSON.stringify(crudo[clave]),
-        motivo: `"${clave}" no es uno de los límites que el agente sabe hacer cumplir`,
+        motivo: `"${clave}" ya no se traduce acá — escribilo directamente en Instrucciones`,
       });
+      continue;
     }
+    // Una clave que el modelo inventó no rige nada: puedeEjecutarTool lee las
+    // tres de acá y ninguna otra. Se descarta y se reporta — es exactamente el
+    // caso que dejó viva una clave muerta antes de que existiera esta
+    // sanitización.
+    descartado.push({
+      clave,
+      valor: JSON.stringify(crudo[clave]),
+      motivo: `"${clave}" no es uno de los límites que el agente sabe hacer cumplir`,
+    });
   }
 
   if (crudo.accionesProhibidas !== undefined) {
@@ -443,16 +430,6 @@ export function sanitizarGuardrails(crudo: Record<string, unknown>): ResultadoDe
     const datos = sanitizarDatosRequeridos(crudo.datosRequeridosAntesDeAccion, descartado);
     if (Object.keys(datos).length > 0) {
       guardrails.datosRequeridosAntesDeAccion = datos;
-    }
-  }
-
-  for (const clave of CLAVES_DE_FRASES) {
-    if (crudo[clave] === undefined) {
-      continue;
-    }
-    const frases = sanitizarFrases(clave, crudo[clave], descartado);
-    if (frases.length > 0) {
-      guardrails[clave] = frases;
     }
   }
 

@@ -168,13 +168,65 @@ export interface UpdateAgentInput {
   isActive?: boolean;
 }
 
+// Las tres claves de guardrails que la pantalla YA NO PUEDE ESCRIBIR desde el
+// ítem 72 (ver CLAVES_QUE_YA_NO_SE_TRADUCEN en
+// agentGuardrailsTranslation.service.ts) pero que los agentes viejos pueden
+// tener guardadas, y que armarSystemPrompt() sigue leyendo igual que siempre.
+const CLAVES_HEREDADAS = [
+  "temasProhibidos",
+  "promesasProhibidas",
+  "condicionesDeDerivacion",
+] as const;
+
+// POR QUÉ ESTA FUSIÓN EXISTE. El formulario manda SIEMPRE el objeto completo
+// de guardrails en el PATCH, sin diferenciar qué cambió — así que un ADMIN que
+// abre un agente viejo para corregirle el Nombre, sin tocar las Reglas del
+// agente para nada, manda igual un `guardrails` nuevo. Y desde el ítem 72 ese
+// objeto nuevo solo puede tener las tres claves que son un candado de código.
+// Guardarlo tal cual le BORRARÍA en silencio a ese agente los temas
+// prohibidos, las promesas prohibidas y las condiciones de derivación que
+// tenía configuradas, que es exactamente lo contrario de la decisión tomada:
+// los agentes existentes quedan como están, no se migran.
+//
+// Por eso las tres claves heredadas se toman SIEMPRE de la fila actual y nunca
+// del input: no hay ningún camino por el que un guardado posterior pueda
+// pisarlas ni vaciarlas. Todo lo demás es lo que vino en el PATCH.
+export function preservarGuardrailsHeredados(
+  actuales: unknown,
+  nuevos: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!actuales || typeof actuales !== "object" || Array.isArray(actuales)) {
+    return nuevos;
+  }
+
+  const previos = actuales as Record<string, unknown>;
+  const fusionados: Record<string, unknown> = { ...nuevos };
+  for (const clave of CLAVES_HEREDADAS) {
+    // `undefined` no se copia: una clave que el agente nunca tuvo no tiene que
+    // aparecer como presente-y-vacía en el objeto guardado.
+    if (previos[clave] !== undefined) {
+      fusionados[clave] = previos[clave];
+    }
+  }
+  return fusionados;
+}
+
 export async function updateAgent(organizationId: string, id: string, input: UpdateAgentInput) {
-  await getAgentById(organizationId, id);
+  // El agente actual, que ya se lee acá para el 404, es también de dónde salen
+  // los guardrails heredados: no hace falta otra consulta.
+  const actual = await getAgentById(organizationId, id);
 
   const { guardrails, ...resto } = input;
   const result = await updateAgentRepo(id, organizationId, {
     ...resto,
-    ...(guardrails !== undefined ? { guardrails: guardrails as Prisma.InputJsonValue } : {}),
+    ...(guardrails !== undefined
+      ? {
+          guardrails: preservarGuardrailsHeredados(
+            actual.guardrails,
+            guardrails,
+          ) as Prisma.InputJsonValue,
+        }
+      : {}),
   });
   if (result.count === 0) {
     throw new AppError("Agente no encontrado", 404);

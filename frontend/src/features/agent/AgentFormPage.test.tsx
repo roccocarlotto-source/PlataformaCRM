@@ -163,7 +163,7 @@ describe("AgentFormPage — creación", () => {
       mockTranslate({
         guardrails: {
           accionesProhibidas: ["update_opportunity"],
-          temasProhibidos: ["diagnósticos médicos"],
+          infoNoModificable: ["email"],
           datosRequeridosAntesDeAccion: { create_booking: ["serviceTypeId"] },
         },
       }),
@@ -176,7 +176,7 @@ describe("AgentFormPage — creación", () => {
     const user = userEvent.setup();
     renderForm("/agents/new");
     await completarMinimo(user);
-    await escribirGuardrails(user, "No modifiques oportunidades ni hables de medicina.");
+    await escribirGuardrails(user, "No modifiques oportunidades ni el mail del contacto.");
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     const panel = await screen.findByRole("dialog");
@@ -184,7 +184,7 @@ describe("AgentFormPage — creación", () => {
     expect(
       within(panel).getByText("No puede ejecutar estas acciones: Modificar oportunidad."),
     ).toBeInTheDocument();
-    expect(within(panel).getByText("No habla de: diagnósticos médicos.")).toBeInTheDocument();
+    expect(within(panel).getByText("No puede modificar estos datos: email.")).toBeInTheDocument();
     expect(
       within(panel).getByText('Antes de "Reservar turno" tiene que conocer: serviceTypeId.'),
     ).toBeInTheDocument();
@@ -230,7 +230,7 @@ describe("AgentFormPage — creación", () => {
     let posts = 0;
     server.use(
       mockBranches(),
-      mockTranslate({ guardrails: { temasProhibidos: ["política"] } }),
+      mockTranslate({ guardrails: { infoNoModificable: ["email"] } }),
       http.post(baseUrl, () => {
         posts += 1;
         return HttpResponse.json(makeAgent(), { status: 201 });
@@ -296,7 +296,7 @@ describe("AgentFormPage — creación", () => {
           );
         }
         return HttpResponse.json({
-          guardrails: { temasProhibidos: ["política"] },
+          guardrails: { infoNoModificable: ["email"] },
           descartado: [],
         });
       }),
@@ -339,7 +339,7 @@ describe("AgentFormPage — creación", () => {
       mockBranches(),
       http.post(translateUrl, () => {
         traducciones += 1;
-        return HttpResponse.json({ guardrails: { temasProhibidos: ["política"] }, descartado: [] });
+        return HttpResponse.json({ guardrails: { infoNoModificable: ["email"] }, descartado: [] });
       }),
       http.post(baseUrl, () => {
         posts += 1;
@@ -397,6 +397,40 @@ describe("AgentFormPage — creación", () => {
     renderForm("/agents/new");
 
     expect(screen.getByLabelText("Proveedor")).toHaveValue("OpenRouter");
+  });
+
+  it("Instrucciones invita a escribir ahí los temas, las promesas y cuándo derivar (ítem 72)", async () => {
+    server.use(mockBranches());
+    renderForm("/agents/new");
+
+    const hint = screen.getByText(/Es lo que el modelo lee antes de cada conversación/);
+    expect(hint).toHaveTextContent(/temas que no puede tocar/);
+    expect(hint).toHaveTextContent(/promesas que no puede hacer/);
+    expect(hint).toHaveTextContent(/derivar la conversación a una persona/);
+  });
+
+  it("Reglas del agente habla solo de los tres candados de código, y dice que son código", async () => {
+    server.use(mockBranches());
+    renderForm("/agents/new");
+
+    const hint = screen.getByText(/Escribilo con tus palabras/);
+    expect(hint).toHaveTextContent(/acciones no puede ejecutar nunca/);
+    expect(hint).toHaveTextContent(/datos no puede modificar/);
+    expect(hint).toHaveTextContent(/antes de ejecutar una acción/);
+    // La diferencia real con Instrucciones, dicha con todas las letras: es lo
+    // único que justifica que esto viva en un campo aparte.
+    expect(hint).toHaveTextContent(/el sistema verifica con código/);
+    // Y lo otro no se pide acá: se dice dónde va.
+    expect(hint).toHaveTextContent(/va en Instrucciones/);
+
+    const placeholder =
+      screen.getByLabelText("Reglas del agente").getAttribute("placeholder") ?? "";
+    expect(placeholder).toMatch(/sin que un humano lo confirme/);
+    expect(placeholder).toMatch(/No modifiques el email/);
+    expect(placeholder).toMatch(/Antes de reservar un turno/);
+    // Los ejemplos de las tres categorías que se fueron ya no están.
+    expect(placeholder).not.toMatch(/diagnósticos médicos/);
+    expect(placeholder).not.toMatch(/derivá/);
   });
 
   it("las tools muestran la descripción completa que lee el modelo, no solo el nombre", async () => {
@@ -556,7 +590,7 @@ describe("AgentFormPage — edición", () => {
         guardrails: { accionesProhibidas: ["update_opportunity"] },
         guardrailsText: "No modifiques oportunidades.",
       }),
-      mockTranslate({ guardrails: { temasProhibidos: ["política"] } }),
+      mockTranslate({ guardrails: { infoNoModificable: ["email"] } }),
       http.patch(`${baseUrl}/:id`, async ({ request }) => {
         bodies.push((await request.json()) as Record<string, unknown>);
         return HttpResponse.json(makeAgent());
@@ -572,8 +606,57 @@ describe("AgentFormPage — edición", () => {
     await user.click(await screen.findByRole("button", { name: "Confirmar y guardar" }));
 
     await waitFor(() => expect(bodies).toHaveLength(1));
-    expect(bodies[0].guardrails).toEqual({ temasProhibidos: ["política"] });
+    expect(bodies[0].guardrails).toEqual({ infoNoModificable: ["email"] });
     expect(bodies[0].guardrailsText).toBe("No hables de política.");
+  });
+
+  it("el panel muestra también lo heredado que esta pantalla ya no escribe (ítem 72)", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      mockBranches(),
+      // Un agente de los de antes: tiene las tres claves que hoy van en
+      // Instrucciones.
+      mockAgentDetalle({
+        guardrails: {
+          accionesProhibidas: ["update_opportunity"],
+          temasProhibidos: ["diagnósticos médicos"],
+          condicionesDeDerivacion: ["reclamo o queja"],
+        },
+        guardrailsText: "El texto viejo, con todo mezclado.",
+      }),
+      mockTranslate({ guardrails: { infoNoModificable: ["email"] } }),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+    await screen.findByLabelText("Nombre");
+
+    await escribirGuardrails(user, "No toques el mail del contacto.");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    const panel = await screen.findByRole("dialog");
+    // Lo que se acaba de traducir…
+    expect(within(panel).getByText("No puede modificar estos datos: email.")).toBeInTheDocument();
+    // …y lo que el agente sigue teniendo aunque desde acá ya no se edite. Si
+    // el panel las escondiera, diría menos de lo que el agente hace cumplir.
+    expect(within(panel).getByText("No habla de: diagnósticos médicos.")).toBeInTheDocument();
+    expect(
+      within(panel).getByText("Deriva a una persona si: reclamo o queja."),
+    ).toBeInTheDocument();
+    // La acción prohibida vieja NO sobrevive: esa clave sí la escribe esta
+    // pantalla, y la traducción nueva no la trajo.
+    expect(within(panel).queryByText(/No puede ejecutar estas acciones/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Confirmar y guardar" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    // El PATCH lleva solo lo traducido: preservar lo heredado es tarea del
+    // backend (preservarGuardrailsHeredados), no de esta pantalla.
+    expect(bodies[0].guardrails).toEqual({ infoNoModificable: ["email"] });
   });
 
   it("la sucursal se ve, con su nombre, pero no se puede cambiar", async () => {
