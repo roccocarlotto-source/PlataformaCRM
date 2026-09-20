@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { http, HttpResponse } from "msw";
@@ -79,6 +80,21 @@ function renderDetail(role: "ADMIN" | "USER" = "ADMIN") {
         <Routes>
           <Route path="/conversations/:id" element={<ConversationDetail />} />
         </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+// El segundo uso del componente (ítem 73): montado a mano con el id por prop,
+// como lo hace el Modal de la bandeja. SIN una <Route> que lo provea — es
+// exactamente la diferencia que el prop existe para permitir.
+function renderComoPopup(role: "ADMIN" | "USER" = "ADMIN") {
+  useAuthMock.mockReturnValue(mockAuth(role));
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/conversations"]}>
+        <ConversationDetail id="conv-1" />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -281,15 +297,333 @@ describe("ConversationDetail", () => {
     renderDetail();
     await screen.findByText("Ana Pérez");
 
-    // La barrera del ítem: responder exige poder ENTREGAR el mensaje por el
+    // La barrera del ítem 66: responder exige poder ENTREGAR el mensaje por el
     // canal (el widget Web solo contesta a su propio mensaje; WhatsApp no
-    // existe todavía). Si alguien agrega una caja de texto sin resolver eso
-    // primero, este test se cae y obliga a pensarlo.
+    // existe todavía). Si alguien agrega una caja de texto para CONTESTAR sin
+    // resolver eso primero, este test se cae y obliga a pensarlo.
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Enviar|Responder|Cerrar conversación/ }),
     ).toBeNull();
     expect(screen.queryByRole("form")).not.toBeInTheDocument();
+  });
+
+  it("el editor del brief NO es una caja para responder: la barrera sigue en pie", async () => {
+    // El ítem 73 trajo el único textarea de esta pantalla. Este caso lo abre a
+    // propósito y comprueba que aun ASÍ no hay forma de contestarle al
+    // contacto: lo que se edita es una anotación interna, y no aparece ningún
+    // "Enviar".
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ brief: "Ana preguntó el precio." }, HILO)),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Editar" }));
+
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Enviar|Responder|Cerrar conversación/ }),
+    ).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // El brief (ítem 73)
+  // -------------------------------------------------------------------------
+
+  it("sin brief, ofrece generarlo en vez de mostrar una tarjeta vacía", async () => {
+    server.use(http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))));
+
+    renderDetail();
+
+    expect(await screen.findByText(/todavía no tiene un resumen/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generar resumen" })).toBeInTheDocument();
+    // Nada que editar todavía.
+    expect(screen.queryByRole("button", { name: "Editar" })).not.toBeInTheDocument();
+  });
+
+  it("con brief, lo muestra arriba del hilo con Editar y Regenerar", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ brief: "Ana preguntó por el Corolla." }, HILO)),
+      ),
+    );
+
+    renderDetail();
+
+    const resumen = await screen.findByText("Ana preguntó por el Corolla.");
+    expect(resumen).toHaveClass("ds-brief-text");
+    expect(screen.getByRole("button", { name: "Editar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Regenerar resumen" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generar resumen" })).not.toBeInTheDocument();
+
+    // ANTES del hilo: es la pregunta que trae a alguien a esta pantalla.
+    const hilo = screen.getByRole("list", { name: "Mensajes de la conversación" });
+    expect(resumen.compareDocumentPosition(hilo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("un brief de la IA no se marca como editado a mano", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ brief: "Ana preguntó por el Corolla." }, HILO)),
+      ),
+    );
+
+    renderDetail();
+
+    await screen.findByText("Ana preguntó por el Corolla.");
+    expect(screen.queryByText(/Editado a mano/)).not.toBeInTheDocument();
+  });
+
+  it("un brief corregido a mano lo dice, y con el nombre de quien lo hizo", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(
+          makeConversationDetail(
+            {
+              brief: "Ana quería el Corolla automático.",
+              briefEditedByUserId: "u9",
+              briefEditedBy: { id: "u9", fullName: "Sofía Rodríguez" },
+            },
+            HILO,
+          ),
+        ),
+      ),
+    );
+
+    renderDetail();
+
+    expect(await screen.findByText(/Editado a mano por Sofía Rodríguez/)).toBeInTheDocument();
+  });
+
+  it("editar y guardar manda el PATCH con el texto nuevo", async () => {
+    const cuerpos: unknown[] = [];
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ brief: "Resumen viejo." }, HILO)),
+      ),
+      http.patch(detailUrl, async ({ request }) => {
+        cuerpos.push(await request.json());
+        return HttpResponse.json(
+          makeConversationDetail(
+            {
+              brief: "Resumen corregido.",
+              briefEditedByUserId: "u1",
+              briefEditedBy: { id: "u1", fullName: "A" },
+            },
+            HILO,
+          ),
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Editar" }));
+    const textarea = screen.getByRole("textbox");
+    // El textarea arranca con el brief que había, no en blanco: editar es
+    // corregir, no volver a escribir.
+    expect(textarea).toHaveValue("Resumen viejo.");
+
+    await user.clear(textarea);
+    await user.type(textarea, "Resumen corregido.");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(cuerpos).toHaveLength(1));
+    expect(cuerpos[0]).toEqual({ brief: "Resumen corregido." });
+
+    // Vuelve al modo lectura con el texto nuevo y ya marcado como editado.
+    expect(await screen.findByText("Resumen corregido.")).toBeInTheDocument();
+    expect(screen.getByText(/Editado a mano/)).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("guardar el textarea vacío manda null y vuelve a ofrecer generarlo", async () => {
+    const cuerpos: unknown[] = [];
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ brief: "Resumen viejo." }, HILO)),
+      ),
+      http.patch(detailUrl, async ({ request }) => {
+        cuerpos.push(await request.json());
+        return HttpResponse.json(makeConversationDetail({ brief: null }, HILO));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Editar" }));
+    await user.clear(screen.getByRole("textbox"));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(cuerpos).toHaveLength(1));
+    // null y no "": es como se vacía, y el backend distingue los dos.
+    expect(cuerpos[0]).toEqual({ brief: null });
+    expect(await screen.findByRole("button", { name: "Generar resumen" })).toBeInTheDocument();
+  });
+
+  it("cancelar no manda nada y deja el brief como estaba", async () => {
+    let patches = 0;
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ brief: "Resumen viejo." }, HILO)),
+      ),
+      http.patch(detailUrl, () => {
+        patches += 1;
+        return HttpResponse.json(makeConversationDetail({ brief: "no debería pasar" }, HILO));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Editar" }));
+    await user.clear(screen.getByRole("textbox"));
+    await user.type(screen.getByRole("textbox"), "algo que no se guarda");
+    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+
+    expect(patches).toBe(0);
+    expect(screen.getByText("Resumen viejo.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("'Generar resumen' llama al POST y muestra el resumen que vuelve", async () => {
+    let generaciones = 0;
+    server.use(
+      http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))),
+      http.post(`${detailUrl}/generate-brief`, () => {
+        generaciones += 1;
+        return HttpResponse.json(
+          makeConversationDetail({ brief: "Ana preguntó el precio del Corolla." }, HILO),
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Generar resumen" }));
+
+    expect(await screen.findByText("Ana preguntó el precio del Corolla.")).toBeInTheDocument();
+    expect(generaciones).toBe(1);
+  });
+
+  it("'Regenerar' sobre un brief de la IA no pregunta nada y pisa el texto", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ brief: "Resumen viejo." }, HILO)),
+      ),
+      http.post(`${detailUrl}/generate-brief`, () =>
+        HttpResponse.json(makeConversationDetail({ brief: "Resumen nuevo." }, HILO)),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Regenerar resumen" }));
+
+    expect(await screen.findByText("Resumen nuevo.")).toBeInTheDocument();
+    // No hay nada que perder: el texto que se pisa lo había escrito el modelo.
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it("'Regenerar' sobre una edición a mano pregunta antes, y cancelar no llama al backend", async () => {
+    let generaciones = 0;
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(
+          makeConversationDetail(
+            {
+              brief: "Lo corregí yo.",
+              briefEditedByUserId: "u9",
+              briefEditedBy: { id: "u9", fullName: "Sofía Rodríguez" },
+            },
+            HILO,
+          ),
+        ),
+      ),
+      http.post(`${detailUrl}/generate-brief`, () => {
+        generaciones += 1;
+        return HttpResponse.json(makeConversationDetail({ brief: "Resumen nuevo." }, HILO));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Regenerar resumen" }));
+
+    // Es la única acción de la tarjeta que destruye algo que escribió una
+    // persona, así que pregunta — y decir que no la deja intacta.
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(generaciones).toBe(0);
+    expect(screen.getByText("Lo corregí yo.")).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it("si generar falla, el brief que había sigue a la vista con el error al lado", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ brief: "Resumen viejo." }, HILO)),
+      ),
+      http.post(`${detailUrl}/generate-brief`, () =>
+        HttpResponse.json(
+          { error: { message: "No se pudo contactar a OpenRouter" } },
+          { status: 502 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Regenerar resumen" }));
+
+    expect(await screen.findByText(/No pudimos generar el resumen/)).toHaveTextContent(
+      "No se pudo contactar a OpenRouter",
+    );
+    // Lo importante: no se perdió lo que había.
+    expect(screen.getByText("Resumen viejo.")).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Los dos usos del componente (ítem 73)
+  // -------------------------------------------------------------------------
+
+  it("con el prop `id` muestra lo mismo que con useParams, y sin el encabezado de página", async () => {
+    server.use(http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))));
+
+    renderComoPopup();
+
+    // Los mismos datos y el mismo hilo que la ruta.
+    expect(await screen.findByText("Ana Pérez")).toBeInTheDocument();
+    expect(screen.getByText("Hola, quiero saber el precio")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generar resumen" })).toBeInTheDocument();
+
+    // Lo único que cambia: adentro del pop up el encabezado lo pone el Modal.
+    expect(screen.queryByRole("heading", { name: "Conversación" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Volver a Conversaciones" })).not.toBeInTheDocument();
+  });
+
+  it("como ruta sí lleva el encabezado y el link de vuelta", async () => {
+    server.use(http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))));
+
+    renderDetail();
+
+    expect(await screen.findByRole("heading", { name: "Conversación" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Volver a Conversaciones" })).toHaveAttribute(
+      "href",
+      "/conversations",
+    );
   });
 
   it("un error al cargar se muestra con el mensaje del backend", async () => {

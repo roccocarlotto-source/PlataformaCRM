@@ -19,6 +19,7 @@ import { createMessage, findLastMessages } from "../repositories/message.reposit
 import { AppError } from "../utils/AppError";
 import { createActivity } from "./activity.service";
 import { puedeEjecutarTool, type DatosDisponibles } from "./agentPermissions.service";
+import { generarBriefDeConversacion } from "./conversationBrief.service";
 import {
   toolsHabilitadas,
   type ContextoDeEjecucionDeTool,
@@ -323,6 +324,18 @@ function datosDisponiblesDeLaConversacion(
 // sin vendedor por defecto configurado es un estado válido y cae en el mismo
 // warning de siempre— y sigue sin afectar la transición de status, que ocurre
 // igual en todos los casos.
+//
+// DESDE EL ÍTEM 73 hay una TERCERA mitad, también best-effort: el brief. Se
+// genera al final, con el mismo criterio que la Activity —se loguea y se
+// sigue—, y por el mismo motivo: la conversación ya está derivada y lo que se
+// pierde si falla es el resumen, no la derivación. Nada de lo que pase acá
+// puede tumbar un handoff.
+//
+// EL BRIEF SE GENERA EN LOS DOS CAMINOS, con vendedor y sin él, y eso es
+// deliberado: la derivación silenciosa —sin vendedor asignado ni por defecto—
+// es justamente la que nadie recibe como tarea y alguien va a tener que
+// levantar desde la bandeja. Es la que MÁS necesita un resumen a la vista.
+// Por eso la Activity y el brief dejaron de compartir el `return` temprano.
 // ---------------------------------------------------------------------------
 export interface HandoffInput {
   organizationId: string;
@@ -336,7 +349,9 @@ export interface HandoffInput {
 }
 
 export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId: string | null }> {
-  const { organizationId, conversationId, branchId, contact, motivo } = input;
+  // `motivo` no se desestructura acá desde el ítem 73: lo usa solo
+  // crearActivityDeAviso, que recibe el `input` entero.
+  const { organizationId, conversationId, branchId, contact } = input;
 
   const actual = await findConversationById(conversationId, organizationId);
   if (!actual) {
@@ -362,12 +377,44 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
     assignedUserId: ownerId,
   });
 
+  const activityId = await crearActivityDeAviso(input, ownerId);
+
+  // El brief, best-effort y SIEMPRE al final: es lo más lento de la función
+  // (una llamada al proveedor de LLM) y lo menos crítico de las tres mitades,
+  // así que no se pone delante de la notificación al vendedor.
+  try {
+    await generarBriefDeConversacion(organizationId, conversationId);
+  } catch (err) {
+    // El proveedor puede estar caído, sin clave configurada, o la conversación
+    // puede no tener todavía un mensaje con texto. Nada de eso es motivo para
+    // que una derivación falle: se puede volver a pedir el resumen a mano
+    // desde la pantalla cuando haga falta.
+    logger.warn(
+      { err, organizationId, conversationId, contactId: contact.id },
+      "Conversación derivada a humano pero no se pudo generar el brief",
+    );
+  }
+
+  return { activityId };
+}
+
+// La Activity de aviso, extraída de ejecutarHandoff con el ítem 73 y sin un
+// solo cambio de comportamiento: los dos caminos que antes hacían `return`
+// temprano —sin vendedor, o con la creación fallando— ahora devuelven null
+// acá, para que lo que viene DESPUÉS del aviso (el brief) corra igual en los
+// tres casos.
+async function crearActivityDeAviso(
+  input: HandoffInput,
+  ownerId: string | null,
+): Promise<string | null> {
+  const { organizationId, conversationId, branchId, contact, motivo } = input;
+
   if (!ownerId) {
     logger.warn(
       { organizationId, conversationId, contactId: contact.id, branchId },
       "Conversación derivada a humano sin vendedor asignado al contacto ni vendedor por defecto en la sucursal: no se crea Activity (derivación silenciosa)",
     );
-    return { activityId: null };
+    return null;
   }
 
   try {
@@ -379,7 +426,7 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
       assigneeId: ownerId,
       contactId: contact.id,
     });
-    return { activityId: activity.id };
+    return activity.id;
   } catch (err) {
     // El vendedor pudo haber sido desactivado, o la base tuvo un mal momento.
     // La conversación ya está derivada; lo que se pierde es el aviso.
@@ -387,7 +434,7 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
       { err, organizationId, conversationId, contactId: contact.id },
       "Conversación derivada a humano pero no se pudo crear la Activity de aviso",
     );
-    return { activityId: null };
+    return null;
   }
 }
 

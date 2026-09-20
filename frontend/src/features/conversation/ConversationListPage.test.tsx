@@ -2,13 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
+import type { AuthContextValue } from "../../auth/AuthContext";
 import { makeAgent } from "../../test/agentFixtures";
 import { makeBranch } from "../../test/branchFixtures";
-import { makeConversation } from "../../test/conversationFixtures";
+import { makeConversation, makeConversationDetail } from "../../test/conversationFixtures";
 import { cellByHeader } from "../../test/cellByHeader";
 import { chooseSelectOption } from "../../test/chooseSelectOption";
 import { ConversationListPage } from "./ConversationListPage";
@@ -18,9 +19,45 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
+// El pop up monta ConversationDetail, que lee useAuth para decidir si el
+// contacto va con link a su ficha (ADMIN-only). La bandeja en sí no usa auth.
+const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
+vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+useAuthMock.mockReturnValue({
+  status: "authenticated",
+  me: {
+    id: "u1",
+    email: "a@x.com",
+    fullName: "A",
+    organizationId: "org-1",
+    role: "ADMIN",
+    isPlatformAdmin: false,
+  },
+  accountUnavailableReason: null,
+  profileError: null,
+  login: vi.fn(),
+  logout: vi.fn(),
+  retryProfile: vi.fn(),
+});
+
 const baseUrl = `${env.apiUrl}/api/conversations`;
+const detailUrl = `${env.apiUrl}/api/conversations/conv-1`;
 const branchesUrl = `${env.apiUrl}/api/branches`;
 const agentsUrl = `${env.apiUrl}/api/agents`;
+
+// El pop up NO toca la URL, y eso es parte del contrato del ítem 73: hace
+// falta poder afirmarlo, no suponerlo. Este espía renderiza la ubicación
+// actual del MemoryRouter en un nodo aparte para poder leerla desde cualquier
+// caso.
+function EspiaDeUbicacion() {
+  const location = useLocation();
+  return <span data-testid="ubicacion">{location.pathname + location.search}</span>;
+}
+
+function ubicacion(): string {
+  return screen.getByTestId("ubicacion").textContent ?? "";
+}
 
 function listResponse(overrides: Partial<ConversationListResponse> = {}): ConversationListResponse {
   return {
@@ -57,8 +94,9 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={["/conversations"]}>
         <ConversationListPage />
+        <EspiaDeUbicacion />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -116,18 +154,111 @@ describe("ConversationListPage", () => {
     expect(cellByHeader(cerrada, "Estado")).toHaveTextContent("Cerrada");
   });
 
-  it("el nombre del contacto lleva al hilo de esa conversación", async () => {
+  // -------------------------------------------------------------------------
+  // El pop up (ítem 73): clickear una fila ya no navega a /conversations/:id.
+  // -------------------------------------------------------------------------
+
+  it("clickear el contacto abre el hilo en un pop up SIN navegar: la URL no cambia", async () => {
     server.use(
       ...mockFiltros(),
       http.get(baseUrl, () => HttpResponse.json(listResponse())),
+      http.get(detailUrl, () => HttpResponse.json(makeConversationDetail())),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    // Ya no es un link: es un botón, porque no lleva a ninguna parte.
+    const abrir = await screen.findByRole("button", { name: "Ana Pérez" });
+    expect(screen.queryByRole("link", { name: "Ana Pérez" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(abrir);
+
+    const popup = await screen.findByRole("dialog");
+    expect(within(popup).getByText("Hola, quiero saber el precio")).toBeInTheDocument();
+    // Lo que el ítem promete: se abrió el hilo y el listado sigue donde estaba.
+    expect(ubicacion()).toBe("/conversations");
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
+  it("cerrar el pop up vuelve al listado, sin navegar tampoco al cerrar", async () => {
+    server.use(
+      ...mockFiltros(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse())),
+      http.get(detailUrl, () => HttpResponse.json(makeConversationDetail())),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Ana Pérez" }));
+    await screen.findByRole("dialog");
+
+    await user.click(screen.getByRole("button", { name: "Cerrar" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(ubicacion()).toBe("/conversations");
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
+  it("el detalle NO se pide hasta que alguien abre una fila", async () => {
+    let pedidosDelDetalle = 0;
+    server.use(
+      ...mockFiltros(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse())),
+      http.get(detailUrl, () => {
+        pedidosDelDetalle += 1;
+        return HttpResponse.json(makeConversationDetail());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    // El pop up se monta recién al clickear, así que una bandeja con 20 filas
+    // no dispara 20 requests del hilo completo.
+    await screen.findByRole("button", { name: "Ana Pérez" });
+    expect(pedidosDelDetalle).toBe(0);
+
+    await user.click(screen.getByRole("button", { name: "Ana Pérez" }));
+    await screen.findByRole("dialog");
+    expect(pedidosDelDetalle).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // El brief en la fila (ítem 73)
+  // -------------------------------------------------------------------------
+
+  it("el brief aparece truncado bajo el nombre del contacto", async () => {
+    const largo = `Ana preguntó por el precio del Corolla automático y por la financiación. ${"El agente le pasó la lista y le ofreció una prueba de manejo. ".repeat(5)}`;
+    server.use(
+      ...mockFiltros(),
+      http.get(baseUrl, () =>
+        HttpResponse.json(listResponse({ data: [makeConversation({ brief: largo })] })),
+      ),
     );
 
     renderPage();
 
-    expect(await screen.findByRole("link", { name: "Ana Pérez" })).toHaveAttribute(
-      "href",
-      "/conversations/conv-1",
+    const fila = (await screen.findByText("Ana Pérez")).closest("tr");
+    const resumen = fila?.querySelector(".ds-cell-secondary");
+    expect(resumen).toHaveTextContent("Ana preguntó por el precio del Corolla automático");
+    // Truncado, no el brief entero pegado en la celda.
+    expect(resumen?.textContent).toContain("…");
+    expect(resumen!.textContent!.length).toBeLessThan(largo.length);
+  });
+
+  it("una conversación sin brief no muestra una segunda línea vacía", async () => {
+    server.use(
+      ...mockFiltros(),
+      http.get(baseUrl, () => HttpResponse.json(listResponse({ data: [makeConversation()] }))),
     );
+
+    renderPage();
+
+    const fila = (await screen.findByText("Ana Pérez")).closest("tr");
+    expect(fila?.querySelector(".ds-cell-secondary")).toBeNull();
   });
 
   it("una conversación sin mensajes todavía muestra un guión, no una fecha inventada", async () => {

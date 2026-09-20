@@ -61,6 +61,16 @@ export interface Conversation {
   externalThreadId: string | null;
   // null mientras no haya ni un mensaje. El listado los ordena al final.
   lastMessageAt: string | null;
+  // El resumen de la conversación (ítem 73). null mientras nunca se generó —
+  // que es el estado de toda conversación anterior al ítem. Lo redacta la IA
+  // (al derivar a una persona, o a pedido desde la pantalla) y se puede
+  // corregir a mano.
+  brief: string | null;
+  // Quién escribió el TEXTO que hoy está en `brief`, no quién apretó el botón:
+  // null cuando lo redactó la IA —aunque la generación la haya disparado una
+  // persona— y con valor solo cuando alguien lo editó a mano. Es lo que dibuja
+  // la marca "Editado a mano". Ver el modelo en prisma/schema.prisma.
+  briefEditedByUserId: string | null;
   createdAt: string;
   updatedAt: string;
   contact: ConversationContactRef;
@@ -91,9 +101,15 @@ export interface ConversationMessage {
 }
 
 // Lo que devuelve GET /api/conversations/:id: la conversación con el hilo
-// COMPLETO, sin paginar (ver findConversationWithMessages).
+// COMPLETO, sin paginar (ver findConversationWithMessages). Es también lo que
+// devuelven el PATCH y el POST del brief, para que la pantalla pueda guardar
+// la respuesta en la cache sin volver a pedir nada.
 export interface ConversationDetail extends Conversation {
   messages: ConversationMessage[];
+  // Quién corrigió el brief a mano, resuelto por nombre. null cuando lo
+  // redactó la IA. Solo viaja en el DETALLE: el listado no lo trae, porque no
+  // lo muestra (ver findConversationWithMessages en el repositorio).
+  briefEditedBy: { id: string; fullName: string } | null;
 }
 
 export interface ConversationListPagination {

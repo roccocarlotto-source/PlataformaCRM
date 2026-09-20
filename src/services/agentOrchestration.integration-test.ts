@@ -22,7 +22,13 @@ import {
 } from "./agentTools.service";
 import { relojDeReservas } from "./booking.service";
 import { createBranch } from "./branch.service";
-import type { LlmCompletionRequest, LlmCompletionResult, LlmProvider } from "./llmProvider.service";
+import {
+  resetLlmProviderParaTests,
+  setLlmProviderForTests,
+  type LlmCompletionRequest,
+  type LlmCompletionResult,
+  type LlmProvider,
+} from "./llmProvider.service";
 import { createPipeline } from "./pipeline.service";
 import { createResource } from "./resource.service";
 import { createServiceType } from "./serviceType.service";
@@ -1329,6 +1335,154 @@ test("sin entradas cargadas, el prompt queda exactamente como antes del ítem 59
     assert.doesNotMatch(prompt, /Knowledge Base/);
     assert.doesNotMatch(prompt, /###/);
   } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 10. El brief del handoff (ítem 73)
+//
+// El brief es la TERCERA mitad best-effort de ejecutarHandoff, y lo que estos
+// casos cuidan es que nunca pueda tumbar una derivación. A diferencia del
+// resto del archivo, el proveedor NO se inyecta por parámetro: dentro de
+// ejecutarHandoff la generación llama a getLlmProvider(), así que acá se
+// reemplaza el singleton con setLlmProviderForTests y se lo saca después.
+//
+// NOTA SOBRE EL RESTO DEL ARCHIVO: los casos de handoff de más arriba NO
+// instalan ningún proveedor, así que en ellos la generación del brief falla
+// (no hay OPENROUTER_API_KEY en el entorno de test) y se loguea sin propagar.
+// Que esos casos sigan pasando tal cual estaban es, en sí, la prueba de que el
+// handoff no depende del brief.
+// ---------------------------------------------------------------------------
+
+function proveedorDeBrief(texto: string): LlmProvider {
+  return {
+    name: "brief-doble",
+    complete: () => Promise.resolve({ text: texto, toolCalls: [] }),
+  };
+}
+
+function proveedorQueExplota(): LlmProvider {
+  return {
+    name: "brief-roto",
+    complete: () => Promise.reject(new Error("el proveedor se cayó")),
+  };
+}
+
+test("al derivar, el brief se genera solo y queda en la conversación", async () => {
+  const e = await montar("brief-handoff");
+  setLlmProviderForTests(proveedorDeBrief("Ana pidió hablar con una persona."));
+  try {
+    const doble = doblarProveedor([
+      pideTool(
+        "h1",
+        REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+        { reason: "Pide una persona" },
+        "Ya te contactan.",
+      ),
+    ]);
+
+    const resultado = await turno(e, "Quiero hablar con alguien", doble.proveedor);
+
+    assert.equal(resultado.handoff, true);
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: resultado.conversationId },
+    });
+    assert.equal(conversation.brief, "Ana pidió hablar con una persona.");
+    // Lo escribió el modelo, no una persona — aunque el handoff lo haya
+    // disparado una conversación con un humano del otro lado.
+    assert.equal(conversation.briefEditedByUserId, null);
+  } finally {
+    resetLlmProviderParaTests();
+    await desmontar(e);
+  }
+});
+
+test("si el brief falla, la derivación se completa igual: status, assignedUserId y Activity", async () => {
+  const e = await montar("brief-roto");
+  setLlmProviderForTests(proveedorQueExplota());
+  try {
+    const doble = doblarProveedor([
+      pideTool(
+        "h1",
+        REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+        { reason: "Pide una persona" },
+        "Ya te contactan.",
+      ),
+    ]);
+
+    // Lo que no puede pasar: que el turno tire la excepción del proveedor.
+    const resultado = await turno(e, "Quiero hablar con alguien", doble.proveedor);
+
+    assert.equal(resultado.handoff, true);
+    assert.equal(resultado.status, "TRANSFERRED_TO_HUMAN");
+    // La Activity de aviso se creó igual, que es lo que le llega al vendedor.
+    assert.ok(resultado.handoffActivityId, "el aviso no depende del brief");
+    assert.equal((await activitiesDe(e)).length, 1);
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: resultado.conversationId },
+    });
+    assert.equal(conversation.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(conversation.assignedUserId, e.ownerId);
+    // Lo único que se pierde es el resumen; se puede pedir a mano después.
+    assert.equal(conversation.brief, null);
+  } finally {
+    resetLlmProviderParaTests();
+    await desmontar(e);
+  }
+});
+
+test("una derivación SILENCIOSA también genera el brief: es la que más lo necesita", async () => {
+  // Sin vendedor del contacto y sin vendedor por defecto en la sucursal no hay
+  // Activity, así que nadie recibe un aviso: alguien va a tener que levantar
+  // esta conversación desde la bandeja, y el resumen es lo único que le va a
+  // decir de qué se trata. Antes del ítem 73 el `return` temprano de la
+  // derivación silenciosa se habría llevado puesto al brief.
+  const e = await montar("brief-silencioso", { conVendedor: false });
+  setLlmProviderForTests(proveedorDeBrief("Ana pidió una persona y no hay vendedor asignado."));
+  try {
+    const doble = doblarProveedor([
+      pideTool(
+        "h1",
+        REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+        { reason: "Pide una persona" },
+        "Ya te contactan.",
+      ),
+    ]);
+
+    const resultado = await turno(e, "Quiero hablar con alguien", doble.proveedor);
+
+    assert.equal(resultado.handoffActivityId, null, "sigue siendo una derivación silenciosa");
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: resultado.conversationId },
+    });
+    assert.equal(conversation.assignedUserId, null);
+    assert.equal(conversation.brief, "Ana pidió una persona y no hay vendedor asignado.");
+  } finally {
+    resetLlmProviderParaTests();
+    await desmontar(e);
+  }
+});
+
+test("una conversación que NO se deriva no recibe brief automático", async () => {
+  // El disparador automático es la derivación y nada más. Un turno normal no
+  // gasta una llamada al modelo por cada mensaje que entra.
+  const e = await montar("brief-sin-handoff");
+  setLlmProviderForTests(proveedorDeBrief("no debería guardarse"));
+  try {
+    const resultado = await turno(
+      e,
+      "Hola",
+      doblarProveedor([texto("Hola, ¿en qué te ayudo?")]).proveedor,
+    );
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: resultado.conversationId },
+    });
+    assert.equal(conversation.brief, null);
+  } finally {
+    resetLlmProviderParaTests();
     await desmontar(e);
   }
 });
