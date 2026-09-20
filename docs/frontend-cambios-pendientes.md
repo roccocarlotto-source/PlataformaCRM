@@ -4131,4 +4131,4 @@ preservarGuardrailsHeredados(actuales: unknown, nuevos: Record<string, unknown>)
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
 
-**La suite de integración no se corrió en local, y no se reporta como hecha**: el `.env` de este worktree apuntaba a la base de **producción**, así que correrla habría escrito filas reales en la base del cliente. Los 904 unitarios sí se corrieron acá; los de integración —incluido el caso nuevo del PATCH que preserva lo heredado— los corre el CI contra su propio Postgres.
+**La suite de integración no se corrió en local, y no se reporta como corrida acá**: el `.env` de este worktree apuntaba a la base de **producción**, así que correrla habría escrito filas reales en la base del cliente. Los 904 unitarios sí se corrieron acá. Los de integración —incluido el caso nuevo del PATCH que preserva lo heredado— los corrió el **CI contra su propio Postgres: 876 de 876 en verde** (antes del ítem: 875).
