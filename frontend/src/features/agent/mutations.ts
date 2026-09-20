@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { activityKeys } from "../activity/queries";
 import { contactKeys } from "../contact/queries";
+import { conversationKeys } from "../conversation/queries";
 import { opportunityKeys } from "../opportunity/queries";
 import {
   createAgent,
@@ -111,9 +112,12 @@ export function useRevokeEmbedToken(agentId: string) {
 // por nada. `hayEfectos` mira las tools EJECUTADAS (allowed + result), no las
 // pedidas: una bloqueada por los guardrails no llegó a correr.
 //
-// La conversación y sus mensajes NO se invalidan porque no hay nada que
-// invalidar: no existe ningún GET de Conversation/Message en el backend
-// todavía (ver el comentario de cabecera de AgentPlaygroundPage).
+// LA CONVERSACIÓN SÍ SE INVALIDA, Y SIEMPRE — desde el ítem 66. Hasta ese
+// ítem no había nada que invalidar (no existía ningún GET de
+// Conversation/Message en el backend); ahora existe la bandeja, y un turno
+// persiste como mínimo el mensaje entrante, aunque el modelo no conteste y no
+// ejecute ninguna tool. Por eso esta invalidación va ANTES del corte por
+// efectos y no adentro: no depende de que haya pasado algo más.
 function hayEfectosFueraDeLaConversacion(resultado: TestMessageResult): boolean {
   return resultado.handoff || resultado.toolCalls.some((llamada) => llamada.result !== undefined);
 }
@@ -123,6 +127,7 @@ export function useTestMessage(agentId: string) {
   return useMutation({
     mutationFn: (input: TestMessageInput) => sendTestMessage(agentId, input),
     onSuccess: (resultado) => {
+      queryClient.invalidateQueries({ queryKey: conversationKeys.all });
       if (!hayEfectosFueraDeLaConversacion(resultado)) return;
       queryClient.invalidateQueries({ queryKey: opportunityKeys.all });
       queryClient.invalidateQueries({ queryKey: activityKeys.all });

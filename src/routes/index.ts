@@ -9,6 +9,7 @@ import { bookingRouter } from "./booking.routes";
 import { branchRouter } from "./branch.routes";
 import { companyRouter } from "./company.routes";
 import { contactRouter } from "./contact.routes";
+import { conversationRouter } from "./conversation.routes";
 import { deliveryRouter } from "./delivery.routes";
 import { googleCalendarConnectionRouter } from "./googleCalendarConnection.routes";
 import { healthRouter } from "./health.routes";
@@ -115,6 +116,15 @@ routes.use("/api", agentEmbedTokenRouter);
 // ("ADMIN") para escribir. Quien las LEE para armar el prompt no pasa por
 // HTTP: es agentOrchestration.service.ts, en cada turno.
 routes.use("/api", knowledgeBaseEntryRouter);
+// Bandeja de conversaciones (ítem 66 de docs/frontend-cambios-pendientes.md):
+// la LECTURA de las Conversation/Message que el loop del agente venía
+// escribiendo sin que nada las expusiera. Va acá, con el resto del módulo,
+// porque es su dato; pero a diferencia de agentRouter y de los dos de arriba
+// NO tiene ninguna ruta de escritura que gatear con authorize("ADMIN") — no
+// hay POST/PATCH/DELETE en absoluto, ni los va a haber hasta que exista la
+// entrega de un mensaje saliente por el canal (paso 6 de §9). Ver el
+// comentario de su router.
+routes.use("/api", conversationRouter);
 
 // Motor de automatizaciones (docs/automations-architecture.md §8): CRUD de las
 // reglas trigger -> acción de la organización. Va acá, con los demás CRUD de

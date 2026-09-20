@@ -3783,6 +3783,31 @@ a.ds-button--secondary:hover {
   resize: vertical;
 }
 
+/* Bandeja de conversaciones (ítem 66). Dos reglas y ninguna clase nueva de
+   layout: el hilo de una conversación guardada reusa .ds-chat* tal cual, que
+   es el mismo dato que muestra el probador del agente.
+
+   .ds-chat-item es el <li> que agrupa UN mensaje con las tool calls que lo
+   produjeron. En el probador cada entrada era su propia fila porque llegan
+   sueltas del turno; acá las tool calls vienen guardadas DENTRO del mensaje,
+   así que van juntas y en columna. El gap es menor que el de .ds-chat: lo que
+   separa dos mensajes tiene que verse más que lo que separa un mensaje de su
+   propia auditoría. */
+.ds-chat-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* El tercer autor que el probador no puede producir: una persona de la
+   organización contestando después de una derivación. Va del mismo lado que
+   el agente —los dos son el negocio— y se distingue por el borde de acento,
+   no por un fondo propio: el nombre de quien escribió ya está en el rótulo, y
+   dos colores de burbuja del mismo lado competirían con el del contacto. */
+.ds-chat-bubble--humano {
+  border-color: var(--color-accent);
+}
+
 /* ---------------------------------------------------------------------------
    Impresión de la cotización activa (botón "Imprimir" → window.print()). En
    papel queda SOLO .ds-quote-printable: todo lo demás se oculta con

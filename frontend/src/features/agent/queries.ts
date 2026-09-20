@@ -14,6 +14,19 @@ export const agentKeys = {
   embedTokens: (id: string) => [...agentKeys.detail(id), "embed-tokens"] as const,
 };
 
+// La query que comparte el filtro "Agente" de cualquier pantalla que necesite
+// elegir uno — hoy, la bandeja de conversaciones (ítem 66). Mismo criterio y
+// mismo riesgo residual documentado que BRANCHES_PARA_SELECT: pageSize 100 es
+// el tope del contrato (listQuerySchema en agent.controller.ts), así que una
+// organización con más de 100 agentes no ve el resto en ese filtro. Pedir
+// exactamente esta forma hace que TanStack Query la dedupe en una sola
+// request aunque la usen dos pantallas.
+export const AGENTS_PARA_SELECT: AgentListQuery = {
+  pageSize: 100,
+  sortBy: "name",
+  sortOrder: "asc",
+};
+
 export function useAgents(query: AgentListQuery, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: agentKeys.list(query),
@@ -22,9 +35,10 @@ export function useAgents(query: AgentListQuery, options?: { enabled?: boolean }
   });
 }
 
-// Único consumidor hoy: el formulario de edición. No hay ningún AgentSelect
-// que otra pantalla consuma — por eso el módulo entero vive dentro de
-// AdminRoute (ver el comentario de /agents en app/router.tsx).
+// El DETALLE de un agente: único consumidor hoy, el formulario de edición.
+// La bandeja de conversaciones (ítem 66) consume useAgents con
+// AGENTS_PARA_SELECT para su filtro, no esto: le alcanza con el nombre, que
+// ya viene en el listado.
 export function useAgent(id: string | undefined) {
   return useQuery({
     queryKey: agentKeys.detail(id ?? ""),

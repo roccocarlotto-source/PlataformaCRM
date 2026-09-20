@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   MailPlus,
   MapPin,
+  MessagesSquare,
   QrCode,
   Target,
   UserCog,
@@ -64,11 +65,12 @@ function SidebarLink({
 // tomados de Dashboard CRM.html (ver design-system.css, sección AppLayout).
 // Grupos propios (CRM/Actividad/QR/Administración) en vez de los del
 // mockup (CRM/Automatización) porque el mockup es de otro rubro y tiene
-// secciones — Conversaciones, Calendario, Notificaciones, Integraciones —
-// que este producto todavía no tiene; Rocco eligió mostrar solo lo que
-// existe hoy. Tres de esas secciones ya dejaron esa lista de pendientes:
-// "Agentes IA" con el ítem 55, "Base de conocimiento" con el 59 y
-// "Automatizaciones" con el 62, las tres abajo, en el grupo Administración.
+// secciones — Calendario, Notificaciones, Integraciones — que este producto
+// todavía no tiene; Rocco eligió mostrar solo lo que existe hoy. Cuatro de
+// esas secciones ya dejaron esa lista de pendientes: "Agentes IA" con el
+// ítem 55, "Base de conocimiento" con el 59 y "Automatizaciones" con el 62,
+// las tres en el grupo Administración, y "Conversaciones" con el 66, que va
+// en el grupo CRM porque es lectura de datos y no configuración.
 export function AppLayout() {
   const { me, logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -119,6 +121,14 @@ export function AppLayout() {
             </SidebarLink>
             <SidebarLink to="/contacts" icon={Users}>
               Contactos
+            </SidebarLink>
+            {/* Bandeja de conversaciones (ítem 66): al lado de Contactos
+                porque es lo que se habló CON ellos. En el grupo CRM y no en
+                Administración —a diferencia de Agentes de IA / Base de
+                conocimiento / Automatizaciones— y visible para ambos roles:
+                es lectura abierta de un dato del CRM, no configuración. */}
+            <SidebarLink to="/conversations" icon={MessagesSquare}>
+              Conversaciones
             </SidebarLink>
             <SidebarLink to="/pipelines" icon={Columns3}>
               Procesos de venta

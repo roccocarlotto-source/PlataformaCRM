@@ -3603,3 +3603,118 @@ La transcripción es un `<ol>` —el orden **es** el contenido—, con el contac
 `npm run typecheck`, `npm run lint` y `prettier --check src` limpios en frontend. **Este ítem no toca backend:** no hay suite de backend que corra ni migración que aplicar.
 
 **No se probó a mano contra el Supabase local**, y no se lo reporta como hecho. Además del impedimento de siempre (el magic link de admin local bloqueado por el clasificador, nota del ítem 38), acá hay uno propio del ítem: un turno real dispara una llamada **paga** a OpenRouter y, si el agente tiene tools habilitadas, **escribe datos de verdad** en la base local. Eso es exactamente lo que la pantalla advierte, y no es algo para hacer sin que Rocco lo decida. Lo que sí cubre el automatizado es el flujo completo contra la API mockeada con MSW, incluidos los tres casos que este ítem puede tener mal de verdad: `respuesta: null`, el handoff y el error que pierde el hilo.
+
+---
+
+## 66. Bandeja de conversaciones: leer por fin lo que los agentes ya venían hablando
+
+**Estado:** hecho
+
+### El modelo existía hace rato; lo que no existía era forma de mirarlo
+
+`Conversation` y `Message` están en el schema desde el **paso 1** de `docs/ai-agent-architecture.md` §9 (migración `20260912130000`), y el loop de orquestación los viene escribiendo desde el **paso 2b**: cada turno resuelve o crea la conversación, persiste el mensaje entrante, el saliente y la auditoría de tools en `Message.toolCalls`, y actualiza `lastMessageAt`.
+
+**Nada de eso se podía ver.** No había ni un `GET` de `Conversation` ni de `Message` en todo el backend — el ítem 65 lo dejó escrito como la limitación de fondo del probador ("la transcripción vive solo en esta visita"), y la única manera de leer un hilo era un `SELECT` a mano contra la base.
+
+Este ítem es esa lectura y nada más: **dos `GET` nuevos y dos pantallas**. Cero migración, cero dependencias nuevas, cero cambios de esquema. Producción no necesita nada por este ítem (siguen pendientes los `migrate:deploy` de los ítems 56, 57 y 59).
+
+### Por qué es explícitamente SOLO lectura
+
+La pregunta obvia de una bandeja es "¿y por qué no puedo contestar desde acá?". La respuesta no es que faltó tiempo:
+
+**Guardar un `Message` no lo entrega.** Persistir una fila `OUTBOUND` es la parte fácil; lo que hace que un mensaje llegue es el canal. Hoy el canal Web es un widget que **solo puede recibir la respuesta a su propio mensaje** —es un request/response, no una conexión abierta contra la que el backend pueda empujar nada— y WhatsApp directamente no existe todavía (es el paso 6 de §9, bloqueado por el trámite con Meta/Twilio). Un botón "Responder" mostraría como **enviado** algo que el contacto nunca va a recibir, y peor: lo dejaría escrito en el hilo, así que el próximo turno del agente lo leería como contexto y contestaría sobre un mensaje que del otro lado no pasó nunca.
+
+Por eso tampoco hay "Cerrar conversación" ni "Reasignar": son el mismo tipo de escritura sobre un hilo vivo, y ninguna resuelve nada mientras no se pueda hablar por el canal.
+
+La decisión quedó **atornillada en tres lugares**, para que no se deshaga por distracción:
+
+1. `src/routes/conversation.routes.ts` monta dos `GET` y nada más.
+2. `src/routes/index.test.ts` afirma que `POST /api/conversations`, `PATCH`, `DELETE` y `POST /api/conversations/:id/messages` dan **404 desde `notFound`** contra la app real compuesta — o sea, que no existen.
+3. `ConversationDetail.test.tsx` afirma que en la pantalla **no hay ningún `textbox`, ningún botón de Enviar/Responder y ningún formulario**.
+
+Si alguien agrega la escritura sin resolver antes la entrega, se cae un test y tiene que leer por qué.
+
+### Los dos endpoints
+
+- **`GET /api/conversations`** — la bandeja. Filtros: `search` (por contacto), `branchId`, `agentId`, `contactId`, `status`, `channel`, más `page`/`pageSize`/`sortBy`/`sortOrder`. Cada fila trae **contacto, agente y sucursal ya resueltos por nombre** (`conversationInclude`), no ids.
+- **`GET /api/conversations/:id`** — la conversación **con el hilo completo** adentro, en orden cronológico, y con el autor de cada mensaje HUMAN resuelto (`senderUser`).
+
+**Las dos con `authenticate` a secas, sin `authorize("ADMIN")`.** Es el mismo esquema que la lectura de `/api/agents`, `/api/knowledge-base` y `/api/automations`, y acá la lectura es todo lo que hay. La diferencia con esos tres módulos no es de permisos sino de naturaleza: ellos son **configuración** (por eso sus pantallas viven dentro de `AdminRoute` aunque el `GET` sea abierto), y esto es **un dato del CRM**, como un contacto o una oportunidad. Y hay un motivo concreto además del criterio general: quien más necesita leer una conversación es el vendedor que la recibe en un handoff, que puede ser `USER`.
+
+**Esto se desvió de `docs/ai-agent-architecture.md` §5 en dos cosas, y ese documento ya lo dice** (nota fechada del 19/09/2026): esa línea preveía los dos endpoints como ADMIN-only y el hilo en un `/:id/messages` aparte. El permiso cambió por lo de arriba; el hilo se metió adentro del detalle porque **una conversación sin sus mensajes no le sirve a ninguna pantalla**, y dos requests para armar una vista que siempre necesita las dos son dos round trips por nada.
+
+### Tres decisiones del lado de los datos que no son obvias
+
+**1. El buscador busca por CONTACTO, no dentro de los mensajes.** Un `ILIKE '%x%'` sobre la columna `content` —un `Text`, en la tabla que crece un registro por mensaje, sin índice trigrama— es un seq scan, y encima devolvería conversaciones cuyo motivo de coincidencia no se ve en ninguna columna del listado. Lo que alguien busca en una bandeja es *"la conversación con Fulano"*. El `OR` cubre nombre, apellido y email, igual que el buscador de Contactos. Buscar adentro del hilo es búsqueda de verdad, no un `contains` más. Hay un test que afirma que buscar una palabra que **sí** está en un mensaje no trae nada.
+
+**2. El orden tiene desempate, a propósito.** `ORDER BY last_message_at DESC NULLS LAST, id DESC`. Sin el `id`, dos filas con el mismo `lastMessageAt` —o las dos en `NULL`, que es el caso de una conversación recién creada— pueden salir en orden distinto en dos consultas seguidas, y la página 2 repetiría o saltearía filas que la 1 ya mostró. Es exactamente el bug que sigue abierto en `qrCode.repository.ts`; acá no se repite. El `NULLS LAST` es lo otro: una conversación sin un solo mensaje no encabeza la bandeja.
+
+**3. `Conversation` NO tiene `deletedAt`, y el `where` no filtra nada por ese lado.** "Cerrada" es un `status`, no un borrado: una conversación `CLOSED` es historia que se conserva y se lista igual. Está probado, porque es justo la clase de filtro que alguien copia de otro repositorio sin pensarlo.
+
+**El hilo no se pagina.** El índice `(conversation_id, created_at)` sirve esa lectura tal cual, y un hilo mochado por la mitad no cumpliría lo único que la pantalla promete: ver todo lo que pasó. Si algún día un hilo de miles de mensajes lo justifica, paginar es agregar `skip`/`take` y una pantalla que sepa pedir más — no rehacer nada.
+
+### Las pantallas
+
+**`/conversations`** (`ConversationListPage.tsx`): tabla con Contacto, Canal, Estado, Sucursal, Agente y Último mensaje; filtros por estado, canal, sucursal y agente, más el buscador por contacto.
+
+- El **canal** se traduce con `CHANNEL_LABEL` de `features/agent/labels.ts` — el mismo mapa que ya usa el módulo de agentes, no un segundo espejo que pueda decir "WhatsApp" de dos formas distintas.
+- El **estado** es un `Badge`: "Activa" (`success`), "Derivada a un humano" (`info`), "Cerrada" (`neutral`). Derivada va en `info` y no en `danger` porque **no es una falla**: es el circuito previsto de §6, y pintarla de rojo en una bandeja llena la leería como un problema. Cerrada es el final normal, no una baja.
+- Los nombres de cada fila vienen **resueltos del backend**, a diferencia de `AgentListPage`/`KnowledgeBaseListPage`, que resuelven la sucursal contra la query de `BranchSelect`. El motivo es el contacto: son miles y no entran en un `pageSize` de 100, así que la fila tenía que traerlo resuelto igual — y una vez que la consulta hace ese join, sumarle el agente y la sucursal no cuesta nada.
+- **Ninguna acción.** Sin "Nueva conversación", sin columna Acciones, sin menú de 3 puntos. El único destino de una fila es su hilo, y el link va en el **nombre del contacto** y no en la fila entera: un `<tr onClick>` no se tabula, no se abre en otra pestaña con el botón del medio y no dice a dónde lleva.
+- **El orden es fijo** (lo último que se movió, arriba). La API admite `sortBy=createdAt` y no se expone control: sería una preferencia sin caso de uso, y el filtro que sí lo tendría —por fecha— no existe ni en el backend.
+
+**`/conversations/:id`** (`ConversationDetail.tsx`): el encabezado con contacto, canal, estado, sucursal, agente, inicio y último mensaje, y debajo el hilo completo.
+
+- **El contacto es un link a su ficha solo para un ADMIN.** `/contacts/:id/edit` vive dentro de `AdminRoute`, así que a un `USER` ese link lo mandaría a `/companies`. El nombre se muestra igual, sin link: que el dato esté a la vista y no sea navegable informa más que esconderlo. Es el **único** gate por rol de toda la feature.
+- **Las burbujas son las del probador**, literalmente las mismas clases `.ds-chat*`: los dos muestran el mismo hilo del mismo modelo, y dos lenguajes visuales para lo mismo sería una inconsistencia, no una decisión.
+- **El lado lo decide `direction`, el autor lo dice `senderType`.** Los dos enums son ortogonales en el schema a propósito, así que la pantalla los usa para cosas distintas: del lado del contacto va lo que **entró** (`INBOUND`), y quién lo escribió se lee en el rótulo de la burbuja — el nombre del contacto, el del agente, o el de la persona que tomó la conversación después de una derivación (`senderUser.fullName`, que solo existe en los mensajes `HUMAN` porque así lo exige el CHECK de la base). Un `HUMAN` cuyo usuario no se puede resolver dice "Un integrante del equipo" en vez de quedar sin autor.
+- **Cada mensaje lleva su fecha y hora** en el rótulo, cosa que el probador no necesitaba: ahí todo pasaba en vivo, acá es historia.
+
+### Las tool calls: el mismo bloque, ahora en dos pantallas
+
+`Message.toolCalls` guarda exactamente lo que devuelve el turno, así que el bloque de diagnóstico del ítem 65 sirve tal cual. Se **mudó a `features/agent/ToolCallBlock.tsx`** (era una función privada dentro de `AgentPlaygroundPage`) y ahora lo usan las dos pantallas. El marcado no cambió en el traslado.
+
+Lo que sí hizo falta es una frontera: **`toolCalls` es `Json?` y nadie le impone una forma.** Que lo escriba `runAgentTurn` con la forma de `ToolCallDelTurno` es una convención del código, no una restricción de Postgres ni un schema de Zod — mismo caso que `Agent.guardrails`. Así que `toolCalls.ts` **no castea**: reconoce la forma o admite que no la reconoce.
+
+- Lo mínimo para tratar una entrada como tool call es un `name` que sea string.
+- `allowed` se lee como *"bloqueada solo si dice explícitamente `false`"*: una entrada sin ese campo no se muestra como bloqueada, porque afirmar que los guardrails la frenaron cuando el dato no lo dice sería inventar un hecho.
+- Es **todo o nada**: con una sola entrada irreconocible se muestra el JSON crudo completo. Mostrar tres de cuatro escondería en silencio justo la que no se entendió, que es la que alguien querría ver.
+
+### Lo que este ítem cambió fuera de su propia feature
+
+- **`useTestMessage` ahora invalida `conversationKeys.all`, y siempre.** Hasta acá no lo hacía y el comentario decía por qué: no había nada que invalidar. Ahora lo hay, y un turno persiste como mínimo el mensaje entrante **aunque el modelo no conteste y no ejecute ninguna tool** — por eso la invalidación va antes del corte por efectos, no adentro.
+- **`AGENTS_PARA_SELECT`** en `features/agent/queries.ts`, el gemelo de `BRANCHES_PARA_SELECT`, para el filtro por agente. Mismo tope de 100 y mismo riesgo residual documentado.
+- **El hint del probador cambió una frase**, porque este ítem la volvió falsa: decía *"todavía no hay forma de recuperar los mensajes de una sesión anterior"* y ahora dice que el hilo completo está en **Conversaciones**, con link. El probador **sigue sin traer el historial**, y eso no cambió: mostrar mensajes viejos en la misma caja donde se escriben los nuevos borraría la distinción entre lo que uno acaba de mandar y lo que pasó antes, que es justo lo que hay que tener claro en una herramienta que escribe datos reales.
+- **Tres comentarios que quedaron falsos se corrigieron**, no se dejaron envejecer: el de `/agents` en `router.tsx` y el de `useAgent` en `queries.ts` decían que ninguna pantalla le muestra agentes a un `USER` (ahora la bandeja sí, y eso no cambia que `/agents` siga ADMIN-only: lo que la mantiene ahí es lo que la pantalla **hace**), y el de `AgentFormPage` listaba la bandeja entre las cosas que todavía no tenían pantalla.
+- **El sidebar**: "Conversaciones" entra al grupo **CRM**, al lado de Contactos, visible para los dos roles — no a Administración, donde están Agentes de IA / Base de conocimiento / Automatizaciones. El comentario de `AppLayout` que listaba las secciones del mockup original pendientes ahora tacha también esta; quedan Calendario, Notificaciones e Integraciones.
+- **`docs/ai-agent-architecture.md`** lleva la nota fechada con los dos desvíos de §5 y con la decisión de no construir ninguna escritura.
+
+### CSS: dos reglas
+
+- `.ds-chat-item` — el `<li>` que agrupa **un mensaje con las tool calls que lo produjeron**. En el probador cada entrada era su propia fila porque llegan sueltas del turno; acá vienen guardadas dentro del mensaje, así que van juntas y en columna, con un gap menor que el de `.ds-chat`: lo que separa dos mensajes tiene que verse más que lo que separa un mensaje de su propia auditoría.
+- `.ds-chat-bubble--humano` — el tercer autor que el probador no puede producir. Va del mismo lado que el agente (los dos son el negocio) y se distingue por el borde de acento, no por un fondo propio: el nombre ya está en el rótulo, y dos colores de burbuja del mismo lado competirían con el del contacto.
+
+Las dos con tokens existentes, así que son correctas en tema claro y oscuro sin una regla duplicada.
+
+### Tests (corridos de verdad)
+
+**Backend — unitarios: 874 casos, todos en verde** (antes del ítem: 861). Los 13 nuevos:
+
+- **12 en `src/repositories/conversation.repository.test.ts`** (archivo nuevo): el `where` sin filtros es **solo la organización** (`deepEqual`, porque la ausencia de `deletedAt: null` es el punto); la forma exacta de la búsqueda por contacto y que **no** toca `messages`; cada filtro por separado; varios combinados; un filtro vacío que no filtra; **`count` usando exactamente el mismo `where` que `findMany`** (si divergen, el total de la paginación deja de corresponder con las filas); el orden por defecto con `nulls: "last"` y el desempate por `id`; el orden por `createdAt` con su desempate; el sentido `asc`; `skip`/`take` y el `include` del listado; y las dos del detalle — `organizationId` en el `WHERE` y los mensajes en orden con su `senderUser`. Se prueban con un `db` falso que captura lo que le llega a Prisma, no exportando las funciones privadas solo para el test.
+- **1 en `src/routes/index.test.ts`:** los dos `GET` montados (401 desde `authenticate`) y las cuatro escrituras inexistentes (404 desde `notFound`).
+
+**Backend — integración: 26 casos nuevos en `src/controllers/conversation.controller.integration-test.ts`, todos en verde** contra el Supabase local, por HTTP real con el router real: un `USER` que lee la lista **y** el detalle (lo contrario de lo que testean Agent/KB/Automation en sus rutas de escritura); 401 sin token; aislamiento en los dos sentidos —la conversación de la organización B no aparece en la lista de la A y da 404, no 403, al abrirla por id—; 404 por id inexistente y 400 por id mal formado; la fila con contacto/agente/sucursal por nombre; la `CLOSED` que se lista igual; los cinco filtros por separado, dos combinados, la búsqueda por nombre/apellido/email y la que **no** encuentra una palabra que está en un mensaje; un enum inválido que es 400 y no una lista vacía; el orden por defecto con la conversación sin mensajes al final; `sortOrder=asc`; la paginación con su total; el total respetando los filtros; y el detalle — hilo completo en orden, `senderUser` solo en el `HUMAN`, `toolCalls` tal cual se persistió, y la conversación sin mensajes que se abre igual.
+
+> **La suite de integración COMPLETA corrió con 9 fallas locales, ninguna de este ítem y ninguna nueva**, y se dicen en vez de esconderlas: 7 son de `googleCalendarSync`/`google-calendar-connection` por `GOOGLE_WEBHOOK_URL`, que no está en el `.env` local (fallan igual sin ninguno de estos cambios, y se reproducen corriendo solo esos archivos); 1 es el `after` de `ingest.controller.integration-test.ts`, que choca con una FK de `contacts` por datos que quedaron de una corrida anterior en la base local compartida; y 1 es el flake de `outboxWorker` (`attempts 1 !== 5`). En una corrida anterior, en cambio, la única falla había sido el caso de concurrencia de `promotion.service` — o sea que las tres últimas son de la base local y del paralelismo, no deterministas. **El veredicto de verdad lo da el CI**, que corre contra su propio Postgres.
+
+**Frontend: 156 archivos, 1640 casos, todos en verde** (antes del ítem: 153 archivos, 1610). Los 30 nuevos:
+
+- **9 en `ConversationListPage.test.tsx`** (archivo nuevo): las seis columnas con el canal traducido y el estado como badge; los tres estados con su etiqueta; el nombre del contacto como link al hilo; el guión de la conversación sin mensajes; **que no hay ninguna acción** (ni "Nueva", ni columna Acciones, ni menú); los cinco filtros viajando en la query, reseteando la página a 1 y combinándose entre sí; "Todos" que vuelve a no filtrar; el estado vacío; y el error del backend con su mensaje.
+- **12 en `ConversationDetail.test.tsx`** (archivo nuevo): el encabezado completo; el contacto como link para un ADMIN **y sin link para un USER**; los mensajes en orden con el autor de cada uno; el lado por `direction` y la burbuja de la persona distinguible de la del agente; el `HUMAN` sin usuario resoluble; la tool call con su rótulo, su nombre crudo, sus argumentos y su resultado; la tool bloqueada con el motivo; el `toolCalls` irreconocible mostrado crudo; la conversación sin mensajes; **que no hay ningún control para escribir**; y el error de carga.
+- **7 en `toolCalls.test.ts`** (archivo nuevo): la forma que persiste `runAgentTurn`; la bloqueada con su motivo; **sin `allowed` no se muestra como bloqueada**; el `result` sin la unión discriminada que se ignora sin perder la llamada; el `result` fallido; el todo-o-nada; y los seis valores que no son una lista con contenido.
+- **1 en `AppLayout.test.tsx`:** el link para los dos roles, en el grupo CRM y en el mismo grupo que Contactos.
+- **1 en `AgentPlaygroundPage.test.tsx`:** el hint del probador apuntando a `/conversations` (ver abajo).
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y en frontend (`--check src` en frontend: `dist/` son artefactos de build, como siempre).
+
+**No se probó a mano contra el stack local levantado**, y no se lo reporta como hecho: para ver una conversación real en la bandeja hay que generarla, y la única forma de generarla es un turno del probador, que dispara una llamada **paga** a OpenRouter y escribe datos de verdad —la misma razón por la que el ítem 65 tampoco se probó a mano—. A eso se suma el impedimento de siempre (el magic link de admin local bloqueado por el clasificador, nota del ítem 38). Lo que sí está verificado contra Postgres real es todo el contrato del backend, con filas creadas directo en la base: los 26 casos de integración incluyen el hilo de tres mensajes con sus tres autores y su auditoría de tools, que es exactamente lo que la pantalla dibuja.
