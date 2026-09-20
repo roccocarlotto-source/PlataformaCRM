@@ -15,6 +15,7 @@ import {
   DEFAULT_ACTION,
   DEFAULT_TRIGGER,
   MAX_DAYS_UNTIL_DUE,
+  MAX_NOTES,
   MAX_SUBJECT,
   MIN_DAYS_UNTIL_DUE,
   TRIGGER_OPTIONS,
@@ -144,10 +145,28 @@ function CamposDeLaAccion({
               required
             />
           </FormField>
+          {/* Opcional, y por eso sin el asterisco de .ds-required ni el
+              required del input. A lo ancho, como <textarea> y sin placeholder:
+              calcado del campo "Notas" del formulario MANUAL de actividades
+              (ActivityFormPage), porque es literalmente el mismo dato
+              —Activity.body— y llamarlo distinto acá lo volvería un concepto
+              aparte. El <div> envolvente es el que lleva la clase de la grilla,
+              porque FormField ES un <label> y no acepta className. */}
+          <div className="ds-field-grid--full">
+            <FormField label="Notas">
+              <textarea
+                value={values.notes ?? ""}
+                maxLength={MAX_NOTES}
+                onChange={(event) => onChange({ ...values, notes: event.target.value })}
+                disabled={disabled}
+              />
+            </FormField>
+          </div>
           <p className="ds-hint ds-field-grid--full">
             La tarea se crea asignada al dueño de la oportunidad, con ese título y venciendo en esa
             cantidad de días contados desde que se dispara. Entre {MIN_DAYS_UNTIL_DUE} y{" "}
-            {MAX_DAYS_UNTIL_DUE}; con {MIN_DAYS_UNTIL_DUE} vence el mismo día.
+            {MAX_DAYS_UNTIL_DUE}; con {MIN_DAYS_UNTIL_DUE} vence el mismo día. Las notas son
+            opcionales: si las cargás, quedan en el campo "Notas" de la tarea creada.
           </p>
         </>
       );

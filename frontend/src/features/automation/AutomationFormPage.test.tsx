@@ -92,10 +92,12 @@ describe("AutomationFormPage — creación", () => {
   it("los campos de configuración son los de la acción elegida", () => {
     renderForm("/automations/new");
 
-    // subject + daysUntilDue: los dos campos de configDeSeguimientoSchema, y
-    // ninguno más. Otra acción traería otro bloque.
+    // subject + daysUntilDue + notes: los tres campos de
+    // configDeSeguimientoSchema, y ninguno más. Otra acción traería otro
+    // bloque.
     expect(screen.getByLabelText("Título de la tarea")).toBeInTheDocument();
     expect(screen.getByLabelText("Vence en (días)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Notas")).toBeInTheDocument();
   });
 
   it("manda el POST con la regla completa y vuelve al listado", async () => {
@@ -121,11 +123,60 @@ describe("AutomationFormPage — creación", () => {
         triggerType: "opportunity.won",
         actionType: "activity.create_follow_up",
         // daysUntilDue viaja como NÚMERO, no como el string del input: el
-        // schema del backend lo pide entero y un "3" sería un 400.
+        // schema del backend lo pide entero y un "3" sería un 400. Y `notes`
+        // NO está: no se cargó ninguna nota, y el backend rechaza el "".
         actionConfig: { subject: "Llamar para coordinar la entrega", daysUntilDue: 3 },
         isActive: true,
       },
     ]);
+  });
+
+  it("se puede guardar sin llenar las Notas: son opcionales y la clave no viaja", async () => {
+    // El campo está vacío y el submit pasa igual: si `required` se hubiera
+    // colado, el <form> nativo lo habría frenado y no habría POST.
+    const bodies: { actionConfig?: Record<string, unknown> }[] = [];
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push((await request.json()) as { actionConfig?: Record<string, unknown> });
+        return HttpResponse.json(makeAutomation(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Sin notas");
+    await completarSeguimiento(user, "Llamar", "3");
+    expect(screen.getByLabelText("Notas")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect(bodies[0]?.actionConfig).toEqual({ subject: "Llamar", daysUntilDue: 3 });
+  });
+
+  it("lo que se escribe en Notas viaja en el actionConfig del POST", async () => {
+    const bodies: { actionConfig?: Record<string, unknown> }[] = [];
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push((await request.json()) as { actionConfig?: Record<string, unknown> });
+        return HttpResponse.json(makeAutomation(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Con notas");
+    await completarSeguimiento(user, "Llamar", "3");
+    await user.type(screen.getByLabelText("Notas"), "Preguntar por la patente definitiva");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect(bodies[0]?.actionConfig).toEqual({
+      subject: "Llamar",
+      daysUntilDue: 3,
+      notes: "Preguntar por la patente definitiva",
+    });
   });
 
   it("guardar como inactiva: se manda isActive false", async () => {
@@ -208,6 +259,14 @@ describe("AutomationFormPage — creación", () => {
     expect(subject).toHaveAttribute("maxLength", "200");
 
     expect(screen.getByLabelText("Vence en (días)")).toBeRequired();
+
+    // Notas es el único OPCIONAL de la config: sin `required` y sin el
+    // asterisco de .ds-required, mismo trato que el "Notas" del formulario
+    // manual de actividades. Lleva el tope del backend como maxLength —igual
+    // que el título—, que es comodidad y no la garantía.
+    const notas = screen.getByLabelText("Notas");
+    expect(notas).not.toBeRequired();
+    expect(notas).toHaveAttribute("maxLength", "5000");
   });
 
   it("un POST fallido muestra el mensaje del backend, NO navega y NO pierde lo escrito", async () => {
@@ -251,7 +310,11 @@ describe("AutomationFormPage — edición", () => {
         HttpResponse.json(
           makeAutomation({
             name: "Seguimiento a la semana",
-            actionConfig: { subject: "Preguntar cómo salió todo", daysUntilDue: 7 },
+            actionConfig: {
+              subject: "Preguntar cómo salió todo",
+              daysUntilDue: 7,
+              notes: "Repasar qué se le prometió en la entrega",
+            },
           }),
         ),
       ),
@@ -266,6 +329,7 @@ describe("AutomationFormPage — edición", () => {
     // el número entra al input como texto y vuelve a salir como número.
     expect(screen.getByLabelText("Título de la tarea")).toHaveValue("Preguntar cómo salió todo");
     expect(screen.getByLabelText("Vence en (días)")).toHaveValue(7);
+    expect(screen.getByLabelText("Notas")).toHaveValue("Repasar qué se le prometió en la entrega");
     expect(screen.getByLabelText("Activa")).toBeChecked();
   });
 
@@ -300,6 +364,34 @@ describe("AutomationFormPage — edición", () => {
         isActive: true,
       },
     ]);
+  });
+
+  it('borrar las Notas de una regla que las tenía saca la clave del PATCH, no manda ""', async () => {
+    // El único camino por el que una regla vuelve a "sin notas". Mandar "" en
+    // su lugar sería un 400 del backend, que rechaza el string vacío.
+    const bodies: { actionConfig?: Record<string, unknown> }[] = [];
+    server.use(
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(
+          makeAutomation({
+            actionConfig: { subject: "Llamar", daysUntilDue: 3, notes: "Algo que ya no aplica" },
+          }),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push((await request.json()) as { actionConfig?: Record<string, unknown> });
+        return HttpResponse.json(makeAutomation());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/automations/au1/edit");
+
+    await user.clear(await screen.findByLabelText("Notas"));
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]?.actionConfig).toEqual({ subject: "Llamar", daysUntilDue: 3 });
   });
 
   it("desactivar una regla activa manda isActive false y no la borra", async () => {
@@ -368,6 +460,7 @@ describe("AutomationFormPage — edición", () => {
 
     expect(await screen.findByLabelText("Acción")).toHaveValue("whatsapp.send_message");
     expect(screen.queryByLabelText("Título de la tarea")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Notas")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { crearRegistroDeAcciones, type AccionRegistrada } from "./automationActions";
 import {
   ACTION_CREATE_FOLLOW_UP,
+  MAX_NOTES,
   accionCrearActividadDeSeguimiento,
   configDeSeguimientoSchema,
   fechaDeVencimiento,
@@ -116,6 +117,81 @@ test("subject vacío, solo espacios o de más de 200 caracteres falla", () => {
       configDeSeguimientoSchema.safeParse({ subject, daysUntilDue: 1 }).success,
       false,
       `subject=${JSON.stringify(subject)} debía rechazarse`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// notes (ítem 68) — opcional, y viaja al body de la Activity
+// ---------------------------------------------------------------------------
+
+test('notes es OPCIONAL: sin la clave el config es válido y notes queda undefined, no ""', () => {
+  const parsed = configDeSeguimientoSchema.parse({ subject: "Llamar", daysUntilDue: 3 });
+  // undefined y no "": es lo que hace que el handler NO mande body y la
+  // Activity quede con body null.
+  assert.equal(parsed.notes, undefined);
+  assert.equal("notes" in parsed, false);
+});
+
+test("notes presente se trimea, igual que subject", () => {
+  const parsed = configDeSeguimientoSchema.parse({
+    subject: "Llamar",
+    daysUntilDue: 3,
+    notes: "  Preguntar por la patente  ",
+  });
+  assert.equal(parsed.notes, "Preguntar por la patente");
+});
+
+test('notes vacío o con puros espacios se RECHAZA — "sin notas" se expresa omitiendo la clave', () => {
+  for (const notes of ["", "   ", "\n\t "]) {
+    const resultado = configDeSeguimientoSchema.safeParse({
+      subject: "Llamar",
+      daysUntilDue: 3,
+      notes,
+    });
+    assert.equal(resultado.success, false, `notes=${JSON.stringify(notes)} debía rechazarse`);
+    if (!resultado.success) {
+      assert.match(
+        resultado.error.issues.map((i) => i.message).join(", "),
+        /notes no puede ser un string vacío/,
+      );
+    }
+  }
+});
+
+test("notes de más de 5.000 caracteres falla con el tope en el mensaje; 5.000 justos pasa", () => {
+  assert.equal(MAX_NOTES, 5000);
+  assert.equal(
+    configDeSeguimientoSchema.safeParse({
+      subject: "Llamar",
+      daysUntilDue: 3,
+      notes: "x".repeat(MAX_NOTES),
+    }).success,
+    true,
+  );
+
+  const pasado = configDeSeguimientoSchema.safeParse({
+    subject: "Llamar",
+    daysUntilDue: 3,
+    notes: "x".repeat(MAX_NOTES + 1),
+  });
+  assert.equal(pasado.success, false);
+  if (!pasado.success) {
+    // El tope es NUESTRO —Activity.body es Text, sin límite en la base—, así
+    // que el mensaje lo dice en vez de ser un límite mudo.
+    assert.match(
+      pasado.error.issues.map((i) => i.message).join(", "),
+      /notes no puede superar los 5000 caracteres/,
+    );
+  }
+});
+
+test("notes que no es string falla", () => {
+  for (const notes of [42, null, {}, ["a"]]) {
+    assert.equal(
+      configDeSeguimientoSchema.safeParse({ subject: "Llamar", daysUntilDue: 3, notes }).success,
+      false,
+      `notes=${JSON.stringify(notes)} debía rechazarse`,
     );
   }
 });
