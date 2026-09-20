@@ -7,6 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeBranch } from "../../test/branchFixtures";
+import { makeUser } from "../../test/userFixtures";
 import { AdminRoute } from "../../auth/AdminRoute";
 import { ProtectedRoute } from "../../auth/ProtectedRoute";
 import type { AuthContextValue } from "../../auth/AuthContext";
@@ -42,10 +43,27 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
 }
 
 const baseUrl = `${env.apiUrl}/api/branches`;
+const usersUrl = `${env.apiUrl}/api/users`;
+
+// El UserSelect de "Vendedor por defecto" (ítem 69) se monta siempre, así que
+// todo test necesita este handler como mínimo — mismo criterio que
+// ActivityFormPage.test.tsx.
+function usuariosHandler() {
+  return http.get(usersUrl, () =>
+    HttpResponse.json({
+      data: [
+        makeUser({ id: "u1", fullName: "Ana Pérez", email: "ana@example.com" }),
+        makeUser({ id: "u2", fullName: "Beto Gómez", email: "beto@example.com" }),
+      ],
+      pagination: { page: 1, pageSize: 100, total: 2, totalPages: 1 },
+    }),
+  );
+}
 
 // Se renderiza dentro de un Routes real para que useParams vea (o no vea) el
 // :id — es lo único que distingue el modo creación del de edición.
 function renderForm(ruta: string) {
+  server.use(usuariosHandler());
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -99,7 +117,12 @@ describe("BranchFormPage — creación", () => {
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(body).toBeDefined());
-    expect(body).toEqual({ name: "Casa Central", timezone: "America/Montevideo" });
+    // La clave viaja siempre, en null cuando no se eligió a nadie (ítem 69).
+    expect(body).toEqual({
+      name: "Casa Central",
+      timezone: "America/Montevideo",
+      defaultOwnerId: null,
+    });
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
   });
 
@@ -127,6 +150,7 @@ describe("BranchFormPage — creación", () => {
     expect(body).toEqual({
       name: "Sucursal Santiago",
       timezone: "America/Santiago",
+      defaultOwnerId: null,
     });
   });
 
@@ -185,7 +209,11 @@ describe("BranchFormPage — edición", () => {
     await waitFor(() => expect(body).toBeDefined());
     // Los dos campos siempre, sin diferenciar cuál cambió (ver el comentario
     // de BranchFormPage).
-    expect(body).toEqual({ name: "Casa Matriz", timezone: "America/Santiago" });
+    expect(body).toEqual({
+      name: "Casa Matriz",
+      timezone: "America/Santiago",
+      defaultOwnerId: null,
+    });
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
   });
 
@@ -328,11 +356,136 @@ describe("BranchFormPage — campos obligatorios", () => {
     expect(screen.getByText("Zona horaria")).toHaveClass("ds-required");
     expect(screen.getAllByText("Los campos con asterisco (*) son obligatorios.")).toHaveLength(1);
   });
+
+  it("Vendedor por defecto NO lleva la marca: una sucursal sin ninguno es un estado válido", async () => {
+    renderForm("/branches/new");
+
+    const campo = await screen.findByLabelText("Vendedor por defecto");
+    expect(campo).not.toBeRequired();
+    expect(screen.getByText("Vendedor por defecto")).not.toHaveClass("ds-required");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 69 — el vendedor por defecto de la sucursal
+// ---------------------------------------------------------------------------
+describe("BranchFormPage — vendedor por defecto", () => {
+  it("el campo aparece con su hint y se puede guardar la sucursal sin elegir a nadie", async () => {
+    let body: unknown;
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/new");
+
+    expect(await screen.findByLabelText("Vendedor por defecto")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Se usa cuando el agente de IA necesita asignar un vendedor/),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Nombre"), "Casa Central");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    // Sin `required`: si se hubiera colado, el <form> nativo habría frenado el
+    // submit y no habría habido POST.
+    await waitFor(() => expect(body).toBeDefined());
+    expect((body as { defaultOwnerId: string | null }).defaultOwnerId).toBeNull();
+  });
+
+  it("elegir un vendedor lo hace viajar en el POST", async () => {
+    let body: unknown;
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Casa Central");
+    await chooseSelectOption(
+      user,
+      await screen.findByLabelText("Vendedor por defecto"),
+      "Beto Gómez",
+    );
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body).toEqual({
+      name: "Casa Central",
+      timezone: "America/Montevideo",
+      defaultOwnerId: "u2",
+    });
+  });
+
+  it("en edición hidrata el vendedor guardado y lo conserva en el PATCH", async () => {
+    let body: unknown;
+    server.use(
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(makeBranch({ id: "b1", defaultOwnerId: "u2" })),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch({ id: "b1", defaultOwnerId: "u2" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/b1/edit");
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Vendedor por defecto")).toHaveValue("Beto Gómez"),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect((body as { defaultOwnerId: string | null }).defaultOwnerId).toBe("u2");
+  });
+
+  it("volver a dejarlo en blanco en una edición manda null, que es como se desvincula", async () => {
+    let body: unknown;
+    server.use(
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(makeBranch({ id: "b1", defaultOwnerId: "u2" })),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch({ id: "b1" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/b1/edit");
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Vendedor por defecto")).toHaveValue("Beto Gómez"),
+    );
+
+    // La fila vacía se ofrece SIEMPRE (clearable por defecto), incluso con un
+    // vendedor ya elegido: es la única forma de sacarlo.
+    await chooseSelectOption(
+      user,
+      screen.getByLabelText("Vendedor por defecto"),
+      "Sin vendedor por defecto",
+    );
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect((body as { defaultOwnerId: string | null }).defaultOwnerId).toBeNull();
+  });
 });
 
 // Misma jerarquía real que app/router.tsx (ProtectedRoute → AdminRoute →
 // BranchFormPage), mismo criterio que auth/AdminRoute.test.tsx.
 function renderUnderAdminRoute(initialPath: string) {
+  server.use(usuariosHandler());
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>

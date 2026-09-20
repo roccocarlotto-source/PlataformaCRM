@@ -12,6 +12,7 @@ import { createBooking } from "./booking.service";
 import { qualifyLead } from "./contact.service";
 import type { LlmToolDefinition } from "./llmProvider.service";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
+import { resolverOwnerDelContacto } from "./ownership.service";
 
 // ---------------------------------------------------------------------------
 // Catálogo de tools del agente de IA (docs/ai-agent-architecture.md §7) y sus
@@ -27,8 +28,10 @@ import { createOpportunity, updateOpportunity } from "./opportunity.service";
 //   - contactId: siempre el Contact de la conversación. En ninguna tool es un
 //     argumento.
 //   - ownerId de una oportunidad: el ownerId del Contact (el vendedor ya
-//     asignado a ese lead). Sin vendedor asignado, la tool falla con un error
-//     claro — no se inventa un dueño.
+//     asignado a ese lead), o —desde el ítem 69— el vendedor por defecto de la
+//     sucursal de la conversación si el contacto todavía no tenía ninguno, en
+//     cuyo caso el Contact queda asignado a esa persona de verdad. Sin ninguno
+//     de los dos, la tool falla con un error claro — no se inventa un dueño.
 //   - pipelineId/stageId de una oportunidad nueva: el Pipeline con isDefault y
 //     su Stage de menor order. Sin pipeline por defecto, error claro.
 //   - update_opportunity no expone ownerId/contactId/pipelineId: un agente no
@@ -167,7 +170,18 @@ const createOpportunityTool: ToolDelAgente = {
       if (!contact) {
         return fallo("El contacto de esta conversación ya no existe");
       }
-      if (!contact.ownerId) {
+      // El ownerId del contacto, o el vendedor por defecto de la sucursal si
+      // no tenía ninguno (ítem 69). Si lo resolvió por la sucursal, el Contact
+      // ya quedó asignado a esa persona dentro de esta llamada — no hace falta
+      // releerlo, alcanza con el id devuelto. `null` es el caso residual
+      // aceptado: la sucursal tampoco tiene un vendedor por defecto, y entonces
+      // esto falla exactamente como fallaba antes de este ítem.
+      const ownerId = await resolverOwnerDelContacto(
+        contexto.organizationId,
+        contexto.conversation.branchId,
+        contact,
+      );
+      if (!ownerId) {
         return fallo(MENSAJE_CONTACTO_SIN_VENDEDOR);
       }
 
@@ -181,17 +195,17 @@ const createOpportunityTool: ToolDelAgente = {
         return fallo(MENSAJE_PIPELINE_SIN_ETAPAS);
       }
 
-      // actorUserId = el vendedor del contacto: es a quien se le atribuye la
-      // oportunidad (y quien figura en el historial de la unidad si algún día
-      // el agente vinculara un vehículo — hoy no puede). resolveOwnerId valida
-      // que siga activo en la organización; si no, el AppError vuelve como
-      // resultado.
-      const opportunity = await createOpportunity(contexto.organizationId, contact.ownerId, {
+      // actorUserId = el vendedor efectivo del contacto (el suyo, o el de la
+      // sucursal): es a quien se le atribuye la oportunidad (y quien figura en
+      // el historial de la unidad si algún día el agente vinculara un vehículo
+      // — hoy no puede). resolveOwnerId lo revalida adentro de createOpportunity;
+      // si no estuviera activo, el AppError vuelve como resultado.
+      const opportunity = await createOpportunity(contexto.organizationId, ownerId, {
         title: input.title,
         amount: input.amount,
         currency: input.currency,
         contactId: contact.id,
-        ownerId: contact.ownerId,
+        ownerId,
         pipelineId: pipeline.id,
         stageId: primeraEtapa.id,
       });

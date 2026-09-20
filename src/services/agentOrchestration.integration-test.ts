@@ -127,6 +127,11 @@ interface OpcionesDeEscenario {
   guardrails?: Record<string, unknown>;
   channels?: ("WEB" | "WHATSAPP")[];
   conVendedor?: boolean;
+  // Vendedor por defecto de la SUCURSAL (ítem 69), el que el agente usa cuando
+  // el contacto no tiene ninguno. Es el mismo usuario que `ownerId` del
+  // escenario, así que un test puede afirmar contra `e.ownerId` sin importar
+  // por cuál de los dos caminos se resolvió.
+  conVendedorPorDefecto?: boolean;
   conPipeline?: boolean;
   tone?: string;
   // Base de conocimiento de la sucursal DEL AGENTE (ítem 59). Se crean en
@@ -177,7 +182,11 @@ async function montar(etiqueta: string, opciones: OpcionesDeEscenario = {}): Pro
     },
   });
 
-  const branch = await createBranch(org.id, { name: "Centro", timezone: TZ });
+  const branch = await createBranch(org.id, {
+    name: "Centro",
+    timezone: TZ,
+    ...(opciones.conVendedorPorDefecto ? { defaultOwnerId: owner.id } : {}),
+  });
 
   const contact = await prisma.contact.create({
     data: {
@@ -557,7 +566,10 @@ test("agotar MAX_TOOL_ROUNDS_PER_TURN deriva a humano con el cierre fijo, y desp
 // 5. Errores de negocio como resultado, no como excepción
 // ---------------------------------------------------------------------------
 
-test("contacto sin vendedor: create_opportunity devuelve el error al modelo y no crea nada", async () => {
+// Desde el ítem 69 este caso es el RESIDUAL: contacto sin vendedor Y sucursal
+// sin vendedor por defecto configurado. Es un estado aceptado —no todas las
+// sucursales configuran uno— y el comportamiento es exactamente el de siempre.
+test("contacto sin vendedor y sucursal sin vendedor por defecto: create_opportunity devuelve el error al modelo y no crea nada", async () => {
   const e = await montar("sin-vendedor", { conVendedor: false });
   try {
     const doble = doblarProveedor([
@@ -577,6 +589,44 @@ test("contacto sin vendedor: create_opportunity devuelve el error al modelo y no
       0,
     );
     assert.equal(resultado.respuesta, "Voy a pedir que un vendedor te contacte.");
+    // Y el contacto sigue sin dueño: no hay nada que inventarle.
+    const contact = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    assert.equal(contact.ownerId, null);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// Ítem 69: el mismo escenario de arriba, con la única diferencia de que la
+// sucursal SÍ tiene un vendedor por defecto configurado.
+test("contacto sin vendedor pero sucursal CON vendedor por defecto: la oportunidad se crea con ese vendedor y el contacto queda asignado", async () => {
+  const e = await montar("default-owner", { conVendedor: false, conVendedorPorDefecto: true });
+  try {
+    const doble = doblarProveedor([
+      pideTool("call_1", "create_opportunity", { title: "Quiere una Corolla" }),
+      texto("Listo, te armé la oportunidad."),
+    ]);
+
+    const resultado = await turno(e, "Quiero comprar", doble.proveedor);
+
+    assert.equal(resultado.toolCalls[0].allowed, true);
+    assert.equal(
+      (resultado.toolCalls[0].result as { ok: boolean }).ok,
+      true,
+      JSON.stringify(resultado.toolCalls[0].result),
+    );
+
+    const opportunity = await prisma.opportunity.findFirstOrThrow({
+      where: { organizationId: e.organizationId },
+    });
+    assert.equal(opportunity.contactId, e.contactId);
+    assert.equal(opportunity.ownerId, e.ownerId, "el dueño salió de la sucursal");
+    assert.equal(opportunity.stageId, e.stageId);
+
+    // Lo que distingue esto de un dueño provisorio: el Contact queda asignado
+    // de verdad, y la próxima acción del agente ya no pasa por acá.
+    const contact = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    assert.equal(contact.ownerId, e.ownerId);
   } finally {
     await desmontar(e);
   }
@@ -1010,7 +1060,7 @@ test("request_human_handoff SIN texto propio usa el cierre fijo; el guardrail ac
   }
 });
 
-test("contacto SIN vendedor: la conversación igual queda derivada, sin Activity y sin que el turno falle", async () => {
+test("contacto SIN vendedor y sucursal sin vendedor por defecto: la conversación igual queda derivada, sin Activity y sin que el turno falle", async () => {
   const e = await montar("handoff-sin-vendedor", { conVendedor: false });
   try {
     const doble = doblarProveedor([
@@ -1039,6 +1089,49 @@ test("contacto SIN vendedor: la conversación igual queda derivada, sin Activity
     // Y el agente ya no responde en esa conversación.
     const despues = await turno(e, "¿Hola?", doblarProveedor([texto("no")]).proveedor);
     assert.equal(despues.respuesta, null);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// Ítem 69: el mismo caso, con la sucursal configurada. La derivación deja de
+// ser silenciosa — el aviso le llega al vendedor por defecto.
+test("contacto SIN vendedor pero sucursal CON vendedor por defecto: la derivación crea la Activity y la conversación queda asignada a esa persona", async () => {
+  const e = await montar("handoff-default-owner", {
+    conVendedor: false,
+    conVendedorPorDefecto: true,
+    enabledTools: [],
+  });
+  try {
+    const doble = doblarProveedor([
+      pideTool(
+        "h1",
+        REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+        { reason: "Pide una persona" },
+        "Ya te contactan.",
+      ),
+    ]);
+
+    const resultado = await turno(e, "Quiero hablar con alguien", doble.proveedor);
+
+    assert.equal(resultado.handoff, true);
+    assert.equal(resultado.status, "TRANSFERRED_TO_HUMAN");
+    assert.ok(resultado.handoffActivityId, "ya no es una derivación silenciosa");
+
+    const [activity] = await activitiesDe(e);
+    assert.equal(activity.assigneeId, e.ownerId);
+    assert.equal(activity.authorId, e.ownerId);
+    assert.equal(activity.body, "Pide una persona");
+
+    // Las dos mitades apuntan a la misma persona: la tarea y la conversación.
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: resultado.conversationId },
+    });
+    assert.equal(conversation.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(conversation.assignedUserId, e.ownerId);
+
+    const contact = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    assert.equal(contact.ownerId, e.ownerId);
   } finally {
     await desmontar(e);
   }
@@ -1139,6 +1232,7 @@ test("ejecutarHandoff es idempotente: una conversación ya derivada no genera un
     const segunda = await ejecutarHandoff({
       organizationId: e.organizationId,
       conversationId: primero.conversationId,
+      branchId: e.branchId,
       contact: { id: e.contactId, ownerId: e.ownerId, firstName: "Ana", lastName: "Pérez" },
       agentName: "Agente comercial",
       motivo: "otra vez",

@@ -15,6 +15,7 @@ import { countActiveQrCodesByBranch } from "../repositories/qrCode.repository";
 import { countActiveResourcesByBranch } from "../repositories/resource.repository";
 import { countActiveServiceTypesByBranch } from "../repositories/serviceType.repository";
 import { AppError } from "../utils/AppError";
+import { validarUsuarioAsignable } from "./ownership.service";
 
 // ---------------------------------------------------------------------------
 // Branch (sucursal) — P2.1.
@@ -66,25 +67,68 @@ export async function getBranchById(organizationId: string, id: string) {
 export interface CreateBranchInput {
   name: string;
   timezone: string;
+  // Vendedor por defecto de la sucursal (ítem 69). OPCIONAL de verdad: no
+  // mandarlo —o mandarlo en null— deja la sucursal sin ninguno, que es un
+  // estado válido y el que tienen todas las sucursales existentes.
+  defaultOwnerId?: string | null;
 }
 
-export function createBranch(organizationId: string, input: CreateBranchInput) {
+export async function createBranch(organizationId: string, input: CreateBranchInput) {
   // Sin unicidad de nombre: dos sucursales pueden llamarse igual ("Centro" en
   // dos ciudades). No hay ninguna constraint que traducir a 409, así que no hay
   // rethrowAsConflict que escribir — a diferencia de Pipeline, que sí tiene un
   // único (organizationId, name).
-  return createBranchRepo({ organizationId, name: input.name, timezone: input.timezone });
+  return createBranchRepo({
+    organizationId,
+    name: input.name,
+    timezone: input.timezone,
+    defaultOwnerId: await resolverDefaultOwnerId(organizationId, input.defaultOwnerId),
+  });
+}
+
+// El vendedor por defecto, validado antes de guardarse. NO se reutiliza
+// resolveOwnerId (ownership.service.ts): aquella función significa "si no viene
+// nada, asignale al actor", y acá "no viene nada" significa literalmente "sin
+// vendedor por defecto" — no hay ningún actor al que caer. Lo que sí se comparte
+// es la mitad que importa, validarUsuarioAsignable: el vendedor tiene que
+// existir, ser de esta organización y estar activo, o es un 400 con el nombre
+// del campo adentro.
+//
+// undefined y null NO son lo mismo, mismo criterio que
+// UpdateContactInput.companyId (M-10): undefined devuelve undefined y Prisma no
+// toca la columna; null la pone en NULL, que es como se desvincula desde el
+// PATCH.
+async function resolverDefaultOwnerId(
+  organizationId: string,
+  defaultOwnerId: string | null | undefined,
+): Promise<string | null | undefined> {
+  if (defaultOwnerId === undefined || defaultOwnerId === null) {
+    return defaultOwnerId;
+  }
+  return validarUsuarioAsignable(organizationId, defaultOwnerId, "defaultOwnerId");
 }
 
 export interface UpdateBranchInput {
   name?: string;
   timezone?: string;
+  // `null` desvincula el vendedor por defecto (la sucursal vuelve a no tener
+  // ninguno); `undefined` no toca la columna. Mismo contrato que
+  // UpdateContactInput.companyId.
+  defaultOwnerId?: string | null;
 }
 
 export async function updateBranch(organizationId: string, id: string, input: UpdateBranchInput) {
   await getBranchById(organizationId, id);
 
-  const result = await updateBranchRepo(id, organizationId, input);
+  // `"defaultOwnerId" in input`, no un chequeo truthy: un truthy trataría el
+  // `null` explícito igual que "no vino", y acá `null` significa "sacale el
+  // vendedor por defecto" (M-10).
+  const data: UpdateBranchInput = { ...input };
+  if ("defaultOwnerId" in input) {
+    data.defaultOwnerId = await resolverDefaultOwnerId(organizationId, input.defaultOwnerId);
+  }
+
+  const result = await updateBranchRepo(id, organizationId, data);
   if (result.count === 0) {
     throw new AppError("Sucursal no encontrada", 404);
   }
