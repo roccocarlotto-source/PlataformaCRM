@@ -8,6 +8,7 @@ import {
   updateKnowledgeBaseEntry,
 } from "../services/knowledgeBaseEntry.service";
 import { extraerTextoDeArchivo } from "../services/knowledgeBaseExtraction.service";
+import { sincronizarStockConBaseDeConocimiento } from "../services/vehicleKnowledgeBaseSync.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -164,5 +165,32 @@ export const extraerTextoDeArchivoHandler = asyncHandler<AuthenticatedRequest>(
     });
 
     res.status(200).json(resultado);
+  },
+);
+
+// ---------------------------------------------------------------------------
+// POST /api/knowledge-base/sync-vehicles — ítem 70.
+//
+// Escribe de verdad —crea, actualiza y da de baja entradas— y por eso comparte
+// el businessWriteRateLimiter y el authorize("ADMIN") del resto del router.
+//
+// 200 Y NO 201, aunque cree filas: lo que devuelve no es un recurso nuevo con
+// su URL sino el RESUMEN de lo que pasó, y una corrida puede perfectamente no
+// crear nada (todo al día) o solo dar de baja. Mismo criterio que
+// extract-text: la respuesta es el resultado completo de una operación que ya
+// terminó.
+//
+// UN SOLO CAMPO EN EL BODY, branchId, porque la sincronización es POR
+// SUCURSAL: la base de conocimiento lo es (cada entrada cuelga de una), el
+// stock lo es (Vehicle.branchId es NOT NULL), y el agente que la lee también.
+// "Sincronizar todo" sería otra operación, con otro costo y otra confirmación.
+// ---------------------------------------------------------------------------
+const syncVehiclesSchema = z.object({ branchId: branchIdSchema });
+
+export const syncVehiclesHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const { branchId } = parseOrThrow(syncVehiclesSchema, req.body);
+    const resumen = await sincronizarStockConBaseDeConocimiento(req.auth.organizationId, branchId);
+    res.status(200).json(resumen);
   },
 );

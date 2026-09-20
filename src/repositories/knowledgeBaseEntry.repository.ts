@@ -113,6 +113,10 @@ export interface CreateKnowledgeBaseEntryData {
   title: string;
   content: string;
   isActive?: boolean;
+  // §70 — solo lo manda la sincronización de stock. Una entrada escrita desde
+  // la pantalla lo omite y queda en NULL, que es lo que significa "escrita a
+  // mano" (ver KnowledgeBaseEntry en schema.prisma).
+  sourceVehicleId?: string | null;
 }
 
 export function createKnowledgeBaseEntry(data: CreateKnowledgeBaseEntryData, db: Db = prisma) {
@@ -147,5 +151,71 @@ export function softDeleteKnowledgeBaseEntry(id: string, organizationId: string,
   return db.knowledgeBaseEntry.updateMany({
     where: { id, organizationId, deletedAt: null },
     data: { deletedAt: new Date() },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Las tres consultas que solo usa la sincronización de stock (§70,
+// vehicleKnowledgeBaseSync.service.ts). Viven acá y no sueltas en el service
+// por la misma razón que el resto del archivo: el filtro multi-tenant se arma
+// en un solo lugar por entidad.
+// ---------------------------------------------------------------------------
+
+// SIN `deletedAt: null`, a diferencia de todas las demás lecturas de este
+// archivo, Y ESO ES EL PUNTO: el UNIQUE (organization_id, source_vehicle_id)
+// NO es parcial, así que una entrada dada de baja sigue ocupando el par. Si
+// esta consulta la ocultara, la sincronización intentaría insertar una segunda
+// entrada para el mismo vehículo y chocaría contra el UNIQUE. Devolviéndola,
+// el service la revive (ver writeSyncedKnowledgeBaseEntry).
+export function findKnowledgeBaseEntryBySourceVehicle(
+  organizationId: string,
+  sourceVehicleId: string,
+  db: Db = prisma,
+) {
+  return db.knowledgeBaseEntry.findFirst({ where: { organizationId, sourceVehicleId } });
+}
+
+// Las entradas VIVAS de una sucursal que salieron de la sincronización. El
+// `not: null` es lo que deja afuera a las escritas a mano, que la
+// sincronización no puede tocar ni para actualizarlas ni para darlas de baja.
+// Devuelve lo mínimo para decidir la baja: no hace falta el contenido.
+export function findGeneratedKnowledgeBaseEntriesByBranch(
+  organizationId: string,
+  branchId: string,
+  db: Db = prisma,
+) {
+  return db.knowledgeBaseEntry.findMany({
+    where: { organizationId, branchId, deletedAt: null, sourceVehicleId: { not: null } },
+    select: { id: true, sourceVehicleId: true },
+  });
+}
+
+// La escritura de la sincronización sobre una entrada que ya existe. Dos
+// diferencias con updateKnowledgeBaseEntry, las dos deliberadas:
+//
+//   - El WHERE no exige `deletedAt: null` y el data lo pone en null: es la
+//     ÚNICA escritura del proyecto que revive una entrada, y existe porque el
+//     UNIQUE no es parcial (ver arriba). Una unidad que se vende y vuelve a
+//     publicarse recupera su entrada con el mismo id.
+//   - No toca `isActive`: desactivar una entrada generada es una decisión del
+//     negocio y la sincronización no la revierte.
+//
+// updateMany y no update, como el resto del archivo: el WHERE efectivo tiene
+// que exigir organizationId además de id (M4).
+export interface SyncedKnowledgeBaseEntryData {
+  branchId: string;
+  title: string;
+  content: string;
+}
+
+export function writeSyncedKnowledgeBaseEntry(
+  id: string,
+  organizationId: string,
+  data: SyncedKnowledgeBaseEntryData,
+  db: Db = prisma,
+) {
+  return db.knowledgeBaseEntry.updateMany({
+    where: { id, organizationId },
+    data: { ...data, deletedAt: null },
   });
 }

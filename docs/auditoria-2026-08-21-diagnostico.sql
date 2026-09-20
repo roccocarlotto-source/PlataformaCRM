@@ -841,7 +841,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 54 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 55 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -865,7 +865,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 54 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 55 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -964,7 +964,15 @@ from (
     -- FK bien formada hacia contacts (que también tiene su UNIQUE
     -- (organization_id, id)) pasaría la fila 14 entera, y dejaría la sucursal
     -- apuntando a un contacto donde debería haber un vendedor.
-    ('branches_organization_id_default_owner_id_fkey|branches(organization_id,default_owner_id)->users(organization_id,id)')
+    ('branches_organization_id_default_owner_id_fkey|branches(organization_id,default_owner_id)->users(organization_id,id)'),
+    -- Sincronización del stock con la base de conocimiento (§70, migración
+    -- 20260925120000): la entrada GENERADA apunta a la unidad de vehicles que
+    -- la escribió. Nullable —toda entrada escrita a mano tiene NULL acá— y por
+    -- eso NO ACTION. Una FK bien formada hacia quotes o deliveries (que también
+    -- fotografían una unidad y también tienen su UNIQUE por organización)
+    -- pasaría la 14 entera: lo que esta fila afirma es que el padre es la
+    -- UNIDAD, no ningún documento que hable de ella.
+    ('knowledge_base_entries_organization_id_source_vehicle_id_fkey|knowledge_base_entries(organization_id,source_vehicle_id)->vehicles(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

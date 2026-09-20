@@ -3921,6 +3921,76 @@ Sin asterisco y sin `required`. Debajo, un `ds-hint` —hijo directo de `.ds-fie
 
 **No hay ningún detalle de sucursal de solo lectura donde reflejarlo:** `BranchListPage` tiene tres columnas (Nombre, Zona horaria, Acciones) y no tiene el pop-up "Ver detalle" del ítem 28. No se agrega una columna nueva por un campo que solo importa mientras se configura.
 
+---
+
+## 70. Sincronizar el stock con la Base de Conocimiento
+
+**Estado:** hecho
+
+**Qué marcó Rocco.** Para que un agente de IA pueda hablar del stock —el caso obvio en una automotora: "¿tenés algún Corolla automático?"— hoy la única forma es que **alguien copie los datos del vehículo a mano** en una entrada de la Base de conocimiento. Y ese texto copiado queda desactualizado en cuanto cambia un precio o se vende la unidad, sin que nada avise.
+
+El stock real ya vive estructurado en `Vehicle` (decenas de campos, con su propio CRUD y su propia pantalla). La Base de conocimiento es texto libre por sucursal. **No había ninguna relación entre las dos cosas**, y esa es toda la brecha que cierra este ítem.
+
+### Manual, por botón — no automática
+
+La sincronización **no se dispara sola** en el alta ni en la edición de un vehículo. Es un botón, **"Sincronizar stock"**, en la pantalla de la Base de conocimiento, y sincroniza **una sucursal por vez**.
+
+No es una limitación: automatizarla significaría reescribir entradas de la Base de conocimiento **en cada PATCH de una ficha** —incluidos los que no tocan ningún campo publicable— y dejaría a quien carga un vehículo cambiando, sin saberlo, el prompt de todos los agentes de su sucursal. Si en la práctica la gente se olvida de apretar el botón, automatizarla es **una decisión de producto aparte**, con su propia conversación, no una consecuencia de este ítem.
+
+**Por sucursal** porque todo lo que participa lo es: cada entrada de la Base de conocimiento cuelga de una sucursal, `Vehicle.branchId` es NOT NULL, y cada agente atiende una. "Sincronizar todo" sería otra operación, con otro costo y otra confirmación.
+
+### Una entrada por vehículo, vinculada por FK
+
+Se refleja como **una entrada de KB por unidad**, y no como una sola entrada gigante con el stock entero: así se mantiene al día unidad por unidad, y ninguna se acerca al tope de 10.000 caracteres por entrada por más que crezca el stock.
+
+El vínculo es una **FK nueva**, `KnowledgeBaseEntry.sourceVehicleId`, y no el título ni el texto. De ahí salen las dos propiedades que hacen usable a esto:
+
+- **Es idempotente.** El `@@unique([organizationId, sourceVehicleId])` hace imposible que una segunda corrida duplique nada: correrla de nuevo actualiza la misma fila.
+- **La pantalla puede distinguir** una entrada generada de una escrita a mano sin adivinar por el contenido. `NULL` significa "la escribió una persona", y **toda entrada anterior a este ítem lo es**.
+
+El UNIQUE **no es parcial** (no lleva `where deleted_at is null`), y eso tiene una consecuencia deliberada: una entrada dada de baja sigue ocupando el par (organización, vehículo), así que cuando una unidad **vuelve a calificar** —una venta que se cae— la sincronización **revive esa misma fila** en vez de insertar otra. La entrada conserva su `id`.
+
+### Qué vehículo califica: `publishOnWebsite` **y** `status === AVAILABLE`
+
+Se sincroniza solo lo que ya está listo para mostrarse afuera: `publishOnWebsite: true` **y** `status: AVAILABLE` **y** `deletedAt: null`.
+
+**Las dos primeras condiciones son independientes y hacen falta las dos.** No es una precaución teórica: `setVehicleStatusForOpportunityLink` (`vehicle.service.ts`) cambia el `status` a `RESERVED`/`SOLD` cuando la unidad se engancha a una oportunidad, y **no toca `publishOnWebsite`**. O sea que una unidad vendida sigue marcada como publicable. Mirando solo esa bandera, el agente ofrecería autos ya vendidos.
+
+Una unidad que deja de calificar —se vendió, se despublicó, se borró o se mudó de sucursal— hace que su entrada se **dé de baja** (el mismo soft delete que hace el botón "Eliminar") en la corrida siguiente.
+
+### La allowlist: qué puede decir el agente y qué no
+
+Lo que se escribe en el contenido **termina, palabra por palabra, dentro del system prompt de todos los agentes de la sucursal**, y de ahí en la boca del agente frente a un desconocido en un chat público. Por eso `construirContenidoDeVehiculo` **no vuelca la fila del vehículo**: elige campo por campo, de una **lista de permitidos** (la ficha técnica, el equipamiento, la garantía, los precios de lista, la descripción pública, la ubicación).
+
+Nunca salen: **patente, VIN, número de motor, el piso de negociación (`minAcceptablePriceUsd`), el costo de adquisición, los ocho campos de consignación** —datos personales de un tercero, `docs/data-classification.md`—, **`internalNotes`** (cuyo propio comentario en el schema dice "nunca sale por la API pública"), la deuda de patente, la última inspección técnica, el titular, el vendedor asignado y la permuta de origen.
+
+El criterio está escrito **como allowlist y no como lista de prohibidos**, y eso es lo que la hace sostenible: el día que alguien agregue un campo nuevo a `Vehicle`, el default es **no incluirlo** hasta que se decida explícitamente lo contrario. Está dicho así en el comentario de la función, para quien la toque después.
+
+Tres decisiones más del texto, chicas pero con motivo:
+
+- **Los booleanos solo se escriben cuando son `true`.** El schema lo dice de los cuatro de documentación: "no marcada" es *no se afirma*, no lo contrario. Un "Único dueño: No" sería una negación que nadie cargó y que el agente repetiría como un hecho.
+- **`priceOnRequest` gana sobre cualquier número**, y `publicationCurrency` filtra qué precio se publica. Los dos campos están permitidos, pero publicarlos ignorando esas reglas sería peor que no publicarlos: el agente diría un precio que la agencia decidió no exhibir, o en una moneda en la que decidió no publicar.
+- **El kilometraje solo sale en un usado**, y **los enums se traducen con los mismos rótulos que muestra la pantalla** (`src/utils/vehicleLabels.ts` es una copia deliberada de `frontend/src/features/vehicle/labels.ts`, con `Record<Enum, string>` de los dos lados para que un valor nuevo sin rótulo no compile). La alternativa real no era importar —no hay paquete compartido entre los dos `tsconfig`— sino inventar rótulos nuevos, y entonces el agente y la pantalla dirían cosas distintas del mismo valor.
+
+### El índice sobre `Vehicle`, que el propio schema anticipaba
+
+Se agregó `@@index([organizationId, branchId, publishOnWebsite, status])`: el WHERE exacto de esta sincronización. El comentario de `publishOnWebsite` en `schema.prisma` decía textualmente *"SIN índice parcial sobre publish_on_website todavía: la consulta de la página pública no existe hasta la Fase 3, y **un índice se agrega cuando hay una consulta que lo use**"*. Este ítem es esa primera consulta, así que corresponde agregarlo ahora y no diferirlo. No es parcial, mismo criterio que el resto de los índices de esa tabla.
+
+### Dónde se reusa el CRUD existente y dónde no
+
+- **La validación de la sucursal** se reusa tal cual (`validateBranchId`, ahora exportada): un `branchId` de otra organización devuelve el mismo 400 con el mismo mensaje que el POST de una entrada. Corre **una vez**, no una por vehículo.
+- **La baja** se reusa tal cual (`deleteKnowledgeBaseEntry`): es el mismo soft delete que hace la pantalla.
+- **El alta y la actualización van contra el repositorio.** `createKnowledgeBaseEntry` valida la sucursal y abre una transacción con lock **por cada entrada** —correcto para el alta de a una desde la pantalla, y N transacciones con N locks de la misma sucursal cuando las entradas son 200—, y además no sabe escribir `sourceVehicleId` ni revivir una entrada dada de baja, que son las dos cosas propias de este camino.
+- **Sin transacción envolvente**, a propósito: una corrida de 200 unidades en una sola transacción sostiene un lock largo sobre filas que la pantalla y el agente están leyendo, y el resultado parcial de una corrida cortada no es inconsistente — es stock a medio actualizar, que es lo que había antes de apretar el botón.
+
+Una entrada que no cambió en nada no se reescribe: evita tocar `updatedAt` de 200 filas por gusto y hace que el resumen diga algo verdadero. **`isActive` no se pisa nunca**: desactivar una entrada generada es una decisión del negocio y la sincronización no la revierte.
+
+### La pantalla
+
+- **Botón "Sincronizar stock"** al lado de "Nueva entrada". **Deshabilitado sin sucursal elegida**, con el hint *"Elegí una sucursal para sincronizar su stock."* al lado del filtro que lo habilita. Confirma con `window.confirm` (reescribe contenido y da de baja entradas, igual de irreversible que un borrado) y al terminar muestra el resumen — *"Stock sincronizado: 3 entradas nuevas, 7 actualizadas y 2 dadas de baja."*, o *"El stock de esta sucursal ya estaba al día: no hubo cambios."* cuando los tres números son cero. El resumen **se queda a la vista** hasta la próxima corrida en vez de ser un toast que se va solo. El listado se refetchea porque la mutation invalida las listas del módulo.
+- **`Badge` "Stock"** en la fila de cada entrada generada, junto al título. El dato es `sourceVehicleId`, no el texto.
+- **En el formulario**, editar una entrada generada muestra un `ds-hint` que avisa que la próxima sincronización de esa sucursal la va a reescribir. **No se bloquea la edición**: bloquearla obligaría a inventar qué pasa con cada campo (¿se puede desactivar? ¿mover de sucursal?) y dejaría sin resolver el caso real de un texto generado que alguien quiere corregir hoy, antes de la próxima corrida. El aviso dice exactamente qué va a pasar; con eso alcanza para decidir.
+
 ### Lo que se tocó
 
 | Archivo | Qué |
@@ -3955,3 +4025,31 @@ Sin asterisco y sin `required`. Debajo, un `ds-hint` —hijo directo de `.ds-fie
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend. `npm run verify:schema` pasa los 14 chequeos afirmados contra el Postgres local con la migración aplicada, y `prisma migrate diff` no reporta drift sobre `branches`.
 
 **No se probó a mano contra el stack local levantado**, y no se lo reporta como hecho: sigue el impedimento del ítem 38 —el magic link de admin local lo bloquea el clasificador— y esta pantalla vive bajo `AdminRoute`. Lo que sí está verificado contra Postgres real es **exactamente el recorrido que se pediría a mano**: los dos casos de integración nuevos configuran un vendedor por defecto en una sucursal, hacen que un agente de esa sucursal atienda a un contacto sin vendedor, y comprueban que `create_opportunity` crea la oportunidad con ese vendedor y que el `Contact` queda asignado a esa persona — que es la fila que la pantalla de Contactos muestra en la columna "Propietario".
+| `prisma/schema.prisma` | `KnowledgeBaseEntry.sourceVehicleId` + FK compuesta a `vehicles` + `@@unique`; índice nuevo en `Vehicle` |
+| `prisma/migrations/20260926120000_sincronizar_stock_con_base_de_conocimiento/` | La columna, el UNIQUE, el índice y la FK |
+| `docs/auditoria-2026-08-21-diagnostico.sql` + `scripts/verify-schema.ts` | La FK nueva en la fila 16 (54 → 55 FKs conocidas; el ítem 69 ya había llevado la cuenta de 53 a 54) |
+| `src/utils/vehicleLabels.ts` | Los rótulos en castellano de los ocho enums que se publican |
+| `src/services/vehicleKnowledgeBaseSync.service.ts` | La allowlist, el título, el filtro de calificación y la sincronización |
+| `src/repositories/knowledgeBaseEntry.repository.ts` | `sourceVehicleId` en el alta + las tres consultas de la sincronización |
+| `src/repositories/vehicle.repository.ts` | Filtro opcional `publishOnWebsite` |
+| `src/controllers/knowledgeBaseEntry.controller.ts` y `src/routes/knowledgeBaseEntry.routes.ts` | `POST /api/knowledge-base/sync-vehicles`, ADMIN-only |
+| `frontend/src/features/knowledgeBase/` | `sourceVehicleId` en el tipo, la llamada, la mutation, el botón, el Badge y el hint |
+
+**Migración pendiente en producción:** `npm run migrate:deploy` con `20260926120000_sincronizar_stock_con_base_de_conocimiento`.
+
+### Tests (corridos de verdad)
+
+**Backend: 899 unitarios y 875 de integración, todos en verde** (antes del ítem, ya con el ítem 69 mergeado en master: 887 y 863).
+
+- **12 unitarios nuevos en `src/services/vehicleKnowledgeBaseSync.service.test.ts`** sobre las dos funciones puras. El primero es **el de la allowlist, y no se negocia**: arma una unidad con VIN, patente, número de motor, piso de negociación, costo de adquisición, los datos del consignante, `internalNotes`, la deuda de patente, el titular, el vendedor y la permuta **todos cargados con valores reconocibles**, y afirma que **ninguno aparece como substring** del contenido generado — mirando los valores y no los rótulos, porque un rótulo se puede renombrar. Los otros once: los rótulos en castellano de los ocho enums; el kilometraje solo en un usado; el detalle de garantía solo con `OTHER`; los booleanos solo en `true` (y que no aparezca ningún `: No`); "consultar precio" ganándole a los dos números cargados; la moneda de publicación filtrando; el equipamiento sin la normalización con la que se guarda; la descripción al final; el recorte a 10.000 caracteres; y el título con su recorte al `VarChar(200)`.
+- **9 de integración nuevos en `src/services/vehicleKnowledgeBaseSync.integration-test.ts`** (Postgres real): una unidad que califica se crea vinculada; **la segunda corrida sin cambios devuelve tres ceros y ni siquiera toca `updatedAt`**; un cambio de precio actualiza la entrada existente y no crea otra; una unidad **vendida** se da de baja (afirmando además que `publishOnWebsite` sigue en `true`, que es el motivo de chequear las dos condiciones); una **despublicada** también; una que **vuelve a calificar revive su misma fila, con su `id`**; una **entrada escrita a mano no se toca** ni siquiera cuando su texto se parece al generado y la corrida está dando de baja otras; solo se sincroniza la sucursal pedida; y una sucursal inexistente o ajena es un 400.
+- **3 de integración nuevos en `src/controllers/knowledgeBaseEntry.controller.integration-test.ts`** (por HTTP, con JWT reales): un **USER recibe 403** y no se crea ninguna entrada; una sucursal **inexistente, ajena o ausente** es 400; y el camino completo devuelve **200 con los tres conteos** —crea, después tres ceros, después la baja al vender— con la afirmación extra de que **el VIN de la unidad no está en el contenido generado**, esta vez atravesando el endpoint real.
+
+**Frontend: 156 archivos, 1674 casos, todos en verde** (antes: 1664). Ningún archivo nuevo.
+
+- **7 en `KnowledgeBaseListPage.test.tsx`**: el botón deshabilitado sin sucursal y el hint a la vista; elegir una lo habilita y saca el hint; cancelar la confirmación **no llama al endpoint**; confirmando manda el `branchId` elegido y muestra el resumen con los tres números; una corrida sin cambios muestra la frase de "ya estaba al día" en vez de tres ceros; un 400 muestra el mensaje del backend; y el **Badge "Stock" aparece solo** en la entrada con `sourceVehicleId`.
+- **3 en `KnowledgeBaseFormPage.test.tsx`**: el aviso aparece editando una entrada generada **y los campos siguen habilitados**; no aparece en una escrita a mano; no aparece en el alta.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend. `npm run verify:schema` contra la base local: **14 chequeos afirmados, los 14 en verde**, incluidas la fila 14 (toda FK entre tablas con `organization_id` es compuesta y con las acciones de la regla) y la 16 con la FK nueva.
+
+**No se probó a mano con el stack levantado**, y no se lo reporta como hecho: sigue el impedimento del ítem 38 —el magic link de admin local lo bloquea el clasificador— y esta pantalla vive bajo `AdminRoute`. Lo que sí está verificado contra Postgres real es **exactamente el recorrido que se pediría a mano**: el caso de integración por HTTP crea una unidad publicada y disponible, llama al endpoint como ADMIN, y comprueba que la entrada aparece con su `sourceVehicleId` —que es lo que dibuja el Badge— y sin el VIN adentro.

@@ -191,6 +191,9 @@ after(async () => {
   for (const org of [orgA, orgB]) {
     if (!org) continue;
     await prisma.knowledgeBaseEntry.deleteMany({ where: { organizationId: org.id } });
+    // Las unidades del stock de los casos de §70: las entradas las referencian
+    // con una FK, así que se van después de ellas y antes de la sucursal.
+    await prisma.vehicle.deleteMany({ where: { organizationId: org.id } });
     await prisma.branch.deleteMany({ where: { organizationId: org.id } });
     await prisma.user.deleteMany({ where: { organizationId: org.id } });
     await prisma.organization.delete({ where: { id: org.id } });
@@ -656,4 +659,108 @@ test("findActiveKnowledgeBaseEntriesByBranch: solo activas, no borradas, de esa 
   // CRUD: con el organizationId de B, la misma sucursal no devuelve nada.
   const conOrgAjena = await findActiveKnowledgeBaseEntriesByBranch(sucursal.id, orgB.id);
   assert.deepEqual(conOrgAjena, []);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/knowledge-base/sync-vehicles — ítem 70.
+//
+// El service ya está probado contra Postgres en
+// vehicleKnowledgeBaseSync.integration-test.ts: lo que se prueba ACÁ es el
+// borde HTTP — permisos, validación del body y la forma de la respuesta.
+// ---------------------------------------------------------------------------
+
+// Una unidad publicada y disponible, escrita directo: qué hace falta para
+// PODER publicar una ficha (assertCompleteForPublish y su foto) es una regla
+// del alta de vehículos, no de este endpoint.
+async function unidadPublicada(organizationId: string, branchId: string) {
+  return prisma.vehicle.create({
+    data: {
+      organizationId,
+      branchId,
+      internalCode: `STK-${randomUUID().slice(0, 8)}`,
+      condition: "USED",
+      make: "Toyota",
+      model: "Corolla",
+      year: 2022,
+      status: "AVAILABLE",
+      publishOnWebsite: true,
+      // De los que NUNCA pueden salir en el contenido generado: acá está para
+      // afirmar por HTTP lo mismo que el test unitario de la allowlist.
+      vin: "9BRZZZNOSALE0001",
+    },
+  });
+}
+
+test("POST /knowledge-base/sync-vehicles — un USER no sincroniza: 403 y no se crea nada", async () => {
+  const vehiculo = await unidadPublicada(orgA.id, orgA.branchId);
+
+  const res = await call("POST", "/api/knowledge-base/sync-vehicles", userA.accessToken, {
+    branchId: orgA.branchId,
+  });
+
+  assert.equal(res.status, 403);
+  const entradas = await prisma.knowledgeBaseEntry.count({
+    where: { organizationId: orgA.id, sourceVehicleId: vehiculo.id },
+  });
+  assert.equal(entradas, 0);
+});
+
+test("POST /knowledge-base/sync-vehicles — una sucursal inexistente o ajena es 400", async () => {
+  const inexistente = await call("POST", "/api/knowledge-base/sync-vehicles", adminA.accessToken, {
+    branchId: randomUUID(),
+  });
+  assert.equal(inexistente.status, 400);
+  assert.match(await mensajeDeError(inexistente), /no existe o no pertenece/);
+
+  // La de la otra organización: el mismo 400, sin confirmar que exista.
+  const ajena = await call("POST", "/api/knowledge-base/sync-vehicles", adminA.accessToken, {
+    branchId: orgB.branchId,
+  });
+  assert.equal(ajena.status, 400);
+  assert.match(await mensajeDeError(ajena), /no existe o no pertenece/);
+
+  // Y un body sin branchId no llega ni al service.
+  const sinBody = await call("POST", "/api/knowledge-base/sync-vehicles", adminA.accessToken, {});
+  assert.equal(sinBody.status, 400);
+});
+
+test("POST /knowledge-base/sync-vehicles — 200 con los tres conteos, y la entrada generada no filtra el VIN", async () => {
+  // Sucursal propia de este caso: el resumen cuenta lo de ESA sucursal, y las
+  // entradas que dejaron los demás casos viven en orgA.branchId.
+  const sucursal = await prisma.branch.create({
+    data: { organizationId: orgA.id, name: `Sync ${randomUUID().slice(0, 8)}`, timezone: TZ },
+  });
+  const vehiculo = await unidadPublicada(orgA.id, sucursal.id);
+
+  const primera = await call("POST", "/api/knowledge-base/sync-vehicles", adminA.accessToken, {
+    branchId: sucursal.id,
+  });
+  assert.equal(primera.status, 200);
+  assert.deepEqual(await primera.json(), { creadas: 1, actualizadas: 0, dadasDeBaja: 0 });
+
+  const generada = await prisma.knowledgeBaseEntry.findFirstOrThrow({
+    where: { organizationId: orgA.id, sourceVehicleId: vehiculo.id },
+  });
+  assert.equal(generada.branchId, sucursal.id);
+  assert.ok(
+    !generada.content.includes("9BRZZZNOSALE0001"),
+    `el VIN no puede llegar al contenido: ${generada.content}`,
+  );
+
+  // Segunda corrida sin cambios: nada que hacer, y lo dice con ceros.
+  const segunda = await call("POST", "/api/knowledge-base/sync-vehicles", adminA.accessToken, {
+    branchId: sucursal.id,
+  });
+  assert.deepEqual(await segunda.json(), { creadas: 0, actualizadas: 0, dadasDeBaja: 0 });
+
+  // Se vende: la corrida siguiente la da de baja.
+  await prisma.vehicle.update({ where: { id: vehiculo.id }, data: { status: "SOLD" } });
+  const tercera = await call("POST", "/api/knowledge-base/sync-vehicles", adminA.accessToken, {
+    branchId: sucursal.id,
+  });
+  assert.deepEqual(await tercera.json(), { creadas: 0, actualizadas: 0, dadasDeBaja: 1 });
+
+  await prisma.knowledgeBaseEntry.deleteMany({ where: { branchId: sucursal.id } });
+  await prisma.vehicle.deleteMany({ where: { branchId: sucursal.id } });
+  await prisma.branch.delete({ where: { id: sucursal.id } });
 });

@@ -13,6 +13,9 @@ export function makeKnowledgeBaseEntry(
     title: "Horarios de atención",
     content: "Lunes a viernes de 9 a 18. Sábados de 9 a 13.",
     isActive: true,
+    // Escrita a mano, que es lo que es una entrada "recién creada por la
+    // pantalla". Los casos de §70 lo pisan con el id de un vehículo.
+    sourceVehicleId: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     deletedAt: null,
