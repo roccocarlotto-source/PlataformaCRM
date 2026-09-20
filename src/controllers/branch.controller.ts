@@ -33,6 +33,15 @@ const branchFields = {
     .min(1, "name es requerido")
     .max(255, "name no puede superar los 255 caracteres"),
   timezone: timezoneSchema,
+  // Vendedor por defecto de la sucursal (ítem 69). Acá solo se valida la FORMA
+  // (un UUID); que el usuario exista, sea de esta organización y esté activo lo
+  // decide el service contra la base, igual que con cualquier otro ownerId.
+  //
+  // `.nullable()` ya en el create y no solo en el update: un POST con
+  // `defaultOwnerId: null` es la forma explícita de decir "sin vendedor por
+  // defecto", y rechazarla obligaría al formulario a omitir la clave según el
+  // caso en vez de mandar siempre el mismo objeto.
+  defaultOwnerId: z.string().uuid("defaultOwnerId debe ser un UUID").nullable().optional(),
 };
 
 // timezone es REQUERIDA al crear, aunque la columna tenga default 'UTC'. El
@@ -40,9 +49,9 @@ const branchFields = {
 // organizations.timezone; la forma esperada de usar el API es elegirla
 // explícitamente, porque una sucursal silenciosamente en UTC produce turnos a la
 // hora equivocada y nadie lo nota hasta que un cliente no aparece.
-const createBranchSchema = z.object(branchFields);
+export const createBranchSchema = z.object(branchFields);
 
-const updateBranchSchema = z
+export const updateBranchSchema = z
   .object(branchFields)
   .partial()
   .refine((data) => Object.keys(data).length > 0, {

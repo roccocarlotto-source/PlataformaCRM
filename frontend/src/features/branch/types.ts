@@ -9,6 +9,10 @@ export interface Branch {
   organizationId: string;
   name: string;
   timezone: string;
+  // Vendedor por defecto de la sucursal (ítem 69). `null` = sin ninguno, que
+  // es el estado de todas las sucursales anteriores a ese ítem y un estado
+  // perfectamente válido.
+  defaultOwnerId: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -48,6 +52,11 @@ export interface BranchListQuery {
 export interface CreateBranchInput {
   name: string;
   timezone: string;
+  // UUID opcional Y nullable en el borde del backend (branchFields de
+  // branch.controller.ts): `null` es la forma explícita de decir "sin vendedor
+  // por defecto", y el formulario manda siempre la clave, con null cuando no se
+  // eligió a nadie — igual que manda siempre name y timezone.
+  defaultOwnerId?: string | null;
 }
 
 // updateBranchSchema: los mismos campos, parciales, al menos uno. No hay

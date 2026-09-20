@@ -32,6 +32,7 @@ import {
   type LlmToolCall,
   type LlmToolDefinition,
 } from "./llmProvider.service";
+import { resolverOwnerDelContacto } from "./ownership.service";
 
 // ---------------------------------------------------------------------------
 // Loop de orquestación del agente de IA — docs/ai-agent-architecture.md §4,
@@ -315,17 +316,27 @@ function datosDisponiblesDeLaConversacion(
 // casos se loguea y se sigue, porque la transición ya ocurrió y es lo que no
 // puede fallar. Idempotente: una conversación ya derivada no genera una
 // segunda Activity.
+//
+// DESDE EL ÍTEM 69, un contacto sin vendedor ya no implica derivación
+// silenciosa: antes de decidir, se resuelve el vendedor por defecto de la
+// sucursal (resolverOwnerDelContacto). Sigue siendo best-effort —una sucursal
+// sin vendedor por defecto configurado es un estado válido y cae en el mismo
+// warning de siempre— y sigue sin afectar la transición de status, que ocurre
+// igual en todos los casos.
 // ---------------------------------------------------------------------------
 export interface HandoffInput {
   organizationId: string;
   conversationId: string;
+  // La sucursal de la conversación: es de donde sale el vendedor por defecto
+  // cuando el contacto no tiene ninguno (ítem 69).
+  branchId: string;
   contact: Pick<Contact, "id" | "ownerId" | "firstName" | "lastName">;
   agentName: string;
   motivo: string;
 }
 
 export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId: string | null }> {
-  const { organizationId, conversationId, contact, motivo } = input;
+  const { organizationId, conversationId, branchId, contact, motivo } = input;
 
   const actual = await findConversationById(conversationId, organizationId);
   if (!actual) {
@@ -336,26 +347,36 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
     return { activityId: null };
   }
 
+  // ANTES de la transición, para que el vendedor resuelto gobierne las dos
+  // mitades: la Activity de aviso Y el assignedUserId de la conversación. Si se
+  // resolviera después, la conversación quedaría derivada "a nadie" mientras la
+  // tarea le llega a alguien — dos respuestas distintas a la misma pregunta.
+  //
+  // No pone en riesgo la garantía central: resolverOwnerDelContacto nunca
+  // lanza (es tolerante de punta a punta, ver ownership.service.ts), así que la
+  // transición de abajo ocurre igual pase lo que pase acá.
+  const ownerId = await resolverOwnerDelContacto(organizationId, branchId, contact);
+
   await updateConversation(conversationId, organizationId, {
     status: "TRANSFERRED_TO_HUMAN",
-    assignedUserId: contact.ownerId,
+    assignedUserId: ownerId,
   });
 
-  if (!contact.ownerId) {
+  if (!ownerId) {
     logger.warn(
-      { organizationId, conversationId, contactId: contact.id },
-      "Conversación derivada a humano sin vendedor asignado al contacto: no se crea Activity (derivación silenciosa)",
+      { organizationId, conversationId, contactId: contact.id, branchId },
+      "Conversación derivada a humano sin vendedor asignado al contacto ni vendedor por defecto en la sucursal: no se crea Activity (derivación silenciosa)",
     );
     return { activityId: null };
   }
 
   try {
     const nombre = `${contact.firstName} ${contact.lastName}`.trim();
-    const activity = await createActivity(organizationId, contact.ownerId, {
+    const activity = await createActivity(organizationId, ownerId, {
       type: "TASK",
       subject: `Conversación derivada por el agente ${input.agentName}: ${nombre}`.slice(0, 255),
       body: motivo,
-      assigneeId: contact.ownerId,
+      assigneeId: ownerId,
       contactId: contact.id,
     });
     return { activityId: activity.id };
@@ -572,6 +593,7 @@ export async function runAgentTurn(
     ({ activityId: handoffActivityId } = await ejecutarHandoff({
       organizationId,
       conversationId: conversation.id,
+      branchId: conversation.branchId,
       contact,
       agentName: agent.name,
       motivo: motivoDeHandoff,

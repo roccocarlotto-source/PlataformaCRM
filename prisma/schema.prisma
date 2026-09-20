@@ -607,6 +607,9 @@ model User {
   assignedConversations Conversation[] @relation("ConversationAssignee")
   sentMessages          Message[]      @relation("MessageSender")
 
+  // Las sucursales que lo tienen como vendedor por defecto (ítem 69).
+  defaultOwnerOfBranches Branch[] @relation("BranchDefaultOwner")
+
   @@unique([organizationId, id])
   @@index([organizationId])
   @@map("users")
@@ -1425,9 +1428,9 @@ model AutomationExecution {
 // ---------------------------------------------------------------------------
 
 model Branch {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  name           String    @db.VarChar(255)
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  name           String @db.VarChar(255)
   // Zona horaria IANA de la sucursal ("America/Argentina/Buenos_Aires").
   // §4 del documento de diseño es explícito: cada sucursal necesita la suya y
   // NO se asume la del servidor. Se agrega ahora, antes de que Google Calendar
@@ -1441,14 +1444,46 @@ model Branch {
   // EXIGE al crear (ver branch.controller.ts): una sucursal silenciosamente en
   // UTC produce turnos a la hora equivocada, y el default acá es una red de
   // seguridad del esquema, no la forma esperada de usarlo.
-  timezone       String    @default("UTC") @db.VarChar(50)
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  deletedAt      DateTime? @map("deleted_at")
+  timezone       String @default("UTC") @db.VarChar(50)
+
+  // Vendedor por defecto de la sucursal (ítem 69 de
+  // docs/frontend-cambios-pendientes.md). Lo usa el agente de IA cuando tiene
+  // que asignarle un vendedor a un Contact que todavía no tiene ninguno: sin
+  // esto, create_opportunity falla y la derivación a humano no genera ninguna
+  // Activity — los dos huecos que documentaba como limitación conocida la nota
+  // del 12/09/2026 bajo §6 de docs/ai-agent-architecture.md.
+  //
+  // OPCIONAL, y "sin configurar" es un estado válido, no un error: una sucursal
+  // que lo deja vacío se comporta exactamente como antes de este campo (falla
+  // clara en create_opportunity, log silencioso en el handoff). Por eso no hay
+  // default, ni backfill, ni aviso en ninguna pantalla.
+  //
+  // NO es un dueño "provisorio": cuando se usa, el vendedor queda persistido en
+  // Contact.ownerId como cualquier otra asignación, y el vendedor real lo puede
+  // reasignar desde Contactos. Ver resolverOwnerDelContacto en
+  // src/services/ownership.service.ts.
+  defaultOwnerId String? @map("default_owner_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
 
   organization Organization  @relation(fields: [organizationId], references: [id])
   resources    Resource[]
   serviceTypes ServiceType[]
+
+  // FK COMPUESTA por organización, el estándar del proyecto desde C-3, y
+  // onDelete: NoAction como toda relación OPCIONAL hacia User (misma forma que
+  // Conversation.assignedUser y Vehicle.assignedSalesperson): un vendedor que
+  // se desactiva o se remueve no tiene por qué tumbar la sucursal.
+  //
+  // SIN ÍNDICE sobre (organizationId, defaultOwnerId), mismo criterio explícito
+  // que activities.confirmed_by_id: ningún listado filtra sucursales por su
+  // vendedor por defecto, y branches tiene un puñado de filas por organización
+  // — el índice no serviría a ninguna consulta real y solo habría que
+  // mantenerlo. El lado referenciante se resuelve con un seq scan de esas pocas
+  // filas, y como users usa soft delete, el DELETE que lo usaría nunca corre.
+  defaultOwner User? @relation("BranchDefaultOwner", fields: [organizationId, defaultOwnerId], references: [organizationId, id], onDelete: NoAction)
 
   // Singular y opcional: el @unique sobre branch_id del otro lado convierte esta
   // relación en 1-a-lo-sumo-1, y Prisma la tipa así.

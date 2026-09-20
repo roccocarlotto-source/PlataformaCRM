@@ -3852,3 +3852,106 @@ El `<textarea>` va **sin `ds-required`** y sin `required`, calcado del "Notas" d
 `npm run typecheck`, `npm run lint` y `prettier --check src` limpios en backend y frontend.
 
 **No se probó a mano contra el stack local levantado**, y no se lo reporta como hecho: sigue el impedimento del ítem 38 —el magic link de admin local lo bloquea el clasificador— y esta pantalla vive bajo `AdminRoute`. Lo que sí está verificado contra Postgres real es **exactamente el recorrido que se pediría a mano**: el caso de integración nuevo crea la regla con notas, gana una oportunidad, deja que el worker entregue el evento y comprueba que la `Activity` resultante trae esas notas en su `body` — que es el campo que la pantalla de Actividades muestra como "Notas".
+
+---
+
+## 69. Vendedor por defecto por sucursal: el agente de IA deja de quedarse sin a quién asignarle nada
+
+**Estado:** hecho
+
+**Qué marcó Rocco.** Usando el flujo de Agentes de IA vio que, cuando un contacto no tiene vendedor asignado (`Contact.ownerId === null`), el agente se queda sin salida. Son dos huecos distintos, con la misma causa:
+
+1. **`create_opportunity` fallaba de una.** El wrapper de la tool (`src/services/agentTools.service.ts`) chequeaba `if (!contact.ownerId) return fallo(...)` y devolvía el error al modelo, que tenía que improvisar qué decirle al visitante. La oportunidad nunca se creaba: `Opportunity.ownerId` es NOT NULL y no había de dónde sacar un dueño.
+2. **La derivación a humano quedaba huérfana en silencio.** En `ejecutarHandoff` (`src/services/agentOrchestration.service.ts`), la transición de `Conversation.status` a `TRANSFERRED_TO_HUMAN` ocurría igual —es la garantía central de esa función y no cambia— pero la `Activity` que le avisa a un vendedor **no se creaba**: quedaba un `logger.warn(...)` que nadie lee. La conversación quedaba derivada y sin destinatario.
+
+**Ya estaba anotado como limitación conocida.** No es un descubrimiento: la nota del 12/09/2026 bajo §6 de `docs/ai-agent-architecture.md` lo describe palabra por palabra ("un negocio con muchos contactos sin vendedor asignado va a tener derivaciones silenciosas") y hasta propone la solución sin construirla: *"la solución natural es un 'vendedor por defecto' por sucursal — no se construye acá, es una decisión de producto aparte."* Este ítem es esa decisión, tomada.
+
+### Por sucursal, opcional, y la asignación es real
+
+Tres decisiones, tomadas con Rocco antes de escribir nada:
+
+- **Por `Branch`, no por `Agent` ni por `Organization`.** Es el mismo criterio que ya proponía la nota del 12/09 y el mismo que gobierna la base de conocimiento (ítem 59): quién atiende es del negocio y de la sucursal, no de un agente en particular ni de toda la empresa. Un `Agent` ya cuelga de una sucursal, así que la conversación siempre tiene una.
+- **Opcional, sin aviso ni bloqueo.** Una sucursal que lo deja vacío se comporta **exactamente** como antes de este ítem: falla clara en `create_opportunity`, log silencioso en el handoff. Eso es un estado válido, no una configuración a medio hacer, y la pantalla no lo señala de ninguna forma — sin asterisco, sin advertencia, sin nada. Por eso la columna es nullable, sin default y sin backfill: todas las sucursales existentes quedan sin vendedor por defecto y nada cambia para ellas hasta que alguien configure uno a mano.
+- **El vendedor queda como dueño REAL del contacto.** Cuando el agente resuelve un vendedor por defecto para un contacto que no tenía ninguno, `Contact.ownerId` se actualiza de verdad. No es un dueño provisorio para esa acción: a partir de ahí el contacto aparece asignado en Contactos como cualquier otro, el vendedor real lo puede reasignar con un click, y las próximas acciones del agente sobre ese mismo contacto ya no vuelven a chocar con el problema.
+
+### Por qué este ítem NO trae un estado de "conversación pausada"
+
+Era parte de la idea original de Rocco y **se evaluó**. Se descartó después de mirar el código, no por recorte de alcance:
+
+`Opportunity.ownerId` es **NOT NULL, siempre**. Una oportunidad no puede existir sin dueño, así que el motor de Automatizaciones (`opportunity.won` → actividad de seguimiento) **nunca puede pisar este problema**: cuando llega a crear la tarea, el dueño ya existe por construcción. El hueco vive ÚNICA Y EXCLUSIVAMENTE en la capa de tools del agente de IA, en los dos puntos de arriba, que son justamente los dos que este ítem cierra.
+
+Con eso resuelto, el único caso residual es una sucursal que directamente nunca configuró ningún vendedor por defecto — y eso ya es, por decisión explícita de Rocco, **un estado aceptado y no una falla que haya que señalizar con una UI nueva**. Construir un estado de "conversación pausada/bloqueada" para ese caso sería inventar un concepto nuevo (con su pantalla, su transición y su forma de salir) para un escenario que el propio diseño declara válido. Si en algún momento se decide que ESE caso también necesita un aviso visible, es una decisión de producto aparte, no una consecuencia automática de este ítem.
+
+### La regla se escribe UNA vez
+
+Los dos puntos de consumo necesitan exactamente la misma decisión, y duplicarla era garantizar que en algún momento dejaran de coincidir. Vive en `resolverOwnerDelContacto` (`src/services/ownership.service.ts`):
+
+```ts
+// Devuelve el ownerId efectivo del contacto: el que ya tenía, o el vendedor
+// por defecto de la sucursal si no tenía ninguno y hay uno configurado y
+// vigente. Si tuvo que usar el de la sucursal, lo persiste en el Contact.
+// null si el contacto sigue sin nadie después de intentarlo.
+resolverOwnerDelContacto(organizationId, branchId, contact): Promise<string | null>
+```
+
+**Vive en `ownership.service.ts` y no en `branch.service.ts`** porque es una regla de asignación de dueño, no una operación sobre sucursales — y tenerla al lado de `resolveOwnerId` es lo que deja a la vista por qué aquella **no se reutiliza**: `resolveOwnerId` significa *"si no viene nada, asignale al actor"*, y en un turno del agente de IA no hay ningún actor humano al que caer.
+
+**Escribe con el `updateContact` del repository**, no con el del service: ese último exige un `actorUserId` humano que en este contexto no existe. Es el mismo criterio por el que `qualifyLead` ya tiene su propio camino de escritura, separado del PATCH humano de Contactos.
+
+**Es tolerante de punta a punta**, mismo criterio que las lecturas de guardrails y de la base de conocimiento de este módulo: un `defaultOwnerId` que apunta a un usuario ya desactivado o removido se trata como *"no hay vendedor por defecto configurado"* (la FK es `NO ACTION` y `users` usa soft delete, así que la columna puede quedar apuntando a alguien que ya no puede ser dueño de nada), y cualquier otro error se loguea y devuelve el `ownerId` que el contacto ya tenía. **Nunca tumba el turno.**
+
+### Los dos puntos de consumo
+
+- **`create_opportunity`**: donde antes chequeaba `contact.ownerId` ahora resuelve primero. Con un id, sigue exactamente como antes pero con ese id (el `Contact` ya quedó actualizado dentro de la llamada, no hace falta releerlo). Con `null`, `fallo(MENSAJE_CONTACTO_SIN_VENDEDOR)` **tal cual estaba** — mismo mensaje, mismo comportamiento: es el caso residual aceptado.
+- **`ejecutarHandoff`**: `HandoffInput` suma `branchId`, que el único call site pasa como `conversation.branchId`. La resolución ocurre **antes** de la transición de status, y eso es deliberado: así el vendedor resuelto gobierna las **dos** mitades —la `Activity` de aviso Y el `assignedUserId` de la conversación—. Resolverlo después habría dejado la conversación derivada "a nadie" mientras la tarea le llega a alguien: dos respuestas distintas a la misma pregunta. No pone en riesgo la garantía central porque `resolverOwnerDelContacto` no lanza nunca, así que la transición ocurre igual pase lo que pase.
+
+### Validación al configurarlo
+
+`CreateBranchInput`/`UpdateBranchInput` suman `defaultOwnerId?: string | null`, con el contrato de `UpdateContactInput.companyId` (M-10): **`null` desvincula, `undefined` no toca**, y el service lo decide con `"defaultOwnerId" in input` y no con un chequeo truthy.
+
+Para validar se **extrajo `validarUsuarioAsignable`** de `resolveOwnerId` en vez de escribir el chequeo suelto: es literalmente la misma pregunta (existe, misma organización, activo) y ya estaba escrita adentro de una función que no se puede reutilizar entera acá. El mensaje se parametriza con el nombre del campo, así que con `campo = "ownerId"` sigue siendo palabra por palabra el de antes y ningún llamador existente cambia de comportamiento.
+
+### La pantalla
+
+`BranchFormPage.tsx` suma **"Vendedor por defecto"** debajo de "Zona horaria", reusando el `UserSelect` que ya usan Empresa, Contacto, Oportunidad, Actividad y Vehículo — no se armó ningún selector nuevo. Con su `clearable` por defecto (`true`), igual que Actividad y Vehículo: el PATCH acepta `null` en este campo, así que la fila vacía **"Sin vendedor por defecto"** se ofrece siempre, incluso con alguien ya elegido, porque elegirla es la única forma de volver a sacarlo.
+
+Sin asterisco y sin `required`. Debajo, un `ds-hint` —hijo directo de `.ds-field-grid` con `ds-field-grid--full`, la regla del ítem 58— que dice para qué sirve: *"Se usa cuando el agente de IA necesita asignar un vendedor a un contacto que todavía no tiene uno. El contacto queda asignado a esta persona, que se puede cambiar después como cualquier otro."*
+
+**Sin preselección de "quien crea"**, a diferencia del `ownerId` de Empresa/Contacto/Oportunidad (ítem 7): esto no es el dueño de un registro, es una configuración de la sucursal, y la sucursal no es "de" quien la carga.
+
+**No hay ningún detalle de sucursal de solo lectura donde reflejarlo:** `BranchListPage` tiene tres columnas (Nombre, Zona horaria, Acciones) y no tiene el pop-up "Ver detalle" del ítem 28. No se agrega una columna nueva por un campo que solo importa mientras se configura.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `prisma/schema.prisma` | `Branch.defaultOwnerId` + relación `defaultOwner` (FK compuesta, `onDelete: NoAction`); back-relation en `User` |
+| `prisma/migrations/20260925120000_branch_default_owner/` | La columna y su FK compuesta contra `users(organization_id, id)` |
+| `docs/auditoria-2026-08-21-diagnostico.sql` + `scripts/verify-schema.ts` | La FK nueva entra a la fila 16 (53 → 54 FKs conocidas) |
+| `src/services/ownership.service.ts` | `validarUsuarioAsignable` (extraída de `resolveOwnerId`) y `resolverOwnerDelContacto` |
+| `src/services/branch.service.ts` | `defaultOwnerId` en create/update + `resolverDefaultOwnerId` |
+| `src/repositories/branch.repository.ts` | `defaultOwnerId` en `CreateBranchData`/`UpdateBranchData` |
+| `src/controllers/branch.controller.ts` | `defaultOwnerId` como UUID opcional y nullable en `branchFields`; los dos schemas pasan a exportarse |
+| `src/services/agentTools.service.ts` | `create_opportunity` resuelve antes de fallar |
+| `src/services/agentOrchestration.service.ts` | `HandoffInput.branchId` + resolución antes de la transición |
+| `frontend/src/features/branch/types.ts`, `BranchFormPage.tsx`, `src/test/branchFixtures.ts` | El campo en el contrato, en el formulario y en la fixture |
+
+**Sin índice sobre `(organization_id, default_owner_id)`, a propósito**, con el mismo criterio explícito que `activities.confirmed_by_id`: ningún listado filtra sucursales por su vendedor por defecto, y `branches` tiene un puñado de filas por organización. El único acceso real —"dada esta sucursal, quién es su vendedor por defecto"— ya lo resuelve la PK.
+
+**Producción necesita `migrate:deploy`** para aplicar `20260925120000_branch_default_owner` después del merge.
+
+### Tests (corridos de verdad)
+
+**Backend: 887 unitarios y 863 de integración.** Los unitarios pasan los 887. De los de integración pasan **856** y **fallan 7, todos preexistentes y ajenos a este ítem**: son los de `googleCalendarSync.integration-test.ts` que necesitan `GOOGLE_WEBHOOK_URL`, una variable que el `.env` local no tiene y que el CI sí define. Son exactamente los mismos 7 que reportó el ítem 68. Antes de este ítem: 879 unitarios y 848 de integración.
+
+- **8 unitarios nuevos en `src/controllers/branch.controller.test.ts`** (archivo nuevo — `/api/branches` no tenía test de borde): el campo es opcional y su ausencia **no inventa la clave** (que es lo que hace que el service distinga "no vino" de "vino en null"); acepta un UUID y acepta `null` explícito tanto en el create como en el update; un valor que no es UUID es 400 con el nombre del campo en el mensaje; `{ defaultOwnerId: null }` solo alcanza como PATCH; y los casos que ya valían —name/timezone obligatorios, zona IANA inválida, objeto vacío en el update— quedan cubiertos de paso.
+- **13 de integración nuevos en `src/services/branchDefaultOwner.integration-test.ts`** (archivo nuevo), las dos mitades de la feature contra Postgres real y con dos organizaciones. **Configurarlo:** con un vendedor activo se guarda y se lee de vuelta; sin el campo o con `null` la sucursal nace sin ninguno; un usuario de **otra organización**, uno **inexistente** y uno **desactivado** son 400 y no crean la sucursal; en el update se puede poner, cambiar y sacar; **no mandar el campo no lo toca** (un PATCH de nombre no borra el vendedor); y un vendedor inválido en el update es 400 **dejando el que ya estaba**. **Resolverlo:** un contacto que ya tiene vendedor devuelve ese sin mirar la sucursal (que a propósito tiene otro configurado); sin vendedor y con default vigente devuelve el default **y el Contact queda asignado**; sin default devuelve `null` con el Contact intacto; un default que apunta a un usuario **desactivado después** de configurarlo se trata como si no hubiera ninguno; y una sucursal inexistente devuelve `null` en vez de tumbar nada.
+- **2 de integración nuevos en `src/services/agentOrchestration.integration-test.ts`**, los dos caminos completos a través del loop real: contacto sin vendedor + sucursal con default → **la oportunidad se crea con ese vendedor** (contacto, etapa y dueño verificados en la base) y el `Contact` queda asignado; y la derivación **crea la `Activity`** con ese `assigneeId`/`authorId` y deja la conversación con ese `assignedUserId`. A los dos casos negativos que ya existían se les cambió el título para decir que ahora son el caso **residual** (sin vendedor **y** sin default), y al de `create_opportunity` se le sumó la afirmación de que el contacto sigue sin dueño.
+
+**Frontend: 156 archivos, 1664 casos, todos en verde** (antes del ítem: 156 archivos, 1659). Ningún archivo nuevo.
+
+- **5 en `features/branch/BranchFormPage.test.tsx`**: el campo aparece con su hint y **se puede guardar sin elegir a nadie** —si un `required` se hubiera colado, el `<form>` nativo habría frenado el submit y no habría habido POST—; elegir un vendedor lo hace viajar en el POST; la edición **hidrata** el vendedor guardado y lo conserva en el PATCH; **volver a dejarlo en blanco manda `null`**, que es como se desvincula; y el campo **no lleva la marca de obligatorio**. A los casos que ya existían se les sumó la clave nueva en el payload, que viaja siempre.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend. `npm run verify:schema` pasa los 14 chequeos afirmados contra el Postgres local con la migración aplicada, y `prisma migrate diff` no reporta drift sobre `branches`.
+
+**No se probó a mano contra el stack local levantado**, y no se lo reporta como hecho: sigue el impedimento del ítem 38 —el magic link de admin local lo bloquea el clasificador— y esta pantalla vive bajo `AdminRoute`. Lo que sí está verificado contra Postgres real es **exactamente el recorrido que se pediría a mano**: los dos casos de integración nuevos configuran un vendedor por defecto en una sucursal, hacen que un agente de esa sucursal atienda a un contacto sin vendedor, y comprueban que `create_opportunity` crea la oportunidad con ese vendedor y que el `Contact` queda asignado a esa persona — que es la fila que la pantalla de Contactos muestra en la columna "Propietario".

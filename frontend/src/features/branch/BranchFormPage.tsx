@@ -8,6 +8,7 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
 import { useFormDraft } from "../../lib/useFormDraft";
+import { UserSelect } from "../user/UserSelect";
 import { useCreateBranch, useUpdateBranch } from "./mutations";
 import { useBranch } from "./queries";
 import { DEFAULT_TIMEZONE, TIMEZONE_OPTIONS, isKnownTimezone } from "./timezones";
@@ -16,15 +17,24 @@ import type { Branch, CreateBranchInput } from "./types";
 interface BranchFormValues {
   name: string;
   timezone: string;
+  defaultOwnerId: string | null;
 }
 
 const EMPTY_FORM: BranchFormValues = {
   name: "",
   timezone: DEFAULT_TIMEZONE,
+  // Sin preselección de "quien crea", a diferencia del ownerId de
+  // Company/Contact/Opportunity: esto no es el dueño de un registro, es una
+  // configuración de la sucursal, y la sucursal no es "de" quien la carga.
+  defaultOwnerId: null,
 };
 
 function toFormValues(branch: Branch): BranchFormValues {
-  return { name: branch.name, timezone: branch.timezone };
+  return {
+    name: branch.name,
+    timezone: branch.timezone,
+    defaultOwnerId: branch.defaultOwnerId,
+  };
 }
 
 // Un único componente para create y edit — el modo se distingue del propio
@@ -58,6 +68,11 @@ export function BranchFormPage() {
     const input: CreateBranchInput = {
       name: values.name,
       timezone: values.timezone,
+      // Siempre la clave, con `null` cuando no hay nadie elegido: es lo que
+      // hace que sacar el vendedor por defecto de una sucursal que lo tenía
+      // llegue como un PATCH de verdad y no como "no lo toqués". Mismo criterio
+      // que los otros dos campos, que también viajan siempre.
+      defaultOwnerId: values.defaultOwnerId,
     };
 
     try {
@@ -122,6 +137,29 @@ export function BranchFormPage() {
                 if (timezone) setValues({ ...values, timezone });
               }}
             />
+
+            {/* Ítem 69. Sin asterisco y sin `required`: una sucursal sin
+                vendedor por defecto es un estado válido, no una configuración a
+                medio hacer, y la pantalla no lo señala de ninguna forma.
+
+                UserSelect con su `clearable` por defecto (true), como Activity
+                y Vehículo: el PATCH acepta `null` en este campo, así que la fila
+                vacía se ofrece siempre — elegirla es la única forma de volver a
+                dejar la sucursal sin ninguno. */}
+            <UserSelect
+              id="branch-form-default-owner"
+              label="Vendedor por defecto"
+              value={values.defaultOwnerId ?? undefined}
+              onChange={(defaultOwnerId) =>
+                setValues({ ...values, defaultOwnerId: defaultOwnerId || null })
+              }
+              emptyOptionLabel="Sin vendedor por defecto"
+            />
+            <p className="ds-hint ds-field-grid--full">
+              Se usa cuando el agente de IA necesita asignar un vendedor a un contacto que todavía
+              no tiene uno. El contacto queda asignado a esta persona, que se puede cambiar después
+              como cualquier otro.
+            </p>
           </div>
         </Card>
 

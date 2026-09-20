@@ -59,6 +59,9 @@ export interface CreateBranchData {
   organizationId: string;
   name: string;
   timezone: string;
+  // Vendedor por defecto de la sucursal (ítem 69), ya validado por el service.
+  // `null`/`undefined` = sin ninguno, que es el estado por defecto.
+  defaultOwnerId?: string | null;
 }
 
 export function createBranch(data: CreateBranchData, db: Db = prisma) {
@@ -68,6 +71,8 @@ export function createBranch(data: CreateBranchData, db: Db = prisma) {
 export interface UpdateBranchData {
   name?: string;
   timezone?: string;
+  // `null` pone la columna en NULL (desvincula); `undefined` no la toca.
+  defaultOwnerId?: string | null;
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir

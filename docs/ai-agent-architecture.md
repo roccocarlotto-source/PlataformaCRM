@@ -242,7 +242,11 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >    lead). Si el `Contact` no tiene `ownerId`, la tool falla con un error claro
 >    ("no se puede crear la oportunidad: el contacto no tiene un vendedor
 >    asignado") en vez de inventar un dueño — el modelo recibe ese error como
->    resultado de la tool y decide cómo seguir la conversación con eso. El
+>    resultado de la tool y decide cómo seguir la conversación con eso. **Desde
+>    el ítem 69 de `docs/frontend-cambios-pendientes.md` (20/09/2026)**, antes de
+>    fallar se intenta el vendedor por defecto de la sucursal de la conversación
+>    (`Branch.defaultOwnerId`), y si existe queda asignado al `Contact`; el error
+>    de arriba es hoy el caso residual de una sucursal que no configuró ninguno. El
 >    `contactId` de la oportunidad se toma SIEMPRE del `Contact` de la
 >    conversación, nunca es un argumento que el modelo pueda elegir.
 > 2. **A qué `pipelineId`/`stageId` va una `Opportunity` que crea el agente.**
@@ -401,6 +405,15 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >    va a tener derivaciones silenciosas. Si eso importa en la práctica, la
 >    solución natural es un "vendedor por defecto" por sucursal — no se
 >    construye acá, es una decisión de producto aparte.
+>
+>    **RESUELTO el 20/09/2026 — ítem 69 de `docs/frontend-cambios-pendientes.md`.**
+>    Esa decisión de producto se tomó y se construyó tal cual estaba propuesta:
+>    `Branch.defaultOwnerId`, opcional, con `resolverOwnerDelContacto()`
+>    (`src/services/ownership.service.ts`) compartida por este handoff y por
+>    `create_opportunity`, que además PERSISTE la asignación en el `Contact`.
+>    Lo de arriba sigue describiendo el comportamiento exacto de una sucursal
+>    que no configuró ninguno, que es un estado válido y deliberadamente no
+>    señalizado — no un pendiente.
 > 2. **Cómo el modelo decide derivar, no solo el código.** Esta sección lista
 >    cuatro disparadores; hasta ahora solo estaba construido uno (falla repetida
 >    de tool-calling). Los otros tres —el contacto lo pide explícitamente, una
