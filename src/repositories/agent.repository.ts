@@ -77,6 +77,20 @@ export function findAgentOriginsById(agentId: string, db: Db = prisma) {
   });
 }
 
+// SIN organizationId, A PROPÓSITO — igual que findAgentOriginsById y por el
+// mismo motivo: el webhook de WhatsApp (ítem 81) llega de Meta sin sesión ni
+// token nuestro, y lo único que dice a quién le corresponde el mensaje es el
+// phone_number_id del payload. La organización SALE de acá, no entra. Es
+// seguro porque el request ya pasó la firma HMAC de Meta (solo Meta puede
+// mandar un phone_number_id) y porque la columna es UNIQUE global. Devuelve
+// solo lo que el webhook necesita para decidir si atiende.
+export function findAgentByWhatsappPhoneNumberId(phoneNumberId: string, db: Db = prisma) {
+  return db.agent.findFirst({
+    where: { whatsappPhoneNumberId: phoneNumberId, deletedAt: null },
+    select: { id: true, organizationId: true, isActive: true, channels: true },
+  });
+}
+
 export interface CreateAgentData {
   organizationId: string;
   branchId: string;
@@ -95,6 +109,8 @@ export interface CreateAgentData {
   guardrailsText: string;
   // Ya normalizados por utils/origin.ts. Vacío = widget deshabilitado.
   allowedOrigins?: string[];
+  // El phone_number_id de WhatsApp (ítem 81). null/ausente = sin número.
+  whatsappPhoneNumberId?: string | null;
   isActive?: boolean;
 }
 
@@ -114,6 +130,7 @@ export interface UpdateAgentData {
   enabledTools?: string[];
   channels?: ConversationChannel[];
   allowedOrigins?: string[];
+  whatsappPhoneNumberId?: string | null;
   // Se reemplaza entero, nunca se mergea: guardrails es NOT NULL sin default
   // en el schema, así que acá no hay DbNull que contemplar.
   guardrails?: Prisma.InputJsonValue;
@@ -137,6 +154,10 @@ export function updateAgent(
 export function softDeleteAgent(id: string, organizationId: string, db: Db = prisma) {
   return db.agent.updateMany({
     where: { id, organizationId, deletedAt: null },
-    data: { deletedAt: new Date() },
+    // El número de WhatsApp se libera junto con el borrado (ítem 81): la
+    // columna es UNIQUE global, y un agente borrado que lo retuviera impediría
+    // pasárselo al agente que lo reemplaza. Un borrado lógico no tiene por qué
+    // seguir reservando un recurso externo.
+    data: { deletedAt: new Date(), whatsappPhoneNumberId: null },
   });
 }

@@ -112,6 +112,35 @@ export function findContactByIdIncludingDeleted(
   });
 }
 
+// El contacto de un número de WhatsApp (ítem 81): el primero (más viejo) de la
+// organización cuyo teléfono, SIN nada que no sea dígito, coincide con
+// `digits`. Se normalizan los dos lados porque Contact.phone lo carga una
+// persona o una importación (`+598 99 123 456`, `099123456`...) y el wa_id de
+// Meta llega pelado (`59899123456`). Solo se descartan los no-dígitos: NO se
+// intenta reconciliar prefijos locales (un `099...` sin código de país no
+// matchea), porque adivinar el país sería peor que crear un contacto nuevo.
+//
+// Recorre los contactos de la organización sin índice: es un webhook por
+// mensaje entrante sobre las filas de UNA organización, y un índice funcional
+// sobre regexp_replace(phone) se agrega cuando haga falta, no antes.
+// Excluye los soft-deleteados, igual que findContactById.
+export async function findContactIdByNormalizedPhone(
+  organizationId: string,
+  digits: string,
+  db: Db = prisma,
+): Promise<string | null> {
+  const filas = await db.$queryRaw<{ id: string }[]>`
+    SELECT id FROM contacts
+    WHERE organization_id = ${organizationId}::uuid
+      AND deleted_at IS NULL
+      AND phone IS NOT NULL
+      AND regexp_replace(phone, '[^0-9]', '', 'g') = ${digits}
+    ORDER BY created_at ASC, id ASC
+    LIMIT 1
+  `;
+  return filas[0]?.id ?? null;
+}
+
 export interface CreateContactData {
   organizationId: string;
   companyId: string | null;

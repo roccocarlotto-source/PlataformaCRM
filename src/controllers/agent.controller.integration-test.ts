@@ -867,6 +867,88 @@ test("allowedOrigins — rechaza con path, sin esquema, con query, con credencia
 });
 
 // ---------------------------------------------------------------------------
+// Ítem 81 — whatsappPhoneNumberId en el CRUD de Agent: lo que el webhook de
+// WhatsApp usa para saber de qué agente es un mensaje. UNIQUE GLOBAL.
+// ---------------------------------------------------------------------------
+
+// Al azar: la columna es UNIQUE entre TODAS las organizaciones, y un número
+// fijo chocaría con restos de otra corrida o de otro test.
+function numeroDeWhatsappAlAzar(): string {
+  return `1${randomUUID().replace(/\D/g, "").padEnd(14, "7").slice(0, 14)}`;
+}
+
+test('whatsappPhoneNumberId — se guarda al crear, PATCH lo cambia, "" o null lo vacía, y solo admite dígitos', async () => {
+  const numero = numeroDeWhatsappAlAzar();
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    whatsappPhoneNumberId: ` ${numero} `,
+  });
+  assert.equal(agente.whatsappPhoneNumberId, numero);
+
+  const otro = numeroDeWhatsappAlAzar();
+  const patch = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
+    whatsappPhoneNumberId: otro,
+  });
+  assert.equal(patch.status, 200);
+  assert.equal(((await patch.json()) as Record<string, unknown>).whatsappPhoneNumberId, otro);
+
+  for (const vacio of ["", null]) {
+    const res = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
+      whatsappPhoneNumberId: vacio,
+    });
+    assert.equal(res.status, 200);
+    assert.equal(((await res.json()) as Record<string, unknown>).whatsappPhoneNumberId, null);
+  }
+
+  for (const invalido of ["+59899123456", "123 456", "abc"]) {
+    const res = await call(
+      "POST",
+      "/api/agents",
+      adminA.accessToken,
+      cuerpoMinimo(orgA.branchId, { whatsappPhoneNumberId: invalido }),
+    );
+    assert.equal(res.status, 400, `debía ser 400 para ${invalido}`);
+    assert.match(await mensajeDeError(res), /solo admite dígitos/);
+  }
+});
+
+test("whatsappPhoneNumberId — el mismo número en otro agente es 409, también desde OTRA organización", async () => {
+  const numero = numeroDeWhatsappAlAzar();
+  await crearAgentePorHttp(adminA.accessToken, orgA.branchId, { whatsappPhoneNumberId: numero });
+
+  const mismaOrg = await call(
+    "POST",
+    "/api/agents",
+    adminA.accessToken,
+    cuerpoMinimo(orgA.branchId, { whatsappPhoneNumberId: numero }),
+  );
+  assert.equal(mismaOrg.status, 409);
+  assert.match(await mensajeDeError(mismaOrg), /ya está asignado a otro agente/);
+
+  const deB = await crearAgentePorHttp(adminB.accessToken, orgB.branchId);
+  const patchB = await call("PATCH", `/api/agents/${deB.id}`, adminB.accessToken, {
+    whatsappPhoneNumberId: numero,
+  });
+  assert.equal(patchB.status, 409);
+});
+
+test("whatsappPhoneNumberId — borrar el agente libera el número para otro", async () => {
+  const numero = numeroDeWhatsappAlAzar();
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    whatsappPhoneNumberId: numero,
+  });
+  const borrado = await call("DELETE", `/api/agents/${agente.id}`, adminA.accessToken);
+  assert.equal(borrado.status, 204);
+
+  const fila = await prisma.agent.findUniqueOrThrow({ where: { id: String(agente.id) } });
+  assert.equal(fila.whatsappPhoneNumberId, null);
+
+  const nuevo = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    whatsappPhoneNumberId: numero,
+  });
+  assert.equal(nuevo.whatsappPhoneNumberId, numero);
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/agents/guardrails/translate — el traductor del ítem 56. NO guarda
 // nada: lo que se prueba acá es la cadena HTTP (autenticación, autorización,
 // validación del body y la forma de la respuesta), con el proveedor de LLM

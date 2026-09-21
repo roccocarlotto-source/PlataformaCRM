@@ -343,6 +343,26 @@ const envSchema = z.object({
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
 
+  // -------------------------------------------------------------------------
+  // Canal WhatsApp del módulo de Agentes de IA (ítem 81; paso 6 de §9 de
+  // docs/ai-agent-architecture.md). Ver src/controllers/whatsappWebhook.controller.ts.
+  //
+  // WHATSAPP_VERIFY_TOKEN: el string que se escribe en el panel de Meta al
+  //   guardar la URL del webhook; Meta lo devuelve en el handshake GET
+  //   (hub.verify_token) y se compara tal cual. Lo elegimos nosotros.
+  // WHATSAPP_APP_SECRET: el App Secret de la app de Meta. Con él Meta firma el
+  //   cuerpo crudo de cada POST (X-Hub-Signature-256: sha256=<hex>).
+  // WHATSAPP_ACCESS_TOKEN: el token con el que se manda la respuesta del agente
+  //   por la Graph API (POST /{phone_number_id}/messages).
+  //
+  // Opcionales por el mismo criterio que las de MercadoPago: el servidor
+  // arranca sin ellas, y un webhook real sin la que necesita falla con un 500
+  // que dice exactamente qué falta (en el log) — nunca un webhook que
+  // "funciona" sin verificar nada.
+  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
+  WHATSAPP_APP_SECRET: z.string().optional(),
+  WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+
   // Gate de secreto compartido de /qr/resolve/:qrId (Fase 4, backend — ver
   // src/middlewares/requireInternalProxySecret.ts). El Cloudflare Worker que
   // hace el rate limiting manda el secreto en el header
