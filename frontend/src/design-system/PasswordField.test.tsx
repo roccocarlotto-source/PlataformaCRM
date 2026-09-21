@@ -18,7 +18,14 @@ function Controlado({ onSubmit = vi.fn() }: { onSubmit?: () => void }) {
         onSubmit();
       }}
     >
-      <PasswordField label="Contraseña" value={value} onChange={setValue} autoComplete="new-password" required minLength={8} />
+      <PasswordField
+        label="Contraseña"
+        value={value}
+        onChange={setValue}
+        autoComplete="new-password"
+        required
+        minLength={8}
+      />
       <output>{value}</output>
     </form>
   );
