@@ -1327,10 +1327,68 @@ fieldset.ds-field {
   color: var(--color-text-muted);
 }
 
+/* Despliegue animado (ítem 80). Los hijos quedan siempre montados (plegada,
+   con `inert`) y el alto se anima de 0 a "auto" con grid-template-rows
+   0fr → 1fr sobre un hijo con overflow: hidden — sin JS ni medir nada.
+   - El margin-top negativo anula el gap de .ds-sidebar-group, que plegada
+     sumaría 2px de más; el padding-top de los items lo devuelve adentro de
+     lo que se anima.
+   - El margin/padding de 3px del inner hace lugar al anillo global de
+     a:focus-visible (2px + 1px de offset), que el overflow: hidden si no
+     cortaría; plegada esa franja quedaría a la vista, de ahí el
+     visibility: hidden, que en el cierre espera a que termine la animación. */
+.ds-sidebar-group-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: -2px;
+  visibility: hidden;
+}
+
+.ds-sidebar-group-collapse.is-open {
+  grid-template-rows: 1fr;
+  visibility: visible;
+}
+
+.ds-sidebar-group-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+  margin: -3px;
+  padding: 3px;
+}
+
 .ds-sidebar-group-items {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding-top: 2px;
+}
+
+.ds-sidebar-chevron {
+  flex: 0 0 auto;
+}
+
+.ds-sidebar-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+/* Mismo criterio que .ds-select-menu: el movimiento solo se declara para
+   quien no lo desactivó; con reduce el cambio de estado es instantáneo. */
+@media (prefers-reduced-motion: no-preference) {
+  .ds-sidebar-group-collapse {
+    transition:
+      grid-template-rows 180ms ease-out,
+      visibility 0s linear 180ms;
+  }
+
+  .ds-sidebar-group-collapse.is-open {
+    transition:
+      grid-template-rows 180ms ease-out,
+      visibility 0s linear 0s;
+  }
+
+  .ds-sidebar-chevron {
+    transition: transform 180ms ease-out;
+  }
 }
 
 /* Hijos de un título que es link (Contactos, Agentes de IA): sangría para
