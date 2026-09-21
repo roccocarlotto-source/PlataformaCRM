@@ -4,6 +4,7 @@ import { env } from "../config/env";
 import { iniciarWorkerDeCotizaciones } from "./exchangeRateWorker";
 import { iniciarWorkerDeCanales } from "./googleCalendarChannelWorker";
 import { iniciarWorkerDeIngesta } from "./ingestionWorker";
+import { iniciarWorkerDeOportunidadesEstancadas } from "./opportunityStaleWorker";
 import { iniciarWorkerDeOutbox } from "./outboxWorker";
 
 // ---------------------------------------------------------------------------
@@ -14,7 +15,7 @@ import { iniciarWorkerDeOutbox } from "./outboxWorker";
 // worker es una promesa que el test resuelve a mano, así que el orden de los
 // eventos lo decide el test, no el scheduler.
 //
-// Los cuatro workers comparten el patrón y el bug, y por eso se prueban con la
+// Los cinco workers comparten el patrón y el bug, y por eso se prueban con la
 // misma tabla: si alguno se desviara del patrón, este archivo lo vería.
 // ---------------------------------------------------------------------------
 
@@ -73,6 +74,19 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
         actualizar: async () => {
           await pasada();
           return { actualizadas: 0, fallidas: 0 };
+        },
+      }),
+  },
+  {
+    // Ítem 76: el productor del trigger opportunity.stale. Mismo patrón,
+    // misma tabla, sin precondición de entorno.
+    nombre: "oportunidades estancadas",
+    iniciar: ({ pollMs, pasada }) =>
+      iniciarWorkerDeOportunidadesEstancadas({
+        pollMs,
+        barrer: async () => {
+          await pasada();
+          return { organizaciones: 0, emitidos: 0, fallidas: 0 };
         },
       }),
   },

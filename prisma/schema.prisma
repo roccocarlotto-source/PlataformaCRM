@@ -922,6 +922,17 @@ model Opportunity {
   financingInstallmentCount  Int?     @map("financing_installment_count")
   financingInstallmentAmount Decimal? @map("financing_installment_amount") @db.Decimal(14, 2)
 
+  // Anti-redraft del trigger opportunity.stale (ítem 76 de
+  // docs/frontend-cambios-pendientes.md): cuándo la acción
+  // agent.draft_follow_up dejó por última vez un borrador de seguimiento para
+  // esta oportunidad. El worker de oportunidades estancadas solo vuelve a
+  // emitir el evento si es NULL o ANTERIOR a updatedAt — o sea, si hubo un
+  // movimiento real después del último borrador y la oportunidad volvió a
+  // estancarse. Sin esto, una oportunidad quieta generaría un borrador nuevo
+  // todos los días para siempre. La escribe SOLO el handler de la acción, y
+  // con SQL crudo para no mover updatedAt (ver markStaleFollowUpDrafted).
+  lastStaleFollowUpDraftedAt DateTime? @map("last_stale_follow_up_drafted_at")
+
   organization Organization @relation(fields: [organizationId], references: [id])
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
   contact      Contact?     @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: NoAction)
@@ -1343,6 +1354,13 @@ model Automation {
   // acción declara su propio schema zod y el CRUD lo valida ANTES de
   // guardar—, mismo criterio que Agent.guardrails.
   actionConfig Json @map("action_config")
+
+  // La configuración del TRIGGER (ítem 76), con el mismo criterio que
+  // actionConfig: cada trigger declara su schema zod en automationTriggers.ts
+  // y el CRUD lo valida antes de guardar. Default "{}" porque opportunity.won
+  // no tiene ninguna, y así las reglas existentes quedan válidas sin backfill;
+  // opportunity.stale exige { daysWithoutActivity }.
+  triggerConfig Json @default("{}") @map("trigger_config")
 
   isActive  Boolean   @default(true) @map("is_active")
   createdAt DateTime  @default(now()) @map("created_at")

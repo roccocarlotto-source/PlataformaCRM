@@ -234,3 +234,71 @@ export function countActiveOpportunitiesByStage(
 ) {
   return db.opportunity.count({ where: { stageId, organizationId, deletedAt: null } });
 }
+
+// ---------------------------------------------------------------------------
+// Oportunidades estancadas (ítem 76 de docs/frontend-cambios-pendientes.md):
+// el barrido diario del trigger opportunity.stale y la marca anti-redraft.
+// ---------------------------------------------------------------------------
+
+// Las oportunidades de UNA organización que califican para un borrador de
+// seguimiento: abiertas, no borradas, sin movimiento desde `limite`, y —la
+// parte que no puede fallar— sin un borrador posterior a su último movimiento.
+// `lastStaleFollowUpDraftedAt < updatedAt` compara dos columnas de la misma
+// fila (field reference de Prisma): la oportunidad tuvo un cambio real DESPUÉS
+// del último borrador y volvió a quedar quieta. Una que no se movió desde su
+// último borrador no vuelve a aparecer acá, por más días que pasen.
+//
+// Solo id y ownerId: es exactamente el payload del evento, y el handler relee
+// la fila entera de todos modos.
+export function findStaleOpportunities(organizationId: string, limite: Date, db: Db = prisma) {
+  return db.opportunity.findMany({
+    where: {
+      organizationId,
+      deletedAt: null,
+      status: "OPEN",
+      updatedAt: { lt: limite },
+      OR: [
+        { lastStaleFollowUpDraftedAt: null },
+        { lastStaleFollowUpDraftedAt: { lt: db.opportunity.fields.updatedAt } },
+      ],
+    },
+    select: { id: true, ownerId: true },
+    // Orden estable: el mismo barrido sobre los mismos datos emite los eventos
+    // en el mismo orden, que es lo que un log legible necesita.
+    orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
+  });
+}
+
+// Lo que el borrador de seguimiento le cuenta al modelo sobre la oportunidad:
+// la fila más el nombre de su etapa. Mismo filtro que findOpportunityById.
+export function findOpportunityForFollowUpDraft(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.opportunity.findFirst({
+    where: { id, organizationId, deletedAt: null },
+    include: { stage: { select: { name: true } } },
+  });
+}
+
+// La marca anti-redraft. SQL CRUDO Y NO db.opportunity.update, a propósito:
+// updatedAt es @updatedAt, y Prisma lo pisaría con "ahora" en cualquier
+// update de la fila. Eso rompería justamente la comparación que esta columna
+// existe para sostener: la marca quedaría un instante ANTES del updatedAt que
+// ella misma causó, la oportunidad "habría tenido movimiento después del
+// último borrador" y el worker redactaría otro al día siguiente — y así para
+// siempre. Un UPDATE que no toca updated_at deja el último movimiento real
+// donde estaba.
+//
+// La fecha viaja como ISO y se convierte a UTC en SQL: la columna es
+// TIMESTAMP(3) sin zona, y Prisma guarda todo DateTime en UTC. Así el valor
+// no depende de la zona horaria de la sesión de Postgres.
+export function markStaleFollowUpDrafted(
+  id: string,
+  organizationId: string,
+  cuando: Date,
+  db: Db = prisma,
+) {
+  return db.$executeRaw`UPDATE opportunities SET last_stale_follow_up_drafted_at = (${cuando.toISOString()}::timestamptz AT TIME ZONE 'UTC') WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid`;
+}

@@ -305,6 +305,26 @@ const envSchema = z.object({
     .default(24 * 60 * 60 * 1000),
 
   // -------------------------------------------------------------------------
+  // Worker de oportunidades estancadas (ítem 76 de
+  // docs/frontend-cambios-pendientes.md, ver
+  // src/workers/opportunityStaleWorker.ts): el productor del trigger
+  // opportunity.stale del motor de automatizaciones.
+  //
+  // Mismo enum explícito que INGEST_WORKER_ENABLED y por el mismo motivo.
+  OPPORTUNITY_STALE_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+
+  // 24 HORAS. La regla se mide en DÍAS sin movimiento: barrer más seguido no
+  // adelanta nada que importe, y la primera pasada es inmediata al arrancar.
+  OPPORTUNITY_STALE_WORKER_POLL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(24 * 60 * 60 * 1000),
+
+  // -------------------------------------------------------------------------
   // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
   //
   // MERCADOPAGO_WEBHOOK_SECRET: el secreto con el que MercadoPago firma cada

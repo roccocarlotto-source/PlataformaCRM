@@ -7,7 +7,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeAutomation } from "../../test/automationFixtures";
-import { listSelectOptions } from "../../test/chooseSelectOption";
+import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 import { AdminRoute } from "../../auth/AdminRoute";
 import { ProtectedRoute } from "../../auth/ProtectedRoute";
 import type { AuthContextValue } from "../../auth/AuthContext";
@@ -74,19 +74,27 @@ async function completarSeguimiento(
 }
 
 describe("AutomationFormPage — creación", () => {
-  it("el evento y la acción son <Select> de verdad, con la única opción del catálogo ya elegida", async () => {
+  it("el evento y la acción son <Select> de verdad, con la primera opción del catálogo ya elegida", async () => {
     const user = userEvent.setup();
     renderForm("/automations/new");
 
-    // Vienen preseleccionados —hay una sola opción de cada uno—, pero son
-    // selectores y no un campo fijo: sumar el segundo trigger el día de mañana
-    // es agregar una entrada a catalog.ts y nada más.
     expect(screen.getByLabelText("Evento")).toHaveValue("Oportunidad ganada");
     expect(screen.getByLabelText("Acción")).toHaveValue("Crear actividad de seguimiento");
 
     expect(await listSelectOptions(user, screen.getByLabelText("Evento"))).toEqual([
       "Oportunidad ganada",
+      "Oportunidad sin movimiento",
     ]);
+  });
+
+  it("con Oportunidad ganada, la acción ofrece solo la tarea de seguimiento y el evento no pide campos", async () => {
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    expect(await listSelectOptions(user, screen.getByLabelText("Acción"))).toEqual([
+      "Crear actividad de seguimiento",
+    ]);
+    expect(screen.queryByLabelText("Días sin movimiento")).not.toBeInTheDocument();
   });
 
   it("los campos de configuración son los de la acción elegida", () => {
@@ -121,6 +129,9 @@ describe("AutomationFormPage — creación", () => {
       {
         name: "Seguimiento post-venta",
         triggerType: "opportunity.won",
+        // Oportunidad ganada no tiene config: viaja "{}", que es lo que el
+        // backend guarda para ese evento.
+        triggerConfig: {},
         actionType: "activity.create_follow_up",
         // daysUntilDue viaja como NÚMERO, no como el string del input: el
         // schema del backend lo pide entero y un "3" sería un 400. Y `notes`
@@ -303,6 +314,146 @@ describe("AutomationFormPage — creación", () => {
   });
 });
 
+describe("AutomationFormPage — Oportunidad sin movimiento + borrador con IA (ítem 76)", () => {
+  it("elegir el evento pide los días sin movimiento y pasa la acción a Redactar seguimiento con IA", async () => {
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    // Antes: los campos de la tarea de seguimiento.
+    expect(screen.getByLabelText("Título de la tarea")).toBeInTheDocument();
+
+    await chooseSelectOption(user, screen.getByLabelText("Evento"), "Oportunidad sin movimiento");
+
+    const dias = screen.getByLabelText("Días sin movimiento");
+    expect(dias).toBeRequired();
+    expect(dias).toHaveAttribute("min", "0");
+    expect(dias).toHaveAttribute("max", "365");
+
+    // La acción que el evento admite, sola en el selector, y sin campos
+    // propios: los de la tarea de seguimiento desaparecen.
+    expect(screen.getByLabelText("Acción")).toHaveValue("Redactar seguimiento con IA");
+    expect(await listSelectOptions(user, screen.getByLabelText("Acción"))).toEqual([
+      "Redactar seguimiento con IA",
+    ]);
+    expect(screen.queryByLabelText("Título de la tarea")).not.toBeInTheDocument();
+    expect(screen.getByText(/La IA redacta un mensaje breve/)).toBeInTheDocument();
+  });
+
+  it("manda el POST con triggerConfig { daysWithoutActivity } como número y actionConfig vacío", async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(makeAutomation(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Seguimiento de estancadas");
+    await chooseSelectOption(user, screen.getByLabelText("Evento"), "Oportunidad sin movimiento");
+    await user.type(screen.getByLabelText("Días sin movimiento"), "7");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect(bodies).toEqual([
+      {
+        name: "Seguimiento de estancadas",
+        triggerType: "opportunity.stale",
+        triggerConfig: { daysWithoutActivity: 7 },
+        actionType: "agent.draft_follow_up",
+        actionConfig: {},
+        isActive: true,
+      },
+    ]);
+  });
+
+  it("sin los días no sale del formulario, y 0 es válido", async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(makeAutomation(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Estancadas");
+    await chooseSelectOption(user, screen.getByLabelText("Evento"), "Oportunidad sin movimiento");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    // El required nativo frena el submit: no hubo POST.
+    expect(bodies).toEqual([]);
+
+    await user.type(screen.getByLabelText("Días sin movimiento"), "0");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect(bodies).toHaveLength(1);
+    expect((bodies[0] as { triggerConfig: unknown }).triggerConfig).toEqual({
+      daysWithoutActivity: 0,
+    });
+  });
+
+  it("volver a Oportunidad ganada vuelve a la tarea de seguimiento y el evento deja de pedir días", async () => {
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    await chooseSelectOption(user, screen.getByLabelText("Evento"), "Oportunidad sin movimiento");
+    await chooseSelectOption(user, screen.getByLabelText("Evento"), "Oportunidad ganada");
+
+    expect(screen.queryByLabelText("Días sin movimiento")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Acción")).toHaveValue("Crear actividad de seguimiento");
+    expect(screen.getByLabelText("Título de la tarea")).toHaveValue("");
+  });
+
+  it("edición: hidrata los días guardados y el PATCH los manda de vuelta con la regla completa", async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(
+          makeAutomation({
+            name: "Estancadas",
+            triggerType: "opportunity.stale",
+            triggerConfig: { daysWithoutActivity: 10 },
+            actionType: "agent.draft_follow_up",
+            actionConfig: {},
+          }),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(makeAutomation());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/automations/au1/edit");
+
+    const dias = await screen.findByLabelText("Días sin movimiento");
+    expect(dias).toHaveValue(10);
+    expect(screen.getByLabelText("Evento")).toHaveValue("Oportunidad sin movimiento");
+    expect(screen.getByLabelText("Acción")).toHaveValue("Redactar seguimiento con IA");
+
+    await user.clear(dias);
+    await user.type(dias, "14");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect(bodies).toEqual([
+      {
+        name: "Estancadas",
+        triggerType: "opportunity.stale",
+        triggerConfig: { daysWithoutActivity: 14 },
+        actionType: "agent.draft_follow_up",
+        actionConfig: {},
+        isActive: true,
+      },
+    ]);
+  });
+});
+
 describe("AutomationFormPage — edición", () => {
   it("hidrata la regla entera con lo que devuelve el GET, config incluida", async () => {
     server.use(
@@ -359,6 +510,7 @@ describe("AutomationFormPage — edición", () => {
       {
         name: "Seguimiento renombrado",
         triggerType: "opportunity.won",
+        triggerConfig: {},
         actionType: "activity.create_follow_up",
         actionConfig: { subject: "Llamar para coordinar la entrega", daysUntilDue: 3 },
         isActive: true,

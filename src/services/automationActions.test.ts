@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { crearRegistroDeAcciones, type AccionRegistrada } from "./automationActions";
+import {
+  accionAdmiteTrigger,
+  crearRegistroDeAcciones,
+  type AccionRegistrada,
+} from "./automationActions";
 import {
   ACTION_CREATE_FOLLOW_UP,
   MAX_NOTES,
@@ -9,7 +13,16 @@ import {
   fechaDeVencimiento,
 } from "./automationActions/createFollowUpActivity";
 import { payloadComoObjeto } from "./automationDispatch.service";
-import { TRIGGERS_CONOCIDOS, esTriggerConocido } from "./automationTriggers";
+import {
+  CONFIG_DE_TRIGGER,
+  TRIGGERS_CONOCIDOS,
+  TRIGGERS_DE_REGLA_UNICA,
+  TRIGGER_OPPORTUNITY_STALE,
+  TRIGGER_OPPORTUNITY_WON,
+  configDeOportunidadEstancadaSchema,
+  configDeOportunidadGanadaSchema,
+  esTriggerConocido,
+} from "./automationTriggers";
 
 // ---------------------------------------------------------------------------
 // Unitarios, sin base: el registro de acciones, el schema de config de la
@@ -64,10 +77,73 @@ test("dos registros creados con la factory no comparten estado", () => {
 // Catálogo de triggers
 // ---------------------------------------------------------------------------
 
-test("el catálogo de triggers hoy tiene exactamente opportunity.won", () => {
-  assert.deepEqual([...TRIGGERS_CONOCIDOS], ["opportunity.won"]);
+test("el catálogo de triggers hoy tiene exactamente opportunity.won y opportunity.stale", () => {
+  assert.deepEqual([...TRIGGERS_CONOCIDOS], ["opportunity.won", "opportunity.stale"]);
   assert.equal(esTriggerConocido("opportunity.won"), true);
+  assert.equal(esTriggerConocido("opportunity.stale"), true);
   assert.equal(esTriggerConocido("booking.reminder"), false);
+});
+
+test("cada trigger del catálogo tiene su schema de configuración", () => {
+  assert.equal(CONFIG_DE_TRIGGER[TRIGGER_OPPORTUNITY_WON], configDeOportunidadGanadaSchema);
+  assert.equal(CONFIG_DE_TRIGGER[TRIGGER_OPPORTUNITY_STALE], configDeOportunidadEstancadaSchema);
+  assert.deepEqual(Object.keys(CONFIG_DE_TRIGGER).sort(), [...TRIGGERS_CONOCIDOS].sort());
+});
+
+test("opportunity.won no tiene config: {} pasa y una clave de más se DESCARTA, no se guarda", () => {
+  assert.deepEqual(configDeOportunidadGanadaSchema.parse({}), {});
+  assert.deepEqual(configDeOportunidadGanadaSchema.parse({ daysWithoutActivity: 7 }), {});
+});
+
+test("opportunity.stale exige daysWithoutActivity entero entre 0 y 365 — sin default oculto", () => {
+  assert.deepEqual(configDeOportunidadEstancadaSchema.parse({ daysWithoutActivity: 7 }), {
+    daysWithoutActivity: 7,
+  });
+  assert.equal(
+    configDeOportunidadEstancadaSchema.parse({ daysWithoutActivity: 0 }).daysWithoutActivity,
+    0,
+  );
+  assert.equal(
+    configDeOportunidadEstancadaSchema.parse({ daysWithoutActivity: 365 }).daysWithoutActivity,
+    365,
+  );
+
+  const sinDias = configDeOportunidadEstancadaSchema.safeParse({});
+  assert.equal(sinDias.success, false);
+  assert.match(sinDias.error?.issues[0]?.message ?? "", /daysWithoutActivity es requerido/);
+
+  for (const malo of [-1, 366, 2.5, "7", null]) {
+    assert.equal(
+      configDeOportunidadEstancadaSchema.safeParse({ daysWithoutActivity: malo }).success,
+      false,
+      `${String(malo)} no debería pasar`,
+    );
+  }
+});
+
+test("opportunity.stale es de regla única por organización; opportunity.won no", () => {
+  assert.deepEqual([...TRIGGERS_DE_REGLA_UNICA], [TRIGGER_OPPORTUNITY_STALE]);
+});
+
+test("accionAdmiteTrigger: sin `triggers` admite cualquiera; con `triggers`, solo esos", () => {
+  const libre = accionDePrueba("test.libre");
+  assert.equal(accionAdmiteTrigger(libre, TRIGGER_OPPORTUNITY_WON), true);
+  assert.equal(accionAdmiteTrigger(libre, TRIGGER_OPPORTUNITY_STALE), true);
+
+  const acotada: AccionRegistrada = { ...libre, triggers: [TRIGGER_OPPORTUNITY_STALE] };
+  assert.equal(accionAdmiteTrigger(acotada, TRIGGER_OPPORTUNITY_STALE), true);
+  assert.equal(accionAdmiteTrigger(acotada, TRIGGER_OPPORTUNITY_WON), false);
+});
+
+test("activity.create_follow_up solo admite opportunity.won: colgada de stale sería una tarea diaria infinita", () => {
+  assert.equal(
+    accionAdmiteTrigger(accionCrearActividadDeSeguimiento, TRIGGER_OPPORTUNITY_WON),
+    true,
+  );
+  assert.equal(
+    accionAdmiteTrigger(accionCrearActividadDeSeguimiento, TRIGGER_OPPORTUNITY_STALE),
+    false,
+  );
 });
 
 // ---------------------------------------------------------------------------

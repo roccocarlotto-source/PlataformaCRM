@@ -12,7 +12,8 @@ import { createStage } from "./stage.service";
 
 // ---------------------------------------------------------------------------
 // Escenarios del motor de automatizaciones para sus tests de integración
-// (automationDispatch, automationOpportunityWon). SOLO PARA TESTS: el nombre
+// (automationDispatch, automationOpportunityWon, automationOpportunityStale,
+// opportunityStaleWorker). SOLO PARA TESTS: el nombre
 // *.test-helper.ts lo deja fuera del build, igual que vehicle.test-helper.ts.
 //
 // Una organización con su ADMIN (usuario real de Supabase Auth: users.id
@@ -114,6 +115,13 @@ export async function desmontar(...escenarios: Escenario[]) {
     await prisma.activity.deleteMany({ where });
     await prisma.opportunity.deleteMany({ where });
     await prisma.outboxEvent.deleteMany({ where });
+    // Lo que arma el caso "con conversación" del ítem 76. Vacío en el resto de
+    // los escenarios, y deleteMany sobre nada no cuesta nada.
+    await prisma.message.deleteMany({ where });
+    await prisma.conversation.deleteMany({ where });
+    await prisma.agent.deleteMany({ where });
+    await prisma.contact.deleteMany({ where });
+    await prisma.branch.deleteMany({ where });
     await prisma.stage.deleteMany({ where });
     await prisma.pipeline.deleteMany({ where });
     await prisma.company.deleteMany({ where });

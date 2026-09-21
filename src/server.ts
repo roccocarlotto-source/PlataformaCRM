@@ -7,6 +7,7 @@ import { crearShutdown } from "./shutdown";
 import { iniciarWorkerDeIngesta } from "./workers/ingestionWorker";
 import { iniciarWorkerDeCotizaciones } from "./workers/exchangeRateWorker";
 import { iniciarWorkerDeCanales } from "./workers/googleCalendarChannelWorker";
+import { iniciarWorkerDeOportunidadesEstancadas } from "./workers/opportunityStaleWorker";
 import { iniciarWorkerDeOutbox } from "./workers/outboxWorker";
 
 const server = app.listen(env.PORT, () => {
@@ -49,6 +50,16 @@ const detenerWorkerDeCanales = iniciarWorkerDeCanales();
 // primera pasada inmediata.
 const detenerWorkerDeCotizaciones = iniciarWorkerDeCotizaciones();
 
+// El worker de oportunidades estancadas (ítem 76 de
+// docs/frontend-cambios-pendientes.md), por el mismo motivo que los otros
+// cuatro. Es el productor del trigger opportunity.stale: una vez por día emite
+// un evento al outbox por cada oportunidad que la regla de su organización
+// considera quieta, y el resto lo hace el camino de siempre (worker del outbox
+// -> dispatcher -> acción). Arranca DESPUÉS de registrarAutomatizaciones() por
+// prolijidad, no por necesidad: sus eventos quedan en la cola y los atiende el
+// worker del outbox, que es el que necesita los handlers.
+const detenerWorkerDeOportunidadesEstancadas = iniciarWorkerDeOportunidadesEstancadas();
+
 // El apagado ordenado (M-12 de docs/auditoria-2026-08-29.md). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
@@ -62,7 +73,7 @@ const shutdown = crearShutdown({
       // dejan terminar solas, que es lo correcto.
       server.closeIdleConnections();
     }),
-  // Los cuatro stops esperan a la pasada en curso de su worker (M-12 c): cada
+  // Los cinco stops esperan a la pasada en curso de su worker (M-12 c): cada
   // evento va en su propia transacción y ninguna queda a medias, y los que no
   // llegó a tocar siguen en PENDING para el próximo arranque.
   detenerWorkers: async () => {
@@ -71,6 +82,7 @@ const shutdown = crearShutdown({
       detenerWorkerDeOutbox(),
       detenerWorkerDeCanales(),
       detenerWorkerDeCotizaciones(),
+      detenerWorkerDeOportunidadesEstancadas(),
     ]);
   },
   desconectarPrisma: () => prisma.$disconnect(),

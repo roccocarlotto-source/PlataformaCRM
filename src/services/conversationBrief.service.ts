@@ -110,16 +110,17 @@ const MENSAJE_SIN_RESUMEN = "El modelo no devolvió ningún resumen";
 // texto": el modelo entrega el resumen entrecomillado. Se sacan acá y no se le
 // pide una vez más en el prompt, porque limpiar una comilla es determinístico y
 // pedirlo de nuevo no lo es.
-function limpiarRespuesta(texto: string): string {
+//
+// Exportada con el tope como parámetro (ítem 76): el borrador de seguimiento
+// de opportunityFollowUpDraft.service.ts tiene exactamente el mismo desvío que
+// limpiar, con otro tope.
+export function limpiarRespuesta(texto: string, max: number = BRIEF_MAX_LENGTH): string {
   const sinEspacios = texto.trim();
   const entrecomillado =
     sinEspacios.length >= 2 &&
     ((sinEspacios.startsWith('"') && sinEspacios.endsWith('"')) ||
       (sinEspacios.startsWith("“") && sinEspacios.endsWith("”")));
-  return (entrecomillado ? sinEspacios.slice(1, -1).trim() : sinEspacios).slice(
-    0,
-    BRIEF_MAX_LENGTH,
-  );
+  return (entrecomillado ? sinEspacios.slice(1, -1).trim() : sinEspacios).slice(0, max);
 }
 
 // ---------------------------------------------------------------------------

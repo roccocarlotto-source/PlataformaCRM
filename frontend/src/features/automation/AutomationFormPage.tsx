@@ -10,15 +10,20 @@ import { Select, type SelectOption } from "../../design-system/Select";
 import { useFormDraft } from "../../lib/useFormDraft";
 import {
   ACTION_CREATE_FOLLOW_UP,
-  ACTION_OPTIONS,
+  ACTION_DRAFT_FOLLOW_UP,
   CONFIG_DE_ACCION,
+  CONFIG_DE_TRIGGER,
   DEFAULT_ACTION,
   DEFAULT_TRIGGER,
   MAX_DAYS_UNTIL_DUE,
+  MAX_DAYS_WITHOUT_ACTIVITY,
   MAX_NOTES,
   MAX_SUBJECT,
   MIN_DAYS_UNTIL_DUE,
+  MIN_DAYS_WITHOUT_ACTIVITY,
+  TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_OPTIONS,
+  accionesParaTrigger,
   type ConfigDraft,
 } from "./catalog";
 import { useCreateAutomation, useUpdateAutomation } from "./mutations";
@@ -32,6 +37,9 @@ const MAX_NAME = 200;
 interface AutomationFormValues {
   name: string;
   triggerType: string;
+  // Borrador de la configuración del trigger elegido (ítem 76), con la misma
+  // convención que actionConfig.
+  triggerConfig: ConfigDraft;
   actionType: string;
   // Borrador de la configuración de la acción elegida, con todos los campos
   // como string. Ver ConfigDraft en catalog.ts.
@@ -45,6 +53,7 @@ const EMPTY_FORM: AutomationFormValues = {
   // proveedor de modelo en AgentFormPage. Son la PRIMERA entrada del catálogo,
   // no un valor escrito a mano: sumar una segunda no cambia este archivo.
   triggerType: DEFAULT_TRIGGER,
+  triggerConfig: CONFIG_DE_TRIGGER[DEFAULT_TRIGGER].draftVacio(),
   actionType: DEFAULT_ACTION,
   actionConfig: CONFIG_DE_ACCION[DEFAULT_ACTION].draftVacio(),
   isActive: true,
@@ -52,9 +61,15 @@ const EMPTY_FORM: AutomationFormValues = {
 
 function toFormValues(automation: Automation): AutomationFormValues {
   const config = CONFIG_DE_ACCION[automation.actionType];
+  const configDeTrigger = CONFIG_DE_TRIGGER[automation.triggerType];
   return {
     name: automation.name,
     triggerType: automation.triggerType,
+    // Una regla guardada antes del ítem 76 puede no traer triggerConfig en
+    // alguna respuesta cacheada: se trata como "{}", que es su valor real.
+    triggerConfig: configDeTrigger
+      ? configDeTrigger.draftDesde(automation.triggerConfig ?? {})
+      : {},
     actionType: automation.actionType,
     // Una acción guardada que este catálogo todavía no conoce no tiene cómo
     // dibujar sus campos: el borrador queda vacío y validar() frena el submit
@@ -86,11 +101,63 @@ function opcionesCon(options: SelectOption<string>[], value: string): SelectOpti
 // mensaje de acá nombra lo que se ve en la pantalla. El backend sigue siendo
 // quien decide: esto se adelanta, no lo reemplaza.
 function validar(values: AutomationFormValues): string | null {
+  // Un trigger que este espejo no conoce no se valida acá: su config viaja
+  // tal como está guardada (ver handleSubmit) y la valida el backend.
+  const configDeTrigger = CONFIG_DE_TRIGGER[values.triggerType];
+  const errorDeTrigger = configDeTrigger ? configDeTrigger.validar(values.triggerConfig) : null;
+  if (errorDeTrigger !== null) {
+    return errorDeTrigger;
+  }
   const config = CONFIG_DE_ACCION[values.actionType];
   if (!config) {
     return `La acción "${values.actionType}" no se puede configurar desde esta pantalla todavía.`;
   }
   return config.validar(values.actionConfig);
+}
+
+// ---------------------------------------------------------------------------
+// Los campos de configuración del trigger elegido (ítem 76). Mismo patrón que
+// CamposDeLaAccion de abajo —un switch, un Fragment de hijos directos de la
+// grilla— y por los mismos motivos. Un trigger sin campos (opportunity.won)
+// no dibuja nada.
+// ---------------------------------------------------------------------------
+function CamposDelTrigger({
+  triggerType,
+  values,
+  onChange,
+  disabled,
+}: {
+  triggerType: string;
+  values: ConfigDraft;
+  onChange: (values: ConfigDraft) => void;
+  disabled: boolean;
+}) {
+  switch (triggerType) {
+    case TRIGGER_OPPORTUNITY_STALE:
+      return (
+        <>
+          <FormField label={<span className="ds-required">Días sin movimiento</span>}>
+            <input
+              type="number"
+              min={MIN_DAYS_WITHOUT_ACTIVITY}
+              max={MAX_DAYS_WITHOUT_ACTIVITY}
+              step={1}
+              value={values.daysWithoutActivity ?? ""}
+              onChange={(event) => onChange({ ...values, daysWithoutActivity: event.target.value })}
+              disabled={disabled}
+              required
+            />
+          </FormField>
+          <p className="ds-hint ds-field-grid--full">
+            Se dispara con las oportunidades abiertas que no tuvieron ningún cambio en esa cantidad
+            de días. Se revisa una vez por día, y cada oportunidad dispara una sola vez hasta que
+            vuelva a tener movimiento. Solo puede haber una regla activa con este evento.
+          </p>
+        </>
+      );
+    default:
+      return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +237,16 @@ function CamposDeLaAccion({
           </p>
         </>
       );
+    case ACTION_DRAFT_FOLLOW_UP:
+      // Sin campos propios: su único parámetro es del trigger.
+      return (
+        <p className="ds-hint ds-field-grid--full">
+          La IA redacta un mensaje breve para retomar el contacto con el cliente, usando los datos
+          de la oportunidad y su última conversación si la hay, y lo deja como una tarea para el
+          dueño de la oportunidad que vence ese mismo día. El mensaje no se le manda a nadie: lo
+          revisa y lo envía el vendedor.
+        </p>
+      );
     default:
       // Solo se llega acá con una acción que el backend conoce y este espejo
       // todavía no. No se inventa un editor de JSON crudo: se dice qué pasa.
@@ -192,11 +269,10 @@ function CamposDeLaAccion({
 // (docs/automations-architecture.md); este formulario no ejecuta nada ni sabe
 // nada de ejecuciones, solo configura.
 //
-// LOS DOS SELECTORES SON SELECTORES DE VERDAD aunque hoy tengan una sola
-// opción cada uno, por la misma razón que el proveedor de modelo en
-// AgentFormPage: el día que se sume un trigger o una acción —los dos casos que
-// faltan están bloqueados por trámites externos, no por diseño— la pantalla no
-// cambia, se agrega una entrada a catalog.ts.
+// LOS DOS SELECTORES SON SELECTORES DE VERDAD, y el de acción ofrece solo las
+// que admite el evento elegido (ACCIONES_POR_TRIGGER en catalog.ts). Sumar un
+// trigger o una acción es agregar entradas a catalog.ts y, si trae campos, un
+// `case` a CamposDelTrigger o a CamposDeLaAccion.
 // ---------------------------------------------------------------------------
 export function AutomationFormPage() {
   const { id } = useParams<{ id?: string }>();
@@ -231,9 +307,13 @@ export function AutomationFormPage() {
     // real: el service revalida el actionConfig EFECTIVO contra la acción
     // EFECTIVA, así que mandar el actionType sin su config lo obligaría a
     // revalidar la config vieja contra el schema nuevo.
+    // Un trigger que este espejo no conoce no manda triggerConfig: el backend
+    // revalida la que la regla ya tiene guardada contra su trigger.
+    const configDeTrigger = CONFIG_DE_TRIGGER[values.triggerType];
     const input: CreateAutomationInput = {
       name: values.name.trim(),
       triggerType: values.triggerType,
+      ...(configDeTrigger ? { triggerConfig: configDeTrigger.aPayload(values.triggerConfig) } : {}),
       actionType: values.actionType,
       // validar() ya garantizó que la acción está en el catálogo.
       actionConfig: CONFIG_DE_ACCION[values.actionType].aPayload(values.actionConfig),
@@ -321,14 +401,40 @@ export function AutomationFormPage() {
               value={values.triggerType}
               options={opcionesCon(TRIGGER_OPTIONS, values.triggerType)}
               onChange={(triggerType) => {
-                if (triggerType) setValues({ ...values, triggerType });
+                if (!triggerType) return;
+                // Cambiar de evento cambia la forma de SU config —se arranca
+                // de cero, igual que al cambiar de acción— y puede dejar a la
+                // acción elegida fuera de las que el evento admite: en ese
+                // caso se pasa a la primera que sí, con su config vacía, en
+                // vez de dejar armada una combinación que el backend rechaza.
+                const configDeTrigger = CONFIG_DE_TRIGGER[triggerType];
+                const permitidas = accionesParaTrigger(triggerType);
+                const accionSigue = permitidas.some((option) => option.value === values.actionType);
+                const actionType = accionSigue ? values.actionType : permitidas[0]?.value;
+                const configDeAccion = actionType ? CONFIG_DE_ACCION[actionType] : undefined;
+                setValues({
+                  ...values,
+                  triggerType,
+                  triggerConfig: configDeTrigger ? configDeTrigger.draftVacio() : {},
+                  ...(accionSigue || !actionType
+                    ? {}
+                    : {
+                        actionType,
+                        actionConfig: configDeAccion ? configDeAccion.draftVacio() : {},
+                      }),
+                });
               }}
               required
             />
+            <CamposDelTrigger
+              triggerType={values.triggerType}
+              values={values.triggerConfig}
+              onChange={(triggerConfig) => setValues({ ...values, triggerConfig })}
+              disabled={isSubmitting}
+            />
             <p className="ds-hint ds-field-grid--full">
-              El evento que dispara la regla. Hoy hay uno solo: los otros dos casos previstos
-              —recordatorio por WhatsApp y envío del QR de reseña— dependen de trámites que no se
-              resuelven desde acá.
+              El evento que dispara la regla. Los otros casos previstos —recordatorio por WhatsApp y
+              envío del QR de reseña— dependen de trámites que no se resuelven desde acá.
             </p>
           </div>
         </Card>
@@ -339,13 +445,14 @@ export function AutomationFormPage() {
               id="automation-form-action"
               label="Acción"
               value={values.actionType}
-              options={opcionesCon(ACTION_OPTIONS, values.actionType)}
+              options={opcionesCon(accionesParaTrigger(values.triggerType), values.actionType)}
               onChange={(actionType) => {
                 if (!actionType) return;
                 // Cambiar de acción cambia la FORMA de la config: el borrador
                 // de la acción anterior no significa nada en la nueva, así que
-                // se arranca de cero en vez de arrastrar campos ajenos. Hoy,
-                // con una sola acción, este camino no se recorre nunca.
+                // se arranca de cero en vez de arrastrar campos ajenos. Hoy
+                // cada evento admite una sola acción, así que este camino
+                // solo se recorre con un trigger que el espejo no conoce.
                 const config = CONFIG_DE_ACCION[actionType];
                 setValues({
                   ...values,

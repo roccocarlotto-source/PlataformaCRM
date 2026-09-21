@@ -2,6 +2,7 @@ import { ActivityType } from "@prisma/client";
 import { z } from "zod";
 import { createActivity } from "../activity.service";
 import type { AccionRegistrada } from "../automationActions";
+import { TRIGGER_OPPORTUNITY_WON } from "../automationTriggers";
 
 // ---------------------------------------------------------------------------
 // Acción `activity.create_follow_up` — la primera del catálogo
@@ -57,11 +58,12 @@ export const configDeSeguimientoSchema = z.object({
 
 export type ConfigDeSeguimiento = z.infer<typeof configDeSeguimientoSchema>;
 
-// Lo que el trigger opportunity.won pone en el payload (opportunity.service.ts).
-// Se valida acá, en el consumidor, y no solo se confía en el productor: un
+// Lo que los triggers de oportunidad ponen en el payload: opportunity.won
+// (opportunity.service.ts) y opportunity.stale (opportunityStaleWorker.ts)
+// emiten la MISMA forma, y agent.draft_follow_up lo reusa. Se valida acá, en el consumidor, y no solo se confía en el productor: un
 // payload viejo o de otra forma tiene que fallar con un mensaje legible en
 // AutomationExecution.error, no con un TypeError dentro de createActivity.
-const payloadDeOportunidadGanadaSchema = z.object({
+export const payloadDeOportunidadSchema = z.object({
   opportunityId: z.string().uuid("payload.opportunityId debe ser un UUID"),
   ownerId: z.string().uuid("payload.ownerId debe ser un UUID"),
 });
@@ -77,13 +79,18 @@ export function fechaDeVencimiento(ahora: Date, diasHastaVencer: number): Date {
 export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
   actionType: ACTION_CREATE_FOLLOW_UP,
   schema: configDeSeguimientoSchema,
+  // Solo opportunity.won (ítem 76). Colgada de opportunity.stale crearía la
+  // misma tarea todos los días: esta acción no deja la marca anti-redraft
+  // (Opportunity.lastStaleFollowUpDraftedAt), así que el worker de
+  // oportunidades estancadas volvería a emitir el evento en cada pasada.
+  triggers: [TRIGGER_OPPORTUNITY_WON],
   async handler({ organizationId, config, payload }) {
     // El dispatcher ya validó `config` contra el schema de arriba; se vuelve a
     // parsear acá solo para recuperar el TIPO (config llega como
     // Record<string, unknown>), no porque se desconfíe. Es un objeto de dos
     // campos: el costo es nulo y el handler queda autocontenido.
     const { subject, daysUntilDue, notes } = configDeSeguimientoSchema.parse(config);
-    const { opportunityId, ownerId } = payloadDeOportunidadGanadaSchema.parse(payload);
+    const { opportunityId, ownerId } = payloadDeOportunidadSchema.parse(payload);
 
     // Por createActivity() de activity.service.ts y no por el repositorio: sus
     // validaciones (el assignee existe, está activo y es de la organización;

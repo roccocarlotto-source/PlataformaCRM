@@ -31,6 +31,8 @@ Incluye:
 - **Resea / envío de QR** — bloqueado por `DEC-069` (no confirmada) y por el endpoint de review-link del lado de Resea.
 - **"Iniciar acción de IA"** (una automatización que dispare un turno del agente de IA) — no diseñado; cuando se aborde será una acción más del catálogo, pero la pregunta de qué significa "iniciar" una conversación sin un mensaje entrante del contacto no está resuelta.
 
+> **Actualización (ítem 76 de `docs/frontend-cambios-pendientes.md`).** El caso concreto de "una automatización que ponga a trabajar a la IA" se resolvió **sin tocar** esa pregunta: el trigger `opportunity.stale` (producido por un barrido diario, `src/workers/opportunityStaleWorker.ts`, no por un service de negocio) dispara la acción `agent.draft_follow_up`, que le pide al modelo un **borrador** de seguimiento y lo deja como una `Activity` para el dueño de la oportunidad. **El agente nunca le escribe al cliente**, así que no se inicia ninguna conversación. Trajo también `Automation.triggerConfig` (la config del trigger, validada con un schema zod por trigger, como `actionConfig`), la compatibilidad acción/trigger declarada por cada acción, y una regla activa de `opportunity.stale` por organización. La pregunta de qué significa "iniciar" una conversación sigue abierta para cuando haga falta de verdad.
+
 ## 3. Modelo de datos
 
 Dos entidades nuevas, bajo el mismo patrón de aislamiento multi-tenant que el resto del schema (`organizationId` en las dos, FK compuesta entre ellas):

@@ -7,6 +7,7 @@ import {
 } from "../repositories/automation.repository";
 import { describirError } from "../utils/backoff";
 import {
+  accionAdmiteTrigger,
   registroDeAcciones as registroPorDefecto,
   type RegistroDeAcciones,
 } from "./automationActions";
@@ -84,6 +85,17 @@ async function ejecutarAutomatizacion(
   if (!accion) {
     throw new Error(
       `no hay acción registrada para "${automation.actionType}" (acciones disponibles: ${registro.tiposRegistrados().join(", ") || "ninguna"})`,
+    );
+  }
+
+  // Misma defensa en profundidad que el schema de abajo, para la
+  // compatibilidad acción/trigger (ítem 76): el CRUD ya la exigió al guardar,
+  // pero una acción puede restringir sus triggers después de que la regla
+  // existe. Fallar acá es lo que evita, por ejemplo, un seguimiento diario
+  // infinito de activity.create_follow_up colgada de opportunity.stale.
+  if (!accionAdmiteTrigger(accion, automation.triggerType)) {
+    throw new Error(
+      `la acción "${automation.actionType}" no se puede usar con el trigger "${automation.triggerType}"`,
     );
   }
 
