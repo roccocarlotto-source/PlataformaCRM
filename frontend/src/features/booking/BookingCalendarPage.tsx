@@ -112,7 +112,14 @@ export function BookingCalendarPage() {
     const scroll = scrollRef.current;
     const marca = scroll?.querySelector<HTMLElement>(`[data-hora="${HORA_INICIAL_DEL_SCROLL}"]`);
     const encabezado = scroll?.querySelector<HTMLElement>(".ds-calendar-header");
-    if (scroll && marca) scroll.scrollTop = marca.offsetTop - (encabezado?.offsetHeight ?? 0);
+    const cuerpo = scroll?.querySelector<HTMLElement>(".ds-calendar-body");
+    // Se descuenta también el padding-top del cuerpo: es el lugar que la
+    // etiqueta de la hora usa arriba de su línea, y sin él quedaría medio
+    // tapada por el encabezado sticky (ítem 78).
+    const margen = cuerpo ? parseFloat(getComputedStyle(cuerpo).paddingTop) || 0 : 0;
+    if (scroll && marca) {
+      scroll.scrollTop = marca.offsetTop - (encabezado?.offsetHeight ?? 0) - margen;
+    }
   }, [branchId, recursos.length]);
 
   return (

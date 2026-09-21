@@ -4632,3 +4632,41 @@ Sin migración y sin dependencias nuevas.
 `npm run typecheck`, `npm run lint`, `prettier --check` y `npm run build` limpios en backend y frontend.
 
 **Revisión visual** con un harness HTML estático sobre los CSS reales (el magic link local sigue sin poder usarse desde acá): columnas, encabezado fijo, abierto / cerrado / rayado, bloques y carriles se ven bien; ahí apareció y se corrigió que el scroll inicial caía en las 10:00 en vez de las 07:00 (`.ds-calendar` pasó a ser el `offsetParent`). **No se probó contra el stack corriendo con un usuario real.**
+
+---
+
+## 78. Calendario de la Agenda: la etiqueta "00:00" quedaba cortada arriba
+
+**Estado:** hecho
+
+**Qué pasaba.** Al scrollear el calendario del §77 hasta arriba del todo, la etiqueta "00:00" se veía recortada. `.ds-calendar-hour` sube cada etiqueta con `transform: translateY(-0.5em)` para que quede sobre la línea de su hora y no centrada en su renglón de media hora; en la primera fila no hay nada arriba de la línea, así que la mitad superior del texto caía encima del borde del cuerpo.
+
+**Causa precisa** (medida, no supuesta): lo que la tapaba no era el `overflow: auto` de `.ds-calendar` sino el **encabezado sticky** (`z-index: 4`, fondo opaco), que en el flujo va justo encima del cuerpo. Con el scroll arriba del todo, el texto de "00:00" arrancaba 4px por encima del borde inferior del encabezado. **El mismo recorte le pasaba a la etiqueta de las 07:00 en el scroll inicial**, porque el efecto dejaba esa fila pegada al encabezado.
+
+### El arreglo
+
+- Un número nuevo, `--ds-calendar-hour-lift` (media altura de `--font-size-xs`), en `.ds-calendar`: es lo que sube cada etiqueta (el `translateY` ahora lo usa) y es también el **`padding-top` de `.ds-calendar-body`**. Como el cuerpo es el grid padre del gutter **y** de las columnas, el corrimiento es uniforme: las etiquetas, las líneas y las reservas posicionadas con `top: calc(var(--ds-calendar-row) * n)` (`enRenglones()`) se mueven juntas.
+- La **línea de las 00:00** antes la ponía el borde inferior del encabezado; con el padding de por medio la dibuja `.ds-calendar-column::before` (absoluto, 1px, `pointer-events: none`), sin ocupar alto, para no correr los renglones.
+- El **scroll inicial** descuenta también ese `padding-top` (leído con `getComputedStyle`, así que el número vive solo en el CSS), y la fila de las 07:00 queda con el mismo aire que la de las 00:00 arriba del todo.
+
+Se descartó sacar el `transform` y alinear con flexbox/`line-height`: la etiqueta tiene que quedar **sobre la línea**, entre dos renglones, y eso exige salirse de la caja de su renglón de alguna forma; sin espacio arriba de la primera línea, la de las 00:00 quedaría igual tapada.
+
+### Verificación visual
+
+Harness HTML estático con los CSS reales (antes: `design-system.css` de `HEAD`; después: el del arreglo), dos columnas, reservas de 00:00–01:00, 01:30–02:00 y 09:00–10:00, medido con `getBoundingClientRect` y screenshot:
+
+| | Borde del encabezado | Tope del texto "00:00" | Centro del texto − su línea (00:00 / 01:00 / 09:00) | Tope de reserva − su línea (00:00 / 09:00) |
+|---|---|---|---|---|
+| Antes | 70.5 | **66.5** (tapado) | 3 / 3.5 / 3.5 | 0 / 0.5 |
+| Después | 70.5 | **72.5** (completo) | 3 / 3.5 / 3.5 | 0 / 0.5 |
+
+La relación etiqueta↔línea y reserva↔línea es **idéntica** antes y después; solo cambia que todo el cuerpo arranca 6px más abajo. Scroll inicial a las 07:00: el texto pasó de 66.5 a 72.5 con el encabezado en 70.5. **No se probó contra el stack corriendo con un usuario real.**
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `frontend/src/design-system/design-system.css` | `--ds-calendar-hour-lift`, `padding-top` de `.ds-calendar-body`, `translateY` con la variable y `.ds-calendar-column::before` |
+| `frontend/src/features/booking/BookingCalendarPage.tsx` | El scroll inicial descuenta el `padding-top` del cuerpo |
+
+Sin tests nuevos: jsdom no hace layout (ni `padding` computado desde el CSS ni `offsetTop`), así que un test de esto no probaría nada; la verificación es la medición de arriba. `BookingCalendarPage.test.tsx` y `calendar.test.ts` siguen en verde (20/20 en `features/booking`), con `typecheck` y `lint` limpios.
