@@ -136,6 +136,8 @@ describe("BranchFormPage — creación", () => {
       name: "Casa Central",
       timezone: "America/Montevideo",
       defaultOwnerId: null,
+      paymentLinkUrl: null,
+      bankTransferDetails: null,
     });
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
   });
@@ -165,6 +167,8 @@ describe("BranchFormPage — creación", () => {
       name: "Sucursal Santiago",
       timezone: "America/Santiago",
       defaultOwnerId: null,
+      paymentLinkUrl: null,
+      bankTransferDetails: null,
     });
   });
 
@@ -227,6 +231,8 @@ describe("BranchFormPage — edición", () => {
       name: "Casa Matriz",
       timezone: "America/Santiago",
       defaultOwnerId: null,
+      paymentLinkUrl: null,
+      bankTransferDetails: null,
     });
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
   });
@@ -435,6 +441,8 @@ describe("BranchFormPage — vendedor por defecto", () => {
       name: "Casa Central",
       timezone: "America/Montevideo",
       defaultOwnerId: "u2",
+      paymentLinkUrl: null,
+      bankTransferDetails: null,
     });
   });
 
@@ -493,6 +501,167 @@ describe("BranchFormPage — vendedor por defecto", () => {
 
     await waitFor(() => expect(body).toBeDefined());
     expect((body as { defaultOwnerId: string | null }).defaultOwnerId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 74 — datos de cobro (link de pago / transferencia)
+// ---------------------------------------------------------------------------
+describe("BranchFormPage — cobro", () => {
+  const LINK = "https://mpago.la/2abc3de";
+  const TRANSFERENCIA = "Banco República\nCuenta 001234567-00001";
+
+  it("los dos campos aparecen vacíos, sin asterisco, y guardar sin tocarlos manda las dos claves en null", async () => {
+    let body: unknown;
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/new");
+
+    const link = screen.getByLabelText("Link de pago");
+    const transferencia = screen.getByLabelText("Datos para transferencia");
+    expect(link).toHaveValue("");
+    expect(transferencia).toHaveValue("");
+    expect(link).not.toBeRequired();
+    expect(transferencia).not.toBeRequired();
+    expect(screen.getByText("Link de pago")).not.toHaveClass("ds-required");
+
+    await user.type(screen.getByLabelText("Nombre"), "Casa Central");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body).toMatchObject({ paymentLinkUrl: null, bankTransferDetails: null });
+  });
+
+  it("cargar los dos los hace viajar en el POST, recortados", async () => {
+    let body: unknown;
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Casa Central");
+    await user.type(screen.getByLabelText("Link de pago"), `  ${LINK}  `);
+    await user.type(screen.getByLabelText("Datos para transferencia"), "  Alias: casa.central  ");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body).toEqual({
+      name: "Casa Central",
+      timezone: "America/Montevideo",
+      defaultOwnerId: null,
+      paymentLinkUrl: LINK,
+      bankTransferDetails: "Alias: casa.central",
+    });
+  });
+
+  it("son independientes: solo los datos de transferencia manda el link en null", async () => {
+    let body: unknown;
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Casa Central");
+    await user.type(screen.getByLabelText("Datos para transferencia"), "Alias: casa.central");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body).toMatchObject({
+      paymentLinkUrl: null,
+      bankTransferDetails: "Alias: casa.central",
+    });
+  });
+
+  it("en edición hidrata los dos y los conserva en el PATCH", async () => {
+    let body: unknown;
+    server.use(
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(
+          makeBranch({ id: "b1", paymentLinkUrl: LINK, bankTransferDetails: TRANSFERENCIA }),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch({ id: "b1" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/b1/edit");
+
+    await waitFor(() => expect(screen.getByLabelText("Link de pago")).toHaveValue(LINK));
+    expect(screen.getByLabelText("Datos para transferencia")).toHaveValue(TRANSFERENCIA);
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    // Los saltos de línea del texto libre viajan tal cual.
+    expect(body).toMatchObject({ paymentLinkUrl: LINK, bankTransferDetails: TRANSFERENCIA });
+  });
+
+  it("vaciar los dos en una edición manda null — es como se sacan de la sucursal", async () => {
+    let body: unknown;
+    server.use(
+      http.get(`${baseUrl}/:id`, () =>
+        HttpResponse.json(
+          makeBranch({ id: "b1", paymentLinkUrl: LINK, bankTransferDetails: TRANSFERENCIA }),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(makeBranch({ id: "b1" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/b1/edit");
+
+    await waitFor(() => expect(screen.getByLabelText("Link de pago")).toHaveValue(LINK));
+    await user.clear(screen.getByLabelText("Link de pago"));
+    // Solo espacios cuenta como vacío.
+    await user.clear(screen.getByLabelText("Datos para transferencia"));
+    await user.type(screen.getByLabelText("Datos para transferencia"), "   ");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body).toMatchObject({ paymentLinkUrl: null, bankTransferDetails: null });
+  });
+
+  it("un link rechazado por el backend se muestra sin perder lo cargado", async () => {
+    server.use(
+      http.post(baseUrl, () =>
+        HttpResponse.json(
+          { error: { message: "paymentLinkUrl tiene que empezar con http:// o https://" } },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/branches/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Casa Central");
+    await user.type(screen.getByLabelText("Link de pago"), "https://ok.example");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/paymentLinkUrl/);
+    expect(screen.getByLabelText("Link de pago")).toHaveValue("https://ok.example");
   });
 });
 

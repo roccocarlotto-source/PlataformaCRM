@@ -13,6 +13,10 @@ export interface Branch {
   // es el estado de todas las sucursales anteriores a ese ítem y un estado
   // perfectamente válido.
   defaultOwnerId: string | null;
+  // Datos de cobro (ítem 74) que el agente comparte con get_payment_info.
+  // Independientes: cada uno en `null` = no configurado.
+  paymentLinkUrl: string | null;
+  bankTransferDetails: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -57,6 +61,13 @@ export interface CreateBranchInput {
   // por defecto", y el formulario manda siempre la clave, con null cuando no se
   // eligió a nadie — igual que manda siempre name y timezone.
   defaultOwnerId?: string | null;
+  // Datos de cobro (ítem 74), opcionales y nullable en el borde igual que
+  // defaultOwnerId. El formulario manda siempre las dos claves, con null
+  // cuando el campo quedó vacío: el backend rechaza el string vacío.
+  // paymentLinkUrl tiene que empezar con http(s):// (mismo criterio que
+  // destinationUrl del QR); bankTransferDetails es texto libre hasta 2000.
+  paymentLinkUrl?: string | null;
+  bankTransferDetails?: string | null;
 }
 
 // updateBranchSchema: los mismos campos, parciales, al menos uno. No hay

@@ -1,5 +1,6 @@
 import { LeadUrgency } from "@prisma/client";
 import { z } from "zod";
+import { findBranchById } from "../repositories/branch.repository";
 import { findContactById } from "../repositories/contact.repository";
 import { findOpportunityById } from "../repositories/opportunity.repository";
 import { findDefaultPipeline } from "../repositories/pipeline.repository";
@@ -595,6 +596,62 @@ const updateLeadTool: ToolDelAgente = {
 };
 
 // ---------------------------------------------------------------------------
+// get_payment_info (ítem 74)
+//
+// NO ES UNA PASARELA: no genera ningún cobro ni se entera de si alguien pagó.
+// Devuelve lo que la sucursal de la conversación tiene configurado —un link de
+// pago fijo y/o datos para transferencia— para que el agente lo comparta. Sin
+// parámetros: la sucursal sale del contexto, igual que en el resto de las
+// tools, y el modelo no puede pedir los datos de otra.
+//
+// SIN CONDICIÓN DE NEGOCIO y sin gate propio: no modifica nada, así que el
+// único permiso es el de siempre (que esté en Agent.enabledTools).
+//
+// CUÁNDO COMPARTIR EL DETALLE es criterio conversacional, no un candado, y por
+// eso vive en la DESCRIPCIÓN (lo que lee el modelo) y no en código — mismo
+// criterio que el ítem 72: puedeEjecutarTool() hace cumplir tres cosas
+// puntuales y todo lo demás es prompt. Ante "¿qué métodos de pago aceptan?" el
+// agente contesta con los nombres de los métodos; el link y los datos de la
+// cuenta van cuando el cliente concretamente quiere pagar.
+//
+// SIN NADA CONFIGURADO igual devuelve el objeto, con los dos flags en false:
+// que el modelo vea que no hay medio de pago cargado y lo diga, en vez de
+// inventar uno.
+// ---------------------------------------------------------------------------
+
+export const NOMBRE_TOOL_PAGO = "get_payment_info";
+
+const getPaymentInfoTool: ToolDelAgente = {
+  definition: {
+    name: NOMBRE_TOOL_PAGO,
+    description:
+      "Devuelve el link de pago y/o los datos para transferencia bancaria configurados por la sucursal. Usala cuando el cliente concretamente quiere pagar o señar, o pide el link de pago o los datos de la cuenta (CBU, alias, número de cuenta). Si solo pregunta en general qué métodos de pago aceptan, respondé con los nombres de los métodos disponibles (transferencia bancaria / link de pago) sin compartir todavía el link ni los datos de la cuenta; si ya la llamaste antes en la conversación, no hace falta volver a llamarla para eso. Si no hay ningún medio de pago configurado, decíselo al cliente: no inventes uno.",
+    parameters: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
+
+  async ejecutar(_args, contexto) {
+    const branch = await findBranchById(contexto.conversation.branchId, contexto.organizationId);
+    // La sucursal de una conversación viva no debería desaparecer (deleteBranch
+    // no mira conversaciones, pero es soft delete y el agente también es de
+    // ella). Si pasa, es "no hay nada configurado" para el modelo, no un bug
+    // que tumbe el turno.
+    const paymentLinkUrl = branch?.paymentLinkUrl ?? null;
+    const bankTransferDetails = branch?.bankTransferDetails ?? null;
+
+    return exito({
+      hasPaymentLink: paymentLinkUrl !== null,
+      paymentLinkUrl,
+      hasBankTransfer: bankTransferDetails !== null,
+      bankTransferDetails,
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
 // El catálogo
 // ---------------------------------------------------------------------------
 
@@ -606,6 +663,7 @@ export const CATALOGO_DE_TOOLS: ReadonlyMap<string, ToolDelAgente> = new Map(
     createBookingTool,
     createLeadTool,
     updateLeadTool,
+    getPaymentInfoTool,
   ].map((tool) => [tool.definition.name, tool]),
 );
 

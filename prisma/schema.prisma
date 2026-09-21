@@ -1468,6 +1468,27 @@ model Branch {
   // src/services/ownership.service.ts.
   defaultOwnerId String? @map("default_owner_id") @db.Uuid
 
+  // Datos de cobro de la sucursal (ítem 74 de docs/frontend-cambios-pendientes.md):
+  // lo que el agente de IA comparte con get_payment_info cuando el cliente
+  // quiere pagar. NO hay pasarela integrada —create_payment_link() del catálogo
+  // de agentes nunca se construyó, y se descartó por ahora—: son datos que el
+  // negocio ya generó a mano en su proveedor y los carga acá como configuración.
+  //
+  // INDEPENDIENTES Y OPCIONALES: una sucursal puede cargar el link, los datos
+  // de transferencia, los dos, o ninguno. NULL en cualquiera de las dos es "no
+  // configurado", un estado válido — mismo criterio que defaultOwnerId: sin
+  // default, sin backfill, sin aviso en ninguna pantalla.
+  //
+  // paymentLinkUrl: un link de pago FIJO (MercadoPago u otro), http(s)://, con
+  // el mismo tope de 2048 que QrCode.destinationUrl.
+  //
+  // bankTransferDetails: TEXTO LIBRE a propósito. CBU/alias/IBAN/titular/banco
+  // varían demasiado entre países y bancos para modelarlos como columnas
+  // separadas — mismo criterio que Vehicle.publicDescription. El API le pone un
+  // tope de 2000 caracteres (branch.controller.ts); la columna es Text.
+  paymentLinkUrl      String? @map("payment_link_url") @db.VarChar(2048)
+  bankTransferDetails String? @map("bank_transfer_details") @db.Text
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")

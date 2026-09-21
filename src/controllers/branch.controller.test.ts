@@ -75,3 +75,76 @@ test("update: un defaultOwnerId mal formado es 400 aunque el resto del body est�
     false,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Datos de cobro (ítem 74): paymentLinkUrl y bankTransferDetails, opcionales,
+// nullable e independientes entre sí.
+// ---------------------------------------------------------------------------
+
+const LINK = "https://mpago.la/2abc3de";
+
+test("create: sin datos de cobro las claves no aparecen — no configurado es el estado por defecto", () => {
+  const parsed = createBranchSchema.parse(valido);
+  assert.equal("paymentLinkUrl" in parsed, false);
+  assert.equal("bankTransferDetails" in parsed, false);
+});
+
+test("create: acepta el link solo, los datos solos, los dos, o los dos en null", () => {
+  assert.equal(createBranchSchema.parse({ ...valido, paymentLinkUrl: LINK }).paymentLinkUrl, LINK);
+  assert.equal(
+    createBranchSchema.parse({ ...valido, bankTransferDetails: "Alias: casa.central" })
+      .bankTransferDetails,
+    "Alias: casa.central",
+  );
+  const ambos = createBranchSchema.parse({
+    ...valido,
+    paymentLinkUrl: LINK,
+    bankTransferDetails: "CBU 0000003100010000000001",
+  });
+  assert.equal(ambos.paymentLinkUrl, LINK);
+  assert.equal(ambos.bankTransferDetails, "CBU 0000003100010000000001");
+  const nulos = createBranchSchema.parse({
+    ...valido,
+    paymentLinkUrl: null,
+    bankTransferDetails: null,
+  });
+  assert.equal(nulos.paymentLinkUrl, null);
+  assert.equal(nulos.bankTransferDetails, null);
+});
+
+test("paymentLinkUrl sin http(s):// es 400, con el nombre del campo — mismo criterio que destinationUrl", () => {
+  for (const paymentLinkUrl of ["mpago.la/2abc3de", "ftp://x.com", "javascript:alert(1)", ""]) {
+    const result = updateBranchSchema.safeParse({ paymentLinkUrl });
+    assert.equal(result.success, false, `paymentLinkUrl ${JSON.stringify(paymentLinkUrl)}`);
+    assert.match(result.error!.issues[0].message, /paymentLinkUrl/);
+  }
+  // http y mayúsculas también valen, igual que el regex de qr.controller.ts.
+  assert.equal(updateBranchSchema.safeParse({ paymentLinkUrl: "HTTP://x.com" }).success, true);
+});
+
+test("paymentLinkUrl: se trimea y respeta el tope de 2048", () => {
+  assert.equal(updateBranchSchema.parse({ paymentLinkUrl: `  ${LINK}  ` }).paymentLinkUrl, LINK);
+  const largo = "https://x.com/" + "a".repeat(2048);
+  assert.equal(updateBranchSchema.safeParse({ paymentLinkUrl: largo }).success, false);
+});
+
+test("bankTransferDetails: se trimea, tope de 2000, y solo espacios es 400 (vacío se manda como null)", () => {
+  assert.equal(
+    updateBranchSchema.parse({ bankTransferDetails: "  Alias: x  " }).bankTransferDetails,
+    "Alias: x",
+  );
+  assert.equal(
+    updateBranchSchema.safeParse({ bankTransferDetails: "a".repeat(2000) }).success,
+    true,
+  );
+  assert.equal(
+    updateBranchSchema.safeParse({ bankTransferDetails: "a".repeat(2001) }).success,
+    false,
+  );
+  assert.equal(updateBranchSchema.safeParse({ bankTransferDetails: "   " }).success, false);
+});
+
+test("update: null en los dos llega al service como clave presente — es como se vacían", () => {
+  const parsed = updateBranchSchema.parse({ paymentLinkUrl: null, bankTransferDetails: null });
+  assert.deepEqual(parsed, { paymentLinkUrl: null, bankTransferDetails: null });
+});
