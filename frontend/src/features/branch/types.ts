@@ -74,3 +74,34 @@ export interface CreateBranchInput {
 // campos inmutables (a diferencia de `type` en Source), así que acá sí es un
 // Partial del create.
 export type UpdateBranchInput = Partial<CreateBranchInput>;
+
+// ---------------------------------------------------------------------------
+// Conexión de la sucursal con Google Calendar (ítem 75) — CAMPOS_PUBLICOS de
+// src/repositories/googleCalendarConnection.repository.ts. Nunca trae el
+// refresh token: el backend lo excluye con un `select`.
+// ---------------------------------------------------------------------------
+
+// ACTIVE: conectada y utilizable. REVOKED: la desconectó un ADMIN (la fila
+// queda, sin token). ERROR: Google rechazó el grant; lastErrorMessage dice por
+// qué.
+export type GoogleCalendarConnectionStatus = "ACTIVE" | "REVOKED" | "ERROR";
+
+export interface GoogleCalendarConnection {
+  id: string;
+  organizationId: string;
+  branchId: string;
+  calendarId: string;
+  status: GoogleCalendarConnectionStatus;
+  lastErrorAt: string | null;
+  lastErrorMessage: string | null;
+  connectedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// La respuesta de POST /branches/:branchId/google-calendar/connect: la URL de
+// autorización de Google, en el cuerpo y no como un 302 (ver iniciarConexion
+// en el backend: un redirect no llevaría el header Authorization).
+export interface GoogleCalendarAuthorization {
+  authorizationUrl: string;
+}

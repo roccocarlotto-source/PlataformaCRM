@@ -1,10 +1,12 @@
-import { request } from "../../lib/api";
+import { ApiError, request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type {
   Branch,
   BranchListQuery,
   BranchListResponse,
   CreateBranchInput,
+  GoogleCalendarAuthorization,
+  GoogleCalendarConnection,
   UpdateBranchInput,
 } from "./types";
 
@@ -58,6 +60,49 @@ export function updateBranch(id: string, input: UpdateBranchInput): Promise<Bran
 // rechazo con el mensaje del backend, que la pantalla muestra tal cual.
 export function deleteBranch(id: string): Promise<void> {
   return request<void>(`/branches/${id}`, {
+    method: "DELETE",
+    getAccessToken,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Google Calendar de la sucursal (ítem 75).
+// ---------------------------------------------------------------------------
+
+// null = la sucursal nunca se conectó. El backend lo dice con un 404 ("Esta
+// sucursal no tiene Google Calendar conectado"), que acá es un estado normal
+// de la pantalla y no un error: se traduce a null para que la sección muestre
+// "Conectar" en vez de un ErrorState. Cualquier otro error sigue siendo error.
+export async function getGoogleCalendarConnection(
+  branchId: string,
+  signal?: AbortSignal,
+): Promise<GoogleCalendarConnection | null> {
+  try {
+    return await request<GoogleCalendarConnection>(`/branches/${branchId}/google-calendar`, {
+      getAccessToken,
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+// Firma el state y devuelve la URL de autorización de Google. POST y bajo
+// /connect: es una escritura aunque parezca una lectura (el state firmado
+// habilita a escribir en el callback), ver googleCalendarConnection.routes.ts.
+export function startGoogleCalendarConnection(
+  branchId: string,
+): Promise<GoogleCalendarAuthorization> {
+  return request<GoogleCalendarAuthorization>(`/branches/${branchId}/google-calendar/connect`, {
+    method: "POST",
+    getAccessToken,
+  });
+}
+
+// 204 sin body. Revoca contra Google (best-effort) y deja la fila en REVOKED.
+export function disconnectGoogleCalendar(branchId: string): Promise<void> {
+  return request<void>(`/branches/${branchId}/google-calendar`, {
     method: "DELETE",
     getAccessToken,
   });

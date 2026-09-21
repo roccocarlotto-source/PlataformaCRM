@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
+import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import {
   completarConexion,
@@ -10,6 +11,7 @@ import {
 import type { AuthenticatedRequest } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
+import { verificarState } from "../utils/oauthState";
 import { parseOrThrow } from "../utils/validation";
 
 const branchIdParamSchema = z.string().uuid("branchId inválido");
@@ -55,12 +57,78 @@ export const desconectarHandler = asyncHandler<AuthenticatedRequest>(async (req,
 // además Google puede sumar parámetros a esta redirección (scope, authuser,
 // prompt) sin avisar, así que nada de acá puede ser exhaustivo.
 //
-// LA RESPUESTA ES text/plain, y es la decisión más simple disponible: la carpeta
-// frontend/ está vacía (es P3), así que NO HAY A DÓNDE REDIRIGIR. Del otro lado
-// de este request hay un navegador con una persona mirando, no un cliente de
-// API — por eso texto legible y no JSON. El día que exista el frontend, esto
-// pasa a ser un 302 a una pantalla suya y el contrato de arriba no cambia.
+// LA RESPUESTA ES UN 302 AL FRONTEND (ítem 75 de
+// docs/frontend-cambios-pendientes.md). Cuando esto se escribió la carpeta
+// frontend/ estaba vacía y no había a dónde redirigir, así que respondía
+// text/plain; desde que existe la sección "Google Calendar" en el formulario
+// de la sucursal, el navegador vuelve ahí con ?calendarConnected=true o con
+// ?calendarError=<mensaje>. El origen es el primero de CORS_ORIGIN — la misma
+// variable que ya dice dónde vive el frontend propio.
+//
+// El text/plain de antes SIGUE como fallback, para el caso en que no hay un
+// origen utilizable (CORS_ORIGIN vacío o que no es una URL http/https): del
+// otro lado hay una persona en un navegador, y un 302 a ninguna parte sería
+// peor que un texto legible.
 // ---------------------------------------------------------------------------
+
+// Tope del mensaje que viaja en la URL. Los mensajes del service son de una
+// línea; el tope es para el que arma con el `error` de Google ("Google rechazó
+// la autorización (...)"), que sale de la query string y podría ser cualquier
+// cosa.
+const MAX_MENSAJE_EN_URL = 200;
+
+export interface VueltaDelCallback {
+  // Solo si salió de un state VERIFICADO. Sin él se vuelve al listado.
+  branchId?: string;
+  // Presente = la conexión falló, con este mensaje para la persona.
+  error?: string;
+}
+
+// La URL del frontend a la que vuelve el navegador, o undefined si no hay un
+// origen utilizable (y entonces el handler responde el text/plain de siempre).
+// Pura y exportada para poder probarla sin HTTP ni base.
+export function urlDeVueltaAlFrontend(
+  corsOrigin: string | undefined,
+  vuelta: VueltaDelCallback,
+): string | undefined {
+  const primero = (corsOrigin ?? "").split(",")[0].trim();
+  if (!primero) return undefined;
+
+  let origen: URL;
+  try {
+    origen = new URL(primero);
+  } catch {
+    return undefined;
+  }
+  if (origen.protocol !== "http:" && origen.protocol !== "https:") return undefined;
+
+  // /branches/:id/edit es la ruta real del formulario (frontend/src/app/
+  // router.tsx). Sin sucursal verificada, el listado.
+  const destino = new URL(
+    vuelta.branchId ? `/branches/${encodeURIComponent(vuelta.branchId)}/edit` : "/branches",
+    origen.origin,
+  );
+  if (vuelta.error !== undefined) {
+    destino.searchParams.set("calendarError", vuelta.error.slice(0, MAX_MENSAJE_EN_URL));
+  } else {
+    destino.searchParams.set("calendarConnected", "true");
+  }
+  return destino.toString();
+}
+
+// La sucursal del flujo en el camino de ERROR, para volver a su formulario y no
+// al listado. Solo sale de un state con firma válida —nunca de algo suelto en
+// la query—, igual que en completarConexion. El state es un JWT sin nonce
+// (utils/oauthState.ts), así que verificarlo de nuevo acá no consume nada. Si
+// no verifica (falta, manipulado, vencido), undefined y se vuelve al listado.
+async function branchIdVerificado(state: string | undefined): Promise<string | undefined> {
+  if (!state) return undefined;
+  try {
+    return (await verificarState(state)).branchId;
+  } catch {
+    return undefined;
+  }
+}
 
 const queryDeCallbackSchema = z.object({
   state: z.string().optional(),
@@ -73,6 +141,12 @@ export const callbackHandler = asyncHandler<Request>(async (req, res: Response) 
 
   try {
     const conexion = await completarConexion(query);
+
+    const destino = urlDeVueltaAlFrontend(env.CORS_ORIGIN, { branchId: conexion.branchId });
+    if (destino) {
+      res.redirect(302, destino);
+      return;
+    }
 
     res
       .status(200)
@@ -110,6 +184,15 @@ export const callbackHandler = asyncHandler<Request>(async (req, res: Response) 
     // el finalhandler de Express respondería con SU formato, no con este
     // texto para personas — el motivo de resolverlo acá sigue en pie.
     logger.error({ err, path: req.originalUrl }, "Falló el callback de Google Calendar");
+
+    const destino = urlDeVueltaAlFrontend(env.CORS_ORIGIN, {
+      branchId: await branchIdVerificado(query.state),
+      error: mensaje,
+    });
+    if (destino) {
+      res.redirect(302, destino);
+      return;
+    }
 
     res
       .status(status)

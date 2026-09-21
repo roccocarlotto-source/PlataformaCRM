@@ -6,8 +6,10 @@ import {
   Bot,
   Building,
   Building2,
+  CalendarDays,
   Car,
   CheckSquare,
+  Clock,
   Coins,
   Columns3,
   Database,
@@ -18,6 +20,7 @@ import {
   MapPin,
   MessagesSquare,
   QrCode,
+  Shapes,
   Target,
   UserCog,
   UserRound,
@@ -160,6 +163,27 @@ export function AppLayout() {
             <SidebarLink to="/tasks" icon={CheckSquare}>
               Mis tareas
             </SidebarLink>
+          </div>
+          {/* Agenda (ítem 75): el módulo de reservas, que estaba completo en el
+              backend sin ninguna pantalla. Reservas para ambos roles —GET y
+              cancelar son `authenticate` a secas—; Recursos y Tipos de
+              servicio solo ADMIN, como Sucursales: son configuración, y sus
+              rutas viven dentro del AdminRoute. */}
+          <div className="ds-sidebar-group">
+            <span className="ds-sidebar-group-label">Agenda</span>
+            <SidebarLink to="/bookings" icon={CalendarDays}>
+              Reservas
+            </SidebarLink>
+            {isAdmin ? (
+              <>
+                <SidebarLink to="/resources" icon={Shapes}>
+                  Recursos
+                </SidebarLink>
+                <SidebarLink to="/service-types" icon={Clock}>
+                  Tipos de servicio
+                </SidebarLink>
+              </>
+            ) : null}
           </div>
           <div className="ds-sidebar-group">
             <span className="ds-sidebar-group-label">QR</span>
