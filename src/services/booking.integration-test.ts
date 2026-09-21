@@ -1983,3 +1983,137 @@ test("COMPLETED y NO_SHOW son historia y tampoco bloquean el borrado", async () 
     await desmontar(escenario);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 77 — reserva FORZADA por un ADMIN desde el calendario del CRM. `force`
+// saltea el horario de trabajo y la grilla, y NADA más: el pasado (V-2) y la
+// capacidad siguen valiendo. Y un no-ADMIN que lo pide recibe 403, no un
+// `force` ignorado en silencio.
+// ---------------------------------------------------------------------------
+
+test("ítem 77: un USER que manda force: true recibe 403 y no deja ninguna fila", async () => {
+  const escenario = await montar("forzar-user");
+  try {
+    // Martes: fuera del horario. Con force de un USER no se evalúa ni eso.
+    const pedido = {
+      resourceId: escenario.resourceId,
+      serviceTypeId: escenario.serviceTypeId,
+      contactId: escenario.contactId,
+      startsAt: new Date("2026-09-08T12:00:00Z"),
+      force: true,
+    };
+
+    assertAppError(
+      await capturar(() =>
+        createBooking(escenario.organizationId, pedido, doblarGoogle().cliente, { role: "USER" }),
+      ),
+      403,
+    );
+    // Sin actor (el camino de la tool del agente) tampoco se puede forzar.
+    assertAppError(
+      await capturar(() => createBooking(escenario.organizationId, pedido, doblarGoogle().cliente)),
+      403,
+    );
+    assert.equal(
+      await prisma.booking.count({ where: { organizationId: escenario.organizationId } }),
+      0,
+    );
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("ítem 77: un ADMIN con force: true reserva FUERA del horario y FUERA de la grilla", async () => {
+  const escenario = await montar("forzar-admin", { durationMin: 30 });
+  try {
+    // Martes 8/9 a las 18:07 local (21:07Z): día sin franja y desalineado.
+    const pedido = {
+      resourceId: escenario.resourceId,
+      serviceTypeId: escenario.serviceTypeId,
+      contactId: escenario.contactId,
+      startsAt: new Date("2026-09-08T21:07:00Z"),
+    };
+
+    // Control: sin force, el mismo pedido del mismo ADMIN se rechaza.
+    assertAppError(
+      await capturar(() =>
+        createBooking(escenario.organizationId, pedido, doblarGoogle().cliente, { role: "ADMIN" }),
+      ),
+      400,
+    );
+
+    const booking = await createBooking(
+      escenario.organizationId,
+      { ...pedido, force: true },
+      doblarGoogle().cliente,
+      { role: "ADMIN" },
+    );
+    assert.equal(booking.status, "CONFIRMED");
+    assert.equal(booking.startsAt.toISOString(), "2026-09-08T21:07:00.000Z");
+    assert.equal(booking.endsAt.toISOString(), "2026-09-08T21:37:00.000Z");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("ítem 77: force: true con el cupo ya lleno sigue rechazando con 409", async () => {
+  const escenario = await montar("forzar-cupo");
+  try {
+    const pedido = {
+      resourceId: escenario.resourceId,
+      serviceTypeId: escenario.serviceTypeId,
+      contactId: escenario.contactId,
+      // Martes, fuera del horario: la primera entra solo porque se fuerza.
+      startsAt: new Date("2026-09-08T12:00:00Z"),
+      force: true,
+    };
+    await createBooking(escenario.organizationId, pedido, doblarGoogle().cliente, {
+      role: "ADMIN",
+    });
+
+    // Media hora después: se pisa con la anterior (servicio de 60, capacidad 1).
+    const err = await capturar(() =>
+      createBooking(
+        escenario.organizationId,
+        { ...pedido, startsAt: new Date("2026-09-08T12:30:00Z") },
+        doblarGoogle().cliente,
+        { role: "ADMIN" },
+      ),
+    );
+    assertAppError(err, 409);
+    assert.equal(
+      await prisma.booking.count({ where: { organizationId: escenario.organizationId } }),
+      1,
+    );
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("ítem 77: force: true con un horario en el PASADO sigue rechazando con 400", async () => {
+  const escenario = await montar("forzar-pasado");
+  try {
+    const err = await capturar(() =>
+      createBooking(
+        escenario.organizationId,
+        {
+          resourceId: escenario.resourceId,
+          serviceTypeId: escenario.serviceTypeId,
+          contactId: escenario.contactId,
+          startsAt: new Date("2026-08-31T12:00:00Z"),
+          force: true,
+        },
+        doblarGoogle().cliente,
+        { role: "ADMIN" },
+      ),
+    );
+    assertAppError(err, 400);
+    assert.equal((err as AppError).message, "El horario solicitado ya pasó");
+    assert.equal(
+      await prisma.booking.count({ where: { organizationId: escenario.organizationId } }),
+      0,
+    );
+  } finally {
+    await desmontar(escenario);
+  }
+});

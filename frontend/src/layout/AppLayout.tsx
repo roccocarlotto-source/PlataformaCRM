@@ -7,6 +7,7 @@ import {
   Building,
   Building2,
   CalendarDays,
+  CalendarRange,
   Car,
   CheckSquare,
   Clock,
@@ -166,13 +167,17 @@ export function AppLayout() {
           </div>
           {/* Agenda (ítem 75): el módulo de reservas, que estaba completo en el
               backend sin ninguna pantalla. Reservas para ambos roles —GET y
-              cancelar son `authenticate` a secas—; Recursos y Tipos de
+              cancelar son `authenticate` a secas—, y Calendario (ítem 77)
+              igual; Recursos y Tipos de
               servicio solo ADMIN, como Sucursales: son configuración, y sus
               rutas viven dentro del AdminRoute. */}
           <div className="ds-sidebar-group">
             <span className="ds-sidebar-group-label">Agenda</span>
             <SidebarLink to="/bookings" icon={CalendarDays}>
               Reservas
+            </SidebarLink>
+            <SidebarLink to="/agenda" icon={CalendarRange}>
+              Calendario
             </SidebarLink>
             {isAdmin ? (
               <>

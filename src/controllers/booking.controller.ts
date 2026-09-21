@@ -84,6 +84,9 @@ const createBookingSchema = z.object({
   contactId: z.string().uuid("contactId inválido"),
   opportunityId: z.string().uuid("opportunityId inválido").optional(),
   startsAt: instanteSchema,
+  // Ítem 77: solo ADMIN. El rol se verifica en el service contra req.auth (403
+  // si no es ADMIN), no acá ni en el frontend.
+  force: z.boolean().optional(),
 });
 
 const listQuerySchema = z.object({
@@ -108,7 +111,9 @@ const listQuerySchema = z.object({
 export const createBookingHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createBookingSchema, req.body);
-    const booking = await createBooking(req.auth.organizationId, input);
+    const booking = await createBooking(req.auth.organizationId, input, undefined, {
+      role: req.auth.role,
+    });
     res.status(201).json(booking);
   },
 );

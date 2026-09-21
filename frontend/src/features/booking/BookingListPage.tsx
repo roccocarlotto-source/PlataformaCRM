@@ -32,9 +32,9 @@ const PAGE_SIZE = 20;
 const SIN_RESOLVER = "—";
 
 // ---------------------------------------------------------------------------
-// Reservas de la Agenda (ítem 75): consulta y cancelación. SIN alta manual —
-// reservar es lo que hace el agente de IA; si algún día hace falta reservar a
-// mano desde el CRM es otro ítem, con su propio formulario de disponibilidad.
+// Reservas de la Agenda (ítem 75): consulta y cancelación. SIN alta manual
+// ACÁ — esta es la vista tabular e histórica; reservar a mano desde el CRM se
+// hace en el calendario (BookingCalendarPage, ítem 77), además del agente de IA.
 //
 // VISIBLE PARA AMBOS ROLES, fuera de AdminRoute: GET /api/bookings y
 // PATCH /api/bookings/:id/cancel son `authenticate` a secas

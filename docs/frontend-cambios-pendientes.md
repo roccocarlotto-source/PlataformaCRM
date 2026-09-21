@@ -4273,7 +4273,6 @@ Los de integración **los corrió el CI y no esta máquina**, y no es un atajo: 
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
 
-<<<<<<< HEAD
 ---
 
 ## 76. Automatización que dispara a la IA: borrador de seguimiento para oportunidades estancadas
@@ -4346,7 +4345,46 @@ En `AutomationFormPage.tsx`:
 - **El selector de acción ofrece solo las que admite el evento**, y cambiar de evento pasa a la primera acción compatible con su config vacía — en vez de dejar armada una combinación que el backend va a rechazar.
 - El `case` de `agent.draft_follow_up` no tiene campos: un texto que explica qué hace y que **el mensaje no se le manda a nadie**.
 - El body ahora lleva `triggerConfig` (`{}` para "Oportunidad ganada"). Un trigger que el espejo no conoce no lo manda, y el backend revalida el guardado.
-=======
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `prisma/schema.prisma` + `prisma/migrations/20260928140000_opportunity_stale_follow_up/` | `Opportunity.lastStaleFollowUpDraftedAt` y `Automation.triggerConfig`; sin índices, sin FK, no entra al diagnóstico |
+| `src/services/automationTriggers.ts` | `opportunity.stale`, `CONFIG_DE_TRIGGER`, `TRIGGERS_DE_REGLA_UNICA` |
+| `src/services/automationActions.ts` | `AccionRegistrada.triggers` + `accionAdmiteTrigger` |
+| `src/services/automationActions/draftFollowUpMessage.ts` | **Nuevo**: la acción `agent.draft_follow_up`, con dependencias inyectables |
+| `src/services/opportunityFollowUpDraft.service.ts` | **Nuevo**: contexto, prompt y `generarBorradorDeSeguimiento` |
+| `src/workers/opportunityStaleWorker.ts` + `src/server.ts` + `src/config/env.ts` + `.env.example` | **Nuevo** worker y su registro; `OPPORTUNITY_STALE_WORKER_ENABLED` / `_POLL_MS` |
+| `src/services/automation.service.ts` + `src/controllers/automation.controller.ts` + `src/repositories/automation.repository.ts` | `triggerConfig` en el CRUD, compatibilidad y regla única |
+| `src/services/automationDispatch.service.ts` | El rechazo de una combinación incompatible |
+| `src/repositories/opportunity.repository.ts` | `findStaleOpportunities`, `findOpportunityForFollowUpDraft`, `markStaleFollowUpDrafted` |
+| `src/repositories/conversation.repository.ts` | `findLatestConversationByContact` |
+| `src/services/automationActions/createFollowUpActivity.ts` / `src/services/conversationBrief.service.ts` | `triggers: [won]`; `payloadDeOportunidadSchema` y `limpiarRespuesta` exportados |
+| `frontend/src/features/automation/{catalog,types,AutomationFormPage}.ts(x)` | Trigger, acción, `CONFIG_DE_TRIGGER`, `ACCIONES_POR_TRIGGER` y `CamposDelTrigger` |
+
+**Producción necesita `migrate:deploy`** con `20260928140000_opportunity_stale_follow_up` después del merge, y **`OPENROUTER_API_KEY`** para que la acción funcione (sin clave, cada despacho queda `FAILED` con el motivo, el outbox reintenta, y no se escribe nada).
+
+### Tests (corridos de verdad)
+
+La suite de integración **se corrió en local contra el Supabase local**, no contra producción. Ojo con esto para la próxima: el `.env` de este worktree **apunta a producción**, y el cliente de Prisma lo autocarga **antes** de que `src/config/env.ts` lea `.env.test` — en un primer intento la suite intentó conectarse al pooler de producción y **falló por autenticación sin escribir nada**. Lo que funcionó: exportar `.env.test` al entorno del proceso (`set -a && . ./.env.test && set +a`) antes de `NODE_ENV=test`, que es lo que hace que gane.
+
+**Backend: 944 unitarios y 916 de integración, todos en verde** (antes del ítem: 916 y 900).
+
+- **10 unitarios nuevos en `draftFollowUpMessage.test.ts`**: el orden **borrador → Activity → marca**; el contenido de la Activity (TASK, asunto, cuerpo del modelo, dueño como asignado y autor, vence hoy); si el modelo falla **no hay Activity ni marca y el error sube**; si `createActivity` falla **no hay marca**; payload inválido falla sin tocar nada; y los tres casos que terminan sin efecto (borrada, ya no `OPEN`, ya drafteada después del último movimiento).
+- **6 unitarios nuevos en `opportunityFollowUpDraft.service.test.ts`** (contexto con y sin conversación, monto 0, días nunca negativos, prompt) y **4 en `opportunityStaleWorker.test.ts`** (el límite de días, un umbral por organización, el menor si hay dos, una regla con config inválida se saltea).
+- **6 unitarios nuevos en `automationActions.test.ts`** (el catálogo de dos triggers, sus schemas de config, la regla única, la compatibilidad) y **2 en `detenerWorker.test.ts`** (el worker nuevo en la tabla).
+- **7 de integración nuevos en `opportunityStaleWorker.integration-test.ts`**: sin regla, o con la regla inactiva o borrada, no emite; emite **recién cuando se cumplen los días** y con el payload correcto; ganadas, perdidas y borradas no emiten; **ya drafteada sin movimiento no vuelve a emitir por más días que pasen** (y la marca no movió `updatedAt`); una marca igual a `updatedAt` cuenta como drafteada; y **con movimiento después del borrador y vuelta a estancarse, sí**.
+- **4 de integración nuevos en `automationOpportunityStale.integration-test.ts`** (de punta a punta, con el modelo doblado): barrido → outbox → Activity con el borrador y la marca puesta, **el modelo recibió la conversación más reciente y no la vieja, y sin nombres propios**, y al día siguiente no se redacta otro; sin contacto el borrador se arma solo con la oportunidad; **si el modelo falla** no hay Activity ni marca, la regla queda `FAILED`, y el reintento con el modelo sano la completa; y **dos eventos para la misma oportunidad dejan un solo borrador**.
+- **4 de integración nuevos en `automation.controller.integration-test.ts`** (por HTTP): alta con `triggerConfig`; sin `daysWithoutActivity` o con uno inválido es 400; combinaciones incompatibles son 400 (en alta y en `PATCH`); y la regla única — la segunda activa es 409, una inactiva sí se crea pero activarla es 409, editar la propia no choca, otra organización no cuenta.
+- **1 de integración nuevo en `automationDispatch.integration-test.ts`**: una regla incompatible guardada directo en la base queda `FAILED` sin ejecutar la acción. Y uno existente se ajustó: usaba `create_follow_up` con un trigger de prueba, que ahora la compatibilidad frena antes del payload que ese caso prueba.
+
+**Frontend: 156 archivos, 1706 casos, todos en verde** (antes: 1695). **6 nuevos en `AutomationFormPage.test.tsx`** (el selector de acción con "Oportunidad ganada"; elegir "Oportunidad sin movimiento" pide los días y pasa a la acción de IA; el POST con `triggerConfig` numérico y `actionConfig` vacío; sin días no sale y 0 vale; volver a "Oportunidad ganada"; edición que hidrata y manda los días) y **5 en `catalog.test.ts`**; 3 existentes se actualizaron (el selector de evento ya tiene dos opciones y los bodies llevan `triggerConfig`).
+
+**Verificación manual contra el stack local**, por el camino real completo —CRUD → worker → outbox → dispatcher → acción → **adaptador OpenRouter**—: no hay `OPENROUTER_API_KEY` en ningún `.env` de la máquina, así que el adaptador apuntó a un mock HTTP local con `OPENROUTER_BASE_URL` (el uso que el propio `llmProvider.service.ts` prevé). Sobre la organización sembrada `test-local`: regla con `daysWithoutActivity: 0` creada por el CRUD → el barrido emitió 2 eventos (las 2 oportunidades `OPEN`) → el outbox entregó 2 → quedó la Activity `Seguimiento sugerido: [SEED] Corolla para Ana` con el texto del modelo, asignada al dueño y venciendo hoy → la marca quedó puesta y **`updatedAt` intacto** → un segundo barrido emitió **0**. Todo lo creado se limpió después. **Con el modelo real no se probó**, por la falta de clave.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
+
 
 ## 74. El agente comparte datos de cobro (link de pago / transferencia)
 
@@ -4397,48 +4435,11 @@ Un test unitario fija las cuatro ideas de esa descripción (cuándo sí, la preg
 ### La pantalla
 
 `BranchFormPage` gana una tarjeta **"Cobro"** debajo de "Datos de la sucursal" (donde está el vendedor por defecto del ítem 69): un input de URL para el link de pago y un `<textarea>` para los datos de transferencia, **los dos opcionales y sin asterisco**, con un hint que explica cuándo los comparte el agente. El formulario **manda siempre las dos claves**, con `null` cuando quedaron vacías —igual que `timezone`/`defaultOwnerId`—, así que borrar el link de una sucursal que lo tenía llega como un `PATCH` de verdad.
->>>>>>> origin/master
 
 ### Lo que se tocó
 
 | Archivo | Qué |
 |---|---|
-<<<<<<< HEAD
-| `prisma/schema.prisma` + `prisma/migrations/20260928140000_opportunity_stale_follow_up/` | `Opportunity.lastStaleFollowUpDraftedAt` y `Automation.triggerConfig`; sin índices, sin FK, no entra al diagnóstico |
-| `src/services/automationTriggers.ts` | `opportunity.stale`, `CONFIG_DE_TRIGGER`, `TRIGGERS_DE_REGLA_UNICA` |
-| `src/services/automationActions.ts` | `AccionRegistrada.triggers` + `accionAdmiteTrigger` |
-| `src/services/automationActions/draftFollowUpMessage.ts` | **Nuevo**: la acción `agent.draft_follow_up`, con dependencias inyectables |
-| `src/services/opportunityFollowUpDraft.service.ts` | **Nuevo**: contexto, prompt y `generarBorradorDeSeguimiento` |
-| `src/workers/opportunityStaleWorker.ts` + `src/server.ts` + `src/config/env.ts` + `.env.example` | **Nuevo** worker y su registro; `OPPORTUNITY_STALE_WORKER_ENABLED` / `_POLL_MS` |
-| `src/services/automation.service.ts` + `src/controllers/automation.controller.ts` + `src/repositories/automation.repository.ts` | `triggerConfig` en el CRUD, compatibilidad y regla única |
-| `src/services/automationDispatch.service.ts` | El rechazo de una combinación incompatible |
-| `src/repositories/opportunity.repository.ts` | `findStaleOpportunities`, `findOpportunityForFollowUpDraft`, `markStaleFollowUpDrafted` |
-| `src/repositories/conversation.repository.ts` | `findLatestConversationByContact` |
-| `src/services/automationActions/createFollowUpActivity.ts` / `src/services/conversationBrief.service.ts` | `triggers: [won]`; `payloadDeOportunidadSchema` y `limpiarRespuesta` exportados |
-| `frontend/src/features/automation/{catalog,types,AutomationFormPage}.ts(x)` | Trigger, acción, `CONFIG_DE_TRIGGER`, `ACCIONES_POR_TRIGGER` y `CamposDelTrigger` |
-
-**Producción necesita `migrate:deploy`** con `20260928140000_opportunity_stale_follow_up` después del merge, y **`OPENROUTER_API_KEY`** para que la acción funcione (sin clave, cada despacho queda `FAILED` con el motivo, el outbox reintenta, y no se escribe nada).
-
-### Tests (corridos de verdad)
-
-La suite de integración **se corrió en local contra el Supabase local**, no contra producción. Ojo con esto para la próxima: el `.env` de este worktree **apunta a producción**, y el cliente de Prisma lo autocarga **antes** de que `src/config/env.ts` lea `.env.test` — en un primer intento la suite intentó conectarse al pooler de producción y **falló por autenticación sin escribir nada**. Lo que funcionó: exportar `.env.test` al entorno del proceso (`set -a && . ./.env.test && set +a`) antes de `NODE_ENV=test`, que es lo que hace que gane.
-
-**Backend: 944 unitarios y 916 de integración, todos en verde** (antes del ítem: 916 y 900).
-
-- **10 unitarios nuevos en `draftFollowUpMessage.test.ts`**: el orden **borrador → Activity → marca**; el contenido de la Activity (TASK, asunto, cuerpo del modelo, dueño como asignado y autor, vence hoy); si el modelo falla **no hay Activity ni marca y el error sube**; si `createActivity` falla **no hay marca**; payload inválido falla sin tocar nada; y los tres casos que terminan sin efecto (borrada, ya no `OPEN`, ya drafteada después del último movimiento).
-- **6 unitarios nuevos en `opportunityFollowUpDraft.service.test.ts`** (contexto con y sin conversación, monto 0, días nunca negativos, prompt) y **4 en `opportunityStaleWorker.test.ts`** (el límite de días, un umbral por organización, el menor si hay dos, una regla con config inválida se saltea).
-- **6 unitarios nuevos en `automationActions.test.ts`** (el catálogo de dos triggers, sus schemas de config, la regla única, la compatibilidad) y **2 en `detenerWorker.test.ts`** (el worker nuevo en la tabla).
-- **7 de integración nuevos en `opportunityStaleWorker.integration-test.ts`**: sin regla, o con la regla inactiva o borrada, no emite; emite **recién cuando se cumplen los días** y con el payload correcto; ganadas, perdidas y borradas no emiten; **ya drafteada sin movimiento no vuelve a emitir por más días que pasen** (y la marca no movió `updatedAt`); una marca igual a `updatedAt` cuenta como drafteada; y **con movimiento después del borrador y vuelta a estancarse, sí**.
-- **4 de integración nuevos en `automationOpportunityStale.integration-test.ts`** (de punta a punta, con el modelo doblado): barrido → outbox → Activity con el borrador y la marca puesta, **el modelo recibió la conversación más reciente y no la vieja, y sin nombres propios**, y al día siguiente no se redacta otro; sin contacto el borrador se arma solo con la oportunidad; **si el modelo falla** no hay Activity ni marca, la regla queda `FAILED`, y el reintento con el modelo sano la completa; y **dos eventos para la misma oportunidad dejan un solo borrador**.
-- **4 de integración nuevos en `automation.controller.integration-test.ts`** (por HTTP): alta con `triggerConfig`; sin `daysWithoutActivity` o con uno inválido es 400; combinaciones incompatibles son 400 (en alta y en `PATCH`); y la regla única — la segunda activa es 409, una inactiva sí se crea pero activarla es 409, editar la propia no choca, otra organización no cuenta.
-- **1 de integración nuevo en `automationDispatch.integration-test.ts`**: una regla incompatible guardada directo en la base queda `FAILED` sin ejecutar la acción. Y uno existente se ajustó: usaba `create_follow_up` con un trigger de prueba, que ahora la compatibilidad frena antes del payload que ese caso prueba.
-
-**Frontend: 156 archivos, 1706 casos, todos en verde** (antes: 1695). **6 nuevos en `AutomationFormPage.test.tsx`** (el selector de acción con "Oportunidad ganada"; elegir "Oportunidad sin movimiento" pide los días y pasa a la acción de IA; el POST con `triggerConfig` numérico y `actionConfig` vacío; sin días no sale y 0 vale; volver a "Oportunidad ganada"; edición que hidrata y manda los días) y **5 en `catalog.test.ts`**; 3 existentes se actualizaron (el selector de evento ya tiene dos opciones y los bodies llevan `triggerConfig`).
-
-**Verificación manual contra el stack local**, por el camino real completo —CRUD → worker → outbox → dispatcher → acción → **adaptador OpenRouter**—: no hay `OPENROUTER_API_KEY` en ningún `.env` de la máquina, así que el adaptador apuntó a un mock HTTP local con `OPENROUTER_BASE_URL` (el uso que el propio `llmProvider.service.ts` prevé). Sobre la organización sembrada `test-local`: regla con `daysWithoutActivity: 0` creada por el CRUD → el barrido emitió 2 eventos (las 2 oportunidades `OPEN`) → el outbox entregó 2 → quedó la Activity `Seguimiento sugerido: [SEED] Corolla para Ana` con el texto del modelo, asignada al dueño y venciendo hoy → la marca quedó puesta y **`updatedAt` intacto** → un segundo barrido emitió **0**. Todo lo creado se limpió después. **Con el modelo real no se probó**, por la falta de clave.
-
-`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
-=======
 | `prisma/schema.prisma` | `Branch.paymentLinkUrl` (`VarChar(2048)`) y `Branch.bankTransferDetails` (`Text`), los dos opcionales |
 | `prisma/migrations/20260928120000_branch_datos_de_cobro/` | Las dos columnas nullable, sin default ni backfill. Sin índice, sin CHECK, sin FK: **no entra al diagnóstico** |
 | `src/controllers/branch.controller.ts` | `paymentLinkUrl` (misma validación que `destinationUrl`) y `bankTransferDetails` (trim, tope 2000) en `branchFields`, opcionales y nullable |
@@ -4560,4 +4561,74 @@ Sin migración y sin cambios de contrato: todo el resto del backend quedó como 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
 
 **No se levantó el stack local** para crear un recurso de punta a punta: el worktree donde arrancó el ítem tiene el `.env` apuntando a producción, y `supabase start` no anda desde un worktree secundario. La cobertura del flujo es la de los tests de arriba.
->>>>>>> origin/master
+
+---
+
+## 77. Calendario de la Agenda: vista del día por recurso, alta manual y reserva forzada por un ADMIN
+
+**Estado:** hecho
+
+**Qué pasaba.** Las reservas solo las creaba el agente de IA: `BookingListPage` lo decía en un comentario, y el §75 dejó el alta manual explícitamente para "otro ítem". Tampoco había una vista operativa de "qué pasa hoy": Reservas es una tabla con filtros, buena para el historial y mala para ver huecos.
+
+### Backend: `force` en `POST /api/bookings`
+
+- `createBookingSchema` acepta `force: boolean` opcional, y `createBooking` recibe un cuarto parámetro `actor?: BookingActor` (`{ role }`, siempre de `req.auth`, mismo criterio que `ActivityActor`).
+- **`force: true` de un no-ADMIN es 403**, nunca un `force` ignorado en silencio. Se decide en el service, primero de todo, y sin actor (el camino de la tool del agente) también es 403: la tool no manda `force` y no se tocó.
+- Con `force` se saltean **solo** `estaDentroDelHorario` y `estaEnLaGrilla`. Se siguen validando: la **capacidad** con el lock sostenido (dos reservas que se pisan en el mismo recurso son un conflicto físico, no una preferencia de agenda), el **pasado** (V-2) y toda la **integridad relacional** (recurso y servicio de la organización, el servicio lo provee ese recurso, contacto y oportunidad existentes). `docs/booking-architecture.md` lo anota en la línea de `POST /api/bookings`.
+
+### Frontend: `/agenda`
+
+- **Ruta fuera de `AdminRoute`**, como `/bookings`: todo lo que lee es de lectura abierta y `POST /api/bookings` es `authenticate` a secas. Link **"Calendario"** (ícono `CalendarRange`) en el grupo "Agenda" del sidebar, debajo de "Reservas".
+- **Un día, una sucursal, una columna por recurso.** `BranchSelect` (arranca en la primera sucursal para no pedir un paso de más), `ResourceSelect` para acotar a uno, y navegación con "Día anterior" / fecha / "Día siguiente" / "Hoy". Sin semana ni mes.
+- **Cada columna compone dos lecturas existentes**: `useWorkingHours(resourceId)` para pintar lo abierto y `useBookings({ resourceId, from, to, status: "CONFIRMED" })` para los bloques ocupados. No se creó un endpoint "agenda del día".
+- **Todo en la zona de la SUCURSAL** (`features/booking/calendar.ts`, puro y con tests): el día es un día de calendario de la sucursal, las franjas son su "HH:MM", y los instantes UTC se ubican según su hora local. Las conversiones calculan el desfasaje con `Intl` en dos pasadas, así que el horario de verano de Santiago da bien.
+- **La grilla es el día entero**, en renglones de media hora, con el scroll arrancando a las 07:00: un ADMIN puede forzar a cualquier hora. Abierto = blanco y clickeable; cerrado = gris y **no clickeable para un USER**; para un **ADMIN** el cerrado sigue siendo clickeable y va **rayado**, para que se lea como forzar. Lo que ya empezó no es clickeable para nadie (el backend no acepta el pasado ni forzado).
+- **Alta manual** (`CreateBookingPanel`, el `Modal` en su variante panel): recurso y horario fijos del click; "Tipo de servicio" filtrado por ese recurso (mismo criterio que BookingListPage) y `ContactSelect` reusado tal cual desde `features/opportunity/` —ya lo consumen Actividad, Vehículo y el probador del agente, así que moverlo era churn sin beneficio—. Sin oportunidad, a propósito.
+- **"Forzar fuera de horario"**: con el servicio elegido, si el turno cae fuera del horario o de la grilla (réplica en minutos de `generarGrilla`, solo para decidir si mostrar el checkbox), un ADMIN lo ve y **tiene que tildarlo** para poder enviar; manda `force: true`. Un turno válido nunca viaja forzado. Un USER no lo ve nunca: si igual el turno es inválido (una carrera, un servicio que excede el cierre), se muestra el mensaje del backend con `ErrorState` y el panel no se cierra.
+- Al crear, el panel se cierra y `useCreateBooking` invalida `bookingKeys.lists()`: la grilla se refresca sola.
+- **Cancelar desde el calendario**: click en un bloque → `BookingDetailDialog` (variante diálogo, descartable) con contacto, servicio, recurso y horario, y "Cancelar reserva" con el mismo `window.confirm` y `useCancelBooking` que la tabla.
+- **Reservas quedó intacta** salvo su comentario de cabecera, que decía que el alta manual no existía.
+
+### Límites conocidos, dichos para que no sorprendan
+
+- **Un servicio con cupo mayor a 1**: las reservas que se pisan van lado a lado, pero el bloque tapa la celda de abajo, así que un segundo lugar en un horario que ya tiene una reserva no se agenda desde el calendario (el backend sí lo aceptaría).
+- **Una reserva que empezó el día anterior y cruza la medianoche no aparece**: `from`/`to` filtran sobre `startsAt`.
+- El "ahora" para bloquear lo que ya empezó se toma al abrir la página; si pasa un turno con la página abierta, lo rechaza el backend con su mensaje.
+
+### De paso: marcadores de conflicto en este archivo
+
+`master` traía **marcadores de conflicto commiteados** en este documento (`<<<<<<< HEAD` / `>>>>>>> origin/master`), del merge `f1964e5` que se llevó el #268: el §76 y el §74 quedaron intercalados. Se reconstruyó desde los dos padres de ese merge —la versión de master más el §76 entero de la rama— y se comprobó que **todas las líneas del archivo roto están en la versión arreglada**; lo único que suma es el encabezado de tabla "Lo que se tocó" que git había dejado compartido entre los dos lados. Ninguna otra parte del repo tiene marcadores.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/controllers/booking.controller.ts` | `force` en `createBookingSchema`; el handler pasa `{ role: req.auth.role }` |
+| `src/services/booking.service.ts` | `CreateBookingInput.force`, `BookingActor`, el 403 y el salteo de horario y grilla |
+| `frontend/src/features/booking/calendar.ts` | **Nuevo**: aritmética del día en la zona de la sucursal |
+| `frontend/src/features/booking/BookingCalendarPage.tsx` | **Nuevo**: página, columna por recurso, carriles de reservas superpuestas |
+| `frontend/src/features/booking/CreateBookingPanel.tsx` / `BookingDetailDialog.tsx` | **Nuevos**: alta manual y detalle con cancelar |
+| `frontend/src/features/booking/{types,api,mutations}.ts` | `CreateBookingInput`, `createBooking`, `useCreateBooking` |
+| `frontend/src/design-system/design-system.css` | Bloque `.ds-calendar*` (altura del renglón en `--ds-calendar-row`) |
+| `frontend/src/app/router.tsx` / `frontend/src/layout/AppLayout.tsx` | Ruta `/agenda` y link "Calendario" |
+| `docs/booking-architecture.md` | Nota de `force` en `POST /api/bookings` |
+
+Sin migración y sin dependencias nuevas.
+
+### Tests (corridos de verdad)
+
+**Backend: 962 unitarios en verde. Integración contra el Supabase local: 929/930**, y la única falla es la del hook `after` de `ingest.controller.integration-test.ts` —el flake de base compartida ya descrito en el §74—: ese archivo solo da **30/30**. `booking.integration-test.ts` da **50/50**, con **4 casos nuevos**:
+
+- un **USER con `force: true` → 403** sin ninguna fila (y sin actor también 403);
+- un **ADMIN con `force: true`** reserva un martes (sin franja) a las 18:07 (fuera de la grilla), y el mismo pedido sin `force` sigue siendo 400;
+- **`force: true` con el cupo lleno sigue siendo 409**;
+- **`force: true` en el pasado sigue siendo 400** con "El horario solicitado ya pasó".
+
+**Frontend: 163 archivos y 1762 casos, todos en verde.** Nuevos:
+
+- **`calendar.test.ts` (7)**: aritmética de fechas, día de la semana, instante local en Montevideo y en Santiago con y sin horario de verano, la inversa acotada al día, franjas del día y la réplica de contención y grilla.
+- **`BookingCalendarPage.test.tsx` (7)**: arranca en la primera sucursal con una columna por recurso y pide las reservas del día **por recurso** con `from`/`to` en la zona de la sucursal y `status=CONFIRMED`; el filtro de recurso deja una columna; **USER: click en un horario libre → panel → crea con el body exacto (sin `force`) → cierra y la grilla se vuelve a pedir**, y el select de servicio solo ofrece los del recurso; **USER: fuera de horario no hay botón**; un **409 del backend se muestra en el panel** sin cerrarlo; **ADMIN: el horario cerrado es clickeable, "Reservar" está deshabilitado hasta tildar "Forzar fuera de horario" y viaja `force: true`**; y **click en una reserva → detalle → "Cancelar reserva" pregunta y manda el `PATCH`**.
+
+`npm run typecheck`, `npm run lint`, `prettier --check` y `npm run build` limpios en backend y frontend.
+
+**Revisión visual** con un harness HTML estático sobre los CSS reales (el magic link local sigue sin poder usarse desde acá): columnas, encabezado fijo, abierto / cerrado / rayado, bloques y carriles se ven bien; ahí apareció y se corrigió que el scroll inicial caía en las 10:00 en vez de las 07:00 (`.ds-calendar` pasó a ser el `offsetParent`). **No se probó contra el stack corriendo con un usuario real.**
