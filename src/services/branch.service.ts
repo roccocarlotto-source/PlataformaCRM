@@ -71,6 +71,10 @@ export interface CreateBranchInput {
   // mandarlo —o mandarlo en null— deja la sucursal sin ninguno, que es un
   // estado válido y el que tienen todas las sucursales existentes.
   defaultOwnerId?: string | null;
+  // Datos de cobro (ítem 74), independientes y opcionales. Texto plano, se
+  // guardan tal cual vienen del controller: no hay relación que validar.
+  paymentLinkUrl?: string | null;
+  bankTransferDetails?: string | null;
 }
 
 export async function createBranch(organizationId: string, input: CreateBranchInput) {
@@ -83,6 +87,8 @@ export async function createBranch(organizationId: string, input: CreateBranchIn
     name: input.name,
     timezone: input.timezone,
     defaultOwnerId: await resolverDefaultOwnerId(organizationId, input.defaultOwnerId),
+    paymentLinkUrl: input.paymentLinkUrl,
+    bankTransferDetails: input.bankTransferDetails,
   });
 }
 
@@ -115,6 +121,11 @@ export interface UpdateBranchInput {
   // ninguno); `undefined` no toca la columna. Mismo contrato que
   // UpdateContactInput.companyId.
   defaultOwnerId?: string | null;
+  // Datos de cobro (ítem 74): mismo contrato undefined/null. No necesitan el
+  // `"campo" in input` de defaultOwnerId porque no hay nada que resolver: el
+  // spread de abajo ya conserva un `null` explícito y omite lo que no vino.
+  paymentLinkUrl?: string | null;
+  bankTransferDetails?: string | null;
 }
 
 export async function updateBranch(organizationId: string, id: string, input: UpdateBranchInput) {

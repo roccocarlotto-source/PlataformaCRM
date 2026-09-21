@@ -4273,6 +4273,7 @@ Los de integración **los corrió el CI y no esta máquina**, y no es un atajo: 
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
 
+<<<<<<< HEAD
 ---
 
 ## 76. Automatización que dispara a la IA: borrador de seguimiento para oportunidades estancadas
@@ -4345,11 +4346,64 @@ En `AutomationFormPage.tsx`:
 - **El selector de acción ofrece solo las que admite el evento**, y cambiar de evento pasa a la primera acción compatible con su config vacía — en vez de dejar armada una combinación que el backend va a rechazar.
 - El `case` de `agent.draft_follow_up` no tiene campos: un texto que explica qué hace y que **el mensaje no se le manda a nadie**.
 - El body ahora lleva `triggerConfig` (`{}` para "Oportunidad ganada"). Un trigger que el espejo no conoce no lo manda, y el backend revalida el guardado.
+=======
+
+## 74. El agente comparte datos de cobro (link de pago / transferencia)
+
+**Estado:** hecho
+
+**Qué hacía falta.** Que el agente de IA pueda pasarle al cliente **cómo pagar** cuando el cliente quiere pagar o señar. Hasta ahora no tenía nada que decir: `create_payment_link()` figura en el catálogo de tools de `docs/ai-agent-architecture.md` §7 como **bloqueada, sin pasarela elegida**, y nunca se construyó ninguna base.
+
+### Por qué NO es una pasarela todavía
+
+Se evaluó construir la integración de verdad y se descartó por ahora. Una pasarela real son tres piezas: **checkout dinámico** (un link por operación, con monto), **webhook de confirmación** (enterarse de que alguien pagó) y **reconciliación** (atar ese pago a una Oportunidad / `Payment`). Es mucho esfuerzo para lo que hace falta hoy, que es mucho más chico: que el agente le pase al cliente **el mismo link o los mismos datos de cuenta que el vendedor ya le pasaría a mano**.
+
+Así que lo que se construyó es **configuración de la sucursal**, no un módulo de pagos:
+
+- un **link de pago fijo** — uno que el negocio ya generó a mano en su cuenta de MercadoPago u otro proveedor;
+- **datos de cuenta para transferencia**, como texto libre.
+
+`create_payment_link()` **sigue sin construirse** y su fila de §7 no cambia de estado; se sumó una fila aparte para `get_payment_info()`.
+
+### Decisiones (tomadas con Rocco antes de implementar)
+
+- **Los dos tipos, independientes y opcionales.** Una sucursal puede cargar el link, los datos de transferencia, los dos, o ninguno. `null` en cualquiera de las dos columnas es "no configurado", un estado válido — mismo criterio que `defaultOwnerId` del ítem 69: **sin default, sin backfill, sin aviso** en ninguna pantalla.
+- **Sin ninguna condición de negocio.** No hace falta una Oportunidad abierta ni nada parecido: el agente puede compartirlo en cuanto el cliente lo pide.
+- **`bankTransferDetails` es texto libre** (`Text`, tope de 2000 en el API). CBU/alias/IBAN/titular/banco varían demasiado entre países y bancos para modelarlos como columnas separadas — mismo criterio que `Vehicle.publicDescription`.
+- **`paymentLinkUrl` se valida igual que `destinationUrl` del QR**: exige `http(s)://` y usa el mismo tope, importando `QR_DESTINATION_URL_MAX_LENGTH` (2048) de `qr.controller.ts` en vez de repetir el número. Es el mismo tipo de dato —una URL que un tercero va a abrir— y no hay motivo para que las dos pantallas acepten cosas distintas.
+- **El string vacío no es "vacío" en el API**: se rechaza con un mensaje que dice que se mande `null`. El formulario convierte `""` (o solo espacios) en `null` antes de mandar, así que "vacío" tiene un solo significado en el borde.
+
+### El matiz: cuándo comparte el DETALLE — resuelto en la descripción, no en código
+
+Si el cliente pregunta en general *"¿qué métodos de pago aceptan?"*, el agente tiene que contestar con los **nombres** de los métodos configurados ("aceptamos transferencia bancaria y link de pago") **sin largar el link ni los datos de la cuenta** hasta que el cliente concretamente quiera pagar (pida el link, pida el CBU/alias, diga "quiero pagar/señar ahora").
+
+**Eso vive en la DESCRIPCIÓN de la tool** —lo que lee el modelo— y no en un gate de código. Es el mismo criterio que dejó explícito el ítem 72: `puedeEjecutarTool()` hace cumplir **tres cosas puntuales** con código, y todo lo que es criterio conversacional es prompt. Esta tool además **no modifica nada**, así que no necesita más permiso que el de siempre: estar en `Agent.enabledTools`.
+
+La descripción final:
+
+> "Devuelve el link de pago y/o los datos para transferencia bancaria configurados por la sucursal. Usala cuando el cliente concretamente quiere pagar o señar, o pide el link de pago o los datos de la cuenta (CBU, alias, número de cuenta). Si solo pregunta en general qué métodos de pago aceptan, respondé con los nombres de los métodos disponibles (transferencia bancaria / link de pago) sin compartir todavía el link ni los datos de la cuenta; si ya la llamaste antes en la conversación, no hace falta volver a llamarla para eso. Si no hay ningún medio de pago configurado, decíselo al cliente: no inventes uno."
+
+Un test unitario fija las cuatro ideas de esa descripción (cuándo sí, la pregunta general, "sin compartir todavía", "no inventes"): como no hay código que las haga cumplir, una reescritura que las pierda tiene que romper algo.
+
+**Límite conocido, dicho para que no sorprenda:** para nombrar los métodos disponibles ante la pregunta general, el modelo **igual tiene que llamar a la tool** (es la única forma de saber qué hay cargado), y en ese momento el link y los datos ya están en su contexto. Que no los repita al cliente depende de que siga la descripción. Es la misma naturaleza que cualquier otra instrucción de prompt, y se aceptó así a propósito: la alternativa —una segunda tool que solo devuelva los nombres— es un gate de código para algo que no es un candado.
+
+### La tool — `get_payment_info`
+
+- **Sin parámetros.** La sucursal sale de `contexto.conversation.branchId`, igual que en el resto de las tools: el modelo no puede pedir los datos de otra sucursal, y el `findBranchById` filtra además por organización.
+- Devuelve `{ hasPaymentLink, paymentLinkUrl, hasBankTransfer, bankTransferDetails }`.
+- **Con nada configurado igual devuelve el objeto**, con los dos flags en `false` y los dos valores en `null`: que el modelo vea que no hay medio de pago cargado y lo diga, en vez de inventar uno. Si la sucursal no aparece (soft delete), es lo mismo: "no hay nada configurado", no un error que tumbe el turno.
+- `export const NOMBRE_TOOL_PAGO = "get_payment_info"`, y el espejo del frontend (`AGENT_TOOL_OPTIONS` en `frontend/src/features/agent/tools.ts`) lleva **la misma descripción textual**, copiada del backend y no parafraseada, como pide el comentario de cabecera de ese archivo. Rótulo corto: "Compartir datos de cobro".
+
+### La pantalla
+
+`BranchFormPage` gana una tarjeta **"Cobro"** debajo de "Datos de la sucursal" (donde está el vendedor por defecto del ítem 69): un input de URL para el link de pago y un `<textarea>` para los datos de transferencia, **los dos opcionales y sin asterisco**, con un hint que explica cuándo los comparte el agente. El formulario **manda siempre las dos claves**, con `null` cuando quedaron vacías —igual que `timezone`/`defaultOwnerId`—, así que borrar el link de una sucursal que lo tenía llega como un `PATCH` de verdad.
+>>>>>>> origin/master
 
 ### Lo que se tocó
 
 | Archivo | Qué |
 |---|---|
+<<<<<<< HEAD
 | `prisma/schema.prisma` + `prisma/migrations/20260928140000_opportunity_stale_follow_up/` | `Opportunity.lastStaleFollowUpDraftedAt` y `Automation.triggerConfig`; sin índices, sin FK, no entra al diagnóstico |
 | `src/services/automationTriggers.ts` | `opportunity.stale`, `CONFIG_DE_TRIGGER`, `TRIGGERS_DE_REGLA_UNICA` |
 | `src/services/automationActions.ts` | `AccionRegistrada.triggers` + `accionAdmiteTrigger` |
@@ -4384,3 +4438,126 @@ La suite de integración **se corrió en local contra el Supabase local**, no co
 **Verificación manual contra el stack local**, por el camino real completo —CRUD → worker → outbox → dispatcher → acción → **adaptador OpenRouter**—: no hay `OPENROUTER_API_KEY` en ningún `.env` de la máquina, así que el adaptador apuntó a un mock HTTP local con `OPENROUTER_BASE_URL` (el uso que el propio `llmProvider.service.ts` prevé). Sobre la organización sembrada `test-local`: regla con `daysWithoutActivity: 0` creada por el CRUD → el barrido emitió 2 eventos (las 2 oportunidades `OPEN`) → el outbox entregó 2 → quedó la Activity `Seguimiento sugerido: [SEED] Corolla para Ana` con el texto del modelo, asignada al dueño y venciendo hoy → la marca quedó puesta y **`updatedAt` intacto** → un segundo barrido emitió **0**. Todo lo creado se limpió después. **Con el modelo real no se probó**, por la falta de clave.
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
+=======
+| `prisma/schema.prisma` | `Branch.paymentLinkUrl` (`VarChar(2048)`) y `Branch.bankTransferDetails` (`Text`), los dos opcionales |
+| `prisma/migrations/20260928120000_branch_datos_de_cobro/` | Las dos columnas nullable, sin default ni backfill. Sin índice, sin CHECK, sin FK: **no entra al diagnóstico** |
+| `src/controllers/branch.controller.ts` | `paymentLinkUrl` (misma validación que `destinationUrl`) y `bankTransferDetails` (trim, tope 2000) en `branchFields`, opcionales y nullable |
+| `src/services/branch.service.ts` + `src/repositories/branch.repository.ts` | Los dos campos en los inputs de create/update. Sin helper `resolverX`: son texto plano y el spread del update ya respeta `undefined` = no tocar / `null` = vaciar |
+| `src/services/agentTools.service.ts` | La tool `get_payment_info` y `NOMBRE_TOOL_PAGO` |
+| `frontend/src/features/branch/BranchFormPage.tsx` + `types.ts` | La tarjeta "Cobro"; los dos campos en `BranchFormValues`, `Branch`, `CreateBranchInput` y `toFormValues` |
+| `frontend/src/features/agent/tools.ts` | La entrada espejo en `AGENT_TOOL_OPTIONS` |
+| `frontend/src/test/branchFixtures.ts` | `makeBranch` con los dos campos en `null` |
+| `docs/ai-agent-architecture.md` | Fila nueva de `get_payment_info()` en la tabla de §7 |
+
+**Producción necesita `migrate:deploy`** con `20260928120000_branch_datos_de_cobro` después del merge.
+
+### Tests (corridos de verdad)
+
+**Backend: 923 unitarios en verde** (antes del ítem: 915) **y 909 de integración, todos en verde en el job `integration` del CI** (antes: 900).
+
+- **9 de integración nuevos en `src/services/branchPaymentInfo.integration-test.ts`** (archivo nuevo, Postgres real, dos organizaciones): una sucursal creada sin los campos nace sin datos de cobro; con los dos, quedan guardados **y se leen de vuelta desde la base**, con los saltos de línea del texto libre intactos; **son independientes** —un `PATCH` que toca uno no toca el otro, y uno que solo renombra no toca ninguno—; `null` vacía **cada uno por separado**; `get_payment_info` devuelve lo configurado en la sucursal de la conversación, con uno solo configurado el otro viene en `false`/`null`, y **sin nada configurado no rompe** y devuelve los dos flags en `false`; un contexto de la organización A apuntando al `branchId` de B **no ve los datos de B** (y B sí, para que el caso no pase por accidente); y la tool **no escribe nada** (`updatedAt` intacto).
+- **6 unitarios nuevos en `src/controllers/branch.controller.test.ts`**: sin datos de cobro las claves no aparecen; se acepta el link solo, los datos solos, los dos, o los dos en `null`; un `paymentLinkUrl` **sin `http(s)://` es 400** con el nombre del campo (`mpago.la/…`, `ftp://`, `javascript:`, vacío), y `HTTP://` en mayúsculas pasa igual que en el QR; el link se trimea y respeta el tope de 2048; `bankTransferDetails` se trimea, acepta 2000 y rechaza 2001, y **solo espacios es 400**; y `null` en los dos llega al service como clave presente.
+- **2 unitarios nuevos en `src/services/agentTools.service.test.ts`** (y 1 actualizado, el de la forma del catálogo, que pasa de seis a siete tools): `get_payment_info` **no tiene parámetros** —ni siquiera `branchId`— y `NOMBRE_TOOL_PAGO` es el nombre del catálogo; y **la descripción conserva las cuatro ideas** del matiz, porque es lo único que las hace cumplir.
+
+**La suite de integración en esta máquina no dio una corrida limpia, y el motivo no es este ítem.** Primera corrida: fallaron los 7 casos del worker de canales de Google Calendar porque el `.env` de este worktree no define `GOOGLE_WEBHOOK_URL` (el CI la define en `ci.yml`). Con esa variable seteada igual que el CI, dos corridas más: **909/910** y **907/910**, con fallas **distintas en cada corrida** (en la primera de esas dos, la falla de un hook `after` suma una entrada al conteo: por eso da 910 y no 909) y en archivos que no tocan sucursales ni tools (`ingest.controller` en el `after` de limpieza, `opportunityRevenueSeries`, el drenado de `promotion.service`); `ingest.controller.integration-test.ts` solo pasa **30/30 dos veces seguidas**. El contenedor `supabase_db_Plataforma_CRM` es **uno solo para todos los worktrees** y hay otras dos ramas armándose en paralelo, así que lo más probable es que sean suites de otros worktrees corriendo contra la misma base al mismo tiempo. **La referencia es el job `integration` del CI**, que levanta su propio Postgres desde cero: ahí dio **909/909**. Los 9 casos nuevos pasaron en las tres corridas locales.
+
+**Frontend: 156 archivos, 1701 casos, todos en verde** (antes: 1695). Ningún archivo nuevo.
+
+- **6 nuevos en `BranchFormPage.test.tsx`**: los dos campos arrancan vacíos, **sin asterisco ni `required`**, y guardar sin tocarlos manda **las dos claves en `null`**; cargar los dos los manda **recortados**; son independientes (solo transferencia → link en `null`); en edición **se hidratan y se conservan** en el `PATCH`, saltos de línea incluidos; **vaciarlos manda `null`**, y solo espacios cuenta como vacío; y un link rechazado por el backend muestra el error **sin perder lo cargado**.
+- **4 actualizados** en el mismo archivo: los que afirmaban el body exacto del `POST`/`PATCH` suman las dos claves en `null`.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend (en el frontend, `prettier --check .` marca los 4 archivos de `dist/` de un build local, que está en `.gitignore` y no existe en el CI; sobre `src/` da limpio).
+
+**Lo que NO se probó en vivo:** la parte del Playground (cargar un link, pedirle "quiero pagar" a un agente con la tool habilitada, y confirmar que ante "¿qué métodos de pago aceptan?" no larga el link). El `.env` local no tiene configurada ninguna API key de proveedor de LLM, así que el probador no puede contestar; y de todas formas el comportamiento que se querría ver es justamente el que depende del modelo y no del código. Queda para probarlo a mano después del merge.
+
+## 75. Pantallas de Agenda: Recursos, Tipos de servicio, Horario, Google Calendar y Reservas
+
+**Estado:** hecho
+
+**Qué pasaba.** El módulo de Agenda estaba **completo en el backend** (`docs/booking-architecture.md`: `Resource`, `ServiceType`, `WorkingHours`, `GoogleCalendarConnection`, `Booking` y la disponibilidad, todo probado) pero `frontend/src/features/` **no tenía ninguna carpeta para él**. A diferencia de Contactos, Oportunidades o Agentes, no había forma de usar nada de esto sin llamar a la API a mano — y sin recursos, servicios y horarios cargados, el agente de IA no tiene nada que reservar.
+
+**Alcance completo, no recortado** (decisión tomada con Rocco): las cinco piezas entran juntas. Sacar cualquiera deja al agente igual de imposibilitado de reservar, así que una versión parcial no destrababa nada.
+
+### Dónde vive cada pieza
+
+| Pieza | Dónde | Quién la ve |
+|---|---|---|
+| **Recursos** | `/resources` + `/resources/new` + `/resources/:id/edit` (carpeta nueva `features/resource/`) | ADMIN (dentro de `AdminRoute`) |
+| **Tipos de servicio** | `/service-types` + alta y edición (carpeta nueva `features/serviceType/`) | ADMIN |
+| **Horario laboral** | **Sección dentro del formulario del Recurso**, no una pantalla propia | ADMIN |
+| **Google Calendar** | **Sección dentro del formulario de la Sucursal** (`BranchFormPage`), junto a "Vendedor por defecto" y "Cobro" (ítem 74) | ADMIN |
+| **Reservas** | `/bookings` (carpeta nueva `features/booking/`) — consulta y cancelación | **Ambos roles**, fuera de `AdminRoute` |
+
+En el menú hay un grupo nuevo **"Agenda"**: *Reservas* para todos, *Recursos* y *Tipos de servicio* solo para ADMIN — mismo criterio que Sucursales. Las reservas van afuera porque `GET /api/bookings` y `PATCH /api/bookings/:id/cancel` son `authenticate` a secas (`booking.routes.ts`): ver quién viene y cancelar un turno es la operación cotidiana de quien atiende, no configuración.
+
+### Recursos y Tipos de servicio
+
+Mismo patrón que `KnowledgeBaseListPage`: filtro por sucursal con `BranchSelect`, paginado, resolución de nombres con la misma query que alimenta el filtro. `ResourceSelect` (nuevo, plantilla directa de `BranchSelect`) comparte una sola página de hasta 100 recursos **sin filtro de sucursal** y filtra localmente: la misma request sirve para el selector de cualquier sucursal y para resolver nombres en los listados. Mismo riesgo residual de más de 100 que ya tienen `BranchSelect` y `UserSelect`.
+
+- **Recurso:** la sucursal **no se puede cambiar** en edición — `updateResourceSchema` no la acepta — así que se muestra deshabilitada en vez de esconderla (mismo criterio que el `branchId` de un Agente). El **tipo sí**.
+- **Tipo de servicio:** la sucursal **sí** se puede cambiar, pero el backend exige que viaje **junto con el recurso** (el recurso viejo es de la sucursal vieja). Cambiar la sucursal **vacía el recurso elegido** y el selector solo ofrece los de la sucursal nueva. Cupo opcional: vacío en el alta lo pone el backend (1).
+
+### Horario laboral
+
+Visible **solo en edición**: cuelga de `PUT /resources/:id/working-hours`, y en el alta el recurso todavía no tiene id. Un editor por día (lunes primero), cada uno con cero, una o varias franjas que se agregan y quitan — mismo esquema que `FieldMappingEditor`, el único precedente de "lista de filas editable".
+
+- **Se guarda con el mismo "Guardar"** que el resto, pero son dos requests: el `PATCH` del recurso y después el `PUT` con **la semana entera**. Si el segundo falla, la pantalla lo dice ("los datos del recurso se guardaron, pero el horario no") y **no navega**, para no perder lo tipeado.
+- **Se valida del lado del cliente antes de mandar nada**: formato, inicio antes que fin, tope de 50 y **superposición entre franjas del mismo día**. Esta última **no la valida Zod**: vive en `replaceWorkingHoursForResource` (`encontrarFranjasSuperpuestas`), y su 400 nombra el día en inglés sin decir qué franjas se pisan. El mensaje del cliente dice "Martes: las franjas 09:00–13:00 y 12:00–18:00 se superponen". Tocarse no es pisarse (09–13 y 13–18 conviven), igual que en el backend.
+- **Un horario vacío es válido** y significa "no atiende": se guarda como `[]`, no se bloquea.
+- **Las horas son texto `HH:MM`, no `<input type="time">`**: el backend acepta `24:00` como fin del día y un input de tipo time no puede mostrarlo.
+
+### Google Calendar
+
+Sección del formulario de la sucursal, solo en edición. Tres estados: **sin conectar** (nunca se conectó o se desconectó; el 404 del `GET` se traduce a "sin conectar", no a un error), **conectando** y **conectado** (con el `calendarId` y "Desconectar", que pregunta antes). Un cuarto, **ERROR**, muestra `lastErrorMessage` y ofrece reconectar.
+
+"Conectar" llama a **`POST /branches/:branchId/google-calendar/connect`** (la ruta real lleva `/connect`) y abre la URL de autorización con `window.open(url, "_blank", "noopener")` — **no navega la pestaña actual**. Como el flujo termina en el callback del backend, en la otra pestaña, esta pasa a "conectando": dice qué hacer, ofrece el link por si el navegador bloqueó la pestaña, y un botón "Volver a consultar" (además del refetch al volver el foco). Las acciones se aplican al momento, sin pasar por "Guardar".
+
+### El único cambio al backend: el callback redirige al frontend
+
+`callbackHandler` respondía `text/plain` porque "la carpeta frontend/ está vacía, no hay a dónde redirigir". Ya no es cierto: ahora hace un **302** al primer origen de `CORS_ORIGIN`:
+
+- **Éxito** → `/branches/:branchId/edit?calendarConnected=true`.
+- **Error** → `/branches/:branchId/edit?calendarError=<mensaje>` (url-encoded, recortado a 200 caracteres). La sucursal **solo sale de un `state` con firma válida** — se verifica de nuevo en el controller, que no consume nada porque el state es un JWT sin nonce —. Si el state falta, está vencido o fue manipulado, vuelve a **`/branches?calendarError=...`**, y el listado de sucursales muestra el mensaje.
+- **Sin un origen utilizable** (vacío o no http/https) queda el **`text/plain` de siempre** como fallback.
+
+La ruta del formulario es `/branches/:id/edit` y no `/branches/:id`: es la que existe en `router.tsx`.
+
+### Cancelar reservas
+
+Solo las `CONFIRMED` tienen el botón (las demás las rechaza el backend). **Con `window.confirm`**, calcado de "Revocar" en `InvitationListPage` — la otra transición de estado sin vuelta atrás que no borra nada. Sin alta manual: reservar lo hace el agente; si hace falta desde el CRM es otro ítem.
+
+La pantalla **arranca filtrando desde hoy** (es una agenda); vaciar "Desde" muestra el historial. `to` es exclusivo en el backend, así que "Hasta" manda la medianoche del día siguiente. Cada turno se muestra **en la zona horaria de su sucursal**. **Sin filtro por contacto** aunque el backend lo acepte: no hay un selector de contacto reutilizable y un UUID crudo no es un control aceptable.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/controllers/googleCalendarConnection.controller.ts` | `urlDeVueltaAlFrontend` (pura, exportada), `branchIdVerificado` y el 302 en los dos caminos del callback |
+| `frontend/src/features/resource/` | **Carpeta nueva**: tipos, api, queries, mutations, `labels.ts`, `workingHours.ts` (helpers puros), `WorkingHoursEditor`, `ResourceSelect`, listado y formulario |
+| `frontend/src/features/serviceType/` | **Carpeta nueva**: tipos, api, queries, mutations, `format.ts`, listado y formulario |
+| `frontend/src/features/booking/` | **Carpeta nueva**: tipos, api, queries, mutations, `format.ts`, `BookingListPage` |
+| `frontend/src/features/branch/GoogleCalendarSection.tsx` | **Archivo nuevo** |
+| `frontend/src/features/branch/{api,queries,mutations,types}.ts` | La conexión: GET (404 → `null`), POST `/connect` y DELETE |
+| `frontend/src/features/branch/BranchFormPage.tsx` / `BranchListPage.tsx` | La sección y la lectura de `calendarConnected` / `calendarError` |
+| `frontend/src/app/router.tsx` / `frontend/src/layout/AppLayout.tsx` | Rutas y grupo "Agenda" |
+| `frontend/src/test/{resource,serviceType,booking}Fixtures.ts` | Fixtures nuevas |
+
+Sin migración y sin cambios de contrato: todo el resto del backend quedó como estaba.
+
+### Tests (corridos de verdad)
+
+**Backend: 933 unitarios, todos en verde** (antes: 923, con el ítem 74 ya mergeado en master). **10 nuevos en `src/controllers/googleCalendarConnection.controller.test.ts`** (archivo nuevo): seis sobre `urlDeVueltaAlFrontend` —éxito, error con y sin sucursal, el recorte del mensaje, varios orígenes (usa el primero y solo su origin) y los seis casos sin origen utilizable— y cuatro por HTTP contra la app real: sin state → 302 al listado; **state válido con `error=access_denied` → 302 al formulario de esa sucursal**; **state firmado con otra clave → la sucursal no se toma de ahí**, vuelve al listado; y sin `CORS_ORIGIN` utilizable → el `text/plain` de siempre con el 400. La suite de integración no cambia (ningún test nuevo); la corre el CI, porque el `.env` del worktree donde arrancó este ítem apunta a producción.
+
+**Frontend: 161 archivos, 1737 casos, todos en verde** (antes: 156 y 1701). 5 archivos de test nuevos y uno ampliado, 36 casos nuevos:
+
+- **`ResourceListPage.test.tsx` (5):** tipo traducido y sucursal por nombre; estado vacío; los filtros de sucursal y tipo viajan y vuelven a la página 1; "Editar" apunta al formulario; "Eliminar" pregunta y el RESTRICT del backend se muestra tal cual.
+- **`ResourceFormPage.test.tsx` (8):** el alta manda los tres campos y **no muestra el horario**; sin sucursal no se manda nada; la edición hidrata, deja la sucursal **deshabilitada**, ordena las franjas por inicio y **conserva `24:00`**; guardar manda el `PATCH` **sin `branchId`** y el `PUT` con **la semana entera**, incluida una franja agregada (con la franja sugerida); quitar todas manda `[]`; **dos franjas superpuestas frenan el guardado antes de mandar nada**; una hora mal escrita o una franja al revés también; y si el `PUT` falla lo dice sin navegar.
+- **`ServiceTypeListPage.test.tsx` (4):** recurso y sucursal por nombre, duración legible ("1 h 30 min") y cupo; estado vacío; el filtro de recurso **solo ofrece los de la sucursal elegida** y cambiar de sucursal lo limpia; editar y eliminar.
+- **`ServiceTypeFormPage.test.tsx` (6):** el recurso está deshabilitado hasta elegir sucursal; alta sin cupo y con cupo; la edición manda **sucursal y recurso juntos**; **cambiar la sucursal vacía el recurso** y no deja guardar hasta elegir uno nuevo; un error del backend se muestra sin navegar.
+- **`BookingListPage.test.tsx` (6):** el turno **en la zona de la sucursal** con contacto, servicio, recurso y estado resueltos; arranca **desde hoy** ordenado ascendente; los seis filtros viajan en la query (con `to` = día siguiente); vaciar "Desde" saca el `from`; **"Cancelar" solo en las `CONFIRMED`, pregunta y manda el `PATCH /cancel`**; y el 409 de una ya cancelada se muestra.
+- **`BranchFormPage.test.tsx` (+7):** la sección **no aparece en el alta**; **sin conectar → "Conectar" abre la URL en una pestaña nueva, la pestaña actual no navega, pasa a "conectando" y "Volver a consultar" muestra la conexión**; conectada muestra el calendario y "Desconectar" pregunta y manda el `DELETE`; ERROR muestra el motivo y ofrece reconectar; si iniciar falla no se abre ninguna pestaña; y la vuelta del callback con `calendarConnected` y con `calendarError`. El `renderForm` del archivo ganó un handler por defecto de "sin conectar", porque la sección se monta en toda edición.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
+
+**No se levantó el stack local** para crear un recurso de punta a punta: el worktree donde arrancó el ítem tiene el `.env` apuntando a producción, y `supabase start` no anda desde un worktree secundario. La cobertura del flujo es la de los tests de arriba.
+>>>>>>> origin/master

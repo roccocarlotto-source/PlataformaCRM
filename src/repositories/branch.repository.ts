@@ -62,6 +62,9 @@ export interface CreateBranchData {
   // Vendedor por defecto de la sucursal (ítem 69), ya validado por el service.
   // `null`/`undefined` = sin ninguno, que es el estado por defecto.
   defaultOwnerId?: string | null;
+  // Datos de cobro (ítem 74). `null`/`undefined` = no configurado.
+  paymentLinkUrl?: string | null;
+  bankTransferDetails?: string | null;
 }
 
 export function createBranch(data: CreateBranchData, db: Db = prisma) {
@@ -73,6 +76,9 @@ export interface UpdateBranchData {
   timezone?: string;
   // `null` pone la columna en NULL (desvincula); `undefined` no la toca.
   defaultOwnerId?: string | null;
+  // Datos de cobro (ítem 74): `null` vacía la columna, `undefined` no la toca.
+  paymentLinkUrl?: string | null;
+  bankTransferDetails?: string | null;
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir

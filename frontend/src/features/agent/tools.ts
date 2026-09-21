@@ -6,8 +6,8 @@ import type { MultiSelectOption } from "../../design-system/MultiSelect";
 // No hay ningún endpoint que exponga el catálogo, y es una decisión tomada:
 // las tools viven en código del backend, no en la base, y nadie las consume
 // más que esta pantalla. Inventar un GET /api/agents/tools para alimentar un
-// checklist de seis ítems fijos sería una ruta, un controller y un test de
-// integración para evitar duplicar seis strings.
+// checklist de siete ítems fijos sería una ruta, un controller y un test de
+// integración para evitar duplicar siete strings.
 //
 // EL PRECIO, dicho para que nadie lo descubra tarde: si alguien agrega, saca
 // o renombra una tool del catálogo del backend, ESTA LISTA HAY QUE
@@ -59,6 +59,12 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
     label: "Actualizar la calificación",
     subtitle:
       "Actualiza la calificación del contacto de esta conversación cuando aparece información nueva o cambia algo (subió el presupuesto, cambió la urgencia, surgió una duda). Las notas se agregan a las anteriores. Todos los campos son opcionales; mandá solo lo que cambió.",
+  },
+  {
+    value: "get_payment_info",
+    label: "Compartir datos de cobro",
+    subtitle:
+      "Devuelve el link de pago y/o los datos para transferencia bancaria configurados por la sucursal. Usala cuando el cliente concretamente quiere pagar o señar, o pide el link de pago o los datos de la cuenta (CBU, alias, número de cuenta). Si solo pregunta en general qué métodos de pago aceptan, respondé con los nombres de los métodos disponibles (transferencia bancaria / link de pago) sin compartir todavía el link ni los datos de la cuenta; si ya la llamaste antes en la conversación, no hace falta volver a llamarla para eso. Si no hay ningún medio de pago configurado, decíselo al cliente: no inventes uno.",
   },
 ];
 
