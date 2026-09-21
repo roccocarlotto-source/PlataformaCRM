@@ -4,6 +4,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
+import { PasswordField } from "../../design-system/PasswordField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { supabase } from "../../lib/supabase";
 import { acceptInvitation } from "./acceptInvitationApi";
@@ -301,25 +302,21 @@ export function AcceptInvitationPage() {
             cerrá sesión primero.
           </p>
           <form onSubmit={handlePasswordOnlySubmit}>
-            <FormField label="Contraseña">
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-                minLength={MIN_PASSWORD_LENGTH}
-                autoComplete="new-password"
-              />
-            </FormField>
-            <FormField label="Confirmar contraseña">
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                required
-                autoComplete="new-password"
-              />
-            </FormField>
+            <PasswordField
+              label="Contraseña"
+              value={password}
+              onChange={setPassword}
+              required
+              minLength={MIN_PASSWORD_LENGTH}
+              autoComplete="new-password"
+            />
+            <PasswordField
+              label="Confirmar contraseña"
+              value={confirmPassword}
+              onChange={setConfirmPassword}
+              required
+              autoComplete="new-password"
+            />
             {error ? <ErrorState>{error}</ErrorState> : null}
             <Button type="submit" variant="primary" disabled={isBusy}>
               {isBusy ? "Procesando…" : "Configurar contraseña"}
@@ -384,25 +381,21 @@ export function AcceptInvitationPage() {
           <p className="ds-auth-text">
             Tu cuenta ya fue creada. Solo falta que definas una contraseña.
           </p>
-          <FormField label="Contraseña">
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              minLength={MIN_PASSWORD_LENGTH}
-              autoComplete="new-password"
-            />
-          </FormField>
-          <FormField label="Confirmar contraseña">
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              required
-              autoComplete="new-password"
-            />
-          </FormField>
+          <PasswordField
+            label="Contraseña"
+            value={password}
+            onChange={setPassword}
+            required
+            minLength={MIN_PASSWORD_LENGTH}
+            autoComplete="new-password"
+          />
+          <PasswordField
+            label="Confirmar contraseña"
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            required
+            autoComplete="new-password"
+          />
           {error ? <ErrorState>{error}</ErrorState> : null}
           <Button type="submit" variant="primary" disabled={isBusy}>
             {isBusy ? "Procesando…" : "Guardar contraseña"}
@@ -426,25 +419,21 @@ export function AcceptInvitationPage() {
             maxLength={255}
           />
         </FormField>
-        <FormField label="Contraseña">
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            minLength={MIN_PASSWORD_LENGTH}
-            autoComplete="new-password"
-          />
-        </FormField>
-        <FormField label="Confirmar contraseña">
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(event) => setConfirmPassword(event.target.value)}
-            required
-            autoComplete="new-password"
-          />
-        </FormField>
+        <PasswordField
+          label="Contraseña"
+          value={password}
+          onChange={setPassword}
+          required
+          minLength={MIN_PASSWORD_LENGTH}
+          autoComplete="new-password"
+        />
+        <PasswordField
+          label="Confirmar contraseña"
+          value={confirmPassword}
+          onChange={setConfirmPassword}
+          required
+          autoComplete="new-password"
+        />
         {error ? <ErrorState>{error}</ErrorState> : null}
         <Button type="submit" variant="primary" disabled={isBusy}>
           {isBusy ? "Procesando…" : "Completar registro"}
