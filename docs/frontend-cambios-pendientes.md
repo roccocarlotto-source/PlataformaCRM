@@ -4272,3 +4272,89 @@ Los de integración **los corrió el CI y no esta máquina**, y no es un atajo: 
 - **16 nuevos en `ConversationDetail.test.tsx`**: el estado vacío ofrece generar; con brief aparece el texto con "Editar" y "Regenerar" y **antes del hilo** (verificado con `compareDocumentPosition`, no por orden de aserciones); un brief de la IA **no** se marca como editado y uno corregido **sí, con el nombre**; **editar y guardar manda el `PATCH`** con el texto nuevo y el textarea arranca con el brief que había; **guardar vacío manda `null`**; **cancelar no manda nada**; **"Generar" llama al `POST`**; **"Regenerar" sobre texto de la IA no pregunta** y sobre una edición a mano **sí, y cancelar no llama al backend**; si generar falla **el brief anterior sigue a la vista**; el componente funciona igual **con el prop `id` que con `useParams`**, sin encabezado en el primer caso y con él en el segundo; y el caso que **abre el editor del brief a propósito** para comprobar que la barrera de "no se responde" sigue en pie.
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
+
+
+## 74. El agente comparte datos de cobro (link de pago / transferencia)
+
+**Estado:** hecho
+
+**Qué hacía falta.** Que el agente de IA pueda pasarle al cliente **cómo pagar** cuando el cliente quiere pagar o señar. Hasta ahora no tenía nada que decir: `create_payment_link()` figura en el catálogo de tools de `docs/ai-agent-architecture.md` §7 como **bloqueada, sin pasarela elegida**, y nunca se construyó ninguna base.
+
+### Por qué NO es una pasarela todavía
+
+Se evaluó construir la integración de verdad y se descartó por ahora. Una pasarela real son tres piezas: **checkout dinámico** (un link por operación, con monto), **webhook de confirmación** (enterarse de que alguien pagó) y **reconciliación** (atar ese pago a una Oportunidad / `Payment`). Es mucho esfuerzo para lo que hace falta hoy, que es mucho más chico: que el agente le pase al cliente **el mismo link o los mismos datos de cuenta que el vendedor ya le pasaría a mano**.
+
+Así que lo que se construyó es **configuración de la sucursal**, no un módulo de pagos:
+
+- un **link de pago fijo** — uno que el negocio ya generó a mano en su cuenta de MercadoPago u otro proveedor;
+- **datos de cuenta para transferencia**, como texto libre.
+
+`create_payment_link()` **sigue sin construirse** y su fila de §7 no cambia de estado; se sumó una fila aparte para `get_payment_info()`.
+
+### Decisiones (tomadas con Rocco antes de implementar)
+
+- **Los dos tipos, independientes y opcionales.** Una sucursal puede cargar el link, los datos de transferencia, los dos, o ninguno. `null` en cualquiera de las dos columnas es "no configurado", un estado válido — mismo criterio que `defaultOwnerId` del ítem 69: **sin default, sin backfill, sin aviso** en ninguna pantalla.
+- **Sin ninguna condición de negocio.** No hace falta una Oportunidad abierta ni nada parecido: el agente puede compartirlo en cuanto el cliente lo pide.
+- **`bankTransferDetails` es texto libre** (`Text`, tope de 2000 en el API). CBU/alias/IBAN/titular/banco varían demasiado entre países y bancos para modelarlos como columnas separadas — mismo criterio que `Vehicle.publicDescription`.
+- **`paymentLinkUrl` se valida igual que `destinationUrl` del QR**: exige `http(s)://` y usa el mismo tope, importando `QR_DESTINATION_URL_MAX_LENGTH` (2048) de `qr.controller.ts` en vez de repetir el número. Es el mismo tipo de dato —una URL que un tercero va a abrir— y no hay motivo para que las dos pantallas acepten cosas distintas.
+- **El string vacío no es "vacío" en el API**: se rechaza con un mensaje que dice que se mande `null`. El formulario convierte `""` (o solo espacios) en `null` antes de mandar, así que "vacío" tiene un solo significado en el borde.
+
+### El matiz: cuándo comparte el DETALLE — resuelto en la descripción, no en código
+
+Si el cliente pregunta en general *"¿qué métodos de pago aceptan?"*, el agente tiene que contestar con los **nombres** de los métodos configurados ("aceptamos transferencia bancaria y link de pago") **sin largar el link ni los datos de la cuenta** hasta que el cliente concretamente quiera pagar (pida el link, pida el CBU/alias, diga "quiero pagar/señar ahora").
+
+**Eso vive en la DESCRIPCIÓN de la tool** —lo que lee el modelo— y no en un gate de código. Es el mismo criterio que dejó explícito el ítem 72: `puedeEjecutarTool()` hace cumplir **tres cosas puntuales** con código, y todo lo que es criterio conversacional es prompt. Esta tool además **no modifica nada**, así que no necesita más permiso que el de siempre: estar en `Agent.enabledTools`.
+
+La descripción final:
+
+> "Devuelve el link de pago y/o los datos para transferencia bancaria configurados por la sucursal. Usala cuando el cliente concretamente quiere pagar o señar, o pide el link de pago o los datos de la cuenta (CBU, alias, número de cuenta). Si solo pregunta en general qué métodos de pago aceptan, respondé con los nombres de los métodos disponibles (transferencia bancaria / link de pago) sin compartir todavía el link ni los datos de la cuenta; si ya la llamaste antes en la conversación, no hace falta volver a llamarla para eso. Si no hay ningún medio de pago configurado, decíselo al cliente: no inventes uno."
+
+Un test unitario fija las cuatro ideas de esa descripción (cuándo sí, la pregunta general, "sin compartir todavía", "no inventes"): como no hay código que las haga cumplir, una reescritura que las pierda tiene que romper algo.
+
+**Límite conocido, dicho para que no sorprenda:** para nombrar los métodos disponibles ante la pregunta general, el modelo **igual tiene que llamar a la tool** (es la única forma de saber qué hay cargado), y en ese momento el link y los datos ya están en su contexto. Que no los repita al cliente depende de que siga la descripción. Es la misma naturaleza que cualquier otra instrucción de prompt, y se aceptó así a propósito: la alternativa —una segunda tool que solo devuelva los nombres— es un gate de código para algo que no es un candado.
+
+### La tool — `get_payment_info`
+
+- **Sin parámetros.** La sucursal sale de `contexto.conversation.branchId`, igual que en el resto de las tools: el modelo no puede pedir los datos de otra sucursal, y el `findBranchById` filtra además por organización.
+- Devuelve `{ hasPaymentLink, paymentLinkUrl, hasBankTransfer, bankTransferDetails }`.
+- **Con nada configurado igual devuelve el objeto**, con los dos flags en `false` y los dos valores en `null`: que el modelo vea que no hay medio de pago cargado y lo diga, en vez de inventar uno. Si la sucursal no aparece (soft delete), es lo mismo: "no hay nada configurado", no un error que tumbe el turno.
+- `export const NOMBRE_TOOL_PAGO = "get_payment_info"`, y el espejo del frontend (`AGENT_TOOL_OPTIONS` en `frontend/src/features/agent/tools.ts`) lleva **la misma descripción textual**, copiada del backend y no parafraseada, como pide el comentario de cabecera de ese archivo. Rótulo corto: "Compartir datos de cobro".
+
+### La pantalla
+
+`BranchFormPage` gana una tarjeta **"Cobro"** debajo de "Datos de la sucursal" (donde está el vendedor por defecto del ítem 69): un input de URL para el link de pago y un `<textarea>` para los datos de transferencia, **los dos opcionales y sin asterisco**, con un hint que explica cuándo los comparte el agente. El formulario **manda siempre las dos claves**, con `null` cuando quedaron vacías —igual que `timezone`/`defaultOwnerId`—, así que borrar el link de una sucursal que lo tenía llega como un `PATCH` de verdad.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `prisma/schema.prisma` | `Branch.paymentLinkUrl` (`VarChar(2048)`) y `Branch.bankTransferDetails` (`Text`), los dos opcionales |
+| `prisma/migrations/20260928120000_branch_datos_de_cobro/` | Las dos columnas nullable, sin default ni backfill. Sin índice, sin CHECK, sin FK: **no entra al diagnóstico** |
+| `src/controllers/branch.controller.ts` | `paymentLinkUrl` (misma validación que `destinationUrl`) y `bankTransferDetails` (trim, tope 2000) en `branchFields`, opcionales y nullable |
+| `src/services/branch.service.ts` + `src/repositories/branch.repository.ts` | Los dos campos en los inputs de create/update. Sin helper `resolverX`: son texto plano y el spread del update ya respeta `undefined` = no tocar / `null` = vaciar |
+| `src/services/agentTools.service.ts` | La tool `get_payment_info` y `NOMBRE_TOOL_PAGO` |
+| `frontend/src/features/branch/BranchFormPage.tsx` + `types.ts` | La tarjeta "Cobro"; los dos campos en `BranchFormValues`, `Branch`, `CreateBranchInput` y `toFormValues` |
+| `frontend/src/features/agent/tools.ts` | La entrada espejo en `AGENT_TOOL_OPTIONS` |
+| `frontend/src/test/branchFixtures.ts` | `makeBranch` con los dos campos en `null` |
+| `docs/ai-agent-architecture.md` | Fila nueva de `get_payment_info()` en la tabla de §7 |
+
+**Producción necesita `migrate:deploy`** con `20260928120000_branch_datos_de_cobro` después del merge.
+
+### Tests (corridos de verdad)
+
+**Backend: 923 unitarios en verde** (antes del ítem: 915) **y 909 de integración, todos en verde en el job `integration` del CI** (antes: 900).
+
+- **9 de integración nuevos en `src/services/branchPaymentInfo.integration-test.ts`** (archivo nuevo, Postgres real, dos organizaciones): una sucursal creada sin los campos nace sin datos de cobro; con los dos, quedan guardados **y se leen de vuelta desde la base**, con los saltos de línea del texto libre intactos; **son independientes** —un `PATCH` que toca uno no toca el otro, y uno que solo renombra no toca ninguno—; `null` vacía **cada uno por separado**; `get_payment_info` devuelve lo configurado en la sucursal de la conversación, con uno solo configurado el otro viene en `false`/`null`, y **sin nada configurado no rompe** y devuelve los dos flags en `false`; un contexto de la organización A apuntando al `branchId` de B **no ve los datos de B** (y B sí, para que el caso no pase por accidente); y la tool **no escribe nada** (`updatedAt` intacto).
+- **6 unitarios nuevos en `src/controllers/branch.controller.test.ts`**: sin datos de cobro las claves no aparecen; se acepta el link solo, los datos solos, los dos, o los dos en `null`; un `paymentLinkUrl` **sin `http(s)://` es 400** con el nombre del campo (`mpago.la/…`, `ftp://`, `javascript:`, vacío), y `HTTP://` en mayúsculas pasa igual que en el QR; el link se trimea y respeta el tope de 2048; `bankTransferDetails` se trimea, acepta 2000 y rechaza 2001, y **solo espacios es 400**; y `null` en los dos llega al service como clave presente.
+- **2 unitarios nuevos en `src/services/agentTools.service.test.ts`** (y 1 actualizado, el de la forma del catálogo, que pasa de seis a siete tools): `get_payment_info` **no tiene parámetros** —ni siquiera `branchId`— y `NOMBRE_TOOL_PAGO` es el nombre del catálogo; y **la descripción conserva las cuatro ideas** del matiz, porque es lo único que las hace cumplir.
+
+**La suite de integración en esta máquina no dio una corrida limpia, y el motivo no es este ítem.** Primera corrida: fallaron los 7 casos del worker de canales de Google Calendar porque el `.env` de este worktree no define `GOOGLE_WEBHOOK_URL` (el CI la define en `ci.yml`). Con esa variable seteada igual que el CI, dos corridas más: **909/910** y **907/910**, con fallas **distintas en cada corrida** (en la primera de esas dos, la falla de un hook `after` suma una entrada al conteo: por eso da 910 y no 909) y en archivos que no tocan sucursales ni tools (`ingest.controller` en el `after` de limpieza, `opportunityRevenueSeries`, el drenado de `promotion.service`); `ingest.controller.integration-test.ts` solo pasa **30/30 dos veces seguidas**. El contenedor `supabase_db_Plataforma_CRM` es **uno solo para todos los worktrees** y hay otras dos ramas armándose en paralelo, así que lo más probable es que sean suites de otros worktrees corriendo contra la misma base al mismo tiempo. **La referencia es el job `integration` del CI**, que levanta su propio Postgres desde cero: ahí dio **909/909**. Los 9 casos nuevos pasaron en las tres corridas locales.
+
+**Frontend: 156 archivos, 1701 casos, todos en verde** (antes: 1695). Ningún archivo nuevo.
+
+- **6 nuevos en `BranchFormPage.test.tsx`**: los dos campos arrancan vacíos, **sin asterisco ni `required`**, y guardar sin tocarlos manda **las dos claves en `null`**; cargar los dos los manda **recortados**; son independientes (solo transferencia → link en `null`); en edición **se hidratan y se conservan** en el `PATCH`, saltos de línea incluidos; **vaciarlos manda `null`**, y solo espacios cuenta como vacío; y un link rechazado por el backend muestra el error **sin perder lo cargado**.
+- **4 actualizados** en el mismo archivo: los que afirmaban el body exacto del `POST`/`PATCH` suman las dos claves en `null`.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend (en el frontend, `prettier --check .` marca los 4 archivos de `dist/` de un build local, que está en `.gitignore` y no existe en el CI; sobre `src/` da limpio).
+
+**Lo que NO se probó en vivo:** la parte del Playground (cargar un link, pedirle "quiero pagar" a un agente con la tool habilitada, y confirmar que ante "¿qué métodos de pago aceptan?" no larga el link). El `.env` local no tiene configurada ninguna API key de proveedor de LLM, así que el probador no puede contestar; y de todas formas el comportamiento que se querría ver es justamente el que depende del modelo y no del código. Queda para probarlo a mano después del merge.

@@ -18,7 +18,15 @@ interface BranchFormValues {
   name: string;
   timezone: string;
   defaultOwnerId: string | null;
+  // Datos de cobro (ítem 74). Strings y no `string | null`: son inputs de
+  // texto, y "" es "no configurado". La conversión a null va en el submit.
+  paymentLinkUrl: string;
+  bankTransferDetails: string;
 }
+
+// Tope de branch.controller.ts (BRANCH_BANK_TRANSFER_DETAILS_MAX_LENGTH). El
+// backend sigue siendo quien valida; esto solo evita tipear de más.
+const BANK_TRANSFER_DETAILS_MAX_LENGTH = 2000;
 
 const EMPTY_FORM: BranchFormValues = {
   name: "",
@@ -27,13 +35,24 @@ const EMPTY_FORM: BranchFormValues = {
   // Company/Contact/Opportunity: esto no es el dueño de un registro, es una
   // configuración de la sucursal, y la sucursal no es "de" quien la carga.
   defaultOwnerId: null,
+  paymentLinkUrl: "",
+  bankTransferDetails: "",
 };
+
+// "" o solo espacios -> null: el backend no acepta el string vacío como
+// "vacío", y null es lo que efectivamente vacía la columna en el PATCH.
+function textoONull(valor: string): string | null {
+  const recortado = valor.trim();
+  return recortado === "" ? null : recortado;
+}
 
 function toFormValues(branch: Branch): BranchFormValues {
   return {
     name: branch.name,
     timezone: branch.timezone,
     defaultOwnerId: branch.defaultOwnerId,
+    paymentLinkUrl: branch.paymentLinkUrl ?? "",
+    bankTransferDetails: branch.bankTransferDetails ?? "",
   };
 }
 
@@ -73,6 +92,11 @@ export function BranchFormPage() {
       // llegue como un PATCH de verdad y no como "no lo toqués". Mismo criterio
       // que los otros dos campos, que también viajan siempre.
       defaultOwnerId: values.defaultOwnerId,
+      // Datos de cobro (ítem 74): siempre la clave, con null cuando quedaron
+      // vacíos — mismo motivo que defaultOwnerId: borrar el link de una
+      // sucursal que lo tenía tiene que llegar como un PATCH de verdad.
+      paymentLinkUrl: textoONull(values.paymentLinkUrl),
+      bankTransferDetails: textoONull(values.bankTransferDetails),
     };
 
     try {
@@ -159,6 +183,40 @@ export function BranchFormPage() {
               Se usa cuando el agente de IA necesita asignar un vendedor a un contacto que todavía
               no tiene uno. El contacto queda asignado a esta persona, que se puede cambiar después
               como cualquier otro.
+            </p>
+          </div>
+        </Card>
+
+        {/* Ítem 74. Los dos opcionales e independientes, sin asterisco: una
+            sucursal sin datos de cobro es un estado válido, y el agente le
+            dice al cliente que no hay un medio de pago cargado. */}
+        <Card heading="Cobro">
+          <div className="ds-field-grid">
+            <div className="ds-field-grid--full">
+              <FormField label="Link de pago">
+                <input
+                  type="url"
+                  value={values.paymentLinkUrl}
+                  placeholder="https://"
+                  onChange={(event) => setValues({ ...values, paymentLinkUrl: event.target.value })}
+                />
+              </FormField>
+            </div>
+            <div className="ds-field-grid--full">
+              <FormField label="Datos para transferencia">
+                <textarea
+                  value={values.bankTransferDetails}
+                  rows={4}
+                  maxLength={BANK_TRANSFER_DETAILS_MAX_LENGTH}
+                  onChange={(event) =>
+                    setValues({ ...values, bankTransferDetails: event.target.value })
+                  }
+                />
+              </FormField>
+            </div>
+            <p className="ds-hint ds-field-grid--full">
+              El agente de IA comparte el link o los datos de la cuenta cuando el cliente quiere
+              pagar. Si solo pregunta qué medios de pago aceptan, nombra los que estén cargados.
             </p>
           </div>
         </Card>

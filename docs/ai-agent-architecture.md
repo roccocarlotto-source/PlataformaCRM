@@ -475,6 +475,7 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 | `create_lead()` / `update_lead()` | `Contact.leadScore`/etc. (PR #207) | **Construida (paso 3, 12/09/2026)** — las dos tools llaman a la misma `qualifyLead()` de `contact.service.ts`, idempotente; `leadNotes` se agrega y `leadAiData` se mergea, nunca se pisan. Ver la nota fechada del paso 3 bajo la sección 6. |
 | `send_message()` | Integración de WhatsApp | Bloqueada — fuera de alcance de este documento (sección 2). |
 | `create_payment_link()` | Módulo de Pagos (2.3) | Bloqueada — pasarela sin elegir. |
+| `get_payment_info()` | `Branch.paymentLinkUrl` / `Branch.bankTransferDetails` | **Construida (ítem 74 de `docs/frontend-cambios-pendientes.md`, 21/09/2026)** — NO reemplaza a `create_payment_link()`, que sigue sin construirse: devuelve un link de pago fijo y/o datos de transferencia cargados a mano por sucursal. Solo lectura, sin parámetros. Cuándo compartir el detalle está en la descripción de la tool, no en código. |
 
 ## 8. Costos
 
