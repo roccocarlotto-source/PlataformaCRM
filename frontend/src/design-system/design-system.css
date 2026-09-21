@@ -1199,7 +1199,8 @@ fieldset.ds-field {
    0.06em) — mismos tokens que ya usa el resto del sistema, ninguno nuevo.
    El diseño original agrupa Contactos/Empresas/Embudo bajo un rótulo "CRM" y
    tiene una segunda sección "Automatización"; acá los grupos son propios
-   (CRM / Actividad / QR / Administración) porque las secciones del mockup
+   (hoy, desde el ítem 79, secciones colapsables: CRM / Actividades /
+   Administración / Agentes de IA) porque las secciones del mockup
    corresponden a funciones que este producto no tiene — Rocco pidió que el
    nav muestre solo lo que existe hoy (ver bitácora), nunca placeholders de
    Conversaciones/Agentes IA/Calendario/etc. Los textos de cada link son los
@@ -1304,6 +1305,50 @@ fieldset.ds-field {
   background: var(--color-primary);
   color: var(--color-primary-contrast) !important;
   font-weight: 600;
+}
+
+/* Secciones colapsables (ítem 79, SidebarSection en AppLayout.tsx). El
+   título-toggle es un <button> con la MISMA tipografía de
+   .ds-sidebar-group-label: acá solo se deshace el estilo base de `button`
+   (alto, borde, fondo) y se suma el chevron a la derecha. */
+.ds-sidebar-group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: auto;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  text-align: left;
+}
+
+.ds-sidebar-group-toggle:hover {
+  color: var(--color-text-muted);
+}
+
+.ds-sidebar-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Hijos de un título que es link (Contactos, Agentes de IA): sangría para
+   que se lea que cuelgan de esa pantalla. */
+.ds-sidebar-group-items--indented {
+  padding-left: var(--space-4);
+}
+
+/* Agentes de IA es una sección de primer nivel con título-link: el mismo
+   aire arriba que le da a las demás el padding de .ds-sidebar-group-label. */
+.ds-sidebar-group--link-header {
+  margin-top: var(--space-3);
+}
+
+/* En un título-link el chevron va pegado al borde derecho, como en el
+   título-toggle. */
+.ds-sidebar-link .ds-sidebar-chevron {
+  margin-left: auto;
 }
 
 .ds-sidebar-account {

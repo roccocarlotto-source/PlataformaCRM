@@ -4670,3 +4670,59 @@ La relación etiqueta↔línea y reserva↔línea es **idéntica** antes y despu
 | `frontend/src/features/booking/BookingCalendarPage.tsx` | El scroll inicial descuenta el `padding-top` del cuerpo |
 
 Sin tests nuevos: jsdom no hace layout (ni `padding` computado desde el CSS ni `offsetTop`), así que un test de esto no probaría nada; la verificación es la medición de arriba. `BookingCalendarPage.test.tsx` y `calendar.test.ts` siguen en verde (20/20 en `features/booking`), con `typecheck` y `lint` limpios.
+
+## 79. Barra lateral en secciones colapsables
+
+**Estado:** hecho
+
+**Qué pasaba.** La sidebar tenía ~25 links a la vista todo el tiempo, repartidos en seis grupos planos (CRM, Actividad, Agenda, QR, Administración, Plataforma). Ruido visual, y cada módulo nuevo lo agravaba.
+
+### Estructura nueva
+
+```
+Dashboard                    (plano)
+▸ CRM                        (título = solo toggle)
+    ▸ Contactos              (título = link a /contacts Y toggle)
+        Conversaciones · Empresas · Oportunidades
+    Procesos de venta · Stock
+▸ Actividades                (título = solo toggle; fusiona Actividad + Agenda)
+    Actividades* · Mis tareas · Reservas · Calendario · Recursos* · Tipos de servicio*
+▸ Administración             (título = solo toggle; AMBOS roles)
+    QR · Usuarios* · Invitaciones* · Fuentes* · Claves* · Eventos* · Organización* · Sucursales*
+▸ Agentes de IA              (título = link a /agents Y toggle; sección entera ADMIN-only)
+    Base de conocimiento · Automatizaciones
+Plataforma                   (sin cambios)
+```
+`*` = solo ADMIN, igual que antes. Ningún label cambió.
+
+### Permisos: QR no se pierde
+
+Antes todo el grupo Administración estaba envuelto en `isAdmin ? (...) : null`. Como QR (lectura abierta, `GET /api/qr` no es ADMIN-only) ahora vive adentro, **la sección se renderiza para ambos roles** y cada link se gatea con su propio permiso: QR siempre, los otros 7 solo con `isAdmin` — el mismo patrón que ya usaban Recursos/Tipos de servicio. Un USER ve la sección Administración con QR como único link; hay un test que fija exactamente eso.
+
+### Cómo se pliega
+
+- Un componente nuevo en `AppLayout.tsx`, `SidebarSection`, con dos formas de título: **toggle** (`<button>` con la tipografía de `.ds-sidebar-group-label`) o **link** (`NavLink` con la forma de `.ds-sidebar-link`, cuyo `onClick` además pliega/despliega). Los dos llevan `aria-expanded` + `aria-controls` y un chevron (`ChevronRight` plegado, `ChevronDown` desplegado).
+- **Estado local por sección**, en un hook `useSectionOpen(paths)`: arranca desplegada solo si la ruta activa es uno de sus hijos (misma regla que el `isActive` de NavLink: ruta exacta o subruta). Todo lo demás arranca plegado.
+- Además, **si se navega hacia adentro de una sección plegada desde afuera** (un link del contenido, atrás del navegador) la sección se despliega: el usuario siempre ve dónde está parado. Solo reacciona a un *cambio* de pathname, así que plegar a mano la sección donde uno está parado se respeta. Implementado como ajuste de estado durante el render (el patrón que recomienda React), no con `useEffect`.
+- La ruta del **propio título-link no cuenta** para arrancar desplegada: el título ya se ve siempre, y contarla haría que plegar Contactos estando en /companies se deshiciera al navegar a /contacts con ese mismo click. Consecuencia visible: recargar en /contacts o /agents deja ese sub-desplegable plegado (el link del título se ve activo igual).
+- Plegada, los hijos **no se montan** — no quedan en el DOM ni en el orden de tabulación.
+
+### CSS
+
+Solo se extendió el bloque de la sidebar en `design-system.css`, sin sistema paralelo: `.ds-sidebar-group-toggle` (deshace el estilo base de `button` y pone el chevron a la derecha), `.ds-sidebar-group-items`, `.ds-sidebar-group-items--indented` (sangría para los hijos de un título-link), `.ds-sidebar-group--link-header` (el aire de arriba de Agentes de IA, equivalente al padding de un rótulo) y el `margin-left: auto` del chevron dentro de un `.ds-sidebar-link`. Sin tokens nuevos.
+
+### Verificación visual
+
+Harness HTML estático con los CSS reales (sidebar en /companies como ADMIN: CRM y Contactos desplegados, el resto plegado), screenshot: jerarquía legible, chevrons alineados a la derecha, sangría de los hijos de Contactos y aire de Agentes de IA parejo con el de los rótulos. **No se probó contra el stack corriendo con un usuario real.**
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `frontend/src/layout/AppLayout.tsx` | `isInside`, `useSectionOpen`, `SidebarSection` y el nav reorganizado en secciones |
+| `frontend/src/design-system/design-system.css` | Clases de sección colapsable dentro del bloque AppLayout |
+| `frontend/src/layout/AppLayout.test.tsx` | Tests existentes abren la sección antes de buscar los links hijos (userEvent + click, como `MultiSelect.test.tsx`); `renderLayout` pasa a usar `Routes` con ruta inicial; 14 tests nuevos del ítem 79 |
+
+### Tests (corridos de verdad)
+
+`AppLayout.test.tsx` 37/37 (14 nuevos: todo plegado en el Dashboard, toggle sin navegar, Contactos y Agentes de IA navegan y pliegan con el mismo click, arranque desplegado según la ruta activa — incluida una subruta —, despliegue al navegar desde el contenido, plegado manual respetado, links exactos de Administración para USER (solo QR) y ADMIN, y de Actividades por rol). Suite completa del frontend 1776/1776, con `typecheck` y `lint` limpios.
