@@ -267,7 +267,14 @@ export function AppLayout() {
               que había antes; cada link conserva su propio permiso. */}
           <SidebarSection
             label="Actividades"
-            paths={["/activities", "/tasks", "/bookings", "/agenda", "/resources", "/service-types"]}
+            paths={[
+              "/activities",
+              "/tasks",
+              "/bookings",
+              "/agenda",
+              "/resources",
+              "/service-types",
+            ]}
           >
             {/* Listado completo "Actividades" (ítem 25): solo ADMIN, como
                 Organización/Sucursales — /activities está dentro del AdminRoute

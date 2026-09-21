@@ -426,7 +426,11 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     await user.click(admin);
 
     const section = admin.closest(".ds-sidebar-group") as HTMLElement;
-    expect(within(section).getAllByRole("link").map((link) => link.textContent)).toEqual(["QR"]);
+    expect(
+      within(section)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["QR"]);
   });
 
   it("un ADMIN ve los 8 links de Administración, QR primero", async () => {
@@ -438,7 +442,11 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     await user.click(admin);
 
     const section = admin.closest(".ds-sidebar-group") as HTMLElement;
-    expect(within(section).getAllByRole("link").map((link) => link.textContent)).toEqual([
+    expect(
+      within(section)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual([
       "QR",
       "Usuarios",
       "Invitaciones",
@@ -470,9 +478,11 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
       await user.click(actividades);
 
       const section = actividades.closest(".ds-sidebar-group") as HTMLElement;
-      expect(within(section).getAllByRole("link").map((link) => link.textContent)).toEqual(
-        expected[role],
-      );
+      expect(
+        within(section)
+          .getAllByRole("link")
+          .map((link) => link.textContent),
+      ).toEqual(expected[role]);
       unmount();
     }
   });
