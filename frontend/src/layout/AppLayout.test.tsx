@@ -58,8 +58,9 @@ function renderLayout(initialPath = "/", outlet: ReactNode = null) {
   );
 }
 
-// Secciones colapsables (ítem 79): plegadas, sus hijos no están en el DOM,
-// así que cada test abre la sección antes de buscar sus links — mismo
+// Secciones colapsables (ítem 79): plegadas, sus hijos quedan montados pero
+// `inert` (ítem 80, para poder animar el despliegue) — no se pueden tocar ni
+// tabular, así que cada test abre la sección antes de usar sus links — mismo
 // userEvent + click que MultiSelect.test.tsx para abrir la lista.
 type User = ReturnType<typeof userEvent.setup>;
 
@@ -294,7 +295,20 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     return element.getAttribute("aria-expanded") === "true";
   }
 
-  it("en el Dashboard todas las secciones arrancan plegadas y sus hijos no están en el DOM", () => {
+  // Desde el ítem 80 los hijos de una sección plegada siguen en el DOM (para
+  // animar el alto) y la garantía es `inert`: fuera del tab order y del árbol
+  // de accesibilidad. jsdom no implementa ese efecto, así que se afirma el
+  // atributo en un ancestro — con la sección anidada (Contactos dentro de
+  // CRM) alcanza con que CUALQUIER ancestro lo tenga, como en el navegador.
+  function expectFolded(name: string) {
+    expect(screen.getByRole("link", { name }).closest("[inert]")).not.toBeNull();
+  }
+
+  function expectUnfolded(name: string) {
+    expect(screen.getByRole("link", { name }).closest("[inert]")).toBeNull();
+  }
+
+  it("en el Dashboard todas las secciones arrancan plegadas y sus hijos quedan inert", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout("/");
 
@@ -304,7 +318,7 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     }
     expect(isExpanded(screen.getByRole("link", { name: "Agentes de IA" }))).toBe(false);
     for (const name of ["Contactos", "Stock", "Mis tareas", "QR", "Base de conocimiento"]) {
-      expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
+      expectFolded(name);
     }
   });
 
@@ -317,14 +331,15 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     await user.click(crm);
     expect(isExpanded(crm)).toBe(true);
     expect(screen.getByRole("link", { name: "Stock" })).toHaveAttribute("href", "/vehicles");
+    expectUnfolded("Stock");
     // Contactos es un sub-desplegable propio: abrir CRM no lo abre.
     expect(isExpanded(screen.getByRole("link", { name: "Contactos" }))).toBe(false);
-    expect(screen.queryByRole("link", { name: "Empresas" })).not.toBeInTheDocument();
+    expectFolded("Empresas");
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveClass("is-active");
 
     await user.click(crm);
     expect(isExpanded(crm)).toBe(false);
-    expect(screen.queryByRole("link", { name: "Stock" })).not.toBeInTheDocument();
+    expectFolded("Stock");
   });
 
   it("'Contactos' navega a /contacts Y pliega/despliega con el mismo click", async () => {
@@ -338,10 +353,11 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     expect(contactos).toHaveClass("is-active");
     expect(isExpanded(contactos)).toBe(true);
     expect(screen.getByRole("link", { name: "Empresas" })).toHaveAttribute("href", "/companies");
+    expectUnfolded("Empresas");
 
     await user.click(contactos);
     expect(isExpanded(contactos)).toBe(false);
-    expect(screen.queryByRole("link", { name: "Empresas" })).not.toBeInTheDocument();
+    expectFolded("Empresas");
   });
 
   it("'Agentes de IA' navega a /agents Y pliega/despliega con el mismo click", async () => {
@@ -353,11 +369,11 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     const agentes = screen.getByRole("link", { name: "Agentes de IA" });
     expect(agentes).toHaveClass("is-active");
     expect(isExpanded(agentes)).toBe(true);
-    expect(screen.getByRole("link", { name: "Automatizaciones" })).toBeInTheDocument();
+    expectUnfolded("Automatizaciones");
 
     await user.click(agentes);
     expect(isExpanded(agentes)).toBe(false);
-    expect(screen.queryByRole("link", { name: "Automatizaciones" })).not.toBeInTheDocument();
+    expectFolded("Automatizaciones");
   });
 
   it("con la ruta activa adentro, esa sección (y Contactos si aplica) arranca desplegada y el resto no", () => {
@@ -396,12 +412,13 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout("/", <Link to="/automations">ir a automatizaciones</Link>);
-    expect(screen.queryByRole("link", { name: "Automatizaciones" })).not.toBeInTheDocument();
+    expectFolded("Automatizaciones");
 
     await user.click(screen.getByRole("link", { name: "ir a automatizaciones" }));
 
     expect(isExpanded(screen.getByRole("link", { name: "Agentes de IA" }))).toBe(true);
     expect(screen.getByRole("link", { name: "Automatizaciones" })).toHaveClass("is-active");
+    expectUnfolded("Automatizaciones");
   });
 
   it("plegar a mano la sección donde uno está parado se respeta", async () => {
@@ -414,7 +431,7 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     await user.click(actividades);
 
     expect(isExpanded(actividades)).toBe(false);
-    expect(screen.queryByRole("link", { name: "Mis tareas" })).not.toBeInTheDocument();
+    expectFolded("Mis tareas");
   });
 
   it("un USER ve la sección Administración con QR como único link (no pierde el QR que ya tenía)", async () => {

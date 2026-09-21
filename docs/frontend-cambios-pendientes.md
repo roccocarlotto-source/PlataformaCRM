@@ -4701,11 +4701,11 @@ Antes todo el grupo Administración estaba envuelto en `isAdmin ? (...) : null`.
 
 ### Cómo se pliega
 
-- Un componente nuevo en `AppLayout.tsx`, `SidebarSection`, con dos formas de título: **toggle** (`<button>` con la tipografía de `.ds-sidebar-group-label`) o **link** (`NavLink` con la forma de `.ds-sidebar-link`, cuyo `onClick` además pliega/despliega). Los dos llevan `aria-expanded` + `aria-controls` y un chevron (`ChevronRight` plegado, `ChevronDown` desplegado).
+- Un componente nuevo en `AppLayout.tsx`, `SidebarSection`, con dos formas de título: **toggle** (`<button>` con la tipografía de `.ds-sidebar-group-label`) o **link** (`NavLink` con la forma de `.ds-sidebar-link`, cuyo `onClick` además pliega/despliega). Los dos llevan `aria-expanded` + `aria-controls` y un chevron (`ChevronRight` plegado, `ChevronDown` desplegado — desde el ítem 80, un solo `ChevronRight` que rota).
 - **Estado local por sección**, en un hook `useSectionOpen(paths)`: arranca desplegada solo si la ruta activa es uno de sus hijos (misma regla que el `isActive` de NavLink: ruta exacta o subruta). Todo lo demás arranca plegado.
 - Además, **si se navega hacia adentro de una sección plegada desde afuera** (un link del contenido, atrás del navegador) la sección se despliega: el usuario siempre ve dónde está parado. Solo reacciona a un *cambio* de pathname, así que plegar a mano la sección donde uno está parado se respeta. Implementado como ajuste de estado durante el render (el patrón que recomienda React), no con `useEffect`.
 - La ruta del **propio título-link no cuenta** para arrancar desplegada: el título ya se ve siempre, y contarla haría que plegar Contactos estando en /companies se deshiciera al navegar a /contacts con ese mismo click. Consecuencia visible: recargar en /contacts o /agents deja ese sub-desplegable plegado (el link del título se ve activo igual).
-- Plegada, los hijos **no se montan** — no quedan en el DOM ni en el orden de tabulación.
+- Plegada, los hijos **no se montan** — no quedan en el DOM ni en el orden de tabulación. *(Reemplazado en el ítem 80: siguen montados con `inert`, para poder animar el despliegue.)*
 
 ### CSS
 
@@ -4726,3 +4726,47 @@ Harness HTML estático con los CSS reales (sidebar en /companies como ADMIN: CRM
 ### Tests (corridos de verdad)
 
 `AppLayout.test.tsx` 37/37 (14 nuevos: todo plegado en el Dashboard, toggle sin navegar, Contactos y Agentes de IA navegan y pliegan con el mismo click, arranque desplegado según la ruta activa — incluida una subruta —, despliegue al navegar desde el contenido, plegado manual respetado, links exactos de Administración para USER (solo QR) y ADMIN, y de Actividades por rol). Suite completa del frontend 1776/1776, con `typecheck` y `lint` limpios.
+
+## 80. Animación al desplegar/plegar las secciones de la sidebar
+
+**Estado:** hecho
+
+**Qué pasaba.** Las secciones colapsables del ítem 79 abrían y cerraban de un salto, y el chevron cambiaba de ícono de golpe. Se veía "muy HTML".
+
+### El obstáculo: los hijos se desmontaban
+
+`SidebarSection` renderizaba `{open ? <div>{children}</div> : null}` para que una sección plegada no dejara links en el DOM ni en el orden de tabulación. Correcto, pero no se puede animar con CSS algo que no existe.
+
+### Cómo se resolvió
+
+- **Los hijos quedan siempre montados.** El contenedor (el que lleva el `id` de `aria-controls`) recibe `inert={!open}` — prop nativa en React 19. `inert` saca el subárbol del orden de tabulación y del árbol de accesibilidad igual que desmontarlo, sin sacarlo del DOM. Con secciones anidadas (Contactos dentro de CRM) alcanza con que un ancestro sea `inert`.
+- **Alto animado con `grid-template-rows: 0fr → 1fr`**: `.ds-sidebar-group-collapse` es una grilla de una fila, con un hijo `.ds-sidebar-group-collapse-inner` con `overflow: hidden; min-height: 0`. La fila pasa de `0fr` a `1fr` con `transition: grid-template-rows 180ms ease-out`. Es la forma estándar de animar hasta un alto "auto" sin JS y sin medir nada.
+- **Chevron**: un solo `ChevronRight` con `transform: rotate(90deg)` en `.is-open`, con la misma transición de 180ms (antes se cambiaba `ChevronRight` ↔ `ChevronDown`).
+- **`prefers-reduced-motion`**: las transiciones se declaran solo dentro de `@media (prefers-reduced-motion: no-preference)`, igual que `.ds-select-menu`. Con `reduce` el cambio de estado es instantáneo.
+
+### Tres detalles de CSS que no son obvios
+
+1. **El gap de 2px.** `.ds-sidebar-group` separa título e items con `gap: 2px`. Como el contenedor ahora existe aunque esté plegado, ese gap sumaba 2px de más a cada sección cerrada. `.ds-sidebar-group-collapse` lleva `margin-top: -2px` y los items un `padding-top: 2px`, así el espacio queda dentro de lo que se anima. No se tocó el gap de `.ds-sidebar-group`, que también usa el grupo Plataforma.
+2. **El anillo de foco.** El `overflow: hidden` cortaba el `outline` global de `a:focus-visible` (2px + 1px de offset). El inner lleva `margin: -3px; padding: 3px`: hace lugar al anillo sin cambiar el layout.
+3. **`visibility`.** Con ese padding de 3px, plegada quedaría a la vista una franja de 3px del primer link. Así que el contenedor plegado tiene `visibility: hidden`. Al cerrar, esa `visibility` espera a que termine la animación (`transition: visibility 0s 180ms`) y al abrir cambia en el acto. De paso refuerza lo que ya garantiza `inert`.
+
+### Verificación (app real, stack local)
+
+Con backend y Vite corriendo y un usuario QA ADMIN temporal en el Supabase local (borrado al terminar), en Chromium vía `/browse`:
+
+- **Teclado.** Todo plegado en el Dashboard: Tab recorre Dashboard → CRM → Actividades → Administración → Agentes de IA, sin pasar por ningún hijo. Con CRM y Contactos abiertos, Tab entra a Contactos → Conversaciones → Empresas → … como corresponde.
+- **Animación.** Alto del contenedor medido frame a frame (`requestAnimationFrame`) al abrir cada sección. CRM: 0 → 33 → 61 → 85 → 103 → 113 → 114 px. Contactos, Actividades, Administración y Agentes de IA siguen la misma curva de ~180ms. Al cerrar Administración: 259 → 178 → 108 → 52 → 13 → 0. Ningún salto en ninguno. El chevron abierto calcula `matrix(0, 1, -1, 0, 0, 0)`, o sea 90°. Plegada: `inert` + `visibility: hidden`. Abierta: ninguno de los dos.
+- **Foco.** En el screenshot, el anillo de foco de un link dentro de una sección abierta se ve completo, sin recorte.
+- **No verificado en navegador:** `prefers-reduced-motion: reduce`, porque `Emulation.setEmulatedMedia` está denegado en `/browse`. Se cubre por construcción: las transiciones solo existen dentro de `no-preference`.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `frontend/src/layout/AppLayout.tsx` | `SidebarSection`: sin desmontado condicional, contenedor con `inert` + `is-open`, un solo `ChevronRight` (se quita el import de `ChevronDown`) |
+| `frontend/src/design-system/design-system.css` | `.ds-sidebar-group-collapse`, `-collapse-inner`, `padding-top` de `.ds-sidebar-group-items`, rotación de `.ds-sidebar-chevron` y las transiciones bajo `no-preference` |
+| `frontend/src/layout/AppLayout.test.tsx` | Las aserciones "el link plegado no está en el DOM" pasan a `expectFolded` (el link tiene un ancestro `[inert]`), y se suma `expectUnfolded` donde la sección se abre |
+
+### Tests (corridos de verdad)
+
+`AppLayout.test.tsx` 37/37. jsdom no implementa el efecto de `inert` y Testing Library no lo tiene en cuenta en `getByRole`, así que los tests afirman el atributo, no la inaccesibilidad. La inaccesibilidad real la verifica la prueba de Tab en Chromium de arriba. **Prueba de mutación:** sacando `inert={!open}` fallan 6 tests. Las aserciones de gating por rol (`USER no ve X`) siguen con `not.toBeInTheDocument` porque ahí el link de verdad no se renderiza. Suite completa del frontend 1776/1776, `typecheck` y `lint` limpios.

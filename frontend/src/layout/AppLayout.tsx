@@ -10,7 +10,6 @@ import {
   CalendarRange,
   Car,
   CheckSquare,
-  ChevronDown,
   ChevronRight,
   Clock,
   Coins,
@@ -95,7 +94,9 @@ function useSectionOpen(paths: readonly string[]) {
 // `paths` son las rutas de los hijos, para saber si arranca desplegada; la
 // del propio título no cuenta — el link del título ya se ve siempre, y
 // contarla haría que plegarlo desde un hijo se deshiciera al navegar.
-// Plegada, los hijos no se montan (no quedan en el DOM ni en el tab order).
+// Plegada, los hijos siguen montados (para poder animar el alto, ítem 80)
+// pero con `inert`: fuera del tab order y del árbol de accesibilidad, la
+// misma garantía que daba desmontarlos.
 function SidebarSection({
   label,
   paths,
@@ -111,9 +112,13 @@ function SidebarSection({
 }) {
   const [open, toggle] = useSectionOpen(paths);
   const itemsId = useId();
-  const Chevron = open ? ChevronDown : ChevronRight;
   const chevron = (
-    <Chevron className="ds-sidebar-chevron" size={14} strokeWidth={1.5} aria-hidden="true" />
+    <ChevronRight
+      className={`ds-sidebar-chevron${open ? " is-open" : ""}`}
+      size={14}
+      strokeWidth={1.5}
+      aria-hidden="true"
+    />
   );
 
   let header: ReactNode;
@@ -150,14 +155,19 @@ function SidebarSection({
   return (
     <div className={`ds-sidebar-group${link && !nested ? " ds-sidebar-group--link-header" : ""}`}>
       {header}
-      {open ? (
-        <div
-          id={itemsId}
-          className={`ds-sidebar-group-items${link ? " ds-sidebar-group-items--indented" : ""}`}
-        >
-          {children}
+      <div
+        id={itemsId}
+        inert={!open}
+        className={`ds-sidebar-group-collapse${open ? " is-open" : ""}`}
+      >
+        <div className="ds-sidebar-group-collapse-inner">
+          <div
+            className={`ds-sidebar-group-items${link ? " ds-sidebar-group-items--indented" : ""}`}
+          >
+            {children}
+          </div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
