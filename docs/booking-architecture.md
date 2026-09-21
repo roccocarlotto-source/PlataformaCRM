@@ -302,6 +302,7 @@ Sigue el patrón controller → service → repository ya usado en el resto de `
   > descifrado y renovado. Falta restar eso del rango de trabajo, que es
   > exactamente la parte que hay que diseñar.
 - `POST /api/bookings` — crea la reserva: valida capacidad, crea el evento en Google, guarda el registro local, y ~~dispara las automatizaciones de la sección 6~~. *(Construido el 30/08/2026, **sin** las automatizaciones: emitir un evento al outbox hoy lo mandaría derecho a `DEAD_LETTER` porque no hay ningún handler registrado. Es el paso 5.)*
+  *(Ítem 77 de `docs/frontend-cambios-pendientes.md`: acepta `force: true` **solo de un ADMIN** —un no-ADMIN que lo manda recibe 403, nunca un `force` ignorado—. Forzar saltea únicamente el horario de trabajo y la grilla; la capacidad con lock, el "no en el pasado" y la integridad relacional se validan igual.)*
 
   > **El orden de las operaciones es la decisión, más que cualquier validación
   > suelta.** La llamada a Google va **afuera** de la transacción de base:

@@ -47,6 +47,7 @@ import { KnowledgeBaseFormPage } from "../features/knowledgeBase/KnowledgeBaseFo
 import { KnowledgeBaseListPage } from "../features/knowledgeBase/KnowledgeBaseListPage";
 import { AutomationFormPage } from "../features/automation/AutomationFormPage";
 import { AutomationListPage } from "../features/automation/AutomationListPage";
+import { BookingCalendarPage } from "../features/booking/BookingCalendarPage";
 import { BookingListPage } from "../features/booking/BookingListPage";
 import { ResourceFormPage } from "../features/resource/ResourceFormPage";
 import { ResourceListPage } from "../features/resource/ResourceListPage";
@@ -141,6 +142,12 @@ export const router = createBrowserRouter([
           // (booking.routes.ts), porque ver quién viene y cancelar un turno es
           // la operación cotidiana de quien atiende, no configuración.
           { path: "/bookings", element: <BookingListPage /> },
+          // Calendario de la Agenda (ítem 77): ACÁ AFUERA por lo mismo que
+          // /bookings — además lee GET /api/resources y
+          // /api/resources/:id/working-hours, de lectura abierta, y crea con
+          // POST /api/bookings, `authenticate` a secas. Forzar fuera de
+          // horario es solo ADMIN, y eso lo decide el backend (403).
+          { path: "/agenda", element: <BookingCalendarPage /> },
           {
             // Restricción de UX/autorización visual — ver auth/AdminRoute.tsx.
             // La autorización real de escritura sigue siendo authorize("ADMIN")

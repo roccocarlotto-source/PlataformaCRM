@@ -1,7 +1,7 @@
 // Reconstruido desde el contrato real del backend (src/controllers/booking.controller.ts,
 // src/repositories/booking.repository.ts, prisma/schema.prisma modelo Booking).
-// Nació con el ítem 75 de docs/frontend-cambios-pendientes.md. Solo la lectura
-// y la cancelación: esta pantalla no crea reservas (eso lo hace el agente).
+// Nació con el ítem 75 de docs/frontend-cambios-pendientes.md con la lectura y
+// la cancelación; el ítem 77 (calendario de la Agenda) sumó el alta manual.
 
 export type BookingStatus = "CONFIRMED" | "CANCELLED" | "COMPLETED" | "NO_SHOW";
 
@@ -54,4 +54,17 @@ export interface BookingListQuery {
   to?: string;
   sortBy?: BookingSortBy;
   sortOrder?: SortOrder;
+}
+
+// createBookingSchema de booking.controller.ts. SIN endsAt: sale de la duración
+// del servicio. `startsAt` es un instante ISO CON zona. `force` (ítem 77) es
+// solo de ADMIN: saltea el horario de trabajo y la grilla, nunca la capacidad
+// ni el pasado; un no-ADMIN que lo manda recibe 403. Sin opportunityId: el
+// calendario no lo ofrece.
+export interface CreateBookingInput {
+  resourceId: string;
+  serviceTypeId: string;
+  contactId: string;
+  startsAt: string;
+  force?: boolean;
 }

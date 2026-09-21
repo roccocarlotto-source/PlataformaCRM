@@ -20,6 +20,7 @@ import {
   findServiceTypeById,
   lockServiceTypeForUpdate,
 } from "../repositories/serviceType.repository";
+import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { estaDentroDelHorario, estaEnLaGrilla } from "../utils/workingHours";
 import { resolverContexto } from "./availability.service";
@@ -87,6 +88,20 @@ export interface CreateBookingInput {
   contactId: string;
   opportunityId?: string;
   startsAt: Date;
+  // Ítem 77 — reserva FORZADA por un ADMIN desde el calendario del CRM. Saltea
+  // SOLO la disponibilidad "de preferencia": el horario de trabajo del recurso
+  // y la alineación a la grilla de turnos. NO saltea el pasado (V-2), la
+  // integridad relacional ni la capacidad: dos reservas que se pisan sobre el
+  // mismo recurso son un conflicto físico, no una preferencia de agenda.
+  force?: boolean;
+}
+
+// Quién pide, para la única regla de rol que tiene la creación: `force` es
+// solo de ADMIN. Siempre desde req.auth, nunca desde el body — mismo criterio
+// que ActivityActor. Es opcional porque la tool del agente de IA no manda
+// `force` y no tiene un rol humano detrás.
+export interface BookingActor {
+  role: RoleName;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +151,17 @@ export async function createBooking(
   organizationId: string,
   input: CreateBookingInput,
   cliente?: ClienteGoogleCalendar,
+  actor?: BookingActor,
 ) {
+  // Ítem 77: FORZAR ES DE ADMIN, y un no-ADMIN que lo pide recibe 403 — nunca
+  // un `force` ignorado en silencio, que le haría creer que el horario era
+  // válido. Va primero de todo: es una decisión de permisos, no de datos, y no
+  // depende del frontend (que igual oculta el checkbox a quien no es ADMIN).
+  if (input.force === true && actor?.role !== "ADMIN") {
+    throw new AppError("Solo un administrador puede forzar una reserva fuera de horario", 403);
+  }
+  const forzar = input.force === true;
+
   // Capturado UNA vez, al entrar: una sola noción de "ahora" para toda la
   // llamada, comparada como instante UTC — no depende de la zona de la sucursal.
   const ahora = relojDeReservas.ahora();
@@ -199,7 +224,8 @@ export async function createBooking(
 
   // LA VALIDACIÓN DE HORARIO, con la misma función que la disponibilidad.
   const turno = { inicio: startsAt, fin: endsAt };
-  if (!estaDentroDelHorario(turno, franjasDeTrabajo)) {
+  // Con `forzar` (ADMIN, ítem 77) se saltean ESTA y la de la grilla, y nada más.
+  if (!forzar && !estaDentroDelHorario(turno, franjasDeTrabajo)) {
     throw new AppError("El horario solicitado está fuera del horario de trabajo del recurso", 400);
   }
 
@@ -210,7 +236,7 @@ export async function createBooking(
   // esto afuera a propósito al arreglar la grilla ofrecida; V-2 cierra la otra
   // mitad. La grilla es relativa al borde de la franja que contiene al turno,
   // no a la hora en punto — por eso se pregunta contra las franjas reales.
-  if (!estaEnLaGrilla(turno, franjasDeTrabajo, serviceType.durationMin)) {
+  if (!forzar && !estaEnLaGrilla(turno, franjasDeTrabajo, serviceType.durationMin)) {
     throw new AppError(
       "El horario solicitado no coincide con los turnos disponibles de este recurso",
       400,
@@ -257,7 +283,8 @@ export async function createBooking(
       throw new AppError("El servicio indicado no lo provee ese recurso", 400);
     }
 
-    // LA REVALIDACIÓN DE CAPACIDAD CON EL LOCK SOSTENIDO. Sin esto el control
+    // LA REVALIDACIÓN DE CAPACIDAD CON EL LOCK SOSTENIDO — también con `forzar`
+    // (ítem 77): forzar abre el horario, no duplica el recurso. Sin esto el control
     // sería evitable con solo llegar primero: dos requests concurrentes leerían
     // los dos "queda lugar" antes de que ninguno inserte. Es la lección de
     // ALTO-8 y de H-1. La capacidad sale de la relectura, no del pre-check.

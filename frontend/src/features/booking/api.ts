@@ -1,6 +1,6 @@
 import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
-import type { Booking, BookingListQuery, BookingListResponse } from "./types";
+import type { Booking, BookingListQuery, BookingListResponse, CreateBookingInput } from "./types";
 
 // Reutiliza request()/getAccessToken tal cual. organizationId nunca viaja acá.
 function buildListQueryString(query: BookingListQuery): string {
@@ -35,4 +35,10 @@ export function listBookings(
 // estaba cancelada es 409, con el mensaje del backend.
 export function cancelBooking(id: string): Promise<Booking> {
   return request<Booking>(`/bookings/${id}/cancel`, { method: "PATCH", getAccessToken });
+}
+
+// POST /bookings (ítem 77). El backend revalida todo —horario, grilla,
+// capacidad con lock, pasado— y un rechazo llega con su mensaje (400/403/409).
+export function createBooking(input: CreateBookingInput): Promise<Booking> {
+  return request<Booking>("/bookings", { method: "POST", body: input, getAccessToken });
 }
