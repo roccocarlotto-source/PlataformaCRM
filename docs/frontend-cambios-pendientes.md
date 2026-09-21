@@ -4851,3 +4851,68 @@ En `AgentFormPage`, tarjeta "Capacidades", debajo de Canales: el campo **"ID del
 - `agent.controller.integration-test.ts` **29/29**, con 3 tests nuevos: el número se guarda, se cambia y se vacía (`""` y `null`), solo dígitos; duplicado da 409 también desde otra organización; borrar el agente libera el número.
 - Unitarios del backend **968/968**, frontend **1778/1778** (con 2 tests nuevos del formulario), `typecheck`, `lint` y `prettier` limpios.
 - Suite de integración completa: **946/949**. Las 3 fallas (`ingest.controller` "encabezados custom" y el teardown de `opportunityStaleWorker`, FK de `automation_executions`) están en archivos que este ítem no toca, y **corridas aisladas pasan 37/37**: es concurrencia entre archivos de la suite, no una regresión.
+
+## 82. Botón de mostrar/ocultar contraseña en todos los campos de contraseña
+
+**Estado:** hecho
+
+**Qué faltaba.** Ningún campo de contraseña dejaba revisar lo escrito. Decisión explícita de Rocco: el botón va en **todos** los campos de contraseña del sistema, no solo en el login.
+
+**Inventario real.** Son **9** `<input type="password">`, no 8 como decía el pedido: la rama "ya iniciaste sesión" (`alreadyLoggedInEmail`) de `AcceptInvitationPage` tiene Contraseña **y** Confirmar contraseña, igual que las otras dos ramas.
+
+| Pantalla | Campos | `autoComplete` | `minLength` |
+|---|---|---|---|
+| `LoginPage` | Contraseña | `current-password` | — |
+| `ResetPasswordPage` | Contraseña + Confirmar | `new-password` | solo el primero (8) |
+| `AcceptInvitationPage`, rama `alreadyLoggedInEmail` | Contraseña + Confirmar | `new-password` | solo el primero (8) |
+| `AcceptInvitationPage`, rama `password-only` | Contraseña + Confirmar | `new-password` | solo el primero (8) |
+| `AcceptInvitationPage`, rama final (`form`) | Contraseña + Confirmar | `new-password` | solo el primero (8) |
+
+Todos llevan `required`. Cada uno se reemplazó con exactamente los mismos atributos.
+
+### Por qué un componente compartido y no un fix en cada pantalla
+
+El botón trae estado propio (visible/oculto), un `aria-label` que cambia con ese estado, el ícono que alterna y su CSS. Copiado nueve veces, cualquier corrección habría que repetirla nueve veces (ejemplo concreto: el `::-ms-reveal` de Edge, más abajo). `design-system/PasswordField.tsx` lo resuelve una vez; las pantallas solo cambian qué JSX dibuja el campo. Ninguna lógica de validación, de estado ni de la máquina de estados de `AcceptInvitationPage` se tocó.
+
+### Por qué no envuelve a `FormField`
+
+`FormField` **es** un `<label>` que envuelve al control. Meter el botón adentro deja dos elementos "labelables" (input y button) bajo un mismo `<label>`, que el HTML no admite: un label rotula un único control. `PasswordField` usa la misma raíz que `Select.tsx`: `div.ds-field` con un `<label htmlFor>` (clase `.ds-field-label`) apuntando al input. Se ve igual que un `FormField` —mismo rótulo 13px/600/mutado, mismo espaciado, verificado en navegador contra el campo Email de al lado— y el input conserva el mismo nombre accesible: los tests de las tres pantallas lo siguen encontrando con `getByLabelText("Contraseña")` sin un solo cambio.
+
+### Accesibilidad
+
+- El botón es `type="button"`: alternar nunca envía el formulario.
+- `aria-label` dinámico, "Mostrar contraseña" / "Ocultar contraseña". Se descartó un nombre fijo con `aria-pressed`: obligaría a interpretar qué significa "presionado".
+- `aria-controls` apunta al input.
+- **Sí** está en el recorrido de Tab (a diferencia del input escondido de `FileInputButton`, acá no hay nada invisible): input → ojo → botón de enviar. Verificado en Chromium.
+- El ícono (`Eye` / `EyeOff` de lucide, 16px) va con `aria-hidden`.
+- Cada campo tiene su propio estado: en un par Contraseña + Confirmar, mostrar una no muestra la otra.
+
+### CSS (`design-system.css`)
+
+- `.ds-password-field`: wrapper `position: relative` que toma el `margin-top` y el `max-width: 32rem` que la regla base le da a cualquier input, así el botón se centra contra el input y no contra input + margen. El input de adentro pasa a `margin-top: 0` y reserva `padding-right: calc(var(--space-3) * 2 + 16px)`, la misma cuenta que el chevron de `.ds-select-input`: el texto corta antes del ícono en vez de pasar por debajo.
+- `.ds-password-field__toggle`: absoluto a la derecha, alto completo del input (área clickeable de 40×40 aunque el ícono mida 16px), pisa el estilo base de `button` (borde, fondo, padding), `--color-text-muted` que pasa a `--color-text` en hover. El foco va con `outline-offset: -2px` para que el anillo quede adentro de la caja y no se encime con el borde del input.
+- `::-ms-reveal { display: none }`: Edge dibuja su propio ojo en los `type="password"`; sin esto habría dos.
+- `.ds-field-grid .ds-password-field { max-width: none }`, igual que el resto de los inputs dentro de la grilla (hoy ningún consumidor la usa; queda coherente para el primero que lo haga).
+
+### Verificación en navegador (`/browse`, Vite local en `/login`)
+
+- Medido: el botón y el input tienen el mismo `top` (355), el mismo alto (40) y el mismo borde derecho: el ícono queda centrado verticalmente dentro de la caja. `padding-right` computado del input: 40px.
+- Oculto → click → el input pasa a `type="text"` y el botón a "Ocultar contraseña", ícono `EyeOff`.
+- Tema oscuro (`data-theme="dark"`) con un texto más largo que la caja y el foco en el botón por teclado: el texto se corta antes del ícono y el anillo de foco se ve adentro de la caja.
+- Sin errores de consola.
+- `ResetPasswordPage` y `AcceptInvitationPage` no se abrieron en el navegador: necesitan una sesión de recuperación o de invitación de Supabase. El componente es el mismo; lo cubren sus tests.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `frontend/src/design-system/PasswordField.tsx` | Nuevo. `label`, `value`, `onChange(value: string)`, `autoComplete`, `required`, `minLength` |
+| `frontend/src/design-system/PasswordField.test.tsx` | Nuevo, 7 tests |
+| `frontend/src/design-system/design-system.css` | `.ds-password-field`, `__toggle`, `::-ms-reveal`, override en `.ds-field-grid` |
+| `frontend/src/features/auth/LoginPage.tsx` | 1 campo → `PasswordField` |
+| `frontend/src/features/auth/ResetPasswordPage.tsx` | 2 campos → `PasswordField`; sale el import de `FormField`, que quedó sin uso |
+| `frontend/src/features/auth/AcceptInvitationPage.tsx` | 6 campos (3 ramas) → `PasswordField` |
+
+### Tests (corridos de verdad)
+
+`PasswordField.test.tsx` 7/7: arranca oculto; el click alterna el `type` y el `aria-label` y un segundo click vuelve a ocultar; es controlado (lo tipeado llega por `onChange` y se conserva al alternar); conserva `autoComplete`/`required`/`minLength`; alternar no envía el form; el botón está en el Tab justo después del input; dos campos alternan cada uno por su cuenta. Los tests de `LoginPage`, `ResetPasswordPage` y `AcceptInvitationPage` pasan **sin modificaciones**: todos buscaban el input por `getByLabelText` y ninguno afirmaba `type="password"`. Suite completa del frontend 1785/1785 (164 archivos), `typecheck` y `lint` limpios.

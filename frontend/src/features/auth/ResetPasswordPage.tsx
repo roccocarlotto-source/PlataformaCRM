@@ -3,7 +3,7 @@ import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
-import { FormField } from "../../design-system/FormField";
+import { PasswordField } from "../../design-system/PasswordField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { supabase } from "../../lib/supabase";
 import { AuthShell } from "./AuthShell";
@@ -116,25 +116,21 @@ export function ResetPasswordPage() {
     <AuthShell>
       <form onSubmit={handleSubmit}>
         <h1>Elegí una nueva contraseña</h1>
-        <FormField label="Contraseña">
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            minLength={MIN_PASSWORD_LENGTH}
-            autoComplete="new-password"
-          />
-        </FormField>
-        <FormField label="Confirmar contraseña">
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(event) => setConfirmPassword(event.target.value)}
-            required
-            autoComplete="new-password"
-          />
-        </FormField>
+        <PasswordField
+          label="Contraseña"
+          value={password}
+          onChange={setPassword}
+          required
+          minLength={MIN_PASSWORD_LENGTH}
+          autoComplete="new-password"
+        />
+        <PasswordField
+          label="Confirmar contraseña"
+          value={confirmPassword}
+          onChange={setConfirmPassword}
+          required
+          autoComplete="new-password"
+        />
         {error ? <ErrorState>{error}</ErrorState> : null}
         <Button type="submit" variant="primary" disabled={isSubmitting}>
           {isSubmitting ? "Guardando…" : "Guardar contraseña"}

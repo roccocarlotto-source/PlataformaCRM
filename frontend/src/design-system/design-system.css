@@ -255,6 +255,66 @@ button:disabled {
   margin-right: 0;
 }
 
+/* ---------------------------------------------------------------------------
+   PasswordField.tsx (ítem 82) — input de contraseña con el botón de
+   mostrar/ocultar adentro de la caja, a la derecha. La caja es un wrapper
+   relativo que toma el margin-top y el max-width que la regla base le da a
+   cualquier input, para que el botón se centre contra el input y no contra
+   input + margen. La reserva de padding-right es la misma cuenta que usa el
+   chevron de .ds-select-input (espacio + ícono de 16px + espacio): el texto
+   que se escribe corta antes del ícono en vez de pasar por debajo.
+   --------------------------------------------------------------------------- */
+.ds-password-field {
+  position: relative;
+  max-width: 32rem;
+  margin-top: var(--space-1);
+}
+
+.ds-password-field > input {
+  margin-top: 0;
+  max-width: none;
+  padding-right: calc(var(--space-3) * 2 + 16px);
+}
+
+/* Edge dibuja su propio ojo dentro de los input type="password"; con el
+   nuestro al lado quedarían dos. */
+.ds-password-field > input::-ms-reveal {
+  display: none;
+}
+
+/* Pisa el estilo base de button (alto, padding, borde, fondo): acá es un
+   ícono dentro de la caja del input, no un botón suelto. Ocupa todo el alto
+   del input, así el área clickeable es cómoda aunque el ícono mida 16px. */
+.ds-password-field__toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--space-3) * 2 + 16px);
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: none;
+  color: var(--color-text-muted);
+}
+
+.ds-password-field__toggle:hover {
+  color: var(--color-text);
+}
+
+/* El outline base va por fuera (offset 1px) y se encimaría con el borde del
+   input; hacia adentro queda como un anillo alrededor del ícono. */
+.ds-password-field__toggle:focus-visible {
+  outline-offset: -2px;
+}
+
+.ds-field-grid .ds-password-field {
+  max-width: none;
+}
+
 /* Aplicable directo sobre un <Link> (react-router) para las acciones
    primarias que hoy son navegación, no un submit — "Nueva empresa", etc.
    Mismos tokens visuales que .ds-button--primary, sin duplicar el <button>

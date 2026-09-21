@@ -4,6 +4,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { FormField } from "../../design-system/FormField";
+import { PasswordField } from "../../design-system/PasswordField";
 import { AuthShell } from "./AuthShell";
 
 interface LoginLocationState {
@@ -57,15 +58,13 @@ export function LoginPage() {
             autoComplete="email"
           />
         </FormField>
-        <FormField label="Contraseña">
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            autoComplete="current-password"
-          />
-        </FormField>
+        <PasswordField
+          label="Contraseña"
+          value={password}
+          onChange={setPassword}
+          required
+          autoComplete="current-password"
+        />
         {error ? <ErrorState>{error}</ErrorState> : null}
         <Button type="submit" variant="primary" disabled={isSubmitting}>
           {isSubmitting ? "Ingresando…" : "Ingresar"}
