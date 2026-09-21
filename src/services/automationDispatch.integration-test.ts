@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import {
@@ -376,9 +377,38 @@ test("activity.create_follow_up crea la Activity con los campos esperados: TASK,
   assert.equal((await ejecucionesDe(regla.id))[0].status, "SUCCESS");
 });
 
-test("activity.create_follow_up con un payload sin ownerId válido falla legible y no crea nada", async () => {
+test("una regla guardada con una acción que NO admite su trigger queda FAILED sin ejecutar la acción (defensa en profundidad del ítem 76)", async () => {
+  // Directo en la base, salteando el CRUD que la rechazaría con 400: es el
+  // caso de una acción que restringe sus triggers DESPUÉS de que la regla
+  // existe. activity.create_follow_up colgada de opportunity.stale es
+  // exactamente la combinación que crearía una tarea diaria infinita.
   const registro = crearRegistroDeAcciones();
   registro.registrar(accionCrearActividadDeSeguimiento);
+  const regla = await crearRegla(e, { triggerType: "opportunity.stale" });
+
+  const cuantasAntes = (await actividadesDe(e)).length;
+  const { correr } = await despachar(registro, "opportunity.stale", {
+    opportunityId: randomUUID(),
+    ownerId: e.userId,
+  });
+  await assert.rejects(
+    correr,
+    /"activity\.create_follow_up" no se puede usar con el trigger "opportunity\.stale"/,
+  );
+
+  assert.equal((await actividadesDe(e)).length, cuantasAntes);
+  const [marca] = await ejecucionesDe(regla.id);
+  assert.equal(marca.status, "FAILED");
+  await prisma.automation.update({ where: { id: regla.id }, data: { deletedAt: new Date() } });
+});
+
+test("activity.create_follow_up con un payload sin ownerId válido falla legible y no crea nada", async () => {
+  const registro = crearRegistroDeAcciones();
+  // Una copia SIN la restricción de triggers (ítem 76): la acción real solo
+  // admite opportunity.won, y con un trigger de prueba el dispatcher la
+  // frenaría por compatibilidad antes de llegar al payload, que es lo que este
+  // caso prueba.
+  registro.registrar({ ...accionCrearActividadDeSeguimiento, triggers: undefined });
   const trigger = "test.payload_incompleto";
   const regla = await crearRegla(e, { triggerType: trigger });
 

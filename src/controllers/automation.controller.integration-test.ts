@@ -503,6 +503,188 @@ test("PATCH de triggerType o actionType desconocidos es 400", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// opportunity.stale y agent.draft_follow_up (ítem 76): triggerConfig, la
+// compatibilidad acción/trigger y la regla única por organización.
+//
+// Cada test deja su regla de stale BORRADA al terminar: la regla única es por
+// organización, y una que quedara activa haría fallar al siguiente con 409.
+// ---------------------------------------------------------------------------
+
+function cuerpoEstancada(extra: Record<string, unknown> = {}) {
+  return {
+    name: "Seguimiento de estancadas",
+    triggerType: "opportunity.stale",
+    triggerConfig: { daysWithoutActivity: 7 },
+    actionType: "agent.draft_follow_up",
+    actionConfig: {},
+    ...extra,
+  };
+}
+
+async function borrar(id: unknown) {
+  await prisma.automation.update({ where: { id: String(id) }, data: { deletedAt: new Date() } });
+}
+
+test("POST opportunity.stale + agent.draft_follow_up: se crea con su triggerConfig; una regla de won queda con triggerConfig {}", async () => {
+  const res = await call("POST", "/api/automations", adminA.accessToken, cuerpoEstancada());
+  const crudo = await res.text();
+  assert.equal(res.status, 201, crudo);
+  const regla = JSON.parse(crudo) as Record<string, unknown>;
+  assert.equal(regla.triggerType, "opportunity.stale");
+  assert.equal(regla.actionType, "agent.draft_follow_up");
+  assert.deepEqual(regla.triggerConfig, { daysWithoutActivity: 7 });
+  assert.deepEqual(regla.actionConfig, {});
+
+  // La de siempre, sin mandar triggerConfig: default "{}".
+  const won = await crearReglaPorHttp(adminA.accessToken);
+  assert.deepEqual(won.triggerConfig, {});
+
+  await borrar(regla.id);
+});
+
+test("POST opportunity.stale SIN daysWithoutActivity, o con uno inválido, es 400 y no crea nada", async () => {
+  const antes = await prisma.automation.count({ where: { organizationId: orgA } });
+
+  const sinConfig = await call(
+    "POST",
+    "/api/automations",
+    adminA.accessToken,
+    cuerpoEstancada({ triggerConfig: undefined }),
+  );
+  assert.equal(sinConfig.status, 400);
+  assert.match(await mensajeDeError(sinConfig), /daysWithoutActivity es requerido/);
+
+  const negativo = await call(
+    "POST",
+    "/api/automations",
+    adminA.accessToken,
+    cuerpoEstancada({ triggerConfig: { daysWithoutActivity: -2 } }),
+  );
+  assert.equal(negativo.status, 400);
+  assert.match(await mensajeDeError(negativo), /daysWithoutActivity no puede ser negativo/);
+
+  const noObjeto = await call(
+    "POST",
+    "/api/automations",
+    adminA.accessToken,
+    cuerpoEstancada({ triggerConfig: [7] }),
+  );
+  assert.equal(noObjeto.status, 400);
+
+  assert.equal(await prisma.automation.count({ where: { organizationId: orgA } }), antes);
+});
+
+test("acción y trigger incompatibles son 400: create_follow_up con stale (tarea diaria infinita) y draft_follow_up con won", async () => {
+  const seguimientoConStale = await call(
+    "POST",
+    "/api/automations",
+    adminA.accessToken,
+    cuerpoEstancada({
+      actionType: "activity.create_follow_up",
+      actionConfig: { subject: "Llamar", daysUntilDue: 1 },
+    }),
+  );
+  assert.equal(seguimientoConStale.status, 400);
+  assert.match(
+    await mensajeDeError(seguimientoConStale),
+    /"activity.create_follow_up" no se puede usar con el trigger "opportunity.stale"/,
+  );
+
+  const borradorConWon = await call(
+    "POST",
+    "/api/automations",
+    adminA.accessToken,
+    cuerpoValido({ actionType: "agent.draft_follow_up", actionConfig: {} }),
+  );
+  assert.equal(borradorConWon.status, 400);
+  assert.match(
+    await mensajeDeError(borradorConWon),
+    /"agent.draft_follow_up" no se puede usar con el trigger "opportunity.won"/,
+  );
+
+  // Y por PATCH: cambiar solo el trigger de una regla de won a stale choca con
+  // su acción (además de pedir daysWithoutActivity).
+  const regla = await crearReglaPorHttp(adminA.accessToken);
+  const patch = await call("PATCH", `/api/automations/${String(regla.id)}`, adminA.accessToken, {
+    triggerType: "opportunity.stale",
+    triggerConfig: { daysWithoutActivity: 3 },
+  });
+  assert.equal(patch.status, 400);
+  assert.equal((await filaDe(String(regla.id))).triggerType, "opportunity.won");
+});
+
+test("una sola regla ACTIVA de opportunity.stale por organización: la segunda es 409; inactiva sí se puede; activarla es 409", async () => {
+  const primera = await call("POST", "/api/automations", adminA.accessToken, cuerpoEstancada());
+  assert.equal(primera.status, 201);
+  const reglaUno = (await primera.json()) as Record<string, unknown>;
+
+  const segunda = await call(
+    "POST",
+    "/api/automations",
+    adminA.accessToken,
+    cuerpoEstancada({ triggerConfig: { daysWithoutActivity: 15 } }),
+  );
+  assert.equal(segunda.status, 409);
+  assert.match(await mensajeDeError(segunda), /solo puede haber una/);
+
+  // Inactiva no compite: se puede crear.
+  const inactiva = await call(
+    "POST",
+    "/api/automations",
+    adminA.accessToken,
+    cuerpoEstancada({ isActive: false }),
+  );
+  assert.equal(inactiva.status, 201);
+  const reglaDos = (await inactiva.json()) as Record<string, unknown>;
+
+  // Pero activarla mientras la otra sigue activa, no.
+  const activar = await call(
+    "PATCH",
+    `/api/automations/${String(reglaDos.id)}`,
+    adminA.accessToken,
+    {
+      isActive: true,
+    },
+  );
+  assert.equal(activar.status, 409);
+  assert.equal((await filaDe(String(reglaDos.id))).isActive, false);
+
+  // Editar la activa (su propio id no cuenta como "otra") sí se puede.
+  const editar = await call(
+    "PATCH",
+    `/api/automations/${String(reglaUno.id)}`,
+    adminA.accessToken,
+    {
+      triggerConfig: { daysWithoutActivity: 10 },
+    },
+  );
+  assert.equal(editar.status, 200);
+  assert.deepEqual(((await editar.json()) as Record<string, unknown>).triggerConfig, {
+    daysWithoutActivity: 10,
+  });
+
+  // La organización B no cuenta: su primera regla de stale se crea sin 409.
+  const deB = await call("POST", "/api/automations", adminB.accessToken, cuerpoEstancada());
+  assert.equal(deB.status, 201);
+  const reglaB = (await deB.json()) as Record<string, unknown>;
+
+  // Borrada la primera, la inactiva ya se puede activar.
+  await borrar(reglaUno.id);
+  const ahoraSi = await call(
+    "PATCH",
+    `/api/automations/${String(reglaDos.id)}`,
+    adminA.accessToken,
+    {
+      isActive: true,
+    },
+  );
+  assert.equal(ahoraSi.status, 200);
+
+  await borrar(reglaDos.id);
+  await borrar(reglaB.id);
+});
+
+// ---------------------------------------------------------------------------
 // Aislamiento multi-tenant
 // ---------------------------------------------------------------------------
 

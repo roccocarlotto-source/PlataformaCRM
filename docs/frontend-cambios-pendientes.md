@@ -4273,6 +4273,80 @@ Los de integración **los corrió el CI y no esta máquina**, y no es un atajo: 
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
 
+<<<<<<< HEAD
+---
+
+## 76. Automatización que dispara a la IA: borrador de seguimiento para oportunidades estancadas
+
+**Estado:** hecho
+
+**Qué pidió Rocco.** El punto 7 de su lista original: una automatización que **ponga a trabajar al agente de IA**. `docs/automations-architecture.md` §2 lo tenía anotado sin diseñar ("Iniciar acción de IA"), con una pregunta abierta: **qué significa "iniciar" una conversación sin un mensaje entrante del contacto**.
+
+**El caso concreto que eligió Rocco la esquiva sin resolverla**: cuando una Oportunidad lleva demasiado tiempo sin movimiento, la IA **redacta un borrador** de mensaje de seguimiento, y un vendedor lo revisa y lo manda él a mano. **El agente nunca le escribe al cliente** — así que no se inicia ninguna conversación, y la pregunta de §2 sigue abierta para el día que haga falta de verdad.
+
+### El borrador llega como una Activity, igual que el seguimiento de siempre
+
+Decisión de Rocco: el mismo mecanismo que `activity.create_follow_up`. Una `Activity` `TASK` asignada al dueño de la oportunidad, que aparece en su bandeja de tareas de siempre — **sin ninguna pantalla nueva**. Lo único distinto es que el cuerpo lo escribe el modelo y no una plantilla fija.
+
+- **Asunto:** `Seguimiento sugerido: <título de la oportunidad>`, recortado a los 255 de `Activity.subject`.
+- **Cuerpo:** el borrador del modelo.
+- **Vence HOY**, no mañana (no había decisión tomada; esta es la mía). La oportunidad ya lleva los días que la regla considera demasiados y el borrador está listo para mandar: ponerle un día más de margen sería sumarle un día al estancamiento que la regla existe para cortar.
+- Autor = dueño, igual que `activity.create_follow_up` (no hay "usuario sistema"; sigue anotado en §10 de `docs/automations-architecture.md`).
+
+### El trigger nuevo necesita un worker, a diferencia de `opportunity.won`
+
+`opportunity.won` es un **cambio**: `opportunity.service.ts` lo emite en la misma transacción del UPDATE, en el instante en que pasa. "Lleva N días sin movimiento" es un **estado** al que se llega sin que nadie haga nada — no hay ningún request en el que emitirlo. Hay que ir a buscarlo.
+
+`src/workers/opportunityStaleWorker.ts` es ese barrido: **una vez por día** (24 horas, no la hora del worker de canales: la regla se mide en días), con primera pasada inmediata al arrancar, y el mismo patrón de arranque y apagado que los otros cuatro (`server.ts`, stop asíncrono que espera la pasada en curso; se sumó a la tabla de `detenerWorker.test.ts`). Se apaga con `OPPORTUNITY_STALE_WORKER_ENABLED=false`.
+
+**Solo emite eventos.** Por cada organización con una regla activa de `opportunity.stale`, busca las `Opportunity` `OPEN`, no borradas, con `updatedAt` anterior a `ahora − daysWithoutActivity`, y emite un `OutboxEvent` `opportunity.stale` con `{ opportunityId, ownerId }` —la misma forma que `opportunity.won`—. De ahí en más es el camino que ya existía: el worker del outbox lo entrega, el dispatcher corre la regla con su idempotencia, y la acción hace el trabajo. **Es un productor nuevo; el despacho no se tocó.**
+
+### El punto que no podía fallar: el anti-redraft
+
+Una oportunidad que sigue quieta cumple la condición **todos los días**. Sin memoria, generaría un borrador nuevo cada día para siempre.
+
+La memoria es una columna nueva, **`Opportunity.lastStaleFollowUpDraftedAt`** (nullable, sin default, sin backfill). El barrido solo emite si, además de cumplir los días, la columna es `NULL` **o anterior a `updatedAt`** — es decir, si hubo un movimiento real **después** del último borrador (aunque sea cambiarle el monto) y la oportunidad volvió a estancarse. La compara contra `updatedAt` de la misma fila con un *field reference* de Prisma.
+
+La escribe **solo la acción, y solo después de crear la Activity**: si el modelo o `createActivity` fallan, la oportunidad queda sin marcar y la pasada siguiente la vuelve a tomar.
+
+**Un detalle que habría roto todo en silencio:** `updatedAt` es `@updatedAt`, y Prisma lo pisa con "ahora" en cualquier `update` de la fila. Escribir la marca con `prisma.opportunity.update` habría movido `updatedAt` un instante **después** de la marca — "hubo movimiento después del último borrador" — y el redraft diario que la columna existe para impedir habría vuelto por la ventana. Por eso `markStaleFollowUpDrafted` es un **UPDATE crudo que no toca `updated_at`** (con la fecha convertida a UTC en SQL, que es como Prisma guarda los `DateTime`). Hay un test de integración que afirma que `updatedAt` queda intacto.
+
+**La acción relee la oportunidad antes de redactar**, y termina sin efecto y sin error si ya no existe, si ya no está `OPEN` (se ganó o se perdió entre el barrido y el despacho), o si **ya tiene un borrador posterior a su último movimiento**. Eso último es lo que vuelve inofensivo un evento duplicado: un deploy dispara una pasada inmediata, y si el outbox todavía no entregó la anterior, la misma oportunidad recibe dos eventos. El segundo no redacta nada (probado en integración). La ventana que queda —dos instancias despachando la misma oportunidad **en paralelo en el mismo segundo**— se acepta y está anotada en la cabecera del worker.
+
+### Si el modelo falla: nada a medias
+
+Sin Activity vacía, sin marca, y el error **se loguea y se relanza**. Es distinto de `ejecutarHandoff` —que se traga el fallo porque no puede tumbar el turno de una conversación— y a propósito: acá no hay turno que proteger, y relanzar es lo que deja la regla en `FAILED` con el motivo en `AutomationExecution.error` y hace que el outbox **reintente con backoff**. Si los reintentos se agotan, la oportunidad sigue sin marcar y la pasada del día siguiente emite un evento nuevo.
+
+### Qué ve el modelo
+
+`generarBorradorDeSeguimiento` en `src/services/opportunityFollowUpDraft.service.ts`, **mismo molde que el brief del ítem 73**: `llm.complete({ systemPrompt, messages, tools: [] })`, sin tools y sin `model`, con el proveedor inyectable. Devuelve el texto y **no escribe nada**.
+
+- **Los datos de la oportunidad:** título, monto con moneda (o "sin monto cargado"), etapa, fecha de creación y fecha del último movimiento con los días que pasaron.
+- **Si el contacto tiene alguna conversación, el transcript de la más reciente** (por `lastMessageAt`, con `NULLS LAST` y desempate estable), reusando `armarTranscript` del brief tal cual — pero **los últimos 40 mensajes y no todos**: para retomar el contacto importa cómo terminó la charla. Sin contacto o sin conversaciones, lo dice explícitamente y el borrador se arma solo con la oportunidad.
+- **Sin nombres propios** (ni del contacto, ni de la empresa, ni del vendedor), mismo criterio que el brief: no se le mandan datos personales al proveedor sin necesidad, y el vendedor personaliza el saludo al leerlo.
+- **El prompt pide** un mensaje breve (2 a 5 oraciones) **en primera persona del vendedor** —sin mencionar ningún asistente—, listo para WhatsApp o email, que retome lo que quedó pendiente, termine con una pregunta, sin inventar precios ni plazos y sin marcadores entre corchetes.
+- `limpiarRespuesta` del brief se exportó con el tope como parámetro para sacar las comillas envolventes acá también (tope del borrador: 2.000 caracteres).
+
+### Dos cosas que el enunciado no traía y hubo que decidir
+
+**1. Dónde vive `daysWithoutActivity`.** El enunciado dice que es config del **trigger**, no de la acción — pero `Automation` solo tenía `actionConfig`. Se sumó **`Automation.triggerConfig`** (`JSONB NOT NULL DEFAULT '{}'`), con el mismo reparto que `actionConfig`: cada trigger declara su schema zod en `CONFIG_DE_TRIGGER` (`automationTriggers.ts`) y el CRUD lo valida antes de guardar. El default `{}` es la config válida de `opportunity.won`, así que las reglas existentes quedan correctas sin backfill. `daysWithoutActivity` va de 0 a 365, **sin default oculto** (400 si falta), y **el 0 vale**: es lo que permite probar la regla a mano sin esperar días.
+
+**2. Qué acción va con qué trigger, y cuántas reglas.** Dos problemas reales que la combinación libre habría dejado abiertos:
+
+- **`activity.create_follow_up` colgada de `opportunity.stale` crearía la misma tarea TODOS los días para siempre**: esa acción no deja la marca anti-redraft, así que el barrido volvería a emitir en cada pasada. Por eso cada acción puede declarar los **triggers que admite** (`AccionRegistrada.triggers`): `create_follow_up` solo `opportunity.won`, y `agent.draft_follow_up` solo `opportunity.stale` (su prompt es para retomar una oportunidad quieta; colgada de una venta ganada no tiene sentido). El CRUD lo rechaza con **400** y el dispatcher lo vuelve a chequear (defensa en profundidad, con test). La compatibilidad la declara la **acción** porque es ella la que sabe si cumple el contrato del trigger.
+- **Una sola regla activa de `opportunity.stale` por organización (409 si hay otra).** El evento lleva una oportunidad, no una regla, y el dispatcher corre **todas** las reglas activas del trigger: con dos reglas (3 y 10 días), la de 3 haría emitir y la de 10 correría igual sobre una oportunidad que no lleva 10 días quieta — su número no significaría nada, y saldrían dos borradores por cada estancamiento. Es un chequeo del CRUD sin lock; si una carrera dejara dos, el worker usa el **menor** umbral y lo avisa en el log.
+
+### Frontend
+
+`catalog.ts` sumó el trigger **"Oportunidad sin movimiento"** y la acción **"Redactar seguimiento con IA"**, `CONFIG_DE_TRIGGER` (la misma forma que `CONFIG_DE_ACCION`: borrador en strings, `validar`, `aPayload`), y `ACCIONES_POR_TRIGGER`, espejo de la compatibilidad del backend.
+
+En `AutomationFormPage.tsx`:
+
+- **`CamposDelTrigger`**, un `switch` hermano de `CamposDeLaAccion`: con "Oportunidad sin movimiento" aparece **"Días sin movimiento"** (requerido, 0–365) con un hint que explica que se revisa una vez por día, que cada oportunidad dispara una sola vez hasta que vuelva a moverse, y que solo puede haber una regla activa con ese evento. "Oportunidad ganada" no dibuja nada.
+- **El selector de acción ofrece solo las que admite el evento**, y cambiar de evento pasa a la primera acción compatible con su config vacía — en vez de dejar armada una combinación que el backend va a rechazar.
+- El `case` de `agent.draft_follow_up` no tiene campos: un texto que explica qué hace y que **el mensaje no se le manda a nadie**.
+- El body ahora lleva `triggerConfig` (`{}` para "Oportunidad ganada"). Un trigger que el espejo no conoce no lo manda, y el backend revalida el guardado.
+=======
 
 ## 74. El agente comparte datos de cobro (link de pago / transferencia)
 
@@ -4323,11 +4397,48 @@ Un test unitario fija las cuatro ideas de esa descripción (cuándo sí, la preg
 ### La pantalla
 
 `BranchFormPage` gana una tarjeta **"Cobro"** debajo de "Datos de la sucursal" (donde está el vendedor por defecto del ítem 69): un input de URL para el link de pago y un `<textarea>` para los datos de transferencia, **los dos opcionales y sin asterisco**, con un hint que explica cuándo los comparte el agente. El formulario **manda siempre las dos claves**, con `null` cuando quedaron vacías —igual que `timezone`/`defaultOwnerId`—, así que borrar el link de una sucursal que lo tenía llega como un `PATCH` de verdad.
+>>>>>>> origin/master
 
 ### Lo que se tocó
 
 | Archivo | Qué |
 |---|---|
+<<<<<<< HEAD
+| `prisma/schema.prisma` + `prisma/migrations/20260928140000_opportunity_stale_follow_up/` | `Opportunity.lastStaleFollowUpDraftedAt` y `Automation.triggerConfig`; sin índices, sin FK, no entra al diagnóstico |
+| `src/services/automationTriggers.ts` | `opportunity.stale`, `CONFIG_DE_TRIGGER`, `TRIGGERS_DE_REGLA_UNICA` |
+| `src/services/automationActions.ts` | `AccionRegistrada.triggers` + `accionAdmiteTrigger` |
+| `src/services/automationActions/draftFollowUpMessage.ts` | **Nuevo**: la acción `agent.draft_follow_up`, con dependencias inyectables |
+| `src/services/opportunityFollowUpDraft.service.ts` | **Nuevo**: contexto, prompt y `generarBorradorDeSeguimiento` |
+| `src/workers/opportunityStaleWorker.ts` + `src/server.ts` + `src/config/env.ts` + `.env.example` | **Nuevo** worker y su registro; `OPPORTUNITY_STALE_WORKER_ENABLED` / `_POLL_MS` |
+| `src/services/automation.service.ts` + `src/controllers/automation.controller.ts` + `src/repositories/automation.repository.ts` | `triggerConfig` en el CRUD, compatibilidad y regla única |
+| `src/services/automationDispatch.service.ts` | El rechazo de una combinación incompatible |
+| `src/repositories/opportunity.repository.ts` | `findStaleOpportunities`, `findOpportunityForFollowUpDraft`, `markStaleFollowUpDrafted` |
+| `src/repositories/conversation.repository.ts` | `findLatestConversationByContact` |
+| `src/services/automationActions/createFollowUpActivity.ts` / `src/services/conversationBrief.service.ts` | `triggers: [won]`; `payloadDeOportunidadSchema` y `limpiarRespuesta` exportados |
+| `frontend/src/features/automation/{catalog,types,AutomationFormPage}.ts(x)` | Trigger, acción, `CONFIG_DE_TRIGGER`, `ACCIONES_POR_TRIGGER` y `CamposDelTrigger` |
+
+**Producción necesita `migrate:deploy`** con `20260928140000_opportunity_stale_follow_up` después del merge, y **`OPENROUTER_API_KEY`** para que la acción funcione (sin clave, cada despacho queda `FAILED` con el motivo, el outbox reintenta, y no se escribe nada).
+
+### Tests (corridos de verdad)
+
+La suite de integración **se corrió en local contra el Supabase local**, no contra producción. Ojo con esto para la próxima: el `.env` de este worktree **apunta a producción**, y el cliente de Prisma lo autocarga **antes** de que `src/config/env.ts` lea `.env.test` — en un primer intento la suite intentó conectarse al pooler de producción y **falló por autenticación sin escribir nada**. Lo que funcionó: exportar `.env.test` al entorno del proceso (`set -a && . ./.env.test && set +a`) antes de `NODE_ENV=test`, que es lo que hace que gane.
+
+**Backend: 944 unitarios y 916 de integración, todos en verde** (antes del ítem: 916 y 900).
+
+- **10 unitarios nuevos en `draftFollowUpMessage.test.ts`**: el orden **borrador → Activity → marca**; el contenido de la Activity (TASK, asunto, cuerpo del modelo, dueño como asignado y autor, vence hoy); si el modelo falla **no hay Activity ni marca y el error sube**; si `createActivity` falla **no hay marca**; payload inválido falla sin tocar nada; y los tres casos que terminan sin efecto (borrada, ya no `OPEN`, ya drafteada después del último movimiento).
+- **6 unitarios nuevos en `opportunityFollowUpDraft.service.test.ts`** (contexto con y sin conversación, monto 0, días nunca negativos, prompt) y **4 en `opportunityStaleWorker.test.ts`** (el límite de días, un umbral por organización, el menor si hay dos, una regla con config inválida se saltea).
+- **6 unitarios nuevos en `automationActions.test.ts`** (el catálogo de dos triggers, sus schemas de config, la regla única, la compatibilidad) y **2 en `detenerWorker.test.ts`** (el worker nuevo en la tabla).
+- **7 de integración nuevos en `opportunityStaleWorker.integration-test.ts`**: sin regla, o con la regla inactiva o borrada, no emite; emite **recién cuando se cumplen los días** y con el payload correcto; ganadas, perdidas y borradas no emiten; **ya drafteada sin movimiento no vuelve a emitir por más días que pasen** (y la marca no movió `updatedAt`); una marca igual a `updatedAt` cuenta como drafteada; y **con movimiento después del borrador y vuelta a estancarse, sí**.
+- **4 de integración nuevos en `automationOpportunityStale.integration-test.ts`** (de punta a punta, con el modelo doblado): barrido → outbox → Activity con el borrador y la marca puesta, **el modelo recibió la conversación más reciente y no la vieja, y sin nombres propios**, y al día siguiente no se redacta otro; sin contacto el borrador se arma solo con la oportunidad; **si el modelo falla** no hay Activity ni marca, la regla queda `FAILED`, y el reintento con el modelo sano la completa; y **dos eventos para la misma oportunidad dejan un solo borrador**.
+- **4 de integración nuevos en `automation.controller.integration-test.ts`** (por HTTP): alta con `triggerConfig`; sin `daysWithoutActivity` o con uno inválido es 400; combinaciones incompatibles son 400 (en alta y en `PATCH`); y la regla única — la segunda activa es 409, una inactiva sí se crea pero activarla es 409, editar la propia no choca, otra organización no cuenta.
+- **1 de integración nuevo en `automationDispatch.integration-test.ts`**: una regla incompatible guardada directo en la base queda `FAILED` sin ejecutar la acción. Y uno existente se ajustó: usaba `create_follow_up` con un trigger de prueba, que ahora la compatibilidad frena antes del payload que ese caso prueba.
+
+**Frontend: 156 archivos, 1706 casos, todos en verde** (antes: 1695). **6 nuevos en `AutomationFormPage.test.tsx`** (el selector de acción con "Oportunidad ganada"; elegir "Oportunidad sin movimiento" pide los días y pasa a la acción de IA; el POST con `triggerConfig` numérico y `actionConfig` vacío; sin días no sale y 0 vale; volver a "Oportunidad ganada"; edición que hidrata y manda los días) y **5 en `catalog.test.ts`**; 3 existentes se actualizaron (el selector de evento ya tiene dos opciones y los bodies llevan `triggerConfig`).
+
+**Verificación manual contra el stack local**, por el camino real completo —CRUD → worker → outbox → dispatcher → acción → **adaptador OpenRouter**—: no hay `OPENROUTER_API_KEY` en ningún `.env` de la máquina, así que el adaptador apuntó a un mock HTTP local con `OPENROUTER_BASE_URL` (el uso que el propio `llmProvider.service.ts` prevé). Sobre la organización sembrada `test-local`: regla con `daysWithoutActivity: 0` creada por el CRUD → el barrido emitió 2 eventos (las 2 oportunidades `OPEN`) → el outbox entregó 2 → quedó la Activity `Seguimiento sugerido: [SEED] Corolla para Ana` con el texto del modelo, asignada al dueño y venciendo hoy → la marca quedó puesta y **`updatedAt` intacto** → un segundo barrido emitió **0**. Todo lo creado se limpió después. **Con el modelo real no se probó**, por la falta de clave.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
+=======
 | `prisma/schema.prisma` | `Branch.paymentLinkUrl` (`VarChar(2048)`) y `Branch.bankTransferDetails` (`Text`), los dos opcionales |
 | `prisma/migrations/20260928120000_branch_datos_de_cobro/` | Las dos columnas nullable, sin default ni backfill. Sin índice, sin CHECK, sin FK: **no entra al diagnóstico** |
 | `src/controllers/branch.controller.ts` | `paymentLinkUrl` (misma validación que `destinationUrl`) y `bankTransferDetails` (trim, tope 2000) en `branchFields`, opcionales y nullable |
@@ -4449,3 +4560,4 @@ Sin migración y sin cambios de contrato: todo el resto del backend quedó como 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
 
 **No se levantó el stack local** para crear un recurso de punta a punta: el worktree donde arrancó el ítem tiene el `.env` apuntando a producción, y `supabase start` no anda desde un worktree secundario. La cobertura del flujo es la de los tests de arriba.
+>>>>>>> origin/master

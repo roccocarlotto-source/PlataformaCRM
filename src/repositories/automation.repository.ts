@@ -83,6 +83,8 @@ export interface CreateAutomationData {
   actionType: string;
   // Ya validado por el service contra el schema de la acción.
   actionConfig: Prisma.InputJsonValue;
+  // Ya validado por el service contra el schema del trigger (ítem 76).
+  triggerConfig: Prisma.InputJsonValue;
   isActive?: boolean;
 }
 
@@ -98,6 +100,9 @@ export interface UpdateAutomationData {
   // en el schema, así que acá no hay DbNull que contemplar (como
   // Agent.guardrails).
   actionConfig?: Prisma.InputJsonValue;
+  // Mismo criterio que actionConfig: se reemplaza entero. NOT NULL con default
+  // "{}", así que tampoco hay DbNull.
+  triggerConfig?: Prisma.InputJsonValue;
   isActive?: boolean;
 }
 
@@ -136,6 +141,49 @@ export function findActiveAutomationsByTrigger(
   return db.automation.findMany({
     where: { organizationId, triggerType, isActive: true, deletedAt: null },
     orderBy: { createdAt: "asc" },
+  });
+}
+
+// Cuántas reglas activas (no borradas) tiene la organización para un trigger,
+// sin contar `exceptoId` — la regla que se está editando. Para los triggers
+// de regla única (TRIGGERS_DE_REGLA_UNICA, ítem 76).
+export function countOtherActiveAutomationsByTrigger(
+  organizationId: string,
+  triggerType: string,
+  exceptoId: string | undefined,
+  db: Db = prisma,
+) {
+  return db.automation.count({
+    where: {
+      organizationId,
+      triggerType,
+      isActive: true,
+      deletedAt: null,
+      ...(exceptoId ? { id: { not: exceptoId } } : {}),
+    },
+  });
+}
+
+// Las reglas activas de un trigger en TODAS las organizaciones — o en una
+// sola, si se pasa. La consulta del worker de oportunidades estancadas (ítem
+// 76), el único productor que no nace de un cambio dentro de una organización
+// sino de un barrido. El alcance por organización es SOLO PARA TESTS: la suite
+// corre archivos en paralelo contra una base compartida, y un barrido sin
+// alcance emitiría eventos en las organizaciones de otros tests (mismo motivo
+// que en renovarCanalesVencidos).
+export function findActiveAutomationsByTriggerForSweep(
+  triggerType: string,
+  scope: { organizationId?: string } = {},
+  db: Db = prisma,
+) {
+  return db.automation.findMany({
+    where: {
+      triggerType,
+      isActive: true,
+      deletedAt: null,
+      ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
+    },
+    orderBy: [{ organizationId: "asc" }, { createdAt: "asc" }],
   });
 }
 

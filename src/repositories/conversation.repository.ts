@@ -31,6 +31,27 @@ export function findOpenConversation(
   });
 }
 
+// La conversación MÁS RECIENTE de un contacto, con cualquier agente, canal y
+// estado (ítem 76): el borrador de seguimiento de una oportunidad estancada
+// usa su transcript como contexto. "Más reciente" por el último mensaje, que es
+// lo que mide cuándo se habló por última vez; una conversación sin mensajes
+// (lastMessageAt NULL) va al final, y el id desempata para que el resultado no
+// dependa del plan de ejecución.
+export function findLatestConversationByContact(
+  organizationId: string,
+  contactId: string,
+  db: Db = prisma,
+) {
+  return db.conversation.findFirst({
+    where: { organizationId, contactId },
+    orderBy: [
+      { lastMessageAt: { sort: "desc", nulls: "last" } },
+      { createdAt: "desc" },
+      { id: "desc" },
+    ],
+  });
+}
+
 export function findConversationById(id: string, organizationId: string, db: Db = prisma) {
   return db.conversation.findFirst({ where: { id, organizationId } });
 }

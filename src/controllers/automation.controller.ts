@@ -49,11 +49,19 @@ const actionConfigSchema = z.record(z.string(), z.unknown(), {
   required_error: "actionConfig es requerido",
 });
 
+// Misma forma que actionConfig, del lado del trigger (ítem 76). Opcional en el
+// alta: un trigger sin configuración (opportunity.won) no la necesita, y el
+// service valida el contenido contra el schema del trigger elegido.
+const triggerConfigSchema = z.record(z.string(), z.unknown(), {
+  invalid_type_error: "triggerConfig debe ser un objeto JSON",
+});
+
 const createAutomationSchema = z.object({
   name: nameSchema,
   triggerType: triggerTypeSchema,
   actionType: actionTypeSchema,
   actionConfig: actionConfigSchema,
+  triggerConfig: triggerConfigSchema.optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -63,6 +71,7 @@ const updateAutomationSchema = z
     triggerType: triggerTypeSchema,
     actionType: actionTypeSchema,
     actionConfig: actionConfigSchema,
+    triggerConfig: triggerConfigSchema,
     isActive: z.boolean(),
   })
   .partial()

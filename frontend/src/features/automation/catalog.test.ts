@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCIONES_POR_TRIGGER,
   ACTION_CREATE_FOLLOW_UP,
+  ACTION_DRAFT_FOLLOW_UP,
   ACTION_OPTIONS,
   CONFIG_DE_ACCION,
+  CONFIG_DE_TRIGGER,
   DEFAULT_ACTION,
   DEFAULT_TRIGGER,
   MAX_NOTES,
+  TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_OPPORTUNITY_WON,
   TRIGGER_OPTIONS,
+  accionesParaTrigger,
   actionLabel,
   triggerLabel,
 } from "./catalog";
@@ -23,7 +28,9 @@ import {
 describe("catálogo de triggers y acciones", () => {
   it("los rótulos traducen el string técnico, y uno desconocido se muestra crudo", () => {
     expect(triggerLabel(TRIGGER_OPPORTUNITY_WON)).toBe("Oportunidad ganada");
+    expect(triggerLabel(TRIGGER_OPPORTUNITY_STALE)).toBe("Oportunidad sin movimiento");
     expect(actionLabel(ACTION_CREATE_FOLLOW_UP)).toBe("Crear actividad de seguimiento");
+    expect(actionLabel(ACTION_DRAFT_FOLLOW_UP)).toBe("Redactar seguimiento con IA");
     // Un trigger o una acción que el backend ya conoce y este espejo todavía
     // no: el dato real informa más que un "—".
     expect(triggerLabel("appointment.reminder_due")).toBe("appointment.reminder_due");
@@ -32,7 +39,24 @@ describe("catálogo de triggers y acciones", () => {
 
   it("los defaults del formulario son la primera entrada del catálogo, no un valor escrito a mano", () => {
     expect(DEFAULT_TRIGGER).toBe(TRIGGER_OPTIONS[0].value);
-    expect(DEFAULT_ACTION).toBe(ACTION_OPTIONS[0].value);
+    expect(DEFAULT_ACTION).toBe(accionesParaTrigger(DEFAULT_TRIGGER)[0].value);
+    expect(DEFAULT_ACTION).toBe(ACTION_CREATE_FOLLOW_UP);
+  });
+
+  it("todo trigger ofrecido sabe configurarse, y cada uno admite al menos una acción del catálogo", () => {
+    for (const option of TRIGGER_OPTIONS) {
+      expect(CONFIG_DE_TRIGGER[option.value]).toBeDefined();
+      expect(accionesParaTrigger(option.value).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("espejo de la compatibilidad del backend: ganada -> tarea, sin movimiento -> borrador con IA", () => {
+    expect(ACCIONES_POR_TRIGGER).toEqual({
+      [TRIGGER_OPPORTUNITY_WON]: [ACTION_CREATE_FOLLOW_UP],
+      [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
+    });
+    // Un trigger que el espejo no conoce no restringe: decide el backend.
+    expect(accionesParaTrigger("booking.reminder")).toEqual(ACTION_OPTIONS);
   });
 
   it("toda acción ofrecida en el selector sabe configurarse", () => {
@@ -163,5 +187,37 @@ describe("configuración de activity.create_follow_up", () => {
     expect(config.validar({ subject: "Llamar", daysUntilDue: "400", notes: "" })).toBe(
       "Los días hasta el vencimiento tienen que estar entre 0 y 365.",
     );
+  });
+});
+
+describe("configuración de opportunity.stale (ítem 76)", () => {
+  const config = CONFIG_DE_TRIGGER[TRIGGER_OPPORTUNITY_STALE];
+
+  it("borrador vacío, lectura del guardado y payload con el número como número", () => {
+    expect(config.draftVacio()).toEqual({ daysWithoutActivity: "" });
+    expect(config.draftDesde({ daysWithoutActivity: 7 })).toEqual({ daysWithoutActivity: "7" });
+    expect(config.draftDesde({})).toEqual({ daysWithoutActivity: "" });
+    expect(config.aPayload({ daysWithoutActivity: "7" })).toEqual({ daysWithoutActivity: 7 });
+  });
+
+  it("valida: requerido (sin confundir vacío con 0), entero y entre 0 y 365", () => {
+    expect(config.validar({ daysWithoutActivity: "" })).toMatch(/Indicá cuántos días/);
+    expect(config.validar({ daysWithoutActivity: "2.5" })).toMatch(/número entero/);
+    expect(config.validar({ daysWithoutActivity: "-1" })).toMatch(/entre 0 y 365/);
+    expect(config.validar({ daysWithoutActivity: "366" })).toMatch(/entre 0 y 365/);
+    expect(config.validar({ daysWithoutActivity: "0" })).toBeNull();
+    expect(config.validar({ daysWithoutActivity: "365" })).toBeNull();
+  });
+
+  it("opportunity.won y agent.draft_follow_up no tienen campos: siempre válidos y viajan como {}", () => {
+    for (const vacia of [
+      CONFIG_DE_TRIGGER[TRIGGER_OPPORTUNITY_WON],
+      CONFIG_DE_ACCION[ACTION_DRAFT_FOLLOW_UP],
+    ]) {
+      expect(vacia.draftVacio()).toEqual({});
+      expect(vacia.draftDesde({ loQueSea: 1 })).toEqual({});
+      expect(vacia.validar({})).toBeNull();
+      expect(vacia.aPayload({})).toEqual({});
+    }
   });
 });

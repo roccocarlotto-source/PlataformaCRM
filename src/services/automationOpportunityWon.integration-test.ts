@@ -15,7 +15,7 @@ import {
 import { crearRegistroDeAcciones, type RegistroDeAcciones } from "./automationActions";
 import { configDeSeguimientoSchema } from "./automationActions/createFollowUpActivity";
 import { registrarAutomatizaciones } from "./automationRegistrations";
-import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
+import { TRIGGER_OPPORTUNITY_STALE, TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
 import { crearRegistroDeHandlers, type RegistroDeHandlers } from "./outboxHandlers";
 
@@ -75,9 +75,15 @@ async function eventosDeOportunidad(opportunityId: string) {
 // Emisión: cuándo sí y cuándo no
 // ---------------------------------------------------------------------------
 
-test("registrarAutomatizaciones deja un handler por trigger conocido y la acción del catálogo", () => {
-  assert.deepEqual(handlers.tiposRegistrados(), [TRIGGER_OPPORTUNITY_WON]);
-  assert.deepEqual(acciones.tiposRegistrados(), ["activity.create_follow_up"]);
+test("registrarAutomatizaciones deja un handler por trigger conocido y las acciones del catálogo", () => {
+  assert.deepEqual(handlers.tiposRegistrados(), [
+    TRIGGER_OPPORTUNITY_STALE,
+    TRIGGER_OPPORTUNITY_WON,
+  ]);
+  assert.deepEqual(acciones.tiposRegistrados(), [
+    "activity.create_follow_up",
+    "agent.draft_follow_up",
+  ]);
 });
 
 test("registrarAutomatizaciones dos veces sobre los mismos registros LANZA: no es un reemplazo", () => {

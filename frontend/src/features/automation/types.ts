@@ -26,6 +26,10 @@ export interface Automation {
   // La configuración de la acción. Su forma la decide cada acción, no el
   // modelo: para activity.create_follow_up son { subject, daysUntilDue }.
   actionConfig: Record<string, unknown>;
+  // La configuración del TRIGGER (ítem 76), con el mismo criterio que
+  // actionConfig: su forma la decide cada trigger. "{}" para opportunity.won;
+  // { daysWithoutActivity } para opportunity.stale.
+  triggerConfig: Record<string, unknown>;
   // Desactivar una regla NO la borra: el dispatcher simplemente la saltea.
   isActive: boolean;
   createdAt: string;
@@ -62,12 +66,14 @@ export interface AutomationListQuery {
 }
 
 // createAutomationSchema. Requeridos de verdad: name, triggerType, actionType
-// y actionConfig; isActive tiene default true en la base.
+// y actionConfig; isActive tiene default true en la base, y triggerConfig
+// "{}" (un trigger que exige config, como opportunity.stale, da 400 sin ella).
 export interface CreateAutomationInput {
   name: string;
   triggerType: string;
   actionType: string;
   actionConfig: Record<string, unknown>;
+  triggerConfig?: Record<string, unknown>;
   isActive?: boolean;
 }
 

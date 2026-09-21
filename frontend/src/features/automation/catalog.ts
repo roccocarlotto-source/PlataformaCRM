@@ -14,31 +14,40 @@ import type { SelectOption } from "../../design-system/Select";
 // texto libre sería invitar a un error que nadie puede resolver desde la
 // pantalla.
 //
-// HOY HAY UN TRIGGER Y UNA ACCIÓN, y eso no es una limitación de diseño: los
-// otros dos casos reales —recordatorio de turno por WhatsApp, envío del QR de
-// reseña— están bloqueados por trámites externos a este repo
-// (docs/automations-architecture.md §1-2). El motor se construyó genérico
-// igual; esta pantalla también.
+// HOY HAY DOS TRIGGERS Y DOS ACCIONES, y cada acción va con un trigger
+// (ACCIONES_POR_TRIGGER): "Oportunidad ganada" -> tarea de seguimiento, y
+// "Oportunidad sin movimiento" -> borrador de seguimiento redactado por la IA
+// (ítem 76). Los otros casos previstos —recordatorio de turno por WhatsApp,
+// envío del QR de reseña— siguen bloqueados por trámites externos a este repo
+// (docs/automations-architecture.md §1-2).
 //
-// AGREGAR UN TRIGGER es agregar una entrada a TRIGGER_OPTIONS y nada más.
+// AGREGAR UN TRIGGER es agregar una entrada a TRIGGER_OPTIONS, una a
+// CONFIG_DE_TRIGGER (aunque no tenga campos: la config vacía) y, si tiene
+// campos, un `case` al switch de campos del trigger en AutomationFormPage.
 // AGREGAR UNA ACCIÓN es agregar una entrada a ACTION_OPTIONS, una a
-// CONFIG_DE_ACCION (cómo se lee, se valida y se arma su actionConfig) y un
-// `case` al switch de campos en AutomationFormPage — tres lugares, ninguno de
-// ellos una reescritura del formulario.
+// CONFIG_DE_ACCION (cómo se lee, se valida y se arma su actionConfig), sumarla
+// a ACCIONES_POR_TRIGGER y un `case` al switch de campos de la acción —
+// ninguno de esos lugares es una reescritura del formulario.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Triggers
 // ---------------------------------------------------------------------------
 
-// Espejo de TRIGGER_OPPORTUNITY_WON.
+// Espejo de TRIGGER_OPPORTUNITY_WON y TRIGGER_OPPORTUNITY_STALE.
 export const TRIGGER_OPPORTUNITY_WON = "opportunity.won";
+export const TRIGGER_OPPORTUNITY_STALE = "opportunity.stale";
 
 export const TRIGGER_OPTIONS: SelectOption<string>[] = [
   {
     value: TRIGGER_OPPORTUNITY_WON,
     label: "Oportunidad ganada",
     subtitle: "Cuando una oportunidad pasa al estado Ganada",
+  },
+  {
+    value: TRIGGER_OPPORTUNITY_STALE,
+    label: "Oportunidad sin movimiento",
+    subtitle: "Cuando una oportunidad abierta lleva varios días sin cambios",
   },
 ];
 
@@ -54,8 +63,9 @@ export function triggerLabel(value: string): string {
 // Acciones
 // ---------------------------------------------------------------------------
 
-// Espejo de ACTION_CREATE_FOLLOW_UP.
+// Espejo de ACTION_CREATE_FOLLOW_UP y ACTION_DRAFT_FOLLOW_UP.
 export const ACTION_CREATE_FOLLOW_UP = "activity.create_follow_up";
+export const ACTION_DRAFT_FOLLOW_UP = "agent.draft_follow_up";
 
 export const ACTION_OPTIONS: SelectOption<string>[] = [
   {
@@ -63,10 +73,37 @@ export const ACTION_OPTIONS: SelectOption<string>[] = [
     label: "Crear actividad de seguimiento",
     subtitle: "Una tarea para el dueño de la oportunidad",
   },
+  {
+    value: ACTION_DRAFT_FOLLOW_UP,
+    label: "Redactar seguimiento con IA",
+    subtitle: "Un borrador de mensaje para que el dueño lo revise y lo mande",
+  },
 ];
 
 export function actionLabel(value: string): string {
   return ACTION_OPTIONS.find((option) => option.value === value)?.label ?? value;
+}
+
+// Espejo de la compatibilidad que cada acción declara en el backend
+// (AccionRegistrada.triggers): el CRUD rechaza con 400 una regla que combine
+// una acción con un trigger que no admite. Acá sirve para que el selector de
+// acción ofrezca solo las que tienen sentido con el evento elegido, en vez de
+// dejar armar una combinación que el backend va a rechazar.
+//
+// No es preferencia de pantalla: "Crear actividad de seguimiento" colgada de
+// "Oportunidad sin movimiento" crearía la misma tarea TODOS los días, porque
+// esa acción no deja la marca que frena al barrido diario.
+export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
+  [TRIGGER_OPPORTUNITY_WON]: [ACTION_CREATE_FOLLOW_UP],
+  [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
+};
+
+// Las acciones que el selector ofrece para un trigger. Un trigger que este
+// espejo todavía no conoce no restringe nada: quien decide es el backend.
+export function accionesParaTrigger(triggerType: string): SelectOption<string>[] {
+  const permitidas = ACCIONES_POR_TRIGGER[triggerType];
+  if (!permitidas) return ACTION_OPTIONS;
+  return ACTION_OPTIONS.filter((option) => permitidas.includes(option.value));
 }
 
 // ---------------------------------------------------------------------------
@@ -164,12 +201,76 @@ const configDeSeguimiento: ConfigDeAccion = {
   },
 };
 
-export const CONFIG_DE_ACCION: Record<string, ConfigDeAccion> = {
-  [ACTION_CREATE_FOLLOW_UP]: configDeSeguimiento,
+// La config de las acciones y de los triggers que NO tienen ningún campo: el
+// borrador es vacío, siempre es válido, y lo que viaja es "{}". Existe igual
+// —en vez de que el formulario trate "sin entrada" como "sin campos"— para
+// que una entrada ausente siga significando "este espejo no sabe configurar
+// esto", que es otra cosa.
+const configVacia: ConfigDeAccion = {
+  draftVacio: () => ({}),
+  draftDesde: () => ({}),
+  validar: () => null,
+  aPayload: () => ({}),
 };
 
-// El default del formulario: con una sola acción viene elegida, igual que el
-// proveedor de modelo en AgentFormPage. Con dos o más, esto sigue siendo "la
-// primera del catálogo" y no hay que tocar el formulario.
+export const CONFIG_DE_ACCION: Record<string, ConfigDeAccion> = {
+  [ACTION_CREATE_FOLLOW_UP]: configDeSeguimiento,
+  // agent.draft_follow_up no tiene config propia: su único parámetro —cuántos
+  // días sin movimiento— es del trigger (ítem 76).
+  [ACTION_DRAFT_FOLLOW_UP]: configVacia,
+};
+
+// ---------------------------------------------------------------------------
+// La configuración de cada trigger (Automation.triggerConfig, ítem 76)
+//
+// La MISMA forma que la de las acciones —borrador en strings, validar,
+// aPayload— porque es el mismo problema: un JSON cuya forma decide el backend
+// con un schema zod, editado desde inputs que producen texto.
+// ---------------------------------------------------------------------------
+
+export type ConfigDeTrigger = ConfigDeAccion;
+
+// Los topes de configDeOportunidadEstancadaSchema
+// (src/services/automationTriggers.ts).
+export const MIN_DAYS_WITHOUT_ACTIVITY = 0;
+export const MAX_DAYS_WITHOUT_ACTIVITY = 365;
+
+const configDeEstancada: ConfigDeTrigger = {
+  draftVacio: () => ({ daysWithoutActivity: "" }),
+
+  draftDesde: (config) => ({
+    daysWithoutActivity:
+      typeof config.daysWithoutActivity === "number" ? String(config.daysWithoutActivity) : "",
+  }),
+
+  // Mismo criterio que daysUntilDue de la acción de seguimiento: el vacío se
+  // valida antes (Number("") es 0) y después se exige entero y en rango.
+  validar: (draft) => {
+    const texto = (draft.daysWithoutActivity ?? "").trim();
+    if (texto === "") {
+      return "Indicá cuántos días sin movimiento tiene que llevar la oportunidad.";
+    }
+    const dias = Number(texto);
+    if (!Number.isInteger(dias)) {
+      return "Los días sin movimiento tienen que ser un número entero.";
+    }
+    if (dias < MIN_DAYS_WITHOUT_ACTIVITY || dias > MAX_DAYS_WITHOUT_ACTIVITY) {
+      return `Los días sin movimiento tienen que estar entre ${MIN_DAYS_WITHOUT_ACTIVITY} y ${MAX_DAYS_WITHOUT_ACTIVITY}.`;
+    }
+    return null;
+  },
+
+  aPayload: (draft) => ({ daysWithoutActivity: Number(draft.daysWithoutActivity) }),
+};
+
+export const CONFIG_DE_TRIGGER: Record<string, ConfigDeTrigger> = {
+  [TRIGGER_OPPORTUNITY_WON]: configVacia,
+  [TRIGGER_OPPORTUNITY_STALE]: configDeEstancada,
+};
+
+// El default del formulario: la PRIMERA entrada de cada catálogo, no un valor
+// escrito a mano —mismo criterio que el proveedor de modelo en AgentFormPage—.
+// La acción por defecto es la primera que ADMITE el trigger por defecto, para
+// que una regla nueva arranque siempre en una combinación válida.
 export const DEFAULT_TRIGGER = TRIGGER_OPTIONS[0].value;
-export const DEFAULT_ACTION = ACTION_OPTIONS[0].value;
+export const DEFAULT_ACTION = accionesParaTrigger(DEFAULT_TRIGGER)[0].value;

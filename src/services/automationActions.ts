@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { TriggerType } from "./automationTriggers";
 
 // ---------------------------------------------------------------------------
 // Catálogo de acciones del motor de automatizaciones
@@ -45,6 +46,26 @@ export interface AccionRegistrada {
   actionType: string;
   schema: EsquemaDeAccion;
   handler: AutomationAction;
+  // Los triggers con los que la acción tiene sentido (ítem 76). Sin la clave,
+  // cualquiera; con ella, el CRUD rechaza con 400 una regla que combine la
+  // acción con otro trigger, y el dispatcher lo vuelve a chequear.
+  //
+  // No es cosmético: activity.create_follow_up colgada de opportunity.stale
+  // crearía una tarea NUEVA cada día para siempre, porque esa acción no marca
+  // Opportunity.lastStaleFollowUpDraftedAt y el worker volvería a emitir el
+  // evento en cada pasada. La compatibilidad la declara la ACCIÓN y no el
+  // trigger porque es la acción la que sabe si cumple el contrato del trigger
+  // (en este caso, dejar la marca anti-redraft).
+  triggers?: readonly TriggerType[];
+}
+
+// Si la acción se puede colgar de ese trigger. Una sola definición para los
+// dos lugares que lo preguntan: el CRUD (400 al guardar) y el dispatcher
+// (defensa en profundidad, por si la compatibilidad cambia después).
+export function accionAdmiteTrigger(accion: AccionRegistrada, triggerType: string): boolean {
+  return (
+    accion.triggers === undefined || (accion.triggers as readonly string[]).includes(triggerType)
+  );
 }
 
 export interface RegistroDeAcciones {
