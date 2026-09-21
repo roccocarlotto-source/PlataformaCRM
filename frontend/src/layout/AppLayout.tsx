@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
+import { useId, useState, type ReactNode } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
   BookOpen,
@@ -10,6 +10,8 @@ import {
   CalendarRange,
   Car,
   CheckSquare,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Coins,
   Columns3,
@@ -59,6 +61,107 @@ function SidebarLink({
   );
 }
 
+// Mismo criterio que el `isActive` de NavLink sin `end`: la ruta exacta o
+// cualquier subruta (/agents/:id/playground cuenta como /agents).
+function isInside(pathname: string, to: string) {
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
+// Estado plegado/desplegado de una sección (ítem 79). Arranca desplegada
+// solo si la ruta activa es uno de sus `paths`, y se vuelve a desplegar
+// cuando se navega hacia adentro desde afuera (un link del contenido, el
+// botón atrás) — el usuario siempre ve dónde está parado. Plegarla a mano
+// estando adentro se respeta: solo reacciona a un CAMBIO de pathname.
+// Ajuste de estado durante el render, no useEffect: es el patrón que
+// recomienda React para derivar estado de un cambio de props/contexto.
+function useSectionOpen(paths: readonly string[]) {
+  const { pathname } = useLocation();
+  const containsActive = paths.some((to) => isInside(pathname, to));
+  const [open, setOpen] = useState(containsActive);
+  const [seenPathname, setSeenPathname] = useState(pathname);
+  if (pathname !== seenPathname) {
+    setSeenPathname(pathname);
+    if (containsActive) setOpen(true);
+  }
+  return [open, () => setOpen((value) => !value)] as const;
+}
+
+// Sección colapsable de la sidebar (ítem 79). Dos formas de título:
+// - sin `link`: el título es solo un toggle, con la tipografía de
+//   .ds-sidebar-group-label de siempre (CRM, Actividades, Administración);
+// - con `link`: el título es un link real con la forma de .ds-sidebar-link,
+//   que navega Y pliega/despliega con el mismo click (Contactos, Agentes de
+//   IA); sus hijos van con sangría porque cuelgan de esa pantalla.
+// `paths` son las rutas de los hijos, para saber si arranca desplegada; la
+// del propio título no cuenta — el link del título ya se ve siempre, y
+// contarla haría que plegarlo desde un hijo se deshiciera al navegar.
+// Plegada, los hijos no se montan (no quedan en el DOM ni en el tab order).
+function SidebarSection({
+  label,
+  paths,
+  link,
+  nested,
+  children,
+}: {
+  label: string;
+  paths: readonly string[];
+  link?: { to: string; icon: typeof LayoutDashboard };
+  nested?: boolean;
+  children: ReactNode;
+}) {
+  const [open, toggle] = useSectionOpen(paths);
+  const itemsId = useId();
+  const Chevron = open ? ChevronDown : ChevronRight;
+  const chevron = (
+    <Chevron className="ds-sidebar-chevron" size={14} strokeWidth={1.5} aria-hidden="true" />
+  );
+
+  let header: ReactNode;
+  if (link) {
+    const Icon = link.icon;
+    header = (
+      <NavLink
+        to={link.to}
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={itemsId}
+        className={({ isActive }) => `ds-sidebar-link${isActive ? " is-active" : ""}`}
+      >
+        <Icon size={16} strokeWidth={1.5} aria-hidden="true" />
+        {label}
+        {chevron}
+      </NavLink>
+    );
+  } else {
+    header = (
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={itemsId}
+        className="ds-sidebar-group-label ds-sidebar-group-toggle"
+      >
+        {label}
+        {chevron}
+      </button>
+    );
+  }
+
+  return (
+    <div className={`ds-sidebar-group${link && !nested ? " ds-sidebar-group--link-header" : ""}`}>
+      {header}
+      {open ? (
+        <div
+          id={itemsId}
+          className={`ds-sidebar-group-items${link ? " ds-sidebar-group-items--indented" : ""}`}
+        >
+          {children}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 // Vive dentro de ProtectedRoute (solo se monta con status === "authenticated").
 // No duplica ningún estado de sesión: `me` se lee de AuthContext tal cual,
 // nunca se copia a estado local. El único estado local acá es el de la
@@ -67,14 +170,12 @@ function SidebarLink({
 //
 // Sidebar en vez del header horizontal anterior: estructura y valores
 // tomados de Dashboard CRM.html (ver design-system.css, sección AppLayout).
-// Grupos propios (CRM/Actividad/QR/Administración) en vez de los del
-// mockup (CRM/Automatización) porque el mockup es de otro rubro y tiene
-// secciones — Calendario, Notificaciones, Integraciones — que este producto
-// todavía no tiene; Rocco eligió mostrar solo lo que existe hoy. Cuatro de
-// esas secciones ya dejaron esa lista de pendientes: "Agentes IA" con el
-// ítem 55, "Base de conocimiento" con el 59 y "Automatizaciones" con el 62,
-// las tres en el grupo Administración, y "Conversaciones" con el 66, que va
-// en el grupo CRM porque es lectura de datos y no configuración.
+// Grupos propios en vez de los del mockup (CRM/Automatización) porque el
+// mockup es de otro rubro; Rocco eligió mostrar solo lo que existe hoy.
+// Desde el ítem 79 los grupos son secciones colapsables (SidebarSection):
+// CRM (con Contactos como sub-desplegable), Actividades (que fusiona las
+// viejas Actividad y Agenda), Administración (que absorbió QR) y Agentes de
+// IA (que dejó de vivir dentro de Administración); Plataforma sigue plana.
 export function AppLayout() {
   const { me, logout } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -118,36 +219,56 @@ export function AppLayout() {
           <SidebarLink to="/" end icon={LayoutDashboard}>
             Dashboard
           </SidebarLink>
-          <div className="ds-sidebar-group">
-            <span className="ds-sidebar-group-label">CRM</span>
-            <SidebarLink to="/companies" icon={Building2}>
-              Empresas
-            </SidebarLink>
-            <SidebarLink to="/contacts" icon={Users}>
-              Contactos
-            </SidebarLink>
-            {/* Bandeja de conversaciones (ítem 66): al lado de Contactos
-                porque es lo que se habló CON ellos. En el grupo CRM y no en
-                Administración —a diferencia de Agentes de IA / Base de
-                conocimiento / Automatizaciones— y visible para ambos roles:
-                es lectura abierta de un dato del CRM, no configuración. */}
-            <SidebarLink to="/conversations" icon={MessagesSquare}>
-              Conversaciones
-            </SidebarLink>
+          <SidebarSection
+            label="CRM"
+            paths={[
+              "/contacts",
+              "/conversations",
+              "/companies",
+              "/opportunities",
+              "/pipelines",
+              "/vehicles",
+            ]}
+          >
+            {/* Contactos (ítem 79) es a la vez link a /contacts y sub-desplegable
+                de lo que cuelga de un contacto: lo que se habló con él, su
+                empresa y sus oportunidades. */}
+            <SidebarSection
+              label="Contactos"
+              link={{ to: "/contacts", icon: Users }}
+              nested
+              paths={["/conversations", "/companies", "/opportunities"]}
+            >
+              {/* Bandeja de conversaciones (ítem 66): debajo de Contactos
+                  porque es lo que se habló CON ellos. En el grupo CRM y no en
+                  Administración —a diferencia de Agentes de IA / Base de
+                  conocimiento / Automatizaciones— y visible para ambos roles:
+                  es lectura abierta de un dato del CRM, no configuración. */}
+              <SidebarLink to="/conversations" icon={MessagesSquare}>
+                Conversaciones
+              </SidebarLink>
+              <SidebarLink to="/companies" icon={Building2}>
+                Empresas
+              </SidebarLink>
+              <SidebarLink to="/opportunities" icon={Target}>
+                Oportunidades
+              </SidebarLink>
+            </SidebarSection>
             <SidebarLink to="/pipelines" icon={Columns3}>
               Procesos de venta
-            </SidebarLink>
-            <SidebarLink to="/opportunities" icon={Target}>
-              Oportunidades
             </SidebarLink>
             {/* Stock de vehículos (Fase 3a): visible para ambos roles, como
                 /companies — GET /api/vehicles es lectura abierta. */}
             <SidebarLink to="/vehicles" icon={Car}>
               Stock
             </SidebarLink>
-          </div>
-          <div className="ds-sidebar-group">
-            <span className="ds-sidebar-group-label">Actividad</span>
+          </SidebarSection>
+          {/* Actividades (ítem 79): fusiona los grupos "Actividad" y "Agenda"
+              que había antes; cada link conserva su propio permiso. */}
+          <SidebarSection
+            label="Actividades"
+            paths={["/activities", "/tasks", "/bookings", "/agenda", "/resources", "/service-types"]}
+          >
             {/* Listado completo "Actividades" (ítem 25): solo ADMIN, como
                 Organización/Sucursales — /activities está dentro del AdminRoute
                 y el backend acota a un USER a lo asignado a sí mismo, que ya
@@ -164,15 +285,12 @@ export function AppLayout() {
             <SidebarLink to="/tasks" icon={CheckSquare}>
               Mis tareas
             </SidebarLink>
-          </div>
-          {/* Agenda (ítem 75): el módulo de reservas, que estaba completo en el
-              backend sin ninguna pantalla. Reservas para ambos roles —GET y
-              cancelar son `authenticate` a secas—, y Calendario (ítem 77)
-              igual; Recursos y Tipos de
-              servicio solo ADMIN, como Sucursales: son configuración, y sus
-              rutas viven dentro del AdminRoute. */}
-          <div className="ds-sidebar-group">
-            <span className="ds-sidebar-group-label">Agenda</span>
+            {/* Agenda (ítem 75): el módulo de reservas, que estaba completo en
+                el backend sin ninguna pantalla. Reservas para ambos roles —GET
+                y cancelar son `authenticate` a secas—, y Calendario (ítem 77)
+                igual; Recursos y Tipos de servicio solo ADMIN, como
+                Sucursales: son configuración, y sus rutas viven dentro del
+                AdminRoute. */}
             <SidebarLink to="/bookings" icon={CalendarDays}>
               Reservas
             </SidebarLink>
@@ -189,51 +307,72 @@ export function AppLayout() {
                 </SidebarLink>
               </>
             ) : null}
-          </div>
-          <div className="ds-sidebar-group">
-            <span className="ds-sidebar-group-label">QR</span>
+          </SidebarSection>
+          {/* Administración (ítem 79): la sección se renderiza para AMBOS
+              roles porque ahora contiene QR, que un USER ya tenía; cada link
+              se gatea con su propio permiso. Envolverla entera en isAdmin
+              le sacaría el QR a un USER. */}
+          <SidebarSection
+            label="Administración"
+            paths={[
+              "/qr",
+              "/users",
+              "/invitations",
+              "/sources",
+              "/api-keys",
+              "/ingestion-events",
+              "/organization",
+              "/branches",
+            ]}
+          >
             {/* Módulo QR (docs/qr-integration.md, Fase 3): visible para ambos roles,
                 como /companies — GET /api/qr es de lectura abierta y las acciones
                 de solo lectura (ver imagen, enviar, copiar link) sirven a un USER. */}
             <SidebarLink to="/qr" icon={QrCode}>
               QR
             </SidebarLink>
-          </div>
+            {isAdmin ? (
+              <>
+                <SidebarLink to="/users" icon={UserCog}>
+                  Usuarios
+                </SidebarLink>
+                <SidebarLink to="/invitations" icon={MailPlus}>
+                  Invitaciones
+                </SidebarLink>
+                <SidebarLink to="/sources" icon={Database}>
+                  Fuentes
+                </SidebarLink>
+                <SidebarLink to="/api-keys" icon={Key}>
+                  Claves
+                </SidebarLink>
+                <SidebarLink to="/ingestion-events" icon={History}>
+                  Eventos
+                </SidebarLink>
+                <SidebarLink to="/organization" icon={Coins}>
+                  Organización
+                </SidebarLink>
+                {/* Sucursales (ítem 20): la lectura de /api/branches es abierta, pero
+                    la pantalla es toda escritura ADMIN-only — un USER ya ve las
+                    sucursales donde las necesita, en BranchSelect (QR, Vehículo). */}
+                <SidebarLink to="/branches" icon={MapPin}>
+                  Sucursales
+                </SidebarLink>
+              </>
+            ) : null}
+          </SidebarSection>
+          {/* Agentes de IA (ítem 55): mismo caso que Sucursales —
+              GET /api/agents es lectura abierta, pero la pantalla es toda
+              configuración ADMIN-only— y uno más: hoy no hay ninguna otra
+              pantalla donde un USER necesite ver agentes. Desde el ítem 79 es
+              una sección propia, ADMIN-only entera, cuyo título es el link a
+              /agents y a la vez pliega lo que cuelga del módulo. */}
           {isAdmin ? (
-            <div className="ds-sidebar-group">
-              <span className="ds-sidebar-group-label">Administración</span>
-              <SidebarLink to="/users" icon={UserCog}>
-                Usuarios
-              </SidebarLink>
-              <SidebarLink to="/invitations" icon={MailPlus}>
-                Invitaciones
-              </SidebarLink>
-              <SidebarLink to="/sources" icon={Database}>
-                Fuentes
-              </SidebarLink>
-              <SidebarLink to="/api-keys" icon={Key}>
-                Claves
-              </SidebarLink>
-              <SidebarLink to="/ingestion-events" icon={History}>
-                Eventos
-              </SidebarLink>
-              <SidebarLink to="/organization" icon={Coins}>
-                Organización
-              </SidebarLink>
-              {/* Sucursales (ítem 20): la lectura de /api/branches es abierta, pero
-                  la pantalla es toda escritura ADMIN-only — un USER ya ve las
-                  sucursales donde las necesita, en BranchSelect (QR, Vehículo). */}
-              <SidebarLink to="/branches" icon={MapPin}>
-                Sucursales
-              </SidebarLink>
-              {/* Agentes de IA (ítem 55): mismo caso que Sucursales —
-                  GET /api/agents es lectura abierta, pero la pantalla es toda
-                  configuración ADMIN-only— y uno más: hoy no hay ninguna otra
-                  pantalla donde un USER necesite ver agentes. */}
-              <SidebarLink to="/agents" icon={Bot}>
-                Agentes de IA
-              </SidebarLink>
-              {/* Base de conocimiento (ítem 59): al lado de Agentes de IA
+            <SidebarSection
+              label="Agentes de IA"
+              link={{ to: "/agents", icon: Bot }}
+              paths={["/knowledge-base", "/automations"]}
+            >
+              {/* Base de conocimiento (ítem 59): debajo de Agentes de IA
                   porque es el dato que ellos consumen, y con el mismo criterio
                   de permisos — GET abierto, pantalla ADMIN-only. */}
               <SidebarLink to="/knowledge-base" icon={BookOpen}>
@@ -246,7 +385,7 @@ export function AppLayout() {
               <SidebarLink to="/automations" icon={Zap}>
                 Automatizaciones
               </SidebarLink>
-            </div>
+            </SidebarSection>
           ) : null}
           {isPlatformAdmin ? (
             <div className="ds-sidebar-group">

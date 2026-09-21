@@ -1,6 +1,8 @@
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./AppLayout";
 import { ThemeProvider } from "../theme/ThemeContext";
 import type { AuthContextValue } from "../auth/AuthContext";
@@ -39,36 +41,64 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
 // necesita el contexto, y el provider no tiene dependencias externas — con el
 // matchMedia de test/setup.ts (que no prefiere oscuro) resuelve "Sistema" a
 // claro, y localStorage arranca vacío.
-function renderLayout() {
+// Con Routes de verdad (y no AppLayout suelto) para que los links de la
+// sidebar naveguen y el pathname cambie: de eso depende qué sección arranca
+// desplegada (ítem 79). `outlet` es lo que se renderiza en el <Outlet />.
+function renderLayout(initialPath = "/", outlet: ReactNode = null) {
   return render(
     <ThemeProvider>
-      <MemoryRouter>
-        <AppLayout />
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route element={<AppLayout />}>
+            <Route path="*" element={outlet} />
+          </Route>
+        </Routes>
       </MemoryRouter>
     </ThemeProvider>,
   );
 }
 
+// Secciones colapsables (ítem 79): plegadas, sus hijos no están en el DOM,
+// así que cada test abre la sección antes de buscar sus links — mismo
+// userEvent + click que MultiSelect.test.tsx para abrir la lista.
+type User = ReturnType<typeof userEvent.setup>;
+
+async function openSection(user: User, name: string) {
+  await user.click(screen.getByRole("button", { name }));
+}
+
+// Contactos es link a /contacts Y sub-desplegable dentro de CRM.
+async function openContactos(user: User) {
+  await openSection(user, "CRM");
+  await user.click(screen.getByRole("link", { name: "Contactos" }));
+}
+
 describe("AppLayout — nav gateado por rol (M7)", () => {
-  it("ADMIN ve los links de Usuarios e Invitaciones", () => {
+  it("ADMIN ve los links de Usuarios e Invitaciones", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout();
+    await openSection(user, "Administración");
 
     expect(screen.getByText("Usuarios")).toBeInTheDocument();
     expect(screen.getByText("Invitaciones")).toBeInTheDocument();
   });
 
-  it("USER no ve los links de Usuarios ni Invitaciones", () => {
+  it("USER no ve los links de Usuarios ni Invitaciones", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("USER"));
     renderLayout();
+    await openSection(user, "Administración");
 
     expect(screen.queryByText("Usuarios")).not.toBeInTheDocument();
     expect(screen.queryByText("Invitaciones")).not.toBeInTheDocument();
   });
 
-  it("la navegación existente (Empresas/Contactos/Procesos de venta/Oportunidades) sigue intacta para ambos roles", () => {
+  it("la navegación existente (Empresas/Contactos/Procesos de venta/Oportunidades) sigue intacta para ambos roles", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("USER"));
     renderLayout();
+    await openContactos(user);
 
     expect(screen.getByText("Empresas")).toBeInTheDocument();
     expect(screen.getByText("Contactos")).toBeInTheDocument();
@@ -76,10 +106,12 @@ describe("AppLayout — nav gateado por rol (M7)", () => {
     expect(screen.getByText("Oportunidades")).toBeInTheDocument();
   });
 
-  it("'Mis tareas' se muestra para ambos roles: leer y completar lo propio es de cualquier rol", () => {
+  it("'Mis tareas' se muestra para ambos roles: leer y completar lo propio es de cualquier rol", async () => {
     for (const role of ["USER", "ADMIN"] as const) {
+      const user = userEvent.setup();
       useAuthMock.mockReturnValue(mockAuth(role));
       const { unmount } = renderLayout();
+      await openSection(user, "Actividades");
       expect(screen.getByText("Mis tareas")).toHaveAttribute("href", "/tasks");
       unmount();
     }
@@ -94,9 +126,11 @@ describe("AppLayout — nav gateado por rol (M7)", () => {
 });
 
 describe("AppLayout — nav de Actividades (ítem 25)", () => {
-  it("ADMIN ve 'Actividades' en el grupo Actividad, apuntando a /activities", () => {
+  it("ADMIN ve 'Actividades' en la sección Actividades, apuntando a /activities", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout();
+    await openSection(user, "Actividades");
 
     expect(screen.getByRole("link", { name: "Actividades" })).toHaveAttribute(
       "href",
@@ -104,19 +138,25 @@ describe("AppLayout — nav de Actividades (ítem 25)", () => {
     );
   });
 
-  it("USER no ve 'Actividades': el listado completo es ADMIN-only, lo suyo lo ve en 'Mis tareas'", () => {
+  it("USER no ve el link 'Actividades': el listado completo es ADMIN-only, lo suyo lo ve en 'Mis tareas'", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("USER"));
     renderLayout();
+    // El título de la sección también dice "Actividades" (ítem 79), pero es
+    // un botón: lo que no tiene que existir es el LINK.
+    await openSection(user, "Actividades");
 
-    expect(screen.queryByText("Actividades")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Actividades" })).not.toBeInTheDocument();
     expect(screen.getByText("Mis tareas")).toHaveAttribute("href", "/tasks");
   });
 });
 
 describe("AppLayout — nav de configuración de la organización (ítem 19)", () => {
-  it("ADMIN ve 'Organización' en el grupo Administración, apuntando a /organization", () => {
+  it("ADMIN ve 'Organización' en el grupo Administración, apuntando a /organization", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout();
+    await openSection(user, "Administración");
 
     expect(screen.getByRole("link", { name: "Organización" })).toHaveAttribute(
       "href",
@@ -124,32 +164,38 @@ describe("AppLayout — nav de configuración de la organización (ítem 19)", (
     );
   });
 
-  it("USER no ve 'Organización': la pantalla es toda escritura ADMIN-only", () => {
+  it("USER no ve 'Organización': la pantalla es toda escritura ADMIN-only", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("USER"));
     renderLayout();
+    await openSection(user, "Administración");
 
     expect(screen.queryByText("Organización")).not.toBeInTheDocument();
   });
 });
 
 describe("AppLayout — nav de Sucursales (ítem 20)", () => {
-  it("ADMIN ve 'Sucursales' en el grupo Administración, apuntando a /branches", () => {
+  it("ADMIN ve 'Sucursales' en el grupo Administración, apuntando a /branches", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout();
+    await openSection(user, "Administración");
 
     expect(screen.getByRole("link", { name: "Sucursales" })).toHaveAttribute("href", "/branches");
   });
 
-  it("USER no ve 'Sucursales': la pantalla es toda escritura ADMIN-only", () => {
+  it("USER no ve 'Sucursales': la pantalla es toda escritura ADMIN-only", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("USER"));
     renderLayout();
+    await openSection(user, "Administración");
 
     expect(screen.queryByText("Sucursales")).not.toBeInTheDocument();
   });
 });
 
 describe("AppLayout — nav de Agentes de IA (ítem 55)", () => {
-  it("ADMIN ve 'Agentes de IA' en el grupo Administración, apuntando a /agents", () => {
+  it("ADMIN ve 'Agentes de IA' como título de su sección, apuntando a /agents", () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout();
 
@@ -165,9 +211,11 @@ describe("AppLayout — nav de Agentes de IA (ítem 55)", () => {
 });
 
 describe("AppLayout — nav de Base de conocimiento (ítem 59)", () => {
-  it("ADMIN ve 'Base de conocimiento' al lado de Agentes de IA, apuntando a /knowledge-base", () => {
+  it("ADMIN ve 'Base de conocimiento' dentro de Agentes de IA, apuntando a /knowledge-base", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout();
+    await user.click(screen.getByRole("link", { name: "Agentes de IA" }));
 
     const link = screen.getByRole("link", { name: "Base de conocimiento" });
     expect(link).toHaveAttribute("href", "/knowledge-base");
@@ -187,9 +235,11 @@ describe("AppLayout — nav de Base de conocimiento (ítem 59)", () => {
 });
 
 describe("AppLayout — nav de Automatizaciones (ítem 62)", () => {
-  it("ADMIN ve 'Automatizaciones' en el mismo grupo que Agentes de IA, apuntando a /automations", () => {
+  it("ADMIN ve 'Automatizaciones' en el mismo grupo que Agentes de IA, apuntando a /automations", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout();
+    await user.click(screen.getByRole("link", { name: "Agentes de IA" }));
 
     const link = screen.getByRole("link", { name: "Automatizaciones" });
     expect(link).toHaveAttribute("href", "/automations");
@@ -207,10 +257,12 @@ describe("AppLayout — nav de Automatizaciones (ítem 62)", () => {
 });
 
 describe("AppLayout — nav de Conversaciones (ítem 66)", () => {
-  it("el link se muestra para ambos roles, en el grupo CRM y al lado de Contactos", () => {
+  it("el link se muestra para ambos roles, en el grupo CRM y debajo de Contactos", async () => {
     for (const role of ["USER", "ADMIN"] as const) {
+      const user = userEvent.setup();
       useAuthMock.mockReturnValue(mockAuth(role));
       const { unmount } = renderLayout();
+      await openContactos(user);
 
       const link = screen.getByRole("link", { name: "Conversaciones" });
       expect(link).toHaveAttribute("href", "/conversations");
@@ -225,10 +277,204 @@ describe("AppLayout — nav de Conversaciones (ítem 66)", () => {
 });
 
 describe("AppLayout — nav del módulo QR (Fase 3)", () => {
-  it("el link QR se muestra para ambos roles: el listado es de lectura abierta", () => {
+  it("el link QR se muestra para ambos roles: el listado es de lectura abierta", async () => {
+    for (const role of ["USER", "ADMIN"] as const) {
+      const user = userEvent.setup();
+      useAuthMock.mockReturnValue(mockAuth(role));
+      const { unmount } = renderLayout();
+      await openSection(user, "Administración");
+      expect(screen.getByRole("link", { name: "QR" })).toHaveAttribute("href", "/qr");
+      unmount();
+    }
+  });
+});
+
+describe("AppLayout — secciones colapsables (ítem 79)", () => {
+  function isExpanded(element: HTMLElement) {
+    return element.getAttribute("aria-expanded") === "true";
+  }
+
+  it("en el Dashboard todas las secciones arrancan plegadas y sus hijos no están en el DOM", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout("/");
+
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/");
+    for (const name of ["CRM", "Actividades", "Administración"]) {
+      expect(isExpanded(screen.getByRole("button", { name }))).toBe(false);
+    }
+    expect(isExpanded(screen.getByRole("link", { name: "Agentes de IA" }))).toBe(false);
+    for (const name of ["Contactos", "Stock", "Mis tareas", "QR", "Base de conocimiento"]) {
+      expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
+    }
+  });
+
+  it("el título-toggle despliega y vuelve a plegar su sección, sin navegar", async () => {
+    const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("USER"));
-    renderLayout();
-    expect(screen.getByRole("link", { name: "QR" })).toHaveAttribute("href", "/qr");
+    renderLayout("/");
+    const crm = screen.getByRole("button", { name: "CRM" });
+
+    await user.click(crm);
+    expect(isExpanded(crm)).toBe(true);
+    expect(screen.getByRole("link", { name: "Stock" })).toHaveAttribute("href", "/vehicles");
+    // Contactos es un sub-desplegable propio: abrir CRM no lo abre.
+    expect(isExpanded(screen.getByRole("link", { name: "Contactos" }))).toBe(false);
+    expect(screen.queryByRole("link", { name: "Empresas" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveClass("is-active");
+
+    await user.click(crm);
+    expect(isExpanded(crm)).toBe(false);
+    expect(screen.queryByRole("link", { name: "Stock" })).not.toBeInTheDocument();
+  });
+
+  it("'Contactos' navega a /contacts Y pliega/despliega con el mismo click", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout("/");
+    await openSection(user, "CRM");
+
+    await user.click(screen.getByRole("link", { name: "Contactos" }));
+    const contactos = screen.getByRole("link", { name: "Contactos" });
+    expect(contactos).toHaveClass("is-active");
+    expect(isExpanded(contactos)).toBe(true);
+    expect(screen.getByRole("link", { name: "Empresas" })).toHaveAttribute("href", "/companies");
+
+    await user.click(contactos);
+    expect(isExpanded(contactos)).toBe(false);
+    expect(screen.queryByRole("link", { name: "Empresas" })).not.toBeInTheDocument();
+  });
+
+  it("'Agentes de IA' navega a /agents Y pliega/despliega con el mismo click", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout("/");
+
+    await user.click(screen.getByRole("link", { name: "Agentes de IA" }));
+    const agentes = screen.getByRole("link", { name: "Agentes de IA" });
+    expect(agentes).toHaveClass("is-active");
+    expect(isExpanded(agentes)).toBe(true);
+    expect(screen.getByRole("link", { name: "Automatizaciones" })).toBeInTheDocument();
+
+    await user.click(agentes);
+    expect(isExpanded(agentes)).toBe(false);
+    expect(screen.queryByRole("link", { name: "Automatizaciones" })).not.toBeInTheDocument();
+  });
+
+  it("con la ruta activa adentro, esa sección (y Contactos si aplica) arranca desplegada y el resto no", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout("/companies");
+
+    expect(isExpanded(screen.getByRole("button", { name: "CRM" }))).toBe(true);
+    expect(isExpanded(screen.getByRole("link", { name: "Contactos" }))).toBe(true);
+    expect(screen.getByRole("link", { name: "Empresas" })).toHaveClass("is-active");
+    expect(isExpanded(screen.getByRole("button", { name: "Actividades" }))).toBe(false);
+    expect(isExpanded(screen.getByRole("button", { name: "Administración" }))).toBe(false);
+    expect(isExpanded(screen.getByRole("link", { name: "Agentes de IA" }))).toBe(false);
+  });
+
+  it.each([
+    ["/pipelines", "CRM", "Procesos de venta"],
+    ["/service-types", "Actividades", "Tipos de servicio"],
+    ["/branches", "Administración", "Sucursales"],
+  ])("en %s arranca desplegada %s", (path, section, child) => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout(path);
+
+    expect(isExpanded(screen.getByRole("button", { name: section }))).toBe(true);
+    expect(screen.getByRole("link", { name: child })).toHaveClass("is-active");
+  });
+
+  it("en una subruta de un hijo (/automations/...) arranca desplegada Agentes de IA", () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout("/automations/new");
+
+    expect(isExpanded(screen.getByRole("link", { name: "Agentes de IA" }))).toBe(true);
+    expect(screen.getByRole("link", { name: "Automatizaciones" })).toHaveClass("is-active");
+  });
+
+  it("navegar hacia adentro de una sección plegada desde el contenido la despliega", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout("/", <Link to="/automations">ir a automatizaciones</Link>);
+    expect(screen.queryByRole("link", { name: "Automatizaciones" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "ir a automatizaciones" }));
+
+    expect(isExpanded(screen.getByRole("link", { name: "Agentes de IA" }))).toBe(true);
+    expect(screen.getByRole("link", { name: "Automatizaciones" })).toHaveClass("is-active");
+  });
+
+  it("plegar a mano la sección donde uno está parado se respeta", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout("/tasks");
+    const actividades = screen.getByRole("button", { name: "Actividades" });
+    expect(isExpanded(actividades)).toBe(true);
+
+    await user.click(actividades);
+
+    expect(isExpanded(actividades)).toBe(false);
+    expect(screen.queryByRole("link", { name: "Mis tareas" })).not.toBeInTheDocument();
+  });
+
+  it("un USER ve la sección Administración con QR como único link (no pierde el QR que ya tenía)", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout("/");
+    const admin = screen.getByRole("button", { name: "Administración" });
+
+    await user.click(admin);
+
+    const section = admin.closest(".ds-sidebar-group") as HTMLElement;
+    expect(within(section).getAllByRole("link").map((link) => link.textContent)).toEqual(["QR"]);
+  });
+
+  it("un ADMIN ve los 8 links de Administración, QR primero", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout("/");
+    const admin = screen.getByRole("button", { name: "Administración" });
+
+    await user.click(admin);
+
+    const section = admin.closest(".ds-sidebar-group") as HTMLElement;
+    expect(within(section).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "QR",
+      "Usuarios",
+      "Invitaciones",
+      "Fuentes",
+      "Claves",
+      "Eventos",
+      "Organización",
+      "Sucursales",
+    ]);
+  });
+
+  it("la sección Actividades fusiona Actividad y Agenda, cada link con su permiso", async () => {
+    const expected = {
+      ADMIN: [
+        "Actividades",
+        "Mis tareas",
+        "Reservas",
+        "Calendario",
+        "Recursos",
+        "Tipos de servicio",
+      ],
+      USER: ["Mis tareas", "Reservas", "Calendario"],
+    };
+    for (const role of ["USER", "ADMIN"] as const) {
+      const user = userEvent.setup();
+      useAuthMock.mockReturnValue(mockAuth(role));
+      const { unmount } = renderLayout("/");
+      const actividades = screen.getByRole("button", { name: "Actividades" });
+      await user.click(actividades);
+
+      const section = actividades.closest(".ds-sidebar-group") as HTMLElement;
+      expect(within(section).getAllByRole("link").map((link) => link.textContent)).toEqual(
+        expected[role],
+      );
+      unmount();
+    }
   });
 });
 
