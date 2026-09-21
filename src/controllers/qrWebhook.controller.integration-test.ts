@@ -8,7 +8,8 @@ import { envolverParserConTraduccion } from "../middlewares/bodyParserError";
 import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { AppError } from "../utils/AppError";
-import { buildManifest, hmacSha256Hex } from "../utils/mercadopagoSignature";
+import { hmacSha256Hex } from "../utils/hmac";
+import { buildManifest } from "../utils/mercadopagoSignature";
 import type { PreapprovalResource } from "../services/qrWebhook.service";
 import {
   createQrWebhookHandler,

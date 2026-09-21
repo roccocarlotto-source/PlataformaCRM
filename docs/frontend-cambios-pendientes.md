@@ -4770,3 +4770,84 @@ Con backend y Vite corriendo y un usuario QA ADMIN temporal en el Supabase local
 ### Tests (corridos de verdad)
 
 `AppLayout.test.tsx` 37/37. jsdom no implementa el efecto de `inert` y Testing Library no lo tiene en cuenta en `getByRole`, así que los tests afirman el atributo, no la inaccesibilidad. La inaccesibilidad real la verifica la prueba de Tab en Chromium de arriba. **Prueba de mutación:** sacando `inert={!open}` fallan 6 tests. Las aserciones de gating por rol (`USER no ve X`) siguen con `not.toBeInTheDocument` porque ahí el link de verdad no se renderiza. Suite completa del frontend 1776/1776, `typecheck` y `lint` limpios.
+
+## 81. Webhook de WhatsApp Business Platform (Meta)
+
+**Estado:** hecho
+
+**Qué faltaba.** `ConversationChannel.WHATSAPP` existía en el enum pero no tenía código detrás. El "cerebro" ya estaba: el canal Web armó `runAgentTurn`, y §9 de `docs/ai-agent-architecture.md` dice que el loop de orquestación es el mismo para todos los canales. Lo único que cambia es cómo entra el mensaje y cómo sale la respuesta. Este ítem arma esa parte y no toca el loop, salvo un parámetro opcional (ver abajo).
+
+### Schema (migración `20260929120000_whatsapp_webhook`)
+
+- **`Agent.whatsappPhoneNumberId`**: `VARCHAR(40)`, nullable, **UNIQUE global**. Es el `phone_number_id` que Meta manda en cada webhook, y dice de qué agente (y por lo tanto de qué organización y sucursal) es el mensaje. Cumple para WhatsApp el papel que `allowedOrigins` cumple para Web. Es global y no por organización porque el webhook no trae otra pista. **Al borrar un agente, el número se libera** (`softDeleteAgent` lo pone en `NULL`). Si no, un agente borrado seguiría reteniéndolo y el agente que lo reemplaza no podría usarlo.
+- **`@@unique([organizationId, externalMessageId])` en `Message`**. Es el índice que el comentario del campo venía anunciando. El modelo solo tenía `@@index([conversationId, createdAt])`, así que no pisa nada. Los mensajes sin id externo (Web, salientes, probador) quedan en `NULL` y no chocan entre sí.
+- No cambia el diagnóstico: no hay tabla, CHECK ni FK nuevos.
+
+### Los endpoints
+
+Se montan en `app.ts` antes del `express.json()` global, al lado de `qrWebhookRouter`, sin `/api`.
+
+- **`GET /webhooks/whatsapp`** es el handshake. Si `hub.mode === "subscribe"` y el `hub.verify_token` coincide con `WHATSAPP_VERIFY_TOKEN`, responde 200 con el `hub.challenge` **crudo en `text/plain`**. Si no, 403. El token se compara con `secretsMatch` (el de `requireInternalProxySecret.ts`) y no con `timingSafeEqual`, porque es un secreto de largo variable. Si falta la variable, 500.
+- **`POST /webhooks/whatsapp`**: la cadena es `requireJsonBody` (400) → parser propio de **32 KB** cuyo `verify` guarda los bytes crudos en `req.rawBody` → `verifyWhatsappSignature` (HMAC-SHA256 del cuerpo crudo con `WHATSAPP_APP_SECRET` contra `X-Hub-Signature-256` sin el prefijo `sha256=`, con 401 si no coincide o falta) → handler. **A diferencia de MercadoPago, la firma va después del parser**: Meta firma el cuerpo, así que hay que leerlo para poder verificarla. El tope chico acota lo que se parsea antes de saber quién manda.
+- Si falta `WHATSAPP_APP_SECRET` **o** `WHATSAPP_ACCESS_TOKEN`: 500 operacional. El ítem pedía solo el primero, y agregué el segundo por el mismo criterio que MercadoPago, que exige sus dos variables. Sin el access token, el webhook correría el turno del agente (y gastaría el LLM) para después no poder mandar la respuesta. El 5xx además hace que Meta reintente mientras la configuración siga rota.
+- `hmacSha256Hex` y `timingSafeEqual` **se mudaron a `src/utils/hmac.ts`**, sin cambiar su comportamiento. `hmacSha256Hex` ahora acepta también un `Buffer`, que da el mismo digest que su string UTF-8 (hay test). `mercadopagoSignature.ts` las importa desde ahí.
+
+### El procesamiento (`whatsappWebhook.service.ts`)
+
+Recorre todos los `entry[].changes[]`. Ignora en silencio los `change` que no son `messages`, los que traen solo `statuses` y los mensajes que no son `type: "text"`. Un `object` distinto de `whatsapp_business_account` responde 200 sin procesar. Cada mensaje corre en su propio try/catch: si uno falla, se loguea y el lote sigue. La respuesta a Meta es 200 siempre que la forma sea válida. El único 400 es un cuerpo que ni siquiera tiene `entry[].changes[]`.
+
+Por cada mensaje de texto:
+
+1. **Agente** por `phone_number_id`. Si no hay ninguno, se loguea un warning y se sigue. Si el agente está desactivado o no tiene el canal WHATSAPP, también se ignora con warning, y se hace **antes** de crear el Contact: `runAgentTurn` lo rechazaría igual, y no tiene sentido crear un contacto para un mensaje que nadie va a atender.
+2. **Dedup** por wamid contra `Message.externalMessageId` en esa organización.
+3. **Contact** (`whatsappContact.service.ts`): busca por teléfono sacando lo que no sea dígito de los dos lados (`regexp_replace(phone, '[^0-9]', '', 'g')`). Si hay varios, se queda con el más viejo, y excluye los borrados. Si no hay ninguno, lo crea: la primera palabra de `profile.name` va a `firstName` y el resto a `lastName` (con una sola palabra el apellido queda vacío, no se inventa uno; sin nombre queda "WhatsApp +<número>"). El `phone` se guarda como `+<wa_id>` y el `source` como `"WhatsApp"`. **El buscar-o-crear corre bajo `lockOrganizationForUpdate`** en una transacción corta. Sin eso, dos mensajes seguidos de un número nuevo, que llegan en dos webhooks en paralelo, crearían dos contactos. El turno del agente, que es lo lento, corre fuera del lock.
+4. **`runAgentTurn`** con `channel: WHATSAPP` y `externalThreadId: wa_id`.
+5. **El Message entrante lleva el wamid, y es un desvío del pedido.** `runAgentTurn` ya persiste el entrante, así que un "guardar el Message entrante" aparte habría duplicado cada mensaje en el hilo. En su lugar, `RunAgentTurnInput` suma `externalMessageId?` opcional y el `createMessage` del entrante lo incluye en el mismo INSERT. Web y el probador no lo mandan y siguen igual. Si dos entregas del mismo wamid llegan en paralelo, la segunda choca con el UNIQUE **antes de llamar al modelo**, y el service confirma que es un duplicado releyendo, para no confundirlo con un P2002 de otra tabla. Mismo espíritu que el P2002 de `googleEventId` en `booking.service.ts`.
+6. **Respuesta** por `sendWhatsappTextReal` (`whatsappGraph.service.ts`): `POST https://graph.facebook.com/v25.0/{phone_number_id}/messages` con Bearer, timeout de 10 s, y el error de Meta recortado en el mensaje (nunca lleva el token). Si `respuesta` es `null` (conversación derivada), no se manda nada.
+
+**Síncrono, no fire-and-forget.** El 200 sale cuando termina el lote. Si un turno tarda más de lo que Meta espera y Meta reintenta, la reentrega choca con el entrante que ya se persistió y se descarta como duplicado. Así un reinicio del servidor a mitad de camino no pierde ningún mensaje, que es lo que pasaría respondiendo 200 antes de procesar.
+
+**Fuera de alcance a propósito, igual que Web hoy:** nadie puede mandar un mensaje manual en una conversación ya derivada (no existe `POST /api/conversations/:id/messages`).
+
+### Frontend
+
+En `AgentFormPage`, tarjeta "Capacidades", debajo de Canales: el campo **"ID del número de WhatsApp"** (`inputMode="numeric"`, máximo 40) con un hint que explica que es el *Phone number ID* de Meta y no el teléfono. El cliente frena lo que no sean dígitos con el mismo criterio que `whatsappPhoneNumberIdSchema` del backend, donde además `""` se trata como `null`. Viaja en el POST y en el PATCH, y **vaciarlo manda `null`**, que es lo que le saca el número a un agente. Un número que ya tiene otro agente (de esta u otra organización) vuelve como **409** "Ese número de WhatsApp ya está asignado a otro agente", y la pantalla lo muestra tal cual. El mensaje no dice qué agente lo tiene, porque puede ser de otra organización.
+
+### Limitaciones conocidas
+
+- **Race de conversación (ya existía antes de este ítem).** `runAgentTurn` hace `findOpenConversation` y después `createConversation` sin un UNIQUE que lo respalde, así que dos mensajes simultáneos de un contacto sin conversación abierta pueden crear dos. Web tiene el mismo comportamiento. El lock de este ítem cubre solo el Contact.
+- **Si el envío por Graph API falla después del turno**, el saliente queda en el hilo pero no llega al cliente, y no hay reintento (Meta ya recibió su 200 y el dedup frena una reentrega). Queda como error en el log. Pasa, por ejemplo, fuera de la ventana de 24 h de WhatsApp o con una respuesta de más de 4096 caracteres.
+- **El teléfono solo se compara sacando lo que no es dígito.** Un `099…` cargado sin código de país no coincide con `59899…`. Adivinar el país sería peor que crear un contacto nuevo.
+- La búsqueda por teléfono no tiene índice (un índice funcional se agrega cuando haga falta).
+
+### Para producción
+
+1. `npm run migrate:deploy` contra prod (`20260929120000_whatsapp_webhook`).
+2. En Render: `WHATSAPP_APP_SECRET` y `WHATSAPP_ACCESS_TOKEN` (el `WHATSAPP_VERIFY_TOKEN` ya está cargado).
+3. En el panel de Meta: callback URL `https://<backend>/webhooks/whatsapp`, el mismo verify token, y suscribir el campo `messages`.
+4. En la pantalla del agente: cargar el Phone number ID y habilitar el canal WhatsApp.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `prisma/schema.prisma` + `migrations/20260929120000_whatsapp_webhook/` | `Agent.whatsappPhoneNumberId` UNIQUE, `Message @@unique([organizationId, externalMessageId])` |
+| `src/config/env.ts` | `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_ACCESS_TOKEN`, opcionales |
+| `src/utils/hmac.ts` (+ test) | `hmacSha256Hex` (ahora acepta `Buffer`) y `timingSafeEqual`, mudadas desde `mercadopagoSignature.ts` |
+| `src/routes/whatsappWebhook.routes.ts` | Parser con `rawBody`, cadena y `createWhatsappWebhookRouter(deps)`. El test usa el mismo factory, así que prueba exactamente la cadena de producción en vez de replicarla |
+| `src/controllers/whatsappWebhook.controller.ts` | Handshake, verificación de firma y handler, con dependencias inyectadas |
+| `src/services/whatsappWebhook.service.ts` | Recorrido del lote y procesamiento por mensaje |
+| `src/services/whatsappContact.service.ts` (+ test) | Buscar-o-crear el Contact por teléfono bajo lock |
+| `src/services/whatsappGraph.service.ts` | Cliente de envío de la Graph API |
+| `src/services/agentOrchestration.service.ts` | `RunAgentTurnInput.externalMessageId?` va al INSERT del entrante |
+| `src/repositories/{agent,contact,message}.repository.ts` | `findAgentByWhatsappPhoneNumberId` (sin organizationId, como `findAgentOriginsById`), `findContactIdByNormalizedPhone`, `findMessageByExternalId`; `softDeleteAgent` libera el número |
+| `src/services/agent.service.ts`, `src/controllers/agent.controller.ts` | El campo en create/update y el P2002 traducido a 409 |
+| `src/app.ts` | Montaje del router |
+| `frontend/src/features/agent/{types.ts,AgentFormPage.tsx}`, `frontend/src/test/agentFixtures.ts` | El campo en el formulario |
+
+### Tests (corridos de verdad, contra el Supabase local)
+
+- `whatsappWebhook.controller.integration-test.ts` **15/15**: handshake correcto, token incorrecto y modo incorrecto; firma inválida, ausente o sin prefijo da 401 sin tocar la base; sin App Secret da 500; Content-Type no JSON da 400; número nuevo crea el Contact, el entrante con wamid, la conversación WHATSAPP, el saliente y el envío por el doble de la Graph API; Contact existente con `+598 9X XXX XXX` se reusa; mismo wamid en serie y **en paralelo** deja un solo entrante, un turno y un envío (el paralelo pasa de verdad por el P2002); `statuses` responde 200 sin nada; `type: image` responde 200 sin procesar; un lote mixto (sin agente, agente sin canal, válido) procesa solo el válido; Graph API caída responde 200 igual; cuerpo sin forma da 400.
+- `agent.controller.integration-test.ts` **29/29**, con 3 tests nuevos: el número se guarda, se cambia y se vacía (`""` y `null`), solo dígitos; duplicado da 409 también desde otra organización; borrar el agente libera el número.
+- Unitarios del backend **968/968**, frontend **1778/1778** (con 2 tests nuevos del formulario), `typecheck`, `lint` y `prettier` limpios.
+- Suite de integración completa: **946/949**. Las 3 fallas (`ingest.controller` "encabezados custom" y el teardown de `opportunityStaleWorker`, FK de `automation_executions`) están en archivos que este ítem no toca, y **corridas aisladas pasan 37/37**: es concurrencia entre archivos de la suite, no una regresión.

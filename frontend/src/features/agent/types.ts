@@ -47,6 +47,10 @@ export interface Agent {
   // agente — ver el comentario de CreateAgentInput. Vacío = widget
   // deshabilitado (fail-closed), que es el default del backend.
   allowedOrigins: string[];
+  // El "Phone number ID" de WhatsApp Business Platform (ítem 81): con él el
+  // webhook de Meta sabe de qué agente es cada mensaje. Solo dígitos, único
+  // entre todos los agentes del sistema. null = el agente no tiene número.
+  whatsappPhoneNumberId: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -107,6 +111,9 @@ export interface CreateAgentInput {
   // además, exige que vayan juntos): el texto que se muestra y el objeto que
   // rige no pueden quedar diciendo cosas distintas.
   guardrailsText: string;
+  // null = sin número. A diferencia de allowedOrigins SÍ se carga en el alta:
+  // no depende de nada que exista recién después de crear el agente.
+  whatsappPhoneNumberId?: string | null;
   isActive?: boolean;
 }
 

@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual as nodeTimingSafeEqual } from "node:crypto";
+import { hmacSha256Hex, timingSafeEqual } from "./hmac";
 
 // ---------------------------------------------------------------------------
 // Verificación de firma de los webhooks de MercadoPago — puerto 1:1 de
@@ -46,21 +46,8 @@ export function buildManifest(dataId: string, requestId: string, ts: string): st
   return `id:${dataId};request-id:${requestId};ts:${ts};`;
 }
 
-export function hmacSha256Hex(secret: string, message: string): string {
-  return createHmac("sha256", secret).update(message).digest("hex");
-}
-
-// Comparación en tiempo constante sobre strings. Node solo ofrece
-// crypto.timingSafeEqual sobre buffers del MISMO largo (tira si difieren), así
-// que el largo se compara antes — igual que el original, donde un largo
-// distinto era un `false` directo. Que el largo se filtre no es un problema:
-// el largo de un HMAC hex es público (64).
-export function timingSafeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a, "utf8");
-  const bufB = Buffer.from(b, "utf8");
-  if (bufA.length !== bufB.length) return false;
-  return nodeTimingSafeEqual(bufA, bufB);
-}
+// hmacSha256Hex y timingSafeEqual viven en utils/hmac.ts desde el ítem 81
+// (las comparte el webhook de WhatsApp).
 
 // AUD-04 del original: el HMAC prueba que MercadoPago firmó `ts` en algún
 // momento — no prueba CUÁNDO. Sin un chequeo de frescura, un request capturado

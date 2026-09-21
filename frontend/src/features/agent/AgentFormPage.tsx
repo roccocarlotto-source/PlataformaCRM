@@ -41,6 +41,8 @@ interface AgentFormValues {
   // llamadas igual. Acá el nombre dice cuál de las dos es, y el objeto que
   // viaja al backend no vive en el estado del formulario sino en `confirmado`.
   guardrailsText: string;
+  // Texto y no string | null: es lo que tiene el <input>. "" viaja como null.
+  whatsappPhoneNumberId: string;
   isActive: boolean;
 }
 
@@ -65,6 +67,7 @@ const EMPTY_FORM: AgentFormValues = {
   enabledTools: [],
   channels: [],
   guardrailsText: "",
+  whatsappPhoneNumberId: "",
   isActive: true,
 };
 
@@ -110,6 +113,7 @@ function toFormValues(agent: Agent): AgentFormValues {
     enabledTools: agent.enabledTools,
     channels: agent.channels,
     guardrailsText: agent.guardrailsText,
+    whatsappPhoneNumberId: agent.whatsappPhoneNumberId ?? "",
     isActive: agent.isActive,
   };
 }
@@ -144,6 +148,13 @@ function validar(values: AgentFormValues, isEditMode: boolean): string | null {
   // el N° del QR en §54, y por eso el asterisco también depende del modo.
   if (isEditMode && values.modelName.trim() === "") {
     return "El modelo no puede quedar vacío. Borrarlo no vuelve al modelo por defecto: escribí el que querés usar.";
+  }
+  // Mismo criterio que whatsappPhoneNumberIdSchema del backend: el webhook lo
+  // compara por igualdad exacta con lo que manda Meta, así que un "+" o un
+  // espacio haría que ningún mensaje encuentre a este agente.
+  const numero = values.whatsappPhoneNumberId.trim();
+  if (numero !== "" && !/^\d+$/.test(numero)) {
+    return "El ID del número de WhatsApp lleva solo dígitos: es el Phone number ID que muestra Meta, no el teléfono con + y espacios.";
   }
   return null;
 }
@@ -263,6 +274,9 @@ export function AgentFormPage() {
           // rige no puedan quedar diciendo cosas distintas.
           guardrails,
           guardrailsText,
+          // null y no omitido: vaciar el campo tiene que poder QUITARLE el
+          // número a un agente que ya lo tenía.
+          whatsappPhoneNumberId: textoOpcional(values.whatsappPhoneNumberId),
           isActive: values.isActive,
         };
         await updateAgentMutation.mutateAsync(input);
@@ -283,6 +297,7 @@ export function AgentFormPage() {
           channels: values.channels,
           guardrails,
           guardrailsText,
+          whatsappPhoneNumberId: textoOpcional(values.whatsappPhoneNumberId),
           isActive: values.isActive,
         };
         await createAgentMutation.mutateAsync(input);
@@ -536,6 +551,25 @@ export function AgentFormPage() {
               Habilitar una acción es condición necesaria pero no suficiente: antes de ejecutarla,
               cada acción vuelve a pasar por las reglas del agente de abajo. Sin canales, el agente
               no atiende por ningún lado.
+            </p>
+
+            <FormField label="ID del número de WhatsApp">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={values.whatsappPhoneNumberId}
+                maxLength={40}
+                placeholder="106540352242922"
+                onChange={(event) =>
+                  setValues({ ...values, whatsappPhoneNumberId: event.target.value })
+                }
+              />
+            </FormField>
+
+            <p className="ds-hint ds-field-grid--full">
+              Solo si el agente atiende por WhatsApp. Es el «Phone number ID» que muestra Meta en la
+              configuración de la API de WhatsApp de tu app, no el número de teléfono. Con él
+              sabemos a qué agente le corresponde cada mensaje que llega a ese número.
             </p>
           </div>
         </Card>

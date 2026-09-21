@@ -1,4 +1,4 @@
-import type { ConversationChannel, Prisma } from "@prisma/client";
+import { Prisma, type ConversationChannel } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 import {
   countAgents,
@@ -96,51 +96,71 @@ export interface CreateAgentInput {
   // como texto plano: no necesita el cast de Prisma.InputJsonValue.
   guardrailsText: string;
   allowedOrigins: string[];
+  whatsappPhoneNumberId?: string | null;
   isActive?: boolean;
+}
+
+// agents.whatsapp_phone_number_id es UNIQUE GLOBAL (ítem 81): el webhook de
+// Meta no trae otra pista para saber de quién es un mensaje. El choque puede
+// ser con un agente de OTRA organización, así que el mensaje no dice cuál —
+// solo que ese número ya está tomado. Cualquier otro P2002 se relanza tal cual.
+function traducirNumeroDeWhatsappDuplicado(err: unknown): never {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+    const target = Array.isArray(err.meta?.target)
+      ? err.meta.target.join(",")
+      : String(err.meta?.target ?? "");
+    if (target.includes("whatsapp_phone_number_id")) {
+      throw new AppError("Ese número de WhatsApp ya está asignado a otro agente", 409);
+    }
+  }
+  throw err;
 }
 
 export async function createAgent(organizationId: string, input: CreateAgentInput) {
   // 400 rápido en el caso común, sin abrir transacción.
   await validateBranchId(organizationId, input.branchId);
 
-  return prisma.$transaction(async (tx) => {
-    // Mismo lock que createResource: serializa contra deleteBranch para que
-    // el agente no quede colgando de una sucursal borrada entre el pre-check y
-    // el INSERT. La OTRA mitad —que deleteBranch cuente agentes activos y
-    // rechace, como hace con los recursos— NO está en este PR: hoy deleteBranch
-    // no sabe que los agentes existen. Es una decisión pendiente anotada en el
-    // PR de 2a, no un olvido; el lock queda puesto para que el día que se
-    // agregue el RESTRICT el lado create ya esté correcto.
-    await lockBranchForUpdate(input.branchId, organizationId, tx);
+  return prisma
+    .$transaction(async (tx) => {
+      // Mismo lock que createResource: serializa contra deleteBranch para que
+      // el agente no quede colgando de una sucursal borrada entre el pre-check y
+      // el INSERT. La OTRA mitad —que deleteBranch cuente agentes activos y
+      // rechace, como hace con los recursos— NO está en este PR: hoy deleteBranch
+      // no sabe que los agentes existen. Es una decisión pendiente anotada en el
+      // PR de 2a, no un olvido; el lock queda puesto para que el día que se
+      // agregue el RESTRICT el lado create ya esté correcto.
+      await lockBranchForUpdate(input.branchId, organizationId, tx);
 
-    // Revalida con el lock sostenido: entre el pre-check y este punto,
-    // deleteBranch pudo haber borrado la sucursal.
-    await validateBranchId(organizationId, input.branchId, tx);
+      // Revalida con el lock sostenido: entre el pre-check y este punto,
+      // deleteBranch pudo haber borrado la sucursal.
+      await validateBranchId(organizationId, input.branchId, tx);
 
-    return createAgentRepo(
-      {
-        organizationId,
-        branchId: input.branchId,
-        name: input.name,
-        goal: input.goal ?? null,
-        instructions: input.instructions,
-        tone: input.tone ?? null,
-        modelProvider: input.modelProvider,
-        modelName: input.modelName,
-        enabledTools: input.enabledTools,
-        channels: input.channels,
-        allowedOrigins: input.allowedOrigins,
-        // El cast es el mismo precio que paga source.service.ts con
-        // fieldMapping: InputJsonValue exige una firma de índice que
-        // Record<string, unknown> no declara, aunque cualquier objeto JSON la
-        // cumple. Zod ya garantizó que es un objeto plano.
-        guardrails: input.guardrails as Prisma.InputJsonValue,
-        guardrailsText: input.guardrailsText,
-        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-      },
-      tx,
-    );
-  });
+      return createAgentRepo(
+        {
+          organizationId,
+          branchId: input.branchId,
+          name: input.name,
+          goal: input.goal ?? null,
+          instructions: input.instructions,
+          tone: input.tone ?? null,
+          modelProvider: input.modelProvider,
+          modelName: input.modelName,
+          enabledTools: input.enabledTools,
+          channels: input.channels,
+          allowedOrigins: input.allowedOrigins,
+          whatsappPhoneNumberId: input.whatsappPhoneNumberId ?? null,
+          // El cast es el mismo precio que paga source.service.ts con
+          // fieldMapping: InputJsonValue exige una firma de índice que
+          // Record<string, unknown> no declara, aunque cualquier objeto JSON la
+          // cumple. Zod ya garantizó que es un objeto plano.
+          guardrails: input.guardrails as Prisma.InputJsonValue,
+          guardrailsText: input.guardrailsText,
+          ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        },
+        tx,
+      );
+    })
+    .catch(traducirNumeroDeWhatsappDuplicado);
 }
 
 // SIN branchId: un Agent NO cambia de sucursal, y es una decisión, no un
@@ -165,6 +185,7 @@ export interface UpdateAgentInput {
   guardrails?: Record<string, unknown>;
   guardrailsText?: string;
   allowedOrigins?: string[];
+  whatsappPhoneNumberId?: string | null;
   isActive?: boolean;
 }
 
@@ -227,7 +248,7 @@ export async function updateAgent(organizationId: string, id: string, input: Upd
           ) as Prisma.InputJsonValue,
         }
       : {}),
-  });
+  }).catch(traducirNumeroDeWhatsappDuplicado);
   if (result.count === 0) {
     throw new AppError("Agente no encontrado", 404);
   }

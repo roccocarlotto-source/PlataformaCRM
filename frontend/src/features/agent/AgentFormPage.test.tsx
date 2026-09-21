@@ -128,6 +128,7 @@ describe("AgentFormPage — creación", () => {
     await user.click(screen.getByLabelText("Canales", { selector: "button" }));
     await user.click(screen.getByRole("checkbox", { name: "WhatsApp" }));
     await user.keyboard("{Escape}");
+    await user.type(screen.getByLabelText("ID del número de WhatsApp"), " 106540352242922 ");
 
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
@@ -151,6 +152,8 @@ describe("AgentFormPage — creación", () => {
         guardrails: { accionesProhibidas: ["update_opportunity"] },
         // Y el texto que el ADMIN escribió, para poder volver a editarlo.
         guardrailsText: "No modifiques oportunidades.",
+        // Recortado: el webhook lo compara por igualdad exacta (ítem 81).
+        whatsappPhoneNumberId: "106540352242922",
         isActive: true,
       },
     ]);
@@ -498,6 +501,28 @@ describe("AgentFormPage — creación", () => {
     expect(llamadas).toBe(0);
   });
 
+  it("un ID de WhatsApp con + o espacios se frena en el cliente y no manda nada (ítem 81)", async () => {
+    let posts = 0;
+    server.use(
+      mockBranches(),
+      http.post(baseUrl, () => {
+        posts += 1;
+        return HttpResponse.json(makeAgent(), { status: 201 });
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/new");
+    await completarMinimo(user);
+    await user.type(screen.getByLabelText("ID del número de WhatsApp"), "+598 99 123 456");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    expect(
+      await screen.findByText(/El ID del número de WhatsApp lleva solo dígitos/),
+    ).toBeInTheDocument();
+    expect(posts).toBe(0);
+  });
+
   it("el error del backend se muestra tal cual", async () => {
     server.use(
       mockBranches(),
@@ -707,6 +732,8 @@ describe("AgentFormPage — edición", () => {
         // Los dos SIEMPRE juntos: el backend rechaza un PATCH con uno solo.
         guardrails: {},
         guardrailsText: "",
+        // Sin número: viaja como null, no se omite (ver el test de vaciarlo).
+        whatsappPhoneNumberId: null,
         isActive: false,
       },
     ]);
@@ -715,6 +742,29 @@ describe("AgentFormPage — edición", () => {
     // Omitir allowedOrigins es lo que deja intacta la configuración del widget:
     // mandarlo como [] la borraría.
     expect("allowedOrigins" in bodies[0]).toBe(false);
+  });
+
+  it("vaciar el ID de WhatsApp manda null: le quita el número al agente (ítem 81)", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      mockBranches(),
+      mockAgentDetalle({ whatsappPhoneNumberId: "106540352242922" }),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+
+    const campo = await screen.findByLabelText("ID del número de WhatsApp");
+    expect(campo).toHaveValue("106540352242922");
+    await user.clear(campo);
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect(bodies[0].whatsappPhoneNumberId).toBeNull();
   });
 
   it("una tool que ya no está en el catálogo se conserva, no la borra el PATCH", async () => {

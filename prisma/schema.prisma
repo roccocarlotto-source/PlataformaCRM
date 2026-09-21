@@ -2021,6 +2021,16 @@ model Agent {
   // (utils/origin.ts) para que la comparación sea por igualdad exacta.
   allowedOrigins String[] @default([]) @map("allowed_origins")
 
+  // El phone_number_id de WhatsApp Business Platform (Meta) que atiende este
+  // agente — ítem 81. Meta lo manda en cada webhook (metadata.phone_number_id)
+  // y es lo único que dice a qué agente, y por lo tanto a qué organización y
+  // sucursal, le corresponde el mensaje: el equivalente de allowedOrigins para
+  // el canal WhatsApp. UNIQUE GLOBAL, no por organización: el webhook llega
+  // sin ninguna otra pista, así que dos agentes con el mismo número serían un
+  // mensaje sin dueño. NULL = el agente no tiene número de WhatsApp. Se libera
+  // (vuelve a NULL) al borrar el agente, para que el número pueda pasar a otro.
+  whatsappPhoneNumberId String? @unique @map("whatsapp_phone_number_id") @db.VarChar(40)
+
   isActive  Boolean   @default(true) @map("is_active")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -2155,10 +2165,11 @@ model Message {
   // Auditoría del turno: qué tool intentó usar el agente, con qué argumentos,
   // si puedeEjecutarTool() la permitió y qué devolvió (§6). Forma libre.
   toolCalls         Json?   @map("tool_calls")
-  // Id del mensaje en el canal externo (SID de Twilio, etc.): dedup ante
-  // reintentos y reentregas del webhook. Sin UNIQUE todavía: el índice que lo
-  // haga cumplir nace con el webhook que lo necesite (paso 6 de §9), cuando se
-  // sepa contra qué se deduplica (¿por canal? ¿por conversación?).
+  // Id del mensaje en el canal externo (el wamid de WhatsApp): dedup ante
+  // reintentos y reentregas del webhook. UNIQUE por organización desde el
+  // ítem 81 (ver @@unique abajo); NULL en los mensajes que no vienen de un
+  // canal externo (Web, salientes, probador), y Postgres no compara NULLs
+  // entre sí, así que esos no chocan.
   externalMessageId String? @map("external_message_id") @db.VarChar(255)
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -2170,6 +2181,11 @@ model Message {
   // El patrón de lectura real, y el único: los mensajes de una conversación,
   // en orden. No hay listado de mensajes por organización.
   @@index([conversationId, createdAt])
+  // Ítem 81: Meta reintenta la entrega del webhook ante cualquier cosa que no
+  // sea un 2xx rápido, así que el mismo mensaje puede llegar dos veces. Por
+  // organización y no global: el id lo emite el canal, y dos organizaciones no
+  // comparten mensajes.
+  @@unique([organizationId, externalMessageId])
   @@map("messages")
 }
 

@@ -130,6 +130,22 @@ export const allowedOriginsSchema = z
   .max(50, "allowedOrigins no puede superar las 50 entradas")
   .transform(sinDuplicados);
 
+// El phone_number_id de WhatsApp Business Platform (ítem 81): el id numérico
+// que Meta muestra en el panel de la app (WhatsApp > API Setup), NO el número
+// de teléfono en sí. Solo dígitos, porque es lo que Meta manda en
+// metadata.phone_number_id y el webhook lo compara por igualdad exacta: un
+// espacio o un "+" colado haría que ningún mensaje encuentre a su agente.
+// "" se trata como null — es lo que manda un campo de texto vaciado.
+const whatsappPhoneNumberIdSchema = z
+  .string()
+  .trim()
+  .max(40, "whatsappPhoneNumberId no puede superar los 40 caracteres")
+  .transform((value) => (value === "" ? null : value))
+  .refine((value) => value === null || /^\d+$/.test(value), {
+    message: "whatsappPhoneNumberId solo admite dígitos (es el ID del número que muestra Meta)",
+  })
+  .nullable();
+
 const nameSchema = z
   .string()
   .trim()
@@ -160,6 +176,7 @@ const createAgentSchema = z.object({
   guardrailsText: guardrailsTextSchema,
   // Default vacío = widget deshabilitado (fail-closed). Ver allowedOriginsSchema.
   allowedOrigins: allowedOriginsSchema.default([]),
+  whatsappPhoneNumberId: whatsappPhoneNumberIdSchema.optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -179,6 +196,7 @@ const updateAgentSchema = z
     guardrails: guardrailsSchema,
     guardrailsText: guardrailsTextSchema,
     allowedOrigins: allowedOriginsSchema,
+    whatsappPhoneNumberId: whatsappPhoneNumberIdSchema,
     isActive: z.boolean(),
   })
   .partial()

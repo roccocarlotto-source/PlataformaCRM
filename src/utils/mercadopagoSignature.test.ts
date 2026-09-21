@@ -4,12 +4,11 @@ import {
   MAX_TIMESTAMP_AGE_SECONDS,
   MAX_TIMESTAMP_FUTURE_SKEW_SECONDS,
   buildManifest,
-  hmacSha256Hex,
   isTimestampFresh,
   parseSignatureHeader,
-  timingSafeEqual,
   verifyMercadoPagoSignature,
 } from "./mercadopagoSignature";
+import { hmacSha256Hex } from "./hmac";
 
 // Puerto de Plataforma-QR/supabase/functions/_shared/mercadopago.test.ts (la
 // parte de firma). El vector conocido del HMAC se calculó originalmente con
@@ -35,20 +34,6 @@ test("buildManifest sigue el formato documentado por MercadoPago", () => {
     buildManifest("123456", "req-abc", "1704908010"),
     "id:123456;request-id:req-abc;ts:1704908010;",
   );
-});
-
-test("hmacSha256Hex produce el digest esperado para un vector conocido", () => {
-  assert.equal(
-    hmacSha256Hex("test_secret", "id:123456;request-id:req-abc;ts:1704908010;"),
-    "e261829008c66364e666d4d671c965b9671fcd03ed82cc7ae0cd77a0511424b9",
-  );
-});
-
-test("timingSafeEqual: iguales sí, distintos no, largos distintos no, y nunca tira", () => {
-  assert.equal(timingSafeEqual("abc", "abc"), true);
-  assert.equal(timingSafeEqual("abc", "abd"), false);
-  assert.equal(timingSafeEqual("abc", "abcd"), false);
-  assert.equal(timingSafeEqual("", ""), true);
 });
 
 // nowMs fijado en el propio `ts` en los tests de firma, para que un `ts`

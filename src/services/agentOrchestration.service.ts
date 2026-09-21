@@ -112,6 +112,13 @@ export interface RunAgentTurnInput {
   // usa al CREAR la conversación; el endpoint ADMIN de prueba no lo manda y
   // queda null, como siempre.
   externalThreadId?: string;
+  // Id del mensaje en el canal externo (WhatsApp: el wamid). Se guarda en el
+  // Message ENTRANTE de este turno, en el mismo INSERT — no en un Message
+  // aparte. El UNIQUE (organizationId, externalMessageId) hace que una
+  // reentrega del mismo mensaje falle con P2002 ahí, ANTES de llamar al
+  // modelo; quien lo traduce a "duplicado" es el webhook
+  // (whatsappWebhook.service.ts). Web y el probador no lo mandan: queda null.
+  externalMessageId?: string;
 }
 
 export interface RunAgentTurnOptions {
@@ -489,6 +496,9 @@ export async function runAgentTurn(
     direction: "INBOUND",
     senderType: "CONTACT",
     content: texto,
+    ...(input.externalMessageId !== undefined
+      ? { externalMessageId: input.externalMessageId }
+      : {}),
   });
   await updateConversation(conversation.id, organizationId, {
     lastMessageAt: entrante.createdAt,

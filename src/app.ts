@@ -12,6 +12,7 @@ import { routes } from "./routes";
 import { ingestRouter } from "./routes/ingest.routes";
 import { publicWidgetRouter } from "./routes/publicWidget.routes";
 import { qrWebhookRouter } from "./routes/qrWebhook.routes";
+import { whatsappWebhookRouter } from "./routes/whatsappWebhook.routes";
 
 // Arma la instancia de Express (middlewares + rutas) sin escuchar ningún
 // puerto — eso es responsabilidad exclusiva de server.ts.
@@ -142,6 +143,15 @@ app.use("/api", ingestRouter);
 // SIN /api: no es JSON de negocio de un cliente nuestro, lo llama MercadoPago
 // — misma excepción de prefijo que las rutas públicas de resolución de QR.
 app.use(qrWebhookRouter);
+
+// EL WEBHOOK DE WHATSAPP (ítem 81) VA ACÁ POR EL MISMO MOTIVO: trae su propio
+// express.json() con su propio tope, y ese parser es además el que guarda los
+// bytes crudos del cuerpo sobre los que Meta calcula la firma HMAC. Montado
+// después del parser global, el stream ya estaría consumido sin rawBody y
+// ninguna firma podría verificarse. Ver routes/whatsappWebhook.routes.ts.
+//
+// SIN /api, igual que MercadoPago: lo llama Meta, no un cliente nuestro.
+app.use(whatsappWebhookRouter);
 
 // El mismo express.json() de siempre, con los mismos límites por default,
 // pero con sus errores traducidos a 413/400/415 en vez del 500 que producía

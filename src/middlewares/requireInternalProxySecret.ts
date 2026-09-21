@@ -40,7 +40,7 @@ import { sendQrNotFoundLanding } from "../controllers/qrPublic.controller";
 export const INTERNAL_PROXY_SECRET_HEADER = "x-internal-proxy-secret";
 
 // Comparación en tiempo constante SIN filtrar el largo del secreto. No se reusa
-// timingSafeEqual de utils/mercadopagoSignature.ts a propósito: ese helper
+// timingSafeEqual de utils/hmac.ts a propósito: ese helper
 // devuelve `false` de inmediato cuando los largos difieren, lo cual está bien
 // para un HMAC hex (el largo es público, siempre 64) pero acá el largo del
 // secreto ES parte del secreto. Hashear los dos lados con SHA-256 deja dos

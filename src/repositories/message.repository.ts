@@ -22,6 +22,22 @@ export function createMessage(data: CreateMessageData, db: Db = prisma) {
   return db.message.create({ data });
 }
 
+// Dedup del webhook de WhatsApp (ítem 81): ¿ya se registró este id de mensaje
+// del canal en esta organización? El UNIQUE (organizationId,
+// externalMessageId) es la garantía real; esto es el atajo del caso común
+// (Meta reintentando una entrega que ya se procesó), para no llegar a crear un
+// contacto ni a abrir un turno por un mensaje repetido.
+export function findMessageByExternalId(
+  organizationId: string,
+  externalMessageId: string,
+  db: Db = prisma,
+) {
+  return db.message.findFirst({
+    where: { organizationId, externalMessageId },
+    select: { id: true },
+  });
+}
+
 // Los ÚLTIMOS `take` mensajes de la conversación, devueltos en orden
 // cronológico (del más viejo al más nuevo), que es como se le pasan al modelo.
 // Se leen al revés (desc + take) y se invierten: es la forma de "los últimos N"
