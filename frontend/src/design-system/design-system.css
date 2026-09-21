@@ -3885,6 +3885,11 @@ a.ds-button--secondary:hover {
    --------------------------------------------------------------------------- */
 .ds-calendar {
   --ds-calendar-row: 28px;
+  /* Cuánto sube cada etiqueta de hora para quedar sobre su línea de grilla y
+     no centrada en su renglón. El cuerpo reserva ese mismo espacio arriba
+     (padding-top) para que la de las 00:00 no quede tapada por el encabezado
+     sticky al scrollear hasta arriba del todo (ítem 78). */
+  --ds-calendar-hour-lift: calc(var(--font-size-xs) / 2);
   --ds-calendar-template: 4rem repeat(var(--ds-calendar-columns, 1), minmax(9rem, 1fr));
   /* relative: es el offsetParent de los renglones, para el scroll inicial. */
   position: relative;
@@ -3897,6 +3902,12 @@ a.ds-button--secondary:hover {
 .ds-calendar-body {
   display: grid;
   grid-template-columns: var(--ds-calendar-template);
+}
+
+.ds-calendar-body {
+  /* El padding corre por igual al gutter y a las columnas: las etiquetas y las
+     reservas (top en múltiplos de --ds-calendar-row) siguen alineadas. */
+  padding-top: var(--ds-calendar-hour-lift);
 }
 
 .ds-calendar-header {
@@ -3923,12 +3934,23 @@ a.ds-button--secondary:hover {
   font-size: var(--font-size-xs);
   color: var(--color-text-faint);
   text-align: right;
-  transform: translateY(-0.5em);
+  transform: translateY(calc(-1 * var(--ds-calendar-hour-lift)));
 }
 
 .ds-calendar-column {
   position: relative;
   border-left: 1px solid var(--color-border);
+}
+
+/* La línea de las 00:00. Antes la ponía el borde del encabezado; con el
+   padding del cuerpo de por medio la dibuja la columna, sin ocupar alto. */
+.ds-calendar-column::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 1;
+  border-top: 1px solid var(--color-border-strong);
+  pointer-events: none;
 }
 
 .ds-calendar-column > .ds-error {
