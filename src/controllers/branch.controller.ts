@@ -9,6 +9,7 @@ import {
 } from "../services/branch.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
+import { QR_DESTINATION_URL_MAX_LENGTH } from "./qr.controller";
 import { esZonaHorariaValida } from "../utils/timezone";
 import { parseOrThrow } from "../utils/validation";
 
@@ -26,6 +27,39 @@ const timezoneSchema = z
     message: "timezone debe ser una zona horaria IANA válida (ej. America/Argentina/Buenos_Aires)",
   });
 
+// Datos de cobro (ítem 74). El link de pago se valida con la MISMA forma que
+// destinationUrl de qr.controller.ts —http(s):// y el mismo tope de 2048—: es
+// el mismo tipo de dato (una URL que un tercero va a abrir) y no hay motivo
+// para que las dos pantallas acepten cosas distintas.
+//
+// Los dos son opcionales Y nullable, igual que defaultOwnerId: `null` es la
+// forma explícita de vaciarlos desde el PATCH, y el formulario manda siempre
+// la clave. Un string vacío NO es null acá — el formulario ya convierte "" en
+// null antes de mandar, y aceptar "" como "vacío" sería un segundo significado
+// para lo mismo.
+export const BRANCH_BANK_TRANSFER_DETAILS_MAX_LENGTH = 2000;
+
+const paymentLinkUrlSchema = z
+  .string()
+  .trim()
+  .min(1, "paymentLinkUrl no puede estar vacío (mandá null para no configurarlo)")
+  .max(
+    QR_DESTINATION_URL_MAX_LENGTH,
+    `paymentLinkUrl no puede superar los ${QR_DESTINATION_URL_MAX_LENGTH} caracteres`,
+  )
+  .regex(/^https?:\/\//i, "paymentLinkUrl tiene que empezar con http:// o https://");
+
+// Texto libre (CBU/alias/IBAN/titular varían por país y banco). El tope es de
+// cordura: es un dato para copiar o leer en voz alta, no un documento.
+const bankTransferDetailsSchema = z
+  .string()
+  .trim()
+  .min(1, "bankTransferDetails no puede estar vacío (mandá null para no configurarlo)")
+  .max(
+    BRANCH_BANK_TRANSFER_DETAILS_MAX_LENGTH,
+    `bankTransferDetails no puede superar los ${BRANCH_BANK_TRANSFER_DETAILS_MAX_LENGTH} caracteres`,
+  );
+
 const branchFields = {
   name: z
     .string()
@@ -42,6 +76,8 @@ const branchFields = {
   // defecto", y rechazarla obligaría al formulario a omitir la clave según el
   // caso en vez de mandar siempre el mismo objeto.
   defaultOwnerId: z.string().uuid("defaultOwnerId debe ser un UUID").nullable().optional(),
+  paymentLinkUrl: paymentLinkUrlSchema.nullable().optional(),
+  bankTransferDetails: bankTransferDetailsSchema.nullable().optional(),
 };
 
 // timezone es REQUERIDA al crear, aunque la columna tenga default 'UTC'. El

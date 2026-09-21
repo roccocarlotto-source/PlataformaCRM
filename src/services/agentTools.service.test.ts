@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   CATALOGO_DE_TOOLS,
+  NOMBRE_TOOL_PAGO,
   toolsHabilitadas,
   type ContextoDeEjecucionDeTool,
 } from "./agentTools.service";
@@ -39,12 +40,13 @@ async function rechazoDe(nombre: string, args: Record<string, unknown>): Promise
 // Forma del catálogo
 // ---------------------------------------------------------------------------
 
-test("el catálogo tiene exactamente las seis tools de los pasos 2b y 3, con su nombre como clave", () => {
+test("el catálogo tiene exactamente las siete tools (pasos 2b y 3, ítem 74), con su nombre como clave", () => {
   assert.deepEqual([...CATALOGO_DE_TOOLS.keys()].sort(), [
     "create_booking",
     "create_lead",
     "create_opportunity",
     "get_availability",
+    "get_payment_info",
     "update_lead",
     "update_opportunity",
   ]);
@@ -202,3 +204,26 @@ for (const nombre of ["create_lead", "update_lead"]) {
     assert.match(await rechazoDe(nombre, { aiData: ["x"] }), /aiData/);
   });
 }
+
+// ---------------------------------------------------------------------------
+// get_payment_info (ítem 74) — la forma. Que devuelva lo configurado en la
+// sucursal necesita base: branchPaymentInfo.integration-test.ts.
+// ---------------------------------------------------------------------------
+
+test("get_payment_info: sin parámetros, y el nombre exportado es el del catálogo", () => {
+  assert.equal(NOMBRE_TOOL_PAGO, "get_payment_info");
+  const tool = CATALOGO_DE_TOOLS.get(NOMBRE_TOOL_PAGO)!;
+  const parametros = tool.definition.parameters as { properties: Record<string, unknown> };
+  // Ni siquiera branchId: la sucursal sale del contexto, el modelo no elige.
+  assert.deepEqual(parametros.properties, {});
+});
+
+test("get_payment_info: la descripción conserva el criterio de cuándo compartir el detalle", () => {
+  // El matiz del ítem 74 vive SOLO en esta descripción (no hay gate de
+  // código). Si alguien la reescribe y se pierde, este test lo avisa.
+  const descripcion = CATALOGO_DE_TOOLS.get(NOMBRE_TOOL_PAGO)!.definition.description;
+  assert.match(descripcion, /concretamente quiere pagar/);
+  assert.match(descripcion, /qué métodos de pago aceptan/);
+  assert.match(descripcion, /sin compartir todavía el link/);
+  assert.match(descripcion, /no inventes/);
+});

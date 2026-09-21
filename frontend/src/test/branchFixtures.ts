@@ -9,6 +9,8 @@ export function makeBranch(overrides: Partial<Branch> = {}): Branch {
     name: "Casa Central",
     timezone: "America/Montevideo",
     defaultOwnerId: null,
+    paymentLinkUrl: null,
+    bankTransferDetails: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     deletedAt: null,
