@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -9,6 +9,7 @@ import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { UserSelect } from "../user/UserSelect";
+import { GoogleCalendarSection } from "./GoogleCalendarSection";
 import { useCreateBranch, useUpdateBranch } from "./mutations";
 import { useBranch } from "./queries";
 import { DEFAULT_TIMEZONE, TIMEZONE_OPTIONS, isKnownTimezone } from "./timezones";
@@ -48,6 +49,15 @@ export function BranchFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  // Ítem 75 — la vuelta del callback de Google Calendar, que el backend
+  // redirige acá con uno de estos dos parámetros (ver
+  // googleCalendarConnection.controller.ts). Solo se leen: quedan en la URL,
+  // que es lo que permite recargar y seguir viendo el resultado.
+  const [searchParams] = useSearchParams();
+  const resultadoDelCallback = {
+    conectado: searchParams.get("calendarConnected") === "true",
+    error: searchParams.get("calendarError"),
+  };
 
   const branchQuery = useBranch(isEditMode ? id : undefined);
   const createBranchMutation = useCreateBranch();
@@ -162,6 +172,15 @@ export function BranchFormPage() {
             </p>
           </div>
         </Card>
+
+        {/* Ítem 75. Solo en edición: la conexión cuelga del id de la
+            sucursal, que en el alta todavía no existe. Adentro del <form>
+            pero independiente de él —sus botones son type="button" y actúan
+            al momento—, al lado del resto de la configuración de la
+            sucursal. */}
+        {isEditMode ? (
+          <GoogleCalendarSection branchId={id} resultadoDelCallback={resultadoDelCallback} />
+        ) : null}
 
         {error ? <ErrorState>{error}</ErrorState> : null}
 

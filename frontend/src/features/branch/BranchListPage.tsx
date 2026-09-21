@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -38,6 +38,13 @@ export function BranchListPage() {
 
   const deleteBranchMutation = useDeleteBranch();
 
+  // Ítem 75 — el callback de Google Calendar vuelve ACÁ, y no al formulario de
+  // la sucursal, cuando no pudo saber de qué sucursal se trataba (un state
+  // vencido o manipulado: la sucursal solo se toma de un state con firma
+  // válida). El mensaje se muestra tal cual lo armó el backend.
+  const [searchParams] = useSearchParams();
+  const calendarError = searchParams.get("calendarError");
+
   function handleDelete(id: string) {
     // window.confirm, igual que Source/Pipeline. El RESTRICT (recursos,
     // servicios, QRs activos o Google Calendar conectado) NO se anticipa acá:
@@ -57,6 +64,10 @@ export function BranchListPage() {
           Nueva sucursal
         </Link>
       </div>
+
+      {calendarError ? (
+        <ErrorState>No se pudo conectar Google Calendar: {calendarError}</ErrorState>
+      ) : null}
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

@@ -47,6 +47,11 @@ import { KnowledgeBaseFormPage } from "../features/knowledgeBase/KnowledgeBaseFo
 import { KnowledgeBaseListPage } from "../features/knowledgeBase/KnowledgeBaseListPage";
 import { AutomationFormPage } from "../features/automation/AutomationFormPage";
 import { AutomationListPage } from "../features/automation/AutomationListPage";
+import { BookingListPage } from "../features/booking/BookingListPage";
+import { ResourceFormPage } from "../features/resource/ResourceFormPage";
+import { ResourceListPage } from "../features/resource/ResourceListPage";
+import { ServiceTypeFormPage } from "../features/serviceType/ServiceTypeFormPage";
+import { ServiceTypeListPage } from "../features/serviceType/ServiceTypeListPage";
 import { NotFoundPlaceholder } from "./NotFoundPlaceholder";
 
 export const router = createBrowserRouter([
@@ -129,6 +134,13 @@ export const router = createBrowserRouter([
           // authenticate). Las rutas de creación/edición van dentro del
           // AdminRoute de abajo, mismo patrón que Activity/Opportunity.
           { path: "/vehicles", element: <VehicleListPage /> },
+          // Reservas de la Agenda (ítem 75 de docs/frontend-cambios-pendientes.md).
+          // ACÁ AFUERA, a diferencia de /resources y /service-types: las dos
+          // rutas que consume la pantalla —GET /api/bookings y
+          // PATCH /api/bookings/:id/cancel— son `authenticate` a secas
+          // (booking.routes.ts), porque ver quién viene y cancelar un turno es
+          // la operación cotidiana de quien atiende, no configuración.
+          { path: "/bookings", element: <BookingListPage /> },
           {
             // Restricción de UX/autorización visual — ver auth/AdminRoute.tsx.
             // La autorización real de escritura sigue siendo authorize("ADMIN")
@@ -247,6 +259,19 @@ export const router = createBrowserRouter([
               { path: "/automations", element: <AutomationListPage /> },
               { path: "/automations/new", element: <AutomationFormPage /> },
               { path: "/automations/:id/edit", element: <AutomationFormPage /> },
+              // Recursos y Tipos de servicio de la Agenda (ítem 75). MISMO
+              // criterio que /branches y /knowledge-base: el GET es de lectura
+              // abierta —un USER lo consume en los filtros de /bookings— pero
+              // estas pantallas son toda configuración ADMIN-only
+              // (POST/PATCH/DELETE y el PUT del horario llevan
+              // authorize("ADMIN")). El horario laboral no tiene ruta propia:
+              // vive dentro del formulario del recurso.
+              { path: "/resources", element: <ResourceListPage /> },
+              { path: "/resources/new", element: <ResourceFormPage /> },
+              { path: "/resources/:id/edit", element: <ResourceFormPage /> },
+              { path: "/service-types", element: <ServiceTypeListPage /> },
+              { path: "/service-types/new", element: <ServiceTypeFormPage /> },
+              { path: "/service-types/:id/edit", element: <ServiceTypeFormPage /> },
               { path: "/companies/new", element: <CompanyFormPage /> },
               { path: "/companies/:id/edit", element: <CompanyFormPage /> },
               { path: "/contacts/new", element: <ContactFormPage /> },

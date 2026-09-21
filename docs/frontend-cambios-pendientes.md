@@ -4272,3 +4272,94 @@ Los de integración **los corrió el CI y no esta máquina**, y no es un atajo: 
 - **16 nuevos en `ConversationDetail.test.tsx`**: el estado vacío ofrece generar; con brief aparece el texto con "Editar" y "Regenerar" y **antes del hilo** (verificado con `compareDocumentPosition`, no por orden de aserciones); un brief de la IA **no** se marca como editado y uno corregido **sí, con el nombre**; **editar y guardar manda el `PATCH`** con el texto nuevo y el textarea arranca con el brief que había; **guardar vacío manda `null`**; **cancelar no manda nada**; **"Generar" llama al `POST`**; **"Regenerar" sobre texto de la IA no pregunta** y sobre una edición a mano **sí, y cancelar no llama al backend**; si generar falla **el brief anterior sigue a la vista**; el componente funciona igual **con el prop `id` que con `useParams`**, sin encabezado en el primer caso y con él en el segundo; y el caso que **abre el editor del brief a propósito** para comprobar que la barrera de "no se responde" sigue en pie.
 
 `npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
+
+## 75. Pantallas de Agenda: Recursos, Tipos de servicio, Horario, Google Calendar y Reservas
+
+**Estado:** hecho
+
+**Qué pasaba.** El módulo de Agenda estaba **completo en el backend** (`docs/booking-architecture.md`: `Resource`, `ServiceType`, `WorkingHours`, `GoogleCalendarConnection`, `Booking` y la disponibilidad, todo probado) pero `frontend/src/features/` **no tenía ninguna carpeta para él**. A diferencia de Contactos, Oportunidades o Agentes, no había forma de usar nada de esto sin llamar a la API a mano — y sin recursos, servicios y horarios cargados, el agente de IA no tiene nada que reservar.
+
+**Alcance completo, no recortado** (decisión tomada con Rocco): las cinco piezas entran juntas. Sacar cualquiera deja al agente igual de imposibilitado de reservar, así que una versión parcial no destrababa nada.
+
+### Dónde vive cada pieza
+
+| Pieza | Dónde | Quién la ve |
+|---|---|---|
+| **Recursos** | `/resources` + `/resources/new` + `/resources/:id/edit` (carpeta nueva `features/resource/`) | ADMIN (dentro de `AdminRoute`) |
+| **Tipos de servicio** | `/service-types` + alta y edición (carpeta nueva `features/serviceType/`) | ADMIN |
+| **Horario laboral** | **Sección dentro del formulario del Recurso**, no una pantalla propia | ADMIN |
+| **Google Calendar** | **Sección dentro del formulario de la Sucursal** (`BranchFormPage`), junto a "Vendedor por defecto" | ADMIN |
+| **Reservas** | `/bookings` (carpeta nueva `features/booking/`) — consulta y cancelación | **Ambos roles**, fuera de `AdminRoute` |
+
+En el menú hay un grupo nuevo **"Agenda"**: *Reservas* para todos, *Recursos* y *Tipos de servicio* solo para ADMIN — mismo criterio que Sucursales. Las reservas van afuera porque `GET /api/bookings` y `PATCH /api/bookings/:id/cancel` son `authenticate` a secas (`booking.routes.ts`): ver quién viene y cancelar un turno es la operación cotidiana de quien atiende, no configuración.
+
+### Recursos y Tipos de servicio
+
+Mismo patrón que `KnowledgeBaseListPage`: filtro por sucursal con `BranchSelect`, paginado, resolución de nombres con la misma query que alimenta el filtro. `ResourceSelect` (nuevo, plantilla directa de `BranchSelect`) comparte una sola página de hasta 100 recursos **sin filtro de sucursal** y filtra localmente: la misma request sirve para el selector de cualquier sucursal y para resolver nombres en los listados. Mismo riesgo residual de más de 100 que ya tienen `BranchSelect` y `UserSelect`.
+
+- **Recurso:** la sucursal **no se puede cambiar** en edición — `updateResourceSchema` no la acepta — así que se muestra deshabilitada en vez de esconderla (mismo criterio que el `branchId` de un Agente). El **tipo sí**.
+- **Tipo de servicio:** la sucursal **sí** se puede cambiar, pero el backend exige que viaje **junto con el recurso** (el recurso viejo es de la sucursal vieja). Cambiar la sucursal **vacía el recurso elegido** y el selector solo ofrece los de la sucursal nueva. Cupo opcional: vacío en el alta lo pone el backend (1).
+
+### Horario laboral
+
+Visible **solo en edición**: cuelga de `PUT /resources/:id/working-hours`, y en el alta el recurso todavía no tiene id. Un editor por día (lunes primero), cada uno con cero, una o varias franjas que se agregan y quitan — mismo esquema que `FieldMappingEditor`, el único precedente de "lista de filas editable".
+
+- **Se guarda con el mismo "Guardar"** que el resto, pero son dos requests: el `PATCH` del recurso y después el `PUT` con **la semana entera**. Si el segundo falla, la pantalla lo dice ("los datos del recurso se guardaron, pero el horario no") y **no navega**, para no perder lo tipeado.
+- **Se valida del lado del cliente antes de mandar nada**: formato, inicio antes que fin, tope de 50 y **superposición entre franjas del mismo día**. Esta última **no la valida Zod**: vive en `replaceWorkingHoursForResource` (`encontrarFranjasSuperpuestas`), y su 400 nombra el día en inglés sin decir qué franjas se pisan. El mensaje del cliente dice "Martes: las franjas 09:00–13:00 y 12:00–18:00 se superponen". Tocarse no es pisarse (09–13 y 13–18 conviven), igual que en el backend.
+- **Un horario vacío es válido** y significa "no atiende": se guarda como `[]`, no se bloquea.
+- **Las horas son texto `HH:MM`, no `<input type="time">`**: el backend acepta `24:00` como fin del día y un input de tipo time no puede mostrarlo.
+
+### Google Calendar
+
+Sección del formulario de la sucursal, solo en edición. Tres estados: **sin conectar** (nunca se conectó o se desconectó; el 404 del `GET` se traduce a "sin conectar", no a un error), **conectando** y **conectado** (con el `calendarId` y "Desconectar", que pregunta antes). Un cuarto, **ERROR**, muestra `lastErrorMessage` y ofrece reconectar.
+
+"Conectar" llama a **`POST /branches/:branchId/google-calendar/connect`** (la ruta real lleva `/connect`) y abre la URL de autorización con `window.open(url, "_blank", "noopener")` — **no navega la pestaña actual**. Como el flujo termina en el callback del backend, en la otra pestaña, esta pasa a "conectando": dice qué hacer, ofrece el link por si el navegador bloqueó la pestaña, y un botón "Volver a consultar" (además del refetch al volver el foco). Las acciones se aplican al momento, sin pasar por "Guardar".
+
+### El único cambio al backend: el callback redirige al frontend
+
+`callbackHandler` respondía `text/plain` porque "la carpeta frontend/ está vacía, no hay a dónde redirigir". Ya no es cierto: ahora hace un **302** al primer origen de `CORS_ORIGIN`:
+
+- **Éxito** → `/branches/:branchId/edit?calendarConnected=true`.
+- **Error** → `/branches/:branchId/edit?calendarError=<mensaje>` (url-encoded, recortado a 200 caracteres). La sucursal **solo sale de un `state` con firma válida** — se verifica de nuevo en el controller, que no consume nada porque el state es un JWT sin nonce —. Si el state falta, está vencido o fue manipulado, vuelve a **`/branches?calendarError=...`**, y el listado de sucursales muestra el mensaje.
+- **Sin un origen utilizable** (vacío o no http/https) queda el **`text/plain` de siempre** como fallback.
+
+La ruta del formulario es `/branches/:id/edit` y no `/branches/:id`: es la que existe en `router.tsx`.
+
+### Cancelar reservas
+
+Solo las `CONFIRMED` tienen el botón (las demás las rechaza el backend). **Con `window.confirm`**, calcado de "Revocar" en `InvitationListPage` — la otra transición de estado sin vuelta atrás que no borra nada. Sin alta manual: reservar lo hace el agente; si hace falta desde el CRM es otro ítem.
+
+La pantalla **arranca filtrando desde hoy** (es una agenda); vaciar "Desde" muestra el historial. `to` es exclusivo en el backend, así que "Hasta" manda la medianoche del día siguiente. Cada turno se muestra **en la zona horaria de su sucursal**. **Sin filtro por contacto** aunque el backend lo acepte: no hay un selector de contacto reutilizable y un UUID crudo no es un control aceptable.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/controllers/googleCalendarConnection.controller.ts` | `urlDeVueltaAlFrontend` (pura, exportada), `branchIdVerificado` y el 302 en los dos caminos del callback |
+| `frontend/src/features/resource/` | **Carpeta nueva**: tipos, api, queries, mutations, `labels.ts`, `workingHours.ts` (helpers puros), `WorkingHoursEditor`, `ResourceSelect`, listado y formulario |
+| `frontend/src/features/serviceType/` | **Carpeta nueva**: tipos, api, queries, mutations, `format.ts`, listado y formulario |
+| `frontend/src/features/booking/` | **Carpeta nueva**: tipos, api, queries, mutations, `format.ts`, `BookingListPage` |
+| `frontend/src/features/branch/GoogleCalendarSection.tsx` | **Archivo nuevo** |
+| `frontend/src/features/branch/{api,queries,mutations,types}.ts` | La conexión: GET (404 → `null`), POST `/connect` y DELETE |
+| `frontend/src/features/branch/BranchFormPage.tsx` / `BranchListPage.tsx` | La sección y la lectura de `calendarConnected` / `calendarError` |
+| `frontend/src/app/router.tsx` / `frontend/src/layout/AppLayout.tsx` | Rutas y grupo "Agenda" |
+| `frontend/src/test/{resource,serviceType,booking}Fixtures.ts` | Fixtures nuevas |
+
+Sin migración y sin cambios de contrato: todo el resto del backend quedó como estaba.
+
+### Tests (corridos de verdad)
+
+**Backend: 925 unitarios, todos en verde** (antes: 915). **10 nuevos en `src/controllers/googleCalendarConnection.controller.test.ts`** (archivo nuevo): seis sobre `urlDeVueltaAlFrontend` —éxito, error con y sin sucursal, el recorte del mensaje, varios orígenes (usa el primero y solo su origin) y los seis casos sin origen utilizable— y cuatro por HTTP contra la app real: sin state → 302 al listado; **state válido con `error=access_denied` → 302 al formulario de esa sucursal**; **state firmado con otra clave → la sucursal no se toma de ahí**, vuelve al listado; y sin `CORS_ORIGIN` utilizable → el `text/plain` de siempre con el 400. La suite de integración no cambia (ningún test nuevo); la corre el CI, porque el `.env` del worktree donde arrancó este ítem apunta a producción.
+
+**Frontend: 161 archivos, 1731 casos, todos en verde** (antes: 156 y 1695). 5 archivos de test nuevos y uno ampliado, 36 casos nuevos:
+
+- **`ResourceListPage.test.tsx` (5):** tipo traducido y sucursal por nombre; estado vacío; los filtros de sucursal y tipo viajan y vuelven a la página 1; "Editar" apunta al formulario; "Eliminar" pregunta y el RESTRICT del backend se muestra tal cual.
+- **`ResourceFormPage.test.tsx` (8):** el alta manda los tres campos y **no muestra el horario**; sin sucursal no se manda nada; la edición hidrata, deja la sucursal **deshabilitada**, ordena las franjas por inicio y **conserva `24:00`**; guardar manda el `PATCH` **sin `branchId`** y el `PUT` con **la semana entera**, incluida una franja agregada (con la franja sugerida); quitar todas manda `[]`; **dos franjas superpuestas frenan el guardado antes de mandar nada**; una hora mal escrita o una franja al revés también; y si el `PUT` falla lo dice sin navegar.
+- **`ServiceTypeListPage.test.tsx` (4):** recurso y sucursal por nombre, duración legible ("1 h 30 min") y cupo; estado vacío; el filtro de recurso **solo ofrece los de la sucursal elegida** y cambiar de sucursal lo limpia; editar y eliminar.
+- **`ServiceTypeFormPage.test.tsx` (6):** el recurso está deshabilitado hasta elegir sucursal; alta sin cupo y con cupo; la edición manda **sucursal y recurso juntos**; **cambiar la sucursal vacía el recurso** y no deja guardar hasta elegir uno nuevo; un error del backend se muestra sin navegar.
+- **`BookingListPage.test.tsx` (6):** el turno **en la zona de la sucursal** con contacto, servicio, recurso y estado resueltos; arranca **desde hoy** ordenado ascendente; los seis filtros viajan en la query (con `to` = día siguiente); vaciar "Desde" saca el `from`; **"Cancelar" solo en las `CONFIRMED`, pregunta y manda el `PATCH /cancel`**; y el 409 de una ya cancelada se muestra.
+- **`BranchFormPage.test.tsx` (+7):** la sección **no aparece en el alta**; **sin conectar → "Conectar" abre la URL en una pestaña nueva, la pestaña actual no navega, pasa a "conectando" y "Volver a consultar" muestra la conexión**; conectada muestra el calendario y "Desconectar" pregunta y manda el `DELETE`; ERROR muestra el motivo y ofrece reconectar; si iniciar falla no se abre ninguna pestaña; y la vuelta del callback con `calendarConnected` y con `calendarError`. El `renderForm` del archivo ganó un handler por defecto de "sin conectar", porque la sección se monta en toda edición.
+
+`npm run typecheck`, `npm run lint` y `prettier --check` limpios en backend y frontend.
+
+**No se levantó el stack local** para crear un recurso de punta a punta: el worktree donde arrancó el ítem tiene el `.env` apuntando a producción, y `supabase start` no anda desde un worktree secundario. La cobertura del flujo es la de los tests de arriba.
