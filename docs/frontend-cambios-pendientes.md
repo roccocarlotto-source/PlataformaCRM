@@ -4916,3 +4916,72 @@ El botón trae estado propio (visible/oculto), un `aria-label` que cambia con es
 ### Tests (corridos de verdad)
 
 `PasswordField.test.tsx` 7/7: arranca oculto; el click alterna el `type` y el `aria-label` y un segundo click vuelve a ocultar; es controlado (lo tipeado llega por `onChange` y se conserva al alternar); conserva `autoComplete`/`required`/`minLength`; alternar no envía el form; el botón está en el Tab justo después del input; dos campos alternan cada uno por su cuenta. Los tests de `LoginPage`, `ResetPasswordPage` y `AcceptInvitationPage` pasan **sin modificaciones**: todos buscaban el input por `getByLabelText` y ninguno afirmaba `type="password"`. Suite completa del frontend 1785/1785 (164 archivos), `typecheck` y `lint` limpios.
+
+## 83. El agente debería poder seguir respondiendo después de un handoff fallido, en vez de quedar mudo para siempre
+
+**Estado:** hecho — camino **(b)**, el de fondo.
+
+**Qué pasó (caso real, AutoMax, 22/09/2026).** Un cliente le escribió al agente por WhatsApp pidiendo autos de menos de USD 30.000. El agente intentó `create_opportunity()`, que falló por una regla de negocio (el contacto no tenía vendedor asignado — ese problema puntual ya se resolvió con el ítem 69, `Branch.defaultOwnerId`). Al fallar la tool, el modelo interpretó que "no había otra forma de ayudar" y llamó a `request_human_handoff()`. Desde ese momento la conversación quedó en `TRANSFERRED_TO_HUMAN` y el agente dejó de responder **para siempre** en ese hilo — aunque el cliente siguió escribiendo ("Porque no?", "Hola?") y aunque el motivo original del handoff (falta de vendedor) ya no existe.
+
+**Por qué pasa, en el código actual (`agentOrchestration.service.ts`):**
+
+1. `armarSystemPrompt()` le agrega **siempre** al prompt, sin que se pueda desactivar desde `Agent.guardrails`: *"usá `request_human_handoff` (...) si una acción que necesitás no está disponible y no hay otra forma de ayudar"*. Un fallo de tool cae directo en ese gatillo.
+2. Una vez que `status` pasa a `TRANSFERRED_TO_HUMAN`, el loop corta antes de generar respuesta (`respuesta: null`) — comentario en el código: *"Volver a meter al agente después de un handoff sería deshacer la derivación por la puerta de atrás"*. No hay ningún código que revierta el status a `ACTIVE`, ni un endpoint para hacerlo a mano.
+3. El único camino para que el agente vuelva a hablar con ese contacto es que la conversación pase a `CLOSED` (no hay forma de hacerlo desde la API tampoco) — ahí un mensaje nuevo crea una conversación nueva.
+
+**La tensión de diseño, para decidir antes de tocar código:** el silencio permanente después de handoff está documentado como *"la garantía central"* del módulo (`docs/ai-agent-architecture.md`, sección 6) — la razón de ser es que el bot nunca le hable al cliente al mismo tiempo que la persona que lo tomó, algo que sí importa una vez que un vendedor de verdad está escribiéndole. El pedido de Rocco (que el agente conteste lo que pueda, en vez de callarse apenas falla una tool) es razonable, pero **no es gratis**: si se relaja, hay que decidir cómo se sigue evitando que agente y humano se pisen.
+
+**Caminos posibles (el elegido fue el (b); los otros dos quedan acá como el registro de lo que se descartó):**
+
+- **(a) Acotado — no tocar el silencio permanente, evitar el gatillo fácil.** Cambiar la instrucción fija del prompt para que un fallo de tool no dispare handoff automático salvo que el propio modelo, después de intentar explicar la limitación en texto, decida que hace falta una persona. Reduce el problema de hoy (fallos de tool ya no derivan solos) pero no soluciona el caso de un handoff genuino: sigue siendo silencio para siempre.
+- **(b) De fondo — desacoplar "avisar a una persona" de "callar al agente".** `request_human_handoff` deja de silenciar por sí solo: solo crea la notificación/Activity para que un vendedor la vea. El agente se calla recién cuando un mensaje real con `senderType: "HUMAN"` aparece en el hilo (ese campo ya existe en el modelo de datos, no se usa así hoy). Esto sí resuelve el caso de fondo, pero es un cambio de estados de `Conversation` y de la lógica central del loop — más superficie, más tests de integración a tocar (`agentOrchestration.integration-test.ts`, `whatsappWebhook.controller.integration-test.ts`).
+- **(c) Intermedio — un botón/endpoint para reabrir una conversación a mano.** No cambia el comportamiento por defecto del agente, pero le da a un ADMIN o al vendedor la forma de decir "esto no hacía falta derivarlo, que el bot siga" sin ir a la base de datos a mano (que es literalmente lo único que existe hoy, `SUPABASE_SERVICE_ROLE_KEY` mediante).
+
+### Lo que se construyó
+
+Se desacoplaron las dos cosas que `request_human_handoff` hacía juntas:
+
+- **Avisar a una persona** sigue igual y es lo único que hace la tool ahora: `assignedUserId`, la `Activity` de aviso y el brief, sin un solo cambio. También sigue poniendo `status = TRANSFERRED_TO_HUMAN`, pero ese status pasa a significar **"hay una notificación pendiente para un vendedor"** y nada más.
+- **Callar al agente** dejó de depender del status. El gate del loop es ahora *"¿existe algún `Message` con `senderType = HUMAN` en esta conversación?"*. Mientras nadie escribió, el agente sigue atendiendo lo que pueda.
+
+### Decisiones de diseño (las que se tomaron acá, no venían dadas)
+
+1. **`Message.senderType = HUMAN` como fuente de verdad, sin campo ni estado nuevo en `Conversation`.** "Hay un humano interviniendo" ya está en los datos, y derivarlo de ahí no se puede desincronizar de la realidad. Una columna booleana habría que acordarse de escribirla en cada lugar que mande un mensaje, y el día que alguien se olvide el agente le habla encima a una persona. `TRANSFERRED_TO_HUMAN` se queda con el significado acotado que de hecho tiene — por eso sigue contando como conversación abierta en `findOpenConversation` y sigue siendo un filtro útil de la bandeja.
+2. **Cualquier mensaje `HUMAN` del hilo, y no "uno posterior al último del agente"** (que era la otra opción sobre la mesa). Las dos reglas dan exactamente el mismo resultado: bloqueado el agente, su último mensaje nunca avanza, así que un `HUMAN` siempre queda después. Se eligió la que se explica en una línea — una vez que una persona entró al hilo, el hilo es suyo.
+3. **El gate mira el hilo entero, no la ventana de contexto de 20 mensajes.** Un humano que escribió hace 21 mensajes intervino igual. Por eso `hasHumanMessage` es una consulta aparte y no un filtro sobre `findLastMessages`. Hay un test que lo fija.
+4. **Vale también para una conversación `ACTIVE`**, sin handoff previo: si un vendedor se mete a contestar por su cuenta, el agente se calla igual. El gate no inventa un cambio de status — quien escriba ese `Message` es quien decide qué hacer con él.
+5. **La descripción de la tool cambió, los disparadores NO.** Decía *"Deriva esta conversación a una persona del equipo **y deja de responder como agente**"*, que hoy sería mentirle al modelo: uno que cree que llamar a la tool lo saca de la conversación se despide y no vuelve a intentar ayudar — justo lo que este ítem vino a arreglar. Ahora dice que avisa y que sigue atendiendo hasta que la persona escriba. **Cuándo** derivar quedó intacto: eso era el camino (a), que no se hizo.
+6. **La idempotencia se mantiene y sigue leyendo el status**, que es legítimo porque es exactamente lo que ese status significa ahora. Ya no tiene nada que ver con silenciar.
+
+### Limitación conocida (importante, y no es un olvido)
+
+**Hoy ningún flujo de producción escribe un `Message` con `senderType = HUMAN`.** No existe todavía un endpoint para que un vendedor conteste desde el CRM — la bandeja del ítem 66 es de solo lectura a propósito, y el `senderType` solo lo escriben el seed y los tests. En la práctica eso significa que **el gate está construido y probado pero nunca se dispara solo: el agente no se calla nunca**. Es el resultado buscado por ahora (el problema era el silencio permanente, no el exceso de respuestas), y el día que exista "responder desde el CRM" persistir ese `Message` es todo lo que hace falta para que el agente se aparte — no hay que tocar el loop. Los tests escriben el mensaje directo contra la base, que es el mismo camino que va a usar ese endpoint.
+
+Segunda limitación, más visible que antes: **una conversación que ya derivó no vuelve a notificar nunca**. Antes daba igual (el agente estaba mudo); ahora puede pasar mucho más tiempo entre el aviso y una segunda derivación, y si el vendedor ya completó la tarea del primer aviso, la segunda no le llega. Avisar de nuevo exige saber si el aviso anterior sigue pendiente, y `Activity` no guarda a qué conversación pertenece (solo `contactId`) — es un ítem propio, no un arreglo de este.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/repositories/message.repository.ts` | `hasHumanMessage(conversationId, organizationId)` — `findFirst` + `select: { id }`, sirve el mismo índice `(conversation_id, created_at)` |
+| `src/services/agentOrchestration.service.ts` | El gate pasa de `status === "TRANSFERRED_TO_HUMAN"` a `await hasHumanMessage(...)`, con el bloque de "por qué"; descripción de `REQUEST_HUMAN_HANDOFF_TOOL`; comentarios de `ejecutarHandoff`, `aHistorial` y `ResultadoDelTurno.respuesta` |
+| `src/services/whatsappWebhook.service.ts` | Comentario del paso 6: qué significa `respuesta === null` ahora |
+| `src/repositories/conversation.repository.ts` | Comentario de `findOpenConversation` |
+| `prisma/schema.prisma` | Comentario del enum `ConversationStatus` — **sin migración**, no cambió una sola columna |
+| `frontend/src/features/agent/AgentPlaygroundPage.tsx` | La nota de `respuesta: null` pasa a "una persona del equipo ya está atendiendo esta conversación" |
+| `frontend/src/features/agent/types.ts` | Comentario de `TestMessageResult.respuesta` |
+| `docs/ai-agent-architecture.md` | Nota del 22/09/2026 bajo §6 + puntero en la nota del 12/09 que decía que el silencio era "la garantía central" |
+
+La bandeja de conversaciones (ítem 66) y el brief (ítem 73) **no se tocaron**: leen y filtran por `status`, y el status sigue existiendo, escribiéndose en el mismo momento y con el mismo rótulo ("Derivada a un humano", que sigue siendo cierto — hay una derivación pendiente). Lo único que cambió es que ese estado ya no silencia.
+
+### Tests (corridos de verdad)
+
+Seis casos nuevos y dos reescritos, todos contra Postgres local:
+
+- `agentOrchestration.integration-test.ts`, sección "7 bis" nueva: un `HUMAN` en el hilo calla al agente (cero llamadas al modelo, `respuesta: null`, el entrante igual queda registrado); lo mismo con la conversación en `ACTIVE`, sin handoff previo; lo mismo con el `HUMAN` fuera de la ventana de 20; y el recorrido completo — deriva → sigue contestando → la persona escribe → se calla, con un solo aviso en todo el camino.
+- Reescritos: el del tope de rondas y el de la derivación silenciosa afirmaban **lo contrario** (`respuesta: null`, cero llamadas al modelo). Ahora afirman que el agente contesta, que el status no se revierte y que no se duplica la `Activity`.
+- `whatsappWebhook.controller.integration-test.ts`: dos casos a nivel canal, que es donde se ve el síntoma real — una conversación derivada que nadie tomó **sí** recibe respuesta por la Graph API; con un `HUMAN` en el hilo no se llama al modelo ni se manda nada, y el entrante queda igual. El fixture ganó un `User` real de Supabase Auth para poder escribir ese mensaje (el CHECK `messages_sender_user_id_consistency_check` exige `senderUserId`).
+- `agentOrchestration.service.test.ts`: un unitario que fija las dos cosas que la descripción de la tool tiene que seguir diciendo, sin afirmar el texto entero.
+- `AgentPlaygroundPage.test.tsx`: el caso de `respuesta: null` ahora manda `status: "ACTIVE"` a propósito — la nota sale de que no haya respuesta, no del status.
+
+Backend: `typecheck` y `lint` limpios, **969/969** unitarios y **953/953** de integración. Frontend: `typecheck` y `lint` limpios, **1785/1785** (164 archivos).

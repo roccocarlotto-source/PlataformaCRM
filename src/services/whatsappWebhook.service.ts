@@ -148,9 +148,12 @@ async function procesarMensaje(
     throw err;
   }
 
-  // 6. La respuesta por WhatsApp. null = la conversación ya estaba derivada a
-  //    un humano: el agente no contesta, y nadie más puede todavía (no existe
-  //    un endpoint para mandar un mensaje manual — mismo estado que Web).
+  // 6. La respuesta por WhatsApp. null = una persona de la organización ya
+  //    escribió en el hilo, así que el agente se calla (ítem 83; antes el
+  //    corte era el status derivado). Nadie manda nada desde acá en ese caso:
+  //    no existe todavía un endpoint para responder a mano desde el CRM
+  //    —mismo estado que Web—, que es justamente el único flujo que puede
+  //    llegar a escribir un Message HUMAN.
   if (resultado.respuesta !== null) {
     await deps.sendText({
       phoneNumberId: mensaje.phoneNumberId,

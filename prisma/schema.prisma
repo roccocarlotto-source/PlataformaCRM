@@ -213,6 +213,11 @@ enum ConversationChannel {
 // Ciclo de vida de una Conversation. Es la fuente de verdad (no hay
 // deletedAt): TRANSFERRED_TO_HUMAN es el handoff de §6 y CLOSED es el cierre —
 // una conversación cerrada es historia que se conserva, no se borra.
+//
+// TRANSFERRED_TO_HUMAN significa "hay una notificación pendiente para un
+// vendedor", y NO "el agente dejó de responder" (ítem 83): lo segundo lo
+// decide que exista un Message con senderType HUMAN en el hilo, no este
+// campo. Ver el gate de runAgentTurn.
 enum ConversationStatus {
   ACTIVE
   TRANSFERRED_TO_HUMAN

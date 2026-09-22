@@ -9,8 +9,9 @@ import { prisma, type Db } from "../lib/prisma";
 // La conversación ABIERTA de un contacto con un agente por un canal: ACTIVE o
 // TRANSFERRED_TO_HUMAN. Una derivada sigue siendo "la" conversación de ese
 // contacto —lo que llega después va ahí, para que el humano que la tomó vea
-// el hilo entero— aunque el agente ya no la responda. Solo una CLOSED deja de
-// contar y da lugar a una nueva. Ver runAgentTurn.
+// el hilo entero— y desde el ítem 83 el agente además la sigue respondiendo
+// hasta que esa persona escriba. Solo una CLOSED deja de contar y da lugar a
+// una nueva. Ver el gate de runAgentTurn.
 export function findOpenConversation(
   organizationId: string,
   agentId: string,

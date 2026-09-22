@@ -56,6 +56,30 @@ export async function findLastMessages(
   return ultimos.reverse();
 }
 
+// ¿Ya intervino una persona de la organización en este hilo? (ítem 83). Es el
+// gate del loop del agente: mientras la respuesta sea `false`, el agente
+// contesta; desde el primer mensaje HUMAN, se calla.
+//
+// EL HILO ENTERO Y NO LA VENTANA DE CONTEXTO: findLastMessages trae los
+// últimos 20, y un humano que escribió hace 21 mensajes intervino igual. Es
+// una consulta aparte por eso, no por no poder reusar la otra.
+//
+// findFirst + select id: alcanza con saber si existe alguno. Sirve el mismo
+// índice (conversation_id, created_at) que el resto de las lecturas de esta
+// tabla — filtra por el prefijo y descarta por senderType sobre las pocas
+// filas de una conversación.
+export async function hasHumanMessage(
+  conversationId: string,
+  organizationId: string,
+  db: Db = prisma,
+): Promise<boolean> {
+  const humano = await db.message.findFirst({
+    where: { conversationId, organizationId, senderType: "HUMAN" },
+    select: { id: true },
+  });
+  return humano !== null;
+}
+
 export function findMessagesByConversation(
   conversationId: string,
   organizationId: string,
