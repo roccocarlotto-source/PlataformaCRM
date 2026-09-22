@@ -193,6 +193,11 @@ function enumerar(items: string[]): string {
 export const ENCABEZADO_KNOWLEDGE_BASE =
   "Información real del negocio (Knowledge Base) — usala para responder, no inventes datos que no estén acá:";
 
+// Instrucción fija del ítem 88. Exportada por el mismo motivo que
+// ENCABEZADO_KNOWLEDGE_BASE: los tests la buscan en el prompt por referencia.
+export const INSTRUCCION_USAR_HERRAMIENTAS =
+  "Si el cliente ya te dio información suficiente para usar una de tus herramientas, usala directamente en vez de preguntar de nuevo por lo mismo: no le pidas que confirme algo que ya te dijo. Cuando uses una herramienta, tu respuesta al cliente tiene que basarse en lo que la herramienta devolvió.";
+
 // Una entrada de la base de conocimiento, tal como llega al prompt. Es
 // exactamente el `select` de findActiveKnowledgeBaseEntriesByBranch: esta
 // función no necesita saber nada más de la fila, y declararlo así la mantiene
@@ -259,6 +264,12 @@ export function armarSystemPrompt(
   if (promesas.length > 0) {
     partes.push(`Nunca prometas ni confirmes:\n${enumerar(promesas)}`);
   }
+
+  // Ítem 88: fija, para cualquier agente, y separada de los guardrails
+  // configurables del negocio (va antes de ellos en el orden de lectura del
+  // bloque de tools). Un modelo que pide confirmar lo que el cliente acaba de
+  // decir en vez de usar la herramienta hace esperar al cliente por nada.
+  partes.push(INSTRUCCION_USAR_HERRAMIENTAS);
 
   const condiciones = listaDeGuardrails(agent.guardrails, "condicionesDeDerivacion");
   const disparadoresFijos = `si el contacto pide explícitamente hablar con una persona, o si una acción que necesitás no está disponible y no hay otra forma de ayudar.`;
@@ -681,20 +692,25 @@ export async function runAgentTurn(
     }
 
     // El modelo pidió derivar: se corta acá, con el texto de esta misma
-    // respuesta si lo dio (igual que el caso texto+tools de abajo) o con el
-    // cierre fijo si no. No se le vuelve a preguntar: ya decidió.
+    // respuesta si lo dio o con el cierre fijo si no. No se le vuelve a
+    // preguntar: ya decidió. Es la ÚNICA ronda con tools que corta.
     if (motivoDeHandoff !== null) {
       respuestaFinal = resultado.text ?? MENSAJE_DE_HANDOFF;
       break;
     }
 
-    // Texto final CON tools en la misma respuesta: se ejecutaron las tools
-    // (el modelo las pidió y su resultado queda auditado) y el texto es la
-    // respuesta del turno — se corta acá, no se le vuelve a preguntar.
-    if (resultado.text !== null) {
-      respuestaFinal = resultado.text;
-      break;
-    }
+    // Con tools y sin derivación, SIEMPRE hay otra ronda, venga o no texto
+    // junto con los pedidos (ítem 88). Ese texto se escribió ANTES de conocer
+    // el resultado de las tools: en la práctica es una frase de tránsito ("Te
+    // muestro los que tenemos…") y no la respuesta. Antes se cortaba con él y
+    // el cliente recibía una promesa que nadie cumplía, con el resultado de la
+    // búsqueda ya en el historial y sin usar. Ahora el modelo lo ve en la
+    // ronda siguiente y redacta con eso.
+    //
+    // Ese texto sigue en `historial` (el mensaje `assistant` de arriba), así
+    // que el modelo sabe lo que ya dijo; no se persiste en ningún Message ni
+    // se le manda al cliente. El tope de MAX_TOOL_ROUNDS_PER_TURN sigue siendo
+    // la red de seguridad si nunca llega una ronda de solo texto.
   }
 
   // Paso 7 de §4, con la red de seguridad de la nota bajo §6: sin respuesta

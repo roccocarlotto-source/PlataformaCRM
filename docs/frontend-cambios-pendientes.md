@@ -5251,3 +5251,73 @@ No hay test de que el LLM respete la instrucción: no es determinístico. Los do
 
 **Backend:** `typecheck` limpio; `lint` limpio (con `--ignore-pattern "supabase/.temp/"`, el artefacto local de siempre); `prettier --check` limpio; **985/985** unitarios. La suite de integración no se corrió en local porque no cambió ninguna lógica; la corre el CI del PR.
 **Frontend:** `typecheck` y `lint` limpios, **1785/1785** (164 archivos).
+
+## 88. El loop corta con el texto de ANTES de la tool call, sin dejar que el modelo redacte la respuesta real con el resultado — y el agente indaga en vez de buscar directo
+
+**Estado:** hecho
+
+**Qué pasó (caso real, AutoMax, 22/09/2026, en una conversación nueva y limpia, con `google/gemini-2.5-flash-lite`, sin ninguno de los problemas de los ítems 86/87).** El cliente pidió: *"Dime todos los que tengas de menos de 30 mil usd"*. El agente respondió:
+
+> "¡Claro! Te muestro los que tenemos por menos de USD 30.000."
+
+Y ahí terminó. Sin lista, sin decir que no encontró nada, sin nada más — el mensaje que le llegó al cliente por WhatsApp queda literalmente cortado a mitad de una idea. Mirando el `toolCalls` de ese mensaje: el agente SÍ llamó a `search_vehicles({ priceMaxUsd: 30000 })` (una llamada limpia, sin filtros inventados — la tool funcionó bien) y la tool devolvió `total: 0` en ese momento (por el problema de datos de arriba, ya resuelto). El resultado de la tool **nunca se usó** para escribir la respuesta.
+
+**Por qué pasa.** En `agentOrchestration.service.ts`, el loop de tool-calling (§4) tiene esta rama:
+
+```
+// Texto final CON tools en la misma respuesta: se ejecutaron las tools
+// (el modelo las pidió y su resultado queda auditado) y el texto es la
+// respuesta del turno — se corta acá, no se le vuelve a preguntar.
+if (resultado.text !== null) {
+  respuestaFinal = resultado.text;
+  break;
+}
+```
+
+Cuando el modelo devuelve texto Y un pedido de tool **en la misma ronda**, el código ejecuta la tool (queda auditada, el resultado se guarda en el historial) pero **usa el texto que vino ANTES de conocer ese resultado** como la respuesta que se le manda al cliente, y corta el loop ahí. Esto fue una decisión tomada a propósito en su momento (evitar gastar una ronda extra cuando el modelo "ya contestó") pero no contempla el patrón — común en modelos que narran lo que están por hacer — de un texto tipo "Te muestro..." / "Dame un momento..." que es una frase de tránsito, no la respuesta final.
+
+**Segundo problema, relacionado pero distinto, en la misma conversación:** antes de este mensaje, el cliente había preguntado *"Quiero ver si tienen algún vehículo de menos de 30 mil dólares"* — información suficiente para buscar directo — y el agente respondió *"Solo para confirmar, buscas algún vehículo en particular o te gustaría ver opciones generales de menos de USD 30.000?"* en vez de llamar a `search_vehicles` con lo que ya tenía. Ninguna instrucción del prompt fijo empuja al modelo a actuar primero y preguntar después cuando ya tiene lo mínimo para intentar una tool.
+
+**Qué hacer:**
+
+1. **Sacar el atajo "texto + tools en la misma ronda = respuesta final".** Después de ejecutar las tools de una ronda (y si no hubo handoff), el loop tiene que seguir a la ronda siguiente SIEMPRE — igual que cuando el modelo no manda texto — para que la próxima llamada a `llm.complete()` vea el resultado de la tool en el historial y redacte la respuesta real. El texto que vino junto con el pedido de tool se descarta como respuesta final (sigue quedando auditado en el historial vía el mensaje `assistant` que ya se guarda, así que no se pierde información, solo deja de mandársele al cliente tal cual). El tope de `MAX_TOOL_ROUNDS_PER_TURN` sigue siendo la red de seguridad de siempre si el modelo no converge.
+2. **Reforzar el prompt fijo** (`armarSystemPrompt()`) con una instrucción general, no específica de una tool: algo como "Si el cliente ya te dio información suficiente para usar una herramienta, usala directamente antes de preguntar de nuevo por lo mismo — no le pidas que confirme algo que ya te dijo." Mismo criterio que el resto de las instrucciones fijas (aplican a cualquier agente, no son de AutoMax).
+
+**Por qué esto SÍ resuelve el "se quedó colgado" de una vez por todas (a diferencia de los ítems 86/87, que atacaban síntomas):** con el fix del punto 1, aunque el modelo vuelva a inventar un filtro raro alguna vez, el cliente va a recibir una frase que SÍ incorpora el resultado real de la búsqueda (aunque sea "no encontré nada con esos filtros") en vez de una promesa que nunca se cumple. Es la garantía estructural que faltaba.
+
+### Lo que se construyó
+
+1. **El atajo "texto + tools en la misma ronda = respuesta final" ya no existe** (`runAgentTurn`, `agentOrchestration.service.ts`). Después de ejecutar las tools de una ronda, y si no hubo derivación, el loop pasa **siempre** a la ronda siguiente, venga o no texto junto con los pedidos. La respuesta del turno es la de la primera ronda de **solo** texto. El modelo la redacta con el resultado de la tool ya en el historial. `MAX_TOOL_ROUNDS_PER_TURN` (5) no se tocó.
+2. **La rama de derivación sigue cortando de inmediato**, con el texto de esa ronda o el cierre fijo, y ahora es la única ronda con tools que corta. No se tocó.
+3. **Instrucción fija nueva en `armarSystemPrompt()`** (`INSTRUCCION_USAR_HERRAMIENTAS`, exportada como `ENCABEZADO_KNOWLEDGE_BASE`): *"Si el cliente ya te dio información suficiente para usar una de tus herramientas, usala directamente en vez de preguntar de nuevo por lo mismo: no le pidas que confirme algo que ya te dijo. Cuando uses una herramienta, tu respuesta al cliente tiene que basarse en lo que la herramienta devolvió."* Va para cualquier agente, después de los guardrails de lo que el modelo puede decir y antes de la instrucción de derivación. La segunda oración se agregó acá: acompaña al fix del loop, que es justamente la ronda en la que el modelo redacta con el resultado.
+
+### Decisiones de diseño y correcciones
+
+1. **Corrección a lo que decía este ítem:** el texto de tránsito **no** queda auditado en ningún mensaje persistido. Vive solo en el `historial` en memoria del turno (el mensaje `assistant` con los pedidos), así que el modelo sabe lo que ya dijo en la ronda siguiente. Pero `Message.toolCalls` guarda las tool calls y sus resultados, no el texto que las acompañaba, y el `Message` saliente guarda solo la respuesta final. En la práctica el texto de tránsito se descarta. Es una frase del tipo "Te muestro…" y no se perdió nada útil; persistirla habría sido cambiar el shape de `toolCalls`, que consumen el probador y la bandeja. Hay un test que afirma que no llega al cliente.
+2. **Consecuencia aceptada y fijada con un test:** un modelo que manda texto + tool en **todas** las rondas ya no "termina" con su frase. Agota el tope y deriva con `MENSAJE_DE_HANDOFF`, igual que uno que nunca da texto. Antes ese caso cerraba con una frase de tránsito que no respondía nada, y ahora cierra con un aviso honesto y una persona notificada.
+3. **Cada ronda extra es una llamada más al modelo** en los turnos que antes cortaban con texto + tool: más latencia y más costo en esos turnos. Es el precio de que la respuesta use el resultado.
+4. **Ningún test existente dependía del atajo.** Los de `agentOrchestration.integration-test.ts` que guionaban texto + tool ya tenían una segunda respuesta de solo texto, que antes nunca se llegaba a usar. Las seis suites que usan el proveedor guionado (103 casos) pasaron sin cambios con el loop nuevo, antes de agregar los tests de este ítem.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentOrchestration.service.ts` | Fuera la rama de corte con texto + tools, con el "por qué" en su lugar; comentario de la rama de derivación; `INSTRUCCION_USAR_HERRAMIENTAS` y su lugar en `armarSystemPrompt()` |
+| `src/services/agentOrchestration.integration-test.ts` | Sección 10 nueva, cuatro casos |
+| `src/services/agentOrchestration.service.test.ts` | Un unitario: la instrucción va siempre, antes de la de derivación |
+
+Sin migración ni cambios de frontend: el shape de `ResultadoDelTurno` y de `Message.toolCalls` es el mismo.
+
+### Tests (corridos de verdad)
+
+Integración nueva, contra Postgres local con el proveedor guionado:
+
+- **texto + tool en la ronda 1, texto en la ronda 2**: la respuesta es la de la ronda 2; `llm.complete` se llamó dos veces; la segunda llamada vio la frase de tránsito y el resultado de la tool; el único `Message` saliente es la respuesta real;
+- **texto + tool en dos rondas seguidas**: tres llamadas, gana la primera de solo texto;
+- **texto + tool en todas las rondas**: cinco llamadas, deriva con el cierre fijo, y la oportunidad se crea una sola vez (las rondas siguientes la reutilizan, ítem 84);
+- **handoff + otra tool + texto en la ronda 1**: una sola llamada, la respuesta es ese texto, status `TRANSFERRED_TO_HUMAN`.
+
+Unitario: `INSTRUCCION_USAR_HERRAMIENTAS` está en el prompt con y sin condiciones de derivación, y antes de la instrucción de derivación.
+
+**Backend:** `typecheck` limpio; `lint` limpio (con `--ignore-pattern "supabase/.temp/"`); `prettier --check` limpio; **986/986** unitarios; **981/981** de integración, todos contra Postgres local.
+**Frontend:** sin cambios en este ítem.

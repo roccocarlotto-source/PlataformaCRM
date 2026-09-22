@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   ENCABEZADO_KNOWLEDGE_BASE,
+  INSTRUCCION_USAR_HERRAMIENTAS,
   REQUEST_HUMAN_HANDOFF_TOOL,
   REQUEST_HUMAN_HANDOFF_TOOL_NAME,
   armarSystemPrompt,
@@ -201,4 +202,20 @@ test("la descripción de la tool del sistema dice que el agente sigue atendiendo
     /deja de responder como agente/i,
     "el status derivado ya no silencia: decirle eso al modelo sería mentirle",
   );
+});
+
+// Ítem 88: instrucción fija de usar la herramienta en vez de volver a
+// preguntar. Va para cualquier agente, con o sin guardrails, y antes de las
+// instrucciones de derivación (que sí dependen de la configuración).
+test("la instrucción de usar herramientas va siempre, antes de la de derivación", () => {
+  for (const guardrails of [{}, { condicionesDeDerivacion: ["reclamo"] }]) {
+    const prompt = armarSystemPrompt({ ...BASE, guardrails });
+    const posicion = prompt.indexOf(INSTRUCCION_USAR_HERRAMIENTAS);
+    assert.ok(posicion > 0, "la instrucción está en el prompt");
+    assert.ok(
+      posicion < prompt.indexOf(REQUEST_HUMAN_HANDOFF_TOOL_NAME),
+      "y se lee antes que la instrucción de derivación",
+    );
+  }
+  assert.match(INSTRUCCION_USAR_HERRAMIENTAS, /no le pidas que confirme algo que ya te dijo/);
 });
