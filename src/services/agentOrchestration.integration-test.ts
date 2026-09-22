@@ -1672,3 +1672,130 @@ test("una conversación que NO se deriva no recibe brief automático", async () 
     await desmontar(e);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 10. Texto + tools en la misma ronda NO es la respuesta final (ítem 88)
+//
+// El caso real: el modelo contestó "Te muestro los que tenemos…" junto con el
+// pedido de search_vehicles, el loop cortó con ese texto y el cliente recibió
+// una promesa sin la lista. Ahora, con tools y sin derivación, siempre hay
+// otra ronda, y la respuesta es la de la primera ronda de SOLO texto.
+// ---------------------------------------------------------------------------
+
+const FRASE_DE_TRANSITO = "¡Claro! Te muestro lo que tenemos.";
+
+test("texto + tool en la ronda 1: la respuesta es la de la ronda 2, redactada con el resultado", async () => {
+  const e = await montar("texto-y-tool");
+  try {
+    const doble = doblarProveedor([
+      pideTool("call_1", "create_opportunity", { title: "Quiere un auto" }, FRASE_DE_TRANSITO),
+      texto("Listo, ya registré tu consulta."),
+    ]);
+
+    const resultado = await turno(e, "Quiero un auto", doble.proveedor);
+
+    assert.equal(doble.requests.length, 2, "hubo una segunda llamada al modelo");
+    assert.equal(resultado.respuesta, "Listo, ya registré tu consulta.");
+    assert.equal(resultado.handoff, false);
+    assert.equal(resultado.toolCalls.length, 1);
+    assert.equal(resultado.toolCalls[0].result?.ok, true);
+
+    // La segunda ronda vio su propio texto de tránsito y el resultado de la
+    // tool: es lo que le permite redactar con el dato real.
+    const segunda = doble.requests[1].messages;
+    const pedido = segunda.find((m) => m.role === "assistant" && m.toolCalls);
+    assert.ok(pedido, "el turno del asistente con el pedido de tool está en el historial");
+    assert.equal(pedido.content, FRASE_DE_TRANSITO);
+    const resultadoTool = segunda.find((m) => m.role === "tool");
+    assert.ok(resultadoTool && resultadoTool.role === "tool");
+    assert.equal(resultadoTool.toolCallId, "call_1");
+    assert.equal(resultadoDeTool(resultadoTool).ok, true);
+
+    // Al cliente le llega SOLO la respuesta real: la frase de tránsito no se
+    // persiste en ningún Message.
+    const salientes = await prisma.message.findMany({
+      where: { conversationId: resultado.conversationId, direction: "OUTBOUND" },
+    });
+    assert.deepEqual(
+      salientes.map((m) => m.content),
+      ["Listo, ya registré tu consulta."],
+    );
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("texto + tool en dos rondas seguidas: sigue hasta la primera ronda de solo texto", async () => {
+  const e = await montar("texto-y-tool-dos-rondas");
+  try {
+    const doble = doblarProveedor([
+      pideTool("c1", "create_opportunity", { title: "Auto" }, "Dame un momento…"),
+      pideTool("c2", "create_opportunity", { title: "Auto" }, "Reviso una cosa más…"),
+      texto("Tu consulta ya está registrada."),
+    ]);
+
+    const resultado = await turno(e, "Quiero un auto", doble.proveedor);
+
+    assert.equal(doble.requests.length, 3);
+    assert.equal(resultado.respuesta, "Tu consulta ya está registrada.");
+    assert.equal(resultado.toolCalls.length, 2);
+    assert.equal(resultado.handoff, false);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("texto + tool en TODAS las rondas: el tope de rondas sigue siendo la red de seguridad", async () => {
+  // La consecuencia del ítem, fijada a propósito: un modelo que nunca da una
+  // ronda de solo texto ya no "termina" con su frase de tránsito — agota el
+  // tope y deriva con el cierre fijo, igual que uno que nunca da texto.
+  const e = await montar("texto-y-tool-siempre");
+  try {
+    const doble = doblarProveedor([
+      pideTool("c", "create_opportunity", { title: "Auto" }, FRASE_DE_TRANSITO),
+    ]);
+
+    const resultado = await turno(e, "Quiero un auto", doble.proveedor);
+
+    assert.equal(doble.requests.length, MAX_TOOL_ROUNDS_PER_TURN);
+    assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+    assert.equal(resultado.handoff, true);
+    // Y la oportunidad se creó una sola vez: las rondas siguientes la
+    // reutilizan (ítem 84).
+    assert.equal(
+      await prisma.opportunity.count({ where: { organizationId: e.organizationId } }),
+      1,
+    );
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("handoff + texto en la ronda 1: sigue cortando de inmediato, con ese texto", async () => {
+  const e = await montar("handoff-corta", {
+    enabledTools: ["create_opportunity"],
+  });
+  try {
+    // Aun con otra tool en la misma ronda: la derivación manda.
+    const doble = doblarProveedor([
+      {
+        text: "Te paso con alguien del equipo.",
+        toolCalls: [
+          { id: "c1", name: "create_opportunity", arguments: { title: "Auto" } },
+          { id: "h1", name: REQUEST_HUMAN_HANDOFF_TOOL_NAME, arguments: { reason: "pide" } },
+        ],
+      },
+      texto("Esto no se tendría que pedir nunca."),
+    ]);
+
+    const resultado = await turno(e, "Quiero hablar con una persona", doble.proveedor);
+
+    assert.equal(doble.requests.length, 1, "no hay segunda ronda");
+    assert.equal(resultado.respuesta, "Te paso con alguien del equipo.");
+    assert.equal(resultado.handoff, true);
+    assert.equal(resultado.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(resultado.toolCalls.length, 2);
+  } finally {
+    await desmontar(e);
+  }
+});
