@@ -50,8 +50,9 @@ import { replaceWorkingHoursForResource } from "./workingHours.service";
 //      etapa del pipeline por defecto — nada de eso lo eligió el modelo.
 //   3. Una tool prohibida por guardrails NO se ejecuta y el modelo recibe el
 //      motivo como resultado.
-//   4. Agotar el tope de rondas deriva a humano con el cierre fijo; después,
-//      el agente no responde más en esa conversación.
+//   4. Agotar el tope de rondas deriva a humano con el cierre fijo; el agente
+//      sigue respondiendo después, y lo que lo calla es que una PERSONA
+//      escriba en el hilo (ítem 83).
 //   5. Los errores de negocio (sin vendedor, sin pipeline por defecto) llegan
 //      al modelo como resultado de tool, no como excepción.
 //   6. get_availability + create_booking en dos rondas, con el contacto de la
@@ -507,7 +508,7 @@ test("una tool que no está en enabledTools se rechaza aunque exista en el catá
 // 4. La red de seguridad: tope de rondas → handoff
 // ---------------------------------------------------------------------------
 
-test("agotar MAX_TOOL_ROUNDS_PER_TURN deriva a humano con el cierre fijo, y después el agente no responde", async () => {
+test("agotar MAX_TOOL_ROUNDS_PER_TURN deriva a humano con el cierre fijo, y el agente SIGUE respondiendo después", async () => {
   const e = await montar("handoff", { guardrails: { accionesProhibidas: ["create_opportunity"] } });
   try {
     // El modelo insiste con la misma acción prohibida, siempre.
@@ -549,15 +550,28 @@ test("agotar MAX_TOOL_ROUNDS_PER_TURN deriva a humano con el cierre fijo, y desp
     assert.equal(saliente.content, MENSAJE_DE_HANDOFF);
     assert.equal(saliente.senderType, "AGENT");
 
-    // El siguiente mensaje del contacto va al hilo, pero el agente ya no
-    // interviene: sin llamada al modelo, sin respuesta.
-    const dobleDespues = doblarProveedor([texto("no debería llegar")]);
+    // ÍTEM 83: el siguiente mensaje del contacto SÍ lo contesta el agente. La
+    // conversación quedó derivada —el aviso ya le llegó a un vendedor— pero
+    // nadie la tomó todavía, y dejar al contacto hablándole al vacío era el
+    // bug. Antes de este ítem acá se afirmaba lo contrario: respuesta null y
+    // cero llamadas al modelo.
+    const dobleDespues = doblarProveedor([texto("Mientras tanto, te cuento lo que sí puedo.")]);
     const despues = await turno(e, "¿Hola? ¿Hay alguien?", dobleDespues.proveedor);
 
-    assert.equal(dobleDespues.requests.length, 0, "no se llamó al modelo");
-    assert.equal(despues.respuesta, null);
+    assert.equal(dobleDespues.requests.length, 1, "se llamó al modelo igual");
+    assert.equal(despues.respuesta, "Mientras tanto, te cuento lo que sí puedo.");
     assert.equal(despues.conversationId, resultado.conversationId, "misma conversación");
-    assert.equal(despues.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(despues.handoff, false, "este turno no deriva de nuevo");
+    assert.equal(
+      despues.status,
+      "TRANSFERRED_TO_HUMAN",
+      "el status no se revierte: el aviso al vendedor sigue en pie",
+    );
+    assert.equal(
+      (await activitiesDe(e)).length,
+      1,
+      "y no se duplicó el aviso por seguir conversando",
+    );
 
     const entrantes = await prisma.message.count({
       where: { conversationId: conversation.id, direction: "INBOUND" },
@@ -1092,9 +1106,11 @@ test("contacto SIN vendedor y sucursal sin vendedor por defecto: la conversació
     assert.equal(conversation.assignedUserId, null);
     assert.equal((await activitiesDe(e)).length, 0);
 
-    // Y el agente ya no responde en esa conversación.
-    const despues = await turno(e, "¿Hola?", doblarProveedor([texto("no")]).proveedor);
-    assert.equal(despues.respuesta, null);
+    // Y el agente sigue atendiendo (ítem 83). En una derivación silenciosa
+    // importa todavía más: nadie recibió un aviso, así que si el agente
+    // además se callara el contacto no tendría a quién hablarle.
+    const despues = await turno(e, "¿Hola?", doblarProveedor([texto("Acá sigo.")]).proveedor);
+    assert.equal(despues.respuesta, "Acá sigo.");
   } finally {
     await desmontar(e);
   }
@@ -1244,6 +1260,176 @@ test("ejecutarHandoff es idempotente: una conversación ya derivada no genera un
       motivo: "otra vez",
     });
     assert.equal(segunda.activityId, null);
+    assert.equal((await activitiesDe(e)).length, 1);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 7 bis. El gate del loop: lo que calla al agente es una PERSONA en el hilo
+// (ítem 83)
+//
+// Lo de arriba prueba que derivar ya no silencia. Esto prueba la otra mitad:
+// que la garantía de §6 —agente y persona no le hablan al contacto al mismo
+// tiempo— se sigue cumpliendo, ahora atada a un Message con senderType HUMAN
+// en lugar del status.
+//
+// NOTA, y es la limitación conocida de este ítem: hoy NINGÚN flujo de
+// producción escribe un Message HUMAN —no existe todavía un endpoint para que
+// un vendedor conteste desde el CRM, ver la bandeja del ítem 66, que es de
+// solo lectura a propósito—. Estos tests lo escriben directo contra la base.
+// Es el mismo camino que va a usar ese endpoint cuando exista, y hasta
+// entonces el gate está construido y probado pero no se dispara solo.
+// ---------------------------------------------------------------------------
+
+// Un mensaje de una persona de la organización en el hilo. senderUserId es
+// obligatorio para HUMAN —lo exige el CHECK
+// messages_sender_user_id_consistency_check— así que el helper lo pone
+// siempre.
+async function escribeUnaPersona(e: Escenario, conversationId: string, contenido: string) {
+  await prisma.message.create({
+    data: {
+      organizationId: e.organizationId,
+      conversationId,
+      direction: "OUTBOUND",
+      senderType: "HUMAN",
+      senderUserId: e.ownerId,
+      content: contenido,
+    },
+  });
+}
+
+test("un mensaje HUMAN en el hilo calla al agente: sin llamada al modelo y sin respuesta", async () => {
+  const e = await montar("gate-humano");
+  try {
+    const primero = await turno(
+      e,
+      "Hola",
+      doblarProveedor([texto("¡Hola! ¿En qué te ayudo?")]).proveedor,
+    );
+    assert.equal(primero.respuesta, "¡Hola! ¿En qué te ayudo?");
+
+    await escribeUnaPersona(e, primero.conversationId, "Hola, soy Rocco, sigo yo desde acá.");
+
+    const doble = doblarProveedor([texto("no debería llegar")]);
+    const despues = await turno(e, "Dale, gracias", doble.proveedor);
+
+    assert.equal(doble.requests.length, 0, "no se llamó al modelo");
+    assert.equal(despues.respuesta, null);
+    assert.equal(despues.handoff, false);
+    assert.equal(despues.toolCalls.length, 0);
+    assert.equal(despues.conversationId, primero.conversationId, "misma conversación");
+
+    // El entrante se registra igual: es lo que la persona tiene que ver.
+    const entrantes = await prisma.message.count({
+      where: { conversationId: primero.conversationId, direction: "INBOUND" },
+    });
+    assert.equal(entrantes, 2);
+    // Y el agente no agregó un saliente en este turno (el de HUMAN no es suyo).
+    const salientesDelAgente = await prisma.message.count({
+      where: { conversationId: primero.conversationId, senderType: "AGENT" },
+    });
+    assert.equal(salientesDelAgente, 1);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// El status NO es lo que decide. Una conversación que nunca se derivó, con un
+// vendedor que se metió a contestar por su cuenta, también calla al agente.
+test("un mensaje HUMAN calla al agente aunque la conversación siga ACTIVE (sin handoff previo)", async () => {
+  const e = await montar("gate-humano-sin-handoff");
+  try {
+    const primero = await turno(e, "Hola", doblarProveedor([texto("Hola, contame.")]).proveedor);
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: primero.conversationId },
+    });
+    assert.equal(conversation.status, "ACTIVE", "nunca hubo derivación");
+
+    await escribeUnaPersona(e, primero.conversationId, "Te atiendo yo.");
+
+    const doble = doblarProveedor([texto("no debería llegar")]);
+    const despues = await turno(e, "¿Y el precio?", doble.proveedor);
+
+    assert.equal(doble.requests.length, 0);
+    assert.equal(despues.respuesta, null);
+    assert.equal(despues.status, "ACTIVE", "el gate no inventa un cambio de status");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// El gate mira el HILO ENTERO y no la ventana de contexto: un humano que
+// escribió hace más de VENTANA_DE_MENSAJES mensajes intervino igual. Es la
+// razón por la que hasHumanMessage es una consulta aparte y no un filtro
+// sobre findLastMessages.
+test("el mensaje HUMAN calla al agente aunque haya quedado fuera de la ventana de contexto", async () => {
+  const e = await montar("gate-humano-fuera-de-ventana");
+  try {
+    const primero = await turno(e, "Hola", doblarProveedor([texto("Hola.")]).proveedor);
+    await escribeUnaPersona(e, primero.conversationId, "Sigo yo.");
+
+    // Relleno: más mensajes que la ventana, todos posteriores al del humano.
+    for (let i = 0; i < VENTANA_DE_MENSAJES + 2; i++) {
+      await prisma.message.create({
+        data: {
+          organizationId: e.organizationId,
+          conversationId: primero.conversationId,
+          direction: "INBOUND",
+          senderType: "CONTACT",
+          content: `relleno ${i}`,
+        },
+      });
+    }
+
+    const doble = doblarProveedor([texto("no debería llegar")]);
+    const despues = await turno(e, "¿Hola?", doble.proveedor);
+
+    assert.equal(doble.requests.length, 0, "no se llamó al modelo");
+    assert.equal(despues.respuesta, null);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// El recorrido completo del ítem 83, de punta a punta y en orden: el agente
+// deriva, SIGUE atendiendo, y recién se calla cuando la persona aparece.
+test("handoff → el agente sigue contestando → una persona escribe → el agente se calla", async () => {
+  const e = await montar("gate-recorrido-completo");
+  try {
+    const derivacion = await turno(
+      e,
+      "Quiero hablar con alguien",
+      doblarProveedor([
+        pideTool(
+          "h1",
+          REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+          { reason: "Pide una persona" },
+          "Ya aviso.",
+        ),
+      ]).proveedor,
+    );
+    assert.equal(derivacion.handoff, true);
+    assert.equal(derivacion.status, "TRANSFERRED_TO_HUMAN");
+    assert.ok(derivacion.handoffActivityId, "el aviso al vendedor se creó");
+
+    const mientrasTanto = await turno(
+      e,
+      "Mientras tanto, ¿qué horarios tienen?",
+      doblarProveedor([texto("De lunes a viernes de 9 a 18.")]).proveedor,
+    );
+    assert.equal(mientrasTanto.respuesta, "De lunes a viernes de 9 a 18.");
+
+    await escribeUnaPersona(e, derivacion.conversationId, "Hola, soy Rocco. ¿Qué necesitabas?");
+
+    const doble = doblarProveedor([texto("no debería llegar")]);
+    const despues = await turno(e, "Quería consultar por un usado", doble.proveedor);
+    assert.equal(doble.requests.length, 0);
+    assert.equal(despues.respuesta, null);
+
+    // Un solo aviso en todo el recorrido.
     assert.equal((await activitiesDe(e)).length, 1);
   } finally {
     await desmontar(e);

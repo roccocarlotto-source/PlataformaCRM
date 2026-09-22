@@ -223,12 +223,11 @@ describe("AgentPlaygroundPage — mandar un mensaje", () => {
     expect(cajaDeMensaje()).toHaveValue("");
   });
 
+  // `status: "ACTIVE"` a propósito (ítem 83): la nota sale de que `respuesta`
+  // sea null —una persona ya está atendiendo—, no del status. Una conversación
+  // derivada que nadie tomó todavía viene con respuesta y burbuja normal.
   it("una respuesta null muestra la nota de que no respondió, no una burbuja vacía", async () => {
-    server.use(
-      mockAgent(),
-      ...mockContacts(),
-      mockTurno({ respuesta: null, status: "TRANSFERRED_TO_HUMAN" }),
-    );
+    server.use(mockAgent(), ...mockContacts(), mockTurno({ respuesta: null, status: "ACTIVE" }));
     const user = userEvent.setup();
     renderPage();
 
@@ -239,7 +238,7 @@ describe("AgentPlaygroundPage — mandar un mensaje", () => {
 
     expect(
       await transcripcion().findByText(
-        "El agente no respondió — la conversación ya estaba derivada a un humano.",
+        "El agente no respondió — una persona del equipo ya está atendiendo esta conversación.",
       ),
     ).toBeInTheDocument();
   });

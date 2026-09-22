@@ -187,3 +187,18 @@ test("la tool del sistema exige reason y no pide nada más", () => {
   assert.deepEqual(parametros.required, ["reason"]);
   assert.deepEqual(Object.keys(parametros.properties), ["reason"]);
 });
+
+// Ítem 83. La descripción de la tool es lo único que le dice al modelo qué
+// pasa después de derivar, y si le dice que deja de responder se despide y no
+// vuelve a intentar ayudar — el comportamiento que este ítem vino a arreglar.
+// No se afirma el texto entero (es prompt, se va a reescribir), sí las dos
+// cosas que tienen que seguir siendo verdad.
+test("la descripción de la tool del sistema dice que el agente sigue atendiendo después de derivar", () => {
+  const descripcion = REQUEST_HUMAN_HANDOFF_TOOL.description;
+  assert.match(descripcion, /seguís atendiendo/i);
+  assert.doesNotMatch(
+    descripcion,
+    /deja de responder como agente/i,
+    "el status derivado ya no silencia: decirle eso al modelo sería mentirle",
+  );
+});

@@ -4,8 +4,10 @@ import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, test } from "node:test";
 import express from "express";
 import { prisma } from "../lib/prisma";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
+import { findRoleByName } from "../repositories/role.repository";
 import { createWhatsappWebhookRouter } from "../routes/whatsappWebhook.routes";
 import { resetLlmProviderParaTests, setLlmProviderForTests } from "../services/llmProvider.service";
 import type { SendWhatsappTextInput } from "../services/whatsappGraph.service";
@@ -30,6 +32,8 @@ import type { WhatsappWebhookDeps } from "./whatsappWebhook.controller";
 //     y respuesta mandada por el doble de la Graph API.
 //   - el mismo wamid dos veces (en serie y en paralelo) -> un solo entrante,
 //     un solo turno, una sola respuesta.
+//   - conversación derivada que nadie tomó -> el agente contesta igual; con un
+//     mensaje HUMAN en el hilo -> no contesta y no se manda nada (ítem 83).
 //   - statuses en vez de messages, tipo que no es text, phone_number_id sin
 //     agente, Graph API caída -> 200 sin procesar (o sin romper).
 //   - sin WHATSAPP_APP_SECRET -> 500, nunca un webhook que no verifica nada.
@@ -64,6 +68,10 @@ interface Fixture {
   agentId: string;
   phoneNumberId: string;
   phoneNumberIdAgenteSinCanal: string;
+  // Una persona de la organización, para poder escribir un Message HUMAN
+  // (ítem 83): es lo único que calla al agente, y el CHECK
+  // messages_sender_user_id_consistency_check exige senderUserId en ese caso.
+  userId: string;
 }
 
 let fx: Fixture;
@@ -147,12 +155,39 @@ before(async () => {
     },
   });
 
+  // Identidad real en Supabase Auth: el trigger trg_set_user_email_from_auth
+  // lee auth.users para completar users.email, así que un id inventado dejaría
+  // el email en NULL y el INSERT moriría contra el NOT NULL de la columna.
+  // Mismo patrón que agentOrchestration.integration-test.ts.
+  const adminRole = await findRoleByName("ADMIN");
+  if (!adminRole) {
+    throw new Error("No está sembrado el rol ADMIN. Abortando.");
+  }
+  const email = `whatsapp-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+  const { data: authData, error: authError } = await getSupabaseAdmin().auth.admin.createUser({
+    email,
+    email_confirm: true,
+  });
+  if (authError || !authData.user) {
+    throw new Error(`No se pudo crear usuario real de Supabase Auth: ${authError?.message}`);
+  }
+  const user = await prisma.user.create({
+    data: {
+      id: authData.user.id,
+      organizationId: org.id,
+      roleId: adminRole.id,
+      email: `placeholder-${authData.user.id}@example.test`,
+      fullName: "Vendedor WhatsApp",
+    },
+  });
+
   fx = {
     orgId: org.id,
     branchId: branch.id,
     agentId: agent.id,
     phoneNumberId,
     phoneNumberIdAgenteSinCanal,
+    userId: user.id,
   };
 });
 
@@ -174,7 +209,9 @@ after(async () => {
   await prisma.agent.deleteMany({ where });
   await prisma.contact.deleteMany({ where });
   await prisma.branch.deleteMany({ where });
+  await prisma.user.deleteMany({ where });
   await prisma.organization.delete({ where: { id: fx.orgId } });
+  await getSupabaseAdmin().auth.admin.deleteUser(fx.userId);
 });
 
 // ---------------------------------------------------------------------------
@@ -370,6 +407,119 @@ test("un Contact existente con el mismo teléfono (con + y separadores) se reusa
     where: { organizationId: fx.orgId, contactId: existente.id },
   });
   assert.equal(conversacion.channel, "WHATSAPP");
+});
+
+// ---------------------------------------------------------------------------
+// POST — ítem 83: qué calla al agente en el canal WhatsApp
+//
+// El paso 6 de procesarMensaje manda la respuesta por la Graph API solo si
+// `respuesta !== null`, y quién decide ese null cambió con el ítem 83: antes
+// era el status derivado, ahora es que una PERSONA haya escrito en el hilo.
+// Los dos tests de acá abajo fijan esa diferencia a nivel canal, que es donde
+// se ve el síntoma real que reportó Rocco (el cliente escribiendo por WhatsApp
+// sin que nadie le conteste nunca más).
+//
+// La conversación se arma a mano y no derivando de verdad: el doble del LLM de
+// este archivo es uno solo y fijo para todos los tests, y guionarlo para que
+// derive acá no probaría nada que agentOrchestration.integration-test.ts no
+// pruebe mejor. Lo que importa acá es el estado de la conversación que el
+// webhook se encuentra.
+// ---------------------------------------------------------------------------
+
+// Un Contact con su Conversation de WhatsApp ya abierta en el estado que pida
+// el test. El waId se usa como teléfono y como externalThreadId, igual que
+// hace el flujo real.
+async function conversacionPreexistente(waId: string, status: "ACTIVE" | "TRANSFERRED_TO_HUMAN") {
+  const contact = await prisma.contact.create({
+    data: {
+      organizationId: fx.orgId,
+      firstName: "Cliente",
+      lastName: "Con hilo",
+      phone: `+${waId}`,
+    },
+  });
+  const conversation = await prisma.conversation.create({
+    data: {
+      organizationId: fx.orgId,
+      branchId: fx.branchId,
+      agentId: fx.agentId,
+      contactId: contact.id,
+      channel: "WHATSAPP",
+      status,
+      externalThreadId: waId,
+      ...(status === "TRANSFERRED_TO_HUMAN" ? { assignedUserId: fx.userId } : {}),
+    },
+  });
+  return { contact, conversation };
+}
+
+test("conversación DERIVADA pero que nadie tomó todavía -> el agente contesta igual y la respuesta sale por la Graph API", async () => {
+  const waId = waIdAlAzar();
+  const { conversation } = await conversacionPreexistente(waId, "TRANSFERRED_TO_HUMAN");
+
+  const res = await enviar(payloadDeTexto({ waId, body: "¿Hola? ¿Hay alguien?" }));
+  assert.equal(res.status, 200);
+
+  assert.equal(llamadasAlLlm, 1, "el turno corrió");
+  assert.deepEqual(enviados, [
+    {
+      phoneNumberId: fx.phoneNumberId,
+      to: waId,
+      body: RESPUESTA_DEL_AGENTE,
+      accessToken: ACCESS_TOKEN,
+    },
+  ]);
+
+  const mensajes = await prisma.message.findMany({
+    where: { conversationId: conversation.id },
+    orderBy: { createdAt: "asc" },
+  });
+  assert.deepEqual(
+    mensajes.map((m) => [m.senderType, m.content]),
+    [
+      ["CONTACT", "¿Hola? ¿Hay alguien?"],
+      ["AGENT", RESPUESTA_DEL_AGENTE],
+    ],
+  );
+
+  // El aviso al vendedor sigue en pie: contestar no deshace la derivación.
+  const despues = await prisma.conversation.findUniqueOrThrow({ where: { id: conversation.id } });
+  assert.equal(despues.status, "TRANSFERRED_TO_HUMAN");
+  assert.equal(despues.assignedUserId, fx.userId);
+});
+
+test("con un mensaje HUMAN en el hilo -> el entrante se registra, el agente NO contesta y no se manda nada por la Graph API", async () => {
+  const waId = waIdAlAzar();
+  const { conversation } = await conversacionPreexistente(waId, "TRANSFERRED_TO_HUMAN");
+  await prisma.message.create({
+    data: {
+      organizationId: fx.orgId,
+      conversationId: conversation.id,
+      direction: "OUTBOUND",
+      senderType: "HUMAN",
+      senderUserId: fx.userId,
+      content: "Hola, soy Rocco, sigo yo por acá.",
+    },
+  });
+
+  const res = await enviar(payloadDeTexto({ waId, body: "Dale, gracias" }));
+  assert.equal(res.status, 200);
+
+  assert.equal(llamadasAlLlm, 0, "no se llamó al modelo");
+  assert.equal(enviados.length, 0, "el agente no le habla encima a la persona");
+
+  const mensajes = await prisma.message.findMany({
+    where: { conversationId: conversation.id },
+    orderBy: { createdAt: "asc" },
+  });
+  assert.deepEqual(
+    mensajes.map((m) => [m.senderType, m.content]),
+    [
+      ["HUMAN", "Hola, soy Rocco, sigo yo por acá."],
+      ["CONTACT", "Dale, gracias"],
+    ],
+    "el entrante queda en el hilo para que la persona lo vea",
+  );
 });
 
 test("el mismo wamid dos veces -> un solo entrante, un solo turno, una sola respuesta", async () => {

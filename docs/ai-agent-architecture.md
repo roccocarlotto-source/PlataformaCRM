@@ -399,7 +399,8 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >    describía esta sección para `Conversation.assignedUserId`). Si el `Contact`
 >    no tiene `ownerId`, NO se crea la `Activity` — se loguea un warning, pero la
 >    transición de `Conversation.status` a `TRANSFERRED_TO_HUMAN` SIEMPRE ocurre
->    igual, porque es la garantía central (el agente deja de responder solo) y
+>    igual, porque es la garantía central (el agente deja de responder solo —
+>    **ya no**: ver la nota del 22/09/2026 más abajo, ítem 83) y
 >    no puede depender de que exista un vendedor asignado. Es una limitación
 >    conocida, no un bug: un negocio con muchos contactos sin vendedor asignado
 >    va a tener derivaciones silenciosas. Si eso importa en la práctica, la
@@ -463,6 +464,59 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 > el formulario manda el objeto entero en cada PATCH y sin esa fusión un
 > guardado posterior las habría borrado en silencio. Un `guardrails` armado a
 > mano contra la API puede seguir trayendo las seis.
+
+> **Nota del 22/09/2026 — qué calla al agente, a partir del ítem 83** de
+> `docs/frontend-cambios-pendientes.md`. Esta sección decía que la garantía
+> central del handoff era que **el agente deja de responder**, y el código lo
+> implementaba cortando el turno cuando `Conversation.status ===
+> TRANSFERRED_TO_HUMAN`. Nada revierte ese status, así que cada derivación era
+> un silencio **permanente**: un handoff disparado por un motivo transitorio
+> —una tool que falló por una regla de negocio que después se arregló— dejaba
+> al agente mudo para siempre en ese hilo, con el contacto escribiendo al
+> vacío. Pasó de verdad, en producción, y el ítem 83 tiene el caso.
+>
+> **Lo que se desacopló.** "Avisar a una persona" y "callar al agente" eran lo
+> mismo y ahora son dos cosas:
+>
+> - `request_human_handoff` hace **solo** lo primero: `assignedUserId`, la
+>   `Activity` de aviso y el brief, exactamente como antes. También sigue
+>   poniendo `status = TRANSFERRED_TO_HUMAN`, pero ese status pasa a
+>   significar **"hay una notificación pendiente para un vendedor"** y no
+>   "el agente se calló".
+> - El gate del loop (`runAgentTurn`) es ahora **"¿existe algún `Message` con
+>   `senderType = HUMAN` en esta conversación?"** (`hasHumanMessage`). Hasta
+>   que una persona escriba, el agente sigue atendiendo lo que pueda.
+>
+> **La garantía de fondo no se aflojó, se corrigió.** Lo que hay que evitar es
+> que el agente y la persona le hablen al contacto al mismo tiempo, y eso
+> empieza cuando la persona habla, no cuando se la avisa. Mientras nadie tomó
+> la conversación, que el agente siga contestando es estrictamente mejor que
+> el silencio: el aviso ya está dado y el contacto no queda solo.
+>
+> **Por qué `Message.senderType` y no un campo nuevo en `Conversation`:** "hay
+> un humano interviniendo" ya tiene fuente de verdad en los datos, y derivarlo
+> de ahí no se puede desincronizar. Una columna booleana habría que acordarse
+> de escribirla en cada lugar que mande un mensaje, y el día que alguien se
+> olvide el agente le habla encima a una persona. El gate mira el hilo entero
+> y no la ventana de contexto de §10 — un humano que escribió hace 21 mensajes
+> intervino igual —, y **cualquier** mensaje `HUMAN` alcanza: una vez que una
+> persona entró al hilo, el hilo es suyo.
+>
+> **Limitación conocida, no un pendiente disimulado: hoy ningún flujo de
+> producción escribe un `Message` con `senderType = HUMAN`.** No existe
+> todavía un endpoint para que un vendedor conteste desde el CRM — la bandeja
+> del ítem 66 es de solo lectura a propósito —, así que en la práctica el gate
+> está construido y probado pero nunca se dispara solo, y el agente no se
+> calla nunca. Es el resultado buscado por ahora (el problema era el silencio,
+> no el exceso de respuestas), y el día que exista "responder desde el CRM",
+> persistir ese `Message` es todo lo que hace falta para que el agente se
+> aparte: no hay que tocar el loop.
+>
+> **Lo que NO cambió:** los disparadores de derivación (cuándo el modelo llama
+> a la tool) son los mismos; `CLOSED` sigue siendo el único status que da
+> lugar a una conversación nueva; `findOpenConversation` sigue contando
+> `TRANSFERRED_TO_HUMAN` como abierta; y `ejecutarHandoff` sigue siendo
+> idempotente por status — que ahora es solo "no notificar dos veces".
 
 **La restricción de cumplimiento de Meta (documento de visión, roadmap 2.2) se aplica estructuralmente, no como un guardrail más que un admin pueda desactivar.** El catálogo de tools de la sección 7 solo incluye acciones de negocio acotadas (calificar, agendar, crear oportunidades, links de pago) — no existe ninguna tool de "responder cualquier cosa", así que un agente no puede convertirse en un asistente de propósito general aunque un admin deshabilite todos los guardrails configurables. Es una propiedad del catálogo de tools, no de la configuración.
 

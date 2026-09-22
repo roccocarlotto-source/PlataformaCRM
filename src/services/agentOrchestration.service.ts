@@ -15,7 +15,11 @@ import {
   updateConversation,
 } from "../repositories/conversation.repository";
 import { findActiveKnowledgeBaseEntriesByBranch } from "../repositories/knowledgeBaseEntry.repository";
-import { createMessage, findLastMessages } from "../repositories/message.repository";
+import {
+  createMessage,
+  findLastMessages,
+  hasHumanMessage,
+} from "../repositories/message.repository";
 import { AppError } from "../utils/AppError";
 import { createActivity } from "./activity.service";
 import { puedeEjecutarTool, type DatosDisponibles } from "./agentPermissions.service";
@@ -81,13 +85,21 @@ export const MOTIVO_TOPE_DE_RONDAS = "El agente no pudo resolver el caso en el t
 // por puedeEjecutarTool: es la salida de emergencia, y bloquearla sería
 // contradictorio con para qué sirve. Vive acá y no en CATALOGO_DE_TOOLS
 // justamente porque no es una acción de negocio configurable.
+//
+// LA DESCRIPCIÓN LE DICE AL MODELO QUE PUEDE SEGUIR (ítem 83). Antes decía
+// "y deja de responder como agente", que describía bien el comportamiento
+// viejo y hoy sería mentira: el gate del loop dejó de ser el status. Un
+// modelo que cree que llamar a esta tool lo saca de la conversación se
+// despide y no vuelve a intentar ayudar, que es justo lo que este ítem viene
+// a arreglar. Los DISPARADORES no se tocan —cuándo derivar sigue siendo lo
+// mismo—, solo qué consecuencia tiene derivar.
 // ---------------------------------------------------------------------------
 export const REQUEST_HUMAN_HANDOFF_TOOL_NAME = "request_human_handoff";
 
 export const REQUEST_HUMAN_HANDOFF_TOOL: LlmToolDefinition = {
   name: REQUEST_HUMAN_HANDOFF_TOOL_NAME,
   description:
-    "Deriva esta conversación a una persona del equipo y deja de responder como agente. Usala cuando el contacto pide explícitamente hablar con una persona, cuando la conversación coincide con una situación de derivación configurada, cuando te preguntan por un tema sobre el que no podés opinar, o cuando la única forma de ayudar es una acción que no tenés disponible. Podés acompañarla con un mensaje de cierre para el contacto.",
+    "Avisa a una persona del equipo para que tome esta conversación. Usala cuando el contacto pide explícitamente hablar con una persona, cuando la conversación coincide con una situación de derivación configurada, cuando te preguntan por un tema sobre el que no podés opinar, o cuando la única forma de ayudar es una acción que no tenés disponible. Podés acompañarla con un mensaje para el contacto. Después de llamarla seguís atendiendo con normalidad: contestá lo que sí puedas mientras la persona llega, y dejá de responder solo cuando ella escriba en la conversación.",
   parameters: {
     type: "object",
     properties: {
@@ -140,8 +152,9 @@ export interface ToolCallDelTurno {
 export interface ResultadoDelTurno {
   conversationId: string;
   status: ConversationStatus;
-  // null cuando el agente NO respondió: la conversación ya estaba derivada a
-  // un humano y el mensaje solo se registró en el hilo.
+  // null cuando el agente NO respondió: una persona de la organización ya
+  // escribió en el hilo (ítem 83) y el mensaje entrante solo se registró. Una
+  // conversación derivada que nadie tomó todavía SÍ recibe respuesta.
   respuesta: string | null;
   toolCalls: ToolCallDelTurno[];
   // true si ESTE turno disparó la derivación.
@@ -265,9 +278,14 @@ export function armarSystemPrompt(
 // modelo, porque reconstruir el par pedido/resultado exacto de turnos viejos
 // no aporta nada a la conversación y sí obliga a que la ventana no corte a
 // mitad de un par (varios proveedores rechazan un tool_call sin su
-// resultado). Lo que un humano escribió en el hilo (HUMAN, tras un handoff)
-// también va del lado del asistente: para el modelo es "lo que dijo el
-// negocio".
+// resultado). Lo que un humano escribió en el hilo (HUMAN) también va del
+// lado del asistente: para el modelo es "lo que dijo el negocio".
+//
+// Esa rama HUMAN no se ejercita hoy —desde el ítem 83 el loop ni siquiera
+// llega acá si hay un mensaje de una persona en el hilo—, y se deja igual a
+// propósito: es el mapeo correcto, cuesta cero, y el día que el gate se
+// acote (por ejemplo, un vendedor que devuelve la conversación al agente)
+// sería lo primero que haría falta.
 function aHistorial(mensajes: Message[]): LlmMessage[] {
   const historial: LlmMessage[] = [];
   for (const m of mensajes) {
@@ -317,13 +335,17 @@ function datosDisponiblesDeLaConversacion(
 // La derivación — compartida por la tool y por el tope de rondas (nota del
 // paso 4 bajo §6).
 //
-// DOS MITADES CON GARANTÍAS DISTINTAS. La transición de status es la garantía
-// central —el agente deja de responder solo— y ocurre SIEMPRE. La Activity es
-// la notificación al negocio y es best-effort: necesita un vendedor asignado
-// al contacto (authorId es NOT NULL) y puede fallar por lo que sea; en los dos
-// casos se loguea y se sigue, porque la transición ya ocurrió y es lo que no
-// puede fallar. Idempotente: una conversación ya derivada no genera una
-// segunda Activity.
+// DOS MITADES CON GARANTÍAS DISTINTAS. La transición de status ocurre
+// SIEMPRE. La Activity es la notificación al negocio y es best-effort:
+// necesita un vendedor asignado al contacto (authorId es NOT NULL) y puede
+// fallar por lo que sea; en los dos casos se loguea y se sigue, porque la
+// transición ya ocurrió y es lo que no puede fallar. Idempotente: una
+// conversación ya derivada no genera una segunda Activity.
+//
+// QUÉ SIGNIFICA ESA TRANSICIÓN DESDE EL ÍTEM 83: "hay una notificación
+// pendiente para un vendedor", y nada más. Antes era además "el agente deja
+// de responder", y eso se fue de acá: al agente lo calla que una PERSONA
+// escriba en el hilo, no este status. Ver el gate de runAgentTurn.
 //
 // DESDE EL ÍTEM 69, un contacto sin vendedor ya no implica derivación
 // silenciosa: antes de decidir, se resuelve el vendedor por defecto de la
@@ -366,6 +388,19 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
   }
   if (actual.status === "TRANSFERRED_TO_HUMAN") {
     // Ya derivada: nada que hacer, y sobre todo nada que notificar dos veces.
+    //
+    // DESDE EL ÍTEM 83 este chequeo es SOLO eso —no duplicar el aviso— y ya no
+    // tiene nada que ver con callar al agente: eso lo decide hasHumanMessage
+    // en el loop. Leer el status para saber si ya se avisó sigue siendo
+    // correcto porque es exactamente lo que ese status significa ahora.
+    //
+    // Limitación conocida, más visible que antes: una conversación que ya
+    // derivó no vuelve a notificar nunca, y ahora el agente sigue hablando
+    // después, así que puede pasar mucho más tiempo entre el aviso y la
+    // segunda derivación. Si el vendedor ya completó la tarea del primer
+    // aviso, la segunda no le llega. Avisar de nuevo exige saber si el aviso
+    // anterior sigue pendiente, y Activity no guarda a qué conversación
+    // pertenece (solo contactId) — es un ítem propio, no un arreglo de este.
     return { activityId: null };
   }
 
@@ -504,11 +539,45 @@ export async function runAgentTurn(
     lastMessageAt: entrante.createdAt,
   });
 
-  // Una conversación YA DERIVADA no la responde el agente: el mensaje queda
-  // en el hilo para el humano que la tomó, y nada más. Volver a meter al
-  // agente después de un handoff sería deshacer la derivación por la puerta
-  // de atrás.
-  if (conversation.status === "TRANSFERRED_TO_HUMAN") {
+  // EL GATE DEL LOOP (ítem 83): lo que calla al agente es que una PERSONA de
+  // la organización haya entrado al hilo, no que la conversación esté
+  // derivada.
+  //
+  // Antes el gate era `status === "TRANSFERRED_TO_HUMAN"`, y eso convertía
+  // cada handoff en un silencio permanente: nada revierte ese status, así que
+  // un handoff disparado por un motivo transitorio —una tool que falló por una
+  // regla de negocio que después se arregló— dejaba al agente mudo para
+  // siempre en ese hilo, con el contacto escribiendo al vacío. El caso real
+  // que lo motivó está en el ítem 83 de docs/frontend-cambios-pendientes.md.
+  //
+  // Qué queda de la garantía central de §6 y qué cambia: lo que hay que evitar
+  // es que el agente y la persona le hablen al contacto AL MISMO TIEMPO, y eso
+  // empieza cuando la persona habla, no cuando se la avisa. `request_human_handoff`
+  // pasa a hacer una sola cosa —avisar (Activity + assignedUserId + brief)— y el
+  // agente sigue atendiendo lo que pueda mientras tanto, que es estrictamente
+  // mejor que el silencio: el aviso ya está dado y el contacto no queda solo.
+  //
+  // POR QUÉ NO UN CAMPO NUEVO en Conversation: "hay un humano interviniendo"
+  // ya tiene fuente de verdad en los datos —un Message con senderType HUMAN—,
+  // y derivarlo de ahí no se puede desincronizar de la realidad. Una columna
+  // booleana habría que acordarse de escribirla en cada lugar que mande un
+  // mensaje, y el día que alguien se olvide el agente pisa a una persona.
+  // TRANSFERRED_TO_HUMAN se queda con el significado acotado que de hecho
+  // tiene: "hay una notificación pendiente para un vendedor". Por eso sigue
+  // contando como conversación abierta en findOpenConversation y sigue siendo
+  // un filtro útil de la bandeja — solo dejó de silenciar por sí solo.
+  //
+  // CUALQUIER mensaje HUMAN del hilo, y no "uno posterior al último del
+  // agente": las dos reglas dan el mismo resultado —bloqueado el agente, su
+  // último mensaje nunca avanza, así que un HUMAN siempre queda después— y
+  // esta se explica en una línea. Una vez que una persona entró al hilo, el
+  // hilo es suyo.
+  //
+  // Vale para una conversación ACTIVE también, y es a propósito: si un
+  // vendedor se mete a contestar sin que hubiera handoff, el agente se calla
+  // igual. Quien escriba ese Message es quien decide qué hacer con el status;
+  // acá no se toca.
+  if (await hasHumanMessage(conversation.id, organizationId)) {
     return {
       conversationId: conversation.id,
       status: conversation.status,

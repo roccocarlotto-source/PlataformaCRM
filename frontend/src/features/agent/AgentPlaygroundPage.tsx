@@ -87,11 +87,14 @@ function entradasDelTurno(resultado: TestMessageResult): EntradaSinId[] {
 
   if (resultado.respuesta === null) {
     // Una burbuja vacía se leería como "el agente contestó nada". Esto es otra
-    // cosa: la conversación ya estaba derivada a un humano, así que el agente
-    // no contesta más y el mensaje solo quedó registrado en el hilo.
+    // cosa: una persona del equipo ya escribió en esta conversación, así que
+    // el agente se calla y el mensaje solo quedó registrado en el hilo. Desde
+    // el ítem 83 el motivo es ese y no "está derivada": una conversación
+    // derivada que nadie tomó todavía el agente la sigue contestando.
     entradas.push({
       tipo: "sistema",
-      texto: "El agente no respondió — la conversación ya estaba derivada a un humano.",
+      texto:
+        "El agente no respondió — una persona del equipo ya está atendiendo esta conversación.",
     });
   } else {
     entradas.push({ tipo: "agente", texto: resultado.respuesta });

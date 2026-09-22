@@ -198,8 +198,9 @@ export interface TestMessageToolCall {
 export interface TestMessageResult {
   conversationId: string;
   status: ConversationStatus;
-  // null cuando el agente NO respondió: la conversación ya estaba derivada a
-  // un humano y el mensaje solo se registró en el hilo.
+  // null cuando el agente NO respondió: una persona del equipo ya escribió en
+  // el hilo (ítem 83) y el mensaje solo se registró. Una conversación
+  // derivada pero que nadie tomó todavía SÍ recibe respuesta.
   respuesta: string | null;
   toolCalls: TestMessageToolCall[];
   // true si ESTE turno disparó la derivación.
