@@ -1,4 +1,10 @@
-import { LeadUrgency, VehicleBodyType } from "@prisma/client";
+import {
+  LeadUrgency,
+  VehicleBodyType,
+  VehicleCondition,
+  VehicleFuelType,
+  VehicleTransmission,
+} from "@prisma/client";
 import { z } from "zod";
 import { findManyActivities } from "../repositories/activity.repository";
 import { findBranchById } from "../repositories/branch.repository";
@@ -111,6 +117,47 @@ async function conErroresDeNegocio(fn: () => Promise<ResultadoDeTool>): Promise<
 
 const uuid = (campo: string) => z.string().uuid(`${campo} debe ser un UUID`);
 
+// ---------------------------------------------------------------------------
+// "NO VINO" DICHO CON UN VALOR VACÍO (ítem 86).
+//
+// Un modelo chico (el caso real fue openai/gpt-4.1-nano) no siempre omite un
+// argumento opcional que no tiene: manda la clave con un valor "vacío" —"",
+// "   ", null—. Con un schema estricto eso es un error de validación, y el
+// modelo, al leerlo, le pide al cliente justo el dato que el cliente no dio.
+// Estos helpers tratan esos valores como ausentes en TODOS los argumentos
+// opcionales de las tools, no solo en el que se rompió.
+//
+// Solo para OPCIONALES: un requerido vacío sigue siendo un error, y el modelo
+// tiene que leerlo.
+// ---------------------------------------------------------------------------
+
+function esVacio(v: unknown): boolean {
+  return v === null || (typeof v === "string" && v.trim() === "");
+}
+
+function vacioComoAusente<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((v) => (esVacio(v) ? undefined : v), schema.optional());
+}
+
+function textoOpcional(max: number) {
+  return vacioComoAusente(z.string().trim().min(1).max(max));
+}
+
+// Para números opcionales donde 0 no puede ser un filtro con sentido (un
+// precio máximo de 0, un kilometraje máximo de 0 como "sin tope"): el modelo
+// que manda 0 está diciendo "no vino". NO se usa donde 0 es un valor real
+// (score de un lead, un monto de presupuesto).
+function ceroComoAusente<T extends z.ZodTypeAny>(schema: T) {
+  return z.preprocess((v) => (esVacio(v) || v === 0 ? undefined : v), schema.optional());
+}
+
+// Cuenta los argumentos que vinieron DE VERDAD. Con los helpers de arriba una
+// clave que llegó como "" queda en el objeto con valor undefined, y un
+// Object.keys la seguiría contando.
+function cantidadDeArgumentos(data: Record<string, unknown>): number {
+  return Object.values(data).filter((v) => v !== undefined).length;
+}
+
 // Un instante ISO 8601 con zona (el modelo tiene que ser explícito: una fecha
 // "flotante" se interpretaría con la zona del servidor, que no es la de la
 // sucursal).
@@ -129,7 +176,7 @@ const instanteIso = z
 const createOpportunityArgs = z.object({
   title: z.string().trim().min(1, "title es requerido").max(255),
   amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
-  currency: currencySchema.optional(),
+  currency: vacioComoAusente(currencySchema),
 });
 
 export const MENSAJE_CONTACTO_SIN_VENDEDOR =
@@ -273,14 +320,14 @@ const createOpportunityTool: ToolDelAgente = {
 const updateOpportunityArgs = z
   .object({
     opportunityId: uuid("opportunityId"),
-    title: z.string().trim().min(1).max(255).optional(),
+    title: textoOpcional(255),
     amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
-    currency: currencySchema.optional(),
-    status: z.enum(["OPEN", "WON", "LOST"]).optional(),
-    stageId: uuid("stageId").optional(),
-    lostReason: z.string().trim().min(1).max(255).optional(),
+    currency: vacioComoAusente(currencySchema),
+    status: vacioComoAusente(z.enum(["OPEN", "WON", "LOST"])),
+    stageId: vacioComoAusente(uuid("stageId")),
+    lostReason: textoOpcional(255),
   })
-  .refine((data) => Object.keys(data).length > 1, {
+  .refine((data) => cantidadDeArgumentos(data) > 1, {
     message: "Hay que indicar al menos un campo a modificar además de opportunityId",
   });
 
@@ -517,22 +564,26 @@ const leadArgs = z
   .object({
     // Mismo rango que el CHECK contacts_lead_score_range_check: se falla acá,
     // con mensaje, y no en el UPDATE.
-    score: z
-      .number()
-      .int("score debe ser un entero")
-      .min(0, "score debe estar entre 0 y 100")
-      .max(100, "score debe estar entre 0 y 100")
-      .optional(),
-    intent: z.string().trim().min(1).max(200).optional(),
-    serviceOfInterest: z.string().trim().min(1).max(200).optional(),
-    urgency: z.nativeEnum(LeadUrgency).optional(),
-    budgetAmount: z.number().min(0, "budgetAmount debe ser mayor o igual a 0").optional(),
-    budgetCurrency: currencySchema.optional(),
-    location: z.string().trim().min(1).max(200).optional(),
-    notes: z.string().trim().min(1).max(4000).optional(),
-    aiData: z.record(z.string(), z.unknown()).optional(),
+    score: vacioComoAusente(
+      z
+        .number()
+        .int("score debe ser un entero")
+        .min(0, "score debe estar entre 0 y 100")
+        .max(100, "score debe estar entre 0 y 100"),
+    ),
+    intent: textoOpcional(200),
+    serviceOfInterest: textoOpcional(200),
+    urgency: vacioComoAusente(z.nativeEnum(LeadUrgency)),
+    // budgetAmount y score quedan estrictos: 0 es un valor real para los dos
+    // (el comentario de leadBudgetAmount en el schema: 0 no es "sin
+    // presupuesto"). Solo null cuenta como ausente.
+    budgetAmount: vacioComoAusente(z.number().min(0, "budgetAmount debe ser mayor o igual a 0")),
+    budgetCurrency: vacioComoAusente(currencySchema),
+    location: textoOpcional(200),
+    notes: textoOpcional(4000),
+    aiData: vacioComoAusente(z.record(z.string(), z.unknown())),
   })
-  .refine((data) => Object.keys(data).length > 0, {
+  .refine((data) => cantidadDeArgumentos(data) > 0, {
     message: "Hay que indicar al menos un dato de calificación",
   })
   // Presupuesto como PAR: un monto sin moneda no se puede interpretar, y una
@@ -746,14 +797,44 @@ const getContactInfoTool: ToolDelAgente = {
 
 const MAX_VEHICULOS_POR_BUSQUEDA = 10;
 
+const ANIO_MINIMO = 1980;
+
+// Un año fuera de rango (el 0 del caso real, o 1900, o 2099) no es un filtro
+// que el cliente haya pedido: es el modelo rellenando la clave. Se trata como
+// "no vino" en vez de filtrar por year = 0 y devolver cero resultados sin que
+// el modelo entienda por qué. El tope se calcula en cada llamada para que no
+// quede congelado en el año del deploy.
+const anioOpcional = z.preprocess((v) => {
+  if (esVacio(v)) return undefined;
+  if (typeof v === "number" && (v < ANIO_MINIMO || v > new Date().getFullYear() + 1)) {
+    return undefined;
+  }
+  return v;
+}, z.number().int("year debe ser un entero").optional());
+
+// Los booleanos solo filtran en true. Nadie busca "autos que NO aceptan
+// permuta"; un false es el modelo rellenando la clave, y filtrar por él
+// escondería justo las unidades que sí aceptan.
+const soloSiEsTrue = z.preprocess((v) => (v === true ? true : undefined), z.boolean().optional());
+
 const searchVehiclesArgs = z
   .object({
-    priceMinUsd: z.number().min(0, "priceMinUsd debe ser mayor o igual a 0").optional(),
-    priceMaxUsd: z.number().min(0, "priceMaxUsd debe ser mayor o igual a 0").optional(),
-    make: z.string().trim().min(1).max(100).optional(),
-    model: z.string().trim().min(1).max(100).optional(),
-    year: z.number().int("year debe ser un entero").optional(),
-    bodyType: z.nativeEnum(VehicleBodyType).optional(),
+    priceMinUsd: ceroComoAusente(z.number().min(0, "priceMinUsd debe ser mayor o igual a 0")),
+    priceMaxUsd: ceroComoAusente(z.number().min(0, "priceMaxUsd debe ser mayor o igual a 0")),
+    make: textoOpcional(100),
+    model: textoOpcional(100),
+    year: anioOpcional,
+    bodyType: vacioComoAusente(z.nativeEnum(VehicleBodyType)),
+    condition: vacioComoAusente(z.nativeEnum(VehicleCondition)),
+    transmission: vacioComoAusente(z.nativeEnum(VehicleTransmission)),
+    fuelType: vacioComoAusente(z.nativeEnum(VehicleFuelType)),
+    exteriorColor: textoOpcional(50),
+    mileageMax: ceroComoAusente(
+      z.number().int("mileageMax debe ser un entero").min(0, "mileageMax no puede ser negativo"),
+    ),
+    financingAvailable: soloSiEsTrue,
+    acceptsTradeIn: soloSiEsTrue,
+    texto: textoOpcional(100),
   })
   .refine(
     (q) =>
@@ -765,7 +846,7 @@ const searchVehiclesTool: ToolDelAgente = {
   definition: {
     name: "search_vehicles",
     description:
-      "Busca vehículos disponibles en stock que están publicados para mostrar a clientes, opcionalmente filtrando por precio en USD, marca, modelo, año o tipo de carrocería. Devuelve como máximo 10 resultados. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o características.",
+      "Busca vehículos disponibles en stock que están publicados para mostrar a clientes. Filtros opcionales: precio en USD, marca, modelo, año, tipo de carrocería, 0 km o usado, transmisión, combustible, color, kilometraje máximo, si tiene financiación, si acepta permuta, y un texto libre para cualquier otra cosa (equipamiento, versión, algo de la descripción). Mandá SOLO los filtros que el cliente pidió; los demás no los incluyas. Devuelve como máximo 10 resultados y el total. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o con ciertas características.",
     parameters: {
       type: "object",
       properties: {
@@ -786,6 +867,40 @@ const searchVehiclesTool: ToolDelAgente = {
           type: "string",
           enum: Object.values(VehicleBodyType),
           description: "Tipo de carrocería.",
+        },
+        condition: {
+          type: "string",
+          enum: Object.values(VehicleCondition),
+          description: "NEW para 0 km, USED para usado.",
+        },
+        transmission: {
+          type: "string",
+          enum: Object.values(VehicleTransmission),
+          description: "Transmisión.",
+        },
+        fuelType: {
+          type: "string",
+          enum: Object.values(VehicleFuelType),
+          description: "Combustible. GASOLINE es nafta; GASOLINE_CNG es nafta con equipo de GNC.",
+        },
+        exteriorColor: {
+          type: "string",
+          description: "Color exterior (ej. blanco). Encuentra también variantes (Blanco perla).",
+        },
+        mileageMax: { type: "integer", description: "Kilometraje máximo." },
+        financingAvailable: {
+          type: "boolean",
+          description: "true si el cliente quiere financiar. No lo mandes si no lo pidió.",
+        },
+        acceptsTradeIn: {
+          type: "boolean",
+          description:
+            "true si el cliente quiere entregar su auto como parte de pago. No lo mandes si no lo pidió.",
+        },
+        texto: {
+          type: "string",
+          description:
+            "Texto libre para lo que no es un filtro de arriba: equipamiento (ej. techo solar), versión o algo de la descripción del aviso.",
         },
       },
       required: [],
@@ -813,6 +928,15 @@ const searchVehiclesTool: ToolDelAgente = {
         model: input.model,
         year: input.year,
         bodyType: input.bodyType,
+        condition: input.condition,
+        transmission: input.transmission,
+        fuelType: input.fuelType,
+        exteriorColor: input.exteriorColor,
+        mileageMax: input.mileageMax,
+        financingAvailable: input.financingAvailable,
+        acceptsTradeIn: input.acceptsTradeIn,
+        // textoPublico y NO q: q mira patente y VIN (ver VehicleFilters).
+        textoPublico: input.texto,
         status: ["AVAILABLE"],
         publishOnWebsite: true,
       };
