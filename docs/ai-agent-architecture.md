@@ -524,12 +524,13 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 
 | Tool | Depende de | Estado |
 | --- | --- | --- |
-| `create_opportunity()` / `update_opportunity()` | `opportunity.service.ts` | **Construida (paso 2b, 12/09/2026)** — wrapper fino en `src/services/agentTools.service.ts` sobre el service existente. Ver la nota fechada bajo la sección 6 sobre qué resuelve el wrapper y qué NO puede elegir el modelo. |
+| `create_opportunity()` / `update_opportunity()` | `opportunity.service.ts` | **Construida (paso 2b, 12/09/2026)** — wrapper fino en `src/services/agentTools.service.ts` sobre el service existente. Ver la nota fechada bajo la sección 6 sobre qué resuelve el wrapper y qué NO puede elegir el modelo. Desde el ítem 84 (22/09/2026) `create_opportunity` no duplica: si el contacto ya tiene una oportunidad `OPEN`, devuelve la más reciente con `reused: true` en vez de crear otra. |
 | `get_availability()` / `create_booking()` | Módulo de Booking (`docs/booking-architecture.md`) | **Construida (paso 2b, 12/09/2026)** — wrapper fino en `src/services/agentTools.service.ts` sobre `availability.service.ts` / `booking.service.ts`. `contactId` de la reserva sale siempre de la conversación. |
 | `create_lead()` / `update_lead()` | `Contact.leadScore`/etc. (PR #207) | **Construida (paso 3, 12/09/2026)** — las dos tools llaman a la misma `qualifyLead()` de `contact.service.ts`, idempotente; `leadNotes` se agrega y `leadAiData` se mergea, nunca se pisan. Ver la nota fechada del paso 3 bajo la sección 6. |
 | `send_message()` | Integración de WhatsApp | Bloqueada — fuera de alcance de este documento (sección 2). |
 | `create_payment_link()` | Módulo de Pagos (2.3) | Bloqueada — pasarela sin elegir. |
 | `get_payment_info()` | `Branch.paymentLinkUrl` / `Branch.bankTransferDetails` | **Construida (ítem 74 de `docs/frontend-cambios-pendientes.md`, 21/09/2026)** — NO reemplaza a `create_payment_link()`, que sigue sin construirse: devuelve un link de pago fijo y/o datos de transferencia cargados a mano por sucursal. Solo lectura, sin parámetros. Cuándo compartir el detalle está en la descripción de la tool, no en código. |
+| `get_contact_info()` / `search_vehicles()` / `get_service_types()` / `get_contact_activities()` | `contact.repository.ts` / `vehicle.repository.ts` / `serviceType.repository.ts` / `activity.repository.ts` | **Construidas (ítem 85 de `docs/frontend-cambios-pendientes.md`, 22/09/2026)** — las primeras tools de solo lectura del catálogo, mismo patrón fino que `get_payment_info()`. Contacto y sucursal salen del contexto; cada una devuelve un `select` a mano, nunca la fila entera. `search_vehicles` fija `status: AVAILABLE` + `publishOnWebsite: true` sin que el modelo los pueda pisar, y nunca devuelve costos, precio mínimo ni datos de consignación. |
 
 ## 8. Costos
 

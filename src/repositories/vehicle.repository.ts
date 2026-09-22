@@ -1,4 +1,4 @@
-import type { Prisma, VehicleCondition, VehicleStatus } from "@prisma/client";
+import type { Prisma, VehicleBodyType, VehicleCondition, VehicleStatus } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
@@ -24,6 +24,10 @@ export interface VehicleFilters {
   condition?: VehicleCondition;
   make?: string;
   model?: string;
+  // Ítem 85: los agrega search_vehicles (agentTools.service.ts), el único
+  // consumidor hoy. Igualdad exacta, mismo criterio que make/model.
+  year?: number;
+  bodyType?: VehicleBodyType;
   minPriceUsd?: number;
   maxPriceUsd?: number;
   consignmentOnly?: boolean;
@@ -57,6 +61,8 @@ function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.Veh
     // es `q`.
     ...(filters.make ? { make: filters.make } : {}),
     ...(filters.model ? { model: filters.model } : {}),
+    ...(filters.year !== undefined ? { year: filters.year } : {}),
+    ...(filters.bodyType ? { bodyType: filters.bodyType } : {}),
     ...(filters.consignmentOnly ? { origin: "CONSIGNMENT" } : {}),
     // Booleano explícito contra undefined: un `filters.publishOnWebsite ?` se
     // comería el filtro "las no publicadas".

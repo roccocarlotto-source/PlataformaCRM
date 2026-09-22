@@ -40,13 +40,17 @@ async function rechazoDe(nombre: string, args: Record<string, unknown>): Promise
 // Forma del catálogo
 // ---------------------------------------------------------------------------
 
-test("el catálogo tiene exactamente las siete tools (pasos 2b y 3, ítem 74), con su nombre como clave", () => {
+test("el catálogo tiene exactamente las once tools (pasos 2b y 3, ítems 74 y 85), con su nombre como clave", () => {
   assert.deepEqual([...CATALOGO_DE_TOOLS.keys()].sort(), [
     "create_booking",
     "create_lead",
     "create_opportunity",
     "get_availability",
+    "get_contact_activities",
+    "get_contact_info",
     "get_payment_info",
+    "get_service_types",
+    "search_vehicles",
     "update_lead",
     "update_opportunity",
   ]);
@@ -226,4 +230,63 @@ test("get_payment_info: la descripción conserva el criterio de cuándo comparti
   assert.match(descripcion, /qué métodos de pago aceptan/);
   assert.match(descripcion, /sin compartir todavía el link/);
   assert.match(descripcion, /no inventes/);
+});
+
+// ---------------------------------------------------------------------------
+// create_opportunity no duplica (ítem 84) — el comportamiento necesita base
+// (agentReadTools.integration-test.ts); acá, que la descripción lo diga.
+// ---------------------------------------------------------------------------
+
+test("create_opportunity: la descripción avisa que reutiliza la abierta y que para cambiarla va update_opportunity", () => {
+  const descripcion = CATALOGO_DE_TOOLS.get("create_opportunity")!.definition.description;
+  assert.match(descripcion, /ya tiene una oportunidad abierta/);
+  assert.match(descripcion, /reused/);
+  assert.match(descripcion, /update_opportunity/);
+});
+
+// ---------------------------------------------------------------------------
+// Tools de lectura (ítem 85) — la forma y la validación. Lo que devuelven
+// necesita base: agentReadTools.integration-test.ts.
+// ---------------------------------------------------------------------------
+
+for (const nombre of ["get_contact_info", "get_service_types", "get_contact_activities"]) {
+  test(`${nombre}: sin parámetros — contacto y sucursal salen del contexto`, () => {
+    const parametros = CATALOGO_DE_TOOLS.get(nombre)!.definition.parameters as {
+      properties: Record<string, unknown>;
+    };
+    assert.deepEqual(parametros.properties, {});
+  });
+}
+
+test("search_vehicles: expone solo los filtros de búsqueda, nunca status, publicación ni sucursal", () => {
+  const parametros = CATALOGO_DE_TOOLS.get("search_vehicles")!.definition.parameters as {
+    required: string[];
+    properties: Record<string, unknown>;
+  };
+  assert.deepEqual(parametros.required, []);
+  assert.deepEqual(Object.keys(parametros.properties).sort(), [
+    "bodyType",
+    "make",
+    "model",
+    "priceMaxUsd",
+    "priceMinUsd",
+    "year",
+  ]);
+});
+
+test("search_vehicles: precios no negativos y ordenados, año entero, carrocería del enum", async () => {
+  assert.match(await rechazoDe("search_vehicles", { priceMinUsd: -1 }), /priceMinUsd/);
+  assert.match(await rechazoDe("search_vehicles", { priceMaxUsd: -1 }), /priceMaxUsd/);
+  assert.match(
+    await rechazoDe("search_vehicles", { priceMinUsd: 30_000, priceMaxUsd: 10_000 }),
+    /no puede ser mayor/,
+  );
+  assert.match(await rechazoDe("search_vehicles", { year: 2020.5 }), /entero/);
+  assert.match(await rechazoDe("search_vehicles", { bodyType: "SPACESHIP" }), /bodyType/);
+});
+
+test("get_service_types: la descripción manda a sacar los UUID de acá y no inventarlos", () => {
+  const descripcion = CATALOGO_DE_TOOLS.get("get_service_types")!.definition.description;
+  assert.match(descripcion, /get_availability/);
+  assert.match(descripcion, /no inventes esos UUID/);
 });

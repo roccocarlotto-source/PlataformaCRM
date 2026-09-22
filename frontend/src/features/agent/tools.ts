@@ -6,8 +6,8 @@ import type { MultiSelectOption } from "../../design-system/MultiSelect";
 // No hay ningún endpoint que exponga el catálogo, y es una decisión tomada:
 // las tools viven en código del backend, no en la base, y nadie las consume
 // más que esta pantalla. Inventar un GET /api/agents/tools para alimentar un
-// checklist de siete ítems fijos sería una ruta, un controller y un test de
-// integración para evitar duplicar siete strings.
+// checklist de once ítems fijos sería una ruta, un controller y un test de
+// integración para evitar duplicar once strings.
 //
 // EL PRECIO, dicho para que nadie lo descubra tarde: si alguien agrega, saca
 // o renombra una tool del catálogo del backend, ESTA LISTA HAY QUE
@@ -28,7 +28,7 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
     value: "create_opportunity",
     label: "Crear oportunidad",
     subtitle:
-      "Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda asignada al vendedor del contacto, en la primera etapa del pipeline por defecto. Usala cuando el contacto muestra intención concreta de compra o contratación.",
+      "Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda asignada al vendedor del contacto, en la primera etapa del pipeline por defecto. Usala cuando el contacto muestra intención concreta de compra o contratación. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true, y es sobre esa que tenés que seguir. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.",
   },
   {
     value: "update_opportunity",
@@ -65,6 +65,30 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
     label: "Compartir datos de cobro",
     subtitle:
       "Devuelve el link de pago y/o los datos para transferencia bancaria configurados por la sucursal. Usala cuando el cliente concretamente quiere pagar o señar, o pide el link de pago o los datos de la cuenta (CBU, alias, número de cuenta). Si solo pregunta en general qué métodos de pago aceptan, respondé con los nombres de los métodos disponibles (transferencia bancaria / link de pago) sin compartir todavía el link ni los datos de la cuenta; si ya la llamaste antes en la conversación, no hace falta volver a llamarla para eso. Si no hay ningún medio de pago configurado, decíselo al cliente: no inventes uno.",
+  },
+  {
+    value: "get_contact_info",
+    label: "Ver datos del contacto",
+    subtitle:
+      "Devuelve los datos que el CRM tiene cargados del contacto de esta conversación (nombre, apellido, email, teléfono). Usala para saber si ya tenés el nombre de la persona antes de preguntárselo de nuevo, o antes de derivar, para que la persona que retome tenga contexto.",
+  },
+  {
+    value: "search_vehicles",
+    label: "Buscar vehículos en stock",
+    subtitle:
+      "Busca vehículos disponibles en stock que están publicados para mostrar a clientes, opcionalmente filtrando por precio en USD, marca, modelo, año o tipo de carrocería. Devuelve como máximo 10 resultados. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o características.",
+  },
+  {
+    value: "get_service_types",
+    label: "Ver tipos de servicio",
+    subtitle:
+      "Lista los tipos de servicio disponibles en esta sucursal, con su duración y el recurso al que pertenecen. Usala antes de get_availability para saber qué resourceId y serviceTypeId corresponden al servicio que pide el cliente — no inventes esos UUID, salen siempre de acá.",
+  },
+  {
+    value: "get_contact_activities",
+    label: "Ver tareas pendientes del contacto",
+    subtitle:
+      "Lista las próximas tareas o actividades pendientes que el equipo ya tiene agendadas para el contacto de esta conversación (llamados de seguimiento, recordatorios). Usala antes de prometer un seguimiento o derivar, para no duplicar algo que ya está agendado.",
   },
 ];
 
