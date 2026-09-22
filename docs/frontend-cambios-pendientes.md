@@ -4985,3 +4985,131 @@ Seis casos nuevos y dos reescritos, todos contra Postgres local:
 - `AgentPlaygroundPage.test.tsx`: el caso de `respuesta: null` ahora manda `status: "ACTIVE"` a propósito — la nota sale de que no haya respuesta, no del status.
 
 Backend: `typecheck` y `lint` limpios, **969/969** unitarios y **953/953** de integración. Frontend: `typecheck` y `lint` limpios, **1785/1785** (164 archivos).
+
+## 84. create_opportunity crea una oportunidad nueva cada vez, aunque el contacto ya tenga una abierta
+
+**Estado:** hecho
+
+**Qué pasó (caso real, AutoMax, 22/09/2026).** En la misma conversación de WhatsApp del ítem 83, el mismo contacto volvió a preguntar por vehículos de menos de USD 30.000 en un segundo turno. El agente llamó `create_opportunity()` de nuevo con el mismo título casi idéntico ("Consulta sobre vehículo de menos de 30 mil dólares") y creó una **segunda** oportunidad (`opportunityId` distinto) para el mismo contacto, en vez de seguir con la que ya existía de la consulta anterior (`5ee595e5-...` → `84e7d055-...`).
+
+**Por qué pasa.** `createOpportunityTool.ejecutar()` (`src/services/agentTools.service.ts`) nunca mira si el contacto ya tiene una oportunidad `OPEN`: resuelve el vendedor, resuelve el pipeline por defecto, y crea. Nada en la tool ni en `createOpportunity()` (`src/services/opportunity.service.ts`) es idempotente respecto del contacto — cada llamada es un INSERT nuevo. El modelo, por su lado, no tiene forma de saber que ya existe una (no hay ninguna tool de lectura — ver ítem 85) así que no tiene con qué evitarlo por su cuenta.
+
+**Qué hacer (decidido con Rocco, 22/09/2026):** antes de crear, la tool busca si el contacto ya tiene una oportunidad con `status = OPEN` (`findManyOpportunities(organizationId, { contactId, status: "OPEN" }, ...)`, ya existe en `opportunity.repository.ts`, no hace falta escribir una query nueva). Si existe, **no crea una nueva**: devuelve `ok:true` con los datos de la existente (mismo shape que devuelve hoy al crear), así el modelo sigue la conversación sobre esa misma oportunidad en vez de leer un error. Si hay más de una `OPEN` (dato viejo, de antes de este ítem), toma la más reciente (`orderBy: createdAt desc`) — no es su trabajo arreglar duplicados históricos, alcanza con no seguir generándolos.
+
+La descripción de la tool (lo que lee el modelo) tiene que decir esto explícitamente, para que no intente "actualizar el título" pensando que está creando una — para eso ya existe `update_opportunity()`.
+
+### Lo que se construyó
+
+`createOpportunityTool.ejecutar()` busca, antes de crear, la oportunidad `OPEN` más reciente del contacto (`findManyOpportunities(organizationId, { contactId, status: "OPEN" }, { skip: 0, take: 1 }, { sortBy: "createdAt", sortOrder: "desc" })`). Si existe, devuelve `ok: true` con **el mismo shape que al crear** (`opportunityId`, `title`, `amount`, `currency`, `status`, `stage`) más **`reused: true`**, y no inserta nada. Si no existe, crea como siempre y devuelve `reused: false` — el campo está en los dos caminos para que el modelo no tenga que inferir nada de su ausencia.
+
+La descripción de la tool (y el `subtitle` de su espejo en `frontend/src/features/agent/tools.ts`) ahora dice que con una abierta no crea otra, que devuelve esa con `reused` en true y que para cambiarle título, monto u otro dato se usa `update_opportunity` con su `opportunityId`.
+
+### Decisiones de diseño (las que se tomaron acá, no venían dadas)
+
+1. **La búsqueda va ANTES de resolver el vendedor, no después.** `resolverOwnerDelContacto` puede **escribir**: si el contacto no tenía vendedor, le asigna el de la sucursal (ítem 69). Devolver una oportunidad que ya existe no tiene por qué tener ese efecto, ni fallar con "el contacto no tiene vendedor" cuando ya hay una oportunidad abierta. Hay un test que lo fija (el contacto queda con `ownerId` en null después de reutilizar).
+2. **Se devuelve la existente tal cual**: no se le pisa el título ni el monto con lo que mandó el modelo en esta llamada. Lo contrario convertiría `create_opportunity` en un `update_opportunity` escondido, y lo que la descripción le dice al modelo es justamente que para eso está la otra tool.
+3. **`stage` sale de `findStageById(existente.stageId)`** y es `null` si la etapa se dio de baja (soft delete) — la oportunidad sigue siendo válida, solo que no hay nombre que mostrar.
+4. **Solo `OPEN` cuenta.** Una `WON` o `LOST` del contacto no bloquea una oportunidad nueva: una segunda compra de un cliente que ya compró es una oportunidad nueva de verdad. Hay un test.
+5. **No es un candado.** Dos turnos concurrentes del mismo contacto podrían crear dos. En la práctica los turnos de una conversación no corren en paralelo, y lo que este ítem arregla es el caso secuencial que pasó; un índice único parcial (`contact_id WHERE status = 'OPEN'`) sería una regla de negocio para **todo** el CRM (un vendedor desde el panel sí puede querer dos abiertas), y eso no se decidió.
+6. **Los duplicados históricos no se tocan**, como estaba decidido: con más de una `OPEN`, gana la más reciente.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | Búsqueda de la `OPEN` antes de resolver el vendedor, `reused` en los dos caminos, descripción de la tool |
+| `frontend/src/features/agent/tools.ts` | `subtitle` de `create_opportunity` (copia textual de la descripción) |
+| `docs/ai-agent-architecture.md` | Nota en la fila de `create_opportunity()` de la tabla del §7 |
+
+### Tests (corridos de verdad)
+
+En `src/services/agentReadTools.integration-test.ts` (archivo nuevo, compartido con el ítem 85), contra Postgres local, llamando a la tool directo:
+
+- sin ninguna abierta crea una, con `reused: false`;
+- **con una `OPEN` devuelve esa y no crea ninguna fila** (el caso real: mismo pedido con título casi igual; cuenta oportunidades antes/después, y verifica que el título no se pisó);
+- **con dos `OPEN` preexistentes devuelve la más reciente** (`createdAt` fijado a mano);
+- una `WON` no cuenta: crea una nueva;
+- reutilizar no le asigna vendedor al contacto aunque la sucursal tenga uno por defecto.
+
+Unitario en `agentTools.service.test.ts`: la descripción sigue diciendo "ya tiene una oportunidad abierta", `reused` y `update_opportunity`. Ningún test existente afirmaba "cada llamada crea una nueva" — los de `agentOrchestration.integration-test.ts` llaman `create_opportunity` una sola vez por escenario, y pasaron sin cambios.
+
+Resultados de la suite completa: ver el cierre del ítem 85 (se corrieron juntos).
+
+## 85. El agente no tiene ninguna tool de lectura — no puede consultar nada del CRM, solo escribir
+
+**Estado:** hecho
+
+**Qué pasó (mismo caso real, AutoMax, 22/09/2026, ítems 83/84).** Un cliente preguntó por vehículos de menos de USD 30.000. El agente contestó *"Voy a buscar opciones de vehículos... Dame unos instantes"* y nunca buscó nada, porque no existe ninguna tool que le permita hacerlo. Repasando el catálogo completo (`src/services/agentTools.service.ts`), las seis tools que existen son todas de **escritura**: `create_opportunity`, `update_opportunity`, `create_lead`, `update_lead`, `create_booking`, y `get_availability` — que a pesar del nombre no es una tool de descubrimiento: exige como argumentos obligatorios `resourceId` y `serviceTypeId`, dos UUID que el modelo no tiene forma de conocer (no hay tool que liste recursos ni tipos de servicio).
+
+Tampoco puede leer nada del contacto de la propia conversación: `datosDisponiblesDeLaConversacion()` (`agentOrchestration.service.ts`) arma un objeto con nombre/apellido/email/teléfono del contacto, pero **no se inyecta al modelo** — solo se usa internamente para la `Activity` de handoff. El modelo no ve ni siquiera el nombre de la persona con la que está hablando.
+
+**Por qué importa, más allá del caso puntual:** el diseño de este módulo (§6 de `docs/ai-agent-architecture.md`, cabecera de `agentTools.service.ts`) es que la IA actúa **solo** mediante tools explícitas — nunca hay una tool genérica de "consultar la base". Eso es correcto para escritura (cada acción sensible se valida y autoriza puntualmente) pero hoy no hay ni una sola tool de **lectura**, así que el agente no tiene ojos: solo manos.
+
+**Alcance decidido con Rocco (22/09/2026), a partir de los casos concretos que tiene hoy AutoMax — no una tool genérica "consultar cualquier dato", varias tools finas, mismo patrón que `get_payment_info` (ítem 74):**
+
+1. **`get_contact_info`** — sin argumentos. Devuelve los datos del contacto de **esta** conversación (`findContactById(contexto.conversation.contactId, organizationId)`, ya existe): nombre, apellido, email, teléfono, empresa. Nunca busca por número de teléfono ni recorre la tabla de contactos — el contacto de la conversación de WhatsApp ya está resuelto de antes (por el número entrante) al momento en que el agente entra a actuar. Si el contacto no tiene nombre cargado, el modelo tiene que preguntarlo (eso ya lo puede hacer con `update_lead` una vez que lo tiene) — esta tool no crea contactos ni pide datos por su cuenta.
+
+2. **`search_vehicles`** — argumentos opcionales: `priceMinUsd`, `priceMaxUsd`, `make`, `model`, `year`, `bodyType`. Envuelve `findManyVehicles()` (`vehicle.repository.ts`, ya tiene todos estos filtros) fijando SIEMPRE `status: ["AVAILABLE"]`, `publishOnWebsite: true`, `deletedAt: null` — el agente es un canal público, nunca puede ver ni ofrecer una unidad que la agencia no marcó para mostrar afuera. Devuelve una lista acotada (`take: 10`) con **solo** los campos públicos: `internalCode`, `make`, `model`, `trim`, `year`, `bodyType`, `mileage`, `transmission`, `fuelType`, `exteriorColor`, `priceListUsd`/`priceListLocal` (o `priceOnRequest`), `financingAvailable`, `acceptsTradeIn`. Nunca `minAcceptablePriceUsd`, `acquisitionCostUsd`, ni ningún campo de consignación — son internos, ver la cabecera de `Vehicle` en `prisma/schema.prisma`.
+
+3. **`get_service_types`** — sin argumentos. Lista los `ServiceType` activos de la sucursal de la conversación (`findManyServiceTypes(organizationId, { branchId: contexto.conversation.branchId })`, ya existe): `id`, `name`, `durationMin`, `capacity`, y **`resourceId`** — así el modelo tiene los dos UUID que `get_availability`/`create_booking` piden sin tener que inventarlos ni preguntárselos al cliente. Esta tool es lo que le faltaba al flujo de turnos para ser usable de punta a punta por un agente real.
+
+4. **`get_contact_activities`** — sin argumentos. Lista las actividades pendientes (`completed: false`, `dueDate` no vencido) del contacto de esta conversación (`findManyActivities(organizationId, { contactId, completed: false })`, ya existe), ordenadas por `dueDate` asc, acotado a 5: `subject`, `type`, `dueDate`. Objetivo puntual: que el agente sepa si ya hay una tarea/llamada de seguimiento agendada para este contacto antes de prometer una nueva o de derivar de nuevo — evita pisar lo que un vendedor ya programó a mano.
+
+**Deliberadamente fuera de esta tanda** (Rocco: *"quizá hayan más casos que no se me ocurren"* — se agregan de a uno, cuando aparezca el caso real, mismo criterio que las automatizaciones del catálogo controlado): historial de oportunidades del contacto, búsqueda de contactos/empresas por nombre, KB fuera de lo que ya entra por RAG, cualquier dato de otra sucursal.
+
+Las cuatro son de **solo lectura**: no tocan `puedeEjecutarTool`/permisos de escritura, y como toda tool nueva quedan afuera de `enabledTools` por defecto en los agentes existentes — cada agente (incluido el de AutoMax) hay que habilitarlas a mano después del deploy.
+
+### Lo que se construyó
+
+Cuatro tools nuevas en `src/services/agentTools.service.ts`, después de `get_payment_info` y con su mismo patrón: sin argumentos que elijan contacto ni sucursal (salen del contexto), un repositorio que ya existía, y **un `select` a mano de lo que se devuelve, nunca la fila entera**. Las cuatro entran a `CATALOGO_DE_TOOLS` y a `AGENT_TOOL_OPTIONS` del frontend, con el `subtitle` copiado textual de la descripción (se generó leyendo el catálogo del backend, no a mano).
+
+| Tool | Args | Devuelve |
+|---|---|---|
+| `get_contact_info` | ninguno | `firstName`, `lastName`, `email`, `phone`, `companyId`; `fallo` claro si el contacto ya no existe |
+| `search_vehicles` | `priceMinUsd`, `priceMaxUsd`, `make`, `model`, `year`, `bodyType` — todos opcionales | `{ total, vehiculos[] }`, máximo 10, por `priceListUsd` asc, solo los 16 campos públicos pedidos |
+| `get_service_types` | ninguno | `{ serviceTypes[] }` de la sucursal: `id`, `name`, `durationMin`, `capacity`, `resourceId` |
+| `get_contact_activities` | ninguno | `{ activities[] }` pendientes del contacto, máximo 5, por `dueDate` asc: `subject`, `type`, `dueDate` |
+
+`search_vehicles` fija **siempre** `status: ["AVAILABLE"]` y `publishOnWebsite: true` después de los filtros del modelo — que igual no puede mandarlos: Zod descarta las claves desconocidas, y hay un test que los manda a propósito.
+
+### Decisiones de diseño (las que se tomaron acá, no venían dadas)
+
+1. **`VehicleFilters` ganó `year` y `bodyType`.** Este ítem decía que `findManyVehicles()` "ya tiene todos estos filtros"; no era así — no filtraba ni por año ni por carrocería. Se agregaron al repositorio (igualdad exacta, mismo criterio que `make`/`model`) y no como un `where` suelto en la tool: el WHERE multi-tenant de `Vehicle` se arma en un solo lugar, el mismo argumento que usó el §70 para `publishOnWebsite`. Nadie más los usa todavía.
+2. **Los precios salen como `number`, no como el string del `Decimal`** — mismo criterio que `budgetAmount` en `create_lead`. `create_opportunity` sigue devolviendo `amount` como antes (no era parte de este ítem).
+3. **`priceMinUsd > priceMaxUsd` se rechaza** con un mensaje, en vez de devolver una lista vacía que el modelo leería como "no hay stock".
+4. **`get_contact_activities` incluye las vencidas.** El texto de arriba decía "`dueDate` no vencido"; el prompt de implementación pedía solo `completed: false`, y me quedé con eso a propósito: una llamada de seguimiento atrasada sigue siendo algo que el equipo tiene en la lista, y es exactamente lo que el agente no tiene que duplicar ni prometer de nuevo. Las sin fecha también salen (Postgres las deja al final con `asc`).
+5. **Sin `body` en las actividades**: son notas internas escritas para otro vendedor, no para un cliente. Con `subject`/`type`/`dueDate` alcanza para saber si hay algo agendado. Hay un test que afirma que el `body` no sale.
+6. **`get_service_types` ordena por nombre y tiene un tope de 50.** El tope es defensivo (no hay sucursal con tantos) para que el resultado nunca sea un catálogo sin límite dentro del prompt.
+7. **`get_contact_info` devuelve `companyId`, no el nombre de la empresa**, como pedía el prompt. Si hace falta el nombre, es otra lectura — no se agregó un `include`.
+
+### Limitaciones conocidas
+
+- **`make`/`model` son coincidencia exacta y sensible a mayúsculas** (el comportamiento del repositorio, que usa el índice `(organization_id, make)`). Un modelo que manda "toyota" en minúscula no encuentra nada. La descripción de cada argumento pide escribirlo "como se escribe normalmente (ej. Toyota)"; si en el uso real aparece el problema, la salida es un filtro insensible a mayúsculas propio de esta tool, no cambiar el del listado del panel.
+- **Como toda tool nueva, las cuatro quedan afuera de `enabledTools` de los agentes existentes.** Hay que habilitarlas a mano en cada agente (incluido el de AutoMax) después del deploy, desde la pantalla de Agentes.
+- **Sin migración**: no cambió ninguna columna.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | Las cuatro tools + `decimalANumero` + `sinParametros`, sección de cabecera, altas en `CATALOGO_DE_TOOLS` |
+| `src/repositories/vehicle.repository.ts` | `year` y `bodyType` en `VehicleFilters` y en `buildWhere` |
+| `frontend/src/features/agent/tools.ts` | Cuatro entradas nuevas en `AGENT_TOOL_OPTIONS` (subtitle = descripción textual); el comentario de cabecera pasa de "siete" a "once" |
+| `docs/ai-agent-architecture.md` | Fila nueva en la tabla del §7 |
+| `src/services/agentTools.service.test.ts` | Catálogo de once, forma y validación de las nuevas |
+| `src/services/agentReadTools.integration-test.ts` | **Nuevo** — ítems 84 y 85 contra Postgres |
+
+### Tests (corridos de verdad)
+
+Integración, `agentReadTools.integration-test.ts` (18 casos, 5 del ítem 84 y 13 de este):
+
+- `get_contact_info`: caso feliz con los cinco campos; contacto borrado y contacto de otra organización → mismo `fallo`, sin datos.
+- `search_vehicles` (con una organización propia para el stock): solo publicadas y disponibles, ordenadas por precio, con `total`; **una `AVAILABLE` con `publishOnWebsite: false` no aparece** ni pidiéndola por precio ni mandando los flags como argumentos; **las claves de cada vehículo son exactamente los 16 campos públicos** y en el JSON no aparecen ni el precio mínimo, ni el costo, ni las notas internas cargadas a propósito; cada filtro (precio, marca+modelo, año, carrocería, marca inexistente); stock de otra organización → vacío; con 12 unidades devuelve 10 y `total: 12`.
+- `get_service_types`: devuelve solo el de la sucursal de la conversación (ni el dado de baja, ni el de otra sucursal); sucursal sin servicios → lista vacía.
+- `get_contact_activities`: con seis pendientes devuelve las 5 primeras por `dueDate` (la vencida primero, la sin fecha afuera por el tope); no salen la completada, la borrada ni la de otro contacto; el `body` no sale; sin nada → lista vacía.
+- Las cuatro no escriben: el `updatedAt` del contacto no cambia.
+
+Unitarios nuevos en `agentTools.service.test.ts`: catálogo exacto de once tools, las tres sin argumentos tienen `properties: {}`, `search_vehicles` expone exactamente sus seis filtros, validación de sus argumentos (negativos, mínimo > máximo, año no entero, carrocería fuera del enum), y la descripción de `get_service_types` sigue mandando a no inventar UUID.
+
+**Backend:** `typecheck` limpio; `lint` limpio sobre el código del repo (`eslint .` en una máquina con el Supabase local levantado marca 208 errores en `supabase/.temp/.../index.ts`, un archivo que genera el CLI, no versionado y ajeno a este cambio — con `--ignore-pattern "supabase/.temp/"` da cero); **976/976** unitarios; **971/971** de integración (953 de antes + 18 nuevos), todos contra Postgres local.
+**Frontend:** `typecheck` y `lint` limpios, **1785/1785** (164 archivos) — `tools.ts` no tiene test propio; lo ejercitan `guardrails.test.ts` y las pantallas de Agentes.

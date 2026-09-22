@@ -1,11 +1,18 @@
-import { LeadUrgency } from "@prisma/client";
+import { LeadUrgency, VehicleBodyType } from "@prisma/client";
 import { z } from "zod";
+import { findManyActivities } from "../repositories/activity.repository";
 import { findBranchById } from "../repositories/branch.repository";
 import { findContactById } from "../repositories/contact.repository";
-import { findOpportunityById } from "../repositories/opportunity.repository";
+import { findManyOpportunities, findOpportunityById } from "../repositories/opportunity.repository";
 import { findDefaultPipeline } from "../repositories/pipeline.repository";
 import { findResourceById } from "../repositories/resource.repository";
-import { findStagesByPipeline } from "../repositories/stage.repository";
+import { findManyServiceTypes } from "../repositories/serviceType.repository";
+import { findStageById, findStagesByPipeline } from "../repositories/stage.repository";
+import {
+  countVehicles,
+  findManyVehicles,
+  type VehicleFilters,
+} from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
 import { currencySchema } from "../utils/validation";
 import { MAX_DIAS_DE_RANGO, obtenerDisponibilidad } from "./availability.service";
@@ -136,7 +143,7 @@ const createOpportunityTool: ToolDelAgente = {
   definition: {
     name: "create_opportunity",
     description:
-      "Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda asignada al vendedor del contacto, en la primera etapa del pipeline por defecto. Usala cuando el contacto muestra intención concreta de compra o contratación.",
+      "Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda asignada al vendedor del contacto, en la primera etapa del pipeline por defecto. Usala cuando el contacto muestra intención concreta de compra o contratación. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true, y es sobre esa que tenés que seguir. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.",
     parameters: {
       type: "object",
       properties: {
@@ -171,6 +178,41 @@ const createOpportunityTool: ToolDelAgente = {
       if (!contact) {
         return fallo("El contacto de esta conversación ya no existe");
       }
+
+      // Ítem 84: una sola oportunidad OPEN por contacto desde el agente. Si ya
+      // hay una, se devuelve esa con `reused: true` —un dato, no solo un texto,
+      // para que el modelo sepa que no creó nada— y el modelo sigue sobre ella
+      // (update_opportunity para cambiarla). Con más de una OPEN (datos de
+      // antes de este ítem) gana la más reciente: arreglar duplicados
+      // históricos no es trabajo de esta tool.
+      //
+      // VA ANTES de resolver el vendedor, a propósito: resolverOwnerDelContacto
+      // puede ESCRIBIR (asigna el vendedor por defecto de la sucursal al
+      // Contact, ítem 69), y devolver algo que ya existe no tiene por qué tener
+      // ese efecto — ni fallar porque el contacto no tenga vendedor.
+      //
+      // No es un candado: dos turnos concurrentes del mismo contacto podrían
+      // crear dos. Los turnos de una conversación no corren en paralelo en la
+      // práctica, y lo que este ítem arregla es el caso secuencial.
+      const [existente] = await findManyOpportunities(
+        contexto.organizationId,
+        { contactId: contact.id, status: "OPEN" },
+        { skip: 0, take: 1 },
+        { sortBy: "createdAt", sortOrder: "desc" },
+      );
+      if (existente) {
+        const etapa = await findStageById(existente.stageId, contexto.organizationId);
+        return exito({
+          opportunityId: existente.id,
+          title: existente.title,
+          amount: existente.amount,
+          currency: existente.currency,
+          status: existente.status,
+          stage: etapa?.name ?? null,
+          reused: true,
+        });
+      }
+
       // El ownerId del contacto, o el vendedor por defecto de la sucursal si
       // no tenía ninguno (ítem 69). Si lo resolvió por la sucursal, el Contact
       // ya quedó asignado a esa persona dentro de esta llamada — no hace falta
@@ -218,6 +260,7 @@ const createOpportunityTool: ToolDelAgente = {
         currency: opportunity.currency,
         status: opportunity.status,
         stage: primeraEtapa.name,
+        reused: false,
       });
     });
   },
@@ -652,6 +695,229 @@ const getPaymentInfoTool: ToolDelAgente = {
 };
 
 // ---------------------------------------------------------------------------
+// Tools de lectura (ítem 85): get_contact_info, search_vehicles,
+// get_service_types, get_contact_activities.
+//
+// Mismo patrón fino que get_payment_info: ningún argumento que elija QUÉ
+// contacto o QUÉ sucursal —salen del contexto—, un repositorio que ya existía,
+// y un `select` a mano de lo que se devuelve. No escriben nada, así que el
+// único permiso es el de siempre (estar en Agent.enabledTools).
+//
+// LO QUE SE DEVUELVE SE ELIGE CAMPO POR CAMPO, nunca la fila entera: el
+// resultado va al modelo y del modelo al cliente. Importa sobre todo en
+// search_vehicles, donde Vehicle tiene costos, precio mínimo aceptable y
+// datos del consignante que jamás pueden salir por un canal público (ver la
+// cabecera de Vehicle en prisma/schema.prisma).
+//
+// Deliberadamente NO hay una tool genérica de "consultar la base": se agrega
+// una por caso real, como las automatizaciones del catálogo controlado.
+// ---------------------------------------------------------------------------
+
+const sinParametros = { type: "object", properties: {}, additionalProperties: false };
+
+// Decimal de Prisma → number para el modelo (mismo criterio que budgetAmount
+// en ejecutarCalificacion). 14,2 cabe de sobra en un double.
+function decimalANumero(valor: { toString(): string } | null): number | null {
+  return valor === null ? null : Number(valor);
+}
+
+const getContactInfoTool: ToolDelAgente = {
+  definition: {
+    name: "get_contact_info",
+    description:
+      "Devuelve los datos que el CRM tiene cargados del contacto de esta conversación (nombre, apellido, email, teléfono). Usala para saber si ya tenés el nombre de la persona antes de preguntárselo de nuevo, o antes de derivar, para que la persona que retome tenga contexto.",
+    parameters: sinParametros,
+  },
+
+  async ejecutar(_args, contexto) {
+    const contact = await findContactById(contexto.conversation.contactId, contexto.organizationId);
+    if (!contact) {
+      return fallo("El contacto de esta conversación ya no existe");
+    }
+    return exito({
+      firstName: contact.firstName,
+      lastName: contact.lastName,
+      email: contact.email,
+      phone: contact.phone,
+      companyId: contact.companyId,
+    });
+  },
+};
+
+const MAX_VEHICULOS_POR_BUSQUEDA = 10;
+
+const searchVehiclesArgs = z
+  .object({
+    priceMinUsd: z.number().min(0, "priceMinUsd debe ser mayor o igual a 0").optional(),
+    priceMaxUsd: z.number().min(0, "priceMaxUsd debe ser mayor o igual a 0").optional(),
+    make: z.string().trim().min(1).max(100).optional(),
+    model: z.string().trim().min(1).max(100).optional(),
+    year: z.number().int("year debe ser un entero").optional(),
+    bodyType: z.nativeEnum(VehicleBodyType).optional(),
+  })
+  .refine(
+    (q) =>
+      q.priceMinUsd === undefined || q.priceMaxUsd === undefined || q.priceMinUsd <= q.priceMaxUsd,
+    { message: "priceMinUsd no puede ser mayor que priceMaxUsd" },
+  );
+
+const searchVehiclesTool: ToolDelAgente = {
+  definition: {
+    name: "search_vehicles",
+    description:
+      "Busca vehículos disponibles en stock que están publicados para mostrar a clientes, opcionalmente filtrando por precio en USD, marca, modelo, año o tipo de carrocería. Devuelve como máximo 10 resultados. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o características.",
+    parameters: {
+      type: "object",
+      properties: {
+        priceMinUsd: { type: "number", description: "Precio de lista mínimo, en USD." },
+        priceMaxUsd: { type: "number", description: "Precio de lista máximo, en USD." },
+        make: {
+          type: "string",
+          description:
+            "Marca, escrita como se escribe normalmente (ej. Toyota). Coincidencia exacta.",
+        },
+        model: {
+          type: "string",
+          description:
+            "Modelo, escrito como se escribe normalmente (ej. Corolla). Coincidencia exacta.",
+        },
+        year: { type: "integer", description: "Año del modelo." },
+        bodyType: {
+          type: "string",
+          enum: Object.values(VehicleBodyType),
+          description: "Tipo de carrocería.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+
+  ejecutar(args, contexto) {
+    const validacion = validarArgs(searchVehiclesArgs, args);
+    if (!validacion.ok) {
+      return Promise.resolve(validacion.resultado);
+    }
+    const input = validacion.value;
+
+    return conErroresDeNegocio(async () => {
+      // status y publishOnWebsite van FIJOS y después de los del modelo, que
+      // de todas formas no puede mandarlos (Zod descarta claves desconocidas).
+      // Sin branchId: el stock es de la organización, no de la sucursal del
+      // agente — un cliente de la sucursal Centro puede comprar una unidad que
+      // está físicamente en la Norte.
+      const filtros: VehicleFilters = {
+        minPriceUsd: input.priceMinUsd,
+        maxPriceUsd: input.priceMaxUsd,
+        make: input.make,
+        model: input.model,
+        year: input.year,
+        bodyType: input.bodyType,
+        status: ["AVAILABLE"],
+        publishOnWebsite: true,
+      };
+      const [vehiculos, total] = await Promise.all([
+        findManyVehicles(
+          contexto.organizationId,
+          filtros,
+          { skip: 0, take: MAX_VEHICULOS_POR_BUSQUEDA },
+          { sortBy: "priceListUsd", sortOrder: "asc" },
+        ),
+        countVehicles(contexto.organizationId, filtros),
+      ]);
+
+      return exito({
+        total,
+        vehiculos: vehiculos.map((v) => ({
+          id: v.id,
+          internalCode: v.internalCode,
+          make: v.make,
+          model: v.model,
+          trim: v.trim,
+          year: v.year,
+          bodyType: v.bodyType,
+          mileage: v.mileage,
+          transmission: v.transmission,
+          fuelType: v.fuelType,
+          exteriorColor: v.exteriorColor,
+          priceListUsd: decimalANumero(v.priceListUsd),
+          priceListLocal: decimalANumero(v.priceListLocal),
+          priceOnRequest: v.priceOnRequest,
+          financingAvailable: v.financingAvailable,
+          acceptsTradeIn: v.acceptsTradeIn,
+        })),
+      });
+    });
+  },
+};
+
+// Tope defensivo: una sucursal con más tipos de servicio que esto es un caso
+// que no existe hoy, y el prompt no tiene por qué cargar un catálogo entero.
+const MAX_TIPOS_DE_SERVICIO = 50;
+
+const getServiceTypesTool: ToolDelAgente = {
+  definition: {
+    name: "get_service_types",
+    description:
+      "Lista los tipos de servicio disponibles en esta sucursal, con su duración y el recurso al que pertenecen. Usala antes de get_availability para saber qué resourceId y serviceTypeId corresponden al servicio que pide el cliente — no inventes esos UUID, salen siempre de acá.",
+    parameters: sinParametros,
+  },
+
+  async ejecutar(_args, contexto) {
+    const tipos = await findManyServiceTypes(
+      contexto.organizationId,
+      { branchId: contexto.conversation.branchId },
+      { skip: 0, take: MAX_TIPOS_DE_SERVICIO },
+      { sortBy: "name", sortOrder: "asc" },
+    );
+    return exito({
+      serviceTypes: tipos.map((t) => ({
+        id: t.id,
+        name: t.name,
+        durationMin: t.durationMin,
+        capacity: t.capacity,
+        resourceId: t.resourceId,
+      })),
+    });
+  },
+};
+
+const MAX_ACTIVIDADES_PENDIENTES = 5;
+
+const getContactActivitiesTool: ToolDelAgente = {
+  definition: {
+    name: "get_contact_activities",
+    description:
+      "Lista las próximas tareas o actividades pendientes que el equipo ya tiene agendadas para el contacto de esta conversación (llamados de seguimiento, recordatorios). Usala antes de prometer un seguimiento o derivar, para no duplicar algo que ya está agendado.",
+    parameters: sinParametros,
+  },
+
+  async ejecutar(_args, contexto) {
+    // Pendiente = sin completar, vencida o no: una llamada de seguimiento
+    // atrasada sigue siendo algo que el equipo ya tiene en la lista, y es
+    // justamente lo que el agente no tiene que duplicar. Orden por dueDate
+    // asc (Postgres deja las sin fecha al final).
+    //
+    // Sin body: son notas internas del equipo, escritas para otro vendedor y
+    // no para un cliente. Con subject/type/dueDate el modelo ya sabe si hay
+    // algo agendado, que es para lo que existe la tool.
+    const actividades = await findManyActivities(
+      contexto.organizationId,
+      { contactId: contexto.conversation.contactId, completed: false },
+      { skip: 0, take: MAX_ACTIVIDADES_PENDIENTES },
+      { sortBy: "dueDate", sortOrder: "asc" },
+    );
+    return exito({
+      activities: actividades.map((a) => ({
+        subject: a.subject,
+        type: a.type,
+        dueDate: a.dueDate ? a.dueDate.toISOString() : null,
+      })),
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
 // El catálogo
 // ---------------------------------------------------------------------------
 
@@ -664,6 +930,10 @@ export const CATALOGO_DE_TOOLS: ReadonlyMap<string, ToolDelAgente> = new Map(
     createLeadTool,
     updateLeadTool,
     getPaymentInfoTool,
+    getContactInfoTool,
+    searchVehiclesTool,
+    getServiceTypesTool,
+    getContactActivitiesTool,
   ].map((tool) => [tool.definition.name, tool]),
 );
 
