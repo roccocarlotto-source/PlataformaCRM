@@ -56,7 +56,8 @@ export const sendWidgetMessageHandler = asyncHandler<WidgetRequest>(async (req, 
   // PROYECCIÓN MÍNIMA, no el ResultadoDelTurno completo del endpoint ADMIN de
   // prueba (punto 6 de la nota de 5b): un visitante anónimo no ve toolCalls
   // ni el estado interno de la conversación. `respuesta` puede ser null si
-  // la conversación ya estaba derivada a un humano y el agente no responde.
+  // una persona de la organización ya escribió en el hilo y el agente se
+  // calla (ítem 83; antes el corte era el status derivado).
   res.status(200).json({
     conversationId: resultado.conversationId,
     respuesta: resultado.respuesta,

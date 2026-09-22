@@ -19,7 +19,7 @@ import type { WidgetConfig } from "./config";
 
 export interface SendMessageResult {
   conversationId: string;
-  /** null cuando la conversación ya fue derivada a una persona y el agente no responde. */
+  /** null cuando una persona de la organización ya escribió en el hilo y el agente se calla (ítem 83). */
   respuesta: string | null;
 }
 
