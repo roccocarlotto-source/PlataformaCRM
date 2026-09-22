@@ -846,7 +846,7 @@ const searchVehiclesTool: ToolDelAgente = {
   definition: {
     name: "search_vehicles",
     description:
-      "Busca vehículos disponibles en stock que están publicados para mostrar a clientes. Filtros opcionales: precio en USD, marca, modelo, año, tipo de carrocería, 0 km o usado, transmisión, combustible, color, kilometraje máximo, si tiene financiación, si acepta permuta, y un texto libre para cualquier otra cosa (equipamiento, versión, algo de la descripción). Mandá SOLO los filtros que el cliente pidió; los demás no los incluyas. Devuelve como máximo 10 resultados y el total. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o con ciertas características.",
+      'Busca vehículos disponibles en stock que están publicados para mostrar a clientes. REGLA PRINCIPAL: cada filtro que mandes tiene que poder señalarse en las palabras del cliente. Si el cliente no lo dijo, NO lo mandes — nunca lo completes con un valor que te parezca razonable. Un filtro de más esconde autos que sí hay, y le terminás diciendo al cliente que no hay stock cuando sí hay. Ejemplo: si el cliente solo dice "algo de menos de 30 mil dólares", mandá únicamente priceMaxUsd: 30000, sin carrocería, transmisión, combustible, condición ni kilometraje. Si no dio ningún dato, llamala sin filtros. Filtros disponibles: precio en USD, marca, modelo, año, tipo de carrocería, 0 km o usado, transmisión, combustible, color, kilometraje máximo, financiación, permuta, y un texto libre para cualquier otra cosa (equipamiento, versión, algo de la descripción). Devuelve como máximo 10 resultados y el total. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o con ciertas características.',
     parameters: {
       type: "object",
       properties: {
@@ -866,36 +866,45 @@ const searchVehiclesTool: ToolDelAgente = {
         bodyType: {
           type: "string",
           enum: Object.values(VehicleBodyType),
-          description: "Tipo de carrocería.",
+          description:
+            "NO lo mandes salvo que el cliente haya dicho la carrocería explícitamente (sedán, hatchback, SUV, pickup, etc.). Nunca la asumas. Tipo de carrocería.",
         },
         condition: {
           type: "string",
           enum: Object.values(VehicleCondition),
-          description: "NEW para 0 km, USED para usado.",
+          description:
+            "NO lo mandes salvo que el cliente haya aclarado explícitamente si quiere 0 km o usado. Nunca lo asumas. NEW para 0 km, USED para usado.",
         },
         transmission: {
           type: "string",
           enum: Object.values(VehicleTransmission),
-          description: "Transmisión.",
+          description:
+            "NO la mandes salvo que el cliente haya dicho explícitamente 'automático' o 'manual' (o un equivalente directo, como 'caja automática'). Nunca la asumas. Transmisión.",
         },
         fuelType: {
           type: "string",
           enum: Object.values(VehicleFuelType),
-          description: "Combustible. GASOLINE es nafta; GASOLINE_CNG es nafta con equipo de GNC.",
+          description:
+            "NO lo mandes salvo que el cliente haya nombrado el combustible explícitamente (nafta, diésel, híbrido, eléctrico, GNC). Nunca lo asumas. GASOLINE es nafta; GASOLINE_CNG es nafta con equipo de GNC.",
         },
         exteriorColor: {
           type: "string",
           description: "Color exterior (ej. blanco). Encuentra también variantes (Blanco perla).",
         },
-        mileageMax: { type: "integer", description: "Kilometraje máximo." },
+        mileageMax: {
+          type: "integer",
+          description:
+            "NO lo mandes salvo que el cliente haya dado un límite de kilometraje concreto (ej. 'menos de 80 mil km'). Nunca inventes un tope. Kilometraje máximo.",
+        },
         financingAvailable: {
           type: "boolean",
-          description: "true si el cliente quiere financiar. No lo mandes si no lo pidió.",
+          description:
+            "NO lo mandes salvo que el cliente haya dicho explícitamente que quiere financiar o pagar en cuotas. Si lo mandás, solo true. true = solo autos con financiación.",
         },
         acceptsTradeIn: {
           type: "boolean",
           description:
-            "true si el cliente quiere entregar su auto como parte de pago. No lo mandes si no lo pidió.",
+            "NO lo mandes salvo que el cliente haya dicho explícitamente que quiere entregar su auto como parte de pago. Si lo mandás, solo true. true = solo autos que aceptan permuta.",
         },
         texto: {
           type: "string",

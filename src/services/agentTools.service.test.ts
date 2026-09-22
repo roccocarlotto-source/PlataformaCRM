@@ -351,3 +351,39 @@ test("update_opportunity: campos vacíos no cuentan como el campo a modificar", 
     /al menos un campo/,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 87: el modelo inventaba filtros que el cliente no dijo. La mitigación
+// vive SOLO en el texto (no hay forma de verificar por código si el cliente
+// "dijo" una transmisión), así que lo único que se puede fijar es que las
+// advertencias sigan ahí. Si alguien las reescribe y se pierden, esto avisa.
+// ---------------------------------------------------------------------------
+
+test("search_vehicles: la regla de no inventar filtros va al principio de la descripción", () => {
+  const descripcion = CATALOGO_DE_TOOLS.get("search_vehicles")!.definition.description;
+  assert.ok(
+    descripcion.indexOf("REGLA PRINCIPAL") < descripcion.indexOf("Filtros disponibles"),
+    "la regla tiene que leerse antes que la lista de filtros",
+  );
+  assert.match(descripcion, /solo dice "algo de menos de 30 mil dólares"/);
+  assert.match(descripcion, /únicamente priceMaxUsd/);
+});
+
+test("search_vehicles: cada filtro de riesgo abre su descripción con la advertencia", () => {
+  const propiedades = (
+    CATALOGO_DE_TOOLS.get("search_vehicles")!.definition.parameters as {
+      properties: Record<string, { description: string }>;
+    }
+  ).properties;
+  for (const campo of [
+    "bodyType",
+    "condition",
+    "transmission",
+    "fuelType",
+    "mileageMax",
+    "financingAvailable",
+    "acceptsTradeIn",
+  ]) {
+    assert.match(propiedades[campo].description, /^NO l[oa] mandes salvo que el cliente/, campo);
+  }
+});

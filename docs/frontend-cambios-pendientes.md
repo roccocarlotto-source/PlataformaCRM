@@ -5200,3 +5200,54 @@ Unitarios: forma exacta de los 14 argumentos de `search_vehicles` (sin `q`), val
 
 **Backend:** `typecheck` limpio; `lint` limpio (con `--ignore-pattern "supabase/.temp/"`, el mismo artefacto local del ítem 85); `prettier --check` limpio; **983/983** unitarios. Integración: **976/977**. El que falló es *"dos promociones simultáneas del mismo email"* (`promotion.service.integration-test.ts`), por el timeout de 5 s de la transacción interactiva de `promoteContact`. No toca nada de este ítem, y corrido solo falló 1 de 3 veces sobre el mismo código: es intermitente por tiempos de la máquina local, no una regresión.
 **Frontend:** `typecheck` y `lint` limpios, **1785/1785** (164 archivos).
+
+## 87. search_vehicles: el modelo inventa filtros que el cliente no dijo, y descarta stock real
+
+**Estado:** hecho — mitigación de prompt, no una garantía
+
+**Qué pasó (caso real, AutoMax, 22/09/2026, ítem 86 ya en producción).** Dos preguntas genéricas del mismo cliente, sin ningún detalle técnico:
+
+1. *"Dime si tenes algo de menos de 30 mil dólares"* → el agente llamó `search_vehicles` con `bodyType: SEDAN, fuelType: GASOLINE, condition: USED, transmission: AUTOMATIC, mileageMax: 100000, financingAvailable: true` — ninguno de esos seis filtros lo pidió el cliente.
+2. *"¿Cuál es el más barato?"* → de nuevo, `transmission: MANUAL, financingAvailable: false`, inventados.
+
+Las dos búsquedas devolvieron `total: 0`, y el agente le dijo al cliente que no había stock por debajo de USD 30.000. **Es falso**: hay un Volkswagen Vento 2017, USD 13.200, `AVAILABLE` y publicado — lo descartó la primera vez por `mileageMax: 100000` (el auto tiene 105.000 km) y la segunda por `transmission: MANUAL` (el auto es automático). El agente no está mudo ni roto — está **respondiendo mal, con seguridad, sobre datos que sí tiene**, que es peor que no responder.
+
+**Por qué pasa.** No es el mismo bug que el ítem 86 (ese era sobre `""` en campos de texto, ya resuelto). Acá el modelo (`openai/gpt-4.1-nano`) no tiene forma de "no saber" un enum o un booleano sin mandar un valor — a diferencia de un string, no puede mandar `""`. Para esos seis argumentos (`bodyType`, `condition`, `transmission`, `fuelType`, `mileageMax`, `financingAvailable`/`acceptsTradeIn` en menor medida) el modelo, en vez de omitir la clave, complet a con un valor plausible. **La instrucción para no hacer esto ya existe** en la `description` de la tool ("Mandá SOLO los filtros que el cliente pidió; los demás no los incluyas") y en dos de los campos puntualmente — y el modelo la ignoró igual. Es una limitación de fidelidad a instrucciones de un modelo chico frente a un schema con muchos parámetros opcionales, no un error de wording.
+
+**Qué hacer (decidido con Rocco, 22/09/2026 — alcance acotado a esto, no cambiar de modelo por ahora):** reforzar la description de `search_vehicles` — repetir la advertencia de forma más directa e inmediatamente antes de cada campo de riesgo (`bodyType`, `condition`, `transmission`, `fuelType`, `mileageMax`), no solo en el texto general, con lenguaje imperativo fuerte ("NUNCA asumas transmisión, condición, combustible, carrocería o kilometraje máximo si el cliente no los dijo con esas palabras o el equivalente directo — omitilos"). Es una mitigación, no una garantía: un modelo de este tamaño puede seguir sin respetarlo del todo. Dejar anotado en el cierre del ítem que si vuelve a pasar con la description reforzada, las dos alternativas que quedan sobre la mesa (no se construyen ahora) son (a) cambiar `Agent.modelName` a un modelo con mejor fidelidad a tool-calling, o (b) un mecanismo de reintento en la tool: si una búsqueda con filtros "de riesgo" da `total: 0`, reintentar automáticamente sin esos filtros antes de devolver la respuesta, y que el resultado le aclare al modelo que se ignoraron filtros no confirmados.
+
+### Lo que se cambió
+
+**Esto es una mitigación de prompt, no una garantía.** Solo cambió texto que lee el modelo; ninguna lógica. Un modelo del tamaño de `gpt-4.1-nano` puede seguir sin respetarlo del todo, y no hay forma de verificarlo por código: desde la tool no se puede saber si el cliente "dijo" una transmisión.
+
+- **Descripción general de `search_vehicles`**: la advertencia pasó **al principio**, como "REGLA PRINCIPAL", antes de la lista de filtros. Antes estaba al final, después de enumerar todos los filtros disponibles, que es justo lo que invita a usarlos. Además:
+  - dice por qué importa: *"un filtro de más esconde autos que sí hay, y le terminás diciendo al cliente que no hay stock cuando sí hay"*;
+  - trae el caso real como ejemplo: *"si el cliente solo dice 'algo de menos de 30 mil dólares', mandá únicamente `priceMaxUsd: 30000`"*;
+  - aclara que sin ningún dato se llama sin filtros.
+- **Cada campo de riesgo** (`bodyType`, `condition`, `transmission`, `fuelType`, `mileageMax`, `financingAvailable`, `acceptsTradeIn`) **abre** su descripción con *"NO lo/la mandes salvo que el cliente haya dicho … explícitamente"* y un *"Nunca lo asumas"*, antes de explicar qué es el campo. Va primero a propósito: es lo primero que el modelo lee de ese argumento.
+- `financingAvailable`/`acceptsTradeIn` ya tenían una advertencia al final. Ahora va primero y agrega *"Si lo mandás, solo true"*. Desde el ítem 86 la tool ya ignora un `false` por código: en el segundo caso real, el `financingAvailable: false` no filtró nada, y lo que descartó el Vento fue `transmission: MANUAL`.
+- `frontend/src/features/agent/tools.ts`: el `subtitle` de `search_vehicles` se copió de la descripción nueva. Se chequeó que las once descripciones siguen coincidiendo textual.
+
+### Si vuelve a pasar
+
+Quedan las dos alternativas que este ítem dejó afuera a propósito (no se construyeron):
+
+- **(a)** cambiar `Agent.modelName` a un modelo con mejor fidelidad en tool-calling;
+- **(b)** un reintento en la tool: si una búsqueda con filtros "de riesgo" da `total: 0`, reintentar sin ellos antes de devolver, y avisarle al modelo en el resultado que se ignoraron filtros no confirmados. Esa opción sí sería una garantía, porque vive en código, pero cambia la semántica de la tool: un filtro que el cliente sí pidió también se relajaría.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | Descripción de `search_vehicles` y de siete de sus argumentos. Sin cambios de lógica |
+| `frontend/src/features/agent/tools.ts` | `subtitle` de `search_vehicles` |
+| `src/services/agentTools.service.test.ts` | Dos unitarios que fijan que las advertencias siguen ahí (mismo criterio que el test de la descripción de `get_payment_info`): la regla va antes que la lista de filtros, y cada campo de riesgo empieza con "NO lo/la mandes salvo que el cliente…" |
+
+Sin migración.
+
+### Tests (corridos de verdad)
+
+No hay test de que el LLM respete la instrucción: no es determinístico. Los dos unitarios nuevos solo fijan el texto.
+
+**Backend:** `typecheck` limpio; `lint` limpio (con `--ignore-pattern "supabase/.temp/"`, el artefacto local de siempre); `prettier --check` limpio; **985/985** unitarios. La suite de integración no se corrió en local porque no cambió ninguna lógica; la corre el CI del PR.
+**Frontend:** `typecheck` y `lint` limpios, **1785/1785** (164 archivos).
