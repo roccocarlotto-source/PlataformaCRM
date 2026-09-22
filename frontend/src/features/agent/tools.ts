@@ -76,7 +76,7 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
     value: "search_vehicles",
     label: "Buscar vehículos en stock",
     subtitle:
-      "Busca vehículos disponibles en stock que están publicados para mostrar a clientes, opcionalmente filtrando por precio en USD, marca, modelo, año o tipo de carrocería. Devuelve como máximo 10 resultados. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o características.",
+      "Busca vehículos disponibles en stock que están publicados para mostrar a clientes. Filtros opcionales: precio en USD, marca, modelo, año, tipo de carrocería, 0 km o usado, transmisión, combustible, color, kilometraje máximo, si tiene financiación, si acepta permuta, y un texto libre para cualquier otra cosa (equipamiento, versión, algo de la descripción). Mandá SOLO los filtros que el cliente pidió; los demás no los incluyas. Devuelve como máximo 10 resultados y el total. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o con ciertas características.",
   },
   {
     value: "get_service_types",

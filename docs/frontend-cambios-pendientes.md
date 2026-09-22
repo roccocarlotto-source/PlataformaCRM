@@ -5113,3 +5113,90 @@ Unitarios nuevos en `agentTools.service.test.ts`: catálogo exacto de once tools
 
 **Backend:** `typecheck` limpio; `lint` limpio sobre el código del repo (`eslint .` en una máquina con el Supabase local levantado marca 208 errores en `supabase/.temp/.../index.ts`, un archivo que genera el CLI, no versionado y ajeno a este cambio — con `--ignore-pattern "supabase/.temp/"` da cero); **976/976** unitarios; **971/971** de integración (953 de antes + 18 nuevos), todos contra Postgres local.
 **Frontend:** `typecheck` y `lint` limpios, **1785/1785** (164 archivos) — `tools.ts` no tiene test propio; lo ejercitan `guardrails.test.ts` y las pantallas de Agentes.
+
+## 86. search_vehicles: argumentos vacíos del modelo la rompen, y solo cubre 5 de los ~13 filtros posibles del stock
+
+**Estado:** hecho
+
+**Qué pasó (caso real, AutoMax, 22/09/2026, con las tools del ítem 85 ya en producción).** Un cliente preguntó de nuevo por autos de menos de USD 30.000. El agente llamó `search_vehicles` con:
+
+```json
+{"make": "", "model": "", "year": 0, "bodyType": "VAN", "priceMinUsd": 0, "priceMaxUsd": 30000}
+```
+
+La tool devolvió `ok:false` (`make`/`model` no pueden ser cadena vacía, `searchVehiclesArgs` exige `min(1)`), y el agente, al leer el error, le pidió marca o modelo al cliente en vez de reintentar sin esos dos campos — que es exactamente la información que el cliente NO había dado.
+
+**Por qué pasa.** El agente usa `openai/gpt-4.1-nano` (el modelo pago más barato, elegido para resolver el 429 del modelo gratuito — ver la bitácora de esta sesión). Un modelo de ese tamaño no siempre omite un argumento opcional que no tiene: manda un valor "vacío" (`""`, `0`) en vez de no mandar la clave. `searchVehiclesArgs` (`src/services/agentTools.service.ts`) no contempla ese caso — trata `""` como un valor real e inválido, no como "no vino". Esto no es un problema exclusivo de `search_vehicles`: cualquier tool con argumentos opcionales puede sufrir lo mismo con este modelo: es la primera vez que se ve en producción porque es la primera tool con varios argumentos opcionales de texto/número que un cliente real ejercitó a fondo.
+
+**Segundo problema, de alcance, no de bug (lo que pidió Rocco):** `search_vehicles` filtra hoy por precio, marca, modelo, año y carrocería. El modelo `Vehicle` tiene bastante más que un cliente puede preguntar: condición (0 km / usado), transmisión, combustible, color, kilometraje, financiación disponible, acepta permuta. `VehicleFilters` (`vehicle.repository.ts`) ya tiene `condition` de una fase anterior, pero no transmisión/combustible/color/kilometraje/financiación/permuta — hay que agregarlos ahí primero, la tool es la última capa.
+
+**Qué hacer:**
+
+1. **El bug de robustez, primero y en general, no solo para `search_vehicles`.** Agregar un helper de Zod reusable en `agentTools.service.ts` (o `utils/validation.ts` si tiene más sentido ahí) que trate `""` como "no vino" para cualquier argumento de texto opcional, y usarlo en los `make`/`model` de `search_vehicles` — y de paso repasar si `create_lead`/`update_lead` (que también tienen varios campos de texto opcionales) tienen el mismo riesgo latente, aunque no haya síntoma todavía. Para `year`: un valor `0` o fuera de un rango realista (por decir algo, antes de 1980 o mayor al año que viene) también hay que tratarlo como "no vino" en vez de dejar que filtre por `year = 0` y devuelva silenciosamente cero resultados sin decir por qué.
+2. **Ampliar filtros de vehículos** en `VehicleFilters`/`buildWhere` (`vehicle.repository.ts`): `transmission`, `fuelType`, `exteriorColor` (¿igualdad o `contains`? — texto libre por catálogo, mejor `contains` insensitive, mismo criterio que `q`), `mileageMax`, `financingAvailable`, `acceptsTradeIn`. `condition` ya existe, solo hay que exponerlo en la tool.
+3. **Ampliar `search_vehicles`** con todos los anteriores como argumentos opcionales, más la corrección del punto 1. Actualizar la `description` (y el espejo de `frontend/src/features/agent/tools.ts`) para que liste los filtros nuevos.
+4. **Lo que NO hace falta modelar uno por uno:** cualquier cosa que no sea un campo estructurado (equipamiento, terminación de color, observaciones) sigue cubierta por `q` (búsqueda de texto libre), que ya existe en el repositorio y no está expuesta hoy en la tool — exponerla también como argumento opcional (`texto`, o el nombre que le quede mejor en la description) resuelve el resto sin agregar una columna de filtro por cada palabra que se le pueda ocurrir a un cliente.
+
+### Lo que se construyó
+
+**1. "No vino" dicho con un valor vacío, en todas las tools y no solo en la que se rompió.** Hay helpers de Zod nuevos en `agentTools.service.ts`:
+
+- `vacioComoAusente(schema)`: `""`, `"   "` y `null` pasan a `undefined` antes de validar.
+- `textoOpcional(max)`: lo anterior aplicado a un string con `trim().min(1).max(max)`.
+- `ceroComoAusente(schema)`: además trata el `0` como ausente, para los números donde 0 no es un filtro con sentido.
+- `cantidadDeArgumentos(data)`: cuenta solo los valores definidos.
+
+Se aplicaron en `search_vehicles`, en `create_lead`/`update_lead`, en `update_opportunity` y en el `currency` de `create_opportunity`.
+
+**2. `VehicleFilters`/`buildWhere` (`vehicle.repository.ts`)** ganó `transmission` y `fuelType` (igualdad), `exteriorColor` (`contains` sin mayúsculas), `mileageMax` (`lte`), `financingAvailable` y `acceptsTradeIn` (booleano explícito contra `undefined`), y **`textoPublico`** (ver la decisión 1).
+
+**3. `search_vehicles`** ganó `condition`, `transmission`, `fuelType`, `exteriorColor`, `mileageMax`, `financingAvailable`, `acceptsTradeIn` y `texto`. La descripción lista los filtros nuevos y agrega *"Mandá SOLO los filtros que el cliente pidió; los demás no los incluyas"*. El `subtitle` del espejo en el frontend se copió de la descripción del backend. Se chequeó que las once descripciones coinciden textual.
+
+### Decisiones de diseño (las que se tomaron acá, no venían dadas)
+
+1. **`texto` NO usa el `q` del repositorio, sino un filtro nuevo `textoPublico`.** Decidido con Rocco durante la implementación. El punto 4 de arriba daba por hecho que `q` cubría "equipamiento, terminación de color, observaciones", y no es así: `q` busca solo en `internalCode`, `licensePlate`, `vin`, `make` y `model`. Encima, busca en **patente y VIN**, y desde un canal público eso permite averiguar si una patente determinada está en stock. `textoPublico` busca con `contains` sin mayúsculas en `make`, `model`, `trim`, `exteriorColor` y `publicDescription`, más `equipment`. `q` y el listado del panel quedaron intactos. Hay un test que busca la patente de una unidad publicada y afirma cero resultados.
+2. **Equipamiento por código exacto.** `equipment` se guarda como códigos (`TECHO_SOLAR`), y Prisma no tiene un `contains` sobre los elementos de un array. Por eso el texto se lleva al formato del código con `aCodigoDeEquipamiento` (misma normalización que `finalizeEquipmentCode` del frontend) y se busca con `has`. "techo solar" y "Cámara de retroceso" encuentran su código; "techo" solo, no.
+3. **`textoPublico` va dentro de un `AND`**, no como un segundo `OR` suelto: si algún día conviviera con `q`, uno pisaría al otro en el spread.
+4. **`priceMinUsd: 0` es "sin mínimo".** Estaba en el payload real, y un `gte: 0` sobre `priceListUsd` deja afuera las unidades de "precio a consultar" (`priceListUsd` null). Hay un test. Lo mismo para `priceMaxUsd: 0` y `mileageMax: 0`: para 0 km el filtro es `condition: NEW`.
+5. **Año fuera de 1980…(año actual + 1) es "no vino"**, como pedía el ítem. El tope se calcula en cada llamada, no queda congelado en el año del deploy.
+6. **`financingAvailable`/`acceptsTradeIn` solo filtran en `true`.** Nadie busca "autos que NO aceptan permuta". Un `false` es el modelo rellenando la clave, y filtrar por él escondería justo las unidades que sí aceptan. El repositorio sí acepta `false` (el booleano explícito que pedía el ítem); el que lo descarta es la tool.
+7. **En `create_lead`/`update_lead`, `score` y `budgetAmount` siguen tomando el 0 como valor real** (un lead frío, un presupuesto de 0): para ellos solo `null` cuenta como ausente. El resto de los campos opcionales usa los helpers.
+8. **`cantidadDeArgumentos` reemplaza a `Object.keys` en los `refine` de "al menos un dato".** Con el preprocess, una clave que llegó como `""` queda en el objeto con valor `undefined`, y `Object.keys` la seguía contando: un `update_lead` con todo vacío habría pasado la validación de la tool y fallado recién en `qualifyLead`, con un mensaje pensado para el panel y no para el modelo.
+
+### Sobre `create_lead`/`update_lead` (lo que pedía repasar el ítem)
+
+**Tenían el mismo riesgo latente, y se corrigió.** `intent`, `serviceOfInterest`, `location` y `notes` exigían `min(1)`; `urgency` y `budgetCurrency` rechazaban un `""`. Con este modelo, un `create_lead` que mandara `urgency: ""` junto a datos buenos iba a fallar entero. `update_opportunity` tenía el mismo problema en `title`, `currency`, `status`, `stageId` y `lostReason`, y también se corrigió. `get_availability` y `create_booking` no se tocaron: todos sus argumentos son requeridos, y ahí un vacío sí tiene que ser un error.
+
+### Limitaciones que siguen
+
+- **El caso real también tenía `bodyType: "VAN"`, un filtro que el cliente nunca pidió.** Eso no es un valor vacío: es el modelo inventando, y no se puede distinguir por código de un pedido legítimo. Con este cambio la tool devuelve `ok: true` con cero resultados en vez de un error, y la descripción ahora pide mandar solo lo que el cliente pidió. Si el modelo sigue inventando filtros, eso es un problema de elección de modelo, no de la tool.
+- `make`/`model` siguen siendo coincidencia exacta y sensible a mayúsculas (limitación del ítem 85). El `texto` la alivia: `texto: "hilux"` sí encuentra la Hilux.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | Helpers `vacioComoAusente`/`textoOpcional`/`ceroComoAusente`/`cantidadDeArgumentos`; `search_vehicles` con 8 argumentos nuevos, `anioOpcional`, `soloSiEsTrue` y descripción nueva; helpers aplicados en `create_lead`/`update_lead`, `update_opportunity` y `create_opportunity.currency` |
+| `src/repositories/vehicle.repository.ts` | Siete filtros nuevos en `VehicleFilters`/`buildWhere`, `buildTextoPublico` y `aCodigoDeEquipamiento` |
+| `frontend/src/features/agent/tools.ts` | `subtitle` de `search_vehicles` |
+| `src/services/agentTools.service.test.ts` | Forma nueva de `search_vehicles`, validación de enums/`mileageMax`, vacíos en lead y `update_opportunity` |
+| `src/repositories/vehicle.repository.test.ts` | **Nuevo** — `aCodigoDeEquipamiento` |
+| `src/services/agentReadTools.integration-test.ts` | Stock con un valor distinto en cada filtro nuevo; seis casos nuevos |
+
+**Sin migración**: no cambió ninguna columna. Los filtros nuevos no tienen índice. Con el volumen de stock de una agencia es un seq scan chico, y un índice se agrega cuando haya una consulta que lo pida (mismo criterio que `publishOnWebsite`).
+
+### Tests (corridos de verdad)
+
+Integración nueva (`agentReadTools.integration-test.ts`, 24 casos, 6 nuevos):
+
+- **el payload real** (`make: "", model: "", year: 0, bodyType: "VAN", priceMinUsd: 0, priceMaxUsd: 30000`) devuelve `ok: true` y cero resultados, sin error. Sin el `VAN` inventado aparece la unidad de menos de USD 30.000;
+- `null`, espacios, año 1900, `false` y los `0` también cuentan como no enviados: salen las dos publicadas;
+- cada filtro nuevo filtra de verdad (`condition` en los dos valores, `transmission`, `fuelType`, `exteriorColor` parcial y sin mayúsculas, `mileageMax`, `financingAvailable`, `acceptsTradeIn`, y una combinación que da vacío);
+- `texto` encuentra por equipamiento ("techo solar", "Cámara de retroceso"), versión, descripción pública y modelo;
+- `texto` **no** encuentra por patente, y se combina con los otros filtros;
+- `priceMinUsd: 0` no esconde una unidad sin precio de lista.
+
+Unitarios: forma exacta de los 14 argumentos de `search_vehicles` (sin `q`), validación de los enums nuevos y de `mileageMax`, `create_lead`/`update_lead` con todo vacío rechazan por "al menos un dato" y no por formato, un vacío no rompe el par de presupuesto ni tapa un error real, `update_opportunity` con todo vacío rechaza por "al menos un campo", y `aCodigoDeEquipamiento`.
+
+**Backend:** `typecheck` limpio; `lint` limpio (con `--ignore-pattern "supabase/.temp/"`, el mismo artefacto local del ítem 85); `prettier --check` limpio; **983/983** unitarios. Integración: **976/977**. El que falló es *"dos promociones simultáneas del mismo email"* (`promotion.service.integration-test.ts`), por el timeout de 5 s de la transacción interactiva de `promoteContact`. No toca nada de este ítem, y corrido solo falló 1 de 3 veces sobre el mismo código: es intermitente por tiempos de la máquina local, no una regresión.
+**Frontend:** `typecheck` y `lint` limpios, **1785/1785** (164 archivos).

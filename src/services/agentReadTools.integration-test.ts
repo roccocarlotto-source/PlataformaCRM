@@ -335,6 +335,15 @@ before(async () => {
       year: 2023,
       bodyType: "PICKUP",
       priceListUsd: 45_000,
+      // Ítem 86: un valor distinto del de la Corolla en cada filtro nuevo.
+      condition: "NEW",
+      trim: "SRX",
+      transmission: "AUTOMATIC",
+      fuelType: "DIESEL",
+      exteriorColor: "Gris plata",
+      mileage: 10,
+      acceptsTradeIn: true,
+      equipment: ["TECHO_SOLAR", "CAMARA_DE_RETROCESO"],
       minAcceptablePriceUsd: 41_000,
       acquisitionCostUsd: 38_000,
       internalNotes: "El dueño acepta bajar",
@@ -350,6 +359,12 @@ before(async () => {
       priceListLocal: 750_000,
       mileage: 60_000,
       financingAvailable: true,
+      transmission: "CVT",
+      fuelType: "GASOLINE",
+      exteriorColor: "Blanco perla",
+      publicDescription: "Único dueño, service oficial al día.",
+      // Para probar que el texto libre NO busca en la patente (q sí lo hace).
+      licensePlate: "SBX1234",
     })
   ).id;
   // Disponible pero NO publicada, y publicada pero reservada: ninguna sale.
@@ -418,6 +433,143 @@ test("search_vehicles: filtra por precio, marca, modelo, año y carrocería", as
   assert.deepEqual(await ids({ year: 2020 }), [publicadaBarata]);
   assert.deepEqual(await ids({ bodyType: "PICKUP" }), [publicadaCara]);
   assert.deepEqual(await ids({ make: "Ford" }), []);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 86: el payload real, y los filtros nuevos
+// ---------------------------------------------------------------------------
+
+test("search_vehicles: el payload real de gpt-4.1-nano ya no es un error — los vacíos no filtran", async () => {
+  const ctx = contextoDe(
+    stock.organizationId,
+    "00000000-0000-4000-8000-000000000003",
+    stock.branchId,
+  );
+  // Tal cual llegó en producción (22/09/2026). bodyType VAN sí es un filtro
+  // que el modelo mandó, así que se aplica: cero resultados, pero ok.
+  const real = await ejecutar(
+    "search_vehicles",
+    { make: "", model: "", year: 0, bodyType: "VAN", priceMinUsd: 0, priceMaxUsd: 30_000 },
+    ctx,
+  );
+  assert.deepEqual(real, { ok: true, data: { total: 0, vehiculos: [] } });
+
+  // Lo mismo sin la carrocería inventada: aparece la de menos de USD 30.000.
+  const sinVan = await datosDe<ResultadoBusqueda>(
+    "search_vehicles",
+    { make: "", model: "", year: 0, priceMinUsd: 0, priceMaxUsd: 30_000 },
+    ctx,
+  );
+  assert.deepEqual(
+    sinVan.vehiculos.map((v) => v.id),
+    [publicadaBarata],
+  );
+});
+
+test("search_vehicles: null, espacios, año fuera de rango y false también cuentan como no enviados", async () => {
+  const data = await datosDe<ResultadoBusqueda>(
+    "search_vehicles",
+    {
+      make: "   ",
+      model: null,
+      year: 1900,
+      bodyType: "",
+      condition: "",
+      transmission: null,
+      fuelType: "",
+      exteriorColor: "",
+      mileageMax: 0,
+      priceMaxUsd: 0,
+      financingAvailable: false,
+      acceptsTradeIn: false,
+      texto: "",
+    },
+    contextoDe(stock.organizationId, "00000000-0000-4000-8000-000000000003", stock.branchId),
+  );
+  assert.equal(data.total, 2, "sin ningún filtro aplicado salen las dos publicadas");
+});
+
+test("search_vehicles: cada filtro nuevo filtra de verdad", async () => {
+  const ctx = contextoDe(
+    stock.organizationId,
+    "00000000-0000-4000-8000-000000000003",
+    stock.branchId,
+  );
+  const ids = async (args: Record<string, unknown>) =>
+    (await datosDe<ResultadoBusqueda>("search_vehicles", args, ctx)).vehiculos.map((v) => v.id);
+
+  assert.deepEqual(await ids({ condition: "NEW" }), [publicadaCara]);
+  assert.deepEqual(await ids({ condition: "USED" }), [publicadaBarata]);
+  assert.deepEqual(await ids({ transmission: "CVT" }), [publicadaBarata]);
+  assert.deepEqual(await ids({ fuelType: "DIESEL" }), [publicadaCara]);
+  // contains sin mayúsculas: "blanco" encuentra "Blanco perla".
+  assert.deepEqual(await ids({ exteriorColor: "blanco" }), [publicadaBarata]);
+  assert.deepEqual(await ids({ mileageMax: 50_000 }), [publicadaCara]);
+  assert.deepEqual(await ids({ financingAvailable: true }), [publicadaBarata]);
+  assert.deepEqual(await ids({ acceptsTradeIn: true }), [publicadaCara]);
+  // Combinados: AND.
+  assert.deepEqual(await ids({ condition: "NEW", fuelType: "GASOLINE" }), []);
+});
+
+test("search_vehicles: texto busca en equipamiento, versión y descripción pública", async () => {
+  const ctx = contextoDe(
+    stock.organizationId,
+    "00000000-0000-4000-8000-000000000003",
+    stock.branchId,
+  );
+  const ids = async (texto: string) =>
+    (await datosDe<ResultadoBusqueda>("search_vehicles", { texto }, ctx)).vehiculos.map(
+      (v) => v.id,
+    );
+
+  // Equipamiento: el texto se lleva al formato del código (TECHO_SOLAR).
+  assert.deepEqual(await ids("techo solar"), [publicadaCara]);
+  assert.deepEqual(await ids("Cámara de retroceso"), [publicadaCara]);
+  assert.deepEqual(await ids("srx"), [publicadaCara]);
+  assert.deepEqual(await ids("service oficial"), [publicadaBarata]);
+  assert.deepEqual(await ids("hilux"), [publicadaCara]);
+});
+
+test("search_vehicles: texto NO busca en patente ni VIN, y combina con los filtros", async () => {
+  const ctx = contextoDe(
+    stock.organizationId,
+    "00000000-0000-4000-8000-000000000003",
+    stock.branchId,
+  );
+  // La Corolla tiene patente SBX1234: el q del panel la encontraría; desde un
+  // canal público no se puede averiguar si una patente está en stock.
+  const porPatente = await datosDe<ResultadoBusqueda>("search_vehicles", { texto: "SBX1234" }, ctx);
+  assert.deepEqual(porPatente, { total: 0, vehiculos: [] });
+
+  const combinado = await datosDe<ResultadoBusqueda>(
+    "search_vehicles",
+    { texto: "toyota", priceMaxUsd: 30_000 },
+    ctx,
+  );
+  assert.deepEqual(
+    combinado.vehiculos.map((v) => v.id),
+    [publicadaBarata],
+  );
+});
+
+test("search_vehicles: priceMinUsd 0 no esconde las unidades sin precio de lista", async () => {
+  // Un gte 0 sobre priceListUsd dejaría afuera las de "precio a consultar"
+  // (priceListUsd null). 0 como mínimo es "sin mínimo".
+  const propio = await montar("agent-read-tools-sin-precio");
+  try {
+    const sinPrecio = await unidad(propio, { priceOnRequest: true });
+    const data = await datosDe<ResultadoBusqueda>(
+      "search_vehicles",
+      { priceMinUsd: 0 },
+      contextoDe(propio.organizationId, "00000000-0000-4000-8000-000000000003", propio.branchId),
+    );
+    assert.deepEqual(
+      data.vehiculos.map((v) => v.id),
+      [sinPrecio.id],
+    );
+  } finally {
+    await desmontar(propio);
+  }
 });
 
 test("search_vehicles: el stock de otra organización no se ve", async () => {

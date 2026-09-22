@@ -1,4 +1,11 @@
-import type { Prisma, VehicleBodyType, VehicleCondition, VehicleStatus } from "@prisma/client";
+import type {
+  Prisma,
+  VehicleBodyType,
+  VehicleCondition,
+  VehicleFuelType,
+  VehicleStatus,
+  VehicleTransmission,
+} from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
@@ -28,6 +35,20 @@ export interface VehicleFilters {
   // consumidor hoy. Igualdad exacta, mismo criterio que make/model.
   year?: number;
   bodyType?: VehicleBodyType;
+  // Ítem 86, mismo consumidor. transmission/fuelType por igualdad (son
+  // enums); exteriorColor es texto libre de la ficha, así que `contains`
+  // insensible ("blanco" encuentra "Blanco perla").
+  transmission?: VehicleTransmission;
+  fuelType?: VehicleFuelType;
+  exteriorColor?: string;
+  mileageMax?: number;
+  financingAvailable?: boolean;
+  acceptsTradeIn?: boolean;
+  // Ítem 86: texto libre SOLO sobre lo que se publica. Distinto de `q`, que es
+  // la búsqueda del listado del panel y mira identificadores internos
+  // (patente, VIN): desde un canal público eso permitiría averiguar si una
+  // patente está en stock. Ver buildTextoPublico.
+  textoPublico?: string;
   minPriceUsd?: number;
   maxPriceUsd?: number;
   consignmentOnly?: boolean;
@@ -63,6 +84,17 @@ function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.Veh
     ...(filters.model ? { model: filters.model } : {}),
     ...(filters.year !== undefined ? { year: filters.year } : {}),
     ...(filters.bodyType ? { bodyType: filters.bodyType } : {}),
+    ...(filters.transmission ? { transmission: filters.transmission } : {}),
+    ...(filters.fuelType ? { fuelType: filters.fuelType } : {}),
+    ...(filters.exteriorColor
+      ? { exteriorColor: { contains: filters.exteriorColor, mode: "insensitive" } }
+      : {}),
+    ...(filters.mileageMax !== undefined ? { mileage: { lte: filters.mileageMax } } : {}),
+    // Booleanos explícitos contra undefined, mismo cuidado que publishOnWebsite.
+    ...(filters.financingAvailable !== undefined
+      ? { financingAvailable: filters.financingAvailable }
+      : {}),
+    ...(filters.acceptsTradeIn !== undefined ? { acceptsTradeIn: filters.acceptsTradeIn } : {}),
     ...(filters.consignmentOnly ? { origin: "CONSIGNMENT" } : {}),
     // Booleano explícito contra undefined: un `filters.publishOnWebsite ?` se
     // comería el filtro "las no publicadas".
@@ -78,6 +110,9 @@ function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.Veh
           },
         }
       : {}),
+    // Un AND explícito y no un segundo `OR` suelto: si vinieran q y
+    // textoPublico juntos, el segundo spread pisaría al primero.
+    ...(filters.textoPublico ? { AND: [buildTextoPublico(filters.textoPublico)] } : {}),
     // OR al mismo nivel que los filtros específicos: "q AND filtros" sale
     // gratis, mismo criterio que `search` en contact.repository.ts.
     ...(filters.q
@@ -92,6 +127,41 @@ function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.Veh
         }
       : {}),
   };
+}
+
+// Texto libre sobre los campos que se publican: marca, modelo, versión, color,
+// descripción pública (contains, sin mayúsculas) y equipamiento. El
+// equipamiento se guarda como códigos (TECHO_SOLAR, ver equipmentSchema en
+// vehicle.controller.ts), así que ahí el texto se lleva a ese formato y se
+// busca el código EXACTO con `has`: "techo solar" encuentra TECHO_SOLAR,
+// "techo" solo no. Prisma no tiene un contains sobre los elementos de un array.
+function buildTextoPublico(texto: string): Prisma.VehicleWhereInput {
+  const insensible = { contains: texto, mode: "insensitive" as const };
+  const codigo = aCodigoDeEquipamiento(texto);
+  return {
+    OR: [
+      { make: insensible },
+      { model: insensible },
+      { trim: insensible },
+      { exteriorColor: insensible },
+      { publicDescription: insensible },
+      ...(codigo ? [{ equipment: { has: codigo } }] : []),
+    ],
+  };
+}
+
+// Misma normalización que normalizeEquipmentCode + finalizeEquipmentCode del
+// frontend (features/vehicle/equipment.ts): sin acentos, mayúsculas, espacios
+// y guiones a "_", nada fuera de [A-Z0-9_].
+export function aCodigoDeEquipamiento(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/[^A-Z0-9_]/g, "")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 50);
 }
 
 function buildOrderBy(

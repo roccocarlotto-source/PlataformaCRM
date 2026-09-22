@@ -265,13 +265,23 @@ test("search_vehicles: expone solo los filtros de búsqueda, nunca status, publi
   };
   assert.deepEqual(parametros.required, []);
   assert.deepEqual(Object.keys(parametros.properties).sort(), [
+    "acceptsTradeIn",
     "bodyType",
+    "condition",
+    "exteriorColor",
+    "financingAvailable",
+    "fuelType",
     "make",
+    "mileageMax",
     "model",
     "priceMaxUsd",
     "priceMinUsd",
+    "texto",
+    "transmission",
     "year",
   ]);
+  // Ni q, que es la búsqueda del panel y mira patente y VIN.
+  assert.ok(!("q" in parametros.properties));
 });
 
 test("search_vehicles: precios no negativos y ordenados, año entero, carrocería del enum", async () => {
@@ -283,10 +293,61 @@ test("search_vehicles: precios no negativos y ordenados, año entero, carrocerí
   );
   assert.match(await rechazoDe("search_vehicles", { year: 2020.5 }), /entero/);
   assert.match(await rechazoDe("search_vehicles", { bodyType: "SPACESHIP" }), /bodyType/);
+  assert.match(await rechazoDe("search_vehicles", { transmission: "A PEDAL" }), /transmission/);
+  assert.match(await rechazoDe("search_vehicles", { fuelType: "LEÑA" }), /fuelType/);
+  assert.match(await rechazoDe("search_vehicles", { condition: "SEMINUEVO" }), /condition/);
+  assert.match(await rechazoDe("search_vehicles", { mileageMax: -5 }), /mileageMax/);
 });
 
 test("get_service_types: la descripción manda a sacar los UUID de acá y no inventarlos", () => {
   const descripcion = CATALOGO_DE_TOOLS.get("get_service_types")!.definition.description;
   assert.match(descripcion, /get_availability/);
   assert.match(descripcion, /no inventes esos UUID/);
+});
+
+// ---------------------------------------------------------------------------
+// Valores vacíos como "no vino" (ítem 86). Lo que se puede probar sin base es
+// que un argumento vacío NO cuenta como dato: si todos vinieron vacíos, el
+// rechazo es el de "no mandaste nada", no uno de formato. Que search_vehicles
+// con el payload real devuelva resultados necesita base
+// (agentReadTools.integration-test.ts).
+// ---------------------------------------------------------------------------
+
+for (const nombre of ["create_lead", "update_lead"]) {
+  test(`${nombre}: "", "   " y null cuentan como no enviados, no como formato inválido`, async () => {
+    const error = await rechazoDe(nombre, {
+      intent: "",
+      serviceOfInterest: "   ",
+      urgency: "",
+      budgetCurrency: "",
+      budgetAmount: null,
+      location: null,
+      notes: "",
+      score: null,
+      aiData: null,
+    });
+    assert.match(error, /al menos un dato/);
+    assert.doesNotMatch(error, /intent|urgency|currency/);
+  });
+
+  test(`${nombre}: un vacío no rompe el par de presupuesto ni tapa un error real`, async () => {
+    // budgetCurrency "" es "no vino": el par queda incompleto y se avisa eso.
+    assert.match(await rechazoDe(nombre, { budgetAmount: 100, budgetCurrency: "" }), /van juntos/);
+    // Y un valor inválido de verdad sigue siendo un error de formato.
+    assert.match(await rechazoDe(nombre, { intent: "", urgency: "URGENTE" }), /urgency/);
+  });
+}
+
+test("update_opportunity: campos vacíos no cuentan como el campo a modificar", async () => {
+  assert.match(
+    await rechazoDe("update_opportunity", {
+      opportunityId: UUID,
+      title: "",
+      currency: "",
+      status: "",
+      stageId: "",
+      lostReason: null,
+    }),
+    /al menos un campo/,
+  );
 });
