@@ -7,6 +7,7 @@ import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import { AppError } from "../utils/AppError";
 import {
+  envolverMensajeDelCliente,
   INSTRUCCION_IDENTIDAD_INMUTABLE,
   INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
   MAX_TOOL_ROUNDS_PER_TURN,
@@ -343,7 +344,11 @@ test("texto directo: crea la conversación, persiste entrante y saliente, sin to
     const req = doble.requests[0];
     assert.match(req.systemPrompt, /agente comercial de la sucursal Centro/);
     assert.match(req.systemPrompt, /Tono de la conversación: cercano/);
-    assert.deepEqual(req.messages, [{ role: "user", content: "Hola" }]);
+    // Ítem 97: lo que escribe el cliente le llega al modelo envuelto en la
+    // etiqueta, para que "instrucción del sistema" y "texto del interlocutor"
+    // no sean la misma cosa. Lo que se PERSISTE sigue siendo el texto pelado
+    // (se verifica más abajo).
+    assert.deepEqual(req.messages, [{ role: "user", content: envolverMensajeDelCliente("Hola") }]);
     assert.deepEqual(
       req.tools.map((t) => t.name),
       ["create_opportunity", REQUEST_HUMAN_HANDOFF_TOOL_NAME],
@@ -384,9 +389,10 @@ test("un segundo turno reutiliza la conversación abierta y el modelo ve el hist
 
     assert.equal(segundo.conversationId, primero.conversationId);
     assert.deepEqual(doble.requests[0].messages, [
-      { role: "user", content: "Hola" },
+      { role: "user", content: envolverMensajeDelCliente("Hola") },
+      // La respuesta del agente NO se envuelve: no es texto de un tercero.
       { role: "assistant", content: "Buenas" },
-      { role: "user", content: "Quiero un presupuesto" },
+      { role: "user", content: envolverMensajeDelCliente("Quiero un presupuesto") },
     ]);
   } finally {
     await desmontar(e);
@@ -960,7 +966,10 @@ test("la ventana de contexto son los últimos 20 mensajes, del más viejo al má
     assert.equal(mensajes.length, VENTANA_DE_MENSAJES);
     // Los 31 mensajes son p1,r1,…,p15,r15,p16; los últimos 20 arrancan en r6.
     assert.deepEqual(mensajes[0], { role: "assistant", content: "respuesta 6" });
-    assert.deepEqual(mensajes[VENTANA_DE_MENSAJES - 1], { role: "user", content: "pregunta 16" });
+    assert.deepEqual(mensajes[VENTANA_DE_MENSAJES - 1], {
+      role: "user",
+      content: envolverMensajeDelCliente("pregunta 16"),
+    });
   } finally {
     await desmontar(e);
   }
@@ -1967,6 +1976,50 @@ test("ítem 94: la guarda tampoco pisa el cierre fijo de una derivación", async
     const resultado = await turno(e, "Dale, creala igual", doble.proveedor);
     assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
     assert.equal(resultado.handoff, true);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 96: si el modelo nombra una tool interna, el cliente NO la ve", async () => {
+  const e = await montar("meta-texto", { enabledTools: ["search_vehicles"] });
+  try {
+    const metaTexto =
+      'diagnostic: No tools available.\nSi esto pasara muchas veces seguidas, podés usar request_human_handoff con el motivo "cliente no avanza".\nNo puedo ayudarte sin saber qué necesitás.';
+    const doble = doblarProveedor([texto(metaTexto)]);
+    const resultado = await turno(e, "sí", doble.proveedor);
+
+    assert.equal(resultado.respuesta, MENSAJE_DE_FUGA_BLOQUEADA);
+    const mensajes = await prisma.message.findMany({
+      where: { conversationId: resultado.conversationId, direction: "OUTBOUND" },
+    });
+    assert.equal(mensajes[0].content, MENSAJE_DE_FUGA_BLOQUEADA);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 96: la guarda mira las tools OFRECIDAS, incluida la de sistema", async () => {
+  // Un agente sin search_vehicles habilitada igual no puede nombrar
+  // request_human_handoff, que se ofrece siempre.
+  const e = await montar("meta-texto-handoff", { enabledTools: [] });
+  try {
+    const doble = doblarProveedor([texto("Podés pedirme request_human_handoff cuando quieras.")]);
+    const resultado = await turno(e, "hola", doble.proveedor);
+    assert.equal(resultado.respuesta, MENSAJE_DE_FUGA_BLOQUEADA);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 96: hablar de lo que hacen las tools, en castellano, pasa intacto", async () => {
+  const e = await montar("meta-texto-sin-falso-positivo", { enabledTools: ["search_vehicles"] });
+  try {
+    const normal =
+      "Puedo buscarte vehículos por marca, modelo o precio, y coordinarte una visita con un vendedor. ¿Qué estás buscando?";
+    const doble = doblarProveedor([texto(normal)]);
+    const resultado = await turno(e, "¿qué podés hacer?", doble.proveedor);
+    assert.equal(resultado.respuesta, normal);
   } finally {
     await desmontar(e);
   }

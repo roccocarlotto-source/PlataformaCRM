@@ -11,7 +11,10 @@ import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
 import { agentRouter } from "../routes/agent.routes";
-import { MENSAJE_DE_HANDOFF } from "../services/agentOrchestration.service";
+import {
+  MENSAJE_DE_HANDOFF,
+  envolverMensajeDelCliente,
+} from "../services/agentOrchestration.service";
 import {
   resetLlmProviderParaTests,
   setLlmProviderForTests,
@@ -666,7 +669,11 @@ test("POST /api/agents/:id/test-message — ADMIN conversa con el agente y recib
     assert.equal(typeof body.conversationId, "string");
 
     assert.equal(doble.requests.length, 1);
-    assert.deepEqual(doble.requests[0].messages, [{ role: "user", content: "Hola" }]);
+    // Ítem 97: al modelo le llega envuelto en la etiqueta; lo que se
+    // persiste sigue siendo el texto pelado (se verifica abajo).
+    assert.deepEqual(doble.requests[0].messages, [
+      { role: "user", content: envolverMensajeDelCliente("Hola") },
+    ]);
 
     const conversation = await prisma.conversation.findUniqueOrThrow({
       where: { id: String(body.conversationId) },

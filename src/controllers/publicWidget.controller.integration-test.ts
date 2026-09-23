@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { envolverMensajeDelCliente } from "../services/agentOrchestration.service";
 import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -290,7 +291,11 @@ test("caso feliz: 200 con la proyección mínima, Contact placeholder, Conversat
 
   // El modelo recibió el mensaje del visitante.
   assert.equal(requests.length, 1);
-  assert.deepEqual(requests[0].messages, [{ role: "user", content: "Hola, quiero info" }]);
+  // Ítem 97: el canal Web público es justamente donde más importa que lo que
+  // escribe un desconocido llegue marcado como dato, no como instrucción.
+  assert.deepEqual(requests[0].messages, [
+    { role: "user", content: envolverMensajeDelCliente("Hola, quiero info") },
+  ]);
 
   const conversation = await prisma.conversation.findUniqueOrThrow({
     where: { id: String(body.conversationId) },
