@@ -404,6 +404,10 @@ before(async () => {
 });
 
 after(async () => {
+  // Los contactos del ítem 121 viven en la organización del stock, y desmontar
+  // no los borra (el helper es de vehículos): sin esto, la FK de owner se
+  // lleva puesta la limpieza entera.
+  await prisma.contact.deleteMany({ where: { organizationId: stock.organizationId } });
   await desmontar(stock);
 });
 
@@ -1430,4 +1434,84 @@ test("update_opportunity sin ninguna oportunidad abierta guía a create_opportun
   assert.equal(r.opportunityId, null);
   assert.equal(r.sinResultados, true);
   assert.match(r.queHacer, /create_opportunity/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 121: el aviso de presupuesto que viaja en el resultado de la búsqueda.
+//
+// Medido contra el modelo real antes de existir: 0 de 12 presupuestos dichos
+// sueltos («tengo hasta 20 mil») quedaban guardados, porque el número entraba
+// en priceMaxUsd, contestaba la consulta y se iba. Con el aviso: 12 de 12.
+//
+// Lo que se prueba acá es CUÁNDO aparece y cuándo no, que es lo que decide si
+// el modelo aprende a mirarlo o a ignorarlo: un aviso que salta cuando no
+// corresponde se vuelve ruido, y el ruido se ignora.
+// ---------------------------------------------------------------------------
+
+test("search_vehicles con tope de precio y contacto SIN presupuesto: avisa que lo guarde (ítem 121)", async () => {
+  const contacto = await nuevoContacto(stock);
+  const data = await datosDe<{ total: number; recordatorioDePresupuesto?: string }>(
+    "search_vehicles",
+    { priceMaxUsd: 30_000 },
+    contextoDe(stock.organizationId, contacto.id, stock.branchId),
+  );
+
+  assert.ok(data.total > 0);
+  assert.match(data.recordatorioDePresupuesto ?? "", /NO tiene presupuesto guardado/);
+  assert.match(data.recordatorioDePresupuesto ?? "", /update_lead/);
+  // Que el cliente no se entere: el aviso es entre el backend y el modelo.
+  assert.match(data.recordatorioDePresupuesto ?? "", /no le preguntes ni le avises/);
+});
+
+test("search_vehicles con tope de precio y contacto CON presupuesto: no avisa nada (ítem 121)", async () => {
+  // El aviso se apaga solo. Si siguiera saltando con el dato ya cargado, el
+  // modelo llamaría a update_lead de gusto en cada búsqueda de la charla.
+  const contacto = await nuevoContacto(stock);
+  await prisma.contact.update({
+    where: { id: contacto.id },
+    data: { leadBudgetAmount: 30_000, leadBudgetCurrency: "USD" },
+  });
+
+  const data = await datosDe<{ recordatorioDePresupuesto?: string }>(
+    "search_vehicles",
+    { priceMaxUsd: 30_000 },
+    contextoDe(stock.organizationId, contacto.id, stock.branchId),
+  );
+
+  assert.equal(data.recordatorioDePresupuesto, undefined);
+});
+
+test("search_vehicles SIN tope de precio: no avisa aunque falte el presupuesto (ítem 121)", async () => {
+  // priceMinUsd es el piso de lo que quiere mirar, no el techo de lo que puede
+  // gastar: «algo de más de 20 mil» no es un presupuesto y no se guarda.
+  const contacto = await nuevoContacto(stock);
+  const data = await datosDe<{ recordatorioDePresupuesto?: string }>(
+    "search_vehicles",
+    { priceMinUsd: 20_000, make: "Toyota" },
+    contextoDe(stock.organizationId, contacto.id, stock.branchId),
+  );
+
+  assert.equal(data.recordatorioDePresupuesto, undefined);
+});
+
+test("search_vehicles sin resultados igual avisa: es el lead al que hay que llamar (ítem 121)", async () => {
+  // El caso que más importa. El cliente dijo cuánto tenía, no hay nada en ese
+  // rango, y es exactamente el lead que el vendedor tiene que poder buscar
+  // cuando entre una unidad que le sirva — si el número no quedó, no existe.
+  const contacto = await nuevoContacto(stock);
+  const data = await datosDe<{
+    total: number;
+    sinResultados: boolean;
+    queHacer: string;
+    recordatorioDePresupuesto?: string;
+  }>(
+    "search_vehicles",
+    { priceMaxUsd: 1, make: "Ferrari" },
+    contextoDe(stock.organizationId, contacto.id, stock.branchId),
+  );
+
+  assert.equal(data.total, 0);
+  assert.equal(data.sinResultados, true);
+  assert.match(data.queHacer, /NO inventes/, "el vacío explícito del ítem 91 sigue estando");
+  assert.match(data.recordatorioDePresupuesto ?? "", /NO tiene presupuesto guardado/);
 });

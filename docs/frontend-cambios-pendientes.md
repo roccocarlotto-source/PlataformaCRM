@@ -6961,3 +6961,66 @@ Del ítem 110 quedó un residual medido: con guardrails configurados, ante un te
 Probé la regla del ítem 110 —derivar en el turno, sin preguntar— aplicada a los temas prohibidos y a las condiciones de derivación configuradas. **Medido, no mejoró**: 2 de 6 contra ~1,5 de 6 de la línea base, o sea dentro del ruido y sin señal de mejora.
 
 Lo revertí. Una frase en el prompt se paga en cada llamada de cada conversación de cada cuenta; si no mueve el número, no va. Queda el residual anotado con su escenario (`GR1`) para el día que se ataque de otra forma — probablemente no con más texto.
+
+---
+
+## 121. El presupuesto que el cliente dice entra al filtro de búsqueda y no llega nunca al CRM
+
+El ítem 118 dejó anotado un residual: *"un presupuesto suelto no se persiste 3 de cada 4 veces"*. Fui a medirlo bien y era peor, y la causa no era la que yo creía.
+
+Cuatro aperturas distintas, cada una con el presupuesto dicho suelto, contra el modelo real:
+
+```
+👤 Hola, tengo hasta 20 mil dólares para un auto
+🔧 search_vehicles({"priceMaxUsd":20000})
+🤖 ¡Hola Martín! Con U$D 20.000, te puedo ofrecer estas opciones: …
+📇 leadBudgetAmount: null
+```
+
+**0 de 12** —8 locales y 4 contra producción— y en las 12 la **única** tool del turno fue `search_vehicles`. No es que el modelo se olvide: el número le sirvió para buscar, la búsqueda contestó la consulta, y el turno se cerró. El vendedor abre la ficha al otro día y ve un lead sin un solo número, cuando lo primero que dijo el cliente fue cuánto tenía.
+
+Lo encontré mirando la ficha después de la charla, no leyendo la charla. Las 12 conversaciones se leen impecables.
+
+### Qué se hizo
+
+El aviso viaja en el **resultado** de `search_vehicles`, no en el prompt. Dos razones:
+
+- **Se paga solo cuando el caso existe** —búsqueda con tope de precio y ficha sin presupuesto—, en vez de en cada llamada de cada conversación de cada cuenta. Y se apaga solo: una vez guardado, no vuelve a aparecer.
+- **Llega en el momento exacto** en que el modelo está mirando ese número. Es el mismo patrón de los ítems 112 y 116: poner la guía en el dato que el modelo lee, no en el prompt que leyó hace veinte mensajes.
+
+**Lo que NO hace: deducir el presupuesto del filtro.** Un tope de precio no es un presupuesto, y escribir en el CRM un número que el cliente no dijo es peor que no escribir nada — el vendedor llama confiando en un dato inventado. Quién sabe qué dijo el cliente es el modelo; el backend solo le avisa que la ficha está vacía.
+
+### La primera redacción no alcanzó, y el error era mío
+
+Primera versión: **3 de 8**. El aviso llegaba 8 de 8 veces, así que no era un problema de entrega.
+
+Mirando mi propio texto, le había dejado esta salida: *"Si el tope lo pusiste vos, o el cliente solo estaba mirando qué hay, no guardes nada."* Pero por la **regla principal de la propia tool** —*"cada filtro que mandes tiene que poder señalarse en las palabras del cliente"*— un `priceMaxUsd` solo puede salir de lo que dijo el cliente. Esa salida no describía ningún caso legítimo: era un permiso para no guardar, y el modelo lo usaba.
+
+Sacada la salida y afirmado que **ese** es el presupuesto, más la moneda de las formas informales (*lucas verdes*, *palos verdes*) y la aclaración de que es una llamada más antes de contestar y no una conversación aparte:
+
+### Medido
+
+| | Presupuestos que quedaron guardados |
+|---|---|
+| Antes | **0 de 12** (8 local + 4 producción) |
+| Primera redacción | 3 de 8 |
+| **Final** | **12 de 12** |
+
+En las 12 respuestas finales el cliente no se entera de nada: ni una mención al CRM, a la ficha ni a haber anotado algo. Sin regresión en los 13 escenarios de búsqueda y ventana (`A1`, `A2`, `A5`, `A6`, `A12`, `E1`, `E2`, `M1`, `M2`, `M4`, `V1`, `V2`): 12/13, y el que falla es `M3`, que no toca `search_vehicles` y es el residual de *"pregunta en vez de actuar"* que sigue abierto.
+
+### El harness ahora mira la base, no la conversación
+
+Los dos ítems que más sirvieron (116 y 119) salieron de leer la fila después de la charla, con un script suelto cada vez. Eso ahora es parte del harness: `Escenario.chequeoDeDatos` recibe el contacto y devuelve el motivo de la falla. Un check de texto nunca habría encontrado ninguno de los tres.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | `RECORDATORIO_DE_PRESUPUESTO` y `recordatorioDePresupuesto()`; `exitoVacio` acepta campos extra |
+| `src/services/agentReadTools.integration-test.ts` | 4 de integración: cuándo aparece el aviso y cuándo no (con presupuesto cargado, sin tope de precio, y sin resultados) |
+| `scripts/eval-agente-real.ts` | `Escenario.chequeoDeDatos` y los escenarios `P1`–`P4` |
+
+### Residuales
+
+- `M3`/`B4`: pide un dato que la tool contesta en vez de llamarla. Mismo síntoma en la agenda que el que acá se cerró en el stock.
+- `GR1`: con guardrails configurados, ante un tema prohibido **ofrece** derivar en vez de derivar, 1 de cada 4. Intentado en el ítem 120 con una frase en el prompt, medido (2/6 contra ~1,5/6 de línea base) y revertido por falta de señal.

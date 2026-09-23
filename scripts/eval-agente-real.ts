@@ -124,6 +124,12 @@ interface Escenario {
   // Filtros permitidos por tool: cualquier otro argumento es un filtro
   // inventado (ítem 87).
   argsPermitidos?: Record<string, string[]>;
+  // Mira la BASE, no la conversación. Los dos ítems que más sirvieron (116 y
+  // 119) salieron de acá: charlas que en el chat se leían perfectas y no
+  // habían guardado nada. Un check de texto nunca las habría encontrado.
+  // Devolvé el motivo de la falla, o null si quedó bien. Corre una vez, al
+  // final, con el contacto de este escenario.
+  chequeoDeDatos?: (contactId: string) => Promise<string | null>;
 }
 
 const ESCENARIOS: Escenario[] = [
@@ -503,6 +509,37 @@ const ESCENARIOS: Escenario[] = [
     ],
   },
 
+  // ---- Ítem 121: el presupuesto suelto ----
+  // Cuatro formas de decir lo mismo en un solo mensaje de apertura. No miran
+  // qué contestó el agente —contestar la búsqueda está bien— sino si el número
+  // quedó en la ficha. Medido antes del arreglo: 0 de 4, y en las 4 la única
+  // tool del turno fue search_vehicles.
+  ...(
+    [
+      ["P1", "Hola, tengo hasta 20 mil dólares para un auto"],
+      ["P2", "Buenas, ando con un presupuesto de 25 mil dólares, ¿qué me podés mostrar?"],
+      ["P3", "hola, que tenes hasta 15 lucas verdes"],
+      ["P4", "Busco algo de menos de 30 mil dólares"],
+    ] as const
+  ).map(([id, msg]) => ({
+    id,
+    criterio: `Presupuesto dicho suelto («${msg.slice(0, 38)}…») queda guardado en la ficha`,
+    msgs: [msg],
+    chequeoDeDatos: async (contactId: string) => {
+      const c = await prisma.contact.findUnique({
+        where: { id: contactId },
+        select: { leadBudgetAmount: true, leadBudgetCurrency: true },
+      });
+      if (c?.leadBudgetAmount == null) {
+        return "el presupuesto que dijo el cliente NO quedó en leadBudgetAmount: el vendedor abre la ficha y no ve un solo número";
+      }
+      if (c.leadBudgetCurrency === null) {
+        return `quedó leadBudgetAmount=${String(c.leadBudgetAmount)} SIN moneda: un monto sin moneda no sirve para nada`;
+      }
+      return null;
+    },
+  })),
+
   // ---- Bordes de la agenda ----
   // Una reserva que sale mal cuesta una visita real: el cliente se presenta a
   // un turno que no existe, o se va porque le dijeron que no había nada.
@@ -811,6 +848,12 @@ async function main() {
       }
 
       const motivos = evaluar(esc, turnos);
+      if (esc.chequeoDeDatos) {
+        const falla = await esc.chequeoDeDatos(contacto.id);
+        if (falla !== null) {
+          motivos.push(falla);
+        }
+      }
       console.log(motivos.length === 0 ? "  ✅ OK" : "  ❌ FALLA:");
       motivos.forEach((m) => console.log(`      - ${m}`));
       console.log();

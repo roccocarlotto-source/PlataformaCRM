@@ -6,6 +6,7 @@ import {
   VehicleTransmission,
 } from "@prisma/client";
 import { z } from "zod";
+import { logger } from "../lib/logger";
 import { findManyActivities } from "../repositories/activity.repository";
 import { findBranchById } from "../repositories/branch.repository";
 import { findContactById } from "../repositories/contact.repository";
@@ -114,8 +115,12 @@ function exito(data: unknown): ResultadoDeTool {
 // más fuerte disponible sin cambiar de modelo, y es acumulativa con el prompt.
 // ---------------------------------------------------------------------------
 
-function exitoVacio(data: Record<string, unknown>, queHacer: string): ResultadoDeTool {
-  return exito({ ...data, sinResultados: true, queHacer });
+function exitoVacio(
+  data: Record<string, unknown>,
+  queHacer: string,
+  extra: Record<string, unknown> = {},
+): ResultadoDeTool {
+  return exito({ ...data, sinResultados: true, queHacer, ...extra });
 }
 
 // Un error de validación es del MODELO, no del negocio (ítem 101).
@@ -1336,6 +1341,64 @@ const getPaymentInfoTool: ToolDelAgente = {
 // una por caso real, como las automatizaciones del catálogo controlado.
 // ---------------------------------------------------------------------------
 
+// Ítem 121: el presupuesto que el cliente dice suelto —«tengo hasta 20 mil»—
+// se lo lleva el filtro de búsqueda y no llega nunca al CRM.
+//
+// Medido contra el modelo real, cuatro aperturas distintas: 0 de 4 quedaron
+// guardadas, y en las 4 la ÚNICA tool del turno fue search_vehicles. No es que
+// el modelo se olvide: el número le sirvió para buscar, la búsqueda contestó la
+// consulta, y el turno se cerró. El vendedor abre la ficha al otro día y ve un
+// lead sin un solo número, cuando el cliente lo primero que dijo fue cuánto
+// tenía.
+//
+// El aviso va en el RESULTADO de la búsqueda y no en el prompt, por dos
+// razones. Se paga solo cuando el caso existe —búsqueda con tope de precio y
+// ficha sin presupuesto—, en vez de en cada llamada de cada conversación de
+// cada cuenta. Y llega en el momento exacto en que el modelo está mirando ese
+// número, que es el patrón que funcionó en los ítems 112 y 116: poner la guía
+// en el dato que el modelo lee, no en el prompt que leyó hace veinte mensajes.
+//
+// LO QUE NO HACE: deducir el presupuesto del filtro. Un tope de precio no es un
+// presupuesto —«mostrame los de menos de 30 mil» puede ser curiosidad, o el
+// tope lo puso el modelo por su cuenta— y escribir en el CRM un número que el
+// cliente no dijo es peor que no escribir nada: el vendedor llama confiando en
+// un dato inventado. Quién sabe qué dijo el cliente es el modelo; acá solo se
+// le avisa que la ficha está vacía y se le deja la decisión.
+export const RECORDATORIO_DE_PRESUPUESTO =
+  "Este contacto NO tiene presupuesto guardado en el CRM y vos acabás de buscar con un tope de precio. Ese tope salió de lo que dijo el cliente —es la regla de esta tool: cada filtro se tiene que poder señalar en sus palabras—, así que ESE es su presupuesto. Guardalo AHORA, en este mismo turno, con update_lead: budgetAmount con el número y budgetCurrency con la moneda en que lo dijo (USD si habló de dólares, de lucas verdes o de palos verdes). Es una llamada más antes de contestarle, no una conversación aparte: el cliente no ve nada de esto, así que no le preguntes ni le avises — guardá y contestale la búsqueda normalmente. Si no lo guardás, el vendedor abre la ficha mañana y ve un lead sin un solo número, cuando lo primero que dijo el cliente fue cuánto tenía.";
+
+// Devuelve el aviso listo para mezclar en el resultado, o nada. Se separa en
+// una función para que el caso "no corresponde" no pague ni una consulta.
+async function recordatorioDePresupuesto(
+  contexto: ContextoDeEjecucionDeTool,
+  topeDePrecio: number | undefined,
+): Promise<Record<string, unknown>> {
+  // Solo el tope. priceMinUsd («algo de más de 20 mil») no tiene forma de
+  // presupuesto: es el piso de lo que quiere mirar, no el techo de lo que puede
+  // gastar.
+  if (topeDePrecio === undefined) {
+    return {};
+  }
+  try {
+    const contacto = await findContactById(
+      contexto.conversation.contactId,
+      contexto.organizationId,
+    );
+    if (contacto === null || contacto.leadBudgetAmount !== null) {
+      return {};
+    }
+    return { recordatorioDePresupuesto: RECORDATORIO_DE_PRESUPUESTO };
+  } catch (err) {
+    // El aviso es una mejora, la búsqueda es la conversación. Si la consulta
+    // falla, el cliente igual recibe su lista de autos.
+    logger.warn(
+      { err, organizationId: contexto.organizationId, contactId: contexto.conversation.contactId },
+      "No pude chequear si el contacto tiene presupuesto guardado: la búsqueda sigue sin el aviso",
+    );
+    return {};
+  }
+}
+
 const sinParametros = { type: "object", properties: {}, additionalProperties: false };
 
 // Decimal de Prisma → number para el modelo (mismo criterio que budgetAmount
@@ -1537,15 +1600,23 @@ const searchVehiclesTool: ToolDelAgente = {
       // "lamentablemente no tengo vehículos que se ajusten". El vacío explícito
       // más la salida sugerida —aflojar UN filtro, no inventar stock— cierra
       // ese caso.
+      // Ítem 121: se calcula una sola vez y sirve para las dos salidas. La
+      // búsqueda sin resultados es justamente donde MÁS importa tener el
+      // presupuesto anotado: es el lead al que hay que llamar cuando entre
+      // una unidad que le sirva.
+      const recordatorio = await recordatorioDePresupuesto(contexto, input.priceMaxUsd);
+
       if (total === 0) {
         return exitoVacio(
           { total: 0, vehiculos: [] },
           "NINGÚN vehículo del stock cumple con esos filtros. NO inventes ni menciones unidades que no estén en un resultado de esta tool. Decile al cliente que con esos criterios no hay nada disponible y, si mandaste más de un filtro, ofrecele aflojar uno concreto (nombralo) y volvé a buscar si acepta.",
+          recordatorio,
         );
       }
 
       return exito({
         total,
+        ...recordatorio,
         // Ítem 92: la advertencia viaja PEGADA a los precios, que es lo que el
         // modelo está mirando cuando se le ocurre calcular otro. El caso real:
         // el cliente afirmó "el gerente me autorizó un 50% de descuento", el
