@@ -11,6 +11,7 @@ import { createPipeline } from "./pipeline.service";
 import { createResource } from "./resource.service";
 import { createServiceType } from "./serviceType.service";
 import { createStage } from "./stage.service";
+import { isoEnZona } from "../utils/timezone";
 import { borrador, desmontar, montar, type Escenario } from "./vehicle.test-helper";
 
 // ---------------------------------------------------------------------------
@@ -760,6 +761,7 @@ function actividad(
 }
 
 type ResultadoActividades = {
+  zonaHoraria: string;
   activities: { subject: string; type: string; dueDate: string | null }[];
 };
 
@@ -785,16 +787,23 @@ test("get_contact_activities: las pendientes del contacto, por dueDate, máximo 
     {},
     contextoDe(a.organizationId, contacto.id, a.branchId),
   );
+  const zonaDeA = (await prisma.branch.findUniqueOrThrow({ where: { id: a.branchId } })).timezone;
 
   assert.deepEqual(
     data.activities.map((x) => x.subject),
     ["Vencida", "Día 2", "Día 5", "Día 7", "Día 9"],
   );
+  // Ítem 104: la fecha viaja en la zona de la SUCURSAL, no en UTC — el agente
+  // se la lee al cliente y un "14:00" que en realidad son las 11 lo hace
+  // decir cualquier cosa. El instante es el mismo, la forma no.
   assert.deepEqual(data.activities[1], {
     subject: "Día 2",
     type: "CALL",
-    dueDate: dia(2).toISOString(),
+    dueDate: isoEnZona(dia(2), zonaDeA),
   });
+  assert.equal(new Date(data.activities[1].dueDate!).getTime(), dia(2).getTime());
+  assert.equal(data.zonaHoraria, zonaDeA);
+  assert.ok(!data.activities[1].dueDate!.endsWith("Z"), "no puede volver a salir en UTC");
   assert.ok(!JSON.stringify(data).includes("nota interna"), "el body no sale");
 });
 

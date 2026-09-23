@@ -12,7 +12,7 @@ import { findContactById } from "../repositories/contact.repository";
 import { findManyOpportunities, findOpportunityById } from "../repositories/opportunity.repository";
 import { findDefaultPipeline } from "../repositories/pipeline.repository";
 import { findResourceById } from "../repositories/resource.repository";
-import { findManyServiceTypes } from "../repositories/serviceType.repository";
+import { findManyServiceTypes, findServiceTypeById } from "../repositories/serviceType.repository";
 import { findStageById, findStagesByPipeline } from "../repositories/stage.repository";
 import {
   countVehicles,
@@ -20,6 +20,7 @@ import {
   type VehicleFilters,
 } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
+import { isoEnZona } from "../utils/timezone";
 import { currencySchema } from "../utils/validation";
 import { MAX_DIAS_DE_RANGO, obtenerDisponibilidad } from "./availability.service";
 import { createBooking } from "./booking.service";
@@ -482,13 +483,90 @@ async function resolverRecursoDeLaSucursal(
   return undefined;
 }
 
+// La zona horaria de la sucursal de la conversación (ítem 104). Todo horario
+// que el agente le muestre al cliente se escribe en ESTA zona, nunca en UTC.
+// Si la sucursal no se pudiera leer —caso residual, mismo criterio que
+// get_payment_info— se cae a UTC, que al menos es explícito y no una hora
+// local inventada.
+async function zonaDeLaSucursal(contexto: ContextoDeEjecucionDeTool): Promise<string> {
+  const branch = await findBranchById(contexto.conversation.branchId, contexto.organizationId);
+  return branch?.timezone ?? "UTC";
+}
+
+// ---------------------------------------------------------------------------
+// UN SOLO UUID PARA AGENDAR (ítem 102)
+// ---------------------------------------------------------------------------
+// `ServiceType.resourceId` es obligatorio y único: dado el servicio, el recurso
+// que lo provee está completamente determinado. Y el backend YA exige que el
+// par sea consistente (resolverContexto: "El servicio indicado no lo provee
+// ese recurso"). O sea que pedirle al modelo los dos UUID no le da ninguna
+// libertad real — solo le da una forma más de equivocarse, y cada error le
+// quema una ronda del turno.
+//
+// Con `resourceId` opcional, el modelo tiene que acarrear UN identificador en
+// vez de dos y emparejarlos bien. Si lo manda igual, se respeta y se valida
+// como antes: este cambio no saca ninguna verificación, solo deja de exigir un
+// dato que el backend puede deducir.
+async function resolverRecursoDelServicio(
+  serviceTypeId: string,
+  resourceIdExplicito: string | undefined,
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<{ ok: true; resourceId: string } | { ok: false; resultado: ResultadoDeTool }> {
+  if (resourceIdExplicito !== undefined) {
+    const rechazo = await resolverRecursoDeLaSucursal(resourceIdExplicito, contexto);
+    return rechazo
+      ? { ok: false, resultado: rechazo }
+      : { ok: true, resourceId: resourceIdExplicito };
+  }
+
+  const serviceType = await findServiceTypeById(serviceTypeId, contexto.organizationId);
+  if (!serviceType) {
+    return {
+      ok: false,
+      resultado: fallo(
+        "El tipo de servicio indicado no existe. Los serviceTypeId salen de la tool que lista los servicios: no los inventes.",
+      ),
+    };
+  }
+  // La misma comprobación de sucursal que el camino explícito: deducir el
+  // recurso no puede ser una puerta para agendar en otra sucursal.
+  const rechazo = await resolverRecursoDeLaSucursal(serviceType.resourceId, contexto);
+  return rechazo
+    ? { ok: false, resultado: rechazo }
+    : { ok: true, resourceId: serviceType.resourceId };
+}
+
+// Ítem 103: "el miércoles a las 11" es un INSTANTE para el cliente, no un
+// rango. El modelo lo traducía literal —`desde` y `hasta` en el mismo
+// momento—, la validación lo rechazaba con razón, y el turno se quemaba en un
+// error que el cliente terminaba leyendo como "no hay lugar". Pasó con dos
+// modelos distintos, así que no es una torpeza de uno: es la API pidiéndole
+// algo antinatural.
+//
+// `hasta` pasa a ser opcional, y un `hasta` igual a `desde` se trata como
+// ausente (mismo criterio que el ítem 86 con los vacíos: lo que el modelo
+// quiso decir es claro). Por defecto se consultan las 24 horas siguientes, que
+// cubre tanto "¿qué horarios tenés el martes?" como "el miércoles a las 11".
+//
+// Un `hasta` ANTERIOR a `desde` sigue siendo un error: ahí el modelo no
+// expresó mal un instante, se equivocó de orden, y taparlo escondería el bug.
+const VENTANA_POR_DEFECTO_MS = 24 * 60 * 60 * 1000;
+
 const getAvailabilityArgs = z
   .object({
-    resourceId: uuid("resourceId"),
+    // Ítem 102: opcional. Si no viene, se deduce del serviceTypeId.
+    resourceId: vacioComoAusente(uuid("resourceId")),
     serviceTypeId: uuid("serviceTypeId"),
     desde: instanteIso,
-    hasta: instanteIso,
+    hasta: vacioComoAusente(instanteIso),
   })
+  .transform((q) => ({
+    ...q,
+    hasta:
+      q.hasta === undefined || q.hasta.getTime() === q.desde.getTime()
+        ? new Date(q.desde.getTime() + VENTANA_POR_DEFECTO_MS)
+        : q.hasta,
+  }))
   .refine((q) => q.hasta.getTime() > q.desde.getTime(), {
     message: "hasta debe ser posterior a desde",
   })
@@ -500,19 +578,23 @@ const getAvailabilityTool: ToolDelAgente = {
   definition: {
     name: "get_availability",
     description:
-      "Consulta los turnos disponibles de un recurso (persona, sala o clase) para un servicio, en un rango de fechas. Devuelve los horarios libres con inicio y fin. Usala antes de reservar.",
+      "Consulta los turnos disponibles para un servicio. Devuelve los horarios libres con inicio y fin. Alcanza con el serviceTypeId y el desde: el recurso se deduce del servicio y, sin hasta, se miran las 24 horas siguientes. Si el cliente dijo un día o una hora puntual, mandá ese momento como desde y nada más. Usala antes de reservar, y usá el serviceTypeId tal cual vino de la lista de servicios — no lo inventes.",
     parameters: {
       type: "object",
       properties: {
-        resourceId: { type: "string", description: "UUID del recurso." },
+        resourceId: {
+          type: "string",
+          description:
+            "UUID del recurso. NO hace falta mandarlo: se deduce del servicio. Mandalo solo si lo tenés y estás seguro de que es el que provee ese servicio.",
+        },
         serviceTypeId: { type: "string", description: "UUID del tipo de servicio." },
         desde: { type: "string", description: "Inicio del rango, ISO 8601 con zona." },
         hasta: {
           type: "string",
-          description: `Fin del rango, ISO 8601 con zona. Máximo ${MAX_DIAS_DE_RANGO} días después de desde.`,
+          description: `Fin del rango, ISO 8601 con zona. OPCIONAL: si no lo mandás se consultan las 24 horas siguientes a desde, que es lo que querés cuando el cliente dijo un día o un horario puntual. Máximo ${MAX_DIAS_DE_RANGO} días después de desde.`,
         },
       },
-      required: ["resourceId", "serviceTypeId", "desde", "hasta"],
+      required: ["serviceTypeId", "desde"],
       additionalProperties: false,
     },
   },
@@ -525,17 +607,27 @@ const getAvailabilityTool: ToolDelAgente = {
     const params = validacion.value;
 
     return conErroresDeNegocio(async () => {
-      const rechazo = await resolverRecursoDeLaSucursal(params.resourceId, contexto);
-      if (rechazo) {
-        return rechazo;
+      const recurso = await resolverRecursoDelServicio(
+        params.serviceTypeId,
+        params.resourceId,
+        contexto,
+      );
+      if (!recurso.ok) {
+        return recurso.resultado;
       }
 
-      const turnos = await obtenerDisponibilidad(contexto.organizationId, params);
+      const turnos = await obtenerDisponibilidad(contexto.organizationId, {
+        ...params,
+        resourceId: recurso.resourceId,
+      });
 
+      // Ítem 104: en la zona de la sucursal, no en UTC.
+      const zona = await zonaDeLaSucursal(contexto);
       return exito({
+        zonaHoraria: zona,
         turnos: turnos.map((t) => ({
-          inicio: t.inicio.toISOString(),
-          fin: t.fin.toISOString(),
+          inicio: isoEnZona(t.inicio, zona),
+          fin: isoEnZona(t.fin, zona),
           lugaresDisponibles: t.lugaresDisponibles,
         })),
       });
@@ -544,7 +636,8 @@ const getAvailabilityTool: ToolDelAgente = {
 };
 
 const createBookingArgs = z.object({
-  resourceId: uuid("resourceId"),
+  // Ítem 102: opcional, igual que en get_availability.
+  resourceId: vacioComoAusente(uuid("resourceId")),
   serviceTypeId: uuid("serviceTypeId"),
   startsAt: instanteIso,
 });
@@ -553,15 +646,19 @@ const createBookingTool: ToolDelAgente = {
   definition: {
     name: "create_booking",
     description:
-      "Reserva un turno para el contacto de esta conversación en un recurso y servicio, a partir de un horario. El horario tiene que ser uno de los que devolvió get_availability. El fin lo determina la duración del servicio.",
+      "Reserva de verdad un turno para el contacto de esta conversación: hasta que esta tool no devuelva un resultado exitoso, el turno NO existe y no se lo podés confirmar al cliente. Alcanza con el serviceTypeId, el recurso se deduce solo. El horario tiene que ser uno de los que ya devolvió la consulta de disponibilidad. El fin lo determina la duración del servicio.",
     parameters: {
       type: "object",
       properties: {
-        resourceId: { type: "string", description: "UUID del recurso." },
+        resourceId: {
+          type: "string",
+          description:
+            "UUID del recurso. NO hace falta mandarlo: se deduce del servicio. Mandalo solo si lo tenés y estás seguro de que es el que provee ese servicio.",
+        },
         serviceTypeId: { type: "string", description: "UUID del tipo de servicio." },
         startsAt: { type: "string", description: "Inicio del turno, ISO 8601 con zona." },
       },
-      required: ["resourceId", "serviceTypeId", "startsAt"],
+      required: ["serviceTypeId", "startsAt"],
       additionalProperties: false,
     },
   },
@@ -574,23 +671,29 @@ const createBookingTool: ToolDelAgente = {
     const input = validacion.value;
 
     return conErroresDeNegocio(async () => {
-      const rechazo = await resolverRecursoDeLaSucursal(input.resourceId, contexto);
-      if (rechazo) {
-        return rechazo;
+      const recurso = await resolverRecursoDelServicio(
+        input.serviceTypeId,
+        input.resourceId,
+        contexto,
+      );
+      if (!recurso.ok) {
+        return recurso.resultado;
       }
 
       const booking = await createBooking(contexto.organizationId, {
-        resourceId: input.resourceId,
+        resourceId: recurso.resourceId,
         serviceTypeId: input.serviceTypeId,
         // Siempre el contacto de la conversación.
         contactId: contexto.conversation.contactId,
         startsAt: input.startsAt,
       });
 
+      const zona = await zonaDeLaSucursal(contexto);
       return exito({
         bookingId: booking.id,
-        startsAt: booking.startsAt.toISOString(),
-        endsAt: booking.endsAt.toISOString(),
+        zonaHoraria: zona,
+        startsAt: isoEnZona(booking.startsAt, zona),
+        endsAt: isoEnZona(booking.endsAt, zona),
         status: booking.status,
       });
     });
@@ -1161,11 +1264,16 @@ const getContactActivitiesTool: ToolDelAgente = {
         "El equipo NO tiene ninguna tarea ni seguimiento agendado para este contacto. Es un dato real y confiable, no una falla: decíselo tal cual si preguntó. NO inventes llamados, visitas ni recordatorios que nadie agendó.",
       );
     }
+    // Ítem 104: la fecha de una actividad también se le muestra al cliente
+    // ("tenés un llamado agendado para el martes a las 10"), así que va en la
+    // zona de la sucursal igual que los turnos.
+    const zona = await zonaDeLaSucursal(contexto);
     return exito({
+      zonaHoraria: zona,
       activities: actividades.map((a) => ({
         subject: a.subject,
         type: a.type,
-        dueDate: a.dueDate ? a.dueDate.toISOString() : null,
+        dueDate: a.dueDate ? isoEnZona(a.dueDate, zona) : null,
       })),
     });
   },

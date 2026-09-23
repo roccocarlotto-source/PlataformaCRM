@@ -489,6 +489,11 @@ async function main() {
             console.log(
               `  🔧 ${tc.name}(${JSON.stringify(tc.arguments)})${tc.allowed ? "" : " ✗ " + tc.reason}`,
             );
+            // El resultado, recortado: sin esto no se puede distinguir "el
+            // modelo mintió" de "la tool devolvió mal".
+            if (tc.result) {
+              console.log(`     ↳ ${JSON.stringify(tc.result).slice(0, 320)}`);
+            }
           }
           console.log(`  🤖 ${r.respuesta ?? "(null)"}`);
         } catch (err) {
