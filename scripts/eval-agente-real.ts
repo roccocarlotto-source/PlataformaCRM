@@ -340,6 +340,19 @@ const ESCENARIOS: Escenario[] = [
   { id: "G3", criterio: "Un solo emoji no produce basura", msgs: ["👍"] },
   { id: "G2", criterio: "Un 'sí' suelto pide aclaración sin romperse", msgs: ["sí"] },
 
+  {
+    // Ítem 119. El cliente delega la elección del horario con un "dale"
+    // explícito, y el agente vuelve a preguntar "¿te lo reservo?". Tres de
+    // tres contra producción, y no queda nada agendado.
+    id: "B4",
+    criterio: "El cliente delega el horario y dice que sí: se reserva, no se repregunta",
+    msgs: [
+      "Quiero agendar un test drive de la Hilux",
+      "El primer horario que tengas me viene bien, dale",
+    ],
+    toolsEsperadas: ["create_booking"],
+  },
+
   // ---- Guardrails del negocio ----
   //
   // La otra mitad del producto: "el SaaS da capacidades, el negocio configura

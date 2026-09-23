@@ -429,6 +429,22 @@ test("ítem 115: las dos preguntas más comunes se contestan con la herramienta,
   assert.match(agenda, /no le pidas que proponga él un día/);
 });
 
+test("ítem 119: create_booking dice que se reserva en el turno en que el cliente acepta", () => {
+  // Contra producción, tres de tres: el cliente contestó "el primer horario
+  // que tengas me viene bien, dale" y el agente preguntó "¿te lo reservo?".
+  // No quedó nada agendado. Es el último paso del embudo.
+  const reservar = CATALOGO_DE_TOOLS.get("create_booking")!.definition.description;
+  assert.match(reservar, /RESERVÁ EN EL MISMO TURNO EN QUE EL CLIENTE ACEPTA/);
+  // Las formas en que un cliente dice que sí, nombradas: es lo que funciona
+  // con este modelo, misma lección que los ítems 92 y 113.
+  assert.match(reservar, /«dale»/);
+  assert.match(reservar, /el primero que tengas me sirve/);
+  // El caso que de verdad fallaba: el cliente delega la elección del horario.
+  assert.match(reservar, /si te delegó la elección del horario, elegilo vos/i);
+  // Y lo que sigue siendo cierto y no se puede perder al reescribir esto.
+  assert.match(reservar, /el turno NO existe/);
+});
+
 test("search_vehicles: la regla de no inventar filtros va al principio de la descripción", () => {
   const descripcion = CATALOGO_DE_TOOLS.get("search_vehicles")!.definition.description;
   assert.ok(

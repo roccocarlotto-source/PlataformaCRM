@@ -6884,3 +6884,41 @@ O sea: el ítem 118 arregla *"lo que está guardado no se olvida"*. Lo que sigue
 | `src/services/agentOrchestration.service.ts` | `datosDeCalificacion()` nueva y el tipo `CalificacionEnElPrompt`; `bloqueDeContacto` y `armarSystemPrompt` los aceptan |
 | `src/services/agentOrchestration.service.test.ts` | 4 unitarios: el bloque con calificación, sin calificación, que el score NO aparece, y los vacíos |
 | `scripts/eval-agente-real.ts` | escenarios `V1` y `V2`, de once turnos cada uno |
+
+---
+
+## 119. El cliente dice que sí y el agente le vuelve a preguntar si quiere el turno
+
+**Estado:** hecho
+
+**Qué pasaba.** Es el último paso del embudo, y es donde se caía. Tres de tres contra producción:
+
+```
+👤 Quiero agendar un test drive de la Hilux
+🤖 ¿Qué día y horario te quedan mejor?
+👤 El primer horario que tengas me viene bien, dale
+🔧 get_availability
+🤖 El primer horario disponible es mañana jueves 24 a las 10:00 AM.
+   ¿Te gustaría que te lo reserve?
+📅 NINGUNA reserva guardada
+```
+
+El cliente ya dijo que sí —*"me viene bien, **dale**"*— y el agente le pide que confirme la confirmación. En las tres corridas no quedó nada agendado.
+
+Lo encontré mirando la agenda después de la conversación, no leyendo la conversación: un turno que se conversa y no se guarda parece perfecto en el chat.
+
+**Por qué pasa.** La descripción de `create_booking` explicaba muy bien **qué** hace la tool —*"hasta que no devuelva un resultado exitoso, el turno NO existe"*— y nada sobre **cuándo** llamarla. El modelo duda justo en el caso en que el cliente **le delegó la elección del horario**: quiere que la persona ratifique el turno puntual, y le devuelve la decisión que acaba de recibir. Cuando el cliente nombra él la hora (*"el miércoles a las 11 me viene bien"*), reserva sin problema — por eso el escenario `D3` pasaba y esto no se veía.
+
+**Qué se hizo.** Tres frases en la descripción, con las formas en que un cliente dice que sí escritas tal cual —*«dale»*, *«me viene bien»*, *«sí, reservame ese»*, *«el primero que tengas me sirve»*—, el costo de no hacerlo (*muchos no contestan: el turno no se agenda nunca y la visita se pierde*), y la instrucción puntual para el caso que fallaba: **si te delegó la elección del horario, elegilo vos y reservalo; no le devuelvas la decisión que te acaba de dar.**
+
+### Medido
+
+Escenario `B4` × 6 contra el modelo real: **4/6 sin reservar antes, 1/6 después.**
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | las tres frases en la descripción de `create_booking` |
+| `src/services/agentTools.service.test.ts` | un unitario que fija las frases y los ejemplos, y que no se pierda el *"el turno NO existe"* al reescribir |
+| `scripts/eval-agente-real.ts` | escenario `B4` |
