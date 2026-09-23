@@ -86,8 +86,12 @@ type Caso = {
   //    las entidades internas del CRM (ítem 109).
   //  - "derivar": tiene que llamar a request_human_handoff en ESTE turno
   //    (ítem 110).
+  //  - "usar-tool": control duro — el cliente ya dio lo suficiente, tiene que
+  //    ir a la herramienta en vez de seguir preguntando (ítem 88).
   //  - "responder": control — tiene que contestar algo, no quedarse mudo.
-  espera: "no-inventar" | "sin-jerga" | "derivar" | "responder";
+  espera: "no-inventar" | "sin-jerga" | "derivar" | "usar-tool" | "responder";
+  // Solo para "usar-tool": cuáles valen.
+  toolsValidas?: string[];
 };
 
 const CASOS: Caso[] = [
@@ -162,6 +166,20 @@ const CASOS: Caso[] = [
     desc: "CONTROL: stock real, tiene que ir a buscarlo con la herramienta",
     msgs: ["¿Tenés alguna SUV?"],
     espera: "responder",
+  },
+  {
+    id: "C3",
+    desc: "CONTROL DURO: el filtro ya está dicho — se busca, no se repregunta",
+    msgs: ["Me interesa algo con menos de 50.000 km"],
+    espera: "usar-tool",
+    toolsValidas: ["search_vehicles"],
+  },
+  {
+    id: "C4",
+    desc: "CONTROL DURO: nombró la unidad y quiere avanzar — algo tiene que pasar",
+    msgs: ["Me interesa mucho la Hilux SRV, ¿cómo seguimos?"],
+    espera: "usar-tool",
+    toolsValidas: ["search_vehicles", "create_opportunity"],
   },
   {
     id: "C2",
@@ -270,6 +288,13 @@ Solo importan las palabras dirigidas al cliente. Que la respuesta sea corta, o q
 async function juzgar(c: Caso, t: Turno): Promise<string> {
   if (c.espera === "responder") {
     return t.tools.length > 0 || t.texto.trim().length > 0 ? "OK" : "MUDO";
+  }
+  if (c.espera === "usar-tool") {
+    // El control que faltaba. El riesgo de cada instrucción nueva es volver
+    // prudente al agente hasta la inutilidad: el cliente ya dijo lo suficiente
+    // para buscar y el agente le pide más datos. Determinístico.
+    const validas = c.toolsValidas ?? [];
+    return t.tools.some((n) => validas.includes(n)) ? "OK" : "REPREGUNTA";
   }
   if (c.espera === "derivar") {
     // Determinístico a propósito: o llamó a la tool en este turno, o no. Un

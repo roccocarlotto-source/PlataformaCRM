@@ -243,6 +243,20 @@ const ESCENARIOS: Escenario[] = [
     msgs: ["Me interesa mucho la Hilux SRV, ¿cómo seguimos?"],
     toolsEsperadas: ["create_opportunity"],
   },
+  {
+    // Ítem 112. En producción, acá el modelo se inventó el opportunityId entre
+    // un turno y otro y el update falló; el agente le pidió al cliente la
+    // marca y el modelo de un auto que ya había nombrado.
+    id: "C4",
+    criterio:
+      "Cambia de auto a mitad de la charla: actualiza la MISMA oportunidad, sin acarrear el UUID",
+    msgs: [
+      "Me interesa la Amarok, quiero avanzar",
+      "Perfecto. También me gustó la Hilux SRV, quiero avanzar con eso",
+    ],
+    toolsEsperadas: ["create_opportunity", "update_opportunity"],
+    noDebeContener: [/marca y modelo exacto/i, /hubo un problema/i, /no existe/i],
+  },
 
   // ---- Flujo de turnos (nunca se había probado: no había ServiceType) ----
   {
@@ -534,12 +548,15 @@ async function main() {
     await prisma.activity.deleteMany({ where: { organizationId } });
     await prisma.opportunity.deleteMany({ where: { organizationId } });
     await prisma.vehicle.deleteMany({ where: { organizationId } });
+    // Las reservas ANTES que los contactos: una Booking referencia al Contact,
+    // y cuando algún escenario llega a agendar de verdad, borrar el contacto
+    // primero revienta con la FK y se lleva puesta toda la limpieza.
+    await prisma.booking.deleteMany({ where: { organizationId } });
     await prisma.contact.deleteMany({ where: { organizationId } });
     await prisma.agent.deleteMany({ where: { organizationId } });
     await prisma.stage.deleteMany({ where: { organizationId } });
     await prisma.pipeline.deleteMany({ where: { organizationId } });
-    // La agenda, en orden de FK: reservas → horarios → servicios → recursos.
-    await prisma.booking.deleteMany({ where: { organizationId } });
+    // El resto de la agenda, en orden de FK: horarios → servicios → recursos.
     await prisma.workingHours.deleteMany({ where: { organizationId } });
     await prisma.serviceType.deleteMany({ where: { organizationId } });
     await prisma.resource.deleteMany({ where: { organizationId } });

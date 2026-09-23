@@ -405,15 +405,64 @@ const createOpportunityTool: ToolDelAgente = {
         { sortBy: "createdAt", sortOrder: "desc" },
       );
       if (existente) {
-        const etapa = await findStageById(existente.stageId, contexto.organizationId);
+        // Ítem 112. El reuso tal como estaba DESCARTABA el auto nuevo en
+        // silencio. Caso real contra el modelo: el cliente pasó de la Amarok a
+        // la Hilux SRV, el modelo volvió a llamar a create_opportunity con
+        // `vehiculo: "Hilux SRV"`, la tool devolvió ok con la oportunidad de la
+        // Amarok intacta —título "Interés en Amarok", monto 42.000— y el
+        // agente le dijo al cliente "ya registré tu interés por la Hilux SRV".
+        // No había registrado nada de la Hilux.
+        //
+        // El resultado decía la verdad (`reused: true`) y aun así el modelo
+        // entendió que había funcionado, lo cual es razonable: la tool contestó
+        // que sí. Con un `ok` de por medio, la instrucción del ítem 100 no
+        // tiene con qué defenderse; el que mintió fue el backend primero.
+        //
+        // Así que cuando la llamada trae un vehículo, el reuso APLICA el
+        // cambio en vez de ignorarlo: es exactamente lo que hace
+        // update_opportunity con `vehiculo`, y es lo que el cliente pidió. El
+        // reuso sin vehículo no cambia: devuelve lo que hay, como siempre.
+        const cambios: { title?: string; amount?: number; currency?: string } = {};
+        let unidadDelReuso: string | null = null;
+        if (input.vehiculo !== undefined) {
+          const resuelto = await resolverVehiculo(input.vehiculo, contexto);
+          if (!resuelto.ok) {
+            return resuelto.resultado;
+          }
+          unidadDelReuso = resuelto.vehiculo.etiqueta;
+          cambios.title = input.title;
+          if (input.amount === undefined && resuelto.vehiculo.priceListUsd !== null) {
+            cambios.amount = resuelto.vehiculo.priceListUsd;
+            cambios.currency = input.currency ?? "USD";
+          } else if (input.amount !== undefined) {
+            cambios.amount = input.amount;
+            cambios.currency = input.currency ?? existente.currency;
+          }
+        }
+
+        const vigente =
+          Object.keys(cambios).length > 0
+            ? await updateOpportunity(
+                contexto.organizationId,
+                existente.ownerId,
+                existente.id,
+                cambios,
+              )
+            : existente;
+
+        const etapa = await findStageById(vigente.stageId, contexto.organizationId);
         return exito({
-          opportunityId: existente.id,
-          title: existente.title,
-          amount: existente.amount,
-          currency: existente.currency,
-          status: existente.status,
+          opportunityId: vigente.id,
+          title: vigente.title,
+          amount: vigente.amount,
+          currency: vigente.currency,
+          status: vigente.status,
           stage: etapa?.name ?? null,
           reused: true,
+          // Para que el modelo pueda contar lo que de verdad pasó: si es false,
+          // la oportunidad quedó como estaba y no registró nada nuevo.
+          actualizada: Object.keys(cambios).length > 0,
+          ...(unidadDelReuso !== null ? { unidad: unidadDelReuso } : {}),
         });
       }
 
@@ -496,7 +545,8 @@ const createOpportunityTool: ToolDelAgente = {
 
 const updateOpportunityArgs = z
   .object({
-    opportunityId: uuid("opportunityId"),
+    // Ítem 112: OPCIONAL. Ver resolverOportunidad().
+    opportunityId: vacioComoAusente(uuid("opportunityId")),
     title: textoOpcional(255),
     amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
     currency: vacioComoAusente(currencySchema),
@@ -506,22 +556,100 @@ const updateOpportunityArgs = z
     // Ítem 107: para cuando el cliente cambia de auto a mitad de la charla.
     vehiculo: textoOpcional(255),
   })
-  .refine((data) => cantidadDeArgumentos(data) > 1, {
-    message: "Hay que indicar al menos un campo a modificar además de opportunityId",
+  .refine((data) => cantidadDeArgumentos(data) - (data.opportunityId === undefined ? 0 : 1) > 0, {
+    message: "Hay que indicar al menos un campo a modificar",
   });
 
 export const MENSAJE_OPORTUNIDAD_DE_OTRO_CONTACTO =
   "La oportunidad indicada no pertenece al contacto de esta conversación";
 
+export const MENSAJE_SIN_OPORTUNIDAD_ABIERTA =
+  "El contacto de esta conversación no tiene ninguna oportunidad abierta, así que no hay nada que actualizar.";
+
+// Ítem 112. Caso real, en producción: el modelo creó una oportunidad, recibió
+// su id en el resultado —e2909afe-…— y en el turno siguiente llamó a
+// update_opportunity con 60155209-…, un UUID que se inventó. El backend
+// contestó "La oportunidad indicada no existe" y el agente le dijo al cliente
+// "hubo un problema al actualizar la información del vehículo, indicame la
+// marca y modelo exacto del Territory": le pidió un dato que ya tenía, por un
+// error que no tenía nada que ver con el vehículo.
+//
+// Es el ítem 106 otra vez —ahí el UUID inventado era el del serviceType— y la
+// solución es la misma: QUE NO TENGA QUE ACARREAR EL UUID. El contacto de la
+// conversación tiene a lo sumo una oportunidad abierta (el ítem 84 hace que
+// create_opportunity reuse la que haya en vez de crear otra), así que el
+// backend puede resolverla solo.
+//
+// El id sigue aceptándose por si el modelo lo tiene bien, pero uno que no
+// existe o es de otro contacto ya no es un callejón sin salida: el error se
+// marca como error de argumentos (ítem 101) y le dice que vuelva a llamar sin
+// el id, que es el camino que siempre funciona.
+async function resolverOportunidad(
+  opportunityId: string | undefined,
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<
+  | { ok: true; opportunity: { id: string; contactId: string | null; ownerId: string } }
+  | { ok: false; resultado: ResultadoDeTool }
+> {
+  if (opportunityId !== undefined) {
+    const opportunity = await findOpportunityById(opportunityId, contexto.organizationId);
+    if (!opportunity) {
+      return {
+        ok: false,
+        resultado: fallo(
+          `La oportunidad indicada no existe. Volvé a llamarla SIN opportunityId: así se toma la oportunidad abierta del contacto.${SUFIJO_ERROR_DE_ARGUMENTOS}`,
+        ),
+      };
+    }
+    // Un agente solo toca las oportunidades del contacto con el que está
+    // hablando. Que la organización coincida no alcanza: eso lo garantiza el
+    // repositorio, pero no impide que el modelo pase el id de otro cliente.
+    if (opportunity.contactId !== contexto.conversation.contactId) {
+      return {
+        ok: false,
+        resultado: fallo(
+          `${MENSAJE_OPORTUNIDAD_DE_OTRO_CONTACTO}. Volvé a llamarla SIN opportunityId.${SUFIJO_ERROR_DE_ARGUMENTOS}`,
+        ),
+      };
+    }
+    return { ok: true, opportunity };
+  }
+
+  // Sin id: la oportunidad abierta del contacto, la misma que devuelve
+  // create_opportunity cuando reusa (ítem 84).
+  const [abierta] = await findManyOpportunities(
+    contexto.organizationId,
+    { contactId: contexto.conversation.contactId, status: "OPEN" },
+    { skip: 0, take: 1 },
+    { sortBy: "createdAt", sortOrder: "desc" },
+  );
+  if (!abierta) {
+    // No es un error de argumentos: es un estado legítimo del negocio, y el
+    // modelo tiene que saber qué hacer con él en vez de improvisar.
+    return {
+      ok: false,
+      resultado: exitoVacio(
+        { opportunityId: null },
+        `${MENSAJE_SIN_OPORTUNIDAD_ABIERTA} Si el contacto mostró interés concreto, usá create_opportunity.`,
+      ),
+    };
+  }
+  return { ok: true, opportunity: abierta };
+}
+
 const updateOpportunityTool: ToolDelAgente = {
   definition: {
     name: "update_opportunity",
     description:
-      "Modifica una oportunidad existente del contacto de esta conversación: título, monto, moneda, estado (OPEN/WON/LOST), etapa o motivo de pérdida. No permite cambiar el vendedor ni el pipeline.",
+      "Modifica la oportunidad abierta del contacto de esta conversación: título, monto, moneda, estado (OPEN/WON/LOST), etapa o motivo de pérdida. No hace falta que sepas su id: si no mandás opportunityId, se toma la que el contacto tiene abierta. No permite cambiar el vendedor ni el pipeline.",
     parameters: {
       type: "object",
       properties: {
-        opportunityId: { type: "string", description: "UUID de la oportunidad a modificar." },
+        opportunityId: {
+          type: "string",
+          description:
+            "OPCIONAL, y casi siempre sobra: si no lo mandás se toma la oportunidad abierta del contacto de esta conversación, que es la que corresponde. Mandalo SOLO si tenés el id exacto que te devolvió una herramienta en esta misma conversación. Nunca lo inventes ni lo deduzcas.",
+        },
         title: { type: "string" },
         amount: { type: "number", description: "Monto, mayor o igual a 0." },
         currency: { type: "string", description: "Código ISO 4217 de 3 letras." },
@@ -540,7 +668,7 @@ const updateOpportunityTool: ToolDelAgente = {
             "Marca y modelo del vehículo que le interesa al cliente, como figura en el stock. Usalo cuando el cliente cambia de unidad: el monto se reajusta al precio de lista de la nueva.",
         },
       },
-      required: ["opportunityId"],
+      required: [],
       additionalProperties: false,
     },
   },
@@ -553,16 +681,11 @@ const updateOpportunityTool: ToolDelAgente = {
     const { opportunityId, vehiculo, ...cambios } = validacion.value;
 
     return conErroresDeNegocio(async () => {
-      const opportunity = await findOpportunityById(opportunityId, contexto.organizationId);
-      if (!opportunity) {
-        return fallo("La oportunidad indicada no existe");
+      const resuelta = await resolverOportunidad(opportunityId, contexto);
+      if (!resuelta.ok) {
+        return resuelta.resultado;
       }
-      // Un agente solo toca las oportunidades del contacto con el que está
-      // hablando. Que la organización coincida no alcanza: eso lo garantiza el
-      // repositorio, pero no impide que el modelo pase el id de otro cliente.
-      if (opportunity.contactId !== contexto.conversation.contactId) {
-        return fallo(MENSAJE_OPORTUNIDAD_DE_OTRO_CONTACTO);
-      }
+      const { opportunity } = resuelta;
 
       // Ítem 107: cambiar de auto a mitad de la conversación. Se resuelve
       // igual que al crear, y el monto se reajusta al precio de la unidad
@@ -585,7 +708,7 @@ const updateOpportunityTool: ToolDelAgente = {
       const actualizada = await updateOpportunity(
         contexto.organizationId,
         opportunity.ownerId,
-        opportunityId,
+        opportunity.id,
         cambiosConVehiculo,
       );
 

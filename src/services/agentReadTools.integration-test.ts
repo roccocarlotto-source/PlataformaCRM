@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import {
+  SUFIJO_ERROR_DE_ARGUMENTOS,
   CATALOGO_DE_TOOLS,
   type ContextoDeEjecucionDeTool,
   type ResultadoDeTool,
@@ -1274,4 +1275,159 @@ test("update_opportunity con `vehiculo` cambia la unidad y reajusta el monto", a
     const v = await prisma.vehicle.findUniqueOrThrow({ where: { id } });
     assert.equal(v.status, "AVAILABLE", `${id} tiene que seguir disponible`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 112: no hace falta acarrear el opportunityId
+// ---------------------------------------------------------------------------
+
+test("update_opportunity SIN opportunityId toma la oportunidad abierta del contacto", async () => {
+  // El caso real de producción: el modelo creó la oportunidad, recibió su id y
+  // en el turno siguiente mandó otro que se inventó. Ahora no tiene que
+  // acarrearlo.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const creada = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "Interés en Hilux", vehiculo: "Hilux SRV" },
+    ctx,
+  );
+
+  const actualizada = await datosDe<{ opportunityId: string }>(
+    "update_opportunity",
+    { vehiculo: "Hilux DX" },
+    ctx,
+  );
+
+  assert.equal(actualizada.opportunityId, creada.opportunityId);
+  const guardada = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: creada.opportunityId },
+  });
+  assert.equal(Number(guardada.amount), 27_500);
+});
+
+test("update_opportunity: un opportunityId inventado dice que se vuelva a llamar sin él", async () => {
+  // Antes contestaba "La oportunidad indicada no existe" a secas y el agente
+  // le pedía al cliente la marca y el modelo del auto, un dato que ya tenía y
+  // que no tenía nada que ver con el error.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  await datosDe("create_opportunity", { title: "Interés", vehiculo: "Hilux SRV" }, ctx);
+
+  const r = await ejecutar(
+    "update_opportunity",
+    { opportunityId: "60155209-679e-4e3e-9097-4b2a65824982", title: "Otro" },
+    ctx,
+  );
+
+  assert.equal(r.ok, false);
+  const error = r.ok === false ? r.error : "";
+  assert.match(error, /SIN opportunityId/);
+  // Y se marca como error del modelo, para que no se lo cuente al cliente.
+  assert.ok(error.endsWith(SUFIJO_ERROR_DE_ARGUMENTOS));
+});
+
+test("update_opportunity: el id de OTRO contacto tampoco se toca", async () => {
+  // El aislamiento del ítem original sigue firme: que la organización coincida
+  // no alcanza.
+  const unoCtx = contextoDe(a.organizationId, (await nuevoContacto(a)).id, a.branchId);
+  const otro = await nuevoContacto(a);
+  const otroCtx = contextoDe(a.organizationId, otro.id, a.branchId);
+  const delOtro = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "Del otro contacto" },
+    otroCtx,
+  );
+
+  const r = await ejecutar(
+    "update_opportunity",
+    { opportunityId: delOtro.opportunityId, title: "Robada" },
+    unoCtx,
+  );
+
+  assert.equal(r.ok, false);
+  assert.match(r.ok === false ? r.error : "", /no pertenece al contacto/);
+  const intacta = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: delOtro.opportunityId },
+  });
+  assert.equal(intacta.title, "Del otro contacto");
+});
+
+test("create_opportunity que reusa APLICA el auto nuevo en vez de descartarlo", async () => {
+  // El caso real: el cliente pasó de la Amarok a la Hilux SRV, el modelo
+  // volvió a llamar a create_opportunity y la tool devolvía ok con la
+  // oportunidad de la Amarok intacta. El agente le dijo al cliente "ya
+  // registré tu interés por la Hilux" y no había registrado nada.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const primera = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "Interés en Hilux SRV", vehiculo: "Hilux SRV" },
+    ctx,
+  );
+
+  const segunda = await datosDe<{
+    opportunityId: string;
+    title: string;
+    amount: string;
+    reused: boolean;
+    actualizada: boolean;
+    unidad: string;
+  }>("create_opportunity", { title: "Interés en Hilux DX", vehiculo: "Hilux DX" }, ctx);
+
+  // Sigue siendo una sola oportunidad abierta (ítem 84)...
+  assert.equal(segunda.opportunityId, primera.opportunityId);
+  assert.equal(segunda.reused, true);
+  // ...pero ahora refleja lo que el cliente pidió, y el resultado lo dice.
+  assert.equal(segunda.actualizada, true);
+  assert.equal(segunda.title, "Interés en Hilux DX");
+  assert.equal(Number(segunda.amount), 27_500);
+  assert.match(segunda.unidad, /Hilux DX/);
+
+  const guardada = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: primera.opportunityId },
+  });
+  assert.equal(Number(guardada.amount), 27_500);
+  // Y el ítem 107 sigue firme: leer el precio no reserva la unidad.
+  assert.equal(guardada.vehicleId, null);
+});
+
+test("create_opportunity que reusa SIN vehículo no toca nada, y lo dice", async () => {
+  // El reuso de siempre no cambia: devuelve lo que hay. Lo que cambia es que
+  // ahora el resultado distingue los dos casos con `actualizada`, para que el
+  // modelo no le anuncie al cliente algo que no pasó.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  await datosDe(
+    "create_opportunity",
+    { title: "Interés en Hilux SRV", vehiculo: "Hilux SRV" },
+    ctx,
+  );
+
+  const segunda = await datosDe<{ title: string; amount: string; actualizada: boolean }>(
+    "create_opportunity",
+    { title: "Otra consulta" },
+    ctx,
+  );
+
+  assert.equal(segunda.actualizada, false);
+  assert.equal(segunda.title, "Interés en Hilux SRV", "el título viejo no se pisa");
+  assert.equal(Number(segunda.amount), 38_000);
+});
+
+test("update_opportunity sin ninguna oportunidad abierta guía a create_opportunity", async () => {
+  // No es un error de argumentos: es un estado legítimo del negocio, y el
+  // modelo tiene que saber qué hacer con él en vez de improvisar.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+
+  const r = await datosDe<{
+    opportunityId: string | null;
+    sinResultados: boolean;
+    queHacer: string;
+  }>("update_opportunity", { title: "Algo" }, ctx);
+
+  assert.equal(r.opportunityId, null);
+  assert.equal(r.sinResultados, true);
+  assert.match(r.queHacer, /create_opportunity/);
 });

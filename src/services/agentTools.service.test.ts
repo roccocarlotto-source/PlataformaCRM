@@ -97,9 +97,16 @@ test("create_opportunity: title es requerido; amount negativo y currency inváli
   );
 });
 
-test("update_opportunity: exige opportunityId UUID y al menos un campo más", async () => {
-  assert.match(await rechazoDe("update_opportunity", { title: "x" }), /opportunityId/);
+test("update_opportunity: opportunityId ya no es obligatorio, pero sí un campo a modificar", async () => {
+  // Desde el ítem 112 se puede llamar sin opportunityId: el backend resuelve
+  // la oportunidad abierta del contacto. Lo que sigue siendo obligatorio es
+  // que haya algo que modificar.
+  assert.match(await rechazoDe("update_opportunity", {}), /al menos un campo/);
   assert.match(await rechazoDe("update_opportunity", { opportunityId: UUID }), /al menos un campo/);
+  assert.match(
+    await rechazoDe("update_opportunity", { opportunityId: "no-es-uuid", title: "x" }),
+    /opportunityId/,
+  );
   assert.match(
     await rechazoDe("update_opportunity", { opportunityId: UUID, status: "CANCELLED" }),
     /status/,
@@ -500,7 +507,9 @@ test("el sufijo va en TODAS las tools, no solo en la que falló en producción",
   // de repetirlo en cada description.
   for (const [nombre, args] of [
     ["create_opportunity", {}],
-    ["update_opportunity", { title: "x" }],
+    // Desde el ítem 112 un update sin opportunityId es válido y llegaría a la
+    // base, así que acá el rechazo tiene que venir de otro argumento.
+    ["update_opportunity", { status: "CANCELLED" }],
     ["create_booking", { resourceId: UUID }],
     ["create_lead", {}],
     ["search_vehicles", { year: "no es un año" }],
