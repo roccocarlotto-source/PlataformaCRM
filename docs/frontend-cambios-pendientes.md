@@ -5829,3 +5829,58 @@ Y la corrida completa de los 18 escenarios quedó en **17/18**, sin que el model
 ### Tests (corridos de verdad)
 
 **Unitarios:** 1009/1009. **Integración:** 998/998. **Typecheck, lint y prettier:** limpios.
+
+## 98. `search_vehicles` ignora `publicationCurrency` y expone un precio que el negocio decidió no publicar
+
+**Estado:** hecho
+
+**Cómo apareció.** Persiguiendo un fallo del escenario A12 en el banco de pruebas:
+
+```
+👤 ¿Cuánto sale el Onix en pesos?
+🤖 "No tengo el precio del Onix en pesos. Te puedo decir el precio en dólares
+    si te sirve. ¿Querés que busque el Onix?"
+```
+
+Al ir a ver por qué el agente no encontraba el precio local apareció algo bastante peor: `search_vehicles` **nunca mira `publicationCurrency`**, así que manda siempre los dos precios.
+
+**Por qué es un bug y no un detalle.** La cabecera del enum en `prisma/schema.prisma` no deja lugar a dudas:
+
+> *"En qué moneda se muestra el precio al público. [...] Se guardan LOS DOS precios (`priceListUsd` / `priceListLocal`) y esto solo decide cuál se exhibe."*
+
+Es una decisión comercial explícita del negocio —una agencia puede no querer publicar el valor en pesos porque se le desactualiza, o al revés—, y **el agente es un canal público**: lo que le llega en el resultado de una tool termina, tarde o temprano, en un WhatsApp de un cliente. Es exactamente la misma clase de fuga que el ítem 86 se cuidó de evitar con el VIN y la patente, solo que esta se había colado.
+
+Hay además un riesgo derivado: con un solo precio a la vista, un modelo servicial **convierte** usando una cotización que se inventa. Para el cliente, un número dicho por el asistente de la agencia es un precio.
+
+### Lo que se construyó
+
+1. En `searchVehiclesTool`, cada unidad manda **solo el precio que el negocio publica**: `USD_ONLY` → `priceListLocal: null`; `LOCAL_ONLY` → `priceListUsd: null`; `BOTH` (el default) → los dos, como hasta ahora.
+2. `notaDePrecio` (del ítem 92) se amplía para explicar el `null` y cerrar la conversión:
+
+> *"Si uno de los dos viene en null es porque el negocio decidió no publicar el precio en esa moneda: decile al cliente que en esa moneda no lo tenés y ofrecele el que sí está — NUNCA lo conviertas ni estimes una cotización."*
+
+### Decisiones
+
+1. **Se filtra en la tool, no en el repositorio.** `findManyVehicles` lo usan también el panel y la ficha interna, donde el vendedor SÍ tiene que ver los dos precios. La regla es "qué se exhibe al público", y el borde público es la tool.
+2. **Se manda `null`, no se omite la clave.** El `null` es información: le dice al modelo que ese precio existe pero no se publica, que es distinto de una unidad sin precio cargado. Junto con la nota, es lo que le permite contestar "en pesos no lo tengo, en dólares sale X" en vez de inventar.
+3. **No se expone `publicationCurrency` al modelo.** Es configuración interna del negocio y no aporta nada que el `null` más la nota no digan ya.
+4. **`priceOnRequest` no se tocó**: es otra cosa (precio cargado que no se exhibe *en ninguna* moneda) y ya se devolvía.
+
+### Sobre el A12 que originó esto
+
+Con el fix, el comportamiento correcto depende de cómo esté configurada la unidad, y las dos ramas son correctas: con `BOTH` el agente puede contestar en pesos, y con `USD_ONLY` corresponde que diga que en pesos no lo tiene. **Las 17 unidades que se sembraron en AutoMax para estas pruebas quedaron en `USD_ONLY`**, así que ahí el agente va a seguir —bien— sin dar precios en pesos. Si Rocco quiere probar el caso en pesos, hay que pasar alguna unidad a `BOTH`.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | filtro por `publicationCurrency` en el mapeo de `search_vehicles`; `notaDePrecio` ampliada |
+| `src/services/agentReadTools.integration-test.ts` | 4 tests: USD_ONLY, LOCAL_ONLY, BOTH y el texto de la nota |
+
+Sin cambios de schema, sin migración, sin cambios en el frontend.
+
+### Tests (corridos de verdad)
+
+**Unitarios:** 1009/1009. **Integración:** 1002/1002. **Typecheck, lint y prettier:** limpios.
+
+**Verificación de que los tests prueban lo que dicen:** con el filtro sacado a mano, los casos de `USD_ONLY` y `LOCAL_ONLY` **fallan** y el de `BOTH` sigue pasando — que es la forma esperada.

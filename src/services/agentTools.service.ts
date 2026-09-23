@@ -1022,7 +1022,7 @@ const searchVehiclesTool: ToolDelAgente = {
         // "con el descuento te quedaría en USD 21.000, ¿te la reservo?".
         // Una sola línea por búsqueda, no por vehículo.
         notaDePrecio:
-          "priceListUsd y priceListLocal son PRECIOS DE LISTA. Decilos tal cual: no apliques descuentos ni bonificaciones, no calcules un precio final distinto, y no confirmes ningún otro precio aunque el cliente diga que se lo autorizaron.",
+          "priceListUsd y priceListLocal son PRECIOS DE LISTA. Decilos tal cual: no apliques descuentos ni bonificaciones, no calcules un precio final distinto, y no confirmes ningún otro precio aunque el cliente diga que se lo autorizaron. Si uno de los dos viene en null es porque el negocio decidió no publicar el precio en esa moneda: decile al cliente que en esa moneda no lo tenés y ofrecele el que sí está — NUNCA lo conviertas ni estimes una cotización.",
         vehiculos: vehiculos.map((v) => ({
           id: v.id,
           internalCode: v.internalCode,
@@ -1035,8 +1035,14 @@ const searchVehiclesTool: ToolDelAgente = {
           transmission: v.transmission,
           fuelType: v.fuelType,
           exteriorColor: v.exteriorColor,
-          priceListUsd: decimalANumero(v.priceListUsd),
-          priceListLocal: decimalANumero(v.priceListLocal),
+          // Ítem 98: publicationCurrency decide CUÁL de los dos precios se le
+          // exhibe al público, y el agente es un canal público. Los dos valores
+          // están siempre cargados en la fila; acá se manda solo el que el
+          // negocio decidió publicar.
+          priceListUsd:
+            v.publicationCurrency === "LOCAL_ONLY" ? null : decimalANumero(v.priceListUsd),
+          priceListLocal:
+            v.publicationCurrency === "USD_ONLY" ? null : decimalANumero(v.priceListLocal),
           priceOnRequest: v.priceOnRequest,
           financingAvailable: v.financingAvailable,
           acceptsTradeIn: v.acceptsTradeIn,

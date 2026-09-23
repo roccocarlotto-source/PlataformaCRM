@@ -872,3 +872,89 @@ test("las tools de lectura no escriben: el contacto queda igual después de ejec
   const despues = await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } });
   assert.equal(despues.updatedAt.getTime(), antes.updatedAt.getTime());
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 98: publicationCurrency decide qué precio se exhibe al público
+// ---------------------------------------------------------------------------
+
+test("search_vehicles: con USD_ONLY el precio en moneda local NO sale", async () => {
+  // El campo existe justamente para esto ("solo decide cuál se exhibe", según
+  // la cabecera de Vehicle), y el agente es un canal público. Los DOS precios
+  // están cargados en la fila: lo que se verifica es que solo viaja uno.
+  const propio = await montar("agent-read-tools-moneda-usd");
+  try {
+    await unidad(propio, {
+      make: "Fiat",
+      model: "Cronos",
+      year: 2024,
+      priceListUsd: 16_900,
+      priceListLocal: 19_200_000,
+      publicationCurrency: "USD_ONLY",
+    });
+    const data = await datosDe<ResultadoBusqueda>(
+      "search_vehicles",
+      {},
+      contextoDe(propio.organizationId, "00000000-0000-4000-8000-000000000003", propio.branchId),
+    );
+    assert.equal(data.vehiculos[0].priceListUsd, 16_900, "el publicado sí sale");
+    assert.equal(data.vehiculos[0].priceListLocal, null, "el NO publicado no puede salir");
+  } finally {
+    await desmontar(propio);
+  }
+});
+
+test("search_vehicles: con LOCAL_ONLY es al revés — no sale el de dólares", async () => {
+  const propio = await montar("agent-read-tools-moneda-local");
+  try {
+    await unidad(propio, {
+      make: "Fiat",
+      model: "Cronos",
+      year: 2024,
+      priceListUsd: 16_900,
+      priceListLocal: 19_200_000,
+      publicationCurrency: "LOCAL_ONLY",
+    });
+    const data = await datosDe<ResultadoBusqueda>(
+      "search_vehicles",
+      {},
+      contextoDe(propio.organizationId, "00000000-0000-4000-8000-000000000003", propio.branchId),
+    );
+    assert.equal(data.vehiculos[0].priceListUsd, null);
+    assert.equal(data.vehiculos[0].priceListLocal, 19_200_000);
+  } finally {
+    await desmontar(propio);
+  }
+});
+
+test("search_vehicles: con BOTH salen los dos (el default no cambió)", async () => {
+  const propio = await montar("agent-read-tools-moneda-both");
+  try {
+    await unidad(propio, {
+      make: "Fiat",
+      model: "Cronos",
+      year: 2024,
+      priceListUsd: 16_900,
+      priceListLocal: 19_200_000,
+      publicationCurrency: "BOTH",
+    });
+    const data = await datosDe<ResultadoBusqueda>(
+      "search_vehicles",
+      {},
+      contextoDe(propio.organizationId, "00000000-0000-4000-8000-000000000003", propio.branchId),
+    );
+    assert.equal(data.vehiculos[0].priceListUsd, 16_900);
+    assert.equal(data.vehiculos[0].priceListLocal, 19_200_000);
+  } finally {
+    await desmontar(propio);
+  }
+});
+
+test("search_vehicles: la nota de precio explica el null y prohíbe convertir (ítem 98)", async () => {
+  const data = await datosDe<{ notaDePrecio: string }>(
+    "search_vehicles",
+    {},
+    contextoDe(stock.organizationId, "00000000-0000-4000-8000-000000000003", stock.branchId),
+  );
+  assert.match(data.notaDePrecio, /viene en null/);
+  assert.match(data.notaDePrecio, /NUNCA lo conviertas ni estimes una cotización/);
+});
