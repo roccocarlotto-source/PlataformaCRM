@@ -4,6 +4,8 @@ import {
   ENCABEZADO_KNOWLEDGE_BASE,
   ETIQUETA_MENSAJE_CLIENTE,
   envolverMensajeDelCliente,
+  bloqueDeContacto,
+  nombreUsableDelContacto,
   INSTRUCCION_IDENTIDAD_INMUTABLE,
   INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
   lineaDeFechaActual,
@@ -492,4 +494,89 @@ test("la instrucción de no afirmar lo no hecho va siempre y nombra el caso real
   assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /Leer información NO es haber actuado/);
   assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /hablá en futuro/);
   assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /turno que no existe/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 105: el agente ya sabe con quién habla
+// ---------------------------------------------------------------------------
+
+test("nombreUsableDelContacto arma el nombre cuando hay algo real", () => {
+  assert.equal(
+    nombreUsableDelContacto({ firstName: "Martín", lastName: "Suárez" }),
+    "Martín Suárez",
+  );
+  assert.equal(nombreUsableDelContacto({ firstName: "Martín", lastName: null }), "Martín");
+  assert.equal(nombreUsableDelContacto({ firstName: "Martín", lastName: "" }), "Martín");
+});
+
+test("nombreUsableDelContacto NO toma los placeholder de WhatsApp como nombre", () => {
+  // Caso real de producción: el webhook crea contactos con firstName "." y
+  // lastName "". Si eso llegara al prompt como nombre, el agente saludaría
+  // "Hola ." — peor que no saludar por nombre.
+  for (const contacto of [
+    { firstName: ".", lastName: "" },
+    { firstName: "-", lastName: null },
+    { firstName: "   ", lastName: "  " },
+    { firstName: "...", lastName: "--" },
+  ]) {
+    assert.equal(nombreUsableDelContacto(contacto), null, JSON.stringify(contacto));
+  }
+});
+
+test("bloqueDeContacto lista lo que hay y prohíbe volver a pedirlo", () => {
+  const bloque = bloqueDeContacto({
+    firstName: "Martín",
+    lastName: "Suárez",
+    email: "martin@example.test",
+    phone: "+59899123456",
+  });
+  assert.match(bloque, /nombre: Martín Suárez/);
+  assert.match(bloque, /email: martin@example\.test/);
+  assert.match(bloque, /teléfono: \+59899123456/);
+  assert.match(bloque, /No se los vuelvas a pedir/);
+  assert.match(bloque, /Llamala por su nombre/);
+});
+
+test("bloqueDeContacto omite los campos vacíos en vez de decir 'null'", () => {
+  const bloque = bloqueDeContacto({
+    firstName: "Martín",
+    lastName: null,
+    email: null,
+    phone: "+59899123456",
+  });
+  assert.match(bloque, /nombre: Martín/);
+  assert.match(bloque, /teléfono/);
+  assert.doesNotMatch(bloque, /email/);
+  assert.doesNotMatch(bloque, /null/);
+});
+
+test("bloqueDeContacto con un contacto sin nombre habilita preguntarlo", () => {
+  // El caso del placeholder: hay teléfono pero no nombre. El agente tiene que
+  // saber que preguntar el nombre NO es repetir una pregunta.
+  const bloque = bloqueDeContacto({
+    firstName: ".",
+    lastName: "",
+    email: null,
+    phone: "+59899123456",
+  });
+  assert.doesNotMatch(bloque, /nombre:/);
+  assert.match(bloque, /teléfono: \+59899123456/);
+  assert.match(bloque, /Su nombre no está cargado/);
+});
+
+test("bloqueDeContacto sin ningún dato lo dice explícito", () => {
+  const bloque = bloqueDeContacto({ firstName: ".", lastName: "", email: null, phone: null });
+  assert.match(bloque, /todavía no tiene ningún dato cargado/);
+  assert.match(bloque, /podés preguntárselo/);
+});
+
+test("el prompt lleva el bloque del contacto solo cuando se lo pasan", () => {
+  const con = armarSystemPrompt({ ...BASE, guardrails: {} }, [], undefined, {
+    firstName: "Martín",
+    lastName: "Suárez",
+    email: null,
+    phone: null,
+  });
+  assert.match(con, /Martín Suárez/);
+  assert.doesNotMatch(armarSystemPrompt({ ...BASE, guardrails: {} }, []), /CRM YA tiene/);
 });

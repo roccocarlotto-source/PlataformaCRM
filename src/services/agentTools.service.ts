@@ -507,6 +507,78 @@ async function zonaDeLaSucursal(contexto: ContextoDeEjecucionDeTool): Promise<st
 // vez de dos y emparejarlos bien. Si lo manda igual, se respeta y se valida
 // como antes: este cambio no saca ninguna verificación, solo deja de exigir un
 // dato que el backend puede deducir.
+// ---------------------------------------------------------------------------
+// EL SERVICIO SE PUEDE PEDIR POR NOMBRE (ítem 106)
+// ---------------------------------------------------------------------------
+// Caso real de producción, con el flujo de turnos ya encadenando: el modelo
+// consultó disponibilidad con serviceTypeId "7358bbb9-…" y dos mensajes
+// después intentó reservar con "8a176846-…" — un UUID que no existe, generado
+// de memoria en vez de copiado. La guarda del ítem 102 lo frenó y no se creó
+// una reserva falsa, pero la reserva tampoco se hizo.
+//
+// Acarrear un UUID opaco entre turnos es justo lo que un LLM hace mal, y no
+// hay ninguna razón para pedírselo: los servicios de una sucursal son tres o
+// cuatro y tienen nombres cortos que el modelo repite sin problema ("Test
+// drive"). Así que se acepta el NOMBRE como alternativa, y el backend resuelve
+// el id — que es lo que el backend sabe hacer y el modelo no.
+//
+// El id sigue aceptándose: si el modelo lo copió bien, mejor todavía.
+export const MENSAJE_SERVICIO_SIN_IDENTIFICAR =
+  'Hay que indicar el servicio: mandá `servicio` con el nombre (por ejemplo "Test drive") o `serviceTypeId` con el id exacto que devolvió la lista de servicios.';
+
+function normalizarNombre(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Devuelve el serviceTypeId, o un fallo con la lista de nombres reales para
+// que el modelo pueda corregirse sin adivinar.
+async function resolverServicio(
+  args: { serviceTypeId?: string; servicio?: string },
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<{ ok: true; serviceTypeId: string } | { ok: false; resultado: ResultadoDeTool }> {
+  if (args.serviceTypeId !== undefined) {
+    return { ok: true, serviceTypeId: args.serviceTypeId };
+  }
+  if (args.servicio === undefined) {
+    return { ok: false, resultado: fallo(MENSAJE_SERVICIO_SIN_IDENTIFICAR) };
+  }
+
+  const tipos = await findManyServiceTypes(
+    contexto.organizationId,
+    { branchId: contexto.conversation.branchId },
+    { skip: 0, take: MAX_TIPOS_DE_SERVICIO },
+    { sortBy: "name", sortOrder: "asc" },
+  );
+  const buscado = normalizarNombre(args.servicio);
+  const coincidencias = tipos.filter((t) => normalizarNombre(t.name) === buscado);
+
+  if (coincidencias.length === 1) {
+    return { ok: true, serviceTypeId: coincidencias[0].id };
+  }
+  const disponibles = tipos.map((t) => `"${t.name}"`).join(", ");
+  if (coincidencias.length === 0) {
+    return {
+      ok: false,
+      resultado: fallo(
+        tipos.length === 0
+          ? "Esta sucursal no tiene ningún servicio configurado, así que no hay nada que agendar."
+          : `No existe ningún servicio llamado "${args.servicio}". Los que existen son: ${disponibles}. Usá uno de esos, tal cual está escrito.`,
+      ),
+    };
+  }
+  return {
+    ok: false,
+    resultado: fallo(
+      `Hay más de un servicio que se llama "${args.servicio}". Preguntale al cliente cuál quiere entre: ${disponibles}.`,
+    ),
+  };
+}
+
 async function resolverRecursoDelServicio(
   serviceTypeId: string,
   resourceIdExplicito: string | undefined,
@@ -556,7 +628,9 @@ const getAvailabilityArgs = z
   .object({
     // Ítem 102: opcional. Si no viene, se deduce del serviceTypeId.
     resourceId: vacioComoAusente(uuid("resourceId")),
-    serviceTypeId: uuid("serviceTypeId"),
+    // Ítem 106: uno de los dos. El nombre es lo que el modelo maneja bien.
+    serviceTypeId: vacioComoAusente(uuid("serviceTypeId")),
+    servicio: textoOpcional(255),
     desde: instanteIso,
     hasta: vacioComoAusente(instanteIso),
   })
@@ -587,14 +661,23 @@ const getAvailabilityTool: ToolDelAgente = {
           description:
             "UUID del recurso. NO hace falta mandarlo: se deduce del servicio. Mandalo solo si lo tenés y estás seguro de que es el que provee ese servicio.",
         },
-        serviceTypeId: { type: "string", description: "UUID del tipo de servicio." },
+        servicio: {
+          type: "string",
+          description:
+            'Nombre del servicio, tal cual aparece en la lista de servicios (por ejemplo "Test drive"). Es la forma preferida: mandá esto y no te preocupes por ids.',
+        },
+        serviceTypeId: {
+          type: "string",
+          description:
+            "Id del tipo de servicio. Alternativa a `servicio`. Solo si lo tenés copiado EXACTO de la lista de servicios — nunca lo escribas de memoria.",
+        },
         desde: { type: "string", description: "Inicio del rango, ISO 8601 con zona." },
         hasta: {
           type: "string",
           description: `Fin del rango, ISO 8601 con zona. OPCIONAL: si no lo mandás se consultan las 24 horas siguientes a desde, que es lo que querés cuando el cliente dijo un día o un horario puntual. Máximo ${MAX_DIAS_DE_RANGO} días después de desde.`,
         },
       },
-      required: ["serviceTypeId", "desde"],
+      required: ["desde"],
       additionalProperties: false,
     },
   },
@@ -607,8 +690,12 @@ const getAvailabilityTool: ToolDelAgente = {
     const params = validacion.value;
 
     return conErroresDeNegocio(async () => {
+      const servicio = await resolverServicio(params, contexto);
+      if (!servicio.ok) {
+        return servicio.resultado;
+      }
       const recurso = await resolverRecursoDelServicio(
-        params.serviceTypeId,
+        servicio.serviceTypeId,
         params.resourceId,
         contexto,
       );
@@ -618,6 +705,7 @@ const getAvailabilityTool: ToolDelAgente = {
 
       const turnos = await obtenerDisponibilidad(contexto.organizationId, {
         ...params,
+        serviceTypeId: servicio.serviceTypeId,
         resourceId: recurso.resourceId,
       });
 
@@ -638,7 +726,8 @@ const getAvailabilityTool: ToolDelAgente = {
 const createBookingArgs = z.object({
   // Ítem 102: opcional, igual que en get_availability.
   resourceId: vacioComoAusente(uuid("resourceId")),
-  serviceTypeId: uuid("serviceTypeId"),
+  serviceTypeId: vacioComoAusente(uuid("serviceTypeId")),
+  servicio: textoOpcional(255),
   startsAt: instanteIso,
 });
 
@@ -655,10 +744,19 @@ const createBookingTool: ToolDelAgente = {
           description:
             "UUID del recurso. NO hace falta mandarlo: se deduce del servicio. Mandalo solo si lo tenés y estás seguro de que es el que provee ese servicio.",
         },
-        serviceTypeId: { type: "string", description: "UUID del tipo de servicio." },
+        servicio: {
+          type: "string",
+          description:
+            'Nombre del servicio, tal cual aparece en la lista de servicios (por ejemplo "Test drive"). Es la forma preferida: mandá esto y no te preocupes por ids.',
+        },
+        serviceTypeId: {
+          type: "string",
+          description:
+            "Id del tipo de servicio. Alternativa a `servicio`. Solo si lo tenés copiado EXACTO de la lista de servicios — nunca lo escribas de memoria.",
+        },
         startsAt: { type: "string", description: "Inicio del turno, ISO 8601 con zona." },
       },
-      required: ["serviceTypeId", "startsAt"],
+      required: ["startsAt"],
       additionalProperties: false,
     },
   },
@@ -671,8 +769,12 @@ const createBookingTool: ToolDelAgente = {
     const input = validacion.value;
 
     return conErroresDeNegocio(async () => {
+      const servicio = await resolverServicio(input, contexto);
+      if (!servicio.ok) {
+        return servicio.resultado;
+      }
       const recurso = await resolverRecursoDelServicio(
-        input.serviceTypeId,
+        servicio.serviceTypeId,
         input.resourceId,
         contexto,
       );
@@ -682,7 +784,7 @@ const createBookingTool: ToolDelAgente = {
 
       const booking = await createBooking(contexto.organizationId, {
         resourceId: recurso.resourceId,
-        serviceTypeId: input.serviceTypeId,
+        serviceTypeId: servicio.serviceTypeId,
         // Siempre el contacto de la conversación.
         contactId: contexto.conversation.contactId,
         startsAt: input.startsAt,
@@ -1218,7 +1320,7 @@ const getServiceTypesTool: ToolDelAgente = {
       // funciones, no de este texto, y cuando aparecen en prosa termina
       // repitiéndoselos al cliente (fue el caso real que disparó el ítem 96).
       proximosPasos:
-        "Estos son los ÚNICOS servicios que existen: no ofrezcas ninguno que no esté acá. Ya tenés los identificadores que hacen falta. Esto es solo el primer paso: antes de ofrecerle horarios al cliente consultá la disponibilidad real del recurso, y después reservá el turno con la herramienta de reserva, que es lo único que lo hace existir. NO le digas al cliente que su turno quedó agendado hasta que la reserva te haya devuelto un resultado exitoso: si se lo decís antes, la persona se va a presentar a un turno que nadie tiene anotado.",
+        "Estos son los ÚNICOS servicios que existen: no ofrezcas ninguno que no esté acá. Para consultar disponibilidad y para reservar, referite al servicio por su NOMBRE tal cual figura acá (campo `servicio`) — no hace falta que copies ningún id, y escribir uno de memoria falla. Esto es solo el primer paso: antes de ofrecerle horarios al cliente consultá la disponibilidad real, y después reservá el turno con la herramienta de reserva, que es lo único que lo hace existir. NO le digas al cliente que su turno quedó agendado hasta que la reserva te haya devuelto un resultado exitoso: si se lo decís antes, la persona se va a presentar a un turno que nadie tiene anotado.",
       serviceTypes: tipos.map((t) => ({
         id: t.id,
         name: t.name,

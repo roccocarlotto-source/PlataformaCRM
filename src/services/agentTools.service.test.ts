@@ -138,15 +138,21 @@ test("get_availability: fechas ISO con zona, hasta > desde, y tope de rango", as
   );
 });
 
-test("create_booking: exige resourceId, serviceTypeId y startsAt ISO con zona", async () => {
-  assert.match(await rechazoDe("create_booking", { resourceId: UUID }), /serviceTypeId/);
+test("create_booking: exige startsAt ISO con zona y algún modo de indicar el servicio", async () => {
+  // startsAt sigue siendo obligatorio y sigue teniendo que ser ISO con zona.
+  assert.match(await rechazoDe("create_booking", { servicio: "Test drive" }), /startsAt/);
   assert.match(
     await rechazoDe("create_booking", {
-      resourceId: UUID,
-      serviceTypeId: UUID,
+      servicio: "Test drive",
       startsAt: "mañana a las 3",
     }),
     /ISO 8601/,
+  );
+  // Ítem 106: el servicio ya no se indica solo por id, pero sigue haciendo
+  // falta indicarlo de ALGUNA de las dos formas, y el error dice cuáles son.
+  assert.match(
+    await rechazoDe("create_booking", { startsAt: "2026-09-28T10:00:00-03:00" }),
+    /servicio.*serviceTypeId/s,
   );
 });
 
@@ -524,14 +530,22 @@ test("get_availability: un hasta ANTERIOR a desde sigue siendo un error", async 
   );
 });
 
-test("get_availability y create_booking ya no exigen resourceId (ítem 102)", () => {
-  for (const nombre of ["get_availability", "create_booking"]) {
+test("agendar no exige ningún id: ni resourceId (ítem 102) ni serviceTypeId (ítem 106)", () => {
+  // Los dos ítems apuntan a lo mismo: sacarle al modelo el trabajo de acarrear
+  // identificadores opacos, que es lo que hace mal. Lo único obligatorio es el
+  // dato que el cliente de verdad dio (la fecha).
+  for (const [nombre, obligatorio] of [
+    ["get_availability", "desde"],
+    ["create_booking", "startsAt"],
+  ] as const) {
     const params = CATALOGO_DE_TOOLS.get(nombre)!.definition.parameters as {
       required: string[];
       properties: Record<string, { description: string }>;
     };
-    assert.ok(!params.required.includes("resourceId"), `${nombre} no debe exigir resourceId`);
-    assert.ok(params.required.includes("serviceTypeId"), `${nombre} sí exige serviceTypeId`);
+    assert.deepEqual(params.required, [obligatorio], `${nombre} solo debe exigir ${obligatorio}`);
     assert.match(params.properties.resourceId.description, /NO hace falta mandarlo|se deduce/);
+    // Y el nombre del servicio se presenta como la forma preferida.
+    assert.match(params.properties.servicio.description, /forma preferida/);
+    assert.match(params.properties.serviceTypeId.description, /nunca lo escribas de memoria/);
   }
 });
