@@ -1004,7 +1004,7 @@ const createBookingTool: ToolDelAgente = {
   definition: {
     name: "create_booking",
     description:
-      "Reserva de verdad un turno para el contacto de esta conversación: hasta que esta tool no devuelva un resultado exitoso, el turno NO existe y no se lo podés confirmar al cliente. Alcanza con el serviceTypeId, el recurso se deduce solo. El horario tiene que ser uno de los que ya devolvió la consulta de disponibilidad. El fin lo determina la duración del servicio.",
+      "Reserva de verdad un turno para el contacto de esta conversación: hasta que esta tool no devuelva un resultado exitoso, el turno NO existe y no se lo podés confirmar al cliente. RESERVÁ EN EL MISMO TURNO EN QUE EL CLIENTE ACEPTA, sin volver a pedirle que confirme: «dale», «me viene bien», «sí, reservame ese», «el primero que tengas me sirve» ya son un sí. Volver a preguntarle «¿te lo reservo?» a alguien que acaba de aceptar lo hace esperar por nada, y muchos no contestan: el turno no se agenda nunca y la visita se pierde. Y si te delegó la elección del horario, elegilo vos —el primero libre de los que devolvió la disponibilidad— y reservalo; no le devuelvas la decisión que te acaba de dar. Alcanza con el serviceTypeId, el recurso se deduce solo. El horario tiene que ser uno de los que ya devolvió la consulta de disponibilidad. El fin lo determina la duración del servicio.",
     parameters: {
       type: "object",
       properties: {
