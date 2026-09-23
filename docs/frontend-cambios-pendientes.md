@@ -5321,3 +5321,46 @@ Unitario: `INSTRUCCION_USAR_HERRAMIENTAS` está en el prompt con y sin condicion
 
 **Backend:** `typecheck` limpio; `lint` limpio (con `--ignore-pattern "supabase/.temp/"`); `prettier --check` limpio; **986/986** unitarios; **981/981** de integración, todos contra Postgres local.
 **Frontend:** sin cambios en este ítem.
+
+## 89. search_vehicles: el modelo no sabe que puede contestar "cuál es el más barato" con la tool
+
+**Estado:** hecho — mitigación de prompt
+
+**Qué pasó (caso real, AutoMax, 23/09/2026, con el ítem 88 ya deployado — descartado que sea el mismo bug).** Cliente: *"Decime el vehículo más barato que tengas"*. El agente, dos veces seguidas (con las dos formas en que se lo preguntaron), contestó sin llamar a `search_vehicles` en ningún momento (`toolCalls: null`):
+
+> "Se me complica decirte cuál es el vehículo más barato en este momento, ya que el precio puede variar mucho. ¿Te interesaría ver opciones de un rango de precio o alguna marca en particular?"
+
+**Por qué pasa.** `search_vehicles` SÍ ordena los resultados de más barato a más caro (`sortBy: "priceListUsd", sortOrder: "asc"`, fijo en `searchVehiclesTool.ejecutar`) — pero la `description` de la tool (la que lee el modelo) nunca lo dice. El modelo no tiene ningún filtro que se llame "el más barato" ni ninguna pista de que alcanza con llamar la tool sin filtros (o con los que el cliente haya dado) y leer el primer resultado. Sin esa pista, interpreta "el más barato" como un dato que le falta y pregunta — es un problema de qué sabe la tool sobre sí misma, no el mismo problema de los ítems 87/88 (ahí el modelo inventaba filtros o cortaba antes de tiempo; acá directamente no ve el camino).
+
+**Qué hacer:** agregar a la `description` que el resultado viene ordenado de más barato a más caro, con un ejemplo explícito para este caso: "Los resultados vienen ordenados de más barato a más caro. Si preguntan cuál es el más barato (o el más caro), llamala con los filtros que el cliente haya dado (o sin filtros si no dio ninguno) y contestá con el primero (o el último) de la lista — no hace falta pedir más datos para eso." Mismo criterio que el resto de los ejemplos que ya tiene la description (ítem 87).
+
+### Lo que se cambió
+
+Solo la `description` de `search_vehicles`, como extensión del texto del ítem 87. Va inmediatamente después de "Devuelve como máximo 10 resultados y el total.", que es donde el modelo ya lee cómo viene el resultado:
+
+> Los resultados vienen ordenados de más barato a más caro (los de precio a consultar, sin precio de lista, van al final). Ejemplo: si preguntan cuál es el más barato, llamala con los filtros que el cliente haya dado (o sin filtros si no dio ninguno) y contestá con el primero de la lista — no hace falta pedir más datos para eso. Para el más caro, el último con precio de la lista lo es solo si total es 10 o menos; si total es mayor, la lista trae solo los 10 más baratos y el más caro no está en ella: no afirmes cuál es.
+
+El `subtitle` del espejo en `frontend/src/features/agent/tools.ts` se copió de la descripción nueva. Se verificó importando los dos catálogos que las once descripciones son idénticas.
+
+### Decisiones (diferencias con el texto sugerido)
+
+1. **"El más caro = el último de la lista" no se escribió así, porque no siempre es cierto.** La tool corta en 10 (`take: 10`): con más de 10 unidades, el último es el décimo más barato, no el más caro. El texto dice que es el más caro solo si `total ≤ 10`, y si no, que no lo afirme. Un agente que dice con seguridad algo falso sobre el stock es justo lo que los ítems 87 y 88 vinieron a sacar.
+2. **Tampoco se le sugiere buscar de nuevo con un `priceMinUsd` más alto.** Sería un filtro que el modelo elige por su cuenta, y eso contradice la REGLA PRINCIPAL del ítem 87 (cada filtro tiene que salir de las palabras del cliente). Si el caso "el más caro" aparece de verdad, la salida limpia es un argumento de orden (por ejemplo `orden: "precio_desc"`), que es un cambio de la tool y no de su descripción. No se construyó.
+3. **Las unidades de "precio a consultar" van al final** (Postgres ordena `NULLS LAST` en ascendente). Se aclara para que el modelo no tome como "el más caro" una unidad sin precio.
+
+Es una mitigación de prompt, igual que la del ítem 87: le da al modelo el camino, pero no lo obliga a tomarlo.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | `description` de `search_vehicles` |
+| `frontend/src/features/agent/tools.ts` | `subtitle` de `search_vehicles` |
+| `src/services/agentTools.service.test.ts` | Tres aserciones más en el test de la descripción del ítem 87: el orden, el ejemplo del más barato y la advertencia del más caro |
+
+Sin cambios de lógica ni migración.
+
+### Tests (corridos de verdad)
+
+**Backend:** `typecheck` limpio; `lint` limpio (con `--ignore-pattern "supabase/.temp/"`); `prettier --check` limpio; **986/986** unitarios. La integración no se corrió en local porque no cambió lógica; la corre el CI.
+**Frontend:** `typecheck` y `lint` limpios, `prettier --check` limpio en `tools.ts`, **1785/1785** (164 archivos).

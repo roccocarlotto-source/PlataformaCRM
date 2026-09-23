@@ -367,6 +367,11 @@ test("search_vehicles: la regla de no inventar filtros va al principio de la des
   );
   assert.match(descripcion, /solo dice "algo de menos de 30 mil dólares"/);
   assert.match(descripcion, /únicamente priceMaxUsd/);
+  // Ítem 89: el orden es lo que permite contestar "el más barato" sin pedir
+  // datos. Y como la lista corta en 10, el último NO es siempre el más caro.
+  assert.match(descripcion, /ordenados de más barato a más caro/);
+  assert.match(descripcion, /cuál es el más barato/);
+  assert.match(descripcion, /el más caro no está en ella/);
 });
 
 test("search_vehicles: cada filtro de riesgo abre su descripción con la advertencia", () => {
