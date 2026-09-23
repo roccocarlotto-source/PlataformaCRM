@@ -182,6 +182,8 @@ export interface VehicleListQuery {
   minPriceUsd?: number;
   maxPriceUsd?: number;
   consignmentOnly?: boolean;
+  // Ítem 158: la vista diaria deja afuera las unidades "no visibles en el listado".
+  onlyVisible?: boolean;
   // Permuta (§41): las unidades recibidas en esa venta.
   tradeInOpportunityId?: string;
   q?: string;

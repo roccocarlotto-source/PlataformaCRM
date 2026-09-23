@@ -305,6 +305,11 @@ export const listVehiclesQuerySchema = z.object({
   minPriceUsd: z.coerce.number().min(0).optional(),
   maxPriceUsd: z.coerce.number().min(0).optional(),
   consignmentOnly: queryBooleanSchema,
+  // Ítem 158 de docs/matriz-de-datos-crm.md: la vista diaria del stock deja
+  // afuera las unidades con visibleInListing = false. Opt-in y no default:
+  // los selectores (vincular una unidad a una oportunidad, permutas) siguen
+  // viendo todo el stock.
+  onlyVisible: queryBooleanSchema,
   tradeInOpportunityId: z.string().uuid("tradeInOpportunityId inválido").optional(),
   q: z.string().trim().min(1).max(100).optional(),
   sortBy: z.enum(["createdAt", "priceListUsd", "stockEnteredAt"]).default("createdAt"),

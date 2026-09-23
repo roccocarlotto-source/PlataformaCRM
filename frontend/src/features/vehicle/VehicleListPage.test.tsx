@@ -373,6 +373,12 @@ describe("VehicleListPage", () => {
     await user.click(screen.getByLabelText("Solo consignación"));
     await waitFor(() => expect(lastListQuery()?.get("consignmentOnly")).toBe("true"));
 
+    // Ítem 158: por defecto la vista deja afuera las unidades ocultas; el
+    // tilde "Mostrar ocultas" deja de filtrarlas.
+    expect(lastListQuery()?.get("onlyVisible")).toBe("true");
+    await user.click(screen.getByLabelText("Mostrar ocultas"));
+    await waitFor(() => expect(lastListQuery()?.has("onlyVisible")).toBe(false));
+
     await chooseSelectOption(user, screen.getByLabelText("Ordenar por"), "Precio (USD)");
     await waitFor(() => expect(lastListQuery()?.get("sortBy")).toBe("priceListUsd"));
   });

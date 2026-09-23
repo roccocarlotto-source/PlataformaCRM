@@ -14,7 +14,15 @@ import {
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
 import { createPipeline, PIPELINE_DEFAULT_SIN_ETAPAS, updatePipeline } from "./pipeline.service";
 import { createStage, deleteStage, ULTIMA_ETAPA_DEL_DEFAULT } from "./stage.service";
-import { assertAppError, capturar, desmontar, montar, type Escenario } from "./vehicle.test-helper";
+import { listVehicles } from "./vehicle.service";
+import {
+  assertAppError,
+  borrador,
+  capturar,
+  desmontar,
+  montar,
+  type Escenario,
+} from "./vehicle.test-helper";
 
 // ---------------------------------------------------------------------------
 // Ítems 155 en adelante de docs/matriz-de-datos-crm.md contra Postgres real:
@@ -39,6 +47,7 @@ after(async () => {
   if (!e) return;
   const where = { organizationId: e.organizationId };
   await prisma.opportunity.deleteMany({ where });
+  await prisma.vehicle.deleteMany({ where });
   await prisma.stage.deleteMany({ where });
   await prisma.pipeline.deleteMany({ where });
   await prisma.contact.deleteMany({ where });
@@ -164,4 +173,22 @@ test("ítem 157: ganar la venta pasa el contacto a CUSTOMER, y reabrirla no lo d
   await oportunidad({ contactId: mql.id, stageId: ganado, status: "WON" });
   const otro = await prisma.contact.findUniqueOrThrow({ where: { id: mql.id } });
   assert.equal(otro.lifecycleStage, "CUSTOMER");
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 158 — "Visible en el listado" filtra la vista diaria
+// ---------------------------------------------------------------------------
+
+test("ítem 158: onlyVisible deja afuera las unidades con visibleInListing=false; sin el filtro aparecen todas", async () => {
+  const visible = await borrador(e);
+  const oculta = await borrador(e, { visibleInListing: false });
+  const base = { page: 1, pageSize: 100, sortBy: "createdAt" as const, sortOrder: "desc" as const };
+
+  const vista = await listVehicles(e.organizationId, { ...base, onlyVisible: true });
+  const ids = vista.data.map((v) => v.id);
+  assert.ok(ids.includes(visible.id));
+  assert.ok(!ids.includes(oculta.id));
+
+  const todas = await listVehicles(e.organizationId, base);
+  assert.ok(todas.data.some((v) => v.id === oculta.id));
 });

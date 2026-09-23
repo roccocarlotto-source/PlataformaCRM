@@ -75,6 +75,7 @@ export interface ListVehiclesParams {
   minPriceUsd?: number;
   maxPriceUsd?: number;
   consignmentOnly?: boolean;
+  onlyVisible?: boolean;
   tradeInOpportunityId?: string;
   q?: string;
   sortBy: VehicleSortBy;

@@ -60,7 +60,7 @@ Ordenadas por lo que cuestan si pasan en producción.
 | **P4** | El pipeline por defecto sin etapas activas | acepta | crear un default vacío: 201 · borrar la última etapa del default: 204 | El default queda con 0 etapas. `create_opportunity` del agente responde `MENSAJE_PIPELINE_SIN_ETAPAS`; en la UI no se puede crear ninguna oportunidad en ese pipeline. | ¿`deleteStage` rechaza borrar la última etapa del default? ¿Un default nuevo necesita al menos una etapa? |
 | **P6** | La etapa de `order=1` es `isWon` (o `isLost`) | acepta | 201; primera etapa por order: "Vendido" | Si ese pipeline es el default, toda oportunidad que crea el agente nace OPEN en una etapa de cierre (produce O3). | Depende de O1: si la etapa manda, esto es una mala configuración que conviene rechazar. |
 | **O4** | LOST sin `lostReason` · OPEN con `lostReason` y `actualCloseDate` · WON con `lostReason` | acepta | 201 · 201 · 201 | Se guardan tal cual. El formulario limpia `lostReason` y la fecha al reabrir (§48/§50); la API no. | ¿Motivo obligatorio en LOST? ¿La API limpia los campos de cierre al reabrir? |
-| **O8** | `financingType` NONE con cuotas y prestamista · `INSTALLMENT_24M` con 36 cuotas | acepta | 201 · 201 | Se guardan tal cual (el §42 dice "pasan tal cual, sin regla de negocio"). | Decidido en el §42. Anotado porque la cotización y la entrega los leen. |
+| **O8** | `financingType` NONE con cuotas y prestamista · `INSTALLMENT_24M` con 36 cuotas | acepta | 201 · 201 | Se guardan tal cual (el §42 dice "pasan tal cual, sin regla de negocio"). | Decidido en el §42, y se mantiene (ver abajo, "Lo que no se cambió"). |
 | **K1** | `lifecycleStage` CUSTOMER sin ninguna ganada · LEAD con una ganada | acepta | 201 · ganar la oportunidad de un LEAD: 201 | El LEAD sigue LEAD después de ganar: nada deriva `lifecycleStage` de las oportunidades (`promotion.service.ts` lo deja fuera a propósito). | ¿Ganar la primera oportunidad pasa el contacto a CUSTOMER? |
 | **V5** | `visibleInListing=false` | acepta | 201 | `GET /vehicles` **la devuelve igual**: ningún filtro lee el campo. | ¿Se implementa el filtro o se saca el campo? |
 
@@ -94,6 +94,12 @@ Ordenadas por lo que cuestan si pasan en producción.
 | **P5** | Pipeline sin ninguna etapa de cierre | §51, anotado como deuda: sus oportunidades no se pueden cerrar desde la UI; por la API sí |
 | **K2** | Contacto sin email ni teléfono | Legítimo (carga de mostrador) |
 | **K3** | Email de un contacto dado de baja reusado por uno vivo | `contacts_org_email_unique` es parcial sobre los vivos, a propósito |
+
+### Lo que no se cambió, aunque se había aprobado
+
+**O8 (financiación).** Se había aprobado validar la coherencia entre el plan y las cuotas, y al implementarlo apareció que el §42 ya lo había decidido en contra, explícitamente: `INSTALLMENT_24M`/`INSTALLMENT_36M` son la **categoría gruesa** del crédito ("Crédito prendario 24 meses" es el plazo), `financingInstallmentCount` es la cantidad **real** de cuotas que da el banco, y "cualquier validación cruzada entre estos campos y `financingType`" quedó fuera a propósito. El formulario además conserva el detalle oculto al pasar a "Sin financiación", para que un cambio de categoría por error no borre lo cargado. Un plan de 24 meses con 23 cuotas es un caso real (el propio test del §42 lo usa). No se tocó; si se quiere otra regla, es una decisión de producto nueva. Además, la fila O8 decía que la cotización y la entrega leen estos campos: no es así, solo los leen el formulario y la lista.
+
+**Motivo obligatorio en una venta perdida (O4).** Se deja opcional: el agente puede perder una oportunidad sin motivo, y exigirlo lo haría fallar.
 
 ### Para el chat del agente (no se tocó nada)
 
@@ -252,3 +258,50 @@ La UI no nota el cambio: ya manda etapa y estado coherentes.
 **Qué se hizo.** Cuando una oportunidad **pasa a ganada**, su contacto pasa a `CUSTOMER` en la misma transacción. Vale para ganarla por etapa, por estado o creándola ya ganada, y para cualquier estado anterior (un `CHURNED` que vuelve a comprar también es cliente). Solo se mira la transición real (la misma lectura bajo lock que decide el evento `opportunity.won`), y es un solo sentido: reabrir o perder la venta **no** lo degrada, porque haber comprado es un hecho que ya pasó. Una oportunidad solo con empresa no toca a nadie. Ninguna automatización escucha cambios de `lifecycleStage`, así que no se dispara nada nuevo.
 
 **Tests.** `crmIntegridad.integration-test.ts`: LEAD → CUSTOMER al moverla a "Ganado", sigue CUSTOMER al reabrirla, y MQL → CUSTOMER creándola ganada. Con cierre y entregas: 30/30.
+
+---
+
+## 158. "Visible en el listado" no hacía nada
+
+**Estado:** hecho. Fila V5 del ítem 150.
+
+**Qué pasaba.** Destildar "Visible en el listado" en una unidad (201) no cambiaba nada: `GET /vehicles` la seguía devolviendo, porque ningún filtro leía el campo, ni en el backend ni en el frontend. El schema dice que sirve "para sacar de la vista diaria una unidad que sigue en stock (en el taller, prestada)".
+
+**Por qué pasa.** El campo se agregó en la Fase 1 con el formulario y el detalle, pero el filtro del listado nunca se construyó.
+
+**Qué se hizo.**
+
+- **Backend:** filtro `onlyVisible=true` en `GET /vehicles`. Es opt-in y no un default: los selectores que buscan en el stock (vincular una unidad a una oportunidad, permutas) siguen viendo todas las unidades, porque una unidad en el taller se puede vender igual.
+- **Frontend:** la pantalla Stock de vehículos lo manda por defecto, así que las unidades ocultas salen de la vista diaria. Un tilde nuevo, "Mostrar ocultas", al lado de "Solo consignación", las vuelve a mostrar.
+
+**Tests.** Backend: `crmIntegridad.integration-test.ts`, con el filtro la oculta no aparece y sin él sí. Frontend: `VehicleListPage.test.tsx` afirma que la vista arranca con `onlyVisible=true` y que el tilde lo saca; `api.test.ts` cubre el parámetro. Frontend de vehículos: 101/101; `tsc -b` limpio.
+
+---
+
+## Después de la serie 151–158: la sonda otra vez
+
+Misma sonda del ítem 150 (`scripts/sonda-matriz-crm.ts`), corrida sobre la serie completa. Las celdas que cambiaron:
+
+| # | Antes (ítem 150) | Ahora |
+|---|---|---|
+| R2 | pasar a LOST: 200 → la unidad entregada vuelve a `AVAILABLE` y el agente la ofrece | pasar a LOST: **409**, reabrir: **409**; la unidad sigue `DELIVERED` y el agente no la ofrece |
+| R1 | volver a ganar: 409 → trabada | volver a ganar: **200**, queda `WON` en "Ganado" con la misma entrega |
+| V3 | vendida y sin sincronizar: "entrada viva" | vendida y sin sincronizar: **"entrada dada de baja"** |
+| V4b | PATCH a `AVAILABLE`: 200 → 2 oportunidades abiertas sobre un auto | PATCH a `AVAILABLE`: **409**; la segunda oportunidad: 409 → 1 |
+| V6 | DELETE: 204 → oportunidad imposible de ganar | DELETE: **409**; la unidad sigue y ganar la oportunidad da 200 |
+| O1 | WON en "Nuevo": 201 | **400** |
+| O2 | ganada sin fecha: `wonThisPeriod` no se movía | se completa la fecha: `wonThisPeriod` 0 → **1**, ingresos 0.00 → **1000.00** |
+| O3 | OPEN en "Ganado"/"Perdido": 201 | **400** (crear en etapa de cierre sin estado) |
+| O4 | los tres: 201 | LOST sin motivo: 201 (a propósito) · OPEN con cierre: **400** · WON con motivo: **400** |
+| O7 | DELETE contacto y empresa: 204 | **409** en los dos |
+| O9 | marcar ganada una etapa con oportunidades: 200 | **409** |
+| P3 | primer pipeline sin marcar: 0 defaults | **1 default** |
+| P4 | borrar la última etapa del default: 204 | **409** |
+| K1 | el LEAD sigue LEAD después de ganar | pasa a **CUSTOMER** |
+| V5 | (se midió en el servicio, ver ítem 158) | `onlyVisible=true` la deja afuera |
+
+P2 ahora da 409 en la sonda por una razón nueva y correcta: el pipeline que intentaba marcar como default no tenía etapas (ítem 156). Sin cambios, a propósito: V1 (es del agente), V2 y O5 (solo entran por la base), V2b, V4, P5, P6, P7, K2, K3, O8.
+
+Los textos fijos de la columna "después" de la sonda describen el hallazgo original; lo que se mide en cada corrida son los códigos y los números.
+
+**Suites sobre la serie completa:** unitarios del backend 1077/1077 (sin `DATABASE_URL`, como en CI), integración 1054/1054, sobre `master` en `e289a8f`, frontend 1785/1785 en 164 archivos; typecheck, lint y prettier limpios en los dos paquetes.
