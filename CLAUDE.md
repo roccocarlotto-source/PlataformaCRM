@@ -84,13 +84,34 @@ todo lo que toque PRs y CI:
   Rocco una captura de pantalla, siempre que `gh` alcance para
   confirmarlo.
 
-**`gh pr merge` no se corre nunca por iniciativa propia.** El merge es
-una decisión que se toma en la conversación de revisión — con Rocco y/o
-con el otro agente — nunca un paso automático de una tarea, sin importar
-qué tan verde esté el CI. Si una tarea llega al punto de que el PR está
-listo y el CI pasó, el reporte lo dice y ahí termina el trabajo de esa
-tarea: no se ejecuta el merge.
+**`gh pr merge` se corre solo con el CI REMOTO en verde** (decisión de
+Rocco, 23/09/2026, que reemplaza la regla anterior de no mergear nunca por
+iniciativa propia).
 
-Esto no es una limitación técnica — `gh pr merge` funcionaría
-perfectamente bien — sino una decisión de proceso explícita: mantener el
-punto donde alguien más revisa antes de que algo llegue a `master`.
+Qué cuenta como "verde" y qué no:
+
+- **Verde = `gh pr checks` con todos los checks en `pass`**, sobre el PR
+  abierto, después de que el CI corrió en GitHub. Los tests corridos en
+  local NO alcanzan: el CI es el único control que no escribió quien hizo
+  el cambio. Un PR sin checks todavía no es un PR verde — se espera
+  (`gh pr checks --watch`).
+- **Un solo check en rojo o pendiente = no se mergea**, sin importar qué
+  tan seguro parezca el cambio.
+
+Lo que NO se mergea por iniciativa propia aunque el CI esté verde, porque
+el CI no puede juzgarlo:
+
+- Migraciones de base, o cualquier cambio con `prisma/migrations/`.
+- Cambios que alteran precios, cobros, o lo que se le muestra al cliente
+  final como condición comercial.
+- Borrado de datos o de columnas.
+- Cambios de configuración de producción (variables de entorno, modelo del
+  agente): esos ni siquiera se hacen, se recomiendan.
+- Cualquier cambio donde el propio reporte diga que hay una decisión de
+  producto abierta.
+
+En esos casos el PR queda abierto y el reporte dice explícitamente por qué
+no se mergeó.
+
+**Al mergear se reporta**: qué PR, qué ítems cierra, y el resultado real de
+`gh pr checks` que habilitó el merge. Después del merge se borra la rama.
