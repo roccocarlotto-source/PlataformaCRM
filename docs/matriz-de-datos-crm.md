@@ -148,3 +148,25 @@ Tres cosas de `search_vehicles` (`agentTools.service.ts`) que salieron de V1. La
 - `deleteVehicle`: darla de baja (que ahora corre en una transacción para eso).
 
 **Tests.** `vehicleKnowledgeBaseSync.integration-test.ts`, cuatro casos nuevos: PATCH a `SOLD`, a `RESERVED` y despublicar dan de baja la entrada en el momento; un PATCH que no cambia si califica no la toca; dar de baja la unidad la da de baja; vincularla a una oportunidad la saca y la sincronización siguiente no la revive. 13/13; con los de vehículos, fotos, entregas y vínculo con oportunidad, 64/64.
+
+---
+
+## 153. Un auto reservado se podía volver "Disponible" a mano, o dar de baja, con una oportunidad abierta encima
+
+**Estado:** hecho. Filas V4b y V6 del ítem 150. La V4 (reservada a mano sin ninguna oportunidad) queda permitida: una seña que no pasa por el CRM es un caso real.
+
+**Qué pasaba.**
+
+- **V4b.** Una oportunidad abierta reserva la unidad (`RESERVED`); alguien la pasa a mano a `AVAILABLE` desde la ficha (200) y se le crea una segunda oportunidad a otro cliente (201): **2 oportunidades abiertas sobre un mismo auto**. Al ganar la primera, la unidad queda `SOLD` y la segunda sigue abierta, esperando un auto que ya se vendió.
+- **V6.** Dar de baja una unidad reservada: 204. La oportunidad quedaba apuntando a una unidad borrada, y **ganarla daba 400** (`El vehicleId indicado no existe…`).
+
+**Por qué pasa.** La reserva no vive en ninguna columna: se deduce de "qué oportunidad tiene este `vehicleId`", y el PATCH de `/vehicles/:id` y el DELETE no lo miraban.
+
+**Qué se hizo.** `countOpportunitiesHoldingVehicle` (en `opportunity.repository.ts`) cuenta las oportunidades que **retienen** la unidad: una abierta, o una ganada cuya entrega todavía no se confirmó. Con al menos una, y bajo el lock de organización:
+
+- pasar la unidad a `AVAILABLE` a mano es `409 La unidad está reservada o vendida por una oportunidad: liberala desde la oportunidad…`;
+- darla de baja es el mismo 409 (antes de ese chequeo, una unidad ajena o ya borrada sigue siendo 404).
+
+Los otros cambios a mano (`IN_PREPARATION`, `IN_TRANSIT`) siguen permitidos: son operativos y `opportunity.service.ts` ya los respeta. Una unidad con la entrega confirmada se puede dar de baja del stock.
+
+**Tests.** `opportunityVehicle.integration-test.ts`, tres casos nuevos: 409 al volver a `AVAILABLE` una reservada o una vendida (y la segunda oportunidad sigue siendo imposible); `IN_PREPARATION` permitido y, una vez perdida la oportunidad, `AVAILABLE` vuelve a valer; baja con 409 mientras está retenida y permitida después de desvincular o con la entrega confirmada. Con vehículos, base de conocimiento y entregas: 60/60.

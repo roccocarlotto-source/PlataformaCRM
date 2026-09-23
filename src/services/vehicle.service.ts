@@ -13,7 +13,10 @@ import {
 } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 import { findBranchById } from "../repositories/branch.repository";
-import { findOpportunityById } from "../repositories/opportunity.repository";
+import {
+  countOpportunitiesHoldingVehicle,
+  findOpportunityById,
+} from "../repositories/opportunity.repository";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { findUserByIdInOrganization } from "../repositories/user.repository";
 import { countPhotosByVehicle } from "../repositories/vehiclePhoto.repository";
@@ -413,6 +416,11 @@ export function computeMissingFieldsForPublish(
   return missing;
 }
 
+// Ítem 153: mientras una oportunidad retiene la unidad, el estado lo mueve la
+// oportunidad (y la entrega), no un PATCH a mano.
+export const UNIDAD_RETENIDA_POR_OPORTUNIDAD =
+  "La unidad está reservada o vendida por una oportunidad: liberala desde la oportunidad (cambiándole la unidad o cerrándola como perdida)";
+
 export const VEHICULO_INCOMPLETO_PARA_PUBLICAR = "La unidad no está completa para publicar";
 
 // Exportada porque también la aplica vehiclePhoto.service al borrar la última
@@ -651,6 +659,19 @@ export async function updateVehicle(
       : 0;
     assertCompleteForPublish(effective, { photoCount });
 
+    // Ítem 153: volverla a AVAILABLE a mano mientras una oportunidad la
+    // retiene habilitaba vincularla a una segunda oportunidad — dos clientes
+    // con el mismo auto, y al ganar una la otra quedaba esperando un auto
+    // vendido. Los demás cambios a mano (IN_PREPARATION, IN_TRANSIT) siguen
+    // permitidos: son operativos y opportunity.service ya los respeta.
+    if (
+      data.status === "AVAILABLE" &&
+      current.status !== "AVAILABLE" &&
+      (await countOpportunitiesHoldingVehicle(id, organizationId, tx)) > 0
+    ) {
+      throw new AppError(UNIDAD_RETENIDA_POR_OPORTUNIDAD, 409);
+    }
+
     if (data.branchId !== undefined) {
       await validateBranchId(organizationId, data.branchId, tx);
     }
@@ -705,8 +726,19 @@ export async function updateVehicle(
 
 // "Dar de baja la unidad": soft delete, la ficha y su historial se conservan.
 // Ítem 152: en la misma transacción, su entrada de la base de conocimiento.
+// Ítem 153: no mientras una oportunidad la retiene — la oportunidad quedaba
+// apuntando a una unidad borrada y ya no se podía ganar (400 en validateVehicleId).
+// Mismo RESTRICT lógico que deleteStage con oportunidades activas, bajo el
+// lock de organización que toma todo vínculo con oportunidades.
 export async function deleteVehicle(organizationId: string, id: string) {
   await prisma.$transaction(async (tx) => {
+    await lockOrganizationForUpdate(organizationId, tx);
+    if ((await countOpportunitiesHoldingVehicle(id, organizationId, tx)) > 0) {
+      // 404 antes que 409: no se confirma la existencia de una unidad ajena
+      // o ya dada de baja.
+      await getVehicleById(organizationId, id, tx);
+      throw new AppError(UNIDAD_RETENIDA_POR_OPORTUNIDAD, 409);
+    }
     const result = await softDeleteVehicle(id, organizationId, tx);
     if (result.count === 0) {
       throw new AppError(VEHICULO_NO_ENCONTRADO, 404);
