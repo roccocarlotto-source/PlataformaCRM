@@ -215,3 +215,26 @@ La UI no nota el cambio: ya manda etapa y estado coherentes.
 **Límite conocido.** El chequeo no toma lock: una oportunidad creada en el mismo instante en que se da de baja el contacto puede pasar. Es el mismo nivel de garantía que tenía `deleteStage` antes del ALTO-8; si hace falta, el arreglo es el mismo (lock de la fila del contacto en los dos caminos).
 
 **Tests.** `crmIntegridad.integration-test.ts` (archivo nuevo para los ítems 155 en adelante): 409 en los dos y nada borrado; con la oportunidad ganada o sin oportunidades, la baja procede. 2/2.
+
+---
+
+## 156. Una organización podía quedarse sin pipeline por defecto, o con uno sin etapas
+
+**Estado:** hecho. Filas P3 y P4 del ítem 150.
+
+**Qué pasaba.** El agente crea las oportunidades en la **primera etapa del pipeline por defecto**. Dos formas de dejarlo sin poder hacerlo, las dos aceptadas por la API:
+
+- **P3.** El onboarding no crea ningún pipeline, y el primero que alguien crea sin tildar "Default" queda sin marcar (201 → 0 defaults). El agente respondía `MENSAJE_SIN_PIPELINE_POR_DEFECTO`.
+- **P4.** Marcar como default un pipeline vacío (201), o borrar la última etapa del default (204). El agente respondía `MENSAJE_PIPELINE_SIN_ETAPAS`.
+
+**Por qué pasa.** El índice `pipelines_org_default_unique` impide **dos** defaults, no **cero**, y nada miraba si el default tenía etapas.
+
+**Qué se hizo.**
+
+- **Si la organización no tiene default, el pipeline que se crea lo es**, aunque no se haya pedido. Va bajo el lock de organización (el mismo de `deletePipeline`), así dos creaciones simultáneas no pueden leer las dos "no hay default".
+- **Marcar default un pipeline sin etapas:** `409 Un pipeline sin etapas no puede ser el pipeline por defecto…`.
+- **Borrar la última etapa del default:** `409 Es la última etapa del pipeline por defecto… Agregá otra etapa, o marcá otro pipeline como default, antes de borrarla`. Va después del RESTRICT de oportunidades, que sigue siendo el primer error si la etapa tiene oportunidades.
+
+**Queda abierto, a propósito.** Crear un pipeline **nuevo** ya marcado como default sigue permitido aunque todavía no tenga etapas: es el flujo de la pantalla (se crea el pipeline y después se le cargan las etapas). Durante esos segundos el agente responde "sin etapas", igual que antes. Tampoco se creó un pipeline en el onboarding: qué etapas trae por defecto depende del rubro, y es una decisión de producto.
+
+**Tests.** `crmIntegridad.integration-test.ts`: el primero nace default y el segundo no; 409 al marcar default uno vacío y al borrar la última etapa del default, y con otro default marcado la etapa se borra. En `soft-delete-restrict.integration-test.ts`, dos fixtures cambiaron su orden de creación, porque su único pipeline pasaba a ser el default y esos casos no son sobre eso. Suite de integración: 1047/1047.

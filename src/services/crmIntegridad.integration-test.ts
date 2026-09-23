@@ -12,8 +12,8 @@ import {
   EMPRESA_CON_OPORTUNIDADES_ABIERTAS,
 } from "./company.service";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
-import { createPipeline } from "./pipeline.service";
-import { createStage } from "./stage.service";
+import { createPipeline, PIPELINE_DEFAULT_SIN_ETAPAS, updatePipeline } from "./pipeline.service";
+import { createStage, deleteStage, ULTIMA_ETAPA_DEL_DEFAULT } from "./stage.service";
 import { assertAppError, capturar, desmontar, montar, type Escenario } from "./vehicle.test-helper";
 
 // ---------------------------------------------------------------------------
@@ -103,4 +103,43 @@ test("ítem 155: con la oportunidad cerrada, o sin oportunidades, la baja proced
 
   const empresa = await createCompany(e.organizationId, e.userId, { name: "Empresa sin nada" });
   await deleteCompany(e.organizationId, empresa.id);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 156 — el pipeline por defecto existe y tiene etapas
+// ---------------------------------------------------------------------------
+
+test("ítem 156: el primer pipeline de una organización nace default aunque no se pida; el segundo no", async () => {
+  const otra = await montar("primer-pipeline");
+  try {
+    const primero = await createPipeline(otra.organizationId, { name: "Primero" });
+    const segundo = await createPipeline(otra.organizationId, { name: "Segundo" });
+    assert.equal(primero.isDefault, true);
+    assert.equal(segundo.isDefault, false);
+  } finally {
+    await prisma.pipeline.deleteMany({ where: { organizationId: otra.organizationId } });
+    await desmontar(otra);
+  }
+});
+
+test("ítem 156: no se marca default un pipeline sin etapas, ni se borra la última etapa del default", async () => {
+  const vacio = await createPipeline(e.organizationId, { name: "Vacío" });
+  assertAppError(
+    await capturar(() => updatePipeline(e.organizationId, vacio.id, { isDefault: true })),
+    409,
+    PIPELINE_DEFAULT_SIN_ETAPAS,
+  );
+
+  const unico = await createPipeline(e.organizationId, { name: "Con una etapa" });
+  const etapa = await createStage(e.organizationId, { pipelineId: unico.id, name: "Única" });
+  await updatePipeline(e.organizationId, unico.id, { isDefault: true });
+  assertAppError(
+    await capturar(() => deleteStage(e.organizationId, etapa.id)),
+    409,
+    ULTIMA_ETAPA_DEL_DEFAULT,
+  );
+
+  // Con otro default marcado, la etapa se puede borrar.
+  await updatePipeline(e.organizationId, pipelineId, { isDefault: true });
+  await deleteStage(e.organizationId, etapa.id);
 });
