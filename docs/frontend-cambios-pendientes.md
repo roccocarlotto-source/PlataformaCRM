@@ -6209,3 +6209,73 @@ Estos dos ítems se probaron con `google/gemini-2.5-flash`, que es el que quedó
 **Hallazgo sobre la configuración:** `OPENROUTER_MODEL` en Render es solo el *fallback*. El loop pasa `model: agent.modelName` y el adaptador hace `model ?? defaultModel`, así que **el modelo efectivo es el del Agent**, no el de la variable de entorno. Cambiar la variable no habría afectado a este agente. El cambio se hizo sobre el Agent (`PATCH /api/agents/:id`), que además no necesita redeploy.
 
 **Recomendación pendiente para Rocco:** el default de Render es `openai/gpt-4.1-nano`, que es el modelo que motivó los ítems 86 y 87 (inventaba filtros) y que no encadena el flujo de turnos. Cualquier Agent nuevo que se cree sin `modelName` propio lo hereda. Cambiar ese default afecta a todos los negocios futuros, así que es una decisión de producto y no se tocó.
+
+## 107. Las oportunidades que crea el agente valen 0 en el pipeline
+
+**Estado:** hecho — con una decisión de producto abierta, ver al final
+
+**Qué pasaba.** De las seis oportunidades que el agente creó en producción, **cuatro quedaron en `amount` 0**:
+
+```
+Interés en Hilux SRV                         amount=0      USD  OPEN
+Amarok                                       amount=0      USD  OPEN
+Consulta sobre vehículo de menos de 30 mil   amount=0      USD  OPEN
+Consulta de vehículo de menos de 30 mil dó   amount=0      USD  OPEN
+```
+
+Todas salieron de conversaciones que giraban enteras alrededor de un auto concreto, con su precio a la vista en el resultado de `search_vehicles`. Un pipeline que no suma no le sirve a nadie: el dashboard de oportunidades muestra valor 0 para leads reales.
+
+**Por qué pasa.** `amount` es opcional en `create_opportunity` y el modelo simplemente no lo manda. Pedírselo por description es la mitigación débil de siempre; y además el dato correcto —el precio de lista de la unidad— ya lo tiene el backend.
+
+**Qué se hizo.** `create_opportunity` y `update_opportunity` aceptan **`vehiculo`** (texto libre: "Hilux SRV"), igual que `servicio` en el ítem 106. El backend resuelve la unidad y, si el modelo no mandó `amount`, lo completa con su **precio de lista**.
+
+- Se busca **solo entre las unidades publicadas y disponibles**, el mismo recorte que `search_vehicles`: una oportunidad no puede referirse a una unidad que el agente no tenía derecho a mencionar. Hay un test con una unidad `publishOnWebsite: false`.
+- Todas las palabras del texto tienen que aparecer: `"Hilux SRV"` encuentra la SRV y no la DX. `"Hilux"` a secas coincide con las dos y devuelve un error que **las lista** para que el agente le pregunte al cliente cuál es.
+- **Un `amount` explícito del modelo siempre gana.** Puede ser lo que el cliente ofreció, y registrarlo es correcto (ítem 92: registrar no es aceptar).
+- Solo se toma el precio que el negocio publica: nada de unidades con `priceOnRequest`, y se respeta `publicationCurrency` del ítem 98.
+
+### La decisión que NO tomé: el agente no reserva unidades
+
+`Opportunity.vehicleId` existe y parecía el lugar natural para esto. **Lo implementé así primero, y lo saqué** al leer `opportunity.service.ts`:
+
+> *"El estado de la unidad (Vehicle.status) es quien manda [...] abierta la reserva, ganada la vende, perdida no reserva nada"*
+> *"mientras una oportunidad la tiene reservada ninguna otra puede vincularla"*
+
+**Vincular una unidad a una oportunidad abierta la pone en `RESERVED` y la saca del stock para todos los demás.** Tal como estaba implementado, el agente habría reservado un auto cada vez que alguien escribiera "me interesa la Hilux" — un lead tibio dejando una unidad fuera de circulación, invisible para el resto del equipo.
+
+Eso contradice dos cosas escritas: la regla del producto de que *la IA nunca ejecuta algo sensible solo porque el modelo lo decidió*, y el ítem 92, que le saca al agente toda autoridad comercial. Así que **el vehículo se resuelve para leer su precio y nada más**: `vehicleId` queda en `null` y la unidad sigue `AVAILABLE`. Hay dos tests que lo fijan, uno al crear y otro al actualizar.
+
+**Lo que sí gana el modelo**: el resultado devuelve `unidad` con la etiqueta completa de lo que se entendió (`"Toyota Hilux SRV 4x4 2022"`), para que pueda mencionarla con precisión.
+
+**Queda para Rocco:** si querés que el agente efectivamente reserve la unidad cuando un cliente muestra interés firme, se puede — pero es una decisión del negocio y necesita su propia herramienta explícita, con su propio criterio de cuándo corresponde. No la construí.
+
+### Verificado contra el modelo real
+
+```
+👤 Me interesa mucho la Hilux SRV, ¿cómo seguimos?
+🔧 create_opportunity({ title: "Interés en Hilux SRV", vehiculo: "Hilux SRV" })
+   → { amount: "38000", currency: "USD", unidad: "Toyota Hilux SRV 4x4 2022",
+       status: "OPEN", reused: false }
+```
+
+`amount` 38.000 en vez de 0, la unidad identificada, y el stock intacto.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | `resolverVehiculo()` y `palabrasNormalizadas()` nuevas; `vehiculo` en `create_opportunity` y `update_opportunity`; `amount` desde el precio de lista; `unidad` en el resultado |
+| `src/services/agentReadTools.integration-test.ts` | 5 de integración: el monto desde el precio, el monto explícito que gana, el texto ambiguo con la lista, la unidad no publicada rechazada, y el cambio de unidad al actualizar — los tres primeros verificando además que **nada queda reservado** |
+| `scripts/eval-agente-real.ts` | escenario C3 |
+
+### Tests (corridos de verdad)
+
+**Unitarios:** 1028/1028 (sin `DATABASE_URL`, como el CI). **Integración:** 1017/1017. **Typecheck, lint y prettier:** limpios.
+
+---
+
+## Nota: el ítem del inglés ("miles" por kilómetros) quedó obsoleto
+
+En la corrida original el agente contestaba en inglés y reportaba los kilómetros como "miles". Con el modelo actual responde **en castellano** a una consulta en inglés, con los kilómetros correctos ("24.000 km"), así que el bug ya no se reproduce.
+
+Queda anotado que **responde en el idioma del agente, no en el del cliente**. No es un bug del código: el `tone` y las `instructions` del agente están en castellano y el modelo los respeta. Si AutoMax quiere atender en varios idiomas, alcanza con agregarlo a las instrucciones del agente desde el panel — es configuración del negocio, no código.

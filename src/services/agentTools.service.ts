@@ -223,6 +223,99 @@ const instanteIso = z
   .transform((v) => new Date(v));
 
 // ---------------------------------------------------------------------------
+// LA OPORTUNIDAD SE VINCULA AL VEHÍCULO (ítem 107)
+// ---------------------------------------------------------------------------
+// El agente no mandaba `amount`, así que las oportunidades quedaban en 0: en
+// producción, 4 de 6 de las que creó valían cero pesos para el pipeline,
+// después de conversaciones que giraban enteras alrededor de un auto concreto
+// de 38.000 dólares. Un pipeline que no suma no le sirve a nadie.
+//
+// EL VEHÍCULO SE RESUELVE PARA LEER SU PRECIO, NO PARA VINCULARLO.
+// `Opportunity.vehicleId` existe y parecía el lugar natural, pero vincular una
+// unidad a una oportunidad abierta LA RESERVA (opportunity.service.ts:
+// "abierta la reserva" — y "mientras una oportunidad la tiene reservada
+// ninguna otra puede vincularla"). Eso saca el auto del stock para todos los
+// demás.
+//
+// Que un agente de IA reserve una unidad porque alguien escribió "me interesa
+// la Hilux" es exactamente lo que el producto dice que la IA no hace sola, y
+// lo mismo que el ítem 92 le prohíbe en materia comercial. Así que acá se lee
+// el precio y nada más. Si el negocio quiere que el agente reserve, es una
+// decisión suya y necesita su propia tool, explícita.
+//
+// Se resuelve por TEXTO ("Hilux SRV"), no por id, por la misma razón del ítem
+// 106: acarrear UUIDs es lo que el modelo hace mal, y el nombre del auto es lo
+// que la conversación ya tiene a mano.
+//
+// SOLO SE BUSCA ENTRE LAS UNIDADES PUBLICADAS Y DISPONIBLES — el mismo recorte
+// que search_vehicles. Una oportunidad no puede quedar apuntando a una unidad
+// que el agente no tenía derecho a mencionar.
+const MAX_VEHICULOS_PARA_RESOLVER = 50;
+
+function palabrasNormalizadas(texto: string): string[] {
+  return normalizarNombre(texto)
+    .split(" ")
+    .filter((p) => p.length > 0);
+}
+
+async function resolverVehiculo(
+  texto: string,
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<
+  | { ok: true; vehiculo: { id: string; etiqueta: string; priceListUsd: number | null } }
+  | { ok: false; resultado: ResultadoDeTool }
+> {
+  const publicados = await findManyVehicles(
+    contexto.organizationId,
+    { status: ["AVAILABLE"], publishOnWebsite: true },
+    { skip: 0, take: MAX_VEHICULOS_PARA_RESOLVER },
+    { sortBy: "priceListUsd", sortOrder: "asc" },
+  );
+
+  const etiquetaDe = (v: (typeof publicados)[number]) =>
+    [v.make, v.model, v.trim, v.year].filter(Boolean).join(" ");
+  const buscadas = palabrasNormalizadas(texto);
+  // Todas las palabras que dijo el cliente tienen que aparecer: "Hilux SRV"
+  // encuentra la SRV y no la DX, y "Hilux" solo devolvería las dos (y pide
+  // desambiguar, que es lo correcto).
+  const candidatos = publicados.filter((v) => {
+    const heno = normalizarNombre(`${v.internalCode} ${etiquetaDe(v)}`);
+    return buscadas.every((palabra) => heno.includes(palabra));
+  });
+
+  if (candidatos.length === 1) {
+    const v = candidatos[0];
+    return {
+      ok: true,
+      vehiculo: {
+        id: v.id,
+        etiqueta: etiquetaDe(v),
+        // Solo el precio que el negocio publica (ítem 98), y nunca el de una
+        // unidad "a consultar".
+        priceListUsd:
+          v.priceOnRequest || v.publicationCurrency === "LOCAL_ONLY"
+            ? null
+            : decimalANumero(v.priceListUsd),
+      },
+    };
+  }
+  if (candidatos.length === 0) {
+    return {
+      ok: false,
+      resultado: fallo(
+        `No hay ninguna unidad publicada que coincida con "${texto}". Buscá primero en el stock y usá la marca y el modelo tal cual figuran ahí.`,
+      ),
+    };
+  }
+  return {
+    ok: false,
+    resultado: fallo(
+      `"${texto}" coincide con más de una unidad: ${candidatos.map((v) => `"${etiquetaDe(v)}"`).join(", ")}. Preguntale al cliente cuál es y volvé a intentarlo con esa.`,
+    ),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // create_opportunity
 // ---------------------------------------------------------------------------
 
@@ -230,6 +323,8 @@ const createOpportunityArgs = z.object({
   title: z.string().trim().min(1, "title es requerido").max(255),
   amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
   currency: vacioComoAusente(currencySchema),
+  // Ítem 107: por texto, no por id (mismo criterio que `servicio` en el 106).
+  vehiculo: textoOpcional(255),
 });
 
 export const MENSAJE_CONTACTO_SIN_VENDEDOR =
@@ -243,7 +338,7 @@ const createOpportunityTool: ToolDelAgente = {
   definition: {
     name: "create_opportunity",
     description:
-      "Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda asignada al vendedor del contacto, en la primera etapa del pipeline por defecto. Usala cuando el contacto muestra intención concreta de compra o contratación. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true, y es sobre esa que tenés que seguir. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.",
+      "Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda asignada al vendedor del contacto, en la primera etapa del pipeline por defecto. Usala cuando el contacto muestra intención concreta de compra o contratación. Si la conversación es por un vehículo concreto, mandá `vehiculo` con su marca y modelo: el monto se completa con su precio de lista, que es lo que el equipo de ventas necesita ver en el pipeline. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true, y es sobre esa que tenés que seguir. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.",
     parameters: {
       type: "object",
       properties: {
@@ -251,7 +346,16 @@ const createOpportunityTool: ToolDelAgente = {
           type: "string",
           description: "Título corto de la oportunidad (qué quiere el contacto).",
         },
-        amount: { type: "number", description: "Monto estimado, si se conoce. Mayor o igual a 0." },
+        vehiculo: {
+          type: "string",
+          description:
+            'Marca y modelo del vehículo que le interesa al cliente, como figura en el stock (por ejemplo "Hilux SRV"). Mandalo siempre que la conversación sea por una unidad concreta.',
+        },
+        amount: {
+          type: "number",
+          description:
+            "Monto estimado. NO hace falta si mandás `vehiculo`: se completa con el precio de lista. Mandalo solo si el cliente dijo un monto distinto (por ejemplo lo que ofrece pagar).",
+        },
         currency: {
           type: "string",
           description:
@@ -343,10 +447,29 @@ const createOpportunityTool: ToolDelAgente = {
       // el historial de la unidad si algún día el agente vinculara un vehículo
       // — hoy no puede). resolveOwnerId lo revalida adentro de createOpportunity;
       // si no estuviera activo, el AppError vuelve como resultado.
+      // Ítem 107: el vehículo y, si el modelo no mandó monto, su precio de
+      // lista. Un monto explícito del modelo SIEMPRE gana — puede ser lo que
+      // el cliente ofreció, y registrarlo es correcto (ítem 92: registrar no
+      // es aceptar).
+      let unidad: string | undefined;
+      let amount = input.amount;
+      let currency = input.currency;
+      if (input.vehiculo !== undefined) {
+        const resuelto = await resolverVehiculo(input.vehiculo, contexto);
+        if (!resuelto.ok) {
+          return resuelto.resultado;
+        }
+        unidad = resuelto.vehiculo.etiqueta;
+        if (amount === undefined && resuelto.vehiculo.priceListUsd !== null) {
+          amount = resuelto.vehiculo.priceListUsd;
+          currency = currency ?? "USD";
+        }
+      }
+
       const opportunity = await createOpportunity(contexto.organizationId, ownerId, {
         title: input.title,
-        amount: input.amount,
-        currency: input.currency,
+        amount,
+        currency,
         contactId: contact.id,
         ownerId,
         pipelineId: pipeline.id,
@@ -359,6 +482,7 @@ const createOpportunityTool: ToolDelAgente = {
         amount: opportunity.amount,
         currency: opportunity.currency,
         status: opportunity.status,
+        ...(unidad === undefined ? {} : { unidad }),
         stage: primeraEtapa.name,
         reused: false,
       });
@@ -379,6 +503,8 @@ const updateOpportunityArgs = z
     status: vacioComoAusente(z.enum(["OPEN", "WON", "LOST"])),
     stageId: vacioComoAusente(uuid("stageId")),
     lostReason: textoOpcional(255),
+    // Ítem 107: para cuando el cliente cambia de auto a mitad de la charla.
+    vehiculo: textoOpcional(255),
   })
   .refine((data) => cantidadDeArgumentos(data) > 1, {
     message: "Hay que indicar al menos un campo a modificar además de opportunityId",
@@ -408,6 +534,11 @@ const updateOpportunityTool: ToolDelAgente = {
           type: "string",
           description: "Motivo de pérdida. Solo tiene sentido con status LOST.",
         },
+        vehiculo: {
+          type: "string",
+          description:
+            "Marca y modelo del vehículo que le interesa al cliente, como figura en el stock. Usalo cuando el cliente cambia de unidad: el monto se reajusta al precio de lista de la nueva.",
+        },
       },
       required: ["opportunityId"],
       additionalProperties: false,
@@ -419,7 +550,7 @@ const updateOpportunityTool: ToolDelAgente = {
     if (!validacion.ok) {
       return Promise.resolve(validacion.resultado);
     }
-    const { opportunityId, ...cambios } = validacion.value;
+    const { opportunityId, vehiculo, ...cambios } = validacion.value;
 
     return conErroresDeNegocio(async () => {
       const opportunity = await findOpportunityById(opportunityId, contexto.organizationId);
@@ -433,6 +564,21 @@ const updateOpportunityTool: ToolDelAgente = {
         return fallo(MENSAJE_OPORTUNIDAD_DE_OTRO_CONTACTO);
       }
 
+      // Ítem 107: cambiar de auto a mitad de la conversación. Se resuelve
+      // igual que al crear, y el monto se reajusta al precio de la unidad
+      // nueva salvo que el modelo mande uno explícito.
+      const cambiosConVehiculo = { ...cambios };
+      if (vehiculo !== undefined) {
+        const resuelto = await resolverVehiculo(vehiculo, contexto);
+        if (!resuelto.ok) {
+          return resuelto.resultado;
+        }
+        if (cambiosConVehiculo.amount === undefined && resuelto.vehiculo.priceListUsd !== null) {
+          cambiosConVehiculo.amount = resuelto.vehiculo.priceListUsd;
+          cambiosConVehiculo.currency = cambiosConVehiculo.currency ?? "USD";
+        }
+      }
+
       // actorUserId = el ownerId que la oportunidad ya tiene. Es inerte en este
       // camino: updateOpportunity solo lo usa para resolver un ownerId nuevo
       // (que acá nunca se manda) y para el historial de una unidad vinculada.
@@ -440,7 +586,7 @@ const updateOpportunityTool: ToolDelAgente = {
         contexto.organizationId,
         opportunity.ownerId,
         opportunityId,
-        cambios,
+        cambiosConVehiculo,
       );
 
       return exito({
