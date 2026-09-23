@@ -235,6 +235,19 @@ export function countActiveOpportunitiesByStage(
   return db.opportunity.count({ where: { stageId, organizationId, deletedAt: null } });
 }
 
+// Ítem 155 de docs/matriz-de-datos-crm.md — oportunidades ABIERTAS de un
+// contacto o una empresa: el RESTRICT lógico de deleteContact/deleteCompany.
+// Las cerradas no frenan la baja: son historia.
+export function countOpenOpportunitiesOf(
+  where: { contactId: string } | { companyId: string },
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.opportunity.count({
+    where: { ...where, organizationId, deletedAt: null, status: "OPEN" },
+  });
+}
+
 // Ítem 153 de docs/matriz-de-datos-crm.md — oportunidades vivas que "tienen" a
 // una unidad: una abierta la reserva; una ganada la vendió y, mientras la
 // entrega no se confirmó, la unidad todavía es de esa venta. Una ganada con
@@ -252,10 +265,7 @@ export function countOpportunitiesHoldingVehicle(
       vehicleId,
       organizationId,
       deletedAt: null,
-      OR: [
-        { status: "OPEN" },
-        { status: "WON", deliveries: { none: { status: "DELIVERED" } } },
-      ],
+      OR: [{ status: "OPEN" }, { status: "WON", deliveries: { none: { status: "DELIVERED" } } }],
     },
   });
 }

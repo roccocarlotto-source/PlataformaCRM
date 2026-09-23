@@ -8,6 +8,7 @@ import {
   type CompanySortBy,
   type SortOrder,
 } from "../repositories/company.repository";
+import { countOpenOpportunitiesOf } from "../repositories/opportunity.repository";
 import { AppError } from "../utils/AppError";
 import { resolveOwnerId } from "./ownership.service";
 
@@ -111,8 +112,15 @@ export async function updateCompany(
   return getCompanyById(organizationId, id);
 }
 
+export const EMPRESA_CON_OPORTUNIDADES_ABIERTAS =
+  "Esta empresa tiene oportunidades abiertas: cerralas o pasalas a otra empresa antes de darla de baja";
+
 export async function deleteCompany(organizationId: string, id: string) {
   await getCompanyById(organizationId, id);
+  // Ítem 155 de docs/matriz-de-datos-crm.md: mismo criterio que deleteContact.
+  if ((await countOpenOpportunitiesOf({ companyId: id }, organizationId)) > 0) {
+    throw new AppError(EMPRESA_CON_OPORTUNIDADES_ABIERTAS, 409);
+  }
   const result = await softDeleteCompany(id, organizationId);
   if (result.count === 0) {
     throw new AppError("Empresa no encontrada", 404);

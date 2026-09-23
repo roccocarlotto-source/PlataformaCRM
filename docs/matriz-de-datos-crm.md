@@ -199,3 +199,19 @@ Los otros cambios a mano (`IN_PREPARATION`, `IN_TRANSIT`) siguen permitidos: son
 La UI no nota el cambio: ya manda etapa y estado coherentes.
 
 **Tests.** `opportunityClosing.test.ts`, 12 unitarios de la regla pura (incluido el día de Montevideo contra el día UTC). `opportunityClosing.integration-test.ts`, 6 contra la base: las tres contradicciones rechazadas sin escribir nada; mover a "Ganado" sin estado gana, fecha de hoy y evento `opportunity.won`; el camino del agente (solo `LOST` → etapa Perdido; `OPEN` → vuelve a Nuevo con fecha y motivo vacíos); una ganada sin fecha que ahora sí suma en el dashboard; una fila vieja contradictoria que se guarda igual; y el 409 de O9. La suite de integración completa (incluidos los tests del agente): 1037/1037 antes de agregar estos.
+
+---
+
+## 155. Se podía dar de baja un contacto o una empresa con oportunidades abiertas
+
+**Estado:** hecho. Fila O7 del ítem 150.
+
+**Qué pasaba.** `DELETE /contacts/:id` y `DELETE /companies/:id` daban 204 aunque tuvieran oportunidades abiertas. La oportunidad seguía abierta, apuntando a un contacto que da 404: en pantalla, una venta en curso sin cliente.
+
+**Por qué pasa.** El borrado es lógico (`deletedAt`) y la FK no lo ve; `deleteStage` tiene su RESTRICT hecho a mano, `deleteContact` y `deleteCompany` no.
+
+**Qué se hizo.** El mismo RESTRICT lógico que `deleteStage`: con al menos una oportunidad **abierta**, `409 Este contacto tiene oportunidades abiertas: cerralas o pasalas a otro contacto antes de darlo de baja` (y el equivalente para empresas). Las cerradas no frenan la baja: son historia. El borrado de datos personales a pedido (`erase-personal-data`) es otro camino y no cambia.
+
+**Límite conocido.** El chequeo no toma lock: una oportunidad creada en el mismo instante en que se da de baja el contacto puede pasar. Es el mismo nivel de garantía que tenía `deleteStage` antes del ALTO-8; si hace falta, el arreglo es el mismo (lock de la fila del contacto en los dos caminos).
+
+**Tests.** `crmIntegridad.integration-test.ts` (archivo nuevo para los ítems 155 en adelante): 409 en los dos y nada borrado; con la oportunidad ganada o sin oportunidades, la baja procede. 2/2.
