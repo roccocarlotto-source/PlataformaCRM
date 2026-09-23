@@ -116,6 +116,10 @@ interface Escenario {
   toolsEsperadasAlgunaDe?: string[];
   toolsProhibidas?: string[];
   noDebeContener?: (string | RegExp)[];
+  // Igual que noDebeContener pero SOLO sobre la última respuesta. Para los
+  // escenarios donde el cliente cambia de idea: lo que dijo el agente en el
+  // turno 1 era correcto entonces, y mirarlo todo junto da un falso negativo.
+  noDebeContenerAlFinal?: (string | RegExp)[];
   debeContener?: string[];
   // Filtros permitidos por tool: cualquier otro argumento es un filtro
   // inventado (ítem 87).
@@ -335,6 +339,55 @@ const ESCENARIOS: Escenario[] = [
   },
   { id: "G3", criterio: "Un solo emoji no produce basura", msgs: ["👍"] },
   { id: "G2", criterio: "Un 'sí' suelto pide aclaración sin romperse", msgs: ["sí"] },
+
+  // ---- Conversaciones como las de verdad ----
+  // Los escenarios de arriba prueban una intención por mensaje. Un cliente de
+  // WhatsApp no escribe así: amontona preguntas, escribe rápido y mal, dice
+  // las fechas en relativo y cambia de idea a mitad de camino.
+  {
+    id: "M1",
+    criterio: "Tres preguntas en un mismo mensaje: las contesta las TRES, no solo la primera",
+    msgs: [
+      "hola! me interesa la hilux srv, cuanto sale? toman mi auto en parte de pago? y cuando podria ir a verla?",
+    ],
+    toolsEsperadas: ["search_vehicles"],
+  },
+  {
+    id: "M2",
+    criterio: "Castellano informal y abreviado: entiende el presupuesto y busca",
+    msgs: ["buenas tenes algo hasta 15 lucas verdes? q sea automatico"],
+    toolsEsperadas: ["search_vehicles"],
+    argsPermitidos: { search_vehicles: ["priceMaxUsd", "transmission"] },
+  },
+  {
+    id: "M3",
+    criterio: "Fecha relativa ('pasado mañana a la tarde') → consulta la agenda con ese día",
+    msgs: ["Quiero hacer un test drive pasado mañana a la tarde"],
+    toolsEsperadasAlgunaDe: ["get_availability", "get_service_types"],
+  },
+  {
+    id: "M4",
+    criterio: "Cambia de idea a mitad de camino: no arrastra el filtro viejo",
+    msgs: [
+      "Busco una camioneta diésel",
+      "Uh, pensándolo bien olvidate de la camioneta, mostrame sedanes nafta",
+    ],
+    toolsEsperadas: ["search_vehicles"],
+    // Solo la última: en el turno 1 nombrar la Hilux y la Amarok era correcto,
+    // porque el cliente había pedido una camioneta diésel.
+    noDebeContenerAlFinal: [/hilux/i, /amarok/i],
+  },
+  {
+    id: "M5",
+    criterio: "Se acuerda de lo que el cliente dijo tres turnos antes",
+    msgs: [
+      "Hola, soy Diego y tengo hasta 20 mil dólares",
+      "¿Ustedes dónde quedan?",
+      "Ah joya. Bueno, mostrame lo que tengas dentro de mi presupuesto",
+    ],
+    toolsEsperadas: ["search_vehicles"],
+    argsPermitidos: { search_vehicles: ["priceMaxUsd"] },
+  },
 ];
 
 async function montarOrganizacion() {
@@ -504,6 +557,14 @@ function evaluar(esc: Escenario, turnos: Turno[]) {
         ? texto.toLowerCase().includes(frag.toLowerCase())
         : frag.test(texto);
     if (hit) motivos.push(`menciona "${frag}" y NO debería`);
+  }
+  const ultima = turnos[turnos.length - 1]?.respuesta ?? "";
+  for (const frag of esc.noDebeContenerAlFinal ?? []) {
+    const hit =
+      typeof frag === "string"
+        ? ultima.toLowerCase().includes(frag.toLowerCase())
+        : frag.test(ultima);
+    if (hit) motivos.push(`la última respuesta menciona "${frag}" y NO debería`);
   }
   return motivos;
 }
