@@ -548,6 +548,65 @@ test("la instrucción del ítem 108 entra en los secretos que no pueden salir al
 });
 
 // ---------------------------------------------------------------------------
+// Ítem 118: la calificación viaja en el prompt, no en la ventana
+// ---------------------------------------------------------------------------
+
+const CONTACTO_BASE = {
+  firstName: "Martín",
+  lastName: "Suárez",
+  email: null,
+  phone: "+5491100000000",
+};
+
+test("el bloque de contacto incluye lo que el CRM ya sabe del lead", () => {
+  // Caso real: el cliente dijo "tengo hasta 20 mil dólares" en el primer
+  // mensaje, hizo diez preguntas sueltas, y al pedir opciones el agente le
+  // preguntó el presupuesto de nuevo. Se había caído de la ventana.
+  const bloque = bloqueDeContacto({
+    ...CONTACTO_BASE,
+    leadServiceOfInterest: "SUV familiar",
+    leadBudgetAmount: "20000",
+    leadBudgetCurrency: "USD",
+    leadUrgency: "HIGH",
+    leadLocation: "Pilar",
+  });
+  assert.match(bloque, /busca: SUV familiar/);
+  assert.match(bloque, /presupuesto: 20000 USD/);
+  assert.match(bloque, /urgencia: HIGH/);
+  assert.match(bloque, /zona: Pilar/);
+  assert.match(bloque, /No se los vuelvas a pedir/);
+});
+
+test("sin calificación cargada, el bloque queda como estaba", () => {
+  const bloque = bloqueDeContacto(CONTACTO_BASE);
+  assert.match(bloque, /nombre: Martín Suárez/);
+  assert.doesNotMatch(bloque, /presupuesto/);
+  assert.doesNotMatch(bloque, /urgencia/);
+});
+
+test("el score NO va al prompt", () => {
+  // Es un número interno para priorizar en el pipeline. En el prompt sería una
+  // invitación a mencionárselo al cliente.
+  const bloque = bloqueDeContacto({ ...CONTACTO_BASE, leadScore: 80 } as never);
+  assert.doesNotMatch(bloque, /80/);
+  assert.doesNotMatch(bloque, /score/i);
+});
+
+test("un presupuesto sin moneda se muestra igual, y los vacíos no ensucian", () => {
+  assert.match(
+    bloqueDeContacto({ ...CONTACTO_BASE, leadBudgetAmount: "15000", leadBudgetCurrency: null }),
+    /presupuesto: 15000(?! )/,
+  );
+  const vacios = bloqueDeContacto({
+    ...CONTACTO_BASE,
+    leadServiceOfInterest: "   ",
+    leadUrgency: null,
+    leadLocation: "",
+  });
+  assert.doesNotMatch(vacios, /busca:|urgencia:|zona:/);
+});
+
+// ---------------------------------------------------------------------------
 // Ítem 117: la respuesta envuelta en una etiqueta inventada
 // ---------------------------------------------------------------------------
 
