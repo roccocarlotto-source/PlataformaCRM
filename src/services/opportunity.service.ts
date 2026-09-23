@@ -34,7 +34,12 @@ import { AppError } from "../utils/AppError";
 import { lastMonthsUTC, monthWindowUTC } from "../utils/utcMonth";
 import { dayWindowUTC, lastDaysUTC, lastWeeksUTC, weekWindowUTC } from "../utils/utcWindow";
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
-import { createDeliveryForSoldVehicle } from "./delivery.service";
+import {
+  createDeliveryForSoldVehicle,
+  ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS,
+  ensureDeliveryForSoldVehicle,
+  hasConfirmedDelivery,
+} from "./delivery.service";
 import { resolveOwnerId } from "./ownership.service";
 import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
 
@@ -524,6 +529,18 @@ export async function updateOpportunity(
         // Después del lock de stage, en el mismo orden que createOpportunity.
         await lockOrganizationForUpdate(organizationId, tx);
 
+        // Ítem 151: una unidad ENTREGADA es historia. Con la entrega
+        // confirmada, la oportunidad no puede dejar de estar ganada ni
+        // cambiar de unidad — sin esto, pasarla a LOST devolvía al stock
+        // (AVAILABLE, y publicada) un auto que el cliente ya se llevó. Se lee
+        // bajo el lock de organización, el mismo que toma confirmDelivery.
+        if (
+          (effectiveStatus !== "WON" || vehicleChanged) &&
+          (await hasConfirmedDelivery(organizationId, id, tx))
+        ) {
+          throw new AppError(ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS, 409);
+        }
+
         if (vehicleChanged && oldVehicleId) {
           // Se libera la unidad anterior SOLO si sigue reservada por este
           // vínculo. Si ya está SOLD, o alguien la pasó a mano a
@@ -600,8 +617,13 @@ export async function updateOpportunity(
         // entrega con un 409. pasaAWon sale de la fila bloqueada, así que solo
         // el primero la crea (carrera probada en
         // delivery.service.integration-test.ts).
+        //
+        // Ítem 151: ensure y no create. Una oportunidad que ganó, se reabrió y
+        // vuelve a ganar ya tiene su entrega PENDING: se reusa en vez de
+        // chocar con el UNIQUE (antes, 409 ENTREGA_YA_EXISTE y la oportunidad
+        // quedaba sin poder ganarse nunca más).
         if (effectiveStatus === "WON" && (pasaAWon || vehicleChanged)) {
-          await createDeliveryForSoldVehicle(organizationId, id, newVehicleId, tx);
+          await ensureDeliveryForSoldVehicle(organizationId, id, newVehicleId, tx);
         }
       }
 

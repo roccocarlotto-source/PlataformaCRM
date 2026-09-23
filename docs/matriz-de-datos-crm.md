@@ -109,3 +109,24 @@ Tres cosas de `search_vehicles` (`agentTools.service.ts`) que salieron de V1. La
 - Con esa poda, el **paso 2**: el cartesiano completo por entidad sobre las celdas legales, con asserts sobre el listado, los canales hacia afuera y las transiciones. La sonda ya tiene los fixtures y los dos caminos para eso.
 - Cada bug confirmado va como su propio ítem (151 en adelante), con su rama y su PR.
 - Segunda vuelta: Resource, ServiceType, WorkingHours y Booking.
+
+---
+
+## 151. Una venta con la unidad entregada se podía deshacer, y una venta reabierta no se podía volver a ganar
+
+**Estado:** hecho. Filas R1 y R2 del ítem 150.
+
+**Qué pasaba.** Dos caminos, los dos con el embudo y dos arrastres:
+
+- **R2.** Venta ganada, entrega confirmada (unidad `DELIVERED`), y después la oportunidad pasa a Perdida: la unidad volvía a `AVAILABLE`, con la entrega todavía `DELIVERED`, y `search_vehicles` la ofrecía otra vez porque seguía publicada. Reabrirla la dejaba `RESERVED`.
+- **R1.** Venta ganada con unidad (nace la entrega `PENDING`), reabierta, y ganada de nuevo: `409 La oportunidad ya tiene una entrega registrada`. La oportunidad quedaba abierta y **no había forma de volver a ganarla**.
+
+**Por qué pasa.** El §40 dejó la reversión explícitamente fuera de alcance. `updateOpportunity` sincroniza la unidad con el estado de la oportunidad sin mirar si ya se entregó, y al ganar siempre intentaba **crear** la entrega, que choca con el UNIQUE `(organization_id, opportunity_id)` cuando ya existe una de la ganancia anterior.
+
+**Qué se hizo.**
+
+- **Entrega confirmada = venta cerrada.** Con la entrega `DELIVERED`, cambiar el estado de la oportunidad o su unidad da `409 La unidad de esta oportunidad ya se entregó…`. Se lee bajo el lock de organización, el mismo que toma "Confirmar entrega", así que no hay carrera entre confirmar y revertir. Todo lo demás de la oportunidad (título, notas, montos) sigue editable.
+- **Volver a ganar reusa la entrega pendiente** (`ensureDeliveryForSoldVehicle`) en vez de crear otra: conserva el checklist y la fecha que ya se habían cargado, y si la venta se gana con otra unidad, la entrega se reasigna a esa unidad.
+- Revertir una venta con la entrega **pendiente** sigue permitido, igual que antes: la entrega queda como está y "Confirmar entrega" sigue dando 409 mientras la unidad no esté vendida.
+
+**Tests.** `delivery.service.integration-test.ts`: el test que fijaba el 409 al volver a ganar se reemplazó por tres — reusar la entrega con lo cargado (y poder confirmarla después), reasignarla a otra unidad, y el 409 en los cuatro cambios bloqueados (LOST, OPEN, otra unidad, desvincular) sin que se mueva nada. Con `opportunityVehicle.integration-test.ts`: 31/31.
