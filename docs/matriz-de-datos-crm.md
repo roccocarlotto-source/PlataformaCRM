@@ -130,3 +130,21 @@ Tres cosas de `search_vehicles` (`agentTools.service.ts`) que salieron de V1. La
 - Revertir una venta con la entrega **pendiente** sigue permitido, igual que antes: la entrega queda como está y "Confirmar entrega" sigue dando 409 mientras la unidad no esté vendida.
 
 **Tests.** `delivery.service.integration-test.ts`: el test que fijaba el 409 al volver a ganar se reemplazó por tres — reusar la entrega con lo cargado (y poder confirmarla después), reasignarla a otra unidad, y el 409 en los cuatro cambios bloqueados (LOST, OPEN, otra unidad, desvincular) sin que se mueva nada. Con `opportunityVehicle.integration-test.ts`: 31/31.
+
+---
+
+## 152. El agente seguía teniendo en su prompt un auto vendido hasta que alguien apretaba "Sincronizar"
+
+**Estado:** hecho. Fila V3 del ítem 150.
+
+**Qué pasaba.** La base de conocimiento solo se actualiza con el botón "Sincronizar stock". La sonda lo midió: con la unidad publicada y sincronizada, pasarla a `SOLD` dejaba su entrada **viva (isActive=true)** hasta la sincronización siguiente. El agente lee esas entradas en su prompt (`findActiveKnowledgeBaseEntriesByBranch`), así que durante ese tiempo tenía como disponible un auto que ya se había vendido. `search_vehicles` no la ofrecía (filtra `AVAILABLE`), pero el prompt sí.
+
+**Por qué pasa.** El §70 diseñó la sincronización como una foto manual, y ninguna escritura de Vehicle la miraba.
+
+**Qué se hizo.** Las **bajas** dejan de esperar al botón; las **altas** siguen siendo solo suyas (publicar algo en la base es una decisión que se toma a propósito). `retirarDeLaBaseSiDejoDeCalificar` (en `vehicleKnowledgeBaseSync.service.ts`) da de baja la entrada de la unidad cuando deja de cumplir lo que la sincronización exige (publicada, `AVAILABLE`, no borrada), y la llaman, en su misma transacción:
+
+- `updateVehicle`: cambiar el estado a mano, o despublicarla;
+- `setVehicleStatusForOpportunityLink`: reservarla, venderla o entregarla desde una oportunidad o una entrega;
+- `deleteVehicle`: darla de baja (que ahora corre en una transacción para eso).
+
+**Tests.** `vehicleKnowledgeBaseSync.integration-test.ts`, cuatro casos nuevos: PATCH a `SOLD`, a `RESERVED` y despublicar dan de baja la entrada en el momento; un PATCH que no cambia si califica no la toca; dar de baja la unidad la da de baja; vincularla a una oportunidad la saca y la sincronización siguiente no la revive. 13/13; con los de vehículos, fotos, entregas y vínculo con oportunidad, 64/64.

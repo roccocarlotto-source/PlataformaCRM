@@ -8,10 +8,16 @@ import {
   assertAppError,
   borrador,
   capturar,
+  completoUsado,
   desmontar,
+  fotoSinStorage,
   montar,
   type Escenario,
 } from "./vehicle.test-helper";
+import { createOpportunity } from "./opportunity.service";
+import { createPipeline } from "./pipeline.service";
+import { createStage } from "./stage.service";
+import { deleteVehicle, updateVehicle } from "./vehicle.service";
 import { sincronizarStockConBaseDeConocimiento } from "./vehicleKnowledgeBaseSync.service";
 
 // ---------------------------------------------------------------------------
@@ -40,16 +46,26 @@ before(async () => {
 });
 
 after(async () => {
-  // Antes que desmontar: las entradas referencian la sucursal con RESTRICT.
+  // Antes que desmontar: las entradas referencian la sucursal con RESTRICT, y
+  // las oportunidades (ítem 152) referencian unidades.
   await prisma.knowledgeBaseEntry.deleteMany({ where: { organizationId: e.organizationId } });
+  await prisma.opportunity.deleteMany({ where: { organizationId: e.organizationId } });
+  await prisma.stage.deleteMany({ where: { organizationId: e.organizationId } });
+  await prisma.pipeline.deleteMany({ where: { organizationId: e.organizationId } });
+  await prisma.company.deleteMany({ where: { organizationId: e.organizationId } });
   await desmontar(e);
 });
 
 // Deja la organización sin entradas ni unidades para que cada caso empiece de
 // cero y los conteos del resumen signifiquen algo.
 async function limpiar() {
-  await prisma.knowledgeBaseEntry.deleteMany({ where: { organizationId: e.organizationId } });
-  await prisma.vehicle.deleteMany({ where: { organizationId: e.organizationId } });
+  const where = { organizationId: e.organizationId };
+  await prisma.knowledgeBaseEntry.deleteMany({ where });
+  // Ítem 152: los casos nuevos dejan fotos, historial y oportunidades.
+  await prisma.opportunity.deleteMany({ where });
+  await prisma.vehiclePhoto.deleteMany({ where });
+  await prisma.vehicleChangeLog.deleteMany({ where });
+  await prisma.vehicle.deleteMany({ where });
 }
 
 // Una unidad publicable y disponible. publishOnWebsite se pone por UPDATE
@@ -245,4 +261,78 @@ test("una sucursal que no existe o es de otra organización es un 400", async ()
     sincronizarStockConBaseDeConocimiento(e.organizationId, randomUUID()),
   );
   assertAppError(err, 400, "La sucursal indicada no existe");
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 152: la baja NO espera al botón. Toda escritura que saca a una unidad
+// de lo que califica da de baja su entrada en la misma transacción. Las altas
+// siguen siendo solo de la sincronización.
+// ---------------------------------------------------------------------------
+
+// Acá SÍ la ficha completa y con foto: estos casos pasan por updateVehicle,
+// que exige estar completa para seguir publicada.
+async function sincronizadaYViva() {
+  await limpiar();
+  const vehiculo = await unidadPublicada({
+    ...completoUsado,
+    vin: `9BR${randomUUID().replace(/-/g, "").slice(0, 14)}`,
+    licensePlate: randomUUID().slice(0, 7),
+  });
+  await fotoSinStorage(e, vehiculo.id);
+  await sincronizarStockConBaseDeConocimiento(e.organizationId, e.branchId);
+  const [entrada] = await entradasDe(e.organizationId);
+  assert.equal(entrada.deletedAt, null);
+  return vehiculo;
+}
+
+async function entradaViva(vehicleId: string) {
+  const entrada = await prisma.knowledgeBaseEntry.findFirstOrThrow({
+    where: { organizationId: e.organizationId, sourceVehicleId: vehicleId },
+  });
+  return entrada.deletedAt === null;
+}
+
+test("ítem 152: PATCH a SOLD, a RESERVED o despublicar da de baja la entrada en el momento", async () => {
+  for (const cambio of [
+    { status: "SOLD" as const },
+    { status: "RESERVED" as const },
+    { publishOnWebsite: false },
+  ]) {
+    const vehiculo = await sincronizadaYViva();
+    await updateVehicle(e.organizationId, e.userId, vehiculo.id, cambio);
+    assert.equal(await entradaViva(vehiculo.id), false, JSON.stringify(cambio));
+  }
+});
+
+test("ítem 152: un PATCH que no la saca de lo que califica no toca la entrada", async () => {
+  const vehiculo = await sincronizadaYViva();
+  await updateVehicle(e.organizationId, e.userId, vehiculo.id, { exteriorColor: "Rojo" });
+  assert.equal(await entradaViva(vehiculo.id), true);
+});
+
+test("ítem 152: dar de baja la unidad da de baja su entrada", async () => {
+  const vehiculo = await sincronizadaYViva();
+  await deleteVehicle(e.organizationId, vehiculo.id);
+  assert.equal(await entradaViva(vehiculo.id), false);
+});
+
+test("ítem 152: vincularla a una oportunidad (RESERVED) la saca de la base en la misma transacción", async () => {
+  const vehiculo = await sincronizadaYViva();
+  const pipeline = await createPipeline(e.organizationId, { name: `Ventas ${randomUUID()}` });
+  const stage = await createStage(e.organizationId, { pipelineId: pipeline.id, name: "Nuevo" });
+  const company = await prisma.company.create({
+    data: { organizationId: e.organizationId, name: "Cliente" },
+  });
+  await createOpportunity(e.organizationId, e.userId, {
+    title: "Interesado",
+    pipelineId: pipeline.id,
+    stageId: stage.id,
+    companyId: company.id,
+    vehicleId: vehiculo.id,
+  });
+  assert.equal(await entradaViva(vehiculo.id), false);
+
+  // Y la sincronización siguiente no la revive: no califica.
+  await sincronizarStockConBaseDeConocimiento(e.organizationId, e.branchId);
+  assert.equal(await entradaViva(vehiculo.id), false);
 });

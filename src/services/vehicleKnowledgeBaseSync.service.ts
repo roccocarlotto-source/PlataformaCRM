@@ -1,9 +1,11 @@
-import type { Vehicle } from "@prisma/client";
+import type { Vehicle, VehicleStatus } from "@prisma/client";
+import type { Db } from "../lib/prisma";
 import { Prisma } from "@prisma/client";
 import {
   createKnowledgeBaseEntry as createKnowledgeBaseEntryRepo,
   findGeneratedKnowledgeBaseEntriesByBranch,
   findKnowledgeBaseEntryBySourceVehicle,
+  softDeleteKnowledgeBaseEntry,
   writeSyncedKnowledgeBaseEntry,
 } from "../repositories/knowledgeBaseEntry.repository";
 import { findManyVehicles } from "../repositories/vehicle.repository";
@@ -381,4 +383,46 @@ export async function sincronizarStockConBaseDeConocimiento(
   }
 
   return { creadas, actualizadas, dadasDeBaja };
+}
+
+// ---------------------------------------------------------------------------
+// LA BAJA INMEDIATA (ítem 152 de docs/matriz-de-datos-crm.md).
+//
+// La sincronización de arriba es una foto manual: se corre con el botón. Eso
+// está bien para las ALTAS (publicar una unidad en la base es una decisión que
+// se toma a propósito), pero no para las BAJAS: entre que una unidad se vende
+// y alguien aprieta "Sincronizar", su entrada sigue viva y el agente la tiene
+// en el prompt como disponible. El ítem 150 lo midió: vendida y sin
+// sincronizar, "entrada viva (isActive=true)".
+//
+// Por eso toda escritura que puede sacar a una unidad de lo que califica
+// —cambiar status, despublicarla, darla de baja— llama a esta función en su
+// misma transacción. Solo da de baja: nunca crea ni actualiza, eso sigue
+// siendo del botón. El criterio de "califica" es exactamente el de
+// buscarVehiculosQueCalifican.
+// ---------------------------------------------------------------------------
+
+export function vehiculoCalificaParaLaBase(vehicle: {
+  publishOnWebsite: boolean;
+  status: VehicleStatus;
+  deletedAt: Date | null;
+}): boolean {
+  return vehicle.publishOnWebsite && vehicle.status === "AVAILABLE" && vehicle.deletedAt === null;
+}
+
+// Devuelve si dio de baja una entrada (para los tests y el historial).
+export async function retirarDeLaBaseSiDejoDeCalificar(
+  organizationId: string,
+  vehicle: { id: string; publishOnWebsite: boolean; status: VehicleStatus; deletedAt: Date | null },
+  db: Db,
+): Promise<boolean> {
+  if (vehiculoCalificaParaLaBase(vehicle)) {
+    return false;
+  }
+  const entrada = await findKnowledgeBaseEntryBySourceVehicle(organizationId, vehicle.id, db);
+  if (!entrada || entrada.deletedAt !== null) {
+    return false;
+  }
+  const result = await softDeleteKnowledgeBaseEntry(entrada.id, organizationId, db);
+  return result.count > 0;
 }

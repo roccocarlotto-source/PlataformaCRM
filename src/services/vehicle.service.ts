@@ -35,6 +35,7 @@ import {
   type SortOrder,
 } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
+import { retirarDeLaBaseSiDejoDeCalificar } from "./vehicleKnowledgeBaseSync.service";
 
 // ---------------------------------------------------------------------------
 // Vehicle — CRUD, historial de cambios y completitud para publicar (módulo de
@@ -693,16 +694,29 @@ export async function updateVehicle(
       tx,
     );
 
-    return getVehicleById(organizationId, id, tx);
+    const updated = await getVehicleById(organizationId, id, tx);
+    // Ítem 152: vendida, reservada o despublicada → su entrada de la base de
+    // conocimiento se da de baja en esta misma transacción, sin esperar al
+    // botón "Sincronizar".
+    await retirarDeLaBaseSiDejoDeCalificar(organizationId, updated, tx);
+    return updated;
   });
 }
 
 // "Dar de baja la unidad": soft delete, la ficha y su historial se conservan.
+// Ítem 152: en la misma transacción, su entrada de la base de conocimiento.
 export async function deleteVehicle(organizationId: string, id: string) {
-  const result = await softDeleteVehicle(id, organizationId);
-  if (result.count === 0) {
-    throw new AppError(VEHICULO_NO_ENCONTRADO, 404);
-  }
+  await prisma.$transaction(async (tx) => {
+    const result = await softDeleteVehicle(id, organizationId, tx);
+    if (result.count === 0) {
+      throw new AppError(VEHICULO_NO_ENCONTRADO, 404);
+    }
+    await retirarDeLaBaseSiDejoDeCalificar(
+      organizationId,
+      { id, publishOnWebsite: false, status: "AVAILABLE", deletedAt: new Date() },
+      tx,
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -753,4 +767,7 @@ export async function setVehicleStatusForOpportunityLink(
       tx,
     );
   }
+  // Ítem 152: reservada por una oportunidad, vendida o entregada → fuera de
+  // la base de conocimiento en el mismo momento.
+  await retirarDeLaBaseSiDejoDeCalificar(organizationId, { ...current, status: newStatus }, tx);
 }
