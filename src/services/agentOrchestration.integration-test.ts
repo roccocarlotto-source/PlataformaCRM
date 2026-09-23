@@ -1073,6 +1073,128 @@ test("create_lead y después update_lead en la misma conversación: la calificac
   }
 });
 
+// ---------------------------------------------------------------------------
+// Ítem 116: el nombre y el mail que el contacto dice por el canal
+// ---------------------------------------------------------------------------
+
+test("ítem 116: sobre un contacto sin identificar, create_lead guarda el nombre y el mail", async () => {
+  // El caso real: el cliente dijo "soy Diego Ramírez, mi mail es
+  // diego@ejemplo.com" y el CRM se quedaba con el marcador del canal, porque
+  // el agente no tenía ninguna herramienta para guardarlo.
+  const e = await montar("lead-identidad", { enabledTools: ["create_lead"] });
+  try {
+    await prisma.contact.update({
+      where: { id: e.contactId },
+      data: { firstName: "WhatsApp", lastName: "+5491155550000", email: null },
+    });
+    const doble = doblarProveedor([
+      pideTool("c1", "create_lead", {
+        firstName: "Diego",
+        lastName: "Ramírez",
+        email: "diego.ramirez@ejemplo.com",
+        score: 60,
+      }),
+      texto("Listo Diego, ya te tengo anotado."),
+    ]);
+
+    const resultado = await turno(
+      e,
+      "Soy Diego Ramírez, mi mail es diego.ramirez@ejemplo.com",
+      doble.proveedor,
+    );
+    assert.equal(resultado.toolCalls[0].result?.ok, true);
+
+    const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    assert.equal(contacto.firstName, "Diego");
+    assert.equal(contacto.lastName, "Ramírez");
+    assert.equal(contacto.email, "diego.ramirez@ejemplo.com");
+    // Y la calificación del mismo llamado se guarda igual.
+    assert.equal(contacto.leadScore, 60);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 116: un nombre ya cargado no se pisa, y el resultado se lo dice al modelo", async () => {
+  // El contacto de montar() se llama Ana Pérez: lo escribió una persona, así
+  // que gana. Lo que NO puede pasar es que la tool conteste ok a secas y el
+  // modelo le diga al cliente que actualizó su nombre.
+  const e = await montar("lead-identidad-pisada", { enabledTools: ["update_lead"] });
+  try {
+    const doble = doblarProveedor([
+      pideTool("c1", "update_lead", { firstName: "Anita", lastName: "P.", score: 70 }),
+      texto("Anotado."),
+    ]);
+
+    const resultado = await turno(e, "Decime Anita nomás", doble.proveedor);
+    const data = (resultado.toolCalls[0].result as { ok: true; data: Record<string, unknown> })
+      .data;
+
+    assert.deepEqual(data.noSeActualizo, ["firstName", "lastName"]);
+    assert.match(String(data.queHacer), /No le digas al cliente que los actualizaste/);
+    // El nombre sigue siendo el de la persona, y la calificación sí entró.
+    const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    assert.equal(contacto.firstName, "Ana");
+    assert.equal(contacto.lastName, "Pérez");
+    assert.equal(contacto.leadScore, 70);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 116: un mail que ya es de otro contacto no tumba el turno — se guarda el resto", async () => {
+  // El mail es único por organización y dos personas distintas pueden dar el
+  // mismo (una pareja, el mail de la empresa). El error de Postgres subía
+  // crudo, se llevaba puesta la calificación entera y el cliente se quedaba
+  // sin respuesta. Apareció corriendo el harness contra el modelo real.
+  const e = await montar("lead-mail-duplicado", { enabledTools: ["create_lead"] });
+  try {
+    await prisma.contact.create({
+      data: {
+        organizationId: e.organizationId,
+        firstName: "Otra",
+        lastName: "Persona",
+        email: "compartido@ejemplo.com",
+      },
+    });
+    await prisma.contact.update({
+      where: { id: e.contactId },
+      data: { firstName: "WhatsApp", lastName: "+5491155550001", email: null },
+    });
+
+    const doble = doblarProveedor([
+      pideTool("c1", "create_lead", {
+        firstName: "Diego",
+        email: "compartido@ejemplo.com",
+        score: 55,
+        notes: "Quiere una SUV",
+      }),
+      texto("Listo, anotado."),
+    ]);
+    const resultado = await turno(
+      e,
+      "Soy Diego, mi mail es compartido@ejemplo.com",
+      doble.proveedor,
+    );
+
+    // El turno terminó bien: ni excepción ni respuesta vacía.
+    assert.equal(resultado.toolCalls[0].result?.ok, true);
+    assert.equal(resultado.respuesta, "Listo, anotado.");
+
+    const data = (resultado.toolCalls[0].result as { ok: true; data: Record<string, unknown> })
+      .data;
+    assert.deepEqual(data.noSeActualizo, ["email"]);
+
+    // Lo que vale se guardó igual; el mail quedó donde estaba.
+    const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: e.contactId } });
+    assert.equal(contacto.firstName, "Diego");
+    assert.equal(contacto.leadScore, 55);
+    assert.equal(contacto.email, null);
+  } finally {
+    await desmontar(e);
+  }
+});
+
 test("infoNoModificable = [Contact.budgetAmount] bloquea update_lead con presupuesto y deja pasar el resto", async () => {
   const e = await montar("lead-guardrail", {
     enabledTools: ["update_lead"],

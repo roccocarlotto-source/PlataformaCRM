@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Prisma } from "@prisma/client";
 import { AppError } from "../utils/AppError";
-import { normalizeEmail, rethrowAsConflict } from "./contact.service";
+import {
+  identidadAplicable,
+  nombreEsUnMarcador,
+  normalizeEmail,
+  rethrowAsConflict,
+} from "./contact.service";
 
 // --------------------------------------------------------------------------
 // normalizeEmail — después de M-13 recorta espacios y NADA MÁS.
@@ -101,4 +106,90 @@ test("un error que no es de Prisma se relanza sin tocarlo", () => {
     () => rethrowAsConflict(err),
     (thrown: unknown) => thrown === err,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 116: qué datos de identidad puede escribir el agente, y cuáles no
+// ---------------------------------------------------------------------------
+// Unitarios y sin base: identidadAplicable es pura, y es donde vive la
+// decisión. Pisar el nombre de un contacto es justo el tipo de cosa que la IA
+// no puede hacer solo porque el modelo lo decidió, así que la regla se prueba
+// sola, sin depender de que el resto del camino esté bien.
+
+const MARCADOR = { firstName: "WhatsApp", lastName: "+5491155550000", email: null };
+const CARGADO = { firstName: "Diego", lastName: "Ramírez", email: "diego@ejemplo.com" };
+
+test("nombreEsUnMarcador: el placeholder del canal y el vacío sí, un nombre real no", () => {
+  assert.equal(nombreEsUnMarcador(MARCADOR), true);
+  assert.equal(nombreEsUnMarcador({ firstName: "   ", lastName: null }), true);
+  assert.equal(nombreEsUnMarcador(CARGADO), false);
+  // Un nombre que EMPIEZA con la palabra no es el marcador.
+  assert.equal(nombreEsUnMarcador({ firstName: "WhatsApp Soporte", lastName: null }), false);
+});
+
+test("sobre un contacto sin identificar, se guarda todo lo que el cliente dijo", () => {
+  // El caso real: llegó por WhatsApp sin nombre de perfil, dijo cómo se llama
+  // y dio su mail, y el CRM se quedaba con "WhatsApp +549...".
+  const { aplica, ignorados } = identidadAplicable(MARCADOR, {
+    firstName: "Diego",
+    lastName: "Ramírez",
+    email: "diego.ramirez@ejemplo.com",
+  });
+  assert.deepEqual(aplica, {
+    firstName: "Diego",
+    lastName: "Ramírez",
+    email: "diego.ramirez@ejemplo.com",
+  });
+  assert.deepEqual(ignorados, []);
+});
+
+test("un nombre ya cargado NO se pisa desde el chat, y se avisa cuál no se aplicó", () => {
+  // Si un vendedor ya escribió el nombre, gana el vendedor: el modelo puede
+  // estar leyendo mal un apodo, y un CRM que se renombra solo es peor que uno
+  // desactualizado.
+  const { aplica, ignorados } = identidadAplicable(CARGADO, {
+    firstName: "Diegui",
+    lastName: "R.",
+  });
+  assert.deepEqual(aplica, {});
+  assert.deepEqual(ignorados, ["firstName", "lastName"]);
+});
+
+test("el mail se completa si falta y nunca se reemplaza", () => {
+  // Es por dónde el negocio le escribe al cliente: pisarlo con uno mal
+  // transcripto rompe el contacto sin que nadie se entere.
+  assert.deepEqual(
+    identidadAplicable({ ...CARGADO, email: null }, { email: "nuevo@ejemplo.com" }).aplica,
+    { email: "nuevo@ejemplo.com" },
+  );
+  const conMail = identidadAplicable(CARGADO, { email: "otro@ejemplo.com" });
+  assert.deepEqual(conMail.aplica, {});
+  assert.deepEqual(conMail.ignorados, ["email"]);
+});
+
+test("el nombre y el mail son independientes: uno puede entrar y el otro no", () => {
+  // Contacto con nombre cargado por un vendedor pero sin mail.
+  const { aplica, ignorados } = identidadAplicable(
+    { firstName: "Diego", lastName: "Ramírez", email: null },
+    { firstName: "Otro", email: "diego@ejemplo.com" },
+  );
+  assert.deepEqual(aplica, { email: "diego@ejemplo.com" });
+  assert.deepEqual(ignorados, ["firstName"]);
+});
+
+test("los vacíos y los espacios no cuentan como dato", () => {
+  // Un modelo que manda firstName: "" no está pidiendo borrar el nombre.
+  const { aplica, ignorados } = identidadAplicable(MARCADOR, {
+    firstName: "   ",
+    lastName: "",
+    email: "  ",
+  });
+  assert.deepEqual(aplica, {});
+  assert.deepEqual(ignorados, []);
+});
+
+test("lo que se guarda va trimeado", () => {
+  assert.deepEqual(identidadAplicable(MARCADOR, { firstName: "  Diego  " }).aplica, {
+    firstName: "Diego",
+  });
 });

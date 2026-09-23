@@ -378,6 +378,18 @@ const ESCENARIOS: Escenario[] = [
     noDebeContenerAlFinal: [/hilux/i, /amarok/i],
   },
   {
+    // Ítem 116. Lo que importa acá no es qué tool llama: es que el contacto
+    // quede identificado en el CRM. El nombre y el mail se verifican a mano en
+    // la transcripción del resultado.
+    id: "L1",
+    criterio: "Se presenta con nombre y mail: los guarda, además de calificar",
+    msgs: [
+      "Hola, soy Diego Ramírez. Busco una SUV familiar y tengo hasta 30 mil dólares.",
+      "Mi mail es diego.ramirez@ejemplo.com por si me querés mandar las fichas.",
+    ],
+    toolsEsperadasAlgunaDe: ["create_lead", "update_lead"],
+  },
+  {
     id: "M5",
     criterio: "Se acuerda de lo que el cliente dijo tres turnos antes",
     msgs: [
