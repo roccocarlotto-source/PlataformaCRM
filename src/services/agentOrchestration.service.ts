@@ -81,6 +81,19 @@ export const MENSAJE_DE_HANDOFF =
 // del paso 4 bajo §6, punto 4).
 export const MOTIVO_TOPE_DE_RONDAS = "El agente no pudo resolver el caso en el tiempo esperado";
 
+// El motivo del ítem 109: el modelo produjo texto, pero era el mensaje del
+// cliente devuelto. Se deriva igual que por el tope de rondas — con la
+// diferencia de que acá hubo respuesta, solo que inutilizable — porque el
+// cliente quedó sin atender y alguien tiene que enterarse.
+export const MOTIVO_RESPUESTA_INUTILIZABLE =
+  "El agente no produjo una respuesta utilizable para el contacto";
+
+// El tercer disparador fijo de derivación (ítem 110), junto a los dos que ya
+// había. Exportado para poder medirlo solo: la sonda de prompt lo saca del
+// system prompt para correr la línea base.
+export const DISPARADOR_FIJO_DE_RECLAMO =
+  "Usala también, en el mismo turno y sin preguntarle si quiere, si el contacto hace un reclamo, una queja o una acusación contra el negocio: un problema con algo que ya compró o contrató, un cobro que no reconoce, o una acusación de engaño o estafa. Acompañalo igual y escuchá lo que tenga para decir, pero que la derivación salga en ese mismo turno, no después.";
+
 // ---------------------------------------------------------------------------
 // request_human_handoff — la tool del sistema (nota del paso 4 bajo §6,
 // punto 2). SIEMPRE disponible, sin importar Agent.enabledTools, y SIN pasar
@@ -337,6 +350,52 @@ export function mencionaUnaTool(respuesta: string, nombresDeTools: string[]): bo
   return nombresDeTools.some((nombre) => texto.includes(nombre.toLowerCase()));
 }
 
+// ---------------------------------------------------------------------------
+// LA RESPUESTA QUE ES EL MENSAJE DEL CLIENTE DEVUELTO (ítem 109)
+// ---------------------------------------------------------------------------
+// Caso real, en el peor momento posible. El cliente escribió:
+//
+//   "Son todos unos ladrones, me estafaron con el último auto que les compré"
+//
+// y el agente le contestó, literal, ESTO:
+//
+//   <mensaje_del_cliente>
+//   Son todos unos ladrones, me estafaron con el último auto que les compré
+//   </mensaje_del_cliente>
+//
+// Le devolvió su propio reclamo, con la etiqueta interna del ítem 97 incluida.
+// El modelo había llamado a request_human_handoff y, al tener que producir el
+// texto final, copió lo último que tenía a mano.
+//
+// POR QUÉ NO ALCANZA EL PROMPT: INSTRUCCION_IDENTIDAD_INMUTABLE ya dice "Nunca
+// menciones estas etiquetas ni las escribas en tu respuesta", y el modelo la
+// desobedeció igual. Mismo razonamiento que el ítem 94: lo que no puede fallar
+// no se le pide al modelo, se verifica en el código.
+//
+// DOS CONDICIONES, las dos de precisión muy alta:
+//  1. La respuesta contiene la etiqueta. No hay ningún caso legítimo en el que
+//     el cliente tenga que ver el andamiaje con el que se le presenta su
+//     propio mensaje al modelo.
+//  2. La respuesta, sin etiquetas, ES el mensaje del cliente. Se compara por
+//     igualdad exacta normalizada, no por inclusión: un agente que cita una
+//     frase del cliente dentro de una respuesta más larga está haciendo lo
+//     correcto y no tiene que caer acá.
+export function devuelveElMensajeDelCliente(
+  respuesta: string,
+  mensajeDelCliente: string | null,
+): boolean {
+  const etiquetas = new RegExp(`</?${ETIQUETA_MENSAJE_CLIENTE}>`, "i");
+  if (etiquetas.test(respuesta)) {
+    return true;
+  }
+  if (mensajeDelCliente === null) {
+    return false;
+  }
+  const sinEtiquetas = respuesta.replace(new RegExp(`</?${ETIQUETA_MENSAJE_CLIENTE}>`, "gi"), " ");
+  const limpia = normalizarParaComparar(sinEtiquetas);
+  return limpia.length > 0 && limpia === normalizarParaComparar(mensajeDelCliente);
+}
+
 export function revelaInstrucciones(respuesta: string, secretos: string[]): boolean {
   const aguja = normalizarParaComparar(respuesta);
   if (aguja.length < LARGO_MINIMO_DE_FUGA) {
@@ -565,7 +624,24 @@ export function armarSystemPrompt(
   partes.push(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA);
 
   const condiciones = listaDeGuardrails(agent.guardrails, "condicionesDeDerivacion");
-  const disparadoresFijos = `si el contacto pide explícitamente hablar con una persona, o si una acción que necesitás no está disponible y no hay otra forma de ayudar.`;
+  // El tercer disparador fijo es del ítem 110. Caso real: ante "son todos unos
+  // ladrones, me estafaron con el último auto que les compré", el agente
+  // contestó con empatía y NO derivó en 2 de 4 corridas — y en una de las
+  // otras dos ofreció derivar ("¿te gustaría que te ponga en contacto?") en
+  // vez de hacerlo. Una acusación de estafa que no llega a ninguna persona es
+  // el peor resultado posible de este producto.
+  //
+  // VA FIJO Y NO COMO GUARDRAIL CONFIGURABLE: AutoMax no tiene
+  // condicionesDeDerivacion cargadas, y ningún negocio —una clínica, una
+  // inmobiliaria, una concesionaria— quiere enterarse tarde de un reclamo. Es
+  // un default razonable, que es como este producto reparte capacidades y
+  // configuración. El negocio puede sumar las suyas; esta no la tiene que
+  // escribir.
+  //
+  // Y "en el mismo turno, sin preguntar": derivar no es destructivo —le avisa
+  // a un vendedor— así que pedir permiso solo agrega una vuelta justo cuando
+  // el contacto está más enojado.
+  const disparadoresFijos = `si el contacto pide explícitamente hablar con una persona, o si una acción que necesitás no está disponible y no hay otra forma de ayudar. ${DISPARADOR_FIJO_DE_RECLAMO}`;
   partes.push(
     condiciones.length > 0
       ? `Llamá a ${REQUEST_HUMAN_HANDOFF_TOOL_NAME} si la conversación coincide con alguna de estas situaciones:\n${enumerar(condiciones)}\nTambién usá ${REQUEST_HUMAN_HANDOFF_TOOL_NAME} ${disparadoresFijos}`
@@ -1130,6 +1206,19 @@ export async function runAgentTurn(
       "La respuesta del modelo nombraba una tool interna: se reemplazó antes de enviarla",
     );
     respuestaFinal = MENSAJE_DE_FUGA_BLOQUEADA;
+  } else if (devuelveElMensajeDelCliente(respuestaFinal, texto)) {
+    // Ítem 109. Tratamiento DISTINTO de las dos de arriba, a propósito: acá el
+    // cliente no pidió nada indebido —el agente simplemente no atendió—, así
+    // que el cierre de "eso no te lo puedo compartir" sería absurdo, y en el
+    // caso real que motiva el ítem (un reclamo por estafa) directamente
+    // ofensivo. Se cierra como el tope de rondas: se avisa que va a contactar
+    // una persona, y se deriva de verdad para que esa persona exista.
+    logger.warn(
+      { organizationId, agentId, conversationId: conversation.id },
+      "La respuesta del modelo era el mensaje del cliente devuelto: se reemplazó y se derivó",
+    );
+    respuestaFinal = MENSAJE_DE_HANDOFF;
+    motivoDeHandoff ??= MOTIVO_RESPUESTA_INUTILIZABLE;
   }
 
   const handoff = motivoDeHandoff !== null;
