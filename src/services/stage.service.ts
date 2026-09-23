@@ -152,6 +152,9 @@ export function rethrowAsConflict(err: unknown): never {
   throw err;
 }
 
+export const ETAPA_CON_OPORTUNIDADES_NO_CAMBIA_CIERRE =
+  "Esta etapa tiene oportunidades: movelas a otra etapa antes de cambiar si cierra como ganada o perdida";
+
 export interface CreateStageInput {
   pipelineId: string;
   name: string;
@@ -264,6 +267,18 @@ export async function updateStage(organizationId: string, id: string, input: Upd
       const actual = await findStageById(id, organizationId, tx);
       if (!actual) {
         throw new AppError("Etapa no encontrada", 404);
+      }
+
+      // Ítem 154 de docs/matriz-de-datos-crm.md: desde que la etapa manda
+      // sobre el estado, cambiar si una etapa cierra (ganada / perdida / ninguna)
+      // con oportunidades adentro las dejaría a todas contradiciendo su etapa
+      // de un saque — la sonda del ítem 150 lo midió (O9). Bajo el lock del
+      // pipeline, el mismo que toma createStage.
+      const cambiaMarca =
+        (rest.isWon !== undefined && rest.isWon !== actual.isWon) ||
+        (rest.isLost !== undefined && rest.isLost !== actual.isLost);
+      if (cambiaMarca && (await countActiveOpportunitiesByStage(id, organizationId, tx)) > 0) {
+        throw new AppError(ETAPA_CON_OPORTUNIDADES_NO_CAMBIA_CIERRE, 409);
       }
 
       if (requestedOrder !== undefined && requestedOrder !== actual.order) {

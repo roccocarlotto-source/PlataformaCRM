@@ -170,3 +170,32 @@ Tres cosas de `search_vehicles` (`agentTools.service.ts`) que salieron de V1. La
 Los otros cambios a mano (`IN_PREPARATION`, `IN_TRANSIT`) siguen permitidos: son operativos y `opportunity.service.ts` ya los respeta. Una unidad con la entrega confirmada se puede dar de baja del stock.
 
 **Tests.** `opportunityVehicle.integration-test.ts`, tres casos nuevos: 409 al volver a `AVAILABLE` una reservada o una vendida (y la segunda oportunidad sigue siendo imposible); `IN_PREPARATION` permitido y, una vez perdida la oportunidad, `AVAILABLE` vuelve a valer; baja con 409 mientras está retenida y permitida después de desvincular o con la entrega confirmada. Con vehículos, base de conocimiento y entregas: 60/60.
+
+---
+
+## 154. El backend aceptaba cualquier combinación de estado y etapa, y cierres sin fecha
+
+**Estado:** hecho. Filas O1, O2, O3, O4 y O9 del ítem 150.
+
+**Qué pasaba.**
+
+- **O1/O3.** Una oportunidad `WON` parada en "Nuevo" (201) o una `OPEN` en "Ganado" (201). El embudo la agrupa por etapa y el dashboard por estado, así que la misma fila estaba ganada según uno y abierta según el otro.
+- **O2.** Una `WON` sin `actualCloseDate` (201) no existía para el dashboard: `wonThisPeriod.count` 1 → 1 e ingresos 1000.00 → 1000.00, porque los dos agrupan por fecha de cierre.
+- **O4.** `LOST` sin motivo, `OPEN` con motivo y fecha de cierre, `WON` con motivo de pérdida: todo 201.
+- **O9.** Marcar como ganada una etapa con oportunidades abiertas (200) dejaba a todas en O3 de un saque.
+
+**Por qué pasa.** El §51 decidió que la etapa es la única fuente de verdad del cierre, pero lo hizo cumplir solo en el formulario y el embudo (`stageStatus.ts`). El §51 mismo lo dejó escrito: "este ítem cierra el camino de la UI, no el del contrato". Todo lo que escribe sin pasar por la pantalla —el agente, la API, un script— seguía libre.
+
+**Qué se hizo.** La regla de `stageStatus.ts`, ahora también en el backend (`src/services/opportunityClosing.ts`, puro, y aplicado en `opportunity.service.ts`):
+
+- **Cambiar de etapa:** el estado sale de la etapa (ganada → `WON`, perdida → `LOST`, cualquier otra → `OPEN`). Si el body trae además un estado que la contradice: `400 El estado no coincide con la etapa…`.
+- **Cambiar solo el estado** (lo que hace el agente con `update_opportunity`): la oportunidad **se mueve** a la primera etapa, por orden, que significa ese estado. Es lo mismo que arrastrarla en el embudo.
+- **Crear en una etapa de cierre sin decir el estado:** `400`. Derivarlo crearía una venta ganada que nadie pidió y dispararía la automatización de `opportunity.won`.
+- **Vía de escape del §51:** en un pipeline **sin ninguna** etapa de ese cierre (P5), se sigue pudiendo cerrar por estado desde una etapa abierta. Así ningún pipeline existente queda con oportunidades imposibles de cerrar.
+- **Datos viejos:** un guardado que no cambia ni estado ni etapa se acepta tal cual, aunque la fila venga contradictoria de antes (mismo criterio que el §50: no se corrigen datos que nadie pidió tocar).
+- **Campos de cierre:** al cerrar sin fecha, la fecha es **hoy en la zona horaria de la organización** (a las 22:30 en Montevideo sigue siendo hoy, no mañana UTC); una fecha cargada nunca se pisa. Al reabrir se vacían fecha y motivo; mandarlos con `OPEN` es 400. Al ganar se vacía el motivo de pérdida; mandarlo con `WON` es 400. El motivo sigue siendo **opcional** en `LOST`: exigirlo rompería al agente, que puede perder una oportunidad sin motivo.
+- **O9:** cambiar si una etapa cierra (ganada / perdida / ninguna) con oportunidades adentro: `409 Esta etapa tiene oportunidades: movelas a otra etapa antes…`. Renombrarla o reordenarla sigue libre.
+
+La UI no nota el cambio: ya manda etapa y estado coherentes.
+
+**Tests.** `opportunityClosing.test.ts`, 12 unitarios de la regla pura (incluido el día de Montevideo contra el día UTC). `opportunityClosing.integration-test.ts`, 6 contra la base: las tres contradicciones rechazadas sin escribir nada; mover a "Ganado" sin estado gana, fecha de hoy y evento `opportunity.won`; el camino del agente (solo `LOST` → etapa Perdido; `OPEN` → vuelve a Nuevo con fecha y motivo vacíos); una ganada sin fecha que ahora sí suma en el dashboard; una fila vieja contradictoria que se guarda igual; y el 409 de O9. La suite de integración completa (incluidos los tests del agente): 1037/1037 antes de agregar estos.

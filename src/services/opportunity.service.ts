@@ -28,7 +28,11 @@ import {
 } from "../repositories/organization.repository";
 import { emitOutboxEvent } from "../repositories/outboxEvent.repository";
 import { findPipelineById } from "../repositories/pipeline.repository";
-import { findStageById, lockStageForUpdate } from "../repositories/stage.repository";
+import {
+  findStageById,
+  findStagesByPipeline,
+  lockStageForUpdate,
+} from "../repositories/stage.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
 import { lastMonthsUTC, monthWindowUTC } from "../utils/utcMonth";
@@ -40,6 +44,12 @@ import {
   ensureDeliveryForSoldVehicle,
   hasConfirmedDelivery,
 } from "./delivery.service";
+import {
+  hoyEnLaZona,
+  resolverCamposDeCierre,
+  resolverEstadoYEtapa,
+  type EtapaConMarca,
+} from "./opportunityClosing";
 import { resolveOwnerId } from "./ownership.service";
 import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
 
@@ -281,6 +291,12 @@ async function priceFromVehicleInTx(
   return priceFromVehicle(vehicle, { preferredCurrency: organization?.preferredCurrency ?? null });
 }
 
+// Ítem 154: el "hoy" de la organización para la fecha de cierre automática.
+async function hoyDeLaOrganizacion(organizationId: string, db: Db = prisma): Promise<Date> {
+  const organization = await findOrganizationById(organizationId, db);
+  return hoyEnLaZona(organization?.timezone ?? "UTC");
+}
+
 export interface CreateOpportunityInput {
   title: string;
   amount?: number;
@@ -319,10 +335,27 @@ export async function createOpportunity(
   // común sin abrir una. No son la defensa: la lectura que decide es la de
   // adentro, con el lock ya tomado.
   await validatePipelineId(organizationId, input.pipelineId);
-  await validateStageId(organizationId, input.stageId, input.pipelineId);
+  const etapa = await validateStageId(organizationId, input.stageId, input.pipelineId);
   if (input.vehicleId) {
     await validateVehicleId(organizationId, input.vehicleId);
   }
+
+  // Ítem 154: el estado sale de la etapa, y los campos de cierre del estado.
+  const { status } = resolverEstadoYEtapa({
+    etapa,
+    etapaCambia: true,
+    creando: true,
+    statusPedido: input.status,
+    statusActual: undefined,
+    etapasDelPipeline: await findStagesByPipeline(input.pipelineId),
+  });
+  const cierre = resolverCamposDeCierre({
+    status,
+    previo: undefined,
+    body: { actualCloseDate: input.actualCloseDate, lostReason: input.lostReason },
+    actual: { actualCloseDate: null, lostReason: null },
+    hoy: await hoyDeLaOrganizacion(organizationId),
+  });
 
   return prisma.$transaction(async (tx) => {
     // ALTO-8 — la otra mitad del RESTRICT de deleteStage. Ese borrado decide
@@ -360,9 +393,9 @@ export async function createOpportunity(
         amount: input.amount ?? precioDeLaUnidad.amount,
         currency: input.currency ?? precioDeLaUnidad.currency,
         expectedCloseDate: input.expectedCloseDate,
-        actualCloseDate: input.actualCloseDate,
-        status: input.status,
-        lostReason: input.lostReason,
+        actualCloseDate: cierre.actualCloseDate ?? undefined,
+        status,
+        lostReason: cierre.lostReason ?? undefined,
         vehicleId: input.vehicleId,
         financingType: input.financingType,
         leadSource: input.leadSource,
@@ -469,10 +502,59 @@ export async function updateOpportunity(
   }
 
   const effectivePipelineId = input.pipelineId ?? opportunity.pipelineId;
-  const nuevoStageId = input.stageId;
+  let nuevoStageId = input.stageId;
 
+  let etapaPedida: EtapaConMarca | undefined;
   if (nuevoStageId) {
-    await validateStageId(organizationId, nuevoStageId, effectivePipelineId);
+    etapaPedida = await validateStageId(organizationId, nuevoStageId, effectivePipelineId);
+  }
+
+  // Ítem 154 de docs/matriz-de-datos-crm.md: la etapa manda sobre el estado
+  // (la regla del §51, que hasta acá vivía solo en el frontend), y la fecha de
+  // cierre y el motivo acompañan al estado. Solo si el PATCH toca alguno de
+  // los cuatro: un cambio de título no revisa nada.
+  if (
+    input.status !== undefined ||
+    input.stageId !== undefined ||
+    input.actualCloseDate !== undefined ||
+    input.lostReason !== undefined
+  ) {
+    const etapaActual = (await findStageById(opportunity.stageId, organizationId)) ?? {
+      id: opportunity.stageId,
+      isWon: false,
+      isLost: false,
+    };
+    const resuelto = resolverEstadoYEtapa({
+      etapa: etapaPedida ?? etapaActual,
+      etapaCambia: etapaPedida !== undefined && etapaPedida.id !== opportunity.stageId,
+      creando: false,
+      statusPedido: input.status,
+      statusActual: opportunity.status,
+      etapasDelPipeline: await findStagesByPipeline(effectivePipelineId),
+    });
+    if (resuelto.status !== opportunity.status || input.status !== undefined) {
+      data.status = resuelto.status;
+    }
+    if (resuelto.stageId !== (etapaPedida ?? etapaActual).id) {
+      // Solo cambió el estado: se mueve a la etapa que lo significa, igual que
+      // arrastrarla en el embudo. Pasa por el mismo lock y revalidación de
+      // stage que cualquier cambio de etapa (abajo).
+      data.stageId = resuelto.stageId;
+      nuevoStageId = resuelto.stageId;
+    }
+    Object.assign(
+      data,
+      resolverCamposDeCierre({
+        status: resuelto.status,
+        previo: opportunity.status,
+        body: { actualCloseDate: input.actualCloseDate, lostReason: input.lostReason },
+        actual: {
+          actualCloseDate: opportunity.actualCloseDate,
+          lostReason: opportunity.lostReason,
+        },
+        hoy: await hoyDeLaOrganizacion(organizationId),
+      }),
+    );
   }
 
   // Vínculo con la unidad: qué queda vinculado y si hay que sincronizar su
@@ -483,7 +565,7 @@ export async function updateOpportunity(
   const vehicleIdTouched = input.vehicleId !== undefined;
   const newVehicleId = vehicleIdTouched ? (input.vehicleId ?? null) : oldVehicleId;
   const vehicleChanged = newVehicleId !== oldVehicleId;
-  const effectiveStatus = input.status ?? opportunity.status;
+  const effectiveStatus = data.status ?? opportunity.status;
   const needsVehicleSync =
     vehicleChanged || (newVehicleId !== null && effectiveStatus !== opportunity.status);
 
@@ -500,7 +582,9 @@ export async function updateOpportunity(
   // concurrentes a WON leerían OPEN los dos y emitirían dos eventos. El owner
   // del payload es el efectivo después del cambio: si el mismo PATCH reasigna
   // y gana, el seguimiento va al dueño nuevo.
-  const pideGanada = input.status === "WON";
+  // Ítem 154: "pedir" ganar incluye moverla a una etapa ganada sin mandar
+  // status — el estado ya salió de la etapa, arriba.
+  const pideGanada = data.status === "WON";
   const ownerIdEfectivo = data.ownerId ?? opportunity.ownerId;
 
   // La escritura va en transacción SOLO cuando cambia el stage, hay que
