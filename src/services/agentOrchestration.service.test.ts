@@ -5,6 +5,8 @@ import {
   ETIQUETA_MENSAJE_CLIENTE,
   envolverMensajeDelCliente,
   bloqueDeContacto,
+  devuelveElMensajeDelCliente,
+  DISPARADOR_FIJO_DE_RECLAMO,
   nombreUsableDelContacto,
   INSTRUCCION_IDENTIDAD_INMUTABLE,
   INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
@@ -536,6 +538,83 @@ test("la instrucción del ítem 108 entra en los secretos que no pueden salir al
   // modelo la copia en una respuesta, es una fuga del prompt.
   const prompt = armarSystemPrompt({ ...BASE, guardrails: {} });
   assert.equal(revelaInstrucciones(prompt, [INSTRUCCION_SOLO_LO_QUE_TE_CONSTA]), true);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 109: la respuesta que es el mensaje del cliente devuelto
+// ---------------------------------------------------------------------------
+
+const RECLAMO = "Son todos unos ladrones, me estafaron con el último auto que les compré";
+
+test("devuelveElMensajeDelCliente agarra el caso real: el reclamo devuelto con etiquetas", () => {
+  // Textual de producción. El cliente recibió su propio reclamo de vuelta,
+  // envuelto en la etiqueta interna del ítem 97.
+  assert.equal(
+    devuelveElMensajeDelCliente(
+      `<${ETIQUETA_MENSAJE_CLIENTE}>\n${RECLAMO}\n</${ETIQUETA_MENSAJE_CLIENTE}>`,
+      RECLAMO,
+    ),
+    true,
+  );
+});
+
+test("devuelveElMensajeDelCliente: la etiqueta sola alcanza, haya o no mensaje con qué comparar", () => {
+  // Que el cliente vea el andamiaje nunca es correcto, aunque el texto de
+  // alrededor sea distinto del suyo y aunque no haya con qué compararlo.
+  assert.equal(
+    devuelveElMensajeDelCliente(`Claro. <${ETIQUETA_MENSAJE_CLIENTE}> ¿En qué te ayudo?`, "hola"),
+    true,
+  );
+  assert.equal(
+    devuelveElMensajeDelCliente(`</${ETIQUETA_MENSAJE_CLIENTE}> ¿En qué te ayudo?`, null),
+    true,
+  );
+});
+
+test("devuelveElMensajeDelCliente: el eco sin etiquetas también cuenta", () => {
+  // Mismo texto salvo espacios y mayúsculas: el modelo copió y no atendió.
+  assert.equal(devuelveElMensajeDelCliente(`  ${RECLAMO.toUpperCase()}  `, RECLAMO), true);
+});
+
+test("devuelveElMensajeDelCliente NO se dispara con una respuesta normal", () => {
+  // El riesgo de esta guarda son los falsos positivos sobre el mensaje que
+  // llega al cliente. Citar una frase del cliente dentro de una respuesta más
+  // larga es lo correcto, y por eso la comparación es por igualdad exacta y no
+  // por inclusión.
+  const normales: Array<[string, string | null]> = [
+    ["Lamento mucho lo que pasó. Le paso tu caso a una persona del equipo ahora mismo.", RECLAMO],
+    [`Me decís "${RECLAMO}" — contame qué pasó y lo derivo al toque.`, RECLAMO],
+    ["Tengo 2 Hilux en stock: una DX 4x2 2019 y una SRV 4x4 2022.", "¿Tenés Hilux?"],
+    ["", RECLAMO],
+    ["sí", "sí, dale"],
+  ];
+  for (const [respuesta, mensaje] of normales) {
+    assert.equal(
+      devuelveElMensajeDelCliente(respuesta, mensaje),
+      false,
+      `falso positivo: ${respuesta}`,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 110: un reclamo tiene que llegar a una persona
+// ---------------------------------------------------------------------------
+
+test("el disparador fijo de reclamo va siempre, con y sin condiciones configuradas", () => {
+  // Va fijo y no como guardrail: ningún negocio quiere enterarse tarde de un
+  // reclamo, y AutoMax no tenía condicionesDeDerivacion cargadas.
+  for (const guardrails of [{}, { condicionesDeDerivacion: ["reclamo o queja"] }]) {
+    const prompt = armarSystemPrompt({ ...BASE, guardrails });
+    assert.ok(prompt.includes(DISPARADOR_FIJO_DE_RECLAMO), JSON.stringify(guardrails));
+  }
+});
+
+test("el disparador de reclamo pide derivar en el mismo turno, no ofrecerlo", () => {
+  // En las corridas reales el agente contestaba "¿te gustaría que te ponga en
+  // contacto?" y se quedaba ahí: el cliente enojado se va y nadie se entera.
+  assert.match(DISPARADOR_FIJO_DE_RECLAMO, /en el mismo turno y sin preguntarle/);
+  assert.match(DISPARADOR_FIJO_DE_RECLAMO, /estafa/);
 });
 
 // ---------------------------------------------------------------------------

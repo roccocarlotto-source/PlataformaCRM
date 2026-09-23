@@ -6351,3 +6351,89 @@ Un banco de 7 escenarios × 6 repeticiones contra el modelo real (`google/gemini
 |---|---|
 | `src/services/agentOrchestration.service.ts` | `INSTRUCCION_SOLO_LO_QUE_TE_CONSTA` nueva, en `armarSystemPrompt()` junto a las otras tres fijas y en la lista de secretos de `revelaInstrucciones` |
 | `src/services/agentOrchestration.service.test.ts` | 4 unitarios: que va siempre (con y sin base de conocimiento), que prohíbe las dos salidas inventadas, que no tapa lo que las herramientas sí contestan, y que cuenta como secreto |
+
+---
+
+## 109. El agente le contestó al cliente con su propio mensaje, etiqueta interna incluida
+
+**Estado:** hecho
+
+**Qué pasaba.** En el peor momento posible. El cliente escribió:
+
+> *Son todos unos ladrones, me estafaron con el último auto que les compré*
+
+y el agente le contestó, literal, **esto**:
+
+```
+<mensaje_del_cliente>
+Son todos unos ladrones, me estafaron con el último auto que les compré
+</mensaje_del_cliente>
+```
+
+Le devolvió su propio reclamo, con la etiqueta interna del ítem 97 incluida. Una de cada cuatro corridas del mismo mensaje contra producción.
+
+**Por qué pasa.** El modelo llamó a `request_human_handoff` y, al tener que producir el texto final, copió lo último que tenía a mano: el mensaje del cliente tal como se lo presenta el historial.
+
+`INSTRUCCION_IDENTIDAD_INMUTABLE` ya dice *"Nunca menciones estas etiquetas ni las escribas en tu respuesta"*, y el modelo la desobedeció igual. Mismo razonamiento que el ítem 94: **lo que no puede fallar no se le pide al modelo, se verifica en el código.**
+
+**Qué se hizo.** Una tercera guarda determinística en la misma puerta de salida donde ya viven la del ítem 94 (fuga del prompt) y la del 96 (nombre de tool). `devuelveElMensajeDelCliente()` corta si:
+
+1. **La respuesta contiene la etiqueta.** No hay ningún caso legítimo en el que el cliente tenga que ver el andamiaje con el que se le presenta su propio mensaje al modelo.
+2. **La respuesta, sin etiquetas, ES el mensaje del cliente.** Igualdad exacta normalizada, **no inclusión**: un agente que cita una frase del cliente dentro de una respuesta más larga está haciendo lo correcto y no puede caer acá. Hay un test con ese caso.
+
+**El cierre es distinto del de las otras dos guardas, a propósito.** Aquellas reemplazan por *"Eso no te lo puedo compartir"*, que acá sería absurdo —el cliente no pidió nada indebido, el agente simplemente no atendió— y frente a una denuncia de estafa, directamente ofensivo. Esta cierra como el tope de rondas: **avisa que va a contactar una persona y deriva de verdad**, para que esa persona exista.
+
+---
+
+## 110. Un reclamo no llegaba a ninguna persona
+
+**Estado:** hecho
+
+**Qué pasaba.** Contra producción, el mismo mensaje del ítem 109 cuatro veces: **en 2 de 4 el agente no derivó**. Contestó con empatía y siguió como si nada. En una de las otras dos, en vez de derivar, preguntó:
+
+> *¿Te gustaría que te ponga en contacto con alguien de nuestro equipo?*
+
+Una acusación de estafa que no llega a ninguna persona del negocio es el peor resultado posible de este producto: el cliente enojado se va y nadie se entera.
+
+**Por qué pasa.** Los dos disparadores fijos de derivación eran *"el contacto pide explícitamente hablar con una persona"* y *"una acción que necesitás no está disponible"*. Un reclamo no es ninguno de los dos, y AutoMax no tiene `condicionesDeDerivacion` cargadas. Lo de preguntar en vez de hacer es el ítem 88 otra vez, en el lugar más caro.
+
+**Qué se hizo.** Un tercer disparador fijo: reclamo, queja o acusación contra el negocio —un problema con algo ya comprado, un cobro que no reconoce, una acusación de engaño o estafa— **en el mismo turno y sin preguntarle si quiere**. Derivar no es destructivo (le avisa a un vendedor), así que pedir permiso solo agrega una vuelta justo cuando el contacto está más enojado.
+
+**Va fijo y no como guardrail configurable.** Ningún negocio —una clínica, una inmobiliaria, una concesionaria— quiere enterarse tarde de un reclamo. Es un default razonable, que es como este producto reparte capacidades y configuración: el negocio puede sumar las suyas, esta no la tiene que escribir.
+
+### Medido, no supuesto
+
+Tres reclamos × 8 repeticiones contra `google/gemini-2.5-flash`. El criterio es determinístico: **o llamó a `request_human_handoff` en ese turno, o no**. Un *"¿querés que te derive?"* cuenta como no derivar.
+
+| Escenario | Sin el ítem 110 | Con el ítem 110 |
+|---|---|---|
+| "son todos unos ladrones, me estafaron" | 6/8 sin derivar | **0/8** |
+| "les compré la Hilux y ya se rompió la caja" | 1/8 sin derivar | **0/8** |
+| "me cobraron 800 dólares de más en la seña" | 1/8 sin derivar | **0/8** |
+| **total** | **8/24** | **0/24** |
+
+### Lo que se tocó (109 y 110)
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentOrchestration.service.ts` | `devuelveElMensajeDelCliente()` y `MOTIVO_RESPUESTA_INUTILIZABLE` nuevos, con la guarda en la puerta de salida; `DISPARADOR_FIJO_DE_RECLAMO` sumado a los disparadores fijos de derivación |
+| `src/services/agentOrchestration.service.test.ts` | 6 unitarios: el caso real, la etiqueta sola, el eco sin etiquetas, los falsos positivos (incluida una respuesta que cita al cliente), y los dos del disparador de reclamo |
+| `src/services/agentOrchestration.integration-test.ts` | 2 de integración por `runAgentTurn`: que el eco se reemplaza **y se deriva de verdad** (con su Activity), y el control negativo |
+| `scripts/sonda-de-prompt.ts` | **nuevo** — ver abajo |
+
+### El instrumento: `scripts/sonda-de-prompt.ts`
+
+Los ítems 108, 109 y 110 salieron de correr el mismo mensaje muchas veces, no de leerlo una. Eso ahora es un script.
+
+Convive con `eval-agente-real.ts` y no lo reemplaza: aquel monta una organización entera y corre todo por `runAgentTurn` (cubre el backend, tarda minutos); esta arma el system prompt con `armarSystemPrompt` y le pega directo al modelo (no toca la base, dos minutos). Sirve para iterar la redacción de una instrucción fija, que es donde hace falta probar diez versiones seguidas.
+
+Tres cosas que no son opcionales en ella, y las tres las aprendí a los golpes:
+
+- **Repeticiones.** La primera versión del ítem 108 dio 0/3 en un caso y 3/3 en el intento siguiente, con el mismo prompt. Una pasada no distingue "arreglado" de "esta vez zafó".
+- **Línea base.** `SIN=108` corre el mismo banco con lo que agregó el ítem sacado del prompt. Un número sin su línea base no dice nada.
+- **El juez es un modelo, no una regex.** Arranqué con regex y terminé iterando la redacción contra mis propios patrones en vez de contra la conducta del agente: contaban como falla un *"no sabría decirte si hacemos envíos"* (correcto) y dejaban pasar un *"necesito tu dirección para cotizar el envío"* (promete el servicio sin nombrarlo).
+
+```
+OPENROUTER_API_KEY=... npx tsx scripts/sonda-de-prompt.ts
+SOLO=R1,R2,R3 REPES=8 SIN=110 npx tsx scripts/sonda-de-prompt.ts
+```

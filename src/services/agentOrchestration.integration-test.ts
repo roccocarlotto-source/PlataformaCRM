@@ -12,6 +12,7 @@ import {
   INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
   MAX_TOOL_ROUNDS_PER_TURN,
   MENSAJE_DE_FUGA_BLOQUEADA,
+  ETIQUETA_MENSAJE_CLIENTE,
   MENSAJE_DE_HANDOFF,
   MOTIVO_TOPE_DE_RONDAS,
   REQUEST_HUMAN_HANDOFF_TOOL_NAME,
@@ -2019,6 +2020,55 @@ test("ítem 96: hablar de lo que hacen las tools, en castellano, pasa intacto", 
       "Puedo buscarte vehículos por marca, modelo o precio, y coordinarte una visita con un vendedor. ¿Qué estás buscando?";
     const doble = doblarProveedor([texto(normal)]);
     const resultado = await turno(e, "¿qué podés hacer?", doble.proveedor);
+    assert.equal(resultado.respuesta, normal);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 109: la respuesta que es el mensaje del cliente devuelto
+// ---------------------------------------------------------------------------
+
+const RECLAMO_REAL = "Son todos unos ladrones, me estafaron con el último auto que les compré";
+
+test("ítem 109: el cliente no recibe su propio mensaje de vuelta, y el caso se deriva", async () => {
+  // Textual de producción: ante ese reclamo, el agente contestó el mensaje del
+  // cliente envuelto en la etiqueta interna del ítem 97.
+  const e = await montar("eco-del-cliente", { enabledTools: [] });
+  try {
+    const eco = `<${ETIQUETA_MENSAJE_CLIENTE}>\n${RECLAMO_REAL}\n</${ETIQUETA_MENSAJE_CLIENTE}>`;
+    const doble = doblarProveedor([texto(eco)]);
+    const resultado = await turno(e, RECLAMO_REAL, doble.proveedor);
+
+    // No el cierre del ítem 94: el cliente no pidió nada indebido. Decirle
+    // "eso no te lo puedo compartir" a alguien que denuncia una estafa sería
+    // peor que el bug.
+    assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+    // Y lo que más importa: alguien del negocio se entera.
+    assert.equal(resultado.handoff, true);
+    assert.notEqual(resultado.handoffActivityId, null);
+
+    const mensajes = await prisma.message.findMany({
+      where: { conversationId: resultado.conversationId, direction: "OUTBOUND" },
+    });
+    assert.equal(mensajes[0].content, MENSAJE_DE_HANDOFF);
+    // La etiqueta interna no quedó ni siquiera guardada en el hilo.
+    assert.equal(mensajes[0].content.includes(ETIQUETA_MENSAJE_CLIENTE), false);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 109: una respuesta normal a ese mismo reclamo pasa intacta", async () => {
+  // El control negativo de la guarda: lo que no puede pasar es que un mensaje
+  // legítimo se reemplace por el cierre de derivación.
+  const e = await montar("eco-sin-falso-positivo", { enabledTools: [] });
+  try {
+    const normal =
+      "Lamento muchísimo lo que pasó. Le paso tu caso ahora mismo a una persona del equipo para que lo revise con vos.";
+    const doble = doblarProveedor([texto(normal)]);
+    const resultado = await turno(e, RECLAMO_REAL, doble.proveedor);
     assert.equal(resultado.respuesta, normal);
   } finally {
     await desmontar(e);
