@@ -183,6 +183,16 @@ export function updateContact(
   return db.contact.updateMany({ where: { id, organizationId }, data });
 }
 
+// Ítem 157 de docs/matriz-de-datos-crm.md: el contacto de una oportunidad que
+// se gana pasa a CUSTOMER. Condicionado en la escritura: uno que ya es
+// CUSTOMER no se reescribe (no mueve updatedAt), y uno dado de baja no se toca.
+export function markContactAsCustomer(id: string, organizationId: string, db: Db) {
+  return db.contact.updateMany({
+    where: { id, organizationId, deletedAt: null, lifecycleStage: { not: "CUSTOMER" } },
+    data: { lifecycleStage: "CUSTOMER" },
+  });
+}
+
 export function softDeleteContact(id: string, organizationId: string, db: Db = prisma) {
   return db.contact.updateMany({
     where: { id, organizationId },

@@ -67,6 +67,21 @@ export function createDelivery(data: CreateDeliveryData, db: Db) {
   });
 }
 
+// Ítem 151: volver a ganar una oportunidad que ya tenía entrega PENDING, con
+// otra unidad vinculada. Solo mientras sigue PENDING, condicionado en la
+// escritura misma (mismo contrato que updatePendingDelivery).
+export function reassignPendingDeliveryVehicle(
+  id: string,
+  organizationId: string,
+  vehicleId: string,
+  db: Db,
+) {
+  return db.delivery.updateMany({
+    where: { id, organizationId, status: "PENDING" },
+    data: { vehicleId },
+  });
+}
+
 export interface UpdatePendingDeliveryData {
   checklist?: readonly DeliveryChecklistItem[];
   scheduledAt?: Date | null;

@@ -16,6 +16,7 @@ import {
   type UpdateLeadQualificationData,
 } from "../repositories/contact.repository";
 import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
+import { countOpenOpportunitiesOf } from "../repositories/opportunity.repository";
 import { AppError } from "../utils/AppError";
 import { resolveOwnerId } from "./ownership.service";
 import { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME } from "./whatsappContact.service";
@@ -253,8 +254,18 @@ export async function updateContact(
   return getContactById(organizationId, id);
 }
 
+export const CONTACTO_CON_OPORTUNIDADES_ABIERTAS =
+  "Este contacto tiene oportunidades abiertas: cerralas o pasalas a otro contacto antes de darlo de baja";
+
 export async function deleteContact(organizationId: string, id: string) {
   await getContactById(organizationId, id);
+  // Ítem 155 de docs/matriz-de-datos-crm.md: darlo de baja dejaba sus
+  // oportunidades abiertas sin cliente (O7 del ítem 150). Mismo RESTRICT
+  // lógico que deleteStage. Las cerradas no frenan: son historia. El borrado
+  // de datos personales a pedido (erasePersonalData) no pasa por acá.
+  if ((await countOpenOpportunitiesOf({ contactId: id }, organizationId)) > 0) {
+    throw new AppError(CONTACTO_CON_OPORTUNIDADES_ABIERTAS, 409);
+  }
   const result = await softDeleteContact(id, organizationId);
   if (result.count === 0) {
     throw new AppError("Contacto no encontrado", 404);

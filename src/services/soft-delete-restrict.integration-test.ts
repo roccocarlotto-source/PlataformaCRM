@@ -162,6 +162,10 @@ test("deleteStage rechaza con 400 si la etapa tiene oportunidades activas, y la 
 test("deleteStage procede cuando la única oportunidad de la etapa ya está borrada — el bloqueo mira deletedAt, no la existencia", async () => {
   const escenario = await montar("stage-permite");
   try {
+    // Ítem 156: el primer pipeline nace default, y la última etapa del default
+    // no se borra. Este caso es sobre el RESTRICT de oportunidades, así que P
+    // va en un pipeline que no es el default.
+    await createPipeline(escenario.orgId, { name: "Default" });
     const pipeline = await createPipeline(escenario.orgId, { name: "P" });
     const stage = await createStage(escenario.orgId, { pipelineId: pipeline.id, name: "S1" });
 
@@ -224,8 +228,10 @@ test("deletePipeline rechaza con 400 si el pipeline tiene etapas activas, y el p
 test("deletePipeline procede cuando sus etapas ya están borradas", async () => {
   const escenario = await montar("pipeline-permite");
   try {
-    const objetivo = await createPipeline(escenario.orgId, { name: "Objetivo" });
+    // Ítem 156: "Otro" primero, para que el default sea él y no Objetivo (la
+    // última etapa del default no se borra).
     await createPipeline(escenario.orgId, { name: "Otro" });
+    const objetivo = await createPipeline(escenario.orgId, { name: "Objetivo" });
 
     const stage = await createStage(escenario.orgId, { pipelineId: objetivo.id, name: "S1" });
     await deleteStage(escenario.orgId, stage.id);

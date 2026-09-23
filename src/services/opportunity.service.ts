@@ -7,7 +7,7 @@ import type {
 } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 import { findCompanyById } from "../repositories/company.repository";
-import { findContactById } from "../repositories/contact.repository";
+import { findContactById, markContactAsCustomer } from "../repositories/contact.repository";
 import {
   countOpportunities,
   countOpportunitiesWhere,
@@ -28,13 +28,28 @@ import {
 } from "../repositories/organization.repository";
 import { emitOutboxEvent } from "../repositories/outboxEvent.repository";
 import { findPipelineById } from "../repositories/pipeline.repository";
-import { findStageById, lockStageForUpdate } from "../repositories/stage.repository";
+import {
+  findStageById,
+  findStagesByPipeline,
+  lockStageForUpdate,
+} from "../repositories/stage.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
 import { lastMonthsUTC, monthWindowUTC } from "../utils/utcMonth";
 import { dayWindowUTC, lastDaysUTC, lastWeeksUTC, weekWindowUTC } from "../utils/utcWindow";
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
-import { createDeliveryForSoldVehicle } from "./delivery.service";
+import {
+  createDeliveryForSoldVehicle,
+  ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS,
+  ensureDeliveryForSoldVehicle,
+  hasConfirmedDelivery,
+} from "./delivery.service";
+import {
+  hoyEnLaZona,
+  resolverCamposDeCierre,
+  resolverEstadoYEtapa,
+  type EtapaConMarca,
+} from "./opportunityClosing";
 import { resolveOwnerId } from "./ownership.service";
 import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
 
@@ -276,6 +291,12 @@ async function priceFromVehicleInTx(
   return priceFromVehicle(vehicle, { preferredCurrency: organization?.preferredCurrency ?? null });
 }
 
+// Ítem 154: el "hoy" de la organización para la fecha de cierre automática.
+async function hoyDeLaOrganizacion(organizationId: string, db: Db = prisma): Promise<Date> {
+  const organization = await findOrganizationById(organizationId, db);
+  return hoyEnLaZona(organization?.timezone ?? "UTC");
+}
+
 export interface CreateOpportunityInput {
   title: string;
   amount?: number;
@@ -314,10 +335,27 @@ export async function createOpportunity(
   // común sin abrir una. No son la defensa: la lectura que decide es la de
   // adentro, con el lock ya tomado.
   await validatePipelineId(organizationId, input.pipelineId);
-  await validateStageId(organizationId, input.stageId, input.pipelineId);
+  const etapa = await validateStageId(organizationId, input.stageId, input.pipelineId);
   if (input.vehicleId) {
     await validateVehicleId(organizationId, input.vehicleId);
   }
+
+  // Ítem 154: el estado sale de la etapa, y los campos de cierre del estado.
+  const { status } = resolverEstadoYEtapa({
+    etapa,
+    etapaCambia: true,
+    creando: true,
+    statusPedido: input.status,
+    statusActual: undefined,
+    etapasDelPipeline: await findStagesByPipeline(input.pipelineId),
+  });
+  const cierre = resolverCamposDeCierre({
+    status,
+    previo: undefined,
+    body: { actualCloseDate: input.actualCloseDate, lostReason: input.lostReason },
+    actual: { actualCloseDate: null, lostReason: null },
+    hoy: await hoyDeLaOrganizacion(organizationId),
+  });
 
   return prisma.$transaction(async (tx) => {
     // ALTO-8 — la otra mitad del RESTRICT de deleteStage. Ese borrado decide
@@ -355,9 +393,9 @@ export async function createOpportunity(
         amount: input.amount ?? precioDeLaUnidad.amount,
         currency: input.currency ?? precioDeLaUnidad.currency,
         expectedCloseDate: input.expectedCloseDate,
-        actualCloseDate: input.actualCloseDate,
-        status: input.status,
-        lostReason: input.lostReason,
+        actualCloseDate: cierre.actualCloseDate ?? undefined,
+        status,
+        lostReason: cierre.lostReason ?? undefined,
         vehicleId: input.vehicleId,
         financingType: input.financingType,
         leadSource: input.leadSource,
@@ -384,6 +422,12 @@ export async function createOpportunity(
       if (created.status === "WON") {
         await createDeliveryForSoldVehicle(organizationId, created.id, input.vehicleId, tx);
       }
+    }
+
+    // Ítem 157: ganar la venta hace CUSTOMER a su contacto, en la misma
+    // transacción.
+    if (created.status === "WON" && created.contactId) {
+      await markContactAsCustomer(created.contactId, organizationId, tx);
     }
 
     // Creada directamente como ganada: el evento va en el MISMO tx, lo último
@@ -464,10 +508,59 @@ export async function updateOpportunity(
   }
 
   const effectivePipelineId = input.pipelineId ?? opportunity.pipelineId;
-  const nuevoStageId = input.stageId;
+  let nuevoStageId = input.stageId;
 
+  let etapaPedida: EtapaConMarca | undefined;
   if (nuevoStageId) {
-    await validateStageId(organizationId, nuevoStageId, effectivePipelineId);
+    etapaPedida = await validateStageId(organizationId, nuevoStageId, effectivePipelineId);
+  }
+
+  // Ítem 154 de docs/matriz-de-datos-crm.md: la etapa manda sobre el estado
+  // (la regla del §51, que hasta acá vivía solo en el frontend), y la fecha de
+  // cierre y el motivo acompañan al estado. Solo si el PATCH toca alguno de
+  // los cuatro: un cambio de título no revisa nada.
+  if (
+    input.status !== undefined ||
+    input.stageId !== undefined ||
+    input.actualCloseDate !== undefined ||
+    input.lostReason !== undefined
+  ) {
+    const etapaActual = (await findStageById(opportunity.stageId, organizationId)) ?? {
+      id: opportunity.stageId,
+      isWon: false,
+      isLost: false,
+    };
+    const resuelto = resolverEstadoYEtapa({
+      etapa: etapaPedida ?? etapaActual,
+      etapaCambia: etapaPedida !== undefined && etapaPedida.id !== opportunity.stageId,
+      creando: false,
+      statusPedido: input.status,
+      statusActual: opportunity.status,
+      etapasDelPipeline: await findStagesByPipeline(effectivePipelineId),
+    });
+    if (resuelto.status !== opportunity.status || input.status !== undefined) {
+      data.status = resuelto.status;
+    }
+    if (resuelto.stageId !== (etapaPedida ?? etapaActual).id) {
+      // Solo cambió el estado: se mueve a la etapa que lo significa, igual que
+      // arrastrarla en el embudo. Pasa por el mismo lock y revalidación de
+      // stage que cualquier cambio de etapa (abajo).
+      data.stageId = resuelto.stageId;
+      nuevoStageId = resuelto.stageId;
+    }
+    Object.assign(
+      data,
+      resolverCamposDeCierre({
+        status: resuelto.status,
+        previo: opportunity.status,
+        body: { actualCloseDate: input.actualCloseDate, lostReason: input.lostReason },
+        actual: {
+          actualCloseDate: opportunity.actualCloseDate,
+          lostReason: opportunity.lostReason,
+        },
+        hoy: await hoyDeLaOrganizacion(organizationId),
+      }),
+    );
   }
 
   // Vínculo con la unidad: qué queda vinculado y si hay que sincronizar su
@@ -478,7 +571,7 @@ export async function updateOpportunity(
   const vehicleIdTouched = input.vehicleId !== undefined;
   const newVehicleId = vehicleIdTouched ? (input.vehicleId ?? null) : oldVehicleId;
   const vehicleChanged = newVehicleId !== oldVehicleId;
-  const effectiveStatus = input.status ?? opportunity.status;
+  const effectiveStatus = data.status ?? opportunity.status;
   const needsVehicleSync =
     vehicleChanged || (newVehicleId !== null && effectiveStatus !== opportunity.status);
 
@@ -495,7 +588,9 @@ export async function updateOpportunity(
   // concurrentes a WON leerían OPEN los dos y emitirían dos eventos. El owner
   // del payload es el efectivo después del cambio: si el mismo PATCH reasigna
   // y gana, el seguimiento va al dueño nuevo.
-  const pideGanada = input.status === "WON";
+  // Ítem 154: "pedir" ganar incluye moverla a una etapa ganada sin mandar
+  // status — el estado ya salió de la etapa, arriba.
+  const pideGanada = data.status === "WON";
   const ownerIdEfectivo = data.ownerId ?? opportunity.ownerId;
 
   // La escritura va en transacción SOLO cuando cambia el stage, hay que
@@ -523,6 +618,18 @@ export async function updateOpportunity(
       if (needsVehicleSync) {
         // Después del lock de stage, en el mismo orden que createOpportunity.
         await lockOrganizationForUpdate(organizationId, tx);
+
+        // Ítem 151: una unidad ENTREGADA es historia. Con la entrega
+        // confirmada, la oportunidad no puede dejar de estar ganada ni
+        // cambiar de unidad — sin esto, pasarla a LOST devolvía al stock
+        // (AVAILABLE, y publicada) un auto que el cliente ya se llevó. Se lee
+        // bajo el lock de organización, el mismo que toma confirmDelivery.
+        if (
+          (effectiveStatus !== "WON" || vehicleChanged) &&
+          (await hasConfirmedDelivery(organizationId, id, tx))
+        ) {
+          throw new AppError(ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS, 409);
+        }
 
         if (vehicleChanged && oldVehicleId) {
           // Se libera la unidad anterior SOLO si sigue reservada por este
@@ -600,8 +707,13 @@ export async function updateOpportunity(
         // entrega con un 409. pasaAWon sale de la fila bloqueada, así que solo
         // el primero la crea (carrera probada en
         // delivery.service.integration-test.ts).
+        //
+        // Ítem 151: ensure y no create. Una oportunidad que ganó, se reabrió y
+        // vuelve a ganar ya tiene su entrega PENDING: se reusa en vez de
+        // chocar con el UNIQUE (antes, 409 ENTREGA_YA_EXISTE y la oportunidad
+        // quedaba sin poder ganarse nunca más).
         if (effectiveStatus === "WON" && (pasaAWon || vehicleChanged)) {
-          await createDeliveryForSoldVehicle(organizationId, id, newVehicleId, tx);
+          await ensureDeliveryForSoldVehicle(organizationId, id, newVehicleId, tx);
         }
       }
 
@@ -610,6 +722,17 @@ export async function updateOpportunity(
       // llega acá) y después de la unidad, como en createOpportunity: el
       // evento es lo último de la transacción. No existe camino por el que el
       // cambio a WON comitee sin el evento, ni el evento sin el cambio.
+      // Ítem 157 de docs/matriz-de-datos-crm.md: ganar la venta hace CUSTOMER
+      // a su contacto (el que queda después de este PATCH). Antes, un LEAD
+      // seguía LEAD después de comprar: nada derivaba lifecycleStage de las
+      // oportunidades. Solo en la transición real (pasaAWon, leída bajo el
+      // lock de la fila) y nunca hacia atrás: reabrir o perder no lo degrada,
+      // porque ser cliente es un hecho que ya pasó.
+      const contactoEfectivo = data.contactId ?? opportunity.contactId;
+      if (pasaAWon && contactoEfectivo) {
+        await markContactAsCustomer(contactoEfectivo, organizationId, tx);
+      }
+
       if (pasaAWon) {
         await emitOpportunityWon(
           organizationId,

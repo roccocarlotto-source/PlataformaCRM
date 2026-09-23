@@ -10,7 +10,12 @@ import {
 } from "./opportunity.service";
 import { createPipeline } from "./pipeline.service";
 import { createStage } from "./stage.service";
-import { getVehicleChangeLog, updateVehicle } from "./vehicle.service";
+import {
+  deleteVehicle,
+  getVehicleChangeLog,
+  UNIDAD_RETENIDA_POR_OPORTUNIDAD,
+  updateVehicle,
+} from "./vehicle.service";
 import {
   assertAppError,
   borrador,
@@ -299,4 +304,79 @@ test("borrar una oportunidad libera la unidad si sigue RESERVED, y no la toca si
     where: { id: { in: [opp1.id, opp2.id] } },
   });
   assert.ok(borradas.every((o) => o.deletedAt !== null));
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 153 de docs/matriz-de-datos-crm.md: mientras una oportunidad retiene la
+// unidad, no se la puede volver a AVAILABLE a mano ni dar de baja.
+// ---------------------------------------------------------------------------
+
+test("ítem 153: volver a AVAILABLE a mano una unidad reservada o vendida es 409, y no habilita una segunda oportunidad", async () => {
+  const reservada = await borrador(e);
+  await oportunidad({ vehicleId: reservada.id });
+  assertAppError(
+    await capturar(() =>
+      updateVehicle(e.organizationId, e.userId, reservada.id, { status: "AVAILABLE" }),
+    ),
+    409,
+    UNIDAD_RETENIDA_POR_OPORTUNIDAD,
+  );
+  assert.equal(await estadoDe(reservada.id), "RESERVED");
+  assertAppError(
+    await capturar(() => oportunidad({ vehicleId: reservada.id })),
+    409,
+    UNIDAD_NO_DISPONIBLE,
+  );
+
+  const vendida = await borrador(e);
+  await oportunidad({ vehicleId: vendida.id, status: "WON" });
+  assertAppError(
+    await capturar(() =>
+      updateVehicle(e.organizationId, e.userId, vendida.id, { status: "AVAILABLE" }),
+    ),
+    409,
+    UNIDAD_RETENIDA_POR_OPORTUNIDAD,
+  );
+  assert.equal(await estadoDe(vendida.id), "SOLD");
+});
+
+test("ítem 153: los demás cambios a mano siguen permitidos, y liberada por la oportunidad vuelve a ser libre", async () => {
+  const vehicle = await borrador(e);
+  const opp = await oportunidad({ vehicleId: vehicle.id });
+  await updateVehicle(e.organizationId, e.userId, vehicle.id, { status: "IN_PREPARATION" });
+  assert.equal(await estadoDe(vehicle.id), "IN_PREPARATION");
+
+  // Perdida: ya no la retiene nadie, y AVAILABLE a mano vuelve a valer.
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { status: "LOST" });
+  await updateVehicle(e.organizationId, e.userId, vehicle.id, { status: "AVAILABLE" });
+  assert.equal(await estadoDe(vehicle.id), "AVAILABLE");
+});
+
+test("ítem 153: dar de baja una unidad retenida por una oportunidad es 409; sin retención, o con la entrega confirmada, se puede", async () => {
+  const reservada = await borrador(e);
+  const opp = await oportunidad({ vehicleId: reservada.id });
+  assertAppError(
+    await capturar(() => deleteVehicle(e.organizationId, reservada.id)),
+    409,
+    UNIDAD_RETENIDA_POR_OPORTUNIDAD,
+  );
+  assert.ok(await findVehicleById(reservada.id, e.organizationId), "sigue en el stock");
+
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { vehicleId: null });
+  await deleteVehicle(e.organizationId, reservada.id);
+  assert.equal(await findVehicleById(reservada.id, e.organizationId), null);
+
+  const entregada = await borrador(e);
+  const ganada = await oportunidad({ vehicleId: entregada.id, status: "WON" });
+  assertAppError(
+    await capturar(() => deleteVehicle(e.organizationId, entregada.id)),
+    409,
+    UNIDAD_RETENIDA_POR_OPORTUNIDAD,
+  );
+  await prisma.delivery.updateMany({
+    where: { opportunityId: ganada.id },
+    data: { status: "DELIVERED", deliveredAt: new Date() },
+  });
+  await deleteVehicle(e.organizationId, entregada.id);
+  assert.equal(await findVehicleById(entregada.id, e.organizationId), null);
 });

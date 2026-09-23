@@ -61,6 +61,10 @@ export function VehicleListPage() {
   const [minPriceUsd, setMinPriceUsd] = useState("");
   const [maxPriceUsd, setMaxPriceUsd] = useState("");
   const [consignmentOnly, setConsignmentOnly] = useState(false);
+  // Ítem 158 de docs/matriz-de-datos-crm.md: "Visible en el listado" no hacía
+  // nada. Ahora las unidades marcadas como no visibles (en el taller,
+  // prestadas) salen de esta vista por defecto, y el tilde las vuelve a mostrar.
+  const [showHidden, setShowHidden] = useState(false);
   const [sortBy, setSortBy] = useState<VehicleSortBy>("createdAt");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   // Id de la fila cuyo pop up "Ver detalle" está abierto (§28). Estado local y
@@ -78,6 +82,7 @@ export function VehicleListPage() {
     minPriceUsd: minPriceUsd ? Number(minPriceUsd) : undefined,
     maxPriceUsd: maxPriceUsd ? Number(maxPriceUsd) : undefined,
     consignmentOnly: consignmentOnly || undefined,
+    onlyVisible: showHidden ? undefined : true,
     sortBy,
     sortOrder,
   });
@@ -217,6 +222,17 @@ export function VehicleListPage() {
               }}
             />
             Solo consignación
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={showHidden}
+              onChange={(event) => {
+                setShowHidden(event.target.checked);
+                setPage(1);
+              }}
+            />
+            Mostrar ocultas
           </label>
           <Select
             label="Ordenar por"

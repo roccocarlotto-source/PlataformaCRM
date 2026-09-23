@@ -9,7 +9,7 @@ import {
   createDeliveryForSoldVehicle,
   ENTREGA_CONFIRMADA_INMUTABLE,
   ENTREGA_YA_CONFIRMADA,
-  ENTREGA_YA_EXISTE,
+  ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS,
   getDeliveryById,
   listDeliveriesByOpportunity,
   UNIDAD_NO_VENDIDA,
@@ -178,27 +178,77 @@ test("PATCH que no produce la transición (status WON sobre una ganada, o sin to
 // el choque es un 409 legible y que es ATÓMICO con el resto del PATCH: ni la
 // oportunidad queda ganada, ni la unidad vendida, ni sale el evento
 // opportunity.won — la entrega vive en la misma transacción que todo eso.
-test("volver a ganar una oportunidad revertida: 409 ENTREGA_YA_EXISTE y el PATCH entero se revierte", async () => {
-  const { vehicle, opp } = await ganadaConUnidad();
+test("volver a ganar una oportunidad revertida: reusa la entrega PENDING (ítem 151), con lo que ya se había cargado", async () => {
+  const { vehicle, opp, delivery } = await ganadaConUnidad();
+  await updateDelivery(a.organizationId, delivery.id, {
+    checklist: [{ label: "Documentación de transferencia", checked: true }],
+  });
   await updateOpportunity(a.organizationId, a.userId, opp.id, { status: "OPEN" });
   assert.equal(await estadoDeUnidad(vehicle.id), "RESERVED");
-  const eventosAntes = await prisma.outboxEvent.count({
-    where: { organizationId: a.organizationId },
+
+  const ganada = await updateOpportunity(a.organizationId, a.userId, opp.id, { status: "WON" });
+
+  assert.equal(ganada.status, "WON");
+  assert.equal(await estadoDeUnidad(vehicle.id), "SOLD");
+  const entregas = await entregasDe(opp.id);
+  assert.equal(entregas.length, 1);
+  assert.equal(entregas[0].id, delivery.id);
+  assert.equal(entregas[0].status, "PENDING");
+  assert.deepEqual(entregas[0].checklist, [
+    { label: "Documentación de transferencia", checked: true },
+  ]);
+  // Y se puede confirmar: la unidad volvió a SOLD.
+  const confirmada = await confirmDelivery(a.organizationId, a.userId, delivery.id);
+  assert.equal(confirmada.status, "DELIVERED");
+});
+
+test("volver a ganar con OTRA unidad: la entrega PENDING se reasigna a la unidad nueva (ítem 151)", async () => {
+  const { vehicle, opp, delivery } = await ganadaConUnidad();
+  await updateOpportunity(a.organizationId, a.userId, opp.id, { status: "OPEN" });
+  const otra = await borrador(a);
+
+  await updateOpportunity(a.organizationId, a.userId, opp.id, {
+    status: "WON",
+    vehicleId: otra.id,
   });
 
-  const err = await capturar(() =>
-    updateOpportunity(a.organizationId, a.userId, opp.id, { status: "WON" }),
-  );
-  assertAppError(err, 409, ENTREGA_YA_EXISTE);
+  assert.equal(await estadoDeUnidad(vehicle.id), "AVAILABLE");
+  assert.equal(await estadoDeUnidad(otra.id), "SOLD");
+  const entregas = await entregasDe(opp.id);
+  assert.equal(entregas.length, 1);
+  assert.equal(entregas[0].id, delivery.id);
+  assert.equal(entregas[0].vehicleId, otra.id);
+});
+
+test("entrega confirmada: la oportunidad no puede pasar a LOST ni a OPEN ni cambiar de unidad — 409 y nada se mueve (ítem 151)", async () => {
+  const { vehicle, opp, delivery } = await ganadaConUnidad();
+  await confirmDelivery(a.organizationId, a.userId, delivery.id);
+  const otra = await borrador(a);
+
+  for (const cambio of [
+    { status: "LOST" as const },
+    { status: "OPEN" as const },
+    { vehicleId: otra.id },
+    { vehicleId: null },
+  ]) {
+    assertAppError(
+      await capturar(() => updateOpportunity(a.organizationId, a.userId, opp.id, cambio)),
+      409,
+      ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS,
+    );
+  }
 
   const releida = await prisma.opportunity.findUniqueOrThrow({ where: { id: opp.id } });
-  assert.equal(releida.status, "OPEN");
-  assert.equal(await estadoDeUnidad(vehicle.id), "RESERVED");
-  assert.equal(
-    await prisma.outboxEvent.count({ where: { organizationId: a.organizationId } }),
-    eventosAntes,
-  );
-  assert.equal((await entregasDe(opp.id)).length, 1);
+  assert.equal(releida.status, "WON");
+  assert.equal(releida.vehicleId, vehicle.id);
+  assert.equal(await estadoDeUnidad(vehicle.id), "DELIVERED");
+  assert.equal(await estadoDeUnidad(otra.id), "AVAILABLE");
+
+  // Lo que no toca ni el estado ni la unidad sigue permitido.
+  const editada = await updateOpportunity(a.organizationId, a.userId, opp.id, {
+    title: "Entregada",
+  });
+  assert.equal(editada.title, "Entregada");
 });
 
 // ---------------------------------------------------------------------------

@@ -27,11 +27,13 @@ describe("vehicle api", () => {
     await listVehicles({
       status: ["AVAILABLE", "RESERVED"],
       consignmentOnly: true,
+      onlyVisible: true,
       minPriceUsd: 0,
     });
 
     expect(captured?.searchParams.getAll("status")).toEqual(["AVAILABLE", "RESERVED"]);
     expect(captured?.searchParams.get("consignmentOnly")).toBe("true");
+    expect(captured?.searchParams.get("onlyVisible")).toBe("true");
     // 0 es un mínimo válido: se manda (chequeo por !== undefined, no truthy).
     expect(captured?.searchParams.get("minPriceUsd")).toBe("0");
   });
@@ -65,9 +67,10 @@ describe("vehicle api", () => {
       }),
     );
 
-    await listVehicles({ page: 2, consignmentOnly: false });
+    await listVehicles({ page: 2, consignmentOnly: false, onlyVisible: false });
 
     expect(captured?.searchParams.has("consignmentOnly")).toBe(false);
+    expect(captured?.searchParams.has("onlyVisible")).toBe(false);
     expect(captured?.searchParams.has("status")).toBe(false);
     expect(captured?.searchParams.has("tradeInOpportunityId")).toBe(false);
     expect(captured?.searchParams.get("page")).toBe("2");

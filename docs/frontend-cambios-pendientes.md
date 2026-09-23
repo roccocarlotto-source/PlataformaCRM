@@ -2,6 +2,8 @@
 
 Lista de cambios de UI/UX pedidos por Rocco durante el testeo del flujo real de la plataforma (sesión iniciada 2026-09-09). Cada entrada tiene el contexto necesario para implementarse sin tener que volver a preguntar. Estado: **pendiente** hasta que se implemente y se marque como **hecho**.
 
+**Ítems 150 en adelante — matriz de estados de datos del CRM:** ver `docs/matriz-de-datos-crm.md`.
+
 ---
 
 ## 1. Filtro "Estado" en Stock de vehículos no se ve como un desplegable

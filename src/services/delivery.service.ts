@@ -5,6 +5,7 @@ import {
   createDelivery,
   findDeliveryById,
   findDeliveryByOpportunity,
+  reassignPendingDeliveryVehicle,
   updatePendingDelivery,
   type DeliveryChecklistItem,
   type UpdatePendingDeliveryData,
@@ -37,11 +38,18 @@ import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
 // aplicación real con filas, locks, carreras y aislamiento está en
 // delivery.service.integration-test.ts.
 //
-// FUERA DE ALCANCE, anotado como límite conocido en el §40: qué pasa con la
-// entrega si la oportunidad ganada se revierte a OPEN/LOST. Hoy la entrega
-// queda como está (y "Confirmar entrega" da 409, porque la unidad ya no está
-// SOLD), y volver a ganar esa oportunidad choca con el UNIQUE: 409
-// ENTREGA_YA_EXISTE.
+// REVERSIÓN (ítem 151 de docs/matriz-de-datos-crm.md; el §40 la había dejado
+// fuera de alcance):
+//
+//   - Con la entrega CONFIRMADA, la oportunidad ya no puede dejar de estar
+//     ganada ni cambiar de unidad: 409 ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS
+//     (lo aplica opportunity.service.ts). Antes, pasarla a LOST devolvía una
+//     unidad entregada al stock como AVAILABLE, y el agente la volvía a
+//     ofrecer.
+//   - Con la entrega PENDING, revertir sigue permitido: la entrega queda como
+//     está ("Confirmar entrega" da 409 mientras la unidad no esté SOLD), y
+//     volver a ganar la REUSA (ensureDeliveryForSoldVehicle) en vez de chocar
+//     con el UNIQUE, que dejaba la oportunidad sin poder ganarse nunca más.
 // ---------------------------------------------------------------------------
 
 // El default fijo con el que nace cada entrega. Sin catálogo configurable por
@@ -78,6 +86,8 @@ export const UNIDAD_NO_VENDIDA =
   "La unidad de esta entrega ya no está vendida: revisá el estado de la oportunidad y de la unidad antes de confirmar";
 
 export const ENTREGA_YA_EXISTE = "La oportunidad ya tiene una entrega registrada";
+export const ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS =
+  "La unidad de esta oportunidad ya se entregó: no se puede cambiar el estado de la oportunidad ni su unidad";
 
 // Editar solo mientras está PENDING. 409 y no 400: no es un dato inválido, es
 // un conflicto con el estado que la base tiene ahora — mismo criterio que
@@ -140,6 +150,55 @@ export async function createDeliveryForSoldVehicle(
     }
     throw err;
   }
+}
+
+// Ítem 151 — la puerta que usa opportunity.service.ts al ganar con unidad.
+// Sin entrega previa, la crea (camino de siempre). Con una PENDING de una
+// ganancia anterior que se revirtió, la reusa: el checklist y la fecha que ya
+// se habían cargado siguen valiendo, y si la unidad cambió se la reasigna. Una
+// DELIVERED no puede llegar acá (el guard de opportunity.service.ts corta
+// antes); si llegara, 409 y no se toca.
+//
+// Dentro de la transacción del caller y bajo su lock de organización, el mismo
+// que toma confirmDelivery: la entrega no puede confirmarse entre la lectura y
+// la reasignación.
+export async function ensureDeliveryForSoldVehicle(
+  organizationId: string,
+  opportunityId: string,
+  vehicleId: string,
+  tx: Db,
+) {
+  const existente = await findDeliveryByOpportunity(organizationId, opportunityId, tx);
+  if (!existente) {
+    return createDeliveryForSoldVehicle(organizationId, opportunityId, vehicleId, tx);
+  }
+  if (existente.status !== "PENDING") {
+    throw new AppError(ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS, 409);
+  }
+  if (existente.vehicleId !== vehicleId) {
+    const result = await reassignPendingDeliveryVehicle(
+      existente.id,
+      organizationId,
+      vehicleId,
+      tx,
+    );
+    if (result.count === 0) {
+      throw new AppError(ENTREGA_CONFIRMADA_BLOQUEA_CAMBIOS, 409);
+    }
+  }
+  return existente;
+}
+
+// Ítem 151 — ¿esta oportunidad tiene una entrega ya confirmada? La lee
+// opportunity.service.ts bajo el lock de organización antes de revertir o
+// cambiar la unidad.
+export async function hasConfirmedDelivery(
+  organizationId: string,
+  opportunityId: string,
+  tx: Db,
+): Promise<boolean> {
+  const existente = await findDeliveryByOpportunity(organizationId, opportunityId, tx);
+  return existente?.status === "DELIVERED";
 }
 
 // ---------------------------------------------------------------------------

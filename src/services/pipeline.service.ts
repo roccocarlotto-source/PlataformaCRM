@@ -5,6 +5,7 @@ import {
   countActivePipelines,
   countPipelines,
   createPipeline as createPipelineRepo,
+  findDefaultPipeline,
   findManyPipelines,
   findOldestActivePipeline,
   findPipelineById,
@@ -81,6 +82,9 @@ export async function getPipelineById(organizationId: string, id: string) {
   return pipeline;
 }
 
+export const PIPELINE_DEFAULT_SIN_ETAPAS =
+  "Un pipeline sin etapas no puede ser el pipeline por defecto: agregale al menos una etapa antes de marcarlo";
+
 export interface CreatePipelineInput {
   name: string;
   isDefault?: boolean;
@@ -88,19 +92,23 @@ export interface CreatePipelineInput {
 
 export async function createPipeline(organizationId: string, input: CreatePipelineInput) {
   try {
-    if (input.isDefault) {
-      return await prisma.$transaction(async (tx) => {
+    return await prisma.$transaction(async (tx) => {
+      // Ítem 156 de docs/matriz-de-datos-crm.md: una organización sin
+      // pipeline por defecto se queda sin lugar donde el agente registre
+      // oportunidades (P3 del ítem 150), y el onboarding no crea ninguno. Así
+      // que el que se crea cuando no hay default LO ES, se haya pedido o no.
+      // Bajo el lock de organización —el mismo que toman deletePipeline y el
+      // PATCH que quita la marca—: dos creaciones a la vez no pueden leer las
+      // dos "no hay default" y chocar contra el índice único.
+      await lockOrganizationForUpdate(organizationId, tx);
+      const actual = await findDefaultPipeline(organizationId, tx);
+      const isDefault = input.isDefault === true || actual === null;
+      if (isDefault && actual) {
         // Desmarcar el default anterior ANTES de crear el nuevo: nunca hay
         // dos `is_default = true` simultáneos, sin necesitar dos fases.
         await unsetDefaultPipeline(organizationId, tx);
-        return createPipelineRepo({ organizationId, name: input.name, isDefault: true }, tx);
-      });
-    }
-
-    return await createPipelineRepo({
-      organizationId,
-      name: input.name,
-      isDefault: false,
+      }
+      return createPipelineRepo({ organizationId, name: input.name, isDefault }, tx);
     });
   } catch (err) {
     rethrowAsConflict(err);
@@ -123,6 +131,16 @@ export async function updatePipeline(
   try {
     if (input.isDefault === true) {
       return await prisma.$transaction(async (tx) => {
+        // Ítem 156: el default es donde el agente crea oportunidades, en su
+        // primera etapa. Marcar uno sin etapas lo deja sin poder (P4).
+        const pipeline = await findPipelineById(id, organizationId, tx);
+        if (
+          pipeline &&
+          !pipeline.isDefault &&
+          (await countActiveStagesByPipeline(id, organizationId, tx)) === 0
+        ) {
+          throw new AppError(PIPELINE_DEFAULT_SIN_ETAPAS, 409);
+        }
         await unsetDefaultPipeline(organizationId, tx);
 
         const result = await updatePipelineRepo(id, organizationId, input, tx);

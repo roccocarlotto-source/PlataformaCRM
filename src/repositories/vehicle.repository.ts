@@ -62,6 +62,8 @@ export interface VehicleFilters {
   // mismo tipo que branchId y status, y no una consulta suelta en el service:
   // el WHERE multi-tenant de esta entidad se arma en un solo lugar.
   publishOnWebsite?: boolean;
+  // Ítem 158: solo las visibles en el listado interno (visibleInListing).
+  onlyVisible?: boolean;
   // Búsqueda de texto libre contra los identificadores y el título.
   q?: string;
 }
@@ -96,6 +98,7 @@ function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.Veh
       : {}),
     ...(filters.acceptsTradeIn !== undefined ? { acceptsTradeIn: filters.acceptsTradeIn } : {}),
     ...(filters.consignmentOnly ? { origin: "CONSIGNMENT" } : {}),
+    ...(filters.onlyVisible ? { visibleInListing: true } : {}),
     // Booleano explícito contra undefined: un `filters.publishOnWebsite ?` se
     // comería el filtro "las no publicadas".
     ...(filters.publishOnWebsite !== undefined

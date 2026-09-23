@@ -4,6 +4,7 @@ import { countActiveOpportunitiesByStage } from "../repositories/opportunity.rep
 import { findPipelineById, lockPipelineForUpdate } from "../repositories/pipeline.repository";
 import {
   countStages,
+  countActiveStagesByPipeline,
   countStagesByName,
   createStage as createStageRepo,
   findManyStages,
@@ -152,6 +153,12 @@ export function rethrowAsConflict(err: unknown): never {
   throw err;
 }
 
+export const ULTIMA_ETAPA_DEL_DEFAULT =
+  "Es la última etapa del pipeline por defecto: sin etapas, el agente no puede registrar oportunidades. Agregá otra etapa, o marcá otro pipeline como default, antes de borrarla";
+
+export const ETAPA_CON_OPORTUNIDADES_NO_CAMBIA_CIERRE =
+  "Esta etapa tiene oportunidades: movelas a otra etapa antes de cambiar si cierra como ganada o perdida";
+
 export interface CreateStageInput {
   pipelineId: string;
   name: string;
@@ -266,6 +273,18 @@ export async function updateStage(organizationId: string, id: string, input: Upd
         throw new AppError("Etapa no encontrada", 404);
       }
 
+      // Ítem 154 de docs/matriz-de-datos-crm.md: desde que la etapa manda
+      // sobre el estado, cambiar si una etapa cierra (ganada / perdida / ninguna)
+      // con oportunidades adentro las dejaría a todas contradiciendo su etapa
+      // de un saque — la sonda del ítem 150 lo midió (O9). Bajo el lock del
+      // pipeline, el mismo que toma createStage.
+      const cambiaMarca =
+        (rest.isWon !== undefined && rest.isWon !== actual.isWon) ||
+        (rest.isLost !== undefined && rest.isLost !== actual.isLost);
+      if (cambiaMarca && (await countActiveOpportunitiesByStage(id, organizationId, tx)) > 0) {
+        throw new AppError(ETAPA_CON_OPORTUNIDADES_NO_CAMBIA_CIERRE, 409);
+      }
+
       if (requestedOrder !== undefined && requestedOrder !== actual.order) {
         // Con el lock del pipeline sostenido, esta lectura no puede ser una
         // foto vieja: cualquier borrado o alta concurrente ya commiteó (y
@@ -363,6 +382,18 @@ export async function deleteStage(organizationId: string, id: string) {
         "No se puede eliminar una etapa que tiene oportunidades activas. Movelas a otra etapa primero.",
         400,
       );
+    }
+
+    // Ítem 156 de docs/matriz-de-datos-crm.md: la última etapa del pipeline
+    // por defecto no se borra — el agente crea oportunidades en su primera
+    // etapa, y sin ninguna no puede registrar a nadie (P4 del ítem 150). Bajo
+    // el lock del pipeline, el mismo que toma createStage.
+    const pipeline = await findPipelineById(stage.pipelineId, organizationId, tx);
+    if (
+      pipeline?.isDefault &&
+      (await countActiveStagesByPipeline(stage.pipelineId, organizationId, tx)) <= 1
+    ) {
+      throw new AppError(ULTIMA_ETAPA_DEL_DEFAULT, 409);
     }
 
     const result = await softDeleteStage(id, organizationId, tx);
