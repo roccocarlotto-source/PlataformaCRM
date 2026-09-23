@@ -112,6 +112,8 @@ interface Escenario {
   // Checks automáticos. Lo que no se puede automatizar se lee a mano en la
   // transcripción que imprime el script.
   toolsEsperadas?: string[];
+  // Al menos una de estas. Para cuando hay más de un camino correcto.
+  toolsEsperadasAlgunaDe?: string[];
   toolsProhibidas?: string[];
   noDebeContener?: (string | RegExp)[];
   debeContener?: string[];
@@ -189,13 +191,21 @@ const ESCENARIOS: Escenario[] = [
     ],
   },
 
-  // ---- Ítem 91: vacíos ----
+  // El escenario del ítem 91 que vivía acá ("sin tipos de servicio
+  // configurados, NO inventa test drive") se sacó: desde que montarOrganizacion
+  // siembra la agenda, los servicios SÍ existen, así que prohibía llamadas que
+  // hoy son correctas y fallaba siempre. Además repetía el id D1, que ya lo usa
+  // el escenario con agenda de más abajo. El caso vacío sigue cubierto donde
+  // corresponde, en los tests de integración de las tools (exitoVacio).
   {
-    id: "D1",
-    criterio: "Sin tipos de servicio configurados, NO inventa test drive ni visita",
-    msgs: ["Quiero ir a ver la Hilux, ¿cuándo puedo pasar?"],
-    toolsProhibidas: ["get_availability", "create_booking"],
-    noDebeContener: [/te puedo ofrecer.{0,40}test drive/i],
+    // Ítem 115. Ningún dato: la descripción de search_vehicles dice desde
+    // siempre "si no dio ningún dato, llamala sin filtros", y el modelo igual
+    // se pone a preguntar preferencias.
+    id: "A1",
+    criterio: "'¿qué autos tienen?' sin ningún dato → busca sin filtros, no pregunta preferencias",
+    msgs: ["Hola, ¿qué autos tienen?"],
+    toolsEsperadas: ["search_vehicles"],
+    argsPermitidos: { search_vehicles: [] },
   },
   {
     id: "E1",
@@ -261,20 +271,28 @@ const ESCENARIOS: Escenario[] = [
   // ---- Flujo de turnos (nunca se había probado: no había ServiceType) ----
   {
     id: "D1",
-    criterio: "Con servicios configurados, lista los REALES y no inventa",
+    criterio: "'¿cuándo puedo pasar?' → consulta la agenda, no le devuelve la pregunta al cliente",
     msgs: ["Quiero ir a ver la Hilux, ¿cuándo puedo pasar?"],
-    toolsEsperadas: ["get_service_types"],
+    // Cualquiera de las dos sirve: desde el ítem 106, get_availability
+    // resuelve el servicio por nombre, así que pasar antes por
+    // get_service_types es opcional. Lo que NO puede pasar es no llamar a
+    // ninguna y pedirle al cliente que proponga él un horario (ítem 115).
+    toolsEsperadasAlgunaDe: ["get_service_types", "get_availability"],
     // Los tres que existen de verdad; nada más puede aparecer como opción.
     noDebeContener: [/prueba de manejo gratuita/i, /servicio de post.?venta/i],
   },
   {
     id: "D2",
-    criterio: "Pide disponibilidad con UUID reales y ofrece horarios del horario cargado",
+    criterio:
+      "Ofrece horarios reales del horario cargado, con o sin pasar por la lista de servicios",
     msgs: [
       "Quiero hacer un test drive de la Hilux",
       "Dale, ¿qué horarios tenés el próximo martes?",
     ],
-    toolsEsperadas: ["get_service_types", "get_availability"],
+    // Igual que D1: desde el ítem 106 el servicio se resuelve por nombre, así
+    // que exigir get_service_types es un check viejo. Lo que importa es que
+    // mire la agenda.
+    toolsEsperadas: ["get_availability"],
   },
   {
     id: "D3",
@@ -283,7 +301,9 @@ const ESCENARIOS: Escenario[] = [
       "Quiero agendar una visita al salón para ver la Amarok",
       "El próximo miércoles a las 11 de la mañana me viene bien",
     ],
-    toolsEsperadas: ["get_service_types"],
+    // Lo que cierra este escenario es la reserva. El camino hasta ahí puede
+    // pasar o no por la lista de servicios (ítem 106).
+    toolsEsperadasAlgunaDe: ["create_booking", "get_availability"],
   },
   {
     id: "D6",
@@ -452,6 +472,14 @@ function evaluar(esc: Escenario, turnos: Turno[]) {
   for (const n of esc.toolsEsperadas ?? []) {
     if (!nombres.includes(n))
       motivos.push(`NO llamó a ${n} (llamó: ${nombres.join(", ") || "nada"})`);
+  }
+  if (esc.toolsEsperadasAlgunaDe !== undefined) {
+    const alguna = esc.toolsEsperadasAlgunaDe.some((n) => nombres.includes(n));
+    if (!alguna) {
+      motivos.push(
+        `NO llamó a ninguna de ${esc.toolsEsperadasAlgunaDe.join(" / ")} (llamó: ${nombres.join(", ") || "nada"})`,
+      );
+    }
   }
   for (const n of esc.toolsProhibidas ?? []) {
     if (nombres.includes(n)) motivos.push(`llamó a ${n}, que no correspondía`);
