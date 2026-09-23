@@ -6478,3 +6478,76 @@ Tres reclamos × 6 repeticiones: **17 de 18 derivaciones llevan un mensaje escri
 | `src/services/agentOrchestration.service.ts` | `mensajeAlCliente` en `REQUEST_HUMAN_HANDOFF_TOOL`; `mensajeAlClienteDeLaLlamada()` y `LARGO_MAXIMO_DEL_MENSAJE_DE_HANDOFF` nuevos; el orden de precedencia en el corte por derivación |
 | `src/services/agentOrchestration.service.test.ts` | 4 unitarios (el texto trimeado, los cuatro casos que dan null, el tope de largo, y la forma de la tool) + el del ítem 78 actualizado: ahora son dos argumentos |
 | `src/services/agentOrchestration.integration-test.ts` | 3 de integración por `runAgentTurn`: el mensaje llega al contacto y el `reason` no, el texto suelto sigue ganando, y sin ninguno de los dos queda el cierre fijo |
+
+---
+
+## 112. El agente dijo "ya registré tu interés en la Hilux" y no había registrado nada
+
+**Estado:** hecho
+
+**Qué pasaba.** Dos bugs encadenados, los dos en la misma conversación de dos turnos: el cliente se interesa por un auto y a mitad de la charla cambia a otro. Es uno de los flujos más comunes que hay.
+
+### Bug 1 — el modelo se inventa el `opportunityId`
+
+Textual de producción:
+
+```
+🔧 create_opportunity({"vehiculo":"Amarok","title":"Interés en Amarok"})
+   → ok, opportunityId: e2909afe-20dc-421b-8a32-b9d3f26b3d42
+
+🔧 update_opportunity({"opportunityId":"60155209-679e-4e3e-9097-4b2a65824982", "vehiculo":"Territory"})
+   → { ok: false, error: "La oportunidad indicada no existe" }
+
+🤖 Hubo un problema al actualizar la información del vehículo. Por favor,
+   indicame la marca y modelo exacto del Territory para que pueda registrarlo.
+```
+
+Recibió el id correcto en el turno anterior y mandó otro distinto. Y frente al error, **le pidió al cliente un dato que ya tenía**, por un problema que no tenía nada que ver con el vehículo.
+
+Es el ítem 106 otra vez —ahí el UUID inventado era el del `serviceType`— y la solución es la misma: **que no tenga que acarrear el UUID**. `opportunityId` pasa a ser opcional: sin él, el backend resuelve la oportunidad abierta del contacto, que es la única que puede tener (ítem 84). Un id que no existe o es de otro contacto ya no es un callejón sin salida: el error se marca como error de argumentos (ítem 101) y le dice que vuelva a llamar **sin** el id, que es el camino que siempre funciona.
+
+### Bug 2 — el reuso descartaba el auto nuevo en silencio
+
+Este salió al verificar el primero contra el modelo real, y es peor:
+
+```
+🔧 create_opportunity({"vehiculo":"Hilux SRV","title":"Interés en Hilux SRV"})
+   → ok, reused: true, title: "Interés en Amarok", amount: 42000
+
+🤖 ¡Excelente elección! Ya registré tu interés por la Hilux SRV.
+```
+
+La tool contestó **`ok`** y devolvió la oportunidad de la Amarok intacta. De la Hilux no quedó nada: ni el título, ni el monto. Pero el agente le dijo al cliente que sí.
+
+**Y el modelo no estaba mintiendo.** El resultado decía `reused: true`, pero también decía `ok`, y con un `ok` de por medio la instrucción del ítem 100 no tiene con qué defenderse: el que informó mal primero fue el backend.
+
+Ahora, cuando la llamada trae un `vehiculo`, el reuso **aplica el cambio** en vez de ignorarlo —es exactamente lo que hace `update_opportunity` con `vehiculo`, y es lo que el cliente pidió— y el resultado suma **`actualizada`**, para que el modelo pueda contar lo que de verdad pasó. El reuso sin vehículo no cambia: devuelve lo que hay, con `actualizada: false`.
+
+### Verificado contra el modelo real
+
+Escenario `C4` nuevo en `eval-agente-real.ts`, dos turnos:
+
+```
+👤 Me interesa la Amarok, quiero avanzar
+🔧 create_opportunity({"vehiculo":"Volkswagen Amarok", ...})  → amount 42000
+🤖 Ya registré tu interés en la Volkswagen Amarok V6 Highline 2021. El precio es de 42.000 USD.
+
+👤 Perfecto. También me gustó la Hilux SRV, quiero avanzar con eso
+🔧 update_opportunity({"vehiculo":"Hilux SRV"})               → amount 38000
+🤖 Bárbaro, Martín. La Hilux SRV también es una excelente opción. El precio es de 38.000 USD.
+```
+
+**Sin un solo UUID en las llamadas del modelo**, la misma oportunidad, el monto siguiendo al auto, y lo que le dice al cliente es cierto.
+
+### De paso: la limpieza del harness
+
+`eval-agente-real.ts` borraba los contactos antes que las reservas y reventaba con la FK de `bookings` cuando algún escenario llegaba a agendar de verdad — y se llevaba puesta toda la limpieza, dejando la organización de prueba a medio borrar. Corregido el orden.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | `resolverOportunidad()` nueva y `opportunityId` opcional en `update_opportunity`; el reuso de `create_opportunity` aplica el vehículo y devuelve `actualizada` |
+| `src/services/agentTools.service.test.ts` | el test de argumentos de `update_opportunity` actualizado (ya no exige el id) y el del sufijo, que ahora tiene que fallar por otro argumento |
+| `src/services/agentReadTools.integration-test.ts` | 6 de integración: sin id toma la abierta, id inventado guía a llamar sin él, id de otro contacto sigue bloqueado, sin oportunidad abierta guía a `create_opportunity`, el reuso aplica el auto nuevo, y el reuso sin auto no pisa nada |
+| `scripts/eval-agente-real.ts` | escenario `C4` (cambio de auto a mitad de la charla) y el orden de la limpieza |

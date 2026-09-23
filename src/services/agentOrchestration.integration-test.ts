@@ -833,9 +833,12 @@ test("update_opportunity: solo sobre oportunidades del contacto de la conversaci
     const resultado = await turno(e, "Marcá como ganada", doble.proveedor);
 
     assert.equal(resultado.toolCalls[0].result?.ok, false);
-    assert.equal(
+    // Desde el ítem 112 el mensaje además le dice cómo salir del paso (volver
+    // a llamar sin el id) y lleva el sufijo de error de argumentos, así que se
+    // verifica por contenido y no por igualdad.
+    assert.match(
       (resultado.toolCalls[0].result as { error: string }).error,
-      "La oportunidad indicada no pertenece al contacto de esta conversación",
+      /no pertenece al contacto de esta conversación/,
     );
     assert.equal(resultado.toolCalls[1].result?.ok, true);
 
