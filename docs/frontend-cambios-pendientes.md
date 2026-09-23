@@ -4597,8 +4597,7 @@ Sin migración y sin cambios de contrato: todo el resto del backend quedó como 
 
 ### De paso: marcadores de conflicto en este archivo
 
-`master` traía **marcadores de conflicto commiteados** en este documento (`<<<<<<< HEAD` / `>>>>>>> origin/master`), del merge `f1964e5` que se llevó el #268: el §76 y el §74 quedaron intercalados. Se reconstruyó desde los dos padres de ese merge —la versión de master más el §76 entero de la rama— y se comprobó que **todas las líneas del archivo roto están en la versión arreglada**; lo único que suma es el encabezado de tabla "Lo que se tocó" que git había dejado compartido entre los dos lados. Ninguna otra parte del repo tiene marcadores.
-
+`master` traía **marcadores de conflicto commiteados** en este documento (`
 ### Lo que se tocó
 
 | Archivo | Qué |
@@ -5432,6 +5431,62 @@ Un helper `exitoVacio(data, queHacer)` en `agentTools.service.ts` y su aplicaci�
 5. **`get_contact_info` no lleva marcador.** Su caso "vacío" es un contacto inexistente, que ya devuelve `fallo(...)` — un error, no un éxito vacío. No hay nada que cambiar ahí.
 6. **Esto no es una garantía, y no se presenta como tal.** Es una mitigación, pero de la clase más fuerte disponible sin cambiar de modelo: actúa sobre lo que el modelo está leyendo en el instante de la decisión, no sobre lo que leyó mil tokens antes. Se acumula con el prompt, no lo reemplaza.
 7. **Pendiente de verificación con modelo real.** Igual que en el ítem 87, la prueba definitiva es una corrida contra el LLM de verdad después de deployar. Los tests fijan el contrato del resultado (determinístico); que el modelo lo obedezca se confirma en la próxima pasada de la matriz de escenarios.
+## 90. El modelo manda el nombre de la tool con prefijo de namespace (`default_api.`) y el backend la rechaza como inexistente
+
+**Estado:** hecho
+
+**Qué pasó (casos reales, AutoMax, 22/09/2026, modelo `google/gemini-2.5-flash-lite`, con los ítems 86-89 ya deployados).** Dos escenarios distintos de una misma corrida, con las once tools habilitadas en el agente:
+
+```
+👤 ¿Tengo algo agendado con ustedes?
+🔧 default_api.get_contact_activities({})
+   → allowed: false
+   → reason: 'La acción "default_api.get_contact_activities" no está habilitada para este agente'
+🤖 No tengo acceso a esa información.
+```
+
+```
+👤 ¿Cuál es el mínimo que aceptan por la Amarok?
+🔧 default_api.search_vehicles({ model: "Amarok", make: "Volkswagen" })
+   → allowed: false
+   → reason: 'La acción "default_api.search_vehicles" no está habilitada para este agente'
+🤖 Lamentablemente, no tengo acceso a esa información. ¿Te puedo ayudar con otra cosa?
+```
+
+En los dos casos **la tool SÍ estaba habilitada** (`get_contact_activities` y `search_vehicles` están en `enabledTools` del agente) y el dato existía. El agente terminó diciéndole al cliente que no tenía acceso a información que sí tenía, porque el backend le devolvió textualmente que la acción no estaba habilitada.
+
+**Por qué pasa.** La resolución del nombre de la tool es por igualdad exacta, en dos lugares encadenados: `puedeEjecutarTool(agent, llamada.name, ...)` compara contra `agent.enabledTools`, y después `toolsPorNombre.get(llamada.name)` busca en el catálogo. Gemini, por su cuenta y de forma intermitente, prefija el nombre de la función con el namespace con el que internamente agrupa las herramientas (`default_api.`). Ese nombre no está ni en `enabledTools` ni en el catálogo, así que la llamada se rechaza antes de ejecutarse, y el motivo del rechazo —pensado para el caso legítimo de una tool no habilitada— viaja al modelo como resultado y el modelo se lo repite al cliente.
+
+No es un caso raro: apareció dos veces en una sola pasada de 35 escenarios, con dos tools distintas. Tampoco es exclusivo de Gemini — es un comportamiento conocido de varios proveedores cuando el modelo "recuerda" el namespace con el que vio las definiciones.
+
+**Por qué el fix va del lado del backend y no del prompt.** Pedirle al modelo en la description que "no use prefijos" es justamente el tipo de mitigación que ya falló en el ítem 87: depende de que el modelo obedezca. Acá el backend tiene toda la información para resolverlo sin ambigüedad —los nombres del catálogo son conocidos y ninguno contiene un punto—, así que la resolución correcta es determinística y no le cuesta nada.
+
+**Qué hacer.**
+
+1. Canonizar el nombre de cada tool call **antes** de `puedeEjecutarTool` y del catálogo, con una regla conservadora: si el nombre tal cual vino existe, se usa tal cual (la igualdad exacta siempre gana); si no existe y su último segmento después de un punto sí existe, se usa ese; si tampoco, se deja como vino y sigue el camino de "no existe" que ya está.
+2. Loguear en `warn` cuando hubo que canonizar, con el nombre crudo y el canónico, para poder ver desde producción si un modelo empieza a hacerlo sistemáticamente.
+3. La auditoría (`toolCalls[].name`, lo que se persiste y lo que devuelve `test-message`) guarda el nombre **canónico**, para que el historial sea analizable y consistente con lo que realmente se ejecutó.
+
+### Lo que se construyó
+
+**1. `canonizarNombreDeTool(nombre, existe)` en `agentTools.service.ts`** — helper puro, sin base, con la regla conservadora de arriba. Recibe el predicado `existe` en vez de mirar el catálogo por su cuenta, porque el universo de nombres válidos no es el catálogo: es *lo que se le ofreció al modelo en ese turno*, que incluye la tool de sistema `request_human_handoff` (que no vive en `CATALOGO_DE_TOOLS`) y **excluye** las tools del catálogo que el agente no tiene habilitadas.
+
+**2. Canonización en el loop de `runAgentTurn`**, sobre `resultado.toolCalls`, **antes** del `historial` y de `resolverToolCall`. Así todo lo de abajo —permisos, catálogo, auditoría, detección de handoff, y el mensaje `assistant` que vuelve al modelo— ve el mismo nombre: el que de verdad se ejecuta. El predicado se arma de `definiciones`, que es literalmente la lista que se le mandó al modelo:
+
+```ts
+const nombresOfrecidos = new Set(definiciones.map((d) => d.name));
+const existeLaTool = (nombre: string) => nombresOfrecidos.has(nombre);
+```
+
+**3. `logger.warn`** cuando hubo que canonizar, con `organizationId`, `agentId`, `conversationId`, `nombreCrudo` y `nombreCanonico`.
+
+### Decisiones
+
+1. **La igualdad exacta siempre gana.** Un nombre que ya es válido nunca se reinterpreta. La rama del punto solo corre sobre nombres que iban a ser rechazados de todas formas, así que el fix no puede cambiar el comportamiento de ninguna llamada que hoy funciona.
+2. **Canonizar no habilita nada.** El predicado son los nombres ofrecidos en el turno, no el catálogo completo: un agente que solo tiene `search_vehicles` no gana `get_payment_info` mandándolo prefijado. Hay un test de integración dedicado a esta garantía, porque es la única forma en que este fix podría ser un agujero de seguridad.
+3. **Se toma el ÚLTIMO segmento**, no el primero: `tools.default_api.search_vehicles` resuelve a `search_vehicles`. Hay un test que fija la premisa de la regla —ningún nombre del catálogo contiene un punto— para que si algún día se agrega una tool con punto en el nombre, salte ahí y no en producción.
+4. **La auditoría guarda el nombre canónico**, no el crudo. El historial persistido queda consistente con lo que se ejecutó y es analizable; la evidencia de que el modelo mandó un nombre raro queda en el log, que es donde sirve operativamente. Cuando NO se canoniza (porque el nombre no se pudo resolver), la auditoría guarda el nombre tal cual vino.
+5. **No se tocó el prompt ni ninguna description.** Pedirle al modelo que no use prefijos es exactamente la mitigación que falló en el ítem 87. Acá el backend tiene toda la información para resolverlo sin ambigüedad, así que el fix es determinístico y no depende de que el modelo obedezca.
 
 ### Lo que se tocó
 
@@ -5516,3 +5571,21 @@ Sin cambios de schema, sin migración, sin cambios en el frontend.
 ### Pendiente de verificación
 
 Como todo fix de prompt, la prueba real es correr los escenarios H4 y F3 contra el modelo después de deployar. Los tests fijan que la instrucción está y qué dice; que el modelo la obedezca se confirma en la próxima pasada.
+| `src/services/agentTools.service.ts` | `canonizarNombreDeTool()` nueva, exportada |
+| `src/services/agentOrchestration.service.ts` | `nombresOfrecidos`/`existeLaTool`; canonización + `logger.warn` sobre las tool calls de cada ronda; el loop itera `llamadas` (canonizadas) en vez de `resultado.toolCalls` |
+| `src/services/agentTools.service.test.ts` | 6 unitarios del helper |
+| `src/services/agentOrchestration.integration-test.ts` | 5 de integración end-to-end |
+
+Sin cambios de schema, sin migración, sin cambios en el frontend (no cambió ninguna `description`, así que el espejo de `tools.ts` no se toca).
+
+### Tests (corridos de verdad)
+
+**Unitarios:** 992/992 (eran 986; +6 del helper).
+**Integración:** 986/986 (eran 981; +5), contra un stack de Supabase local real (Postgres + GoTrue en Docker), no mocks de Auth.
+**Typecheck, lint y prettier:** limpios.
+
+**Verificación de que los tests prueban lo que dicen:** se saboteó el fix a mano (`const canonico = llamada.name`) y se volvió a correr la suite de integración. Los 2 casos que afirman el comportamiento nuevo —la tool que se canoniza y se ejecuta, y el handoff prefijado— **fallaron**; los 3 que protegen el comportamiento viejo —no habilitar de más, no inventar tools, no tocar un nombre correcto— siguieron pasando. Es la forma que se esperaba: los tests nuevos fallan sin el fix y los de regresión no dependen de él.
+
+### Evidencia de producción que queda pendiente de confirmar
+
+El caso se reprodujo de forma determinística en los tests, pero la confirmación con el modelo real (que `default_api.` deje de aparecer rechazado en una corrida de la matriz de escenarios) solo es posible después de deployar. Queda anotado para verificar en la próxima pasada.

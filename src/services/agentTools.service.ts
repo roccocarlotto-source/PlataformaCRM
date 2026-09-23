@@ -1165,3 +1165,37 @@ export function toolsHabilitadas(enabledTools: string[]): ToolDelAgente[] {
   }
   return resultado;
 }
+
+// ---------------------------------------------------------------------------
+// Canonización del nombre que manda el modelo (ítem 90)
+// ---------------------------------------------------------------------------
+// Algunos modelos prefijan el nombre de la función con el namespace con el que
+// internamente agrupan las herramientas (Gemini manda `default_api.foo` de
+// forma intermitente). Ese nombre no está ni en enabledTools ni en el catálogo,
+// así que la llamada se rechazaba como "no habilitada" y el modelo terminaba
+// repitiéndole al cliente que no tenía acceso a un dato que sí tenía.
+//
+// La regla es deliberadamente conservadora y no adivina nada:
+//   1. Si el nombre tal cual vino existe, se usa tal cual. La igualdad exacta
+//      SIEMPRE gana: nunca se reinterpreta un nombre que ya es válido.
+//   2. Si no existe y su último segmento después de un punto sí existe, se usa
+//      ese. Ningún nombre real del catálogo tiene puntos, así que no hay
+//      colisión posible con un nombre legítimo.
+//   3. Si tampoco, se devuelve tal cual y sigue el camino de "no existe" que ya
+//      estaba — esto NO convierte una tool inexistente en existente, ni saltea
+//      el control de enabledTools: solo arregla cómo se escribió el nombre.
+//
+// `existe` lo provee quien llama porque el universo válido no es solo el
+// catálogo: incluye la tool de sistema de derivación, que no vive en
+// CATALOGO_DE_TOOLS.
+export function canonizarNombreDeTool(nombre: string, existe: (n: string) => boolean): string {
+  if (existe(nombre)) {
+    return nombre;
+  }
+  const corte = nombre.lastIndexOf(".");
+  if (corte === -1) {
+    return nombre;
+  }
+  const ultimoSegmento = nombre.slice(corte + 1);
+  return existe(ultimoSegmento) ? ultimoSegmento : nombre;
+}

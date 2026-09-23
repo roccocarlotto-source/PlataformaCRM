@@ -505,6 +505,110 @@ test("una tool que no está en enabledTools se rechaza aunque exista en el catá
 });
 
 // ---------------------------------------------------------------------------
+// Ítem 90: el modelo manda el nombre de la tool con prefijo de namespace
+// ---------------------------------------------------------------------------
+
+test("ítem 90: una tool con prefijo default_api. se canoniza y SE EJECUTA", async () => {
+  // El caso real de producción: Gemini mandó `default_api.get_contact_activities`
+  // teniendo la tool habilitada, el backend la rechazó como "no habilitada" y
+  // el agente le dijo al cliente que no tenía acceso al dato.
+  const e = await montar("namespace-canoniza", { enabledTools: ["get_contact_activities"] });
+  try {
+    const doble = doblarProveedor([
+      pideTool("call_1", "default_api.get_contact_activities", {}),
+      texto("No tenés nada agendado por ahora."),
+    ]);
+    const resultado = await turno(e, "¿Tengo algo agendado?", doble.proveedor);
+
+    const llamada = resultado.toolCalls[0];
+    assert.equal(llamada.allowed, true, "tenía que ejecutarse, no rechazarse");
+    assert.equal(llamada.name, "get_contact_activities", "la auditoría guarda el nombre canónico");
+    assert.ok(llamada.result, "tiene que haber resultado real de la tool");
+    assert.equal(llamada.result.ok, true);
+    // Y el loop siguió hasta la respuesta real, no cortó con el rechazo.
+    assert.equal(resultado.respuesta, "No tenés nada agendado por ahora.");
+    assert.equal(doble.requests.length, 2);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 90: canonizar NO habilita una tool que el agente no tiene", async () => {
+  // La garantía de seguridad: el prefijo no es una puerta de atrás. El universo
+  // contra el que se canoniza son los nombres OFRECIDOS en el turno.
+  const e = await montar("namespace-no-habilita", { enabledTools: ["get_contact_activities"] });
+  try {
+    const doble = doblarProveedor([
+      pideTool("call_1", "default_api.create_opportunity", { title: "x" }),
+      texto("ok"),
+    ]);
+    const resultado = await turno(e, "hola", doble.proveedor);
+
+    assert.equal(resultado.toolCalls[0].allowed, false);
+    assert.match(resultado.toolCalls[0].reason ?? "", /no está habilitada/);
+    // El nombre queda tal cual vino: no se canonizó nada, así que la auditoría
+    // muestra exactamente lo que pidió el modelo.
+    assert.equal(resultado.toolCalls[0].name, "default_api.create_opportunity");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 90: un nombre inventado con prefijo sigue siendo inexistente", async () => {
+  const e = await montar("namespace-inventada", { enabledTools: ["get_contact_activities"] });
+  try {
+    const doble = doblarProveedor([pideTool("call_1", "default_api.borrar_todo", {}), texto("ok")]);
+    const resultado = await turno(e, "hola", doble.proveedor);
+    assert.equal(resultado.toolCalls[0].allowed, false);
+    assert.equal(resultado.toolCalls[0].name, "default_api.borrar_todo");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 90: el handoff también se canoniza y sigue cortando el turno", async () => {
+  // La tool de sistema no está en CATALOGO_DE_TOOLS pero sí entre las ofrecidas,
+  // así que tiene que canonizarse igual — si no, un modelo que la prefija
+  // dejaría de poder derivar.
+  const e = await montar("namespace-handoff");
+  try {
+    const doble = doblarProveedor([
+      pideTool(
+        "h1",
+        `default_api.${REQUEST_HUMAN_HANDOFF_TOOL_NAME}`,
+        { reason: "Pide una persona" },
+        "Ya te contactan.",
+      ),
+    ]);
+    const resultado = await turno(e, "Quiero hablar con alguien", doble.proveedor);
+
+    assert.equal(resultado.handoff, true);
+    assert.equal(resultado.status, "TRANSFERRED_TO_HUMAN");
+    assert.equal(resultado.toolCalls[0].name, REQUEST_HUMAN_HANDOFF_TOOL_NAME);
+    assert.equal(resultado.toolCalls[0].allowed, true);
+    // Cortó en la primera ronda, como cualquier handoff.
+    assert.equal(doble.requests.length, 1);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 90: un nombre correcto no se toca (la igualdad exacta gana)", async () => {
+  const e = await montar("namespace-intacto", { enabledTools: ["get_contact_activities"] });
+  try {
+    const doble = doblarProveedor([
+      pideTool("call_1", "get_contact_activities", {}),
+      texto("listo"),
+    ]);
+    const resultado = await turno(e, "¿Tengo algo agendado?", doble.proveedor);
+    assert.equal(resultado.toolCalls[0].name, "get_contact_activities");
+    assert.equal(resultado.toolCalls[0].allowed, true);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // 4. La red de seguridad: tope de rondas → handoff
 // ---------------------------------------------------------------------------
 

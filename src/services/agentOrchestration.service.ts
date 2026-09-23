@@ -25,6 +25,7 @@ import { createActivity } from "./activity.service";
 import { puedeEjecutarTool, type DatosDisponibles } from "./agentPermissions.service";
 import { generarBriefDeConversacion } from "./conversationBrief.service";
 import {
+  canonizarNombreDeTool,
   toolsHabilitadas,
   type ContextoDeEjecucionDeTool,
   type ResultadoDeTool,
@@ -638,6 +639,12 @@ export async function runAgentTurn(
   const toolsPorNombre = new Map<string, ToolDelAgente>(tools.map((t) => [t.definition.name, t]));
   // El catálogo filtrado por enabledTools + la tool del sistema, SIEMPRE.
   const definiciones = [...tools.map((t) => t.definition), REQUEST_HUMAN_HANDOFF_TOOL];
+  // Los nombres que de verdad se le ofrecieron al modelo en ESTE turno: es
+  // contra esto que se canoniza (ítem 90). Incluye la tool de sistema, que no
+  // está en toolsPorNombre. Deliberadamente NO incluye las tools del catálogo
+  // que el agente no tiene habilitadas: canonizar no puede habilitar nada.
+  const nombresOfrecidos = new Set(definiciones.map((d) => d.name));
+  const existeLaTool = (nombre: string) => nombresOfrecidos.has(nombre);
   const datosDisponibles = datosDisponiblesDeLaConversacion(conversation, contact);
   const contextoDeTools: ContextoDeEjecucionDeTool = {
     organizationId,
@@ -676,15 +683,40 @@ export async function runAgentTurn(
       continue;
     }
 
-    // El modelo pidió tools. Se registra su turno tal cual (texto + pedidos)
-    // y se resuelve cada pedido en orden.
+    // El modelo pidió tools. Antes de cualquier otra cosa se canoniza el
+    // nombre de cada pedido (ítem 90): hay modelos que prefijan la función con
+    // su namespace interno (`default_api.search_vehicles`) y ese nombre no
+    // existe ni en enabledTools ni en el catálogo, así que la llamada se
+    // rechazaba como "no habilitada" y el modelo le repetía al cliente que no
+    // tenía acceso a un dato que sí tenía. Se canoniza acá arriba, antes del
+    // historial y de resolverToolCall, para que TODO lo de abajo —permisos,
+    // catálogo, auditoría, detección de handoff y el historial que vuelve al
+    // modelo— vea el mismo nombre, el que de verdad se ejecuta.
+    const llamadas = resultado.toolCalls.map((llamada) => {
+      const canonico = canonizarNombreDeTool(llamada.name, existeLaTool);
+      if (canonico !== llamada.name) {
+        logger.warn(
+          {
+            organizationId,
+            agentId: agent.id,
+            conversationId: conversation.id,
+            nombreCrudo: llamada.name,
+            nombreCanonico: canonico,
+          },
+          "El modelo mandó el nombre de la tool con prefijo de namespace: se canonizó",
+        );
+        return { ...llamada, name: canonico };
+      }
+      return llamada;
+    });
+
     historial.push({
       role: "assistant",
       content: resultado.text,
-      toolCalls: resultado.toolCalls,
+      toolCalls: llamadas,
     });
 
-    for (const llamada of resultado.toolCalls) {
+    for (const llamada of llamadas) {
       const entrada = await resolverToolCall(llamada, {
         agent,
         toolsPorNombre,
