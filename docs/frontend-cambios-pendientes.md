@@ -6437,3 +6437,44 @@ Tres cosas que no son opcionales en ella, y las tres las aprendí a los golpes:
 OPENROUTER_API_KEY=... npx tsx scripts/sonda-de-prompt.ts
 SOLO=R1,R2,R3 REPES=8 SIN=110 npx tsx scripts/sonda-de-prompt.ts
 ```
+
+---
+
+## 111. Al derivar, el cliente lee una frase helada
+
+**Estado:** hecho
+
+**Qué pasaba.** Consecuencia directa del ítem 110, y descubierta al verificarlo en producción. Con el arreglo ya en vivo, el mismo reclamo cinco veces:
+
+```
+👤 Son todos unos ladrones, me estafaron con el último auto que les compré
+🔧 request_human_handoff   → handoff: true   (5 de 5, perfecto)
+🤖 No pude resolver tu consulta en este momento, alguien del equipo te va a contactar.
+```
+
+Las cinco. El ruteo quedó impecable y la respuesta quedó helada: es lo que uno le contesta a alguien que preguntó algo raro, no a alguien que acaba de denunciar una estafa. **Antes del ítem 110 el agente escribía con empatía y no derivaba; ahora derivaba y no escribía.** Cambié una mitad por la otra.
+
+**Por qué pasa.** Lo que lee el cliente al derivar era `resultado.text ?? MENSAJE_DE_HANDOFF`: el texto que el modelo hubiera escrito *junto* al pedido de tool, y si no, el cierre fijo. Cuando el modelo decide derivar, normalmente llama a la tool y no escribe nada más — así que en la práctica siempre caía el cierre fijo. La descripción de la tool decía *"Podés acompañarla con un mensaje para el contacto"*, y ese "podés" no alcanzó nunca.
+
+**Qué se hizo.** El mensaje al cliente deja de ser un accidente y pasa a ser un argumento explícito de la tool. `request_human_handoff` ahora lleva **dos textos, para dos lectores distintos**:
+
+| Argumento | Para quién | Qué dice |
+|---|---|---|
+| `reason` | el vendedor que toma la conversación | *"reclamo: denuncia una estafa en una compra anterior"* |
+| `mensajeAlCliente` | el contacto | *"Lamento muchísimo lo que me contás. Le paso tu caso ahora mismo a una persona del equipo."* |
+
+Los dos son `required`. La descripción de `mensajeAlCliente` le pide reconocer lo que el contacto planteó y avisar que una persona lo va a contactar, y le prohíbe explícitamente prometer plazos, soluciones o compensaciones — los ítems 92 y 100 valen igual acá, y un cliente enojado es justo donde más tienta prometer.
+
+**El orden de lo que lee el cliente** queda: el texto suelto del modelo si lo hubo → el `mensajeAlCliente` → el cierre fijo. Las dos puntas no cambian; lo que faltaba era el medio. Y la tolerancia de siempre: si el argumento no vino, vino vacío o vino de otro tipo, **la derivación ocurre igual** con el cierre fijo. La salida de emergencia no se rompe por un argumento mal formado, que es la misma regla que ya tenía `reason`.
+
+### Medido
+
+Tres reclamos × 6 repeticiones: **17 de 18 derivaciones llevan un mensaje escrito para el cliente.** La línea base no hace falta simularla — son las 5 de 5 de producción, todas con el cierre fijo.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentOrchestration.service.ts` | `mensajeAlCliente` en `REQUEST_HUMAN_HANDOFF_TOOL`; `mensajeAlClienteDeLaLlamada()` y `LARGO_MAXIMO_DEL_MENSAJE_DE_HANDOFF` nuevos; el orden de precedencia en el corte por derivación |
+| `src/services/agentOrchestration.service.test.ts` | 4 unitarios (el texto trimeado, los cuatro casos que dan null, el tope de largo, y la forma de la tool) + el del ítem 78 actualizado: ahora son dos argumentos |
+| `src/services/agentOrchestration.integration-test.ts` | 3 de integración por `runAgentTurn`: el mensaje llega al contacto y el `reason` no, el texto suelto sigue ganando, y sin ninguno de los dos queda el cierre fijo |

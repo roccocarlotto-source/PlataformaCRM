@@ -2076,6 +2076,76 @@ test("ítem 109: una respuesta normal a ese mismo reclamo pasa intacta", async (
 });
 
 // ---------------------------------------------------------------------------
+// Ítem 111: al derivar, el cliente lee algo escrito para él
+// ---------------------------------------------------------------------------
+
+test("ítem 111: el mensajeAlCliente de la llamada es lo que recibe el contacto", async () => {
+  // Las cinco corridas del reclamo en producción terminaron con el cliente
+  // leyendo el cierre fijo: correcto en el ruteo, helado como respuesta a
+  // alguien que acaba de denunciar una estafa.
+  const e = await montar("handoff-con-mensaje", { enabledTools: [] });
+  try {
+    const paraElCliente =
+      "Lamento muchísimo lo que me contás. Le paso tu caso ahora mismo a una persona del equipo para que lo revise con vos.";
+    const doble = doblarProveedor([
+      pideTool("call_h", REQUEST_HUMAN_HANDOFF_TOOL_NAME, {
+        reason: "reclamo: el contacto denuncia una estafa en una compra anterior",
+        mensajeAlCliente: paraElCliente,
+      }),
+    ]);
+    const resultado = await turno(e, RECLAMO_REAL, doble.proveedor);
+
+    assert.equal(resultado.respuesta, paraElCliente);
+    assert.equal(resultado.handoff, true);
+
+    // Y el `reason` es para el vendedor: no puede filtrarse al contacto.
+    assert.equal(resultado.respuesta.includes("reclamo:"), false);
+    const mensajes = await prisma.message.findMany({
+      where: { conversationId: resultado.conversationId, direction: "OUTBOUND" },
+    });
+    assert.equal(mensajes[0].content, paraElCliente);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 111: el texto suelto del modelo sigue ganando sobre el argumento", async () => {
+  // El orden importa y no cambia con este ítem: lo que el modelo escribió como
+  // respuesta manda; el argumento es el respaldo para cuando no escribió nada.
+  const e = await montar("handoff-texto-gana", { enabledTools: [] });
+  try {
+    const suelto = "Te escucho, y ya le avisé a una persona del equipo.";
+    const doble = doblarProveedor([
+      pideTool(
+        "call_h",
+        REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+        { reason: "reclamo", mensajeAlCliente: "Otro texto distinto." },
+        suelto,
+      ),
+    ]);
+    const resultado = await turno(e, RECLAMO_REAL, doble.proveedor);
+    assert.equal(resultado.respuesta, suelto);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 111: sin texto y sin mensajeAlCliente, queda el cierre fijo de siempre", async () => {
+  // La salida de emergencia no se rompe por un argumento que no vino.
+  const e = await montar("handoff-sin-mensaje", { enabledTools: [] });
+  try {
+    const doble = doblarProveedor([
+      pideTool("call_h", REQUEST_HUMAN_HANDOFF_TOOL_NAME, { reason: "reclamo" }),
+    ]);
+    const resultado = await turno(e, RECLAMO_REAL, doble.proveedor);
+    assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+    assert.equal(resultado.handoff, true);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Ítem 102: alcanza con el serviceTypeId, el recurso se deduce
 // ---------------------------------------------------------------------------
 
