@@ -976,3 +976,38 @@ test("search_vehicles: la nota de precio explica el null y prohíbe convertir (�
   assert.match(data.notaDePrecio, /viene en null/);
   assert.match(data.notaDePrecio, /NUNCA lo conviertas ni estimes una cotización/);
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 103: "el miércoles a las 11" es un instante, no un rango
+// ---------------------------------------------------------------------------
+// Va en la suite de INTEGRACIÓN y no en la unitaria a propósito: desde este
+// ítem esos argumentos PASAN la validación, así que la ejecución sigue hasta
+// el repositorio y necesita base. (La unitaria declara en su cabecera que no
+// toca Postgres; un test que sí lo necesita no va ahí.)
+
+test("get_availability: sin hasta, o con hasta igual a desde, ya no es un error de argumentos", async () => {
+  // El caso real, con DOS modelos distintos: el cliente dice una hora puntual
+  // y el modelo manda desde == hasta. Antes se rechazaba y el turno se quemaba
+  // en un error que el cliente terminaba leyendo como "no hay lugar".
+  const ctx = contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", a.branchId);
+  const inexistente = "11111111-1111-4111-8111-111111111111";
+
+  for (const args of [
+    { serviceTypeId: inexistente, desde: "2026-09-29T11:00:00-03:00" },
+    {
+      serviceTypeId: inexistente,
+      desde: "2026-09-29T11:00:00-03:00",
+      hasta: "2026-09-29T11:00:00-03:00",
+    },
+    { serviceTypeId: inexistente, desde: "2026-09-29T11:00:00-03:00", hasta: "" },
+  ]) {
+    const resultado = await ejecutar("get_availability", args, ctx);
+    // Falla igual —el servicio no existe— pero YA NO por validación de
+    // argumentos, que es lo único que este test afirma.
+    assert.equal(resultado.ok, false);
+    assert.ok(
+      resultado.ok === false && !resultado.error.startsWith("Argumentos inválidos"),
+      `no debería ser un error de args: ${JSON.stringify(resultado)}`,
+    );
+  }
+});

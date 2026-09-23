@@ -510,26 +510,6 @@ test("el sufijo va en TODAS las tools, no solo en la que falló en producción",
 // Ítem 103: "el miércoles a las 11" es un instante, no un rango
 // ---------------------------------------------------------------------------
 
-test("get_availability: sin hasta, o con hasta igual a desde, ya no es un error", async () => {
-  // El caso real, con dos modelos distintos: el cliente dice una hora puntual
-  // y el modelo manda desde == hasta. Antes se rechazaba y el turno se quemaba
-  // en un error que el cliente leía como "no hay lugar".
-  const base = { resourceId: UUID, serviceTypeId: UUID };
-  for (const args of [
-    { ...base, desde: "2026-09-29T11:00:00-03:00" },
-    { ...base, desde: "2026-09-29T11:00:00-03:00", hasta: "2026-09-29T11:00:00-03:00" },
-    { ...base, desde: "2026-09-29T11:00:00-03:00", hasta: "" },
-  ]) {
-    const resultado = await CATALOGO_DE_TOOLS.get("get_availability")!.ejecutar(args, CONTEXTO);
-    // Sin base no puede tener éxito, pero el error YA NO puede ser de
-    // validación de argumentos: eso es lo que se está probando.
-    assert.ok(
-      resultado.ok || !resultado.error.startsWith("Argumentos inválidos"),
-      `no debería ser un error de args: ${JSON.stringify(resultado)}`,
-    );
-  }
-});
-
 test("get_availability: un hasta ANTERIOR a desde sigue siendo un error", async () => {
   // Ahí el modelo no expresó mal un instante: se equivocó de orden, y taparlo
   // escondería el bug.
