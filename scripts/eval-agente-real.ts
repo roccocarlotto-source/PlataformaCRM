@@ -377,6 +377,69 @@ const ESCENARIOS: Escenario[] = [
     // porque el cliente había pedido una camioneta diésel.
     noDebeContenerAlFinal: [/hilux/i, /amarok/i],
   },
+  {
+    // La ventana de contexto son los últimos 20 mensajes (10 idas y vueltas).
+    // En una charla larga de WhatsApp el presupuesto que el cliente dijo al
+    // principio se cae de la ventana, y el agente tiene que poder recuperarlo:
+    // desde el ítem 116 está guardado en el Contact, y get_contact_info existe
+    // justamente para eso.
+    id: "V1",
+    criterio: "Charla larga: el presupuesto del primer turno sigue valiendo después de la ventana",
+    msgs: [
+      "Hola, tengo hasta 20 mil dólares para un auto",
+      "¿Dónde quedan?",
+      "¿Atienden los sábados?",
+      "¿Y los domingos?",
+      "¿Tienen estacionamiento?",
+      "¿Se puede ir sin turno?",
+      "¿Cuánto tarda un test drive?",
+      "¿Hace falta llevar algo?",
+      "¿Aceptan tarjeta?",
+      "¿Y transferencia?",
+      "Bueno, ahora sí: mostrame lo que entre en mi presupuesto",
+    ],
+    toolsEsperadas: ["search_vehicles"],
+    // Lo que no puede pasar es pedirle de nuevo el presupuesto que ya dijo,
+    // en cualquiera de las formas en que se pregunta eso.
+    noDebeContenerAlFinal: [
+      /presupuesto\s*(m[aá]ximo)?\s*\?/i,
+      /cu[aá]l es tu presupuesto/i,
+      /qu[eé] presupuesto/i,
+      /cu[aá]nto quer[ée]s (gastar|invertir)/i,
+      /monto m[aá]ximo/i,
+    ],
+  },
+
+  {
+    // La otra mitad del ítem 118, y la que más importa: el cliente que se
+    // presenta con todo y después charla. Acá el primer mensaje SÍ dispara la
+    // calificación (ítem 116), así que el dato queda guardado y el bloque de
+    // contacto lo lleva en cada turno, esté o no en la ventana.
+    id: "V2",
+    criterio: "Lo que quedó guardado en el CRM sigue disponible después de la ventana",
+    msgs: [
+      "Hola, soy Diego Ramírez, busco una SUV familiar, tengo hasta 30 mil dólares y necesito cerrarlo esta semana",
+      "¿Dónde quedan?",
+      "¿Atienden los sábados?",
+      "¿Y los domingos?",
+      "¿Tienen estacionamiento?",
+      "¿Se puede ir sin turno?",
+      "¿Cuánto tarda un test drive?",
+      "¿Hace falta llevar algo?",
+      "¿Aceptan tarjeta?",
+      "¿Y transferencia?",
+      "Bueno, ahora sí: mostrame lo que entre en mi presupuesto",
+    ],
+    toolsEsperadas: ["search_vehicles"],
+    noDebeContenerAlFinal: [
+      /presupuesto\s*(m[aá]ximo)?\s*\?/i,
+      /cu[aá]l es tu presupuesto/i,
+      /qu[eé] presupuesto/i,
+      /cu[aá]nto quer[ée]s (gastar|invertir)/i,
+      /monto m[aá]ximo/i,
+    ],
+  },
+
   // ---- Bordes de la agenda ----
   // Una reserva que sale mal cuesta una visita real: el cliente se presenta a
   // un turno que no existe, o se va porque le dijeron que no había nada.

@@ -526,12 +526,61 @@ export function nombreUsableDelContacto(contact: {
   return partes.length > 0 ? partes.join(" ").trim() : null;
 }
 
-export function bloqueDeContacto(contact: {
-  firstName: string;
-  lastName: string | null;
-  email: string | null;
-  phone: string | null;
-}): string {
+// Ítem 118: la calificación entra al mismo bloque que el nombre.
+//
+// La ventana de contexto son los últimos 20 mensajes (10 idas y vueltas). En
+// una charla larga de WhatsApp —y son larguísimas— lo que el cliente dijo al
+// principio se cae de la ventana. Caso real, 1 de cada 3 corridas: dijo
+// "tengo hasta 20 mil dólares" en el primer mensaje, hizo diez preguntas
+// sueltas, y al pedir opciones el agente le contestó "¿cuál es tu presupuesto
+// máximo?". Ya se lo había dicho.
+//
+// La solución no es agrandar la ventana —eso empuja el problema unos turnos
+// más adelante y encarece cada llamada—: es que los datos que YA están
+// guardados en el CRM viajen siempre en el prompt, como el nombre desde el
+// ítem 105. Y desde el ítem 116 están guardados de verdad.
+//
+// Solo los campos que cambian una respuesta comercial. `score` queda afuera a
+// propósito: es un número interno para priorizar en el pipeline, no algo que
+// el agente tenga que tener presente mientras atiende, y en el prompt sería
+// una invitación a mencionárselo al cliente.
+type CalificacionEnElPrompt = {
+  leadServiceOfInterest?: string | null;
+  leadBudgetAmount?: unknown;
+  leadBudgetCurrency?: string | null;
+  leadUrgency?: string | null;
+  leadLocation?: string | null;
+};
+
+function datosDeCalificacion(contact: CalificacionEnElPrompt): string[] {
+  const datos: string[] = [];
+  if (tieneContenidoReal(contact.leadServiceOfInterest ?? null)) {
+    datos.push(`busca: ${contact.leadServiceOfInterest}`);
+  }
+  const monto = contact.leadBudgetAmount;
+  if (monto !== null && monto !== undefined && String(monto).trim().length > 0) {
+    const moneda = tieneContenidoReal(contact.leadBudgetCurrency ?? null)
+      ? ` ${contact.leadBudgetCurrency}`
+      : "";
+    datos.push(`presupuesto: ${String(monto)}${moneda}`);
+  }
+  if (tieneContenidoReal(contact.leadUrgency ?? null)) {
+    datos.push(`urgencia: ${contact.leadUrgency}`);
+  }
+  if (tieneContenidoReal(contact.leadLocation ?? null)) {
+    datos.push(`zona: ${contact.leadLocation}`);
+  }
+  return datos;
+}
+
+export function bloqueDeContacto(
+  contact: {
+    firstName: string;
+    lastName: string | null;
+    email: string | null;
+    phone: string | null;
+  } & CalificacionEnElPrompt,
+): string {
   const nombre = nombreUsableDelContacto(contact);
   const datos: string[] = [];
   if (nombre !== null) {
@@ -543,6 +592,7 @@ export function bloqueDeContacto(contact: {
   if (tieneContenidoReal(contact.phone)) {
     datos.push(`teléfono: ${contact.phone}`);
   }
+  datos.push(...datosDeCalificacion(contact));
 
   if (datos.length === 0) {
     // Sin ningún dato real, decirlo explícito es mejor que callar: el modelo
@@ -588,12 +638,15 @@ export function armarSystemPrompt(
   contextoTemporal?: { ahora: Date; zona: string },
   // Ítem 105. Opcional por el mismo motivo que contextoTemporal: los tests que
   // arman el prompt sin conversación no tienen contacto que pasar.
+  // Ítem 118: además del nombre, la calificación que el CRM ya tiene. Los
+  // campos de lead son opcionales para no romper los tests que arman el prompt
+  // con un contacto mínimo.
   contacto?: {
     firstName: string;
     lastName: string | null;
     email: string | null;
     phone: string | null;
-  },
+  } & CalificacionEnElPrompt,
 ): string {
   const partes = [agent.instructions.trim()];
 

@@ -6831,3 +6831,56 @@ De paso, esa corrida dejó una buena noticia: los tres bordes de la agenda que p
 | `src/services/agentOrchestration.service.test.ts` | 3 unitarios: el caso real, los seis mensajes normales que no se tocan, y la etiqueta vacía |
 | `src/services/agentOrchestration.integration-test.ts` | 2 de integración: la etiqueta no llega al cliente y el contenido sí, y el orden respecto de la guarda del ítem 109 |
 | `scripts/eval-agente-real.ts` | escenarios `B1`, `B2` y `B3` (bordes de la agenda) |
+
+---
+
+## 118. Lo que el cliente dijo al principio se caía de la ventana y se lo volvían a preguntar
+
+**Estado:** hecho — con el hueco que queda medido y anotado
+
+**Qué pasaba.** La ventana de contexto son los últimos 20 mensajes: diez idas y vueltas. Una conversación de WhatsApp pasa eso sin esfuerzo. Caso real, en una charla de once turnos:
+
+```
+👤 Hola, tengo hasta 20 mil dólares para un auto
+   ... diez preguntas sueltas (dónde quedan, si atienden sábados, si hay
+       estacionamiento, si aceptan tarjeta...) ...
+👤 Bueno, ahora sí: mostrame lo que entre en mi presupuesto
+🤖 ¿Cuál es tu presupuesto máximo en dólares?
+```
+
+Ya se lo había dicho. Para el cliente es el agente que no lo escuchó.
+
+**Por qué pasa.** El primer mensaje se cayó de la ventana. Agrandarla no es la solución: empuja el problema unos turnos más adelante y encarece cada llamada.
+
+**Qué se hizo.** Los datos que el CRM **ya tiene guardados** viajan en el prompt en cada turno, como el nombre desde el ítem 105. El bloque de contacto pasa a incluir la calificación: qué busca, presupuesto, urgencia y zona.
+
+**El `score` queda afuera a propósito.** Es un número interno para priorizar en el pipeline, no algo que el agente tenga que tener presente mientras atiende, y en el prompt sería una invitación a mencionárselo al cliente. Tiene su test.
+
+Esto solo funciona porque el ítem 116 hizo que esos datos **se guarden de verdad**. Los dos ítems son la misma idea en dos mitades: primero que el dato entre al CRM, después que vuelva al prompt sin depender de la ventana.
+
+**Y el caso que más importa no es el de arriba, es el otro:** el cliente que vuelve a escribir tres días después. Ahí la ventana está vacía y el bloque de contacto es lo único que queda. Antes de este ítem, esa conversación arrancaba de cero.
+
+### Medido
+
+Dos escenarios de once turnos cada uno, × 4 contra el modelo real:
+
+| Escenario | Resultado |
+|---|---|
+| **V2** — el primer mensaje dispara la calificación, así que el dato queda guardado | **4/4**: a los once turnos recupera el presupuesto *y* que buscaba una SUV, y busca con los dos filtros |
+| **V1** — el cliente dice el presupuesto suelto ("tengo hasta 20 mil") | **3/4** |
+
+### El hueco que queda, medido
+
+En V1 el agente **no siempre guarda el dato**: de 4 corridas, en 3 buscó con `priceMaxUsd: 20000` y siguió de largo sin llamar a `create_lead`. Si no se guarda, no hay nada que el bloque pueda llevar, y a los diez turnos se perdió.
+
+O sea: el ítem 118 arregla *"lo que está guardado no se olvida"*. Lo que sigue abierto es *"no siempre se guarda"*, que es el ítem 116 y quedó en 6/6 para el caso de identidad pero flojea cuando el dato aparece suelto en medio de otra cosa.
+
+**Lo que NO hice, y por qué.** Se podía guardar automáticamente lo que el modelo manda como filtro en `search_vehicles` — el `priceMaxUsd: 20000` está ahí, servido. No lo hice porque un filtro no es un presupuesto: *"mostrame los de menos de 10 mil"* puede ser alguien mirando, no alguien con diez mil pesos. Escribirle al CRM un presupuesto que el cliente nunca dijo es peor que no escribirle nada. Si querés que se infiera, es una decisión de producto con su propia regla.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentOrchestration.service.ts` | `datosDeCalificacion()` nueva y el tipo `CalificacionEnElPrompt`; `bloqueDeContacto` y `armarSystemPrompt` los aceptan |
+| `src/services/agentOrchestration.service.test.ts` | 4 unitarios: el bloque con calificación, sin calificación, que el score NO aparece, y los vacíos |
+| `scripts/eval-agente-real.ts` | escenarios `V1` y `V2`, de once turnos cada uno |
