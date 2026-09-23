@@ -88,6 +88,55 @@ function exito(data: unknown): ResultadoDeTool {
   return { ok: true, data };
 }
 
+// ---------------------------------------------------------------------------
+// EL RESULTADO VACÍO ES EL MOMENTO DE MÁXIMO RIESGO DE INVENCIÓN (ítem 91).
+//
+// Casos reales de producción: `get_service_types` devolvió `{serviceTypes: []}`
+// y el agente le ofreció al cliente "Test Drive" y "Visita a Concesionario",
+// dos servicios que no existen en el sistema. `get_payment_info` devolvió
+// `{hasPaymentLink: false, hasBankTransfer: false}` y el agente contestó que
+// aceptaban transferencia y link de pago, y se ofreció a generarlo.
+//
+// La description de get_payment_info YA decía "Si no hay ningún medio de pago
+// configurado, decíselo al cliente: no inventes uno" — y el modelo la ignoró.
+// Esa es la lección del ítem 87: una instrucción lejana, leída una vez al
+// principio, no compite con un resultado vacío que el modelo interpreta como
+// "esta tool no me sirvió, contesto con lo que sé del mundo".
+//
+// Por eso la instrucción viaja EN EL RESULTADO, que es lo que el modelo está
+// leyendo en el momento exacto en que decide qué contestar. `sinResultados`
+// hace el vacío explícito (un array vacío es fácil de pasar por alto entre
+// llaves) y `queHacer` dice, en imperativo y en el idioma del agente, qué
+// corresponde contestar.
+//
+// No es una garantía —nada que dependa de un LLM lo es— pero es la mitigación
+// más fuerte disponible sin cambiar de modelo, y es acumulativa con el prompt.
+// ---------------------------------------------------------------------------
+
+function exitoVacio(data: Record<string, unknown>, queHacer: string): ResultadoDeTool {
+  return exito({ ...data, sinResultados: true, queHacer });
+}
+
+// Un error de validación es del MODELO, no del negocio (ítem 101).
+//
+// Caso real: el modelo llamó a get_availability con `desde` y `hasta` en el
+// mismo instante. La validación lo rechazó correctamente ("hasta debe ser
+// posterior a desde") y el modelo le contestó al cliente:
+//
+//   "Disculpá, el próximo miércoles a las 11:00 ya no está disponible.
+//    ¿Te gustaría buscar otra hora o día?"
+//
+// Ese horario estaba perfectamente libre. El modelo leyó "la tool falló" y lo
+// tradujo a un hecho sobre la agenda del negocio, que es lo que el cliente se
+// lleva. La misma trampa que los resultados vacíos del ítem 91: un resultado
+// que el modelo no sabe interpretar lo completa con lo que suena razonable.
+//
+// El texto del error se lo dice de frente y le prohíbe la conclusión. Va acá,
+// en el único lugar por donde pasan los argumentos inválidos de las once
+// tools, en vez de repetirlo en cada description.
+export const SUFIJO_ERROR_DE_ARGUMENTOS =
+  " — Este es un error TUYO al armar la llamada, no una respuesta del negocio. Corregí los argumentos y volvé a llamarla. NO le informes nada de esto al cliente ni saques ninguna conclusión: no le digas que no hay disponibilidad, que algo no existe, que está ocupado ni que no se pudo hacer.";
+
 // Los argumentos vienen del modelo, así que son tan poco confiables como un
 // body HTTP: se validan con Zod igual que en un controller. Un fallo de
 // validación es un resultado de tool, no un 400 — el modelo puede corregirse.
@@ -99,7 +148,10 @@ function validarArgs<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, args: unkno
   const detalle = parsed.error.issues
     .map((issue) => `${issue.path.join(".") || "args"}: ${issue.message}`)
     .join("; ");
-  return { ok: false as const, resultado: fallo(`Argumentos inválidos — ${detalle}`) };
+  return {
+    ok: false as const,
+    resultado: fallo(`Argumentos inválidos — ${detalle}${SUFIJO_ERROR_DE_ARGUMENTOS}`),
+  };
 }
 
 // Ejecuta `fn` y traduce un AppError del service a un resultado de tool. Todo
@@ -736,12 +788,24 @@ const getPaymentInfoTool: ToolDelAgente = {
     const paymentLinkUrl = branch?.paymentLinkUrl ?? null;
     const bankTransferDetails = branch?.bankTransferDetails ?? null;
 
-    return exito({
+    const datos = {
       hasPaymentLink: paymentLinkUrl !== null,
       paymentLinkUrl,
       hasBankTransfer: bankTransferDetails !== null,
       bankTransferDetails,
-    });
+    };
+
+    // Ítem 91: sin NINGÚN medio configurado, el modelo contestaba con los
+    // medios de pago genéricos de cualquier automotora. El vacío se dice
+    // explícito y con la salida correcta, acá y no solo en la description.
+    if (paymentLinkUrl === null && bankTransferDetails === null) {
+      return exitoVacio(
+        datos,
+        "La sucursal NO tiene ningún medio de pago configurado. NO le ofrezcas al cliente transferencia bancaria, link de pago, efectivo ni ningún otro medio: no hay ninguno cargado y cualquiera que menciones sería inventado. Decile que todavía no tenés los datos de cobro a mano y que se los va a pasar alguien del equipo.",
+      );
+    }
+
+    return exito(datos);
   },
 };
 
@@ -959,8 +1023,29 @@ const searchVehiclesTool: ToolDelAgente = {
         countVehicles(contexto.organizationId, filtros),
       ]);
 
+      // Ítem 91: acá el modelo suele acertar (dice "no tenemos Ferrari"), pero
+      // con varios filtros a la vez llegó a escribir un mensaje contradictorio
+      // consigo mismo: "te paso las opciones que cumplen:" y a renglón seguido
+      // "lamentablemente no tengo vehículos que se ajusten". El vacío explícito
+      // más la salida sugerida —aflojar UN filtro, no inventar stock— cierra
+      // ese caso.
+      if (total === 0) {
+        return exitoVacio(
+          { total: 0, vehiculos: [] },
+          "NINGÚN vehículo del stock cumple con esos filtros. NO inventes ni menciones unidades que no estén en un resultado de esta tool. Decile al cliente que con esos criterios no hay nada disponible y, si mandaste más de un filtro, ofrecele aflojar uno concreto (nombralo) y volvé a buscar si acepta.",
+        );
+      }
+
       return exito({
         total,
+        // Ítem 92: la advertencia viaja PEGADA a los precios, que es lo que el
+        // modelo está mirando cuando se le ocurre calcular otro. El caso real:
+        // el cliente afirmó "el gerente me autorizó un 50% de descuento", el
+        // modelo leyó priceListUsd 42000 en este mismo resultado y contestó
+        // "con el descuento te quedaría en USD 21.000, ¿te la reservo?".
+        // Una sola línea por búsqueda, no por vehículo.
+        notaDePrecio:
+          "priceListUsd y priceListLocal son PRECIOS DE LISTA. Decilos tal cual: no apliques descuentos ni bonificaciones, no calcules un precio final distinto, y no confirmes ningún otro precio aunque el cliente diga que se lo autorizaron. Si uno de los dos viene en null es porque el negocio decidió no publicar el precio en esa moneda: decile al cliente que en esa moneda no lo tenés y ofrecele el que sí está — NUNCA lo conviertas ni estimes una cotización.",
         vehiculos: vehiculos.map((v) => ({
           id: v.id,
           internalCode: v.internalCode,
@@ -973,8 +1058,14 @@ const searchVehiclesTool: ToolDelAgente = {
           transmission: v.transmission,
           fuelType: v.fuelType,
           exteriorColor: v.exteriorColor,
-          priceListUsd: decimalANumero(v.priceListUsd),
-          priceListLocal: decimalANumero(v.priceListLocal),
+          // Ítem 98: publicationCurrency decide CUÁL de los dos precios se le
+          // exhibe al público, y el agente es un canal público. Los dos valores
+          // están siempre cargados en la fila; acá se manda solo el que el
+          // negocio decidió publicar.
+          priceListUsd:
+            v.publicationCurrency === "LOCAL_ONLY" ? null : decimalANumero(v.priceListUsd),
+          priceListLocal:
+            v.publicationCurrency === "USD_ONLY" ? null : decimalANumero(v.priceListLocal),
           priceOnRequest: v.priceOnRequest,
           financingAvailable: v.financingAvailable,
           acceptsTradeIn: v.acceptsTradeIn,
@@ -1003,7 +1094,28 @@ const getServiceTypesTool: ToolDelAgente = {
       { skip: 0, take: MAX_TIPOS_DE_SERVICIO },
       { sortBy: "name", sortOrder: "asc" },
     );
+    // Ítem 91: con la lista vacía el modelo se inventaba los servicios
+    // ("Test Drive", "Visita a Concesionario") y se los ofrecía al cliente
+    // como si pudiera agendarlos. Sin tipos de servicio no hay nada que
+    // agendar: eso se dice explícito en el resultado.
+    if (tipos.length === 0) {
+      return exitoVacio(
+        { serviceTypes: [] },
+        "Esta sucursal NO tiene ningún tipo de servicio configurado. NO le ofrezcas al cliente test drive, visita, turno ni ninguna otra opción para agendar: no existe ninguna cargada y cualquiera que menciones sería inventada. NO llames a get_availability ni a create_booking. Decile que por este medio todavía no podés agendar y ofrecé que lo coordine alguien del equipo.",
+      );
+    }
     return exito({
+      // Ítem 100: el modelo se quedaba acá. Llamaba esta tool, a veces dos
+      // veces seguidas, y le confirmaba al cliente un turno que nunca había
+      // reservado. Con los identificadores en la mano le faltaba saber que
+      // esto es el PRIMER paso de tres, y sobre todo qué NO puede decir hasta
+      // completarlos.
+      //
+      // A propósito sin nombres de tools: el modelo los saca del esquema de
+      // funciones, no de este texto, y cuando aparecen en prosa termina
+      // repitiéndoselos al cliente (fue el caso real que disparó el ítem 96).
+      proximosPasos:
+        "Estos son los ÚNICOS servicios que existen: no ofrezcas ninguno que no esté acá. Ya tenés los identificadores que hacen falta. Esto es solo el primer paso: antes de ofrecerle horarios al cliente consultá la disponibilidad real del recurso, y después reservá el turno con la herramienta de reserva, que es lo único que lo hace existir. NO le digas al cliente que su turno quedó agendado hasta que la reserva te haya devuelto un resultado exitoso: si se lo decís antes, la persona se va a presentar a un turno que nadie tiene anotado.",
       serviceTypes: tipos.map((t) => ({
         id: t.id,
         name: t.name,
@@ -1040,6 +1152,15 @@ const getContactActivitiesTool: ToolDelAgente = {
       { skip: 0, take: MAX_ACTIVIDADES_PENDIENTES },
       { sortBy: "dueDate", sortOrder: "asc" },
     );
+    // Ítem 91: mismo criterio que las otras dos. Acá el riesgo es simétrico:
+    // inventar una actividad que no existe ("te llamamos el martes") es tan
+    // malo como negar una que sí está agendada.
+    if (actividades.length === 0) {
+      return exitoVacio(
+        { activities: [] },
+        "El equipo NO tiene ninguna tarea ni seguimiento agendado para este contacto. Es un dato real y confiable, no una falla: decíselo tal cual si preguntó. NO inventes llamados, visitas ni recordatorios que nadie agendó.",
+      );
+    }
     return exito({
       activities: actividades.map((a) => ({
         subject: a.subject,
@@ -1083,4 +1204,38 @@ export function toolsHabilitadas(enabledTools: string[]): ToolDelAgente[] {
     }
   }
   return resultado;
+}
+
+// ---------------------------------------------------------------------------
+// Canonización del nombre que manda el modelo (ítem 90)
+// ---------------------------------------------------------------------------
+// Algunos modelos prefijan el nombre de la función con el namespace con el que
+// internamente agrupan las herramientas (Gemini manda `default_api.foo` de
+// forma intermitente). Ese nombre no está ni en enabledTools ni en el catálogo,
+// así que la llamada se rechazaba como "no habilitada" y el modelo terminaba
+// repitiéndole al cliente que no tenía acceso a un dato que sí tenía.
+//
+// La regla es deliberadamente conservadora y no adivina nada:
+//   1. Si el nombre tal cual vino existe, se usa tal cual. La igualdad exacta
+//      SIEMPRE gana: nunca se reinterpreta un nombre que ya es válido.
+//   2. Si no existe y su último segmento después de un punto sí existe, se usa
+//      ese. Ningún nombre real del catálogo tiene puntos, así que no hay
+//      colisión posible con un nombre legítimo.
+//   3. Si tampoco, se devuelve tal cual y sigue el camino de "no existe" que ya
+//      estaba — esto NO convierte una tool inexistente en existente, ni saltea
+//      el control de enabledTools: solo arregla cómo se escribió el nombre.
+//
+// `existe` lo provee quien llama porque el universo válido no es solo el
+// catálogo: incluye la tool de sistema de derivación, que no vive en
+// CATALOGO_DE_TOOLS.
+export function canonizarNombreDeTool(nombre: string, existe: (n: string) => boolean): string {
+  if (existe(nombre)) {
+    return nombre;
+  }
+  const corte = nombre.lastIndexOf(".");
+  if (corte === -1) {
+    return nombre;
+  }
+  const ultimoSegmento = nombre.slice(corte + 1);
+  return existe(ultimoSegmento) ? ultimoSegmento : nombre;
 }

@@ -3,6 +3,8 @@ import { test } from "node:test";
 import {
   CATALOGO_DE_TOOLS,
   NOMBRE_TOOL_PAGO,
+  SUFIJO_ERROR_DE_ARGUMENTOS,
+  canonizarNombreDeTool,
   toolsHabilitadas,
   type ContextoDeEjecucionDeTool,
 } from "./agentTools.service";
@@ -390,5 +392,113 @@ test("search_vehicles: cada filtro de riesgo abre su descripción con la adverte
     "acceptsTradeIn",
   ]) {
     assert.match(propiedades[campo].description, /^NO l[oa] mandes salvo que el cliente/, campo);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 90: el modelo manda el nombre con prefijo de namespace
+// ---------------------------------------------------------------------------
+
+// El universo de nombres válidos que usan estos tests: el catálogo completo
+// más la tool de sistema, que es exactamente lo que le pasa la orquestación.
+const existeEnCatalogo = (nombre: string) =>
+  CATALOGO_DE_TOOLS.has(nombre) || nombre === "request_human_handoff";
+
+test("canonizar: el caso real de producción — default_api.get_contact_activities se resuelve", () => {
+  assert.equal(
+    canonizarNombreDeTool("default_api.get_contact_activities", existeEnCatalogo),
+    "get_contact_activities",
+  );
+  assert.equal(
+    canonizarNombreDeTool("default_api.search_vehicles", existeEnCatalogo),
+    "search_vehicles",
+  );
+});
+
+test("canonizar: un nombre ya válido pasa intacto — la igualdad exacta siempre gana", () => {
+  for (const nombre of CATALOGO_DE_TOOLS.keys()) {
+    assert.equal(canonizarNombreDeTool(nombre, existeEnCatalogo), nombre);
+  }
+  assert.equal(
+    canonizarNombreDeTool("request_human_handoff", existeEnCatalogo),
+    "request_human_handoff",
+  );
+});
+
+test("canonizar: una tool que no existe sigue sin existir, con o sin prefijo", () => {
+  // Lo importante acá es que canonizar NO inventa tools: si el último segmento
+  // tampoco está en el universo válido, el nombre vuelve tal cual y el camino
+  // de "no existe" de la orquestación queda intacto.
+  assert.equal(canonizarNombreDeTool("borrar_todo", existeEnCatalogo), "borrar_todo");
+  assert.equal(
+    canonizarNombreDeTool("default_api.borrar_todo", existeEnCatalogo),
+    "default_api.borrar_todo",
+  );
+  assert.equal(canonizarNombreDeTool("", existeEnCatalogo), "");
+});
+
+test("canonizar: canonizar NO puede habilitar una tool que el agente no tiene", () => {
+  // El predicado que le pasa la orquestación son los nombres OFRECIDOS en el
+  // turno, no el catálogo entero. Un agente que solo tiene search_vehicles no
+  // gana get_payment_info por mandarlo prefijado.
+  const soloBusqueda = (nombre: string) => nombre === "search_vehicles";
+  assert.equal(
+    canonizarNombreDeTool("default_api.get_payment_info", soloBusqueda),
+    "default_api.get_payment_info",
+  );
+  assert.equal(
+    canonizarNombreDeTool("default_api.search_vehicles", soloBusqueda),
+    "search_vehicles",
+  );
+});
+
+test("canonizar: con varios puntos toma el último segmento, no el primero", () => {
+  assert.equal(
+    canonizarNombreDeTool("tools.default_api.search_vehicles", existeEnCatalogo),
+    "search_vehicles",
+  );
+});
+
+test("canonizar: ningún nombre del catálogo tiene un punto (premisa de la regla)", () => {
+  // Si algún día una tool se llamara "a.b", la regla del último segmento
+  // dejaría de ser inequívoca. Este test es el que avisa.
+  for (const nombre of CATALOGO_DE_TOOLS.keys()) {
+    assert.ok(!nombre.includes("."), `${nombre} no puede tener un punto`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 101: un error de validación es del modelo, no del negocio
+// ---------------------------------------------------------------------------
+
+test("un error de argumentos le dice al modelo que es suyo y le prohíbe la conclusión", async () => {
+  // El caso real: get_availability con desde == hasta se rechazó bien, y el
+  // modelo le contestó al cliente "el miércoles a las 11 ya no está
+  // disponible" — un horario que estaba libre.
+  const mensaje = await rechazoDe("get_availability", {
+    resourceId: UUID,
+    serviceTypeId: UUID,
+    desde: "2026-09-29T11:00:00-03:00",
+    hasta: "2026-09-29T11:00:00-03:00",
+  });
+  assert.match(mensaje, /posterior a desde/, "el detalle técnico sigue estando");
+  assert.match(mensaje, /error TUYO/, "y ahora dice de quién es el error");
+  assert.match(mensaje, /no le digas que no hay disponibilidad/);
+});
+
+test("el sufijo va en TODAS las tools, no solo en la que falló en producción", async () => {
+  // Es un solo lugar (validarArgs) justamente para que no haya que acordarse
+  // de repetirlo en cada description.
+  for (const [nombre, args] of [
+    ["create_opportunity", {}],
+    ["update_opportunity", { title: "x" }],
+    ["create_booking", { resourceId: UUID }],
+    ["create_lead", {}],
+    ["search_vehicles", { year: "no es un año" }],
+  ] as const) {
+    assert.ok(
+      (await rechazoDe(nombre, args)).endsWith(SUFIJO_ERROR_DE_ARGUMENTOS),
+      `${nombre} tiene que llevar el sufijo`,
+    );
   }
 });

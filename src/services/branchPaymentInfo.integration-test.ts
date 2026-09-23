@@ -158,13 +158,18 @@ test("get_payment_info: con uno solo configurado, el otro viene en false/null", 
   });
 });
 
-test("get_payment_info: sin nada configurado no rompe — devuelve los dos flags en false", async () => {
+test("get_payment_info: sin nada configurado no rompe — los dos flags en false + el vacío explícito del ítem 91", async () => {
   // La sucursal que montar() crea no tiene datos de cobro.
   assert.deepEqual(await datosDeCobro(a.organizationId, a.branchId), {
     hasPaymentLink: false,
     paymentLinkUrl: null,
     hasBankTransfer: false,
     bankTransferDetails: null,
+    // Ítem 91: sin ningún medio, el resultado lleva la instrucción de no
+    // inventar uno. Los cuatro campos de arriba no cambiaron.
+    sinResultados: true,
+    queHacer:
+      "La sucursal NO tiene ningún medio de pago configurado. NO le ofrezcas al cliente transferencia bancaria, link de pago, efectivo ni ningún otro medio: no hay ninguno cargado y cualquiera que menciones sería inventado. Decile que todavía no tenés los datos de cobro a mano y que se los va a pasar alguien del equipo.",
   });
 });
 
@@ -174,13 +179,15 @@ test("get_payment_info: una sucursal de OTRA organización no se lee — es 'no 
     bankTransferDetails: TRANSFERENCIA,
   });
   // Contexto de A apuntando al branchId de B: findBranchById filtra por
-  // organización, así que no hay nada que devolver.
-  assert.deepEqual(await datosDeCobro(a.organizationId, b.branchId), {
-    hasPaymentLink: false,
-    paymentLinkUrl: null,
-    hasBankTransfer: false,
-    bankTransferDetails: null,
-  });
+  // organización, así que no hay nada que devolver. Y al no haber nada, cae en
+  // el camino del ítem 91: el agente de A le va a decir al cliente que no tiene
+  // los datos, en vez de inventar unos.
+  const cruzado = (await datosDeCobro(a.organizationId, b.branchId)) as Record<string, unknown>;
+  assert.equal(cruzado.hasPaymentLink, false);
+  assert.equal(cruzado.paymentLinkUrl, null);
+  assert.equal(cruzado.hasBankTransfer, false);
+  assert.equal(cruzado.bankTransferDetails, null);
+  assert.equal(cruzado.sinResultados, true);
   // Y la propia B sí los ve, para que el caso de arriba no pase por accidente.
   const deB = (await datosDeCobro(b.organizationId, b.branchId)) as { paymentLinkUrl: string };
   assert.equal(deB.paymentLinkUrl, LINK);
