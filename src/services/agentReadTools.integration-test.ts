@@ -11,6 +11,7 @@ import { createPipeline } from "./pipeline.service";
 import { createResource } from "./resource.service";
 import { createServiceType } from "./serviceType.service";
 import { createStage } from "./stage.service";
+import { isoEnZona } from "../utils/timezone";
 import { borrador, desmontar, montar, type Escenario } from "./vehicle.test-helper";
 
 // ---------------------------------------------------------------------------
@@ -760,6 +761,7 @@ function actividad(
 }
 
 type ResultadoActividades = {
+  zonaHoraria: string;
   activities: { subject: string; type: string; dueDate: string | null }[];
 };
 
@@ -785,16 +787,23 @@ test("get_contact_activities: las pendientes del contacto, por dueDate, máximo 
     {},
     contextoDe(a.organizationId, contacto.id, a.branchId),
   );
+  const zonaDeA = (await prisma.branch.findUniqueOrThrow({ where: { id: a.branchId } })).timezone;
 
   assert.deepEqual(
     data.activities.map((x) => x.subject),
     ["Vencida", "Día 2", "Día 5", "Día 7", "Día 9"],
   );
+  // Ítem 104: la fecha viaja en la zona de la SUCURSAL, no en UTC — el agente
+  // se la lee al cliente y un "14:00" que en realidad son las 11 lo hace
+  // decir cualquier cosa. El instante es el mismo, la forma no.
   assert.deepEqual(data.activities[1], {
     subject: "Día 2",
     type: "CALL",
-    dueDate: dia(2).toISOString(),
+    dueDate: isoEnZona(dia(2), zonaDeA),
   });
+  assert.equal(new Date(data.activities[1].dueDate!).getTime(), dia(2).getTime());
+  assert.equal(data.zonaHoraria, zonaDeA);
+  assert.ok(!data.activities[1].dueDate!.endsWith("Z"), "no puede volver a salir en UTC");
   assert.ok(!JSON.stringify(data).includes("nota interna"), "el body no sale");
 });
 
@@ -966,4 +975,39 @@ test("search_vehicles: la nota de precio explica el null y prohíbe convertir (�
   );
   assert.match(data.notaDePrecio, /viene en null/);
   assert.match(data.notaDePrecio, /NUNCA lo conviertas ni estimes una cotización/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 103: "el miércoles a las 11" es un instante, no un rango
+// ---------------------------------------------------------------------------
+// Va en la suite de INTEGRACIÓN y no en la unitaria a propósito: desde este
+// ítem esos argumentos PASAN la validación, así que la ejecución sigue hasta
+// el repositorio y necesita base. (La unitaria declara en su cabecera que no
+// toca Postgres; un test que sí lo necesita no va ahí.)
+
+test("get_availability: sin hasta, o con hasta igual a desde, ya no es un error de argumentos", async () => {
+  // El caso real, con DOS modelos distintos: el cliente dice una hora puntual
+  // y el modelo manda desde == hasta. Antes se rechazaba y el turno se quemaba
+  // en un error que el cliente terminaba leyendo como "no hay lugar".
+  const ctx = contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", a.branchId);
+  const inexistente = "11111111-1111-4111-8111-111111111111";
+
+  for (const args of [
+    { serviceTypeId: inexistente, desde: "2026-09-29T11:00:00-03:00" },
+    {
+      serviceTypeId: inexistente,
+      desde: "2026-09-29T11:00:00-03:00",
+      hasta: "2026-09-29T11:00:00-03:00",
+    },
+    { serviceTypeId: inexistente, desde: "2026-09-29T11:00:00-03:00", hasta: "" },
+  ]) {
+    const resultado = await ejecutar("get_availability", args, ctx);
+    // Falla igual —el servicio no existe— pero YA NO por validación de
+    // argumentos, que es lo único que este test afirma.
+    assert.equal(resultado.ok, false);
+    assert.ok(
+      resultado.ok === false && !resultado.error.startsWith("Argumentos inválidos"),
+      `no debería ser un error de args: ${JSON.stringify(resultado)}`,
+    );
+  }
 });

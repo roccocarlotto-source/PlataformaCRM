@@ -45,3 +45,52 @@ export function esZonaHorariaValida(zona: string): boolean {
     return false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// ISO 8601 EN LA ZONA DE LA SUCURSAL (ítem 104)
+// ---------------------------------------------------------------------------
+// `Date.toISOString()` siempre escribe en UTC ("2026-09-30T14:00:00.000Z"), y
+// eso es correcto para una API y desastroso para un LLM: el agente leyó ese
+// "14:00" como hora local y le dijo a un cliente de Montevideo que a las 11 no
+// había lugar y que el primer turno era a las 14 — cuando 14:00Z ES las 11:00
+// ahí. Todas las horas que daba el agente estaban corridas por el offset.
+//
+// Esto devuelve el MISMO instante escrito en la zona del negocio, con offset
+// explícito ("2026-09-30T11:00:00-03:00"): sin ambigüedad para el modelo, y en
+// el mismo formato que las tools de agenda piden de vuelta, así que un horario
+// que el agente leyó se puede reservar tal cual.
+export function isoEnZona(fecha: Date, zona: string): string {
+  const partes = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: zona,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(fecha)
+      .map((p) => [p.type, p.value]),
+  ) as Record<string, string>;
+
+  // El offset se deduce comparando la hora de pared en esa zona contra el
+  // instante real: no hay API directa, y hacerlo así respeta el horario de
+  // verano sin tablas propias.
+  const comoSiFueraUtc = Date.UTC(
+    Number(partes.year),
+    Number(partes.month) - 1,
+    Number(partes.day),
+    Number(partes.hour),
+    Number(partes.minute),
+    Number(partes.second),
+  );
+  const offsetMin = Math.round((comoSiFueraUtc - fecha.getTime()) / 60_000);
+  const signo = offsetMin < 0 ? "-" : "+";
+  const abs = Math.abs(offsetMin);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+
+  return `${partes.year}-${partes.month}-${partes.day}T${partes.hour}:${partes.minute}:${partes.second}${signo}${hh}:${mm}`;
+}

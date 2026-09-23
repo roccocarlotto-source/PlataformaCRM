@@ -475,11 +475,14 @@ test("un error de argumentos le dice al modelo que es suyo y le prohíbe la conc
   // El caso real: get_availability con desde == hasta se rechazó bien, y el
   // modelo le contestó al cliente "el miércoles a las 11 ya no está
   // disponible" — un horario que estaba libre.
+  // (El caso original era desde == hasta; desde el ítem 103 eso ya no es un
+  // error sino "las 24 horas siguientes", así que acá se usa el orden
+  // invertido, que sí sigue siendo un error del modelo.)
   const mensaje = await rechazoDe("get_availability", {
     resourceId: UUID,
     serviceTypeId: UUID,
-    desde: "2026-09-29T11:00:00-03:00",
-    hasta: "2026-09-29T11:00:00-03:00",
+    desde: "2026-09-29T15:00:00-03:00",
+    hasta: "2026-09-29T09:00:00-03:00",
   });
   assert.match(mensaje, /posterior a desde/, "el detalle técnico sigue estando");
   assert.match(mensaje, /error TUYO/, "y ahora dice de quién es el error");
@@ -500,5 +503,35 @@ test("el sufijo va en TODAS las tools, no solo en la que falló en producción",
       (await rechazoDe(nombre, args)).endsWith(SUFIJO_ERROR_DE_ARGUMENTOS),
       `${nombre} tiene que llevar el sufijo`,
     );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 103: "el miércoles a las 11" es un instante, no un rango
+// ---------------------------------------------------------------------------
+
+test("get_availability: un hasta ANTERIOR a desde sigue siendo un error", async () => {
+  // Ahí el modelo no expresó mal un instante: se equivocó de orden, y taparlo
+  // escondería el bug.
+  assert.match(
+    await rechazoDe("get_availability", {
+      resourceId: UUID,
+      serviceTypeId: UUID,
+      desde: "2026-09-29T15:00:00-03:00",
+      hasta: "2026-09-29T09:00:00-03:00",
+    }),
+    /posterior a desde/,
+  );
+});
+
+test("get_availability y create_booking ya no exigen resourceId (ítem 102)", () => {
+  for (const nombre of ["get_availability", "create_booking"]) {
+    const params = CATALOGO_DE_TOOLS.get(nombre)!.definition.parameters as {
+      required: string[];
+      properties: Record<string, { description: string }>;
+    };
+    assert.ok(!params.required.includes("resourceId"), `${nombre} no debe exigir resourceId`);
+    assert.ok(params.required.includes("serviceTypeId"), `${nombre} sí exige serviceTypeId`);
+    assert.match(params.properties.resourceId.description, /NO hace falta mandarlo|se deduce/);
   }
 });

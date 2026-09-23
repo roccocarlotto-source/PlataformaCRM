@@ -2024,3 +2024,218 @@ test("ítem 96: hablar de lo que hacen las tools, en castellano, pasa intacto", 
     await desmontar(e);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 102: alcanza con el serviceTypeId, el recurso se deduce
+// ---------------------------------------------------------------------------
+
+test("ítem 102: get_availability y create_booking funcionan SIN resourceId", async () => {
+  const e = await montar("agenda-un-uuid", {
+    enabledTools: ["get_availability", "create_booking"],
+  });
+  try {
+    const resource = await createResource(e.organizationId, {
+      branchId: e.branchId,
+      name: "Vendedor",
+      type: "PERSON",
+    });
+    const serviceType = await createServiceType(e.organizationId, {
+      branchId: e.branchId,
+      resourceId: resource.id,
+      name: "Test drive",
+      durationMin: 60,
+    });
+    await replaceWorkingHoursForResource(e.organizationId, resource.id, [
+      { weekday: "MONDAY", startMinute: 540, endMinute: 780 },
+    ]);
+
+    const doble = doblarProveedor([
+      // El modelo manda UN solo identificador, no dos.
+      pideTool("c1", "get_availability", {
+        serviceTypeId: serviceType.id,
+        desde: "2026-09-07T00:00:00-03:00",
+        hasta: "2026-09-08T00:00:00-03:00",
+      }),
+      pideTool("c2", "create_booking", {
+        serviceTypeId: serviceType.id,
+        startsAt: LUNES_9_LOCAL,
+      }),
+      texto("Listo, te esperamos."),
+    ]);
+    const resultado = await turno(e, "quiero un turno", doble.proveedor);
+
+    const [disponibilidad, reserva] = resultado.toolCalls;
+    assert.equal(disponibilidad.allowed, true);
+    assert.equal(disponibilidad.result?.ok, true, JSON.stringify(disponibilidad.result));
+    assert.equal(reserva.result?.ok, true, JSON.stringify(reserva.result));
+
+    // La reserva quedó contra el recurso correcto, deducido del servicio.
+    const bookings = await prisma.booking.findMany({
+      where: { organizationId: e.organizationId },
+    });
+    assert.equal(bookings.length, 1);
+    assert.equal(bookings[0].resourceId, resource.id);
+    assert.equal(bookings[0].contactId, e.contactId);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 102: deducir el recurso NO permite agendar en otra sucursal", async () => {
+  // La garantía que no se puede perder: el camino deducido pasa por la misma
+  // comprobación de sucursal que el explícito.
+  const e = await montar("agenda-un-uuid-otra-sucursal", { enabledTools: ["create_booking"] });
+  try {
+    const norte = await createBranch(e.organizationId, { name: "Norte", timezone: TZ });
+    const resource = await createResource(e.organizationId, {
+      branchId: norte.id,
+      name: "Pedro",
+      type: "PERSON",
+    });
+    const serviceType = await createServiceType(e.organizationId, {
+      branchId: norte.id,
+      resourceId: resource.id,
+      name: "Corte",
+      durationMin: 60,
+    });
+
+    const doble = doblarProveedor([
+      // Sin resourceId: el recurso sale del servicio, y ese recurso es de otra
+      // sucursal. Tiene que rechazarse igual que si lo hubiera mandado.
+      pideTool("c1", "create_booking", {
+        serviceTypeId: serviceType.id,
+        startsAt: LUNES_9_LOCAL,
+      }),
+      texto("ok"),
+    ]);
+    const resultado = await turno(e, "turno", doble.proveedor);
+
+    assert.deepEqual(resultado.toolCalls[0].result, {
+      ok: false,
+      error: MENSAJE_RECURSO_DE_OTRA_SUCURSAL,
+    });
+    assert.equal(await prisma.booking.count({ where: { organizationId: e.organizationId } }), 0);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 102: un serviceTypeId inventado falla claro, sin tocar la base", async () => {
+  const e = await montar("agenda-servicio-inventado", { enabledTools: ["create_booking"] });
+  try {
+    const doble = doblarProveedor([
+      pideTool("c1", "create_booking", {
+        serviceTypeId: randomUUID(),
+        startsAt: LUNES_9_LOCAL,
+      }),
+      texto("ok"),
+    ]);
+    const resultado = await turno(e, "turno", doble.proveedor);
+    const result = resultado.toolCalls[0].result;
+    assert.equal(result?.ok, false);
+    assert.match(result?.ok === false ? result.error : "", /no existe.*no los inventes/s);
+    assert.equal(await prisma.booking.count({ where: { organizationId: e.organizationId } }), 0);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 102: si el modelo manda resourceId igual, se respeta y se valida como antes", async () => {
+  const e = await montar("agenda-uuid-explicito", { enabledTools: ["create_booking"] });
+  try {
+    const resource = await createResource(e.organizationId, {
+      branchId: e.branchId,
+      name: "Vendedor",
+      type: "PERSON",
+    });
+    const serviceType = await createServiceType(e.organizationId, {
+      branchId: e.branchId,
+      resourceId: resource.id,
+      name: "Test drive",
+      durationMin: 60,
+    });
+    await replaceWorkingHoursForResource(e.organizationId, resource.id, [
+      { weekday: "MONDAY", startMinute: 540, endMinute: 780 },
+    ]);
+
+    const doble = doblarProveedor([
+      pideTool("c1", "create_booking", {
+        resourceId: resource.id,
+        serviceTypeId: serviceType.id,
+        startsAt: LUNES_9_LOCAL,
+      }),
+      texto("ok"),
+    ]);
+    const resultado = await turno(e, "turno", doble.proveedor);
+    assert.equal(resultado.toolCalls[0].result?.ok, true);
+    assert.equal(await prisma.booking.count({ where: { organizationId: e.organizationId } }), 1);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 104: los horarios le llegan al modelo en la zona de la sucursal, no en UTC", async () => {
+  // El caso real: obtenerDisponibilidad devolvía "2026-09-30T14:00:00.000Z" y
+  // el agente le dijo a un cliente de Montevideo que a las 11 no había lugar y
+  // que el primer turno era a las 14 — cuando 14:00Z SON las 11:00 ahí.
+  const e = await montar("horarios-en-zona", {
+    enabledTools: ["get_availability", "create_booking"],
+  });
+  try {
+    const resource = await createResource(e.organizationId, {
+      branchId: e.branchId,
+      name: "Vendedor",
+      type: "PERSON",
+    });
+    const serviceType = await createServiceType(e.organizationId, {
+      branchId: e.branchId,
+      resourceId: resource.id,
+      name: "Visita",
+      durationMin: 60,
+    });
+    await replaceWorkingHoursForResource(e.organizationId, resource.id, [
+      { weekday: "MONDAY", startMinute: 540, endMinute: 780 },
+    ]);
+    const zona = (await prisma.branch.findUniqueOrThrow({ where: { id: e.branchId } })).timezone;
+
+    const doble = doblarProveedor([
+      pideTool("c1", "get_availability", {
+        serviceTypeId: serviceType.id,
+        desde: "2026-09-07T00:00:00-03:00",
+      }),
+      pideTool("c2", "create_booking", {
+        serviceTypeId: serviceType.id,
+        startsAt: LUNES_9_LOCAL,
+      }),
+      texto("Listo."),
+    ]);
+    const resultado = await turno(e, "turno", doble.proveedor);
+
+    const disponibilidad = resultado.toolCalls[0].result;
+    assert.equal(disponibilidad?.ok, true);
+    const datos = (
+      disponibilidad as {
+        ok: true;
+        data: { zonaHoraria: string; turnos: { inicio: string; fin: string }[] };
+      }
+    ).data;
+
+    assert.equal(datos.zonaHoraria, zona, "el modelo tiene que saber en qué zona está leyendo");
+    assert.ok(datos.turnos.length > 0);
+    for (const t of datos.turnos) {
+      assert.ok(!t.inicio.endsWith("Z"), `no puede venir en UTC: ${t.inicio}`);
+      assert.match(t.inicio, /[+-]\d{2}:\d{2}$/, "tiene que llevar offset explícito");
+    }
+    // El primer turno de un lunes que abre 9:00 es a las 09:00 LOCALES.
+    assert.match(datos.turnos[0].inicio, /T09:00:00/);
+
+    // Y la reserva se confirma con la misma forma, así que lo que el agente
+    // leyó y lo que le dice al cliente son la misma hora.
+    const reserva = resultado.toolCalls[1].result;
+    const datosReserva = (reserva as { ok: true; data: { startsAt: string } }).data;
+    assert.ok(!datosReserva.startsAt.endsWith("Z"));
+    assert.match(datosReserva.startsAt, /T09:00:00/);
+  } finally {
+    await desmontar(e);
+  }
+});

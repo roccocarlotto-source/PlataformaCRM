@@ -6025,3 +6025,93 @@ El detalle técnico original no se toca: sigue adelante, que es lo que el modelo
 
 **Unitarios:** 1015/1015. **Integración:** 1002/1002. **Typecheck, lint y prettier:** limpios.
 **Banco de pruebas contra el modelo real:** **22/23** con `gemini-2.5-flash-lite` (el que falta es el encadenamiento de disponibilidad, que necesita `gemini-2.5-flash`).
+
+## 102. Agendar exige dos UUID cuando uno alcanza
+
+**Estado:** hecho
+
+**Qué pasaba.** `get_availability` y `create_booking` exigían `resourceId` **y** `serviceTypeId`. Pero `ServiceType.resourceId` es obligatorio y único: **dado el servicio, el recurso está completamente determinado**. Y el backend ya exige que el par sea consistente (`resolverContexto`: *"El servicio indicado no lo provee ese recurso"*).
+
+O sea que pedirle los dos al modelo no le daba ninguna libertad real — solo una forma más de equivocarse, y cada error le quema una ronda del turno (el tope son 5).
+
+**Qué se hizo.** `resourceId` pasa a ser **opcional** en las dos tools. Sin él, se deduce del `serviceTypeId`. Si el modelo lo manda igual, se respeta y se valida exactamente como antes.
+
+**Lo que NO se sacó:** la comprobación de sucursal. El camino deducido pasa por el mismo `resolverRecursoDeLaSucursal` que el explícito — deducir el recurso no puede ser una puerta para agendar en otra sucursal. Hay un test dedicado a esa garantía, porque es la única forma en que este cambio podría ser un agujero.
+
+Un `serviceTypeId` inexistente ahora falla con un mensaje que además le recuerda de dónde salen: *"Los serviceTypeId salen de la tool que lista los servicios: no los inventes."*
+
+---
+
+## 103. "El miércoles a las 11" es un instante, no un rango
+
+**Estado:** hecho
+
+**Qué pasaba.** El cliente dice una hora puntual y el modelo traducía literal: `desde` y `hasta` en el **mismo instante**. La validación lo rechazaba con razón (*"hasta debe ser posterior a desde"*), el turno se quemaba, y en un caso real el modelo tradujo ese error a *"Disculpá, el próximo miércoles a las 11:00 ya no está disponible"* — sobre un horario que estaba libre.
+
+**Pasó con dos modelos distintos** (`gemini-2.5-flash-lite` y `gemini-2.5-flash`), así que no es torpeza de uno: es la API pidiéndole algo antinatural. Para una persona, "el miércoles a las 11" es un momento; el rango es un detalle de implementación.
+
+**Qué se hizo.** `hasta` pasa a ser **opcional**, y un `hasta` igual a `desde` se trata como ausente (mismo criterio que el ítem 86 con los vacíos: lo que el modelo quiso decir es evidente). Sin `hasta`, se consultan las **24 horas siguientes**, que cubre tanto "¿qué horarios tenés el martes?" como "el miércoles a las 11".
+
+**Un `hasta` ANTERIOR a `desde` sigue siendo un error.** Ahí el modelo no expresó mal un instante: se equivocó de orden, y taparlo escondería el bug. Hay un test de cada caso.
+
+---
+
+## 104. Todos los horarios que da el agente están corridos por el offset de la zona
+
+**Estado:** hecho
+
+**Qué pasaba.** El bug más concreto de toda la tanda, y el que más rápido se hubiera comido la confianza de un cliente real. Caso capturado con el modelo real, sucursal en `America/Montevideo`:
+
+```
+👤 El próximo miércoles a las 11 de la mañana me viene bien
+🔧 get_availability({ serviceTypeId: "…", desde: "2026-09-30T11:00:00-03:00" })
+   → { turnos: [ { inicio: "2026-09-30T14:00:00.000Z", … } ] }
+🤖 "Para el próximo miércoles 30 de septiembre a las 11:00 no tengo
+    disponibilidad para visitas al salón. El primer horario disponible ese
+    día es a las 14:00."
+```
+
+**Las 11:00 estaban libres.** `14:00:00.000Z` es UTC, y en Montevideo (UTC−3) **son exactamente las 11:00** — el horario que el cliente pidió. El agente leyó el "14" como hora de pared, le dijo que no había lugar, y le ofreció un horario tres horas más tarde que en realidad era el mismo.
+
+`Date.toISOString()` siempre escribe en UTC. Eso está bien para una API con clientes que saben interpretarlo, y es desastroso para un LLM que redacta en castellano para una persona. **Afectaba a los cinco horarios que el agente muestra**: los turnos de `get_availability` (inicio y fin), la confirmación de `create_booking` (inicio y fin) y el vencimiento de `get_contact_activities`.
+
+**Qué se hizo.**
+
+1. **`isoEnZona(fecha, zona)`** en `src/utils/timezone.ts`: el mismo instante escrito en la zona del negocio, con offset explícito (`2026-09-30T11:00:00-03:00`). El offset se deduce comparando la hora de pared contra el instante real, así que respeta el horario de verano sin tablas propias.
+2. Las tres tools lo usan, con la zona de la **sucursal de la conversación**.
+3. Cada resultado lleva además **`zonaHoraria`**, para que el modelo sepa en qué reloj está leyendo.
+
+**Por qué con offset y no en texto suelto.** Es el mismo formato que `create_booking` pide de vuelta en `startsAt`, así que un horario que el agente leyó se puede reservar tal cual, sin conversiones intermedias donde volver a perder tres horas.
+
+### Verificación contra el modelo real
+
+El mismo escenario, después del fix:
+
+```
+   → { zonaHoraria: "America/Montevideo",
+       turnos: [ { inicio: "2026-09-30T11:00:00-03:00", … } ] }
+🤖 "¡Perfecto! Hay disponibilidad para una visita al salón el próximo
+    miércoles 30 de septiembre a las 11:00."
+```
+
+### Lo que se tocó (ítems 102, 103 y 104)
+
+| Archivo | Qué |
+|---|---|
+| `src/utils/timezone.ts` | `isoEnZona()` nueva |
+| `src/utils/timezone.test.ts` | 4 unitarios: cuatro zonas, ida y vuelta del instante, horario de verano, medianoche |
+| `src/services/agentTools.service.ts` | `resolverRecursoDelServicio()` y `zonaDeLaSucursal()` nuevas; `resourceId` y `hasta` opcionales (schema Zod **y** el `required` del esquema que ve el modelo); los cinco horarios en zona local; descriptions actualizadas |
+| `src/services/agentTools.service.test.ts` | 3 unitarios (sin `hasta`, orden invertido, `required` sin `resourceId`) |
+| `src/services/agentOrchestration.integration-test.ts` | 5 de integración: reserva sin `resourceId`, la garantía de sucursal por el camino deducido, servicio inventado, `resourceId` explícito sigue andando, y los horarios en zona local de punta a punta |
+| `src/services/agentReadTools.integration-test.ts` | el de actividades, contra la zona real de la sucursal |
+| `scripts/eval-agente-real.ts` | el banco de pruebas ahora imprime el **resultado** de cada tool, recortado — sin eso no se puede distinguir "el modelo mintió" de "la tool devolvió mal", que es exactamente cómo se encontró el ítem 104 |
+
+### Tests (corridos de verdad)
+
+**Unitarios:** 1022/1022. **Integración:** 1007/1007. **Typecheck, lint y prettier:** limpios.
+
+### Lo que sigue sin resolverse (y es decisión de Rocco)
+
+Con `google/gemini-2.5-flash-lite`, **el flujo de turnos sigue sin encadenar**: el modelo llama a la lista de servicios una y otra vez y no pasa a consultar disponibilidad, por más que ahora le alcance con dos parámetros. Los ítems 102 y 103 bajaron la dificultad todo lo que se podía sin inventar una tool nueva, y no alcanzó: no es un problema de superficie de API, es que el modelo no decide dar el paso.
+
+Con **`google/gemini-2.5-flash`** el flujo encadena completo y con las fechas bien calculadas. La recomendación del ítem 100 sigue en pie: `OPENROUTER_MODEL` en Render.
