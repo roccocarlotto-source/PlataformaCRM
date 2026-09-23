@@ -37,6 +37,10 @@ let a: Escenario;
 let b: Escenario;
 let pipelineId: string;
 let primeraEtapaId: string;
+// Ítem 107: stock propio de la organización A para resolver el vehículo por
+// texto. Dos Hilux a propósito, para el caso ambiguo, y una no publicada.
+let hiluxSrv: string;
+let hiluxDx: string;
 
 before(async () => {
   a = await montar("agent-read-tools-a");
@@ -46,6 +50,31 @@ before(async () => {
   pipelineId = pipeline.id;
   primeraEtapaId = (await createStage(a.organizationId, { pipelineId, name: "Nuevo", order: 1 }))
     .id;
+
+  hiluxSrv = (
+    await unidad(a, {
+      make: "Toyota",
+      model: "Hilux",
+      trim: "SRV 4x4",
+      year: 2022,
+      priceListUsd: 38_000,
+    })
+  ).id;
+  hiluxDx = (
+    await unidad(a, {
+      make: "Toyota",
+      model: "Hilux",
+      trim: "DX 4x2",
+      year: 2019,
+      priceListUsd: 27_500,
+    })
+  ).id;
+  // Publicada en false: el agente no puede vincularla ni mencionarla.
+  await unidad(
+    a,
+    { make: "Toyota", model: "Corolla", trim: "Reservada", year: 2023, priceListUsd: 20_000 },
+    { publishOnWebsite: false },
+  );
 });
 
 after(async () => {
@@ -1135,4 +1164,114 @@ test("sin nombre ni id, el error dice las dos formas de indicarlo", async () => 
   );
   assert.equal(r.ok, false);
   assert.match(r.ok === false ? r.error : "", /servicio.*serviceTypeId/s);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 107: la oportunidad se vincula al vehículo y toma su precio
+// ---------------------------------------------------------------------------
+
+test("create_opportunity con `vehiculo` vincula la unidad y completa el monto", async () => {
+  // El caso real: 4 de 6 oportunidades que creó el agente en producción
+  // quedaron en amount 0, después de conversaciones enteras sobre un auto
+  // concreto de 38.000 dólares.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+
+  const data = await datosDe<{ opportunityId: string; unidad?: string }>(
+    "create_opportunity",
+    { title: "Interés en Hilux", vehiculo: "Hilux SRV" },
+    ctx,
+  );
+
+  const guardada = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: data.opportunityId },
+  });
+  assert.equal(Number(guardada.amount), 38_000, "el monto sale del precio de lista");
+  assert.equal(guardada.currency, "USD");
+
+  // LA UNIDAD NO SE RESERVA. Vincularla (Opportunity.vehicleId) la pondría en
+  // RESERVED y la sacaría del stock para todos los demás; que un agente de IA
+  // haga eso porque alguien escribió "me interesa la Hilux" es una decisión
+  // del negocio, no del modelo. Este test es el que lo fija.
+  assert.equal(guardada.vehicleId, null, "el agente no vincula, y por lo tanto no reserva");
+  const unidad = await prisma.vehicle.findUniqueOrThrow({ where: { id: hiluxSrv } });
+  assert.equal(unidad.status, "AVAILABLE", "la unidad tiene que seguir disponible");
+
+  // Pero el modelo sí se entera de qué unidad se entendió, para poder
+  // mencionarla en su respuesta.
+  assert.match(data.unidad ?? "", /Hilux/);
+});
+
+test("un monto explícito del modelo GANA sobre el precio de lista", async () => {
+  // Ítem 92: registrar lo que el cliente ofreció es correcto; lo que no se
+  // puede es presentárselo como aceptado. Acá se verifica que se registre.
+  const contacto = await nuevoContacto(a);
+  const data = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "Contraoferta", vehiculo: "Hilux SRV", amount: 30_000 },
+    contextoDe(a.organizationId, contacto.id, a.branchId),
+  );
+  const guardada = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: data.opportunityId },
+  });
+  assert.equal(Number(guardada.amount), 30_000);
+  assert.equal(guardada.vehicleId, null);
+});
+
+test("un texto ambiguo pide desambiguar en vez de elegir una unidad", async () => {
+  // Hay dos Hilux publicadas: "Hilux" solo no alcanza, y el error dice cuáles
+  // son para que el agente le pregunte al cliente.
+  const contacto = await nuevoContacto(a);
+  const r = await ejecutar(
+    "create_opportunity",
+    { title: "x", vehiculo: "Hilux" },
+    contextoDe(a.organizationId, contacto.id, a.branchId),
+  );
+  assert.equal(r.ok, false);
+  const error = r.ok === false ? r.error : "";
+  assert.match(error, /coincide con más de una unidad/);
+  assert.match(error, /SRV/);
+  assert.match(error, /DX/);
+  assert.equal(await prisma.opportunity.count({ where: { contactId: contacto.id } }), 0);
+});
+
+test("NO se puede vincular una unidad que el agente no tiene derecho a mencionar", async () => {
+  // La garantía: solo se busca entre publicadas y disponibles, el mismo
+  // recorte de search_vehicles. Una oportunidad no puede apuntar a una unidad
+  // reservada o no publicada.
+  const contacto = await nuevoContacto(a);
+  const r = await ejecutar(
+    "create_opportunity",
+    { title: "x", vehiculo: "Corolla Reservada" },
+    contextoDe(a.organizationId, contacto.id, a.branchId),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.ok === false ? r.error : "", /No hay ninguna unidad publicada que coincida/);
+});
+
+test("update_opportunity con `vehiculo` cambia la unidad y reajusta el monto", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const creada = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "Interés", vehiculo: "Hilux SRV" },
+    ctx,
+  );
+
+  await datosDe(
+    "update_opportunity",
+    { opportunityId: creada.opportunityId, vehiculo: "Hilux DX" },
+    ctx,
+  );
+
+  const guardada = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: creada.opportunityId },
+  });
+  assert.equal(Number(guardada.amount), 27_500, "el monto sigue a la unidad nueva");
+  assert.equal(guardada.vehicleId, null);
+  // Tampoco al actualizar se reserva nada: las dos unidades siguen libres.
+  for (const id of [hiluxSrv, hiluxDx]) {
+    const v = await prisma.vehicle.findUniqueOrThrow({ where: { id } });
+    assert.equal(v.status, "AVAILABLE", `${id} tiene que seguir disponible`);
+  }
 });

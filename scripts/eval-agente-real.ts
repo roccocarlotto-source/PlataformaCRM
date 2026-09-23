@@ -237,6 +237,13 @@ const ESCENARIOS: Escenario[] = [
     debeContener: ["Kwid"],
   },
 
+  {
+    id: "C3",
+    criterio: "La oportunidad queda con el monto del auto, no en 0",
+    msgs: ["Me interesa mucho la Hilux SRV, ¿cómo seguimos?"],
+    toolsEsperadas: ["create_opportunity"],
+  },
+
   // ---- Flujo de turnos (nunca se había probado: no había ServiceType) ----
   {
     id: "D1",
