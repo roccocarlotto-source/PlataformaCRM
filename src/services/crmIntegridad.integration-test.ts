@@ -143,3 +143,25 @@ test("ítem 156: no se marca default un pipeline sin etapas, ni se borra la últ
   await updatePipeline(e.organizationId, pipelineId, { isDefault: true });
   await deleteStage(e.organizationId, etapa.id);
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 157 — ganar hace cliente al contacto
+// ---------------------------------------------------------------------------
+
+test("ítem 157: ganar la venta pasa el contacto a CUSTOMER, y reabrirla no lo degrada", async () => {
+  const lead = await contacto({ lifecycleStage: "LEAD" });
+  const opp = await oportunidad({ contactId: lead.id });
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { stageId: ganado });
+  const cliente = await prisma.contact.findUniqueOrThrow({ where: { id: lead.id } });
+  assert.equal(cliente.lifecycleStage, "CUSTOMER");
+
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { stageId: nuevo });
+  const sigue = await prisma.contact.findUniqueOrThrow({ where: { id: lead.id } });
+  assert.equal(sigue.lifecycleStage, "CUSTOMER");
+
+  // Creada directamente como ganada, igual.
+  const mql = await contacto({ lifecycleStage: "MQL" });
+  await oportunidad({ contactId: mql.id, stageId: ganado, status: "WON" });
+  const otro = await prisma.contact.findUniqueOrThrow({ where: { id: mql.id } });
+  assert.equal(otro.lifecycleStage, "CUSTOMER");
+});

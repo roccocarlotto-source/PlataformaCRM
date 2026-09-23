@@ -7,7 +7,7 @@ import type {
 } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 import { findCompanyById } from "../repositories/company.repository";
-import { findContactById } from "../repositories/contact.repository";
+import { findContactById, markContactAsCustomer } from "../repositories/contact.repository";
 import {
   countOpportunities,
   countOpportunitiesWhere,
@@ -424,6 +424,12 @@ export async function createOpportunity(
       }
     }
 
+    // Ítem 157: ganar la venta hace CUSTOMER a su contacto, en la misma
+    // transacción.
+    if (created.status === "WON" && created.contactId) {
+      await markContactAsCustomer(created.contactId, organizationId, tx);
+    }
+
     // Creada directamente como ganada: el evento va en el MISMO tx, lo último
     // de la transacción, cuando la fila y la unidad ya están escritas. O
     // comitean los dos, o ninguno.
@@ -716,6 +722,17 @@ export async function updateOpportunity(
       // llega acá) y después de la unidad, como en createOpportunity: el
       // evento es lo último de la transacción. No existe camino por el que el
       // cambio a WON comitee sin el evento, ni el evento sin el cambio.
+      // Ítem 157 de docs/matriz-de-datos-crm.md: ganar la venta hace CUSTOMER
+      // a su contacto (el que queda después de este PATCH). Antes, un LEAD
+      // seguía LEAD después de comprar: nada derivaba lifecycleStage de las
+      // oportunidades. Solo en la transición real (pasaAWon, leída bajo el
+      // lock de la fila) y nunca hacia atrás: reabrir o perder no lo degrada,
+      // porque ser cliente es un hecho que ya pasó.
+      const contactoEfectivo = data.contactId ?? opportunity.contactId;
+      if (pasaAWon && contactoEfectivo) {
+        await markContactAsCustomer(contactoEfectivo, organizationId, tx);
+      }
+
       if (pasaAWon) {
         await emitOpportunityWon(
           organizationId,

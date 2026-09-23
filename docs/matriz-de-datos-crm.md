@@ -238,3 +238,17 @@ La UI no nota el cambio: ya manda etapa y estado coherentes.
 **Queda abierto, a propósito.** Crear un pipeline **nuevo** ya marcado como default sigue permitido aunque todavía no tenga etapas: es el flujo de la pantalla (se crea el pipeline y después se le cargan las etapas). Durante esos segundos el agente responde "sin etapas", igual que antes. Tampoco se creó un pipeline en el onboarding: qué etapas trae por defecto depende del rubro, y es una decisión de producto.
 
 **Tests.** `crmIntegridad.integration-test.ts`: el primero nace default y el segundo no; 409 al marcar default uno vacío y al borrar la última etapa del default, y con otro default marcado la etapa se borra. En `soft-delete-restrict.integration-test.ts`, dos fixtures cambiaron su orden de creación, porque su único pipeline pasaba a ser el default y esos casos no son sobre eso. Suite de integración: 1047/1047.
+
+---
+
+## 157. Un contacto que compraba seguía siendo "Lead"
+
+**Estado:** hecho. Fila K1 del ítem 150.
+
+**Qué pasaba.** Ganar la oportunidad de un contacto en `LEAD` lo dejaba en `LEAD`: nada derivaba `lifecycleStage` de las oportunidades. Los filtros y conteos por etapa del ciclo de vida no reflejaban las ventas.
+
+**Por qué pasa.** `lifecycleStage` solo lo movía una persona a mano. `promotion.service.ts` lo deja fuera a propósito, pero por otra razón: la ingesta no debe pisar lo que decidió un humano.
+
+**Qué se hizo.** Cuando una oportunidad **pasa a ganada**, su contacto pasa a `CUSTOMER` en la misma transacción. Vale para ganarla por etapa, por estado o creándola ya ganada, y para cualquier estado anterior (un `CHURNED` que vuelve a comprar también es cliente). Solo se mira la transición real (la misma lectura bajo lock que decide el evento `opportunity.won`), y es un solo sentido: reabrir o perder la venta **no** lo degrada, porque haber comprado es un hecho que ya pasó. Una oportunidad solo con empresa no toca a nadie. Ninguna automatización escucha cambios de `lifecycleStage`, así que no se dispara nada nuevo.
+
+**Tests.** `crmIntegridad.integration-test.ts`: LEAD → CUSTOMER al moverla a "Ganado", sigue CUSTOMER al reabrirla, y MQL → CUSTOMER creándola ganada. Con cierre y entregas: 30/30.
