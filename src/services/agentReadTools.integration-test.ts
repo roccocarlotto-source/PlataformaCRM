@@ -376,6 +376,30 @@ after(async () => {
   await desmontar(stock);
 });
 
+test("search_vehicles: sin ninguna coincidencia → vacío explícito con instrucción (ítem 91)", async () => {
+  const data = await datosDe<{ total: number; sinResultados: boolean; queHacer: string }>(
+    "search_vehicles",
+    { make: "Ferrari" },
+    contextoDe(stock.organizationId, "00000000-0000-4000-8000-000000000003", stock.branchId),
+  );
+  assert.equal(data.total, 0);
+  assert.equal(data.sinResultados, true);
+  assert.match(data.queHacer, /NO inventes/);
+  assert.match(data.queHacer, /aflojar/);
+});
+
+test("search_vehicles: con resultados NO se marca como vacío (ítem 91)", async () => {
+  // La contraparte: el marcador solo aparece cuando de verdad no hay nada.
+  const data = await datosDe<{ total: number; sinResultados?: boolean; queHacer?: string }>(
+    "search_vehicles",
+    {},
+    contextoDe(stock.organizationId, "00000000-0000-4000-8000-000000000003", stock.branchId),
+  );
+  assert.ok(data.total > 0);
+  assert.equal(data.sinResultados, undefined);
+  assert.equal(data.queHacer, undefined);
+});
+
 test("search_vehicles: solo publicadas y disponibles, ordenadas por precio, con total", async () => {
   const data = await datosDe<ResultadoBusqueda>(
     "search_vehicles",
@@ -400,7 +424,8 @@ test("search_vehicles: una unidad AVAILABLE pero con publishOnWebsite false no a
     { priceMinUsd: 9_000, priceMaxUsd: 13_000, publishOnWebsite: false, status: ["RESERVED"] },
     contextoDe(stock.organizationId, "00000000-0000-4000-8000-000000000003", stock.branchId),
   );
-  assert.deepEqual(data, { total: 0, vehiculos: [] });
+  assert.equal(data.total, 0);
+  assert.deepEqual(data.vehiculos, []);
 });
 
 test("search_vehicles: los campos internos nunca están en la respuesta", async () => {
@@ -452,7 +477,10 @@ test("search_vehicles: el payload real de gpt-4.1-nano ya no es un error — los
     { make: "", model: "", year: 0, bodyType: "VAN", priceMinUsd: 0, priceMaxUsd: 30_000 },
     ctx,
   );
-  assert.deepEqual(real, { ok: true, data: { total: 0, vehiculos: [] } });
+  assert.equal(real.ok, true);
+  const datosReal = (real as { ok: true; data: ResultadoBusqueda }).data;
+  assert.equal(datosReal.total, 0);
+  assert.deepEqual(datosReal.vehiculos, []);
 
   // Lo mismo sin la carrocería inventada: aparece la de menos de USD 30.000.
   const sinVan = await datosDe<ResultadoBusqueda>(
@@ -539,7 +567,8 @@ test("search_vehicles: texto NO busca en patente ni VIN, y combina con los filtr
   // La Corolla tiene patente SBX1234: el q del panel la encontraría; desde un
   // canal público no se puede averiguar si una patente está en stock.
   const porPatente = await datosDe<ResultadoBusqueda>("search_vehicles", { texto: "SBX1234" }, ctx);
-  assert.deepEqual(porPatente, { total: 0, vehiculos: [] });
+  assert.equal(porPatente.total, 0);
+  assert.deepEqual(porPatente.vehiculos, []);
 
   const combinado = await datosDe<ResultadoBusqueda>(
     "search_vehicles",
@@ -578,7 +607,8 @@ test("search_vehicles: el stock de otra organización no se ve", async () => {
     {},
     contextoDe(b.organizationId, "00000000-0000-4000-8000-000000000003", b.branchId),
   );
-  assert.deepEqual(data, { total: 0, vehiculos: [] });
+  assert.equal(data.total, 0);
+  assert.deepEqual(data.vehiculos, []);
 });
 
 test("search_vehicles: devuelve como máximo 10, con el total real", async () => {
@@ -656,14 +686,21 @@ test("get_service_types: los de la sucursal de la conversación, con su resource
   });
 });
 
-test("get_service_types: sucursal sin tipos de servicio → lista vacía, no un error", async () => {
+test("get_service_types: sucursal sin tipos de servicio → vacío explícito con instrucción (ítem 91)", async () => {
   const sucursal = await createBranch(a.organizationId, { name: "Sin servicios", timezone: TZ });
-  const data = await datosDe(
+  const data = await datosDe<{ serviceTypes: unknown[]; sinResultados: boolean; queHacer: string }>(
     "get_service_types",
     {},
     contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", sucursal.id),
   );
-  assert.deepEqual(data, { serviceTypes: [] });
+  // Sigue siendo un éxito con lista vacía (eso no cambia), pero ahora el vacío
+  // viene dicho: el caso real es que el modelo leía `{serviceTypes: []}` y le
+  // ofrecía al cliente "Test Drive" y "Visita a Concesionario", inventados.
+  assert.deepEqual(data.serviceTypes, []);
+  assert.equal(data.sinResultados, true);
+  assert.match(data.queHacer, /NO le ofrezcas/);
+  assert.match(data.queHacer, /test drive/i);
+  assert.match(data.queHacer, /NO llames a get_availability/);
 });
 
 // ---------------------------------------------------------------------------
@@ -727,14 +764,68 @@ test("get_contact_activities: las pendientes del contacto, por dueDate, máximo 
   assert.ok(!JSON.stringify(data).includes("nota interna"), "el body no sale");
 });
 
-test("get_contact_activities: sin nada agendado → lista vacía", async () => {
+test("get_contact_activities: sin nada agendado → vacío explícito con instrucción (ítem 91)", async () => {
   const contacto = await nuevoContacto(a);
-  const data = await datosDe(
+  const data = await datosDe<{ activities: unknown[]; sinResultados: boolean; queHacer: string }>(
     "get_contact_activities",
     {},
     contextoDe(a.organizationId, contacto.id, a.branchId),
   );
-  assert.deepEqual(data, { activities: [] });
+  assert.deepEqual(data.activities, []);
+  assert.equal(data.sinResultados, true);
+  // Acá el riesgo es simétrico y el texto tiene que cubrir los dos lados: que
+  // el vacío es un dato confiable (no una falla que haya que disimular) y que
+  // tampoco se inventa un seguimiento que nadie agendó.
+  assert.match(data.queHacer, /dato real/i);
+  assert.match(data.queHacer, /NO inventes/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 91: el resto de los vacíos que le mentían al cliente
+// ---------------------------------------------------------------------------
+
+test("get_payment_info: sucursal sin ningún medio de pago → vacío explícito (ítem 91)", async () => {
+  // El caso real: el agente contestó "aceptamos transferencia bancaria o link
+  // de pago ... te puedo generar el link" con las DOS cosas en null.
+  const sucursal = await createBranch(a.organizationId, { name: "Sin cobro", timezone: TZ });
+  const data = await datosDe<{
+    hasPaymentLink: boolean;
+    hasBankTransfer: boolean;
+    sinResultados: boolean;
+    queHacer: string;
+  }>(
+    "get_payment_info",
+    {},
+    contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", sucursal.id),
+  );
+  assert.equal(data.hasPaymentLink, false);
+  assert.equal(data.hasBankTransfer, false);
+  assert.equal(data.sinResultados, true);
+  assert.match(data.queHacer, /NO le ofrezcas/);
+  assert.match(data.queHacer, /transferencia bancaria/i);
+  assert.match(data.queHacer, /link de pago/i);
+});
+
+test("get_payment_info: con UN medio configurado NO se marca como vacío", async () => {
+  // La garantía de que el vacío explícito no se dispara de más: alcanza con
+  // que haya uno de los dos.
+  const sucursal = await createBranch(a.organizationId, {
+    name: "Con link",
+    timezone: TZ,
+    paymentLinkUrl: "https://pagos.example.test/automax",
+  });
+  const data = await datosDe<{
+    hasPaymentLink: boolean;
+    sinResultados?: boolean;
+    queHacer?: string;
+  }>(
+    "get_payment_info",
+    {},
+    contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", sucursal.id),
+  );
+  assert.equal(data.hasPaymentLink, true);
+  assert.equal(data.sinResultados, undefined, "no puede marcarse vacío teniendo un medio");
+  assert.equal(data.queHacer, undefined);
 });
 
 // ---------------------------------------------------------------------------
