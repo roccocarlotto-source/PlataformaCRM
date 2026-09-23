@@ -392,6 +392,22 @@ test("ítem 113: las dos descripciones dicen que NO se repregunte antes de actua
   assert.match(crear, /no compromete al cliente a nada/);
 });
 
+test("ítem 115: las dos preguntas más comunes se contestan con la herramienta, no de vuelta", () => {
+  // "¿qué autos tienen?" y "¿cuándo puedo pasar?" son la apertura más común de
+  // una conversación y las dos volvían como pregunta al cliente. Medido con el
+  // harness del modelo real, 2 escenarios x 8 repeticiones: 11/16 antes, 1/16
+  // después.
+  const buscar = CATALOGO_DE_TOOLS.get("search_vehicles")!.definition.description;
+  // El ítem 113 cubrió "dijo algo usable"; faltaba el otro extremo.
+  assert.match(buscar, /dijo mucho o dijo nada/);
+  assert.match(buscar, /llamala SIN filtros/);
+
+  const agenda = CATALOGO_DE_TOOLS.get("get_availability")!.definition.description;
+  assert.match(agenda, /¿cuándo puedo pasar\?/);
+  // El punto: esa pregunta la contesta la agenda, no el cliente.
+  assert.match(agenda, /no le pidas que proponga él un día/);
+});
+
 test("search_vehicles: la regla de no inventar filtros va al principio de la descripción", () => {
   const descripcion = CATALOGO_DE_TOOLS.get("search_vehicles")!.definition.description;
   assert.ok(

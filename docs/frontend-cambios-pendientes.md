@@ -6658,3 +6658,61 @@ Queda anotado como decisión de producto. Mientras tanto, la falla **sí se logu
 |---|---|
 | `src/services/llmProvider.service.ts` | `REINTENTOS_LLM`, `ESPERAS_ENTRE_REINTENTOS_MS`, `esTransitorio()` y el loop de reintentos alrededor del fetch |
 | `src/services/llmProvider.service.test.ts` | 6 unitarios: la clasificación de transitorios, el 429 que se recupera en el segundo intento, la falla de red, el agotamiento de reintentos, el 400 que NO se reintenta, y el tope de espera acumulada |
+
+---
+
+## 115. Las dos preguntas más comunes volvían como pregunta al cliente
+
+**Estado:** hecho
+
+**Qué pasaba.** El ítem 113 arregló el caso "el cliente nombró algo y el agente igual repregunta". Quedaban los dos extremos, y son justamente las dos aperturas más comunes que tiene una concesionaria:
+
+```
+👤 Hola, ¿qué autos tienen?
+🤖 Tenemos una amplia variedad. ¿Estás buscando algún modelo o marca en
+   particular, o tenés alguna preferencia como 0 km o usado, tipo de
+   carrocería o rango de precios?
+
+👤 Quiero ir a ver la Hilux, ¿cuándo puedo pasar?
+🤖 Para poder coordinar tu visita, necesitaría saber en qué horario podrías
+   pasar. ¿Tenés algún momento en mente?
+```
+
+El primero es el saludo con el que arranca media conversación de WhatsApp, y el agente responde con un cuestionario en vez de con el stock. El segundo es peor: el cliente pregunta **cuándo puede ir**, que es exactamente lo que contesta la agenda, y el agente le devuelve la pregunta.
+
+**Por qué pasa.** Lo mismo que en el 113: la decisión de llamar o no la toma el modelo leyendo la descripción de la herramienta.
+
+- `search_vehicles` ya decía "si no dio ningún dato, llamala sin filtros", pero enterrado a mitad de un párrafo largo, mientras que la frase del ítem 113 —la que el modelo sí lee— hablaba solo del caso "nombró algo usable". El extremo contrario quedó fuera.
+- `get_availability` directamente no decía nada sobre el caso "el cliente pregunta cuándo".
+
+**Qué se hizo.** Una frase en cada una:
+
+- **`search_vehicles`**: la frase del 113 ahora arranca con *"dijo mucho o dijo nada"* y cierra el caso vacío — *«hola, ¿qué autos tienen?»* → llamarla **sin filtros** y mostrar el stock. Con el porqué: preguntarle qué busca antes de mostrarle algo es la peor forma de empezar, porque el cliente todavía no sabe qué querés que te conteste.
+- **`get_availability`**: *"usala también, en ese mismo turno, cuando el cliente pregunta cuándo puede ir"*, con las tres formas que toma esa pregunta, y la regla: **esa pregunta la contesta esta herramienta, no el cliente**. Si no dijo cuándo, se manda el momento actual como `desde` y se le ofrecen los primeros turnos libres.
+
+### Medido
+
+Dos escenarios × 8 repeticiones con `eval-agente-real.ts`:
+
+| Escenario | Antes | Después |
+|---|---|---|
+| A1 — "hola, ¿qué autos tienen?" | 4/8 sin buscar | **0/8** |
+| D1 — "¿cuándo puedo pasar?" | 7/8 sin mirar la agenda | **1/8** |
+| **total** | **11/16** | **1/16** |
+
+La única que queda es una respuesta vacía del proveedor, no una repregunta.
+
+### De paso: el harness tenía checks viejos que fallaban solos
+
+1. **Había dos escenarios con el id `D1`.** El primero era del ítem 91 ("sin tipos de servicio configurados, NO inventa test drive") y quedó **obsoleto**: desde que `montarOrganizacion` siembra la agenda, los servicios sí existen, así que prohibía llamadas que hoy son correctas y fallaba siempre. Se sacó — el caso vacío sigue cubierto donde corresponde, en los tests de integración de las tools.
+2. **Los checks de `D1`, `D2` y `D3` exigían `get_service_types`**, pero desde el ítem 106 `get_availability` resuelve el servicio por nombre y pasar antes por la lista es opcional. Los tres fallaban siempre aunque el agente hiciera lo correcto: D2 daba 0/4 y D3 daba 1/4 llamando a `get_availability` o cerrando la reserva. Con el criterio corregido dan **7/8 juntos**, y la única falla que queda es una respuesta vacía del proveedor.
+
+   Se agregó `toolsEsperadasAlgunaDe` para eso: acepta cualquiera de varios caminos correctos y solo falla si no tomó ninguno. El número del "antes" de la tabla de arriba está recontado con este criterio, no con el viejo.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | la frase nueva en las descripciones de `search_vehicles` y `get_availability` |
+| `src/services/agentTools.service.test.ts` | un unitario que fija las dos frases |
+| `scripts/eval-agente-real.ts` | escenario `A1` nuevo, el `D1` obsoleto eliminado, los checks de `D1`, `D2` y `D3` corregidos, y `toolsEsperadasAlgunaDe` |
