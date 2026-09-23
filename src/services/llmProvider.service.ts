@@ -161,6 +161,48 @@ export interface ConfiguracionOpenRouter {
 // no puede sostener indefinidamente el turno que lo espera.
 const TIMEOUT_MS = 60_000;
 
+// ---------------------------------------------------------------------------
+// REINTENTOS ANTE FALLAS TRANSITORIAS (ítem 114)
+// ---------------------------------------------------------------------------
+// El caso que lo motiva, visto dos veces en una sola corrida del banco contra
+// producción:
+//
+//   429: "OpenRouter could not verify available credits for this request in
+//        time. Retry shortly."
+//
+// El proveedor pide explícitamente que se reintente, y no lo hacíamos: el
+// error subía hasta el webhook y el mensaje quedaba contado como fallido.
+//
+// POR QUÉ ESO ES GRAVE Y NO SOLO MOLESTO. Por WhatsApp, `runAgentTurn`
+// persiste el Message ENTRANTE con su wamid ANTES de llamar al modelo. Cuando
+// Meta reintenta la entrega, el dedup por wamid la reconoce como duplicada y
+// corta. Resultado: el cliente escribió, quedó su mensaje guardado, y **nunca
+// recibe respuesta**, ni en ese intento ni en ninguno. Un 429 de un segundo se
+// convierte en una conversación perdida.
+//
+// POR QUÉ EL REINTENTO VA ACÁ Y NO MÁS ARRIBA. Reintentar el turno entero
+// sería peligroso: si el 429 llega en una ronda posterior, las tools de las
+// rondas anteriores YA se ejecutaron, y repetir el turno podría duplicar una
+// reserva. Acá adentro se reintenta solo la llamada HTTP, dentro del mismo
+// loop en memoria: ninguna tool se vuelve a ejecutar.
+//
+// QUÉ SE REINTENTA: lo transitorio y nada más. Un 429 (rate limit o créditos),
+// un 5xx del proveedor, y las fallas de red o timeout, donde no llegó
+// respuesta. Un 400 o un 401 son errores nuestros —el cuerpo está mal armado,
+// la API key no sirve— y reintentarlos solo agrega demora al fracaso.
+//
+// EL TOPE ES BAJO A PROPÓSITO: del otro lado hay un webhook de Meta esperando.
+// Dos reintentos con 500ms y 1500ms agregan 2 segundos en el peor caso, que es
+// mucho menos que el timeout de la llamada misma.
+export const REINTENTOS_LLM = 2;
+export const ESPERAS_ENTRE_REINTENTOS_MS = [500, 1500];
+
+export function esTransitorio(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+const dormir = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Formato de OpenAI para las tool calls de un mensaje del asistente.
 interface ToolCallDeOpenAi {
   id: string;
@@ -315,26 +357,48 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
         cuerpo.tool_choice = "auto";
       }
 
-      let res: Response;
-      try {
-        res = await hacerFetch(urlChatCompletions, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(cuerpo),
-          // AbortSignal.timeout: nativo desde Node 18, sin dependencia.
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-        });
-      } catch (err) {
-        // Falla de RED: no llegó respuesta.
-        const detalle = err instanceof Error ? err.message : String(err);
-        throw new LlmProviderError(`No se pudo contactar a OpenRouter: ${detalle}`);
+      // Ítem 114: hasta REINTENTOS_LLM reintentos ante fallas transitorias.
+      // Ver la nota larga arriba de REINTENTOS_LLM.
+      let res: Response | undefined;
+      let ultimoError = "";
+      for (let intento = 0; intento <= REINTENTOS_LLM; intento++) {
+        if (intento > 0) {
+          await dormir(ESPERAS_ENTRE_REINTENTOS_MS[intento - 1] ?? 0);
+        }
+        try {
+          res = await hacerFetch(urlChatCompletions, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${config.apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(cuerpo),
+            // AbortSignal.timeout: nativo desde Node 18, sin dependencia.
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+          });
+        } catch (err) {
+          // Falla de RED: no llegó respuesta. Transitoria por definición.
+          const detalle = err instanceof Error ? err.message : String(err);
+          ultimoError = `No se pudo contactar a OpenRouter: ${detalle}`;
+          res = undefined;
+          continue;
+        }
+
+        if (res.ok) {
+          break;
+        }
+
+        // Una respuesta con error: se describe SIEMPRE (consume el cuerpo una
+        // sola vez) y recién después se decide si se reintenta.
+        ultimoError = await describirFallo(res);
+        if (!esTransitorio(res.status)) {
+          throw new LlmProviderError(ultimoError);
+        }
+        res = undefined;
       }
 
-      if (!res.ok) {
-        throw new LlmProviderError(await describirFallo(res));
+      if (res === undefined) {
+        throw new LlmProviderError(ultimoError);
       }
 
       let datos: {

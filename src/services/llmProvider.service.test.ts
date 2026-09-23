@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   LLM_PROVIDER_NAMES,
+  ESPERAS_ENTRE_REINTENTOS_MS,
   LlmProviderError,
+  REINTENTOS_LLM,
   crearProveedorOpenRouter,
+  esTransitorio,
   isLlmProviderName,
   type FetchLike,
   type LlmToolDefinition,
@@ -493,4 +496,111 @@ test("el adaptador se identifica con el nombre del catálogo", () => {
   assert.ok(isLlmProviderName(proveedor.name));
   assert.deepEqual([...LLM_PROVIDER_NAMES], ["openrouter"]);
   assert.equal(isLlmProviderName("anthropic"), false, "todavía no hay adaptador de Anthropic");
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 114: reintentos ante fallas transitorias
+// ---------------------------------------------------------------------------
+// Lo que está en juego no es la prolijidad: por WhatsApp, un 429 de un segundo
+// se convertía en una conversación perdida para siempre (el Message entrante
+// ya quedó guardado con su wamid, así que el reintento de Meta se deduplica y
+// el cliente nunca recibe respuesta).
+
+// Un fetch falso que devuelve una secuencia de respuestas, una por llamada.
+function mockearSecuencia(
+  respuestas: Array<{ ok?: boolean; status?: number; json?: unknown } | Error>,
+): { fetch: FetchLike; llamadas: LlamadaRegistrada[] } {
+  const llamadas: LlamadaRegistrada[] = [];
+  const fetchFalso: FetchLike = (url, init) => {
+    llamadas.push({ url, init });
+    const r = respuestas[llamadas.length - 1] ?? respuestas[respuestas.length - 1];
+    if (r instanceof Error) {
+      return Promise.reject(r);
+    }
+    return Promise.resolve({
+      ok: r.ok ?? true,
+      status: r.status ?? 200,
+      json: () => Promise.resolve(r.json),
+    } as Response);
+  };
+  return { fetch: fetchFalso, llamadas };
+}
+
+const ERROR_429 = {
+  ok: false,
+  status: 429,
+  json: {
+    error: {
+      message:
+        "OpenRouter could not verify available credits for this request in time. Retry shortly.",
+    },
+  },
+};
+
+test("esTransitorio: 429 y 5xx sí, los errores nuestros no", () => {
+  for (const status of [429, 500, 502, 503]) {
+    assert.equal(esTransitorio(status), true, String(status));
+  }
+  // Un 400 o un 401 son errores NUESTROS —el cuerpo mal armado, la clave que
+  // no sirve— y reintentarlos solo agrega demora al fracaso.
+  for (const status of [400, 401, 403, 404, 422]) {
+    assert.equal(esTransitorio(status), false, String(status));
+  }
+});
+
+test("un 429 se reintenta y el segundo intento resuelve el turno", async () => {
+  // El caso textual de producción.
+  const { fetch, llamadas } = mockearSecuencia([
+    ERROR_429,
+    { json: respuestaConMensaje({ content: "Tenemos 7 autos con menos de 50.000 km." }) },
+  ]);
+  const proveedor = crearProveedorOpenRouter({ ...CONFIG, fetch });
+
+  const resultado = await proveedor.complete(PEDIDO_BASICO);
+
+  assert.equal(resultado.text, "Tenemos 7 autos con menos de 50.000 km.");
+  assert.equal(llamadas.length, 2);
+});
+
+test("una falla de red también se reintenta: no llegó respuesta", async () => {
+  const { fetch, llamadas } = mockearSecuencia([
+    new Error("fetch failed"),
+    { json: respuestaConMensaje({ content: "Listo." }) },
+  ]);
+  const proveedor = crearProveedorOpenRouter({ ...CONFIG, fetch });
+
+  assert.equal((await proveedor.complete(PEDIDO_BASICO)).text, "Listo.");
+  assert.equal(llamadas.length, 2);
+});
+
+test("si todos los intentos fallan, lanza con el mensaje del último y no reintenta de más", async () => {
+  const { fetch, llamadas } = mockearSecuencia([ERROR_429]);
+  const proveedor = crearProveedorOpenRouter({ ...CONFIG, fetch });
+
+  await assert.rejects(
+    () => proveedor.complete(PEDIDO_BASICO),
+    (err: unknown) => err instanceof LlmProviderError && err.message.includes("Retry shortly"),
+  );
+  assert.equal(llamadas.length, REINTENTOS_LLM + 1, "el intento original más los reintentos");
+});
+
+test("un 400 NO se reintenta: es un error nuestro y reintentarlo solo demora", async () => {
+  const { fetch, llamadas } = mockearSecuencia([
+    { ok: false, status: 400, json: { error: { message: "tools[0].function.name is required" } } },
+  ]);
+  const proveedor = crearProveedorOpenRouter({ ...CONFIG, fetch });
+
+  await assert.rejects(
+    () => proveedor.complete(PEDIDO_BASICO),
+    (err: unknown) => err instanceof LlmProviderError && err.message.includes("400"),
+  );
+  assert.equal(llamadas.length, 1);
+});
+
+test("el tope de espera es bajo: del otro lado hay un webhook de Meta esperando", () => {
+  // Si alguien sube estos números, que sea a sabiendas: el peor caso se suma
+  // entero al tiempo que Meta espera por el webhook de WhatsApp.
+  assert.equal(ESPERAS_ENTRE_REINTENTOS_MS.length, REINTENTOS_LLM);
+  const peorCaso = ESPERAS_ENTRE_REINTENTOS_MS.reduce((a, b) => a + b, 0);
+  assert.ok(peorCaso <= 3000, `la espera acumulada no puede pasar de 3s (es ${peorCaso}ms)`);
 });
