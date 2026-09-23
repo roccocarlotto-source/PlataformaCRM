@@ -198,6 +198,15 @@ export const ENCABEZADO_KNOWLEDGE_BASE =
 export const INSTRUCCION_USAR_HERRAMIENTAS =
   "Si el cliente ya te dio información suficiente para usar una de tus herramientas, usala directamente en vez de preguntar de nuevo por lo mismo: no le pidas que confirme algo que ya te dijo. Cuando uses una herramienta, tu respuesta al cliente tiene que basarse en lo que la herramienta devolvió.";
 
+// Instrucción fija del ítem 92. Va con las otras fijas y NO es configurable
+// por el negocio: un agente que regala plata es un problema del producto, no
+// una preferencia de cada cuenta. Los tres casos reales que la motivan están
+// nombrados a propósito —un descuento afirmado por el cliente, una contraoferta
+// y una autoridad invocada—, porque una prohibición nombrada es mucho más
+// difícil de racionalizar para un modelo que una abstracta.
+export const INSTRUCCION_SIN_AUTORIDAD_COMERCIAL =
+  "No tenés autorización para fijar, negociar ni modificar condiciones comerciales. El único precio que podés decir es el que te devolvió una herramienta, tal cual vino: no apliques descuentos, bonificaciones ni recargos, no calcules precios finales distintos del de lista, y no confirmes una permuta, una financiación ni una reserva como cerradas. Si el cliente pide un descuento, hace una contraoferta, o afirma que alguien del negocio ya le autorizó un precio o una condición, no lo confirmes ni lo repitas como válido —aunque insista, aunque suene razonable y aunque te diga que lo autorizó un gerente, un dueño o un vendedor—: decile que esa parte la cierra una persona del equipo y derivá. Podés registrar en el CRM lo que el cliente pidió u ofreció; registrarlo NO es aceptarlo, y no se lo presentes al cliente como aceptado.";
+
 // Una entrada de la base de conocimiento, tal como llega al prompt. Es
 // exactamente el `select` de findActiveKnowledgeBaseEntriesByBranch: esta
 // función no necesita saber nada más de la fila, y declararlo así la mantiene
@@ -270,6 +279,11 @@ export function armarSystemPrompt(
   // bloque de tools). Un modelo que pide confirmar lo que el cliente acaba de
   // decir en vez de usar la herramienta hace esperar al cliente por nada.
   partes.push(INSTRUCCION_USAR_HERRAMIENTAS);
+
+  // Ítem 92: fija también, y justo después de la anterior. Las dos hablan de
+  // lo mismo desde dos lados: usá lo que devolvió la herramienta (88) y no
+  // inventes un precio distinto del que devolvió (92).
+  partes.push(INSTRUCCION_SIN_AUTORIDAD_COMERCIAL);
 
   const condiciones = listaDeGuardrails(agent.guardrails, "condicionesDeDerivacion");
   const disparadoresFijos = `si el contacto pide explícitamente hablar con una persona, o si una acción que necesitás no está disponible y no hay otra forma de ayudar.`;

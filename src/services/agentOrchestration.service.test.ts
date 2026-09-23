@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   ENCABEZADO_KNOWLEDGE_BASE,
+  INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
   INSTRUCCION_USAR_HERRAMIENTAS,
   REQUEST_HUMAN_HANDOFF_TOOL,
   REQUEST_HUMAN_HANDOFF_TOOL_NAME,
@@ -218,4 +219,36 @@ test("la instrucción de usar herramientas va siempre, antes de la de derivació
     );
   }
   assert.match(INSTRUCCION_USAR_HERRAMIENTAS, /no le pidas que confirme algo que ya te dijo/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 92: el agente no tiene autoridad comercial
+// ---------------------------------------------------------------------------
+
+test("la instrucción de no tener autoridad comercial va siempre, para cualquier agente", () => {
+  // Fija como la del ítem 88: NO depende de los guardrails del negocio. Que un
+  // agente pueda regalar plata no es una preferencia configurable.
+  for (const guardrails of [{}, { promesasProhibidas: ["otra cosa"] }]) {
+    const prompt = armarSystemPrompt({ ...BASE, guardrails });
+    const posicion = prompt.indexOf(INSTRUCCION_SIN_AUTORIDAD_COMERCIAL);
+    assert.ok(posicion > 0, "la instrucción está en el prompt");
+    assert.ok(
+      posicion > prompt.indexOf(INSTRUCCION_USAR_HERRAMIENTAS),
+      "va después de la del ítem 88: primero usá la herramienta, después no inventes otro precio",
+    );
+    assert.ok(
+      posicion < prompt.indexOf(REQUEST_HUMAN_HANDOFF_TOOL_NAME),
+      "y antes de la de derivación, que es la salida que propone",
+    );
+  }
+});
+
+test("la instrucción del ítem 92 cubre los tres casos reales que la motivaron", () => {
+  // Nombrados a propósito: una prohibición concreta es mucho más difícil de
+  // racionalizar para un modelo que una abstracta.
+  assert.match(INSTRUCCION_SIN_AUTORIDAD_COMERCIAL, /descuento/i, "el descuento pedido");
+  assert.match(INSTRUCCION_SIN_AUTORIDAD_COMERCIAL, /contraoferta/i, "la contraoferta");
+  assert.match(INSTRUCCION_SIN_AUTORIDAD_COMERCIAL, /gerente/i, "la autoridad invocada");
+  // Y la distinción que evita que se vuelva inútil: registrar no es aceptar.
+  assert.match(INSTRUCCION_SIN_AUTORIDAD_COMERCIAL, /registrarlo NO es aceptarlo/);
 });

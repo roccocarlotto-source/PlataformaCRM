@@ -388,6 +388,31 @@ test("search_vehicles: sin ninguna coincidencia → vacío explícito con instru
   assert.match(data.queHacer, /aflojar/);
 });
 
+test("search_vehicles: con resultados lleva la nota de precio de lista (ítem 92)", async () => {
+  // El caso real: el cliente afirmó que le autorizaron un 50% de descuento, el
+  // modelo leyó priceListUsd en ESTE resultado y contestó con el precio a la
+  // mitad, ofreciendo reservar. La advertencia viaja pegada al precio.
+  const data = await datosDe<{ total: number; notaDePrecio: string }>(
+    "search_vehicles",
+    {},
+    contextoDe(stock.organizationId, "00000000-0000-4000-8000-000000000003", stock.branchId),
+  );
+  assert.ok(data.total > 0);
+  assert.match(data.notaDePrecio, /PRECIOS DE LISTA/);
+  assert.match(data.notaDePrecio, /no apliques descuentos/i);
+  assert.match(data.notaDePrecio, /aunque el cliente diga que se lo autorizaron/i);
+});
+
+test("search_vehicles: sin resultados no hay nota de precio — no hay precio del que hablar", async () => {
+  const data = await datosDe<{ total: number; notaDePrecio?: string }>(
+    "search_vehicles",
+    { make: "Ferrari" },
+    contextoDe(stock.organizationId, "00000000-0000-4000-8000-000000000003", stock.branchId),
+  );
+  assert.equal(data.total, 0);
+  assert.equal(data.notaDePrecio, undefined);
+});
+
 test("search_vehicles: con resultados NO se marca como vacío (ítem 91)", async () => {
   // La contraparte: el marcador solo aparece cuando de verdad no hay nada.
   const data = await datosDe<{ total: number; sinResultados?: boolean; queHacer?: string }>(
