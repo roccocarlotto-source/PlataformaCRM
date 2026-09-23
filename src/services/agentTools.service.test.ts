@@ -374,6 +374,24 @@ test("update_opportunity: campos vacíos no cuentan como el campo a modificar", 
 // advertencias sigan ahí. Si alguien las reescribe y se pierden, esto avisa.
 // ---------------------------------------------------------------------------
 
+test("ítem 113: las dos descripciones dicen que NO se repregunte antes de actuar", () => {
+  // Medido con el harness del modelo real, 4 escenarios x 6 repeticiones:
+  // 9/24 fallaban antes de estas dos frases, 2/24 después. Lo que las hace
+  // funcionar son los ejemplos nombrados, no la regla abstracta — misma
+  // lección que el ítem 92.
+  const buscar = CATALOGO_DE_TOOLS.get("search_vehicles")!.definition.description;
+  assert.match(buscar, /NO LE PIDAS MÁS DATOS ANTES DE BUSCAR/);
+  assert.match(buscar, /¿cuánto sale el Onix\?/);
+  assert.match(buscar, /menos de 50\.000 km/);
+
+  const crear = CATALOGO_DE_TOOLS.get("create_opportunity")!.definition.description;
+  assert.match(crear, /en ese mismo turno y sin pedirle permiso/);
+  assert.match(crear, /me interesa mucho la Hilux SRV/);
+  // Y el porqué, que es lo que desarma la duda del modelo: registrar no
+  // compromete a nadie, así que no hay nada que consultarle al cliente.
+  assert.match(crear, /no compromete al cliente a nada/);
+});
+
 test("search_vehicles: la regla de no inventar filtros va al principio de la descripción", () => {
   const descripcion = CATALOGO_DE_TOOLS.get("search_vehicles")!.definition.description;
   assert.ok(
