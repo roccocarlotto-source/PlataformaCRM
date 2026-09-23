@@ -2185,6 +2185,51 @@ test("ítem 109: el cliente no recibe su propio mensaje de vuelta, y el caso se 
   }
 });
 
+test("ítem 117: la etiqueta inventada no llega al cliente, y el contenido sí", async () => {
+  // Textual de producción: el modelo ve que el historial le llega etiquetado
+  // (ítem 97) y a veces contesta con el mismo formato. `<respuesta>` no es una
+  // etiqueta nuestra, se la inventó.
+  const e = await montar("envoltura-inventada", { enabledTools: [] });
+  try {
+    const buena = "Mañana a las 4 de la madrugada no tenemos turnos. ¿Coordinamos en otro horario?";
+    const doble = doblarProveedor([texto(`<respuesta>\n${buena}`)]);
+    const resultado = await turno(
+      e,
+      "Quiero un test drive mañana a las 4 de la madrugada",
+      doble.proveedor,
+    );
+
+    // Se limpia, NO se descarta: adentro había una respuesta buena, y mandar
+    // un cierre genérico en su lugar sería peor para el cliente.
+    assert.equal(resultado.respuesta, buena);
+    assert.equal(resultado.handoff, false);
+
+    const mensajes = await prisma.message.findMany({
+      where: { conversationId: resultado.conversationId, direction: "OUTBOUND" },
+    });
+    assert.equal(mensajes[0].content, buena);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 117: la limpieza corre DESPUÉS de las guardas, no antes", async () => {
+  // Un eco del cliente envuelto en una etiqueta sigue siendo un eco: tiene que
+  // derivar (ítem 109), no quedar en un mensaje limpio con el reclamo del
+  // cliente de vuelta.
+  const e = await montar("envoltura-sobre-eco", { enabledTools: [] });
+  try {
+    const doble = doblarProveedor([
+      texto(`<${ETIQUETA_MENSAJE_CLIENTE}>\n${RECLAMO_REAL}\n</${ETIQUETA_MENSAJE_CLIENTE}>`),
+    ]);
+    const resultado = await turno(e, RECLAMO_REAL, doble.proveedor);
+    assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+    assert.equal(resultado.handoff, true);
+  } finally {
+    await desmontar(e);
+  }
+});
+
 test("ítem 109: una respuesta normal a ese mismo reclamo pasa intacta", async () => {
   // El control negativo de la guarda: lo que no puede pasar es que un mensaje
   // legítimo se reemplace por el cierre de derivación.

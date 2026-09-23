@@ -6789,3 +6789,45 @@ Escenario `L1` en `eval-agente-real.ts` (dos turnos: se presenta con nombre y pr
 | `src/services/agentOrchestration.integration-test.ts` | 3 de integración: se guarda sobre un contacto sin identificar, no se pisa un nombre cargado, y el mail duplicado no tumba el turno |
 | `src/services/contact.service.integration-test.ts` | adaptado al nuevo retorno de `qualifyLead` |
 | `scripts/eval-agente-real.ts` | escenario `L1` |
+
+---
+
+## 117. El modelo envolvía la respuesta en una etiqueta que se inventó
+
+**Estado:** hecho
+
+**Qué pasaba.** Probando bordes de la agenda, 1 de cada 4 corridas del mismo mensaje salió así:
+
+```
+👤 Quiero un test drive mañana a las 4 de la madrugada
+🤖 <respuesta>
+   Mañana a las 4 de la madrugada no tenemos turnos disponibles, Martín.
+   ¿Te gustaría coordinar en otro horario?
+```
+
+El contenido está perfecto. Lo que sobra es la etiqueta, y el cliente la ve.
+
+**Por qué pasa.** Desde el ítem 97 los mensajes del contacto le llegan al modelo envueltos en `<mensaje_del_cliente>`. A veces el modelo devuelve la respuesta con el mismo formato, inventándose una etiqueta: `<respuesta>` no es nuestra. `INSTRUCCION_IDENTIDAD_INMUTABLE` ya le dice que nunca escriba esas etiquetas, y no alcanza — otra vez el mismo patrón: lo que no puede fallar se verifica en el código.
+
+**Qué se hizo.** `limpiarEnvolturaDeEtiqueta()`, en la misma puerta de salida que las otras tres guardas.
+
+**Se limpia, NO se descarta, y es la diferencia con los ítems 94, 96 y 109.** En aquellos el mensaje entero era basura —razonamiento interno, el prompt copiado, el mensaje del cliente de vuelta— y descartarlo era lo correcto. Acá adentro hay una respuesta buena: tirarla para mandar un cierre genérico sería peor para el cliente que sacarle dos caracteres de más.
+
+**El recorte es angosto a propósito:** solo una etiqueta de apertura que **empieza** el mensaje, con su cierre opcional al final. Nada de sacar `<` sueltos del medio, que en un texto comercial pueden ser legítimos (*"algo con precio < 30000"*). Hay un test con seis mensajes normales, incluidos dos con `<`, que tienen que pasar intactos.
+
+**Y corre DESPUÉS de las otras tres guardas, no antes.** Si corriera antes, un eco del mensaje del cliente envuelto en una etiqueta dejaría de parecer un eco y el ítem 109 no lo agarraría. Hay un test de integración que fija ese orden.
+
+### Medido
+
+Escenario `B1` ("un test drive mañana a las 4 de la madrugada") × 6: la etiqueta aparecía en 1 de 4 antes, **0 de 6** después.
+
+De paso, esa corrida dejó una buena noticia: los tres bordes de la agenda que probé —hora fuera del horario de atención, fecha en el pasado y una fecha que no existe— **los maneja bien**. Ante el 30 de febrero contesta *"el 30 de febrero no existe, ¿te gustaría agendarlo otro día?"*, y ante las 4 de la madrugada ofrece el primer turno real. No hay nada que arreglar ahí, y ahora quedan fijados.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentOrchestration.service.ts` | `limpiarEnvolturaDeEtiqueta()` nueva y su llamada en la puerta de salida, después de las otras tres guardas |
+| `src/services/agentOrchestration.service.test.ts` | 3 unitarios: el caso real, los seis mensajes normales que no se tocan, y la etiqueta vacía |
+| `src/services/agentOrchestration.integration-test.ts` | 2 de integración: la etiqueta no llega al cliente y el contenido sí, y el orden respecto de la guarda del ítem 109 |
+| `scripts/eval-agente-real.ts` | escenarios `B1`, `B2` y `B3` (bordes de la agenda) |

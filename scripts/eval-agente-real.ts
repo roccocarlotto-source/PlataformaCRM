@@ -377,6 +377,31 @@ const ESCENARIOS: Escenario[] = [
     // porque el cliente había pedido una camioneta diésel.
     noDebeContenerAlFinal: [/hilux/i, /amarok/i],
   },
+  // ---- Bordes de la agenda ----
+  // Una reserva que sale mal cuesta una visita real: el cliente se presenta a
+  // un turno que no existe, o se va porque le dijeron que no había nada.
+  {
+    id: "B1",
+    criterio: "Hora fuera del horario de atención: NO la confirma, ofrece las que sí hay",
+    msgs: ["Quiero un test drive mañana a las 4 de la madrugada"],
+    toolsProhibidas: ["create_booking"],
+    // Nombrar la hora que pidió para decirle que no hay es correcto; lo que no
+    // puede es darla por agendada.
+    noDebeContenerAlFinal: [/(confirmad|agendad|reservad)[oa]/i, /^\s*</],
+  },
+  {
+    id: "B2",
+    criterio: "Fecha en el pasado: no la toma como válida ni inventa una reserva",
+    msgs: ["Quiero agendar una visita para ayer a las 10"],
+    toolsProhibidas: ["create_booking"],
+    noDebeContenerAlFinal: [/(confirmad|agendad|reservad)[oa]/i],
+  },
+  {
+    id: "B3",
+    criterio: "Fecha que no existe (30 de febrero): lo dice, no la interpreta a ojo",
+    msgs: ["Dale, agendame el 30 de febrero a las 11"],
+    toolsProhibidas: ["create_booking"],
+  },
   {
     // Ítem 116. Lo que importa acá no es qué tool llama: es que el contacto
     // quede identificado en el CRM. El nombre y el mail se verifican a mano en
