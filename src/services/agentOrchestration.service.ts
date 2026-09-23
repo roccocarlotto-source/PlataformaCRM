@@ -360,6 +360,39 @@ export function mencionaUnaTool(respuesta: string, nombresDeTools: string[]): bo
 }
 
 // ---------------------------------------------------------------------------
+// LA RESPUESTA ENVUELTA EN UNA ETIQUETA INVENTADA (ítem 117)
+// ---------------------------------------------------------------------------
+// Caso real, 1 de cada 4 corridas del mismo mensaje:
+//
+//   <respuesta>
+//   Mañana a las 4 de la madrugada no tenemos turnos disponibles, Martín.
+//   ¿Te gustaría coordinar en otro horario?
+//
+// El contenido está perfecto. Lo que sobra es la etiqueta: el modelo ve que el
+// historial le llega etiquetado (ítem 97) y a veces devuelve la respuesta con
+// el mismo formato. `<respuesta>` no es una etiqueta nuestra — se la inventó.
+//
+// POR QUÉ SE LIMPIA Y NO SE DESCARTA, al revés que en los ítems 94, 96 y 109.
+// Ahí el mensaje entero era basura: razonamiento interno, el prompt copiado, o
+// el mensaje del cliente de vuelta. Acá adentro hay una respuesta buena, y
+// tirarla para mandar un cierre genérico sería peor para el cliente que
+// sacarle dos caracteres de más.
+//
+// EL RECORTE ES ANGOSTO A PROPÓSITO: solo una etiqueta de apertura que empieza
+// el mensaje, con su cierre opcional al final. Nada de sacar "<" sueltos en el
+// medio, que en un texto comercial pueden ser legítimos ("precio < 30000").
+export function limpiarEnvolturaDeEtiqueta(respuesta: string): string {
+  const m = /^\s*<([a-zA-Z][\w-]*)>\s*([\s\S]*?)\s*(?:<\/\1>)?\s*$/.exec(respuesta);
+  if (m === null) {
+    return respuesta;
+  }
+  const adentro = m[2];
+  // Una etiqueta sin nada adentro no es una envoltura: es otra cosa, y el
+  // mensaje vacío lo resuelven las guardas de abajo.
+  return adentro.trim().length > 0 ? adentro : respuesta;
+}
+
+// ---------------------------------------------------------------------------
 // LA RESPUESTA QUE ES EL MENSAJE DEL CLIENTE DEVUELTO (ítem 109)
 // ---------------------------------------------------------------------------
 // Caso real, en el peor momento posible. El cliente escribió:
@@ -1239,6 +1272,19 @@ export async function runAgentTurn(
     );
     respuestaFinal = MENSAJE_DE_HANDOFF;
     motivoDeHandoff ??= MOTIVO_RESPUESTA_INUTILIZABLE;
+  } else {
+    // Ítem 117, y va DESPUÉS de las tres guardas de arriba a propósito: ellas
+    // deciden si el mensaje entero se descarta, y esta solo le saca la
+    // envoltura a un mensaje que ya pasó. Si corriera antes, un eco envuelto
+    // en una etiqueta dejaría de parecer un eco.
+    const limpia = limpiarEnvolturaDeEtiqueta(respuestaFinal);
+    if (limpia !== respuestaFinal) {
+      logger.warn(
+        { organizationId, agentId, conversationId: conversation.id },
+        "El modelo envolvió la respuesta en una etiqueta inventada: se limpió antes de enviarla",
+      );
+      respuestaFinal = limpia;
+    }
   }
 
   const handoff = motivoDeHandoff !== null;

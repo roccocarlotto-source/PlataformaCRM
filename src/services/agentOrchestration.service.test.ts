@@ -6,6 +6,7 @@ import {
   envolverMensajeDelCliente,
   bloqueDeContacto,
   devuelveElMensajeDelCliente,
+  limpiarEnvolturaDeEtiqueta,
   DISPARADOR_FIJO_DE_RECLAMO,
   LARGO_MAXIMO_DEL_MENSAJE_DE_HANDOFF,
   mensajeAlClienteDeLaLlamada,
@@ -544,6 +545,48 @@ test("la instrucción del ítem 108 entra en los secretos que no pueden salir al
   // modelo la copia en una respuesta, es una fuga del prompt.
   const prompt = armarSystemPrompt({ ...BASE, guardrails: {} });
   assert.equal(revelaInstrucciones(prompt, [INSTRUCCION_SOLO_LO_QUE_TE_CONSTA]), true);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 117: la respuesta envuelta en una etiqueta inventada
+// ---------------------------------------------------------------------------
+
+test("limpiarEnvolturaDeEtiqueta saca la envoltura y deja el contenido", () => {
+  // El caso real, 1 de cada 4 corridas del mismo mensaje.
+  const real =
+    "<respuesta>\nMañana a las 4 de la madrugada no tenemos turnos disponibles, Martín. ¿Te gustaría coordinar en otro horario?";
+  assert.equal(
+    limpiarEnvolturaDeEtiqueta(real),
+    "Mañana a las 4 de la madrugada no tenemos turnos disponibles, Martín. ¿Te gustaría coordinar en otro horario?",
+  );
+  // Con cierre también.
+  assert.equal(
+    limpiarEnvolturaDeEtiqueta("<output>Hola, ¿en qué te ayudo?</output>"),
+    "Hola, ¿en qué te ayudo?",
+  );
+});
+
+test("limpiarEnvolturaDeEtiqueta NO toca un mensaje normal", () => {
+  // El riesgo de esta limpieza son los falsos positivos sobre el texto que
+  // llega al cliente, así que el recorte es angosto: solo una etiqueta que
+  // ABRE el mensaje.
+  const normales = [
+    "Tenemos 2 Hilux en stock, desde USD 27.500.",
+    "Te puedo buscar algo con precio < 30000 si querés.",
+    "Mirá: 3 < 5 y eso no es una etiqueta.",
+    "La respuesta es sí.",
+    "",
+    "   ",
+  ];
+  for (const texto of normales) {
+    assert.equal(limpiarEnvolturaDeEtiqueta(texto), texto, `no debería tocar: ${texto}`);
+  }
+});
+
+test("limpiarEnvolturaDeEtiqueta deja pasar una etiqueta vacía sin romper", () => {
+  // Una etiqueta sin nada adentro no es una envoltura. El mensaje vacío lo
+  // resuelven las otras guardas, no esta.
+  assert.equal(limpiarEnvolturaDeEtiqueta("<respuesta></respuesta>"), "<respuesta></respuesta>");
 });
 
 // ---------------------------------------------------------------------------
