@@ -6551,3 +6551,65 @@ Escenario `C4` nuevo en `eval-agente-real.ts`, dos turnos:
 | `src/services/agentTools.service.test.ts` | el test de argumentos de `update_opportunity` actualizado (ya no exige el id) y el del sufijo, que ahora tiene que fallar por otro argumento |
 | `src/services/agentReadTools.integration-test.ts` | 6 de integración: sin id toma la abierta, id inventado guía a llamar sin él, id de otro contacto sigue bloqueado, sin oportunidad abierta guía a `create_opportunity`, el reuso aplica el auto nuevo, y el reuso sin auto no pisa nada |
 | `scripts/eval-agente-real.ts` | escenario `C4` (cambio de auto a mitad de la charla) y el orden de la limpieza |
+
+---
+
+## 113. El agente repregunta cuando el cliente ya le dijo lo suficiente
+
+**Estado:** hecho
+
+**Qué pasaba.** El cliente dice lo que quiere y el agente, en vez de buscar, le pide más datos:
+
+```
+👤 ¿Cuánto sale el Onix en pesos?
+🤖 Para decirte el precio, necesito saber qué versión del Onix te interesa.
+   ¿Buscás algún modelo en particular, o un Onix usado o 0km?
+
+👤 Me interesa algo con menos de 50.000 km
+🤖 Para poder buscarte opciones, ¿me dirías qué marca y modelo te interesan?
+   (hay 7 unidades con menos de 50.000 km en stock)
+
+👤 Me interesa mucho la Hilux SRV, ¿cómo seguimos?
+🤖 Para seguir con la Hilux SRV, contame, ¿tenés alguna pregunta específica
+   sobre el vehículo, el precio, la financiación o querés coordinar un test drive?
+   (no crea la oportunidad: ese lead no aparece en el pipeline de nadie)
+```
+
+En los tres casos el cliente ya dijo lo necesario y el agente le devuelve la pelota. Es plata: el que pregunta por el Onix se va sin el precio, y el que quiere avanzar con la Hilux no queda registrado en ningún lado.
+
+**Por qué pasa.** Es el ítem 88 —*"si el cliente ya te dio información suficiente, usá la herramienta en vez de preguntar"*— que existe como instrucción fija del system prompt y no alcanza. La decisión de llamar o no a una herramienta la toma el modelo leyendo **la descripción de esa herramienta**, y ahí no decía nada al respecto. `search_vehicles` explicaba largo cómo NO inventar filtros de más; nada sobre no pedir filtros de más.
+
+**Qué se hizo.** Una frase en cada una de las dos descripciones, con **ejemplos nombrados**, que es lo que funciona con este modelo (misma lección que el ítem 92: una regla nombrada es mucho más difícil de racionalizar que una abstracta).
+
+- **`search_vehicles`**: *"NO LE PIDAS MÁS DATOS ANTES DE BUSCAR: si nombró aunque sea una sola cosa usable —un modelo, un presupuesto, un kilometraje, un tipo de auto— buscá con eso y mostrale lo que hay"*, con las tres llamadas que corresponden (`"¿cuánto sale el Onix?"` → `model: "Onix"`) y el porqué: la lista que devolvés **es** la respuesta a esa pregunta.
+- **`create_opportunity`**: *"Usala apenas el contacto muestra intención concreta, en ese mismo turno y sin pedirle permiso ni más datos"*, con cuatro frases que ya son intención concreta, y lo que desarma la duda del modelo: **registrar el interés no compromete al cliente a nada ni cierra ninguna venta**. No es algo que haya que consultarle.
+
+### Medido
+
+Cuatro escenarios × 6 repeticiones con `eval-agente-real.ts` (modelo real, `runAgentTurn` completo, base de verdad):
+
+| Escenario | Antes | Después |
+|---|---|---|
+| A12 — "¿cuánto sale el Onix en pesos?" | 5/6 sin buscar | **2/6** |
+| C3 — "me interesa mucho la Hilux SRV, ¿cómo seguimos?" | 3/6 sin registrar | **0/6** |
+| A6 — "algo con menos de 50.000 km" | 1/6 sin buscar | **0/6** |
+| A2 — "el más barato" (control, ya andaba) | 0/6 | 0/6 |
+| **total** | **9/24** | **2/24** |
+
+### De paso: repeticiones en el harness
+
+`eval-agente-real.ts` corría cada escenario una sola vez, y con fallas intermitentes eso no distingue "arreglado" de "esta vez zafó". Ahora acepta `REPES`, que repite cada escenario con un contacto nuevo:
+
+```
+REPES=6 npx cross-env NODE_ENV=test tsx scripts/eval-agente-real.ts A6 A12 A2 C3
+```
+
+Es lo mismo que ya hacía `sonda-de-prompt.ts`, pero contra el backend completo.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | la frase nueva en las descripciones de `search_vehicles` y `create_opportunity` |
+| `src/services/agentTools.service.test.ts` | un unitario que fija las dos frases y sus ejemplos, para que no se pierdan si alguien reescribe las descripciones |
+| `scripts/eval-agente-real.ts` | `REPES` |

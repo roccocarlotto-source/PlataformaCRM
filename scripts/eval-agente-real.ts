@@ -485,9 +485,20 @@ async function main() {
     throw new Error("Falta OPENROUTER_API_KEY: este script corre contra el modelo REAL.");
   }
   const filtro = process.argv.slice(2);
-  const sel = filtro.length > 0 ? ESCENARIOS.filter((e) => filtro.includes(e.id)) : ESCENARIOS;
+  const elegidos = filtro.length > 0 ? ESCENARIOS.filter((e) => filtro.includes(e.id)) : ESCENARIOS;
+  // REPES repite cada escenario, con un contacto nuevo cada vez. Estas fallas
+  // son intermitentes: una sola pasada no distingue "arreglado" de "esta vez
+  // zafó", y sin una tasa no se puede comparar un antes con un después.
+  const repes = Math.max(1, Number(process.env.REPES ?? 1));
+  const sel = elegidos.flatMap((esc) =>
+    repes === 1
+      ? [esc]
+      : Array.from({ length: repes }, (_, i) => ({ ...esc, id: `${esc.id}#${i + 1}` })),
+  );
 
-  console.log(`Modelo: ${env.OPENROUTER_MODEL}\nEscenarios: ${sel.length}\n`);
+  console.log(
+    `Modelo: ${env.OPENROUTER_MODEL}\nEscenarios: ${elegidos.length}${repes > 1 ? ` x ${repes} repeticiones` : ""}\n`,
+  );
   const e = await montarOrganizacion();
   const resumen: { id: string; motivos: string[] }[] = [];
 
