@@ -1011,3 +1011,128 @@ test("get_availability: sin hasta, o con hasta igual a desde, ya no es un error 
     );
   }
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 106: el servicio se puede pedir por nombre
+// ---------------------------------------------------------------------------
+
+// montar()/desmontar() de vehicle.test-helper no conocen la agenda, así que
+// los escenarios que crean recursos y servicios los borran ellos antes de
+// desmontar o la FK de Branch bloquea el teardown.
+async function desmontarConAgenda(e: Escenario) {
+  await prisma.booking.deleteMany({ where: { organizationId: e.organizationId } });
+  await prisma.workingHours.deleteMany({ where: { organizationId: e.organizationId } });
+  await prisma.serviceType.deleteMany({ where: { organizationId: e.organizationId } });
+  await prisma.resource.deleteMany({ where: { organizationId: e.organizationId } });
+  await desmontar(e);
+}
+
+test("get_availability y create_booking aceptan el NOMBRE del servicio", async () => {
+  // El caso real: el modelo consultó disponibilidad con un serviceTypeId y dos
+  // mensajes después reservó con otro, escrito de memoria. El nombre es lo que
+  // un LLM acarrea bien entre turnos.
+  const propio = await montar("servicio-por-nombre");
+  try {
+    const recurso = await createResource(propio.organizationId, {
+      branchId: propio.branchId,
+      name: "Vendedor",
+      type: "PERSON",
+    });
+    await createServiceType(propio.organizationId, {
+      branchId: propio.branchId,
+      resourceId: recurso.id,
+      name: "Test drive",
+      durationMin: 45,
+    });
+    const ctx = contextoDe(
+      propio.organizationId,
+      "00000000-0000-4000-8000-000000000003",
+      propio.branchId,
+    );
+
+    // Sin ids de ningún tipo: solo el nombre y la fecha.
+    const resultado = await ejecutar(
+      "get_availability",
+      { servicio: "Test drive", desde: "2026-09-28T09:00:00-03:00" },
+      ctx,
+    );
+    assert.equal(resultado.ok, true, JSON.stringify(resultado));
+  } finally {
+    await desmontarConAgenda(propio);
+  }
+});
+
+test("el nombre se resuelve sin importar acentos ni mayúsculas", async () => {
+  const propio = await montar("servicio-normalizado");
+  try {
+    const recurso = await createResource(propio.organizationId, {
+      branchId: propio.branchId,
+      name: "Box",
+      type: "ROOM",
+    });
+    await createServiceType(propio.organizationId, {
+      branchId: propio.branchId,
+      resourceId: recurso.id,
+      name: "Tasación de usado",
+      durationMin: 45,
+    });
+    const ctx = contextoDe(
+      propio.organizationId,
+      "00000000-0000-4000-8000-000000000003",
+      propio.branchId,
+    );
+    for (const escrito of ["Tasación de usado", "tasacion de usado", "  TASACIÓN DE USADO  "]) {
+      const r = await ejecutar(
+        "get_availability",
+        { servicio: escrito, desde: "2026-09-28T09:00:00-03:00" },
+        ctx,
+      );
+      assert.equal(r.ok, true, `${escrito}: ${JSON.stringify(r)}`);
+    }
+  } finally {
+    await desmontarConAgenda(propio);
+  }
+});
+
+test("un servicio que no existe devuelve la lista de los que sí, para corregirse", async () => {
+  const propio = await montar("servicio-inexistente");
+  try {
+    const recurso = await createResource(propio.organizationId, {
+      branchId: propio.branchId,
+      name: "Vendedor",
+      type: "PERSON",
+    });
+    await createServiceType(propio.organizationId, {
+      branchId: propio.branchId,
+      resourceId: recurso.id,
+      name: "Test drive",
+      durationMin: 45,
+    });
+    const ctx = contextoDe(
+      propio.organizationId,
+      "00000000-0000-4000-8000-000000000003",
+      propio.branchId,
+    );
+    const r = await ejecutar(
+      "create_booking",
+      { servicio: "Lavado premium", startsAt: "2026-09-28T10:00:00-03:00" },
+      ctx,
+    );
+    assert.equal(r.ok, false);
+    const error = r.ok === false ? r.error : "";
+    assert.match(error, /No existe ningún servicio llamado "Lavado premium"/);
+    assert.match(error, /"Test drive"/, "tiene que listar los reales para que se corrija");
+  } finally {
+    await desmontarConAgenda(propio);
+  }
+});
+
+test("sin nombre ni id, el error dice las dos formas de indicarlo", async () => {
+  const r = await ejecutar(
+    "create_booking",
+    { startsAt: "2026-09-28T10:00:00-03:00" },
+    contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", a.branchId),
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.ok === false ? r.error : "", /servicio.*serviceTypeId/s);
+});

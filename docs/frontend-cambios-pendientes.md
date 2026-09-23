@@ -6115,3 +6115,97 @@ El mismo escenario, después del fix:
 Con `google/gemini-2.5-flash-lite`, **el flujo de turnos sigue sin encadenar**: el modelo llama a la lista de servicios una y otra vez y no pasa a consultar disponibilidad, por más que ahora le alcance con dos parámetros. Los ítems 102 y 103 bajaron la dificultad todo lo que se podía sin inventar una tool nueva, y no alcanzó: no es un problema de superficie de API, es que el modelo no decide dar el paso.
 
 Con **`google/gemini-2.5-flash`** el flujo encadena completo y con las fechas bien calculadas. La recomendación del ítem 100 sigue en pie: `OPENROUTER_MODEL` en Render.
+
+## 105. El agente gasta una ronda (o no la gasta y saluda genérico) para saber con quién habla
+
+**Estado:** hecho
+
+**Qué pasaba.** El contacto es "Martín Suárez" en el CRM y el agente saludaba *"Hola, buenas tardes. ¿En qué puedo ayudarte hoy?"*. Nunca llamaba a `get_contact_info`, y cuando necesitaba el nombre se lo pedía a alguien que ya estaba cargado — justo lo que los ítems 88 y 100 vinieron a sacar.
+
+**Lo que hacía ruido de esto.** `runAgentTurn` **ya carga el Contact** al principio de cada turno (lo necesita para resolver la conversación). Hacer que el modelo gaste una llamada al LLM para enterarse del nombre de la persona que le está escribiendo es pagar una ronda por un dato que el backend tiene en la mano.
+
+**Qué se hizo.** El bloque de datos del contacto va al system prompt, junto a la fecha del ítem 99, porque es de la misma clase: contexto del turno que el backend ya tiene y el modelo no tiene por qué ir a buscar.
+
+> *"Datos que el CRM YA tiene de la persona con la que estás hablando — nombre: Martín Suárez, teléfono: +598…. No se los vuelvas a pedir: usalos. Llamala por su nombre cuando sea natural hacerlo."*
+
+`get_contact_info` **no se elimina**: sigue sirviendo para releer si algo cambió y para los campos que el bloque no lleva. Lo que cambia es que el caso común deja de necesitarla.
+
+### El detalle que lo hubiera arruinado: los nombres placeholder
+
+En producción hay contactos creados por el webhook de WhatsApp con `firstName: "."` y `lastName: ""` — un contacto **sin nombre real**. Si eso llegara al prompt como un nombre, el agente saludaría *"Hola ."*, que es peor que no saludar por nombre.
+
+Se considera nombre solo lo que tiene al menos una letra o un dígito (`/[\p{L}\p{N}]/u`). Con un contacto así, el bloque omite el nombre y agrega: *"Su nombre no está cargado: si lo necesitás, ahí sí preguntáselo"* — para que preguntar no sea repetir una pregunta. Hay un test con `"."`, `"-"`, `"   "` y `"..."`.
+
+---
+
+## 106. El modelo se inventa el UUID del servicio entre un turno y otro
+
+**Estado:** hecho
+
+**Qué pasó (caso real de producción, con el flujo de turnos ya encadenando).**
+
+```
+👤 El próximo lunes a las 11 de la mañana
+🔧 get_availability({ serviceTypeId: "7358bbb9-…", desde: "2026-09-28T11:00:00-03:00" })
+   → ok, turnos disponibles
+👤 Perfecto, dale, reservámelo
+🔧 create_booking({ serviceTypeId: "8a176846-…", startsAt: "2026-09-28T11:30:00-03:00" })
+   → ✗ "El tipo de servicio indicado no existe"
+🤖 "Uy, disculpame, tuve un problema al intentar reservar el turno."
+```
+
+**Dos mensajes después, otro UUID.** El modelo no lo copió: lo generó de memoria. La guarda del ítem 102 evitó una reserva falsa y el agente se recuperó con elegancia, pero **la reserva no se hizo** — el cliente quedó sin turno después de haber dicho que sí.
+
+**Por qué pasa.** Acarrear un identificador opaco entre turnos es exactamente lo que un LLM hace mal, y no había ninguna razón para pedírselo: los servicios de una sucursal son tres o cuatro y tienen nombres cortos que el modelo repite sin ningún problema.
+
+**Qué se hizo.** `get_availability` y `create_booking` aceptan **`servicio`** (el nombre) como alternativa a `serviceTypeId`. El backend resuelve el id — que es lo que el backend sabe hacer y el modelo no.
+
+- La comparación **normaliza** acentos, mayúsculas y espacios: `"tasacion de usado"` encuentra `"Tasación de usado"`.
+- Si el nombre no existe, el error **lista los que sí**, para que el modelo se corrija sin adivinar: *"No existe ningún servicio llamado 'Lavado premium'. Los que existen son: 'Test drive', 'Visita al salón'…"*.
+- Si hay dos servicios con el mismo nombre, pide desambiguar con el cliente en vez de elegir uno.
+- `serviceTypeId` **sigue aceptándose**: si el modelo lo copió bien, mejor.
+- El `proximosPasos` de `get_service_types` ahora dice explícitamente que se referencie por nombre y que *"escribir un id de memoria falla"*.
+
+**Resultado combinado con los ítems 102 y 103:** para agendar, el modelo ya no manda **ningún** identificador. Lo único obligatorio es el dato que el cliente realmente dio — la fecha.
+
+### El flujo completo, contra el modelo real
+
+```
+👤 Hola! Quiero hacer un test drive de la Hilux
+🤖 "Hola Martín! Claro, puedo coordinar un test drive…"            ← ítem 105
+👤 El próximo lunes a las 11 de la mañana
+🔧 get_availability({ desde: "2026-09-28T11:00:00-03:00", servicio: "Test drive" })
+🤖 "Martín, para el lunes a las 11:00 no tengo disponibilidad.
+    El primer turno libre ese día es a las 11:30. Te sirve?"       ← ítems 104 y 101
+👤 Perfecto, dale, reservámelo
+🔧 create_booking({ startsAt: "2026-09-28T11:30:00-03:00", servicio: "Test drive" })
+   → { bookingId: "003a7091-…", status: "CONFIRMED" }
+🤖 "¡Listo Martín! Tu test drive quedó confirmado para el lunes 28
+    de septiembre a las 11:30 hs."                                  ← ítem 100
+```
+
+**Es la primera vez que una reserva se cierra de punta a punta.** Sin un solo UUID en las llamadas del modelo.
+
+### Lo que se tocó (ítems 105 y 106)
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentOrchestration.service.ts` | `nombreUsableDelContacto()` y `bloqueDeContacto()` nuevas; el contacto entra a `armarSystemPrompt()` |
+| `src/services/agentOrchestration.service.test.ts` | 7 unitarios, incluidos los cuatro placeholder y el contacto sin ningún dato |
+| `src/services/agentTools.service.ts` | `resolverServicio()` y `normalizarNombre()` nuevas; `servicio` en las dos tools de agenda; `serviceTypeId` opcional; `required` reducido a la fecha; `proximosPasos` actualizado |
+| `src/services/agentTools.service.test.ts` | 2 tests reescritos al contrato nuevo |
+| `src/services/agentReadTools.integration-test.ts` | 4 de integración (nombre, normalización, nombre inexistente con la lista, y sin forma de indicarlo) + `desmontarConAgenda()` |
+| `scripts/eval-agente-real.ts` | escenario D6: la reserva completa de punta a punta |
+
+### Tests (corridos de verdad)
+
+**Unitarios:** 1028/1028 — corridos **sin `DATABASE_URL`**, como el CI, después de que el PR #283 me enseñara que tenerla exportada en local tapa que un test se coló en la suite equivocada.
+**Integración:** 1012/1012. **Typecheck, lint y prettier:** limpios.
+
+### Nota sobre el modelo
+
+Estos dos ítems se probaron con `google/gemini-2.5-flash`, que es el que quedó configurado en el agente de AutoMax (ver más abajo). Con `flash-lite` el encadenamiento sigue sin ocurrir, por las razones del ítem 100.
+
+**Hallazgo sobre la configuración:** `OPENROUTER_MODEL` en Render es solo el *fallback*. El loop pasa `model: agent.modelName` y el adaptador hace `model ?? defaultModel`, así que **el modelo efectivo es el del Agent**, no el de la variable de entorno. Cambiar la variable no habría afectado a este agente. El cambio se hizo sobre el Agent (`PATCH /api/agents/:id`), que además no necesita redeploy.
+
+**Recomendación pendiente para Rocco:** el default de Render es `openai/gpt-4.1-nano`, que es el modelo que motivó los ítems 86 y 87 (inventaba filtros) y que no encadena el flujo de turnos. Cualquier Agent nuevo que se cree sin `modelName` propio lo hereda. Cambiar ese default afecta a todos los negocios futuros, así que es una decisión de producto y no se tocó.

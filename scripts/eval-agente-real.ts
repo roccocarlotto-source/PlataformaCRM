@@ -265,6 +265,16 @@ const ESCENARIOS: Escenario[] = [
     toolsEsperadas: ["get_service_types"],
   },
   {
+    id: "D6",
+    criterio: "Cierra una reserva REAL de punta a punta, sin acarrear UUIDs",
+    msgs: [
+      "Hola! Quiero hacer un test drive de la Hilux",
+      "El próximo lunes a las 11 de la mañana",
+      "Perfecto, dale, reservámelo",
+    ],
+    toolsEsperadas: ["get_availability", "create_booking"],
+  },
+  {
     id: "D5",
     criterio: "Un horario fuera del horario de atención se rechaza sin inventar",
     msgs: ["Quiero un test drive el domingo a las 22"],

@@ -366,6 +366,66 @@ export function lineaDeFechaActual(ahora: Date, zona: string): string {
   return `Referencia temporal: ahora es ${formato.format(ahora)} en la zona horaria de la sucursal (${zona}). Usala para interpretar lo que diga el cliente ("mañana", "el próximo martes", "el finde") y para cualquier fecha que le mandes a una herramienta, que siempre va en formato ISO 8601 con zona. Nunca supongas otra fecha ni uses uno de estos valores de ejemplo como si fuera hoy.`;
 }
 
+// ---------------------------------------------------------------------------
+// EL AGENTE YA SABE CON QUIÉN ESTÁ HABLANDO (ítem 105)
+// ---------------------------------------------------------------------------
+// `runAgentTurn` carga el Contact al principio del turno, siempre. Hacer que
+// el modelo gaste una ronda llamando a get_contact_info para enterarse del
+// nombre de la persona que le está escribiendo es pagar una llamada al LLM por
+// un dato que el backend ya tiene en la mano — y cuando no la llama (que es lo
+// que hace casi siempre) saluda genérico y a veces pide un nombre que ya está
+// cargado, que es justo lo que los ítems 88 y 100 vinieron a sacar.
+//
+// get_contact_info NO se elimina: sigue sirviendo para el resto de los campos
+// y para releer si algo cambió. Lo que cambia es que el caso común deja de
+// necesitarla.
+//
+// CUIDADO CON LOS NOMBRES PLACEHOLDER. En producción hay contactos creados por
+// el webhook de WhatsApp con firstName "." y lastName "": un contacto sin
+// nombre real. Si eso llegara al prompt como un nombre, el agente saludaría
+// "Hola ." — peor que no saludar por nombre. Se considera nombre solo lo que
+// tiene al menos una letra o un dígito.
+function tieneContenidoReal(valor: string | null): boolean {
+  return valor !== null && /[\p{L}\p{N}]/u.test(valor);
+}
+
+export function nombreUsableDelContacto(contact: {
+  firstName: string;
+  lastName: string | null;
+}): string | null {
+  const partes = [contact.firstName, contact.lastName].filter((p): p is string =>
+    tieneContenidoReal(p ?? null),
+  );
+  return partes.length > 0 ? partes.join(" ").trim() : null;
+}
+
+export function bloqueDeContacto(contact: {
+  firstName: string;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+}): string {
+  const nombre = nombreUsableDelContacto(contact);
+  const datos: string[] = [];
+  if (nombre !== null) {
+    datos.push(`nombre: ${nombre}`);
+  }
+  if (tieneContenidoReal(contact.email)) {
+    datos.push(`email: ${contact.email}`);
+  }
+  if (tieneContenidoReal(contact.phone)) {
+    datos.push(`teléfono: ${contact.phone}`);
+  }
+
+  if (datos.length === 0) {
+    // Sin ningún dato real, decirlo explícito es mejor que callar: el modelo
+    // sabe que puede preguntar el nombre sin estar repitiendo una pregunta.
+    return "De la persona con la que estás hablando el CRM todavía no tiene ningún dato cargado (ni nombre, ni email, ni teléfono). Si lo necesitás para avanzar, podés preguntárselo.";
+  }
+
+  return `Datos que el CRM YA tiene de la persona con la que estás hablando — ${datos.join(", ")}. No se los vuelvas a pedir: usalos. ${nombre === null ? "Su nombre no está cargado: si lo necesitás, ahí sí preguntáselo." : "Llamala por su nombre cuando sea natural hacerlo."}`;
+}
+
 // Una entrada de la base de conocimiento, tal como llega al prompt. Es
 // exactamente el `select` de findActiveKnowledgeBaseEntriesByBranch: esta
 // función no necesita saber nada más de la fila, y declararlo así la mantiene
@@ -399,6 +459,14 @@ export function armarSystemPrompt(
   // contexto temporal: sin zona, el bloque simplemente no aparece, igual que
   // la base de conocimiento vacía.
   contextoTemporal?: { ahora: Date; zona: string },
+  // Ítem 105. Opcional por el mismo motivo que contextoTemporal: los tests que
+  // arman el prompt sin conversación no tienen contacto que pasar.
+  contacto?: {
+    firstName: string;
+    lastName: string | null;
+    email: string | null;
+    phone: string | null;
+  },
 ): string {
   const partes = [agent.instructions.trim()];
 
@@ -410,6 +478,12 @@ export function armarSystemPrompt(
   // necesita antes de leer nada sobre herramientas.
   if (contextoTemporal) {
     partes.push(lineaDeFechaActual(contextoTemporal.ahora, contextoTemporal.zona));
+  }
+
+  // Ítem 105: con la fecha, porque es de la misma clase — contexto del turno
+  // que el backend ya tiene y el modelo no tiene por qué ir a buscar.
+  if (contacto) {
+    partes.push(bloqueDeContacto(contacto));
   }
 
   // DESPUÉS de instructions y ANTES de los guardrails: es contexto
@@ -845,6 +919,7 @@ export async function runAgentTurn(
     agent,
     knowledgeBaseEntries,
     sucursal ? { ahora: new Date(), zona: sucursal.timezone } : undefined,
+    contact,
   );
   const mensajes = await findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES);
   const historial = aHistorial(mensajes);
