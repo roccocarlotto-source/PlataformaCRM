@@ -6613,3 +6613,48 @@ Es lo mismo que ya hacía `sonda-de-prompt.ts`, pero contra el backend completo.
 | `src/services/agentTools.service.ts` | la frase nueva en las descripciones de `search_vehicles` y `create_opportunity` |
 | `src/services/agentTools.service.test.ts` | un unitario que fija las dos frases y sus ejemplos, para que no se pierdan si alguien reescribe las descripciones |
 | `scripts/eval-agente-real.ts` | `REPES` |
+
+---
+
+## 114. Un 429 de un segundo se convertía en una conversación perdida para siempre
+
+**Estado:** hecho — con un riesgo residual documentado al final
+
+**Qué pasaba.** En una sola corrida del banco contra producción, dos escenarios murieron con esto:
+
+```
+HTTP 502: OpenRouter rechazó la solicitud (429): OpenRouter could not verify
+          available credits for this request in time. Retry shortly.
+```
+
+El proveedor pide explícitamente que se reintente. No lo hacíamos: el error subía hasta el webhook y el mensaje quedaba contado como fallido.
+
+**Por qué eso es grave y no solo molesto.** Por WhatsApp, `runAgentTurn` persiste el Message **entrante con su wamid antes** de llamar al modelo. Cuando Meta reintenta la entrega, el dedup por wamid la reconoce como duplicada y corta.
+
+Resultado: el cliente escribió, su mensaje quedó guardado en el hilo, y **nunca recibe respuesta** — ni en ese intento ni en ninguno. Un 429 de un segundo se convierte en una conversación perdida. Y no es un caso raro: apareció dos veces en 35 escenarios.
+
+**Qué se hizo.** Hasta dos reintentos con espera creciente (500 ms y 1500 ms) ante fallas transitorias.
+
+**Por qué el reintento va en el adaptador y no más arriba.** Reintentar el turno entero sería peligroso: si el 429 llega en una ronda posterior de tool-calling, las tools de las rondas anteriores **ya se ejecutaron**, y repetir el turno podría duplicar una reserva. Adentro del adaptador se reintenta solo la llamada HTTP, dentro del mismo loop en memoria: ninguna tool se vuelve a ejecutar.
+
+**Qué se reintenta y qué no.** Lo transitorio y nada más: un 429 (rate limit o créditos), un 5xx del proveedor, y las fallas de red o timeout donde no llegó respuesta. Un 400 o un 401 son errores **nuestros** —el cuerpo mal armado, la clave que no sirve— y reintentarlos solo agrega demora al fracaso. Hay un test por cada lado.
+
+**El tope es bajo a propósito.** Del otro lado hay un webhook de Meta esperando: dos reintentos suman 2 segundos en el peor caso, bastante menos que el timeout de la llamada misma. Hay un test que falla si alguien sube esos números por encima de 3 segundos, para que sea una decisión consciente y no un descuido.
+
+### El riesgo residual, que NO resuelve este ítem
+
+Los reintentos hacen que la falla sea mucho menos probable, pero no cambian la propiedad de fondo: **si el turno falla después de todos los reintentos, ese mensaje de WhatsApp queda sin responder para siempre**, porque el entrante ya está guardado con su wamid y el reintento de Meta se deduplica.
+
+Las salidas posibles, ninguna trivial:
+
+- **Reprocesar** cuando el wamid existe pero el turno no dejó respuesta. Es lo más directo y es **inseguro tal como está el loop hoy**: si la falla ocurrió después de ejecutar una tool, repetir el turno puede duplicar una reserva o un pago.
+- **Contestarle algo al cliente** cuando el turno se cae (un aviso de problema técnico) y derivar a una persona. Es lo más sano de cara al cliente, pero necesita la conversación ya resuelta, y si el turno se cayó antes de eso no hay dónde colgarla.
+
+Queda anotado como decisión de producto. Mientras tanto, la falla **sí se loguea** a nivel `error` con el `wamid`, así que es detectable: no hay silencio en los logs, solo en el chat del cliente.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/llmProvider.service.ts` | `REINTENTOS_LLM`, `ESPERAS_ENTRE_REINTENTOS_MS`, `esTransitorio()` y el loop de reintentos alrededor del fetch |
+| `src/services/llmProvider.service.test.ts` | 6 unitarios: la clasificación de transitorios, el 429 que se recupera en el segundo intento, la falla de red, el agotamiento de reintentos, el 400 que NO se reintenta, y el tope de espera acumulada |
