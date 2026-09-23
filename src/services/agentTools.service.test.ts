@@ -178,17 +178,38 @@ test("create_lead y update_lead exponen el mismo schema y ninguno pide contactId
     properties: Record<string, unknown>;
   };
   assert.deepEqual(parametros.required, []);
+  // Desde el ítem 116 las dos tools también llevan la identidad: el nombre y
+  // el mail llegan en la misma frase que la calificación ("soy Diego Ramírez,
+  // mi mail es...") y antes no había ninguna forma de guardarlos.
   assert.deepEqual(Object.keys(parametros.properties).sort(), [
     "aiData",
     "budgetAmount",
     "budgetCurrency",
+    "email",
+    "firstName",
     "intent",
+    "lastName",
     "location",
     "notes",
     "score",
     "serviceOfInterest",
     "urgency",
   ]);
+});
+
+test("ítem 116: las dos descripciones dicen CUÁNDO llamarlas, con frases del cliente", () => {
+  // No alcanzaba con "usala la primera vez que reunís datos de calificación":
+  // contra el modelo real, con el cliente diciendo nombre, presupuesto y qué
+  // busca, la tool se llamaba 2 de 4 veces. Y el agente igual le contestaba
+  // "ya registré tu mail" sin haberlo registrado.
+  const crear = CATALOGO_DE_TOOLS.get("create_lead")!.definition.description;
+  assert.match(crear, /soy Diego Ramírez/);
+  assert.match(crear, /en ese mismo turno, sin pedirle permiso/);
+  // Y el costo de no llamarla, que es lo que le da peso a la regla.
+  assert.match(crear, /un contacto sin nombre y sin un solo dato/);
+
+  const actualizar = CATALOGO_DE_TOOLS.get("update_lead")!.definition.description;
+  assert.match(actualizar, /en el turno en que lo dice, no al final/);
 });
 
 for (const nombre of ["create_lead", "update_lead"]) {

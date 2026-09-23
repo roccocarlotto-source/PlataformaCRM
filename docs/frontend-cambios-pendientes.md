@@ -6716,3 +6716,76 @@ La única que queda es una respuesta vacía del proveedor, no una repregunta.
 | `src/services/agentTools.service.ts` | la frase nueva en las descripciones de `search_vehicles` y `get_availability` |
 | `src/services/agentTools.service.test.ts` | un unitario que fija las dos frases |
 | `scripts/eval-agente-real.ts` | escenario `A1` nuevo, el `D1` obsoleto eliminado, los checks de `D1`, `D2` y `D3` corregidos, y `toolsEsperadasAlgunaDe` |
+
+---
+
+## 116. El agente escuchaba el nombre y el mail del cliente, y no tenía dónde guardarlos
+
+**Estado:** hecho
+
+**Qué pasaba.** Corrí una conversación de calificación contra producción y después miré cómo quedó el contacto en el CRM. El cliente había dicho, en tres turnos:
+
+> *Hola, soy **Diego Ramírez**. Estoy buscando una SUV para la familia.*
+> *Tengo hasta **30 mil dólares** y necesito cerrarlo **antes de fin de mes**.*
+> *Vivo en **Pilar**. Mi mail es **diego.ramirez@ejemplo.com** y tengo una camioneta para entregar en parte de pago.*
+
+Y el contacto quedó así:
+
+```
+firstName: "Sin"        lastName: "identificar 0"      email: null
+leadScore: null   leadIntent: null   leadUrgency: null   leadBudgetAmount: null
+```
+
+En otra corrida la calificación sí entró (score 60, urgencia HIGH, 30.000 USD, notas), **pero el nombre y el mail no, en ninguna de las dos**. Un vendedor abre ese contacto y ve un teléfono, nada más.
+
+**Por qué pasa.** Dos cosas distintas, y las dos son del backend:
+
+1. **No existía ninguna herramienta para guardar el nombre o el mail.** `create_lead` y `update_lead` aceptan puntaje, intención, servicio, urgencia, presupuesto, zona y notas. Identidad, nada. El agente escuchaba "soy Diego Ramírez" y no tenía dónde ponerlo. Por WhatsApp el contacto se crea con el nombre del perfil de Meta o, si no hay, con el marcador `WhatsApp +5491155550000` — y ahí se quedaba para siempre.
+2. **La herramienta se llamaba 2 de cada 4 veces.** La descripción decía *"usala la primera vez que reunís datos de calificación"*, que no dice nada concreto. Peor: en las corridas donde no la llamó, el agente igual contestó *"¡Gracias, Diego! **Ya registré tu mail**"* — una afirmación falsa, del tipo que el ítem 100 prohíbe, pero que el prompt no puede evitar si la herramienta ni siquiera se intentó.
+
+**Qué se hizo.**
+
+**`firstName`, `lastName` y `email` entran a las dos tools**, por el mismo camino que la calificación porque llegan en la misma frase. Lo que las hace seguras son dos reglas que viven en el service y no en el repositorio — pisar el nombre de un contacto es justo el tipo de cosa que *la IA no hace solo porque el modelo lo decidió*:
+
+- **El nombre se escribe solo si lo que hay es un marcador**, no un nombre: vacío, o el `WhatsApp +número` que pone el canal. Si una persona ya escribió un nombre, gana la persona: el modelo puede estar leyendo mal un apodo, y un CRM que se renombra solo es peor que uno desactualizado.
+- **El mail se completa solo si falta.** Nunca se reemplaza: es por dónde el negocio le escribe al cliente.
+
+Cuando algo no se aplica, el resultado devuelve **`noSeActualizo`** con la lista y un `queHacer` que le dice al modelo que no le anuncie al cliente un cambio que no ocurrió.
+
+**Las descripciones dicen cuándo llamarlas**, con frases del cliente en vez de una regla abstracta: *«soy Diego Ramírez»*, *«mi mail es...»*, *«busco una SUV familiar»*, *«tengo hasta 30 mil»*, *«necesito cerrarlo esta semana»*, *«vivo en Pilar»* — cualquiera de esas, sola, en ese mismo turno. Y el costo de no hacerlo, que es lo que le da peso: *si no la llamás, el vendedor abre el CRM y ve un contacto sin nombre y sin un solo dato de lo que hablaron*.
+
+### El bug que apareció mientras lo verificaba
+
+Con el mail ya entrando, el harness empezó a reventar:
+
+```
+Invalid `db.contact.updateMany()` invocation
+Unique constraint failed on the fields: (`organization_id`,`lower(email::text)`)
+```
+
+El mail es único por organización, y **dos personas distintas pueden dar el mismo**: una pareja, el mail de la empresa, el del contador. El error de Postgres subía crudo desde el repositorio, se llevaba puesta la calificación entera y **el cliente se quedaba sin respuesta**.
+
+Ahora ese caso se reintenta sin el mail: la calificación —que es el dato que vale— se guarda igual, `email` se suma a `noSeActualizo`, y el turno termina normal. Tiene su test de integración con dos contactos compartiendo mail.
+
+### Medido
+
+Escenario `L1` en `eval-agente-real.ts` (dos turnos: se presenta con nombre y presupuesto, después da el mail), × 6 contra el modelo real:
+
+| | Antes | Después |
+|---|---|---|
+| llama a create_lead / update_lead | 2 de 4 | **6 de 6** |
+| guarda el nombre | imposible | sí |
+| guarda el mail | imposible | sí |
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/repositories/contact.repository.ts` | `firstName`, `lastName` y `email` en `UpdateLeadQualificationData` |
+| `src/services/contact.service.ts` | `identidadAplicable()` y `nombreEsUnMarcador()` nuevas con las dos reglas; `esConflictoDeEmail()`; el reintento sin mail; `qualifyLead` devuelve `{ contacto, identidadIgnorada }` |
+| `src/services/agentTools.service.ts` | los tres campos en `leadArgs` y `LEAD_PARAMETERS`; `noSeActualizo` y `queHacer` en el resultado; las dos descripciones reescritas |
+| `src/services/contact.service.test.ts` | 7 unitarios de las reglas de identidad, sin base |
+| `src/services/agentTools.service.test.ts` | el schema de las tools actualizado y un test de las descripciones |
+| `src/services/agentOrchestration.integration-test.ts` | 3 de integración: se guarda sobre un contacto sin identificar, no se pisa un nombre cargado, y el mail duplicado no tumba el turno |
+| `src/services/contact.service.integration-test.ts` | adaptado al nuevo retorno de `qualifyLead` |
+| `scripts/eval-agente-real.ts` | escenario `L1` |

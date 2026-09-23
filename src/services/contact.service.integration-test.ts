@@ -7,6 +7,15 @@ import { findRoleByName } from "../repositories/role.repository";
 import { AppError } from "../utils/AppError";
 import { createContact, qualifyLead, updateContact } from "./contact.service";
 
+// Desde el ítem 116 qualifyLead devuelve { contacto, identidadIgnorada }: los
+// tests de este archivo solo miran el contacto, así que lo desenvuelven acá y
+// siguen leyéndose igual. Lo que hace identidadIgnorada tiene sus propios
+// tests, más abajo.
+const calificar = async (
+  ...args: Parameters<typeof qualifyLead>
+): Promise<Awaited<ReturnType<typeof qualifyLead>>["contacto"]> =>
+  (await qualifyLead(...args)).contacto;
+
 // M-10 (docs/auditoria-2026-08-29.md) — PATCH no podía vaciar los campos
 // opcionales de Contact. Para phone/jobTitle/source el bug vivía solo en el
 // schema del controller (contact.controller.test.ts). Para `email` y
@@ -304,7 +313,7 @@ test("qualifyLead: escribe solo los campos que vienen y devuelve el contacto act
       lastName: "Pérez",
     });
 
-    const calificado = await qualifyLead(escenario.orgId, creado.id, {
+    const calificado = await calificar(escenario.orgId, creado.id, {
       score: 70,
       intent: "comprar un auto usado",
       urgency: "HIGH",
@@ -325,7 +334,7 @@ test("qualifyLead: escribe solo los campos que vienen y devuelve el contacto act
 
     // Una segunda calificación pisa lo que trae y conserva lo demás:
     // idempotente, sin distinción create/update.
-    const otraVez = await qualifyLead(escenario.orgId, creado.id, {
+    const otraVez = await calificar(escenario.orgId, creado.id, {
       score: 85,
       location: "Pocitos",
     });
@@ -345,12 +354,12 @@ test("qualifyLead: leadNotes se AGREGA con marcador de fecha — sobre null y so
       lastName: "Pérez",
     });
 
-    const primera = await qualifyLead(escenario.orgId, creado.id, {
+    const primera = await calificar(escenario.orgId, creado.id, {
       notes: "  Prefiere automático  ",
     });
     assert.equal(primera.leadNotes, `[${HOY}] Prefiere automático`);
 
-    const segunda = await qualifyLead(escenario.orgId, creado.id, {
+    const segunda = await calificar(escenario.orgId, creado.id, {
       notes: "Duda entre dos modelos",
     });
     assert.equal(
@@ -360,7 +369,7 @@ test("qualifyLead: leadNotes se AGREGA con marcador de fecha — sobre null y so
     );
 
     // Una nota vacía no agrega una línea vacía ni pisa nada.
-    const vacia = await qualifyLead(escenario.orgId, creado.id, { notes: "   ", score: 10 });
+    const vacia = await calificar(escenario.orgId, creado.id, { notes: "   ", score: 10 });
     assert.equal(vacia.leadNotes, segunda.leadNotes);
     assert.equal(vacia.leadScore, 10);
   } finally {
@@ -376,12 +385,12 @@ test("qualifyLead: leadAiData se mergea superficialmente — claves nuevas pisan
       lastName: "Pérez",
     });
 
-    const primera = await qualifyLead(escenario.orgId, creado.id, {
+    const primera = await calificar(escenario.orgId, creado.id, {
       aiData: { color: "rojo", puertas: 4, extras: { techo: true } },
     });
     assert.deepEqual(primera.leadAiData, { color: "rojo", puertas: 4, extras: { techo: true } });
 
-    const segunda = await qualifyLead(escenario.orgId, creado.id, {
+    const segunda = await calificar(escenario.orgId, creado.id, {
       aiData: { color: "negro", extras: { gps: true } },
     });
     // Superficial: `extras` se reemplaza entero (no se mergea adentro), `puertas` sobrevive.
@@ -389,7 +398,7 @@ test("qualifyLead: leadAiData se mergea superficialmente — claves nuevas pisan
 
     // Si lo guardado no es un objeto (escrito por otra vía), el nuevo va tal cual.
     await prisma.contact.update({ where: { id: creado.id }, data: { leadAiData: "texto suelto" } });
-    const tercera = await qualifyLead(escenario.orgId, creado.id, { aiData: { color: "gris" } });
+    const tercera = await calificar(escenario.orgId, creado.id, { aiData: { color: "gris" } });
     assert.deepEqual(tercera.leadAiData, { color: "gris" });
   } finally {
     await desmontar(escenario);
@@ -410,7 +419,7 @@ test("qualifyLead: NUNCA toca lifecycleStage ni customFields ni el resto de Cont
       data: { lifecycleStage: "CUSTOMER", customFields: { tratamiento: "ortodoncia" } },
     });
 
-    await qualifyLead(escenario.orgId, creado.id, {
+    await calificar(escenario.orgId, creado.id, {
       score: 99,
       intent: "x",
       serviceOfInterest: "y",
@@ -443,18 +452,18 @@ test("qualifyLead: 404 sobre un contacto de OTRA organización, uno inexistente 
     });
 
     // Otra organización intenta calificarlo.
-    const ajeno = await qualifyLead(escenario.otraOrgId, creado.id, { score: 1 }).catch(
+    const ajeno = await calificar(escenario.otraOrgId, creado.id, { score: 1 }).catch(
       (err: unknown) => err,
     );
     assertAppError(ajeno, 404);
 
-    const inexistente = await qualifyLead(escenario.orgId, randomUUID(), { score: 1 }).catch(
+    const inexistente = await calificar(escenario.orgId, randomUUID(), { score: 1 }).catch(
       (err: unknown) => err,
     );
     assertAppError(inexistente, 404);
 
     await prisma.contact.update({ where: { id: creado.id }, data: { deletedAt: new Date() } });
-    const borrado = await qualifyLead(escenario.orgId, creado.id, { score: 1 }).catch(
+    const borrado = await calificar(escenario.orgId, creado.id, { score: 1 }).catch(
       (err: unknown) => err,
     );
     assertAppError(borrado, 404);

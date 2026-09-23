@@ -1088,6 +1088,12 @@ const createBookingTool: ToolDelAgente = {
 
 const leadArgs = z
   .object({
+    // Ítem 116: identidad. No son calificación, pero llegan en la misma frase
+    // ("soy Diego Ramírez, mi mail es...") y sin esto no había NINGUNA forma
+    // de guardarlos. qualifyLead decide si se aplican.
+    firstName: textoOpcional(100),
+    lastName: textoOpcional(100),
+    email: vacioComoAusente(z.string().email("email no tiene formato de correo").max(255)),
     // Mismo rango que el CHECK contacts_lead_score_range_check: se falla acá,
     // con mensaje, y no en el UPDATE.
     score: vacioComoAusente(
@@ -1145,6 +1151,21 @@ const LEAD_PARAMETERS = {
       description:
         "Moneda del presupuesto, código ISO 4217 de 3 letras. Va SIEMPRE junto con budgetAmount.",
     },
+    firstName: {
+      type: "string",
+      description:
+        "Nombre del contacto, SOLO si te lo dijo en esta conversación. No lo deduzcas del mail ni lo inventes.",
+    },
+    lastName: {
+      type: "string",
+      description:
+        "Apellido del contacto, con el mismo criterio que firstName: solo si te lo dijo.",
+    },
+    email: {
+      type: "string",
+      description:
+        "Mail que el contacto te dio en esta conversación, tal cual lo escribió. No lo armes vos a partir del nombre.",
+    },
     location: { type: "string", description: "Zona o ciudad del contacto." },
     notes: {
       type: "string",
@@ -1172,7 +1193,7 @@ function ejecutarCalificacion(
   const input = validacion.value;
 
   return conErroresDeNegocio(async () => {
-    const contacto = await qualifyLead(
+    const { contacto, identidadIgnorada } = await qualifyLead(
       contexto.organizationId,
       contexto.conversation.contactId,
       input,
@@ -1191,6 +1212,19 @@ function ejecutarCalificacion(
       location: contacto.leadLocation,
       notes: contacto.leadNotes,
       aiData: contacto.leadAiData,
+      // Ítem 116: la identidad que quedó guardada, y la que NO. Sin esto el
+      // modelo le diría al cliente "ya anoté tu mail" habiendo guardado solo
+      // la calificación (ítem 100).
+      firstName: contacto.firstName,
+      lastName: contacto.lastName,
+      email: contacto.email,
+      ...(identidadIgnorada.length > 0
+        ? {
+            noSeActualizo: identidadIgnorada,
+            queHacer:
+              "Esos datos ya estaban cargados en el CRM y no se pisan desde el chat. No le digas al cliente que los actualizaste; si insiste en corregirlos, derivá.",
+          }
+        : {}),
     });
   });
 }
@@ -1199,7 +1233,7 @@ const createLeadTool: ToolDelAgente = {
   definition: {
     name: "create_lead",
     description:
-      "Registra la calificación inicial del contacto de esta conversación como lead: puntaje, intención, servicio de interés, urgencia, presupuesto, zona y notas. Usala la primera vez que reunís datos de calificación en la conversación. Todos los campos son opcionales; mandá los que conozcas.",
+      "Registra en el CRM lo que sabés del contacto de esta conversación: su nombre y su mail, y su calificación como lead —puntaje, intención, servicio de interés, urgencia, presupuesto, zona y notas. Usala la PRIMERA vez que el contacto dice cualquiera de esas cosas, en ese mismo turno, sin pedirle permiso ni esperar a tener todo. Dispara con cualquiera de estas, sueltas: «soy Diego Ramírez», «mi mail es...», «busco una SUV familiar», «tengo hasta 30 mil», «necesito cerrarlo esta semana», «vivo en Pilar». Si no la llamás, el vendedor abre el CRM y ve un contacto sin nombre y sin un solo dato de lo que hablaron. Todos los campos son opcionales; mandá los que conozcas y el resto después con update_lead.",
     parameters: LEAD_PARAMETERS,
   },
   ejecutar: ejecutarCalificacion,
@@ -1209,7 +1243,7 @@ const updateLeadTool: ToolDelAgente = {
   definition: {
     name: "update_lead",
     description:
-      "Actualiza la calificación del contacto de esta conversación cuando aparece información nueva o cambia algo (subió el presupuesto, cambió la urgencia, surgió una duda). Las notas se agregan a las anteriores. Todos los campos son opcionales; mandá solo lo que cambió.",
+      "Actualiza lo que el CRM sabe del contacto de esta conversación cada vez que aparece un dato nuevo o cambia uno: dijo su mail, dijo su apellido, subió el presupuesto, cambió la urgencia, dijo dónde vive, surgió una duda. Llamala en el turno en que lo dice, no al final de la charla. Las notas se agregan a las anteriores. Todos los campos son opcionales; mandá solo lo nuevo.",
     parameters: LEAD_PARAMETERS,
   },
   ejecutar: ejecutarCalificacion,

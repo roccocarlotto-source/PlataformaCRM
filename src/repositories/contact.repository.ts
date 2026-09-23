@@ -200,6 +200,13 @@ export function softDeleteContact(id: string, organizationId: string, db: Db = p
 // ni lifecycleStage, ni customFields, ni el resto de Contact.
 // ---------------------------------------------------------------------------
 export interface UpdateLeadQualificationData {
+  // Ítem 116: los tres datos de identidad que el contacto dice por el canal.
+  // No son calificación, pero entran por el mismo camino porque llegan en la
+  // misma frase ("soy Diego Ramírez, mi mail es..."). Quién puede pisarlos y
+  // cuándo lo decide qualifyLead, no este repositorio.
+  firstName?: string;
+  lastName?: string;
+  email?: string;
   leadScore?: number;
   leadIntent?: string;
   leadServiceOfInterest?: string;

@@ -18,6 +18,7 @@ import {
 import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
 import { AppError } from "../utils/AppError";
 import { resolveOwnerId } from "./ownership.service";
+import { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME } from "./whatsappContact.service";
 
 export interface ListContactsParams {
   page: number;
@@ -102,6 +103,19 @@ async function resolveCompanyId(
 // Postgres y lo pasa por acá.
 //
 // Exportada para poder testear la traducción sin base (contact.service.test.ts).
+// El mismo P2002 sobre el índice de email que mira rethrowAsConflict, pero
+// como predicado: qualifyLead no quiere convertirlo en 409, quiere seguir sin
+// el mail (ítem 116).
+export function esConflictoDeEmail(err: unknown): boolean {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== "P2002") {
+    return false;
+  }
+  const target = Array.isArray(err.meta?.target)
+    ? err.meta.target.join(",")
+    : String(err.meta?.target ?? "");
+  return target.includes("email");
+}
+
 export function rethrowAsConflict(err: unknown): never {
   if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
     const target = Array.isArray(err.meta?.target)
@@ -321,9 +335,25 @@ export async function erasePersonalData(
 // mismo precedente que la ingesta — CAMPOS_IGNORADOS de ingestContact.schema.ts),
 // customFields (sin catálogo de definiciones todavía) y cualquier otro campo
 // de Contact. El repositorio (updateLeadQualification) no los acepta.
+//
+// ÍTEM 116: LAS TRES EXCEPCIONES, firstName / lastName / email. El agente
+// escuchaba "soy Diego Ramírez, mi mail es diego@ejemplo.com" y no tenía
+// NINGUNA herramienta para guardarlo: el contacto quedaba en el CRM como
+// "WhatsApp +5491100000000", sin mail, con toda la calificación cargada y sin
+// forma de saber con quién habló el vendedor.
+//
+// Entran por acá y no por una tool aparte porque llegan en la misma frase que
+// la calificación. Lo que las hace seguras son las reglas de abajo, que viven
+// en este service y NO en el repositorio: pisar el nombre de un contacto es
+// justo el tipo de cosa que "la IA nunca hace solo porque el modelo lo
+// decidió". El modelo propone; acá se decide.
 // ---------------------------------------------------------------------------
 
 export interface QualifyLeadInput {
+  // Ítem 116. Solo se aplican si pasan las reglas de identidadAplicable().
+  firstName?: string;
+  lastName?: string;
+  email?: string;
   // 0..100 — el CHECK contacts_lead_score_range_check es el respaldo; el borde
   // (la tool) valida antes para fallar con un mensaje y no con un error de
   // Postgres.
@@ -366,6 +396,46 @@ export function mergeLeadAiData(
   return esObjeto ? { ...(actual as Record<string, unknown>), ...nuevo } : { ...nuevo };
 }
 
+// Ítem 116 — cuándo el contacto puede quedarse con lo que el cliente dijo.
+//
+// EL NOMBRE se pisa solo si lo que hay es un MARCADOR, no un nombre: vacío, o
+// el que pone el canal cuando el perfil de WhatsApp no trae ninguno
+// ("WhatsApp" + el número). Si un vendedor ya escribió un nombre, gana el
+// vendedor — el modelo puede estar leyendo mal un apodo, y un CRM que se
+// renombra solo es peor que uno desactualizado.
+//
+// EL MAIL se completa solo si está vacío. Nunca se reemplaza: el mail es por
+// dónde el negocio le escribe al cliente, y pisarlo con uno mal transcripto
+// rompe el contacto sin que nadie se entere.
+export function nombreEsUnMarcador(contacto: { firstName: string; lastName: string | null }) {
+  const nombre = contacto.firstName.trim();
+  return nombre.length === 0 || nombre === WHATSAPP_CONTACT_FALLBACK_FIRST_NAME;
+}
+
+export function identidadAplicable(
+  contacto: { firstName: string; lastName: string | null; email: string | null },
+  input: Pick<QualifyLeadInput, "firstName" | "lastName" | "email">,
+): { aplica: UpdateLeadQualificationData; ignorados: string[] } {
+  const aplica: UpdateLeadQualificationData = {};
+  const ignorados: string[] = [];
+
+  const puedeNombre = nombreEsUnMarcador(contacto);
+  for (const campo of ["firstName", "lastName"] as const) {
+    const valor = input[campo]?.trim();
+    if (valor === undefined || valor.length === 0) continue;
+    if (puedeNombre) aplica[campo] = valor;
+    else ignorados.push(campo);
+  }
+
+  const email = input.email?.trim();
+  if (email !== undefined && email.length > 0) {
+    if (contacto.email === null || contacto.email.trim().length === 0) aplica.email = email;
+    else ignorados.push("email");
+  }
+
+  return { aplica, ignorados };
+}
+
 export async function qualifyLead(
   organizationId: string,
   contactId: string,
@@ -374,7 +444,10 @@ export async function qualifyLead(
   // 404 si no existe, no es de esta organización, o está borrado.
   const contacto = await getContactById(organizationId, contactId);
 
+  const { aplica: identidad, ignorados: identidadIgnorada } = identidadAplicable(contacto, input);
+
   const data: UpdateLeadQualificationData = {
+    ...identidad,
     ...(input.score !== undefined ? { leadScore: input.score } : {}),
     ...(input.intent !== undefined ? { leadIntent: input.intent } : {}),
     ...(input.serviceOfInterest !== undefined
@@ -397,14 +470,41 @@ export async function qualifyLead(
   if (Object.keys(data).length === 0) {
     // Nada que escribir. No es un error: la tool ya exige al menos un campo,
     // y llegar acá con todo undefined solo pasa desde código.
-    return contacto;
+    return { contacto, identidadIgnorada };
   }
 
-  const result = await updateLeadQualification(contactId, organizationId, data);
+  // Ítem 116: el mail es único por organización (contacts_org_email_unique,
+  // sobre lower(email)). Dos personas distintas pueden dar el mismo —una
+  // pareja, el mail de la empresa— y eso NO puede tumbar el turno: el error
+  // de Postgres subía crudo desde acá, se llevaba puesta la calificación
+  // entera y el cliente se quedaba sin respuesta. Apareció corriendo el
+  // harness contra el modelo real.
+  //
+  // Se reintenta sin el mail y se lo suma a identidadIgnorada: la calificación
+  // —que es el dato que vale— se guarda igual, y el modelo se entera de que el
+  // mail no quedó para no decirle al cliente que sí.
+  let result;
+  try {
+    result = await updateLeadQualification(contactId, organizationId, data);
+  } catch (err) {
+    if (!esConflictoDeEmail(err) || data.email === undefined) {
+      throw err;
+    }
+    const sinEmail = { ...data };
+    delete sinEmail.email;
+    identidadIgnorada.push("email");
+    if (Object.keys(sinEmail).length === 0) {
+      return { contacto, identidadIgnorada };
+    }
+    result = await updateLeadQualification(contactId, organizationId, sinEmail);
+  }
   if (result.count === 0) {
     // Se borró entre el pre-chequeo y la escritura. Mismo 404.
     throw new AppError("Contacto no encontrado", 404);
   }
 
-  return getContactById(organizationId, contactId);
+  // `identidadIgnorada` sube hasta la tool para que el modelo sepa qué NO se
+  // guardó: sin eso le diría al cliente "ya anoté tu mail" habiendo guardado
+  // solo la calificación (ítem 100).
+  return { contacto: await getContactById(organizationId, contactId), identidadIgnorada };
 }
