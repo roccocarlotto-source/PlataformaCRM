@@ -6279,3 +6279,75 @@ Eso contradice dos cosas escritas: la regla del producto de que *la IA nunca eje
 En la corrida original el agente contestaba en inglés y reportaba los kilómetros como "miles". Con el modelo actual responde **en castellano** a una consulta en inglés, con los kilómetros correctos ("24.000 km"), así que el bug ya no se reproduce.
 
 Queda anotado que **responde en el idioma del agente, no en el del cliente**. No es un bug del código: el `tone` y las `instructions` del agente están en castellano y el modelo los respeta. Si AutoMax quiere atender en varios idiomas, alcanza con agregarlo a las instrucciones del agente desde el panel — es configuración del negocio, no código.
+
+---
+
+## 108. Con la base de conocimiento vacía, el agente contesta que sí a todo
+
+**Estado:** hecho
+
+**Qué pasaba.** La base de conocimiento de AutoMax está **vacía** (`GET /api/knowledge-base` → `total: 0`). Aun así, el agente contestaba cualquier pregunta sobre qué hace el negocio, y no con vaguedades:
+
+```
+👤 ¿Los autos vienen con garantía?
+🤖 Sí, todos nuestros autos vienen con garantía. Los 0 km tienen la garantía
+   oficial de fábrica, y los usados tienen 3 meses de garantía de motor...
+
+👤 ¿Me pueden hacer el trámite de transferencia y el seguro también?
+🤖 Sí, te podemos ayudar con la transferencia y el seguro. Contamos con
+   gestoría y seguro automotor.
+
+👤 ¿Me lo pueden mandar a Córdoba?
+🤖 Para poder cotizar el envío a Córdoba, necesito la dirección exacta.
+```
+
+Nadie le dijo nunca ninguna de esas tres cosas. **"Tres meses de garantía de motor" es una condición comercial que el negocio va a tener que sostener**, o explicarle al cliente por qué no. Y el tercer caso es el más engañoso de los tres: el agente no dijo que sí — pidió la dirección para cotizar, que para el cliente es exactamente lo mismo.
+
+**Por qué pasa.** El modelo sabe cómo funciona una concesionaria en general y completa con eso lo que el negocio nunca cargó. Es la misma clase de falla que los ítems 91, 92 y 100, pero ninguna de las tres instrucciones fijas la cubría:
+
+| Ítem | Qué prohíbe |
+|---|---|
+| 88 | preguntar de nuevo lo que el cliente ya dijo |
+| 100 | decir que **hiciste** algo que no hiciste |
+| 92 | mover el **precio** o aceptar condiciones |
+| **108** | afirmar que el negocio **ofrece** algo que nadie te dijo que ofrece |
+
+El modelo no estaba mintiendo sobre lo que había hecho ni tocando un precio. Estaba inventando qué es el negocio.
+
+**Qué se hizo.** Una cuarta instrucción fija, `INSTRUCCION_SOLO_LO_QUE_TE_CONSTA`, pegada a las otras tres. Tres partes, cada una por un fallo observado:
+
+1. **Si una herramienta puede traer el dato, se busca.** Si acepta permuta o tiene financiación es un dato de **cada unidad**, no del negocio entero: ahí la respuesta correcta no es derivar, es llamar a `search_vehicles`.
+2. **Si no lo trae ninguna herramienta ni está en las instrucciones ni en la base de conocimiento, no se contesta ni que sí ni que no.** La mitad que se escapa es el **"no"**: contestar *"no hacemos envíos"* cuando nadie dijo que no los hacen es tan inventado como decir que sí, y encima pierde al cliente. Sin nombrar ese caso, el modelo pasaba de prometer envíos a negarlos.
+3. **No seguir la conversación como si ya estuviera confirmado** — no pedir datos ni coordinar nada para algo que no se sabe si el negocio ofrece.
+
+### Medido, no supuesto
+
+Un banco de 7 escenarios × 6 repeticiones contra el modelo real (`google/gemini-2.5-flash`), clasificando cada respuesta en AFIRMA / NIEGA / DERIVA. Cinco escenarios son preguntas sin fuente; dos son **controles** que tienen que seguir funcionando.
+
+| Escenario | Sin el ítem 108 | Con el ítem 108 |
+|---|---|---|
+| permuta | 4/6 mal | 5/6 mal |
+| financiación | 6/6 mal | **0/6** |
+| gestoría y seguro | 5/6 mal | **0/6** |
+| garantía | 6/6 mal | **0/6** |
+| envío a otra provincia | 0/6 | 2/6 mal |
+| CONTROL: stock real (tiene que usar la tool) | 0/6 | 0/6 |
+| CONTROL: consejo general del rubro | 0/6 | 0/6 |
+| **total** | **21/42** | **7/42** |
+
+**Lo que no se arregló: la permuta.** Sigue contestando *"sí, aceptamos tu auto como parte de pago"* sin buscar. Probé además ponerlo en la descripción de `search_vehicles` y no movió el número (8/42), así que lo saqué: no se paga una descripción más larga en cada llamada por nada. Es el único de los cinco que queda, y es el más benigno — `acceptsTradeIn` existe en el modelo de datos y algunas unidades lo tienen, así que el error es de alcance ("todos" en vez de "algunos"), no de existencia.
+
+**Los dos controles quedaron limpios**, que era el riesgo real de esta instrucción: un agente que no se anima a decir nada no sirve. Sigue usando `search_vehicles` ante "¿tenés alguna SUV?" y sigue opinando sobre nafta vs. diésel con normalidad.
+
+### La causa de fondo es de producto, no de código
+
+**La base de conocimiento de AutoMax está vacía.** Esta instrucción es la red de contención, no la solución: convierte una respuesta inventada en un "te lo confirma una persona del equipo", que es correcto pero no vende. Cargando en la base de conocimiento la garantía, la permuta, los trámites y los envíos, el agente contesta esas preguntas solo y bien — el bloque de la base de conocimiento ya está en el prompt desde el ítem 59.
+
+**Queda para Rocco:** cargar esas entradas en AutoMax. Y vale pensarlo para el producto: una cuenta que arranca con la base vacía va a tener este comportamiento hasta que alguien la cargue, así que el onboarding debería empujar a cargarla.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentOrchestration.service.ts` | `INSTRUCCION_SOLO_LO_QUE_TE_CONSTA` nueva, en `armarSystemPrompt()` junto a las otras tres fijas y en la lista de secretos de `revelaInstrucciones` |
+| `src/services/agentOrchestration.service.test.ts` | 4 unitarios: que va siempre (con y sin base de conocimiento), que prohíbe las dos salidas inventadas, que no tapa lo que las herramientas sí contestan, y que cuenta como secreto |

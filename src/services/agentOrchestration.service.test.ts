@@ -8,6 +8,7 @@ import {
   nombreUsableDelContacto,
   INSTRUCCION_IDENTIDAD_INMUTABLE,
   INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
+  INSTRUCCION_SOLO_LO_QUE_TE_CONSTA,
   lineaDeFechaActual,
   INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
   INSTRUCCION_USAR_HERRAMIENTAS,
@@ -494,6 +495,47 @@ test("la instrucción de no afirmar lo no hecho va siempre y nombra el caso real
   assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /Leer información NO es haber actuado/);
   assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /hablá en futuro/);
   assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /turno que no existe/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 108: solo afirmar lo que le consta sobre el negocio
+// ---------------------------------------------------------------------------
+
+test("la instrucción de solo afirmar lo que consta va siempre, con o sin base de conocimiento", () => {
+  // Va SIEMPRE, y sobre todo cuando NO hay base de conocimiento: ese es el
+  // caso que la motiva. Con la KB de AutoMax vacía el modelo contestaba que sí
+  // a todo, sacado de cómo funcionan las concesionarias en general.
+  for (const kb of [[], [{ title: "Garantía", content: "Usados: 6 meses." }]]) {
+    const prompt = armarSystemPrompt({ ...BASE, guardrails: {} }, kb);
+    assert.ok(prompt.includes(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA));
+  }
+});
+
+test("la instrucción del ítem 108 prohíbe las dos salidas inventadas, no solo el sí", () => {
+  // La mitad que se escapa es el "no": suena prudente y es igual de inventado.
+  // Sin esta mitad, el agente pasaba de prometer envíos a negarlos, que le
+  // hace perder al cliente por algo que el negocio capaz sí hace.
+  assert.match(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA, /NO LO SABÉS/);
+  assert.match(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA, /no hacemos envíos/);
+  // Y la otra mitad: no seguir la conversación como si el servicio existiera.
+  // Ante "¿me lo mandan a Córdoba?" el modelo no decía que sí — pedía la
+  // dirección exacta para cotizar, que para el cliente es lo mismo.
+  assert.match(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA, /no pidas datos ni coordines nada/);
+});
+
+test("la instrucción del ítem 108 no tapa lo que las herramientas sí pueden contestar", () => {
+  // El riesgo de esta instrucción es volver mudo al agente. Por eso nombra el
+  // caso contrario: si el dato es de cada unidad —permuta, financiación— la
+  // respuesta correcta no es derivar, es buscar.
+  assert.match(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA, /CADA UNIDAD/);
+  assert.match(INSTRUCCION_SOLO_LO_QUE_TE_CONSTA, /rubro en general/);
+});
+
+test("la instrucción del ítem 108 entra en los secretos que no pueden salir al cliente", () => {
+  // Es una regla fija del producto, del mismo tipo que las otras tres: si el
+  // modelo la copia en una respuesta, es una fuga del prompt.
+  const prompt = armarSystemPrompt({ ...BASE, guardrails: {} });
+  assert.equal(revelaInstrucciones(prompt, [INSTRUCCION_SOLO_LO_QUE_TE_CONSTA]), true);
 });
 
 // ---------------------------------------------------------------------------
