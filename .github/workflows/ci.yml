@@ -228,6 +228,12 @@ jobs:
     name: Backend — migraciones + suite de integración (Supabase local)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Solo para el login a ghcr.io del step de más abajo: leer las imágenes
+    # públicas de Supabase con cupo por cuenta en vez del anónimo. `contents`
+    # sigue en read porque este job igual necesita el checkout.
+    permissions:
+      contents: read
+      packages: read
     # B-35 de docs/auditoria-2026-08-29.md — el env del JOB, no de steps
     # sueltos.
     #
@@ -277,6 +283,23 @@ jobs:
       # efímera: se genera acá, vive lo que vive el runner y está en .gitignore.
       - name: Generar la clave de firma ES256 del GoTrue local
         run: npm run gen:signing-key
+
+      # `supabase start` baja sus imágenes de ghcr.io, y sin autenticar el pull
+      # va contra el cupo anónimo del runner —compartido con todo GitHub
+      # Actions—. El 23/09/2026 ese cupo se agotó y el job falló dos veces
+      # seguidas con `toomanyrequests` bajando postgres, gotrue, mailpit y
+      # storage-api, sin llegar a correr un solo test. Autenticado, el cupo es
+      # por cuenta y mucho más alto.
+      #
+      # GITHUB_TOKEN alcanza: solo se necesita leer imágenes públicas, y el
+      # token es efímero y acotado a este repo. No hace falta cargar ningún
+      # secreto nuevo.
+      - name: Autenticarse en ghcr.io para que el pull no vaya contra el cupo anónimo
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Se excluye todo lo que la suite no toca. Quedan postgres, gotrue (la
       # Admin API), kong (el gateway que gotrue expone en SUPABASE_URL),
