@@ -6924,3 +6924,40 @@ Escenario `B4` × 6 contra el modelo real: **4/6 sin reservar antes, 1/6 despué
 | `src/services/agentTools.service.ts` | las tres frases en la descripción de `create_booking` |
 | `src/services/agentTools.service.test.ts` | un unitario que fija las frases y los ejemplos, y que no se pierda el *"el turno NO existe"* al reescribir |
 | `scripts/eval-agente-real.ts` | escenario `B4` |
+
+---
+
+## 120. Si el proveedor del modelo se cae, el contacto igual recibe una respuesta
+
+**Estado:** hecho — cierra el riesgo residual que el ítem 114 dejó anotado
+
+**Qué pasaba.** El ítem 114 puso reintentos ante fallas transitorias y dejó escrito lo que **no** resolvía:
+
+> *Si el turno falla después de todos los reintentos, ese mensaje de WhatsApp queda sin responder para siempre*, porque el entrante ya está guardado con su wamid y el reintento de Meta se deduplica.
+
+Eso seguía en pie. El contacto escribía, su mensaje quedaba en el hilo, y nunca recibía nada — ni en ese intento ni en ninguno.
+
+**Y ahí me equivoqué al descartar la salida.** Escribí que contestarle algo *"necesita la conversación ya resuelta, y si el turno se cayó antes de eso no hay dónde colgarla"*. Es falso: para cuando se llama al modelo, la conversación **ya está creada** y el entrante **ya está guardado**. Lo único que faltaba era no dejar que el error se llevara puesto ese contexto.
+
+**Qué se hizo.** La llamada al modelo va en un `try`. Un `LlmProviderError` deja de subir: se cierra el turno con el cierre fijo de derivación y se deriva de verdad, con su Activity. El contacto recibe *"No pude resolver tu consulta en este momento, alguien del equipo te va a contactar"* y alguien del negocio se entera.
+
+**Por qué esto y no reprocesar.** La otra salida era reprocesar el mensaje en el reintento de entrega de Meta, y **sigue siendo insegura**: si la falla ocurrió en una ronda posterior, las tools de las rondas anteriores ya se ejecutaron, y repetir el turno puede duplicar una reserva. Acá no se repite nada — se cierra el turno con lo que ya pasó.
+
+**Solo `LlmProviderError`.** Un error de programación tiene que seguir subiendo y rompiendo fuerte: convertirlo en *"tuvimos un problema técnico"* lo escondería y nadie se enteraría nunca. Tiene su test.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentOrchestration.service.ts` | el `try` alrededor de `llm.complete` y `MOTIVO_PROVEEDOR_CAIDO` |
+| `src/services/agentOrchestration.integration-test.ts` | 2 de integración: la falla del proveedor deriva y deja el mensaje en el hilo, y un `TypeError` sigue subiendo |
+
+---
+
+## Lo que probé y NO shippeé: pedir permiso para derivar
+
+Del ítem 110 quedó un residual medido: con guardrails configurados, ante un tema prohibido el agente se niega bien a opinar pero **ofrece** derivar en vez de derivar (*"¿te parece bien si derivo tu consulta?"*), 1 de cada 4 veces.
+
+Probé la regla del ítem 110 —derivar en el turno, sin preguntar— aplicada a los temas prohibidos y a las condiciones de derivación configuradas. **Medido, no mejoró**: 2 de 6 contra ~1,5 de 6 de la línea base, o sea dentro del ruido y sin señal de mejora.
+
+Lo revertí. Una frase en el prompt se paga en cada llamada de cada conversación de cada cuenta; si no mueve el número, no va. Queda el residual anotado con su escenario (`GR1`) para el día que se ataque de otra forma — probablemente no con más texto.
