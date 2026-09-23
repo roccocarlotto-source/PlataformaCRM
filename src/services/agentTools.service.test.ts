@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   CATALOGO_DE_TOOLS,
   NOMBRE_TOOL_PAGO,
+  SUFIJO_ERROR_DE_ARGUMENTOS,
   canonizarNombreDeTool,
   toolsHabilitadas,
   type ContextoDeEjecucionDeTool,
@@ -463,5 +464,41 @@ test("canonizar: ningún nombre del catálogo tiene un punto (premisa de la regl
   // dejaría de ser inequívoca. Este test es el que avisa.
   for (const nombre of CATALOGO_DE_TOOLS.keys()) {
     assert.ok(!nombre.includes("."), `${nombre} no puede tener un punto`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 101: un error de validación es del modelo, no del negocio
+// ---------------------------------------------------------------------------
+
+test("un error de argumentos le dice al modelo que es suyo y le prohíbe la conclusión", async () => {
+  // El caso real: get_availability con desde == hasta se rechazó bien, y el
+  // modelo le contestó al cliente "el miércoles a las 11 ya no está
+  // disponible" — un horario que estaba libre.
+  const mensaje = await rechazoDe("get_availability", {
+    resourceId: UUID,
+    serviceTypeId: UUID,
+    desde: "2026-09-29T11:00:00-03:00",
+    hasta: "2026-09-29T11:00:00-03:00",
+  });
+  assert.match(mensaje, /posterior a desde/, "el detalle técnico sigue estando");
+  assert.match(mensaje, /error TUYO/, "y ahora dice de quién es el error");
+  assert.match(mensaje, /no le digas que no hay disponibilidad/);
+});
+
+test("el sufijo va en TODAS las tools, no solo en la que falló en producción", async () => {
+  // Es un solo lugar (validarArgs) justamente para que no haya que acordarse
+  // de repetirlo en cada description.
+  for (const [nombre, args] of [
+    ["create_opportunity", {}],
+    ["update_opportunity", { title: "x" }],
+    ["create_booking", { resourceId: UUID }],
+    ["create_lead", {}],
+    ["search_vehicles", { year: "no es un año" }],
+  ] as const) {
+    assert.ok(
+      (await rechazoDe(nombre, args)).endsWith(SUFIJO_ERROR_DE_ARGUMENTOS),
+      `${nombre} tiene que llevar el sufijo`,
+    );
   }
 });

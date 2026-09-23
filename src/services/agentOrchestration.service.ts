@@ -7,6 +7,7 @@ import type {
 } from "@prisma/client";
 import { logger } from "../lib/logger";
 import { findAgentById } from "../repositories/agent.repository";
+import { findBranchById } from "../repositories/branch.repository";
 import { findContactById } from "../repositories/contact.repository";
 import {
   createConversation,
@@ -199,6 +200,18 @@ export const ENCABEZADO_KNOWLEDGE_BASE =
 export const INSTRUCCION_USAR_HERRAMIENTAS =
   "Si el cliente ya te dio información suficiente para usar una de tus herramientas, usala directamente en vez de preguntar de nuevo por lo mismo: no le pidas que confirme algo que ya te dijo. Cuando uses una herramienta, tu respuesta al cliente tiene que basarse en lo que la herramienta devolvió.";
 
+// Instrucción fija del ítem 100. El caso que la motiva es el más caro de
+// todos: el agente le dijo a un cliente "tengo agendada tu visita para el
+// miércoles a las 11" habiendo llamado UNA sola herramienta de lectura. No
+// existía ninguna reserva. El cliente se presenta un miércoles a un turno que
+// nadie tiene anotado.
+//
+// Es la contracara de la del ítem 88: aquella empuja a ACTUAR en vez de
+// preguntar; esta pone el límite de que actuar es ejecutar la herramienta, no
+// narrar que se ejecutó.
+export const INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO =
+  'No le digas nunca al cliente que hiciste algo —que reservaste un turno, que cargaste sus datos, que creaste una oportunidad, que generaste un link de pago— si no ejecutaste la herramienta correspondiente en esta misma conversación y te devolvió un resultado exitoso. Leer información NO es haber actuado: consultar qué servicios existen o qué horarios hay libres no reserva nada. Si todavía no ejecutaste la acción, hablá en futuro y decí qué falta ("te confirmo el turno en un momento", "necesito tal dato para reservarlo"), nunca en pasado. Una confirmación falsa hace que la persona se presente a un turno que no existe o espere un pago que nadie registró.';
+
 // Instrucción fija del ítem 92. Va con las otras fijas y NO es configurable
 // por el negocio: un agente que regala plata es un problema del producto, no
 // una preferencia de cada cuenta. Los tres casos reales que la motivan están
@@ -324,6 +337,35 @@ export function revelaInstrucciones(respuesta: string, secretos: string[]): bool
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// EL AGENTE TIENE QUE SABER QUÉ DÍA ES (ítem 99)
+// ---------------------------------------------------------------------------
+// El prompt no llevaba ninguna referencia temporal. Un cliente que dice "el
+// próximo martes" o "mañana a las 10" le está pidiendo al modelo que calcule
+// una fecha que no tiene forma de conocer — y `get_availability` y
+// `create_booking` exigen ISO 8601 CON ZONA, así que el flujo de turnos
+// entero era imposible de completar de forma confiable: el modelo o se queda
+// dando vueltas sin llamar la tool, o inventa una fecha de la época de su
+// entrenamiento y consulta disponibilidad para un día que ya pasó.
+//
+// La zona es la de la SUCURSAL, no la del servidor: "mañana a las 10" es a las
+// 10 donde está el negocio. Es la misma zona con la que availability.service
+// expande los horarios, así que lo que el modelo lee y lo que la tool calcula
+// hablan del mismo reloj.
+export function lineaDeFechaActual(ahora: Date, zona: string): string {
+  const formato = new Intl.DateTimeFormat("es-AR", {
+    timeZone: zona,
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `Referencia temporal: ahora es ${formato.format(ahora)} en la zona horaria de la sucursal (${zona}). Usala para interpretar lo que diga el cliente ("mañana", "el próximo martes", "el finde") y para cualquier fecha que le mandes a una herramienta, que siempre va en formato ISO 8601 con zona. Nunca supongas otra fecha ni uses uno de estos valores de ejemplo como si fuera hoy.`;
+}
+
 // Una entrada de la base de conocimiento, tal como llega al prompt. Es
 // exactamente el `select` de findActiveKnowledgeBaseEntriesByBranch: esta
 // función no necesita saber nada más de la fila, y declararlo así la mantiene
@@ -353,11 +395,21 @@ export function armarSystemPrompt(
     guardrails: unknown;
   },
   knowledgeBaseEntries: EntradaDeKnowledgeBase[] = [],
+  // Ítem 99. Opcional para no romper los tests que arman el prompt sin
+  // contexto temporal: sin zona, el bloque simplemente no aparece, igual que
+  // la base de conocimiento vacía.
+  contextoTemporal?: { ahora: Date; zona: string },
 ): string {
   const partes = [agent.instructions.trim()];
 
   if (agent.tone && agent.tone.trim().length > 0) {
     partes.push(`Tono de la conversación: ${agent.tone.trim()}.`);
+  }
+
+  // Temprano y junto al tono: es contexto, no una regla, y el modelo lo
+  // necesita antes de leer nada sobre herramientas.
+  if (contextoTemporal) {
+    partes.push(lineaDeFechaActual(contextoTemporal.ahora, contextoTemporal.zona));
   }
 
   // DESPUÉS de instructions y ANTES de los guardrails: es contexto
@@ -401,6 +453,11 @@ export function armarSystemPrompt(
   // lo mismo desde dos lados: usá lo que devolvió la herramienta (88) y no
   // inventes un precio distinto del que devolvió (92).
   partes.push(INSTRUCCION_SIN_AUTORIDAD_COMERCIAL);
+
+  // Ítem 100: pegada a las otras dos fijas. Las tres son la misma idea en
+  // capas — usá la herramienta (88), no inventes el precio que devolvió (92),
+  // y no digas que la usaste si no la usaste (100).
+  partes.push(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO);
 
   const condiciones = listaDeGuardrails(agent.guardrails, "condicionesDeDerivacion");
   const disparadoresFijos = `si el contacto pide explícitamente hablar con una persona, o si una acción que necesitás no está disponible y no hay otra forma de ayudar.`;
@@ -779,7 +836,16 @@ export async function runAgentTurn(
     agent.branchId,
     organizationId,
   );
-  const systemPrompt = armarSystemPrompt(agent, knowledgeBaseEntries);
+  // Ítem 99: la zona de la sucursal del AGENTE, por el mismo motivo que la
+  // base de conocimiento sale de agent.branchId. Si la sucursal no se pudiera
+  // leer (caso residual, igual que en get_payment_info), el prompt va sin el
+  // bloque temporal en vez de tumbar el turno.
+  const sucursal = await findBranchById(agent.branchId, organizationId);
+  const systemPrompt = armarSystemPrompt(
+    agent,
+    knowledgeBaseEntries,
+    sucursal ? { ahora: new Date(), zona: sucursal.timezone } : undefined,
+  );
   const mensajes = await findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES);
   const historial = aHistorial(mensajes);
   const tools = toolsHabilitadas(agent.enabledTools);
@@ -931,6 +997,7 @@ export async function runAgentTurn(
     revelaInstrucciones(respuestaFinal, [
       INSTRUCCION_USAR_HERRAMIENTAS,
       INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
+      INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
       INSTRUCCION_IDENTIDAD_INMUTABLE,
       agent.instructions,
       typeof agent.guardrailsText === "string" ? agent.guardrailsText : "",

@@ -117,6 +117,26 @@ function exitoVacio(data: Record<string, unknown>, queHacer: string): ResultadoD
   return exito({ ...data, sinResultados: true, queHacer });
 }
 
+// Un error de validación es del MODELO, no del negocio (ítem 101).
+//
+// Caso real: el modelo llamó a get_availability con `desde` y `hasta` en el
+// mismo instante. La validación lo rechazó correctamente ("hasta debe ser
+// posterior a desde") y el modelo le contestó al cliente:
+//
+//   "Disculpá, el próximo miércoles a las 11:00 ya no está disponible.
+//    ¿Te gustaría buscar otra hora o día?"
+//
+// Ese horario estaba perfectamente libre. El modelo leyó "la tool falló" y lo
+// tradujo a un hecho sobre la agenda del negocio, que es lo que el cliente se
+// lleva. La misma trampa que los resultados vacíos del ítem 91: un resultado
+// que el modelo no sabe interpretar lo completa con lo que suena razonable.
+//
+// El texto del error se lo dice de frente y le prohíbe la conclusión. Va acá,
+// en el único lugar por donde pasan los argumentos inválidos de las once
+// tools, en vez de repetirlo en cada description.
+export const SUFIJO_ERROR_DE_ARGUMENTOS =
+  " — Este es un error TUYO al armar la llamada, no una respuesta del negocio. Corregí los argumentos y volvé a llamarla. NO le informes nada de esto al cliente ni saques ninguna conclusión: no le digas que no hay disponibilidad, que algo no existe, que está ocupado ni que no se pudo hacer.";
+
 // Los argumentos vienen del modelo, así que son tan poco confiables como un
 // body HTTP: se validan con Zod igual que en un controller. Un fallo de
 // validación es un resultado de tool, no un 400 — el modelo puede corregirse.
@@ -128,7 +148,10 @@ function validarArgs<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, args: unkno
   const detalle = parsed.error.issues
     .map((issue) => `${issue.path.join(".") || "args"}: ${issue.message}`)
     .join("; ");
-  return { ok: false as const, resultado: fallo(`Argumentos inválidos — ${detalle}`) };
+  return {
+    ok: false as const,
+    resultado: fallo(`Argumentos inválidos — ${detalle}${SUFIJO_ERROR_DE_ARGUMENTOS}`),
+  };
 }
 
 // Ejecuta `fn` y traduce un AppError del service a un resultado de tool. Todo
@@ -1082,6 +1105,17 @@ const getServiceTypesTool: ToolDelAgente = {
       );
     }
     return exito({
+      // Ítem 100: el modelo se quedaba acá. Llamaba esta tool, a veces dos
+      // veces seguidas, y le confirmaba al cliente un turno que nunca había
+      // reservado. Con los identificadores en la mano le faltaba saber que
+      // esto es el PRIMER paso de tres, y sobre todo qué NO puede decir hasta
+      // completarlos.
+      //
+      // A propósito sin nombres de tools: el modelo los saca del esquema de
+      // funciones, no de este texto, y cuando aparecen en prosa termina
+      // repitiéndoselos al cliente (fue el caso real que disparó el ítem 96).
+      proximosPasos:
+        "Estos son los ÚNICOS servicios que existen: no ofrezcas ninguno que no esté acá. Ya tenés los identificadores que hacen falta. Esto es solo el primer paso: antes de ofrecerle horarios al cliente consultá la disponibilidad real del recurso, y después reservá el turno con la herramienta de reserva, que es lo único que lo hace existir. NO le digas al cliente que su turno quedó agendado hasta que la reserva te haya devuelto un resultado exitoso: si se lo decís antes, la persona se va a presentar a un turno que nadie tiene anotado.",
       serviceTypes: tipos.map((t) => ({
         id: t.id,
         name: t.name,

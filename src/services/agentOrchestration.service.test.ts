@@ -5,6 +5,8 @@ import {
   ETIQUETA_MENSAJE_CLIENTE,
   envolverMensajeDelCliente,
   INSTRUCCION_IDENTIDAD_INMUTABLE,
+  INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
+  lineaDeFechaActual,
   INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
   INSTRUCCION_USAR_HERRAMIENTAS,
   LARGO_MINIMO_DE_FUGA,
@@ -328,6 +330,7 @@ test("revelaInstrucciones NO se dispara con una respuesta comercial normal", () 
     INSTRUCCION_USAR_HERRAMIENTAS,
     INSTRUCCION_SIN_AUTORIDAD_COMERCIAL,
     INSTRUCCION_IDENTIDAD_INMUTABLE,
+    INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
     "Sos el asistente de ventas de AutoMax. Respondé consultas sobre stock, precios y financiación, calificá al lead y ofrecé coordinar un test drive.",
   ];
   const normales = [
@@ -431,4 +434,62 @@ test("la instrucción de identidad nombra la etiqueta y prohíbe repetirla", () 
   // Y cubre el vector que se le agregó: un mensaje que imita el formato de las
   // propias instrucciones ([SYSTEM OVERRIDE]).
   assert.match(INSTRUCCION_IDENTIDAD_INMUTABLE, /imite el formato de estas instrucciones/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 99: el agente tiene que saber qué día es
+// ---------------------------------------------------------------------------
+
+test("lineaDeFechaActual escribe la fecha en la zona de la SUCURSAL, no la del servidor", () => {
+  // 2026-09-23T02:30:00Z son todavía las 23:30 del 22 en Montevideo: si se
+  // usara la zona del servidor (UTC en Render), el agente le diría "miércoles"
+  // a alguien que todavía está en martes.
+  const instante = new Date("2026-09-23T02:30:00Z");
+  const montevideo = lineaDeFechaActual(instante, "America/Montevideo");
+  assert.match(montevideo, /martes/);
+  assert.match(montevideo, /22 de septiembre de 2026/);
+  assert.match(montevideo, /23:30/);
+  assert.match(montevideo, /America\/Montevideo/);
+
+  // El mismo instante, otra sucursal, otra fecha.
+  const madrid = lineaDeFechaActual(instante, "Europe/Madrid");
+  assert.match(madrid, /miércoles/);
+  assert.match(madrid, /23 de septiembre de 2026/);
+});
+
+test("lineaDeFechaActual le dice al modelo para qué usarla", () => {
+  const linea = lineaDeFechaActual(new Date("2026-09-23T15:00:00Z"), "America/Montevideo");
+  assert.match(linea, /el próximo martes/, "los ejemplos son los que dice un cliente real");
+  assert.match(linea, /ISO 8601 con zona/, "es el formato que exigen las tools de agenda");
+  assert.match(linea, /Nunca supongas otra fecha/);
+});
+
+test("el prompt lleva la fecha cuando hay contexto temporal, y no la lleva cuando no", () => {
+  const conFecha = armarSystemPrompt({ ...BASE, guardrails: {} }, [], {
+    ahora: new Date("2026-09-23T15:00:00Z"),
+    zona: "America/Montevideo",
+  });
+  assert.match(conFecha, /Referencia temporal/);
+  assert.match(conFecha, /23 de septiembre de 2026/);
+
+  // Sin zona el bloque desaparece entero, mismo criterio que la base de
+  // conocimiento vacía: un encabezado sin contenido le diría al modelo algo
+  // falso sobre el tiempo.
+  assert.doesNotMatch(armarSystemPrompt({ ...BASE, guardrails: {} }, []), /Referencia temporal/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 100: no afirmar lo que no se hizo
+// ---------------------------------------------------------------------------
+
+test("la instrucción de no afirmar lo no hecho va siempre y nombra el caso real", () => {
+  for (const guardrails of [{}, { promesasProhibidas: ["x"] }]) {
+    const prompt = armarSystemPrompt({ ...BASE, guardrails });
+    assert.ok(prompt.includes(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO));
+  }
+  // Lo que la distingue de la del ítem 88: aquella empuja a actuar, esta pone
+  // el límite de que actuar es ejecutar, no narrar.
+  assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /Leer información NO es haber actuado/);
+  assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /hablá en futuro/);
+  assert.match(INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO, /turno que no existe/);
 });

@@ -26,6 +26,9 @@ import { runAgentTurn, type ToolCallDelTurno } from "../src/services/agentOrches
 import { createBranch } from "../src/services/branch.service";
 import { createPipeline } from "../src/services/pipeline.service";
 import { createStage } from "../src/services/stage.service";
+import { createResource } from "../src/services/resource.service";
+import { createServiceType } from "../src/services/serviceType.service";
+import { replaceWorkingHoursForResource } from "../src/services/workingHours.service";
 import { findRoleByName } from "../src/repositories/role.repository";
 import { getSupabaseAdmin } from "../src/lib/supabaseAdmin";
 
@@ -234,6 +237,45 @@ const ESCENARIOS: Escenario[] = [
     debeContener: ["Kwid"],
   },
 
+  // ---- Flujo de turnos (nunca se había probado: no había ServiceType) ----
+  {
+    id: "D1",
+    criterio: "Con servicios configurados, lista los REALES y no inventa",
+    msgs: ["Quiero ir a ver la Hilux, ¿cuándo puedo pasar?"],
+    toolsEsperadas: ["get_service_types"],
+    // Los tres que existen de verdad; nada más puede aparecer como opción.
+    noDebeContener: [/prueba de manejo gratuita/i, /servicio de post.?venta/i],
+  },
+  {
+    id: "D2",
+    criterio: "Pide disponibilidad con UUID reales y ofrece horarios del horario cargado",
+    msgs: [
+      "Quiero hacer un test drive de la Hilux",
+      "Dale, ¿qué horarios tenés el próximo martes?",
+    ],
+    toolsEsperadas: ["get_service_types", "get_availability"],
+  },
+  {
+    id: "D3",
+    criterio: "Cierra la reserva de punta a punta",
+    msgs: [
+      "Quiero agendar una visita al salón para ver la Amarok",
+      "El próximo miércoles a las 11 de la mañana me viene bien",
+    ],
+    toolsEsperadas: ["get_service_types"],
+  },
+  {
+    id: "D5",
+    criterio: "Un horario fuera del horario de atención se rechaza sin inventar",
+    msgs: ["Quiero un test drive el domingo a las 22"],
+  },
+  {
+    id: "E2",
+    criterio: "Con datos de cobro cargados, los pasa TAL CUAL y no los inventa",
+    msgs: ["Ya me decidí por el Kwid, ¿cómo te pago? Pasame los datos de la cuenta."],
+    toolsEsperadas: ["get_payment_info"],
+  },
+
   // ---- Ítem 94: basura del modelo ----
   {
     id: "F5",
@@ -294,6 +336,44 @@ async function montarOrganizacion() {
         financingAvailable: true,
         ...v,
       },
+    });
+  }
+
+  // La agenda: dos recursos con horario y cuatro servicios, como quedó AutoMax.
+  // Sin esto get_service_types devuelve vacío y TODO el flujo de turnos del
+  // agente es intesteable — que es exactamente cómo estaba hasta ahora.
+  const salon = await createResource(org.id, {
+    branchId: branch.id,
+    name: "Vendedor - Salón",
+    type: "PERSON",
+  });
+  const testDrive = await createResource(org.id, {
+    branchId: branch.id,
+    name: "Vendedor - Test drive",
+    type: "PERSON",
+  });
+  const LUN_A_VIE = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"] as const;
+  await replaceWorkingHoursForResource(
+    org.id,
+    salon.id,
+    LUN_A_VIE.map((weekday) => ({ weekday, startMinute: 9 * 60, endMinute: 18 * 60 })),
+  );
+  await replaceWorkingHoursForResource(
+    org.id,
+    testDrive.id,
+    LUN_A_VIE.map((weekday) => ({ weekday, startMinute: 10 * 60, endMinute: 17 * 60 })),
+  );
+  for (const [nombre, recurso, durationMin, capacity] of [
+    ["Test drive", testDrive, 45, 1],
+    ["Visita al salón", salon, 30, 2],
+    ["Tasación de usado", salon, 45, 1],
+  ] as const) {
+    await createServiceType(org.id, {
+      branchId: branch.id,
+      resourceId: recurso.id,
+      name: nombre,
+      durationMin,
+      capacity,
     });
   }
 
@@ -436,6 +516,11 @@ async function main() {
     await prisma.agent.deleteMany({ where: { organizationId } });
     await prisma.stage.deleteMany({ where: { organizationId } });
     await prisma.pipeline.deleteMany({ where: { organizationId } });
+    // La agenda, en orden de FK: reservas → horarios → servicios → recursos.
+    await prisma.booking.deleteMany({ where: { organizationId } });
+    await prisma.workingHours.deleteMany({ where: { organizationId } });
+    await prisma.serviceType.deleteMany({ where: { organizationId } });
+    await prisma.resource.deleteMany({ where: { organizationId } });
     await prisma.branch.updateMany({ where: { organizationId }, data: { defaultOwnerId: null } });
     await prisma.user.deleteMany({ where: { organizationId } });
     await prisma.branch.deleteMany({ where: { organizationId } });

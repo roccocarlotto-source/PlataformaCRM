@@ -693,22 +693,31 @@ test("get_service_types: los de la sucursal de la conversación, con su resource
     durationMin: 60,
   });
 
-  const data = await datosDe(
+  const data = await datosDe<{ serviceTypes: unknown[]; proximosPasos: string }>(
     "get_service_types",
     {},
     contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", sucursal.id),
   );
-  assert.deepEqual(data, {
-    serviceTypes: [
-      {
-        id: service.id,
-        name: "Service de 10.000 km",
-        durationMin: 90,
-        capacity: 1,
-        resourceId: recurso.id,
-      },
-    ],
-  });
+  // Solo el de ESTA sucursal, sin el dado de baja y sin el de la vecina.
+  assert.deepEqual(data.serviceTypes, [
+    {
+      id: service.id,
+      name: "Service de 10.000 km",
+      durationMin: 90,
+      capacity: 1,
+      resourceId: recurso.id,
+    },
+  ]);
+  // Ítem 100: con la lista en la mano, el modelo se quedaba acá y le confirmaba
+  // al cliente un turno que nunca había reservado.
+  assert.match(data.proximosPasos, /ÚNICOS servicios que existen/);
+  assert.match(data.proximosPasos, /solo el primer paso/);
+  assert.match(data.proximosPasos, /NO le digas al cliente que su turno quedó agendado/);
+  // Sin nombres técnicos de tools: en prosa el modelo termina repitiéndoselos
+  // al cliente, que es lo que disparó el ítem 96.
+  for (const nombre of ["get_availability", "create_booking", "get_service_types"]) {
+    assert.ok(!data.proximosPasos.includes(nombre), `no puede nombrar ${nombre}`);
+  }
 });
 
 test("get_service_types: sucursal sin tipos de servicio → vacío explícito con instrucción (ítem 91)", async () => {
