@@ -7,6 +7,8 @@ import {
   bloqueDeContacto,
   devuelveElMensajeDelCliente,
   DISPARADOR_FIJO_DE_RECLAMO,
+  LARGO_MAXIMO_DEL_MENSAJE_DE_HANDOFF,
+  mensajeAlClienteDeLaLlamada,
   nombreUsableDelContacto,
   INSTRUCCION_IDENTIDAD_INMUTABLE,
   INSTRUCCION_NO_AFIRMAR_LO_NO_HECHO,
@@ -193,14 +195,18 @@ test("el bloque va después de instructions y tono, y ANTES de los guardrails", 
   );
 });
 
-test("la tool del sistema exige reason y no pide nada más", () => {
+test("la tool del sistema exige los dos textos y no pide nada más", () => {
+  // Desde el ítem 111 son dos y no uno: `reason` para el vendedor que toma la
+  // conversación, `mensajeAlCliente` para el contacto. Lo que sigue firme es
+  // que no pide nada más: la salida de emergencia no puede depender de que el
+  // modelo complete un formulario.
   assert.equal(REQUEST_HUMAN_HANDOFF_TOOL.name, REQUEST_HUMAN_HANDOFF_TOOL_NAME);
   const parametros = REQUEST_HUMAN_HANDOFF_TOOL.parameters as {
     required: string[];
     properties: Record<string, unknown>;
   };
-  assert.deepEqual(parametros.required, ["reason"]);
-  assert.deepEqual(Object.keys(parametros.properties), ["reason"]);
+  assert.deepEqual(parametros.required, ["reason", "mensajeAlCliente"]);
+  assert.deepEqual(Object.keys(parametros.properties), ["reason", "mensajeAlCliente"]);
 });
 
 // Ítem 83. La descripción de la tool es lo único que le dice al modelo qué
@@ -615,6 +621,62 @@ test("el disparador de reclamo pide derivar en el mismo turno, no ofrecerlo", ()
   // contacto?" y se quedaba ahí: el cliente enojado se va y nadie se entera.
   assert.match(DISPARADOR_FIJO_DE_RECLAMO, /en el mismo turno y sin preguntarle/);
   assert.match(DISPARADOR_FIJO_DE_RECLAMO, /estafa/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 111: al derivar, el cliente lee algo escrito para él
+// ---------------------------------------------------------------------------
+
+const llamadaDeHandoff = (args: Record<string, unknown>) => ({
+  id: "call_h",
+  name: REQUEST_HUMAN_HANDOFF_TOOL_NAME,
+  arguments: args,
+});
+
+test("mensajeAlClienteDeLaLlamada devuelve el texto trimeado", () => {
+  assert.equal(
+    mensajeAlClienteDeLaLlamada(
+      llamadaDeHandoff({ reason: "reclamo", mensajeAlCliente: "  Ya le avisé al equipo.  " }),
+    ),
+    "Ya le avisé al equipo.",
+  );
+});
+
+test("mensajeAlClienteDeLaLlamada devuelve null cuando no hay nada usable", () => {
+  // La salida de emergencia no se rompe por un argumento que no vino o vino
+  // mal: ahí manda el cierre fijo, igual que antes de este ítem.
+  const sinNada: Array<Record<string, unknown>> = [
+    { reason: "reclamo" },
+    { reason: "reclamo", mensajeAlCliente: "   " },
+    { reason: "reclamo", mensajeAlCliente: 42 },
+    { reason: "reclamo", mensajeAlCliente: null },
+  ];
+  for (const args of sinNada) {
+    assert.equal(mensajeAlClienteDeLaLlamada(llamadaDeHandoff(args)), null, JSON.stringify(args));
+  }
+});
+
+test("mensajeAlClienteDeLaLlamada corta un mensaje desmedido", () => {
+  // Es un mensaje de WhatsApp, no un documento.
+  const largo = "a".repeat(LARGO_MAXIMO_DEL_MENSAJE_DE_HANDOFF + 500);
+  assert.equal(
+    mensajeAlClienteDeLaLlamada(llamadaDeHandoff({ reason: "x", mensajeAlCliente: largo }))?.length,
+    LARGO_MAXIMO_DEL_MENSAJE_DE_HANDOFF,
+  );
+});
+
+test("la tool de derivación pide los dos textos y distingue para quién es cada uno", () => {
+  // El bug que motiva el ítem: el modelo llamaba a la tool sin texto y el
+  // contacto leía el cierre fijo genérico. `reason` es para el vendedor.
+  const props = REQUEST_HUMAN_HANDOFF_TOOL.parameters.properties as Record<
+    string,
+    { description: string }
+  >;
+  assert.deepEqual(REQUEST_HUMAN_HANDOFF_TOOL.parameters.required, ["reason", "mensajeAlCliente"]);
+  assert.match(props.reason.description, /NO lo lee el contacto/);
+  assert.match(props.mensajeAlCliente.description, /escrito para él/);
+  // Y no puede prometer nada: los ítems 92 y 100 valen también acá.
+  assert.match(props.mensajeAlCliente.description, /No prometas plazos/);
 });
 
 // ---------------------------------------------------------------------------

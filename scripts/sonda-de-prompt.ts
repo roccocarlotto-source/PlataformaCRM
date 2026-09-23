@@ -275,7 +275,20 @@ async function juzgar(c: Caso, t: Turno): Promise<string> {
     // Determinístico a propósito: o llamó a la tool en este turno, o no. Un
     // "¿querés que te derive?" no cuenta — el cliente enojado se va sin que
     // nadie del negocio se entere.
-    return t.tools.includes("request_human_handoff") ? "OK" : "NO DERIVA";
+    if (!t.tools.includes("request_human_handoff")) return "NO DERIVA";
+    // Y derivar en silencio tampoco alcanza (ítem 111): si el modelo no dejó
+    // ni texto ni mensajeAlCliente, el contacto lee el cierre fijo genérico.
+    const llamada = t.crudas.find((l) => l.function.name === "request_human_handoff");
+    let mensaje: string;
+    try {
+      mensaje = String(
+        (JSON.parse(llamada?.function.arguments ?? "{}") as { mensajeAlCliente?: unknown })
+          .mensajeAlCliente ?? "",
+      );
+    } catch {
+      mensaje = "";
+    }
+    return t.texto.trim().length > 0 || mensaje.trim().length > 0 ? "OK" : "SIN MSJ";
   }
   if (c.espera === "sin-jerga") {
     if (t.texto.trim().length === 0) return "OK"; // turno de solo tools: no le dijo nada todavía

@@ -77,6 +77,10 @@ export const VENTANA_DE_MENSAJES = 20;
 export const MENSAJE_DE_HANDOFF =
   "No pude resolver tu consulta en este momento, alguien del equipo te va a contactar.";
 
+// Tope del mensaje que el modelo puede escribirle al cliente al derivar
+// (ítem 111). Es un mensaje de WhatsApp, no un documento.
+export const LARGO_MAXIMO_DEL_MENSAJE_DE_HANDOFF = 600;
+
 // El motivo con el que la red de seguridad del tope de rondas deriva (nota
 // del paso 4 bajo §6, punto 4).
 export const MOTIVO_TOPE_DE_RONDAS = "El agente no pudo resolver el caso en el tiempo esperado";
@@ -114,17 +118,22 @@ export const REQUEST_HUMAN_HANDOFF_TOOL_NAME = "request_human_handoff";
 export const REQUEST_HUMAN_HANDOFF_TOOL: LlmToolDefinition = {
   name: REQUEST_HUMAN_HANDOFF_TOOL_NAME,
   description:
-    "Avisa a una persona del equipo para que tome esta conversación. Usala cuando el contacto pide explícitamente hablar con una persona, cuando la conversación coincide con una situación de derivación configurada, cuando te preguntan por un tema sobre el que no podés opinar, o cuando la única forma de ayudar es una acción que no tenés disponible. Podés acompañarla con un mensaje para el contacto. Después de llamarla seguís atendiendo con normalidad: contestá lo que sí puedas mientras la persona llega, y dejá de responder solo cuando ella escriba en la conversación.",
+    "Avisa a una persona del equipo para que tome esta conversación. Usala cuando el contacto pide explícitamente hablar con una persona, cuando la conversación coincide con una situación de derivación configurada, cuando te preguntan por un tema sobre el que no podés opinar, cuando el contacto hace un reclamo o una queja, o cuando la única forma de ayudar es una acción que no tenés disponible. Lleva DOS textos distintos y los dos importan: `reason` es la nota interna para el vendedor, y `mensajeAlCliente` es lo que va a leer el contacto — si no lo mandás, el contacto recibe un aviso genérico. Después de llamarla seguís atendiendo con normalidad: contestá lo que sí puedas mientras la persona llega, y dejá de responder solo cuando ella escriba en la conversación.",
   parameters: {
     type: "object",
     properties: {
       reason: {
         type: "string",
         description:
-          "Motivo breve de la derivación, para la persona que va a tomar la conversación (ej. el cliente pide hablar con un vendedor; reclamo por una entrega).",
+          "Motivo breve de la derivación, para la persona que va a tomar la conversación (ej. el cliente pide hablar con un vendedor; reclamo por una entrega). NO lo lee el contacto.",
+      },
+      mensajeAlCliente: {
+        type: "string",
+        description:
+          "Lo que le vas a decir al contacto en este mismo turno, escrito para él. Reconocé lo que planteó con sus propias palabras y decile que una persona del equipo lo va a contactar. No prometas plazos, soluciones ni compensaciones, y no le anticipes qué va a resolver esa persona.",
       },
     },
-    required: ["reason"],
+    required: ["reason", "mensajeAlCliente"],
     additionalProperties: false,
   },
 };
@@ -1056,6 +1065,8 @@ export async function runAgentTurn(
   let respuestaFinal: string | null = null;
   // El motivo con el que se deriva, si este turno deriva. null = no derivar.
   let motivoDeHandoff: string | null = null;
+  // Ítem 111: lo que el modelo escribió para el cliente al pedir la derivación.
+  let mensajeDeHandoffDelModelo: string | null = null;
 
   // Pasos 3 a 6 de §4: el loop de tool-calling.
   for (let ronda = 0; ronda < MAX_TOOL_ROUNDS_PER_TURN; ronda++) {
@@ -1129,14 +1140,23 @@ export async function runAgentTurn(
 
       if (llamada.name === REQUEST_HUMAN_HANDOFF_TOOL_NAME && motivoDeHandoff === null) {
         motivoDeHandoff = motivoDeLaLlamada(llamada);
+        mensajeDeHandoffDelModelo = mensajeAlClienteDeLaLlamada(llamada);
       }
     }
 
-    // El modelo pidió derivar: se corta acá, con el texto de esta misma
-    // respuesta si lo dio o con el cierre fijo si no. No se le vuelve a
-    // preguntar: ya decidió. Es la ÚNICA ronda con tools que corta.
+    // El modelo pidió derivar: se corta acá. No se le vuelve a preguntar, ya
+    // decidió. Es la ÚNICA ronda con tools que corta.
+    //
+    // QUÉ LEE EL CLIENTE, en orden (ítem 111): el texto que el modelo escribió
+    // junto al pedido, si lo hubo; si no, el mensajeAlCliente que mandó dentro
+    // de la llamada; y recién después el cierre fijo. Antes solo estaban el
+    // primero y el tercero, y el segundo no existía: ante un reclamo, el
+    // modelo llamaba a la tool sin texto y las cinco corridas de producción
+    // terminaron con el cliente leyendo "No pude resolver tu consulta en este
+    // momento" — correcto en el ruteo y helado como respuesta a alguien que
+    // acaba de denunciar una estafa.
     if (motivoDeHandoff !== null) {
-      respuestaFinal = resultado.text ?? MENSAJE_DE_HANDOFF;
+      respuestaFinal = resultado.text ?? mensajeDeHandoffDelModelo ?? MENSAJE_DE_HANDOFF;
       break;
     }
 
@@ -1266,6 +1286,20 @@ function motivoDeLaLlamada(llamada: LlmToolCall): string {
   return typeof reason === "string" && reason.trim().length > 0
     ? reason.trim().slice(0, 2000)
     : "El agente pidió derivar la conversación sin indicar un motivo";
+}
+
+// Ítem 111. El mensaje que el modelo escribe PARA EL CLIENTE al derivar,
+// distinto de `reason`, que es la nota interna para el vendedor que toma la
+// conversación. Devuelve null si no vino o vino vacío, y ahí manda el cierre
+// fijo de siempre — misma tolerancia que motivoDeLaLlamada: la salida de
+// emergencia no se rompe por un argumento mal formado.
+export function mensajeAlClienteDeLaLlamada(llamada: LlmToolCall): string | null {
+  const mensaje = llamada.arguments.mensajeAlCliente;
+  if (typeof mensaje !== "string") {
+    return null;
+  }
+  const limpio = mensaje.trim();
+  return limpio.length > 0 ? limpio.slice(0, LARGO_MAXIMO_DEL_MENSAJE_DE_HANDOFF) : null;
 }
 
 // Paso 4-5 de §4 para UNA tool call: permisos primero, ejecución después.
