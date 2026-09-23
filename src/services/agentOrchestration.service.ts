@@ -34,6 +34,8 @@ import {
 } from "./agentTools.service";
 import {
   getLlmProvider,
+  LlmProviderError,
+  type LlmCompletionResult,
   type LlmMessage,
   type LlmProvider,
   type LlmToolCall,
@@ -91,6 +93,11 @@ export const MOTIVO_TOPE_DE_RONDAS = "El agente no pudo resolver el caso en el t
 // cliente quedó sin atender y alguien tiene que enterarse.
 export const MOTIVO_RESPUESTA_INUTILIZABLE =
   "El agente no produjo una respuesta utilizable para el contacto";
+
+// El motivo del ítem 120: el proveedor del modelo falló y no hubo respuesta
+// que dar. No es un error del agente ni del contacto; es infraestructura.
+export const MOTIVO_PROVEEDOR_CAIDO =
+  "El proveedor del modelo no respondió: el contacto quedó esperando y hay que contestarle";
 
 // El tercer disparador fijo de derivación (ítem 110), junto a los dos que ya
 // había. Exportado para poder medirlo solo: la sonda de prompt lo saca del
@@ -1156,12 +1163,50 @@ export async function runAgentTurn(
 
   // Pasos 3 a 6 de §4: el loop de tool-calling.
   for (let ronda = 0; ronda < MAX_TOOL_ROUNDS_PER_TURN; ronda++) {
-    const resultado = await llm.complete({
-      systemPrompt,
-      messages: historial,
-      tools: definiciones,
-      model: agent.modelName,
-    });
+    // ÍTEM 120 — el proveedor puede caerse, y el contacto no puede pagarlo.
+    //
+    // El ítem 114 puso reintentos ante fallas transitorias y dejó anotado lo
+    // que NO resolvía: si después de todos los reintentos el turno se cae, el
+    // error sube hasta el webhook, el mensaje se cuenta como fallido, y como
+    // el Message ENTRANTE ya quedó persistido con su wamid, el reintento de
+    // entrega de Meta lo deduplica. El contacto escribió, su mensaje quedó
+    // guardado, y NUNCA recibe respuesta. Ni en ese intento ni en ninguno.
+    //
+    // Ahí dije que contestarle algo "necesita la conversación ya resuelta, y
+    // si el turno se cayó antes de eso no hay dónde colgarla". Eso estaba MAL:
+    // para cuando se llama al modelo la conversación ya está creada y el
+    // entrante ya está guardado. Lo único que faltaba era no dejar que el
+    // error se llevara puesto ese contexto.
+    //
+    // POR QUÉ ESTO Y NO REPROCESAR. La otra salida era reprocesar el mensaje
+    // en el reintento de Meta, y sigue siendo insegura: si la falla ocurrió en
+    // una ronda posterior, las tools de las rondas anteriores YA se
+    // ejecutaron, y repetir el turno puede duplicar una reserva. Acá no se
+    // repite nada: se cierra el turno con lo que ya pasó.
+    //
+    // SOLO LlmProviderError. Un error de programación tiene que seguir
+    // subiendo y rompiendo fuerte: convertirlo en "tuvimos un problema
+    // técnico" lo escondería y nadie se enteraría nunca.
+    let resultado: LlmCompletionResult;
+    try {
+      resultado = await llm.complete({
+        systemPrompt,
+        messages: historial,
+        tools: definiciones,
+        model: agent.modelName,
+      });
+    } catch (err) {
+      if (!(err instanceof LlmProviderError)) {
+        throw err;
+      }
+      logger.error(
+        { err, organizationId, agentId, conversationId: conversation.id, ronda },
+        "El proveedor del modelo falló tras los reintentos: se deriva en vez de dejar al contacto sin respuesta",
+      );
+      motivoDeHandoff ??= MOTIVO_PROVEEDOR_CAIDO;
+      respuestaFinal = MENSAJE_DE_HANDOFF;
+      break;
+    }
 
     if (resultado.toolCalls.length === 0) {
       // Sin tools. Texto = respuesta final. Sin texto tampoco = el modelo no

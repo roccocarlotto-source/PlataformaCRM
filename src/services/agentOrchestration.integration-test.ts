@@ -32,6 +32,7 @@ import {
   setLlmProviderForTests,
   type LlmCompletionRequest,
   type LlmCompletionResult,
+  LlmProviderError,
   type LlmProvider,
 } from "./llmProvider.service";
 import { createPipeline } from "./pipeline.service";
@@ -2248,6 +2249,64 @@ test("ítem 109: una respuesta normal a ese mismo reclamo pasa intacta", async (
 // ---------------------------------------------------------------------------
 // Ítem 111: al derivar, el cliente lee algo escrito para él
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Ítem 120: si el proveedor se cae, el contacto igual recibe una respuesta
+// ---------------------------------------------------------------------------
+
+test("ítem 120: una falla del proveedor deriva en vez de tumbar el turno", async () => {
+  // El ítem 114 puso reintentos y dejó anotado lo que no resolvía: si después
+  // de todos el turno se cae, el error sube, el mensaje se cuenta como
+  // fallido, y como el entrante ya está guardado con su wamid el reintento de
+  // Meta lo deduplica. El contacto nunca recibe respuesta.
+  const e = await montar("proveedor-caido", { enabledTools: [] });
+  try {
+    const proveedor: LlmProvider = {
+      name: "openrouter",
+      complete: () =>
+        Promise.reject(
+          new LlmProviderError(
+            "OpenRouter rechazó la solicitud (429): could not verify available credits",
+          ),
+        ),
+    };
+
+    const resultado = await turno(e, "¿Tenés Hilux?", proveedor);
+
+    // El contacto recibe algo, y alguien del negocio se entera.
+    assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+    assert.equal(resultado.handoff, true);
+    assert.notEqual(resultado.handoffActivityId, null);
+
+    // Y el mensaje quedó en el hilo, no perdido.
+    const mensajes = await prisma.message.findMany({
+      where: { conversationId: resultado.conversationId },
+      orderBy: { createdAt: "asc" },
+    });
+    assert.equal(mensajes[0].direction, "INBOUND");
+    assert.equal(mensajes[1].content, MENSAJE_DE_HANDOFF);
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("ítem 120: un error que NO es del proveedor sigue subiendo", async () => {
+  // Un bug de programación tiene que romper fuerte. Convertirlo en "tuvimos un
+  // problema técnico" lo escondería y nadie se enteraría nunca.
+  const e = await montar("error-de-programacion", { enabledTools: [] });
+  try {
+    const proveedor: LlmProvider = {
+      name: "openrouter",
+      complete: () => Promise.reject(new TypeError("undefined is not a function")),
+    };
+    await assert.rejects(
+      () => turno(e, "¿Tenés Hilux?", proveedor),
+      (err: unknown) => err instanceof TypeError,
+    );
+  } finally {
+    await desmontar(e);
+  }
+});
 
 test("ítem 111: el mensajeAlCliente de la llamada es lo que recibe el contacto", async () => {
   // Las cinco corridas del reclamo en producción terminaron con el cliente
