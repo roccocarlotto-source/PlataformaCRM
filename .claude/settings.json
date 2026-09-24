@@ -1,4 +1,23 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(git fetch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(git merge:*)",
+      "Bash(git push:*)",
+      "mcp__github__create_pull_request",
+      "mcp__github__update_pull_request",
+      "mcp__github__merge_pull_request"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push origin main:*)",
+      "Bash(git push origin master:*)",
+      "mcp__github__actions_run_trigger"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
