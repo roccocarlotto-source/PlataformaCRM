@@ -148,7 +148,115 @@ aunque la tabla final ya tiene Render/Vercel reales.
 
 ### 2.2 Fichas por módulo
 
-(pendiente)
+Estados: **sólido** · **funciona con reparos** · **frágil** · **incompleto** · **no existe**.
+
+#### CRM core (Company, Contact/Lead, Pipeline, Stage, Opportunity, Activity, Quote, Delivery, Payment)
+- **Qué hace:** CRUD multi-tenant con soft delete, paginación, búsqueda `pg_trgm`, dashboard; ciclo de oportunidad (OPEN/WON/LOST) con cierre transaccional (unidad a SOLD, entrega, contacto a CUSTOMER, evento `opportunity.won`); cotizaciones con máquina de estados; pagos como historial informativo; "Mis tareas" con confirmación por ADMIN.
+- **Archivos:** `src/services/{company,contact,pipeline,stage,opportunity,opportunityClosing,activity,quote,delivery,payment,ownership}.service.ts`, repositorios homónimos, `prisma/schema.prisma:666-1079, 2925-3098`.
+- **Entidades:** todas con `organizationId`, ninguna con `branchId`. Lead = `Contact.lifecycleStage` + `lead*`.
+- **Entradas:** `/api/companies|contacts|pipelines|stages|opportunities|activities|quotes|deliveries|payments` (JWT; escrituras ADMIN salvo excepciones documentadas).
+- **Estado:** **sólido**. Locks y CAS en todas las carreras conocidas; A-1/A-4/M-8/M-9/M-10/M-13 del 29/08 cerrados.
+- **Tests:** unit + integración en todos; carreras con barrera real.
+- **Deuda conocida:** reabrir una oportunidad PERDIDA (ítem 124, decisión de Rocco); `customFields` sin consumidor.
+- **Hallazgos:** C-04 (deleteContact), C-06 (teléfono), D-08, F-02, F-03, I-02.
+
+#### Ingesta (Source, ApiKey, IngestionEvent, importación Excel/CSV)
+- **Qué hace:** webhook `POST /api/ingest` con API key hasheada (60/min por clave), importación con preview + mapeo, cola `IngestionEvent` promovida por worker con reintentos/backoff/DEAD_LETTER, purga por script.
+- **Archivos:** `src/services/{ingest,ingestAuth,import,ingestionEvent,promotion}.service.ts`, `src/workers/ingestionWorker.ts`, `src/middlewares/{authenticateApiKey,ingestBody,importUpload}.ts`, `scripts/purge-ingestion-events.ts`.
+- **Estado:** **sólido**. B-30, M-15, M-16, M-17, A-6 cerrados. `EXTERNAL_DB` pospuesto por decisión.
+- **Tests:** unit + integración (controller, worker, batch, purge).
+- **Deuda conocida:** CORS de `/api/ingest` "decisión pendiente"; purga sin cron; V-12 (`DO NOTHING` con `X-External-Id` fijo).
+- **Hallazgos:** C-08, C-09, H-02 (purga acotada en test).
+
+#### Agente de IA y tools
+- **Qué hace:** loop de orquestación (`runAgentTurn`): system prompt (instrucciones + guardrails + KB de la sucursal + datos del contacto + 13 instrucciones fijas) → hasta 5 rondas de LLM con 11 tools + `request_human_handoff` → guardas de salida → persistencia de `Message` con `toolCalls` → handoff (status + Activity + brief). Proveedor único OpenRouter, modelo por agente, 2 reintentos ante transitorios, timeout 60 s.
+- **Archivos:** `src/services/{agentOrchestration,agentTools,agentPermissions,llmProvider,agent,agentGuardrailsTranslation,conversation,conversationBrief}.service.ts`, `src/controllers/{agent,conversation}.controller.ts`.
+- **Entidades:** `Agent` (por sucursal), `Conversation` (por sucursal), `Message`, escribe `Contact`, `Opportunity`, `Booking`, `Activity`.
+- **Entradas:** widget, webhook de WhatsApp, `POST /api/agents/:id/test-message` (ADMIN), `POST /api/agents/guardrails/translate`.
+- **Estado:** **funciona con reparos**. Arquitectura correcta (el modelo no elige ids ni dueños); ítems 108–124 cerrados; residuales (a) y (b) conocidos.
+- **Tests:** unit (~70) + integración (66) con LLM doblado y aserciones sobre la base; sin eval de conducta en CI.
+- **Deuda conocida:** ventana de 20 mensajes; sin `HUMAN` messages; residuales; KB de AutoMax vacía.
+- **Hallazgos:** B-01…B-15, C-01, C-05, E-01, H-03.
+
+#### Knowledge Base
+- **Qué hace:** `KnowledgeBaseEntry` por sucursal (título ≤200, contenido ≤10.000), extracción de texto de .txt/.docx/.pdf (`mammoth`, `pdf-parse`, 10/min por usuario), sincronización manual stock→KB (una entrada por vehículo publicado, `sourceVehicleId` único). Todo entra como texto plano al prompt; sin embeddings ni RAG.
+- **Archivos:** `src/services/{knowledgeBaseEntry,knowledgeBaseExtraction,vehicleKnowledgeBaseSync}.service.ts`, `src/middlewares/knowledgeBaseUpload.ts`.
+- **Estado:** **funciona con reparos** (por B-04/I-01).
+- **Tests:** unit + integración.
+- **Hallazgos:** B-04, I-01.
+
+#### WhatsApp (Meta Cloud API)
+- **Qué hace:** handshake GET, POST con firma HMAC sobre raw body (32 KB), agente por `phone_number_id`, dedup por wamid, contacto por teléfono bajo lock de organización, turno del agente **dentro del request**, envío por Graph API `v25.0` con un token global. Solo mensajes `text`; `statuses` ignorados.
+- **Archivos:** `src/routes/whatsappWebhook.routes.ts`, `src/controllers/whatsappWebhook.controller.ts`, `src/services/{whatsappWebhook,whatsappContact,whatsappGraph}.service.ts`.
+- **Entradas:** `GET/POST /webhooks/whatsapp` (sin `/api`).
+- **Estado:** **frágil**. Sin prueba real contra Meta en el repo; síncrono; sin cola ni estado de entrega; credenciales globales.
+- **Tests:** integración por HTTP con firma real; el cliente Graph nunca se ejecuta en tests.
+- **Deuda conocida:** ítem 81 "limitaciones conocidas" (race de conversación, envío sin reintento, teléfono sin código de país); 4 pasos "para producción" pendientes.
+- **Hallazgos:** A-01, B-02, B-03, B-08, B-09, C-01, C-06, D-01, D-04, D-05, D-09, E-03, G-01, H-04.
+
+#### Widget web
+- **Qué hace:** `widget.js` (IIFE, 11 kB) embebido con `data-agent-id` + `data-embed-token`; `POST /api/public/agents/:agentId/web/messages` con CORS dinámico por `Agent.allowedOrigins`, body 8 KB, embed token hasheado, 20 msg/min por token; contacto placeholder "Visitante <hash>" por `sessionId` (UUID en `localStorage`).
+- **Archivos:** `frontend/src/widget/*`, `frontend/vite.widget.config.ts`, `src/routes/publicWidget.routes.ts`, `src/middlewares/{widgetCors,widgetBody,authenticateEmbedToken}.ts`, `src/services/{widgetAuth,widgetContact,agentEmbedToken}.service.ts`.
+- **Estado:** **funciona con reparos**.
+- **Tests:** unit (widget) + integración (controller, rate limit).
+- **Deuda conocida:** sin historial al recargar; token público multi-IP; verificación de que Vercel sirve `widget.js` "pendiente".
+- **Hallazgos:** A-05, B-10, B-11, C-04, C-08 (del eje C: doble submit), F-05.
+
+#### Automatizaciones
+- **Qué hace:** reglas `Automation` (por organización) = trigger (`opportunity.won`, `opportunity.stale`) → acción (`activity.create_follow_up`, `agent.draft_follow_up` con LLM); despacho desde el outbox con idempotencia por `automation_executions`; worker diario de estancadas.
+- **Archivos:** `src/services/{automation,automationDispatch,automationTriggers,automationActions,automationRegistrations}.service.ts`, `src/services/automationActions/*`, `src/workers/opportunityStaleWorker.ts`, `src/workers/outboxWorker.ts`.
+- **Estado:** **incompleto** (sin condiciones, 2+2 de catálogo) pero estable.
+- **Tests:** integración de dispatch, won, stale; unit de acciones.
+- **Deuda conocida:** sin `GET /executions`, sin purga de `automation_executions`, autoría = owner, triggers de booking/Resea no construidos.
+- **Hallazgos:** B-01 (disparo por el modelo), C-02, C-09, C-11, G-04, I-04.
+
+#### Agenda / Booking + Google Calendar
+- **Qué hace:** `Resource`, `ServiceType`, `WorkingHours` por recurso, disponibilidad por grilla, `Booking` con locks y capacidad, cancelación, `force` para ADMIN; OAuth por sucursal, refresh token cifrado, espejo de reservas en Google, canales push con renovación, sync inversa incremental.
+- **Archivos:** `src/services/{availability,booking,resource,serviceType,workingHours,googleCalendar,googleCalendarConnection,googleCalendarSync}.service.ts`, `src/workers/googleCalendarChannelWorker.ts`, `src/utils/{oauthState,webhookToken,encryption,workingHours,timezone}.ts`.
+- **Estado:** **sólido** (todos los hallazgos del 29/08 cerrados). Google apagado de facto en Render (sin `GOOGLE_*`).
+- **Tests:** unit + integración con cliente de Google doblado, carreras con barrera.
+- **Deuda conocida:** sin reprogramar; evento movido en Google solo se loguea; verificación de dominio en Search Console pendiente.
+- **Hallazgos:** A-04, E-05, G-01(a).
+
+#### Pagos y cotizaciones
+- **Qué hace:** `Payment` (historial, sin estado), `Quote` (DRAFT→SENT→ACCEPTED/REJECTED, EXPIRED, SUPERSEDED), `Branch.paymentLinkUrl`/`bankTransferDetails` cargados a mano, `get_payment_info`; cotización USD→local desde `open.er-api.com` una vez al día.
+- **Archivos:** `src/services/{payment,quote,delivery,exchangeRate}.service.ts`, `src/workers/exchangeRateWorker.ts`.
+- **Estado:** **sólido para lo que es** (no hay pasarela ni `create_payment_link`).
+- **Hallazgos:** D-03, D-08.
+
+#### Vehículos / stock
+- **Qué hace:** `Vehicle` con precios (lista/mínimo/costo), estado, publicación, permuta/financiación, consignación, fotos en bucket privado con signed URLs, `VehicleChangeLog`, `internalCode` correlativo, vínculo con oportunidad (retención de unidad, SOLD al ganar, trade-in).
+- **Archivos:** `src/services/{vehicle,vehiclePhoto,vehicleKnowledgeBaseSync}.service.ts`, `src/lib/supabaseStorage.ts`, `src/utils/vehiclePhoto.ts`.
+- **Estado:** **sólido**. Sin documento de arquitectura propio (solo el tracker y la matriz).
+- **Tests:** unit + integración (Storage real en CI).
+- **Hallazgos:** B-04, C-03 (borrado de sucursal), F-02.
+
+#### QR y reseñas
+- **Qué hace:** `QrCode` digital por sucursal con `displayNumber`, `GET /qr/resolve/:qrId` detrás del Worker (secreto compartido, fail-closed) → 302/landing según estado de suscripción de la organización; billing por platform admin (`qr-subscription-status`, `qr-billing-exemption`) y webhook de MercadoPago (firma + re-fetch + idempotencia). Integración con Resea: solo Branch y outbox (pasos 1–2 de 6).
+- **Archivos:** `src/controllers/{qr,qrAdmin,qrPublic,qrWebhook}.controller.ts`, `src/services/{qr,qrPublic,qrBilling,qrWebhook}.service.ts`, `src/middlewares/requireInternalProxySecret.ts`, `src/utils/{mercadopagoSignature,qrLanding}.ts`.
+- **Estado:** **lado CRM sólido; cobro incompleto**.
+- **Tests:** integración (gate, landing, firma MP, billing); sin cross-org en qrPublic.
+- **Deuda conocida:** e2e con el Worker "pendiente" (según bitácora del 05/09 ya hecho); decomiso del repo viejo; QR físico eliminado.
+- **Hallazgos:** D-02, D-03, D-06, D-07, E-02, F-01, F-08.
+
+#### Auth / onboarding / usuarios
+- **Qué hace:** JWT ES256 verificado por JWKS; `authenticate` resuelve el tenant desde `users`; roles ADMIN/USER; invitaciones (Admin API, `email_confirmed_at`), onboarding por OTP (público, hoy sin uso — alta por platform admin en `/api/admin/organizations`); limpieza de usuarios no confirmados por script.
+- **Archivos:** `src/middlewares/{authenticate,authorize,requirePlatformAdmin,verifyInvitationAcceptIdentity}.ts`, `src/lib/{jwt,supabaseAdmin,supabaseAnon}.ts`, `src/services/{auth,authIdentity,authCleanup,invitation,onboarding,user,organization,organizationAdmin}.service.ts`.
+- **Estado:** **sólido**. A-3 del 29/08 (JWKS → 401) — ver §5.
+- **Hallazgos:** A-02, A-03, A-06, E-06.
+
+#### Workers (5, in-process)
+- ingesta (5 s, `SKIP LOCKED`), outbox (5 s, `SKIP LOCKED`, handler con tope 10 s), canales de Google (1 h), cotizaciones (24 h), oportunidades estancadas (24 h). Arrancan en `src/server.ts` sin guarda; shutdown ordenado espera la pasada en curso.
+- **Estado:** **funciona con reparos** (una sola instancia; Render Free los duerme; `npm run dev` los corre contra producción).
+- **Hallazgos:** C-02, C-11, G-01, G-02, G-04.
+
+#### Frontend CRM (`frontend/`)
+- **Qué hace:** SPA con ~60 rutas, 29 features, sesión Supabase en `sessionStorage`, cliente API único, react-query; gates `ProtectedRoute`/`AdminRoute`/`PlatformAdminRoute` espejo del backend.
+- **Estado:** **sólido** (1785 tests, typecheck/lint limpios, contratos alineados). Bundle único de 1,39 MB.
+- **Hallazgos:** F-01…F-08, G-06.
+
+#### Admin QR (`plataforma-qr/admin`) y Worker de Cloudflare
+- **No auditados** (repo no accesible). Lo que consta: Worker `resea-resolve-proxy` en `nexoraqrs.com/r/:id` con rate limit 10/min por IP y 500/min global, `redirect: "manual"`, relay de la landing "byte a byte", `INTERNAL_PROXY_SECRET`. **Estado: VERIFICAR.** Hallazgos del lado CRM que le conciernen: D-06, E-02, y la sección 4.
 
 ### 2.3 Modelo de datos resumido
 
@@ -251,7 +359,22 @@ eje E.
 
 ### 2.5 Documentación vs. código
 
-(pendiente)
+| Doc | Qué dice | Qué hay | Veredicto |
+|---|---|---|---|
+| `docs/project-overview.md` (se autodeclara "fuente de verdad") | fechado **2026-07-14**; "13 modelos" (×5); "sin Dockerfile" (`:2897, :2944`); RLS "en las 10 tablas" (`:1089`); no menciona Agent, Booking, Branch, Automation, QrCode, KB, WhatsApp, Quote, Delivery, Payment, OutboxEvent | 40 modelos, Dockerfile, 37 tablas con RLS | **muy desactualizado**; la fuente real del estado es `docs/frontend-cambios-pendientes.md` (124 ítems) + `docs/matriz-de-datos-crm.md` |
+| `docs/roadmap-implementacion.md` | WhatsApp "hoy no existe nada de esto" (`:66`), decisión Twilio vs número dedicado; frontend "carpeta vacía" (`:105`); booking paso 6 sin tildar (`:45`) | WhatsApp construido por Meta Cloud API directo (ítem 81); 29 features de frontend; tools de agenda hechas | desactualizado |
+| `docs/ai-agent-architecture.md` | §2 WhatsApp "fuera de alcance"; §9 paso 6 "cuando el trámite de Meta/Twilio esté resuelto"; `:168-175` sin RLS "sigue el precedente de Booking"; `:176-178` `externalMessageId` sin UNIQUE; §7 catálogo de 11 tools | WhatsApp existe; Booking sí tiene RLS desde M-5; el UNIQUE existe (ítem 81); **el catálogo de tools coincide 1:1** doc ↔ backend ↔ `frontend/src/features/agent/tools.ts` | parcialmente desactualizado; el catálogo está bien |
+| `docs/automations-architecture.md` | §4 un trigger, §5 una acción, §10 "frontend fuera de este PR" | 2 triggers, 2 acciones, pantalla `/automations` | desactualizado respecto de ítems 62 y 76 |
+| `docs/booking-architecture.md` | §6 automatizaciones por Booking, §9 paso 5 | `booking.service.ts` no emite ningún evento al outbox | documentado, **no existe** |
+| `docs/integracion-resea-crm.md` | §2 "No hay modelo Sucursal/Branch"; §6 seis pasos | Branch existe desde `20260828160000`; pasos 3–6 (BranchIntegration, API key saliente, acción "enviar QR") **no existen** | desactualizado / no construido |
+| `docs/qr-integration.md` | Fase 4 "verificación e2e pendiente"; Worker relaya GET/POST | `bitacora-2026-09-05.md §3` dice que el e2e ya se hizo OK; POST eliminado del backend | contradictorio entre docs; D-06 |
+| `docs/deployment.md` | "Estado: esqueleto"; 4 workers; §2.3 sin `WHATSAPP_*`/`OPENROUTER_*`/`OPPORTUNITY_STALE_*`; Render con `QR_CLAIM_APP_URL` | 5 workers; variables faltantes; `QR_CLAIM_APP_URL` eliminada del código | desactualizado (E-04) |
+| `.env.example` | — | faltan 19 variables (`INGEST_*`, `OUTBOX_*`, `WHATSAPP_*`) | E-04 |
+| `PLAN-AUTONOMO.md` regla 1 "NUNCA mergeo un PR" | — | `CLAUDE.md` (23/09): se mergea con CI verde; ítems 90–119 mergeados | regla que ya no rige |
+| `.github/workflows/ci.yml` comentarios `:61-63` ("integración fuera de CI"), `:219-220` ("6 de los 8 archivos") | — | job `integration` existe; 75 archivos | comentarios viejos |
+| Vehículos/stock | ningún `docs/vehicles-*.md`; `vehicle.service.ts` habla de una "Fase 3: sitio público" | módulo entero sin arquitectura escrita; el sitio público no existe | **existe sin documentar** |
+| `docs/frontend-cambios-pendientes.md` | nombre "frontend" | ítems 100–124 son 100 % backend/prompt; no hay `## 71`; 76 antes de 74/75; 91 antes de 90 | es el tracker general; solo numeración |
+| Xentech (`Base-de-datos-Xentech`, clonado en la sesión pero fuera del alcance) | ya resolvió `WhatsAppConnection` por organización cifrada + cola `AgentInboundJob` + test de RLS por tabla | PlataformaCRM no tiene ninguno de los tres | precedente reutilizable para D-01, D-04, A-02 |
 
 ---
 
@@ -1022,13 +1145,45 @@ Contra los seis principios de §1 del encargo, con el código como está:
 
 ## 4. Contratos entre repos
 
-(pendiente)
+Solo el lado CRM está verificado; el lado `plataforma-qr` sale de `docs/qr-integration.md` y de `docs/deployment.md`. **VERIFICAR** = no se pudo confirmar contra el otro repo.
+
+| Contrato | Lado CRM (verificado) | Lado esperado del otro | ¿Coincide? |
+|---|---|---|---|
+| Worker → `GET /qr/resolve/:qrId` | `qrPublic.routes.ts:25`, header `x-internal-proxy-secret`, 302/200/404 con landing HTML | Worker `resea-resolve-proxy` manda `INTERNAL_PROXY_SECRET`, `redirect: "manual"`, relaya 30x y fuerza `text/html` | sí en GET (**VERIFICAR** que los dos secretos tengan el mismo valor y el nombre exacto del header) |
+| Worker → `POST /qr/resolve/:qrId` | ruta eliminada (`20260904120000`); cae en 404 JSON | doc: el Worker relaya GET y POST, 26 tests "en GET y POST" | **no** (D-06) |
+| Rate limiting de `/qr/resolve` | ninguno en el backend (delegado) | 10/min por IP, 500/min global en el Worker | **VERIFICAR** |
+| Frontend CRM → link público del QR | `${VITE_QR_PUBLIC_BASE_URL}/r/${uuid}` (`frontend/src/lib/publicUrl.ts`) | `nexoraqrs.com/r/*` | sí (según doc) |
+| MercadoPago → `POST /webhooks/mercadopago` | firma `x-signature` (ts,v1) + `x-request-id`, manifiesto `id:…;request-id:…;ts:…;`, ventana 300 s/60 s, re-fetch del preapproval, idempotencia por `body.id` | mapeo `authorized→ACTIVE`, `cancelled|paused→INACTIVE` "no verificado contra sandbox" (el propio doc) | sí en forma; **VERIFICAR** mapeo y minúsculas del manifiesto (D-07); **sin write path** de `qrMercadopagoSubscriptionId` (D-02) |
+| CRM ↔ Supabase de `plataforma-qr` | **no existe ninguna llamada** desde el CRM a otro Supabase: el QR vive entero en el Postgres del CRM (`QrCode`, `PaymentEvent`, …) | el doc describe `supabase/` (migraciones, functions, tests) en `plataforma-qr` | **VERIFICAR** qué queda vivo en ese Supabase (posible decomiso pendiente, Fase 5) |
+| Frontend CRM ↔ backend | tipos alineados en todos los módulos (eje F) | — | sí, salvo `/claim/:qrId` (F-01) |
+| Widget ↔ backend | `x-embed-token` + `Origin` + `{sessionId, message}` → `{conversationId, respuesta}` | — | sí |
+| Meta ↔ backend | `X-Hub-Signature-256`, `hub.verify_token`, Graph API `v25.0` | — | **VERIFICAR** con un mensaje real (no consta ninguno) |
+| Google ↔ backend | OAuth + `events.watch` con `GOOGLE_WEBHOOK_URL` | dominio verificado en Search Console | **VERIFICAR** (pendiente conocido) |
 
 ---
 
 ## 5. Auditorías previas: siguen abiertos / confirmados resueltos
 
-(pendiente)
+**Confirmados como resueltos (leyendo el código actual):**
+
+- 29/08 ALTOS: **A-1** (locks de pipeline en `updateStage`/`deleteStage`, `stage.service.ts:265, 362-368`), **A-2** (ningún limiter keyea por IP), **A-4** (`serviceType.service.ts:203-232`, `booking.service.ts:275-290`), **A-5** (`workingHours.ts:224-245`, `availability.service.ts:97-117`), **A-6** (`ingestContact.schema.ts:74-80`), **A-7** (`booking.integration-test.ts:887-1013`), **A-8** (`googleCalendarSync.integration-test.ts:887-1069`).
+- 29/08 MEDIOS: **M-1, M-2, M-3, M-4** (parcial: 200 + warn, canal no se cierra — documentado), **M-5** (7 tablas con RLS), **M-6** (`verify:schema` 14/14, 56 FKs), **M-7, M-8, M-9, M-10, M-11** (`prismaErrors.ts`, body-parser traducido, `req.id`), **M-12** (`shutdown.ts`), **M-13, M-15, M-16, M-17, M-18, M-19, M-20** (en su enunciado).
+- 29/08 BAJOS verificados: **B-2, B-3, B-4, B-5, B-6, B-7, B-8, B-9, B-12, B-13, B-15** (CHECKs fuera de la reaplicación), **B-16, B-17, B-18, B-21** (`page` con tope, test en `apiKey`), **B-22** (429 distinguido), **B-23** (`urlencoded` retirado), **B-26, B-27, B-30, B-35**.
+- 29/08 VERIFICAR: **V-1…V-9, V-14** cerrados según `docs/verificacion-v1-v14-estado.md` y confirmados de paso (V-2, V-4, V-7, V-9); **V-11** cerrado por decisión.
+- 21/08: **ALTO-5** cerrado (vía A-1); **M-15, M-16, M-17 (parcial), M-18, M-27, M-29** cerrados (vía M-12, M-11, B-19, M-11, M-13, M-10).
+
+**Siguen abiertos (confirmado en el código actual):**
+
+| Previo | Estado hoy | En este informe |
+|---|---|---|
+| 29/08 **A-3** / 21/08 ALTO-4 (fallo del JWKS → 401 masivo) | **VERIFICAR** — no se re-verificó `src/lib/jwt.ts` en esta pasada; ninguna de las siete pasadas lo reportó cerrado | §7 |
+| 29/08 **M-14** (`Promise.race` no aborta el handler) | parcial: hay `AbortSignal` pero muere en el dispatcher | C-02 |
+| 29/08 **B-19** / 21/08 M-17, B-13 (`/health` sin rate limit, `SELECT 1` por hit) | abierto (aceptable) | A-06, E-08 del eje E+G |
+| 29/08 **B-20** / 21/08 B-3 (PII en `req.url`) | abierto, documentado como límite | E-06 |
+| 29/08 **V-10, V-12, V-13** (outbox) | abiertos; ahora hay consumidor real | C-09 |
+| 29/08 **V-5** (IP forwarding a Supabase Auth) | parcial por decisión (3 acciones de Rocco) | §7 |
+| 29/08 B-1, B-10, B-11, B-14, B-24, B-25, B-28, B-29, B-31, B-32, B-33, B-34 | **no re-verificados** en esta pasada (BAJOS de higiene); no se afirma nada | — |
+| 21/08 ALTO-10, ALTO-12, ALTO-13 (frontend), M-1, M-3…M-9, M-12, M-14, M-19…M-21 | no re-verificados (el 29/08 tampoco); el frontend actual no muestra los síntomas de ALTO-10/12/13 (tipos alineados, sin N+1 visible) | — |
 
 ---
 
