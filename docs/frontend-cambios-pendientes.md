@@ -4814,6 +4814,13 @@ Por cada mensaje de texto:
 
 En `AgentFormPage`, tarjeta "Capacidades", debajo de Canales: el campo **"ID del número de WhatsApp"** (`inputMode="numeric"`, máximo 40) con un hint que explica que es el *Phone number ID* de Meta y no el teléfono. El cliente frena lo que no sean dígitos con el mismo criterio que `whatsappPhoneNumberIdSchema` del backend, donde además `""` se trata como `null`. Viaja en el POST y en el PATCH, y **vaciarlo manda `null`**, que es lo que le saca el número a un agente. Un número que ya tiene otro agente (de esta u otra organización) vuelve como **409** "Ese número de WhatsApp ya está asignado a otro agente", y la pantalla lo muestra tal cual. El mensaje no dice qué agente lo tiene, porque puede ser de otra organización.
 
+> **Actualización 24/09/2026 — ítem 127 (A-01 de `docs/auditoria-2026-09-24-punta-a-punta.md`): el número lo asigna la plataforma, no el negocio.** Lo de arriba dejó de valer. Con una sola Meta App y un solo token para toda la plataforma, cualquier ADMIN podía cargar el `phone_number_id` de OTRO negocio y recibir y contestar los mensajes de sus clientes, y el 409 servía para enumerar qué ids estaban en uso. Desde el ítem 127:
+>
+> - En `AgentFormPage` el campo es **de solo lectura** ("Lo configura el equipo de la plataforma"; vacío muestra "Sin número asignado") y el formulario **ya no lo manda**.
+> - `POST`/`PATCH /api/agents` siguen aceptando el campo solo si trae el valor que el agente ya tiene (o `null` cuando no tiene): cualquier otro es **403** "El número de WhatsApp del agente lo asigna la plataforma". Un tenant ya no puede llegar al 409.
+> - El único camino que lo escribe es **`PUT /api/admin/agents/:agentId/whatsapp-phone-number`** con `{ "whatsappPhoneNumberId": "<dígitos>" | null }`, detrás de `requirePlatformAdmin` (mismo patrón que `qrAdmin.routes.ts`). Busca el agente sin filtro de organización; 404 si no existe o está borrado, 409 si otro agente ya tiene el número, `null` lo libera. Deja una línea de log con quién, qué agente y de qué número a cuál. En el frontend, pantalla mínima para el platform admin en `/admin/agents/whatsapp-number` (sidebar "Plataforma" → "Número de WhatsApp"), que pide el id del agente y el número.
+> - Sin migración: `Agent.whatsappPhoneNumberId` sigue UNIQUE global, y los números ya asignados siguen funcionando igual. Borrar el agente lo sigue liberando.
+
 ### Limitaciones conocidas
 
 - **Race de conversación (ya existía antes de este ítem).** `runAgentTurn` hace `findOpenConversation` y después `createConversation` sin un UNIQUE que lo respalde, así que dos mensajes simultáneos de un contacto sin conversación abierta pueden crear dos. Web tiene el mismo comportamiento. El lock de este ítem cubre solo el Contact.
@@ -4826,7 +4833,7 @@ En `AgentFormPage`, tarjeta "Capacidades", debajo de Canales: el campo **"ID del
 1. `npm run migrate:deploy` contra prod (`20260929120000_whatsapp_webhook`).
 2. En Render: `WHATSAPP_APP_SECRET` y `WHATSAPP_ACCESS_TOKEN` (el `WHATSAPP_VERIFY_TOKEN` ya está cargado).
 3. En el panel de Meta: callback URL `https://<backend>/webhooks/whatsapp`, el mismo verify token, y suscribir el campo `messages`.
-4. En la pantalla del agente: cargar el Phone number ID y habilitar el canal WhatsApp.
+4. Pedirle al equipo de la plataforma que asigne el Phone number ID al agente (desde el ítem 127 lo hace un platform admin, ver arriba) y, en la pantalla del agente, habilitar el canal WhatsApp.
 
 ### Lo que se tocó
 

@@ -50,6 +50,8 @@ export interface Agent {
   // El "Phone number ID" de WhatsApp Business Platform (ítem 81): con él el
   // webhook de Meta sabe de qué agente es cada mensaje. Solo dígitos, único
   // entre todos los agentes del sistema. null = el agente no tiene número.
+  // Desde el ítem 127 es de solo lectura para el tenant: lo asigna la
+  // plataforma.
   whatsappPhoneNumberId: string | null;
   isActive: boolean;
   createdAt: string;
@@ -111,9 +113,9 @@ export interface CreateAgentInput {
   // además, exige que vayan juntos): el texto que se muestra y el objeto que
   // rige no pueden quedar diciendo cosas distintas.
   guardrailsText: string;
-  // null = sin número. A diferencia de allowedOrigins SÍ se carga en el alta:
-  // no depende de nada que exista recién después de crear el agente.
-  whatsappPhoneNumberId?: string | null;
+  // Sin whatsappPhoneNumberId desde el ítem 127: lo asigna SOLO un platform
+  // admin (PUT /api/admin/agents/:agentId/whatsapp-phone-number), y el backend
+  // rechaza con 403 un POST/PATCH del tenant que intente cambiarlo.
   isActive?: boolean;
 }
 

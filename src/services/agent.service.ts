@@ -1,10 +1,13 @@
 import { Prisma, type ConversationChannel } from "@prisma/client";
+import { logger } from "../lib/logger";
 import { prisma, type Db } from "../lib/prisma";
 import {
   countAgents,
   createAgent as createAgentRepo,
   findAgentById,
+  findAgentByIdForPlatformAdmin,
   findManyAgents,
+  setAgentWhatsappPhoneNumberId,
   softDeleteAgent,
   updateAgent as updateAgentRepo,
   type AgentFilters,
@@ -100,10 +103,40 @@ export interface CreateAgentInput {
   isActive?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// EL NÚMERO DE WHATSAPP LO ASIGNA LA PLATAFORMA (ítem 127, A-01 de
+// docs/auditoria-2026-09-24-punta-a-punta.md).
+//
+// La plataforma opera con UNA sola Meta App y un solo token, así que los
+// mensajes de los números de todos los clientes entran al mismo webhook y
+// whatsapp_phone_number_id es lo único que dice de qué agente son. Hasta el
+// ítem 127 lo escribía el ADMIN del tenant: cualquier ADMIN podía cargar el
+// phone_number_id de OTRO negocio (no es secreto: está en el panel de Meta y
+// en cualquier payload) y recibir y contestar los mensajes de sus clientes; y
+// el 409 de "ya está asignado" servía para enumerar qué ids estaban en uso.
+//
+// Desde el ítem 127 el tenant no lo cambia: crear y editar agente siguen
+// aceptando el campo porque el formulario puede reenviar el valor que ya
+// tiene, pero solo si es ESE valor (o null cuando no tiene). Cualquier otro es
+// 403. El único camino que lo escribe es asignarNumeroDeWhatsapp(), detrás de
+// requirePlatformAdmin. Sin migración: la columna UNIQUE queda como estaba.
+// ---------------------------------------------------------------------------
+
+export const MENSAJE_NUMERO_LO_ASIGNA_LA_PLATAFORMA =
+  "El número de WhatsApp del agente lo asigna la plataforma: pedíselo al equipo de la plataforma";
+
+function assertNumeroDeWhatsappSinCambios(
+  actual: string | null,
+  pedido: string | null | undefined,
+): void {
+  if (pedido === undefined || pedido === actual) return;
+  throw new AppError(MENSAJE_NUMERO_LO_ASIGNA_LA_PLATAFORMA, 403);
+}
+
 // agents.whatsapp_phone_number_id es UNIQUE GLOBAL (ítem 81): el webhook de
-// Meta no trae otra pista para saber de quién es un mensaje. El choque puede
-// ser con un agente de OTRA organización, así que el mensaje no dice cuál —
-// solo que ese número ya está tomado. Cualquier otro P2002 se relanza tal cual.
+// Meta no trae otra pista para saber de quién es un mensaje. Desde el ítem 127
+// el choque solo lo puede ver un platform admin, así que el mensaje ya no
+// sirve para enumerar desde un tenant. Cualquier otro P2002 se relanza tal cual.
 function traducirNumeroDeWhatsappDuplicado(err: unknown): never {
   if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
     const target = Array.isArray(err.meta?.target)
@@ -117,50 +150,50 @@ function traducirNumeroDeWhatsappDuplicado(err: unknown): never {
 }
 
 export async function createAgent(organizationId: string, input: CreateAgentInput) {
+  // Un agente nace sin número: solo se acepta que el body diga eso mismo.
+  assertNumeroDeWhatsappSinCambios(null, input.whatsappPhoneNumberId);
+
   // 400 rápido en el caso común, sin abrir transacción.
   await validateBranchId(organizationId, input.branchId);
 
-  return prisma
-    .$transaction(async (tx) => {
-      // Mismo lock que createResource: serializa contra deleteBranch para que
-      // el agente no quede colgando de una sucursal borrada entre el pre-check y
-      // el INSERT. La OTRA mitad —que deleteBranch cuente agentes activos y
-      // rechace, como hace con los recursos— NO está en este PR: hoy deleteBranch
-      // no sabe que los agentes existen. Es una decisión pendiente anotada en el
-      // PR de 2a, no un olvido; el lock queda puesto para que el día que se
-      // agregue el RESTRICT el lado create ya esté correcto.
-      await lockBranchForUpdate(input.branchId, organizationId, tx);
+  return prisma.$transaction(async (tx) => {
+    // Mismo lock que createResource: serializa contra deleteBranch para que
+    // el agente no quede colgando de una sucursal borrada entre el pre-check y
+    // el INSERT. La OTRA mitad —que deleteBranch cuente agentes activos y
+    // rechace, como hace con los recursos— NO está en este PR: hoy deleteBranch
+    // no sabe que los agentes existen. Es una decisión pendiente anotada en el
+    // PR de 2a, no un olvido; el lock queda puesto para que el día que se
+    // agregue el RESTRICT el lado create ya esté correcto.
+    await lockBranchForUpdate(input.branchId, organizationId, tx);
 
-      // Revalida con el lock sostenido: entre el pre-check y este punto,
-      // deleteBranch pudo haber borrado la sucursal.
-      await validateBranchId(organizationId, input.branchId, tx);
+    // Revalida con el lock sostenido: entre el pre-check y este punto,
+    // deleteBranch pudo haber borrado la sucursal.
+    await validateBranchId(organizationId, input.branchId, tx);
 
-      return createAgentRepo(
-        {
-          organizationId,
-          branchId: input.branchId,
-          name: input.name,
-          goal: input.goal ?? null,
-          instructions: input.instructions,
-          tone: input.tone ?? null,
-          modelProvider: input.modelProvider,
-          modelName: input.modelName,
-          enabledTools: input.enabledTools,
-          channels: input.channels,
-          allowedOrigins: input.allowedOrigins,
-          whatsappPhoneNumberId: input.whatsappPhoneNumberId ?? null,
-          // El cast es el mismo precio que paga source.service.ts con
-          // fieldMapping: InputJsonValue exige una firma de índice que
-          // Record<string, unknown> no declara, aunque cualquier objeto JSON la
-          // cumple. Zod ya garantizó que es un objeto plano.
-          guardrails: input.guardrails as Prisma.InputJsonValue,
-          guardrailsText: input.guardrailsText,
-          ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
-        },
-        tx,
-      );
-    })
-    .catch(traducirNumeroDeWhatsappDuplicado);
+    return createAgentRepo(
+      {
+        organizationId,
+        branchId: input.branchId,
+        name: input.name,
+        goal: input.goal ?? null,
+        instructions: input.instructions,
+        tone: input.tone ?? null,
+        modelProvider: input.modelProvider,
+        modelName: input.modelName,
+        enabledTools: input.enabledTools,
+        channels: input.channels,
+        allowedOrigins: input.allowedOrigins,
+        // El cast es el mismo precio que paga source.service.ts con
+        // fieldMapping: InputJsonValue exige una firma de índice que
+        // Record<string, unknown> no declara, aunque cualquier objeto JSON la
+        // cumple. Zod ya garantizó que es un objeto plano.
+        guardrails: input.guardrails as Prisma.InputJsonValue,
+        guardrailsText: input.guardrailsText,
+        ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      },
+      tx,
+    );
+  });
 }
 
 // SIN branchId: un Agent NO cambia de sucursal, y es una decisión, no un
@@ -237,7 +270,10 @@ export async function updateAgent(organizationId: string, id: string, input: Upd
   // los guardrails heredados: no hace falta otra consulta.
   const actual = await getAgentById(organizationId, id);
 
-  const { guardrails, ...resto } = input;
+  // El mismo número que ya tiene (el formulario lo reenvía) pasa y no se
+  // escribe; otro es 403. Nunca llega al repositorio.
+  const { guardrails, whatsappPhoneNumberId, ...resto } = input;
+  assertNumeroDeWhatsappSinCambios(actual.whatsappPhoneNumberId, whatsappPhoneNumberId);
   const result = await updateAgentRepo(id, organizationId, {
     ...resto,
     ...(guardrails !== undefined
@@ -248,12 +284,51 @@ export async function updateAgent(organizationId: string, id: string, input: Upd
           ) as Prisma.InputJsonValue,
         }
       : {}),
-  }).catch(traducirNumeroDeWhatsappDuplicado);
+  });
   if (result.count === 0) {
     throw new AppError("Agente no encontrado", 404);
   }
 
   return getAgentById(organizationId, id);
+}
+
+// PUT /api/admin/agents/:agentId/whatsapp-phone-number (ítem 127). Lo llama
+// SOLO un platform admin (requirePlatformAdmin ya corrió): por eso busca el
+// agente sin organización. 404 si no existe o está borrado; 409 si el número
+// ya lo tiene otro agente, de cualquier organización; null lo libera.
+//
+// Sin tabla de auditoría: el repo no tiene un registro genérico de acciones de
+// platform admin (las tablas de cambios del módulo QR son de ese módulo), así
+// que queda una línea de log con quién, a qué agente, y de qué número a cuál.
+export async function asignarNumeroDeWhatsapp(input: {
+  agentId: string;
+  whatsappPhoneNumberId: string | null;
+  platformAdminUserId: string;
+}) {
+  const agente = await findAgentByIdForPlatformAdmin(input.agentId);
+  if (!agente) {
+    throw new AppError("Agente no encontrado", 404);
+  }
+
+  const result = await setAgentWhatsappPhoneNumberId(agente.id, input.whatsappPhoneNumberId).catch(
+    traducirNumeroDeWhatsappDuplicado,
+  );
+  if (result.count === 0) {
+    throw new AppError("Agente no encontrado", 404);
+  }
+
+  logger.info(
+    {
+      platformAdminUserId: input.platformAdminUserId,
+      agentId: agente.id,
+      organizationId: agente.organizationId,
+      anterior: agente.whatsappPhoneNumberId,
+      nuevo: input.whatsappPhoneNumberId,
+    },
+    "Número de WhatsApp de un agente asignado por platform admin",
+  );
+
+  return getAgentById(agente.organizationId, agente.id);
 }
 
 // Soft delete a secas: sin RESTRICT por conversaciones, y es una decisión.

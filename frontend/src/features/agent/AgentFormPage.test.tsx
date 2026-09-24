@@ -128,7 +128,12 @@ describe("AgentFormPage — creación", () => {
     await user.click(screen.getByLabelText("Canales", { selector: "button" }));
     await user.click(screen.getByRole("checkbox", { name: "WhatsApp" }));
     await user.keyboard("{Escape}");
-    await user.type(screen.getByLabelText("ID del número de WhatsApp"), " 106540352242922 ");
+    // El ID del número de WhatsApp ya no se carga acá (ítem 127): de solo
+    // lectura, vacío en el alta.
+    const numero = screen.getByLabelText("ID del número de WhatsApp");
+    expect(numero).toBeDisabled();
+    expect(numero).toHaveValue("");
+    expect(numero).toHaveAttribute("placeholder", "Sin número asignado");
 
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
@@ -152,8 +157,7 @@ describe("AgentFormPage — creación", () => {
         guardrails: { accionesProhibidas: ["update_opportunity"] },
         // Y el texto que el ADMIN escribió, para poder volver a editarlo.
         guardrailsText: "No modifiques oportunidades.",
-        // Recortado: el webhook lo compara por igualdad exacta (ítem 81).
-        whatsappPhoneNumberId: "106540352242922",
+        // Sin whatsappPhoneNumberId: lo asigna la plataforma (ítem 127).
         isActive: true,
       },
     ]);
@@ -501,28 +505,6 @@ describe("AgentFormPage — creación", () => {
     expect(llamadas).toBe(0);
   });
 
-  it("un ID de WhatsApp con + o espacios se frena en el cliente y no manda nada (ítem 81)", async () => {
-    let posts = 0;
-    server.use(
-      mockBranches(),
-      http.post(baseUrl, () => {
-        posts += 1;
-        return HttpResponse.json(makeAgent(), { status: 201 });
-      }),
-    );
-
-    const user = userEvent.setup();
-    renderForm("/agents/new");
-    await completarMinimo(user);
-    await user.type(screen.getByLabelText("ID del número de WhatsApp"), "+598 99 123 456");
-    await user.click(screen.getByRole("button", { name: "Guardar" }));
-
-    expect(
-      await screen.findByText(/El ID del número de WhatsApp lleva solo dígitos/),
-    ).toBeInTheDocument();
-    expect(posts).toBe(0);
-  });
-
   it("el error del backend se muestra tal cual", async () => {
     server.use(
       mockBranches(),
@@ -732,19 +714,19 @@ describe("AgentFormPage — edición", () => {
         // Los dos SIEMPRE juntos: el backend rechaza un PATCH con uno solo.
         guardrails: {},
         guardrailsText: "",
-        // Sin número: viaja como null, no se omite (ver el test de vaciarlo).
-        whatsappPhoneNumberId: null,
         isActive: false,
       },
     ]);
     // branchId no está en updateAgentSchema: mandarlo sería un 400.
     expect("branchId" in bodies[0]).toBe(false);
+    // El número de WhatsApp lo asigna la plataforma (ítem 127): no viaja.
+    expect("whatsappPhoneNumberId" in bodies[0]).toBe(false);
     // Omitir allowedOrigins es lo que deja intacta la configuración del widget:
     // mandarlo como [] la borraría.
     expect("allowedOrigins" in bodies[0]).toBe(false);
   });
 
-  it("vaciar el ID de WhatsApp manda null: le quita el número al agente (ítem 81)", async () => {
+  it("el ID de WhatsApp se muestra de solo lectura y no viaja en el PATCH (ítem 127)", async () => {
     const bodies: Record<string, unknown>[] = [];
     server.use(
       mockBranches(),
@@ -760,11 +742,12 @@ describe("AgentFormPage — edición", () => {
 
     const campo = await screen.findByLabelText("ID del número de WhatsApp");
     expect(campo).toHaveValue("106540352242922");
-    await user.clear(campo);
+    expect(campo).toBeDisabled();
+    expect(screen.getByText(/Lo configura el equipo de la plataforma/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
-    expect(bodies[0].whatsappPhoneNumberId).toBeNull();
+    expect("whatsappPhoneNumberId" in bodies[0]).toBe(false);
   });
 
   it("una tool que ya no está en el catálogo se conserva, no la borra el PATCH", async () => {

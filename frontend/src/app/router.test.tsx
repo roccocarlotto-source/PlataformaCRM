@@ -4,6 +4,7 @@ import { PlatformAdminRoute } from "../auth/PlatformAdminRoute";
 import { ProtectedRoute } from "../auth/ProtectedRoute";
 import { AppLayout } from "../layout/AppLayout";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
@@ -218,6 +219,17 @@ describe("router.tsx — wiring real de Base de conocimiento (ítem 59)", () => 
 });
 
 describe("router.tsx — wiring real de platform admin (Fase 4a del módulo SaaS)", () => {
+  it("/admin/agents/whatsapp-number (ítem 127) está bajo PlatformAdminRoute y renderiza AgentWhatsappNumberPage", () => {
+    const parent = findParentElement(router.routes, "/admin/agents/whatsapp-number") as {
+      type: unknown;
+    };
+    expect(parent?.type).toBe(PlatformAdminRoute);
+    const route = findRoute(router.routes, "/admin/agents/whatsapp-number") as {
+      element?: { type?: unknown };
+    };
+    expect(route?.element?.type).toBe(AgentWhatsappNumberPage);
+  });
+
   it("/admin/organizations/new está anidada bajo PlatformAdminRoute, no bajo AdminRoute", () => {
     const parent = findParentElement(router.routes, "/admin/organizations/new") as {
       type: unknown;

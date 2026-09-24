@@ -11,6 +11,8 @@ import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
 import { agentRouter } from "../routes/agent.routes";
+import { agentAdminRouter } from "../routes/agentAdmin.routes";
+import { MENSAJE_NUMERO_LO_ASIGNA_LA_PLATAFORMA } from "../services/agent.service";
 import {
   MENSAJE_DE_HANDOFF,
   envolverMensajeDelCliente,
@@ -63,6 +65,9 @@ let orgB: Organizacion;
 let adminA: FixtureUser;
 let userA: FixtureUser;
 let adminB: FixtureUser;
+// Un usuario de la organización B que además está en la allowlist global de
+// platform_admins (ítem 127): no es ADMIN de la A, y aun así asigna números.
+let plataforma: FixtureUser;
 let baseUrl: string;
 let closeApp: () => Promise<void>;
 
@@ -70,6 +75,7 @@ function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
   const app = express();
   app.use(express.json());
   app.use("/api", agentRouter);
+  app.use("/api", agentAdminRouter);
   app.use(notFound);
   app.use(errorHandler);
 
@@ -195,10 +201,15 @@ before(async () => {
   adminA = await createFixtureUser("admin-a", orgA.id, "ADMIN");
   userA = await createFixtureUser("user-a", orgA.id, "USER");
   adminB = await createFixtureUser("admin-b", orgB.id, "ADMIN");
+  plataforma = await createFixtureUser("plataforma", orgB.id, "USER");
+  await prisma.platformAdmin.create({ data: { userId: plataforma.authUserId } });
 });
 
 after(async () => {
   if (closeApp) await closeApp();
+  if (plataforma) {
+    await prisma.platformAdmin.deleteMany({ where: { userId: plataforma.authUserId } });
+  }
   for (const org of [orgA, orgB]) {
     if (!org) continue;
     await prisma.message.deleteMany({ where: { organizationId: org.id } });
@@ -211,7 +222,7 @@ after(async () => {
     await prisma.user.deleteMany({ where: { organizationId: org.id } });
     await prisma.organization.delete({ where: { id: org.id } });
   }
-  for (const u of [adminA, userA, adminB]) {
+  for (const u of [adminA, userA, adminB, plataforma]) {
     if (u) await getSupabaseAdmin().auth.admin.deleteUser(u.authUserId);
   }
 });
@@ -884,75 +895,188 @@ function numeroDeWhatsappAlAzar(): string {
   return `1${randomUUID().replace(/\D/g, "").padEnd(14, "7").slice(0, 14)}`;
 }
 
-test('whatsappPhoneNumberId — se guarda al crear, PATCH lo cambia, "" o null lo vacía, y solo admite dígitos', async () => {
-  const numero = numeroDeWhatsappAlAzar();
-  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
-    whatsappPhoneNumberId: ` ${numero} `,
+// Ítem 127 (A-01): el número lo asigna SOLO un platform admin, por
+// PUT /api/admin/agents/:agentId/whatsapp-phone-number. El CRUD del tenant
+// acepta que el body reenvíe el valor que ya tiene, y nada más.
+function asignarNumero(token: string, agentId: unknown, whatsappPhoneNumberId: unknown) {
+  return call("PUT", `/api/admin/agents/${String(agentId)}/whatsapp-phone-number`, token, {
+    whatsappPhoneNumberId,
   });
-  assert.equal(agente.whatsappPhoneNumberId, numero);
+}
 
-  const otro = numeroDeWhatsappAlAzar();
-  const patch = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
-    whatsappPhoneNumberId: otro,
-  });
-  assert.equal(patch.status, 200);
-  assert.equal(((await patch.json()) as Record<string, unknown>).whatsappPhoneNumberId, otro);
+async function numeroEnLaBase(agentId: unknown): Promise<string | null> {
+  const fila = await prisma.agent.findUniqueOrThrow({ where: { id: String(agentId) } });
+  return fila.whatsappPhoneNumberId;
+}
 
-  for (const vacio of ["", null]) {
-    const res = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
-      whatsappPhoneNumberId: vacio,
-    });
-    assert.equal(res.status, 200);
-    assert.equal(((await res.json()) as Record<string, unknown>).whatsappPhoneNumberId, null);
-  }
-
-  for (const invalido of ["+59899123456", "123 456", "abc"]) {
-    const res = await call(
-      "POST",
-      "/api/agents",
-      adminA.accessToken,
-      cuerpoMinimo(orgA.branchId, { whatsappPhoneNumberId: invalido }),
-    );
-    assert.equal(res.status, 400, `debía ser 400 para ${invalido}`);
-    assert.match(await mensajeDeError(res), /solo admite dígitos/);
-  }
-});
-
-test("whatsappPhoneNumberId — el mismo número en otro agente es 409, también desde OTRA organización", async () => {
+test("whatsappPhoneNumberId — el tenant NO lo asigna: POST y PATCH con otro valor son 403 y la base no cambia", async () => {
   const numero = numeroDeWhatsappAlAzar();
-  await crearAgentePorHttp(adminA.accessToken, orgA.branchId, { whatsappPhoneNumberId: numero });
 
-  const mismaOrg = await call(
+  const antes = await prisma.agent.count({ where: { organizationId: orgA.id } });
+  const post = await call(
     "POST",
     "/api/agents",
     adminA.accessToken,
     cuerpoMinimo(orgA.branchId, { whatsappPhoneNumberId: numero }),
   );
-  assert.equal(mismaOrg.status, 409);
-  assert.match(await mensajeDeError(mismaOrg), /ya está asignado a otro agente/);
+  assert.equal(post.status, 403);
+  assert.equal(await mensajeDeError(post), MENSAJE_NUMERO_LO_ASIGNA_LA_PLATAFORMA);
+  assert.equal(await prisma.agent.count({ where: { organizationId: orgA.id } }), antes);
+
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  const patch = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
+    whatsappPhoneNumberId: numero,
+    name: "No debería guardarse",
+  });
+  assert.equal(patch.status, 403);
+  assert.equal(await numeroEnLaBase(agente.id), null);
+  const fila = await prisma.agent.findUniqueOrThrow({ where: { id: String(agente.id) } });
+  assert.equal(fila.name, "Agente comercial", "el resto del PATCH tampoco se aplicó");
+
+  // Con número ya asignado, ni cambiarlo ni vaciarlo.
+  assert.equal((await asignarNumero(plataforma.accessToken, agente.id, numero)).status, 200);
+  for (const distinto of [numeroDeWhatsappAlAzar(), null, ""]) {
+    const res = await call("PATCH", `/api/agents/${agente.id}`, adminA.accessToken, {
+      whatsappPhoneNumberId: distinto,
+    });
+    assert.equal(res.status, 403, `debía ser 403 para ${JSON.stringify(distinto)}`);
+    assert.equal(await numeroEnLaBase(agente.id), numero);
+  }
+});
+
+test("whatsappPhoneNumberId — reenviar el mismo valor (o null sin número) es 200 y no cambia nada", async () => {
+  const sinNumero = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    whatsappPhoneNumberId: null,
+  });
+  assert.equal(sinNumero.whatsappPhoneNumberId, null);
+  for (const vacio of [null, ""]) {
+    const res = await call("PATCH", `/api/agents/${sinNumero.id}`, adminA.accessToken, {
+      whatsappPhoneNumberId: vacio,
+      name: "Sin número",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(((await res.json()) as Record<string, unknown>).whatsappPhoneNumberId, null);
+  }
+
+  const numero = numeroDeWhatsappAlAzar();
+  const conNumero = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  assert.equal((await asignarNumero(plataforma.accessToken, conNumero.id, numero)).status, 200);
+  const res = await call("PATCH", `/api/agents/${conNumero.id}`, adminA.accessToken, {
+    whatsappPhoneNumberId: ` ${numero} `,
+    name: "Con número",
+  });
+  assert.equal(res.status, 200);
+  const cuerpo = (await res.json()) as Record<string, unknown>;
+  assert.equal(cuerpo.whatsappPhoneNumberId, numero);
+  assert.equal(cuerpo.name, "Con número", "el resto del PATCH se aplica");
+});
+
+test("whatsappPhoneNumberId — el ADMIN de otra organización que prueba el número de un agente ajeno recibe 403, no 409", async () => {
+  // El 409 de "ya está asignado a otro agente" permitía enumerar qué ids
+  // estaban en uso. Desde el ítem 127 un tenant no llega nunca a esa pregunta.
+  const numero = numeroDeWhatsappAlAzar();
+  const deA = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  assert.equal((await asignarNumero(plataforma.accessToken, deA.id, numero)).status, 200);
 
   const deB = await crearAgentePorHttp(adminB.accessToken, orgB.branchId);
   const patchB = await call("PATCH", `/api/agents/${deB.id}`, adminB.accessToken, {
     whatsappPhoneNumberId: numero,
   });
-  assert.equal(patchB.status, 409);
+  assert.equal(patchB.status, 403);
+  const postB = await call(
+    "POST",
+    "/api/agents",
+    adminB.accessToken,
+    cuerpoMinimo(orgB.branchId, { whatsappPhoneNumberId: numero }),
+  );
+  assert.equal(postB.status, 403);
+
+  assert.equal(await numeroEnLaBase(deA.id), numero);
+  assert.equal(await numeroEnLaBase(deB.id), null);
+});
+
+test("PUT /api/admin/agents/:agentId/whatsapp-phone-number — el platform admin asigna, cambia y libera; 409 si está en uso", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  const numero = numeroDeWhatsappAlAzar();
+
+  // Mismo schema que el CRUD: se recorta, y solo admite dígitos.
+  const asignado = await asignarNumero(plataforma.accessToken, agente.id, ` ${numero} `);
+  assert.equal(asignado.status, 200);
+  const cuerpo = (await asignado.json()) as Record<string, unknown>;
+  assert.equal(cuerpo.whatsappPhoneNumberId, numero);
+  assert.equal(cuerpo.organizationId, orgA.id, "el agente sigue siendo de su organización");
+  assert.equal(await numeroEnLaBase(agente.id), numero);
+
+  for (const invalido of ["+59899123456", "123 456", "abc"]) {
+    const res = await asignarNumero(plataforma.accessToken, agente.id, invalido);
+    assert.equal(res.status, 400, `debía ser 400 para ${invalido}`);
+    assert.match(await mensajeDeError(res), /solo admite dígitos/);
+  }
+  const sinCampo = await call(
+    "PUT",
+    `/api/admin/agents/${agente.id}/whatsapp-phone-number`,
+    plataforma.accessToken,
+    {},
+  );
+  assert.equal(sinCampo.status, 400);
+
+  // En uso por otro agente, de CUALQUIER organización: acá sí es 409.
+  const otro = await crearAgentePorHttp(adminB.accessToken, orgB.branchId);
+  const enUso = await asignarNumero(plataforma.accessToken, otro.id, numero);
+  assert.equal(enUso.status, 409);
+  assert.match(await mensajeDeError(enUso), /ya está asignado a otro agente/);
+  assert.equal(await numeroEnLaBase(otro.id), null);
+
+  // "" (o null) lo libera, y entonces el otro lo puede tomar.
+  const liberado = await asignarNumero(plataforma.accessToken, agente.id, "");
+  assert.equal(liberado.status, 200);
+  assert.equal(await numeroEnLaBase(agente.id), null);
+  assert.equal((await asignarNumero(plataforma.accessToken, otro.id, numero)).status, 200);
+  assert.equal(await numeroEnLaBase(otro.id), numero);
+  assert.equal((await asignarNumero(plataforma.accessToken, otro.id, null)).status, 200);
+  assert.equal(await numeroEnLaBase(otro.id), null);
+});
+
+test("PUT /api/admin/agents/:agentId/whatsapp-phone-number — 404 si el agente no existe o está borrado", async () => {
+  const inexistente = await asignarNumero(
+    plataforma.accessToken,
+    randomUUID(),
+    numeroDeWhatsappAlAzar(),
+  );
+  assert.equal(inexistente.status, 404);
+
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  assert.equal((await call("DELETE", `/api/agents/${agente.id}`, adminA.accessToken)).status, 204);
+  const borrado = await asignarNumero(plataforma.accessToken, agente.id, numeroDeWhatsappAlAzar());
+  assert.equal(borrado.status, 404);
+  assert.equal(await numeroEnLaBase(agente.id), null);
+});
+
+test("PUT /api/admin/agents/:agentId/whatsapp-phone-number — quien no es platform admin recibe 403 (aunque sea ADMIN del agente)", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  for (const u of [adminA, userA, adminB]) {
+    const res = await asignarNumero(u.accessToken, agente.id, numeroDeWhatsappAlAzar());
+    assert.equal(res.status, 403);
+  }
+  const sinToken = await fetch(
+    `${baseUrl}/api/admin/agents/${String(agente.id)}/whatsapp-phone-number`,
+    { method: "PUT" },
+  );
+  assert.equal(sinToken.status, 401);
+  assert.equal(await numeroEnLaBase(agente.id), null);
 });
 
 test("whatsappPhoneNumberId — borrar el agente libera el número para otro", async () => {
   const numero = numeroDeWhatsappAlAzar();
-  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
-    whatsappPhoneNumberId: numero,
-  });
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  assert.equal((await asignarNumero(plataforma.accessToken, agente.id, numero)).status, 200);
   const borrado = await call("DELETE", `/api/agents/${agente.id}`, adminA.accessToken);
   assert.equal(borrado.status, 204);
+  assert.equal(await numeroEnLaBase(agente.id), null);
 
-  const fila = await prisma.agent.findUniqueOrThrow({ where: { id: String(agente.id) } });
-  assert.equal(fila.whatsappPhoneNumberId, null);
-
-  const nuevo = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
-    whatsappPhoneNumberId: numero,
-  });
-  assert.equal(nuevo.whatsappPhoneNumberId, numero);
+  const nuevo = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  assert.equal((await asignarNumero(plataforma.accessToken, nuevo.id, numero)).status, 200);
+  assert.equal(await numeroEnLaBase(nuevo.id), numero);
 });
 
 // ---------------------------------------------------------------------------
