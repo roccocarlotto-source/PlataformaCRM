@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   CATALOGO_DE_TOOLS,
+  MENSAJE_CIERRE_LO_HACE_UNA_PERSONA,
+  MENSAJE_MOTIVO_SIN_PERDIDA,
+  MENSAJE_PERDIDA_SIN_MOTIVO,
   MENSAJE_SERVICIO_SIN_IDENTIFICAR,
   NOMBRE_TOOL_PAGO,
   SUFIJO_ERROR_DE_ARGUMENTOS,
@@ -112,13 +115,76 @@ test("update_opportunity: opportunityId ya no es obligatorio, pero sí un campo 
     await rechazoDe("update_opportunity", { opportunityId: UUID, status: "CANCELLED" }),
     /status/,
   );
-  // Y no acepta lo que el modelo no debe controlar aunque lo mande: Zod
-  // descarta las claves desconocidas, así que solo con ownerId queda "sin
-  // campos" y se rechaza por eso.
-  assert.match(
-    await rechazoDe("update_opportunity", { opportunityId: UUID, ownerId: UUID }),
-    /al menos un campo/,
+  // Y no acepta lo que el modelo no debe controlar aunque lo mande. Desde el
+  // ítem 128 el schema es .strict(): la clave de más ya no se descarta en
+  // silencio (B-06), se rechaza nombrándola.
+  const conOwner = await rechazoDe("update_opportunity", { opportunityId: UUID, ownerId: UUID });
+  assert.match(conOwner, /ownerId/);
+  assert.ok(conOwner.endsWith(SUFIJO_ERROR_DE_ARGUMENTOS));
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 128 (B-01): el agente puede perder una oportunidad, no ganarla ni
+// moverla de etapa. Todos estos rechazos ocurren ANTES de tocar la base: sin
+// conexión en estos tests, llegar a un repositorio sería un error de Prisma,
+// no un { ok: false } — así que que el rechazo llegue prueba que la
+// oportunidad no se tocó. El lado con base (la fila no cambia, el contacto no
+// pasa a CUSTOMER, no sale opportunity.won) vive en
+// agentReadTools.integration-test.ts.
+// ---------------------------------------------------------------------------
+
+test("ítem 128: update_opportunity rechaza WON y OPEN con el mensaje de que lo hace una persona", async () => {
+  for (const status of ["WON", "OPEN", "won", " Won "]) {
+    assert.equal(
+      await rechazoDe("update_opportunity", { status }),
+      MENSAJE_CIERRE_LO_HACE_UNA_PERSONA,
+      `status ${JSON.stringify(status)}`,
+    );
+  }
+  // Aunque venga con un motivo, o con otros cambios legítimos al lado: no se
+  // aplica nada a medias.
+  assert.equal(
+    await rechazoDe("update_opportunity", { status: "WON", title: "Hilux", amount: 1 }),
+    MENSAJE_CIERRE_LO_HACE_UNA_PERSONA,
   );
+});
+
+test("ítem 128: update_opportunity rechaza stageId, sea cual sea el resto", async () => {
+  assert.equal(
+    await rechazoDe("update_opportunity", { stageId: UUID }),
+    MENSAJE_CIERRE_LO_HACE_UNA_PERSONA,
+  );
+  assert.equal(
+    await rechazoDe("update_opportunity", { stageId: UUID, status: "LOST", lostReason: "Precio" }),
+    MENSAJE_CIERRE_LO_HACE_UNA_PERSONA,
+  );
+  // No es un error de argumentos: no lleva el sufijo que invita a reintentar.
+  assert.ok(!MENSAJE_CIERRE_LO_HACE_UNA_PERSONA.endsWith(SUFIJO_ERROR_DE_ARGUMENTOS));
+});
+
+test("ítem 128: LOST exige motivo, y el motivo va solo con LOST", async () => {
+  assert.equal(
+    await rechazoDe("update_opportunity", { status: "LOST" }),
+    MENSAJE_PERDIDA_SIN_MOTIVO,
+  );
+  assert.equal(
+    await rechazoDe("update_opportunity", { status: "LOST", lostReason: "   " }),
+    MENSAJE_PERDIDA_SIN_MOTIVO,
+  );
+  assert.equal(
+    await rechazoDe("update_opportunity", { lostReason: "Precio" }),
+    MENSAJE_MOTIVO_SIN_PERDIDA,
+  );
+});
+
+test("ítem 128: el JSON Schema de update_opportunity no ofrece ganar ni mover de etapa", () => {
+  const definicion = CATALOGO_DE_TOOLS.get("update_opportunity")!.definition;
+  const propiedades = definicion.parameters.properties as Record<string, { enum?: string[] }>;
+  assert.equal(propiedades.stageId, undefined);
+  assert.deepEqual(propiedades.status.enum, ["LOST"]);
+  assert.equal(definicion.parameters.additionalProperties, false);
+  assert.doesNotMatch(definicion.description, /WON/);
+  assert.match(definicion.description, /NO puede ganarla, reabrirla ni moverla de etapa/);
 });
 
 test("get_availability: fechas ISO con zona, hasta > desde, y tope de rango", async () => {

@@ -34,7 +34,7 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
     value: "update_opportunity",
     label: "Modificar oportunidad",
     subtitle:
-      "Modifica una oportunidad existente del contacto de esta conversación: título, monto, moneda, estado (OPEN/WON/LOST), etapa o motivo de pérdida. No permite cambiar el vendedor ni el pipeline.",
+      "Modifica la oportunidad abierta del contacto de esta conversación: título, monto, moneda o vehículo, o la marca como perdida con el motivo del cliente. No puede ganarla, reabrirla ni moverla de etapa: eso lo hace una persona del equipo. No permite cambiar el vendedor ni el pipeline.",
   },
   {
     value: "get_availability",
