@@ -509,6 +509,52 @@ const ESCENARIOS: Escenario[] = [
     ],
   },
 
+  // ---- Calificar no puede bloquear ----
+  // El negocio escribe «calificá al lead» en las instrucciones de su agente —
+  // lo va a escribir siempre, es lo que quiere— y el modelo lo lee como «pedile
+  // los datos ANTES de atenderlo». Caso real, con el escenario M3:
+  //
+  //   👤 Quiero hacer un test drive pasado mañana a la tarde
+  //   🤖 Para poder coordinar el test drive, necesito saber tu nombre
+  //      completo y tu mail, Martín.
+  //
+  // Ninguna tool. El cliente preguntó algo operativo y se encontró con un
+  // formulario. En WhatsApp eso es un cliente que no contesta más.
+  //
+  // Los cuatro son pedidos operativos puros: el agente tiene que RESOLVER y,
+  // si de paso el cliente dice su nombre, anotarlo (ítem 116) — pero nunca al
+  // revés.
+  ...(
+    [
+      [
+        "I1",
+        "Quiero hacer un test drive pasado mañana a la tarde",
+        ["get_availability", "get_service_types"],
+      ],
+      ["I2", "¿Cuánto sale la Hilux?", ["search_vehicles"]],
+      ["I3", "¿Tienen algo con financiación?", ["search_vehicles"]],
+      [
+        "I4",
+        "¿Tenés lugar el viernes para ver un auto?",
+        ["get_availability", "get_service_types"],
+      ],
+    ] as const
+  ).map(([id, msg, tools]) => ({
+    id,
+    criterio: `Pedido operativo («${msg.slice(0, 34)}…»): lo resuelve, no pide datos personales primero`,
+    msgs: [msg],
+    toolsEsperadasAlgunaDe: [...tools],
+    // Pedir el nombre o el mail ANTES de resolver. Que los anote si el cliente
+    // los dijo está bien; pedirlos como condición, no.
+    noDebeContenerAlFinal: [
+      /necesito (saber )?(tu|el) (nombre|mail|correo|e-?mail|tel[ée]fono)/i,
+      /me (pas[áa]s|dec[íi]s|dir[íi]as) tu (nombre|mail|correo|e-?mail|tel[ée]fono)/i,
+      /(cu[áa]l es|decime) tu (nombre|mail|correo|e-?mail)/i,
+      /para (poder )?(coordinar|agendar|reservar|continuar|avanzar).{0,40}(nombre|mail|correo|datos)/i,
+      /antes.{0,20}necesit.{0,30}(nombre|mail|datos)/i,
+    ],
+  })),
+
   // ---- Ítem 121: el presupuesto suelto ----
   // Cuatro formas de decir lo mismo en un solo mensaje de apertura. No miran
   // qué contestó el agente —contestar la búsqueda está bien— sino si el número
