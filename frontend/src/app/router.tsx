@@ -35,6 +35,7 @@ import { ClaimPage } from "../features/qr/ClaimPage";
 import { QrListPage } from "../features/qr/QrListPage";
 import { VehicleFormPage } from "../features/vehicle/VehicleFormPage";
 import { VehicleListPage } from "../features/vehicle/VehicleListPage";
+import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
 import { BranchFormPage } from "../features/branch/BranchFormPage";
@@ -319,7 +320,12 @@ export const router = createBrowserRouter([
             // USER en la suya tiene que poder entrar, y un ADMIN común no. La
             // autorización real es requirePlatformAdmin en el backend.
             element: <PlatformAdminRoute />,
-            children: [{ path: "/admin/organizations/new", element: <NewOrganizationPage /> }],
+            children: [
+              { path: "/admin/organizations/new", element: <NewOrganizationPage /> },
+              // Ítem 127: el número de WhatsApp de un agente lo asigna solo el
+              // platform admin (PUT /api/admin/agents/:agentId/whatsapp-phone-number).
+              { path: "/admin/agents/whatsapp-number", element: <AgentWhatsappNumberPage /> },
+            ],
           },
         ],
       },

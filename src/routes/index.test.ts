@@ -440,3 +440,14 @@ test("los pagos (§43) están montados bajo /api, con DELETE", async () => {
     assert.equal(res.status, 401, `${method} ${path} no está montado`);
   }
 });
+
+test("la asignación del número de WhatsApp por platform admin (ítem 127) está montada bajo /api", async () => {
+  const res = await fetch(`${baseUrl}/api/admin/agents/${randomUUID()}/whatsapp-phone-number`, {
+    method: "PUT",
+  });
+  assert.equal(
+    res.status,
+    401,
+    "PUT /api/admin/agents/:agentId/whatsapp-phone-number no está montado",
+  );
+});

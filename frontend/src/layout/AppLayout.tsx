@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   MailPlus,
   MapPin,
+  MessageCircle,
   MessagesSquare,
   QrCode,
   Shapes,
@@ -409,6 +410,9 @@ export function AppLayout() {
               <span className="ds-sidebar-group-label">Plataforma</span>
               <SidebarLink to="/admin/organizations/new" icon={Building}>
                 Nueva organización
+              </SidebarLink>
+              <SidebarLink to="/admin/agents/whatsapp-number" icon={MessageCircle}>
+                Número de WhatsApp
               </SidebarLink>
             </div>
           ) : null}

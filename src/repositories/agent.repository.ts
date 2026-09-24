@@ -109,8 +109,11 @@ export interface CreateAgentData {
   guardrailsText: string;
   // Ya normalizados por utils/origin.ts. Vacío = widget deshabilitado.
   allowedOrigins?: string[];
-  // El phone_number_id de WhatsApp (ítem 81). null/ausente = sin número.
-  whatsappPhoneNumberId?: string | null;
+  // Sin whatsappPhoneNumberId, a propósito (ítem 127, A-01 de
+  // docs/auditoria-2026-09-24-punta-a-punta.md): un agente nace sin número y
+  // el número lo escribe SOLO setAgentWhatsappPhoneNumberId, desde el endpoint
+  // de platform admin. Que no esté en el tipo es lo que impide que un camino
+  // del tenant lo escriba.
   isActive?: boolean;
 }
 
@@ -130,7 +133,7 @@ export interface UpdateAgentData {
   enabledTools?: string[];
   channels?: ConversationChannel[];
   allowedOrigins?: string[];
-  whatsappPhoneNumberId?: string | null;
+  // Sin whatsappPhoneNumberId: ver CreateAgentData.
   // Se reemplaza entero, nunca se mergea: guardrails es NOT NULL sin default
   // en el schema, así que acá no hay DbNull que contemplar.
   guardrails?: Prisma.InputJsonValue;
@@ -149,6 +152,29 @@ export function updateAgent(
   db: Db = prisma,
 ) {
   return db.agent.updateMany({ where: { id, organizationId, deletedAt: null }, data });
+}
+
+// SIN organizationId, A PROPÓSITO — las dos de abajo son del endpoint de
+// platform admin que asigna el número de WhatsApp (ítem 127): quien llama no
+// es parte de la organización del agente, y la autorización ya la hizo
+// requirePlatformAdmin. deletedAt: null — a un agente borrado no se le asigna
+// nada (y el borrado ya le liberó el número).
+export function findAgentByIdForPlatformAdmin(id: string, db: Db = prisma) {
+  return db.agent.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, organizationId: true, whatsappPhoneNumberId: true },
+  });
+}
+
+// El ÚNICO camino que escribe whatsapp_phone_number_id (fuera del borrado, que
+// lo vacía). null libera el número. El UNIQUE global de la columna es lo que
+// resuelve dos asignaciones concurrentes del mismo número: la segunda es P2002.
+export function setAgentWhatsappPhoneNumberId(
+  id: string,
+  whatsappPhoneNumberId: string | null,
+  db: Db = prisma,
+) {
+  return db.agent.updateMany({ where: { id, deletedAt: null }, data: { whatsappPhoneNumberId } });
 }
 
 export function softDeleteAgent(id: string, organizationId: string, db: Db = prisma) {

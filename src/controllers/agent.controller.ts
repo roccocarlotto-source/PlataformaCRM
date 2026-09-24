@@ -136,7 +136,7 @@ export const allowedOriginsSchema = z
 // metadata.phone_number_id y el webhook lo compara por igualdad exacta: un
 // espacio o un "+" colado haría que ningún mensaje encuentre a su agente.
 // "" se trata como null — es lo que manda un campo de texto vaciado.
-const whatsappPhoneNumberIdSchema = z
+export const whatsappPhoneNumberIdSchema = z
   .string()
   .trim()
   .max(40, "whatsappPhoneNumberId no puede superar los 40 caracteres")

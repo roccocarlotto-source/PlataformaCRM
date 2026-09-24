@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { activityRouter } from "./activity.routes";
+import { agentAdminRouter } from "./agentAdmin.routes";
 import { agentEmbedTokenRouter } from "./agentEmbedToken.routes";
 import { agentRouter } from "./agent.routes";
 import { apiKeyRouter } from "./apiKey.routes";
@@ -189,3 +190,8 @@ routes.use("/api", organizationRouter);
 // requirePlatformAdmin, sin authorize("ADMIN")) en un router propio, porque
 // qrAdmin.routes.ts es específico del módulo QR.
 routes.use("/api", organizationAdminRouter);
+
+// Asignación del número de WhatsApp de un agente por un platform admin (ítem
+// 127): PUT /api/admin/agents/:agentId/whatsapp-phone-number. Misma gate que
+// organizationAdminRouter, en un router propio por el mismo motivo.
+routes.use("/api", agentAdminRouter);
