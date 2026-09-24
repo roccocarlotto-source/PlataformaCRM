@@ -339,6 +339,13 @@ export const MENSAJE_SIN_PIPELINE_POR_DEFECTO =
 export const MENSAJE_PIPELINE_SIN_ETAPAS =
   "No se puede crear la oportunidad: el pipeline por defecto no tiene etapas";
 
+// Ítem 124: existe el pipeline, tiene etapas, y TODAS son de cierre. Es una
+// configuración rota del negocio, no un error del modelo: no hay ninguna etapa
+// donde poner algo que recién empieza. Se dice qué pasa y qué hacer —seguir la
+// conversación— para que el modelo no lo traduzca a "no te puedo atender".
+export const MENSAJE_PIPELINE_SIN_ETAPA_ABIERTA =
+  "No se puede crear la oportunidad: el pipeline por defecto no tiene ninguna etapa abierta (todas marcan ganado o perdido). Es un problema de configuración del negocio, no algo que el cliente hizo mal ni algo que puedas arreglar reintentando: seguí la conversación normalmente y NO le menciones nada de esto.";
+
 const createOpportunityTool: ToolDelAgente = {
   definition: {
     name: "create_opportunity",
@@ -490,10 +497,23 @@ const createOpportunityTool: ToolDelAgente = {
       if (!pipeline) {
         return fallo(MENSAJE_SIN_PIPELINE_POR_DEFECTO);
       }
-      // Ordenados por `order` asc, solo activos: el primero es la etapa inicial.
-      const [primeraEtapa] = await findStagesByPipeline(pipeline.id);
-      if (!primeraEtapa) {
+      // Ordenados por `order` asc, solo activos.
+      const etapas = await findStagesByPipeline(pipeline.id);
+      if (etapas.length === 0) {
         return fallo(MENSAJE_PIPELINE_SIN_ETAPAS);
+      }
+      // Ítem 124: la primera ABIERTA, no la primera a secas.
+      //
+      // Un pipeline puede tener "Ganado" o "Perdido" en el primer lugar —el
+      // orden lo arma el negocio y nadie le prohíbe eso—. Antes se creaba una
+      // oportunidad OPEN parada en una etapa de cierre, que es un dato
+      // incoherente que después nadie entiende; desde el ítem 154 de la matriz
+      // del CRM eso además da 400, y el modelo ve el error y se lo come el
+      // cliente. Ninguna de las dos cosas tiene que pasar: una oportunidad que
+      // recién nace está abierta, y la etapa donde se para tiene que decir eso.
+      const primeraEtapa = etapas.find((e) => !e.isWon && !e.isLost);
+      if (!primeraEtapa) {
+        return fallo(MENSAJE_PIPELINE_SIN_ETAPA_ABIERTA);
       }
 
       // actorUserId = el vendedor efectivo del contacto (el suyo, o el de la
@@ -665,7 +685,8 @@ const updateOpportunityTool: ToolDelAgente = {
         },
         lostReason: {
           type: "string",
-          description: "Motivo de pérdida. Solo tiene sentido con status LOST.",
+          description:
+            "Motivo de pérdida. Va SOLO con status LOST: una oportunidad ganada o reabierta no lleva motivo, y si lo mandás con WON u OPEN se descarta.",
         },
         vehiculo: {
           type: "string",
@@ -707,6 +728,26 @@ const updateOpportunityTool: ToolDelAgente = {
         }
       }
 
+      // Ítem 124: el motivo de pérdida junto con ganada o abierta.
+      //
+      // El caso es el más común del embudo: el cliente primero dice que no
+      // —queda LOST con su motivo— y después vuelve y compra. El modelo relee
+      // el estado, manda status WON y arrastra el lostReason que estaba, y
+      // desde el ítem 154 de la matriz eso es un 400 que el modelo ve y
+      // termina pagando el cliente.
+      //
+      // No es una contradicción que haya que rechazar: las reglas del CRM ya
+      // dicen que al ganar o reabrir el motivo se vacía. Así que se descarta
+      // acá —que es lo que el CRM iba a hacer igual— y se le avisa al modelo
+      // que se descartó, para que no le diga al cliente que quedó anotado algo
+      // que no quedó (ítem 100).
+      const motivoDescartado =
+        cambiosConVehiculo.lostReason !== undefined &&
+        (cambiosConVehiculo.status === "WON" || cambiosConVehiculo.status === "OPEN");
+      if (motivoDescartado) {
+        delete cambiosConVehiculo.lostReason;
+      }
+
       // actorUserId = el ownerId que la oportunidad ya tiene. Es inerte en este
       // camino: updateOpportunity solo lo usa para resolver un ownerId nuevo
       // (que acá nunca se manda) y para el historial de una unidad vinculada.
@@ -725,6 +766,13 @@ const updateOpportunityTool: ToolDelAgente = {
         status: actualizada.status,
         stageId: actualizada.stageId,
         lostReason: actualizada.lostReason,
+        ...(motivoDescartado
+          ? {
+              noSeAplico: ["lostReason"],
+              queHacer:
+                "Una oportunidad ganada o reabierta no lleva motivo de pérdida, así que ese campo se descartó y el resto del cambio se aplicó igual. No le digas al cliente que anotaste un motivo.",
+            }
+          : {}),
       });
     });
   },
@@ -1518,7 +1566,7 @@ const searchVehiclesTool: ToolDelAgente = {
   definition: {
     name: "search_vehicles",
     description:
-      'Busca vehículos disponibles en stock que están publicados para mostrar a clientes. REGLA PRINCIPAL: cada filtro que mandes tiene que poder señalarse en las palabras del cliente. Si el cliente no lo dijo, NO lo mandes — nunca lo completes con un valor que te parezca razonable. Un filtro de más esconde autos que sí hay, y le terminás diciendo al cliente que no hay stock cuando sí hay. Ejemplo: si el cliente solo dice "algo de menos de 30 mil dólares", mandá únicamente priceMaxUsd: 30000, sin carrocería, transmisión, combustible, condición ni kilometraje. Si no dio ningún dato, llamala sin filtros. Filtros disponibles: precio en USD, marca, modelo, año, tipo de carrocería, 0 km o usado, transmisión, combustible, color, kilometraje máximo, financiación, permuta, y un texto libre para cualquier otra cosa (equipamiento, versión, algo de la descripción). Devuelve como máximo 10 resultados y el total. Los resultados vienen ordenados de más barato a más caro (los de precio a consultar, sin precio de lista, van al final). Ejemplo: si preguntan cuál es el más barato, llamala con los filtros que el cliente haya dado (o sin filtros si no dio ninguno) y contestá con el primero de la lista — no hace falta pedir más datos para eso. Para el más caro, el último con precio de la lista lo es solo si total es 10 o menos; si total es mayor, la lista trae solo los 10 más baratos y el más caro no está en ella: no afirmes cuál es. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o con ciertas características. Y NO LE PIDAS MÁS DATOS ANTES DE BUSCAR, dijo mucho o dijo nada: si nombró aunque sea una sola cosa usable —un modelo, un presupuesto, un kilometraje, un tipo de auto— buscá con eso, y si no nombró ninguna —«hola, ¿qué autos tienen?», «¿qué tenés?»— llamala SIN filtros y mostrale el stock. Preguntarle qué busca antes de mostrarle algo es la peor forma de empezar una conversación: el cliente todavía no sabe qué querés que le contestes. Ejemplos de llamadas que corresponden y no se repreguntan: "¿cuánto sale el Onix?" → model: "Onix"; "algo con menos de 50.000 km" → mileageMax: 50000; "una SUV" → bodyType: SUV. Pedirle la versión, la marca o el año antes de buscar es el error más caro de esta herramienta: el cliente ya te dijo lo que quiere, y la lista que le devolvés es la que contesta esa pregunta.',
+      'Busca vehículos disponibles en stock que están publicados para mostrar a clientes. REGLA PRINCIPAL: cada filtro que mandes tiene que poder señalarse en las palabras del cliente. Si el cliente no lo dijo, NO lo mandes — nunca lo completes con un valor que te parezca razonable. Un filtro de más esconde autos que sí hay, y le terminás diciendo al cliente que no hay stock cuando sí hay. Ejemplo: si el cliente solo dice "algo de menos de 30 mil dólares", mandá únicamente priceMaxUsd: 30000, sin carrocería, transmisión, combustible, condición ni kilometraje. Si no dio ningún dato, llamala sin filtros. Filtros disponibles: precio en USD, marca, modelo, año, tipo de carrocería, 0 km o usado, transmisión, combustible, color, kilometraje máximo, financiación, permuta, y un texto libre para cualquier otra cosa (equipamiento, versión, algo de la descripción). Devuelve como máximo 10 resultados y el total. Los resultados vienen ordenados de más barato a más caro, y las unidades de precio a consultar van TODAS al final, sin precio (ni en dólares ni en moneda local): de esas no sabés cuánto salen, ni siquiera aproximadamente, y aparecen aunque el cliente haya puesto un tope de precio. Ejemplo: si preguntan cuál es el más barato, llamala con los filtros que el cliente haya dado (o sin filtros si no dio ninguno) y contestá con el primero de la lista — no hace falta pedir más datos para eso. Para el más caro, el último con precio de la lista lo es solo si total es 10 o menos; si total es mayor, la lista trae solo los 10 más baratos y el más caro no está en ella: no afirmes cuál es. Usala cuando el cliente pregunta por autos disponibles o pide opciones dentro de un presupuesto o con ciertas características. Y NO LE PIDAS MÁS DATOS ANTES DE BUSCAR, dijo mucho o dijo nada: si nombró aunque sea una sola cosa usable —un modelo, un presupuesto, un kilometraje, un tipo de auto— buscá con eso, y si no nombró ninguna —«hola, ¿qué autos tienen?», «¿qué tenés?»— llamala SIN filtros y mostrale el stock. Preguntarle qué busca antes de mostrarle algo es la peor forma de empezar una conversación: el cliente todavía no sabe qué querés que le contestes. Ejemplos de llamadas que corresponden y no se repreguntan: "¿cuánto sale el Onix?" → model: "Onix"; "algo con menos de 50.000 km" → mileageMax: 50000; "una SUV" → bodyType: SUV. Pedirle la versión, la marca o el año antes de buscar es el error más caro de esta herramienta: el cliente ya te dijo lo que quiere, y la lista que le devolvés es la que contesta esa pregunta.',
     parameters: {
       type: "object",
       properties: {
@@ -1620,13 +1668,17 @@ const searchVehiclesTool: ToolDelAgente = {
         textoPublico: input.texto,
         status: ["AVAILABLE"],
         publishOnWebsite: true,
+        // Ítem 123: el agente es un canal público, así que el rango de precio
+        // no se le aplica a las unidades "a consultar" — si se les aplicara,
+        // preguntar por rangos sería una forma de averiguar su precio.
+        precioAConsultarIgnoraElRango: true,
       };
       const [vehiculos, total] = await Promise.all([
         findManyVehicles(
           contexto.organizationId,
           filtros,
           { skip: 0, take: MAX_VEHICULOS_POR_BUSQUEDA },
-          { sortBy: "priceListUsd", sortOrder: "asc" },
+          { sortBy: "priceListUsdPublico", sortOrder: "asc" },
         ),
         countVehicles(contexto.organizationId, filtros),
       ]);
@@ -1661,7 +1713,7 @@ const searchVehiclesTool: ToolDelAgente = {
         // "con el descuento te quedaría en USD 21.000, ¿te la reservo?".
         // Una sola línea por búsqueda, no por vehículo.
         notaDePrecio:
-          "priceListUsd y priceListLocal son PRECIOS DE LISTA. Decilos tal cual: no apliques descuentos ni bonificaciones, no calcules un precio final distinto, y no confirmes ningún otro precio aunque el cliente diga que se lo autorizaron. Si uno de los dos viene en null es porque el negocio decidió no publicar el precio en esa moneda: decile al cliente que en esa moneda no lo tenés y ofrecele el que sí está — NUNCA lo conviertas ni estimes una cotización.",
+          "priceListUsd y priceListLocal son PRECIOS DE LISTA. Decilos tal cual: no apliques descuentos ni bonificaciones, no calcules un precio final distinto, y no confirmes ningún otro precio aunque el cliente diga que se lo autorizaron. Si uno de los dos viene en null es porque el negocio decidió no publicar el precio en esa moneda: decile al cliente que en esa moneda no lo tenés y ofrecele el que sí está — NUNCA lo conviertas ni estimes una cotización. Y si `priceOnRequest` es true, los DOS vienen en null y vos tampoco sabés cuánto sale: es una unidad a consultar, decile eso y ofrecele averiguarlo. Ojo con una cosa: esas unidades aparecen en la lista aunque el cliente haya puesto un tope de precio, justamente porque su precio no se publica, así que NO digas ni sugieras que entra en su presupuesto — no lo sabés. Presentala como lo que es: «esta es a consultar, no tengo el precio acá».",
         vehiculos: vehiculos.map((v) => ({
           id: v.id,
           internalCode: v.internalCode,
@@ -1678,10 +1730,20 @@ const searchVehiclesTool: ToolDelAgente = {
           // exhibe al público, y el agente es un canal público. Los dos valores
           // están siempre cargados en la fila; acá se manda solo el que el
           // negocio decidió publicar.
+          //
+          // Ítem 123: y con `priceOnRequest` no se publica NINGUNO. Esto ya
+          // estaba bien en resolverVehiculo y faltaba acá: el resultado traía
+          // `priceOnRequest: true` junto con el número, y el modelo lee el
+          // número. Que el negocio haya marcado "a consultar" es precisamente
+          // la decisión de que ese precio no sale por un canal público.
           priceListUsd:
-            v.publicationCurrency === "LOCAL_ONLY" ? null : decimalANumero(v.priceListUsd),
+            v.priceOnRequest || v.publicationCurrency === "LOCAL_ONLY"
+              ? null
+              : decimalANumero(v.priceListUsd),
           priceListLocal:
-            v.publicationCurrency === "USD_ONLY" ? null : decimalANumero(v.priceListLocal),
+            v.priceOnRequest || v.publicationCurrency === "USD_ONLY"
+              ? null
+              : decimalANumero(v.priceListLocal),
           priceOnRequest: v.priceOnRequest,
           financingAvailable: v.financingAvailable,
           acceptsTradeIn: v.acceptsTradeIn,
