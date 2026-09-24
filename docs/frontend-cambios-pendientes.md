@@ -7024,3 +7024,45 @@ Los dos ítems que más sirvieron (116 y 119) salieron de leer la fila después 
 
 - `M3`/`B4`: pide un dato que la tool contesta en vez de llamarla. Mismo síntoma en la agenda que el que acá se cerró en el stock.
 - `GR1`: con guardrails configurados, ante un tema prohibido **ofrece** derivar en vez de derivar, 1 de cada 4. Intentado en el ítem 120 con una frase en el prompt, medido (2/6 contra ~1,5/6 de línea base) y revertido por falta de señal.
+
+---
+
+## 122. El agente le preguntaba al cliente algo que el backend ya sabía
+
+Mientras medía el residual de *"pregunta en vez de actuar"* apareció esto:
+
+```
+👤 ¿Tenés lugar el viernes para ver un auto?
+🤖 Para poder ver los horarios disponibles para el viernes, ¿a qué servicio
+   te referís? ¿Querés hacer un test drive o ver un auto en particular?
+```
+
+El cliente vino a preguntar cuándo puede ir y se llevó una pregunta. Y la pregunta no era necesaria: **los servicios de la sucursal están en la base**.
+
+**Por qué pasaba.** `resolverServicio()` cortaba antes de mirar nada: si el modelo no mandaba `servicio` ni `serviceTypeId`, devolvía *"hay que indicar el servicio"* y se acabó. Un callejón sin salida — el modelo no tenía entre qué elegir, así que le trasladaba la decisión al cliente. La rama de *"no existe ese servicio"* ya devolvía la lista de los reales desde el ítem 106; la de *"no indicaste ninguno"* no.
+
+**Qué se hizo.** Se saca el prerrequisito en vez de escribir frases sobre él:
+
+- **Una sola configurada → se resuelve sola.** No hay nada que elegir, así que no hay nada que preguntar. Aplica a `get_availability` **y** a `create_booking`: si quedaba solo en la primera, el agente miraba la agenda sin problema y se trababa justo al reservar, que es el turno que cuesta plata.
+- **Varias → la falla viaja con los nombres reales**, y con la instrucción puntual: elegí el que corresponda y volvé a llamar en este turno; si de verdad tenés que preguntar, **nombrale los que existen**, nunca *"¿qué servicio querés?"* a secas.
+
+### Lo que este ítem NO arregla, y por qué lo digo
+
+El residual con el que arranqué sigue abierto, y este cambio **no lo toca**. La falla que se ve en el eval es que el modelo **no llama a ninguna tool** y repregunta; mi cambio solo altera lo que pasa *después* de una llamada sin servicio. En la corrida de 18 ninguna de las 7 fallas había llamado a nada.
+
+El valor del ítem es otro y es real: un caso que antes terminaba SIEMPRE en callejón sin salida ahora se resuelve solo o deja al modelo en condiciones de seguir. Eso está probado con tests deterministas, **no** con el eval contra el modelo.
+
+### Y una advertencia sobre la medición
+
+Medí el mismo síntoma cuatro veces sobre caminos de código equivalentes: **3/6, 4/6, 16/18 y 11/18**. Esa varianza —de 50% a 89%— es más grande que cualquier mejora que yo pueda atribuirle a un cambio de redacción con la cantidad de repeticiones que se puede pagar.
+
+Conclusión práctica, que vale más que el ítem: **este residual no se puede medir con el n que se paga, y las dos veces que intenté moverlo con texto en el prompt (ítem 119 y una redacción de `get_availability` que no se shippeó) el resultado cayó dentro del ruido.** El día que se ataque, que no sea con más texto: o se remueve la causa estructural, como acá, o no se toca.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | `resolverServicio()` mira el catálogo antes de fallar; `SIN_SERVICIOS_CONFIGURADOS` y `nombresDe()` |
+| `src/services/agentReadTools.integration-test.ts` | 4 de integración: uno solo se resuelve, varios listan, `create_booking` igual que `get_availability`, y la sucursal sin servicios |
+| `src/services/agentTools.service.test.ts` | el caso dejó de ser unitario (depende del catálogo): queda el texto fijo, el comportamiento se fue a integración |
+| `scripts/eval-agente-real.ts` | escenarios `I1`–`I4`: un pedido operativo se resuelve, no se repregunta |

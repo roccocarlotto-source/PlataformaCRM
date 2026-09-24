@@ -797,8 +797,30 @@ async function zonaDeLaSucursal(contexto: ContextoDeEjecucionDeTool): Promise<st
 // el id — que es lo que el backend sabe hacer y el modelo no.
 //
 // El id sigue aceptándose: si el modelo lo copió bien, mejor todavía.
+//
+// Ítem 122: qué pasa cuando NO manda ninguno de los dos. Antes, un mensaje
+// seco —"hay que indicar el servicio"— sin decirle cuáles existen. El modelo
+// no tenía entre qué elegir, así que le trasladaba la pregunta al cliente:
+//
+//   👤 ¿Tenés lugar el viernes para ver un auto?
+//   🤖 Para poder ver los horarios, ¿a qué servicio te referís? ¿Querés
+//      hacer un test drive o ver un auto en particular?
+//
+// El cliente vino a preguntar cuándo puede ir y se lleva una pregunta. Ahora:
+// si la sucursal tiene UN solo servicio no hay nada que elegir y se resuelve
+// solo, y si tiene varios la falla viaja CON la lista de nombres reales, así
+// el modelo elige —o pregunta nombrando los que de verdad existen— en el mismo
+// turno, sin adivinar. Mismo criterio que la rama de "no existe ese servicio",
+// que ya devolvía la lista.
 export const MENSAJE_SERVICIO_SIN_IDENTIFICAR =
   'Hay que indicar el servicio: mandá `servicio` con el nombre (por ejemplo "Test drive") o `serviceTypeId` con el id exacto que devolvió la lista de servicios.';
+
+export const SIN_SERVICIOS_CONFIGURADOS =
+  "Esta sucursal no tiene ningún servicio configurado, así que no hay nada que agendar.";
+
+function nombresDe(tipos: { name: string }[]): string {
+  return tipos.map((t) => `"${t.name}"`).join(", ");
+}
 
 function normalizarNombre(texto: string): string {
   return texto
@@ -818,9 +840,6 @@ async function resolverServicio(
   if (args.serviceTypeId !== undefined) {
     return { ok: true, serviceTypeId: args.serviceTypeId };
   }
-  if (args.servicio === undefined) {
-    return { ok: false, resultado: fallo(MENSAJE_SERVICIO_SIN_IDENTIFICAR) };
-  }
 
   const tipos = await findManyServiceTypes(
     contexto.organizationId,
@@ -828,19 +847,37 @@ async function resolverServicio(
     { skip: 0, take: MAX_TIPOS_DE_SERVICIO },
     { sortBy: "name", sortOrder: "asc" },
   );
+
+  // Ítem 122: sin servicio indicado. Con uno solo configurado no hay nada que
+  // elegir; con varios, la lista va en la falla para que el modelo no tenga
+  // que preguntarle al cliente algo que el backend sabe.
+  if (args.servicio === undefined) {
+    if (tipos.length === 1) {
+      return { ok: true, serviceTypeId: tipos[0].id };
+    }
+    return {
+      ok: false,
+      resultado: fallo(
+        tipos.length === 0
+          ? SIN_SERVICIOS_CONFIGURADOS
+          : `${MENSAJE_SERVICIO_SIN_IDENTIFICAR} Los de esta sucursal son: ${nombresDe(tipos)}. Elegí el que corresponda a lo que pidió el cliente y volvé a llamar en este mismo turno; si de verdad ninguno encaja o hay dos que podrían, preguntale al cliente NOMBRÁNDOLE esos, nunca "¿qué servicio querés?" a secas.`,
+      ),
+    };
+  }
+
   const buscado = normalizarNombre(args.servicio);
   const coincidencias = tipos.filter((t) => normalizarNombre(t.name) === buscado);
 
   if (coincidencias.length === 1) {
     return { ok: true, serviceTypeId: coincidencias[0].id };
   }
-  const disponibles = tipos.map((t) => `"${t.name}"`).join(", ");
+  const disponibles = nombresDe(tipos);
   if (coincidencias.length === 0) {
     return {
       ok: false,
       resultado: fallo(
         tipos.length === 0
-          ? "Esta sucursal no tiene ningún servicio configurado, así que no hay nada que agendar."
+          ? SIN_SERVICIOS_CONFIGURADOS
           : `No existe ningún servicio llamado "${args.servicio}". Los que existen son: ${disponibles}. Usá uno de esos, tal cual está escrito.`,
       ),
     };

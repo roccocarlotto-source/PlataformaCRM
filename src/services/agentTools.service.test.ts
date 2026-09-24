@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   CATALOGO_DE_TOOLS,
+  MENSAJE_SERVICIO_SIN_IDENTIFICAR,
   NOMBRE_TOOL_PAGO,
   SUFIJO_ERROR_DE_ARGUMENTOS,
   canonizarNombreDeTool,
@@ -155,12 +156,15 @@ test("create_booking: exige startsAt ISO con zona y algún modo de indicar el se
     }),
     /ISO 8601/,
   );
-  // Ítem 106: el servicio ya no se indica solo por id, pero sigue haciendo
-  // falta indicarlo de ALGUNA de las dos formas, y el error dice cuáles son.
-  assert.match(
-    await rechazoDe("create_booking", { startsAt: "2026-09-28T10:00:00-03:00" }),
-    /servicio.*serviceTypeId/s,
-  );
+  // Ítem 106: el servicio se puede indicar por nombre o por id, y el mensaje
+  // de "no indicaste ninguno" dice cuáles son las dos formas.
+  //
+  // Ítem 122: este caso ya NO se resuelve sin tocar la base —ahora depende de
+  // cuántos servicios tenga la sucursal: con uno solo se elige solo, con
+  // varios la falla lleva la lista—, así que el comportamiento se prueba en
+  // agentReadTools.integration-test.ts. Acá queda solo el texto fijo, que es
+  // lo único que sigue siendo unitario.
+  assert.match(MENSAJE_SERVICIO_SIN_IDENTIFICAR, /servicio.*serviceTypeId/s);
 });
 
 // ---------------------------------------------------------------------------

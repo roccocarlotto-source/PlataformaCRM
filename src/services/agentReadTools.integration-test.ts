@@ -1162,10 +1162,14 @@ test("un servicio que no existe devuelve la lista de los que sí, para corregirs
 });
 
 test("sin nombre ni id, el error dice las dos formas de indicarlo", async () => {
+  // Ítem 122: este caso ahora depende del catálogo de la sucursal —con un solo
+  // servicio se resuelve solo—, así que hace falta una con varios para que
+  // "indicá el servicio" siga siendo la respuesta correcta.
+  const sucursal = await sucursalConServicios(["Test drive", "Tasación"]);
   const r = await ejecutar(
     "create_booking",
     { startsAt: "2026-09-28T10:00:00-03:00" },
-    contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", a.branchId),
+    contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", sucursal.id),
   );
   assert.equal(r.ok, false);
   assert.match(r.ok === false ? r.error : "", /servicio.*serviceTypeId/s);
@@ -1514,4 +1518,97 @@ test("search_vehicles sin resultados igual avisa: es el lead al que hay que llam
   assert.equal(data.sinResultados, true);
   assert.match(data.queHacer, /NO inventes/, "el vacío explícito del ítem 91 sigue estando");
   assert.match(data.recordatorioDePresupuesto ?? "", /NO tiene presupuesto guardado/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 122: sin servicio indicado, la falla tiene que dejar al modelo en
+// condiciones de seguir solo. Antes decía "hay que indicar el servicio" y
+// nada más: el modelo no tenía entre qué elegir y le trasladaba la pregunta
+// al cliente, que había venido a preguntar cuándo podía ir.
+//
+//   👤 ¿Tenés lugar el viernes para ver un auto?
+//   🤖 Para poder ver los horarios, ¿a qué servicio te referís?
+// ---------------------------------------------------------------------------
+
+async function sucursalConServicios(nombres: string[]) {
+  const sucursal = await createBranch(a.organizationId, {
+    name: `Agenda ${nombres.length} (${Date.now()})`,
+    timezone: TZ,
+  });
+  const recurso = await createResource(a.organizationId, {
+    branchId: sucursal.id,
+    name: "Box",
+    type: "ROOM",
+  });
+  for (const name of nombres) {
+    await createServiceType(a.organizationId, {
+      branchId: sucursal.id,
+      resourceId: recurso.id,
+      name,
+      durationMin: 45,
+    });
+  }
+  return sucursal;
+}
+
+test("get_availability sin servicio y con UNO solo configurado: lo resuelve solo (ítem 122)", async () => {
+  // No hay nada que elegir, así que no hay nada que preguntar. El modelo no
+  // tiene que acarrear un nombre ni un id para mirar la agenda.
+  const sucursal = await sucursalConServicios(["Test drive"]);
+  const r = await ejecutar(
+    "get_availability",
+    { desde: "2026-09-28T09:00:00-03:00" },
+    contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", sucursal.id),
+  );
+
+  assert.equal(r.ok, true, JSON.stringify(r));
+});
+
+test("get_availability sin servicio y con VARIOS: la falla lleva los nombres reales (ítem 122)", async () => {
+  const sucursal = await sucursalConServicios(["Test drive", "Visita al salón", "Tasación"]);
+  const r = await ejecutar(
+    "get_availability",
+    { desde: "2026-09-28T09:00:00-03:00" },
+    contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", sucursal.id),
+  );
+
+  assert.equal(r.ok, false);
+  const error = (r as { ok: false; error: string }).error;
+  // Los tres, para que el modelo elija sin adivinar.
+  assert.match(error, /Test drive/);
+  assert.match(error, /Visita al salón/);
+  assert.match(error, /Tasación/);
+  // Y la instrucción puntual: si tiene que preguntar, que los nombre.
+  assert.match(error, /NOMBRÁNDOLE/);
+});
+
+test("create_booking sin servicio y con UNO solo: tampoco hace falta nombrarlo (ítem 122)", async () => {
+  // Misma resolución para las dos tools de agenda: si hubiera quedado solo en
+  // get_availability, el modelo miraría la agenda sin problema y se trabaría
+  // justo al reservar, que es el turno que cuesta plata.
+  const sucursal = await sucursalConServicios(["Test drive"]);
+  const contacto = await nuevoContacto(a);
+  const r = await ejecutar(
+    "create_booking",
+    { startsAt: "2026-09-28T10:00:00-03:00" },
+    contextoDe(a.organizationId, contacto.id, sucursal.id),
+  );
+
+  // Puede fallar por la agenda (fuera de horario, ocupado), pero NUNCA por no
+  // saber qué servicio es.
+  if (!r.ok) {
+    assert.doesNotMatch(r.error, /Hay que indicar el servicio/);
+  }
+});
+
+test("sucursal sin ningún servicio configurado: lo dice, no pide que se lo indiquen (ítem 122)", async () => {
+  const sucursal = await sucursalConServicios([]);
+  const r = await ejecutar(
+    "get_availability",
+    { desde: "2026-09-28T09:00:00-03:00" },
+    contextoDe(a.organizationId, "00000000-0000-4000-8000-000000000003", sucursal.id),
+  );
+
+  assert.equal(r.ok, false);
+  assert.match((r as { ok: false; error: string }).error, /no tiene ningún servicio configurado/);
 });
