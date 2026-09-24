@@ -259,7 +259,105 @@ eje E.
 
 ### A. Aislamiento multi-tenant y autorización
 
-(pendiente)
+**Qué se revisó.** Los 43 archivos de `src/repositories/` (toda llamada
+`find*/update*/delete*/upsert/count` y todo `$queryRaw/$executeRaw`), las 41
+rutas y sus middlewares, los services que validan ids del body, los 5
+workers y los handlers de outbox/automatizaciones, las tools del agente, las
+migraciones de RLS/grants, `prisma/sql/rls_policies.sql`, y el uso de
+`supabase-js` en `frontend/src`.
+
+**Cómo funciona la autorización (mapa).** `authenticate`
+(`src/middlewares/authenticate.ts`) verifica el JWT ES256 contra el JWKS y
+resuelve `req.auth = {userId, organizationId, role}` **desde `users` en
+Postgres** (`auth.service.ts`), chequeando `deletedAt`/`isActive` del usuario
+y de la organización — el tenant nunca sale del token ni del cliente. Roles:
+solo `ADMIN` y `USER` (`authorize("ADMIN")` es el único gate de rol).
+`requirePlatformAdmin` = allowlist global `platform_admins` (sin write path
+de aplicación), usada solo en `/api/admin/*`. Patrón de rutas: `GET` =
+`authenticate`; escrituras = `authenticate + businessWriteRateLimiter +
+authorize("ADMIN")`, con excepciones por diseño (USER puede completar su
+actividad, crear/cancelar reservas, editar conversación/brief). Lecturas
+solo-ADMIN: api-keys, sources, users, invitations, imports, ingestion-events,
+embed-tokens. **No existe membresía usuario↔sucursal** (`User` no tiene
+`branchId`): cualquier usuario de la organización ve y opera cualquier
+sucursal; el `branchId` de cada entidad se valida contra la organización
+(`findBranchById(branchId, organizationId)`) antes de escribir. Es
+organización de datos, no un control de acceso — decisión a documentar (ver
+eje I).
+
+Endpoints públicos / semi-públicos:
+
+| Ruta | Verificación | Rate limit | Tenant inferido de |
+|---|---|---|---|
+| `POST /api/onboarding/otp`, `POST /api/onboarding` | OTP de Supabase (`verifyOtp`) | 5/15 min por email | crea la org |
+| `POST /api/invitations/accept` | JWT + Admin API (`email_confirmed_at`), invitación matcheada por email | 10/10 min por `sub` | `invitation.organizationId` |
+| `POST /api/ingest` | `x-api-key` hasheada → `findApiKeyByHash` | 60/min por clave (env) | `apiKey.organizationId` |
+| `POST /api/public/agents/:agentId/web/messages` | `x-embed-token` hasheado + `agentId` de URL == token + `Origin` ∈ `allowedOrigins` | 20/min por token | `token.organizationId`, `agent.branchId` |
+| `POST/GET /webhooks/whatsapp` | HMAC-SHA256 del raw body con `WHATSAPP_APP_SECRET`, timing-safe; GET con verify_token | ninguno (firma) | `agents.whatsapp_phone_number_id` (UNIQUE global) → **A-01** |
+| `POST /webhooks/mercadopago` | `x-signature` + re-fetch del preapproval a la API de MP | ninguno (firma) | `organizations.qr_mercadopago_subscription_id` (solo por SQL) |
+| `GET /qr/resolve/:qrId` | `x-internal-proxy-secret` (falla cerrado con 404) | en el Worker de Cloudflare | `qr_codes.id` (solo estado público) |
+| `GET /api/integrations/google-calendar/callback` | `state` JWT HS256 firmado con `SECRET_ENCRYPTION_KEY`, TTL 10 min | ninguno | `state.organizationId/branchId` |
+| `POST /api/webhooks/google-calendar` | `x-goog-channel-token` firmado (org+branch+channelId) comparado contra la fila del canal | ninguno | token firmado |
+| `GET /health` | ninguna | ninguno | n/a |
+
+**Lo que está bien (verificado).** Las únicas lecturas/escrituras sin
+`organizationId` en el `where` son globales o públicas por diseño y están
+comentadas como tal (`findOrganizationById/BySlug`, `findRoleByName`,
+`findPlatformAdminByUserId`, `findUserForAuth`, `findUserByEmail`,
+`findApiKeyByHash`, `findEmbedTokenByHash`, `findAgentOriginsById`,
+`findAgentByWhatsappPhoneNumberId`, `findConnectionByChannelId`,
+`findQrCodePublicState`, `findOrganizationByMercadopagoSubscriptionId`,
+`upsertExchangeRate`, `upsertAutomationExecution`, las funciones de
+invitación por email, las de stages por `pipelineId` —cuyos callers toman
+`lockPipelineForUpdate(pipelineId, organizationId)` antes (A-1 y B-12 del
+29/08 **cerrados**)— y las purgas/claims de las colas). Todos los
+`lock*ForUpdate` en SQL crudo incluyen `organization_id`. El único
+`prisma.<modelo>` fuera de `src/repositories/` es `authCleanup.service.ts:144`
+(global por diseño). Todos los ids que vienen del body se validan contra la
+organización en los services (opportunity, contact, activity, quote, delivery,
+payment, vehicle, booking, workingHours, apiKey, embedToken). Los workers y
+handlers derivan el tenant de la fila reclamada. Las tools del agente usan
+`contexto.organizationId` y además exigen `opportunity.contactId ===
+conversation.contactId` y `resource.branchId === conversation.branchId`. El
+frontend usa `supabase-js` **solo para auth** (`frontend/src/lib/supabase.ts`;
+cero `.from(`/`.rpc(`/`storage.from(`); las fotos de vehículos van por bucket
+privado con signed URLs del backend. Grants a `anon`/`authenticated`
+revocados (`20260821140100`, reforzado en `20260902150000`). `/users` no
+deja quedar a la org sin ADMIN activo. `tenant-isolation.integration-test.ts`
+existe y pasa (343 tests de integración en verde acá incluyen los de
+aislamiento que no necesitan GoTrue).
+
+#### A-01 — CRÍTICO (VERIFICAR el modelo de Meta) — Cualquier ADMIN de cualquier tenant puede "reclamar" el `phone_number_id` de WhatsApp de otro y recibir/responder los mensajes de sus clientes
+
+- `src/controllers/agent.controller.ts:139-145` (solo valida "dígitos, ≤40"), `src/services/agent.service.ts:235-252` (`updateAgent` aplica `...resto` sin verificar propiedad del número), `prisma/schema.prisma` (`Agent.whatsappPhoneNumberId @unique` global), `src/repositories/agent.repository.ts:87-92` (`findAgentByWhatsappPhoneNumberId` sin organización, por diseño), `src/services/whatsappWebhook.service.ts:96,158` y `src/config/env.ts:362-364` (**un solo** `WHATSAPP_ACCESS_TOKEN`/`APP_SECRET` para toda la plataforma).
+- **Escenario:** la plataforma opera con una sola Meta App/token, así que los mensajes de los números de TODOS los clientes entran al mismo webhook. El tenant B hace `PATCH /api/agents/:id {whatsappPhoneNumberId: "<id del número de A>"}` antes de que A lo cargue (o después de que A borre su agente: `softDeleteAgent` libera el número). Desde ahí, cada mensaje de los clientes de A entra a la organización de B, B crea Contacts con esos teléfonos y nombres, y el agente de B les responde **en nombre del número de A** con el token de la plataforma. El `phone_number_id` no es secreto (aparece en el panel de Meta y en cualquier payload). El único "control" es first-come-first-served por UNIQUE, y el 409 "ya está asignado a otro agente" permite enumerar qué ids están en uso.
+- **Por qué importa:** fuga de datos de clientes entre tenants + suplantación del canal comercial. Si cada cliente tuviera su propia Meta App (hoy el código no lo contempla), baja a MEDIO; por eso el VERIFICAR.
+- **Arreglo:** la asignación número→organización tiene que ser una operación de platform admin (`/api/admin/*`, tabla o columna escrita solo desde ahí, o verificación contra la Graph API de que el número pertenece a la WABA del tenant); el PATCH del agente elige solo entre los números ya asignados a su organización.
+
+#### A-02 — BAJO — `agents`, `conversations` y `messages` son las únicas tablas del schema sin RLS, y el comentario que lo justifica está desactualizado
+
+- `prisma/migrations/20260912130000_agent_conversation_message_schema/migration.sql:25-28` dice que booking/working_hours/etc. "tampoco las tienen", pero `20260901120000_rls_booking_and_outbox_tables` ya las había habilitado. Cruce de los 39 `@@map` del schema contra todos los `enable row level security` de migraciones + `rls_policies.sql`: faltan exactamente esas tres (verificado acá con `comm`). Ninguna tabla tiene `FORCE ROW LEVEL SECURITY`.
+- **Escenario:** hoy no explotable (grants revocados). Es la segunda capa que falta si alguien habilita Realtime o hace un `grant` puntual. No hay un test que falle cuando una tabla nueva queda sin RLS (`verify-schema.ts:311` solo chequea que lo de `rls_policies.sql` llegó); Xentech sí lo tiene (`rlsPolicies.test.ts`).
+- **Arreglo:** migración con `enable row level security` en las tres + test que compare `@@map` contra las migraciones.
+
+#### A-03 — BAJO — `users_isolation` es `for all` con `with check` por organización: si vuelven los grants a `authenticated`, un USER se sube a ADMIN vía PostgREST
+
+- `prisma/sql/rls_policies.sql:71-74`. Latente (los grants están revocados); el propio `20260821140100` describe este escenario como motivo del REVOKE. **Arreglo:** policy de `users` solo `for select`, o `for update` con `with check (role_id = (select role_id from users where id = auth.uid()))`.
+
+#### A-04 — BAJO — El `state` del OAuth de Google Calendar no está atado a la sesión que lo inició ni es de un solo uso
+
+- `src/utils/oauthState.ts:31-39` firma `{organizationId, branchId}` con TTL 10 min; el callback (`googleCalendarConnection.routes.ts:100`) no lleva `authenticate` (correcto) y `completarConexion` acepta cualquier `code` válido con ese state.
+- **Escenario:** si la `authorizationUrl` se filtra, un tercero conecta SU Google al calendario de esa sucursal en ≤10 min (login-CSRF). Requiere leak. **Arreglo:** nonce persistido y consumido en el callback, o cookie `SameSite=Lax` firmada.
+
+#### A-05 — BAJO — En el widget, el `sessionId` que elige el cliente es la única llave para retomar la conversación y el Contact de otro visitante del mismo agente
+
+- `src/controllers/publicWidget.controller.ts:25,42,53` → `widgetContact.service.ts:47-56`. El frontend lo genera con `crypto.randomUUID()` en localStorage (`frontend/src/widget/session.ts`). Intra-tenant, visitante a visitante; la respuesta no devuelve el historial. **Arreglo:** documentarlo; endurecer = sessionId emitido y firmado por el servidor, con expiración.
+
+#### A-06 — BAJO — Superficie sin rate limit antes de tocar la base en rutas sin autenticación
+
+- `GET /health` (`$queryRaw` por hit), el preflight del widget (`widgetCors.ts:34`: un `SELECT` por cada `OPTIONS` con un UUID válido), `/api/ingest` y el widget hacen un `findByHash` por request antes de su limiter (keyeado por credencial ya resuelta), y el callback OAuth / webhook de Google no tienen limiter. DoS barato, no aislamiento. **Arreglo:** un limiter por IP genérico (con `trust proxy` correcto para Render) delante de `/health`, `/api/public`, `/api/ingest`, `/api/integrations`.
+
+**No se pudo verificar en A:** el estado real de RLS/grants en la base de producción (sin credenciales, y no corresponde); si Meta está configurado con una única App/WABA para todos los tenants (A-01); `trust proxy` efectivo en Render.
 
 ### B. Agente de IA y herramientas
 
@@ -393,7 +491,72 @@ etiqueta inventada. Tope de 5 rondas y ventana de 20 mensajes.
 
 ### E. Secretos, configuración y seguridad general
 
-(pendiente)
+**Qué se revisó.** Búsqueda de patrones de secretos (`sk-or-`, `eyJhbGci`,
+`AKIA`, `-----BEGIN`, `password=`, `postgres(ql)://…:…@`, `service_role`,
+`EAA`, `TEST-`/`APP_USR-`, `GOCSPX-`, `whsec_`) sobre `git ls-files` y sobre el
+historial disponible; archivos borrados; `.gitignore`/`.dockerignore`;
+`src/lib/logger.ts`, `accessLog.ts`, `errorHandler.ts`; `.env.example` vs
+`env.ts`; `helmet`/CORS/widget; `npm audit` en backend y frontend;
+`scripts/audit-gate.ts`.
+
+**Lo que está bien (verificado).** **No hay ningún secreto en el árbol
+versionado ni en el historial disponible**: todos los matches son prosa,
+placeholders o `sk-or-clave-de-prueba` de un test. No hay `.env`, `dist/`,
+`*.patch`, `pr-body-*.md`, `npm-audit.json` ni `signing_keys.json`
+versionados ni borrados en el historial; `.gitignore` los cubre y
+`.dockerignore` excluye `.env*`, `docs`, `scripts`, `.git`. La imagen corre
+como `node`, con `--omit=dev`. `errorHandler.ts:61-62,85-87`: en producción
+solo sale el mensaje de un `AppError` operacional; errores no operacionales y
+de Prisma → "Error interno del servidor"; `stack` solo en desarrollo. No se
+loguea ningún body, texto de cliente, respuesta del LLM ni payload crudo
+(verificado en whatsapp, orquestación, llmProvider, qrWebhook, widgetAuth).
+Redacción de `authorization`, `cookie`, `x-api-key`, `x-external-id`,
+`x-embed-token`, `set-cookie`. Ningún limiter keyea por IP (A-2 del 29/08
+**cerrado**). Secretos comparados con `timingSafeEqual`; API keys y embed
+tokens hasheados; refresh token de Google con AES-256-GCM + HKDF por
+propósito + prefijo de versión. `helmet()` con defaults, `Cache-Control:
+no-store` global, CORS del widget por igualdad exacta sin credenciales. Las
+variables de entorno de esta sesión son todas de prueba (localhost/dummy):
+**no había credenciales reales en el entorno**.
+
+#### E-01 — ALTO (VERIFICAR) — Las conversaciones de los clientes van a un modelo `:free` de OpenRouter sin opt-out de retención/entrenamiento, y sin decisión documentada
+
+- `src/config/env.ts:415` (default `google/gemma-4-31b-it:free`, copiado a cada Agent nuevo en `agent.controller.ts:172`); `src/services/llmProvider.service.ts:335-360` (el body lleva solo `model`, `messages`, `tools`, `tool_choice`; sin `provider: { data_collection: "deny" }` ni header de política).
+- **Escenario:** cada turno manda instrucciones + KB de la sucursal + historial del contacto (nombre, teléfono, presupuesto, datos del vehículo) + resultados de tools a un proveedor que OpenRouter elige; los endpoints `:free`, según la política publicada de OpenRouter, pueden loguear/entrenar salvo opt-out. `docs/ai-agent-architecture.md` decide el proveedor por costo y portabilidad, no dice nada de privacidad; `docs/data-classification.md` clasifica esos datos como personales de terceros.
+- **Arreglo:** mandar `provider: { data_collection: "deny" }` (o el opt-out de cuenta), modelo pago con política clara en producción, y dejarlo escrito como decisión. VERIFICAR contra la política vigente de OpenRouter y la configuración de la cuenta.
+
+#### E-02 — MEDIO — El secreto del gate de `/qr/resolve` queda en texto plano en el log de cada request
+
+- `src/lib/logger.ts:41-51` (`REDACT_PATHS` no incluye `req.headers["x-internal-proxy-secret"]`); `src/middlewares/requireInternalProxySecret.ts:40,74` lo lee de ese header; `pino-http` serializa `req.headers` completo.
+- **Escenario:** cada `GET /qr/resolve/:qrId` del Worker deja `x-internal-proxy-secret: <valor>` en la línea "request completed" de los logs de Render. Quien lea los logs (o un drain futuro) puede saltarse el rate limiting del Worker.
+- **Arreglo:** agregar el header a `REDACT_PATHS` + caso en `logger.test.ts`; rotar el secreto después (el mecanismo `_PREVIOUS` ya existe).
+
+#### E-03 — MEDIO — Un solo token de Meta para todos los tenants y el `phone_number_id` lo carga el propio tenant (lado configuración de A-01)
+
+- `src/config/env.ts:362-364`: ninguna credencial de WhatsApp vive por tenant en la base; el único secreto cifrado por tenant es el refresh token de Google. El modelo "una WABA de la plataforma para todos los clientes" no está escrito en `docs/ai-agent-architecture.md`. **Arreglo:** documentar el modelo elegido o pasar a token por tenant cifrado con `encryption.ts` (el archivo ya se declara preparado para más propósitos). El control de propiedad del número está en A-01.
+
+#### E-04 — BAJO — `.env.example` y `docs/deployment.md` no documentan 19 variables que el código lee; Render tiene una variable muerta
+
+- Faltan en `.env.example`: `INGEST_*` (8), `OUTBOX_*` (8), `WHATSAPP_VERIFY_TOKEN/APP_SECRET/ACCESS_TOKEN` (3). `docs/deployment.md` §2.3 omite `WHATSAPP_*`, `OPENROUTER_*`, `OPPORTUNITY_STALE_*`; `:33,45` dice 4 workers (son 5); `:311` lista `QR_CLAIM_APP_URL` cargada en Render, variable que `env.ts:336-338` eliminó.
+- **Escenario:** el deploy real de WhatsApp depende de que alguien recuerde tres variables que ningún documento operativo nombra. **Arreglo:** bloques en `.env.example`, actualizar §2.3, sacar `QR_CLAIM_APP_URL` de Render.
+
+#### E-05 — BAJO — `SECRET_ENCRYPTION_KEY` no tiene herramienta de rotación
+
+- `src/utils/encryption.ts` (v1, HKDF por propósito), consumidores `googleCalendarConnection.service.ts:16`, `oauthState.ts:114`, `webhookToken.ts:92`; `scripts/` no tiene `reencrypt`; `.env.example:49-52` lo admite. Ante una fuga: todas las sucursales reconectan Google a mano y los canales firmados con la clave vieja dejan de validar. **Arreglo:** `SECRET_ENCRYPTION_KEY_PREVIOUS` aceptada al descifrar/verificar + script de recifrado, como ya hace `QR_RESOLVE_PROXY_SECRET_PREVIOUS`.
+
+#### E-06 — BAJO — PII en `req.url` de cada línea de pino-http (B-3 del 21/08 y B-20 del 29/08, siguen abiertos)
+
+- `src/lib/logger.ts:32-40` lo documenta como límite conocido (`GET /api/contacts?email=…`); además el handshake de Meta manda `hub.verify_token` por query y queda en el log una vez. **Arreglo:** serializer de `req` que tape una lista de query params.
+
+#### E-07 — BAJO — Dependencias: 4 moderadas en backend (`qs` vía express, `uuid` vía exceljs), 0 en frontend runtime, 2 moderadas dev-only en frontend (`vitest`/`@vitest/mocker`, GHSA-82fw-gwwq-j7x9)
+
+- `scripts/audit-gate.ts:69-81` tiene una sola excepción (`GHSA-w5hq-g745-h8pq`, uuid vía exceljs, justificada), hoy inerte porque npm la clasifica moderate y el gate bloquea high/critical. **Arreglo:** `npm audit fix` para `qs` (npm dice que no rompe) y actualizar vitest.
+
+**No se pudo verificar en E:** el historial completo (el clon es shallow, 126
+commits — rehacer la búsqueda de secretos sobre un clon completo); la
+política vigente de OpenRouter y el opt-out de la cuenta (E-01); qué
+variables están efectivamente cargadas en Render; headers efectivos de
+`widget.js` en Vercel.
 
 ### F. Frontend
 
@@ -401,7 +564,67 @@ etiqueta inventada. Tope de 5 rondas y ventana de 20 mensajes.
 
 ### G. Operación y despliegue
 
-(pendiente)
+**Qué se revisó.** `Dockerfile`, `docs/deployment.md`, `src/server.ts`,
+`src/shutdown.ts`, `src/config/env.ts`, `health.*`, los 5 workers, los 8
+rate limiters, caches en memoria, `frontend/vercel.json`,
+`frontend/vite.widget.config.ts`, `.github/workflows/ci.yml`.
+
+**Topología real** (§2.1): frontend en Vercel (`plataforma-crm-chi.vercel.app`,
+el widget sale del mismo deploy como `/widget.js` sin hash), backend en
+**Render plan Free** (`plataformacrm.onrender.com`, "se duerme tras ~15 min",
+`docs/deployment.md:310`), Supabase `sa-east-1`, migraciones a mano desde una
+laptop con el `.env` de producción (`deployment.md:100-105`), sin CD. No hay
+`render.yaml`; no se sabe si Render construye desde el `Dockerfile` o con
+runtime Node nativo; `package.json` no tiene `engines`.
+
+**Lo que está bien.** Shutdown ordenado (`src/shutdown.ts`) idempotente, con
+tope `SHUTDOWN_TIMEOUT_MS=8000`, espera a los 5 workers antes de
+`$disconnect`, `unhandledRejection` pasa por el mismo camino (M-12 del 29/08
+**cerrado**). Colas de ingesta y outbox reclaman con `FOR UPDATE SKIP LOCKED`:
+ya son correctas con N réplicas. Dedup de wamid en base. Imagen multi-stage
+correcta. `/health` responde 503 sin base y el `HEALTHCHECK` del Dockerfile
+solo exige respuesta.
+
+#### G-01 — ALTO — El backend corre en Render Free: el proceso se duerme y con él los 5 workers y los dos webhooks síncronos
+
+- `docs/deployment.md:310`; `src/server.ts:23-61` (workers solo viven con el proceso); `src/services/whatsappWebhook.service.ts:25-30` (el webhook procesa el turno del LLM antes de responder 200).
+- **Escenario:** (a) tras 15 min sin tráfico nadie drena outbox ni ingesta, no se renuevan canales de Google (margen 24 h: un fin de semana dormido vence canales y **se pierden para siempre** los cambios hechos en Google, como advierte `env.ts:263-269`), no corre el barrido de estancadas; (b) un WhatsApp llega con el servicio dormido: cold start (decenas de segundos) + turno del LLM ≫ paciencia de Meta → reintentos, dedup, y la respuesta del primer intento puede no salir si Render corta; (c) ídem MercadoPago. Nada de esto está en `deployment.md`.
+- **Arreglo:** instancia siempre encendida antes de activar WhatsApp real; o workers en un proceso/cron aparte; como parche, keep-alive externo a `/health` documentado. Anotar en `deployment.md` qué deja de funcionar dormido.
+
+#### G-02 — ALTO — `npm run dev` local arranca los 5 workers contra la base de PRODUCCIÓN
+
+- `src/config/env.ts:14-17` ("`npm run dev` (".env", hoy apuntando al proyecto real de Supabase)"); `src/server.ts:23-61` arranca todo sin guarda; `scripts/sonda-matriz-crm.ts:33-38` sí tiene la guarda "solo si `DATABASE_URL` es local" — el servidor de desarrollo no.
+- **Escenario:** un dev levanta `npm run dev` para tocar el frontend: su laptop reclama y procesa eventos del outbox de producción (automatizaciones → borradores por LLM con su clave), promueve ingesta real, hace la pasada inmediata de oportunidades estancadas (emite eventos reales), y con `GOOGLE_*` renueva canales apuntando a su `GOOGLE_WEBHOOK_URL`; todo con logs `debug` en su consola (PII).
+- **Arreglo:** en `server.ts`, si `env.isDevelopment` y `DATABASE_URL` no es local, no arrancar workers (o exigir `DEV_ALLOW_REMOTE_DB=true`); `.env` local → stack de `supabase start`, y el `.env` de producción solo para `migrate:deploy`.
+
+#### G-03 — MEDIO (VERIFICAR) — Contrato Dockerfile ↔ Render sin confirmar: runtime, health check, grace period, versión de Node
+
+- `Dockerfile` (`HEALTHCHECK` ignorado por Render, que usa su propio health path); `env.ts:175-179` (`SHUTDOWN_TIMEOUT_MS` calibrado "para los 10 s de Docker"); `deployment.md:310` "grace period sin verificar". Si Render tiene `/health` como health check y la base se cae, el 503 hace que reinicie el servicio en bucle (`deployment.md:184-187` lo advierte). **Arreglo:** confirmar en el dashboard tipo de servicio, health path y grace period; agregar `"engines": {"node": "22"}`.
+
+#### G-04 — MEDIO — Inventario de lo que asume UN proceso (qué se rompe con 2 réplicas)
+
+| Componente | Dónde | Con 2 réplicas |
+|---|---|---|
+| 8 rate limiters `MemoryStore` (onboarding, otp, acceptInvitation, businessWrite, importPreview, kbExtract, ingest, widget) | `src/middlewares/rateLimit.ts` | cupo ×N; el más caro es el del widget (20/min/token), único freno al gasto de LLM del endpoint público |
+| Worker de ingesta / worker de outbox | `ingestionWorker.ts:36-42`, `outboxEvent.repository.ts:111-119` (`SKIP LOCKED`) | **seguros** |
+| Worker de canales de Google | `googleCalendarChannelWorker.ts:30-37`, sin lock | dos canales por sucursal; el `channelId` en base es el último; el otro notifica hasta vencer y cae como "canal desconocido" (ruido) |
+| Worker de cotizaciones | `exchangeRateWorker.ts:35-37` | upsert idempotente; llamadas dobles |
+| Worker de estancadas | `opportunityStaleWorker.ts:43-49` (el comentario admite la ventana) | dos eventos por oportunidad en paralelo → **dos borradores/Activities duplicados** |
+| Cache de access tokens de Google | `googleCalendarConnection.service.ts:336` (`Map`) — B-2 del 29/08 **cerrado** | correcto (N refreshes) |
+| JWKS, proveedor LLM, Prisma singleton | `jwt.ts:11`, `llmProvider.service.ts:485`, `prisma.ts:9-17` | correctos |
+| Lock de turno del agente | **no existe** (ni en memoria ni en base) | ya falla con una réplica: B-03 |
+
+- Hoy consistente (Render Free no escala); el día que se active autoscaling, lo primero que se rompe es el cupo del widget y los duplicados de estancadas. Aunque la decisión "una sola instancia" esté documentada, no hay nada que la haga cumplir.
+
+#### G-05 — BAJO — Qué NO cubre `ci.yml`
+
+- Nunca hace `docker build` (`deployment.md:71-74` lo admite): el `Dockerfile` puede romperse sin que CI lo vea. No hay smoke test de `node dist/server.js` ni de `/health`. No despliega ni corre `migrate:deploy`. El build del widget sí corre (`ci.yml:114`), pero nada verifica que `dist/widget.js` exista. `integration` depende de Docker + `supabase/setup-cli` + pull de ghcr.io (falló por cupo el 23/09). `npm audit` solo `--omit=dev` (decisión escrita).
+
+#### G-06 — BAJO — Vercel Preview sin `VITE_QR_PUBLIC_BASE_URL`
+
+- `docs/deployment.md:315`: la variable está solo en Production; `frontend/src/config/env.ts` falla temprano si falta → cualquier preview deploy arranca en blanco. **Arreglo:** cargarla también en Preview.
+
+**No se pudo verificar en G:** el dashboard de Render (Docker vs Node, health path, grace period, `LOG_LEVEL`, qué integraciones tienen variables cargadas); el comportamiento real de Meta ante el cold start; `docker build` (no hay Docker en el contenedor).
 
 ### H. Tests y CI
 
