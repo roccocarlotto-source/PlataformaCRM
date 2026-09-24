@@ -568,6 +568,19 @@ const createOpportunityTool: ToolDelAgente = {
 // update_opportunity
 // ---------------------------------------------------------------------------
 
+// Ítem 128 (B-01 de docs/auditoria-2026-09-24-punta-a-punta.md): el agente
+// puede dar una oportunidad por PERDIDA, con el motivo que dio el cliente, pero
+// no puede ganarla, reabrirla ni moverla de etapa. Antes el schema aceptaba
+// status WON y stageId, y un "ya la compré, cerrala" (o una inyección) bastaba
+// para que el modelo marcara la venta ganada: el contacto pasaba a CUSTOMER,
+// salía opportunity.won al outbox y corrían las automatizaciones de la
+// organización. INSTRUCCION_SIN_AUTORIDAD_COMERCIAL lo prohibía, pero era
+// prompt, no candado. Ganar y mover de etapa quedan para personas.
+//
+// .strict(): Zod descarta en silencio las claves que no declara (B-06), así
+// que sin esto un stageId o un ownerId desaparecerían sin que el modelo se
+// entere. Con strict, cualquier clave de más es un error de argumentos que el
+// modelo lee.
 const updateOpportunityArgs = z
   .object({
     // Ítem 112: OPCIONAL. Ver resolverOportunidad().
@@ -575,15 +588,34 @@ const updateOpportunityArgs = z
     title: textoOpcional(255),
     amount: z.number().min(0, "amount debe ser mayor o igual a 0").optional(),
     currency: vacioComoAusente(currencySchema),
-    status: vacioComoAusente(z.enum(["OPEN", "WON", "LOST"])),
-    stageId: vacioComoAusente(uuid("stageId")),
+    status: vacioComoAusente(z.enum(["LOST"])),
     lostReason: textoOpcional(255),
     // Ítem 107: para cuando el cliente cambia de auto a mitad de la charla.
     vehiculo: textoOpcional(255),
   })
+  .strict()
   .refine((data) => cantidadDeArgumentos(data) - (data.opportunityId === undefined ? 0 : 1) > 0, {
     message: "Hay que indicar al menos un campo a modificar",
   });
+
+export const MENSAJE_CIERRE_LO_HACE_UNA_PERSONA =
+  "Ganar una oportunidad, reabrirla o moverla de etapa lo hace una persona del equipo, no vos: no se cambió nada. Si el cliente dice que ya compró o que quiere cerrar, no le digas que quedó registrado como venta; decile que alguien del equipo lo va a confirmar con él, y derivá si hace falta.";
+
+export const MENSAJE_PERDIDA_SIN_MOTIVO =
+  "Para marcar la oportunidad como perdida hace falta el motivo que dio el cliente (lostReason): no se cambió nada. Si el cliente no lo dijo, preguntáselo; no lo inventes.";
+
+export const MENSAJE_MOTIVO_SIN_PERDIDA =
+  "El motivo de pérdida (lostReason) va solo junto con status LOST: no se cambió nada. Si el cliente desistió, mandá los dos juntos; si no, no mandes el motivo.";
+
+// Lo que el modelo ya no puede pedir (ítem 128), mirado en los argumentos
+// CRUDOS, antes de Zod: tiene que ser un rechazo de negocio que le diga qué
+// hacer, no un "argumentos inválidos, corregilos" que lo invite a reintentar.
+// Un status vacío o un stageId vacío siguen contando como no enviados (ítem
+// 86); cualquier otro status desconocido lo rechaza Zod como siempre.
+function pideCierreReservadoAPersonas(args: Record<string, unknown>): boolean {
+  const status = typeof args.status === "string" ? args.status.trim().toUpperCase() : args.status;
+  return status === "WON" || status === "OPEN" || !esVacio(args.stageId ?? null);
+}
 
 export const MENSAJE_OPORTUNIDAD_DE_OTRO_CONTACTO =
   "La oportunidad indicada no pertenece al contacto de esta conversación";
@@ -666,7 +698,7 @@ const updateOpportunityTool: ToolDelAgente = {
   definition: {
     name: "update_opportunity",
     description:
-      "Modifica la oportunidad abierta del contacto de esta conversación: título, monto, moneda, estado (OPEN/WON/LOST), etapa o motivo de pérdida. No hace falta que sepas su id: si no mandás opportunityId, se toma la que el contacto tiene abierta. No permite cambiar el vendedor ni el pipeline.",
+      "Modifica la oportunidad abierta del contacto de esta conversación: título, monto, moneda o vehículo, o la marca como PERDIDA (status LOST) con el motivo que dio el cliente (lostReason, obligatorio en ese caso). No hace falta que sepas su id: si no mandás opportunityId, se toma la que el contacto tiene abierta. NO puede ganarla, reabrirla ni moverla de etapa: eso lo hace una persona del equipo. Tampoco cambia el vendedor ni el pipeline.",
     parameters: {
       type: "object",
       properties: {
@@ -678,15 +710,16 @@ const updateOpportunityTool: ToolDelAgente = {
         title: { type: "string" },
         amount: { type: "number", description: "Monto, mayor o igual a 0." },
         currency: { type: "string", description: "Código ISO 4217 de 3 letras." },
-        status: { type: "string", enum: ["OPEN", "WON", "LOST"] },
-        stageId: {
+        status: {
           type: "string",
-          description: "UUID de la etapa destino, dentro del mismo pipeline.",
+          enum: ["LOST"],
+          description:
+            "Solo LOST, cuando el cliente desistió de la compra. Va siempre con lostReason.",
         },
         lostReason: {
           type: "string",
           description:
-            "Motivo de pérdida. Va SOLO con status LOST: una oportunidad ganada o reabierta no lleva motivo, y si lo mandás con WON u OPEN se descarta.",
+            "Motivo de pérdida, con las palabras del cliente. Obligatorio con status LOST, y solo va con status LOST.",
         },
         vehiculo: {
           type: "string",
@@ -700,11 +733,24 @@ const updateOpportunityTool: ToolDelAgente = {
   },
 
   ejecutar(args, contexto) {
-    const validacion = validarArgs(updateOpportunityArgs, args);
+    if (pideCierreReservadoAPersonas(args)) {
+      return Promise.resolve(fallo(MENSAJE_CIERRE_LO_HACE_UNA_PERSONA));
+    }
+    // Un stageId vacío es "no vino" (ítem 86), no una clave de más para el
+    // .strict(): se saca antes de validar.
+    const argsSinEtapa = { ...args };
+    delete argsSinEtapa.stageId;
+    const validacion = validarArgs(updateOpportunityArgs, argsSinEtapa);
     if (!validacion.ok) {
       return Promise.resolve(validacion.resultado);
     }
     const { opportunityId, vehiculo, ...cambios } = validacion.value;
+    if (cambios.status === "LOST" && cambios.lostReason === undefined) {
+      return Promise.resolve(fallo(MENSAJE_PERDIDA_SIN_MOTIVO));
+    }
+    if (cambios.lostReason !== undefined && cambios.status !== "LOST") {
+      return Promise.resolve(fallo(MENSAJE_MOTIVO_SIN_PERDIDA));
+    }
 
     return conErroresDeNegocio(async () => {
       const resuelta = await resolverOportunidad(opportunityId, contexto);
@@ -728,26 +774,6 @@ const updateOpportunityTool: ToolDelAgente = {
         }
       }
 
-      // Ítem 124: el motivo de pérdida junto con ganada o abierta.
-      //
-      // El caso es el más común del embudo: el cliente primero dice que no
-      // —queda LOST con su motivo— y después vuelve y compra. El modelo relee
-      // el estado, manda status WON y arrastra el lostReason que estaba, y
-      // desde el ítem 154 de la matriz eso es un 400 que el modelo ve y
-      // termina pagando el cliente.
-      //
-      // No es una contradicción que haya que rechazar: las reglas del CRM ya
-      // dicen que al ganar o reabrir el motivo se vacía. Así que se descarta
-      // acá —que es lo que el CRM iba a hacer igual— y se le avisa al modelo
-      // que se descartó, para que no le diga al cliente que quedó anotado algo
-      // que no quedó (ítem 100).
-      const motivoDescartado =
-        cambiosConVehiculo.lostReason !== undefined &&
-        (cambiosConVehiculo.status === "WON" || cambiosConVehiculo.status === "OPEN");
-      if (motivoDescartado) {
-        delete cambiosConVehiculo.lostReason;
-      }
-
       // actorUserId = el ownerId que la oportunidad ya tiene. Es inerte en este
       // camino: updateOpportunity solo lo usa para resolver un ownerId nuevo
       // (que acá nunca se manda) y para el historial de una unidad vinculada.
@@ -764,15 +790,7 @@ const updateOpportunityTool: ToolDelAgente = {
         amount: actualizada.amount,
         currency: actualizada.currency,
         status: actualizada.status,
-        stageId: actualizada.stageId,
         lostReason: actualizada.lostReason,
-        ...(motivoDescartado
-          ? {
-              noSeAplico: ["lostReason"],
-              queHacer:
-                "Una oportunidad ganada o reabierta no lleva motivo de pérdida, así que ese campo se descartó y el resto del cambio se aplicó igual. No le digas al cliente que anotaste un motivo.",
-            }
-          : {}),
       });
     });
   },

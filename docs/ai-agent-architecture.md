@@ -263,6 +263,17 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >    pipeline) — por eso el `actorUserId` de `updateOpportunity` es
 >    efectivamente inerte en este camino: se le pasa el `ownerId` que la
 >    oportunidad ya tiene.
+>
+>    **Actualización 24/09/2026 (ítem 128, B-01 de
+>    `docs/auditoria-2026-09-24-punta-a-punta.md`):** `update_opportunity`
+>    tampoco expone `stageId`, y `status` admite solo `LOST`, con
+>    `lostReason` obligatorio. El agente puede dar una oportunidad por perdida
+>    pero no ganarla, reabrirla ni moverla de etapa: ganar marca al contacto
+>    como CUSTOMER y emite `opportunity.won` (automatizaciones), y eso lo
+>    decide una persona. Si el modelo igual manda `WON`, `OPEN` o `stageId`,
+>    la tool devuelve `{ ok: false }` diciéndole que eso lo hace el equipo, sin
+>    tocar la oportunidad; el schema es `.strict()`, así que cualquier otra
+>    clave de más es un error de argumentos en vez de descartarse en silencio.
 > 3. **Alcance del handoff en este PR — NO es el mecanismo completo de esta
 >    sección.** Lo único que implementa 2b es una red de seguridad
 >    determinística: si el loop de tool-calling de un turno supera

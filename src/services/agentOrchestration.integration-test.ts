@@ -288,9 +288,9 @@ async function desmontar(e: Escenario) {
   await prisma.workingHours.deleteMany({ where });
   await prisma.serviceType.deleteMany({ where });
   await prisma.resource.deleteMany({ where });
-  // update_opportunity a WON emite opportunity.won al outbox (motor de
-  // automatizaciones): la fila referencia la organización y hay que borrarla
-  // antes que ella.
+  // Un turno que gana una oportunidad (hoy solo una persona desde el CRM, ítem
+  // 128) emite opportunity.won al outbox: la fila referencia la organización y
+  // hay que borrarla antes que ella.
   await prisma.outboxEvent.deleteMany({ where });
   await prisma.opportunity.deleteMany({ where });
   await prisma.stage.deleteMany({ where });
@@ -824,14 +824,14 @@ test("update_opportunity: solo sobre oportunidades del contacto de la conversaci
           {
             id: "c2",
             name: "update_opportunity",
-            arguments: { opportunityId: propia.id, status: "WON" },
+            arguments: { opportunityId: propia.id, status: "LOST", lostReason: "Precio" },
           },
         ],
       },
       texto("Actualizada."),
     ]);
 
-    const resultado = await turno(e, "Marcá como ganada", doble.proveedor);
+    const resultado = await turno(e, "Ya no me interesa, está cara", doble.proveedor);
 
     assert.equal(resultado.toolCalls[0].result?.ok, false);
     // Desde el ítem 112 el mensaje además le dice cómo salir del paso (volver
@@ -846,7 +846,7 @@ test("update_opportunity: solo sobre oportunidades del contacto de la conversaci
     const ajenaDespues = await prisma.opportunity.findUniqueOrThrow({ where: { id: ajena.id } });
     assert.equal(ajenaDespues.title, "Ajena");
     const propiaDespues = await prisma.opportunity.findUniqueOrThrow({ where: { id: propia.id } });
-    assert.equal(propiaDespues.status, "WON");
+    assert.equal(propiaDespues.status, "LOST");
     assert.equal(propiaDespues.ownerId, e.ownerId, "el vendedor no cambia");
   } finally {
     await desmontar(e);

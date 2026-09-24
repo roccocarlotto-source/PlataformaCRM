@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import { findManyVehicles } from "../repositories/vehicle.repository";
 import {
   SUFIJO_ERROR_DE_ARGUMENTOS,
   CATALOGO_DE_TOOLS,
+  MENSAJE_CIERRE_LO_HACE_UNA_PERSONA,
   type ContextoDeEjecucionDeTool,
   type ResultadoDeTool,
 } from "./agentTools.service";
@@ -1783,29 +1785,70 @@ test("create_opportunity se para en la primera etapa ABIERTA, no en la primera (
   }
 });
 
-test("update_opportunity: ganar descarta el motivo de pérdida y lo avisa (ítem 124)", async () => {
-  // El modelo manda WON y de paso arrastra un lostReason —porque lo leyó del
-  // estado anterior, o porque se lo inventó—. Las reglas del CRM ya dicen que
-  // una ganada no lleva motivo, así que esto no es una contradicción que haya
-  // que rechazar con un 400 en la cara del cliente: se descarta el campo, se
-  // aplica el resto, y se le avisa al modelo que se descartó para que no le
-  // diga al cliente que quedó anotado algo que no quedó (ítem 100).
+// Ítem 128 (B-01): el agente no gana ni mueve de etapa. Se mira la BASE, no
+// la respuesta de la tool: lo que importa es que la venta no quedó cerrada, que
+// el contacto no pasó a CUSTOMER y que no salió opportunity.won al outbox (lo
+// que dispara las automatizaciones de la organización).
+async function eventosGanadaDe(organizationId: string, opportunityId: string) {
+  const eventos = await prisma.outboxEvent.findMany({
+    where: { organizationId, eventType: "opportunity.won" },
+  });
+  return eventos.filter(
+    (e) => (e.payload as { opportunityId?: string } | null)?.opportunityId === opportunityId,
+  );
+}
+
+test("ítem 128: update_opportunity con WON se rechaza y la base no cambia", async () => {
   const contacto = await nuevoContacto(a);
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const { opportunityId } = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "Hilux" },
+    ctx,
+  );
+  const antes = await prisma.opportunity.findUniqueOrThrow({ where: { id: opportunityId } });
 
-  await datosDe<{ opportunityId: string }>("create_opportunity", { title: "Hilux" }, ctx);
+  const r = await ejecutar("update_opportunity", { status: "WON" }, ctx);
+  assert.deepEqual(r, { ok: false, error: MENSAJE_CIERRE_LO_HACE_UNA_PERSONA });
 
-  const r = await datosDe<{
-    status: string;
-    lostReason: string | null;
-    noSeAplico?: string[];
-    queHacer?: string;
-  }>("update_opportunity", { status: "WON", lostReason: "Se fue a la competencia" }, ctx);
+  const despues = await prisma.opportunity.findUniqueOrThrow({ where: { id: opportunityId } });
+  assert.equal(despues.status, "OPEN");
+  assert.equal(despues.stageId, antes.stageId);
+  assert.equal(despues.actualCloseDate, null);
+  assert.equal(despues.updatedAt.getTime(), antes.updatedAt.getTime(), "ni se escribió");
+  const contactoDespues = await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } });
+  assert.notEqual(contactoDespues.lifecycleStage, "CUSTOMER");
+  assert.deepEqual(await eventosGanadaDe(a.organizationId, opportunityId), []);
+});
 
-  assert.equal(r.status, "WON", "el cambio que importaba se aplicó igual");
-  assert.equal(r.lostReason, null);
-  assert.deepEqual(r.noSeAplico, ["lostReason"]);
-  assert.match(r.queHacer ?? "", /No le digas al cliente que anotaste un motivo/);
+test("ítem 128: update_opportunity con stageId se rechaza y la etapa no cambia", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const { opportunityId } = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "Hilux" },
+    ctx,
+  );
+  const otraEtapa = await createStage(a.organizationId, {
+    pipelineId,
+    name: `Negociación ${randomUUID().slice(0, 8)}`,
+    order: 50,
+  });
+  try {
+    const r = await ejecutar(
+      "update_opportunity",
+      { stageId: otraEtapa.id, title: "Hilux SRV" },
+      ctx,
+    );
+    assert.deepEqual(r, { ok: false, error: MENSAJE_CIERRE_LO_HACE_UNA_PERSONA });
+
+    const despues = await prisma.opportunity.findUniqueOrThrow({ where: { id: opportunityId } });
+    assert.equal(despues.stageId, primeraEtapaId);
+    assert.equal(despues.title, "Hilux", "tampoco se aplicó el resto del cambio");
+  } finally {
+    await prisma.opportunity.deleteMany({ where: { id: opportunityId } });
+    await prisma.stage.deleteMany({ where: { id: otraEtapa.id } });
+  }
 });
 
 test("una oportunidad PERDIDA ya no la ve update_opportunity (ítem 124)", async () => {
@@ -1821,22 +1864,28 @@ test("una oportunidad PERDIDA ya no la ve update_opportunity (ítem 124)", async
   await datosDe("create_opportunity", { title: "Ranger" }, ctx);
   await datosDe("update_opportunity", { status: "LOST", lostReason: "Precio" }, ctx);
 
+  // Desde el ítem 128 el agente tampoco podría reabrirla ni ganarla: eso lo
+  // hace una persona. Acá se prueba con un cambio que sí puede hacer.
   const r = await datosDe<{ opportunityId: string | null; sinResultados: boolean }>(
     "update_opportunity",
-    { status: "WON" },
+    { title: "Ranger XLT" },
     ctx,
   );
   assert.equal(r.opportunityId, null);
   assert.equal(r.sinResultados, true);
 });
 
-test("update_opportunity: perder SÍ guarda el motivo (ítem 124)", async () => {
-  // La contraparte, para que el descarte no se coma el caso legítimo.
+test("update_opportunity: perder SÍ guarda el motivo (ítems 124 y 128)", async () => {
+  // Lo único de cierre que el agente puede hacer desde el ítem 128.
   const contacto = await nuevoContacto(a);
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
 
-  await datosDe("create_opportunity", { title: "Amarok" }, ctx);
-  const r = await datosDe<{ status: string; lostReason: string | null; noSeAplico?: string[] }>(
+  const { opportunityId } = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "Amarok" },
+    ctx,
+  );
+  const r = await datosDe<{ status: string; lostReason: string | null }>(
     "update_opportunity",
     { status: "LOST", lostReason: "Precio" },
     ctx,
@@ -1844,5 +1893,11 @@ test("update_opportunity: perder SÍ guarda el motivo (ítem 124)", async () => 
 
   assert.equal(r.status, "LOST");
   assert.equal(r.lostReason, "Precio");
-  assert.equal(r.noSeAplico, undefined);
+  const fila = await prisma.opportunity.findUniqueOrThrow({ where: { id: opportunityId } });
+  assert.equal(fila.status, "LOST");
+  assert.equal(fila.lostReason, "Precio");
+  // Perder no hace cliente a nadie ni dispara lo que dispara ganar.
+  const contactoDespues = await prisma.contact.findUniqueOrThrow({ where: { id: contacto.id } });
+  assert.notEqual(contactoDespues.lifecycleStage, "CUSTOMER");
+  assert.deepEqual(await eventosGanadaDe(a.organizationId, opportunityId), []);
 });
