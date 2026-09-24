@@ -5,9 +5,9 @@ widget + automatizaciones + agenda + pagos + QR), hecha en una sesión en la
 nube. **No se modificó ningún archivo salvo este.** Convención de severidad y
 formato heredados de `docs/auditoria-2026-08-29.md`.
 
-> **Estado de este documento:** en construcción — se escribe a medida que
-> avanza la auditoría, con un commit por avance. Las secciones marcadas
-> `(pendiente)` todavía no se completaron.
+> **Estado de este documento:** completo (2026-09-24). Se escribió a medida
+> que avanzaba la auditoría, con un commit por avance en la rama
+> `audit/punta-a-punta-2026-09-24`.
 
 ---
 
@@ -81,7 +81,18 @@ imagen.
 2. La rama de trabajo asignada por el entorno era `claude/great-heisenberg-ptafjy`;
    el prompt pidió explícitamente `audit/punta-a-punta-2026-09-XX`, así que
    el documento se publica en `audit/punta-a-punta-2026-09-24`.
-3. (se completa a medida que avanza)
+3. Los escenarios de concurrencia están razonados sobre el código y la
+   semántica de Postgres (READ COMMITTED, `FOR UPDATE`), no reproducidos.
+4. Lo que depende del comportamiento real de Meta, MercadoPago, Google,
+   OpenRouter, Render y Vercel está marcado VERIFICAR.
+5. La suite de integración solo corrió en la parte que no necesita GoTrue/
+   Storage (343 de 1076); no hay Docker en el contenedor para `supabase start`.
+6. El clon es shallow (126 commits): la búsqueda de secretos en el historial
+   cubre esa ventana.
+7. Los hallazgos BAJOS de higiene del 29/08 (B-1, B-10, B-11, B-14, B-24,
+   B-25, B-28, B-29, B-31…B-34) no se re-verificaron.
+8. Xentech (`Base-de-datos-Xentech`) estaba clonado en la sesión pero no es
+   parte del alcance; solo se lo cita como precedente reutilizable.
 
 ### 0.5 Convención de severidad
 
@@ -97,7 +108,52 @@ imagen.
 
 ## 1. Resumen ejecutivo
 
-(pendiente)
+**Veredicto.** La plataforma tiene una base técnica seria: el aislamiento
+entre organizaciones es estructural (57/57 FKs compuestas, todo `where` con
+`organizationId`, `verify:schema` en CI), el CRM core es sólido y bien
+testeado (1078 unitarios + 1785 de frontend en verde; locks y CAS en todas
+las carreras conocidas), Google Calendar cerró todos sus hallazgos previos, y
+la arquitectura del agente hace lo correcto: el modelo no elige ids, dueños ni
+pipelines, y cada tool pasa por permisos y por el mismo service que usa el
+panel. **No está lista para un cliente real por WhatsApp**, que es el canal
+del MVP: el webhook nunca recibió un mensaje real según lo que consta en el
+repo, el diseño síncrono pierde respuestas ante cualquier fallo no
+transitorio, un solo token de Meta sirve a todos los tenants y **cualquier
+admin de cualquier organización puede reclamar el número de otra** (A-01),
+y el backend corre en Render Free, que duerme el proceso con sus cinco
+workers adentro. Por web (widget) y para el CRM sin IA, sí está lista para
+un piloto, con dos reservas: el modelo `:free` sin opt-out de retención de
+datos de clientes y el cupo del widget (20 mensajes/min por sitio entero).
+
+**Conteo por severidad** (72 hallazgos con id en la sección 3; C-01 y D-05
+son vistas del mismo problema que B-02/B-03/B-08 y no se cuentan dos veces
+en la práctica): **CRÍTICO 1** (A-01, condicionado al modelo de Meta) ·
+**ALTO 12** (B-01, B-02, B-03, B-04, C-01, D-01, D-02, E-01, F-01, G-01, G-02,
+I-01) · **MEDIO 26** · **BAJO 31** · **VERIFICAR 2** (C-11, F-08), más 6
+hallazgos con severidad asignada pero componente VERIFICAR (A-01, D-05, D-07,
+E-01, F-02, G-03). Ningún hallazgo de pérdida de datos ni de fuga de secretos
+en el repo.
+
+**Los 5 puntos que atacaría primero:**
+
+1. **Encolar el webhook de WhatsApp** (D-01, B-02, B-03, B-08, G-01b, C-01):
+   tabla + poller como ya hizo Xentech, con estado de entrega en `Message` y
+   serialización por conversación. Es una sola pieza de trabajo que cierra
+   seis hallazgos y es la condición para que el canal principal no pierda
+   clientes en silencio.
+2. **Propiedad del número de WhatsApp por platform admin** (A-01, D-04,
+   E-03): hoy el `phone_number_id` lo carga el tenant y el token es global;
+   es la única fuga entre tenants encontrada y es barata de cerrar.
+3. **Sacar `status`/`stageId` de `update_opportunity`** (B-01): el modelo no
+   puede cerrar ventas ni disparar automatizaciones; media hora de trabajo,
+   principio 3 del producto.
+4. **Instancia siempre encendida y guarda de workers en `dev`** (G-01,
+   G-02): sin esto ningún worker ni webhook es confiable, y hoy un `npm run
+   dev` procesa colas de producción desde una laptop.
+5. **Decidir el modelo y su política de datos, y la KB sincronizada** (E-01,
+   B-04, I-01): mandar `data_collection: "deny"` o pasar a modelo pago, y
+   dejar de copiar el stock a la KB (o excluirlo del prompt) para que el
+   agente tenga una sola fuente de precios.
 
 ---
 
@@ -1166,7 +1222,7 @@ Solo el lado CRM está verificado; el lado `plataforma-qr` sale de `docs/qr-inte
 
 **Confirmados como resueltos (leyendo el código actual):**
 
-- 29/08 ALTOS: **A-1** (locks de pipeline en `updateStage`/`deleteStage`, `stage.service.ts:265, 362-368`), **A-2** (ningún limiter keyea por IP), **A-4** (`serviceType.service.ts:203-232`, `booking.service.ts:275-290`), **A-5** (`workingHours.ts:224-245`, `availability.service.ts:97-117`), **A-6** (`ingestContact.schema.ts:74-80`), **A-7** (`booking.integration-test.ts:887-1013`), **A-8** (`googleCalendarSync.integration-test.ts:887-1069`).
+- 29/08 ALTOS: **A-3** / 21/08 ALTO-4 (`src/lib/jwt.ts:49-66`: un fallo del JWKS responde 503 con `logger.error`, no 401; `verifyInvitationAcceptIdentity.ts:161-163` ídem para la Admin API), **A-1** (locks de pipeline en `updateStage`/`deleteStage`, `stage.service.ts:265, 362-368`), **A-2** (ningún limiter keyea por IP), **A-4** (`serviceType.service.ts:203-232`, `booking.service.ts:275-290`), **A-5** (`workingHours.ts:224-245`, `availability.service.ts:97-117`), **A-6** (`ingestContact.schema.ts:74-80`), **A-7** (`booking.integration-test.ts:887-1013`), **A-8** (`googleCalendarSync.integration-test.ts:887-1069`).
 - 29/08 MEDIOS: **M-1, M-2, M-3, M-4** (parcial: 200 + warn, canal no se cierra — documentado), **M-5** (7 tablas con RLS), **M-6** (`verify:schema` 14/14, 56 FKs), **M-7, M-8, M-9, M-10, M-11** (`prismaErrors.ts`, body-parser traducido, `req.id`), **M-12** (`shutdown.ts`), **M-13, M-15, M-16, M-17, M-18, M-19, M-20** (en su enunciado).
 - 29/08 BAJOS verificados: **B-2, B-3, B-4, B-5, B-6, B-7, B-8, B-9, B-12, B-13, B-15** (CHECKs fuera de la reaplicación), **B-16, B-17, B-18, B-21** (`page` con tope, test en `apiKey`), **B-22** (429 distinguido), **B-23** (`urlencoded` retirado), **B-26, B-27, B-30, B-35**.
 - 29/08 VERIFICAR: **V-1…V-9, V-14** cerrados según `docs/verificacion-v1-v14-estado.md` y confirmados de paso (V-2, V-4, V-7, V-9); **V-11** cerrado por decisión.
@@ -1176,7 +1232,6 @@ Solo el lado CRM está verificado; el lado `plataforma-qr` sale de `docs/qr-inte
 
 | Previo | Estado hoy | En este informe |
 |---|---|---|
-| 29/08 **A-3** / 21/08 ALTO-4 (fallo del JWKS → 401 masivo) | **VERIFICAR** — no se re-verificó `src/lib/jwt.ts` en esta pasada; ninguna de las siete pasadas lo reportó cerrado | §7 |
 | 29/08 **M-14** (`Promise.race` no aborta el handler) | parcial: hay `AbortSignal` pero muere en el dispatcher | C-02 |
 | 29/08 **B-19** / 21/08 M-17, B-13 (`/health` sin rate limit, `SELECT 1` por hit) | abierto (aceptable) | A-06, E-08 del eje E+G |
 | 29/08 **B-20** / 21/08 B-3 (PII en `req.url`) | abierto, documentado como límite | E-06 |
@@ -1189,26 +1244,119 @@ Solo el lado CRM está verificado; el lado `plataforma-qr` sale de `docs/qr-inte
 
 ## 6. Sugerencias
 
+Formato: **qué** · por qué · dónde · esfuerzo (S/M/L) · hallazgos · ¿decisión de Rocco?
+
 ### 6.1 Correcciones
 
-(pendiente)
+1. **Cola persistente para el webhook de WhatsApp + estado de entrega del OUTBOUND + advisory lock por conversación.** El canal principal pierde respuestas y duplica turnos. `whatsappWebhook.*`, `agentOrchestration.service.ts`, `schema.prisma` (`AgentInboundJob`, `Message.deliveryStatus`). **L**. D-01, B-02, B-03, B-08, C-01, C-05, D-05. Decisión: no (el diseño ya existe en Xentech).
+2. **Asignación del `phone_number_id` solo por platform admin, PATCH del agente limitado a los números de su organización.** Fuga entre tenants. `agent.controller.ts`, `agent.service.ts`, `qrAdmin.routes.ts` (patrón). **S/M**. A-01. Decisión: sí (modelo una-WABA vs por tenant).
+3. **Quitar `status` y `stageId` de `update_opportunity`** (o limitar a LOST). El modelo cierra ventas. `agentTools.service.ts:574-690`. **S**. B-01. Decisión: sí (¿debe poder marcar perdida?).
+4. **Guarda en `server.ts`: sin workers si `isDevelopment` y `DATABASE_URL` no es local; `.env` local al stack de `supabase start`.** `server.ts`, `env.ts`, README. **S**. G-02. No.
+5. **Instancia siempre encendida en Render (plan pago) o workers en proceso aparte.** Sin esto nada asíncrono es confiable. `docs/deployment.md`. **S** (config) / **M** (separar). G-01, D-05. Decisión: sí (costo).
+6. **`provider: { data_collection: "deny" }` en el body de OpenRouter y modelo pago en producción.** Datos personales de clientes finales. `llmProvider.service.ts:335`, `env.ts`. **S**. E-01, B-05. Decisión: sí.
+7. **Excluir de la KB del prompt las entradas con `sourceVehicleId` cuando `search_vehicles` está habilitada; tope global de caracteres de KB.** Doble fuente de precios y costo. `agentOrchestration.service.ts:688`, `knowledgeBaseEntry.repository.ts:98`. **S**. B-04, I-01. Decisión: sí (¿se mantiene la sincronización?).
+8. **Validar con Zod antes de `puedeEjecutarTool` (o considerar solo claves declaradas).** El único candado de datos se salta. `agentOrchestration.service.ts:1473`. **S**. B-06. No.
+9. **Envolver el bloque de contacto del prompt en `<datos_del_crm>` con neutralización.** Inyección vía perfil de WhatsApp. `agentOrchestration.service.ts:583-611`. **S**. B-07, B-14. No.
+10. **Enhebrar `AbortSignal` hasta `llm.complete` en la acción `agent.draft_follow_up`, y sacar el HTTP de la tx del evento.** Borradores duplicados. `automationDispatch.service.ts:112`, `draftFollowUpMessage.ts`, `outbox.service.ts`. **M**. C-02. No.
+11. **Write path para `Organization.qrMercadopagoSubscriptionId` (endpoint de platform admin) o retirar el webhook.** Cobro del QR inoperante. `qrAdmin.*`. **S**. D-02, F-08. Decisión: sí (¿cómo se vende el QR?).
+12. **Borrar `ClaimPage` y `POST /qr/claim` del frontend.** Página muerta. `frontend/src/features/qr/*`, `router.tsx:131`. **S**. F-01. No.
+13. **`AbortSignal.timeout(10_000)` en `fetchPreapprovalReal` y `fetchRatesFromApi`.** **S**. D-03. No.
+14. **`x-internal-proxy-secret` en `REDACT_PATHS` + rotar el secreto.** **S**. E-02. No.
+15. **`deleteBranch` cuenta agentes, vehículos, KB y conversaciones; `deleteContact` cuenta conversaciones abiertas y reservas.** Huérfanos y sesiones muertas. `branch.service.ts`, `contact.service.ts`. **S**. C-03, C-04. No.
+16. **CAS en `ejecutarHandoff`.** **S**. C-05. No.
+17. **RLS en `agents`, `conversations`, `messages` + test que compare `@@map` contra migraciones; completar `rls_policies.sql`/`manual_constraints.sql` o retirar la promesa.** `prisma/`. **S**. A-02, C-07. No.
+18. **Respuesta fija (o placeholder al turno) para mensajes de WhatsApp que no son texto.** Silencio con el cliente. `whatsappWebhook.service.ts:55-60`. **S**. B-09. Decisión: sí (texto).
+19. **Cupo del widget por `sessionId` además del token; tope de contactos nuevos por token/hora; purga de "Visitante" sin mensajes.** DoS barato y contactos basura. `rateLimit.ts`, `widgetContact.service.ts`. **M**. B-10, F-05. Decisión: sí (valores).
+20. **Omitir `acquisitionCostUsd`, `minAcceptablePriceUsd`, `consignment*` para USER en `GET /api/vehicles`.** `vehicle.service.ts`. **S**. F-02. Decisión: sí.
+21. **`leadSource` según canal en `create_opportunity`; `WIDGET_CONTACT_FIRST_NAME` como marcador.** **S**. B-11, B-15. No.
+22. **`page`/`limit` en purgas; `to_regclass` en `20260821140100`; `--test-concurrency=1` en la suite de integración.** **S**. C-08, C-10, H-02. No.
+23. **Allowlist de modelos por env + `max_tokens`.** `agent.controller.ts:71`, `llmProvider.service.ts`. **S**. B-05. Decisión: sí (lista).
+24. **`.env.example` y `deployment.md` completos; sacar `QR_CLAIM_APP_URL` de Render; `engines.node`.** **S**. E-04, G-03. No.
 
-### 6.2 Cambios
+### 6.2 Cambios (diseño / arquitectura a revisar)
 
-(pendiente)
+1. **Credenciales de WhatsApp por tenant** (`accessToken` cifrado por Agent/Branch, `APP_SECRET`/`VERIFY_TOKEN` globales) vs "una WABA de la plataforma". Hoy un token vencido tira todos los tenants y ningún cliente puede traer su propio número. **M**. D-04, E-03, A-01. Decisión: sí.
+2. **Supuesto de una sola instancia**: hoy consistente pero no impuesto. Si se escala: store compartido para los 8 limiters, lock en el worker de canales y en el de estancadas. **M**. G-04, C-11. Decisión: sí (cuándo).
+3. **Responder a mano desde el CRM** (`POST /api/conversations/:id/messages`, `senderType: HUMAN`, envío por canal). El handoff hoy termina en un inbox de solo lectura. **M**. I-03. Decisión: sí (alcance).
+4. **Sucursal como unidad comercial**: membresía usuario↔sucursal y `Automation.branchId` (o dejarlo escrito como "por organización" para el MVP). **M/L**. I-02. Decisión: sí.
+5. **Capa "Condition" en automatizaciones** (mínima, declarativa por trigger) antes de sumar acciones; triggers de booking. **M**. I-04. Decisión: sí.
+6. **Presupuesto de tiempo por turno del agente** (deadline compartido entre rondas) y brief sin LLM cuando el proveedor cayó. **S**. B-08. No.
+7. **Sesión del widget emitida por el servidor** (firmada, con expiración) en vez de `sessionId` libre. **M**. A-05, C-04. Decisión: no urgente.
+8. **`SECRET_ENCRYPTION_KEY_PREVIOUS` + script de recifrado.** **M**. E-05. No.
+9. **Contrato del Worker de QR**: quitar el relay de POST o montar el gate en `router.all`; confirmar e2e y valores de los secretos; decidir el destino del Supabase de `plataforma-qr`. **S**. D-06, sección 4. Decisión: sí.
+10. **Actualizar la documentación que hoy engaña** (`project-overview.md` como "fuente de verdad" de julio, roadmap, ai-agent §2/§9, automations §4/§5, integracion-resea §2, deployment, PLAN-AUTONOMO regla 1) o declararlos históricos y señalar el tracker + la matriz como fuente. **M**. §2.5. No.
 
-### 6.3 Mejoras
+### 6.3 Mejoras (MVP, sin empujar a ERP)
 
-(pendiente)
+1. **"Pack automotora" al crear la organización**: pipeline + etapas + tipos de servicio (test drive, visita) + guardrails + KB base; pantalla "qué falta para que tu agente funcione". **M**. I-05. Decisión: sí (contenido).
+2. **Eval mínimo de conducta del agente fuera de CI** (5–10 escenarios, modelo barato, presupuesto fijo, disparo manual/semanal). **M**. H-03. Decisión: sí (costo).
+3. **`tenant-isolation` para los 14 modelos nuevos + fila que compare contra el schema.** **M**. H-01. No.
+4. **Unit test de `sendWhatsappTextReal`; `curl -I` de `widget.js` documentado; smoke de `node dist/server.js` + `/health` y `docker build` en CI.** **S/M**. H-04, G-05. No.
+5. **Code-splitting del frontend** (`React.lazy` por feature). **S**. F-04. No.
+6. **Índice funcional (y UNIQUE) para teléfono normalizado; advisory lock en vez de lock de organización para el contacto de WhatsApp.** **S**. C-06. No.
+7. **Cotizaciones/pagos/entregas en solo-lectura para USER; mensajes de Supabase Auth en español; validaciones de tamaño de foto y largo de brief en el cliente.** **S**. F-03, F-06, F-07. No.
+8. **Observabilidad del agente**: loguear `model` y tokens por turno (para B-05), contador de turnos por organización, alerta de DEAD_LETTER. **S/M**. B-05, C-09. No.
+9. **Cron de retención (`purge:*`) programado.** **S**. `data-classification.md §6`. Decisión: sí (plazos).
+10. **Reinyectar el último resultado de tool relevante en el prompt del turno siguiente; probar `tool_choice: "required"`; disparador fijo de tema prohibido "sin preguntar".** Causas estructurales de los residuales (a) y (b). **S/M**. B-12, B-13. No (pero medir con 6.3.2).
 
 ---
 
 ## 7. Qué no se pudo verificar
 
-(pendiente)
+| Qué | Por qué | Qué haría falta |
+|---|---|---|
+| `plataforma-qr` entero (Worker, admin, Supabase): header exacto, relay GET/POST, rate limits, mismo valor de `INTERNAL_PROXY_SECRET`/`QR_RESOLVE_PROXY_SECRET`, tests de `supabase/tests` | repo no accesible desde la sesión (`add_repo` denegado) | dar acceso al repo a la sesión, o correr `git clone` al lado y repetir la sección 4 y D-06/D-07 |
+| Suite de integración completa (733 tests) | necesita GoTrue + Storage (`supabase start`, Docker) | un entorno con Docker, o correrla local; CI ya la corre |
+| `docker build` de la imagen | sin Docker | ídem |
+| Estado real de Supabase de producción: RLS/grants aplicados, rol que corrió las migraciones (V-3), si `rls_policies.sql` se reaplicó | sin credenciales, y no corresponde desde la nube | correr `verify:schema` y las filas informativas contra producción desde la máquina de Rocco |
+| Modelo de Meta: ¿una App/WABA de la plataforma para todos los tenants? ¿el webhook recibió alguna vez un mensaje real? timeout y política de reintentos de Meta | fuera del repo | confirmar en el panel de Meta y en los logs de Render |
+| Render: Docker vs Node nativo, health path, grace period, variables cargadas (`WHATSAPP_*`, `GOOGLE_*`, `MERCADOPAGO_*`, `OPENROUTER_*`, `LOG_LEVEL`) | fuera del repo | mirar el dashboard y completar `deployment.md §2.3` |
+| Vercel: headers/CSP de `widget.js`, `VITE_*` en Preview | fuera del repo | `curl -I https://plataforma-crm-chi.vercel.app/widget.js` y el dashboard |
+| Política vigente de OpenRouter para `:free` y opt-out de la cuenta (E-01) | cambia con el tiempo | leer la política actual y la configuración de la cuenta |
+| MercadoPago: mapeo de estados y minúsculas del manifiesto (D-07) | sin sandbox | una notificación de sandbox |
+| Comportamiento real del modelo (residuales a/b) | no se gastó crédito | 6.3.2 |
+| Historial completo de git (secretos) | clon shallow de 126 commits | repetir la búsqueda en un clon completo |
+| Hallazgos BAJOS de higiene del 29/08 no re-verificados (B-1, B-10, B-11, B-14, B-24, B-25, B-28, B-29, B-31…B-34) | fuera de prioridad | una pasada corta de 30 minutos |
 
 ---
 
 ## 8. Orden de trabajo recomendado
 
-(pendiente)
+Una línea por ítem: problema → consecuencia. Numeración continua con los ítems del tracker (el último es el 124).
+
+125. El webhook de WhatsApp procesa el turno del LLM dentro del request y persiste el entrante antes → cualquier fallo no transitorio deja al cliente sin respuesta para siempre y Meta reintenta contra un dedup que lo descarta. (D-01, B-02, B-08 — 6.1.1)
+126. Dos mensajes seguidos del mismo contacto corren dos turnos sin lock → conversaciones duplicadas o vacías, historial perdido, oportunidades y reservas dobles. (B-03, C-01, C-05 — 6.1.1, 6.1.16)
+127. Cualquier ADMIN puede cargar el `phone_number_id` de otro tenant → recibe y responde los mensajes de los clientes ajenos con el token de la plataforma. (A-01 — 6.1.2)
+128. `update_opportunity` expone `status: WON` y `stageId` al modelo → un chatbot cierra ventas, marca CUSTOMER y dispara automatizaciones. (B-01 — 6.1.3)
+129. `npm run dev` arranca los cinco workers contra la base de producción → una laptop procesa colas reales con logs `debug`. (G-02 — 6.1.4)
+130. Render Free duerme el proceso con los workers adentro → canales de Google vencen, outbox e ingesta no drenan, el primer WhatsApp del día excede a Meta. (G-01 — 6.1.5, decisión)
+131. Las conversaciones van a un modelo `:free` sin `data_collection: "deny"` → datos personales de clientes finales sin política de retención escrita. (E-01 — 6.1.6, decisión)
+132. La KB sincronizada mete el stock entero en cada prompt → costo por ronda y dos precios distintos para la misma unidad. (B-04, I-01 — 6.1.7, decisión)
+133. `puedeEjecutarTool` mira los args crudos y Zod descarta claves desconocidas → el candado de "datos requeridos" se pasa con `phone: "sí"`. (B-06 — 6.1.8)
+134. El bloque de contacto del prompt va sin delimitar → el nombre de perfil de WhatsApp es una instrucción para el modelo. (B-07 — 6.1.9)
+135. Nada escribe `qrMercadopagoSubscriptionId` → el webhook de MercadoPago no puede activar ninguna organización; el cobro del QR es 100 % manual y sin UI. (D-02, F-08 — 6.1.11, decisión)
+136. El handler `agent.draft_follow_up` no recibe la señal de aborto y el tope (10 s) es menor que el timeout del LLM (60 s) → dos borradores por oportunidad y tx del outbox abierta durante el HTTP. (C-02 — 6.1.10)
+137. `deleteBranch`/`deleteContact` no cuentan agentes, vehículos, KB, conversaciones ni reservas → sucursal borrada atendiendo WhatsApp, sesión del widget muerta, stock invisible. (C-03, C-04 — 6.1.15)
+138. El cupo del widget es por token (= por sitio) y cada `sessionId` crea un contacto → 8 visitantes reales ya saturan, y un script deja 28.800 "Visitante" por día. (B-10, F-05 — 6.1.19, decisión)
+139. Mensajes de WhatsApp que no son texto se ignoran sin responder → el cliente que manda un audio no recibe nada. (B-09 — 6.1.18, decisión)
+140. `agents`, `conversations` y `messages` sin RLS y sin test que lo detecte → la próxima tabla nueva o un `GRANT` para Realtime expone transcripciones entre tenants. (A-02, C-07 — 6.1.17)
+141. `x-internal-proxy-secret` se loguea en cada request → los logs de Render contienen el secreto del gate de QR. (E-02 — 6.1.14)
+142. `fetchPreapprovalReal` y `fetchRatesFromApi` sin timeout → webhook de MP colgado y apagado ordenado que sale con código 1. (D-03 — 6.1.13)
+143. `GET /api/vehicles` manda costo y precio mínimo a cualquier USER → el piso de negociación es visible desde DevTools. (F-02 — 6.1.20, decisión)
+144. `/claim/:qrId` llama a un endpoint que no existe → página completa muerta en producción. (F-01 — 6.1.12)
+145. Cualquier ADMIN elige `modelName` libre contra la única API key → la factura de OpenRouter la paga la plataforma sin tope. (B-05 — 6.1.23, decisión)
+146. Credenciales de WhatsApp globales → un token vencido tira todos los tenants y ningún cliente puede traer su número. (D-04, E-03 — 6.2.1, decisión)
+147. No existe "responder desde el CRM" → el handoff termina en un inbox de solo lectura. (I-03 — 6.2.3, decisión)
+148. `tenant-isolation.integration-test.ts` no cubre los 14 modelos nuevos → la garantía de aislamiento a nivel repository no está afirmada para agente, KB, vehículos, QR, automatizaciones. (H-01 — 6.3.3)
+149. La suite de integración corre 75 archivos en paralelo contra una base compartida → rojos intermitentes que entrenan a re-correr. (H-02 — 6.1.22)
+150. `.env.example`, `deployment.md` y `ci.yml` desactualizados; `QR_CLAIM_APP_URL` viva en Render; `project-overview.md` de julio como "fuente de verdad" → la próxima sesión arranca con un mapa falso. (E-04, §2.5 — 6.1.24, 6.2.10)
+151. Sin membresía usuario↔sucursal ni automatizaciones por sucursal → la "sucursal independiente" del producto no existe como límite; decidirlo antes del primer cliente con dos locales. (I-02 — 6.2.4, decisión)
+152. `leadSource` nunca se setea y "Visitante" no cuenta como marcador → oportunidades del agente sin origen y visitantes del widget que nunca reciben su nombre. (B-11, B-15 — 6.1.21)
+153. Sin "pack automotora" ni checklist de arranque → cada cliente nuevo configura sucursal, agente, KB, horarios, cobro y stock a mano antes de que el agente sirva. (I-05 — 6.3.1, decisión)
+154. Los fixes de prompt se regresionan por texto, no por conducta → nada en CI detecta que el 108 vuelva a 21/42. (H-03 — 6.3.2, decisión)
+155. Rate limiters en memoria y workers sin lock con más de una réplica → cupo del widget ×N y borradores duplicados el día que se active autoscaling. (G-04, C-11 — 6.2.2)
+156. Contrato con el Worker de QR: relay de POST inexistente, secretos sin confirmar, Supabase de `plataforma-qr` sin destino → el e2e sigue siendo un "pendiente" contradictorio entre docs. (D-06, §4 — 6.2.9, decisión)
+157. Sin `SECRET_ENCRYPTION_KEY_PREVIOUS` → una rotación obliga a reconectar Google en todas las sucursales. (E-05 — 6.2.8)
+158. Purgas sin lotes, `migrate diff` inutilizable, `automation_executions` sin purga, V-10/V-12/V-13 abiertos → deuda operativa del outbox y las migraciones. (C-08, C-09, C-10 — 6.1.22)
+159. Bundle de 1,39 MB sin code-splitting → 357 kB gzip antes del login en móvil. (F-04 — 6.3.5)
+160. Teléfono de WhatsApp comparado con `regexp_replace` sin índice bajo el lock de organización → seq scan por mensaje y duplicados por formato. (C-06 — 6.3.6)
