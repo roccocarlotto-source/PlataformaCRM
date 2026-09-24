@@ -334,10 +334,10 @@ aislamiento que no necesitan GoTrue).
 - **Por qué importa:** fuga de datos de clientes entre tenants + suplantación del canal comercial. Si cada cliente tuviera su propia Meta App (hoy el código no lo contempla), baja a MEDIO; por eso el VERIFICAR.
 - **Arreglo:** la asignación número→organización tiene que ser una operación de platform admin (`/api/admin/*`, tabla o columna escrita solo desde ahí, o verificación contra la Graph API de que el número pertenece a la WABA del tenant); el PATCH del agente elige solo entre los números ya asignados a su organización.
 
-#### A-02 — BAJO — `agents`, `conversations` y `messages` son las únicas tablas del schema sin RLS, y el comentario que lo justifica está desactualizado
+#### A-02 — MEDIO — `agents`, `conversations` y `messages` son las únicas tablas del schema sin RLS (ni siquiera habilitada), y el comentario que lo justifica está desactualizado
 
 - `prisma/migrations/20260912130000_agent_conversation_message_schema/migration.sql:25-28` dice que booking/working_hours/etc. "tampoco las tienen", pero `20260901120000_rls_booking_and_outbox_tables` ya las había habilitado. Cruce de los 39 `@@map` del schema contra todos los `enable row level security` de migraciones + `rls_policies.sql`: faltan exactamente esas tres (verificado acá con `comm`). Ninguna tabla tiene `FORCE ROW LEVEL SECURITY`.
-- **Escenario:** hoy no explotable (grants revocados). Es la segunda capa que falta si alguien habilita Realtime o hace un `grant` puntual. No hay un test que falle cuando una tabla nueva queda sin RLS (`verify-schema.ts:311` solo chequea que lo de `rls_policies.sql` llegó); Xentech sí lo tiene (`rlsPolicies.test.ts`).
+- **Escenario:** hoy no explotable (grants revocados, confirmado en la base local reconstruida: `relrowsecurity = f` solo en esas tres, cero grants a `anon`/`authenticated`). Es la segunda capa que falta —y son justamente las tablas que guardan la transcripción de cada cliente con el agente, PII + `toolCalls` con argumentos— si alguien habilita Realtime o hace un `GRANT SELECT ON conversations TO authenticated` para un dashboard. Se sube a MEDIO respecto de M-5 del 29/08 por el contenido de las tablas. No hay un test que falle cuando una tabla nueva queda sin RLS (`verify-schema.ts:311` solo chequea que lo de `rls_policies.sql` llegó); Xentech sí lo tiene (`rlsPolicies.test.ts`).
 - **Arreglo:** migración con `enable row level security` en las tres + test que compare `@@map` contra las migraciones.
 
 #### A-03 — BAJO — `users_isolation` es `for all` con `with check` por organización: si vuelven los grants a `authenticated`, un USER se sube a ADMIN vía PostgREST
@@ -483,11 +483,207 @@ etiqueta inventada. Tope de 5 rondas y ventana de 20 mensajes.
 
 ### C. Integridad de datos y concurrencia
 
-(pendiente)
+**Qué se revisó.** `prisma/schema.prisma`, las 49 migraciones, `prisma/sql/*.sql`,
+`scripts/verify-schema.ts`, `apply-manual-sql.ts`, todos los `$transaction` /
+`FOR UPDATE` / `lock*ForUpdate` de `src/`, outbox e ingesta, los flujos nuevos
+desde el 29/08 (agente, automatizaciones, quotes, deliveries, payments,
+vehículos, WhatsApp, QR billing, cierre de oportunidad). Se reconstruyó la base
+desde cero en el Postgres local (§0.3) y se consultó `pg_constraint`,
+`pg_indexes` y `relrowsecurity` directamente.
+
+**Mapa.** 40 tablas en `public`. **57 FKs entre tablas con `organization_id`,
+las 57 compuestas, 0 simples** (consulta directa a `pg_constraint`); todo padre
+con `UNIQUE (organization_id, id)`; regla `NOT NULL → RESTRICT / nullable → NO
+ACTION` cumplida (excepciones documentadas: `stages→pipelines` CASCADE,
+`qr_payment_events→organizations` SET NULL). 28 CHECK, 9 índices únicos
+parciales, 2 triggers de email. RLS: 36 tablas habilitadas (7 deny-all
+deliberado: api_keys, agent_embed_tokens, google_calendar_connections,
+platform_admins, qr_payment_events, qr_*_changes); **3 sin RLS** (A-02).
+Locks existentes: `lockOrganizationForUpdate`, `lockPipelineForUpdate`,
+`lockStageForUpdate`, `lockBranchForUpdate`, `lockResourceForUpdate`,
+`lockServiceTypeForUpdate`, `lockOpportunityForUpdate` (devuelve `status`);
+`FOR UPDATE SKIP LOCKED` en los dos claims de cola. Transacciones con lock en
+opportunity, stage, pipeline, user, booking, serviceType, resource, branch,
+workingHours, vehicle, vehiclePhoto, quote, delivery.confirm, qr, qrBilling,
+qrWebhook, knowledgeBaseEntry.create, agent.create, googleCalendarConnection,
+whatsappContact, invitation.accept, onboarding, contact.erase, source.delete y
+los workers. **Sin lock ni transacción:** `runAgentTurn`, `ejecutarHandoff`,
+`resolveWidgetContact`, `payment.service` (todo), `deleteContact`,
+`deleteCompany`, `conversationBrief`.
+
+**Drift schema ↔ migraciones: ninguno.** `prisma migrate diff --from-migrations`
+es inutilizable en este repo (C-10), pero `migrate deploy` en base limpia +
+`migrate diff --from-url … --to-schema-datamodel` devuelve solo 9 `DROP INDEX`
+de los GIN `pg_trgm` que el DSL de Prisma no modela. Migraciones destructivas
+en el historial (todas con recreación o justificación): `20260821140200` (16
+FKs simples → compuestas), `20260904120000` (**DROP COLUMN** `qr_type`,
+`used_at`, `claimed_at` + `DROP TYPE QrType`), `20260921120000` (**DROP
+COLUMN** `organizations.next_qr_display_number`); ningún cambio de tipo.
+
+**Lo que está bien (verificado).** Cierre WON: `lockStageForUpdate →
+lockOrganizationForUpdate → lockOpportunityForUpdate` con `status` releído bajo
+lock, unidad a SOLD, `ensureDeliveryForSoldVehicle` (UNIQUE + reuso),
+`markContactAsCustomer` y `emitOpportunityWon` en la misma transacción, con
+carreras probadas con barrera real (`delivery.service.integration-test.ts:396-455`).
+Quotes con lock de oportunidad y CAS por `status`; Delivery.confirm con CAS;
+`internalCode` de vehículos bajo lock (rollback no quema número), VIN/patente
+únicos por organización en tx; QR `displayNumber` bajo `lockBranchForUpdate`;
+MercadoPago idempotente por `mercadopago_event_id` UNIQUE en tx. Outbox:
+`emitOutboxEvent` exige `tx`, `SKIP LOCKED`, `exigirTransicion` sobre el
+`count` (B-26 **cerrado**); ingesta con `attempts/nextAttemptAt/DEAD_LETTER`
+(B-30 **cerrado**). Ninguna transacción de request encierra una llamada HTTP
+externa, salvo el handler del outbox por diseño (C-03). Los tests de carrera
+ahora usan `src/lib/carreras.test-helper.ts` (`pg_blocking_pids`) — M-19 y A-7
+del 29/08 **cerrados**.
+
+#### C-01 — ALTO — Ver B-02 (respuesta persistida antes de enviarse) y B-03 (sin serialización por conversación): en términos de datos, quedan `Message` OUTBOUND nunca entregados y `Conversation` ACTIVE duplicadas o vacías
+
+- Detalle adicional del dato (`agentOrchestration.service.ts:1030-1039`, `conversation.repository.ts:15-33`): no hay UNIQUE parcial sobre `(organization_id, agent_id, contact_id, channel) WHERE status IN ('ACTIVE','TRANSFERRED_TO_HUMAN')` (verificado en `pg_indexes`). En una reentrega paralela de Meta, el segundo `createMessage` choca con el UNIQUE del wamid y queda una conversación ACTIVE **vacía**; como `findOpenConversation` ordena `createdAt desc`, el próximo mensaje cae en la vacía y **el modelo pierde el historial**. El test `whatsappWebhook.controller.integration-test.ts:544` afirma `entrantes.length === 1` pero no cuenta conversaciones.
+- **Arreglo:** el de B-03 (UNIQUE parcial + P2002 → releer, o advisory lock) y el de B-02.
+
+#### C-02 — MEDIO — `agent.draft_follow_up`: LLM de hasta 60 s × 3 intentos dentro de un handler con tope de 10 s y sin propagar la señal → borradores duplicados y transacción del outbox abierta durante la llamada HTTP (M-14 del 29/08 parcialmente cerrado)
+
+- `src/services/automationDispatch.service.ts:112` (`accion.handler({organizationId, config, payload})` — sin `signal`), `automationActions/draftFollowUpMessage.ts` (no pasa señal a `llm.complete`), `llmProvider.service.ts:162` (60 s + 2 reintentos), `outbox.service.ts:80-120`, `outboxWorker.ts:98` (tx timeout 10 + 5 s), `env.ts` (`OUTBOX_HANDLER_TIMEOUT_MS` 10 s, backoff 30 s).
+- **Escenario:** t=0 el handler llama a OpenRouter; t=10 s vence el tope → `rescheduleOutboxEvent` (+30 s); t=40 s el reintento reclama el evento, `findExecutionsForEvent` no ve SUCCESS y llama al LLM otra vez; t=45 s la primera llamada termina y escribe → **dos Activities "Seguimiento sugerido"** para el vendedor. La ventana tope→backoff (30 s) es menor que el timeout del proveedor (60 s). Además la tx del evento (con `FOR UPDATE` y una conexión del pool) queda abierta durante el HTTP.
+- **Arreglo:** enhebrar `signal` hasta `llm.complete` (`AbortSignal.any`), o subir `OUTBOX_HANDLER_TIMEOUT_MS` por encima del timeout del LLM y sacar la llamada HTTP de la tx (reclamar → commit → ejecutar → transición con CAS).
+
+#### C-03 — MEDIO — `deleteBranch` no cuenta agentes, vehículos, entradas de KB ni conversaciones: sucursal borrada con un agente atendiendo WhatsApp y stock invisible
+
+- `src/services/branch.service.ts:177,188,212,244` (cuenta solo recursos, servicios, QRs y conexiones de Google). Las FKs son RESTRICT pero `branches` usa soft delete, así que nunca disparan.
+- **Escenario:** ADMIN borra la sucursal → el `Agent` sigue `isActive` con su `whatsappPhoneNumberId`; el webhook no mira la sucursal → sigue respondiendo; `runAgentTurn` hace `findBranchById` → null → prompt sin zona horaria (`:1126-1130`) y conversaciones nuevas con `branchId` borrado; las KB activas siguen entrando al prompt; los `vehicles` AVAILABLE desaparecen del stock (el listado filtra por sucursal).
+- **Arreglo:** en la misma tx bajo `lockBranchForUpdate`, contar agentes activos, vehículos no vendidos, KB activas y conversaciones no CLOSED, con el mismo 400 que recursos.
+
+#### C-04 — MEDIO — `deleteContact` solo frena por oportunidades abiertas: conversaciones y reservas huérfanas, y una sesión del widget muerta
+
+- `src/services/contact.service.ts:260-270`; `widgetContact.service.ts:47-55` (la búsqueda por `externalThreadId` no mira `deletedAt` del contacto); `agentOrchestration.service.ts:1024-1027`.
+- **Escenario widget:** se borra el contacto "Visitante" → `resolveWidgetContact` devuelve `previa.contactId` → `runAgentTurn` lanza 400 "El contacto indicado no existe" → **esa sesión del widget queda muerta para siempre** (el visitante ve error en cada mensaje). **WhatsApp:** `findContactIdByNormalizedPhone` filtra `deleted_at IS NULL` → contacto nuevo con el mismo teléfono, conversación nueva sin historial; la anterior queda ACTIVE en el inbox apuntando a un contacto borrado. `bookings` CONFIRMED del contacto borrado siguen ocupando cupo.
+- **Arreglo:** 409 si hay conversaciones no CLOSED o reservas CONFIRMED (mismo patrón que `CONTACTO_CON_OPORTUNIDADES_ABIERTAS`), o cerrar las conversaciones en la misma escritura; en el widget, ignorar conversaciones cuyo contacto esté borrado.
+
+#### C-05 — MEDIO — `ejecutarHandoff` es check-then-act sin CAS: dos handoffs concurrentes → dos Activities y dos briefs (dos llamadas al LLM)
+
+- `src/services/agentOrchestration.service.ts:898-935`: lee `status`, y si no es `TRANSFERRED_TO_HUMAN` hace `updateConversation` (where sin `status`) + `crearActivityDeAviso` + brief. Con B-03, dos turnos paralelos leen ACTIVE los dos. **Arreglo:** `updateMany({ where: { id, organizationId, status: { not: "TRANSFERRED_TO_HUMAN" } } })` y Activity/brief solo si `count === 1`.
+
+#### C-06 — BAJO — Dedup de WhatsApp por teléfono: seq scan con `regexp_replace` bajo el lock de organización, en cada mensaje entrante; sin unicidad de teléfono
+
+- `src/repositories/contact.repository.ts:127-142` (`regexp_replace(phone,'[^0-9]','','g') = $2`, sin índice funcional — verificado en `pg_indexes`), `whatsappContact.service.ts:64-65` (`lockOrganizationForUpdate`, que serializa el tráfico de WhatsApp con vehículos, fotos, pipelines, QR billing, delivery).
+- **Escenario:** una organización con 20.000 contactos hace un scan completo por mensaje, sosteniendo el lock global de la org. Un contacto cargado a mano como "011 4444-5555" y el de WhatsApp "5491144445555" son dos filas.
+- **Arreglo:** índice (idealmente UNIQUE) parcial sobre la expresión normalizada, y `pg_advisory_xact_lock(hashtext(org||digits))` en vez del lock de organización.
+
+#### C-07 — BAJO — La "red de seguridad" de `migrate:deploy` reaplica 14 de 36 tablas con RLS y 5 de 9 únicos parciales
+
+- `prisma/sql/rls_policies.sql` (14 `enable row level security`; faltan sources, api_keys, ingestion_events, outbox_events, branches, resources, service_types, working_hours, bookings, google_calendar_connections, automations, automation_executions, quotes, deliveries, payments, knowledge_base_entries, qr_*, agent_embed_tokens); `manual_constraints.sql:83-119` (faltan `ingestion_events_source_external_unique`, `bookings_org_google_event_unique`, `vehicle_photos_vehicle_cover_unique`, `qr_codes_branch_display_number_unique`). No es un bug hoy (las migraciones son la fuente), pero un `DROP POLICY` manual sobre `bookings` no se repara en el próximo deploy. **Arreglo:** completar los dos archivos o retirar la promesa de sus encabezados.
+
+#### C-08 — BAJO — Purgas sin lotes ni límite
+
+- `scripts/purge-outbox-events.ts:26`, `outboxEvent.repository.ts:246-254` (`deleteMany` único), ídem ingesta. Un `DELETE` de 90 días de la tabla de mayor volumen en una sentencia. **Arreglo:** borrar en lotes de N con `LIMIT`.
+
+#### C-09 — BAJO — Outbox: V-10, V-12 y V-13 del 29/08 siguen abiertos ahora que hay un consumidor real; V-11 cerrado por decisión
+
+- **V-10** (`outbox.service.ts:176-190`: handler ausente → DEAD_LETTER inmediato) ahora es real: en un deploy escalonado la instancia vieja mata los eventos de un trigger nuevo. **V-11**: `automationDispatch.service.ts:31-50` escribe las marcas fuera de la tx con justificación escrita (cerrado por decisión). **V-12**: `ingestionEvent.repository.ts:146` sigue `DO NOTHING` sin nota para el emisor. **V-13**: `outbox.service.ts:181` calcula `nextAttemptAt` con el reloj de Node y `outboxEvent.repository.ts:116` compara con `now()`. `activity.create_follow_up` no es idempotente en sí: la idempotencia la da `automation_executions UNIQUE (automation_id, outbox_event_id)` escrita fuera de la tx del evento (ventana documentada). `automation_executions` no se purga nunca.
+
+#### C-10 — BAJO — `prisma migrate diff --from-migrations` es inutilizable en este repo
+
+- `20260821140100_revoke_anon_authenticated_direct_access/migration.sql:33` (`alter table public._prisma_migrations enable row level security`) falla en el modo shadow con `P3006/P1014` (esa tabla no existe en la shadow). El chequeo de drift que sí funciona es el de §0.3. **Arreglo:** envolver la sentencia en `DO $$ … IF to_regclass('public._prisma_migrations') IS NOT NULL` y sumar el diff al job `integration`.
+
+#### C-11 — VERIFICAR — `opportunity.stale` puede emitir dos eventos para la misma oportunidad con dos instancias
+
+- `opportunityStaleWorker.ts:140-163`, `opportunity.repository.ts:288-305` (solo mira `lastStaleFollowUpDraftedAt`, no eventos pendientes). Con un proceso, el segundo se salta por la marca; con dos, dos borradores (ver G-04). Hoy hay una instancia.
+
+**Estado de los hallazgos previos de esta área** (ver §5): A-1, A-4, A-5, A-6,
+M-1, M-2, M-7, M-8, M-9, M-10, M-13, M-15, M-16, M-17, M-18, M-19, B-12, B-13,
+B-17, B-18, B-26, B-27 **cerrados** con evidencia; M-14 **parcial** (C-02);
+M-20 cerrado para agenda/outbox, con **hueco nuevo**: `tenant-isolation.integration-test.ts`
+no cubre `agents`, `conversations`, `messages`, `automations`,
+`automation_executions`, `knowledge_base_entries`, `vehicles`, `vehicle_photos`,
+`agent_embed_tokens`, `qr_codes` (ver eje H).
+
+**No se pudo verificar en C:** el estado real del proyecto de Supabase (qué rol
+corrió las migraciones —V-3—, si `rls_policies.sql` se reaplicó alguna vez);
+valores de producción de `OUTBOX_HANDLER_TIMEOUT_MS` y latencia real de
+OpenRouter (C-02); cantidad de instancias (una, asumida).
 
 ### D. Integraciones externas
 
-(pendiente)
+**Qué se revisó.** WhatsApp (`whatsappWebhook.*`, `whatsappGraph`,
+`whatsappContact`), Google Calendar (`googleCalendar*`, `oauthState`,
+`webhookToken`, `encryption`, worker de canales), QR (`qr*.controller`,
+`qrPublic/qrWebhook/qrBilling.service`, `requireInternalProxySecret`,
+`mercadopagoSignature`, `qrLanding`), pagos/cotizaciones (`payment`, `quote`,
+`delivery`, `exchangeRate`, worker), y los 5 `fetch(` salientes de `src/`.
+`docs/qr-integration.md` para el lado del Worker (no verificable, repo no
+accesible).
+
+**Estado por integración.**
+
+| Integración | Estado | Resumen |
+|---|---|---|
+| WhatsApp Cloud API | **funciona con reparos** | firma/handshake/dedup/tenant correctos; síncrono, sin cola, sin estado de entrega, credenciales globales; solo texto; sin templates ni ventana de 24 h (solo responde a entrantes, siempre dentro de ventana). Graph API `v25.0`, timeout 10 s. **Según `deployment.md:311` en Render no hay `WHATSAPP_APP_SECRET`/`ACCESS_TOKEN` visibles** → el webhook responde 500 a Meta hasta que se carguen. |
+| Google Calendar | **sólido** | OAuth con `state` firmado (HS256, `alg` pinneado, TTL 10 min), `prompt=consent` + `access_type=offline`, refresh token AES-256-GCM, cache de access token por proceso (`expires_in − 60 s`), canales con token firmado, renovación con guard `ACTIVE` y cierre del huérfano, 403 sin reintento para token falso, sync incremental con `timeMin`. Timeout 10 s en todas las llamadas. **Todos los hallazgos del 29/08 (M-3, M-4, B-2, B-3, B-4, B-5, B-6, B-7, B-8, B-9, B-16) cerrados** con evidencia (§5). Según `deployment.md:311` no hay `GOOGLE_*` en Render: apagada de facto. |
+| QR (Worker ↔ backend ↔ MercadoPago) | **lado CRM sólido; MercadoPago incompleto; e2e sin probar** | gate fail-closed con rotación; `/qr/resolve` solo lectura, UUID validado antes de tocar la base; firma de MP con anti-replay (300 s atrás / 60 s adelante) e idempotencia por id de notificación en tx con lock; estado del preapproval re-consultado a la API. Pero **nada escribe `Organization.qrMercadopagoSubscriptionId`** (D-02). |
+| Pagos y cotizaciones | **sólido para lo que es** | no hay pasarela: `Payment` es un historial informativo (`CASH/TRANSFER/CARD/CHECK/OTHER`, sin estado), `Branch.paymentLinkUrl`/`bankTransferDetails` son texto cargado a mano; `Quote` con máquina de estados y CAS; `Delivery` `PENDING→DELIVERED`; cotización desde `open.er-api.com` (HTTPS, sin auth) validada por forma y valor, upsert por día. |
+
+**Contrato QR (lado CRM verificado; "doc espera" = `docs/qr-integration.md`, no confirmable):**
+
+| Ruta backend | Método | Llama | Auth | Respuestas | Coincide con el doc |
+|---|---|---|---|---|---|
+| `/qr/resolve/:qrId` | GET | Worker (`nexoraqrs.com/r/:id` → `BACKEND_PUBLIC_BASE_URL/qr/resolve/:id`) | `x-internal-proxy-secret` = `QR_RESOLVE_PROXY_SECRET` o `_PREVIOUS` | 302 → `destinationUrl` (org ACTIVE o exenta) · 200 landing (INACTIVE) · 404 landing (inexistente / UUID inválido / secreto inválido o ausente) | sí en GET |
+| `/qr/resolve/:qrId` | POST | Worker (doc: "GET/POST", 26 tests "en GET y POST") | — | **ruta eliminada** en `20260904120000`; hoy cae en `notFound` → 404 JSON sin pasar por el gate | **no** (D-07) |
+| `/api/qr`, `/api/qr/next-display-number`, `/api/qr/digital`, `/api/qr/:id` | GET/POST/PATCH/DELETE | frontend CRM | JWT (+ADMIN en escrituras) | 200/201/400/404/409 | sí |
+| `/api/admin/organizations/:id/qr-subscription-status`, `…/qr-billing-exemption` | POST | platform admin | JWT + `requirePlatformAdmin` | 200/403/404 | sí (sin UI en el frontend, F-08) |
+| `/webhooks/mercadopago?data.id=` | POST | MercadoPago | `x-signature` (`ts`,`v1`) + `x-request-id`; manifiesto `id:{data.id};request-id:{x-request-id};ts:{ts};` | 200 `{ok}` / `{ok,ignored}` / `{ok,duplicate}` · 400 · 401 · 413 · 415 · 500 sin env · 502 re-fetch | sí (mapeo `authorized→ACTIVE`, `cancelled|paused→INACTIVE` "no verificado contra sandbox", según el propio doc) |
+| (saliente) `GET api.mercadopago.com/preapproval/:id` | GET | backend | Bearer `MERCADOPAGO_ACCESS_TOKEN` | valida `id`/`status` | sí; **sin timeout** (D-03) |
+| (frontend) link público | — | `buildPublicResolutionUrl` | — | `${VITE_QR_PUBLIC_BASE_URL}/r/${uuid}` | sí |
+
+#### D-01 — ALTO — WhatsApp: un turno que falla DESPUÉS de persistir el entrante deja al cliente sin respuesta para siempre (el dedup convierte el reintento de Meta en "duplicado")
+
+- `src/services/agentOrchestration.service.ts:1041-1050` (INBOUND con wamid persistido ANTES del LLM), `whatsappWebhook.service.ts:116-119,137-148` (toda reentrega con ese wamid → "duplicado"), `:25-30` ("así ningún mensaje se pierde por un reinicio" — es al revés: el reinicio es exactamente el caso que lo pierde).
+- **Escenario:** entrante persistido → (a) `SIGTERM`/deploy/cold start de Render (G-01), (b) `LlmProviderError` no transitorio, (c) tres timeouts de 60 s, (d) `sendText` falla (B-02). Meta reintenta → "duplicado" → 200. Nadie vuelve a intentar; el cliente ve el doble tilde y silencio. El propio `llmProvider.service.ts:165-197` lo reconoce ("**nunca recibe respuesta**, ni en ese intento ni en ninguno") y solo mitiga 429/5xx/red. `BITACORA.md` lo deja como "riesgo residual del ítem 114".
+- **Por qué importa:** es el canal comercial principal del MVP; un cliente que escribe y no recibe respuesta se va.
+- **Arreglo:** cola persistente (tabla `AgentInboundJob` + poller, como ya hizo Xentech): el webhook inserta el job y responde 200 en milisegundos; el poller corre el turno con reintentos y marca `DONE/FAILED`. Resuelve también B-08 y G-01(b). Alternativa mínima: si el turno falla antes de persistir el OUTBOUND, borrar el INBOUND recién creado para que la reentrega lo reprocese.
+
+#### D-02 — ALTO (funcional) — El webhook de MercadoPago es código muerto: nada escribe `Organization.qrMercadopagoSubscriptionId`
+
+- `grep -rn qrMercadopagoSubscriptionId src scripts frontend/src`: solo la lectura en `qrBilling.repository.ts:24-32` y comentarios; la migración `20260903120000` crea la columna; ningún endpoint, script ni seed la asigna.
+- **Escenario:** MercadoPago manda un `subscription_preapproval` firmado y válido → `findOrganizationByMercadopagoSubscriptionId` → `null` → 200 `{ignored, reason: "no_linked_organization"}`. Ninguna suscripción real puede activar una organización salvo `UPDATE organizations SET qr_mercadopago_subscription_id = …` a mano. Además `deployment.md:311` no muestra `MERCADOPAGO_*` en Render → el webhook responde 500 y MP reintenta.
+- **Arreglo:** endpoint de platform admin (`POST /api/admin/organizations/:id/qr-mercadopago-subscription` con el `preapproval.id`), o documentar que el cobro se opera solo por `qr-subscription-status` manual y retirar el webhook hasta que exista el flujo.
+
+#### D-03 — MEDIO — `fetchPreapprovalReal` (MercadoPago) y `fetchRatesFromApi` (open.er-api.com) son los únicos `fetch` salientes SIN timeout
+
+- `src/services/qrWebhook.service.ts:85-87` y `exchangeRate.service.ts:59` (sin `signal`); los otros tres (`llmProvider:329`, `whatsappGraph:33`, `googleCalendar:358`) sí lo tienen.
+- **Escenario:** `api.mercadopago.com` acepta y no responde → el request del webhook queda colgado lo que tarde el SO; MP reintenta y apila. Cotizaciones: el tick queda colgado; `detener()` espera `tickEnCurso` → el apagado llega a `SHUTDOWN_TIMEOUT_MS` y sale con código 1.
+- **Arreglo:** `signal: AbortSignal.timeout(10_000)` en ambos (una línea cada uno).
+
+#### D-04 — MEDIO — Credenciales de Meta globales de plataforma en texto plano en el entorno, mientras el mapeo de números es por agente (ver A-01, E-03)
+
+- Un token vencido/rotado tira abajo **todos** los tenants a la vez, y el 500 de `whatsappWebhook.controller.ts:107-114` hace que Meta reintente todo el tráfico de todos. Un cliente con su propia cuenta de WhatsApp Business no puede conectarse. `encryption.ts:14-19` fue escrito pensando en "tokens de WhatsApp Business" y no se usa para esto; Xentech ya resolvió lo mismo con `WhatsAppConnection` por organización. **Arreglo (decisión de producto):** `accessToken` cifrado por Agent/Branch (+`wabaId`), `APP_SECRET`/`VERIFY_TOKEN` siguen globales.
+
+#### D-05 — MEDIO (VERIFICAR) — Webhooks síncronos sobre Render Free: cold start + LLM de hasta 60 s × rondas
+
+- Ver G-01 y B-08. El primer WhatsApp del día casi seguro excede la paciencia de Meta → reentrega → dedup; si Render mata el proceso a mitad, es D-01. Google (503 → backoff) y MercadoPago toleran mejor. No se pudo verificar el timeout exacto de Meta. **Arreglo:** el de D-01.
+
+#### D-06 — BAJO — Contrato Worker↔backend: el doc describe un relay de POST que ya no existe
+
+- `docs/qr-integration.md` §Fase 4 vs `src/routes/qrPublic.routes.ts:25` (solo GET). Un POST devuelve el 404 JSON de `notFound`, no la landing "byte a byte" de DEC-007. **Arreglo:** sacar el relay de POST del Worker o montar el gate en `router.all`.
+
+#### D-07 — BAJO (VERIFICAR) — Firma de MercadoPago: el manifiesto usa `data.id` tal cual llega
+
+- `qrWebhook.controller.ts:86` + `mercadopagoSignature.ts:45-47`. La doc de MP indica que si `data.id_url` es alfanumérico va en minúsculas en el manifiesto; no está contemplado ni testeado. **Arreglo:** `toLowerCase()` al armar el manifiesto, tras confirmarlo en sandbox.
+
+#### D-08 — BAJO — `Payment.amount` acepta más de 2 decimales y Postgres redondea en silencio
+
+- `payment.controller.ts:24-30` (sin `multipleOf(0.01)`), columna `Decimal(14,2)`. **Arreglo:** `.multipleOf(0.01)`.
+
+#### D-09 — BAJO — WhatsApp: la frontera de tenant depende 100 % de `WHATSAPP_APP_SECRET`
+
+- `agent.repository.ts:87-92`: el tenant se resuelve solo por un dato del cuerpo firmado por Meta (correcto por diseño). Si el secreto se filtra, cualquiera inyecta "mensajes de un cliente" a cualquier organización. Conviene tenerlo escrito y que la rotación del secreto esté documentada.
+
+**No se pudo verificar en D:** el Worker de Cloudflare (nombre del header, que
+relaye solo GET, rate limits reales, y sobre todo que `INTERNAL_PROXY_SECRET`
+y `QR_RESOLVE_PROXY_SECRET` tengan el mismo valor — el doc lo deja como
+"pendiente de prueba e2e manual"); timeout y política de reintentos de Meta;
+mapeo de estados de MercadoPago contra sandbox; verificación de dominio en
+Search Console para `events.watch`; qué variables de integración están
+cargadas en Render.
 
 ### E. Secretos, configuración y seguridad general
 
@@ -558,9 +754,99 @@ política vigente de OpenRouter y el opt-out de la cuenta (E-01); qué
 variables están efectivamente cargadas en Render; headers efectivos de
 `widget.js` en Vercel.
 
-### F. Frontend
+### F. Frontend (`PlataformaCRM/frontend`; `plataforma-qr/admin` no accesible)
 
-(pendiente)
+**Ejecución real** (`frontend/`): `npm run typecheck` limpio; `npm run lint`
+limpio; **`npm test` (vitest 4.1.10): 164 archivos, 1785/1785 tests pasan**
+(152 s); `npm run build` OK: `dist/index.html` 2,71 kB, CSS 54,99 kB (gzip
+9,35), **`index-*.js` 1.393,79 kB (gzip 357,46 kB)** con warning de Vite
+"chunk > 500 kB", `dist/widget.js` 11,10 kB (gzip 4,29). `npm audit
+--omit=dev`: **0**; `npm audit` completo: 2 moderadas dev-only (vitest).
+
+**Mapa.** Vite 8 + React 19 + react-router 7 + react-query 5 +
+supabase-js 2. Sesión: `persistSession: true`, **`storage: sessionStorage`**
+(decisión del ítem 6: muere al cerrar la pestaña), `autoRefreshToken: true`,
+`detectSessionInUrl: true` (`frontend/src/lib/supabase.ts:26-33`). El JWT se
+lee con `getSession()` antes de cada request y va como `Bearer`
+(`lib/api.ts:126-128`); 401 → `signOut({scope:"local"})` → `/login`
+(`AuthContext.tsx:107-113`); 403 de `/api/me` no desloguea; cambio de
+identidad limpia la cache. `localStorage` solo para el tema; `sessionStorage`
+para la sesión y un marcador de invitación aceptada (guarda solo el email;
+la key se llama `PENDING_PASSWORD_KEY`, engañosa). **Cero `supabase.from(` /
+`storage`** en el frontend. Bundle: solo `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`,
+`VITE_API_URL`, `VITE_QR_PUBLIC_BASE_URL`. Sin CSP (`index.html` sin meta,
+`vercel.json` sin `headers`); un script inline (tema). Rutas: públicas
+`/login`, `/forgot-password`, `/reset-password`, `/invite/accept`; bajo
+`ProtectedRoute`: lectura abierta `/`, `/companies`, `/contacts`,
+`/conversations(/:id)`, `/pipelines`, `/opportunities`, `/tasks`, `/qr`,
+`/claim/:qrId`, `/vehicles`, `/bookings`, `/agenda`; bajo `AdminRoute`
+(`me.role === "ADMIN"`): users, invitations, sources, api-keys,
+ingestion-events, organization, branches, agents (list/new/edit/embed/playground),
+knowledge-base, automations, resources, service-types, y todos los `/new` y
+`/:id/edit`; bajo `PlatformAdminRoute`: `/admin/organizations/new`. Widget:
+build IIFE aparte (`vite.widget.config.ts` → `dist/widget.js` sin hash),
+snippet `<script async src="https://<vercel>/widget.js" data-agent-id
+data-embed-token>` con `VITE_API_URL` horneado, DOM con `textContent`, sin
+cookies, UUID de sesión en `localStorage`.
+
+**Lo que está bien (verificado).** Gates de rol de la UI son espejo de los
+middlewares del backend (**no hay ningún caso donde la UI muestre una acción
+que el backend rechace con 403**), con las excepciones comentadas en
+`router.tsx`; el backend sigue siendo la autorización real. Tipos TS
+alineados con los controllers/`select` en todos los módulos nuevos (agentes,
+embed tokens, conversaciones, quotes/deliveries/payments, automatizaciones
+—ids idénticos a `automationTriggers.ts`/`automationActions/*`—, vehículos
+—diff programático del modelo Prisma vs la interfaz: solo difieren en
+relaciones—, bookings, QR, KB, dashboard, organización). Paginación
+`page/pageSize/total/totalPages` con los `max(100)` respetados; fechas ISO
+con `Z` y fechas-sola como `YYYY-MM-DD`. No se pierden campos al editar
+(PATCH parciales). Patrón uniforme `LoadingState`/`ErrorState` (con el
+mensaje del backend)/`EmptyState` en todos los listados nuevos; errores de
+mutación visibles; validación de formularios espejo de los schemas.
+Coherencia con `docs/frontend-cambios-pendientes.md`: los ítems 100–124 son
+100 % backend/prompt (el nombre del archivo ya no describe su contenido); los
+ítems marcados hechos que tocan UI (6, 16, 25, 63, 65, 66, 73, 75, 77, 79,
+80, 82, 201) existen en el código.
+
+#### F-01 — ALTO — `/claim/:qrId` (`ClaimPage`) le pega a `POST /api/qr/claim`, endpoint que ya no existe
+
+- `frontend/src/app/router.tsx:131`, `features/qr/api.ts:65-66`, `features/qr/mutations.ts:33-36`; backend `src/routes/qr.routes.ts:23` ("/qr/claim existió acá hasta 20260904120000"). El propio `features/qr/types.ts:90-94` lo reconoce ("le pega a un endpoint inexistente… un ítem propio, anotado en el 53") — ese ítem nunca se creó.
+- **Escenario:** un ADMIN entra a `/claim/<uuid>` (o un QR físico viejo apunta ahí), completa el formulario y recibe 404. Página completa, con test, que no puede funcionar.
+- **Arreglo:** borrar `ClaimPage`, `claimQrCode`, `useClaimQrCode`, `ClaimQrInput`, la ruta y sus tests.
+
+#### F-02 — MEDIO (VERIFICAR con Rocco) — `GET /api/vehicles` devuelve costo de adquisición y precio mínimo aceptable a cualquier `USER`; la UI solo los oculta
+
+- `src/repositories/vehicle.repository.ts:15-25` ("va completo"), `vehicle.routes.ts:33-34` (GET solo `authenticate`); `frontend/src/features/vehicle/types.ts` los declara y `VehicleFormPage.tsx:776` (ADMIN) es el único lugar que los muestra.
+- **Escenario:** un vendedor USER abre DevTools en `/vehicles` y ve el costo de compra y el piso de negociación de cada unidad. `docs/data-classification.md` no menciona estos campos.
+- **Arreglo:** omitir `acquisitionCostUsd`, `minAcceptablePriceUsd` y `consignment*` cuando `req.auth.role !== "ADMIN"`. Decisión de producto: ¿un vendedor debe ver el piso?
+
+#### F-03 — MEDIO — Cotizaciones, pagos y entregas no tienen ninguna pantalla de lectura para `USER`, aunque el backend las expone
+
+- `QuoteSection`/`PaymentSection`/`DeliverySection` solo se renderizan en `OpportunityFormPage.tsx:14-16`, bajo `AdminRoute` (`router.tsx:294`); `quote/delivery/payment.routes.ts` GET solo `authenticate`.
+- **Escenario:** el vendedor que atiende la oportunidad no puede ver cuánto se cotizó, cuánto pagó el cliente ni el checklist de entrega. Gap de producto, no de seguridad.
+- **Arreglo:** las tres secciones en solo-lectura en el detalle de oportunidad para USER.
+
+#### F-04 — MEDIO — Bundle único de 1,39 MB sin code-splitting
+
+- `router.tsx`: 0 `lazy(`; todas las páginas (playground, calendario, dashboard SVG, dnd-kit, qrcode) importadas estáticamente. **Escenario:** un vendedor en móvil con red lenta baja 357 kB gzip antes de ver el login. **Arreglo:** `React.lazy` por feature (al menos los bloques `AdminRoute`/`PlatformAdminRoute`) o `manualChunks`.
+
+#### F-05 — MEDIO — Contrato del widget: `Origin` es trivial de falsificar y el único freno es 20/min por token (ver B-10)
+
+- `widgetAuth.service.ts:66-73` exige `Origin` ∈ `allowedOrigins`, pero `curl -H "Origin: https://sitio-del-cliente.com"` lo pasa; el token es público por diseño. El frontend ya categoriza 429 (`widget/api.ts`). **Arreglo:** el de B-10 (cupo por sessionId, tope diario por token/organización).
+
+#### F-06 — BAJO — Mensajes de error de Supabase Auth se muestran crudos, en inglés
+
+- `features/auth/LoginPage.tsx:41` (`setError(err.message)` → "Invalid login credentials"), ídem `ForgotPassword`/`ResetPassword`. **Arreglo:** mapa de códigos → español con fallback.
+
+#### F-07 — BAJO — Validaciones de cliente que faltan: tamaño de foto (backend 5 MB, 413) y largo del brief (backend 2000)
+
+- `VehiclePhotoGallery.tsx:130` solo `accept=`, sin `file.size`; `ConversationBriefCard.tsx:99-100` sin `maxLength`. El error del backend se muestra; es fricción, no bug.
+
+#### F-08 — VERIFICAR — Sin CSP/headers de seguridad en `vercel.json`; panel de platform admin del módulo QR sin UI
+
+- `frontend/vercel.json` solo rewrite (puede estar en el dashboard de Vercel). `src/routes/qrAdmin.routes.ts` (activación manual de suscripción, exención) no tiene consumidor en `frontend/src`; la única pantalla de platform admin es `/admin/organizations/new`. Puede ser intencional (se opera por curl/SQL) — junto con D-02, el módulo de cobro de QR se opera hoy enteramente a mano.
+
+**No se pudo verificar en F:** configuración real de Vercel (headers, `VITE_*` de producción); comportamiento en navegador contra un backend real; `plataforma-qr/admin` (repo no accesible).
 
 ### G. Operación y despliegue
 
