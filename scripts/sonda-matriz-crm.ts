@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from "../src/lib/supabaseAdmin";
 import { findRoleByName } from "../src/repositories/role.repository";
 import { CATALOGO_DE_TOOLS } from "../src/services/agentTools.service";
 import { createBranch } from "../src/services/branch.service";
+import { esUrlDeBaseLocal } from "../src/utils/baseLocal";
 
 // ---------------------------------------------------------------------------
 // Sonda de la matriz de estados del CRM — paso 1 de docs/matriz-de-datos-crm.md.
@@ -20,7 +21,7 @@ import { createBranch } from "../src/services/branch.service";
 //
 // SOLO CONTRA UNA BASE LOCAL: crea organizaciones, usuarios de Supabase Auth y
 // filas de todo tipo, y las borra al final. Se niega a correr si DATABASE_URL
-// no apunta a 127.0.0.1/localhost.
+// no apunta a localhost/127.0.0.1/::1 (src/utils/baseLocal.ts).
 //
 // Lo único que lee del agente es la SALIDA de search_vehicles (qué ve el
 // modelo de una unidad), invocando la tool tal cual. No modifica nada de esa
@@ -31,7 +32,7 @@ import { createBranch } from "../src/services/branch.service";
 // ---------------------------------------------------------------------------
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "";
-if (!/@(127\.0\.0\.1|localhost)[:/]/.test(DATABASE_URL)) {
+if (!esUrlDeBaseLocal(DATABASE_URL)) {
   console.error(
     "sonda-matriz-crm: DATABASE_URL no es local. Esta sonda solo corre contra Supabase local.",
   );

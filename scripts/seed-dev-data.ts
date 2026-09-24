@@ -32,6 +32,7 @@ import {
   Weekday,
   AutomationExecutionStatus,
 } from "@prisma/client";
+import { esHostLocal, hostDeLaUrl } from "../src/utils/baseLocal";
 
 // ---------------------------------------------------------------------------
 // Datos de prueba para el Supabase LOCAL — SOLO desarrollo.
@@ -66,7 +67,6 @@ import {
 // ---------------------------------------------------------------------------
 
 const PREFIJO = "[SEED]";
-const HOSTS_LOCALES = new Set(["127.0.0.1", "localhost"]);
 const ORG_SLUG = "test-local";
 const ADMIN_EMAIL = "roccocarlotto@gmail.com";
 const OUTBOX_SEED_EVENT_TYPE = "seed.example";
@@ -100,17 +100,15 @@ function assertBaseLocal(): void {
   }
 
   for (const { nombre, valor } of candidatas) {
-    let hostname: string;
-    try {
-      hostname = new URL(valor).hostname;
-    } catch {
+    const hostname = hostDeLaUrl(valor);
+    if (hostname === null) {
       throw new Error(
         `ABORTADO: ${nombre} no es una URL válida y no se puede comprobar que apunte a localhost.`,
       );
     }
-    if (!HOSTS_LOCALES.has(hostname)) {
+    if (!esHostLocal(hostname)) {
       throw new Error(
-        `ABORTADO: ${nombre} apunta a "${hostname}", que no es 127.0.0.1 ni localhost. Este script es SOLO para el Supabase local y no va a ejecutar ningún insert contra esa base.`,
+        `ABORTADO: ${nombre} apunta a "${hostname}", que no es localhost, 127.0.0.1 ni ::1. Este script es SOLO para el Supabase local y no va a ejecutar ningún insert contra esa base.`,
       );
     }
   }

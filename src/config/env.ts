@@ -35,6 +35,16 @@ const envSchema = z.object({
   DATABASE_URL: z.string().optional(),
   DIRECT_URL: z.string().optional(),
 
+  // DEV_ALLOW_REMOTE_DB: en development, los workers NO arrancan si
+  // DATABASE_URL no es local (G-02 de la auditoría del 24/09, ver
+  // src/utils/workersHabilitados.ts). Esta variable es el pedido explícito
+  // para arrancarlos igual. En production y test no tiene efecto. Mismo enum
+  // explícito que INGEST_WORKER_ENABLED, por el mismo motivo.
+  DEV_ALLOW_REMOTE_DB: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((valor) => valor === "true"),
+
   SUPABASE_URL: z.string().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
