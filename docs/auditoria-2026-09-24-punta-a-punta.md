@@ -914,11 +914,109 @@ solo exige respuesta.
 
 ### H. Tests y CI
 
-(pendiente)
+**Números reales** (§0.3 y eje F): backend **87** archivos `*.test.ts`
+(1078 tests, todos en verde) y **75** `*.integration-test.ts` (1076 tests;
+343 pasan solo con Postgres, 733 necesitan GoTrue/Storage); frontend **164**
+archivos (1785 tests en verde). `scripts/` (12 archivos, incluidos
+`apply-manual-sql`, `verify-schema`, `audit-gate`, `purge-*`, los evals) tiene
+**cero tests**: solo se typechequea y lintea.
+
+**Lo que está bien (verificado).** Los cuatro hallazgos de tests del 29/08
+están **cerrados**: A-7 (`booking.integration-test.ts:887-1013`: helper que
+sostiene `lockResourceForUpdate`, confirma el bloqueo con `pg_blocking_pids`
+y `pg_locks` sobre `resources`), A-8 (`googleCalendarSync.integration-test.ts:887-1069`:
+dobla el cliente, acota por organización y afirma `resumen`), M-19
+(`src/lib/carreras.test-helper.ts` usado en 12 archivos: las cinco carreras
+fuerzan el solapamiento) y M-20 en su enunciado (`tenant-isolation` cubre
+agenda, outbox, ingesta, quotes, deliveries, payments). No hay `assert.ok(true)`,
+`.skip`, `.todo` ni `catch` que traguen. `whatsappWebhook.controller.integration-test.ts`
+verifica la **firma HMAC real** sobre el cuerpo crudo con la cadena de
+producción (`:260-271, 314-325`). `agentOrchestration.integration-test.ts`
+dobla el LLM con guion y **afirma sobre la base** (conversación, los dos
+`Message`, la `Opportunity` con `contactId/ownerId/pipelineId/stageId` "que no
+eligió el modelo", `toolCalls`, reservas, Activities del handoff).
+
+Cobertura por módulo crítico (por `import` real desde tests): agentTools y
+agentOrchestration tienen unit + integración; whatsappWebhook solo por HTTP
+(aceptable); `whatsappGraph.service.ts` (**el cliente a Meta**) no se ejecuta
+en ningún test; qrPublic solo vía controller, sin test cross-org; automation
+CRUD/triggers/registrations solo indirectos; `source.service.ts` y
+`authIdentity.service.ts` sin ningún test que los importe. Controllers sin
+test propio: booking, health, invitation, onboarding, pipeline, qrAdmin,
+resource, serviceType, source, user, workingHours. Middlewares sin test
+directo: authenticate, authenticateApiKey, authenticateEmbedToken, authorize,
+requirePlatformAdmin, widgetCors, widgetBody (cubiertos indirectamente por
+tests HTTP).
+
+#### H-01 — MEDIO — `tenant-isolation.integration-test.ts` no cubre 14 de los 35 modelos con `organizationId` — todos los que nacieron después del 29/08
+
+- El archivo se declara "la garantía a nivel repository, no el pre-check del service" (`:52-56`). Modelos que toca (`prisma.<x>.` en el archivo, verificado): activity, apiKey, booking, branch, company, contact, delivery, googleCalendarConnection, ingestionEvent, invitation, opportunity, organization, outboxEvent, payment, pipeline, quote, resource, serviceType, source, stage, user, workingHours. **Faltan:** `Agent`, `AgentEmbedToken`, `Automation`, `AutomationExecution`, `Conversation`, `Message`, `KnowledgeBaseEntry`, `QrCode`, `PaymentEvent`, `QrSubscriptionStatusChange`, `QrBillingExemptionChange`, `Vehicle`, `VehiclePhoto`, `VehicleChangeLog`. Para esos hay tests HTTP que afirman 404 cross-org (el pre-check), justo lo que el archivo dice que no alcanza. Mitigante: esos repositorios escriben con `updateMany` (sugiere `organizationId` en el where), pero nadie lo afirma con count 0 + relectura. Es M-20 corrido a los módulos nuevos.
+- **Arreglo:** un caso por modelo faltante en ese archivo, y una fila que compare la lista de modelos con `organizationId` del schema contra los que el test toca (para que el próximo modelo nuevo no quede afuera).
+
+#### H-02 — MEDIO — La suite de integración corre los 75 archivos en paralelo contra una base compartida, sin `--test-concurrency`, y el propio tracker registra rojos intermitentes por eso
+
+- `package.json` (`tsx --test "src/**/*.integration-test.ts"`), `ci.yml:373-376`; `docs/frontend-cambios-pendientes.md:1958, 4854, 5202` (tres corridas con rojos que "aislados pasan": encabezados de ingest, teardown de `opportunityStaleWorker`, FK de `automation_executions`, "dos promociones simultáneas"). `ingestionEvent-purge.integration-test.ts:22`: "TODO ACOTADO A LA ORGANIZACIÓN DEL FIXTURE. La purga real corre sin acotar" — la función que se prueba y la que corre no son la misma.
+- **Por qué importa:** un rojo de CI por concurrencia es indistinguible de una regresión real y entrena a re-correr.
+- **Arreglo:** `--test-concurrency=1` para la suite de integración (o una base por archivo), y un test de la purga global sobre una base efímera.
+
+#### H-03 — BAJO — Los "fixes de prompt" de los ítems 108–123 se regresionan por presencia de texto, no por conducta
+
+- `agentTools.service.test.ts:204`, `agentOrchestration.service.test.ts:523-535`: `assert.match` sobre strings del prompt/descriptions. La conducta se midió con `scripts/eval-agente-real.ts`/`sonda-de-prompt.ts` contra OpenRouter, que no corren en CI (sin `OPENROUTER_*` en `ci.yml`) y no tienen tests. `PLAN-AUTONOMO.md:42-45` lo declara. Nada en CI detecta que un cambio de redacción vuelva a subir el 21/42 del ítem 108. **Arreglo:** un eval mínimo (5–10 escenarios) con un modelo barato, disparado a mano o semanal, con presupuesto fijo.
+
+#### H-04 — BAJO — `sendWhatsappTextReal` y `widget.js` en Vercel solo los verifica producción
+
+- `whatsappGraph.service.ts` no se ejecuta en ningún test (el controller inyecta un doble); la promesa "el error de Meta nunca lleva el token" no tiene test. `ai-agent-architecture.md:576-585` deja "pendiente" comprobar que Vercel sirve `widget.js` como JS. **Arreglo:** unit test con `fetch` doblado para `sendWhatsappTextReal`; un `curl -I` documentado en `deployment.md`.
+
+#### H-05 — BAJO — Lo que `ci.yml` no cubre (detalle en G-05)
+
+- `docker build`, smoke de `node dist/server.js` + `/health`, deploy, `scripts/`, cron de retención (`purge:*` nunca programado — `data-classification.md §6` pto 5), evals contra modelo real. El comentario `ci.yml:61-63` ("integración queda fuera de CI") y `:219-220` ("6 de los 8 archivos") están desactualizados.
+
+**No se pudo verificar en H:** la suite completa contra GoTrue/Storage (733
+tests); la flakiness real en el runner de GitHub (solo por el registro del
+tracker).
 
 ### I. Alineación con el producto
 
-(pendiente)
+Contra los seis principios de §1 del encargo, con el código como está:
+
+| Principio | Estado | Dónde el código se aparta |
+|---|---|---|
+| 1. Multi-tenancy real: Organización → Sucursal → Usuarios/Config; sucursal = unidad comercial independiente (horarios, agentes, KB, automatizaciones propias) | **parcial** | Aislamiento entre organizaciones: sólido (eje A). Sucursal: `Branch` existe con timezone, dueño por defecto, datos de cobro, agentes, KB, recursos/servicios/agenda, QR y vehículos. Pero **`User` no pertenece a ninguna sucursal** (todo usuario ve todo), **`Automation` es por organización** (no por sucursal), `Pipeline`/`Stage` por organización, los horarios son por `Resource` (no hay "horario de la sucursal"), y `Contact`/`Opportunity`/`Activity` no tienen sucursal (la sucursal de un lead solo queda en `Conversation.branchId`). Una cadena con dos sucursales no puede darle a cada vendedor solo su sucursal ni reglas distintas por local. |
+| 2. El CRM funciona sin IA; Lead es entidad propia; pipelines configurables; campos estándar + personalizados | **parcial** | El CRM funciona íntegramente sin IA (verificado: nada del CRM core depende del agente; el borrador de seguimiento por LLM es una acción opcional). **Lead no es entidad propia**: es `Contact` con `lifecycleStage` + columnas `lead*` (decisión documentada en el roadmap; funcional, pero cada "lead" ocupa un `Contact` y los 28.800 "Visitante" posibles por día del widget —B-10— caen en la misma tabla). Pipelines configurables: sí. **Campos personalizados: `Contact.customFields Json?` existe en el schema pero ningún código lo lee ni escribe** (sin Zod, endpoint ni UI) — hoy "campos personalizados" es una columna huérfana. |
+| 3. La IA actúa solo por tools explícitas y el backend valida/autoriza cada acción crítica | **parcial, con un hueco** | Arquitectura correcta: 11 tools + handoff, `puedeEjecutarTool`, ids que el modelo no controla, mismos services que el panel. Huecos: **B-01** (el modelo puede marcar WON y disparar automatizaciones), B-06 (el candado de datos requeridos se salta con una clave inventada), y `amount` de oportunidad que viene del modelo sin validar contra el precio (deliberado). `create_payment_link` no existe: el "link" es un dato estático por sucursal. |
+| 4. Datos estructurados separados del conocimiento no estructurado | **se aparta** | Precios, horarios, stock y disponibilidad viven estructurados (`Vehicle`, `WorkingHours`, `Booking`, `ServiceType`) y tienen tools de lectura. Pero el ítem 70 construyó **la sincronización stock → KB** (`vehicleKnowledgeBaseSync.service.ts`): una entrada de texto por vehículo publicado, manual por botón, que entra entera al prompt (B-04). Es exactamente "datos estructurados metidos en la KB", con doble fuente de verdad y precios que pueden divergir del tool. |
+| 5. Automatizaciones = Trigger → Condition → Action con catálogo controlado | **parcial** | Catálogo controlado en código (2 triggers, 2 acciones, schemas por trigger/acción, dispatcher con idempotencia por `automation_executions`): bien. **No existe la capa "Condition"** (`Automation` = `triggerType` + `triggerConfig` + `actionType` + `actionConfig`); todo trigger dispara toda regla activa. Los triggers de booking (`booking-architecture.md §6`) y el aviso a Resea nunca se construyeron. |
+| 6. Defaults razonables: el negocio arranca sin configurar todo | **parcial** | Bien: pipeline default obligatorio, primera etapa abierta, owner por defecto de la sucursal, modelo por defecto, `guardrails` tolerantes, instrucciones fijas del agente. Fricción real para un cliente nuevo: hay que crear sucursal, agente, embed token/número de WhatsApp (que hoy lo carga el propio tenant, A-01), KB (vacía = el agente inventa menos pero no sabe nada), recursos + horarios + tipos de servicio para que `create_booking` sirva, datos de cobro, y cargar el stock; no hay un onboarding guiado ni una plantilla por vertical ("pack automotora"). El default `:free` del modelo es un default de costo, no de calidad (ítem 104 recomienda subirlo). |
+
+**Qué del núcleo del MVP está incompleto o frágil para salir con un cliente real:**
+
+- **WhatsApp**: el código existe pero **nunca recibió un mensaje real** por lo que consta en el repo (los "verificado en producción" de `BITACORA.md` pasan por `test-message`, canal WEB); faltan los 4 pasos "para producción" del ítem 81 (secretos en Render, callback en Meta, número en el agente); el diseño síncrono pierde respuestas (D-01/B-02); un solo token global (D-04); sin audio/imagen (B-09); Render Free duerme el proceso (G-01). **Frágil.**
+- **Agente + KB**: sólido en arquitectura y probado en producción por WEB; residuales conocidos (a) y (b); B-01 abierto; la KB de AutoMax sigue vacía (pendiente de Rocco); modelo `:free` con la pregunta de privacidad abierta (E-01). **Funciona con reparos.**
+- **Widget web**: funciona; 20 msg/min por sitio entero y contactos basura sin tope (B-10); sin historial al recargar. **Funciona con reparos.**
+- **CRM**: sólido (locks, CAS, integridad, 1078 + 343 tests en verde acá). **Sólido.**
+- **Automatizaciones**: 2 triggers y 2 acciones; sin condiciones; duplicados posibles con el LLM lento (C-02). **Incompleto pero estable.**
+- **Cobro del módulo QR**: el webhook de MercadoPago no puede activar ninguna organización (D-02); la activación es manual por platform admin sin UI (F-08). **Incompleto.**
+- **Respuesta humana desde el CRM**: no existe ningún flujo que escriba `Message.senderType = HUMAN` (`conversation.routes.ts` solo tiene GET, PATCH brief y generate-brief): el inbox es de solo lectura; cuando el agente deriva, la persona tiene que responder desde su WhatsApp personal o el Business App. **No existe.**
+
+#### I-01 — ALTO (decisión de producto) — Doble fuente de verdad del stock: KB sincronizada vs `search_vehicles`
+
+- Ver B-04. **Sugerencia:** eliminar la sincronización stock→KB (o dejarla solo para vehículos sin `search_vehicles` habilitada) y mantener la KB para lo no estructurado (políticas, garantías, financiación general).
+
+#### I-02 — MEDIO (decisión de producto) — Sin membresía usuario↔sucursal ni automatizaciones por sucursal, la "sucursal como unidad comercial independiente" es organización de datos, no un límite
+
+- `User` sin `branchId`; `Automation` sin `branchId`. Para el primer cliente (una automotora) probablemente alcanza; conviene decidirlo y escribirlo antes de que entre un cliente con dos locales.
+
+#### I-03 — MEDIO — No hay forma de responder a mano desde el CRM: el handoff deja la conversación en un inbox de solo lectura
+
+- `ai-agent-architecture.md:505-513` lo reconoce; `conversation.routes.ts:34-63`. Para el vendedor, el "derivar a humano" es una tarea + brief, no un canal. **Sugerencia:** `POST /api/conversations/:id/messages` que persista `senderType: HUMAN` y envíe por el canal (WhatsApp vía Graph; web: pendiente de polling del widget) — es el mismo camino que necesita B-02 (estado de entrega).
+
+#### I-04 — BAJO — Trigger→Action sin Condition; triggers de booking y Resea sin construir
+
+- `automations-architecture.md §6/§10`, `booking-architecture.md §6`. **Sugerencia:** una capa mínima de condiciones declarativas por trigger (p. ej. `stageId`, `amount >=`, `branchId`) antes de agregar más acciones.
+
+#### I-05 — BAJO — Fricción de arranque para un cliente nuevo
+
+- Sin plantilla por vertical ni checklist de onboarding (sucursal → agente → KB → horarios → cobro → stock). **Sugerencia:** "pack automotora": pipeline, etapas, tipos de servicio (test drive, visita), guardrails y KB base sembrados al crear la organización; una pantalla de "qué falta para que tu agente funcione".
 
 ---
 
