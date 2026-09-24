@@ -38,6 +38,61 @@
 
 ---
 
+## Comandos del repo
+
+Dos paquetes npm independientes (sin workspaces): el backend en la raíz y
+`frontend/`. Node 22 (el mismo que `Dockerfile` y `ci.yml`).
+
+**Instalar** (lo hace solo el hook `SessionStart` de
+`.claude/settings.json` en las sesiones en la nube, ver más abajo):
+
+```bash
+npm ci && npx prisma generate      # backend — el cliente de Prisma no está versionado
+npm ci --prefix frontend           # frontend
+```
+
+`npm ci` y no `npm install`: con otra versión de npm, `npm install`
+reescribe `package-lock.json`.
+
+**Backend** (raíz) — lo mismo que corre `ci.yml`:
+
+| Comando | Qué hace |
+|---|---|
+| `npm run typecheck` | `tsc` sobre src, scripts y tests (tres tsconfig). |
+| `npm run build` | Compila a `dist/`. |
+| `npm test` | Unitarios `src/**/*.test.ts` (node:test vía `tsx --test`), sin DB. Requiere `CORS_ORIGIN` en el entorno (cualquier valor; el hook la exporta). |
+| `npx tsx --test src/ruta/archivo.test.ts` | Un solo archivo de tests. |
+| `npm run lint` / `npm run lint:fix` | ESLint del backend. |
+| `npm run format:check` / `npm run format` | Prettier de TODO el repo (un solo `.prettierrc`; los `*.md` están excluidos a propósito). |
+| `npm run prisma:validate` | Valida `schema.prisma` sin conectarse a nada. |
+| `npm run test:integration` | Suite `*.integration-test.ts`. Necesita el stack local de Supabase (`npm run supabase:start`, Docker) — en CI es el job `integration`. |
+
+**Frontend** (`cd frontend`): `npm run typecheck`, `npm run lint`,
+`npm test` (vitest), `npm run build`. Prettier se corre desde la raíz.
+
+**Migraciones:**
+
+- Nueva migración: editar `prisma/schema.prisma` y generar la carpeta en
+  `prisma/migrations/` con `npx prisma migrate dev --name <nombre>` contra
+  el Supabase LOCAL (`npm run supabase:start`), nunca contra un proyecto
+  real.
+- Aplicar: `npm run migrate:deploy` = `prisma migrate deploy` + reaplicar
+  `prisma/sql/manual_constraints.sql` y `prisma/sql/rls_policies.sql`
+  (idempotente). Usa `DIRECT_URL`.
+- Verificar: `npm run verify:schema`; sembrar roles: `npm run prisma:seed`.
+- Recordatorio: los PR con `prisma/migrations/` no se mergean por
+  iniciativa propia (ver la sección de `gh` más abajo).
+
+**Sesiones en la nube:** no hay `.env` ni credenciales, y no hay que
+agregarlas: todo lo que no sea typecheck/lint/format/unitarios/build
+(`dev`, `migrate:deploy`, `test:integration`, `seed:dev-data`, scripts
+`purge:*`) necesita una base, y desde la nube no se conecta a ninguna
+base real. El hook `.claude/hooks/session-start.sh` corre solo con
+`CLAUDE_CODE_REMOTE=true`: instala los dos paquetes, genera el cliente
+de Prisma y exporta `CORS_ORIGIN` para `npm test`.
+
+---
+
 ## Toolkit Discovery
 
 The responsibility of this section is to make the Toolkit locatable —
