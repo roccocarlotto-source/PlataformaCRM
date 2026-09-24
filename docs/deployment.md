@@ -107,6 +107,12 @@ Restricciones que fijan *desde dónde* se corre:
   ADMIN/USER, idempotente — sin él ningún alta de organización funciona) y
   `npm run verify:schema` (confirma que triggers, índices parciales, CHECKs y
   RLS quedaron; sale con código 1 diciendo qué faltó).
+- **Esa máquina de desarrollo no procesa colas por tener el `.env` de
+  producción cargado:** con `NODE_ENV=development` y una `DATABASE_URL` que no
+  es local, `npm run dev` levanta Express sin workers ni automatizaciones
+  (`src/utils/workersHabilitados.ts`, G-02 de la auditoría del 24/09) salvo
+  `DEV_ALLOW_REMOTE_DB=true`. En producción (`NODE_ENV=production`) la variable
+  no tiene efecto y los workers arrancan siempre.
 
 Orden respecto de la imagen: **migrar primero, desplegar la imagen nueva
 después**, que es el orden correcto para una migración aditiva (columna o

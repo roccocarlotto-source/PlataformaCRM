@@ -46,6 +46,14 @@ npm run dev             # levanta el servidor con recarga automática
 Con el servidor corriendo, `GET /health` responde `200` con `database: "ok"` si el
 `.env` tiene credenciales válidas de un proyecto de Supabase real, o `503` si no.
 
+**Workers en desarrollo.** Con `NODE_ENV=development` y una `DATABASE_URL` que no
+es local (`localhost`, `127.0.0.1`, `::1`), `npm run dev` levanta Express pero
+**no arranca los workers** (ingesta, outbox, canales de Google, cotizaciones,
+oportunidades estancadas) ni las automatizaciones, y lo avisa con un `warn` al
+arrancar: una laptop con el `.env` de producción no tiene que procesar las colas
+reales (G-02 de la auditoría del 24/09). Para forzarlos, `DEV_ALLOW_REMOTE_DB=true`.
+Contra el Supabase local (`npm run supabase:start`) arrancan como siempre.
+
 ### Scripts
 
 | Script | Qué hace |

@@ -4,6 +4,7 @@ import { logger } from "./lib/logger";
 import { prisma } from "./lib/prisma";
 import { registrarAutomatizaciones } from "./services/automationRegistrations";
 import { crearShutdown } from "./shutdown";
+import { workersHabilitados } from "./utils/workersHabilitados";
 import { iniciarWorkerDeIngesta } from "./workers/ingestionWorker";
 import { iniciarWorkerDeCotizaciones } from "./workers/exchangeRateWorker";
 import { iniciarWorkerDeCanales } from "./workers/googleCalendarChannelWorker";
@@ -14,13 +15,31 @@ const server = app.listen(env.PORT, () => {
   logger.info(`Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
 });
 
+// En development contra una base que no es local, ningún worker ni registro de
+// automatizaciones arranca salvo DEV_ALLOW_REMOTE_DB=true (G-02 de
+// docs/auditoria-2026-09-24-punta-a-punta.md): un `npm run dev` con el .env de
+// producción procesaba las colas reales desde una laptop. Los detener*() de
+// los workers apagados son no-ops para que el shutdown de abajo no cambie.
+const decisionDeWorkers = workersHabilitados({
+  nodeEnv: env.NODE_ENV,
+  databaseUrl: env.DATABASE_URL,
+  permitirBaseRemota: env.DEV_ALLOW_REMOTE_DB,
+});
+const arrancarWorkers = decisionDeWorkers.arrancar;
+const sinWorker = async (): Promise<void> => {};
+if (!arrancarWorkers) {
+  logger.warn(
+    `Workers y automatizaciones NO arrancaron: ${decisionDeWorkers.motivo}. Para forzarlos, DEV_ALLOW_REMOTE_DB=true.`,
+  );
+}
+
 // El worker de ingesta arranca ACÁ y no en app.ts, y la distinción no es
 // estilística: app.ts arma la instancia de Express y lo importan los tests de
 // integración, que levantan sus propias apps. Un worker que arrancara ahí
 // encendería un timer en cada test que importe una ruta, drenando la cola por
 // debajo de las afirmaciones del propio test. Vive con el proceso servidor, que
 // es lo único que de verdad tiene que drenarla.
-const detenerWorker = iniciarWorkerDeIngesta();
+const detenerWorker = arrancarWorkers ? iniciarWorkerDeIngesta() : sinWorker;
 
 // Los registros del motor de automatizaciones (docs/automations-architecture.md
 // §4 y §5) —las acciones del catálogo y un handler de despacho por cada
@@ -28,27 +47,27 @@ const detenerWorker = iniciarWorkerDeIngesta();
 // para que su log de arranque ya liste los eventTypes que este proceso sabe
 // atender. Es el primer consumidor real del outbox; hasta este punto el
 // registro de handlers estaba vacío por diseño (outboxHandlers.ts).
-registrarAutomatizaciones();
+if (arrancarWorkers) registrarAutomatizaciones();
 
 // El worker de eventos salientes, por el mismo motivo y con el mismo criterio:
 // vive con el proceso servidor, no con la instancia de Express. Son dos timers
 // independientes a propósito — la cola de entrada y la de salida no comparten
 // cadencia, ni lote, ni razones para estar caídas.
-const detenerWorkerDeOutbox = iniciarWorkerDeOutbox();
+const detenerWorkerDeOutbox = arrancarWorkers ? iniciarWorkerDeOutbox() : sinWorker;
 
 // El worker de canales de Google Calendar (paso 4 del módulo de agenda), por el
 // mismo motivo que los otros dos: vive con el proceso servidor, no con la
 // instancia de Express. Su cadencia es de UNA HORA y no de cinco segundos —
 // vigila canales que duran siete días, no una cola— así que es el único de los
 // tres cuyo tick normal no hace nada.
-const detenerWorkerDeCanales = iniciarWorkerDeCanales();
+const detenerWorkerDeCanales = arrancarWorkers ? iniciarWorkerDeCanales() : sinWorker;
 
 // El worker de cotizaciones (Fase 2c del módulo de stock de vehículos), por el
 // mismo motivo que los otros tres: vive con el proceso servidor, no con la
 // instancia de Express — los tests de integración que importan rutas no deben
 // encender un timer real ni salir a una API pública. Cadencia de 24 horas con
 // primera pasada inmediata.
-const detenerWorkerDeCotizaciones = iniciarWorkerDeCotizaciones();
+const detenerWorkerDeCotizaciones = arrancarWorkers ? iniciarWorkerDeCotizaciones() : sinWorker;
 
 // El worker de oportunidades estancadas (ítem 76 de
 // docs/frontend-cambios-pendientes.md), por el mismo motivo que los otros
@@ -58,7 +77,9 @@ const detenerWorkerDeCotizaciones = iniciarWorkerDeCotizaciones();
 // -> dispatcher -> acción). Arranca DESPUÉS de registrarAutomatizaciones() por
 // prolijidad, no por necesidad: sus eventos quedan en la cola y los atiende el
 // worker del outbox, que es el que necesita los handlers.
-const detenerWorkerDeOportunidadesEstancadas = iniciarWorkerDeOportunidadesEstancadas();
+const detenerWorkerDeOportunidadesEstancadas = arrancarWorkers
+  ? iniciarWorkerDeOportunidadesEstancadas()
+  : sinWorker;
 
 // El apagado ordenado (M-12 de docs/auditoria-2026-08-29.md). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
