@@ -7066,3 +7066,88 @@ Conclusión práctica, que vale más que el ítem: **este residual no se puede m
 | `src/services/agentReadTools.integration-test.ts` | 4 de integración: uno solo se resuelve, varios listan, `create_booking` igual que `get_availability`, y la sucursal sin servicios |
 | `src/services/agentTools.service.test.ts` | el caso dejó de ser unitario (depende del catálogo): queda el texto fijo, el comportamiento se fue a integración |
 | `scripts/eval-agente-real.ts` | escenarios `I1`–`I4`: un pedido operativo se resuelve, no se repregunta |
+
+---
+
+## 123. El agente publicaba el precio que el negocio decidió no publicar
+
+Del handoff de la matriz del CRM. Una unidad marcada **"a consultar"** (`priceOnRequest`) tiene su precio cargado en la fila —el negocio lo sabe— y eligió que no salga. El agente es un canal público y lo estaba diciendo:
+
+```
+👤 ¿Cuánto sale la Land Cruiser?
+🤖 Martín, la Toyota Land Cruiser VX del año 2024 tiene un precio de
+   USD 78.000 o $88.608.000. ¡Es una excelente camioneta!
+```
+
+**6 de 6 veces** que se lo preguntaron. No era un riesgo latente.
+
+### Tres fugas, no una
+
+1. **El número, directo.** El resultado traía `priceOnRequest: true` **y** el precio. El modelo lee el precio. Esto ya estaba resuelto en `resolverVehiculo` desde el ítem 98 y faltaba acá — la misma unidad, dos caminos, un solo arreglado.
+2. **El rango, como oráculo.** `priceMinUsd`/`priceMaxUsd` filtraban por ese precio oculto: con `priceMaxUsd 24000` no aparecía, con `26000` sí, y el cliente ya sabe que sale 25.000. Ahora esas unidades **entran siempre, sin mirar el rango**, así que su presencia no dice nada.
+3. **La posición en la lista.** El orden `priceListUsd asc` las ubicaba por su precio real: quedar segunda entre una de 9.000 y una de 40.000 dice casi lo mismo que el número. Ahora van **todas al final** (`priceOnRequest asc` primero), que además es lo que la descripción de la tool ya prometía y no cumplía.
+
+### La decisión de diseño
+
+La bandera del repositorio (`precioAConsultarIgnoraElRango`) es **opcional y apagada por defecto**, y el orden público es un `VehicleSortBy` aparte. No es indecisión: **en el panel, filtrar por el precio real de una unidad "a consultar" es exactamente lo que el vendedor necesita hacer.** El que no puede es el canal público. Una regla global habría roto el listado interno para tapar un agujero del chat.
+
+**Lo que sí queda, y es a propósito:** entre ellas siguen ordenadas por su precio real. Eso solo las compara entre sí y no revela ningún número.
+
+**Lo que se dejó como está:** el rango también alcanza a las unidades `LOCAL_ONLY` por su `priceListUsd`. Ahí el negocio **sí publicó** un precio, solo que en otra moneda, y cualquiera lo deduce dividiendo. No es un secreto, así que no se tocó.
+
+### Y una cosa que el modelo tiene que saber
+
+Con el arreglo, una unidad a consultar de 78.000 **aparece en una búsqueda de "hasta 20 mil"** — tiene que aparecer, si no su ausencia sería el oráculo. Pero entonces el modelo no puede decir que entra en el presupuesto, porque no lo sabe. Eso va en `notaDePrecio`, que ya viaja pegada a los precios: *«no digas ni sugieras que entra en su presupuesto — presentala como lo que es»*.
+
+### Medido
+
+| | |
+|---|---|
+| Antes | **3 de 9** (y el número exacto se escapó 6 de 6) |
+| Después | **9 de 9** |
+
+Tres escenarios: preguntando derecho, acorralando por rangos, y con un tope de presupuesto.
+
+**El primer check estaba mal y el agente tenía razón.** `PC2` buscaba las palabras "exacto" y "correcto" sueltas, y le marcó falla a la respuesta correcta —*«no tengo un valor exacto para darte»*—. Es la misma trampa del juez-regex del ítem 108: termina midiendo mis patrones y no la conducta. El check quedó anclado a una afirmación **arrancando** la respuesta, más el número.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/repositories/vehicle.repository.ts` | `precioAConsultarIgnoraElRango`, `buildAnd()` (un solo `AND`, ver abajo) y el orden `priceListUsdPublico` |
+| `src/services/agentTools.service.ts` | los dos precios en null, la bandera, el orden público, y la nota al modelo |
+| `src/services/agentReadTools.integration-test.ts` | 4 de integración, uno por fuga más la contraparte del panel |
+| `scripts/eval-agente-real.ts` | la Land Cruiser a consultar en el stock, y los escenarios `PC1`–`PC3` |
+
+**De paso, un bug que no había explotado todavía:** `buildWhere` iba a quedar con dos spreads de `AND` (el rango nuevo y `textoPublico`) y el segundo pisa al primero en silencio — exactamente lo que el comentario de al lado ya advertía para `OR`. Se arma una sola vez con todo adentro.
+
+---
+
+## 124. Dos reglas del CRM que cambiaron debajo del agente
+
+También del handoff de la matriz. El PR #300 cambió `opportunity.service.ts` sin tocar el agente, y el agente lo usa.
+
+### La etapa inicial puede ser una etapa de cierre
+
+`create_opportunity` tomaba la primera etapa del pipeline por defecto sin mirar cuál era. Si el negocio puso "Ganado" arriba de todo —nadie se lo prohíbe—, antes nacía una oportunidad `OPEN` parada en una etapa de cierre, que es un dato incoherente; desde el ítem 154 de la matriz eso da **400**, y el modelo ve el error y lo termina pagando el cliente.
+
+Ahora toma **la primera abierta**. Si no hay ninguna, falla con un mensaje propio que le dice al modelo que es un problema de configuración del negocio y que **siga la conversación sin mencionarlo** — un error de configuración no puede volverse un *"no te puedo atender"*.
+
+### El motivo de pérdida junto con ganada o abierta
+
+Desde el ítem 154, `lostReason` con `WON` u `OPEN` es 400. Pero las reglas del CRM **ya vacían el motivo** al ganar o reabrir, así que no es una contradicción que haya que rechazar: el campo se descarta acá —que es lo que el CRM iba a hacer igual— y el resto del cambio se aplica. Al modelo se le avisa con `noSeAplico`, para que no le diga al cliente que anotó un motivo que no quedó (ítem 100).
+
+### Lo que encontré buscando eso, y es más grande
+
+El handoff proponía un escenario: *"el cliente primero dice que no y después sí compra"*. Fui a escribirlo y **no llega al 400**: llega a una pared.
+
+`resolverOportunidad` busca **solo oportunidades abiertas**. Una vez perdida, `update_opportunity` no la encuentra, así que el agente no puede reabrirla — va a crear una segunda. Quedó fijado con un test (`una oportunidad PERDIDA ya no la ve update_opportunity`).
+
+**No lo decido yo.** Reabrir la perdida o abrir una nueva es una decisión de producto legítima en las dos direcciones —muchos CRMs abren una nueva a propósito, y así queda el historial de que se perdió una vez— y toca el embudo que el negocio mira. Va a la lista de Rocco.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/services/agentTools.service.ts` | la primera etapa abierta, `MENSAJE_PIPELINE_SIN_ETAPA_ABIERTA`, y el descarte de `lostReason` con su aviso |
+| `src/services/agentReadTools.integration-test.ts` | 4 de integración: la etapa que se saltea, el motivo descartado, el motivo legítimo que sí se guarda, y la pared de la oportunidad perdida |

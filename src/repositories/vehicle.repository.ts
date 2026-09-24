@@ -66,9 +66,21 @@ export interface VehicleFilters {
   onlyVisible?: boolean;
   // Búsqueda de texto libre contra los identificadores y el título.
   q?: string;
+  // Ítem 123: desde un canal público, el rango de precio NO se le puede
+  // aplicar a una unidad con `priceOnRequest`. Su precio de lista existe en la
+  // fila pero el negocio decidió no publicarlo, y un filtro que lo usa se
+  // convierte en un oráculo: el cliente pregunta por menos de 24.000, no
+  // aparece; por menos de 26.000, aparece; ya sabe que sale 25.000. Con esta
+  // bandera esas unidades entran SIEMPRE, sin mirar el rango, así que su
+  // presencia no dice nada sobre su precio.
+  //
+  // Es opcional y apagada por defecto a propósito: en el panel, filtrar por el
+  // precio real de una unidad "a consultar" es exactamente lo que el vendedor
+  // necesita hacer. El que no puede es el canal público.
+  precioAConsultarIgnoraElRango?: boolean;
 }
 
-export type VehicleSortBy = "createdAt" | "priceListUsd" | "stockEnteredAt";
+export type VehicleSortBy = "createdAt" | "priceListUsd" | "priceListUsdPublico" | "stockEnteredAt";
 export type SortOrder = "asc" | "desc";
 
 function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.VehicleWhereInput {
@@ -105,17 +117,11 @@ function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.Veh
       ? { publishOnWebsite: filters.publishOnWebsite }
       : {}),
     ...(filters.tradeInOpportunityId ? { tradeInOpportunityId: filters.tradeInOpportunityId } : {}),
-    ...(filters.minPriceUsd !== undefined || filters.maxPriceUsd !== undefined
-      ? {
-          priceListUsd: {
-            ...(filters.minPriceUsd !== undefined ? { gte: filters.minPriceUsd } : {}),
-            ...(filters.maxPriceUsd !== undefined ? { lte: filters.maxPriceUsd } : {}),
-          },
-        }
-      : {}),
     // Un AND explícito y no un segundo `OR` suelto: si vinieran q y
-    // textoPublico juntos, el segundo spread pisaría al primero.
-    ...(filters.textoPublico ? { AND: [buildTextoPublico(filters.textoPublico)] } : {}),
+    // textoPublico juntos, el segundo spread pisaría al primero. Por la misma
+    // razón el AND se arma UNA sola vez con todo lo que va adentro: dos
+    // spreads de `AND` tampoco se suman, el segundo gana.
+    ...buildAnd(filters),
     // OR al mismo nivel que los filtros específicos: "q AND filtros" sale
     // gratis, mismo criterio que `search` en contact.repository.ts.
     ...(filters.q
@@ -130,6 +136,33 @@ function buildWhere(organizationId: string, filters: VehicleFilters): Prisma.Veh
         }
       : {}),
   };
+}
+
+// Todo lo que necesita ir dentro de un AND, en una sola lista.
+function buildAnd(filters: VehicleFilters): Prisma.VehicleWhereInput {
+  const condiciones: Prisma.VehicleWhereInput[] = [];
+
+  if (filters.minPriceUsd !== undefined || filters.maxPriceUsd !== undefined) {
+    const enRango: Prisma.VehicleWhereInput = {
+      priceListUsd: {
+        ...(filters.minPriceUsd !== undefined ? { gte: filters.minPriceUsd } : {}),
+        ...(filters.maxPriceUsd !== undefined ? { lte: filters.maxPriceUsd } : {}),
+      },
+    };
+    // Ítem 123: con el resguardo del canal público, el rango se envuelve en un
+    // OR que deja pasar entera a toda unidad "a consultar". Su presencia en
+    // los resultados deja de depender del precio, que es lo que la convertía
+    // en un oráculo.
+    condiciones.push(
+      filters.precioAConsultarIgnoraElRango ? { OR: [{ priceOnRequest: true }, enRango] } : enRango,
+    );
+  }
+
+  if (filters.textoPublico) {
+    condiciones.push(buildTextoPublico(filters.textoPublico));
+  }
+
+  return condiciones.length > 0 ? { AND: condiciones } : {};
 }
 
 // Texto libre sobre los campos que se publican: marca, modelo, versión, color,
@@ -170,10 +203,20 @@ export function aCodigoDeEquipamiento(texto: string): string {
 function buildOrderBy(
   sortBy: VehicleSortBy,
   sortOrder: SortOrder,
-): Prisma.VehicleOrderByWithRelationInput {
+): Prisma.VehicleOrderByWithRelationInput | Prisma.VehicleOrderByWithRelationInput[] {
   switch (sortBy) {
     case "priceListUsd":
       return { priceListUsd: sortOrder };
+    // Ítem 123: el mismo orden por precio, pero con las unidades "a consultar"
+    // TODAS al final —false ordena antes que true— en vez de intercaladas por
+    // un precio que no se publica. Si quedan en el medio, su posición en la
+    // lista delata cuánto salen, que es el mismo oráculo que el del rango
+    // (y además la descripción de search_vehicles ya promete que van al final).
+    //
+    // Entre ellas siguen ordenadas por su precio real: eso solo las compara
+    // entre sí y no revela ningún número.
+    case "priceListUsdPublico":
+      return [{ priceOnRequest: "asc" }, { priceListUsd: sortOrder }];
     case "stockEnteredAt":
       return { stockEnteredAt: sortOrder };
     case "createdAt":

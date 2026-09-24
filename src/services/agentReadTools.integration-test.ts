@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
+import { findManyVehicles } from "../repositories/vehicle.repository";
 import {
   SUFIJO_ERROR_DE_ARGUMENTOS,
   CATALOGO_DE_TOOLS,
@@ -1611,4 +1612,237 @@ test("sucursal sin ningún servicio configurado: lo dice, no pide que se lo indi
 
   assert.equal(r.ok, false);
   assert.match((r as { ok: false; error: string }).error, /no tiene ningún servicio configurado/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 123: el precio de una unidad "a consultar" no sale por el canal público
+//
+// La fila tiene el precio cargado; el negocio decidió no publicarlo. Había
+// tres formas de que se escapara igual, y las tres se cierran acá:
+//
+//   1. El resultado lo mandaba tal cual, junto con `priceOnRequest: true`.
+//   2. El rango de precio se le aplicaba, así que preguntando por rangos se
+//      acotaba el número hasta dar con él.
+//   3. El orden por precio la ubicaba entre las demás, y su POSICIÓN en la
+//      lista decía casi lo mismo que el número.
+// ---------------------------------------------------------------------------
+
+test("search_vehicles no manda el precio de una unidad a consultar (ítem 123)", async () => {
+  const propio = await montar("agent-123-precio-oculto");
+  try {
+    const oculta = await unidad(propio, { priceOnRequest: true, priceListUsd: 25_000 });
+    const data = await datosDe<ResultadoBusqueda>(
+      "search_vehicles",
+      {},
+      contextoDe(propio.organizationId, "00000000-0000-4000-8000-000000000003", propio.branchId),
+    );
+
+    const fila = data.vehiculos.find((v) => v.id === oculta.id);
+    assert.ok(fila, "la unidad tiene que seguir apareciendo: lo que no sale es el precio");
+    assert.equal(fila.priceListUsd, null);
+    assert.equal(fila.priceListLocal, null);
+    assert.equal(fila.priceOnRequest, true, "y el modelo tiene que saber POR QUÉ no hay precio");
+  } finally {
+    await desmontar(propio);
+  }
+});
+
+test("el rango de precio no sirve para averiguar cuánto sale una a consultar (ítem 123)", async () => {
+  // El oráculo concreto que midió la sonda de la matriz: con priceMaxUsd 24000
+  // no aparecía y con 26000 sí, para una unidad de 25.000. Ahora aparece en
+  // los dos, así que su presencia no dice nada.
+  const propio = await montar("agent-123-oraculo");
+  try {
+    const oculta = await unidad(propio, { priceOnRequest: true, priceListUsd: 25_000 });
+    const ctx = contextoDe(
+      propio.organizationId,
+      "00000000-0000-4000-8000-000000000003",
+      propio.branchId,
+    );
+
+    for (const tope of [24_000, 26_000, 1]) {
+      const data = await datosDe<ResultadoBusqueda>("search_vehicles", { priceMaxUsd: tope }, ctx);
+      assert.ok(
+        data.vehiculos.some((v) => v.id === oculta.id),
+        `con priceMaxUsd ${tope} tendría que seguir apareciendo`,
+      );
+    }
+    // Y por abajo, lo mismo.
+    const data = await datosDe<ResultadoBusqueda>("search_vehicles", { priceMinUsd: 999_999 }, ctx);
+    assert.ok(data.vehiculos.some((v) => v.id === oculta.id));
+  } finally {
+    await desmontar(propio);
+  }
+});
+
+test("las unidades a consultar van al final, no intercaladas por su precio (ítem 123)", async () => {
+  // Si quedaran en el medio, la posición delata el precio igual que el rango.
+  const propio = await montar("agent-123-orden");
+  try {
+    const barata = await unidad(propio, { priceListUsd: 9_000 });
+    const oculta = await unidad(propio, { priceOnRequest: true, priceListUsd: 10_000 });
+    const cara = await unidad(propio, { priceListUsd: 40_000 });
+
+    const data = await datosDe<ResultadoBusqueda>(
+      "search_vehicles",
+      {},
+      contextoDe(propio.organizationId, "00000000-0000-4000-8000-000000000003", propio.branchId),
+    );
+
+    // Por precio real iría segunda (10.000 entre 9.000 y 40.000). Va última.
+    assert.deepEqual(
+      data.vehiculos.map((v) => v.id),
+      [barata.id, cara.id, oculta.id],
+    );
+  } finally {
+    await desmontar(propio);
+  }
+});
+
+test("en el panel el rango SÍ alcanza a las unidades a consultar (ítem 123)", async () => {
+  // La contraparte, y la razón de que la bandera sea opcional: el vendedor que
+  // filtra por precio en el listado interno tiene que ver esa unidad, porque
+  // para él el precio no es un secreto. El resguardo es del canal público.
+  const propio = await montar("agent-123-panel");
+  try {
+    const oculta = await unidad(propio, { priceOnRequest: true, priceListUsd: 25_000 });
+
+    const dentro = await findManyVehicles(
+      propio.organizationId,
+      { maxPriceUsd: 26_000 },
+      { skip: 0, take: 10 },
+      { sortBy: "priceListUsd", sortOrder: "asc" },
+    );
+    assert.ok(dentro.some((v) => v.id === oculta.id));
+
+    const fuera = await findManyVehicles(
+      propio.organizationId,
+      { maxPriceUsd: 24_000 },
+      { skip: 0, take: 10 },
+      { sortBy: "priceListUsd", sortOrder: "asc" },
+    );
+    assert.ok(!fuera.some((v) => v.id === oculta.id), "sin la bandera, el rango filtra como antes");
+  } finally {
+    await desmontar(propio);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 124: lo que el agente heredó de las reglas nuevas del CRM (matriz, 154)
+// ---------------------------------------------------------------------------
+
+test("create_opportunity se para en la primera etapa ABIERTA, no en la primera (ítem 124)", async () => {
+  // Un pipeline cuyo negocio puso "Ganado" arriba de todo. Antes nacía una
+  // oportunidad OPEN parada en una etapa de cierre —incoherente— y desde el
+  // ítem 154 de la matriz eso da 400 que se le termina notando al cliente.
+  const propio = await montar("agent-124-etapa");
+  try {
+    const pipeline = await createPipeline(propio.organizationId, {
+      name: "Al revés",
+      isDefault: true,
+    });
+    const ganado = await createStage(propio.organizationId, {
+      pipelineId: pipeline.id,
+      name: "Ganado",
+      order: 1,
+      isWon: true,
+    });
+    const nuevo = await createStage(propio.organizationId, {
+      pipelineId: pipeline.id,
+      name: "Nuevo",
+      order: 2,
+    });
+    const contacto = await prisma.contact.create({
+      data: {
+        organizationId: propio.organizationId,
+        firstName: "Ana",
+        lastName: "Etapa",
+        ownerId: propio.userId,
+      },
+    });
+
+    const data = await datosDe<{ opportunityId: string; stage: string }>(
+      "create_opportunity",
+      { title: "Interés en Hilux" },
+      contextoDe(propio.organizationId, contacto.id, propio.branchId),
+    );
+
+    assert.equal(data.stage, "Nuevo", "tiene que saltear la etapa de cierre");
+    const guardada = await prisma.opportunity.findUniqueOrThrow({
+      where: { id: data.opportunityId },
+    });
+    assert.equal(guardada.stageId, nuevo.id);
+    assert.notEqual(guardada.stageId, ganado.id);
+    assert.equal(guardada.status, "OPEN", "y nacer abierta, que es lo que de verdad es");
+  } finally {
+    await prisma.opportunity.deleteMany({ where: { organizationId: propio.organizationId } });
+    await prisma.contact.deleteMany({ where: { organizationId: propio.organizationId } });
+    await prisma.stage.deleteMany({ where: { organizationId: propio.organizationId } });
+    await prisma.pipeline.deleteMany({ where: { organizationId: propio.organizationId } });
+    await desmontar(propio);
+  }
+});
+
+test("update_opportunity: ganar descarta el motivo de pérdida y lo avisa (ítem 124)", async () => {
+  // El modelo manda WON y de paso arrastra un lostReason —porque lo leyó del
+  // estado anterior, o porque se lo inventó—. Las reglas del CRM ya dicen que
+  // una ganada no lleva motivo, así que esto no es una contradicción que haya
+  // que rechazar con un 400 en la cara del cliente: se descarta el campo, se
+  // aplica el resto, y se le avisa al modelo que se descartó para que no le
+  // diga al cliente que quedó anotado algo que no quedó (ítem 100).
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+
+  await datosDe<{ opportunityId: string }>("create_opportunity", { title: "Hilux" }, ctx);
+
+  const r = await datosDe<{
+    status: string;
+    lostReason: string | null;
+    noSeAplico?: string[];
+    queHacer?: string;
+  }>("update_opportunity", { status: "WON", lostReason: "Se fue a la competencia" }, ctx);
+
+  assert.equal(r.status, "WON", "el cambio que importaba se aplicó igual");
+  assert.equal(r.lostReason, null);
+  assert.deepEqual(r.noSeAplico, ["lostReason"]);
+  assert.match(r.queHacer ?? "", /No le digas al cliente que anotaste un motivo/);
+});
+
+test("una oportunidad PERDIDA ya no la ve update_opportunity (ítem 124)", async () => {
+  // Fija el límite real, que es más grande que el 400 que veníamos a arreglar:
+  // resolverOportunidad busca solo ABIERTAS, así que el cliente que dijo que no
+  // y después vuelve a comprar NO puede reabrir la suya — el agente va a crear
+  // una segunda. Si eso está bien o no es decisión de producto (muchos CRMs
+  // abren una oportunidad nueva a propósito), y por eso acá se documenta en vez
+  // de decidirse.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+
+  await datosDe("create_opportunity", { title: "Ranger" }, ctx);
+  await datosDe("update_opportunity", { status: "LOST", lostReason: "Precio" }, ctx);
+
+  const r = await datosDe<{ opportunityId: string | null; sinResultados: boolean }>(
+    "update_opportunity",
+    { status: "WON" },
+    ctx,
+  );
+  assert.equal(r.opportunityId, null);
+  assert.equal(r.sinResultados, true);
+});
+
+test("update_opportunity: perder SÍ guarda el motivo (ítem 124)", async () => {
+  // La contraparte, para que el descarte no se coma el caso legítimo.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+
+  await datosDe("create_opportunity", { title: "Amarok" }, ctx);
+  const r = await datosDe<{ status: string; lostReason: string | null; noSeAplico?: string[] }>(
+    "update_opportunity",
+    { status: "LOST", lostReason: "Precio" },
+    ctx,
+  );
+
+  assert.equal(r.status, "LOST");
+  assert.equal(r.lostReason, "Precio");
+  assert.equal(r.noSeAplico, undefined);
 });
