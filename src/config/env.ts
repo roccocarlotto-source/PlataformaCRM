@@ -335,6 +335,63 @@ const envSchema = z.object({
     .default(24 * 60 * 60 * 1000),
 
   // -------------------------------------------------------------------------
+  // Cola del webhook de WhatsApp (ítem 125 de
+  // docs/auditoria-2026-09-24-punta-a-punta.md; src/workers/agentInboundWorker.ts).
+  // Mismo patrón que las INGEST_*/OUTBOX_*: default explícito y fuera de
+  // .env.example, porque ninguna hace falta para arrancar.
+  //
+  // Mismo enum explícito que INGEST_WORKER_ENABLED y por el mismo motivo.
+  AGENT_INBOUND_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  // 1 SEGUNDO, no los 5 de la ingesta: del otro lado hay una persona
+  // esperando la respuesta en WhatsApp, y la cadencia del polling se suma
+  // entera a lo que tarda en llegar. Con la cola vacía es una consulta por
+  // segundo sobre un índice parcial de pocas filas.
+  AGENT_INBOUND_WORKER_POLL_MS: z.coerce.number().int().positive().default(1000),
+  // Tope de jobs por pasada. Chico: cada job es un turno del LLM de segundos a
+  // minutos, y un lote grande dejaría el tick corriendo mucho tiempo.
+  AGENT_INBOUND_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(10),
+  // Reintentos: attempts sube en cada reclamo, y al llegar al tope el job pasa
+  // a FAILED. 5 intentos con base de 15 s duplicando: 15 s, 30 s, 1 m, 2 m —
+  // unos 4 minutos entre el primero y el último. Más corto que el outbox a
+  // propósito: pasados unos minutos, contestarle a alguien que escribió por
+  // WhatsApp ya llega tarde, y el FAILED queda a la vista para una persona.
+  AGENT_INBOUND_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  AGENT_INBOUND_BACKOFF_BASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 1000),
+  AGENT_INBOUND_BACKOFF_MAX_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
+  // El lease de un job en PROCESSING. El worker lo renueva cada un cuarto de
+  // este valor mientras el turno corre, así que puede ser corto aunque el
+  // turno dure minutos: lo único que mide es cuánto tarda en retomarse un job
+  // cuyo proceso murió (un deploy, un SIGTERM, un cold start de Render).
+  AGENT_INBOUND_LEASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(2 * 60 * 1000),
+  // Timeout de la transacción que sostiene el lock por conversación (ítem
+  // 126; conLockDeConversacion en agentOrchestration.service.ts). TIENE QUE
+  // SER MAYOR QUE EL TURNO MÁS LARGO POSIBLE: si Prisma la da por vencida con
+  // el turno corriendo, el lock se suelta a mitad y el turno termina en error
+  // aunque haya hecho todo su trabajo. El peor caso de hoy es de ~18 minutos
+  // (5 rondas × 3 intentos de 60 s del proveedor, más el brief del handoff);
+  // 30 minutos deja margen. Acotar el turno mismo es B-08, fuera de este ítem.
+  AGENT_TURN_LOCK_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30 * 60 * 1000),
+
+  // -------------------------------------------------------------------------
   // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
   //
   // MERCADOPAGO_WEBHOOK_SECRET: el secreto con el que MercadoPago firma cada

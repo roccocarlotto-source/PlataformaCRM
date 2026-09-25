@@ -5,6 +5,7 @@ import { prisma } from "./lib/prisma";
 import { registrarAutomatizaciones } from "./services/automationRegistrations";
 import { crearShutdown } from "./shutdown";
 import { workersHabilitados } from "./utils/workersHabilitados";
+import { iniciarWorkerDeTurnosDeAgente } from "./workers/agentInboundWorker";
 import { iniciarWorkerDeIngesta } from "./workers/ingestionWorker";
 import { iniciarWorkerDeCotizaciones } from "./workers/exchangeRateWorker";
 import { iniciarWorkerDeCanales } from "./workers/googleCalendarChannelWorker";
@@ -81,6 +82,14 @@ const detenerWorkerDeOportunidadesEstancadas = arrancarWorkers
   ? iniciarWorkerDeOportunidadesEstancadas()
   : sinWorker;
 
+// El worker de turnos de WhatsApp (ítem 125 de
+// docs/auditoria-2026-09-24-punta-a-punta.md), por el mismo motivo que los
+// otros cinco y detrás de la misma guarda de workersHabilitados(): un
+// `npm run dev` contra la base real no puede ponerse a contestarles a los
+// clientes de producción desde una laptop. Es el que más necesita esa guarda
+// de los seis — cada job que reclama es un mensaje a una persona real.
+const detenerWorkerDeTurnosDeAgente = arrancarWorkers ? iniciarWorkerDeTurnosDeAgente() : sinWorker;
+
 // El apagado ordenado (M-12 de docs/auditoria-2026-08-29.md). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
@@ -94,9 +103,11 @@ const shutdown = crearShutdown({
       // dejan terminar solas, que es lo correcto.
       server.closeIdleConnections();
     }),
-  // Los cinco stops esperan a la pasada en curso de su worker (M-12 c): cada
+  // Los seis stops esperan a la pasada en curso de su worker (M-12 c): cada
   // evento va en su propia transacción y ninguna queda a medias, y los que no
-  // llegó a tocar siguen en PENDING para el próximo arranque.
+  // llegó a tocar siguen en PENDING para el próximo arranque. El de turnos de
+  // WhatsApp espera solo el job en curso; si un turno largo supera el tope del
+  // apagado, su job queda en PROCESSING y se retoma cuando venza el lease.
   detenerWorkers: async () => {
     await Promise.all([
       detenerWorker(),
@@ -104,6 +115,7 @@ const shutdown = crearShutdown({
       detenerWorkerDeCanales(),
       detenerWorkerDeCotizaciones(),
       detenerWorkerDeOportunidadesEstancadas(),
+      detenerWorkerDeTurnosDeAgente(),
     ]);
   },
   desconectarPrisma: () => prisma.$disconnect(),

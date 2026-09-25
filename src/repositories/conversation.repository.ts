@@ -1,4 +1,4 @@
-import type { ConversationChannel, ConversationStatus, Prisma } from "@prisma/client";
+import { Prisma, type ConversationChannel, type ConversationStatus } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // Conversaciones del módulo de Agentes de IA. Mismo patrón que
@@ -70,6 +70,41 @@ export function createConversation(data: CreateConversationData, db: Db = prisma
   return db.conversation.create({ data });
 }
 
+// La conversación abierta del contacto con el agente por el canal, creándola
+// si no hay (ítem 126 de docs/auditoria-2026-09-24-punta-a-punta.md, B-03 y
+// C-01). Es el único camino por el que el código abre una conversación.
+//
+// LA GARANTÍA ES DE LA BASE, NO DE ESTA FUNCIÓN: el índice único parcial
+// conversations_open_unique (migración 20260930120000) admite a lo sumo una
+// abierta por (organización, agente, contacto, canal). Dos llamadas en
+// paralelo pueden ver las dos "no hay" y las dos intentar el INSERT; el
+// segundo choca con P2002 y acá se relee la que ganó, en vez de fallar. Antes
+// del índice, los dos INSERT pasaban y quedaban dos abiertas: una con el hilo
+// y otra vacía, y el próximo mensaje caía en la vacía (el modelo perdía el
+// historial).
+//
+// SIN el `db` de una transacción a propósito: un P2002 dentro de una
+// transacción de Postgres la deja abortada, y el releer de abajo fallaría
+// ("current transaction is aborted"). Cada paso va suelto.
+export async function findOrCreateOpenConversation(data: CreateConversationData) {
+  const { organizationId, agentId, contactId, channel } = data;
+  const existente = await findOpenConversation(organizationId, agentId, contactId, channel);
+  if (existente) {
+    return existente;
+  }
+  try {
+    return await createConversation(data);
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const ganadora = await findOpenConversation(organizationId, agentId, contactId, channel);
+      if (ganadora) {
+        return ganadora;
+      }
+    }
+    throw err;
+  }
+}
+
 export interface UpdateConversationData {
   status?: ConversationStatus;
   lastMessageAt?: Date;
@@ -92,6 +127,22 @@ export function updateConversation(
   db: Db = prisma,
 ) {
   return db.conversation.updateMany({ where: { id, organizationId }, data });
+}
+
+// La derivación a humano como compare-and-swap (ítem 126, C-05): pasa a
+// TRANSFERRED_TO_HUMAN solo si no lo estaba. count 1 = esta llamada hizo la
+// transición y le toca avisar; 0 = ya estaba derivada (o la ganó otra llamada
+// concurrente). Ver ejecutarHandoff.
+export function transferConversationToHuman(
+  id: string,
+  organizationId: string,
+  assignedUserId: string | null,
+  db: Db = prisma,
+) {
+  return db.conversation.updateMany({
+    where: { id, organizationId, status: { not: "TRANSFERRED_TO_HUMAN" } },
+    data: { status: "TRANSFERRED_TO_HUMAN", assignedUserId },
+  });
 }
 
 // La conversación MÁS RECIENTE de un agente por un canal con ese id de hilo

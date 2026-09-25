@@ -1,18 +1,21 @@
 import type {
   Contact,
+  Conversation,
   ConversationChannel,
   ConversationStatus,
   Message,
   Prisma,
 } from "@prisma/client";
+import { env } from "../config/env";
 import { logger } from "../lib/logger";
+import { prisma, type Db } from "../lib/prisma";
 import { findAgentById } from "../repositories/agent.repository";
 import { findBranchById } from "../repositories/branch.repository";
 import { findContactById } from "../repositories/contact.repository";
 import {
-  createConversation,
   findConversationById,
-  findOpenConversation,
+  findOrCreateOpenConversation,
+  transferConversationToHuman,
   updateConversation,
 } from "../repositories/conversation.repository";
 import { findActiveKnowledgeBaseEntriesByBranch } from "../repositories/knowledgeBaseEntry.repository";
@@ -154,18 +157,23 @@ export interface RunAgentTurnInput {
   // Id del hilo en el canal externo (Web: el sessionId del navegador). Solo se
   // usa al CREAR la conversación; el endpoint ADMIN de prueba no lo manda y
   // queda null, como siempre.
+  //
+  // Desde el ítem 125, WhatsApp ya no pasa por acá: su entrante (con el
+  // wamid) lo persiste el webhook con registrarEntrante y el turno lo corre
+  // el worker de la cola con responderEnLaConversacion.
   externalThreadId?: string;
-  // Id del mensaje en el canal externo (WhatsApp: el wamid). Se guarda en el
-  // Message ENTRANTE de este turno, en el mismo INSERT — no en un Message
-  // aparte. El UNIQUE (organizationId, externalMessageId) hace que una
-  // reentrega del mismo mensaje falle con P2002 ahí, ANTES de llamar al
-  // modelo; quien lo traduce a "duplicado" es el webhook
-  // (whatsappWebhook.service.ts). Web y el probador no lo mandan: queda null.
-  externalMessageId?: string;
 }
 
 export interface RunAgentTurnOptions {
   llmProvider?: LlmProvider;
+}
+
+export interface OpcionesDeRespuesta extends RunAgentTurnOptions {
+  // Ítem 125: los ids de los Message entrantes que todavía esperan respuesta
+  // en la conversación (sus jobs de la cola siguen vivos). El turno los pone
+  // AL FINAL del historial para responderlos juntos. Lo pasa solo el worker
+  // de WhatsApp; ver ordenarPendientesAlFinal.
+  entrantesPendientes?: string[];
 }
 
 // Auditoría de una tool call del turno: lo que va a Message.toolCalls (§6) y
@@ -814,6 +822,35 @@ function aHistorial(mensajes: Message[]): LlmMessage[] {
   return historial;
 }
 
+// Ítem 125: los entrantes que todavía esperan respuesta van AL FINAL del
+// historial, en su orden, y el resto queda como estaba. Pura, para poder
+// probarla sin base.
+//
+// EL CASO QUE LA HACE NECESARIA, y es el normal en WhatsApp: el turno del
+// "hola" está corriendo cuando llega "quiero un auto". Ese segundo entrante se
+// persiste ANTES que la respuesta al primero, así que en orden de createdAt el
+// historial del turno siguiente queda [hola, quiero un auto, respuesta al
+// hola] — termina en el asistente, como si "quiero un auto" ya estuviera
+// respondido. Con esto queda [hola, respuesta al hola, quiero un auto], que es
+// lo que de verdad pasó: esa respuesta se escribió sin ver el segundo
+// mensaje.
+//
+// Qué cuenta como pendiente lo decide el worker (un job vivo sin respuesta
+// propia; ver findPendingInboundMessageIds), no esta función. Sin pendientes
+// —el canal Web, el probador— devuelve el mismo orden.
+export function ordenarPendientesAlFinal<T extends { id: string }>(
+  mensajes: T[],
+  pendientes: ReadonlySet<string>,
+): T[] {
+  if (pendientes.size === 0) {
+    return mensajes;
+  }
+  return [
+    ...mensajes.filter((m) => !pendientes.has(m.id)),
+    ...mensajes.filter((m) => pendientes.has(m.id)),
+  ];
+}
+
 // Lo que la conversación YA SABE, para la comprobación (4) de
 // puedeEjecutarTool: los ids de la conversación misma y los datos del Contact
 // que ya están cargados. Un guardrail como
@@ -927,10 +964,23 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
   // transición de abajo ocurre igual pase lo que pase acá.
   const ownerId = await resolverOwnerDelContacto(organizationId, branchId, contact);
 
-  await updateConversation(conversationId, organizationId, {
-    status: "TRANSFERRED_TO_HUMAN",
-    assignedUserId: ownerId,
-  });
+  // LA TRANSICIÓN ES UN COMPARE-AND-SWAP (ítem 126 de
+  // docs/auditoria-2026-09-24-punta-a-punta.md, C-05). La lectura de arriba
+  // es solo el atajo del caso común; no alcanza como garantía: dos handoffs
+  // concurrentes la pasaban los dos con la conversación en ACTIVE, los dos
+  // escribían TRANSFERRED_TO_HUMAN (el WHERE no miraba el status) y los dos
+  // seguían: dos Activities de aviso y dos briefs, o sea dos llamadas al LLM.
+  // Con el status en el WHERE, la base elige a uno solo —el segundo UPDATE
+  // espera el lock de fila del primero, re-evalúa el WHERE y no encuentra
+  // nada—, y solo quien lo ganó avisa.
+  //
+  // El lock por conversación del turno (conLockDeConversacion) ya evita que
+  // dos turnos del mismo contacto lleguen acá a la vez; esto es la barrera de
+  // la base para lo que no pase por él.
+  const transicion = await transferConversationToHuman(conversationId, organizationId, ownerId);
+  if (transicion.count !== 1) {
+    return { activityId: null };
+  }
 
   const activityId = await crearActivityDeAviso(input, ownerId);
 
@@ -994,19 +1044,89 @@ async function crearActivityDeAviso(
 }
 
 // ---------------------------------------------------------------------------
+// El lock por conversación (ítem 126 de
+// docs/auditoria-2026-09-24-punta-a-punta.md, B-03)
+//
+// Dos mensajes seguidos del mismo contacto —el caso normal en WhatsApp:
+// "hola" / "quiero un auto" / "un Gol 2020"— corrían dos turnos en paralelo
+// que no se veían entre sí: dos conversaciones abiertas, respuestas cruzadas,
+// dos oportunidades OPEN, dos reservas. Ahora todo turno corre bajo un
+// pg_advisory_xact_lock por (agente, contacto, canal): el segundo espera a
+// que el primero termine y arranca viendo lo que el primero escribió.
+//
+// POR QUÉ UN ADVISORY LOCK Y NO FOR UPDATE SOBRE UNA FILA: en el primer
+// mensaje de un contacto todavía no existe la conversación, así que no hay
+// fila que bloquear; la clave del lock existe antes que la fila. Y por qué
+// (agente, contacto, canal) y no el id de la conversación: es exactamente la
+// identidad de "la conversación abierta" (findOpenConversation y el índice
+// conversations_open_unique), así que el lock cubre también el buscar-o-crear.
+//
+// CÓMO SE SOSTIENE: una transacción que toma el lock y queda abierta mientras
+// corre el turno. El turno NO usa esa transacción —sus consultas van por el
+// cliente de siempre, en otras conexiones del pool—; la transacción solo
+// existe para ser dueña del lock, que Postgres suelta solo al commitear o al
+// abortarse (incluido un proceso muerto: la conexión se cae y el lock con
+// ella). El costo es una conexión del pool ocupada por turno en curso, y una
+// más por cada turno que espera el lock del mismo contacto.
+//
+// hashtext() lleva la clave a un entero de 32 bits: dos conversaciones
+// distintas pueden compartir el número, y lo único que pasa es que se
+// serializan entre sí sin necesidad. Correcto, y rarísimo.
+// ---------------------------------------------------------------------------
+
+export interface ClaveDeConversacion {
+  agentId: string;
+  contactId: string;
+  channel: ConversationChannel;
+}
+
+export function claveDeLockDeConversacion(clave: ClaveDeConversacion): string {
+  return `agent-turn:${clave.agentId}:${clave.contactId}:${clave.channel}`;
+}
+
+// Toma el lock dentro de `tx` y espera lo que haga falta. Exportada para que
+// los tests de carreras tomen EL MISMO lock desde una transacción de control
+// (ver src/lib/carreras.test-helper.ts), nunca una reimplementación.
+export async function tomarLockDeConversacion(tx: Db, clave: ClaveDeConversacion): Promise<void> {
+  // SELECT 1 FROM ... y no SELECT pg_advisory_xact_lock(...): la función
+  // devuelve void, y Prisma no sabe deserializar una columna de ese tipo.
+  await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${claveDeLockDeConversacion(clave)}::text))`;
+}
+
+// Corre `fn` con el lock de la conversación tomado, y lo suelta al terminar.
+//
+// EL TIMEOUT de la transacción tiene que ser mayor que el turno más largo
+// posible, y no es un detalle: si Prisma la da por vencida mientras `fn`
+// sigue corriendo, el lock se suelta a mitad del turno y el commit final
+// falla, así que un turno que hizo todo su trabajo terminaría en error. Ver
+// AGENT_TURN_LOCK_TIMEOUT_MS en config/env.ts.
+export async function conLockDeConversacion<T>(
+  clave: ClaveDeConversacion,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return prisma.$transaction(
+    async (tx) => {
+      await tomarLockDeConversacion(tx, clave);
+      return fn();
+    },
+    { maxWait: 10_000, timeout: env.AGENT_TURN_LOCK_TIMEOUT_MS },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // El turno
 // ---------------------------------------------------------------------------
 
-export async function runAgentTurn(
-  input: RunAgentTurnInput,
-  options: RunAgentTurnOptions = {},
-): Promise<ResultadoDelTurno> {
-  const { organizationId, agentId, contactId, channel } = input;
-  const texto = input.texto.trim();
-  if (texto.length === 0) {
-    throw new AppError("El mensaje no puede estar vacío", 400);
-  }
+type AgenteDelTurno = NonNullable<Awaited<ReturnType<typeof findAgentById>>>;
 
+// Lo que todo turno exige del agente y del contacto antes de empezar. Un
+// AppError de acá es permanente: el worker de WhatsApp no lo reintenta.
+export async function cargarAgenteYContacto(
+  organizationId: string,
+  agentId: string,
+  contactId: string,
+  channel: ConversationChannel,
+): Promise<{ agent: AgenteDelTurno; contact: Contact }> {
   const agent = await findAgentById(agentId, organizationId);
   if (!agent) {
     throw new AppError("Agente no encontrado", 404);
@@ -1025,32 +1145,144 @@ export async function runAgentTurn(
   if (!contact) {
     throw new AppError("El contacto indicado no existe o no pertenece a tu organización", 400);
   }
+  return { agent, contact };
+}
 
-  // Paso 1 de §4: resolver o crear la Conversation y persistir el entrante.
-  const conversation =
-    (await findOpenConversation(organizationId, agentId, contactId, channel)) ??
-    (await createConversation({
+export interface RegistrarEntranteInput {
+  organizationId: string;
+  agentId: string;
+  // La sucursal del agente: es la de la conversación si hay que crearla.
+  branchId: string;
+  contactId: string;
+  channel: ConversationChannel;
+  texto: string;
+  externalThreadId?: string;
+  // WhatsApp: el wamid. El UNIQUE (organizationId, externalMessageId) hace
+  // que una reentrega del mismo mensaje falle acá con P2002; quien lo traduce
+  // a "duplicado" es el webhook.
+  externalMessageId?: string;
+}
+
+// Paso 1 de §4: resolver o crear la Conversation y persistir el entrante.
+// Compartido por los dos caminos de entrada: runAgentTurn (Web y el probador)
+// y el webhook de WhatsApp, que desde el ítem 125 persiste el entrante y
+// encola el turno en vez de correrlo.
+//
+// `enLaMismaTransaccion` existe para ese segundo caso: el job de la cola se
+// inserta en la MISMA transacción que el Message. Si fueran dos escrituras
+// sueltas, un corte entre las dos dejaría el entrante persistido sin job —
+// la reentrega de Meta caería en el dedup por wamid y nadie lo respondería
+// nunca, que es exactamente D-01.
+export async function registrarEntrante(
+  input: RegistrarEntranteInput,
+  opciones: { enLaMismaTransaccion?: (tx: Db, entrante: Message) => Promise<unknown> } = {},
+): Promise<{ conversation: Conversation; entrante: Message }> {
+  const { organizationId, agentId, contactId, channel } = input;
+
+  const conversation = await findOrCreateOpenConversation({
+    organizationId,
+    branchId: input.branchId,
+    agentId,
+    contactId,
+    channel,
+    externalThreadId: input.externalThreadId,
+  });
+
+  const entrante = await prisma.$transaction(async (tx) => {
+    const creado = await createMessage(
+      {
+        organizationId,
+        conversationId: conversation.id,
+        direction: "INBOUND",
+        senderType: "CONTACT",
+        content: input.texto,
+        ...(input.externalMessageId !== undefined
+          ? { externalMessageId: input.externalMessageId }
+          : {}),
+      },
+      tx,
+    );
+    await updateConversation(
+      conversation.id,
       organizationId,
-      branchId: agent.branchId,
+      { lastMessageAt: creado.createdAt },
+      tx,
+    );
+    await opciones.enLaMismaTransaccion?.(tx, creado);
+    return creado;
+  });
+
+  return { conversation, entrante };
+}
+
+// El turno sincrónico: canal Web y el probador del agente. Valida, toma el
+// lock de la conversación, persiste el entrante y responde, todo bajo el
+// mismo lock — así dos mensajes del mismo visitante (un doble submit, el
+// botón "Reintentar") se atienden uno después del otro.
+export async function runAgentTurn(
+  input: RunAgentTurnInput,
+  options: RunAgentTurnOptions = {},
+): Promise<ResultadoDelTurno> {
+  const { organizationId, agentId, contactId, channel } = input;
+  const texto = input.texto.trim();
+  if (texto.length === 0) {
+    throw new AppError("El mensaje no puede estar vacío", 400);
+  }
+
+  const { agent, contact } = await cargarAgenteYContacto(
+    organizationId,
+    agentId,
+    contactId,
+    channel,
+  );
+
+  return conLockDeConversacion({ agentId, contactId, channel }, async () => {
+    const { conversation } = await registrarEntrante({
+      organizationId,
       agentId,
+      branchId: agent.branchId,
       contactId,
       channel,
+      texto,
       externalThreadId: input.externalThreadId,
-    }));
+    });
+    const { resultado } = await responderEnLaConversacion(
+      { agent, contact, conversation, texto },
+      options,
+    );
+    return resultado;
+  });
+}
 
-  const entrante = await createMessage({
-    organizationId,
-    conversationId: conversation.id,
-    direction: "INBOUND",
-    senderType: "CONTACT",
-    content: texto,
-    ...(input.externalMessageId !== undefined
-      ? { externalMessageId: input.externalMessageId }
-      : {}),
-  });
-  await updateConversation(conversation.id, organizationId, {
-    lastMessageAt: entrante.createdAt,
-  });
+export interface RespuestaEnLaConversacion {
+  resultado: ResultadoDelTurno;
+  // El Message OUTBOUND que el turno persistió, o null si no respondió.
+  salienteId: string | null;
+  // Los ids de los Message que el modelo vio en su ventana de contexto. El
+  // worker los cruza con los entrantes pendientes para cerrar los jobs que
+  // este turno ya respondió.
+  mensajesVistos: string[];
+}
+
+// Pasos 2 a 7 de §4 sobre una conversación que YA tiene su entrante
+// persistido. La llaman runAgentTurn (bajo su lock) y el worker de la cola de
+// WhatsApp (bajo el suyo); ninguno de los dos caminos llega acá sin el lock
+// de la conversación tomado.
+//
+// `texto` es el del entrante que motivó el turno: lo usa la guarda del eco
+// (ítem 109).
+export async function responderEnLaConversacion(
+  entrada: {
+    agent: AgenteDelTurno;
+    contact: Contact;
+    conversation: Conversation;
+    texto: string;
+  },
+  options: OpcionesDeRespuesta = {},
+): Promise<RespuestaEnLaConversacion> {
+  const { agent, contact, conversation, texto } = entrada;
+  const organizationId = conversation.organizationId;
+  const agentId = agent.id;
 
   // EL GATE DEL LOOP (ítem 83): lo que calla al agente es que una PERSONA de
   // la organización haya entrado al hilo, no que la conversación esté
@@ -1092,12 +1324,16 @@ export async function runAgentTurn(
   // acá no se toca.
   if (await hasHumanMessage(conversation.id, organizationId)) {
     return {
-      conversationId: conversation.id,
-      status: conversation.status,
-      respuesta: null,
-      toolCalls: [],
-      handoff: false,
-      handoffActivityId: null,
+      resultado: {
+        conversationId: conversation.id,
+        status: conversation.status,
+        respuesta: null,
+        toolCalls: [],
+        handoff: false,
+        handoffActivityId: null,
+      },
+      salienteId: null,
+      mensajesVistos: [],
     };
   }
 
@@ -1130,7 +1366,10 @@ export async function runAgentTurn(
     sucursal ? { ahora: new Date(), zona: sucursal.timezone } : undefined,
     contact,
   );
-  const mensajes = await findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES);
+  const mensajes = ordenarPendientesAlFinal(
+    await findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES),
+    new Set(options.entrantesPendientes ?? []),
+  );
   const historial = aHistorial(mensajes);
   const tools = toolsHabilitadas(agent.enabledTools);
   const toolsPorNombre = new Map<string, ToolDelAgente>(tools.map((t) => [t.definition.name, t]));
@@ -1413,12 +1652,16 @@ export async function runAgentTurn(
   const statusFinal: ConversationStatus = handoff ? "TRANSFERRED_TO_HUMAN" : conversation.status;
 
   return {
-    conversationId: conversation.id,
-    status: statusFinal,
-    respuesta: respuestaFinal,
-    toolCalls: auditoria,
-    handoff,
-    handoffActivityId,
+    resultado: {
+      conversationId: conversation.id,
+      status: statusFinal,
+      respuesta: respuestaFinal,
+      toolCalls: auditoria,
+      handoff,
+      handoffActivityId,
+    },
+    salienteId: saliente.id,
+    mensajesVistos: mensajes.map((m) => m.id),
   };
 }
 

@@ -1,4 +1,9 @@
-import type { MessageDirection, MessageSenderType, Prisma } from "@prisma/client";
+import type {
+  MessageDeliveryStatus,
+  MessageDirection,
+  MessageSenderType,
+  Prisma,
+} from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // Mensajes de una conversación del módulo de Agentes de IA. El único patrón de
@@ -78,6 +83,29 @@ export async function hasHumanMessage(
     select: { id: true },
   });
   return humano !== null;
+}
+
+export function findMessageById(id: string, organizationId: string, db: Db = prisma) {
+  return db.message.findFirst({ where: { id, organizationId } });
+}
+
+// Estado de entrega de un saliente por un canal externo (ítem 125, B-02).
+// SENT limpia el error de un intento anterior: un mensaje entregado no
+// arrastra el diagnóstico de un fallo que ya no describe nada (mismo criterio
+// que markOutboxEventProcessed con lastError).
+export function markMessageDelivery(
+  id: string,
+  organizationId: string,
+  entrega: { status: MessageDeliveryStatus; error?: string | null },
+  db: Db = prisma,
+) {
+  return db.message.updateMany({
+    where: { id, organizationId },
+    data: {
+      deliveryStatus: entrega.status,
+      deliveryError: entrega.status === "SENT" ? null : (entrega.error ?? null),
+    },
+  });
 }
 
 export function findMessagesByConversation(
