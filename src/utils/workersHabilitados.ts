@@ -1,7 +1,8 @@
 import { esUrlDeBaseLocal, hostDeLaUrl } from "./baseLocal";
 
 // ¿Arranca este proceso los workers (ingesta, outbox, canales de Google,
-// cotizaciones, oportunidades estancadas) y los registros de automatizaciones?
+// cotizaciones, oportunidades estancadas, turnos de WhatsApp) y los registros
+// de automatizaciones?
 // G-02 de docs/auditoria-2026-09-24-punta-a-punta.md (ítem 129).
 //
 // El problema: `npm run dev` con un .env que apunta a la base real arrancaba

@@ -2,7 +2,6 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { secretsMatch } from "../middlewares/requireInternalProxySecret";
-import { sendWhatsappTextReal, type SendWhatsappText } from "../services/whatsappGraph.service";
 import {
   procesarWebhookDeWhatsapp,
   whatsappWebhookPayloadSchema,
@@ -27,24 +26,23 @@ import { hmacSha256Hex, timingSafeEqual } from "../utils/hmac";
 // routes/whatsappWebhook.routes.ts)— y recién después verificar. El parser
 // tiene un tope chico justamente porque corre antes de saber quién manda.
 //
-// Las dependencias (secretos, cliente de la Graph API) se inyectan por
-// factory, mismo patrón que qrWebhook.controller.ts: producción las toma del
-// entorno y de la red; los tests le pasan secretos conocidos y un doble de la
-// Graph API, y ejercitan la MISMA cadena por HTTP real.
+// Los secretos se inyectan por factory, mismo patrón que
+// qrWebhook.controller.ts: producción los toma del entorno; los tests le pasan
+// secretos conocidos y ejercitan la MISMA cadena por HTTP real. El cliente de
+// la Graph API ya no está acá: desde el ítem 125 la respuesta la manda el
+// worker de la cola (src/workers/agentInboundWorker.ts), no el webhook.
 // ---------------------------------------------------------------------------
 
 export interface WhatsappWebhookDeps {
   verifyToken: () => string | undefined;
   appSecret: () => string | undefined;
   accessToken: () => string | undefined;
-  sendText: SendWhatsappText;
 }
 
 export const whatsappWebhookDepsReales: WhatsappWebhookDeps = {
   verifyToken: () => env.WHATSAPP_VERIFY_TOKEN,
   appSecret: () => env.WHATSAPP_APP_SECRET,
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
-  sendText: sendWhatsappTextReal,
 };
 
 // El request con los bytes crudos que dejó el `verify` del parser propio.
@@ -99,8 +97,8 @@ export function createWhatsappVerificationHandler(deps: WhatsappWebhookDeps): Re
 //
 // Sin WHATSAPP_APP_SECRET o WHATSAPP_ACCESS_TOKEN: 500 que dice qué falta (en
 // el log, isOperational false), mismo criterio que MercadoPago. Nunca un
-// webhook que "funciona" sin verificar nada, ni uno que corre el turno del
-// agente para después no poder mandar la respuesta. Un 5xx además hace que
+// webhook que "funciona" sin verificar nada, ni uno que encola turnos cuyas
+// respuestas el worker después no va a poder mandar. Un 5xx además hace que
 // Meta reintente, que es lo que se quiere mientras la configuración esté rota.
 export function createVerifyWhatsappSignature(deps: WhatsappWebhookDeps): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction): void => {
@@ -139,14 +137,8 @@ export function createVerifyWhatsappSignature(deps: WhatsappWebhookDeps): Reques
 // Meta reintente el lote entero. El único 400 es un cuerpo que ni siquiera
 // tiene la forma de un webhook de Meta — firmado por Meta, así que no debería
 // pasar nunca.
-export function createWhatsappWebhookHandler(deps: WhatsappWebhookDeps): RequestHandler {
+export function createWhatsappWebhookHandler(): RequestHandler {
   return asyncHandler<Request>(async (req, res: Response) => {
-    const accessToken = deps.accessToken();
-    if (!accessToken) {
-      // Ya validado por createVerifyWhatsappSignature; esto es para el tipo.
-      throw new AppError("Falta WHATSAPP_ACCESS_TOKEN en el entorno", 500, false);
-    }
-
     const parsed = whatsappWebhookPayloadSchema.safeParse(req.body);
     if (!parsed.success) {
       logger.warn("Webhook de WhatsApp con un cuerpo que no tiene la forma esperada");
@@ -154,10 +146,7 @@ export function createWhatsappWebhookHandler(deps: WhatsappWebhookDeps): Request
       return;
     }
 
-    const resumen = await procesarWebhookDeWhatsapp(parsed.data, {
-      accessToken,
-      sendText: deps.sendText,
-    });
+    const resumen = await procesarWebhookDeWhatsapp(parsed.data);
     logger.info({ resumen }, "Webhook de WhatsApp procesado");
 
     res.status(200).json({ ok: true });

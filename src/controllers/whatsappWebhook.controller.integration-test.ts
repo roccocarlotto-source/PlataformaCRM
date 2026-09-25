@@ -9,33 +9,48 @@ import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
 import { createWhatsappWebhookRouter } from "../routes/whatsappWebhook.routes";
-import { resetLlmProviderParaTests, setLlmProviderForTests } from "../services/llmProvider.service";
-import type { SendWhatsappTextInput } from "../services/whatsappGraph.service";
+import {
+  resetLlmProviderParaTests,
+  setLlmProviderForTests,
+  type LlmCompletionRequest,
+} from "../services/llmProvider.service";
+import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
 import { WHATSAPP_CONTACT_SOURCE } from "../services/whatsappContact.service";
 import { hmacSha256Hex } from "../utils/hmac";
+import { drenarTurnosPendientes, type DepsDeEnvio } from "../workers/agentInboundWorker";
 import type { WhatsappWebhookDeps } from "./whatsappWebhook.controller";
 
 // ---------------------------------------------------------------------------
 // GET y POST /webhooks/whatsapp (ítem 81) por HTTP real, contra Postgres real,
 // con LA MISMA cadena de routes/whatsappWebhook.routes.ts (vía su factory) y
-// las dependencias inyectadas: secretos conocidos y un doble de la Graph API
-// que registra lo que se habría mandado. El LLM es el otro doble, instalado
-// con setLlmProviderForTests como en el test del canal Web. Nunca se habla con
-// Meta ni con OpenRouter.
+// secretos conocidos. Desde el ítem 125 el webhook solo ENCOLA: el turno y el
+// envío los hace el worker de la cola, que acá se drena a mano
+// (drenarTurnosPendientes acotado a la organización del test) con un doble de
+// la Graph API que registra lo que se habría mandado. El LLM es el otro doble,
+// instalado con setLlmProviderForTests como en el test del canal Web. Nunca se
+// habla con Meta ni con OpenRouter.
 //
 // Lo que este archivo fija:
 //   - GET: handshake correcto -> 200 con el challenge crudo en text/plain;
 //     verify token o modo incorrecto -> 403.
 //   - POST: firma inválida o ausente -> 401 SIN tocar la base.
 //   - mensaje de texto válido -> Contact creado (o reusado por teléfono
-//     normalizado), Message entrante con externalMessageId, turno del agente
-//     y respuesta mandada por el doble de la Graph API.
+//     normalizado), Message entrante con externalMessageId y un job PENDING,
+//     SIN turno dentro del request; al drenar, turno del agente, respuesta
+//     mandada por el doble y delivery_status SENT.
 //   - el mismo wamid dos veces (en serie y en paralelo) -> un solo entrante,
-//     un solo turno, una sola respuesta.
+//     un solo job, un solo turno, una sola respuesta.
 //   - conversación derivada que nadie tomó -> el agente contesta igual; con un
 //     mensaje HUMAN en el hilo -> no contesta y no se manda nada (ítem 83).
 //   - statuses en vez de messages, tipo que no es text, phone_number_id sin
-//     agente, Graph API caída -> 200 sin procesar (o sin romper).
+//     agente -> 200 sin encolar.
+//   - la cola (ítem 125): envío fallido -> delivery_status FAILED y reintento
+//     que reenvía SIN otro turno; 4xx de Meta -> FAILED sin reintentos; turno
+//     que explota -> reintento con backoff; lease vencido -> se retoma.
+//   - ráfagas (ítems 125/126): tres mensajes seguidos -> un turno que los ve a
+//     los tres; un mensaje que llega a mitad de un turno -> el turno siguiente
+//     lo ve DESPUÉS de la respuesta anterior; dos entregas paralelas de un
+//     contacto nuevo -> una sola conversación abierta.
 //   - sin WHATSAPP_APP_SECRET -> 500, nunca un webhook que no verifica nada.
 // ---------------------------------------------------------------------------
 
@@ -44,23 +59,60 @@ const APP_SECRET = "test_app_secret";
 const ACCESS_TOKEN = "test_access_token";
 const RESPUESTA_DEL_AGENTE = "¡Hola! ¿En qué te ayudo?";
 
-// El doble de la Graph API. `fallarEnvio` simula a Meta rechazando el envío.
+// El doble de la Graph API. `fallarEnvio` simula a Meta rechazando el envío
+// con ese status.
 let enviados: SendWhatsappTextInput[] = [];
-let fallarEnvio = false;
-let llamadasAlLlm = 0;
+let fallarEnvio: number | null = null;
 let appSecretConfigurado: string | undefined = APP_SECRET;
+
+// El doble del LLM: registra cada request. `fallosDelLlm` hace que las
+// próximas N llamadas exploten con un error que NO es del proveedor (el que el
+// turno deja subir), y `alLlamarAlLlm` corre algo en medio de una llamada.
+let llamadasAlLlm = 0;
+let requestsAlLlm: LlmCompletionRequest[] = [];
+let fallosDelLlm = 0;
+let alLlamarAlLlm: (() => Promise<void>) | null = null;
 
 const deps: WhatsappWebhookDeps = {
   verifyToken: () => VERIFY_TOKEN,
   appSecret: () => appSecretConfigurado,
   accessToken: () => ACCESS_TOKEN,
+};
+
+const depsDeEnvio: DepsDeEnvio = {
+  accessToken: () => ACCESS_TOKEN,
   sendText: async (input) => {
-    if (fallarEnvio) {
-      throw new Error("WhatsApp Graph API returned 500: doble");
+    if (fallarEnvio !== null) {
+      throw new WhatsappGraphError(fallarEnvio, "doble");
     }
     enviados.push(input);
   },
 };
+
+// El worker, acotado a la organización de este archivo: los demás archivos de
+// integración corren en paralelo contra la misma base.
+function drenar() {
+  return drenarTurnosPendientes({ organizationId: fx.orgId, deps: depsDeEnvio });
+}
+
+function jobsDe(messageId: string) {
+  return prisma.agentInboundJob.findMany({ where: { organizationId: fx.orgId, messageId } });
+}
+
+async function entranteConWamid(wamid: string) {
+  return prisma.message.findFirstOrThrow({
+    where: { organizationId: fx.orgId, externalMessageId: wamid },
+  });
+}
+
+// Un job que falló queda con su próximo intento en el futuro (backoff). Para
+// no esperar de verdad, el test lo adelanta a "ya".
+async function adelantarReintentos() {
+  await prisma.agentInboundJob.updateMany({
+    where: { organizationId: fx.orgId, status: "PENDING" },
+    data: { nextAttemptAt: new Date(Date.now() - 1000) },
+  });
+}
 
 interface Fixture {
   orgId: string;
@@ -106,9 +158,19 @@ before(async () => {
 
   setLlmProviderForTests({
     name: "doble",
-    complete() {
+    async complete(request) {
       llamadasAlLlm++;
-      return Promise.resolve({ text: RESPUESTA_DEL_AGENTE, toolCalls: [] });
+      requestsAlLlm.push(request);
+      if (alLlamarAlLlm) {
+        const accion = alLlamarAlLlm;
+        alLlamarAlLlm = null;
+        await accion();
+      }
+      if (fallosDelLlm > 0) {
+        fallosDelLlm--;
+        throw new Error("fallo del doble que no es del proveedor");
+      }
+      return { text: RESPUESTA_DEL_AGENTE, toolCalls: [] };
     },
   });
 
@@ -191,10 +253,22 @@ before(async () => {
   };
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Cada test arranca con la cola de la organización vacía: un test que
+  // encola sin drenar (porque lo que afirma es el webhook) no puede dejarle
+  // un turno pendiente al siguiente, que lo contaría como propio.
+  if (fx) {
+    await prisma.agentInboundJob.updateMany({
+      where: { organizationId: fx.orgId, status: { in: ["PENDING", "PROCESSING"] } },
+      data: { status: "DONE", lockedUntil: null },
+    });
+  }
   enviados = [];
-  fallarEnvio = false;
+  fallarEnvio = null;
   llamadasAlLlm = 0;
+  requestsAlLlm = [];
+  fallosDelLlm = 0;
+  alLlamarAlLlm = null;
   appSecretConfigurado = APP_SECRET;
 });
 
@@ -203,6 +277,8 @@ after(async () => {
   if (closeApp) await closeApp();
   if (!fx) return;
   const where = { organizationId: fx.orgId };
+  // Antes que messages: las dos FKs de la cola apuntan ahí.
+  await prisma.agentInboundJob.deleteMany({ where });
   await prisma.message.deleteMany({ where });
   await prisma.conversation.deleteMany({ where });
   await prisma.activity.deleteMany({ where });
@@ -342,13 +418,26 @@ test("POST que no es application/json -> 400", async () => {
 // POST — procesamiento
 // ---------------------------------------------------------------------------
 
-test("mensaje de texto de un número nuevo -> crea el Contact, persiste el entrante con el wamid, corre el turno y responde por la Graph API", async () => {
+test("mensaje de texto de un número nuevo -> el webhook crea el Contact, persiste el entrante con el wamid y ENCOLA; el worker corre el turno y responde por la Graph API", async () => {
   const waId = waIdAlAzar();
   const wamid = `wamid.${randomUUID()}`;
 
   const res = await enviar(payloadDeTexto({ waId, wamid, nombre: "Ana María Pérez" }));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { ok: true });
+
+  // Ítem 125: el 200 salió SIN turno. Lo que quedó es el entrante y su job.
+  assert.equal(llamadasAlLlm, 0, "el webhook no corre el turno dentro del request");
+  assert.equal(enviados.length, 0);
+  const entrante = await entranteConWamid(wamid);
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "PENDING");
+  assert.equal(job.attempts, 0);
+  assert.equal(job.phoneNumberId, fx.phoneNumberId);
+  assert.equal(job.waId, waId);
+
+  const resumen = await drenar();
+  assert.equal(resumen.respondidos, 1);
 
   const contactos = await contactosConTelefono(`+${waId}`);
   assert.equal(contactos.length, 1);
@@ -373,6 +462,10 @@ test("mensaje de texto de un número nuevo -> crea el Contact, persiste el entra
   assert.equal(mensajes[0].content, "Hola, quiero info");
   assert.equal(mensajes[1].direction, "OUTBOUND");
   assert.equal(mensajes[1].content, RESPUESTA_DEL_AGENTE);
+  // B-02: la entrega quedó registrada en la fila; el entrante no tiene.
+  assert.equal(mensajes[1].deliveryStatus, "SENT");
+  assert.equal(mensajes[1].deliveryError, null);
+  assert.equal(mensajes[0].deliveryStatus, null);
 
   assert.equal(llamadasAlLlm, 1);
   assert.deepEqual(enviados, [
@@ -383,6 +476,12 @@ test("mensaje de texto de un número nuevo -> crea el Contact, persiste el entra
       accessToken: ACCESS_TOKEN,
     },
   ]);
+
+  const [terminado] = await jobsDe(entrante.id);
+  assert.equal(terminado.status, "DONE");
+  assert.equal(terminado.attempts, 1);
+  assert.equal(terminado.responseMessageId, mensajes[1].id);
+  assert.equal(terminado.lockedUntil, null);
 });
 
 test("un Contact existente con el mismo teléfono (con + y separadores) se reusa, no se duplica", async () => {
@@ -459,6 +558,7 @@ test("conversación DERIVADA pero que nadie tomó todavía -> el agente contesta
 
   const res = await enviar(payloadDeTexto({ waId, body: "¿Hola? ¿Hay alguien?" }));
   assert.equal(res.status, 200);
+  await drenar();
 
   assert.equal(llamadasAlLlm, 1, "el turno corrió");
   assert.deepEqual(enviados, [
@@ -504,6 +604,10 @@ test("con un mensaje HUMAN en el hilo -> el entrante se registra, el agente NO c
 
   const res = await enviar(payloadDeTexto({ waId, body: "Dale, gracias" }));
   assert.equal(res.status, 200);
+  const resumen = await drenar();
+  // El job se cierra igual: no hay nada que reintentar.
+  assert.equal(resumen.respondidos, 1);
+  assert.equal(resumen.pospuestos + resumen.fallidos, 0);
 
   assert.equal(llamadasAlLlm, 0, "no se llamó al modelo");
   assert.equal(enviados.length, 0, "el agente no le habla encima a la persona");
@@ -527,7 +631,11 @@ test("el mismo wamid dos veces -> un solo entrante, un solo turno, una sola resp
   const payload = payloadDeTexto({ waId, wamid: `wamid.${randomUUID()}` });
 
   assert.equal((await enviar(payload)).status, 200);
+  await drenar();
+  // La reentrega de Meta DESPUÉS de que el turno ya corrió: sigue siendo
+  // "duplicado", y ya no importa — el trabajo no depende de ella (ítem 125).
   assert.equal((await enviar(payload)).status, 200);
+  await drenar();
 
   const entrantes = await prisma.message.findMany({
     where: {
@@ -536,6 +644,7 @@ test("el mismo wamid dos veces -> un solo entrante, un solo turno, una sola resp
     },
   });
   assert.equal(entrantes.length, 1);
+  assert.equal((await jobsDe(entrantes[0].id)).length, 1);
   assert.equal((await contactosConTelefono(`+${waId}`)).length, 1);
   assert.equal(llamadasAlLlm, 1);
   assert.equal(enviados.length, 1);
@@ -549,11 +658,14 @@ test("el mismo wamid en dos entregas PARALELAS -> el UNIQUE deja pasar una sola"
   const [a, b] = await Promise.all([enviar(payload), enviar(payload)]);
   assert.equal(a.status, 200);
   assert.equal(b.status, 200);
+  await drenar();
 
   const entrantes = await prisma.message.findMany({
     where: { organizationId: fx.orgId, externalMessageId: wamid },
   });
   assert.equal(entrantes.length, 1);
+  // El INSERT que perdió contra el UNIQUE se revirtió con su job adentro.
+  assert.equal((await jobsDe(entrantes[0].id)).length, 1);
   assert.equal((await contactosConTelefono(`+${waId}`)).length, 1);
   assert.equal(enviados.length, 1);
 });
@@ -624,6 +736,7 @@ test("un phone_number_id sin agente, o de un agente sin el canal WHATSAPP -> 200
 
   const res = await enviar(lote);
   assert.equal(res.status, 200);
+  await drenar();
   assert.equal((await contactosConTelefono(`+${waIdSinAgente}`)).length, 0);
   assert.equal((await contactosConTelefono(`+${waIdSinCanal}`)).length, 0);
   assert.equal((await contactosConTelefono(`+${waIdValido}`)).length, 1);
@@ -631,17 +744,232 @@ test("un phone_number_id sin agente, o de un agente sin el canal WHATSAPP -> 200
   assert.equal(enviados[0].to, waIdValido);
 });
 
-test("si la Graph API falla al mandar la respuesta, Meta recibe 200 igual y el entrante queda registrado", async () => {
-  fallarEnvio = true;
+// ---------------------------------------------------------------------------
+// La cola (ítem 125 de docs/auditoria-2026-09-24-punta-a-punta.md: D-01, B-02)
+//
+// Antes, todo lo de acá abajo terminaba igual: el entrante persistido, la
+// reentrega de Meta descartada como duplicado y el cliente sin respuesta para
+// siempre. Ahora cada fallo deja el job en un estado que alguien retoma.
+// ---------------------------------------------------------------------------
+
+test("la Graph API falla con un 5xx -> Meta recibe 200, la respuesta queda FAILED en la fila y el reintento la REENVÍA sin correr otro turno", async () => {
+  fallarEnvio = 503;
   const waId = waIdAlAzar();
   const wamid = `wamid.${randomUUID()}`;
 
   const res = await enviar(payloadDeTexto({ waId, wamid }));
   assert.equal(res.status, 200);
-  assert.equal(
-    await prisma.message.count({ where: { organizationId: fx.orgId, externalMessageId: wamid } }),
-    1,
+
+  const primera = await drenar();
+  assert.equal(primera.pospuestos, 1);
+  assert.equal(llamadasAlLlm, 1);
+  assert.equal(enviados.length, 0);
+
+  const entrante = await entranteConWamid(wamid);
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "PENDING");
+  assert.equal(job.attempts, 1);
+  assert.ok(job.nextAttemptAt && job.nextAttemptAt.getTime() > Date.now(), "backoff programado");
+  assert.match(job.lastError ?? "", /503/);
+  assert.ok(job.responseMessageId, "la respuesta ya escrita queda atada al job");
+
+  // B-02: el fallo está en la fila del Message, no solo en el log.
+  const saliente = await prisma.message.findUniqueOrThrow({
+    where: { id: job.responseMessageId },
+  });
+  assert.equal(saliente.deliveryStatus, "FAILED");
+  assert.match(saliente.deliveryError ?? "", /503/);
+
+  // Meta vuelve a aceptar; el reintento llega.
+  fallarEnvio = null;
+  await adelantarReintentos();
+  const segunda = await drenar();
+  assert.equal(segunda.respondidos, 1);
+
+  assert.equal(llamadasAlLlm, 1, "el reintento NO corrió otro turno");
+  assert.deepEqual(
+    enviados.map((e) => e.body),
+    [RESPUESTA_DEL_AGENTE],
   );
+  const salientes = await prisma.message.findMany({
+    where: { conversationId: entrante.conversationId, direction: "OUTBOUND" },
+  });
+  assert.equal(salientes.length, 1, "una sola respuesta en el hilo");
+  assert.equal(salientes[0].deliveryStatus, "SENT");
+  assert.equal(salientes[0].deliveryError, null, "SENT limpia el error del intento anterior");
+
+  const [terminado] = await jobsDe(entrante.id);
+  assert.equal(terminado.status, "DONE");
+  assert.equal(terminado.attempts, 2);
+});
+
+test("la Graph API rechaza con un 4xx -> FAILED de una, sin gastar reintentos", async () => {
+  fallarEnvio = 400;
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+
+  assert.equal((await enviar(payloadDeTexto({ waId, wamid }))).status, 200);
+  const resumen = await drenar();
+  assert.equal(resumen.fallidos, 1);
+
+  const entrante = await entranteConWamid(wamid);
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "FAILED");
+  assert.equal(job.attempts, 1);
+  assert.match(job.lastError ?? "", /400/);
+  const saliente = await prisma.message.findUniqueOrThrow({
+    where: { id: job.responseMessageId ?? "" },
+  });
+  assert.equal(saliente.deliveryStatus, "FAILED");
+});
+
+test("un turno que explota con un error que no es del proveedor -> reintento con backoff, y el segundo intento responde", async () => {
+  fallosDelLlm = 1;
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+
+  assert.equal((await enviar(payloadDeTexto({ waId, wamid }))).status, 200);
+  const primera = await drenar();
+  assert.equal(primera.pospuestos, 1);
+
+  const entrante = await entranteConWamid(wamid);
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "PENDING");
+  assert.equal(job.responseMessageId, null, "el turno no llegó a escribir respuesta");
+  assert.match(job.lastError ?? "", /no es del proveedor/);
+
+  await adelantarReintentos();
+  const segunda = await drenar();
+  assert.equal(segunda.respondidos, 1);
+  assert.deepEqual(
+    enviados.map((e) => e.body),
+    [RESPUESTA_DEL_AGENTE],
+  );
+  const [terminado] = await jobsDe(entrante.id);
+  assert.equal(terminado.status, "DONE");
+  assert.equal(terminado.attempts, 2);
+});
+
+test("un job en PROCESSING con el lease vencido (el proceso murió a mitad) se retoma y se responde", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  assert.equal((await enviar(payloadDeTexto({ waId, wamid }))).status, 200);
+
+  // Lo que deja un SIGTERM a mitad del turno: reclamado, sin latido, con el
+  // lease ya vencido.
+  const entrante = await entranteConWamid(wamid);
+  await prisma.agentInboundJob.updateMany({
+    where: { organizationId: fx.orgId, messageId: entrante.id },
+    data: { status: "PROCESSING", attempts: 1, lockedUntil: new Date(Date.now() - 1000) },
+  });
+
+  const resumen = await drenar();
+  assert.equal(resumen.respondidos, 1);
+  assert.equal(enviados.length, 1);
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "DONE");
+  assert.equal(job.attempts, 2, "el reclamo que lo retomó contó su intento");
+});
+
+test("un job en PROCESSING con el lease VIGENTE no se toca: su dueño sigue vivo", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  assert.equal((await enviar(payloadDeTexto({ waId, wamid }))).status, 200);
+
+  const entrante = await entranteConWamid(wamid);
+  await prisma.agentInboundJob.updateMany({
+    where: { organizationId: fx.orgId, messageId: entrante.id },
+    data: { status: "PROCESSING", attempts: 1, lockedUntil: new Date(Date.now() + 60_000) },
+  });
+
+  const resumen = await drenar();
+  assert.deepEqual(resumen, { respondidos: 0, omitidos: 0, pospuestos: 0, fallidos: 0 });
+  assert.equal(llamadasAlLlm, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Ráfagas (ítems 125 y 126): el caso normal de WhatsApp es el cliente que
+// manda tres mensajes cortos seguidos.
+// ---------------------------------------------------------------------------
+
+test("tres mensajes seguidos antes de que el worker pase -> UN turno que los ve a los tres, una sola respuesta, y los tres jobs DONE", async () => {
+  const waId = waIdAlAzar();
+  const cuerpos = ["hola", "quiero un auto", "un Gol 2020"];
+  for (const body of cuerpos) {
+    assert.equal((await enviar(payloadDeTexto({ waId, body }))).status, 200);
+  }
+
+  const resumen = await drenar();
+  assert.equal(llamadasAlLlm, 1, "un solo turno para la ráfaga");
+  assert.equal(enviados.length, 1);
+  assert.equal(resumen.respondidos, 1);
+
+  // El modelo vio los tres, en orden, al final del historial.
+  const vistos = requestsAlLlm[0].messages.filter((m) => m.role === "user").map((m) => m.content);
+  assert.equal(vistos.length, 3);
+  cuerpos.forEach((body, i) => assert.ok(vistos[i].includes(body)));
+
+  const [contacto] = await contactosConTelefono(`+${waId}`);
+  const jobs = await prisma.agentInboundJob.findMany({
+    where: { organizationId: fx.orgId, message: { conversation: { contactId: contacto.id } } },
+  });
+  assert.equal(jobs.length, 3);
+  assert.ok(jobs.every((j) => j.status === "DONE"));
+  assert.equal(
+    jobs.filter((j) => j.responseMessageId !== null).length,
+    1,
+    "solo el job que corrió el turno tiene respuesta propia",
+  );
+});
+
+test("un mensaje que llega A MITAD de un turno -> el turno siguiente lo ve DESPUÉS de la respuesta anterior, no antes", async () => {
+  const waId = waIdAlAzar();
+  assert.equal((await enviar(payloadDeTexto({ waId, body: "hola" }))).status, 200);
+
+  // Mientras el modelo "piensa" la respuesta al hola, entra el segundo
+  // mensaje. Se persiste ANTES que esa respuesta.
+  alLlamarAlLlm = async () => {
+    assert.equal((await enviar(payloadDeTexto({ waId, body: "quiero un auto" }))).status, 200);
+  };
+
+  await drenar();
+  assert.equal(llamadasAlLlm, 2, "el segundo mensaje tuvo su propio turno");
+  assert.equal(enviados.length, 2);
+
+  // Por createdAt el hilo es [hola, quiero un auto, respuesta al hola]; el
+  // segundo turno tiene que verlo como pasó: la respuesta se escribió sin ver
+  // el segundo mensaje, y ese mensaje es lo último que hay que contestar.
+  const cola = requestsAlLlm[1].messages.slice(-3);
+  assert.deepEqual(
+    cola.map((m) => m.role),
+    ["user", "assistant", "user"],
+  );
+  assert.ok(cola[0].content?.includes("hola"));
+  assert.equal(cola[1].content, RESPUESTA_DEL_AGENTE);
+  assert.ok(cola[2].content?.includes("quiero un auto"));
+});
+
+test("dos mensajes DISTINTOS de un contacto nuevo en webhooks paralelos -> una sola conversación abierta con los dos entrantes", async () => {
+  const waId = waIdAlAzar();
+  const [a, b] = await Promise.all([
+    enviar(payloadDeTexto({ waId, body: "hola" })),
+    enviar(payloadDeTexto({ waId, body: "quiero un auto" })),
+  ]);
+  assert.equal(a.status, 200);
+  assert.equal(b.status, 200);
+
+  const contactos = await contactosConTelefono(`+${waId}`);
+  assert.equal(contactos.length, 1);
+  const conversaciones = await prisma.conversation.findMany({
+    where: { organizationId: fx.orgId, contactId: contactos[0].id },
+    include: { messages: true },
+  });
+  assert.equal(conversaciones.length, 1, "C-01: sin conversación duplicada ni vacía");
+  assert.equal(conversaciones[0].messages.length, 2);
+
+  await drenar();
+  assert.equal(llamadasAlLlm, 1);
+  assert.equal(enviados.length, 1);
 });
 
 test("un cuerpo firmado sin la forma de un webhook de Meta -> 400", async () => {

@@ -241,6 +241,45 @@ enum MessageSenderType {
   HUMAN
 }
 
+// Estado de ENTREGA de un Message saliente por un canal externo (ítem 125 de
+// docs/auditoria-2026-09-24-punta-a-punta.md, B-02). Existe para que un envío
+// fallido quede a la vista en la fila, no solo en los logs: antes la
+// respuesta quedaba persistida como si hubiera salido y nada decía que Meta
+// la había rechazado. NULL en todo lo que no se manda por un canal externo
+// (entrantes, canal Web, probador): ahí no hay entrega que seguir.
+//
+// PENDING: el turno produjo la respuesta y todavía no se confirmó el envío
+// (incluye el tiempo entre reintentos). SENT: la Graph API la aceptó.
+// FAILED: el último intento falló; deliveryError dice por qué.
+enum MessageDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// Ciclo de vida de un AgentInboundJob (ítem 125): la cola del webhook de
+// WhatsApp. Mismo estilo que IngestionStatus/OutboxStatus, con dos
+// diferencias deliberadas:
+//
+// - PROCESSING EXISTE, a diferencia de las otras dos colas. Allá el trabajo
+//   corre DENTRO de la transacción del reclamo (FOR UPDATE SKIP LOCKED) y un
+//   proceso muerto la aborta sola. Acá el trabajo es un turno del LLM que
+//   puede tardar minutos, y sostener una transacción con la fila bloqueada
+//   durante toda esa espera es justo lo que C-02 marca como problema en el
+//   outbox. Se reclama, se commitea PROCESSING con un lease (lockedUntil) y
+//   se trabaja afuera; si el proceso muere, el lease vence y otro lo retoma.
+// - FAILED ES EL ÚNICO TERMINAL DE ERROR (no hay DEAD_LETTER aparte): el
+//   webhook ya validó el dato antes de encolar, así que no existe el "dato
+//   que nunca va a servir" que distingue FAILED de DEAD_LETTER en la ingesta.
+//   FAILED es "agotó los reintentos o el error no se arregla reintentando", y
+//   lastError dice cuál.
+enum AgentInboundJobStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
 // ---------------------------------------------------------------------------
 // QrType / QrSubscriptionStatus / QrSubscriptionChangeSource — módulo QR
 // (integración de QR Reviews, ver docs/qr-integration.md). Portados 1:1 de
@@ -518,6 +557,7 @@ model Organization {
   conversations        Conversation[]
   messages             Message[]
   agentEmbedTokens     AgentEmbedToken[]
+  agentInboundJobs     AgentInboundJob[]
   // La información del negocio que los agentes usan para responder (ítem 59).
   // Cuelga de una sucursal, igual que Agent; acá está por el organizationId,
   // como todas las demás.
@@ -2177,11 +2217,24 @@ model Message {
   // entre sí, así que esos no chocan.
   externalMessageId String? @map("external_message_id") @db.VarChar(255)
 
+  // Ítem 125 (B-02): si la respuesta llegó de verdad al cliente. Ver el enum
+  // MessageDeliveryStatus. La escribe SOLO el worker de la cola de WhatsApp,
+  // que es el único que manda por un canal externo.
+  deliveryStatus MessageDeliveryStatus? @map("delivery_status")
+  // Por qué falló el último envío (el cuerpo de error de Meta, recortado).
+  // Se limpia cuando un reintento sale bien.
+  deliveryError  String?                @map("delivery_error") @db.Text
+
   createdAt DateTime @default(now()) @map("created_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   conversation Conversation @relation(fields: [organizationId, conversationId], references: [organizationId, id])
   senderUser   User?        @relation("MessageSender", fields: [organizationId, senderUserId], references: [organizationId, id], onDelete: NoAction)
+
+  // Ítem 125: el entrante que dispara un job, y la respuesta que ese job
+  // produjo. Dos relaciones con nombre porque las dos apuntan acá.
+  inboundJob         AgentInboundJob? @relation("AgentInboundJobMessage")
+  inboundJobResponse AgentInboundJob? @relation("AgentInboundJobResponse")
 
   // El patrón de lectura real, y el único: los mensajes de una conversación,
   // en orden. No hay listado de mensajes por organización.
@@ -2191,7 +2244,72 @@ model Message {
   // organización y no global: el id lo emite el canal, y dos organizaciones no
   // comparten mensajes.
   @@unique([organizationId, externalMessageId])
+  // El UNIQUE que habilita las FKs compuestas de agent_inbound_jobs (C-3),
+  // mismo criterio que el de conversations.
+  @@unique([organizationId, id])
   @@map("messages")
+}
+
+// ---------------------------------------------------------------------------
+// AgentInboundJob — la cola del webhook de WhatsApp (ítem 125 de
+// docs/auditoria-2026-09-24-punta-a-punta.md: D-01, B-02, B-08).
+//
+// El webhook persiste el Message entrante (con su wamid) y, EN LA MISMA
+// TRANSACCIÓN, una fila acá; responde 200 en milisegundos. El turno del
+// agente lo corre src/workers/agentInboundWorker.ts, con reintentos. Antes el
+// turno corría dentro del request: si el proceso moría a mitad, o el envío
+// fallaba, el entrante ya estaba persistido, la reentrega de Meta caía en el
+// dedup y el cliente no recibía respuesta nunca.
+//
+// Una fila por Message entrante (UNIQUE sobre messageId), y el job solo
+// guarda lo que no se puede derivar del mensaje: a qué número de negocio
+// responder y a qué wa_id. No se lee de Conversation.externalThreadId a
+// propósito — una conversación de WhatsApp abierta desde el probador del
+// agente no tiene hilo externo, y el mensaje real que llegue después cae en
+// ella.
+// ---------------------------------------------------------------------------
+model AgentInboundJob {
+  id                String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String                @map("organization_id") @db.Uuid
+  // El Message INBOUND a responder. De él salen la conversación, el agente y
+  // el contacto.
+  messageId         String                @map("message_id") @db.Uuid
+  // El phone_number_id del negocio (metadata del webhook) y el wa_id del
+  // cliente, tal cual los mandó Meta: es lo que necesita sendText.
+  phoneNumberId     String                @map("phone_number_id") @db.VarChar(40)
+  waId              String                @map("wa_id") @db.VarChar(40)
+  status            AgentInboundJobStatus @default(PENDING)
+  // Mismo significado que en OutboxEvent/IngestionEvent, con UNA diferencia:
+  // acá sube al RECLAMAR, no al fallar. Un proceso que muere a mitad de un
+  // turno no llega a ningún catch, y si el contador subiera recién ahí, un
+  // turno que tumba el proceso se reintentaría para siempre.
+  attempts          Int                   @default(0)
+  // NULL = reclamable ya. Después de un fallo, la fecha del próximo intento.
+  nextAttemptAt     DateTime?             @map("next_attempt_at")
+  // El lease de un job en PROCESSING: si vence sin que el worker lo renueve
+  // (el proceso murió), el job vuelve a ser reclamable.
+  lockedUntil       DateTime?             @map("locked_until")
+  lastError         String?               @map("last_error")
+  // La respuesta que el turno de este job ya produjo. Es lo que hace
+  // idempotente el reintento de un ENVÍO fallido: con esto puesto, el
+  // siguiente intento reenvía el mismo Message en vez de correr otro turno.
+  responseMessageId String?               @map("response_message_id") @db.Uuid
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  message         Message      @relation("AgentInboundJobMessage", fields: [organizationId, messageId], references: [organizationId, id])
+  responseMessage Message?     @relation("AgentInboundJobResponse", fields: [organizationId, responseMessageId], references: [organizationId, id], onDelete: NoAction)
+
+  // Un job por entrante, y el lado referenciante de la FK compuesta.
+  @@unique([organizationId, messageId])
+  // Idem para la respuesta; NULL no choca con NULL.
+  @@unique([organizationId, responseMessageId])
+  // Mismo criterio que outbox_events (lección de ALTO-6): el listado por
+  // organización nace con su índice. El índice de la COLA es parcial y vive
+  // en la migración.
+  @@index([organizationId, createdAt])
+  @@map("agent_inbound_jobs")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

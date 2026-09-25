@@ -23,6 +23,8 @@ function mensaje(
     content,
     toolCalls: null,
     externalMessageId: null,
+    deliveryStatus: null,
+    deliveryError: null,
     createdAt: new Date(),
   };
 }

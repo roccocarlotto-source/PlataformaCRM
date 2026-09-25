@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { env } from "../config/env";
+import { iniciarWorkerDeTurnosDeAgente } from "./agentInboundWorker";
 import { iniciarWorkerDeCotizaciones } from "./exchangeRateWorker";
 import { iniciarWorkerDeCanales } from "./googleCalendarChannelWorker";
 import { iniciarWorkerDeIngesta } from "./ingestionWorker";
@@ -15,7 +16,7 @@ import { iniciarWorkerDeOutbox } from "./outboxWorker";
 // worker es una promesa que el test resuelve a mano, así que el orden de los
 // eventos lo decide el test, no el scheduler.
 //
-// Los cinco workers comparten el patrón y el bug, y por eso se prueban con la
+// Los seis workers comparten el patrón y el bug, y por eso se prueban con la
 // misma tabla: si alguno se desviara del patrón, este archivo lo vería.
 // ---------------------------------------------------------------------------
 
@@ -87,6 +88,18 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
         barrer: async () => {
           await pasada();
           return { organizaciones: 0, emitidos: 0, fallidas: 0 };
+        },
+      }),
+  },
+  {
+    // Ítem 125: la cola del webhook de WhatsApp. Mismo patrón, misma tabla.
+    nombre: "turnos de WhatsApp",
+    iniciar: ({ pollMs, pasada }) =>
+      iniciarWorkerDeTurnosDeAgente({
+        pollMs,
+        drenar: async () => {
+          await pasada();
+          return { respondidos: 0, omitidos: 0, pospuestos: 0, fallidos: 0 };
         },
       }),
   },

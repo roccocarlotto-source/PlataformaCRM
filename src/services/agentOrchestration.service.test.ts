@@ -23,6 +23,8 @@ import {
   REQUEST_HUMAN_HANDOFF_TOOL,
   REQUEST_HUMAN_HANDOFF_TOOL_NAME,
   armarSystemPrompt,
+  claveDeLockDeConversacion,
+  ordenarPendientesAlFinal,
 } from "./agentOrchestration.service";
 
 // Unitarios, sin base: armarSystemPrompt es pura. Lo que se verifica es que
@@ -864,4 +866,43 @@ test("el prompt lleva el bloque del contacto solo cuando se lo pasan", () => {
   });
   assert.match(con, /Martín Suárez/);
   assert.doesNotMatch(armarSystemPrompt({ ...BASE, guardrails: {} }, []), /CRM YA tiene/);
+});
+
+// ---------------------------------------------------------------------------
+// Ítems 125 y 126: el historial de un turno encolado y la clave del lock.
+// ---------------------------------------------------------------------------
+
+test("ordenarPendientesAlFinal: sin pendientes devuelve el mismo orden", () => {
+  const mensajes = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  assert.deepEqual(ordenarPendientesAlFinal(mensajes, new Set()), mensajes);
+});
+
+test("ordenarPendientesAlFinal: un entrante que llegó a mitad del turno anterior queda DESPUÉS de esa respuesta", () => {
+  // Por createdAt: [hola, quiero un auto, respuesta al hola]. "quiero un auto"
+  // sigue pendiente: la respuesta se escribió sin verlo.
+  const mensajes = [{ id: "hola" }, { id: "auto" }, { id: "respuesta" }];
+  assert.deepEqual(
+    ordenarPendientesAlFinal(mensajes, new Set(["auto"])).map((m) => m.id),
+    ["hola", "respuesta", "auto"],
+  );
+});
+
+test("ordenarPendientesAlFinal: varios pendientes conservan su orden entre ellos, y un id fuera de la ventana no molesta", () => {
+  const mensajes = [{ id: "1" }, { id: "2" }, { id: "r" }, { id: "3" }];
+  assert.deepEqual(
+    ordenarPendientesAlFinal(mensajes, new Set(["2", "3", "fuera"])).map((m) => m.id),
+    ["1", "r", "2", "3"],
+  );
+});
+
+test("claveDeLockDeConversacion: distingue agente, contacto y canal", () => {
+  const base = { agentId: "ag", contactId: "co", channel: "WHATSAPP" as const };
+  const claves = new Set([
+    claveDeLockDeConversacion(base),
+    claveDeLockDeConversacion({ ...base, agentId: "otro" }),
+    claveDeLockDeConversacion({ ...base, contactId: "otro" }),
+    claveDeLockDeConversacion({ ...base, channel: "WEB" }),
+  ]);
+  assert.equal(claves.size, 4);
+  assert.equal(claveDeLockDeConversacion(base), claveDeLockDeConversacion({ ...base }));
 });

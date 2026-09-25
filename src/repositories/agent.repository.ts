@@ -87,7 +87,7 @@ export function findAgentOriginsById(agentId: string, db: Db = prisma) {
 export function findAgentByWhatsappPhoneNumberId(phoneNumberId: string, db: Db = prisma) {
   return db.agent.findFirst({
     where: { whatsappPhoneNumberId: phoneNumberId, deletedAt: null },
-    select: { id: true, organizationId: true, isActive: true, channels: true },
+    select: { id: true, organizationId: true, branchId: true, isActive: true, channels: true },
   });
 }
 

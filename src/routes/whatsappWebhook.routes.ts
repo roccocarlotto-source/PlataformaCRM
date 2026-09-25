@@ -69,8 +69,8 @@ const whatsappJsonParser = envolverParserConTraduccion(
 
 // Factory y no un router armado a mano en el test (como hace el de
 // MercadoPago): el test de integración construye ESTA MISMA cadena con
-// secretos conocidos y un doble de la Graph API, así que una diferencia entre
-// lo que se prueba y lo que corre en producción no puede existir.
+// secretos conocidos, así que una diferencia entre lo que se prueba y lo que
+// corre en producción no puede existir.
 export function createWhatsappWebhookRouter(deps: WhatsappWebhookDeps): Router {
   const router = Router();
 
@@ -81,7 +81,7 @@ export function createWhatsappWebhookRouter(deps: WhatsappWebhookDeps): Router {
     requireJsonBody,
     whatsappJsonParser,
     createVerifyWhatsappSignature(deps),
-    createWhatsappWebhookHandler(deps),
+    createWhatsappWebhookHandler(),
   );
 
   return router;

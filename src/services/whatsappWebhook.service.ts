@@ -2,19 +2,19 @@ import { ConversationChannel, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { logger } from "../lib/logger";
 import { findAgentByWhatsappPhoneNumberId } from "../repositories/agent.repository";
+import { createAgentInboundJob } from "../repositories/agentInboundJob.repository";
 import { findMessageByExternalId } from "../repositories/message.repository";
-import { runAgentTurn } from "./agentOrchestration.service";
-import type { SendWhatsappText } from "./whatsappGraph.service";
+import { registrarEntrante } from "./agentOrchestration.service";
 import { resolveWhatsappContact } from "./whatsappContact.service";
 
 // ---------------------------------------------------------------------------
 // El procesamiento de un POST /webhooks/whatsapp ya verificado (ítem 81; paso
 // 6 de §9 de docs/ai-agent-architecture.md). La firma HMAC y el parseo del
 // cuerpo los resolvió la cadena del router; esto recorre el lote y, por cada
-// mensaje de texto, hace lo mismo que el canal Web — resolver el Contact y
-// llamar a runAgentTurn — y manda la respuesta por la Graph API. El loop de
-// orquestación es EL MISMO para los dos canales (§9); acá solo cambia cómo
-// entra el mensaje y cómo sale la respuesta.
+// mensaje de texto, resuelve el Contact, persiste el Message entrante y ENCOLA
+// el turno. El turno lo corre src/workers/agentInboundWorker.ts, con el mismo
+// loop de orquestación que el canal Web (§9), y es el worker quien manda la
+// respuesta por la Graph API.
 //
 // UN MENSAJE QUE FALLA NO TUMBA EL LOTE NI LA RESPUESTA A META. Cada mensaje
 // corre en su propio try/catch: el error se loguea y se sigue con el
@@ -22,12 +22,16 @@ import { resolveWhatsappContact } from "./whatsappContact.service";
 // reintente el lote ENTERO — incluidos los mensajes que sí se procesaron (que
 // el dedup frenaría, pero sin ganar nada).
 //
-// SÍNCRONO, NO fire-and-forget: el 200 sale cuando el lote terminó. Si un
-// turno tarda más que la paciencia de Meta y Meta reintenta, la reentrega
-// choca con el mensaje entrante que runAgentTurn ya persistió (antes de llamar
-// al modelo) y se descarta como duplicado. Así ningún mensaje se pierde por un
-// reinicio del servidor a mitad de camino, que es lo que pasaría respondiendo
-// 200 antes de procesar.
+// ENCOLADO, NO SÍNCRONO (ítem 125 de docs/auditoria-2026-09-24-punta-a-punta.md,
+// D-01). Antes el turno del LLM corría acá adentro y el 200 salía al final;
+// este comentario decía que así "ningún mensaje se pierde por un reinicio", y
+// era al revés: el entrante se persistía con su wamid ANTES del modelo, así
+// que si el proceso moría a mitad, el LLM fallaba o el envío fallaba, la
+// reentrega de Meta caía en el dedup como "duplicado" y el cliente no recibía
+// respuesta nunca. Ahora el entrante y su job se escriben en la MISMA
+// transacción y el 200 sale en milisegundos: la reentrega sigue cayendo en el
+// dedup —y está bien, porque el trabajo ya no depende de ella—, y el que
+// reintenta es el worker, con backoff.
 // ---------------------------------------------------------------------------
 
 // Forma mínima del payload que se exige para contestar 200. Todo lo demás se
@@ -64,12 +68,7 @@ const contactoDelPayloadSchema = z.object({
   profile: z.object({ name: z.string().optional() }).optional(),
 });
 
-export interface WhatsappWebhookDeps {
-  accessToken: string;
-  sendText: SendWhatsappText;
-}
-
-export type ResultadoDelMensaje = "procesado" | "duplicado" | "ignorado" | "fallido";
+export type ResultadoDelMensaje = "encolado" | "duplicado" | "ignorado" | "fallido";
 
 export type ResumenDelLote = Record<ResultadoDelMensaje, number>;
 
@@ -85,10 +84,7 @@ interface MensajeEntrante {
   texto: string;
 }
 
-async function procesarMensaje(
-  mensaje: MensajeEntrante,
-  deps: WhatsappWebhookDeps,
-): Promise<ResultadoDelMensaje> {
+async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMensaje> {
   const log = logger.child({ phoneNumberId: mensaje.phoneNumberId, wamid: mensaje.wamid });
 
   // 1. ¿De qué agente es este número? Sin agente, el mensaje no tiene dueño:
@@ -98,8 +94,8 @@ async function procesarMensaje(
     log.warn("Mensaje de WhatsApp para un phone_number_id sin agente asignado");
     return "ignorado";
   }
-  // runAgentTurn rechazaría estos dos casos con un AppError; se cortan antes
-  // para no crear un Contact por un mensaje que nadie va a atender.
+  // El turno rechazaría estos dos casos con un AppError; se cortan antes para
+  // no crear un Contact ni encolar un mensaje que nadie va a atender.
   if (!agent.isActive || !agent.channels.includes(ConversationChannel.WHATSAPP)) {
     log.warn(
       { agentId: agent.id, isActive: agent.isActive },
@@ -122,23 +118,42 @@ async function procesarMensaje(
   // 3. El Contact, por teléfono.
   const contactId = await resolveWhatsappContact(organizationId, mensaje.waId, mensaje.profileName);
 
-  // 4 y 5. El turno — que también persiste el Message entrante con el wamid.
-  let resultado;
+  // 4. El Message entrante con su wamid y, en la misma transacción, el job
+  //    que el worker va a tomar. Sin el lock de la conversación a propósito:
+  //    ese lock lo sostiene un turno en curso durante minutos, y el webhook
+  //    tiene que contestar en milisegundos. Lo que el lock protegía acá —que
+  //    dos entregas en paralelo abran dos conversaciones— lo garantiza el
+  //    índice conversations_open_unique (ítem 126).
   try {
-    resultado = await runAgentTurn({
-      organizationId,
-      agentId: agent.id,
-      contactId,
-      channel: ConversationChannel.WHATSAPP,
-      texto: mensaje.texto,
-      externalThreadId: mensaje.waId,
-      externalMessageId: mensaje.wamid,
-    });
+    await registrarEntrante(
+      {
+        organizationId,
+        agentId: agent.id,
+        branchId: agent.branchId,
+        contactId,
+        channel: ConversationChannel.WHATSAPP,
+        texto: mensaje.texto.trim(),
+        externalThreadId: mensaje.waId,
+        externalMessageId: mensaje.wamid,
+      },
+      {
+        enLaMismaTransaccion: (tx, entrante) =>
+          createAgentInboundJob(
+            {
+              organizationId,
+              messageId: entrante.id,
+              phoneNumberId: mensaje.phoneNumberId,
+              waId: mensaje.waId,
+            },
+            tx,
+          ),
+      },
+    );
   } catch (err) {
     // Dos entregas del mismo mensaje en paralelo: las dos pasaron el atajo de
-    // arriba y la segunda chocó con el UNIQUE al persistir el entrante, antes
-    // de llamar al modelo. Se confirma releyendo, para no confundir un P2002
-    // de otra tabla con un duplicado.
+    // arriba y la segunda chocó con el UNIQUE al persistir el entrante (su
+    // transacción se revirtió entera, job incluido). Se confirma releyendo,
+    // para no confundir un P2002 de otra tabla con un duplicado.
     if (
       esDuplicadoPorIndiceUnico(err) &&
       (await findMessageByExternalId(organizationId, mensaje.wamid))
@@ -148,28 +163,13 @@ async function procesarMensaje(
     throw err;
   }
 
-  // 6. La respuesta por WhatsApp. null = una persona de la organización ya
-  //    escribió en el hilo, así que el agente se calla (ítem 83; antes el
-  //    corte era el status derivado). Nadie manda nada desde acá en ese caso:
-  //    no existe todavía un endpoint para responder a mano desde el CRM
-  //    —mismo estado que Web—, que es justamente el único flujo que puede
-  //    llegar a escribir un Message HUMAN.
-  if (resultado.respuesta !== null) {
-    await deps.sendText({
-      phoneNumberId: mensaje.phoneNumberId,
-      to: mensaje.waId,
-      body: resultado.respuesta,
-      accessToken: deps.accessToken,
-    });
-  }
-  return "procesado";
+  return "encolado";
 }
 
 export async function procesarWebhookDeWhatsapp(
   payload: WhatsappWebhookPayload,
-  deps: WhatsappWebhookDeps,
 ): Promise<ResumenDelLote> {
-  const resumen: ResumenDelLote = { procesado: 0, duplicado: 0, ignorado: 0, fallido: 0 };
+  const resumen: ResumenDelLote = { encolado: 0, duplicado: 0, ignorado: 0, fallido: 0 };
 
   // Otro producto de Meta suscripto a la misma app (Instagram, Page...): no es
   // de este webhook.
@@ -205,16 +205,13 @@ export async function procesarWebhookDeWhatsapp(
         }
         const m = parsed.data;
         try {
-          const r = await procesarMensaje(
-            {
-              phoneNumberId,
-              wamid: m.id,
-              waId: m.from,
-              profileName: nombres.get(m.from),
-              texto: m.text.body,
-            },
-            deps,
-          );
+          const r = await procesarMensaje({
+            phoneNumberId,
+            wamid: m.id,
+            waId: m.from,
+            profileName: nombres.get(m.from),
+            texto: m.text.body,
+          });
           resumen[r] += 1;
         } catch (err) {
           logger.error(
