@@ -661,3 +661,69 @@ export function createWidgetRateLimiter(overrides?: { windowMs?: number; max?: n
 }
 
 export const widgetRateLimiter = createWidgetRateLimiter();
+
+// ---------------------------------------------------------------------------
+// Ítem 138 (B-10/F-05 de docs/auditoria-2026-09-24-punta-a-punta.md) — el
+// cupo POR SESIÓN del widget, además del de token de arriba.
+//
+// El de token es por sitio entero: 8 visitantes reales chateando a la vez ya
+// lo agotan, y un script con el token público (está en el HTML) lo agota
+// gratis para todos. Este segundo limiter cuenta por sessionId, así que un
+// visitante (o un script que reusa su sesión) se frena solo antes de comerse
+// la cuota compartida. Los dos corren en la misma cadena, ninguno reemplaza al
+// otro: el de token sigue siendo el techo global del sitio.
+//
+// VA ANTES que widgetRateLimiter en publicWidget.routes.ts, y es a propósito:
+// express-rate-limit cuenta cada request que llega a un limiter, y un request
+// que este corta con 429 ya no llega al de token. Al revés, los mensajes de
+// una sesión desbocada seguirían sumando en la cuota compartida aunque se
+// rechazaran. Lo que no frena, dicho claro: un script que rota sessionId en
+// cada request pasa por acá como N visitantes distintos, y para eso está el
+// techo por token.
+//
+// KEY = embedTokenId + sessionId, no el sessionId solo: el sessionId lo elige
+// el navegador (o un script), así que dos sitios distintos podrían mandar el
+// mismo y compartirían contador. Con el token adelante, cada sitio cuenta lo
+// suyo.
+//
+// El cuerpo ya está parseado (widgetJsonParser corre antes) pero todavía NO
+// validado: eso lo hace el controller. Con un sessionId ausente o que no es
+// string este limiter no cuenta (skip): ese request muere en el controller con
+// 400 sin llegar al LLM, y sigue contando en el de token. Se recorta igual que
+// el schema del controller (trim) para que " abc" y "abc" sean la misma
+// sesión.
+//
+// VALORES: 60 s / 10 mensajes — la mitad del techo del sitio. Holgado para
+// una persona tipeando, suficiente para que una sola sesión no deje sin cupo
+// al resto.
+//
+// STORE: MemoryStore propio, con la advertencia del encabezado.
+// ---------------------------------------------------------------------------
+export const WIDGET_SESSION_RATE_LIMIT_WINDOW_MS = 60_000;
+export const WIDGET_SESSION_RATE_LIMIT_MAX = 10;
+
+function sessionIdDelCuerpo(req: Request): string | null {
+  const crudo = (req.body as { sessionId?: unknown } | undefined)?.sessionId;
+  if (typeof crudo !== "string") {
+    return null;
+  }
+  const sessionId = crudo.trim();
+  return sessionId.length > 0 ? sessionId : null;
+}
+
+// overrides solo para tests, mismo criterio que createWidgetRateLimiter.
+export function createWidgetSessionRateLimiter(overrides?: { windowMs?: number; max?: number }) {
+  return rateLimit({
+    windowMs: overrides?.windowMs ?? WIDGET_SESSION_RATE_LIMIT_WINDOW_MS,
+    max: overrides?.max ?? WIDGET_SESSION_RATE_LIMIT_MAX,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    skip: (req) => sessionIdDelCuerpo(req) === null,
+    // JSON.stringify y no una concatenación con separador: el sessionId es
+    // texto libre de hasta 200 caracteres y podría contener el separador.
+    keyGenerator: (req) => JSON.stringify([widgetKeyGenerator(req), sessionIdDelCuerpo(req)]),
+    handler: buildRateLimitHandler("Demasiados mensajes seguidos. Probá de nuevo en un momento."),
+  });
+}
+
+export const widgetSessionRateLimiter = createWidgetSessionRateLimiter();

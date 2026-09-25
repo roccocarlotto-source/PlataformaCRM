@@ -40,6 +40,7 @@ export const sendWidgetMessageHandler = asyncHandler<WidgetRequest>(async (req, 
     req.widgetAuth.branchId,
     ConversationChannel.WEB,
     input.sessionId,
+    req.widgetAuth.embedTokenId,
   );
 
   // Un AppError de runAgentTurn (agente que no opera en WEB, etc.) se

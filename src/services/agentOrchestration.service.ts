@@ -658,6 +658,61 @@ export interface EntradaDeKnowledgeBase {
   content: string;
 }
 
+// Ítem 132 (B-04/I-01): el tope GLOBAL de caracteres de la base de
+// conocimiento en el prompt, sumando todas las entradas que entran. No corta
+// nada: solo avisa. Cortar en silencio dejaría afuera entradas que el ADMIN ve
+// activas en la pantalla (el mismo motivo por el que el repositorio no tiene
+// `take`); lo que se quiere es que quede visible en los logs cuándo el prompt
+// se está yendo de tamaño, porque ese bloque viaja en cada ronda de cada turno.
+// 8000 es un valor de arranque (~2k tokens): ajustable acá.
+export const TOPE_DE_CARACTERES_DE_KB_EN_EL_PROMPT = 8000;
+
+// El nombre de la tool que hace redundantes a las entradas sincronizadas del
+// stock. Literal y no importado del catálogo para no acoplar este filtro a la
+// forma de agentTools.service; si la tool cambiara de nombre, el test de este
+// filtro lo delata.
+const TOOL_QUE_REEMPLAZA_AL_STOCK_EN_LA_KB = "search_vehicles";
+
+// Ítem 132 (B-04/I-01): qué entradas de la KB llegan al prompt.
+//
+// Con search_vehicles habilitada, las entradas generadas desde el stock
+// (sourceVehicleId != null, el mismo criterio que
+// findGeneratedKnowledgeBaseEntriesByBranch) se quedan AFUERA: el tool ya da
+// esos datos en tiempo real, y la copia de la KB solo suma tokens en cada
+// ronda y un precio que puede estar viejo entre sincronizaciones — el modelo
+// veía dos precios y podía citar el viejo. Sin search_vehicles, esas entradas
+// son la única fuente del stock que tiene el agente, así que se quedan.
+//
+// Las escritas a mano (sourceVehicleId null) entran siempre. La
+// sincronización stock→KB no cambia: sigue escribiendo las entradas igual.
+export function entradasDeKnowledgeBaseParaElPrompt(
+  entradas: (EntradaDeKnowledgeBase & { sourceVehicleId: string | null })[],
+  enabledTools: readonly string[],
+  contextoDeLog: Record<string, unknown> = {},
+): EntradaDeKnowledgeBase[] {
+  const sinStockDuplicado = enabledTools.includes(TOOL_QUE_REEMPLAZA_AL_STOCK_EN_LA_KB)
+    ? entradas.filter((entrada) => entrada.sourceVehicleId === null)
+    : entradas;
+
+  const caracteres = sinStockDuplicado.reduce(
+    (total, entrada) => total + entrada.title.length + entrada.content.length,
+    0,
+  );
+  if (caracteres > TOPE_DE_CARACTERES_DE_KB_EN_EL_PROMPT) {
+    logger.warn(
+      {
+        ...contextoDeLog,
+        caracteres,
+        tope: TOPE_DE_CARACTERES_DE_KB_EN_EL_PROMPT,
+        entradas: sinStockDuplicado.length,
+      },
+      "La base de conocimiento que entra al prompt supera el tope de caracteres",
+    );
+  }
+
+  return sinStockDuplicado.map(({ title, content }) => ({ title, content }));
+}
+
 // instructions + tono + el contexto del negocio + lo que gobierna lo que el
 // modelo puede DECIR (nota del paso 4 bajo §6, punto 3): temasProhibidos,
 // promesasProhibidas y condicionesDeDerivacion no son gates de ejecución de
@@ -722,8 +777,9 @@ export function armarSystemPrompt(
   // tiene información, que es distinto de no habérsela dado.
   //
   // El filtrado de las inactivas y las borradas ya ocurrió en el repositorio
-  // (findActiveKnowledgeBaseEntriesByBranch): acá no se vuelve a decidir qué
-  // entra, solo cómo se escribe.
+  // (findActiveKnowledgeBaseEntriesByBranch), y el de las sincronizadas del
+  // stock en entradasDeKnowledgeBaseParaElPrompt (ítem 132): acá no se vuelve
+  // a decidir qué entra, solo cómo se escribe.
   if (knowledgeBaseEntries.length > 0) {
     const bloques = knowledgeBaseEntries
       .map((entrada) => `### ${entrada.title.trim()}\n${entrada.content.trim()}`)
@@ -1389,9 +1445,10 @@ export async function responderEnLaConversacion(
   // sucursal la que define qué información del negocio le corresponde. Si
   // alguna vez el branchId denormalizado de una conversación vieja difiriera,
   // el agente tiene que seguir hablando de SU sucursal.
-  const knowledgeBaseEntries = await findActiveKnowledgeBaseEntriesByBranch(
-    agent.branchId,
-    organizationId,
+  const knowledgeBaseEntries = entradasDeKnowledgeBaseParaElPrompt(
+    await findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
+    agent.enabledTools,
+    { organizationId, agentId: agent.id, conversationId: conversation.id },
   );
   // Ítem 99: la zona de la sucursal del AGENTE, por el mismo motivo que la
   // base de conocimiento sale de agent.branchId. Si la sucursal no se pudiera

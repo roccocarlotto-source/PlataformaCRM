@@ -94,6 +94,11 @@ export function findKnowledgeBaseEntryById(id: string, organizationId: string, d
 // dejaría fuera entradas que el ADMIN cargó y ve activas en la pantalla, que es
 // peor que un prompt largo; el tope real lo pone el de 10.000 caracteres por
 // entrada del borde HTTP.
+//
+// Ítem 132: `sourceVehicleId` viaja para que runAgentTurn pueda sacar del
+// prompt las entradas generadas desde el stock cuando el agente ya tiene
+// search_vehicles (ver entradasDeKnowledgeBaseParaElPrompt). La lectura sigue
+// trayendo TODAS las activas: qué entra al prompt se decide allá, no acá.
 // ---------------------------------------------------------------------------
 export function findActiveKnowledgeBaseEntriesByBranch(
   branchId: string,
@@ -103,7 +108,7 @@ export function findActiveKnowledgeBaseEntriesByBranch(
   return db.knowledgeBaseEntry.findMany({
     where: { organizationId, branchId, deletedAt: null, isActive: true },
     orderBy: { createdAt: "asc" },
-    select: { title: true, content: true },
+    select: { title: true, content: true, sourceVehicleId: true },
   });
 }
 

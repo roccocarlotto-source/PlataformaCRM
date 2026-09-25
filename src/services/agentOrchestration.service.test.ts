@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import {
   ENCABEZADO_KNOWLEDGE_BASE,
   ETIQUETA_DATOS_DEL_CRM,
@@ -27,9 +27,12 @@ import {
   REQUEST_HUMAN_HANDOFF_TOOL,
   REQUEST_HUMAN_HANDOFF_TOOL_NAME,
   armarSystemPrompt,
+  entradasDeKnowledgeBaseParaElPrompt,
+  TOPE_DE_CARACTERES_DE_KB_EN_EL_PROMPT,
   claveDeLockDeConversacion,
   ordenarPendientesAlFinal,
 } from "./agentOrchestration.service";
+import { logger } from "../lib/logger";
 import { CATALOGO_DE_TOOLS, type ToolDelAgente } from "./agentTools.service";
 
 // Unitarios, sin base: armarSystemPrompt es pura. Lo que se verifica es que
@@ -201,6 +204,112 @@ test("el bloque va después de instructions y tono, y ANTES de los guardrails", 
     orden,
     [...orden].sort((a, b) => a - b),
   );
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 132 (B-04/I-01): qué entradas llegan al prompt. Las sincronizadas del
+// stock (sourceVehicleId != null) salen cuando search_vehicles está
+// habilitada; sin ella, se quedan. Y un tope global de caracteres que avisa.
+// ---------------------------------------------------------------------------
+
+const ENTRADA_A_MANO = { title: "Garantía", content: "12 meses en usados.", sourceVehicleId: null };
+const ENTRADA_DEL_STOCK = {
+  title: "Toyota Corolla 2020",
+  content: "Precio: USD 15.000.",
+  sourceVehicleId: "veh-1",
+};
+
+test("con search_vehicles habilitada, las entradas del stock no entran al bloque de KB y las escritas a mano sí", () => {
+  const warn = mock.method(logger, "warn", () => undefined);
+  try {
+    const entradas = entradasDeKnowledgeBaseParaElPrompt(
+      [ENTRADA_DEL_STOCK, ENTRADA_A_MANO],
+      ["search_vehicles", "create_booking"],
+    );
+    assert.deepEqual(entradas, [{ title: "Garantía", content: "12 meses en usados." }]);
+
+    const prompt = armarSystemPrompt({ ...BASE, guardrails: {} }, entradas);
+    assert.match(prompt, /### Garantía/);
+    assert.doesNotMatch(prompt, /Toyota Corolla/);
+    assert.doesNotMatch(prompt, /USD 15\.000/);
+  } finally {
+    warn.mock.restore();
+  }
+});
+
+test("sin search_vehicles habilitada, las entradas del stock SÍ entran (son la única fuente del stock)", () => {
+  const warn = mock.method(logger, "warn", () => undefined);
+  try {
+    const entradas = entradasDeKnowledgeBaseParaElPrompt(
+      [ENTRADA_DEL_STOCK, ENTRADA_A_MANO],
+      ["create_booking"],
+    );
+    // Mismo orden que el repositorio, y sin el campo extra: la forma que
+    // espera armarSystemPrompt.
+    assert.deepEqual(entradas, [
+      { title: "Toyota Corolla 2020", content: "Precio: USD 15.000." },
+      { title: "Garantía", content: "12 meses en usados." },
+    ]);
+
+    const prompt = armarSystemPrompt({ ...BASE, guardrails: {} }, entradas);
+    assert.match(prompt, /### Toyota Corolla 2020\nPrecio: USD 15\.000\./);
+    assert.match(prompt, /### Garantía/);
+  } finally {
+    warn.mock.restore();
+  }
+});
+
+test("la KB que entra al prompt por encima del tope de caracteres deja un warn, y no se corta", () => {
+  const warn = mock.method(logger, "warn", () => undefined);
+  try {
+    const mitad = "x".repeat(TOPE_DE_CARACTERES_DE_KB_EN_EL_PROMPT / 2);
+    // Justo en el tope: sin aviso (el título suma, así que se descuenta).
+    entradasDeKnowledgeBaseParaElPrompt(
+      [
+        { title: "A", content: mitad.slice(1), sourceVehicleId: null },
+        { title: "B", content: mitad.slice(1), sourceVehicleId: null },
+      ],
+      [],
+    );
+    assert.equal(warn.mock.callCount(), 0);
+
+    // Un carácter más: aviso, con los números para leerlo en los logs.
+    const entradas = entradasDeKnowledgeBaseParaElPrompt(
+      [
+        { title: "A", content: mitad, sourceVehicleId: null },
+        { title: "B", content: mitad.slice(1), sourceVehicleId: null },
+      ],
+      [],
+      { agentId: "agente-1" },
+    );
+    assert.equal(warn.mock.callCount(), 1);
+    const [datos] = warn.mock.calls[0].arguments as unknown as [Record<string, unknown>];
+    assert.equal(datos.agentId, "agente-1");
+    assert.equal(datos.caracteres, TOPE_DE_CARACTERES_DE_KB_EN_EL_PROMPT + 1);
+    assert.equal(datos.tope, TOPE_DE_CARACTERES_DE_KB_EN_EL_PROMPT);
+    // Solo avisa: el contenido llega entero.
+    assert.equal(entradas[0].content, mitad);
+  } finally {
+    warn.mock.restore();
+  }
+});
+
+test("el tope se mide DESPUÉS de sacar las del stock: un stock grande con search_vehicles no avisa", () => {
+  const warn = mock.method(logger, "warn", () => undefined);
+  try {
+    const stockGrande = Array.from({ length: 150 }, (_, i) => ({
+      title: `Vehículo ${i}`,
+      content: "y".repeat(200),
+      sourceVehicleId: `veh-${i}`,
+    }));
+    entradasDeKnowledgeBaseParaElPrompt([...stockGrande, ENTRADA_A_MANO], ["search_vehicles"]);
+    assert.equal(warn.mock.callCount(), 0);
+
+    entradasDeKnowledgeBaseParaElPrompt([...stockGrande, ENTRADA_A_MANO], []);
+    assert.equal(warn.mock.callCount(), 1);
+  } finally {
+    warn.mock.restore();
+  }
 });
 
 test("la tool del sistema exige los dos textos y no pide nada más", () => {

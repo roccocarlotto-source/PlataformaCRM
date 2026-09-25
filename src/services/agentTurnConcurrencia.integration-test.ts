@@ -412,7 +412,8 @@ test("dos primeros mensajes concurrentes de la MISMA sesión del widget -> un so
   const sessionId = `sesion-${randomUUID()}`;
 
   const a = await sostenerTransaccion((tx) => lockOrganizationForUpdate(fx.orgId, tx));
-  const resolver = () => resolveWidgetContact(fx.orgId, fx.agentId, fx.branchId, "WEB", sessionId);
+  const resolver = () =>
+    resolveWidgetContact(fx.orgId, fx.agentId, fx.branchId, "WEB", sessionId, randomUUID());
   const ambas = Promise.all([resolver(), resolver()]);
   await esperarBloqueadoPor(a, ambas, "resolveWidgetContact");
   await esperarBackendsBloqueados(a, 2);

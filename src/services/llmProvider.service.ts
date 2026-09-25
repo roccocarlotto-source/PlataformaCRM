@@ -336,6 +336,23 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
       const cuerpo: Record<string, unknown> = {
         model: model ?? config.defaultModel,
         messages: aMensajesDeOpenAi(systemPrompt, messages),
+        // Ítem 131 (E-01): lo que viaja acá son conversaciones de los clientes
+        // finales de cada negocio (nombres, teléfonos, presupuestos). Con
+        // "deny", OpenRouter solo enruta a proveedores que no guardan ni
+        // entrenan con los prompts. Va FIJO, no es opt-in: no hay ningún caso
+        // en que la plataforma quiera ceder esos datos.
+        //
+        // Excepción real, documentada: si un modelo no tiene NINGÚN proveedor
+        // que cumpla la política, OpenRouter no degrada a uno que sí la viole:
+        // rechaza el request (sin endpoints que coincidan con la política de
+        // datos). Es lo esperable con los modelos `:free`, cuyo único
+        // proveedor suele ser un free tier que usa los datos para mejorar su
+        // producto (el `google/gemma-4-31b-it:free` por defecto de env.ts
+        // tiene uno solo: Google AI Studio). Ese rechazo es un 4xx, así que no
+        // se reintenta y termina en LlmProviderError → handoff. Elegir un
+        // modelo con proveedores que no retienen datos es la otra mitad de
+        // E-01 y es decisión de costo, no de este adaptador.
+        provider: { data_collection: "deny" },
       };
 
       // `tools` y `tool_choice` SOLO cuando hay tools. Un `tools: []` no es
