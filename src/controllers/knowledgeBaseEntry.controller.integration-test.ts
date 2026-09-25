@@ -651,8 +651,8 @@ test("findActiveKnowledgeBaseEntriesByBranch: solo activas, no borradas, de esa 
   const entradas = await findActiveKnowledgeBaseEntriesByBranch(sucursal.id, orgA.id);
 
   assert.deepEqual(entradas, [
-    { title: String(primera.title), content: String(primera.content) },
-    { title: String(segunda.title), content: String(segunda.content) },
+    { title: String(primera.title), content: String(primera.content), sourceVehicleId: null },
+    { title: String(segunda.title), content: String(segunda.content), sourceVehicleId: null },
   ]);
 
   // Y el aislamiento por organización también es de esta lectura, no solo del

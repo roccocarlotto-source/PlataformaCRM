@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { sendWidgetMessageHandler } from "../controllers/publicWidget.controller";
 import { authenticateEmbedToken } from "../middlewares/authenticateEmbedToken";
-import { widgetRateLimiter } from "../middlewares/rateLimit";
+import { widgetRateLimiter, widgetSessionRateLimiter } from "../middlewares/rateLimit";
 import { requireWidgetJsonContentType, widgetJsonParser } from "../middlewares/widgetBody";
 import { buildWidgetCorsMiddleware } from "../middlewares/widgetCors";
 
@@ -40,6 +40,9 @@ export const publicWidgetRouter = Router();
 //      WidgetAuthContext (token + agente + Origin).
 //   4. widgetRateLimiter — DESPUÉS de authenticateEmbedToken por necesidad
 //      estructural: cuenta por embedTokenId, que no existe hasta el paso 3.
+//      Ítem 138: lo precede widgetSessionRateLimiter (por token + sessionId),
+//      y el orden importa — un request que corta el de sesión no suma en el
+//      cupo compartido del sitio. Ver el bloque en rateLimit.ts.
 //
 // NO MONTA `authorize`: no hay usuario ni rol.
 // ---------------------------------------------------------------------------
@@ -52,6 +55,7 @@ publicWidgetRouter.post(
   requireWidgetJsonContentType,
   widgetJsonParser,
   authenticateEmbedToken,
+  widgetSessionRateLimiter,
   widgetRateLimiter,
   sendWidgetMessageHandler,
 );

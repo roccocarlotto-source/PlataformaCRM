@@ -150,6 +150,26 @@ test("el modelo del request (Agent.modelName) pisa el default", async () => {
   assert.equal(cuerpoDe(llamadas[0]).model, "anthropic/claude-sonnet-4");
 });
 
+// Ítem 131 (E-01): la política de datos va SIEMPRE, con o sin tools, con el
+// modelo por defecto o con uno propio del Agent. Si alguna vez se condiciona a
+// algo, este test tiene que romperse.
+test("manda provider.data_collection=deny en todo request, sin condiciones", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "ok" }) });
+  const proveedor = crearProveedorOpenRouter({ ...CONFIG, fetch });
+
+  await proveedor.complete(PEDIDO_BASICO);
+  await proveedor.complete({
+    ...PEDIDO_BASICO,
+    model: "anthropic/claude-sonnet-4",
+    tools: [TOOL_CREAR_OPORTUNIDAD],
+  });
+
+  assert.equal(llamadas.length, 2);
+  for (const llamada of llamadas) {
+    assert.deepEqual(cuerpoDe(llamada).provider, { data_collection: "deny" });
+  }
+});
+
 test("SIN tools no manda `tools` ni `tool_choice` — un tools:[] rompe varios modelos", async () => {
   const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "ok" }) });
 
