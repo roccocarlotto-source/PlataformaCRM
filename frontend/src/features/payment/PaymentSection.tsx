@@ -20,6 +20,7 @@ import {
 import { useOpportunityPayments } from "./queries";
 import { paymentTotals } from "./totals";
 import type { Payment, PaymentMethod } from "./types";
+import { LoadingState } from "../../design-system/LoadingState";
 
 export interface PaymentSectionProps {
   opportunity: Pick<Opportunity, "id" | "amount" | "currency">;
@@ -111,7 +112,9 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
               No pudimos cargar los pagos
               {paymentsQuery.error instanceof Error ? `: ${paymentsQuery.error.message}` : "."}
             </ErrorState>
-          ) : paymentsQuery.isLoading ? null : (
+          ) : paymentsQuery.isLoading ? (
+            <LoadingState variant="lines" count={2} />
+          ) : (
             <>
               {payments.length === 0 ? (
                 <p className="ds-hint">Todavía no se registraron pagos.</p>
@@ -146,6 +149,9 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
                           <Button
                             variant="danger"
                             disabled={isBusy}
+                            loading={
+                              deleteMutation.isPending && deleteMutation.variables === payment.id
+                            }
                             aria-label={`Borrar el pago de ${formatMoney(payment.amount, payment.currency)} del ${formatDate(payment.paidAt)}`}
                             onClick={() => handleDelete(payment)}
                           >

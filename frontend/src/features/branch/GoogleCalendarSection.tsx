@@ -111,7 +111,12 @@ export function GoogleCalendarSection({
             <strong>{conexion.calendarId}</strong>
           </p>
           <div className="ds-card-actions">
-            <Button variant="danger" onClick={handleDesconectar} disabled={isBusy}>
+            <Button
+              variant="danger"
+              onClick={handleDesconectar}
+              disabled={isBusy}
+              loading={disconnectMutation.isPending}
+            >
               {disconnectMutation.isPending ? "Desconectando…" : "Desconectar"}
             </Button>
           </div>
@@ -153,7 +158,12 @@ export function GoogleCalendarSection({
                 <Badge variant="neutral">Sin conectar</Badge>
               </p>
               <div className="ds-card-actions">
-                <Button variant="primary" onClick={() => void handleConectar()} disabled={isBusy}>
+                <Button
+                  variant="primary"
+                  onClick={() => void handleConectar()}
+                  disabled={isBusy}
+                  loading={startMutation.isPending}
+                >
                   {startMutation.isPending ? "Abriendo Google…" : "Conectar con Google Calendar"}
                 </Button>
               </div>

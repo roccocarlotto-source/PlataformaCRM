@@ -57,6 +57,9 @@ export interface FileInputButtonProps {
   // solo KnowledgeBaseFormPage, donde elegir un archivo PISA el campo
   // Contenido y por eso hay algo concreto que revertir.
   onClear?: () => void;
+  // La acción que dispara este botón está en curso (p. ej. la extracción
+  // de texto de KnowledgeBaseFormPage): spinner y botón deshabilitado.
+  loading?: boolean;
 }
 
 const SIN_ARCHIVO = "Ningún archivo elegido";
@@ -69,6 +72,7 @@ export function FileInputButton({
   buttonLabel = "Elegir archivo",
   selectedFileName,
   onClear,
+  loading = false,
 }: FileInputButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const labelId = useId();
@@ -116,6 +120,7 @@ export function FileInputButton({
         <Button
           variant="secondary"
           disabled={disabled}
+          loading={loading}
           onClick={() => inputRef.current?.click()}
           aria-describedby={label ? labelId : undefined}
         >

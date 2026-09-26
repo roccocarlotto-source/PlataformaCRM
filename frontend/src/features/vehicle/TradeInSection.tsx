@@ -4,6 +4,7 @@ import { ErrorState } from "../../design-system/ErrorState";
 import type { Opportunity } from "../opportunity/types";
 import { vehicleLabel } from "../quote/format";
 import { useVehicles } from "./queries";
+import { LoadingState } from "../../design-system/LoadingState";
 
 export interface TradeInSectionProps {
   opportunity: Pick<Opportunity, "id">;
@@ -50,7 +51,9 @@ export function TradeInSection({ opportunity }: TradeInSectionProps) {
               No pudimos cargar los autos en permuta
               {vehiclesQuery.error instanceof Error ? `: ${vehiclesQuery.error.message}` : "."}
             </ErrorState>
-          ) : vehiclesQuery.isLoading ? null : vehicles.length === 0 ? (
+          ) : vehiclesQuery.isLoading ? (
+            <LoadingState variant="lines" count={2} />
+          ) : vehicles.length === 0 ? (
             <p className="ds-hint">El cliente no entregó ningún auto en esta venta.</p>
           ) : (
             <ul className="ds-trade-in-list" aria-label="Autos recibidos en permuta">

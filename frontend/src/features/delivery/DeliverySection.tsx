@@ -214,7 +214,12 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
         </div>
 
         <div className="ds-delivery-actions">
-          <Button variant="primary" disabled={locked} onClick={handleConfirm}>
+          <Button
+            variant="primary"
+            disabled={locked}
+            loading={confirmMutation.isPending}
+            onClick={handleConfirm}
+          >
             Confirmar entrega
           </Button>
         </div>

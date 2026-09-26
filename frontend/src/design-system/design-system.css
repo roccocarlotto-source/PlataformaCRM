@@ -752,6 +752,23 @@ fieldset.ds-field {
   gap: var(--space-2);
 }
 
+/* Espera a pantalla completa (LoadingScreen): el gate de ruta privada, antes
+   de que exista el layout. Centrada en la ventana y con el spinner grande,
+   porque no hay nada más en pantalla que la acompañe. */
+.ds-loading-screen {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.ds-loading-screen p {
+  margin: 0;
+}
+
 /* Versión en línea (InlineLoading): dentro de una frase, una celda o un <li>,
    así que inline-flex y sin padding propio. */
 .ds-inline-loading {

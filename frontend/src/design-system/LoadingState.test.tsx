@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { LoadingState, InlineLoading } from "./LoadingState";
+import { LoadingState, InlineLoading, LoadingScreen } from "./LoadingState";
 import { Button } from "./Button";
 
 // Lo que estos tests fijan es el contrato que hace que la animación sea
@@ -81,5 +81,20 @@ describe("Button loading", () => {
   it("el spinner no entra en el nombre accesible", () => {
     render(<Button loading>Revocar</Button>);
     expect(screen.getByRole("button", { name: "Revocar" })).toBeInTheDocument();
+  });
+});
+
+describe("LoadingScreen", () => {
+  // Es la espera que más ve el usuario: el gate de ruta privada
+  // (auth/ProtectedRoute.tsx) en cada carga fría. Vivía como un <div> con
+  // texto pelado y se escapó del primer barrido porque ese inventario buscaba
+  // el texto entre comillas y este estaba suelto en el JSX.
+  it("spinner grande centrado, con el texto al lado", () => {
+    const { container } = render(<LoadingScreen />);
+    const raiz = container.querySelector(".ds-loading-screen");
+    expect(raiz).toBeInTheDocument();
+    expect(raiz).toHaveAttribute("aria-busy", "true");
+    expect(raiz?.querySelectorAll(".ds-spinner--lg")).toHaveLength(1);
+    expect(screen.getByText("Cargando…")).toBeInTheDocument();
   });
 });

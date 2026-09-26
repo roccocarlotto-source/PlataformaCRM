@@ -121,6 +121,7 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
               <Button
                 variant="primary"
                 disabled={isBusy}
+                loading={isBusy && transitionMutation.variables?.status === "SENT"}
                 onClick={() => handleTransition(active, "SENT")}
               >
                 Enviar
@@ -135,6 +136,7 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
               <Button
                 variant="primary"
                 disabled={isBusy}
+                loading={isBusy && transitionMutation.variables?.status === "ACCEPTED"}
                 onClick={() => handleTransition(active, "ACCEPTED")}
               >
                 Marcar aceptada
@@ -142,6 +144,7 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
               <Button
                 variant="danger"
                 disabled={isBusy}
+                loading={isBusy && transitionMutation.variables?.status === "REJECTED"}
                 onClick={() => handleTransition(active, "REJECTED")}
               >
                 Marcar rechazada

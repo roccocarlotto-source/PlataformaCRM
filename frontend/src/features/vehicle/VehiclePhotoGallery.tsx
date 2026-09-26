@@ -129,6 +129,7 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
           label="Subir foto"
           accept="image/jpeg,image/png"
           disabled={isBusy}
+          loading={uploadMutation.isPending}
           selectedFileName={
             uploadMutation.isPending ? (uploadMutation.variables?.file.name ?? null) : null
           }
@@ -153,6 +154,7 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
           onDelete={handleBulkDelete}
           onCancel={seleccion.clear}
           disabled={isBusy}
+          deleting={isBulkDeleting}
         />
       ) : null}
       {photos.length > 0 ? (
@@ -191,6 +193,9 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
                       updateMutation.mutate({ photoId: photo.id, input: { isCover: true } })
                     }
                     disabled={isBusy}
+                    loading={
+                      updateMutation.isPending && updateMutation.variables?.photoId === photo.id
+                    }
                     aria-label={`Marcar foto ${index + 1} como portada`}
                   >
                     Marcar portada
@@ -214,6 +219,7 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
                   variant="danger"
                   onClick={() => handleDelete(photo.id)}
                   disabled={isBusy}
+                  loading={deleteMutation.isPending && deleteMutation.variables === photo.id}
                   aria-label={`Eliminar foto ${index + 1}`}
                 >
                   Eliminar

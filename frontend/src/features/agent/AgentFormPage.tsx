@@ -591,7 +591,7 @@ export function AgentFormPage() {
         {error ? <ErrorState>{error}</ErrorState> : null}
         {puedeReintentar ? (
           <div>
-            <Button onClick={() => void traducir()} disabled={traduciendo}>
+            <Button onClick={() => void traducir()} disabled={traduciendo} loading={traduciendo}>
               Reintentar
             </Button>
           </div>

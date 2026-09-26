@@ -7,6 +7,10 @@ export interface BulkSelectionBarProps {
   onDelete: () => void;
   onCancel: () => void;
   disabled?: boolean;
+  // El borrado del lote está corriendo: spinner en la acción destructiva.
+  // Es la espera más larga de la barra —va foto por foto, o entrada por
+  // entrada— y la que más necesita decir que algo está pasando.
+  deleting?: boolean;
 }
 
 // Barra que aparece arriba de una lista cuando hay algo tildado (ítem 64).
@@ -23,11 +27,12 @@ export function BulkSelectionBar({
   onDelete,
   onCancel,
   disabled = false,
+  deleting = false,
 }: BulkSelectionBarProps) {
   return (
     <div className="ds-bulk-bar">
       <span className="ds-bulk-bar-count">{label}</span>
-      <Button variant="danger" onClick={onDelete} disabled={disabled}>
+      <Button variant="danger" onClick={onDelete} disabled={disabled} loading={deleting}>
         Eliminar seleccionadas
       </Button>
       <Button variant="secondary" onClick={onCancel} disabled={disabled}>

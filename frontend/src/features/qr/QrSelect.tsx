@@ -1,6 +1,7 @@
 import { Select } from "../../design-system/Select";
 import { BRANCHES_PARA_SELECT, useBranches } from "../branch/queries";
 import { QRS_PARA_SELECT, useQrCodes } from "./queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 interface QrSelectProps {
   id?: string;
@@ -59,7 +60,7 @@ export function QrSelect({
   return (
     <div>
       <label htmlFor={id}>{required ? <span className="ds-required">{label}</span> : label}</label>
-      {qrCodesQuery.isLoading ? <p>Cargando…</p> : null}
+      {qrCodesQuery.isLoading ? <InlineLoading /> : null}
       {qrCodesQuery.isError ? (
         <p role="alert">
           No pudimos cargar los QR

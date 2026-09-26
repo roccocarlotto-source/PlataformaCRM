@@ -360,6 +360,7 @@ export function KnowledgeBaseFormPage() {
                 label={ETIQUETA_ARCHIVO}
                 accept={EXTENSIONES_ARCHIVO_SOPORTADAS.join(",")}
                 disabled={extrayendo || isSubmitting}
+                loading={extrayendo}
                 selectedFileName={nombreArchivo}
                 onFileSelected={(archivo) => void handleArchivo(archivo)}
                 onClear={handleQuitarArchivo}

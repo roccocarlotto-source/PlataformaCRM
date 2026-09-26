@@ -84,7 +84,11 @@ export function SugerirMapeoDesdeArchivo({ onSugerir, disabled }: SugerirMapeoDe
         sugeridas quedan editables y se persisten recién al guardar la fuente.
       </p>
 
-      <Button disabled={disabled || cargando} onClick={() => void handleSugerir()}>
+      <Button
+        disabled={disabled || cargando}
+        loading={cargando}
+        onClick={() => void handleSugerir()}
+      >
         {cargando ? "Leyendo…" : "Sugerir mapeo desde un archivo"}
       </Button>
 

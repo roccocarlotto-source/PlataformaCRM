@@ -73,3 +73,24 @@ export function InlineLoading({ children = "Cargando…" }: InlineLoadingProps) 
     </span>
   );
 }
+
+export interface LoadingScreenProps {
+  children?: ReactNode;
+}
+
+// Animaciones de carga — la espera a pantalla completa, antes de que exista
+// el layout de la app: el gate de ruta privada (auth/ProtectedRoute.tsx)
+// mientras se resuelve la sesión y el perfil. Es el estado de carga que más
+// ve el usuario, porque aparece en cada carga fría de cualquier pantalla, y
+// hasta ahora era un <div> con texto pelado, sin centrar y sin animación.
+//
+// Spinner grande y centrado en el alto de la ventana, no el inline de una
+// sección: acá no hay nada más en pantalla que lo acompañe.
+export function LoadingScreen({ children = "Cargando…" }: LoadingScreenProps) {
+  return (
+    <div className="ds-loading-screen" aria-live="polite" aria-busy="true">
+      <Spinner size="lg" />
+      <p>{children}</p>
+    </div>
+  );
+}

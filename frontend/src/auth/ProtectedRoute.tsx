@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
+import { LoadingScreen } from "../design-system/LoadingState";
 
 // Máquina de estados de acceso a rutas privadas. Deliberadamente NO redirige
 // a /login para account-unavailable ni profile-error — ver
@@ -11,7 +12,7 @@ export function ProtectedRoute() {
   const location = useLocation();
 
   if (status === "initializing" || status === "loading-profile") {
-    return <div>Cargando…</div>;
+    return <LoadingScreen />;
   }
 
   if (status === "unauthenticated") {
