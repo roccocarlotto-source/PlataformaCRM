@@ -1408,9 +1408,18 @@ fieldset.ds-field {
 
 /* Un aviso (.ds-hint) que queda dentro de la tarjeta, entre los filtros y el
    contenido (Ingesta: "primeras 100 fuentes"; QR: "copiá el link a mano"),
-   toma el mismo aire lateral que los estados; sin esto fluía pegado al borde. */
+   toma el mismo aire que los estados: 12px arriba y abajo, 24px a los lados,
+   igual que .ds-loading y .ds-empty, para que los tres se apoyen en el mismo
+   ritmo dentro de la tarjeta.
+
+   El `margin: 0` NO es redundante: .ds-hint trae de fábrica un margen
+   superior NEGATIVO (-4px), pensado para pegarlo al campo de formulario que
+   suele tener encima. Acá arriba no hay un campo sino la línea divisoria de
+   la fila de filtros, así que ese margen trepaba el texto por encima de la
+   línea y lo dejaba sin aire (medido: -4px arriba contra 12px abajo). */
 .ds-list-card > .ds-hint {
-  padding: 0 var(--space-5);
+  margin: 0;
+  padding: var(--space-3) var(--space-5);
 }
 
 .ds-list-card .ds-pagination {
