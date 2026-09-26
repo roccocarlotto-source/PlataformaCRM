@@ -3,6 +3,7 @@ import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
 import { useDefaultPipelineStageSummary } from "./queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 // Sin Pipeline default: empty state explícito, NUNCA error — no dispara
 // GET /stages ni conteos de Opportunities (ver useDefaultPipelineStageSummary).
@@ -60,7 +61,7 @@ export function PipelineStageSummary() {
                           se muestra ("Prospecto: 3") y por el que se lo busca. */}
                       <span>{stage.name}:</span>
                       <span className="ds-meter-value">
-                        {stage.isLoading ? "Cargando…" : null}
+                        {stage.isLoading ? <InlineLoading /> : null}
                         {stage.isError ? (
                           <span role="alert">No pudimos cargar este dato.</span>
                         ) : null}

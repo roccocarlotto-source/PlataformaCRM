@@ -154,7 +154,7 @@ export function ConversationListPage() {
           />
         </div>
 
-        {conversationsQuery.isLoading ? <LoadingState /> : null}
+        {conversationsQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {conversationsQuery.isError ? (
           <ErrorState>

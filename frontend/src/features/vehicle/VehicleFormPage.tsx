@@ -635,7 +635,7 @@ export function VehicleFormPage() {
   }
 
   if (isEditMode && vehicleQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && vehicleQuery.isError) {
@@ -1247,7 +1247,7 @@ export function VehicleFormPage() {
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>

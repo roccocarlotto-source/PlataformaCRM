@@ -129,7 +129,7 @@ export function PipelineFormPage() {
   }
 
   if (isEditMode && pipelineQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && pipelineQuery.isError) {
@@ -178,7 +178,7 @@ export function PipelineFormPage() {
           {error ? <ErrorState>{error}</ErrorState> : null}
           <div>
             <RequiredFieldsHint />
-            <Button type="submit" variant="primary" disabled={isSubmitting}>
+            <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
               {isSubmitting ? "Guardando…" : "Guardar"}
             </Button>
           </div>

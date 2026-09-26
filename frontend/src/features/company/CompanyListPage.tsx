@@ -141,7 +141,7 @@ export function CompanyListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {companiesQuery.isLoading ? <LoadingState /> : null}
+        {companiesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {companiesQuery.isError ? (
           <ErrorState>

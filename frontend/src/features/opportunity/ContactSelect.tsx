@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { contactKeys, useContact, useContacts } from "../contact/queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 interface ContactSelectProps {
   id?: string;
@@ -65,11 +66,13 @@ export function ContactSelect({ id, label, value, onChange }: ContactSelectProps
       {value ? (
         <p>
           Seleccionado:{" "}
-          {selectedContactQuery.data
-            ? `${selectedContactQuery.data.firstName} ${selectedContactQuery.data.lastName}`
-            : selectedContactQuery.isLoading
-              ? "Cargando…"
-              : "No pudimos cargar el contacto seleccionado."}
+          {selectedContactQuery.data ? (
+            `${selectedContactQuery.data.firstName} ${selectedContactQuery.data.lastName}`
+          ) : selectedContactQuery.isLoading ? (
+            <InlineLoading />
+          ) : (
+            "No pudimos cargar el contacto seleccionado."
+          )}
         </p>
       ) : null}
       <input
@@ -81,7 +84,11 @@ export function ContactSelect({ id, label, value, onChange }: ContactSelectProps
       />
       {debouncedTerm ? (
         <ul>
-          {searchQuery.isLoading ? <li>Buscando…</li> : null}
+          {searchQuery.isLoading ? (
+            <li>
+              <InlineLoading>Buscando…</InlineLoading>
+            </li>
+          ) : null}
           {searchQuery.isError ? <li role="alert">No pudimos buscar contactos.</li> : null}
           {searchQuery.isSuccess && searchQuery.data.data.length === 0 ? (
             <li>Sin resultados.</li>

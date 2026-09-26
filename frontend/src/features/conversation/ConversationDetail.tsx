@@ -119,7 +119,7 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
   const esPopup = idDelProp !== undefined;
 
   if (conversationQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (conversationQuery.isError || !conversationQuery.data) {

@@ -88,6 +88,7 @@ export function QuoteFormPanel({
         label: isSubmitting ? "Guardando…" : "Guardar",
         formId,
         disabled: isSubmitting,
+        loading: isSubmitting,
       }}
     >
       <form id={formId} onSubmit={handleSubmit} noValidate className="ds-quote-form">

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listOpportunities } from "../opportunity/api";
 import { opportunityKeys, useOpportunity } from "../opportunity/queries";
 import type { Opportunity } from "../opportunity/types";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 interface OpportunitySelectProps {
   id?: string;
@@ -82,11 +83,13 @@ export function OpportunitySelect({ id, label, value, onChange }: OpportunitySel
       {value ? (
         <p>
           Seleccionada:{" "}
-          {selectedOpportunityQuery.data
-            ? formatOpportunityLabel(selectedOpportunityQuery.data)
-            : selectedOpportunityQuery.isLoading
-              ? "Cargando…"
-              : "No pudimos cargar la oportunidad seleccionada."}
+          {selectedOpportunityQuery.data ? (
+            formatOpportunityLabel(selectedOpportunityQuery.data)
+          ) : selectedOpportunityQuery.isLoading ? (
+            <InlineLoading />
+          ) : (
+            "No pudimos cargar la oportunidad seleccionada."
+          )}
         </p>
       ) : null}
       <input
@@ -98,7 +101,11 @@ export function OpportunitySelect({ id, label, value, onChange }: OpportunitySel
       />
       {debouncedTerm ? (
         <ul>
-          {searchQuery.isLoading ? <li>Buscando…</li> : null}
+          {searchQuery.isLoading ? (
+            <li>
+              <InlineLoading>Buscando…</InlineLoading>
+            </li>
+          ) : null}
           {searchQuery.isError ? <li role="alert">No pudimos buscar oportunidades.</li> : null}
           {searchQuery.isSuccess && searchQuery.data.data.length === 0 ? (
             <li>Sin resultados.</li>

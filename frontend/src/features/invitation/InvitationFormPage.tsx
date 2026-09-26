@@ -79,7 +79,12 @@ export function InvitationFormPage() {
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={createInvitationMutation.isPending}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={createInvitationMutation.isPending}
+            loading={createInvitationMutation.isPending}
+          >
             {createInvitationMutation.isPending ? "Enviando…" : "Enviar invitación"}
           </Button>
         </div>

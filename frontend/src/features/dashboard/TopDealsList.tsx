@@ -50,7 +50,7 @@ export function TopDealsList({ granularity }: TopDealsListProps) {
 
   return (
     <Card aria-label="Mayores oportunidades abiertas" heading="Mayores oportunidades abiertas">
-      {isLoading ? <LoadingState /> : null}
+      {isLoading ? <LoadingState variant="rows" /> : null}
 
       {isError ? (
         <ErrorState>

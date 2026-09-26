@@ -129,7 +129,7 @@ export function ServiceTypeListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {serviceTypesQuery.isLoading ? <LoadingState /> : null}
+        {serviceTypesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {serviceTypesQuery.isError ? (
           <ErrorState>

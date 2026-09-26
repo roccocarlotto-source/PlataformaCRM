@@ -66,7 +66,7 @@ export function LoginPage() {
           autoComplete="current-password"
         />
         {error ? <ErrorState>{error}</ErrorState> : null}
-        <Button type="submit" variant="primary" disabled={isSubmitting}>
+        <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
           {isSubmitting ? "Ingresando…" : "Ingresar"}
         </Button>
         <p className="ds-auth-links">

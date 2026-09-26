@@ -68,7 +68,12 @@ export function BookingDetailDialog({
         </ErrorState>
       ) : null}
 
-      <Button variant="danger" onClick={handleCancel} disabled={cancelBookingMutation.isPending}>
+      <Button
+        variant="danger"
+        onClick={handleCancel}
+        disabled={cancelBookingMutation.isPending}
+        loading={cancelBookingMutation.isPending}
+      >
         Cancelar reserva
       </Button>
     </Modal>

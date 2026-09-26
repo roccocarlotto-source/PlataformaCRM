@@ -240,7 +240,7 @@ export function MyTasksPage() {
         />
       </div>
 
-      {tasksQuery.isLoading ? <LoadingState /> : null}
+      {tasksQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
       {tasksQuery.isError ? (
         <ErrorState>

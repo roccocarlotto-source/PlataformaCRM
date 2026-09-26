@@ -54,6 +54,9 @@ export interface ModalPrimaryAction {
   onClick?: () => void;
   formId?: string;
   disabled?: boolean;
+  // La acción está corriendo: el botón muestra un spinner y queda
+  // deshabilitado mientras dure (ver Button.tsx).
+  loading?: boolean;
 }
 
 interface ModalBaseProps {
@@ -164,6 +167,7 @@ export function Modal(props: ModalProps) {
               form={primaryAction.formId}
               onClick={primaryAction.onClick}
               disabled={primaryAction.disabled}
+              loading={primaryAction.loading}
             >
               {primaryAction.label}
             </Button>

@@ -132,7 +132,7 @@ export function ResetPasswordPage() {
           autoComplete="new-password"
         />
         {error ? <ErrorState>{error}</ErrorState> : null}
-        <Button type="submit" variant="primary" disabled={isSubmitting}>
+        <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
           {isSubmitting ? "Guardando…" : "Guardar contraseña"}
         </Button>
       </form>

@@ -12,6 +12,7 @@ import { BranchSelect } from "../branch/BranchSelect";
 import { extractKnowledgeBaseText } from "./api";
 import { useCreateKnowledgeBaseEntry, useUpdateKnowledgeBaseEntry } from "./mutations";
 import { useKnowledgeBaseEntry } from "./queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 import {
   EXTENSIONES_ARCHIVO_SOPORTADAS,
   type CreateKnowledgeBaseEntryInput,
@@ -240,7 +241,7 @@ export function KnowledgeBaseFormPage() {
   }
 
   if (isEditMode && entryQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && entryQuery.isError) {
@@ -365,11 +366,13 @@ export function KnowledgeBaseFormPage() {
               />
             </div>
             <p className="ds-hint ds-field-grid--full">
-              {extrayendo
-                ? "Extrayendo texto…"
-                : "Se lee el texto del documento y se pega acá arriba; el archivo no se guarda. " +
-                  "Un PDF escaneado (una foto del papel, sin texto seleccionable) no sirve: ese hay " +
-                  "que copiarlo a mano."}
+              {extrayendo ? (
+                <InlineLoading>Extrayendo texto…</InlineLoading>
+              ) : (
+                "Se lee el texto del documento y se pega acá arriba; el archivo no se guarda. " +
+                "Un PDF escaneado (una foto del papel, sin texto seleccionable) no sirve: ese hay " +
+                "que copiarlo a mano."
+              )}
             </p>
             {truncado ? (
               <p className="ds-hint ds-field-grid--full">
@@ -397,7 +400,12 @@ export function KnowledgeBaseFormPage() {
 
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting || extrayendo}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={isSubmitting || extrayendo}
+            loading={isSubmitting}
+          >
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>

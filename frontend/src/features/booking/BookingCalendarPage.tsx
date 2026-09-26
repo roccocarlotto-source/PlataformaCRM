@@ -162,7 +162,9 @@ export function BookingCalendarPage() {
           <Button onClick={() => setFecha(hoyComoFecha())}>Hoy</Button>
         </div>
 
-        {branchesQuery.isLoading || resourcesQuery.isLoading ? <LoadingState /> : null}
+        {branchesQuery.isLoading || resourcesQuery.isLoading ? (
+          <LoadingState variant="rows" />
+        ) : null}
 
         {resourcesQuery.isError ? (
           <ErrorState>

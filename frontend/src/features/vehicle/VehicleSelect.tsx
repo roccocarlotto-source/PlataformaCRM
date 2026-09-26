@@ -4,6 +4,7 @@ import { Button } from "../../design-system/Button";
 import { priceCell, unitTitle } from "./format";
 import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "./labels";
 import { useVehicle, useVehicles } from "./queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 interface VehicleSelectProps {
   id?: string;
@@ -69,7 +70,7 @@ export function VehicleSelect({ id, label, value, onChange }: VehicleSelectProps
               </Badge>
             </>
           ) : selectedVehicleQuery.isLoading ? (
-            "Cargando…"
+            <InlineLoading />
           ) : (
             "No pudimos cargar la unidad seleccionada."
           )}{" "}
@@ -85,7 +86,11 @@ export function VehicleSelect({ id, label, value, onChange }: VehicleSelectProps
       />
       {debouncedTerm ? (
         <ul>
-          {searchQuery.isLoading ? <li>Buscando…</li> : null}
+          {searchQuery.isLoading ? (
+            <li>
+              <InlineLoading>Buscando…</InlineLoading>
+            </li>
+          ) : null}
           {searchQuery.isError ? <li role="alert">No pudimos buscar unidades.</li> : null}
           {searchQuery.isSuccess && searchQuery.data.data.length === 0 ? (
             <li>Sin unidades disponibles para esa búsqueda.</li>

@@ -268,7 +268,7 @@ function PaymentForm({
       </div>
       {validationError ? <ErrorState>{validationError}</ErrorState> : null}
       <div className="ds-payment-form-actions">
-        <Button type="submit" variant="primary" disabled={isSubmitting}>
+        <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
           {isSubmitting ? "Guardando…" : submitLabel}
         </Button>
         <Button disabled={isSubmitting} onClick={onCancel}>

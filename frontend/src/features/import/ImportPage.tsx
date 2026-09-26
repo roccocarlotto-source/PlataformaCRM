@@ -64,7 +64,7 @@ export function ImportPage() {
   }
 
   if (sourceQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (sourceQuery.isError) {
@@ -124,7 +124,12 @@ export function ImportPage() {
           }}
         />
 
-        <Button type="submit" variant="primary" disabled={importFileMutation.isPending}>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={importFileMutation.isPending}
+          loading={importFileMutation.isPending}
+        >
           {importFileMutation.isPending ? "Importando…" : "Importar"}
         </Button>
       </form>
@@ -169,7 +174,11 @@ export function ImportPage() {
             después. Actualizá el estado para ver cómo va.
           </p>
 
-          <Button onClick={() => void batchQuery.refetch()} disabled={batchQuery.isFetching}>
+          <Button
+            onClick={() => void batchQuery.refetch()}
+            disabled={batchQuery.isFetching}
+            loading={batchQuery.isFetching}
+          >
             {batchQuery.isFetching ? "Actualizando…" : "Actualizar estado"}
           </Button>
 

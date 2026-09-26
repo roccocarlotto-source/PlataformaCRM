@@ -80,7 +80,7 @@ export function RevenueByMonthChart({ granularity }: RevenueByMonthChartProps) {
 
   return (
     <Card aria-label={heading} heading={heading}>
-      {revenue.isLoading ? <LoadingState /> : null}
+      {revenue.isLoading ? <LoadingState variant="lines" /> : null}
 
       {revenue.isError ? (
         <ErrorState>

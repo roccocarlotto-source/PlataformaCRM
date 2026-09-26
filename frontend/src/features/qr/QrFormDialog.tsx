@@ -224,6 +224,7 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
         label: isSubmitting ? "Guardando…" : isEditMode ? "Guardar" : "Crear QR",
         formId: "qr-form",
         disabled: isSubmitting,
+        loading: isSubmitting,
       }}
     >
       <form id="qr-form" onSubmit={handleSubmit} noValidate>

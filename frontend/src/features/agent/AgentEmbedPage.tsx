@@ -162,7 +162,7 @@ export function AgentEmbedPage() {
   }
 
   if (agentQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (agentQuery.isError || !agentQuery.data) {
@@ -278,6 +278,7 @@ export function AgentEmbedPage() {
             variant="primary"
             onClick={handleGuardarDominios}
             disabled={updateAgentMutation.isPending}
+            loading={updateAgentMutation.isPending}
           >
             {updateAgentMutation.isPending ? "Guardando…" : "Guardar dominios"}
           </Button>
@@ -304,6 +305,7 @@ export function AgentEmbedPage() {
             variant="primary"
             onClick={() => void handleGenerarToken()}
             disabled={createTokenMutation.isPending}
+            loading={createTokenMutation.isPending}
           >
             {createTokenMutation.isPending ? "Generando…" : "Generar token nuevo"}
           </Button>
@@ -341,7 +343,7 @@ export function AgentEmbedPage() {
             </div>
           ) : null}
 
-          {tokensQuery.isLoading ? <LoadingState /> : null}
+          {tokensQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
           {tokensQuery.isError ? (
             <ErrorState>
@@ -413,6 +415,10 @@ export function AgentEmbedPage() {
                             variant="danger"
                             onClick={() => handleRevocar(token.id)}
                             disabled={revokeTokenMutation.isPending}
+                            loading={
+                              revokeTokenMutation.isPending &&
+                              revokeTokenMutation.variables === token.id
+                            }
                           >
                             Revocar
                           </Button>

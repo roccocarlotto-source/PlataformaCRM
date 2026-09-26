@@ -233,7 +233,9 @@ export function OpportunityBoardView() {
         ) : null}
       </div>
 
-      {stagesQuery.isLoading || opportunitiesQuery.isLoading ? <LoadingState /> : null}
+      {stagesQuery.isLoading || opportunitiesQuery.isLoading ? (
+        <LoadingState variant="rows" />
+      ) : null}
 
       {stagesQuery.isError ? (
         <ErrorState>

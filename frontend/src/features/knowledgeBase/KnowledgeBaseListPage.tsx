@@ -209,8 +209,16 @@ export function KnowledgeBaseListPage() {
             en vez de sumar una clase nueva al design system para acomodar dos
             botones. */}
         <div className="ds-card-actions">
-          <Button onClick={() => void handleSync()} disabled={!branchId || isBusy}>
-            <RefreshCw size={16} strokeWidth={1.5} aria-hidden="true" />
+          <Button
+            onClick={() => void handleSync()}
+            disabled={!branchId || isBusy}
+            loading={syncMutation.isPending}
+          >
+            {/* Mientras sincroniza, el spinner del botón ocupa el lugar del
+                ícono: dos marcas redondas juntas se leen como un error. */}
+            {syncMutation.isPending ? null : (
+              <RefreshCw size={16} strokeWidth={1.5} aria-hidden="true" />
+            )}
             {syncMutation.isPending ? "Sincronizando…" : "Sincronizar stock"}
           </Button>
           <Link to="/knowledge-base/new" className="ds-link-button">
@@ -295,7 +303,7 @@ export function KnowledgeBaseListPage() {
           </ErrorState>
         ) : null}
 
-        {entriesQuery.isLoading ? <LoadingState /> : null}
+        {entriesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {entriesQuery.isError ? (
           <ErrorState>
