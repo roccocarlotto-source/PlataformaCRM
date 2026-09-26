@@ -1,5 +1,6 @@
 import { Select } from "../../design-system/Select";
 import { BRANCHES_PARA_SELECT, useBranches } from "./queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 interface BranchSelectProps {
   id?: string;
@@ -68,7 +69,7 @@ export function BranchSelect({
   return (
     <div>
       <label htmlFor={id}>{required ? <span className="ds-required">{label}</span> : label}</label>
-      {branchesQuery.isLoading ? <p>Cargando…</p> : null}
+      {branchesQuery.isLoading ? <InlineLoading /> : null}
       {branchesQuery.isError ? (
         <p role="alert">
           No pudimos cargar las sucursales

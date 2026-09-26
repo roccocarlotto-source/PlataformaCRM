@@ -1,6 +1,7 @@
 import { AnimatedNumber } from "../../design-system/AnimatedNumber";
 import { Card } from "../../design-system/Card";
 import { useVehicleSummary } from "./queries";
+import { Skeleton } from "../../design-system/Skeleton";
 
 const CARDS: Array<{ key: "inStock" | "available"; label: string }> = [
   { key: "inStock", label: "Unidades en stock" },
@@ -38,7 +39,14 @@ export function VehicleSummaryCards({ countUp = false }: { countUp?: boolean }) 
           return (
             <Card as="div" key={key} className="ds-kpi">
               <dt className="ds-kpi-label">{label}</dt>
-              {card.isLoading ? <dd className="ds-kpi-state">Cargando…</dd> : null}
+              {card.isLoading ? (
+                <dd className="ds-kpi-state">
+                  {/* Un bloque animado del tamaño del número que viene, para
+                      que la card no cambie de alto al llegar el dato. */}
+                  <Skeleton width="55%" height="1.75rem" />
+                  <span className="ds-sr-only">Cargando…</span>
+                </dd>
+              ) : null}
               {card.isError ? (
                 <dd className="ds-kpi-state" role="alert">
                   No pudimos cargar este dato{card.error ? `: ${card.error.message}` : "."}

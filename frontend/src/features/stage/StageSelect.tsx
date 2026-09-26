@@ -1,5 +1,6 @@
 import { Select } from "../../design-system/Select";
 import { useStageOptions } from "./queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 interface StageSelectProps {
   id?: string;
@@ -84,7 +85,7 @@ export function StageSelect({
   return (
     <div>
       <label htmlFor={id}>{required ? <span className="ds-required">{label}</span> : label}</label>
-      {stagesQuery.isLoading ? <p>Cargando…</p> : null}
+      {stagesQuery.isLoading ? <InlineLoading /> : null}
       {stagesQuery.isError ? (
         <p role="alert">
           No pudimos cargar las etapas

@@ -1,5 +1,6 @@
 import { Select } from "../../design-system/Select";
 import { RESOURCES_PARA_SELECT, useResources } from "./queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 interface ResourceSelectProps {
   id?: string;
@@ -54,7 +55,7 @@ export function ResourceSelect({
   return (
     <div>
       <label htmlFor={id}>{required ? <span className="ds-required">{label}</span> : label}</label>
-      {resourcesQuery.isLoading ? <p>Cargando…</p> : null}
+      {resourcesQuery.isLoading ? <InlineLoading /> : null}
       {resourcesQuery.isError ? (
         <p role="alert">
           No pudimos cargar los recursos

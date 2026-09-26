@@ -108,6 +108,7 @@ export function CreateBookingPanel({
         label: createBookingMutation.isPending ? "Reservando…" : "Reservar",
         formId,
         disabled: !puedeEnviar,
+        loading: createBookingMutation.isPending,
       }}
     >
       <DetailList

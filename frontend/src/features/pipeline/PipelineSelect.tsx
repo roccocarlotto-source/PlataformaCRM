@@ -1,5 +1,6 @@
 import { Select } from "../../design-system/Select";
 import { usePipelines } from "./queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 interface PipelineSelectProps {
   id?: string;
@@ -60,7 +61,7 @@ export function PipelineSelect({
   return (
     <div>
       <label htmlFor={id}>{required ? <span className="ds-required">{label}</span> : label}</label>
-      {pipelinesQuery.isLoading ? <p>Cargando…</p> : null}
+      {pipelinesQuery.isLoading ? <InlineLoading /> : null}
       {pipelinesQuery.isError ? (
         <p role="alert">
           No pudimos cargar los procesos de venta

@@ -49,6 +49,7 @@ import type {
 } from "./types";
 import { VehicleChangeLogDialog } from "./VehicleChangeLogDialog";
 import { VehiclePhotoGallery } from "./VehiclePhotoGallery";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 // ---------------------------------------------------------------------------
 // Valores del formulario: todo lo que se tipea es string (los number y las
@@ -477,7 +478,7 @@ function TradeInOpportunityNote({
   const target = title ? (
     <Link to={`/opportunities/${opportunityId}/edit`}>{title}</Link>
   ) : opportunityQuery.isLoading ? (
-    "…"
+    <InlineLoading>Cargando…</InlineLoading>
   ) : (
     "que no pudimos cargar"
   );

@@ -1,5 +1,6 @@
 import { Select } from "../../design-system/Select";
 import { useUsers } from "./queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 interface UserSelectProps {
   id?: string;
@@ -86,7 +87,7 @@ export function UserSelect({
   return (
     <div>
       <label htmlFor={id}>{label}</label>
-      {usersQuery.isLoading ? <p>Cargando…</p> : null}
+      {usersQuery.isLoading ? <InlineLoading /> : null}
       {usersQuery.isError ? (
         <p role="alert">
           No pudimos cargar los usuarios

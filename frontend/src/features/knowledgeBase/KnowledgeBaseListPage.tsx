@@ -336,6 +336,7 @@ export function KnowledgeBaseListPage() {
             onDelete={handleBulkDelete}
             onCancel={seleccion.clear}
             disabled={isBusy}
+            deleting={isBulkDeleting}
           />
         ) : null}
 
