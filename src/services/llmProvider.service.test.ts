@@ -163,6 +163,35 @@ test("un mensaje con audio (ítem 162) viaja como partes: el texto tal cual y el
   ]);
 });
 
+test("un mensaje con imagen (ítem 163) viaja como partes: la imagen como image_url con data-URI completo", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "ok" }) });
+
+  await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete({
+    ...PEDIDO_BASICO,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "¿Tienen este modelo?" },
+          { type: "image", data: "QUJD", mimeType: "image/jpeg" },
+        ],
+      },
+    ],
+  });
+
+  const cuerpo = cuerpoDe(llamadas[0]);
+  assert.deepEqual(cuerpo.messages, [
+    { role: "system", content: "Sos el agente comercial de la sucursal Centro." },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "¿Tienen este modelo?" },
+        { type: "image_url", image_url: { url: "data:image/jpeg;base64,QUJD" } },
+      ],
+    },
+  ]);
+});
+
 test("formatoDeAudio: los mime types de audio de WhatsApp al formato corto de input_audio", () => {
   assert.equal(formatoDeAudio("audio/ogg; codecs=opus"), "ogg");
   assert.equal(formatoDeAudio("audio/mpeg"), "mp3");
