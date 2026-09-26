@@ -1674,6 +1674,11 @@ la plantilla aprobada por Meta y el `destinationUrl` del QR.
 - Selector de QR y horas en el formulario de automatizaciones del frontend.
 - Diseño y precedente en `docs/automations-architecture.md` §5; detalle y
   decisiones en el ítem 159 de `docs/frontend-cambios-pendientes.md`.
+- `npm run smoke:qr-followup`: la prueba del circuito real de envío (base
+  local, número de prueba de Meta como único destinatario). El envío real
+  quedó **pendiente de verificar** el 26/09: la sesión no tenía las
+  credenciales de WhatsApp en el entorno; el camino completo se verificó en
+  `--dry-run`.
 
 **Qué hace falta para que salga el primer mensaje** (ninguno lo resuelve el
 código): la plantilla dada de alta y aprobada en el WhatsApp Manager de Meta

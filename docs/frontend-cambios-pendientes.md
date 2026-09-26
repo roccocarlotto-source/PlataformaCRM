@@ -7228,7 +7228,7 @@ Secuencia: (1) deploy de la imagen desde `master` y verificar que un QR real red
 
 ## 159. Seguimiento automático por WhatsApp con el QR de la sucursal al ganar una oportunidad
 
-**Estado:** hecho (25/09/2026). Lleva migración (`20261002120000_qr_follow_ups`) y necesita una plantilla aprobada por Meta — ver "Cómo se aplica".
+**Estado:** hecho (25/09/2026), con el envío real a Meta **pendiente de verificar** (26/09/2026: la sesión que iba a correrlo no tenía las variables `WHATSAPP_*` en su entorno — ver "Cómo se prueba el envío real"). Lleva migración (`20261002120000_qr_follow_ups`) y necesita una plantilla aprobada por Meta — ver "Cómo se aplica".
 
 **Qué pasaba.** No existía. Es la feature de "enlaces de fidelización" que quedó anotada en el pivot del 04/09 (`docs/qr-integration.md`, "Qué se elimina: QR físico y QR de un solo uso"): cuando se cierra una venta, mandarle al cliente el link del QR del negocio (reseñas de Google, un linktree) sin que nadie lo tenga que hacer a mano.
 
@@ -7258,6 +7258,12 @@ Secuencia: (1) deploy de la imagen desde `master` y verificar que un QR real red
 3. Deploy + `npm run migrate:deploy` + `npm run verify:schema` (orden de siempre: la migración solo agrega).
 4. En la sucursal del QR tiene que haber un agente con número de WhatsApp conectado: es el número del que sale el mensaje.
 
+### Cómo se prueba el envío real
+
+`npm run smoke:qr-followup` (`scripts/smoke-qr-followup-whatsapp.ts`), contra el Supabase LOCAL (`npm run supabase:start` + `npm run migrate:deploy` + `npm run prisma:seed`) y con las credenciales del **número de prueba** de la app de Meta en el entorno: `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_TEST_PHONE_NUMBER_ID` (el `phone_number_id` de prueba), `WHATSAPP_TEST_RECIPIENT_PHONE` (el único destinatario permitido) y las dos de la plantilla. El script siembra una organización descartable (sucursal + agente con ese número, contacto con ese teléfono, QR, regla con `delayHours: 0`), gana una oportunidad por el service, drena el outbox y el worker con `sendWhatsappTemplateReal` de verdad, muestra cómo quedó la fila de `qr_follow_ups` y desmonta todo. Dos frenos que no se apagan por flag: se niega si la base no es local, y aborta antes de tocar la red si el destino o el número de origen no son los de prueba. `--dry-run` recorre lo mismo con un doble que imprime el cuerpo que habría viajado (así se verificó el 26/09/2026, sin credenciales).
+
+Con la plantilla de muestra `hello_world` (sin variables) el script hace antes un envío directo sin parámetros, que es el que prueba que el mensaje llega; el camino del worker manda los dos parámetros del cuerpo y Meta lo rechaza con `#132000` (parámetros que no coinciden), lo que igual prueba que el worker llegó a Meta con el token y el número correctos. Con la plantilla real aprobada, la fila termina en `SENT`. Para eso `cuerpoDePlantilla` omite `components` cuando no hay parámetros: una plantilla sin variables se manda con nombre e idioma a secas.
+
 ### Lo que se tocó
 
 | Archivo | Qué |
@@ -7268,7 +7274,8 @@ Secuencia: (1) deploy de la imagen desde `master` y verificar que un QR real red
 | `src/services/automationActions.ts`, `src/services/automationDispatch.service.ts` | `AccionAEjecutar.automationId` |
 | `src/repositories/qrFollowUp.repository.ts`, `src/repositories/agent.repository.ts` | la cola; `findBranchWhatsappPhoneNumberId` |
 | `src/workers/qrFollowUpWorker.ts`, `src/server.ts` | el worker y su arranque/apagado |
-| `src/services/whatsappGraph.service.ts` | `sendWhatsappTemplateReal` |
+| `src/services/whatsappGraph.service.ts` | `sendWhatsappTemplateReal`; `cuerpoDePlantilla` sin `components` cuando no hay parámetros |
+| `scripts/smoke-qr-followup-whatsapp.ts`, `package.json` (`smoke:qr-followup`) | la prueba del circuito real de envío, solo contra el Supabase local y solo al número de prueba |
 | `src/utils/backoff.ts`, `src/workers/agentInboundWorker.ts` | `resolverFalloDelJob` compartida |
 | `src/config/env.ts`, `.env.example` | `QR_FOLLOWUP_*`, `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_*` |
 | `frontend/src/features/automation/{catalog.ts,AutomationFormPage.tsx}`, `frontend/src/features/qr/QrSelect.tsx` | la acción en el formulario |

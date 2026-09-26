@@ -119,24 +119,35 @@ export function normalizarParametroDePlantilla(valor: string): string {
 
 // El cuerpo exacto que viaja, sin messaging_product (lo pone postMessage).
 // Pura y exportada para probar el contrato con Meta sin red.
+//
+// SIN PARÁMETROS, SIN `components`: una plantilla sin variables (la de muestra
+// `hello_world` que Meta da con cada número de prueba) se manda con `name` y
+// `language` a secas. Mandarle un componente body con cero parámetros —o con
+// más de los que tiene— es un 400 (#132000, "number of parameters does not
+// match"). Es lo que permite probar el circuito de envío (token, número,
+// destinatario) antes de que la plantilla real esté aprobada.
 export function cuerpoDePlantilla(
   input: Omit<SendWhatsappTemplateInput, "phoneNumberId" | "accessToken">,
 ) {
+  const components =
+    input.bodyParameters.length === 0
+      ? []
+      : [
+          {
+            type: "body",
+            parameters: input.bodyParameters.map((texto) => ({
+              type: "text",
+              text: normalizarParametroDePlantilla(texto),
+            })),
+          },
+        ];
   return {
     to: input.to,
     type: "template",
     template: {
       name: input.templateName,
       language: { code: input.languageCode },
-      components: [
-        {
-          type: "body",
-          parameters: input.bodyParameters.map((texto) => ({
-            type: "text",
-            text: normalizarParametroDePlantilla(texto),
-          })),
-        },
-      ],
+      ...(components.length > 0 ? { components } : {}),
     },
   };
 }

@@ -119,10 +119,25 @@ test("cuerpoDePlantilla normaliza cada parámetro y respeta el orden ({{1}}, {{2
     languageCode: "es",
     bodyParameters: ["Ana\nMaría", "https://x.test"],
   });
-  assert.deepEqual(cuerpo.template.components[0].parameters, [
+  assert.deepEqual(cuerpo.template.components?.[0].parameters, [
     { type: "text", text: "Ana María" },
     { type: "text", text: "https://x.test" },
   ]);
+});
+
+test("cuerpoDePlantilla sin parámetros no manda `components`: una plantilla sin variables (hello_world) va con nombre e idioma a secas", () => {
+  const cuerpo = cuerpoDePlantilla({
+    to: "549",
+    templateName: "hello_world",
+    languageCode: "en_US",
+    bodyParameters: [],
+  });
+  assert.deepEqual(cuerpo, {
+    to: "549",
+    type: "template",
+    template: { name: "hello_world", language: { code: "en_US" } },
+  });
+  assert.equal("components" in cuerpo.template, false);
 });
 
 test("sendWhatsappTextReal sigue mandando texto libre con la misma forma de siempre", async () => {
