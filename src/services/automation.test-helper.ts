@@ -110,6 +110,9 @@ export async function montar(etiqueta: string): Promise<Escenario> {
 export async function desmontar(...escenarios: Escenario[]) {
   for (const e of escenarios) {
     const where = { organizationId: e.organizationId };
+    // Primero: sus FKs RESTRICT apuntan a la regla, la oportunidad, el
+    // contacto y el QR (ítem 159).
+    await prisma.qrFollowUp.deleteMany({ where });
     await prisma.automationExecution.deleteMany({ where });
     await prisma.automation.deleteMany({ where });
     await prisma.activity.deleteMany({ where });
@@ -121,6 +124,7 @@ export async function desmontar(...escenarios: Escenario[]) {
     await prisma.conversation.deleteMany({ where });
     await prisma.agent.deleteMany({ where });
     await prisma.contact.deleteMany({ where });
+    await prisma.qrCode.deleteMany({ where });
     await prisma.branch.deleteMany({ where });
     await prisma.stage.deleteMany({ where });
     await prisma.pipeline.deleteMany({ where });

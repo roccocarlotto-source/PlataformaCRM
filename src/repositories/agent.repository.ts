@@ -91,6 +91,27 @@ export function findAgentByWhatsappPhoneNumberId(phoneNumberId: string, db: Db =
   });
 }
 
+// El número de WhatsApp desde el que la sucursal le escribe a un cliente por
+// iniciativa propia (ítem 159: el seguimiento con el QR). El número vive en el
+// Agent que lo atiende —no hay otro lugar del esquema que diga "el WhatsApp de
+// esta sucursal"—, así que es el de un agente no borrado de la sucursal que
+// tenga uno. Sin exigir isActive ni el canal: un agente pausado deja de
+// CONTESTAR, pero el número sigue siendo el de la sucursal. Si hubiera más de
+// uno, el más antiguo, para que la elección sea estable entre envíos.
+export function findBranchWhatsappPhoneNumberId(
+  organizationId: string,
+  branchId: string,
+  db: Db = prisma,
+): Promise<string | null> {
+  return db.agent
+    .findFirst({
+      where: { organizationId, branchId, deletedAt: null, whatsappPhoneNumberId: { not: null } },
+      select: { whatsappPhoneNumberId: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    })
+    .then((agente) => agente?.whatsappPhoneNumberId ?? null);
+}
+
 export interface CreateAgentData {
   organizationId: string;
   branchId: string;

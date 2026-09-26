@@ -7,6 +7,8 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeAutomation } from "../../test/automationFixtures";
+import { makeBranch } from "../../test/branchFixtures";
+import { makeQrCode } from "../../test/qrFixtures";
 import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
 import { AdminRoute } from "../../auth/AdminRoute";
 import { ProtectedRoute } from "../../auth/ProtectedRoute";
@@ -87,12 +89,13 @@ describe("AutomationFormPage — creación", () => {
     ]);
   });
 
-  it("con Oportunidad ganada, la acción ofrece solo la tarea de seguimiento y el evento no pide campos", async () => {
+  it("con Oportunidad ganada, la acción ofrece la tarea de seguimiento o el QR por WhatsApp, y el evento no pide campos", async () => {
     const user = userEvent.setup();
     renderForm("/automations/new");
 
     expect(await listSelectOptions(user, screen.getByLabelText("Acción"))).toEqual([
       "Crear actividad de seguimiento",
+      "Enviar QR por WhatsApp",
     ]);
     expect(screen.queryByLabelText("Días sin movimiento")).not.toBeInTheDocument();
   });
@@ -451,6 +454,115 @@ describe("AutomationFormPage — Oportunidad sin movimiento + borrador con IA (�
         isActive: true,
       },
     ]);
+  });
+});
+
+describe("AutomationFormPage — Oportunidad ganada + QR por WhatsApp (ítem 159)", () => {
+  const QR_ID = "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11";
+
+  // El selector lista los QR activos de la organización y usa las sucursales
+  // para el subtítulo.
+  function servirQrsYSucursales() {
+    server.use(
+      http.get(`${env.apiUrl}/api/qr`, () =>
+        HttpResponse.json({
+          data: [
+            makeQrCode({ id: QR_ID, displayNumber: 1, name: "Reseñas Google", branchId: "b1" }),
+            makeQrCode({
+              id: "e0000000-0000-4000-8000-000000000002",
+              displayNumber: 2,
+              name: "Linktree",
+              branchId: "b1",
+              destinationUrl: "https://linktr.ee/agencia",
+            }),
+          ],
+          pagination: { page: 1, pageSize: 100, total: 2, totalPages: 1 },
+        }),
+      ),
+      http.get(`${env.apiUrl}/api/branches`, () =>
+        HttpResponse.json({
+          data: [makeBranch({ id: "b1", name: "Centro" })],
+          pagination: { page: 1, pageSize: 100, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+  }
+
+  it("elegir la acción pide el QR y las horas de espera, con los topes del backend", async () => {
+    servirQrsYSucursales();
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    await chooseSelectOption(user, screen.getByLabelText("Acción"), "Enviar QR por WhatsApp");
+
+    expect(screen.queryByLabelText("Título de la tarea")).not.toBeInTheDocument();
+    const qr = await screen.findByLabelText("QR a enviar");
+    expect(qr).toBeRequired();
+    expect(await listSelectOptions(user, qr)).toEqual([
+      "Elegir QR…",
+      "QR 1 · Reseñas Google",
+      "QR 2 · Linktree",
+    ]);
+    const horas = screen.getByLabelText("Esperar (horas)");
+    expect(horas).toBeRequired();
+    expect(horas).toHaveAttribute("min", "0");
+    expect(horas).toHaveAttribute("max", "720");
+  });
+
+  it("manda el POST con { qrCodeId, delayHours } y las horas como número", async () => {
+    servirQrsYSucursales();
+    const bodies: unknown[] = [];
+    server.use(
+      http.post(baseUrl, async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(makeAutomation(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/automations/new");
+
+    await user.type(screen.getByLabelText("Nombre"), "Pedir reseña");
+    await chooseSelectOption(user, screen.getByLabelText("Acción"), "Enviar QR por WhatsApp");
+    await chooseSelectOption(
+      user,
+      await screen.findByLabelText("QR a enviar"),
+      "QR 1 · Reseñas Google",
+    );
+    await user.type(screen.getByLabelText("Esperar (horas)"), "48");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect(bodies).toEqual([
+      {
+        name: "Pedir reseña",
+        triggerType: "opportunity.won",
+        triggerConfig: {},
+        actionType: "opportunity.send_qr_followup",
+        actionConfig: { qrCodeId: QR_ID, delayHours: 48 },
+        isActive: true,
+      },
+    ]);
+  });
+
+  it("edición: hidrata el QR y las horas guardados", async () => {
+    servirQrsYSucursales();
+    server.use(
+      http.get(`${baseUrl}/a1`, () =>
+        HttpResponse.json(
+          makeAutomation({
+            id: "a1",
+            actionType: "opportunity.send_qr_followup",
+            actionConfig: { qrCodeId: QR_ID, delayHours: 24 },
+          }),
+        ),
+      ),
+    );
+    renderForm("/automations/a1/edit");
+
+    expect(await screen.findByLabelText("Esperar (horas)")).toHaveValue(24);
+    await waitFor(() =>
+      expect(screen.getByLabelText("QR a enviar")).toHaveValue("QR 1 · Reseñas Google"),
+    );
   });
 });
 

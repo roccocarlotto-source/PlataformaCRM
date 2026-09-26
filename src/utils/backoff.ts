@@ -69,6 +69,35 @@ export function resolverFallo(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Las colas con lease (agent_inbound_jobs, ítem 125; qr_follow_ups, ítem 159)
+// clasifican cada fallo antes de decidir: un error PERMANENTE (un 4xx de Meta,
+// un dato que ya no está) va a FAILED sin gastar reintentos; uno TRANSITORIO
+// (429/5xx, la red, la base) se reintenta con backoff hasta el tope. Nació en
+// agentInboundWorker.ts y se movió acá cuando la segunda cola la necesitó.
+// ---------------------------------------------------------------------------
+
+export type ClaseDeFallo = "PERMANENTE" | "TRANSITORIO";
+
+export type ResolucionDelFallo =
+  { estado: "FAILED" } | { estado: "REINTENTAR"; nextAttemptAt: Date };
+
+// Pura: qué hacer con un job cuyo intento falló. `attempts` es el valor
+// DESPUÉS del reclamo (ya incluye este intento), así que la espera se calcula
+// con attempts - 1 intentos previos — la convención de calcularEsperaDeBackoff.
+export function resolverFalloDelJob(
+  attempts: number,
+  clase: ClaseDeFallo,
+  ahora: Date,
+  limites: { maxIntentos: number; backoff: ParametrosDeBackoff },
+): ResolucionDelFallo {
+  if (clase === "PERMANENTE" || attempts >= limites.maxIntentos) {
+    return { estado: "FAILED" };
+  }
+  const espera = calcularEsperaDeBackoff(attempts - 1, limites.backoff);
+  return { estado: "REINTENTAR", nextAttemptAt: new Date(ahora.getTime() + espera) };
+}
+
 // Un Error puede traer un mensaje enorme (un stack, un cuerpo de respuesta
 // HTTP). last_error es TEXT y aguanta, pero una fila de auditoría con 400 KB de
 // stack no es más útil que una con 500 caracteres: se recorta.

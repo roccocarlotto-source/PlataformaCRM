@@ -5,6 +5,7 @@ import {
 } from "./automationActions";
 import { accionCrearActividadDeSeguimiento } from "./automationActions/createFollowUpActivity";
 import { accionRedactarSeguimiento } from "./automationActions/draftFollowUpMessage";
+import { accionSeguimientoQr } from "./automationActions/sendQrFollowup";
 import { despacharAutomatizaciones } from "./automationDispatch.service";
 import { TRIGGERS_CONOCIDOS } from "./automationTriggers";
 import {
@@ -39,6 +40,7 @@ import {
 export const ACCIONES_INCORPORADAS: readonly AccionRegistrada[] = [
   accionCrearActividadDeSeguimiento,
   accionRedactarSeguimiento,
+  accionSeguimientoQr,
 ];
 
 export interface RegistrosDeAutomatizacion {

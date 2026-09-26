@@ -392,6 +392,51 @@ const envSchema = z.object({
     .default(30 * 60 * 1000),
 
   // -------------------------------------------------------------------------
+  // Seguimientos por WhatsApp con el QR al ganar una oportunidad (ítem 159 de
+  // docs/frontend-cambios-pendientes.md; src/workers/qrFollowUpWorker.ts).
+  // Mismo patrón que las AGENT_INBOUND_*: default explícito y ninguna hace
+  // falta para arrancar.
+  //
+  // Mismo enum explícito que INGEST_WORKER_ENABLED y por el mismo motivo.
+  QR_FOLLOWUP_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  // 5 MINUTOS. Es un agradecimiento post-venta que la regla demora horas: un
+  // envío que sale unos minutos después de su scheduledFor no le cambia nada
+  // a nadie, y la cola vacía no merece una consulta por segundo.
+  QR_FOLLOWUP_WORKER_POLL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
+  QR_FOLLOWUP_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(20),
+  // Reintentos ante un error transitorio de Meta (429/5xx) o de red: 5
+  // intentos con base de 1 minuto duplicando — 1, 2, 4, 8 minutos. Más
+  // holgado que la cola de turnos: acá no hay nadie esperando una respuesta,
+  // y una caída de Meta de unos minutos no debería terminar en FAILED.
+  QR_FOLLOWUP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  QR_FOLLOWUP_BACKOFF_BASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 1000),
+  QR_FOLLOWUP_BACKOFF_MAX_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30 * 60 * 1000),
+  // Cuánto se corre nextAttemptAt al reclamar un envío: si el proceso muere
+  // con el envío en vuelo, la fila vuelve a ser reclamable pasado este lapso.
+  // Muy por encima del timeout del POST a Meta (10 s), para que dos instancias
+  // nunca manden el mismo seguimiento a la vez.
+  QR_FOLLOWUP_LEASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
+
+  // -------------------------------------------------------------------------
   // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
   //
   // MERCADOPAGO_WEBHOOK_SECRET y MERCADOPAGO_ACCESS_TOKEN EXISTIERON acá (el
@@ -420,6 +465,23 @@ const envSchema = z.object({
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
   WHATSAPP_APP_SECRET: z.string().optional(),
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+
+  // La plantilla aprobada por Meta con la que sale el seguimiento con el QR
+  // (ítem 159; src/workers/qrFollowUpWorker.ts). Un mensaje que la empresa
+  // inicia fuera de la ventana de 24 h TIENE que ser una plantilla: texto
+  // libre, Meta lo rechaza. Nombre y código de idioma, exactamente como
+  // quedaron dados de alta en el WhatsApp Manager (ej. "seguimiento_resena" y
+  // "es_AR"). El cuerpo lleva dos variables posicionales: {{1}} el nombre del
+  // contacto y {{2}} el link del QR.
+  //
+  // Opcionales por el mismo criterio que las de arriba: el servidor arranca
+  // sin ellas. Lo que NO pasa es fallar en silencio: sin las dos, el worker de
+  // seguimientos no manda nada, lo dice en el log en cada pasada, y los envíos
+  // quedan en PENDING hasta que se configuren.
+  // Sin .min(1) a propósito: una línea `X=` vacía en el .env no puede tumbar
+  // el arranque. El worker trata el string vacío igual que la ausencia.
+  WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME: z.string().optional(),
+  WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE: z.string().optional(),
 
   // Gate de secreto compartido de /qr/resolve/:qrId (Fase 4, backend — ver
   // src/middlewares/requireInternalProxySecret.ts). El Cloudflare Worker que

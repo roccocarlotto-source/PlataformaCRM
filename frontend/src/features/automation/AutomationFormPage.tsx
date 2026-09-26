@@ -8,19 +8,23 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select, type SelectOption } from "../../design-system/Select";
 import { useFormDraft } from "../../lib/useFormDraft";
+import { QrSelect } from "../qr/QrSelect";
 import {
   ACTION_CREATE_FOLLOW_UP,
   ACTION_DRAFT_FOLLOW_UP,
+  ACTION_SEND_QR_FOLLOWUP,
   CONFIG_DE_ACCION,
   CONFIG_DE_TRIGGER,
   DEFAULT_ACTION,
   DEFAULT_TRIGGER,
   MAX_DAYS_UNTIL_DUE,
   MAX_DAYS_WITHOUT_ACTIVITY,
+  MAX_DELAY_HOURS,
   MAX_NOTES,
   MAX_SUBJECT,
   MIN_DAYS_UNTIL_DUE,
   MIN_DAYS_WITHOUT_ACTIVITY,
+  MIN_DELAY_HOURS,
   TRIGGER_OPPORTUNITY_STALE,
   TRIGGER_OPTIONS,
   accionesParaTrigger,
@@ -247,6 +251,41 @@ function CamposDeLaAccion({
           revisa y lo envía el vendedor.
         </p>
       );
+    case ACTION_SEND_QR_FOLLOWUP:
+      return (
+        <>
+          {/* Suelto, sin FormField: QrSelect trae su propio <label htmlFor>
+              (es un Select del design system), igual que los selectores de
+              evento y acción de arriba. */}
+          <QrSelect
+            id="automation-form-qr"
+            label="QR a enviar"
+            value={values.qrCodeId}
+            onChange={(qrCodeId) => onChange({ ...values, qrCodeId })}
+            disabled={disabled}
+            required
+          />
+          <FormField label={<span className="ds-required">Esperar (horas)</span>}>
+            <input
+              type="number"
+              min={MIN_DELAY_HOURS}
+              max={MAX_DELAY_HOURS}
+              step={1}
+              value={values.delayHours ?? ""}
+              onChange={(event) => onChange({ ...values, delayHours: event.target.value })}
+              disabled={disabled}
+              required
+            />
+          </FormField>
+          <p className="ds-hint ds-field-grid--full">
+            Cuando la oportunidad se gana, se agenda un WhatsApp al contacto con el link del QR
+            elegido, que sale pasadas esas horas (entre {MIN_DELAY_HOURS} y {MAX_DELAY_HOURS}; con{" "}
+            {MIN_DELAY_HOURS} sale apenas se gana). Se manda desde el número de WhatsApp de la
+            sucursal del QR, con la plantilla aprobada por Meta. Si para entonces la oportunidad ya
+            no está ganada, no se manda.
+          </p>
+        </>
+      );
     default:
       // Solo se llega acá con una acción que el backend conoce y este espejo
       // todavía no. No se inventa un editor de JSON crudo: se dice qué pasa.
@@ -433,8 +472,8 @@ export function AutomationFormPage() {
               disabled={isSubmitting}
             />
             <p className="ds-hint ds-field-grid--full">
-              El evento que dispara la regla. Los otros casos previstos —recordatorio por WhatsApp y
-              envío del QR de reseña— dependen de trámites que no se resuelven desde acá.
+              El evento que dispara la regla. El otro caso previsto —recordatorio de turno por
+              WhatsApp— todavía no está disponible.
             </p>
           </div>
         </Card>
@@ -450,9 +489,7 @@ export function AutomationFormPage() {
                 if (!actionType) return;
                 // Cambiar de acción cambia la FORMA de la config: el borrador
                 // de la acción anterior no significa nada en la nueva, así que
-                // se arranca de cero en vez de arrastrar campos ajenos. Hoy
-                // cada evento admite una sola acción, así que este camino
-                // solo se recorre con un trigger que el espejo no conoce.
+                // se arranca de cero en vez de arrastrar campos ajenos.
                 const config = CONFIG_DE_ACCION[actionType];
                 setValues({
                   ...values,

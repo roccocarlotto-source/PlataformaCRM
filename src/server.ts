@@ -11,6 +11,7 @@ import { iniciarWorkerDeCotizaciones } from "./workers/exchangeRateWorker";
 import { iniciarWorkerDeCanales } from "./workers/googleCalendarChannelWorker";
 import { iniciarWorkerDeOportunidadesEstancadas } from "./workers/opportunityStaleWorker";
 import { iniciarWorkerDeOutbox } from "./workers/outboxWorker";
+import { iniciarWorkerDeSeguimientosQr } from "./workers/qrFollowUpWorker";
 
 const server = app.listen(env.PORT, () => {
   logger.info(`Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
@@ -90,6 +91,13 @@ const detenerWorkerDeOportunidadesEstancadas = arrancarWorkers
 // de los seis — cada job que reclama es un mensaje a una persona real.
 const detenerWorkerDeTurnosDeAgente = arrancarWorkers ? iniciarWorkerDeTurnosDeAgente() : sinWorker;
 
+// El worker de seguimientos por WhatsApp con el QR (ítem 159 de
+// docs/frontend-cambios-pendientes.md), detrás de la misma guarda y por el
+// mismo motivo que el de turnos: cada fila que reclama es un WhatsApp a un
+// cliente real. Manda lo que la acción opportunity.send_qr_followup agendó
+// cuando se ganó una oportunidad.
+const detenerWorkerDeSeguimientosQr = arrancarWorkers ? iniciarWorkerDeSeguimientosQr() : sinWorker;
+
 // El apagado ordenado (M-12 de docs/auditoria-2026-08-29.md). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
@@ -103,7 +111,7 @@ const shutdown = crearShutdown({
       // dejan terminar solas, que es lo correcto.
       server.closeIdleConnections();
     }),
-  // Los seis stops esperan a la pasada en curso de su worker (M-12 c): cada
+  // Los siete stops esperan a la pasada en curso de su worker (M-12 c): cada
   // evento va en su propia transacción y ninguna queda a medias, y los que no
   // llegó a tocar siguen en PENDING para el próximo arranque. El de turnos de
   // WhatsApp espera solo el job en curso; si un turno largo supera el tope del
@@ -116,6 +124,7 @@ const shutdown = crearShutdown({
       detenerWorkerDeCotizaciones(),
       detenerWorkerDeOportunidadesEstancadas(),
       detenerWorkerDeTurnosDeAgente(),
+      detenerWorkerDeSeguimientosQr(),
     ]);
   },
   desconectarPrisma: () => prisma.$disconnect(),

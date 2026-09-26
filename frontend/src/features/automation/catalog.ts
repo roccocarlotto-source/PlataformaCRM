@@ -14,12 +14,11 @@ import type { SelectOption } from "../../design-system/Select";
 // texto libre sería invitar a un error que nadie puede resolver desde la
 // pantalla.
 //
-// HOY HAY DOS TRIGGERS Y DOS ACCIONES, y cada acción va con un trigger
-// (ACCIONES_POR_TRIGGER): "Oportunidad ganada" -> tarea de seguimiento, y
+// HOY HAY DOS TRIGGERS Y TRES ACCIONES (ACCIONES_POR_TRIGGER): "Oportunidad
+// ganada" -> tarea de seguimiento o envío del QR por WhatsApp (ítem 159), y
 // "Oportunidad sin movimiento" -> borrador de seguimiento redactado por la IA
-// (ítem 76). Los otros casos previstos —recordatorio de turno por WhatsApp,
-// envío del QR de reseña— siguen bloqueados por trámites externos a este repo
-// (docs/automations-architecture.md §1-2).
+// (ítem 76). El otro caso previsto —recordatorio de turno por WhatsApp— sigue
+// sin construir (docs/automations-architecture.md §1-2).
 //
 // AGREGAR UN TRIGGER es agregar una entrada a TRIGGER_OPTIONS, una a
 // CONFIG_DE_TRIGGER (aunque no tenga campos: la config vacía) y, si tiene
@@ -63,9 +62,11 @@ export function triggerLabel(value: string): string {
 // Acciones
 // ---------------------------------------------------------------------------
 
-// Espejo de ACTION_CREATE_FOLLOW_UP y ACTION_DRAFT_FOLLOW_UP.
+// Espejo de ACTION_CREATE_FOLLOW_UP, ACTION_DRAFT_FOLLOW_UP y
+// ACTION_SEND_QR_FOLLOWUP.
 export const ACTION_CREATE_FOLLOW_UP = "activity.create_follow_up";
 export const ACTION_DRAFT_FOLLOW_UP = "agent.draft_follow_up";
+export const ACTION_SEND_QR_FOLLOWUP = "opportunity.send_qr_followup";
 
 export const ACTION_OPTIONS: SelectOption<string>[] = [
   {
@@ -77,6 +78,11 @@ export const ACTION_OPTIONS: SelectOption<string>[] = [
     value: ACTION_DRAFT_FOLLOW_UP,
     label: "Redactar seguimiento con IA",
     subtitle: "Un borrador de mensaje para que el dueño lo revise y lo mande",
+  },
+  {
+    value: ACTION_SEND_QR_FOLLOWUP,
+    label: "Enviar QR por WhatsApp",
+    subtitle: "Un WhatsApp al cliente con el link de un QR, unas horas después",
   },
 ];
 
@@ -94,7 +100,7 @@ export function actionLabel(value: string): string {
 // "Oportunidad sin movimiento" crearía la misma tarea TODOS los días, porque
 // esa acción no deja la marca que frena al barrido diario.
 export const ACCIONES_POR_TRIGGER: Record<string, readonly string[]> = {
-  [TRIGGER_OPPORTUNITY_WON]: [ACTION_CREATE_FOLLOW_UP],
+  [TRIGGER_OPPORTUNITY_WON]: [ACTION_CREATE_FOLLOW_UP, ACTION_SEND_QR_FOLLOWUP],
   [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
 };
 
@@ -201,6 +207,43 @@ const configDeSeguimiento: ConfigDeAccion = {
   },
 };
 
+// Los topes de configDeSeguimientoQrSchema
+// (src/services/automationActions/sendQrFollowup.ts): de 0 horas —apenas se
+// gana— a 30 días.
+export const MIN_DELAY_HOURS = 0;
+export const MAX_DELAY_HOURS = 720;
+
+const configDeSeguimientoQr: ConfigDeAccion = {
+  draftVacio: () => ({ qrCodeId: "", delayHours: "" }),
+
+  draftDesde: (config) => ({
+    qrCodeId: typeof config.qrCodeId === "string" ? config.qrCodeId : "",
+    delayHours: typeof config.delayHours === "number" ? String(config.delayHours) : "",
+  }),
+
+  // Mismo criterio que daysUntilDue: el vacío se valida antes (Number("") es
+  // 0) y después se exige entero y en rango.
+  validar: (draft) => {
+    if ((draft.qrCodeId ?? "") === "") {
+      return "Elegí el QR que se le va a mandar al cliente.";
+    }
+    const texto = (draft.delayHours ?? "").trim();
+    if (texto === "") {
+      return "Indicá cuántas horas esperar antes de mandar el WhatsApp.";
+    }
+    const horas = Number(texto);
+    if (!Number.isInteger(horas)) {
+      return "Las horas de espera tienen que ser un número entero.";
+    }
+    if (horas < MIN_DELAY_HOURS || horas > MAX_DELAY_HOURS) {
+      return `Las horas de espera tienen que estar entre ${MIN_DELAY_HOURS} y ${MAX_DELAY_HOURS}.`;
+    }
+    return null;
+  },
+
+  aPayload: (draft) => ({ qrCodeId: draft.qrCodeId, delayHours: Number(draft.delayHours) }),
+};
+
 // La config de las acciones y de los triggers que NO tienen ningún campo: el
 // borrador es vacío, siempre es válido, y lo que viaja es "{}". Existe igual
 // —en vez de que el formulario trate "sin entrada" como "sin campos"— para
@@ -218,6 +261,7 @@ export const CONFIG_DE_ACCION: Record<string, ConfigDeAccion> = {
   // agent.draft_follow_up no tiene config propia: su único parámetro —cuántos
   // días sin movimiento— es del trigger (ítem 76).
   [ACTION_DRAFT_FOLLOW_UP]: configVacia,
+  [ACTION_SEND_QR_FOLLOWUP]: configDeSeguimientoQr,
 };
 
 // ---------------------------------------------------------------------------

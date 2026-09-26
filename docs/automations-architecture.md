@@ -128,6 +128,7 @@ interface AccionRegistrada {
 
 interface AccionAEjecutar {
   organizationId: string;
+  automationId: string;             // la regla que se ejecuta (desde el ítem 159)
   config: Record<string, unknown>;  // actionConfig YA validado contra `schema`
   payload: Record<string, unknown>; // el payload del OutboxEvent
 }
@@ -138,7 +139,29 @@ type AutomationAction = (input: AccionAEjecutar) => Promise<void>;
 - **El `schema` se usa en dos momentos**: al crear/actualizar la regla (el CRUD rechaza una `actionConfig` inválida con 400, sección 8) y al despachar (defensa en profundidad: si el schema de una acción cambió después de que la regla se guardó, la ejecución falla con un error legible en vez de correr con un config que la acción no entiende).
 - **El handler no devuelve nada**: entrega o lanza. Igual que `OutboxHandler`, pedirle un valor de retorno invitaría a "reportar" un fallo devolviendo algo, que es la forma de que pase inadvertido.
 
-Hoy el catálogo tiene **una** acción, `activity.create_follow_up` (`src/services/automationActions/createFollowUpActivity.ts`), descripta en la sección 7. Agregar una acción nueva = un archivo que exporta su `AccionRegistrada` + una línea en `automationRegistrations.ts`.
+Agregar una acción nueva = un archivo que exporta su `AccionRegistrada` + una línea en `automationRegistrations.ts` (`ACCIONES_INCORPORADAS`) + su entrada en el espejo del frontend (`frontend/src/features/automation/catalog.ts`).
+
+### El catálogo de hoy
+
+| `actionType` | Triggers | `actionConfig` | Qué hace | Archivo |
+|---|---|---|---|---|
+| `activity.create_follow_up` | `opportunity.won` | `{ subject, daysUntilDue, notes? }` | Crea una `Activity` TASK para el dueño de la oportunidad (sección 7). | `automationActions/createFollowUpActivity.ts` |
+| `agent.draft_follow_up` | `opportunity.stale` | `{}` | La IA redacta un borrador de seguimiento y lo deja como tarea del dueño; marca la oportunidad para no redactar otro (ítem 76). | `automationActions/draftFollowUpMessage.ts` |
+| `opportunity.send_qr_followup` | `opportunity.won` | `{ qrCodeId: uuid, delayHours: 0..720 }` | **Agenda** un WhatsApp al contacto de la oportunidad con el link del QR, que sale `delayHours` después (ítem 159). | `automationActions/sendQrFollowup.ts` |
+
+### Precedente: la acción que agenda en vez de ejecutar (`opportunity.send_qr_followup`)
+
+El dispatcher corre cada acción **en el instante** en que el outbox entrega el evento, dentro del drenado síncrono de la cola. No tiene ninguna noción de demora, y no conviene dársela: una acción que esperara horas —o que saliera a una API externa lenta— frenaría el drenado del outbox entero. Cuando una acción necesita que su efecto ocurra **más tarde**, el patrón es partirla en dos:
+
+1. **La acción agenda.** Valida lo que puede validar ya (acá: que el QR exista, no esté borrado y sea de la organización; si no, lanza y la regla queda `FAILED` con un mensaje que manda a editarla) y escribe una fila en una tabla propia con la hora a la que tiene que ocurrir (`qr_follow_ups.scheduled_for = ahora + delayHours`). Nada de I/O externa: es rápida y no bloquea el outbox.
+2. **Un worker ejecuta.** Un worker de polling propio (`src/workers/qrFollowUpWorker.ts`, mismo patrón que `agentInboundWorker.ts`: reclamo con `FOR UPDATE SKIP LOCKED` y lease, backoff, tope de intentos, arranque detrás de `workersHabilitados()`) toma las filas vencidas, **relee el estado del mundo** —la oportunidad pudo dejar de estar ganada, la regla desactivarse, el QR o el contacto borrarse— y recién ahí ejecuta el efecto. Si ya no corresponde, cancela la fila (`CANCELLED`, con el motivo) sin tocar nada.
+
+Dos reglas que salen de este caso y valen para cualquier acción diferida futura:
+
+- **La idempotencia la da la base, por `(regla, entidad)`.** La marca `SUCCESS` de `AutomationExecution` no alcanza: hay una ventana (el proceso muere entre el efecto de la acción y la escritura de la marca, sección 6) en la que el evento se reentrega y la acción vuelve a correr. Para una `Activity` eso es una tarea duplicada; para un WhatsApp, un segundo mensaje que no se puede deshacer. Por eso `qr_follow_ups` tiene `UNIQUE (automation_id, opportunity_id)` y la acción inserta con `ON CONFLICT DO NOTHING`: el duplicado es un no-op exitoso, no un error. Por eso también `AccionAEjecutar` lleva `automationId`. Es por **regla** y no por entidad a secas: dos reglas activas del mismo trigger (distintos QR, distintas demoras) agendan una fila cada una.
+- **El efecto diferido tiene su propio estado visible**, separado de `AutomationExecution`. La ejecución de la regla es `SUCCESS` en cuanto agendó; si el WhatsApp después falla o se cancela, eso queda en la fila agendada (`status`, `attempts`, `lastError`), no en la ejecución.
+
+**Lo que el envío necesita y no configura la regla:** la plantilla aprobada por Meta (`WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME` / `_LANGUAGE`, dos variables posicionales: `{{1}}` nombre del contacto, `{{2}}` `QrCode.destinationUrl`), `WHATSAPP_ACCESS_TOKEN`, y un agente de la sucursal del QR con número de WhatsApp conectado (`Agent.whatsappPhoneNumberId`) — el número del que sale el mensaje. Sin las variables, el worker no reclama nada y lo dice en el log en cada pasada; sin número o sin teléfono del contacto, la fila pasa a `FAILED` con el motivo.
 
 ## 6. Mecanismo de despacho e idempotencia
 

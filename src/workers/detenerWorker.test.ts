@@ -7,6 +7,7 @@ import { iniciarWorkerDeCanales } from "./googleCalendarChannelWorker";
 import { iniciarWorkerDeIngesta } from "./ingestionWorker";
 import { iniciarWorkerDeOportunidadesEstancadas } from "./opportunityStaleWorker";
 import { iniciarWorkerDeOutbox } from "./outboxWorker";
+import { iniciarWorkerDeSeguimientosQr } from "./qrFollowUpWorker";
 
 // ---------------------------------------------------------------------------
 // M-12 (c) de docs/auditoria-2026-08-29.md: el stop que devuelve cada
@@ -16,7 +17,7 @@ import { iniciarWorkerDeOutbox } from "./outboxWorker";
 // worker es una promesa que el test resuelve a mano, así que el orden de los
 // eventos lo decide el test, no el scheduler.
 //
-// Los seis workers comparten el patrón y el bug, y por eso se prueban con la
+// Los siete workers comparten el patrón y el bug, y por eso se prueban con la
 // misma tabla: si alguno se desviara del patrón, este archivo lo vería.
 // ---------------------------------------------------------------------------
 
@@ -100,6 +101,26 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
         drenar: async () => {
           await pasada();
           return { respondidos: 0, omitidos: 0, pospuestos: 0, fallidos: 0 };
+        },
+      }),
+  },
+  {
+    // Ítem 159: la cola de seguimientos por WhatsApp con el QR. Mismo patrón,
+    // misma tabla, sin precondición de entorno (sin la plantilla configurada
+    // arranca igual; lo que no hace es mandar).
+    nombre: "seguimientos con QR",
+    iniciar: ({ pollMs, pasada }) =>
+      iniciarWorkerDeSeguimientosQr({
+        pollMs,
+        drenar: async () => {
+          await pasada();
+          return {
+            enviados: 0,
+            cancelados: 0,
+            pospuestos: 0,
+            fallidos: 0,
+            sinConfiguracion: false,
+          };
         },
       }),
   },

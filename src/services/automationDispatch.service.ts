@@ -111,6 +111,7 @@ async function ejecutarAutomatizacion(
 
   await accion.handler({
     organizationId: evento.organizationId,
+    automationId: automation.id,
     config: config.data,
     payload: payloadComoObjeto(evento.payload),
   });

@@ -25,6 +25,11 @@ import type { TriggerType } from "./automationTriggers";
 
 export interface AccionAEjecutar {
   organizationId: string;
+  // La regla que se está ejecutando. Las acciones que dejan un efecto
+  // diferido la necesitan para que la reentrega del mismo evento no lo
+  // duplique: opportunity.send_qr_followup agenda a lo sumo un envío por
+  // (regla, oportunidad) — ver QrFollowUp en schema.prisma.
+  automationId: string;
   // actionConfig de la regla, YA validado contra el schema de la acción. El
   // handler puede confiar en su forma sin volver a parsearlo.
   config: Record<string, unknown>;

@@ -1647,6 +1647,45 @@ el gate de Fase 4 se deployó.
 
 ## Changelog
 
+### 2026-09-25 — Enlaces de fidelización: el QR sale solo por WhatsApp al ganar una venta (ítem 159)
+
+**Es la feature que quedó anotada en el pivot del 04/09** ("Qué se elimina: QR
+físico y QR de un solo uso", arriba): *mandar el link de reseñas o un linktree
+propio, con un mensaje por plantilla, automatizado según reglas del usuario,
+apoyado en el motor de outbox que ya existe*. Ya está construida, y es
+exactamente eso.
+
+**Cómo se usa.** En Automatizaciones, una regla con el evento "Oportunidad
+ganada" y la acción "Enviar QR por WhatsApp": se elige uno de los QR de la
+organización y cuántas horas esperar (0 a 720). Puede haber varias reglas
+activas a la vez (distintos QR, distintas demoras). Cuando una oportunidad se
+gana, se agenda el envío; pasadas las horas, el contacto recibe un WhatsApp con
+la plantilla aprobada por Meta y el `destinationUrl` del QR.
+
+**Qué se construyó.**
+- Acción `opportunity.send_qr_followup` del motor de automatizaciones
+  (`src/services/automationActions/sendQrFollowup.ts`): no manda nada, agenda
+  una fila en `qr_follow_ups` (migración `20261002120000_qr_follow_ups`).
+- Worker `src/workers/qrFollowUpWorker.ts`: cada 5 minutos toma los envíos
+  vencidos, relee que la oportunidad siga ganada (si no, cancela) y manda la
+  plantilla con `sendWhatsappTemplateReal` (nuevo en
+  `src/services/whatsappGraph.service.ts`). Reintenta con backoff ante un
+  429/5xx de Meta; un 4xx es FAILED.
+- Selector de QR y horas en el formulario de automatizaciones del frontend.
+- Diseño y precedente en `docs/automations-architecture.md` §5; detalle y
+  decisiones en el ítem 159 de `docs/frontend-cambios-pendientes.md`.
+
+**Qué hace falta para que salga el primer mensaje** (ninguno lo resuelve el
+código): la plantilla dada de alta y aprobada en el WhatsApp Manager de Meta
+(el texto exacto está en el ítem 159), `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME`
+y `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE` en Render, y un agente con
+número de WhatsApp conectado en la sucursal del QR.
+
+**Lo que NO se hizo:** la variante con mensaje redactado por IA (un mensaje
+que la empresa inicia tiene que ser una plantilla aprobada; un texto libre
+generado por IA solo podría salir dentro de la ventana de 24 h) y registrar el
+envío en la bandeja de conversaciones.
+
 ### 2026-09-25 — Se retira la facturación del módulo QR: viene incluido con la cuenta (ítem 135)
 
 **Decisión de producto de Rocco:** el QR deja de ser un servicio pago aparte y

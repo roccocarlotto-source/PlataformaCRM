@@ -107,6 +107,9 @@ test("varias reglas activas para el mismo trigger disparan todas, cada una con s
   assert.equal(b.invocaciones.length, 1);
   assert.deepEqual(a.invocaciones[0], {
     organizationId: e.organizationId,
+    // Cada acción sabe qué regla la ejecuta (ítem 159): la que agenda un envío
+    // lo hace idempotente por (regla, oportunidad).
+    automationId: reglaA.id,
     config: CONFIG,
     payload: { opportunityId: "opp-1" },
   });
