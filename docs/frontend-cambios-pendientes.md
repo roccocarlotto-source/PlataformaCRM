@@ -2,7 +2,7 @@
 
 Lista de cambios de UI/UX pedidos por Rocco durante el testeo del flujo real de la plataforma (sesión iniciada 2026-09-09). Cada entrada tiene el contexto necesario para implementarse sin tener que volver a preguntar. Estado: **pendiente** hasta que se implemente y se marque como **hecho**.
 
-**Ítems 150 en adelante — matriz de estados de datos del CRM:** ver `docs/matriz-de-datos-crm.md`.
+**Ítems 150 a 158 — matriz de estados de datos del CRM:** ver `docs/matriz-de-datos-crm.md`. La numeración es una sola para los dos documentos: el 159 sigue acá.
 
 ---
 
@@ -7223,3 +7223,61 @@ Secuencia: (1) deploy de la imagen desde `master` y verificar que un QR real red
 | `src/controllers/organization.controller.integration-test.ts` | el campo interno que no tiene que salir por la API pasa a ser `nextVehicleStockNumber` |
 | `docs/qr-integration.md` | entrada en "Changelog" |
 | comentarios en `whatsappWebhook.*`, `hmac.ts`, `organizationAdmin.*`, `agentAdmin.*`, `vehicle.repository.ts`, `QrListPage.tsx` | dejaban de apuntar a archivos que ya no existen |
+
+---
+
+## 159. Seguimiento automático por WhatsApp con el QR de la sucursal al ganar una oportunidad
+
+**Estado:** hecho (25/09/2026), con el envío real a Meta **pendiente de verificar** (26/09/2026: la sesión que iba a correrlo no tenía las variables `WHATSAPP_*` en su entorno — ver "Cómo se prueba el envío real"). Lleva migración (`20261002120000_qr_follow_ups`) y necesita una plantilla aprobada por Meta — ver "Cómo se aplica".
+
+**Qué pasaba.** No existía. Es la feature de "enlaces de fidelización" que quedó anotada en el pivot del 04/09 (`docs/qr-integration.md`, "Qué se elimina: QR físico y QR de un solo uso"): cuando se cierra una venta, mandarle al cliente el link del QR del negocio (reseñas de Google, un linktree) sin que nadie lo tenga que hacer a mano.
+
+**Por qué pasa.** Estaban todas las piezas menos el pegamento: el motor de automatizaciones ya emitía `opportunity.won`, el módulo QR ya tenía el `destinationUrl` por sucursal y el canal WhatsApp ya mandaba mensajes por la Graph API. Faltaban tres cosas: (1) el dispatcher corre cada acción en el instante en que se entrega el evento, sin noción de demora, y un "gracias por tu compra" tiene que salir horas después; (2) el cliente de la Graph API solo sabía mandar texto libre, y un mensaje que la empresa inicia fuera de la ventana de 24 h tiene que ser una **plantilla aprobada** (texto libre, Meta lo rechaza); (3) ninguna pantalla para configurarlo.
+
+**Qué se hizo.**
+
+- **Acción `opportunity.send_qr_followup`** (`src/services/automationActions/sendQrFollowup.ts`), solo con el trigger `opportunity.won`, config `{ qrCodeId: uuid, delayHours: 0..720 }`. **No manda nada: agenda.** Valida que el QR exista, no esté borrado y sea de la organización (si no, la regla queda `FAILED` con "editá la automatización y elegí otro"), relee la oportunidad (borrada, ya no ganada o sin contacto: no agenda, sin error) y crea una fila en `qr_follow_ups` con `scheduledFor = ahora + delayHours`. Rápida y sin I/O externa, para no frenar el drenado del outbox.
+- **Tabla `qr_follow_ups`** (modelo `QrFollowUp`, estados `PENDING`/`SENT`/`FAILED`/`CANCELLED`): FKs compuestas a la regla, la oportunidad, el contacto (foto del momento de ganar) y el QR, con **`UNIQUE (automation_id, opportunity_id)`**. Si `opportunity.won` se reentrega antes de que su `AutomationExecution` quede en `SUCCESS` (la ventana documentada en `automationDispatch.service.ts`), el segundo agendado es un `ON CONFLICT DO NOTHING`: ni error ni segundo WhatsApp. Por regla y no por oportunidad, así dos reglas activas (distintos QR o demoras) agendan una fila cada una. Para eso `AccionAEjecutar` suma `automationId`.
+- **Worker `src/workers/qrFollowUpWorker.ts`**, mismo patrón que `agentInboundWorker.ts` y detrás de `workersHabilitados()`: cada `QR_FOLLOWUP_WORKER_POLL_MS` (5 min) reclama los envíos vencidos (`FOR UPDATE SKIP LOCKED`, lease corriendo `nextAttemptAt`, `attempts` como token de exclusión), **relee** regla, oportunidad, contacto y QR, y:
+  - si la oportunidad ya no está `WON`, se borró algo o la regla se desactivó → `CANCELLED` con el motivo en `lastError`, sin mandar;
+  - si no, manda la plantilla desde el número de WhatsApp de la sucursal del QR (el `whatsappPhoneNumberId` de un agente no borrado de esa sucursal) al teléfono del contacto (solo dígitos) → `SENT`;
+  - 429/5xx de Meta, red o base → reintento con backoff (`QR_FOLLOWUP_MAX_ATTEMPTS` 5, base 1 min, tope 30 min); 4xx de Meta, contacto sin teléfono o sucursal sin número → `FAILED` al primer intento.
+  - Sin `WHATSAPP_ACCESS_TOKEN` o sin las dos variables de la plantilla no reclama nada (no gasta intentos), lo loguea como error en cada pasada nombrando lo que falta, y las filas salen solas cuando se configuran.
+- **`sendWhatsappTemplateReal`** en `src/services/whatsappGraph.service.ts`: `{ type: "template", template: { name, language: { code }, components: [{ type: "body", parameters }] } }`, parámetros **posicionales** y normalizados (Meta rechaza saltos de línea y tabs en un parámetro). Mismo `WhatsappGraphError` que el texto, así el worker clasifica igual.
+- **`resolverFalloDelJob`** (pura) se movió de `agentInboundWorker.ts` a `src/utils/backoff.ts` para que la usen las dos colas; se reexporta donde estaba.
+- **Frontend:** "Enviar QR por WhatsApp" en el selector de acción de "Oportunidad ganada" (`catalog.ts`), con un selector de QR nuevo (`features/qr/QrSelect.tsx`, calcado de `BranchSelect`: los QR activos, sucursal y destino en el subtítulo) y "Esperar (horas)".
+
+### Cómo se aplica
+
+1. **Plantilla en Meta** (WhatsApp Manager → Plantillas de mensajes → Crear), categoría **Utilidad**, idioma el que se ponga en la variable (ej. Español (ARG) = `es_AR`), nombre en minúsculas con guiones bajos (ej. `seguimiento_resena_postventa`). Cuerpo, **exacto** — dos variables posicionales, `{{1}}` el nombre del contacto y `{{2}}` el link del QR; Meta no acepta una variable al principio ni al final del cuerpo, por eso cierra con texto:
+
+   > Hola {{1}}, gracias por tu compra. Nos ayudaría mucho conocer tu opinión sobre la atención que recibiste. Podés dejarla en este enlace: {{2}} ¡Muchas gracias!
+
+   Muestras para la revisión: `{{1}}` = `Ana`, `{{2}}` = `https://g.page/r/ejemplo/review`. Sin encabezado, sin pie, sin botones (el código manda solo parámetros del cuerpo: una plantilla con botón de URL variable fallaría con un 400).
+2. En Render: `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME` y `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE`, exactamente como quedaron aprobados. `WHATSAPP_ACCESS_TOKEN` ya está.
+3. Deploy + `npm run migrate:deploy` + `npm run verify:schema` (orden de siempre: la migración solo agrega).
+4. En la sucursal del QR tiene que haber un agente con número de WhatsApp conectado: es el número del que sale el mensaje.
+
+### Cómo se prueba el envío real
+
+`npm run smoke:qr-followup` (`scripts/smoke-qr-followup-whatsapp.ts`), contra el Supabase LOCAL (`npm run supabase:start` + `npm run migrate:deploy` + `npm run prisma:seed`) y con las credenciales del **número de prueba** de la app de Meta en el entorno: `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_TEST_PHONE_NUMBER_ID` (el `phone_number_id` de prueba), `WHATSAPP_TEST_RECIPIENT_PHONE` (el único destinatario permitido) y las dos de la plantilla. El script siembra una organización descartable (sucursal + agente con ese número, contacto con ese teléfono, QR, regla con `delayHours: 0`), gana una oportunidad por el service, drena el outbox y el worker con `sendWhatsappTemplateReal` de verdad, muestra cómo quedó la fila de `qr_follow_ups` y desmonta todo. Dos frenos que no se apagan por flag: se niega si la base no es local, y aborta antes de tocar la red si el destino o el número de origen no son los de prueba. `--dry-run` recorre lo mismo con un doble que imprime el cuerpo que habría viajado (así se verificó el 26/09/2026, sin credenciales).
+
+Con la plantilla de muestra `hello_world` (sin variables) el script hace antes un envío directo sin parámetros, que es el que prueba que el mensaje llega; el camino del worker manda los dos parámetros del cuerpo y Meta lo rechaza con `#132000` (parámetros que no coinciden), lo que igual prueba que el worker llegó a Meta con el token y el número correctos. Con la plantilla real aprobada, la fila termina en `SENT`. Para eso `cuerpoDePlantilla` omite `components` cuando no hay parámetros: una plantilla sin variables se manda con nombre e idioma a secas.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `prisma/schema.prisma`, `prisma/migrations/20261002120000_qr_follow_ups/` | `QrFollowUp`, `QrFollowUpStatus`, `UNIQUE (organization_id, id)` en `qr_codes`, índice parcial de la cola, RLS |
+| `docs/auditoria-2026-08-21-diagnostico.sql`, `scripts/verify-schema.ts` | fila 5 (política), fila 16 (58 → 62 FKs), fila 17 (índice de la cola) |
+| `src/services/automationActions/sendQrFollowup.ts`, `src/services/automationRegistrations.ts` | la acción y su registro |
+| `src/services/automationActions.ts`, `src/services/automationDispatch.service.ts` | `AccionAEjecutar.automationId` |
+| `src/repositories/qrFollowUp.repository.ts`, `src/repositories/agent.repository.ts` | la cola; `findBranchWhatsappPhoneNumberId` |
+| `src/workers/qrFollowUpWorker.ts`, `src/server.ts` | el worker y su arranque/apagado |
+| `src/services/whatsappGraph.service.ts` | `sendWhatsappTemplateReal`; `cuerpoDePlantilla` sin `components` cuando no hay parámetros |
+| `scripts/smoke-qr-followup-whatsapp.ts`, `package.json` (`smoke:qr-followup`) | la prueba del circuito real de envío, solo contra el Supabase local y solo al número de prueba |
+| `src/utils/backoff.ts`, `src/workers/agentInboundWorker.ts` | `resolverFalloDelJob` compartida |
+| `src/config/env.ts`, `.env.example` | `QR_FOLLOWUP_*`, `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_*` |
+| `frontend/src/features/automation/{catalog.ts,AutomationFormPage.tsx}`, `frontend/src/features/qr/QrSelect.tsx` | la acción en el formulario |
+| tests | `sendQrFollowup.test.ts`, `qrFollowUpWorker.test.ts`, `qrFollowUpWorker.integration-test.ts`, `whatsappGraph.service.test.ts`, `detenerWorker.test.ts`, `catalog.test.ts`, `AutomationFormPage.test.tsx`; dos afirmaciones actualizadas en `automationDispatch`/`automationOpportunityWon.integration-test.ts` |
+| `docs/automations-architecture.md` §5, `docs/qr-integration.md` | catálogo, precedente de la acción que agenda, changelog |

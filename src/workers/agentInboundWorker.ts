@@ -28,11 +28,7 @@ import {
   type SendWhatsappText,
 } from "../services/whatsappGraph.service";
 import { AppError } from "../utils/AppError";
-import {
-  calcularEsperaDeBackoff,
-  describirError,
-  type ParametrosDeBackoff,
-} from "../utils/backoff";
+import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
 
 // ---------------------------------------------------------------------------
 // El worker de la cola del webhook de WhatsApp (ítem 125 de
@@ -100,8 +96,6 @@ export class ErrorDeEnvio extends Error {
   }
 }
 
-export type ClaseDeFallo = "PERMANENTE" | "TRANSITORIO";
-
 // Pura, para poder probarla sin base: qué errores vale la pena reintentar.
 export function clasificarFallo(err: unknown): ClaseDeFallo {
   if (err instanceof ErrorPermanenteDelJob) {
@@ -121,24 +115,10 @@ export function clasificarFallo(err: unknown): ClaseDeFallo {
   return "TRANSITORIO";
 }
 
-export type ResolucionDelFallo =
-  { estado: "FAILED" } | { estado: "REINTENTAR"; nextAttemptAt: Date };
-
-// Pura: qué hacer con un job cuyo intento falló. `attempts` es el valor
-// DESPUÉS del reclamo (ya incluye este intento), así que la espera se calcula
-// con attempts - 1 intentos previos — la convención de calcularEsperaDeBackoff.
-export function resolverFalloDelJob(
-  attempts: number,
-  clase: ClaseDeFallo,
-  ahora: Date,
-  limites: { maxIntentos: number; backoff: ParametrosDeBackoff },
-): ResolucionDelFallo {
-  if (clase === "PERMANENTE" || attempts >= limites.maxIntentos) {
-    return { estado: "FAILED" };
-  }
-  const espera = calcularEsperaDeBackoff(attempts - 1, limites.backoff);
-  return { estado: "REINTENTAR", nextAttemptAt: new Date(ahora.getTime() + espera) };
-}
+// resolverFalloDelJob y sus tipos viven en utils/backoff.ts desde el ítem 159
+// (la cola de seguimientos con QR usa la misma decisión); se reexportan acá
+// para que los consumidores y los tests de siempre no cambien.
+export { resolverFalloDelJob, type ClaseDeFallo, type ResolucionDelFallo } from "../utils/backoff";
 
 // "respondido": el turno corrió (o se reenvió su respuesta) y el job quedó
 // DONE — incluye el caso en que el agente no contesta porque una persona ya

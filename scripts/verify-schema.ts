@@ -208,7 +208,7 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   [
     16,
     {
-      descripcion: "C-3 · las 58 FKs conocidas siguen apuntando a la tabla padre de su diseño",
+      descripcion: "C-3 · las 62 FKs conocidas siguen apuntando a la tabla padre de su diseño",
       esperado: "ninguna",
     },
   ],

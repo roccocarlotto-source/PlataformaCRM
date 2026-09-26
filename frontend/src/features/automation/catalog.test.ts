@@ -4,6 +4,7 @@ import {
   ACTION_CREATE_FOLLOW_UP,
   ACTION_DRAFT_FOLLOW_UP,
   ACTION_OPTIONS,
+  ACTION_SEND_QR_FOLLOWUP,
   CONFIG_DE_ACCION,
   CONFIG_DE_TRIGGER,
   DEFAULT_ACTION,
@@ -50,9 +51,9 @@ describe("catálogo de triggers y acciones", () => {
     }
   });
 
-  it("espejo de la compatibilidad del backend: ganada -> tarea, sin movimiento -> borrador con IA", () => {
+  it("espejo de la compatibilidad del backend: ganada -> tarea o QR, sin movimiento -> borrador con IA", () => {
     expect(ACCIONES_POR_TRIGGER).toEqual({
-      [TRIGGER_OPPORTUNITY_WON]: [ACTION_CREATE_FOLLOW_UP],
+      [TRIGGER_OPPORTUNITY_WON]: [ACTION_CREATE_FOLLOW_UP, ACTION_SEND_QR_FOLLOWUP],
       [TRIGGER_OPPORTUNITY_STALE]: [ACTION_DRAFT_FOLLOW_UP],
     });
     // Un trigger que el espejo no conoce no restringe: decide el backend.
@@ -219,5 +220,33 @@ describe("configuración de opportunity.stale (ítem 76)", () => {
       expect(vacia.validar({})).toBeNull();
       expect(vacia.aPayload({})).toEqual({});
     }
+  });
+});
+
+describe("configuración de opportunity.send_qr_followup (ítem 159)", () => {
+  const config = CONFIG_DE_ACCION[ACTION_SEND_QR_FOLLOWUP];
+  const QR = "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11";
+
+  it("borrador vacío, lectura del guardado y payload con las horas como número", () => {
+    expect(config.draftVacio()).toEqual({ qrCodeId: "", delayHours: "" });
+    expect(config.draftDesde({ qrCodeId: QR, delayHours: 48 })).toEqual({
+      qrCodeId: QR,
+      delayHours: "48",
+    });
+    expect(config.draftDesde({})).toEqual({ qrCodeId: "", delayHours: "" });
+    expect(config.aPayload({ qrCodeId: QR, delayHours: "48" })).toEqual({
+      qrCodeId: QR,
+      delayHours: 48,
+    });
+  });
+
+  it("valida: QR elegido, horas requeridas (sin confundir vacío con 0), enteras y entre 0 y 720", () => {
+    expect(config.validar({ qrCodeId: "", delayHours: "24" })).toMatch(/Elegí el QR/);
+    expect(config.validar({ qrCodeId: QR, delayHours: "" })).toMatch(/cuántas horas/);
+    expect(config.validar({ qrCodeId: QR, delayHours: "1.5" })).toMatch(/número entero/);
+    expect(config.validar({ qrCodeId: QR, delayHours: "-1" })).toMatch(/entre 0 y 720/);
+    expect(config.validar({ qrCodeId: QR, delayHours: "721" })).toMatch(/entre 0 y 720/);
+    expect(config.validar({ qrCodeId: QR, delayHours: "0" })).toBeNull();
+    expect(config.validar({ qrCodeId: QR, delayHours: "720" })).toBeNull();
   });
 });

@@ -280,6 +280,29 @@ enum AgentInboundJobStatus {
   FAILED
 }
 
+// Estado de un seguimiento por WhatsApp agendado por la acción
+// opportunity.send_qr_followup (ítem 159 de docs/frontend-cambios-pendientes.md;
+// src/workers/qrFollowUpWorker.ts).
+//
+// - PENDING: agendado, esperando su scheduledFor (o su próximo reintento).
+// - SENT: Meta aceptó la plantilla. Terminal.
+// - FAILED: error permanente o reintentos agotados; lastError dice cuál.
+//   Terminal — nadie lo reintenta solo.
+// - CANCELLED: cuando le tocaba salir ya no correspondía mandarlo (la
+//   oportunidad dejó de estar ganada, se borró el QR o el contacto, se
+//   desactivó la regla). No es un error: lastError dice el motivo. Terminal.
+//
+// SIN PROCESSING, a diferencia de AgentInboundJobStatus: el envío es un POST
+// de segundos, no un turno del LLM de minutos. El reclamo corre
+// nextAttemptAt hacia adelante (un lease sin columna propia) y deja la fila
+// en PENDING; ver claimNextQrFollowUp.
+enum QrFollowUpStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
 // ---------------------------------------------------------------------------
 // Enums del módulo QR (integración de QR Reviews, ver docs/qr-integration.md):
 // hoy no queda ninguno.
@@ -552,7 +575,8 @@ model Organization {
   // como todas las demás.
   knowledgeBaseEntries KnowledgeBaseEntry[]
 
-  qrCodes QrCode[]
+  qrCodes     QrCode[]
+  qrFollowUps QrFollowUp[]
 
   vehicles          Vehicle[]
   vehiclePhotos     VehiclePhoto[]
@@ -801,6 +825,7 @@ model Contact {
   ingestionEvents IngestionEvent[]
   bookings        Booking[]
   conversations   Conversation[]
+  qrFollowUps     QrFollowUp[]
 
   @@unique([organizationId, id])
   // Único (organization_id, lower(email)) WHERE email IS NOT NULL AND
@@ -983,9 +1008,11 @@ model Opportunity {
   deliveries      Delivery[]
   // Permuta (§41): las unidades que el cliente entregó en esta venta. Cero o
   // más, sin UNIQUE — ver Vehicle.tradeInOpportunityId.
-  tradeInVehicles Vehicle[]  @relation("VehicleTradeInOpportunity")
+  tradeInVehicles Vehicle[]    @relation("VehicleTradeInOpportunity")
   // Pagos del cliente (§43): cero o más, historial editable.
   payments        Payment[]
+  // Seguimientos por WhatsApp agendados al ganarla (ítem 159).
+  qrFollowUps     QrFollowUp[]
 
   @@unique([organizationId, id])
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL) y
@@ -1401,6 +1428,7 @@ model Automation {
 
   organization Organization          @relation(fields: [organizationId], references: [id])
   executions   AutomationExecution[]
+  qrFollowUps  QrFollowUp[]
 
   // El UNIQUE que habilita la FK compuesta de automation_executions (C-3).
   @@unique([organizationId, id])
@@ -2387,8 +2415,84 @@ model QrCode {
   // fila sin sucursal, que ya no es una forma válida de la tabla.
   branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id], onDelete: Restrict)
 
+  qrFollowUps QrFollowUp[]
+
+  // El UNIQUE que habilita la FK compuesta de qr_follow_ups (C-3), nacido con
+  // ella (ítem 159). Hasta entonces nada referenciaba a un QR.
+  @@unique([organizationId, id])
   @@index([organizationId, branchId])
   @@map("qr_codes")
+}
+
+// ---------------------------------------------------------------------------
+// QrFollowUp — un seguimiento por WhatsApp AGENDADO: "a esta hora, mandale al
+// contacto de esta oportunidad ganada el link de este QR". Ítem 159 de
+// docs/frontend-cambios-pendientes.md: la feature de "enlaces de fidelización"
+// que quedó anotada en el pivot del 04/09 (docs/qr-integration.md).
+//
+// POR QUÉ UNA TABLA Y NO UNA ACCIÓN QUE MANDE DIRECTO. El dispatcher de
+// automatizaciones corre la acción en el instante en que se entrega el evento
+// opportunity.won; no tiene noción de demora. La acción
+// opportunity.send_qr_followup NO manda nada: crea esta fila con
+// scheduledFor = ahora + delayHours, y el worker
+// (src/workers/qrFollowUpWorker.ts) la manda cuando vence. Es el precedente
+// para cualquier acción futura con demora (docs/automations-architecture.md
+// §5).
+//
+// contactId es una FOTO del momento de ganar: la oportunidad puede cambiar de
+// contacto después, pero el agradecimiento es para quien compró.
+// ---------------------------------------------------------------------------
+model QrFollowUp {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  automationId   String @map("automation_id") @db.Uuid
+  opportunityId  String @map("opportunity_id") @db.Uuid
+  contactId      String @map("contact_id") @db.Uuid
+  qrCodeId       String @map("qr_code_id") @db.Uuid
+
+  // Cuándo lo pidió la regla (momento de agendar + delayHours). No cambia.
+  scheduledFor  DateTime         @map("scheduled_for")
+  // Cuándo se puede reclamar: nace igual a scheduledFor, y después de un
+  // fallo transitorio es el próximo reintento. El reclamo también lo corre
+  // hacia adelante mientras dura el envío (el lease). Separada de
+  // scheduledFor para no perder lo que la regla pidió.
+  nextAttemptAt DateTime         @map("next_attempt_at")
+  status        QrFollowUpStatus @default(PENDING)
+  // Sube al RECLAMAR, no al fallar — mismo criterio que AgentInboundJob: un
+  // proceso que muere a mitad de un envío no llega a ningún catch. Es además
+  // el token de exclusión de las transiciones.
+  attempts      Int              @default(0)
+  // El motivo del último fallo, o de la cancelación.
+  lastError     String?          @map("last_error")
+  sentAt        DateTime?        @map("sent_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  // Las cuatro compuestas (C-3), mismo patrón que AutomationExecution.automationId.
+  // Todas NOT NULL -> RESTRICT (regla de 20260821140200): las cuatro tablas
+  // padre usan soft delete, así que en la práctica no se dispara nunca.
+  automation   Automation   @relation(fields: [organizationId, automationId], references: [organizationId, id])
+  opportunity  Opportunity  @relation(fields: [organizationId, opportunityId], references: [organizationId, id])
+  contact      Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
+  qrCode       QrCode       @relation(fields: [organizationId, qrCodeId], references: [organizationId, id])
+
+  // A LO SUMO UN AGENDADO POR (REGLA, OPORTUNIDAD). El evento opportunity.won
+  // puede reentregarse antes de que AutomationExecution quede en SUCCESS (la
+  // ventana documentada en automationDispatch.service.ts); sin esto, cada
+  // reentrega agendaría otro WhatsApp. La acción inserta con ON CONFLICT DO
+  // NOTHING: el duplicado no es un error. Y como es por REGLA, dos reglas
+  // activas (distintos QR o demoras) siguen agendando una fila cada una.
+  @@unique([automationId, opportunityId])
+  // El listado por organización nace con su índice (lección de ALTO-6). El
+  // índice de la COLA es parcial y vive en la migración.
+  @@index([organizationId, createdAt])
+  // Los lados referenciantes de las FKs compuestas que el UNIQUE de arriba no
+  // cubre — Postgres no los indexa solo.
+  @@index([organizationId, opportunityId])
+  @@index([organizationId, contactId])
+  @@index([organizationId, qrCodeId])
+  @@map("qr_follow_ups")
 }
 
 // ---------------------------------------------------------------------------

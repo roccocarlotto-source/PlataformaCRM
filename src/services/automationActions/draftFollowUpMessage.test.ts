@@ -99,6 +99,7 @@ function doblar(overrides: Partial<DependenciasDelBorrador> & { fila?: Opportuni
 function correr(deps: DependenciasDelBorrador, payload: Record<string, unknown> = {}) {
   return crearAccionBorradorDeSeguimiento(deps).handler({
     organizationId: ORG,
+    automationId: "00000000-0000-4000-8000-00000000a070",
     config: {},
     payload: { opportunityId: OPP, ownerId: OWNER, ...payload },
   });
@@ -199,6 +200,7 @@ test("payload sin opportunityId o con ids que no son UUID falla con un mensaje l
   await assert.rejects(
     crearAccionBorradorDeSeguimiento(deps).handler({
       organizationId: ORG,
+      automationId: "00000000-0000-4000-8000-00000000a070",
       config: {},
       payload: { ownerId: OWNER },
     }),

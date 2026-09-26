@@ -219,7 +219,11 @@ from (
       -- Cola del webhook de WhatsApp (ítem 125 de
       -- docs/auditoria-2026-09-24-punta-a-punta.md, migración
       -- 20260930120000): organization_id propio y la política uniforme.
-      ('agent_inbound_jobs')
+      ('agent_inbound_jobs'),
+      -- Seguimiento por WhatsApp con el QR al ganar una oportunidad (ítem
+      -- 159 de docs/frontend-cambios-pendientes.md, migración
+      -- 20261002120000): ídem.
+      ('qr_follow_ups')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -854,7 +858,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 58 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 62 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -878,7 +882,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 58 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 62 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -998,7 +1002,17 @@ from (
     -- entrante que dispara el job y la respuesta que produjo. Las dos van a
     -- messages; una que apuntara a conversations pasaría la fila 14 igual.
     ('agent_inbound_jobs_organization_id_message_id_fkey|agent_inbound_jobs(organization_id,message_id)->messages(organization_id,id)'),
-    ('agent_inbound_jobs_organization_id_response_message_id_fkey|agent_inbound_jobs(organization_id,response_message_id)->messages(organization_id,id)')
+    ('agent_inbound_jobs_organization_id_response_message_id_fkey|agent_inbound_jobs(organization_id,response_message_id)->messages(organization_id,id)'),
+    -- Seguimiento por WhatsApp con el QR (ítem 159, migración
+    -- 20261002120000): el envío agendado cuelga de la regla que lo agendó, de
+    -- la oportunidad ganada, del contacto que lo recibe y del QR que manda. El
+    -- caso que esta fila atrapa está a mano: contact_id y opportunity_id van a
+    -- tablas distintas que las dos tienen UNIQUE (organization_id, id), y
+    -- cruzarlas pasaría la fila 14 entera.
+    ('qr_follow_ups_organization_id_automation_id_fkey|qr_follow_ups(organization_id,automation_id)->automations(organization_id,id)'),
+    ('qr_follow_ups_organization_id_contact_id_fkey|qr_follow_ups(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('qr_follow_ups_organization_id_opportunity_id_fkey|qr_follow_ups(organization_id,opportunity_id)->opportunities(organization_id,id)'),
+    ('qr_follow_ups_organization_id_qr_code_id_fkey|qr_follow_ups(organization_id,qr_code_id)->qr_codes(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
@@ -1056,6 +1070,10 @@ from (
      'CREATE INDEX ingestion_events_pending_created_at_idx ON public.ingestion_events USING btree (COALESCE(next_attempt_at, created_at)) WHERE (status = ''PENDING''::"IngestionStatus")'),
     ('outbox_events_claimable_idx',
      'CREATE INDEX outbox_events_claimable_idx ON public.outbox_events USING btree (COALESCE(next_attempt_at, created_at)) WHERE (status = ''PENDING''::"OutboxStatus")'),
+    -- Ítem 159 (migración 20261002120000): la cola de seguimientos por
+    -- WhatsApp con el QR. Sin coalesce: next_attempt_at es NOT NULL.
+    ('qr_follow_ups_claimable_idx',
+     'CREATE INDEX qr_follow_ups_claimable_idx ON public.qr_follow_ups USING btree (next_attempt_at) WHERE (status = ''PENDING''::"QrFollowUpStatus")'),
     ('sources_org_created_at_idx',
      'CREATE INDEX sources_org_created_at_idx ON public.sources USING btree (organization_id, created_at) WHERE (deleted_at IS NULL)')
   ) as e(nombre, esperado)

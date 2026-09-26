@@ -16,6 +16,15 @@ export const qrKeys = {
     [...qrKeys.all, "next-display-number", branchId] as const,
 };
 
+// pageSize al máximo del contrato (listQrQuerySchema de qr.controller.ts),
+// mismo criterio y mismo riesgo residual que BRANCHES_PARA_SELECT: más de 100
+// QRs activos en una organización no entrarían en la lista.
+export const QRS_PARA_SELECT: QrCodeListQuery = {
+  pageSize: 100,
+  sortBy: "displayNumber",
+  sortOrder: "asc",
+};
+
 export function useQrCodes(query: QrCodeListQuery, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: qrKeys.list(query),

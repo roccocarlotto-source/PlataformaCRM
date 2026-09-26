@@ -83,6 +83,7 @@ test("registrarAutomatizaciones deja un handler por trigger conocido y las accio
   assert.deepEqual(acciones.tiposRegistrados(), [
     "activity.create_follow_up",
     "agent.draft_follow_up",
+    "opportunity.send_qr_followup",
   ]);
 });
 
