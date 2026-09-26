@@ -16,7 +16,7 @@ import {
   type LlmMessage,
 } from "../services/llmProvider.service";
 import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
-import { MARCADOR_DE_AUDIO } from "../services/whatsappWebhook.service";
+import { MARCADOR_DE_AUDIO, MARCADOR_DE_IMAGEN } from "../services/whatsappWebhook.service";
 import { WHATSAPP_CONTACT_SOURCE } from "../services/whatsappContact.service";
 import { hmacSha256Hex } from "../utils/hmac";
 import { drenarTurnosPendientes, type DepsDeEnvio } from "../workers/agentInboundWorker";
@@ -736,17 +736,19 @@ test("un change con statuses en vez de messages -> 200 sin crear nada", async ()
   assert.equal(enviados.length, 0);
 });
 
-test("un mensaje de un tipo que no se procesa (imagen) -> 200 sin procesar", async () => {
+// Desde el ítem 163 las imágenes se procesan: el ejemplo de tipo ignorado es
+// un sticker (ítem 165, pendiente).
+test("un mensaje de un tipo que no se procesa (sticker) -> 200 sin procesar", async () => {
   const waId = waIdAlAzar();
   const payload = payloadDeTexto({ waId });
-  // Un mensaje de imagen no trae `text`: se reemplaza el array entero.
+  // Un sticker no trae `text`: se reemplaza el array entero.
   (payload.entry[0].changes[0].value as { messages: unknown[] }).messages = [
     {
       from: waId,
       id: `wamid.${randomUUID()}`,
       timestamp: "1",
-      type: "image",
-      image: { id: "media-id", mime_type: "image/jpeg" },
+      type: "sticker",
+      sticker: { id: "media-id", mime_type: "image/webp", animated: false },
     },
   ];
 
@@ -876,6 +878,75 @@ test("un audio que Meta se niega a entregar (4xx) -> FAILED de una, sin turno", 
   const [job] = await jobsDe((await entranteConWamid(wamid)).id);
   assert.equal(job.status, "FAILED");
   assert.match(job.lastError ?? "", /404/);
+});
+
+// ---------------------------------------------------------------------------
+// Imagen (ítem 163)
+// ---------------------------------------------------------------------------
+
+function payloadDeImagen(opts: { waId: string; wamid: string; mediaId: string; caption?: string }) {
+  const payload = payloadDeTexto({ waId: opts.waId });
+  (payload.entry[0].changes[0].value as { messages: unknown[] }).messages = [
+    {
+      from: opts.waId,
+      id: opts.wamid,
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      type: "image",
+      image: {
+        id: opts.mediaId,
+        mime_type: "image/jpeg",
+        sha256: "x",
+        ...(opts.caption === undefined ? {} : { caption: opts.caption }),
+      },
+    },
+  ];
+  return payload;
+}
+
+test("una imagen con caption -> el caption es el content, el job lleva el mediaId, y el modelo recibe la imagen al lado del caption", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  const mediaId = String(randomInt(10 ** 9, 10 ** 10 - 1));
+
+  const res = await enviar(payloadDeImagen({ waId, wamid, mediaId, caption: "¿Tienen este?" }));
+  assert.equal(res.status, 200);
+  assert.deepEqual(descargados, [], "el webhook no baja la imagen (ítem 125)");
+
+  const entrante = await entranteConWamid(wamid);
+  assert.equal(entrante.content, "¿Tienen este?");
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.mediaId, mediaId);
+  assert.equal(job.mediaType, "image/jpeg");
+
+  const resumen = await drenar();
+  assert.equal(resumen.respondidos, 1);
+  assert.deepEqual(descargados, [mediaId]);
+
+  // El tipo de parte sale del mediaType del job (image/jpeg), no del mime que
+  // devuelve la descarga simulada.
+  const ultimo = requestsAlLlm[0].messages.at(-1);
+  assert.equal(ultimo?.role, "user");
+  assert.ok(Array.isArray(ultimo.content));
+  const [texto, imagen] = ultimo.content;
+  assert.ok(texto.type === "text" && texto.text.includes("¿Tienen este?"));
+  assert.deepEqual(imagen, {
+    type: "image",
+    data: BYTES_DEL_AUDIO.toString("base64"),
+    mimeType: "image/jpeg",
+  });
+  assert.deepEqual(
+    enviados.map((e) => e.body),
+    [RESPUESTA_DEL_AGENTE],
+  );
+});
+
+test("una imagen sin caption -> se persiste el marcador [imagen]", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+
+  assert.equal((await enviar(payloadDeImagen({ waId, wamid, mediaId: "123" }))).status, 200);
+  const entrante = await entranteConWamid(wamid);
+  assert.equal(entrante.content, MARCADOR_DE_IMAGEN);
 });
 
 test("un phone_number_id sin agente, o de un agente sin el canal WHATSAPP -> 200 sin procesar, y el resto del lote sí", async () => {

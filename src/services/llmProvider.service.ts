@@ -55,11 +55,14 @@ export interface LlmToolDefinition {
 }
 
 // Una parte de un mensaje del usuario que trae un adjunto (ítem 162). Neutral
-// de proveedor, igual que el resto del contrato: el audio viaja como bytes en
-// base64 más su mime type, y es el ADAPTADOR el que lo traduce al formato de
-// su API (OpenRouter: `input_audio`, ver parteDeOpenAi).
+// de proveedor, igual que el resto del contrato: el audio y la imagen (ítem
+// 163) viajan como bytes en base64 más su mime type, y es el ADAPTADOR el que
+// los traduce al formato de su API (OpenRouter: `input_audio` e `image_url`,
+// ver parteDeOpenAi).
 export type LlmContentPart =
-  { type: "text"; text: string } | { type: "audio"; data: string; mimeType: string };
+  | { type: "text"; text: string }
+  | { type: "audio"; data: string; mimeType: string }
+  | { type: "image"; data: string; mimeType: string };
 
 export interface LlmUserMessage {
   role: "user";
@@ -222,7 +225,8 @@ interface ToolCallDeOpenAi {
 
 type ParteDeOpenAi =
   | { type: "text"; text: string }
-  | { type: "input_audio"; input_audio: { data: string; format: string } };
+  | { type: "input_audio"; input_audio: { data: string; format: string } }
+  | { type: "image_url"; image_url: { url: string } };
 
 interface MensajeDeOpenAi {
   role: "system" | "user" | "assistant" | "tool";
@@ -259,6 +263,13 @@ function parteDeOpenAi(parte: LlmContentPart): ParteDeOpenAi {
       return {
         type: "input_audio",
         input_audio: { data: parte.data, format: formatoDeAudio(parte.mimeType) },
+      };
+    // Al revés que `input_audio`: `image_url` no tiene un campo para el
+    // formato, así que el mime va adentro de la URL, como data-URI completo.
+    case "image":
+      return {
+        type: "image_url",
+        image_url: { url: `data:${parte.mimeType};base64,${parte.data}` },
       };
   }
 }

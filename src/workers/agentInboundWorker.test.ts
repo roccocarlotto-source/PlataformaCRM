@@ -92,6 +92,33 @@ test("descargarAdjuntos: baja solo los pendientes con media, y los deja como aud
   );
 });
 
+test("descargarAdjuntos (ítem 163): el tipo de parte sale del mime — image/* es imagen, lo demás audio", async () => {
+  const adjuntos = await descargarAdjuntos(
+    [
+      { messageId: "m-imagen", mediaId: "media-1", mediaType: "image/jpeg" },
+      { messageId: "m-audio", mediaId: "media-2", mediaType: "audio/ogg; codecs=opus" },
+      // Sin mediaType en el job manda el mime de la descarga, también para el tipo.
+      { messageId: "m-sin-mime", mediaId: "media-3", mediaType: null },
+    ],
+    {
+      accessToken: () => "token",
+      downloadMedia: ({ mediaId }) =>
+        Promise.resolve({
+          data: Buffer.from("ABC"),
+          mimeType: mediaId === "media-3" ? "image/png" : "application/octet-stream",
+        }),
+    },
+  );
+  assert.deepEqual(
+    [...adjuntos.entries()],
+    [
+      ["m-imagen", { type: "image", data: "QUJD", mimeType: "image/jpeg" }],
+      ["m-audio", { type: "audio", data: "QUJD", mimeType: "audio/ogg; codecs=opus" }],
+      ["m-sin-mime", { type: "image", data: "QUJD", mimeType: "image/png" }],
+    ],
+  );
+});
+
 test("descargarAdjuntos: sin WHATSAPP_ACCESS_TOKEN falla TRANSITORIO, sin llamar a Meta", async () => {
   let llamadas = 0;
   await assert.rejects(

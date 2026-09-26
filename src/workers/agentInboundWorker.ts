@@ -177,12 +177,21 @@ async function enviarRespuesta(saliente: Message, job: JobReclamado, deps: DepsD
   await markMessageDelivery(saliente.id, job.organizationId, { status: "SENT" });
 }
 
-// Ítem 162: baja de Meta el audio de cada entrante pendiente que lo tiene, para
-// pasárselo al turno. TODOS los pendientes y no solo el de este job: en una
-// ráfaga, el turno de este job responde también los otros (y cierra sus
-// jobs), así que tiene que escucharlos a todos.
+// El job guarda el mime y no el tipo de mensaje de WhatsApp: las columnas
+// mediaId/mediaType son genéricas (ítem 162). Hoy el webhook solo encola con
+// mediaId a los audios y a las imágenes, así que todo lo que no es image/*
+// es audio.
+function tipoDeAdjunto(mimeType: string): "image" | "audio" {
+  return mimeType.trim().toLowerCase().startsWith("image/") ? "image" : "audio";
+}
+
+// Ítem 162: baja de Meta el media (audio, o imagen desde el ítem 163) de cada
+// entrante pendiente que lo tiene, para pasárselo al turno. TODOS los
+// pendientes y no solo el de este job: en una ráfaga, el turno de este job
+// responde también los otros (y cierra sus jobs), así que tiene que
+// escucharlos (o verlos) a todos.
 //
-// En memoria y solo por este turno: el audio no se guarda en ningún lado. Un
+// En memoria y solo por este turno: el media no se guarda en ningún lado. Un
 // reintento lo vuelve a bajar por su mediaId, que no vence.
 export async function descargarAdjuntos(
   pendientes: EntrantePendiente[],
@@ -199,11 +208,11 @@ export async function descargarAdjuntos(
         throw new Error("Falta WHATSAPP_ACCESS_TOKEN en el entorno");
       }
       const media = await deps.downloadMedia({ mediaId: pendiente.mediaId, accessToken });
-      // Hoy el webhook solo encola con mediaId a los audios.
+      const mimeType = pendiente.mediaType ?? media.mimeType;
       adjuntos.set(pendiente.messageId, {
-        type: "audio",
+        type: tipoDeAdjunto(mimeType),
         data: media.data.toString("base64"),
-        mimeType: pendiente.mediaType ?? media.mimeType,
+        mimeType,
       });
     } catch (err) {
       throw new ErrorDeDescarga(err);

@@ -7414,7 +7414,40 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 
 ## 163. El agente entiende imágenes de WhatsApp
 
-**Estado:** pendiente — mismo mecanismo que el 162 (`type: "image"` en vez de `"audio"`, formato `image_url`/data-URI en vez de `input_audio`). Se detalla igual de a fondo cuando se lo implemente; depende del 161 y reutiliza la descarga de media del 162.
+**Estado:** hecho (26/09/2026). Sin migración.
+
+**Qué pasa hoy.** `leerMensaje` (`whatsappWebhook.service.ts`) reconoce `type: "text"` y `type: "audio"` (ítem 162); una imagen (`type: "image"`) no matchea ningún schema y cae en `null` → `ignorado`, sin persistir nada — mismo B-09 acotado a imágenes.
+
+**Qué se hace.** Cuando el mensaje entrante es `type: "image"`:
+
+1. **Reconocerlo en `leerMensaje`**: nuevo `mensajeDeImagenSchema` (`{ id, from, type: "image", image: { id, mime_type, caption? } }`, caption opcional — WhatsApp permite mandar una imagen con texto). Si trae `caption` no vacío, se usa como texto del entrante (igual que un texto común); si no, se usa un marcador fijo `MARCADOR_DE_IMAGEN = "[imagen]"`.
+2. **Persistir igual que un audio**: el marcador (o el caption) en `content`, más `mediaId`/`mediaType` en el mismo `AgentInboundJob` — **sin columnas nuevas ni migración**: esos dos campos ya son genéricos desde el ítem 162 (no distinguen tipo de media).
+3. **Descarga en el worker**: `downloadWhatsappMediaReal` (`whatsappGraph.service.ts`) ya es genérico ("cualquier media" dice su propio comentario) — se reutiliza sin ningún cambio. Lo que sí cambia es `descargarAdjuntos` en `agentInboundWorker.ts`: hoy arma siempre `{ type: "audio", ... }` a secas (comentario explícito: "Hoy el webhook solo encola con mediaId a los audios"); pasa a decidir el tipo de parte según el `mimeType` del pendiente: si empieza con `"image/"` es `{ type: "image", ... }`, si no, `{ type: "audio", ... }` (hoy solo esos dos tipos llegan a tener `mediaId`).
+4. **Extender el contrato del proveedor de LLM** (`llmProvider.service.ts`): `LlmContentPart` suma la variante `{ type: "image", data: string, mimeType: string }` (mismo patrón que `audio`: base64 + mime). El adaptador de OpenRouter (`parteDeOpenAi`) la traduce al formato estándar de OpenAI para visión: `{ type: "image_url", image_url: { url: "data:<mimeType>;base64,<data>" } }` — a diferencia del audio, acá SÍ va como data-URI completo (el formato `image_url` no separa el mime en un campo aparte).
+5. **Sin cambios en `agentOrchestration.service.ts`**: `aHistorial` y `OpcionesDeRespuesta.adjuntos` ya son genéricos sobre `LlmContentPart` desde el ítem 162 — no discriminan por tipo, así que una nueva variante del union no les pide nada.
+
+**Qué NO se hace:** no hay OCR ni un servicio de descripción de imagen aparte — va directo al modelo multimodal (`google/gemini-3.1-flash-lite`, ítem 161, ya aplicado). No se guarda la imagen en storage. No hay UI para verla en el CRM más allá del marcador/caption en el historial.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/services/whatsappWebhook.service.ts` | `mensajeDeImagenSchema`, `MARCADOR_DE_IMAGEN`, `leerMensaje` reconoce `type: "image"` |
+| `src/services/llmProvider.service.ts` | `LlmContentPart` suma `"image"`; `ParteDeOpenAi` suma `image_url`; `parteDeOpenAi` la traduce |
+| `src/workers/agentInboundWorker.ts` | `descargarAdjuntos` deriva el tipo de parte (`image`/`audio`) del `mimeType` en vez de asumir siempre audio |
+| tests | `whatsappWebhook.service.test.ts`, `llmProvider.service.test.ts`, `agentInboundWorker.test.ts`, `whatsappWebhook.controller.integration-test.ts` |
+
+**No lleva migración**: `prisma/schema.prisma` y `whatsappGraph.service.ts` no cambian — los dos ya son genéricos desde el ítem 162.
+
+### Decisiones tomadas al implementarlo
+
+- **Un caption vacío o de puros espacios cuenta como sin caption** (va `[imagen]`). Uno con contenido se guarda tal cual, como el `body` de un texto; el `trim` lo sigue haciendo el camino común de persistencia.
+- **Con caption, el historial no lleva marcador.** El turno que responde la imagen la recibe al lado del caption; en turnos posteriores (imagen ya respondida) el modelo solo ve el caption como texto, sin rastro de que venía con una imagen. Es lo que pide el diseño (el caption ES lo que escribió el cliente); si más adelante hace falta que el historial lo diga, sería `[imagen] <caption>`.
+- **El tipo de parte sale del mime efectivo** (`mediaType` del job, o el de la descarga si faltara — el mismo que viaja al modelo), en una función chica `tipoDeAdjunto` del worker: `image/*` es imagen, todo lo demás es audio. Insensible a mayúsculas.
+- **El data-URI de `image_url` lleva el mime tal cual.** WhatsApp manda `image/jpeg`/`image/png` sin parámetros, así que no hace falta normalizar como con `formatoDeAudio`.
+- **El integration test del webhook usaba una imagen como ejemplo de tipo ignorado**; pasó a un sticker (ítem 165, pendiente). Se sumaron dos casos de imagen al mismo archivo: con caption (content = caption, job con `mediaId`, el modelo recibe `{ type: "image" }` al lado del caption) y sin caption (content = `[imagen]`).
+
+**Cómo se aplica:** solo deploy (sin `migrate:deploy`, no hay migración nueva). El ítem 161 ya está aplicado en el agente AutoMax.
 
 ## 164. Ubicación de WhatsApp como texto
 

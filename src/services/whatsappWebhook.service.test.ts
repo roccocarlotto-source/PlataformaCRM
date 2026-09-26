@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { leerMensaje, MARCADOR_DE_AUDIO } from "./whatsappWebhook.service";
+import { leerMensaje, MARCADOR_DE_AUDIO, MARCADOR_DE_IMAGEN } from "./whatsappWebhook.service";
 
 // ---------------------------------------------------------------------------
 // Qué mensajes del webhook de WhatsApp se procesan y cómo se leen, sin base.
@@ -45,8 +45,70 @@ test("leerMensaje: un audio sin id de media no se procesa", () => {
   );
 });
 
-test("leerMensaje: los tipos que todavía no se procesan (imagen, ubicación, sticker) devuelven null", () => {
-  for (const tipo of ["image", "location", "sticker", "reaction"]) {
+test("leerMensaje: una imagen sin caption (ítem 163) se lee con el marcador y el id + mime_type del media", () => {
+  assert.deepEqual(
+    leerMensaje({
+      from: "598991",
+      id: "wamid.5",
+      timestamp: "1",
+      type: "image",
+      image: { id: "987654321", mime_type: "image/jpeg", sha256: "x" },
+    }),
+    {
+      wamid: "wamid.5",
+      waId: "598991",
+      texto: MARCADOR_DE_IMAGEN,
+      media: { id: "987654321", mimeType: "image/jpeg" },
+    },
+  );
+});
+
+test("leerMensaje: una imagen con caption usa el caption como texto, con el media igual", () => {
+  assert.deepEqual(
+    leerMensaje({
+      from: "598991",
+      id: "wamid.6",
+      type: "image",
+      image: { id: "987654321", mime_type: "image/jpeg", caption: "¿Tienen este modelo?" },
+    }),
+    {
+      wamid: "wamid.6",
+      waId: "598991",
+      texto: "¿Tienen este modelo?",
+      media: { id: "987654321", mimeType: "image/jpeg" },
+    },
+  );
+});
+
+test("leerMensaje: un caption vacío o de puros espacios cuenta como sin caption", () => {
+  for (const caption of ["", "   "]) {
+    assert.equal(
+      leerMensaje({
+        from: "598991",
+        id: "wamid.7",
+        type: "image",
+        image: { id: "987654321", mime_type: "image/png", caption },
+      })?.texto,
+      MARCADOR_DE_IMAGEN,
+      JSON.stringify(caption),
+    );
+  }
+});
+
+test("leerMensaje: una imagen sin id de media no se procesa", () => {
+  assert.equal(
+    leerMensaje({
+      from: "598991",
+      id: "wamid.8",
+      type: "image",
+      image: { mime_type: "image/jpeg" },
+    }),
+    null,
+  );
+});
+
+test("leerMensaje: los tipos que todavía no se procesan (ubicación, sticker, reacción) devuelven null", () => {
+  for (const tipo of ["location", "sticker", "reaction"]) {
     assert.equal(
       leerMensaje({ from: "598991", id: "wamid.4", type: tipo, [tipo]: { id: "x" } }),
       null,

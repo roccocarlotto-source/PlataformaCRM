@@ -12,8 +12,9 @@ import { applyWhatsappTemplateStatusFromMeta } from "./whatsappTemplate.service"
 // El procesamiento de un POST /webhooks/whatsapp ya verificado (ítem 81; paso
 // 6 de §9 de docs/ai-agent-architecture.md). La firma HMAC y el parseo del
 // cuerpo los resolvió la cadena del router; esto recorre el lote y, por cada
-// mensaje de texto o de audio (ítem 162), resuelve el Contact, persiste el
-// Message entrante y ENCOLA el turno. El turno lo corre src/workers/agentInboundWorker.ts, con el mismo
+// mensaje de texto, de audio (ítem 162) o de imagen (ítem 163), resuelve el
+// Contact, persiste el Message entrante y ENCOLA el turno. El turno lo corre
+// src/workers/agentInboundWorker.ts, con el mismo
 // loop de orquestación que el canal Web (§9), y es el worker quien manda la
 // respuesta por la Graph API.
 //
@@ -59,8 +60,9 @@ export const whatsappWebhookPayloadSchema = z.object({
 
 export type WhatsappWebhookPayload = z.infer<typeof whatsappWebhookPayloadSchema>;
 
-// Los tipos que se procesan: texto (ítem 81) y audio (ítem 162). Imágenes,
-// ubicaciones, reacciones, botones: fuera de alcance, se ignoran sin error.
+// Los tipos que se procesan: texto (ítem 81), audio (ítem 162) e imagen (ítem
+// 163). Ubicaciones, reacciones, botones: fuera de alcance, se ignoran sin
+// error.
 const mensajeDeTextoSchema = z.object({
   id: z.string().min(1),
   from: z.string().min(1),
@@ -83,6 +85,23 @@ const mensajeDeAudioSchema = z.object({
 // guarda.
 export const MARCADOR_DE_AUDIO = "[audio]";
 
+// Ítem 163: igual que un audio (id del media, no los bytes), más un caption
+// opcional — WhatsApp deja mandar la imagen con un texto al pie.
+const mensajeDeImagenSchema = z.object({
+  id: z.string().min(1),
+  from: z.string().min(1),
+  type: z.literal("image"),
+  image: z.object({
+    id: z.string().min(1),
+    mime_type: z.string().min(1),
+    caption: z.string().optional(),
+  }),
+});
+
+// El de una imagen sin caption. Con caption, el caption ES el texto del
+// entrante (lo que escribió el cliente), igual que un mensaje de texto común.
+export const MARCADOR_DE_IMAGEN = "[imagen]";
+
 export interface MensajeLeido {
   wamid: string;
   waId: string;
@@ -104,6 +123,18 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
       waId: audio.data.from,
       texto: MARCADOR_DE_AUDIO,
       media: { id: audio.data.audio.id, mimeType: audio.data.audio.mime_type },
+    };
+  }
+  const imagen = mensajeDeImagenSchema.safeParse(crudo);
+  if (imagen.success) {
+    // Un caption de puros espacios no dice nada: cuenta como sin caption. Uno
+    // con contenido se guarda tal cual, como el body de un texto.
+    const caption = imagen.data.image.caption;
+    return {
+      wamid: imagen.data.id,
+      waId: imagen.data.from,
+      texto: caption?.trim() ? caption : MARCADOR_DE_IMAGEN,
+      media: { id: imagen.data.image.id, mimeType: imagen.data.image.mime_type },
     };
   }
   return null;
@@ -202,7 +233,7 @@ async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMe
               messageId: entrante.id,
               phoneNumberId: mensaje.phoneNumberId,
               waId: mensaje.waId,
-              // Ítem 162: solo el id. El audio lo baja el worker; bajarlo acá
+              // Ítem 162: solo el id. El media (audio o imagen) lo baja el worker; bajarlo acá
               // sumaría una llamada a Meta al camino que tiene que contestar
               // en milisegundos (ítem 125).
               ...(mensaje.media
