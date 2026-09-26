@@ -26,6 +26,9 @@ export interface CreateAgentInboundJobData {
   messageId: string;
   phoneNumberId: string;
   waId: string;
+  // Ítem 162: solo para un entrante con adjunto (un audio).
+  mediaId?: string;
+  mediaType?: string;
 }
 
 export function createAgentInboundJob(data: CreateAgentInboundJobData, db: Db = prisma) {
@@ -219,25 +222,34 @@ export function markAgentInboundJobFailed(
   });
 }
 
+export interface EntrantePendiente {
+  messageId: string;
+  // Ítem 162: el adjunto que el worker tiene que bajar antes del turno.
+  mediaId: string | null;
+  mediaType: string | null;
+}
+
 // Los entrantes de una conversación que todavía esperan respuesta: tienen un
 // job vivo (PENDING o PROCESSING) y ese job no produjo respuesta todavía. Es
 // lo que el turno pone AL FINAL del historial y responde junto (ver
 // responderEnLaConversacion), y lo que después se marca como cubierto.
-export async function findPendingInboundMessageIds(
+//
+// Con su media (ítem 162): en una ráfaga de dos audios, el turno del primero
+// responde también el segundo, así que tiene que escuchar los dos.
+export async function findPendingInboundMessages(
   organizationId: string,
   conversationId: string,
   db: Db = prisma,
-): Promise<string[]> {
-  const jobs = await db.agentInboundJob.findMany({
+): Promise<EntrantePendiente[]> {
+  return db.agentInboundJob.findMany({
     where: {
       organizationId,
       status: { in: [AgentInboundJobStatus.PENDING, AgentInboundJobStatus.PROCESSING] },
       responseMessageId: null,
       message: { conversationId },
     },
-    select: { messageId: true },
+    select: { messageId: true, mediaId: true, mediaType: true },
   });
-  return jobs.map((j) => j.messageId);
 }
 
 // Los jobs de otros entrantes que el turno de ESTE job ya respondió (una

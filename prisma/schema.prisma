@@ -2331,6 +2331,13 @@ model AgentInboundJob {
   // idempotente el reintento de un ENVÍO fallido: con esto puesto, el
   // siguiente intento reenvía el mismo Message en vez de correr otro turno.
   responseMessageId String?               @map("response_message_id") @db.Uuid
+  // Ítem 162: el entrante trae un adjunto (un audio). El Message guarda solo
+  // un marcador ("[audio]"); el worker baja el media de Meta por este id
+  // antes del turno. Se guarda el id y no la url porque la url vence en
+  // minutos y el id no. NULL = mensaje de texto, como todos los anteriores.
+  mediaId           String?               @map("media_id") @db.VarChar(64)
+  // El mime_type que mandó Meta en el webhook (ej. "audio/ogg; codecs=opus").
+  mediaType         String?               @map("media_type") @db.VarChar(100)
   createdAt         DateTime              @default(now()) @map("created_at")
   updatedAt         DateTime              @updatedAt @map("updated_at")
 

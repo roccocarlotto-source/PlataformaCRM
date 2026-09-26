@@ -39,6 +39,7 @@ import {
   getLlmProvider,
   LlmProviderError,
   type LlmCompletionResult,
+  type LlmContentPart,
   type LlmMessage,
   type LlmProvider,
   type LlmToolCall,
@@ -174,6 +175,11 @@ export interface OpcionesDeRespuesta extends RunAgentTurnOptions {
   // AL FINAL del historial para responderlos juntos. Lo pasa solo el worker
   // de WhatsApp; ver ordenarPendientesAlFinal.
   entrantesPendientes?: string[];
+  // Ítem 162: los adjuntos YA DESCARGADOS de los entrantes que los traen (un
+  // audio de WhatsApp), por id de Message. El entrante quedó persistido con un
+  // marcador ("[audio]") y el adjunto viaja junto a ese marcador solo en ESTE
+  // turno: no se guarda en ningún lado. Lo pasa solo el worker de WhatsApp.
+  adjuntos?: ReadonlyMap<string, LlmContentPart>;
 }
 
 // Auditoría de una tool call del turno: lo que va a Message.toolCalls (§6) y
@@ -901,14 +907,27 @@ function envolverEnEtiqueta(contenido: string, etiqueta: string): string {
   return `<${etiqueta}>\n${neutralizado}\n</${etiqueta}>`;
 }
 
-function aHistorial(mensajes: Message[]): LlmMessage[] {
+// Un entrante con adjunto (ítem 162) va como array de partes: el marcador
+// etiquetado como cualquier mensaje del cliente, y el adjunto al lado. El
+// adjunto no lleva etiqueta —no es texto, no puede cerrar ningún bloque—; lo
+// que el modelo entienda de él es contenido del cliente igual, y la regla de
+// INSTRUCCION_IDENTIDAD_INMUTABLE sobre lo que el cliente dice aplica igual.
+export function aHistorial(
+  mensajes: Pick<Message, "id" | "direction" | "content">[],
+  adjuntos: ReadonlyMap<string, LlmContentPart> = new Map(),
+): LlmMessage[] {
   const historial: LlmMessage[] = [];
   for (const m of mensajes) {
     if (m.content.trim().length === 0) {
       continue;
     }
     if (m.direction === "INBOUND") {
-      historial.push({ role: "user", content: envolverMensajeDelCliente(m.content) });
+      const texto = envolverMensajeDelCliente(m.content);
+      const adjunto = adjuntos.get(m.id);
+      historial.push({
+        role: "user",
+        content: adjunto ? [{ type: "text", text: texto }, adjunto] : texto,
+      });
     } else {
       historial.push({ role: "assistant", content: m.content });
     }
@@ -930,7 +949,7 @@ function aHistorial(mensajes: Message[]): LlmMessage[] {
 // mensaje.
 //
 // Qué cuenta como pendiente lo decide el worker (un job vivo sin respuesta
-// propia; ver findPendingInboundMessageIds), no esta función. Sin pendientes
+// propia; ver findPendingInboundMessages), no esta función. Sin pendientes
 // —el canal Web, el probador— devuelve el mismo orden.
 export function ordenarPendientesAlFinal<T extends { id: string }>(
   mensajes: T[],
@@ -1465,7 +1484,7 @@ export async function responderEnLaConversacion(
     await findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES),
     new Set(options.entrantesPendientes ?? []),
   );
-  const historial = aHistorial(mensajes);
+  const historial = aHistorial(mensajes, options.adjuntos);
   const tools = toolsHabilitadas(agent.enabledTools);
   const toolsPorNombre = new Map<string, ToolDelAgente>(tools.map((t) => [t.definition.name, t]));
   // El catálogo filtrado por enabledTools + la tool del sistema, SIEMPRE.

@@ -7351,3 +7351,75 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 | `frontend/src/features/whatsapp/*`, `frontend/src/app/router.tsx`, `frontend/src/layout/AppLayout.tsx` | la pantalla, su ruta y su link en Administración |
 | tests | `whatsappTemplateText.test.ts`, `whatsappTemplate.service.test.ts`, `whatsappTemplate.controller.integration-test.ts`, `whatsappGraph.service.test.ts`, `qrFollowUpWorker.test.ts`, `qrFollowUpWorker.integration-test.ts`, `whatsappWebhook.controller.integration-test.ts`, `routes/index.test.ts`; frontend `WhatsappTemplatePage.test.tsx`, `preview.test.ts`, `router.test.tsx`, `AppLayout.test.tsx` |
 | `docs/automations-architecture.md`, `docs/qr-integration.md` | la plantilla ya no es global; changelog |
+
+## 161. Pasar el agente a un modelo de pago con soporte de audio e imagen
+
+**Estado:** pendiente — decisión y configuración de Rocco, sin código ni PR.
+
+**Qué pasa hoy.** `OPENROUTER_MODEL` (default de `env.ts`) apunta a `google/gemma-4-31b-it:free`, un modelo gratuito que solo entiende texto. `Agent.modelName` es libre (`agent.controller.ts`): cualquier organización puede pedir otro modelo, pero nadie lo hizo. Este es el ítem 131 de la auditoría (B-05/E-01), que quedaba abierto.
+
+**Qué se decide.** Pasar al menos el agente de AutoMax (y el default de la plataforma) a un modelo multimodal de pago en OpenRouter — familia Gemini Flash o equivalente: soporta texto, imagen y audio en la misma llamada, y es de los más baratos del catálogo. **El modelo y precio exactos hay que confirmarlos en `openrouter.ai/models` en el momento de aplicarlo** (el catálogo cambia mes a mes; no clavar acá un id que puede estar discontinuado).
+
+**Por qué no lleva PR.** Es un cambio de configuración de producción (`OPENROUTER_MODEL` en Render, o `modelName` del Agent vía `PATCH /api/agents/:id`), y por `CLAUDE.md` esos cambios se recomiendan, no los aplica el código. Es el prerrequisito de los ítems 162 y 163 (sin un modelo que entienda audio/imagen, esos dos no tienen nada que llamar).
+
+**Ya resuelto, sin acción:** la política de datos (ítem 131/E-01, la otra mitad) — `llmProvider.service.ts:355` ya manda `provider: { data_collection: "deny" }` en cada llamada, así que ningún proveedor detrás de OpenRouter puede entrenar con las conversaciones de los clientes, sea cual sea el modelo elegido.
+
+**Pendiente de una decisión futura, no de este ítem:** el allowlist de modelos por env (sugerencia 23 de la auditoría, B-05) — hoy cualquier ADMIN puede poner cualquier modelo en su Agent, incluido uno carísimo, sin ningún tope. No bloquea 161/162/163.
+
+## 162. El agente entiende audio de WhatsApp
+
+**Estado:** hecho (26/09/2026). Lleva migración (`20261004120000_agent_inbound_job_media`). **No funciona de verdad en producción hasta aplicar el ítem 161**: sin un modelo multimodal, el audio se baja y se le pasa al modelo, pero el modelo actual no lo interpreta.
+
+**Qué pasa hoy.** `mensajeDeTextoSchema` en `whatsappWebhook.service.ts:64-69` es el único tipo que procesa: todo lo demás (`type !== "text"`) cae en `resumen.ignorado` sin persistir nada y sin que el cliente reciba ningún aviso (B-09 de la auditoría). Un cliente que manda un audio no tiene ningún rastro en el CRM.
+
+**Qué se hace.** Cuando el mensaje entrante es `type: "audio"`, en vez de ignorarlo:
+
+1. **Descargar el audio de Meta**, en dos pasos de la Graph API (nuevo en `whatsappGraph.service.ts`, mismo patrón que `sendWhatsappTextReal`): `GET /{media-id}` con Bearer (devuelve una URL temporal, válida ~5 minutos, y el `mime_type`), y `GET` esa URL, también con Bearer, para los bytes. El **`media-id` en sí no vence** (se puede volver a resolver más tarde), a diferencia de la URL temporal — por eso lo que se persiste es el id, no la URL.
+2. **Persistir el entrante** con un marcador de tipo en `content` (ej. `[audio]`, visible en el historial del CRM tal cual pide la sugerencia 8 de 6.1 de la auditoría) y el `media-id` + `mime_type` en un campo nuevo de `AgentInboundJob` (ej. `mediaId`, `mediaType`) — **no se baja el audio en el webhook**: eso agregaría una llamada de red a Meta al camino que el ítem 125 dejó en milisegundos. La descarga la hace el worker, que ya hace llamadas de red (mandar la respuesta) y ya corre fuera del request.
+3. **En el worker** (`agentInboundWorker.ts`, `procesarJob`), antes de armar el turno: si el job tiene `mediaId`, descargar el audio (paso 1) y pasarlo al turno junto con el texto del marcador.
+4. **Extender el contrato del proveedor de LLM.** Hoy `LlmUserMessage.content` es `string` a secas (`llmProvider.service.ts`); pasa a admitir también un array de partes (texto + audio en base64/data-URI, formato `input_audio` de OpenAI que OpenRouter respeta) para los mensajes que traen adjunto. `aMensajesDeOpenAi` arma ese array solo cuando hay adjunto; todo lo demás sigue mandando el string de siempre — **sin cambiar el contrato para los agentes que no reciben audio/imagen nunca**.
+5. Sin modelo multimodal configurado (ítem 161 no aplicado todavía), el modelo va a fallar o ignorar el audio como cualquier adjunto que no entiende — mismo comportamiento tolerante de siempre, no hace falta un chequeo especial acá.
+
+**Qué NO se hace:** transcripción con un servicio aparte (Whisper u otro) — se manda el audio directo al modelo multimodal, que lo entiende sin paso intermedio. Tampoco se guarda el audio en Supabase Storage ni en ningún lado más allá de lo que dura el turno (no hay UI para "escuchar el audio" desde el CRM en este ítem).
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/services/whatsappGraph.service.ts` | función nueva para resolver y descargar un media de Meta por id |
+| `src/services/whatsappWebhook.service.ts` | reconocer `type: "audio"`, persistir marcador + `mediaId`/`mediaType` |
+| `prisma/schema.prisma` | `AgentInboundJob.mediaId`/`mediaType` nullable (migración) |
+| `src/workers/agentInboundWorker.ts` | descargar el media antes de `responderEnLaConversacion` cuando el job lo tiene |
+| `src/services/llmProvider.service.ts` | `LlmUserMessage.content` admite partes multimodales; `aMensajesDeOpenAi` las traduce |
+| `src/services/agentOrchestration.service.ts` | pasar el adjunto descargado hasta el mensaje que arma el turno |
+| tests | `whatsappWebhook.service.test.ts`, `agentInboundWorker.test.ts`, `llmProvider.service.test.ts`, y el integration test del webhook con un payload de audio |
+
+### Decisiones tomadas al implementarlo
+
+- **El worker baja el audio de TODOS los entrantes pendientes de la conversación, no solo el de su job.** Desde el ítem 125, el turno de un job responde también la ráfaga (los otros entrantes con job vivo) y cierra esos jobs como cubiertos. Si bajara solo el suyo, en una ráfaga de dos audios el segundo le llegaría al modelo como `[audio]` a secas y su job se cerraría sin que nadie lo escuchara. Por eso `findPendingInboundMessageIds` pasó a ser `findPendingInboundMessages` y devuelve el `mediaId`/`mediaType` de cada pendiente. Un reenvío (el job ya tiene `responseMessageId`) no baja nada: no corre turno.
+- **El contrato del proveedor es neutral, no el formato de OpenAI.** `LlmContentPart` es `{ type: "text", text }` o `{ type: "audio", data (base64), mimeType }`; es el adaptador de OpenRouter el que lo traduce a `input_audio` con el formato corto (`ogg`, `mp3`, `m4a`, `aac`, `amr`, `wav`; lo que no está en la tabla va con el subtipo del mime). Mismo criterio que el resto de `llmProvider.service.ts`: el loop no sabe qué proveedor hay detrás. `input_audio` lleva el base64 crudo, no un data-URI.
+- **El adjunto viaja al lado del marcador etiquetado.** El mensaje con audio es `[{ type: "text", text: <mensaje_del_cliente>[audio]</mensaje_del_cliente> }, { type: "audio", … }]`. En turnos posteriores (el audio ya respondido) el historial solo tiene `[audio]` como texto: el audio no se guarda, tal cual pide el diseño.
+- **Clasificación de fallos de la descarga: mismo corte que el envío.** `ErrorDeDescarga` (nuevo, hermano de `ErrorDeEnvio`) envuelve la causa: un `WhatsappGraphError` 429/5xx se reintenta; un 4xx (media inexistente, token inválido) es `FAILED` de una, igual que un 4xx al mandar la respuesta. Sin `WHATSAPP_ACCESS_TOKEN`, o sin respuesta de Meta (red, timeout), la causa no es un `WhatsappGraphError` y el job se reintenta con backoff — nunca se descarta un audio por una variable sin cargar. Sin el audio no se corre el turno.
+- **Un 2xx de `GET /{media-id}` sin `url` es un 502** (respuesta rota de Meta, se reintenta), mismo criterio que el alta de plantilla sin id del ítem 160.
+- **`mediaType` se guarda con el mime tal cual lo manda el webhook** (`audio/ogg; codecs=opus`) y es el que viaja al modelo; el de la descarga queda de respaldo si faltara. `VARCHAR(64)` para el id y `VARCHAR(100)` para el mime.
+- **Sin tope de tamaño propio.** WhatsApp ya limita los audios a 16 MB; el audio vive en memoria solo lo que dura el turno.
+- **La lectura del mensaje se extrajo a `leerMensaje`** (pura, exportada) para probar sin base qué tipos se procesan. Las imágenes, ubicaciones, stickers y reacciones siguen devolviendo `null` → `ignorado`, como antes (ítems 163, 164, 165).
+- **La migración se escribió a mano**, mismo motivo que todas desde 20260821 (la shadow database no tiene el schema `auth`). Solo agrega dos columnas nullable, sin backfill (NULL = mensaje de texto). Verificado sin drift contra el Supabase local y `verify:schema` 14/14; el diagnóstico de la auditoría no cambia (sin políticas, índices, CHECKs ni FKs nuevas).
+
+### Cómo se aplica
+
+1. **Deploy + `npm run migrate:deploy` + `npm run verify:schema`** (orden de siempre: la migración solo agrega; la imagen vieja contra el esquema nuevo no se entera).
+2. **Aplicar el ítem 161** (modelo multimodal en `OPENROUTER_MODEL` o en el `modelName` del Agent). Sin eso, el audio llega al modelo y el modelo actual no lo entiende.
+3. Nada en Meta: el campo `messages` del webhook ya trae los audios, y `WHATSAPP_ACCESS_TOKEN` ya alcanza para bajar el media.
+
+## 163. El agente entiende imágenes de WhatsApp
+
+**Estado:** pendiente — mismo mecanismo que el 162 (`type: "image"` en vez de `"audio"`, formato `image_url`/data-URI en vez de `input_audio`). Se detalla igual de a fondo cuando se lo implemente; depende del 161 y reutiliza la descarga de media del 162.
+
+## 164. Ubicación de WhatsApp como texto
+
+**Estado:** pendiente. No depende del 161 (es texto, no un adjunto multimodal): `type: "location"` trae `latitude`/`longitude` y opcionalmente `name`/`address` en el payload — se arma un texto simple (ej. `"[ubicación] lat, lng — nombre"`) y se persiste/procesa como un mensaje de texto más, sin tocar `llmProvider.service.ts`.
+
+## 165. Aviso fijo para lo que sigue sin soportarse (stickers, contactos compartidos, documentos, reacciones)
+
+**Estado:** pendiente. Para cualquier `type` que no sea `text` (ya resuelto)/`audio`/`image`/`location` (162, 163, 164): persistir un marcador (`[sticker]`, `[contacto compartido]`, etc.) y mandar un aviso fijo al cliente en vez de silencio absoluto — el B-09 original, acotado a lo que de verdad no vale la pena interpretar. Texto del aviso: a definir cuando se llegue a este ítem (los tres anteriores tienen prioridad).

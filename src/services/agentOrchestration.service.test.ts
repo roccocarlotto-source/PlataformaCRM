@@ -31,6 +31,7 @@ import {
   TOPE_DE_CARACTERES_DE_KB_EN_EL_PROMPT,
   claveDeLockDeConversacion,
   ordenarPendientesAlFinal,
+  aHistorial,
 } from "./agentOrchestration.service";
 import { logger } from "../lib/logger";
 import { CATALOGO_DE_TOOLS, type ToolDelAgente } from "./agentTools.service";
@@ -1181,4 +1182,33 @@ test("ítem 134: el prompt armado trae los datos del contacto adentro de <datos_
 test("ítem 134: sin datos cargados no hay etiqueta vacía", () => {
   const bloque = bloqueDeContacto({ firstName: ".", lastName: "", email: null, phone: null });
   assert.doesNotMatch(bloque, new RegExp(ETIQUETA_DATOS_DEL_CRM));
+});
+
+// ---------------------------------------------------------------------------
+// Adjuntos en el historial (ítem 162)
+// ---------------------------------------------------------------------------
+
+test("aHistorial: un entrante con adjunto va como partes (marcador etiquetado + audio); el resto, como string", () => {
+  const audio = { type: "audio" as const, data: "QUJD", mimeType: "audio/ogg" };
+  const historial = aHistorial(
+    [
+      { id: "m1", direction: "INBOUND", content: "hola" },
+      { id: "m2", direction: "OUTBOUND", content: "¡Hola!" },
+      { id: "m3", direction: "INBOUND", content: "[audio]" },
+    ],
+    new Map([["m3", audio]]),
+  );
+  assert.deepEqual(historial, [
+    { role: "user", content: envolverMensajeDelCliente("hola") },
+    { role: "assistant", content: "¡Hola!" },
+    {
+      role: "user",
+      content: [{ type: "text", text: envolverMensajeDelCliente("[audio]") }, audio],
+    },
+  ]);
+});
+
+test("aHistorial: sin adjuntos, todos los mensajes del cliente siguen siendo un string", () => {
+  const historial = aHistorial([{ id: "m1", direction: "INBOUND", content: "[audio]" }]);
+  assert.deepEqual(historial, [{ role: "user", content: envolverMensajeDelCliente("[audio]") }]);
 });

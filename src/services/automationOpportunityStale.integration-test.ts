@@ -221,6 +221,7 @@ test("flujo completo: barrido -> evento -> outbox -> Activity con el borrador de
   const [pedido] = modelo.requests;
   assert.deepEqual(pedido.tools, []);
   const contexto = pedido.messages[0].content ?? "";
+  assert.ok(typeof contexto === "string");
   assert.match(contexto, /- Título: Corolla 2024 gris/);
   assert.match(contexto, /- Monto: 25000 USD/);
   assert.match(contexto, /Cliente: ¿Tienen el Corolla en gris\?/);
@@ -262,7 +263,9 @@ test("sin contacto (o sin conversaciones): el borrador se arma solo con los dato
   assert.equal(actividades.length, 1);
   assert.equal(actividades[0].opportunityId, opp.id);
   assert.equal(actividades[0].body, BORRADOR);
-  assert.match(modelo.requests[0].messages[0].content ?? "", /No hay ninguna conversación/);
+  const contexto = modelo.requests[0].messages[0].content ?? "";
+  assert.ok(typeof contexto === "string");
+  assert.match(contexto, /No hay ninguna conversación/);
 });
 
 test("si el modelo falla: ninguna Activity, la oportunidad SIN marcar y la regla FAILED; al reintentar con el modelo sano, se completa", async () => {

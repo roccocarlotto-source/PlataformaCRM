@@ -1,0 +1,31 @@
+-- ---------------------------------------------------------------------------
+-- Ítem 162 de docs/frontend-cambios-pendientes.md (rama
+-- feat/agente-entiende-audio-whatsapp): el agente entiende los audios de
+-- WhatsApp.
+--
+-- agent_inbound_jobs.media_id / media_type — el webhook persiste el entrante
+-- con un marcador ("[audio]") y deja en el job el id del media y su
+-- mime_type, tal cual los mandó Meta. El audio NO se baja en el webhook (el
+-- ítem 125 lo dejó respondiendo en milisegundos): lo baja el worker antes del
+-- turno. Se guarda el id y no la url de descarga porque la url vence en unos
+-- minutos y el id no.
+--
+-- Nullable y sin backfill: NULL es "mensaje de texto", que describe bien a
+-- todo job anterior a este cambio.
+--
+-- Escrita a mano, no generada por `prisma migrate dev`: mismo motivo que el
+-- resto de las migraciones desde 20260821 (la shadow database no tiene el
+-- schema auth). La sentencia es exactamente lo que `prisma migrate diff`
+-- deriva del schema, para que no aparezca drift.
+--
+-- Al diagnóstico (docs/auditoria-2026-08-21-diagnostico.sql) no entra nada:
+-- ni políticas, ni índices, ni CHECKs, ni FKs nuevas.
+--
+-- Solo AGREGA columnas nullable: el orden de siempre (migración y después la
+-- imagen) sirve, y la imagen anterior sigue funcionando contra la base
+-- migrada (no las lee ni las escribe).
+-- ---------------------------------------------------------------------------
+
+-- AlterTable
+ALTER TABLE "agent_inbound_jobs" ADD COLUMN     "media_id" VARCHAR(64),
+ADD COLUMN     "media_type" VARCHAR(100);

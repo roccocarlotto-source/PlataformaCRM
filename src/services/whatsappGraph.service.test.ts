@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import {
   buildDeleteTemplateUrl,
+  buildMediaUrl,
   buildMessageTemplatesUrl,
   buildSendMessageUrl,
   buildTemplateStatusUrl,
   createWhatsappTemplateReal,
   cuerpoDePlantilla,
   deleteWhatsappTemplateReal,
+  downloadWhatsappMediaReal,
   getWhatsappTemplateStatusReal,
   mensajeDeMeta,
   normalizarParametroDePlantilla,
@@ -289,5 +291,75 @@ test("deleteWhatsappTemplateReal: DELETE por nombre, y con hsm_id cuando se cono
       metaTemplateId: null,
     }),
     "https://graph.facebook.com/v25.0/waba-123/message_templates?name=seguimiento_postventa",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Media entrante (ítem 162)
+// ---------------------------------------------------------------------------
+
+// Un fetch que contesta en orden: la descarga de un media son dos requests.
+function doblarFetchEnOrden(respuestas: Response[]): RequestRegistrado[] {
+  const llamadas: RequestRegistrado[] = [];
+  globalThis.fetch = ((url: string, init: RequestInit) => {
+    llamadas.push({ url, init });
+    const respuesta = respuestas.shift();
+    return respuesta ? Promise.resolve(respuesta) : Promise.reject(new Error("sin respuesta"));
+  }) as typeof fetch;
+  return llamadas;
+}
+
+const URL_TEMPORAL = "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=1&ext=2";
+
+test("downloadWhatsappMediaReal: GET al id para la url, GET a la url para los bytes, los dos con el Bearer", async () => {
+  const llamadas = doblarFetchEnOrden([
+    new Response(JSON.stringify({ url: URL_TEMPORAL, mime_type: "audio/ogg; codecs=opus" })),
+    new Response(Buffer.from("bytes-del-audio"), { headers: { "content-type": "audio/ogg" } }),
+  ]);
+
+  const media = await downloadWhatsappMediaReal({
+    mediaId: "123456",
+    accessToken: "token-secreto",
+  });
+
+  assert.equal(media.data.toString(), "bytes-del-audio");
+  assert.equal(media.mimeType, "audio/ogg; codecs=opus");
+  assert.equal(llamadas.length, 2);
+  assert.equal(llamadas[0].url, buildMediaUrl("123456"));
+  assert.equal(llamadas[0].url, "https://graph.facebook.com/v25.0/123456");
+  assert.equal(llamadas[1].url, URL_TEMPORAL);
+  for (const llamada of llamadas) {
+    assert.equal(llamada.init.method, "GET");
+    const headers = llamada.init.headers as Record<string, string>;
+    assert.equal(headers.Authorization, "Bearer token-secreto");
+  }
+});
+
+test("downloadWhatsappMediaReal: un 4xx de Meta al resolver el id es un WhatsappGraphError con su status", async () => {
+  doblarFetchEnOrden([
+    new Response(JSON.stringify({ error: { message: "Invalid media id" } }), { status: 400 }),
+  ]);
+  await assert.rejects(
+    downloadWhatsappMediaReal({ mediaId: "x", accessToken: "t" }),
+    (err: unknown) => err instanceof WhatsappGraphError && err.status === 400,
+  );
+});
+
+test("downloadWhatsappMediaReal: un 5xx al bajar los bytes también es un WhatsappGraphError, para reintentarlo", async () => {
+  doblarFetchEnOrden([
+    new Response(JSON.stringify({ url: URL_TEMPORAL, mime_type: "audio/ogg" })),
+    new Response("Service Unavailable", { status: 503 }),
+  ]);
+  await assert.rejects(
+    downloadWhatsappMediaReal({ mediaId: "x", accessToken: "t" }),
+    (err: unknown) => err instanceof WhatsappGraphError && err.status === 503,
+  );
+});
+
+test("downloadWhatsappMediaReal: un 2xx sin url es una respuesta rota de Meta (502)", async () => {
+  doblarFetchEnOrden([new Response(JSON.stringify({ id: "x" }))]);
+  await assert.rejects(
+    downloadWhatsappMediaReal({ mediaId: "x", accessToken: "t" }),
+    (err: unknown) => err instanceof WhatsappGraphError && err.status === 502,
   );
 });

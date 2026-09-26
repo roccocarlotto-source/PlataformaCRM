@@ -2,8 +2,8 @@
 // Cliente mínimo de la Graph API de Meta para el canal WhatsApp: mandar UNA
 // respuesta de texto (ítem 81) o UNA plantilla aprobada (ítem 159, el
 // seguimiento con el QR al ganar una oportunidad), y dar de alta, consultar y
-// borrar la plantilla de un negocio (ítem 160). Media y estados de lectura
-// están fuera de alcance.
+// borrar la plantilla de un negocio (ítem 160), y bajar un media que mandó el
+// cliente (ítem 162, los audios). Estados de lectura están fuera de alcance.
 //
 // Son tipos de función y no un módulo con estado para que los workers los
 // reciban inyectados: producción usa las *Real, los tests un doble que
@@ -330,4 +330,60 @@ export const getWhatsappTemplateStatusReal: GetWhatsappTemplateStatus = async (i
     rejectedReason:
       typeof respuesta.rejected_reason === "string" ? respuesta.rejected_reason : null,
   };
+};
+
+// ---------------------------------------------------------------------------
+// Media entrante (ítem 162)
+//
+// Un audio (o cualquier media) que manda el cliente llega al webhook como un
+// id, no como bytes. Bajarlo son DOS requests, los dos con el Bearer:
+//   1. GET /{media-id} -> { url, mime_type }. La url es temporal (~5 minutos).
+//   2. GET url -> los bytes.
+// El id en sí NO vence mientras Meta conserve el media, así que es lo que se
+// persiste (AgentInboundJob.mediaId) y se resuelve de nuevo en cada intento
+// del worker; la url nunca se guarda.
+// ---------------------------------------------------------------------------
+
+export interface MediaDescargado {
+  data: Buffer;
+  // El mime_type que da Meta (ej. "audio/ogg; codecs=opus").
+  mimeType: string;
+}
+
+export type DownloadWhatsappMedia = (input: {
+  mediaId: string;
+  accessToken: string;
+}) => Promise<MediaDescargado>;
+
+export function buildMediaUrl(mediaId: string): string {
+  return `${WHATSAPP_GRAPH_API_BASE_URL}/${encodeURIComponent(mediaId)}`;
+}
+
+export const downloadWhatsappMediaReal: DownloadWhatsappMedia = async (input) => {
+  const media = (await llamarGraph(buildMediaUrl(input.mediaId), "GET", input.accessToken)) as {
+    url?: unknown;
+    mime_type?: unknown;
+  };
+  if (typeof media.url !== "string" || media.url === "") {
+    // Mismo criterio que el alta sin id: un 2xx sin lo que se pidió es una
+    // respuesta rota de Meta, no un rechazo.
+    throw new WhatsappGraphError(502, "Meta no devolvió la url del media");
+  }
+  // La url NO es de la Graph API (es un CDN de Meta), pero exige el mismo
+  // Bearer. No pasa por llamarGraph porque la respuesta son bytes, no JSON.
+  const res = await fetch(media.url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${input.accessToken}` },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    const detalle = (await res.text().catch(() => "")).slice(0, 500);
+    throw new WhatsappGraphError(res.status, detalle);
+  }
+  const data = Buffer.from(await res.arrayBuffer());
+  const mimeType =
+    typeof media.mime_type === "string" && media.mime_type !== ""
+      ? media.mime_type
+      : (res.headers.get("content-type") ?? "application/octet-stream");
+  return { data, mimeType };
 };

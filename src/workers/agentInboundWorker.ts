@@ -5,13 +5,14 @@ import { prisma } from "../lib/prisma";
 import {
   claimNextAgentInboundJob,
   findAgentInboundJobById,
-  findPendingInboundMessageIds,
+  findPendingInboundMessages,
   markAgentInboundJobDone,
   markAgentInboundJobFailed,
   markAgentInboundJobsCovered,
   renewAgentInboundJobLease,
   rescheduleAgentInboundJob,
   setAgentInboundJobResponse,
+  type EntrantePendiente,
   type JobReclamado,
 } from "../repositories/agentInboundJob.repository";
 import { findConversationById } from "../repositories/conversation.repository";
@@ -21,10 +22,12 @@ import {
   conLockDeConversacion,
   responderEnLaConversacion,
 } from "../services/agentOrchestration.service";
-import { esTransitorio } from "../services/llmProvider.service";
+import { esTransitorio, type LlmContentPart } from "../services/llmProvider.service";
 import {
+  downloadWhatsappMediaReal,
   sendWhatsappTextReal,
   WhatsappGraphError,
+  type DownloadWhatsappMedia,
   type SendWhatsappText,
 } from "../services/whatsappGraph.service";
 import { AppError } from "../utils/AppError";
@@ -62,14 +65,18 @@ import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils
 // ítem 120 ya describe para el reintento de un turno entero.
 // ---------------------------------------------------------------------------
 
+// Todo lo que el worker le pide a Meta: mandar la respuesta y, desde el ítem
+// 162, bajar el audio de un entrante antes del turno.
 export interface DepsDeEnvio {
   accessToken: () => string | undefined;
   sendText: SendWhatsappText;
+  downloadMedia: DownloadWhatsappMedia;
 }
 
 export const depsDeEnvioReales: DepsDeEnvio = {
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
   sendText: sendWhatsappTextReal,
+  downloadMedia: downloadWhatsappMediaReal,
 };
 
 // Un fallo que no se arregla reintentando, sin ser un AppError: un job que
@@ -96,6 +103,22 @@ export class ErrorDeEnvio extends Error {
   }
 }
 
+// No se pudo bajar de Meta el audio de un entrante (ítem 162). Tipo propio por
+// el mismo motivo que ErrorDeEnvio: la causa se clasifica con el corte de la
+// Graph API. Sin token, o sin respuesta de Meta (red, timeout), la causa no es
+// un WhatsappGraphError y el job se reintenta — nunca se descarta un audio
+// por un problema de configuración que se arregla cargando la variable.
+export class ErrorDeDescarga extends Error {
+  readonly causa: unknown;
+
+  constructor(causa: unknown) {
+    super(`No se pudo bajar el audio del cliente de WhatsApp: ${describirError(causa)}`);
+    this.name = "ErrorDeDescarga";
+    this.causa = causa;
+    Object.setPrototypeOf(this, ErrorDeDescarga.prototype);
+  }
+}
+
 // Pura, para poder probarla sin base: qué errores vale la pena reintentar.
 export function clasificarFallo(err: unknown): ClaseDeFallo {
   if (err instanceof ErrorPermanenteDelJob) {
@@ -107,7 +130,10 @@ export function clasificarFallo(err: unknown): ClaseDeFallo {
   if (err instanceof AppError && err.statusCode < 500) {
     return "PERMANENTE";
   }
-  if (err instanceof ErrorDeEnvio && err.causa instanceof WhatsappGraphError) {
+  if (
+    (err instanceof ErrorDeEnvio || err instanceof ErrorDeDescarga) &&
+    err.causa instanceof WhatsappGraphError
+  ) {
     return esTransitorio(err.causa.status) ? "TRANSITORIO" : "PERMANENTE";
   }
   // Red, timeout, la base que no responde, un bug: se reintenta, y el tope de
@@ -151,6 +177,41 @@ async function enviarRespuesta(saliente: Message, job: JobReclamado, deps: DepsD
   await markMessageDelivery(saliente.id, job.organizationId, { status: "SENT" });
 }
 
+// Ítem 162: baja de Meta el audio de cada entrante pendiente que lo tiene, para
+// pasárselo al turno. TODOS los pendientes y no solo el de este job: en una
+// ráfaga, el turno de este job responde también los otros (y cierra sus
+// jobs), así que tiene que escucharlos a todos.
+//
+// En memoria y solo por este turno: el audio no se guarda en ningún lado. Un
+// reintento lo vuelve a bajar por su mediaId, que no vence.
+export async function descargarAdjuntos(
+  pendientes: EntrantePendiente[],
+  deps: Pick<DepsDeEnvio, "accessToken" | "downloadMedia">,
+): Promise<Map<string, LlmContentPart>> {
+  const adjuntos = new Map<string, LlmContentPart>();
+  for (const pendiente of pendientes) {
+    if (pendiente.mediaId === null) {
+      continue;
+    }
+    try {
+      const accessToken = deps.accessToken();
+      if (!accessToken) {
+        throw new Error("Falta WHATSAPP_ACCESS_TOKEN en el entorno");
+      }
+      const media = await deps.downloadMedia({ mediaId: pendiente.mediaId, accessToken });
+      // Hoy el webhook solo encola con mediaId a los audios.
+      adjuntos.set(pendiente.messageId, {
+        type: "audio",
+        data: media.data.toString("base64"),
+        mimeType: pendiente.mediaType ?? media.mimeType,
+      });
+    } catch (err) {
+      throw new ErrorDeDescarga(err);
+    }
+  }
+  return adjuntos;
+}
+
 export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise<ResultadoDelJob> {
   const { organizationId } = job;
 
@@ -192,11 +253,13 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
       // También releída bajo el lock: un turno anterior pudo haberla derivado.
       const conversacionActual =
         (await findConversationById(conversacion.id, organizationId)) ?? conversacion;
-      const pendientes = await findPendingInboundMessageIds(organizationId, conversacion.id);
+      const entrantesPendientes = await findPendingInboundMessages(organizationId, conversacion.id);
+      const pendientes = entrantesPendientes.map((p) => p.messageId);
+      const adjuntos = await descargarAdjuntos(entrantesPendientes, deps);
 
       const respuesta = await responderEnLaConversacion(
         { agent, contact, conversation: conversacionActual, texto: entrante.content },
-        { entrantesPendientes: pendientes },
+        { entrantesPendientes: pendientes, adjuntos },
       );
 
       // La ráfaga: los otros entrantes pendientes que el modelo tuvo en su
