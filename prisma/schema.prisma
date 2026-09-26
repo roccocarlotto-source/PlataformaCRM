@@ -303,6 +303,26 @@ enum QrFollowUpStatus {
   CANCELLED
 }
 
+// Estado de la plantilla de WhatsApp de una organización (ítem 160), tal cual
+// lo decide Meta — el CRM no aprueba nada, lo lee (del webhook
+// message_template_status_update o del refresh a mano).
+//
+// - PENDING: mandada a Meta, en revisión. También la fila recién reservada
+//   que todavía no tiene metaTemplateId (ver whatsappTemplate.service.ts).
+// - APPROVED: se puede mandar. Es la ÚNICA que habilita el reclamo de los
+//   seguimientos de su organización (claimNextQrFollowUp).
+// - REJECTED: Meta la rechazó, o la dejó en un estado del que no se manda
+//   (pausada, deshabilitada); rejectedReason dice cuál.
+//
+// Tres y no el catálogo completo de Meta (PAUSED, DISABLED, IN_APPEAL...): lo
+// único que al CRM le importa es si se puede mandar o no, y si no, por qué.
+// El detalle queda en rejectedReason.
+enum WhatsappTemplateStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 // ---------------------------------------------------------------------------
 // Enums del módulo QR (integración de QR Reviews, ver docs/qr-integration.md):
 // hoy no queda ninguno.
@@ -575,8 +595,11 @@ model Organization {
   // como todas las demás.
   knowledgeBaseEntries KnowledgeBaseEntry[]
 
-  qrCodes     QrCode[]
-  qrFollowUps QrFollowUp[]
+  qrCodes           QrCode[]
+  qrFollowUps       QrFollowUp[]
+  // La plantilla de WhatsApp con la que salen sus seguimientos (ítem 160).
+  // Una activa a la vez; las borradas quedan como historial.
+  whatsappTemplates WhatsappTemplate[]
 
   vehicles          Vehicle[]
   vehiclePhotos     VehiclePhoto[]
@@ -2493,6 +2516,53 @@ model QrFollowUp {
   @@index([organizationId, contactId])
   @@index([organizationId, qrCodeId])
   @@map("qr_follow_ups")
+}
+
+// ---------------------------------------------------------------------------
+// WhatsappTemplate — la plantilla de seguimiento post-venta que el negocio
+// arma desde el CRM (ítem 160 de docs/frontend-cambios-pendientes.md). Antes
+// era una sola para toda la plataforma, en dos variables de Render (ítem 159).
+//
+// bodyText es el texto TAL CUAL lo escribió el negocio, con los tokens
+// {nombre} y {link}; la traducción a {{1}}/{{2}} que viaja a Meta se deriva
+// de él (utils/whatsappTemplateText.ts) y no se guarda: una sola fuente.
+//
+// DOS UNIQUE PARCIALES (sobre las filas no borradas), que viven en la
+// migración porque el DSL de Prisma no expresa el WHERE:
+//   - whatsapp_templates_org_active_unique (organization_id): una activa por
+//     organización. Para cambiarla, se borra la actual.
+//   - whatsapp_templates_name_active_unique (name): el nombre es único EN TODA
+//     LA TABLA, no por organización. Todas las organizaciones comparten el
+//     mismo WABA de Meta, y en un WABA el nombre identifica a la plantilla:
+//     dos organizaciones con el mismo nombre serían, para Meta, dos idiomas de
+//     UNA plantilla — y el DELETE por nombre borraría las dos. Limitación
+//     conocida de este alcance (sin onboarding de WABA por negocio).
+// Parciales para que borrar LIBERE el nombre y el lugar.
+// ---------------------------------------------------------------------------
+model WhatsappTemplate {
+  id             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String                 @map("organization_id") @db.Uuid
+  // Minúsculas, números y guion bajo (regla de Meta). 512 es el tope de Meta.
+  name           String                 @db.VarChar(512)
+  // Código de idioma de Meta (es_AR, en_US...).
+  language       String                 @db.VarChar(20)
+  bodyText       String                 @map("body_text")
+  // El id que Meta le dio. NULL solo en la ventana entre reservar la fila y
+  // que Meta conteste el alta (ver whatsappTemplate.service.ts).
+  metaTemplateId String?                @map("meta_template_id") @db.VarChar(64)
+  status         WhatsappTemplateStatus @default(PENDING)
+  rejectedReason String?                @map("rejected_reason")
+  deletedAt      DateTime?              @map("deleted_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  // El webhook de Meta identifica la plantilla por su id: lo sirve este
+  // índice. No es UNIQUE porque una fila borrada conserva el suyo como
+  // historial, y un alta que Meta rechaza en el momento no llega a tener uno.
+  @@index([metaTemplateId])
+  @@map("whatsapp_templates")
 }
 
 // ---------------------------------------------------------------------------

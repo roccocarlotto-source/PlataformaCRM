@@ -36,6 +36,7 @@ import { sourceRouter } from "./source.routes";
 import { stageRouter } from "./stage.routes";
 import { userRouter } from "./user.routes";
 import { vehicleRouter } from "./vehicle.routes";
+import { whatsappTemplateRouter } from "./whatsappTemplate.routes";
 
 // Agrega acá cada router nuevo a medida que se implementen entidades del CRM.
 // /health queda sin prefijo (convención de health checks); las rutas de
@@ -132,6 +133,11 @@ routes.use("/api", conversationRouter);
 // leer, + authorize("ADMIN") para escribir. La ejecución de las reglas no pasa
 // por HTTP: la dispara el worker del outbox (server.ts).
 routes.use("/api", automationRouter);
+// La plantilla de WhatsApp con la que sale el seguimiento post-venta que
+// agenda la automatización opportunity.send_qr_followup (ítem 160). Pegada a
+// automationRouter porque es la configuración de esa acción; ADMIN-only
+// incluida la lectura (ver su router).
+routes.use("/api", whatsappTemplateRouter);
 
 // Conexión OAuth con Google Calendar (paso 2 de booking-architecture.md §9).
 // Sus tres rutas administrativas comparten la forma del resto de este bloque;

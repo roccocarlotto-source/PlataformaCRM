@@ -126,7 +126,12 @@ export function createVerifyWhatsappSignature(deps: WhatsappWebhookDeps): Reques
   };
 }
 
-// POST, paso 3: firma verificada y cuerpo parseado.
+// POST, paso 3: firma verificada y cuerpo parseado. Cada change del lote se
+// despacha por su `field`: `messages` (los entrantes, ítem 81) y
+// `message_template_status_update` (Meta aprobó o rechazó la plantilla de
+// seguimiento de un negocio, ítem 160); los dos viven en
+// whatsappWebhook.service.ts. Para recibir el segundo, el campo tiene que
+// estar suscripto en el webhook de la app de Meta.
 //
 // 200 SIEMPRE QUE LA FORMA SEA VÁLIDA, aunque un mensaje puntual falle
 // adentro (se loguea en el service): cualquier cosa que no sea 2xx hace que

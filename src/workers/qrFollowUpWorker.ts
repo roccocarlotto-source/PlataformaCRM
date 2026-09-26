@@ -2,6 +2,7 @@ import { OpportunityStatus } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { findBranchWhatsappPhoneNumberId } from "../repositories/agent.repository";
+import { findApprovedWhatsappTemplate } from "../repositories/whatsappTemplate.repository";
 import {
   claimNextQrFollowUp,
   findQrFollowUpParaEnviar,
@@ -59,44 +60,39 @@ export interface PlantillaDeSeguimiento {
 
 export interface DepsDelSeguimiento {
   accessToken: () => string | undefined;
-  plantilla: () => { name: string | undefined; languageCode: string | undefined };
+  // La plantilla APROBADA y activa de la organización, o null (ítem 160).
+  plantillaDeLaOrganizacion: (organizationId: string) => Promise<PlantillaDeSeguimiento | null>;
   numeroDeLaSucursal: (organizationId: string, branchId: string) => Promise<string | null>;
   sendTemplate: SendWhatsappTemplate;
 }
 
 export const depsDelSeguimientoReales: DepsDelSeguimiento = {
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
-  plantilla: () => ({
-    name: env.WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME,
-    languageCode: env.WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE,
-  }),
+  plantillaDeLaOrganizacion: async (organizationId) => {
+    const plantilla = await findApprovedWhatsappTemplate(organizationId);
+    return plantilla ? { name: plantilla.name, languageCode: plantilla.language } : null;
+  },
   numeroDeLaSucursal: findBranchWhatsappPhoneNumberId,
   sendTemplate: sendWhatsappTemplateReal,
 };
 
+// Lo único GLOBAL que el envío necesita. Hasta el ítem 160 incluía la
+// plantilla (dos variables de Render, una para toda la plataforma); ahora la
+// plantilla es de cada organización y se lee al mandar.
 export interface ConfiguracionDeEnvio {
   accessToken: string;
-  plantilla: PlantillaDeSeguimiento;
 }
 
 // Pura: la configuración completa, o los nombres de las variables que faltan.
 // El string vacío cuenta como ausente (una línea `X=` en el .env).
 export function leerConfiguracion(
-  deps: Pick<DepsDelSeguimiento, "accessToken" | "plantilla">,
+  deps: Pick<DepsDelSeguimiento, "accessToken">,
 ): { ok: true; config: ConfiguracionDeEnvio } | { ok: false; faltan: string[] } {
   const accessToken = deps.accessToken()?.trim();
-  const { name, languageCode } = deps.plantilla();
-  const nombre = name?.trim();
-  const idioma = languageCode?.trim();
-  const faltan = [
-    ...(accessToken ? [] : ["WHATSAPP_ACCESS_TOKEN"]),
-    ...(nombre ? [] : ["WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME"]),
-    ...(idioma ? [] : ["WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE"]),
-  ];
-  if (!accessToken || !nombre || !idioma) {
-    return { ok: false, faltan };
+  if (!accessToken) {
+    return { ok: false, faltan: ["WHATSAPP_ACCESS_TOKEN"] };
   }
-  return { ok: true, config: { accessToken, plantilla: { name: nombre, languageCode: idioma } } };
+  return { ok: true, config: { accessToken } };
 }
 
 // Un fallo que no se arregla reintentando y no viene de Meta: un dato que falta.
@@ -163,7 +159,10 @@ export type ResultadoDelEnvio =
 export async function procesarSeguimiento(
   reclamo: QrFollowUpReclamado,
   config: ConfiguracionDeEnvio,
-  deps: Pick<DepsDelSeguimiento, "numeroDeLaSucursal" | "sendTemplate">,
+  deps: Pick<
+    DepsDelSeguimiento,
+    "plantillaDeLaOrganizacion" | "numeroDeLaSucursal" | "sendTemplate"
+  >,
   leer: (id: string, organizationId: string) => Promise<QrFollowUpParaEnviar | null> = (
     id,
     organizationId,
@@ -194,11 +193,24 @@ export async function procesarSeguimiento(
     );
   }
 
+  // La plantilla se relee acá, justo antes de mandar, igual que todo lo demás:
+  // el reclamo solo toma filas de organizaciones con plantilla aprobada, pero
+  // entre el reclamo y este punto el negocio pudo borrarla, o Meta pausarla.
+  // Sin plantilla no hay con qué mandar, y no es algo que un reintento
+  // arregle: FAILED con el motivo. (Si la organización carga otra plantilla,
+  // las filas que siguen en PENDING salen con ella.)
+  const plantilla = await deps.plantillaDeLaOrganizacion(fila.organizationId);
+  if (!plantilla) {
+    throw new ErrorPermanenteDelSeguimiento(
+      "La organización ya no tiene una plantilla de WhatsApp aprobada (se borró o Meta dejó de aprobarla antes del envío)",
+    );
+  }
+
   await deps.sendTemplate({
     phoneNumberId,
     to: destino,
-    templateName: config.plantilla.name,
-    languageCode: config.plantilla.languageCode,
+    templateName: plantilla.name,
+    languageCode: plantilla.languageCode,
     // Posicionales: {{1}} el nombre del contacto, {{2}} el link del QR.
     bodyParameters: [nombreParaElSaludo(fila.contact.firstName), fila.qrCode.destinationUrl],
     accessToken: config.accessToken,
@@ -310,16 +322,18 @@ export async function drenarSeguimientosQr(
     sinConfiguracion: false,
   };
 
-  // SIN CONFIGURACIÓN NO SE RECLAMA NADA: reclamar gastaría intentos de filas
-  // que no pueden salir por un motivo que no es suyo. Quedan en PENDING y
-  // salen solas en la primera pasada después de configurar las variables.
-  // Error en el log en CADA pasada, no una vez al arrancar: si alguien creó una
-  // regla y nada sale, el motivo tiene que estar donde mire.
+  // SIN TOKEN NO SE RECLAMA NADA: reclamar gastaría intentos de filas que no
+  // pueden salir por un motivo que no es suyo. Quedan en PENDING y salen solas
+  // en la primera pasada después de configurar la variable. Error en el log en
+  // CADA pasada, no una vez al arrancar: si alguien creó una regla y nada
+  // sale, el motivo tiene que estar donde mire. La plantilla ya no es parte de
+  // esto (ítem 160): es de cada organización, y la que no tiene una aprobada
+  // simplemente no se reclama (ver claimNextQrFollowUp).
   const configuracion = leerConfiguracion(deps);
   if (!configuracion.ok) {
     logger.error(
       { faltan: configuracion.faltan },
-      "Seguimientos con QR: falta configuración de WhatsApp, no se manda ninguno (quedan en PENDING)",
+      "Seguimientos con QR: falta el token de WhatsApp, no se manda ninguno (quedan en PENDING)",
     );
     resumen.sinConfiguracion = true;
     return resumen;

@@ -466,22 +466,24 @@ const envSchema = z.object({
   WHATSAPP_APP_SECRET: z.string().optional(),
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
 
-  // La plantilla aprobada por Meta con la que sale el seguimiento con el QR
-  // (ítem 159; src/workers/qrFollowUpWorker.ts). Un mensaje que la empresa
-  // inicia fuera de la ventana de 24 h TIENE que ser una plantilla: texto
-  // libre, Meta lo rechaza. Nombre y código de idioma, exactamente como
-  // quedaron dados de alta en el WhatsApp Manager (ej. "seguimiento_resena" y
-  // "es_AR"). El cuerpo lleva dos variables posicionales: {{1}} el nombre del
-  // contacto y {{2}} el link del QR.
+  // El id del WABA (WhatsApp Business Account) donde cada negocio da de alta
+  // su plantilla de seguimiento post-venta desde el CRM (ítem 160;
+  // src/services/whatsappTemplate.service.ts): POST
+  // /{WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates. UNO para toda la
+  // plataforma — las organizaciones comparten el WABA y el número de hoy; el
+  // onboarding de un WABA propio por negocio está fuera de alcance.
   //
-  // Opcionales por el mismo criterio que las de arriba: el servidor arranca
-  // sin ellas. Lo que NO pasa es fallar en silencio: sin las dos, el worker de
-  // seguimientos no manda nada, lo dice en el log en cada pasada, y los envíos
-  // quedan en PENDING hasta que se configuren.
-  // Sin .min(1) a propósito: una línea `X=` vacía en el .env no puede tumbar
-  // el arranque. El worker trata el string vacío igual que la ausencia.
-  WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME: z.string().optional(),
-  WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE: z.string().optional(),
+  // Opcional por el mismo criterio que las de arriba: el servidor arranca sin
+  // ella, y dar de alta o consultar una plantilla sin ella responde un 503 que
+  // dice que la conexión con WhatsApp no está configurada (el nombre de la
+  // variable, en el log). Sin .min(1): una línea `X=` vacía no puede tumbar el
+  // arranque, y el service la trata igual que la ausencia.
+  //
+  // HASTA EL ÍTEM 160 acá vivían WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME y
+  // WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE: una sola plantilla para toda
+  // la plataforma, cargada a mano. Ahora la plantilla es de cada organización
+  // (tabla whatsapp_templates) y el worker la lee de ahí.
+  WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().optional(),
 
   // Gate de secreto compartido de /qr/resolve/:qrId (Fase 4, backend — ver
   // src/middlewares/requireInternalProxySecret.ts). El Cloudflare Worker que

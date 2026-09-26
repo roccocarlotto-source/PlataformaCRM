@@ -223,7 +223,10 @@ from (
       -- Seguimiento por WhatsApp con el QR al ganar una oportunidad (ítem
       -- 159 de docs/frontend-cambios-pendientes.md, migración
       -- 20261002120000): ídem.
-      ('qr_follow_ups')
+      ('qr_follow_ups'),
+      -- La plantilla de WhatsApp de cada organización (ítem 160, migración
+      -- 20261003120000): ídem.
+      ('whatsapp_templates')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -257,13 +260,14 @@ from (
 
   union all
 
-  -- V-2 ─ Los 9 índices únicos parciales, comparados por DEFINICIÓN COMPLETA.
+  -- V-2 ─ Los 12 índices únicos parciales, comparados por DEFINICIÓN COMPLETA.
   --
   -- Eran 10 cuando esta fila se escribió; 20260910120000_stages_won_lost_no_
   -- exclusivos borró dos (ver más abajo) y quedaron 8, sin que este conteo se
-  -- actualizara. El §54 agrega qr_codes_branch_display_number_unique y los
-  -- deja en 9. La lista de abajo es la fuente de verdad: este número es una
-  -- ayuda para leerla, no algo que el chequeo use.
+  -- actualizara. El §54 agrega qr_codes_branch_display_number_unique (9), el
+  -- ítem 126 conversations_open_unique (10) y el ítem 160 los dos de
+  -- whatsapp_templates (12). La lista de abajo es la fuente de verdad: este
+  -- número es una ayuda para leerla, no algo que el chequeo use.
   --
   -- Antes esto buscaba el NOMBRE en pg_indexes y nada más. Los tres agujeros que
   -- eso dejaba, todos con historia en este proyecto:
@@ -327,7 +331,17 @@ from (
     -- el P2002 → releer de findOrCreateOpenConversation deja de encontrar la
     -- conversación que ganó.
     ('conversations_open_unique',
-     'CREATE UNIQUE INDEX conversations_open_unique ON public.conversations USING btree (organization_id, agent_id, contact_id, channel) WHERE (status = ANY (ARRAY[''ACTIVE''::"ConversationStatus", ''TRANSFERRED_TO_HUMAN''::"ConversationStatus"]))')
+     'CREATE UNIQUE INDEX conversations_open_unique ON public.conversations USING btree (organization_id, agent_id, contact_id, channel) WHERE (status = ANY (ARRAY[''ACTIVE''::"ConversationStatus", ''TRANSFERRED_TO_HUMAN''::"ConversationStatus"]))'),
+    -- Ítem 160 de docs/frontend-cambios-pendientes.md (migración
+    -- 20261003120000): la plantilla de WhatsApp de cada organización. Una
+    -- activa por organización, y el nombre único en TODA la tabla porque
+    -- todas comparten el WABA de Meta. Sin el predicado, borrar una plantilla
+    -- no liberaría ni el lugar ni el nombre — que es lo que el flujo "borrar
+    -- y volver a intentar" necesita.
+    ('whatsapp_templates_name_active_unique',
+     'CREATE UNIQUE INDEX whatsapp_templates_name_active_unique ON public.whatsapp_templates USING btree (name) WHERE (deleted_at IS NULL)'),
+    ('whatsapp_templates_org_active_unique',
+     'CREATE UNIQUE INDEX whatsapp_templates_org_active_unique ON public.whatsapp_templates USING btree (organization_id) WHERE (deleted_at IS NULL)')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def

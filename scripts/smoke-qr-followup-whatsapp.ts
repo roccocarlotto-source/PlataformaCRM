@@ -21,7 +21,11 @@ import {
 } from "../src/services/whatsappGraph.service";
 import { esUrlDeBaseLocal, hostDeLaUrl } from "../src/utils/baseLocal";
 import { drenarOutbox } from "../src/workers/outboxWorker";
-import { drenarSeguimientosQr, type DepsDelSeguimiento } from "../src/workers/qrFollowUpWorker";
+import {
+  depsDelSeguimientoReales,
+  drenarSeguimientosQr,
+  type DepsDelSeguimiento,
+} from "../src/workers/qrFollowUpWorker";
 
 // ---------------------------------------------------------------------------
 // Smoke test del seguimiento por WhatsApp con el QR (ítem 159 de
@@ -33,8 +37,12 @@ import { drenarSeguimientosQr, type DepsDelSeguimiento } from "../src/workers/qr
 //   2. Siembra una organización descartable: sucursal + agente con el
 //      WHATSAPP_TEST_PHONE_NUMBER_ID (el número del que sale el mensaje),
 //      contacto con WHATSAPP_TEST_RECIPIENT_PHONE (el ÚNICO destinatario
-//      permitido), un QR de esa sucursal y una regla
-//      opportunity.won -> opportunity.send_qr_followup con delayHours 0.
+//      permitido), un QR de esa sucursal, una regla
+//      opportunity.won -> opportunity.send_qr_followup con delayHours 0, y
+//      —desde el ítem 160, donde la plantilla es de cada organización— una
+//      fila de whatsapp_templates APROBADA con WHATSAPP_TEST_TEMPLATE_NAME /
+//      _LANGUAGE (una plantilla que YA está aprobada en Meta: el script no la
+//      da de alta).
 //   3. Crea una oportunidad con ese contacto y la pasa a WON por el service
 //      (emite opportunity.won al outbox), drena el outbox acotado a la
 //      organización (el dispatcher corre la regla, la acción agenda la fila).
@@ -45,7 +53,7 @@ import { drenarSeguimientosQr, type DepsDelSeguimiento } from "../src/workers/qr
 //      motivo que dio Meta) y desmonta la organización.
 //
 // PLANTILLA SIN VARIABLES (hello_world). Mientras la plantilla real no esté
-// aprobada, WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME apunta a la de muestra
+// aprobada, WHATSAPP_TEST_TEMPLATE_NAME apunta a la de muestra
 // `hello_world`, que NO tiene variables. El worker manda siempre los dos
 // parámetros del cuerpo ({{1}} nombre, {{2}} link del QR), así que con esa
 // plantilla Meta contesta 400 #132000 ("number of parameters does not
@@ -119,8 +127,8 @@ function leerConfiguracion(opciones: Opciones): ConfiguracionDePrueba {
       phoneNumberId: process.env.WHATSAPP_TEST_PHONE_NUMBER_ID?.trim() || "000000000000000",
       destinatario: process.env.WHATSAPP_TEST_RECIPIENT_PHONE?.trim() || "+5491155550000",
       plantilla: {
-        name: process.env.WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME?.trim() || "hello_world",
-        languageCode: process.env.WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE?.trim() || "en_US",
+        name: process.env.WHATSAPP_TEST_TEMPLATE_NAME?.trim() || "hello_world",
+        languageCode: process.env.WHATSAPP_TEST_TEMPLATE_LANGUAGE?.trim() || "en_US",
       },
     };
   }
@@ -129,8 +137,8 @@ function leerConfiguracion(opciones: Opciones): ConfiguracionDePrueba {
     phoneNumberId: leerVariable("WHATSAPP_TEST_PHONE_NUMBER_ID"),
     destinatario: leerVariable("WHATSAPP_TEST_RECIPIENT_PHONE"),
     plantilla: {
-      name: leerVariable("WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME"),
-      languageCode: leerVariable("WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE"),
+      name: leerVariable("WHATSAPP_TEST_TEMPLATE_NAME"),
+      languageCode: leerVariable("WHATSAPP_TEST_TEMPLATE_LANGUAGE"),
     },
   };
 }
@@ -185,6 +193,7 @@ interface Escenario {
 async function desmontarOrganizacion(organizationId: string, authUserId?: string) {
   const where = { organizationId };
   await prisma.qrFollowUp.deleteMany({ where });
+  await prisma.whatsappTemplate.deleteMany({ where });
   await prisma.automationExecution.deleteMany({ where });
   await prisma.automation.deleteMany({ where });
   await prisma.activity.deleteMany({ where });
@@ -289,6 +298,21 @@ async function sembrar(config: ConfiguracionDePrueba, opciones: Opciones): Promi
       actionConfig: { qrCodeId: qr.id, delayHours: 0 },
     },
   });
+  // Directo en APPROVED: la plantilla ya está aprobada en Meta, y lo que se
+  // prueba es el envío, no el alta (que tiene su propio test con un doble).
+  // El nombre es único entre las activas de TODA la tabla: una fila local con
+  // ese nombre que no sea de una corrida anterior haría fallar este INSERT, y
+  // está bien que falle — no se pisa nada que el script no haya creado.
+  await prisma.whatsappTemplate.create({
+    data: {
+      organizationId: org.id,
+      name: config.plantilla.name,
+      language: config.plantilla.languageCode,
+      bodyText: "Plantilla del smoke: ya aprobada en Meta, el texto no viaja.",
+      metaTemplateId: "smoke",
+      status: "APPROVED",
+    },
+  });
   return {
     organizationId: org.id,
     authUserId: data.user.id,
@@ -391,7 +415,8 @@ async function main() {
 
     const deps: DepsDelSeguimiento = {
       accessToken: () => config.accessToken,
-      plantilla: () => config.plantilla,
+      // La real: lee la plantilla aprobada que se sembró para la organización.
+      plantillaDeLaOrganizacion: depsDelSeguimientoReales.plantillaDeLaOrganizacion,
       // La real: el agente de la sucursal del QR.
       numeroDeLaSucursal: (organizationId, branchId) =>
         prisma.agent

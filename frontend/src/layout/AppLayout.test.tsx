@@ -175,6 +175,29 @@ describe("AppLayout — nav de configuración de la organización (ítem 19)", (
   });
 });
 
+describe("AppLayout — nav de Plantilla de WhatsApp (ítem 160)", () => {
+  it("ADMIN ve 'Plantilla de WhatsApp' en el grupo Administración, apuntando a /whatsapp-template", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout();
+    await openSection(user, "Administración");
+
+    expect(screen.getByRole("link", { name: "Plantilla de WhatsApp" })).toHaveAttribute(
+      "href",
+      "/whatsapp-template",
+    );
+  });
+
+  it("USER no la ve: el endpoint es ADMIN-only incluida la lectura", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    renderLayout();
+    await openSection(user, "Administración");
+
+    expect(screen.queryByText("Plantilla de WhatsApp")).not.toBeInTheDocument();
+  });
+});
+
 describe("AppLayout — nav de Sucursales (ítem 20)", () => {
   it("ADMIN ve 'Sucursales' en el grupo Administración, apuntando a /branches", async () => {
     const user = userEvent.setup();
@@ -450,7 +473,7 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
     ).toEqual(["QR"]);
   });
 
-  it("un ADMIN ve los 8 links de Administración, QR primero", async () => {
+  it("un ADMIN ve los 9 links de Administración, QR primero", async () => {
     const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout("/");
@@ -471,6 +494,7 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
       "Claves",
       "Eventos",
       "Organización",
+      "Plantilla de WhatsApp",
       "Sucursales",
     ]);
   });

@@ -13,7 +13,11 @@ import {
   type SendWhatsappTemplateInput,
 } from "../services/whatsappGraph.service";
 import { drenarOutbox } from "./outboxWorker";
-import { drenarSeguimientosQr, type DepsDelSeguimiento } from "./qrFollowUpWorker";
+import {
+  depsDelSeguimientoReales,
+  drenarSeguimientosQr,
+  type DepsDelSeguimiento,
+} from "./qrFollowUpWorker";
 
 // ---------------------------------------------------------------------------
 // El seguimiento por WhatsApp con el QR (ítem 159) de punta a punta, contra el
@@ -36,6 +40,28 @@ let contactId: string;
 // Global UNIQUE en agents: un número al azar por corrida para no chocar con
 // otro archivo de la suite.
 const PHONE_NUMBER_ID = `9${String(randomInt(100_000_000, 999_999_999))}`;
+// Ítem 160: la plantilla es de la organización. El nombre es único entre las
+// activas de TODA la tabla (WABA compartido): uno al azar por corrida.
+const PLANTILLA = `seguimiento_${String(randomInt(100_000_000, 999_999_999))}`;
+
+// La plantilla activa de la organización del test, en el estado que el caso
+// necesite. Borra (soft) la que hubiera: una activa por organización.
+async function plantillaEn(status: "PENDING" | "APPROVED" | "REJECTED") {
+  await prisma.whatsappTemplate.updateMany({
+    where: { organizationId: e.organizationId, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
+  return prisma.whatsappTemplate.create({
+    data: {
+      organizationId: e.organizationId,
+      name: PLANTILLA,
+      language: "es_AR",
+      bodyText: "Hola {nombre}, gracias por tu compra. Tu opinión: {link} ¡Gracias!",
+      metaTemplateId: `meta-${String(randomInt(1_000_000, 9_999_999))}`,
+      status,
+    },
+  });
+}
 
 before(async () => {
   e = await montar("qr-followup");
@@ -79,6 +105,7 @@ before(async () => {
     },
   });
   contactId = contact.id;
+  await plantillaEn("APPROVED");
 });
 
 after(async () => {
@@ -95,7 +122,8 @@ function doblarEnvio(falla?: unknown) {
   const enviados: SendWhatsappTemplateInput[] = [];
   const deps: DepsDelSeguimiento = {
     accessToken: () => "token-de-prueba",
-    plantilla: () => ({ name: "seguimiento_resena", languageCode: "es_AR" }),
+    // La real: lee la plantilla aprobada de la organización en la base.
+    plantillaDeLaOrganizacion: depsDelSeguimientoReales.plantillaDeLaOrganizacion,
     numeroDeLaSucursal: (organizationId, branch) =>
       prisma.agent
         .findFirst({ where: { organizationId, branchId: branch, deletedAt: null } })
@@ -231,7 +259,7 @@ test("dos reglas activas (distintas demoras) agendan una fila cada una", async (
 // El worker: manda, cancela, reintenta, falla
 // ---------------------------------------------------------------------------
 
-test("con delayHours 0 el worker lo manda: plantilla, número de la sucursal y {{1}}/{{2}}; queda SENT", async () => {
+test("con delayHours 0 el worker lo manda: plantilla de la organización, número de la sucursal y {{1}}/{{2}}; queda SENT", async () => {
   await soloEstaRegla(0);
   const opp = await ganarOportunidad("Envío");
   const { deps, enviados } = doblarEnvio();
@@ -243,7 +271,7 @@ test("con delayHours 0 el worker lo manda: plantilla, número de la sucursal y {
     {
       phoneNumberId: PHONE_NUMBER_ID,
       to: "5491155550000",
-      templateName: "seguimiento_resena",
+      templateName: PLANTILLA,
       languageCode: "es_AR",
       bodyParameters: ["Ana", "https://g.page/r/abc/review"],
       accessToken: "token-de-prueba",
@@ -330,15 +358,12 @@ test("un 400 de Meta es permanente: FAILED al primer intento", async () => {
   assert.match(fila.lastError ?? "", /Template name does not exist/);
 });
 
-test("sin la plantilla configurada no reclama nada: la fila sigue PENDING y sin intentos gastados", async () => {
+test("sin el token no reclama nada: la fila sigue PENDING y sin intentos gastados", async () => {
   await soloEstaRegla(0);
-  const opp = await ganarOportunidad("Sin configuración");
+  const opp = await ganarOportunidad("Sin token");
   const { deps, enviados } = doblarEnvio();
 
-  const resumen = await drenarSeguimientos({
-    ...deps,
-    plantilla: () => ({ name: undefined, languageCode: undefined }),
-  });
+  const resumen = await drenarSeguimientos({ ...deps, accessToken: () => undefined });
 
   assert.equal(resumen.sinConfiguracion, true);
   assert.equal(enviados.length, 0);
@@ -346,7 +371,90 @@ test("sin la plantilla configurada no reclama nada: la fila sigue PENDING y sin 
   assert.equal(fila.status, "PENDING");
   assert.equal(fila.attempts, 0);
 
-  // Configurada, sale en la pasada siguiente.
+  // Con el token, sale en la pasada siguiente.
   const resumen2 = await drenarSeguimientos(deps);
   assert.equal(resumen2.enviados, 1);
+});
+
+// ---------------------------------------------------------------------------
+// La plantilla de la organización (ítem 160)
+// ---------------------------------------------------------------------------
+
+test("con la plantilla PENDING o REJECTED la organización no se reclama: sin intentos gastados, y sale sola al aprobarse", async () => {
+  try {
+    await soloEstaRegla(0);
+    await plantillaEn("PENDING");
+    const opp = await ganarOportunidad("Plantilla en revisión");
+    const { deps, enviados } = doblarEnvio();
+
+    const pendiente = await drenarSeguimientos(deps);
+    await plantillaEn("REJECTED");
+    const rechazada = await drenarSeguimientos(deps);
+
+    // En silencio: no es "falta configuración" (eso es el token, global).
+    assert.equal(pendiente.sinConfiguracion, false);
+    assert.equal(pendiente.enviados + pendiente.fallidos + pendiente.pospuestos, 0);
+    assert.equal(rechazada.enviados + rechazada.fallidos + rechazada.pospuestos, 0);
+    assert.equal(enviados.length, 0);
+    const [fila] = await seguimientosDe(opp.id);
+    assert.equal(fila.status, "PENDING");
+    assert.equal(fila.attempts, 0, "no se reclamó: ningún intento gastado");
+
+    // Meta la aprueba: la pasada siguiente la manda, con esa plantilla.
+    await plantillaEn("APPROVED");
+    const aprobada = await drenarSeguimientos(deps);
+    assert.equal(aprobada.enviados, 1);
+    assert.equal(enviados[0].templateName, PLANTILLA);
+  } finally {
+    await plantillaEn("APPROVED");
+  }
+});
+
+test("una plantilla BORRADA no cuenta aunque haya estado aprobada", async () => {
+  try {
+    await soloEstaRegla(0);
+    const opp = await ganarOportunidad("Plantilla borrada");
+    await prisma.whatsappTemplate.updateMany({
+      where: { organizationId: e.organizationId, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    const { deps, enviados } = doblarEnvio();
+
+    await drenarSeguimientos(deps);
+
+    assert.equal(enviados.length, 0);
+    const [fila] = await seguimientosDe(opp.id);
+    assert.equal(fila.attempts, 0);
+  } finally {
+    await plantillaEn("APPROVED");
+  }
+});
+
+test("si la plantilla se borra entre el reclamo y el envío: FAILED con el motivo, sin mandar", async () => {
+  try {
+    await soloEstaRegla(0);
+    const opp = await ganarOportunidad("Borrada a mitad");
+    const { deps, enviados } = doblarEnvio();
+
+    const resumen = await drenarSeguimientos({
+      ...deps,
+      // El negocio la borra justo después de que el worker reclamó la fila.
+      plantillaDeLaOrganizacion: async (organizationId) => {
+        await prisma.whatsappTemplate.updateMany({
+          where: { organizationId, deletedAt: null },
+          data: { deletedAt: new Date() },
+        });
+        return deps.plantillaDeLaOrganizacion(organizationId);
+      },
+    });
+
+    assert.equal(resumen.fallidos, 1);
+    assert.equal(enviados.length, 0);
+    const [fila] = await seguimientosDe(opp.id);
+    assert.equal(fila.status, "FAILED");
+    assert.equal(fila.attempts, 1);
+    assert.match(fila.lastError ?? "", /ya no tiene una plantilla de WhatsApp aprobada/);
+  } finally {
+    await plantillaEn("APPROVED");
+  }
 });

@@ -340,6 +340,7 @@ export function AppLayout() {
               "/api-keys",
               "/ingestion-events",
               "/organization",
+              "/whatsapp-template",
               "/branches",
             ]}
           >
@@ -368,6 +369,12 @@ export function AppLayout() {
                 </SidebarLink>
                 <SidebarLink to="/organization" icon={Coins}>
                   Organización
+                </SidebarLink>
+                {/* Plantilla de WhatsApp (ítem 160): el mensaje del seguimiento
+                    post-venta. Configuración de la organización, ADMIN-only
+                    incluida la lectura, al lado de Organización. */}
+                <SidebarLink to="/whatsapp-template" icon={MessageCircle}>
+                  Plantilla de WhatsApp
                 </SidebarLink>
                 {/* Sucursales (ítem 20): la lectura de /api/branches es abierta, pero
                     la pantalla es toda escritura ADMIN-only — un USER ya ve las

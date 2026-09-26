@@ -1647,6 +1647,19 @@ el gate de Fase 4 se deployó.
 
 ## Changelog
 
+### 2026-09-26 — La plantilla del seguimiento la arma cada negocio desde el CRM (ítem 160)
+
+El seguimiento del ítem 159 mandaba UNA plantilla para toda la plataforma,
+configurada en dos variables de Render
+(`WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME` / `_LANGUAGE`). Ahora cada negocio la
+escribe en Administración → Plantilla de WhatsApp, con texto libre alrededor de
+`{nombre}` y `{link}`, y el backend la da de alta en Meta (categoría UTILITY)
+sobre el WABA compartido (`WHATSAPP_BUSINESS_ACCOUNT_ID`). Las dos variables de
+Render se retiraron: una organización sin plantilla propia APROBADA no manda
+seguimientos (quedan en PENDING, sin gastar intentos). El estado lo actualiza
+el webhook `message_template_status_update` o el botón "Actualizar estado".
+Detalle y decisiones en el ítem 160 de `docs/frontend-cambios-pendientes.md`.
+
 ### 2026-09-25 — Enlaces de fidelización: el QR sale solo por WhatsApp al ganar una venta (ítem 159)
 
 **Es la feature que quedó anotada en el pivot del 04/09** ("Qué se elimina: QR
@@ -1684,7 +1697,9 @@ la plantilla aprobada por Meta y el `destinationUrl` del QR.
 código): la plantilla dada de alta y aprobada en el WhatsApp Manager de Meta
 (el texto exacto está en el ítem 159), `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME`
 y `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE` en Render, y un agente con
-número de WhatsApp conectado en la sucursal del QR.
+número de WhatsApp conectado en la sucursal del QR. *(Desde el ítem 160 la
+plantilla ya no va en Render: la arma cada negocio desde el CRM — ver la
+entrada de arriba.)*
 
 **Lo que NO se hizo:** la variante con mensaje redactado por IA (un mensaje
 que la empresa inicia tiene que ser una plantilla aprobada; un texto libre

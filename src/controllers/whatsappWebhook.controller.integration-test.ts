@@ -52,6 +52,9 @@ import type { WhatsappWebhookDeps } from "./whatsappWebhook.controller";
 //     lo ve DESPUÉS de la respuesta anterior; dos entregas paralelas de un
 //     contacto nuevo -> una sola conversación abierta.
 //   - sin WHATSAPP_APP_SECRET -> 500, nunca un webhook que no verifica nada.
+//   - message_template_status_update (ítem 160): Meta aprueba o rechaza la
+//     plantilla de un negocio -> la fila con ese metaTemplateId cambia de
+//     estado; una plantilla que no es de este CRM no rompe nada.
 // ---------------------------------------------------------------------------
 
 const VERIFY_TOKEN = "test_verify_token";
@@ -277,6 +280,8 @@ after(async () => {
   if (closeApp) await closeApp();
   if (!fx) return;
   const where = { organizationId: fx.orgId };
+  // La plantilla del caso de message_template_status_update (ítem 160).
+  await prisma.whatsappTemplate.deleteMany({ where });
   // Antes que messages: las dos FKs de la cola apuntan ahí.
   await prisma.agentInboundJob.deleteMany({ where });
   await prisma.message.deleteMany({ where });
@@ -975,4 +980,75 @@ test("dos mensajes DISTINTOS de un contacto nuevo en webhooks paralelos -> una s
 test("un cuerpo firmado sin la forma de un webhook de Meta -> 400", async () => {
   const res = await enviar({ object: "whatsapp_business_account" });
   assert.equal(res.status, 400);
+});
+
+// ---------------------------------------------------------------------------
+// message_template_status_update (ítem 160)
+// ---------------------------------------------------------------------------
+
+function cambioDePlantilla(value: Record<string, unknown>) {
+  return {
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "waba-id",
+        time: Math.floor(Date.now() / 1000),
+        changes: [{ field: "message_template_status_update", value }],
+      },
+    ],
+  };
+}
+
+test("message_template_status_update: Meta aprueba y después rechaza -> la fila con ese id cambia de estado", async () => {
+  // Meta manda el id como NÚMERO; se guarda como string.
+  const metaId = randomInt(10 ** 9, 10 ** 10 - 1);
+  const plantilla = await prisma.whatsappTemplate.create({
+    data: {
+      organizationId: fx.orgId,
+      name: `webhook_${String(metaId)}`,
+      language: "es_AR",
+      bodyText: "Hola {nombre}, gracias. Tu opinión: {link} ¡Gracias!",
+      metaTemplateId: String(metaId),
+    },
+  });
+
+  const aprobada = await enviar(
+    cambioDePlantilla({
+      event: "APPROVED",
+      message_template_id: metaId,
+      message_template_name: plantilla.name,
+      message_template_language: "es_AR",
+      reason: "NONE",
+    }),
+  );
+  assert.equal(aprobada.status, 200);
+  let fila = await prisma.whatsappTemplate.findUniqueOrThrow({ where: { id: plantilla.id } });
+  assert.equal(fila.status, "APPROVED");
+  assert.equal(fila.rejectedReason, null);
+
+  await enviar(
+    cambioDePlantilla({ event: "REJECTED", message_template_id: metaId, reason: "INVALID_FORMAT" }),
+  );
+  fila = await prisma.whatsappTemplate.findUniqueOrThrow({ where: { id: plantilla.id } });
+  assert.equal(fila.status, "REJECTED");
+  assert.equal(fila.rejectedReason, "INVALID_FORMAT");
+
+  // Una BORRADA no se toca: el estado que importa es el de la activa.
+  await prisma.whatsappTemplate.update({
+    where: { id: plantilla.id },
+    data: { deletedAt: new Date() },
+  });
+  await enviar(cambioDePlantilla({ event: "APPROVED", message_template_id: metaId }));
+  fila = await prisma.whatsappTemplate.findUniqueOrThrow({ where: { id: plantilla.id } });
+  assert.equal(fila.status, "REJECTED");
+});
+
+test("message_template_status_update de una plantilla que no es de este CRM, o sin la forma esperada -> 200 sin romper nada", async () => {
+  const ajena = await enviar(
+    cambioDePlantilla({ event: "APPROVED", message_template_id: 1, reason: "NONE" }),
+  );
+  assert.equal(ajena.status, 200);
+
+  const rota = await enviar(cambioDePlantilla({ event: 42 }));
+  assert.equal(rota.status, 200);
 });
