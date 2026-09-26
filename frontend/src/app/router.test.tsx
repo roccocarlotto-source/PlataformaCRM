@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AdminRoute } from "../auth/AdminRoute";
+import { WhatsappTemplatePage } from "../features/whatsapp/WhatsappTemplatePage";
 import { PlatformAdminRoute } from "../auth/PlatformAdminRoute";
 import { ProtectedRoute } from "../auth/ProtectedRoute";
 import { AppLayout } from "../layout/AppLayout";
@@ -255,5 +256,17 @@ describe("router.tsx — wiring real de platform admin (Fase 4a del módulo SaaS
     expect(
       platformAdminEntry?.children?.some((entry) => entry.path === "/admin/organizations/new"),
     ).toBe(true);
+  });
+});
+
+describe("router.tsx — plantilla de WhatsApp (ítem 160)", () => {
+  it("/whatsapp-template está bajo AdminRoute y renderiza WhatsappTemplatePage", () => {
+    const parent = findParentElement(router.routes, "/whatsapp-template") as
+      { type: unknown } | undefined;
+    const route = findRoute(router.routes, "/whatsapp-template") as
+      { element: { type: unknown } } | undefined;
+
+    expect(parent?.type).toBe(AdminRoute);
+    expect(route?.element.type).toBe(WhatsappTemplatePage);
   });
 });

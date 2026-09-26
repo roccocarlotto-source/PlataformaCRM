@@ -22,10 +22,8 @@ import {
 // ---------------------------------------------------------------------------
 
 const RECLAMO = { id: "f1", organizationId: "org", attempts: 1 };
-const CONFIG: ConfiguracionDeEnvio = {
-  accessToken: "token",
-  plantilla: { name: "seguimiento_resena", languageCode: "es_AR" },
-};
+const CONFIG: ConfiguracionDeEnvio = { accessToken: "token" };
+const PLANTILLA = { name: "seguimiento_resena", languageCode: "es_AR" };
 const AHORA = new Date("2026-09-25T15:00:00.000Z");
 
 function fila(extra: Partial<QrFollowUpParaEnviar> = {}): QrFollowUpParaEnviar {
@@ -56,9 +54,20 @@ function fila(extra: Partial<QrFollowUpParaEnviar> = {}): QrFollowUpParaEnviar {
   };
 }
 
-function doblar(opciones: { numero?: string | null; falla?: unknown } = {}) {
+function doblar(
+  opciones: {
+    numero?: string | null;
+    falla?: unknown;
+    plantilla?: typeof PLANTILLA | null;
+  } = {},
+) {
   const enviados: SendWhatsappTemplateInput[] = [];
+  const plantillasPedidas: string[] = [];
   const deps = {
+    plantillaDeLaOrganizacion: (organizationId: string) => {
+      plantillasPedidas.push(organizationId);
+      return Promise.resolve(opciones.plantilla === undefined ? PLANTILLA : opciones.plantilla);
+    },
     numeroDeLaSucursal: () =>
       Promise.resolve(opciones.numero === undefined ? "1234567890" : opciones.numero),
     sendTemplate: (input: SendWhatsappTemplateInput) => {
@@ -66,34 +75,29 @@ function doblar(opciones: { numero?: string | null; falla?: unknown } = {}) {
       return opciones.falla === undefined ? Promise.resolve() : Promise.reject(opciones.falla);
     },
   };
-  return { deps, enviados };
+  return { deps, enviados, plantillasPedidas };
 }
 
 // ---------------------------------------------------------------------------
 // Configuración
 // ---------------------------------------------------------------------------
 
-test("leerConfiguracion nombra TODO lo que falta, y el string vacío cuenta como ausente", () => {
-  const faltaTodo = leerConfiguracion({
-    accessToken: () => undefined,
-    plantilla: () => ({ name: "", languageCode: "  " }),
-  });
-  assert.deepEqual(faltaTodo, {
+test("leerConfiguracion: sin token (o con el string vacío) nombra lo que falta; la plantilla ya no es configuración global", () => {
+  assert.deepEqual(leerConfiguracion({ accessToken: () => undefined }), {
     ok: false,
-    faltan: [
-      "WHATSAPP_ACCESS_TOKEN",
-      "WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME",
-      "WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE",
-    ],
+    faltan: ["WHATSAPP_ACCESS_TOKEN"],
+  });
+  assert.deepEqual(leerConfiguracion({ accessToken: () => "  " }), {
+    ok: false,
+    faltan: ["WHATSAPP_ACCESS_TOKEN"],
   });
 
-  assert.deepEqual(
-    leerConfiguracion({
-      accessToken: () => "token",
-      plantilla: () => ({ name: " seguimiento_resena ", languageCode: "es_AR" }),
-    }),
-    { ok: true, config: CONFIG },
-  );
+  // Ítem 160: con el token alcanza. Antes también exigía las dos variables de
+  // la plantilla (WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_*), que ya no existen.
+  assert.deepEqual(leerConfiguracion({ accessToken: () => " token " }), {
+    ok: true,
+    config: CONFIG,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -229,4 +233,44 @@ test("el error de Meta sube tal cual, para que el drenado lo clasifique", async 
     procesarSeguimiento(RECLAMO, CONFIG, deps, () => Promise.resolve(fila())),
     (err: unknown) => err instanceof WhatsappGraphError && err.status === 503,
   );
+});
+
+// ---------------------------------------------------------------------------
+// La plantilla de la organización (ítem 160)
+// ---------------------------------------------------------------------------
+
+test("manda con la plantilla de la organización de la fila, leída justo antes de mandar", async () => {
+  const { deps, enviados, plantillasPedidas } = doblar({
+    plantilla: { name: "gracias_por_tu_compra", languageCode: "es" },
+  });
+
+  await procesarSeguimiento(RECLAMO, CONFIG, deps, () => Promise.resolve(fila()));
+
+  assert.deepEqual(plantillasPedidas, ["org"]);
+  assert.equal(enviados.length, 1);
+  assert.equal(enviados[0].templateName, "gracias_por_tu_compra");
+  assert.equal(enviados[0].languageCode, "es");
+});
+
+test("si la plantilla desapareció entre el reclamo y el envío: error PERMANENTE (FAILED), sin mandar", async () => {
+  const { deps, enviados } = doblar({ plantilla: null });
+
+  await assert.rejects(
+    procesarSeguimiento(RECLAMO, CONFIG, deps, () => Promise.resolve(fila())),
+    (err: unknown) =>
+      err instanceof ErrorPermanenteDelSeguimiento &&
+      /ya no tiene una plantilla de WhatsApp aprobada/.test(err.message) &&
+      clasificarFallo(err) === "PERMANENTE",
+  );
+  assert.equal(enviados.length, 0);
+});
+
+test("una fila que se cancela no llega a preguntar por la plantilla", async () => {
+  const { deps, plantillasPedidas } = doblar();
+
+  await procesarSeguimiento(RECLAMO, CONFIG, deps, () =>
+    Promise.resolve(fila({ opportunity: { status: "LOST", deletedAt: null } })),
+  );
+
+  assert.deepEqual(plantillasPedidas, []);
 });

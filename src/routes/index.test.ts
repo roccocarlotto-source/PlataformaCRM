@@ -450,3 +450,17 @@ test("la asignación del número de WhatsApp por platform admin (ítem 127) est�
     "PUT /api/admin/agents/:agentId/whatsapp-phone-number no está montado",
   );
 });
+
+test("la plantilla de WhatsApp de la organización (ítem 160) está montada bajo /api", async () => {
+  const id = randomUUID();
+  const casos: [string, string][] = [
+    ["GET", "/api/whatsapp-templates"],
+    ["POST", "/api/whatsapp-templates"],
+    ["DELETE", `/api/whatsapp-templates/${id}`],
+    ["POST", `/api/whatsapp-templates/${id}/refresh`],
+  ];
+  for (const [method, path] of casos) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+  }
+});

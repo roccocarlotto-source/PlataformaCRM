@@ -6,6 +6,7 @@ import { createAgentInboundJob } from "../repositories/agentInboundJob.repositor
 import { findMessageByExternalId } from "../repositories/message.repository";
 import { registrarEntrante } from "./agentOrchestration.service";
 import { resolveWhatsappContact } from "./whatsappContact.service";
+import { applyWhatsappTemplateStatusFromMeta } from "./whatsappTemplate.service";
 
 // ---------------------------------------------------------------------------
 // El procesamiento de un POST /webhooks/whatsapp ya verificado (ítem 81; paso
@@ -15,6 +16,10 @@ import { resolveWhatsappContact } from "./whatsappContact.service";
 // el turno. El turno lo corre src/workers/agentInboundWorker.ts, con el mismo
 // loop de orquestación que el canal Web (§9), y es el worker quien manda la
 // respuesta por la Graph API.
+//
+// Desde el ítem 160 el mismo lote puede traer además cambios de estado de las
+// plantillas (campo message_template_status_update): Meta aprobó o rechazó la
+// plantilla de seguimiento de un negocio. Ver procesarCambioDePlantilla.
 //
 // UN MENSAJE QUE FALLA NO TUMBA EL LOTE NI LA RESPUESTA A META. Cada mensaje
 // corre en su propio try/catch: el error se loguea y se sigue con el
@@ -70,7 +75,18 @@ const contactoDelPayloadSchema = z.object({
 
 export type ResultadoDelMensaje = "encolado" | "duplicado" | "ignorado" | "fallido";
 
-export type ResumenDelLote = Record<ResultadoDelMensaje, number>;
+// Los mensajes, más cuántas plantillas cambiaron de estado (ítem 160).
+export type ResumenDelLote = Record<ResultadoDelMensaje, number> & { plantillas: number };
+
+// El cambio de estado de una plantilla (campo message_template_status_update
+// del webhook, ítem 160). Meta manda el id como NÚMERO; se acepta también como
+// string por si algún día cambia, y se normaliza a string, que es como se
+// guarda. Tolerante como el resto: lo que no tenga esta forma se ignora.
+const cambioDePlantillaSchema = z.object({
+  event: z.string().min(1),
+  message_template_id: z.union([z.number(), z.string().min(1)]),
+  reason: z.string().nullish(),
+});
 
 function esDuplicadoPorIndiceUnico(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
@@ -166,10 +182,49 @@ async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMe
   return "encolado";
 }
 
+// Meta aprobó, rechazó o pausó una plantilla (ítem 160): se actualiza la fila
+// que la tiene por metaTemplateId. Mismo criterio que un mensaje: un fallo se
+// loguea y NO tumba el lote ni el 200 — y si se perdió, el botón "Actualizar
+// estado" de la pantalla lo repregunta. Una plantilla que no es de este CRM
+// (el WABA puede tener otras, dadas de alta a mano) actualiza 0 filas, sin
+// error.
+async function procesarCambioDePlantilla(value: Record<string, unknown>): Promise<number> {
+  const parsed = cambioDePlantillaSchema.safeParse(value);
+  if (!parsed.success) {
+    logger.warn("Cambio de estado de plantilla de WhatsApp sin la forma esperada: se ignora");
+    return 0;
+  }
+  const metaTemplateId = String(parsed.data.message_template_id);
+  try {
+    const actualizadas = await applyWhatsappTemplateStatusFromMeta(
+      metaTemplateId,
+      parsed.data.event,
+      parsed.data.reason ?? null,
+    );
+    logger.info(
+      { metaTemplateId, event: parsed.data.event, actualizadas },
+      "Cambio de estado de plantilla de WhatsApp",
+    );
+    return actualizadas;
+  } catch (err) {
+    logger.error(
+      { err, metaTemplateId },
+      "No se pudo aplicar el cambio de estado de una plantilla de WhatsApp — se sigue con el lote",
+    );
+    return 0;
+  }
+}
+
 export async function procesarWebhookDeWhatsapp(
   payload: WhatsappWebhookPayload,
 ): Promise<ResumenDelLote> {
-  const resumen: ResumenDelLote = { encolado: 0, duplicado: 0, ignorado: 0, fallido: 0 };
+  const resumen: ResumenDelLote = {
+    encolado: 0,
+    duplicado: 0,
+    ignorado: 0,
+    fallido: 0,
+    plantillas: 0,
+  };
 
   // Otro producto de Meta suscripto a la misma app (Instagram, Page...): no es
   // de este webhook.
@@ -179,6 +234,10 @@ export async function procesarWebhookDeWhatsapp(
 
   for (const entry of payload.entry) {
     for (const change of entry.changes) {
+      if (change.field === "message_template_status_update") {
+        resumen.plantillas += await procesarCambioDePlantilla(change.value);
+        continue;
+      }
       if (change.field !== "messages") continue;
       const value = change.value;
 

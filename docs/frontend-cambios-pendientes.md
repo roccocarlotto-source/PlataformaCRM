@@ -7281,3 +7281,73 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 | `frontend/src/features/automation/{catalog.ts,AutomationFormPage.tsx}`, `frontend/src/features/qr/QrSelect.tsx` | la acción en el formulario |
 | tests | `sendQrFollowup.test.ts`, `qrFollowUpWorker.test.ts`, `qrFollowUpWorker.integration-test.ts`, `whatsappGraph.service.test.ts`, `detenerWorker.test.ts`, `catalog.test.ts`, `AutomationFormPage.test.tsx`; dos afirmaciones actualizadas en `automationDispatch`/`automationOpportunityWon.integration-test.ts` |
 | `docs/automations-architecture.md` §5, `docs/qr-integration.md` | catálogo, precedente de la acción que agenda, changelog |
+
+---
+
+## 160. Plantilla de seguimiento post-venta configurable por el negocio (sin pasar por Render)
+
+**Estado:** hecho (26/09/2026). Lleva migración (`20261003120000_whatsapp_template`) y necesita `WHATSAPP_BUSINESS_ACCOUNT_ID` en Render — ver "Cómo se aplica".
+
+**Qué pasa hoy.** El ítem 159 (seguimiento por WhatsApp al ganar una oportunidad) manda la plantilla configurada en dos variables globales de Render, `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME` y `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_LANGUAGE` — una sola plantilla para toda la plataforma, dada de alta a mano en el WhatsApp Manager de Meta y cargada por quien tiene acceso a Render. Ningún negocio puede editar su propio mensaje sin pasar por ahí.
+
+**Qué se hace.** El negocio arma y manda su plantilla desde el CRM. El backend la crea vía la API de Meta (`POST /{whatsapp_business_account_id}/message_templates`) usando el WABA ya conectado (compartido entre organizaciones por ahora — no se construye onboarding de WABA propia por negocio en este ítem). Reemplaza del todo las dos variables de Render: sin una plantilla propia aprobada, esa organización no manda seguimientos (mismo criterio que hoy: queda en `PENDING` en silencio, sin gastar intentos, hasta que se apruebe).
+
+**Diseño de la pantalla.** No es un editor de `{{1}}`/`{{2}}` crudo: el negocio escribe el texto libre alrededor de dos tokens fijos, `{nombre}` y `{link}` (ej. *"Hola {nombre}, gracias por tu compra... dejanos tu opinión acá: {link}"*). El backend valida y traduce a la plantilla real de Meta.
+
+**Modelo de datos.** `WhatsappTemplate` (migración nueva): `id`, `organizationId`, `name`, `language`, `bodyText` (el texto con los tokens, tal cual lo escribió el negocio), `metaTemplateId`, `status` (`PENDING`/`APPROVED`/`REJECTED`), `rejectedReason`, `deletedAt`, `createdAt`, `updatedAt`. Único activo por organización (una a la vez; para cambiarla hay que borrar la actual). **Nombre único a nivel de toda la tabla** (no por organización) — consecuencia directa de compartir un WABA: dos organizaciones no pueden registrar el mismo `name`+`language` en Meta. Documentado como limitación conocida de este alcance (no bloqueante con un solo tenant real hoy).
+
+**Validación del texto** (antes de mandarlo a Meta): exactamente un `{nombre}` y un `{link}`, `{nombre}` antes que `{link}` (Meta asigna `{{1}}`/`{{2}}` por orden de aparición, y el worker siempre manda `[nombre, link]` en ese orden posicional), ninguno al principio ni al final del texto completo (regla de Meta), `name` en minúsculas/números/guion bajo. Categoría fija `UTILITY` (no la elige el negocio: es la correcta para un mensaje transaccional post-venta, y evita la fricción/costo de `MARKETING`).
+
+**Endpoints** (`ADMIN` de la organización, patrón de `qrAdmin`/`automation.controller`):
+- `POST /api/whatsapp-templates` — crea y manda a Meta. 409 si ya hay una `PENDING`/`APPROVED` (hay que borrarla primero).
+- `GET /api/whatsapp-templates` — la actual de la organización (o ninguna).
+- `DELETE /api/whatsapp-templates/:id` — borra en Meta (`DELETE .../message_templates?name=...`) y localmente (soft delete). Libera el nombre.
+- `POST /api/whatsapp-templates/:id/refresh` — repregunta el estado a Meta (`GET /{template_id}?fields=status,rejected_reason`), por si la suscripción del webhook a `message_template_status_update` no está puesta o tarda.
+
+**Webhook.** Se agrega el manejo del campo `message_template_status_update` en `whatsappWebhook.controller.ts`: cuando Meta aprueba/rechaza, actualiza el `status`/`rejectedReason` de la fila que matchea por `metaTemplateId`.
+
+**Worker (`qrFollowUpWorker.ts`).** `claimNextQrFollowUp` pasa a filtrar por organizaciones con un `WhatsappTemplate` en estado `APPROVED` (join/where, mismo espíritu que el chequeo global de hoy pero por organización): sin plantilla aprobada, esa organización no se reclama, no gasta intentos, y sale sola en la próxima pasada una vez aprobada. `procesarSeguimiento` vuelve a leer la plantilla de la organización justo antes de mandar (mismo principio de "antes de mandar se relee todo" que ya sigue el archivo); si desapareció entre el reclamo y el envío, `FAILED` inmediato con el motivo. `WHATSAPP_ACCESS_TOKEN` sigue siendo la única variable global que se sigue chequeando arriba. Se agrega `WHATSAPP_BUSINESS_ACCOUNT_ID` (el WABA id) a `src/config/env.ts` y `.env.example`, mismo criterio opcional que las demás `WHATSAPP_*`.
+
+**Frontend.** Pantalla nueva (ej. `features/whatsapp/WhatsappTemplatePage.tsx`, colgada de Configuración): formulario con el texto libre + los dos tokens, preview de cómo queda, estado actual con badge (Pendiente/Aprobada/Rechazada + motivo), botón "Actualizar estado" y "Borrar y volver a intentar".
+
+**Qué hace falta fuera del código** (igual que el 159): tener el WABA conectado (`WHATSAPP_BUSINESS_ACCOUNT_ID` nuevo en Render) y, para que el estado se actualice solo, suscribir el campo `message_template_status_update` en el webhook de Meta (además de `messages`, que ya está).
+
+**Lo que NO se hace:** onboarding de WABA propia por negocio (cada organización sigue usando el número/WABA compartido de hoy), más de una plantilla activa por organización, categorías distintas de `UTILITY`.
+
+### Decisiones tomadas al implementarlo
+
+- **Reserva antes de hablar con Meta.** El alta crea primero la fila (PENDING, sin `metaTemplateId`) y recién después llama a Meta: los dos UNIQUE parciales frenan un alta duplicada antes de que llegue a Meta. Si Meta rechaza el alta o no contesta, la reserva se descarta (borrado físico: la plantilla no llegó a existir) y el negocio ve el motivo de Meta (400) o un "probá de nuevo" (502). Si el proceso muere entre que Meta la aceptó y guardar su id, la fila queda sin `metaTemplateId`: no se puede refrescar (409 "borrala y volvé a intentar"), pero sí borrar, porque el DELETE de Meta va por nombre.
+- **El nombre es único solo por `name`, no por `name`+`language`.** En un WABA el mismo nombre en otro idioma es otra traducción de la MISMA plantilla, y el DELETE de Meta es por nombre: con `(name, language)` el negocio B podría colgarse de la plantilla del A y borrar la suya borraría las dos.
+- **Una REJECTED no bloquea el alta.** Con una PENDING o APPROVED, otro POST es 409; con una REJECTED, el POST la borra (en Meta y localmente) y sigue. Es lo que el negocio vino a hacer.
+- **Estados de Meta → tres locales.** APPROVED, REINSTATED y FLAGGED (Meta sigue aceptando envíos) → APPROVED; PENDING e IN_APPEAL → PENDING; todo lo demás (REJECTED, PAUSED, DISABLED, uno desconocido) → REJECTED con el motivo: ante la duda, no se manda.
+- **Borrar una que Meta ya no tiene** (404, o un 400 que dice "not found"/"does not exist") se trata como borrada allá y se completa la baja local. Cualquier otro error de Meta NO borra localmente.
+- **Validación propia además de las reglas de Meta:** un `{…}` que no sea `{nombre}` ni `{link}` (ej. `{Nombre}`) o llaves dobles es 400 — casi siempre un error de tipeo que Meta aprobaría como texto literal. Tope de 1024 caracteres sobre el cuerpo que viaja.
+- **`GET` también es ADMIN-only**, como las API keys: la pantalla es toda configuración.
+- **El smoke del 159** (`npm run smoke:qr-followup`) siembra una fila APROBADA en la organización descartable con `WHATSAPP_TEST_TEMPLATE_NAME` / `_LANGUAGE` (una plantilla ya aprobada en Meta; sin ellas, `hello_world` / `en_US`), en vez de leer las variables retiradas.
+- **La migración se escribió a mano** y no con `prisma migrate dev`: mismo motivo que todas desde 20260821 (la shadow database no tiene el schema `auth`). El SQL del modelo es exactamente lo que da `prisma migrate diff`; verificado sin drift contra el Supabase local, y `verify:schema` 14/14.
+
+### Cómo se aplica
+
+1. **Deploy + `npm run migrate:deploy` + `npm run verify:schema`** (orden de siempre: la migración solo agrega; la imagen vieja contra el esquema nuevo no se entera).
+2. En Render: **`WHATSAPP_BUSINESS_ACCOUNT_ID`** (el id de la WhatsApp Business Account, en el WhatsApp Manager). `WHATSAPP_ACCESS_TOKEN` ya está, y tiene que tener permiso `whatsapp_business_management` para administrar plantillas.
+3. Borrar de Render `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_NAME` y `_LANGUAGE` si estaban cargadas: el código ya no las lee.
+4. En la app de Meta → WhatsApp → Configuración del webhook: suscribir el campo **`message_template_status_update`** (además de `messages`). Sin eso el estado no se actualiza solo y hay que usar "Actualizar estado".
+5. **Ojo con los seguimientos ya agendados:** después del deploy, una organización sin plantilla propia aprobada no manda. Si la plantilla global del 159 ya estaba aprobada y en uso, el negocio tiene que cargar la suya (puede ser el mismo texto, con `{nombre}`/`{link}`, y un nombre nuevo — o borrar la global del WhatsApp Manager y reusar el nombre). Las filas PENDING esperan, no se pierden.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `prisma/schema.prisma`, `prisma/migrations/20261003120000_whatsapp_template/` | `WhatsappTemplate`, `WhatsappTemplateStatus`, los dos UNIQUE parciales, RLS |
+| `docs/auditoria-2026-08-21-diagnostico.sql`, `scripts/verify-schema.ts` | fila 5 (política), fila 7 (10 → 12 únicos parciales; el conteo decía 9 y ya eran 10 desde el ítem 126) |
+| `src/utils/whatsappTemplateText.ts` | validación del texto y traducción a `{{1}}`/`{{2}}` |
+| `src/services/whatsappGraph.service.ts` | `createWhatsappTemplateReal`, `deleteWhatsappTemplateReal`, `getWhatsappTemplateStatusReal`, `mensajeDeMeta`; `WhatsappGraphError.detalle`; `llamarGraph` compartido con el envío |
+| `src/repositories/whatsappTemplate.repository.ts`, `src/services/whatsappTemplate.service.ts` | reserva, alta, baja, refresh, estado desde el webhook |
+| `src/controllers/whatsappTemplate.controller.ts`, `src/routes/whatsappTemplate.routes.ts`, `src/routes/index.ts` | los cuatro endpoints |
+| `src/services/whatsappWebhook.service.ts`, `src/controllers/whatsappWebhook.controller.ts` | `message_template_status_update` |
+| `src/repositories/qrFollowUp.repository.ts`, `src/workers/qrFollowUpWorker.ts` | reclamo solo con plantilla APROBADA; plantilla releída antes de mandar |
+| `src/config/env.ts`, `.env.example` | `WHATSAPP_BUSINESS_ACCOUNT_ID`; sin `WHATSAPP_REVIEW_FOLLOWUP_TEMPLATE_*` |
+| `scripts/smoke-qr-followup-whatsapp.ts`, `src/services/automation.test-helper.ts` | siembran/limpian la plantilla de la organización |
+| `frontend/src/features/whatsapp/*`, `frontend/src/app/router.tsx`, `frontend/src/layout/AppLayout.tsx` | la pantalla, su ruta y su link en Administración |
+| tests | `whatsappTemplateText.test.ts`, `whatsappTemplate.service.test.ts`, `whatsappTemplate.controller.integration-test.ts`, `whatsappGraph.service.test.ts`, `qrFollowUpWorker.test.ts`, `qrFollowUpWorker.integration-test.ts`, `whatsappWebhook.controller.integration-test.ts`, `routes/index.test.ts`; frontend `WhatsappTemplatePage.test.tsx`, `preview.test.ts`, `router.test.tsx`, `AppLayout.test.tsx` |
+| `docs/automations-architecture.md`, `docs/qr-integration.md` | la plantilla ya no es global; changelog |
