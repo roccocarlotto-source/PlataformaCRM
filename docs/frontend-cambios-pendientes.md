@@ -7435,7 +7435,7 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 | `src/services/whatsappWebhook.service.ts` | `mensajeDeImagenSchema`, `MARCADOR_DE_IMAGEN`, `leerMensaje` reconoce `type: "image"` |
 | `src/services/llmProvider.service.ts` | `LlmContentPart` suma `"image"`; `ParteDeOpenAi` suma `image_url`; `parteDeOpenAi` la traduce |
 | `src/workers/agentInboundWorker.ts` | `descargarAdjuntos` deriva el tipo de parte (`image`/`audio`) del `mimeType` en vez de asumir siempre audio |
-| tests | `whatsappWebhook.service.test.ts`, `llmProvider.service.test.ts`, `agentInboundWorker.test.ts` |
+| tests | `whatsappWebhook.service.test.ts`, `llmProvider.service.test.ts`, `agentInboundWorker.test.ts`, `whatsappWebhook.controller.integration-test.ts` |
 
 **No lleva migración**: `prisma/schema.prisma` y `whatsappGraph.service.ts` no cambian — los dos ya son genéricos desde el ítem 162.
 
@@ -7445,7 +7445,7 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 - **Con caption, el historial no lleva marcador.** El turno que responde la imagen la recibe al lado del caption; en turnos posteriores (imagen ya respondida) el modelo solo ve el caption como texto, sin rastro de que venía con una imagen. Es lo que pide el diseño (el caption ES lo que escribió el cliente); si más adelante hace falta que el historial lo diga, sería `[imagen] <caption>`.
 - **El tipo de parte sale del mime efectivo** (`mediaType` del job, o el de la descarga si faltara — el mismo que viaja al modelo), en una función chica `tipoDeAdjunto` del worker: `image/*` es imagen, todo lo demás es audio. Insensible a mayúsculas.
 - **El data-URI de `image_url` lleva el mime tal cual.** WhatsApp manda `image/jpeg`/`image/png` sin parámetros, así que no hace falta normalizar como con `formatoDeAudio`.
-- **Sin integration test nuevo del webhook**: el recorrido persistir → encolar → `mediaId`/`mediaType` es el mismo del audio (ya cubierto en `whatsappWebhook.controller.integration-test.ts`); lo único nuevo de la imagen es `leerMensaje`, que se prueba sin base.
+- **El integration test del webhook usaba una imagen como ejemplo de tipo ignorado**; pasó a un sticker (ítem 165, pendiente). Se sumaron dos casos de imagen al mismo archivo: con caption (content = caption, job con `mediaId`, el modelo recibe `{ type: "image" }` al lado del caption) y sin caption (content = `[imagen]`).
 
 **Cómo se aplica:** solo deploy (sin `migrate:deploy`, no hay migración nueva). El ítem 161 ya está aplicado en el agente AutoMax.
 
