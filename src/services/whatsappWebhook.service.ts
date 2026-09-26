@@ -12,8 +12,8 @@ import { applyWhatsappTemplateStatusFromMeta } from "./whatsappTemplate.service"
 // El procesamiento de un POST /webhooks/whatsapp ya verificado (ítem 81; paso
 // 6 de §9 de docs/ai-agent-architecture.md). La firma HMAC y el parseo del
 // cuerpo los resolvió la cadena del router; esto recorre el lote y, por cada
-// mensaje de texto, resuelve el Contact, persiste el Message entrante y ENCOLA
-// el turno. El turno lo corre src/workers/agentInboundWorker.ts, con el mismo
+// mensaje de texto o de audio (ítem 162), resuelve el Contact, persiste el
+// Message entrante y ENCOLA el turno. El turno lo corre src/workers/agentInboundWorker.ts, con el mismo
 // loop de orquestación que el canal Web (§9), y es el worker quien manda la
 // respuesta por la Graph API.
 //
@@ -59,14 +59,55 @@ export const whatsappWebhookPayloadSchema = z.object({
 
 export type WhatsappWebhookPayload = z.infer<typeof whatsappWebhookPayloadSchema>;
 
-// El único tipo que este ítem procesa. Imágenes, audios, ubicaciones,
-// reacciones, botones: fuera de alcance, se ignoran sin error.
+// Los tipos que se procesan: texto (ítem 81) y audio (ítem 162). Imágenes,
+// ubicaciones, reacciones, botones: fuera de alcance, se ignoran sin error.
 const mensajeDeTextoSchema = z.object({
   id: z.string().min(1),
   from: z.string().min(1),
   type: z.literal("text"),
   text: z.object({ body: z.string() }),
 });
+
+// Un audio trae el id del media, no los bytes (ver downloadWhatsappMediaReal).
+// Una nota de voz y un archivo de audio llegan igual; la nota trae además
+// voice: true, que acá no cambia nada.
+const mensajeDeAudioSchema = z.object({
+  id: z.string().min(1),
+  from: z.string().min(1),
+  type: z.literal("audio"),
+  audio: z.object({ id: z.string().min(1), mime_type: z.string().min(1) }),
+});
+
+// Lo que queda en Message.content de un audio: es lo que se ve en el historial
+// del CRM y lo que el modelo lee al lado del audio. El audio en sí no se
+// guarda.
+export const MARCADOR_DE_AUDIO = "[audio]";
+
+export interface MensajeLeido {
+  wamid: string;
+  waId: string;
+  texto: string;
+  media?: { id: string; mimeType: string };
+}
+
+// Pura, para probar sin base qué se procesa y cómo. null = tipo que no se
+// procesa, o sin la forma esperada: se ignora sin error.
+export function leerMensaje(crudo: unknown): MensajeLeido | null {
+  const texto = mensajeDeTextoSchema.safeParse(crudo);
+  if (texto.success) {
+    return { wamid: texto.data.id, waId: texto.data.from, texto: texto.data.text.body };
+  }
+  const audio = mensajeDeAudioSchema.safeParse(crudo);
+  if (audio.success) {
+    return {
+      wamid: audio.data.id,
+      waId: audio.data.from,
+      texto: MARCADOR_DE_AUDIO,
+      media: { id: audio.data.audio.id, mimeType: audio.data.audio.mime_type },
+    };
+  }
+  return null;
+}
 
 const contactoDelPayloadSchema = z.object({
   wa_id: z.string(),
@@ -98,6 +139,7 @@ interface MensajeEntrante {
   waId: string;
   profileName: string | undefined;
   texto: string;
+  media?: { id: string; mimeType: string };
 }
 
 async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMensaje> {
@@ -160,6 +202,12 @@ async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMe
               messageId: entrante.id,
               phoneNumberId: mensaje.phoneNumberId,
               waId: mensaje.waId,
+              // Ítem 162: solo el id. El audio lo baja el worker; bajarlo acá
+              // sumaría una llamada a Meta al camino que tiene que contestar
+              // en milisegundos (ítem 125).
+              ...(mensaje.media
+                ? { mediaId: mensaje.media.id, mediaType: mensaje.media.mimeType }
+                : {}),
             },
             tx,
           ),
@@ -257,24 +305,24 @@ export async function procesarWebhookDeWhatsapp(
       }
 
       for (const crudo of mensajes) {
-        const parsed = mensajeDeTextoSchema.safeParse(crudo);
-        if (!parsed.success) {
+        const m = leerMensaje(crudo);
+        if (!m) {
           resumen.ignorado += 1;
           continue;
         }
-        const m = parsed.data;
         try {
           const r = await procesarMensaje({
             phoneNumberId,
-            wamid: m.id,
-            waId: m.from,
-            profileName: nombres.get(m.from),
-            texto: m.text.body,
+            wamid: m.wamid,
+            waId: m.waId,
+            profileName: nombres.get(m.waId),
+            texto: m.texto,
+            media: m.media,
           });
           resumen[r] += 1;
         } catch (err) {
           logger.error(
-            { err, phoneNumberId, wamid: m.id },
+            { err, phoneNumberId, wamid: m.wamid },
             "No se pudo procesar un mensaje de WhatsApp — se sigue con el resto del lote",
           );
           resumen.fallido += 1;

@@ -54,9 +54,19 @@ export interface LlmToolDefinition {
   parameters: Record<string, unknown>;
 }
 
+// Una parte de un mensaje del usuario que trae un adjunto (ítem 162). Neutral
+// de proveedor, igual que el resto del contrato: el audio viaja como bytes en
+// base64 más su mime type, y es el ADAPTADOR el que lo traduce al formato de
+// su API (OpenRouter: `input_audio`, ver parteDeOpenAi).
+export type LlmContentPart =
+  { type: "text"; text: string } | { type: "audio"; data: string; mimeType: string };
+
 export interface LlmUserMessage {
   role: "user";
-  content: string;
+  // Un string para todo mensaje sin adjunto, que es casi todos: los turnos y
+  // las llamadas que nunca reciben audio no cambian. Un array de partes solo
+  // cuando el mensaje trae un adjunto.
+  content: string | LlmContentPart[];
 }
 
 export interface LlmAssistantMessage {
@@ -210,11 +220,47 @@ interface ToolCallDeOpenAi {
   function: { name: string; arguments: string };
 }
 
+type ParteDeOpenAi =
+  | { type: "text"; text: string }
+  | { type: "input_audio"; input_audio: { data: string; format: string } };
+
 interface MensajeDeOpenAi {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: string | ParteDeOpenAi[] | null;
   tool_calls?: ToolCallDeOpenAi[];
   tool_call_id?: string;
+}
+
+// `input_audio` no lleva mime type sino un formato corto ("ogg", "mp3"...).
+// Los mime types son los que WhatsApp acepta para audio; lo que no esté en la
+// tabla va con el subtipo tal cual (audio/flac -> "flac"). Los parámetros del
+// mime ("; codecs=opus") no cambian el formato del contenedor.
+const FORMATO_DE_AUDIO_POR_MIME: Record<string, string> = {
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/mp4": "m4a",
+  "audio/aac": "aac",
+  "audio/amr": "amr",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+};
+
+export function formatoDeAudio(mimeType: string): string {
+  const base = mimeType.split(";")[0].trim().toLowerCase();
+  return FORMATO_DE_AUDIO_POR_MIME[base] ?? base.split("/")[1] ?? base;
+}
+
+function parteDeOpenAi(parte: LlmContentPart): ParteDeOpenAi {
+  switch (parte.type) {
+    case "text":
+      return parte;
+    case "audio":
+      return {
+        type: "input_audio",
+        input_audio: { data: parte.data, format: formatoDeAudio(parte.mimeType) },
+      };
+  }
 }
 
 // Traduce el historial neutral al formato de OpenAI. Es la mitad del adaptador
@@ -225,7 +271,15 @@ function aMensajesDeOpenAi(systemPrompt: string, messages: LlmMessage[]): Mensaj
   for (const mensaje of messages) {
     switch (mensaje.role) {
       case "user":
-        salida.push({ role: "user", content: mensaje.content });
+        // Un string pasa tal cual, como siempre; solo un mensaje con adjunto
+        // viaja como array de partes.
+        salida.push({
+          role: "user",
+          content:
+            typeof mensaje.content === "string"
+              ? mensaje.content
+              : mensaje.content.map(parteDeOpenAi),
+        });
         break;
 
       case "assistant": {

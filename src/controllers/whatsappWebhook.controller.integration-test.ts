@@ -13,8 +13,10 @@ import {
   resetLlmProviderParaTests,
   setLlmProviderForTests,
   type LlmCompletionRequest,
+  type LlmMessage,
 } from "../services/llmProvider.service";
 import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
+import { MARCADOR_DE_AUDIO } from "../services/whatsappWebhook.service";
 import { WHATSAPP_CONTACT_SOURCE } from "../services/whatsappContact.service";
 import { hmacSha256Hex } from "../utils/hmac";
 import { drenarTurnosPendientes, type DepsDeEnvio } from "../workers/agentInboundWorker";
@@ -51,6 +53,10 @@ import type { WhatsappWebhookDeps } from "./whatsappWebhook.controller";
 //     los tres; un mensaje que llega a mitad de un turno -> el turno siguiente
 //     lo ve DESPUÉS de la respuesta anterior; dos entregas paralelas de un
 //     contacto nuevo -> una sola conversación abierta.
+//   - audio (ítem 162): el webhook persiste el marcador y deja el mediaId en
+//     el job SIN bajar nada; el worker lo baja y el modelo recibe el audio al
+//     lado del marcador. Sin WHATSAPP_ACCESS_TOKEN la descarga se reintenta;
+//     un 4xx de Meta al bajarlo es FAILED.
 //   - sin WHATSAPP_APP_SECRET -> 500, nunca un webhook que no verifica nada.
 //   - message_template_status_update (ítem 160): Meta aprueba o rechaza la
 //     plantilla de un negocio -> la fila con ese metaTemplateId cambia de
@@ -67,6 +73,15 @@ const RESPUESTA_DEL_AGENTE = "¡Hola! ¿En qué te ayudo?";
 let enviados: SendWhatsappTextInput[] = [];
 let fallarEnvio: number | null = null;
 let appSecretConfigurado: string | undefined = APP_SECRET;
+// El token que ve el worker (el del webhook es aparte), para el caso de la
+// variable sin cargar.
+let accessTokenDelWorker: string | undefined = ACCESS_TOKEN;
+
+// El doble de la descarga de media (ítem 162): registra cada id pedido y
+// devuelve BYTES_DEL_AUDIO; `fallarDescarga` simula a Meta rechazándola.
+const BYTES_DEL_AUDIO = Buffer.from("audio-de-prueba");
+let descargados: string[] = [];
+let fallarDescarga: number | null = null;
 
 // El doble del LLM: registra cada request. `fallosDelLlm` hace que las
 // próximas N llamadas exploten con un error que NO es del proveedor (el que el
@@ -83,14 +98,29 @@ const deps: WhatsappWebhookDeps = {
 };
 
 const depsDeEnvio: DepsDeEnvio = {
-  accessToken: () => ACCESS_TOKEN,
+  accessToken: () => accessTokenDelWorker,
   sendText: async (input) => {
     if (fallarEnvio !== null) {
       throw new WhatsappGraphError(fallarEnvio, "doble");
     }
     enviados.push(input);
   },
+  downloadMedia: async ({ mediaId, accessToken }) => {
+    assert.equal(accessToken, ACCESS_TOKEN);
+    if (fallarDescarga !== null) {
+      throw new WhatsappGraphError(fallarDescarga, "doble");
+    }
+    descargados.push(mediaId);
+    return { data: BYTES_DEL_AUDIO, mimeType: "audio/ogg; codecs=opus" };
+  },
 };
+
+// El texto de un mensaje del historial, tenga o no adjunto.
+function textoDe(m: LlmMessage): string {
+  if (typeof m.content === "string") return m.content;
+  if (m.content === null) return "";
+  return m.content.map((p) => (p.type === "text" ? p.text : "")).join("");
+}
 
 // El worker, acotado a la organización de este archivo: los demás archivos de
 // integración corren en paralelo contra la misma base.
@@ -273,6 +303,9 @@ beforeEach(async () => {
   fallosDelLlm = 0;
   alLlamarAlLlm = null;
   appSecretConfigurado = APP_SECRET;
+  accessTokenDelWorker = ACCESS_TOKEN;
+  descargados = [];
+  fallarDescarga = null;
 });
 
 after(async () => {
@@ -703,7 +736,7 @@ test("un change con statuses en vez de messages -> 200 sin crear nada", async ()
   assert.equal(enviados.length, 0);
 });
 
-test("un mensaje que no es de tipo text -> 200 sin procesar", async () => {
+test("un mensaje de un tipo que no se procesa (imagen) -> 200 sin procesar", async () => {
   const waId = waIdAlAzar();
   const payload = payloadDeTexto({ waId });
   // Un mensaje de imagen no trae `text`: se reemplaza el array entero.
@@ -722,6 +755,127 @@ test("un mensaje que no es de tipo text -> 200 sin procesar", async () => {
   assert.equal((await contactosConTelefono(`+${waId}`)).length, 0);
   assert.equal(llamadasAlLlm, 0);
   assert.equal(enviados.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Audio (ítem 162)
+// ---------------------------------------------------------------------------
+
+function payloadDeAudio(opts: { waId: string; wamid?: string; mediaId: string }) {
+  const payload = payloadDeTexto({ waId: opts.waId });
+  (payload.entry[0].changes[0].value as { messages: unknown[] }).messages = [
+    {
+      from: opts.waId,
+      id: opts.wamid ?? `wamid.${randomUUID()}`,
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      type: "audio",
+      audio: { id: opts.mediaId, mime_type: "audio/ogg; codecs=opus", voice: true },
+    },
+  ];
+  return payload;
+}
+
+test("un audio -> el webhook persiste el marcador y el mediaId SIN bajar nada; el worker lo baja y el modelo lo recibe al lado del marcador", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  const mediaId = String(randomInt(10 ** 9, 10 ** 10 - 1));
+
+  const res = await enviar(payloadDeAudio({ waId, wamid, mediaId }));
+  assert.equal(res.status, 200);
+  assert.deepEqual(descargados, [], "el webhook no baja el audio (ítem 125)");
+
+  const entrante = await entranteConWamid(wamid);
+  assert.equal(entrante.content, MARCADOR_DE_AUDIO);
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "PENDING");
+  assert.equal(job.mediaId, mediaId);
+  assert.equal(job.mediaType, "audio/ogg; codecs=opus");
+
+  const resumen = await drenar();
+  assert.equal(resumen.respondidos, 1);
+  assert.deepEqual(descargados, [mediaId]);
+
+  // El último mensaje del historial es el audio: el marcador etiquetado como
+  // cualquier mensaje del cliente, y el audio en base64 al lado.
+  const ultimo = requestsAlLlm[0].messages.at(-1);
+  assert.equal(ultimo?.role, "user");
+  assert.ok(Array.isArray(ultimo.content));
+  const [texto, audio] = ultimo.content;
+  assert.equal(texto.type, "text");
+  assert.ok(texto.type === "text" && texto.text.includes(MARCADOR_DE_AUDIO));
+  assert.deepEqual(audio, {
+    type: "audio",
+    data: BYTES_DEL_AUDIO.toString("base64"),
+    mimeType: "audio/ogg; codecs=opus",
+  });
+
+  assert.deepEqual(
+    enviados.map((e) => e.body),
+    [RESPUESTA_DEL_AGENTE],
+  );
+  const [terminado] = await jobsDe(entrante.id);
+  assert.equal(terminado.status, "DONE");
+});
+
+test("texto y dos audios seguidos -> UN turno que baja los dos audios y ve los tres mensajes; el texto sigue siendo un string", async () => {
+  const waId = waIdAlAzar();
+  const mediaIds = ["111", "222"].map((p) => `${p}${randomInt(10 ** 6, 10 ** 7 - 1)}`);
+  assert.equal((await enviar(payloadDeTexto({ waId, body: "hola" }))).status, 200);
+  for (const mediaId of mediaIds) {
+    assert.equal((await enviar(payloadDeAudio({ waId, mediaId }))).status, 200);
+  }
+
+  const resumen = await drenar();
+  assert.equal(llamadasAlLlm, 1, "un solo turno para la ráfaga");
+  assert.equal(resumen.respondidos, 1);
+  assert.deepEqual([...descargados].sort(), [...mediaIds].sort());
+
+  const usuario = requestsAlLlm[0].messages.filter((m) => m.role === "user");
+  assert.equal(usuario.length, 3);
+  assert.equal(typeof usuario[0].content, "string", "sin adjunto, el contrato de siempre");
+  assert.ok(Array.isArray(usuario[1].content));
+  assert.ok(Array.isArray(usuario[2].content));
+});
+
+test("un audio sin WHATSAPP_ACCESS_TOKEN -> la descarga falla TRANSITORIA: el job se reintenta, sin turno, y responde cuando el token está", async () => {
+  accessTokenDelWorker = undefined;
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  const mediaId = String(randomInt(10 ** 9, 10 ** 10 - 1));
+
+  assert.equal((await enviar(payloadDeAudio({ waId, wamid, mediaId }))).status, 200);
+  const primera = await drenar();
+  assert.equal(primera.pospuestos, 1);
+  assert.equal(llamadasAlLlm, 0, "sin el audio no se corre el turno");
+
+  const entrante = await entranteConWamid(wamid);
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "PENDING");
+  assert.match(job.lastError ?? "", /WHATSAPP_ACCESS_TOKEN/);
+
+  accessTokenDelWorker = ACCESS_TOKEN;
+  await adelantarReintentos();
+  const segunda = await drenar();
+  assert.equal(segunda.respondidos, 1);
+  assert.deepEqual(descargados, [mediaId]);
+  const [terminado] = await jobsDe(entrante.id);
+  assert.equal(terminado.status, "DONE");
+});
+
+test("un audio que Meta se niega a entregar (4xx) -> FAILED de una, sin turno", async () => {
+  fallarDescarga = 404;
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+
+  assert.equal((await enviar(payloadDeAudio({ waId, wamid, mediaId: "999" }))).status, 200);
+  const resumen = await drenar();
+  assert.equal(resumen.fallidos, 1);
+  assert.equal(llamadasAlLlm, 0);
+  assert.equal(enviados.length, 0);
+
+  const [job] = await jobsDe((await entranteConWamid(wamid)).id);
+  assert.equal(job.status, "FAILED");
+  assert.match(job.lastError ?? "", /404/);
 });
 
 test("un phone_number_id sin agente, o de un agente sin el canal WHATSAPP -> 200 sin procesar, y el resto del lote sí", async () => {
@@ -910,7 +1064,7 @@ test("tres mensajes seguidos antes de que el worker pase -> UN turno que los ve 
   assert.equal(resumen.respondidos, 1);
 
   // El modelo vio los tres, en orden, al final del historial.
-  const vistos = requestsAlLlm[0].messages.filter((m) => m.role === "user").map((m) => m.content);
+  const vistos = requestsAlLlm[0].messages.filter((m) => m.role === "user").map(textoDe);
   assert.equal(vistos.length, 3);
   cuerpos.forEach((body, i) => assert.ok(vistos[i].includes(body)));
 
@@ -949,9 +1103,9 @@ test("un mensaje que llega A MITAD de un turno -> el turno siguiente lo ve DESPU
     cola.map((m) => m.role),
     ["user", "assistant", "user"],
   );
-  assert.ok(cola[0].content?.includes("hola"));
+  assert.ok(textoDe(cola[0]).includes("hola"));
   assert.equal(cola[1].content, RESPUESTA_DEL_AGENTE);
-  assert.ok(cola[2].content?.includes("quiero un auto"));
+  assert.ok(textoDe(cola[2]).includes("quiero un auto"));
 });
 
 test("dos mensajes DISTINTOS de un contacto nuevo en webhooks paralelos -> una sola conversación abierta con los dos entrantes", async () => {

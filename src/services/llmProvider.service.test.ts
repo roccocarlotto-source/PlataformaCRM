@@ -7,6 +7,7 @@ import {
   REINTENTOS_LLM,
   crearProveedorOpenRouter,
   esTransitorio,
+  formatoDeAudio,
   isLlmProviderName,
   type FetchLike,
   type LlmToolDefinition,
@@ -129,6 +130,48 @@ test("el system prompt va como PRIMER mensaje con role system, seguido del histo
     { role: "system", content: "Sos el agente comercial de la sucursal Centro." },
     { role: "user", content: "Hola, quiero cotizar un corte de pelo" },
   ]);
+});
+
+test("un mensaje con audio (ítem 162) viaja como partes: el texto tal cual y el audio como input_audio; el resto sigue siendo string", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "ok" }) });
+
+  await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete({
+    ...PEDIDO_BASICO,
+    messages: [
+      { role: "user", content: "Hola" },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "[audio]" },
+          { type: "audio", data: "QUJD", mimeType: "audio/ogg; codecs=opus" },
+        ],
+      },
+    ],
+  });
+
+  const cuerpo = cuerpoDe(llamadas[0]);
+  assert.deepEqual(cuerpo.messages, [
+    { role: "system", content: "Sos el agente comercial de la sucursal Centro." },
+    { role: "user", content: "Hola" },
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "[audio]" },
+        { type: "input_audio", input_audio: { data: "QUJD", format: "ogg" } },
+      ],
+    },
+  ]);
+});
+
+test("formatoDeAudio: los mime types de audio de WhatsApp al formato corto de input_audio", () => {
+  assert.equal(formatoDeAudio("audio/ogg; codecs=opus"), "ogg");
+  assert.equal(formatoDeAudio("audio/mpeg"), "mp3");
+  assert.equal(formatoDeAudio("audio/mp4"), "m4a");
+  assert.equal(formatoDeAudio("audio/aac"), "aac");
+  assert.equal(formatoDeAudio("audio/amr"), "amr");
+  assert.equal(formatoDeAudio("AUDIO/WAV"), "wav");
+  // Lo que no está en la tabla va con su subtipo.
+  assert.equal(formatoDeAudio("audio/flac"), "flac");
 });
 
 test("usa el modelo por defecto de la configuración cuando el request no trae uno", async () => {
