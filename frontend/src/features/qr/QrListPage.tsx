@@ -40,11 +40,11 @@ const SIN_RESOLVER = "—";
 // mismo valor en cada fila no distingue nada, y dejarla fija hacía creer que
 // esta pantalla sabe leer un estado que no lee.
 //
-// El "activo/inactivo" que sí existe hoy es otro: depende de la suscripción de
-// QR de la organización (`qrSubscriptionStatus` / `qrBillingExempt`, ver
-// findQrCodePublicState en src/repositories/qrCode.repository.ts) y es lo que
-// decide si el QR redirige o no. GET /api/qr no lo expone, así que traerlo
-// hasta acá es un ítem propio con backend incluido, no éste.
+// Tampoco hay otro "activo/inactivo" que mostrar: hasta el ítem 135 el QR
+// redirigía o no según la suscripción de QR de la organización
+// (`qrSubscriptionStatus` / `qrBillingExempt`), pero desde ese ítem el módulo
+// viene incluido con la cuenta y todo QR no borrado redirige (ver
+// findQrCodePublicState en src/repositories/qrCode.repository.ts).
 
 // Tamaño de los íconos de las acciones de fila (export "Reseñas QR": 15px,
 // trazo 1.5). Son decorativos: el nombre accesible del botón sigue siendo

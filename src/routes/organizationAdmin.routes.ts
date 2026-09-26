@@ -12,11 +12,9 @@ export const organizationAdminRouter = Router();
 // plataforma, no un signup público: reemplaza en la práctica a
 // POST /api/onboarding, que queda montado pero sin uso.
 //
-// Misma cadena exacta que qrAdmin.routes.ts: authenticate +
-// businessWriteRateLimiter + requirePlatformAdmin, y NO authorize("ADMIN") —
-// un PlatformAdmin es global, no un rol dentro de la Organization que está
-// creando (ver middlewares/requirePlatformAdmin.ts). Vive en su propio router
-// porque qrAdmin.routes.ts es específico del módulo QR.
+// Cadena: authenticate + businessWriteRateLimiter + requirePlatformAdmin, y NO
+// authorize("ADMIN") — un PlatformAdmin es global, no un rol dentro de la
+// Organization que está creando (ver middlewares/requirePlatformAdmin.ts).
 // ---------------------------------------------------------------------------
 organizationAdminRouter.post(
   "/admin/organizations",

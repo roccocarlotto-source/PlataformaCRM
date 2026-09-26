@@ -1,11 +1,11 @@
 import { createHmac, timingSafeEqual as nodeTimingSafeEqual } from "node:crypto";
 
 // ---------------------------------------------------------------------------
-// Primitivas de firma HMAC compartidas por los webhooks que verifican una
-// firma HMAC-SHA256 en hex: MercadoPago (utils/mercadopagoSignature.ts, sobre
-// un manifiesto de headers + query) y WhatsApp (middlewares/whatsappSignature.ts,
-// sobre el cuerpo crudo). Vivían en mercadopagoSignature.ts hasta el ítem 81;
-// se mudaron acá cuando apareció el segundo consumidor, sin cambiar nada.
+// Primitivas de firma HMAC-SHA256 en hex, hoy usadas por el webhook de
+// WhatsApp (controllers/whatsappWebhook.controller.ts, sobre el cuerpo crudo).
+// Nacieron en mercadopagoSignature.ts —el webhook de la suscripción aparte del
+// módulo QR— y se mudaron acá en el ítem 81, cuando apareció WhatsApp como
+// segundo consumidor; el de MercadoPago se retiró en el ítem 135.
 // ---------------------------------------------------------------------------
 
 // `message` acepta Buffer además de string: WhatsApp firma los BYTES crudos

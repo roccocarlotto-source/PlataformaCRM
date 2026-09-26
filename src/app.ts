@@ -11,7 +11,6 @@ import { notFound } from "./middlewares/notFound";
 import { routes } from "./routes";
 import { ingestRouter } from "./routes/ingest.routes";
 import { publicWidgetRouter } from "./routes/publicWidget.routes";
-import { qrWebhookRouter } from "./routes/qrWebhook.routes";
 import { whatsappWebhookRouter } from "./routes/whatsappWebhook.routes";
 
 // Arma la instancia de Express (middlewares + rutas) sin escuchar ningún
@@ -57,8 +56,8 @@ app.use((_req, res, next) => {
 app.use(pinoHttp({ logger }));
 
 // EL ROUTER PÚBLICO DEL WIDGET VA ANTES DEL cors() GLOBAL, Y NO ES COSMÉTICO —
-// es el mismo motivo estructural por el que ingestRouter y qrWebhookRouter van
-// antes del express.json() global (ver más abajo), aplicado a CORS en vez de
+// es el mismo motivo estructural por el que ingestRouter y whatsappWebhookRouter
+// van antes del express.json() global (ver más abajo), aplicado a CORS en vez de
 // al parseo del cuerpo: un middleware montado DESPUÉS no puede actuar sobre
 // algo que uno anterior ya resolvió o terminó.
 //
@@ -132,25 +131,15 @@ app.use(compression());
 // exista.
 app.use("/api", ingestRouter);
 
-// EL WEBHOOK DE MERCADOPAGO VA ACÁ POR EL MISMO MOTIVO EXACTO que ingestRouter
-// (docs/qr-integration.md, Fase 2): su cadena verifica la firma HMAC sobre
-// headers + query ANTES de leer el cuerpo, y recién después trae su propio
-// express.json() con su propio tope. Montado después del parser global, ese
-// orden no existiría: el stream ya estaría consumido, el tope propio no
-// limitaría nada, y un Content-Type que no fuera JSON pasaría como body vacío
-// en vez de rechazarse. Ver routes/qrWebhook.routes.ts.
+// EL WEBHOOK DE WHATSAPP (ítem 81) VA ACÁ POR EL MISMO MOTIVO QUE ingestRouter:
+// trae su propio express.json() con su propio tope, y ese parser es además el
+// que guarda los bytes crudos del cuerpo sobre los que Meta calcula la firma
+// HMAC. Montado después del parser global, el stream ya estaría consumido sin
+// rawBody y ninguna firma podría verificarse. Ver
+// routes/whatsappWebhook.routes.ts.
 //
-// SIN /api: no es JSON de negocio de un cliente nuestro, lo llama MercadoPago
-// — misma excepción de prefijo que las rutas públicas de resolución de QR.
-app.use(qrWebhookRouter);
-
-// EL WEBHOOK DE WHATSAPP (ítem 81) VA ACÁ POR EL MISMO MOTIVO: trae su propio
-// express.json() con su propio tope, y ese parser es además el que guarda los
-// bytes crudos del cuerpo sobre los que Meta calcula la firma HMAC. Montado
-// después del parser global, el stream ya estaría consumido sin rawBody y
-// ninguna firma podría verificarse. Ver routes/whatsappWebhook.routes.ts.
-//
-// SIN /api, igual que MercadoPago: lo llama Meta, no un cliente nuestro.
+// SIN /api: lo llama Meta, no un cliente nuestro — misma excepción de prefijo
+// que las rutas públicas de resolución de QR.
 app.use(whatsappWebhookRouter);
 
 // El mismo express.json() de siempre, con los mismos límites por default,

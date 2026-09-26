@@ -4,8 +4,7 @@
 // lectura están fuera de alcance.
 //
 // Es un tipo de función y no un módulo con estado para que el webhook lo
-// reciba inyectado (mismo patrón que FetchPreapproval en qrWebhook.service.ts):
-// producción usa sendWhatsappTextReal, los tests de integración un doble que
+// reciba inyectado: producción usa sendWhatsappTextReal, los tests de integración un doble que
 // registra lo que se habría mandado sin salir a la red.
 // ---------------------------------------------------------------------------
 

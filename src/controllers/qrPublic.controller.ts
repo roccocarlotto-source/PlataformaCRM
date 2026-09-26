@@ -14,8 +14,11 @@ import { buildLandingHtml } from "../utils/qrLanding";
 // middlewares/requireInternalProxySecret.ts (Fase 4), montado ANTES de este
 // handler en qrPublic.routes.ts: acá se llega solo con el secreto válido.
 //
-// DEC-007 (anti-enumeración): un id que no existe, uno malformado, uno borrado
-// y uno con la suscripción vencida renderizan la misma landing.
+// DEC-007 (anti-enumeración): un id que no existe, uno malformado y uno
+// borrado renderizan la misma landing. Hasta el ítem 135 había un cuarto caso,
+// "suscripción vencida y sin exención" (200 con la misma landing); se fue con
+// la facturación aparte del módulo QR — hoy viene incluido con la cuenta, así
+// que todo QR encontrado redirige (docs/qr-integration.md, "Changelog").
 //
 // HASTA 20260904120000_remove_qr_claim_and_single_use este archivo también
 // tenía consumeQrHandler (el POST del botón "Continuar" de un QR de un solo
@@ -44,12 +47,7 @@ function renderPublicState(res: Response, state: QrPublicState | null): void {
     return;
   }
 
-  if (state.canRedirect) {
-    res.redirect(302, state.destinationUrl);
-    return;
-  }
-  // Suscripción vencida y sin exención: landing genérica.
-  sendHtml(res, 200, buildLandingHtml());
+  res.redirect(302, state.destinationUrl);
 }
 
 // GET — de solo lectura por construcción (getQrPublicState nunca escribe).

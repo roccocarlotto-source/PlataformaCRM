@@ -289,8 +289,8 @@ export function softDeleteVehicle(id: string, organizationId: string, db: Db = p
   });
 }
 
-// Contador durable del código interno — réplica exacta de
-// assignNextQrDisplayNumber (qrBilling.repository.ts): update con increment
+// Contador durable del código interno — réplica exacta del
+// assignNextQrDisplayNumber que tuvo el módulo QR: update con increment
 // dentro de la misma transacción con lock que el INSERT, y devuelve el número
 // que le toca a ESTA unidad. No es una sequence de Postgres a propósito:
 // nextval() no es transaccional y quemaría un número aunque la transacción

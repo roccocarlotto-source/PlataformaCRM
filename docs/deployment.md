@@ -122,6 +122,12 @@ algo que el código viejo todavía lee —ya hubo una,
 ventana de indisponibilidad, y merece una nota propia acá cuando ocurra en
 producción.
 
+**Nota — `20261001120000_retirar_facturacion_qr` (ítem 135) va en el orden
+inverso: imagen nueva primero, migración después.** Dropea columnas de
+`organizations` que la imagen vieja lee (en `/qr/resolve` y en toda lectura de
+la organización sin `select`); la imagen nueva no las nombra y anda igual contra
+el esquema viejo. Detalle en el ítem 135 de `docs/frontend-cambios-pendientes.md`.
+
 ### 2.3 Variables de entorno del backend
 
 Lista completa de `src/config/env.ts`, agrupada por lo que pasa si falta. El
@@ -157,7 +163,6 @@ respuesta):
 | `SECRET_ENCRYPTION_KEY` | Cifrado del refresh token de Google Calendar y firma del `state` OAuth | Toda operación de Google Calendar → 500. Se genera con `npm run gen:encryption-key`. **Cambiarla deja ilegible todo lo ya cifrado** |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Conexión OAuth con Google Calendar | El flujo de conexión falla. `GOOGLE_REDIRECT_URI` apunta al **backend** público (`/api/integrations/google-calendar/callback`) y tiene que coincidir carácter por carácter con la consola de Google |
 | `GOOGLE_WEBHOOK_URL` | Sincronización inversa (notificaciones push de Google) | El worker de canales se apaga solo y lo avisa; el resto de la agenda sigue. Exige dominio verificado en Google y HTTPS real |
-| `MERCADOPAGO_WEBHOOK_SECRET`, `MERCADOPAGO_ACCESS_TOKEN` | Webhook de MercadoPago del módulo QR | Un webhook real responde 500 |
 | `QR_RESOLVE_PROXY_SECRET` (+ `_PREVIOUS` durante una rotación) | Gate de `/qr/resolve/:qrId` con el Cloudflare Worker | **Falla cerrado: el endpoint responde 404 a todo el mundo.** Si el módulo QR está en uso, en la práctica es del grupo A. Mismo valor que `INTERNAL_PROXY_SECRET` en el Worker |
 
 **D. Con default explícito** — no hace falta definirlas; se listan para que se

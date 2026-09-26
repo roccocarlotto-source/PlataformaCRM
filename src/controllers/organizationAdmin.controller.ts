@@ -9,8 +9,7 @@ import { parseOrThrow } from "../utils/validation";
 // Endpoint de platform admin para dar de alta una organización nueva con su
 // primer ADMIN (Fase 4a del módulo SaaS). Corre detrás de authenticate +
 // requirePlatformAdmin — NO authorize("ADMIN"), deliberado: ver
-// middlewares/requirePlatformAdmin.ts. Mismo esqueleto que
-// qrAdmin.controller.ts.
+// middlewares/requirePlatformAdmin.ts.
 // ---------------------------------------------------------------------------
 
 // Mismas reglas que onboarding.schema.ts para los campos equivalentes

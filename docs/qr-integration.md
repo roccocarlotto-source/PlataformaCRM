@@ -26,6 +26,11 @@ parar cada pieza y qué falta para terminar de aplicarla.
 > se marcaron explícitamente como eliminados. El módulo QR que queda en pie es
 > solo el QR digital reusable (crear/listar/editar/borrar/enviar/copiar link).
 
+> **SEGUNDO CAMBIO DE PRODUCTO, 2026-09-25 (ítem 135).** El módulo QR viene
+> **incluido con la cuenta**, sin suscripción aparte: la facturación de Fase 2
+> (webhook de MercadoPago, activación/exención por platform admin, sus tablas y
+> columnas) se retiró entera. Ver "Changelog" al final.
+
 - [x] **Fase 1 — Esquema. Completa (2026-09-02).** `prisma/schema.prisma`
   tiene los modelos nuevos (`QrCode`, `PaymentEvent`,
   `QrSubscriptionStatusChange`, `QrBillingExemptionChange`,
@@ -291,6 +296,12 @@ silencio: `claim` pasa de "asociar a mi business" (1:1 implícito) a "asociar
 a una Branch de mi Organization" (a elección del caller, validada).
 
 ## Fase 2 — Backend Express
+
+> **Retirado en parte (2026-09-25, ítem 135):** todo lo de facturación de esta
+> fase —el webhook de MercadoPago, los endpoints de platform admin del módulo,
+> `PaymentEvent`/`QrSubscriptionStatusChange`/`QrBillingExemptionChange` y el
+> chequeo de suscripción en `/qr/resolve`— ya no existe. Lo que sigue lo
+> describe tal como se implementó. Ver "Changelog" al final.
 
 Fuente de verdad del comportamiento: las funciones originales en
 `Plataforma-QR/supabase/functions/{resolve,claim,mercadopago-webhook,
@@ -1633,3 +1644,52 @@ el gate de Fase 4 se deployó.
   Worker. Recién con eso confirmado tiene sentido decomisar `qr-reviews`
   (deployment de Vercel del admin viejo + borrado del proyecto de Supabase
   desde el dashboard) — ver el checklist de Fase 4 en "Estado".
+
+## Changelog
+
+### 2026-09-25 — Se retira la facturación del módulo QR: viene incluido con la cuenta (ítem 135)
+
+**Decisión de producto de Rocco:** el QR deja de ser un servicio pago aparte y
+viene incluido con la cuenta. Todo el módulo de facturación que la Fase 2 portó
+de QR Reviews se retiró — no se deja "apagado", se borra. Quien lea la Fase 2
+de arriba está leyendo historia: nada de su parte de cobro sigue vigente.
+
+**Por qué.** La auditoría del 24/09 (D-02 y F-08 de
+`docs/auditoria-2026-09-24-punta-a-punta.md`) encontró que el cobro del QR no
+funcionaba: nada escribía `Organization.qrMercadopagoSubscriptionId`, así que
+el webhook de MercadoPago no podía resolver ninguna notificación a una
+organización, y la activación manual por platform admin no tenía UI. Toda
+organización nueva nacía con `qrSubscriptionStatus = INACTIVE` y sus QRs no
+redirigían. La salida que proponía el hallazgo era un endpoint de activación
+self-serve; con el QR incluido en la cuenta no hay nada que activar.
+
+**Qué se retiró.**
+- El chequeo en `findQrCodePublicState`: todo QR no borrado redirige. Siguen
+  igual el 404 indistinguible de DEC-007 y el gate de secreto compartido del
+  Worker (Fase 4).
+- `POST /webhooks/mercadopago` (service, controller, router, verificación de
+  firma) y las variables `MERCADOPAGO_WEBHOOK_SECRET` / `MERCADOPAGO_ACCESS_TOKEN`.
+- `POST /api/admin/organizations/:id/qr-subscription-status` y
+  `…/qr-billing-exemption`, con `qrBilling.service.ts` y
+  `qrBilling.repository.ts`.
+- Migración `20261001120000_retirar_facturacion_qr`: tablas
+  `qr_payment_events`, `qr_subscription_status_changes`,
+  `qr_billing_exemption_changes`; columnas `qr_subscription_status`,
+  `qr_mercadopago_subscription_id`, `qr_billing_exempt` de `organizations`;
+  enums `QrSubscriptionStatus` y `QrSubscriptionChangeSource`.
+
+**Qué queda.** `platform_admins` y `requirePlatformAdmin`: los usan el alta de
+organizaciones, el número de WhatsApp de un agente y `GET /api/me` ("Dar de
+alta el primer platform admin", arriba, sigue valiendo).
+
+**Datos.** Antes del DROP se contó producción (solo lectura): 0 eventos de
+pago, 0 cambios de suscripción, 1 cambio de exención — el de la verificación
+end-to-end del PR #155 sobre la organización de prueba "Mi Empresa". Ninguna
+organización con suscripción activa ni id de MercadoPago.
+
+**Despliegue.** Imagen nueva primero, migración después (al revés de lo
+habitual) — ver la nota en `docs/deployment.md` §2.2.
+
+**`Plataforma-QR`.** No se tocó: desde la Fase 4 el Worker apunta a este
+backend y ese repo no sirve tráfico real. Su propia facturación queda como
+estaba hasta que se archive (Fase 5).

@@ -12,8 +12,8 @@ import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
 // GET y POST /webhooks/whatsapp (ítem 81). Se monta en app.ts ANTES del
-// express.json() global, por el mismo motivo exacto que qrWebhookRouter e
-// ingestRouter: body-parser marca el request al parsearlo y cualquier
+// express.json() global, por el mismo motivo exacto que ingestRouter:
+// body-parser marca el request al parsearlo y cualquier
 // instancia posterior se saltea a sí misma, así que montado después el parser
 // propio no correría — y sin él no hay bytes crudos, y sin bytes crudos no hay
 // firma que verificar.
@@ -30,7 +30,7 @@ import { AppError } from "../utils/AppError";
 //      Secret contra X-Hub-Signature-256. 401 si no coincide.
 //   4. whatsappWebhookHandler — recorre el lote.
 //
-// A diferencia de MercadoPago, la firma va DESPUÉS del parser: Meta firma el
+// La firma va DESPUÉS del parser: Meta firma el
 // cuerpo, así que hay que leerlo para poder verificarla (ver el comentario de
 // whatsappWebhook.controller.ts).
 // ---------------------------------------------------------------------------
@@ -67,8 +67,7 @@ const whatsappJsonParser = envolverParserConTraduccion(
   },
 );
 
-// Factory y no un router armado a mano en el test (como hace el de
-// MercadoPago): el test de integración construye ESTA MISMA cadena con
+// Factory y no un router armado a mano en el test: el test de integración construye ESTA MISMA cadena con
 // secretos conocidos, así que una diferencia entre lo que se prueba y lo que
 // corre en producción no puede existir.
 export function createWhatsappWebhookRouter(deps: WhatsappWebhookDeps): Router {

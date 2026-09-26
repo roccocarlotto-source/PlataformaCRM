@@ -131,17 +131,18 @@ const ESPERADO_EXACTO = new Map<number, ChequeoAfirmado>([
   // y payments, §39/§40/§43 + knowledge_base_entries, §59) más las 3
   // especiales (organizations solo SELECT; roles y exchange_rates lectura
   // para autenticados). api_keys, google_calendar_connections, las tres
-  // tablas del módulo de Agentes de IA y las cuatro tablas internas del
-  // módulo QR no tienen política — las dos primeras a propósito (deny-all,
-  // guardan secretos), las de agentes por el paralelismo con bookings que
-  // 20260912130000 documenta.
+  // tablas del módulo de Agentes de IA y platform_admins no tienen política —
+  // las dos primeras a propósito (deny-all, guardan secretos), las de agentes
+  // por el paralelismo con bookings que 20260912130000 documenta. (Las tres
+  // tablas de facturación del módulo QR estaban en el mismo caso que
+  // platform_admins hasta que 20261001120000 las eliminó, ítem 135.)
   //
   // El número de arriba es descriptivo: la fila no cuenta, compara firmas. Si
   // queda desactualizado, lo que falla es la lectura de este comentario, no el
   // chequeo.
   [5, { descripcion: "Políticas RLS que faltan, sobran o cambiaron", esperado: "ninguna" }],
   [7, { descripcion: "Los 9 índices únicos parciales, por pg_get_indexdef", esperado: "ninguno" }],
-  [8, { descripcion: "Los 28 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
+  [8, { descripcion: "Los 27 CHECK constraints, por pg_get_constraintdef", esperado: "ninguno" }],
   [9, { descripcion: "Los 2 triggers de email, por pg_get_triggerdef", esperado: "ninguno" }],
   [
     10,

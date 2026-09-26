@@ -15,8 +15,6 @@ import {
   OpportunityLeadSource,
   OpportunityStatus,
   OutboxStatus,
-  QrSubscriptionChangeSource,
-  QrSubscriptionStatus,
   ResourceType,
   SourceType,
   VehicleBodyType,
@@ -51,9 +49,8 @@ import { esHostLocal, hostDeLaUrl } from "../src/utils/baseLocal";
 //
 // CÓMO SE ENCUENTRA DESPUÉS: el texto principal de cada fila (nombre, asunto,
 // título, marca) empieza con "[SEED]". Las entidades sin texto propio
-// (Booking, WorkingHours, OutboxEvent, QrSubscriptionStatusChange,
-// AutomationExecution) se reconocen por lo que referencian, o por el
-// eventType `seed.example` en el caso del outbox.
+// (Booking, WorkingHours, OutboxEvent, AutomationExecution) se reconocen por
+// lo que referencian, o por el eventType `seed.example` en el caso del outbox.
 //
 // POR QUÉ SERVICES Y NO SOLO PRISMA: donde el service aporta una regla que la
 // base no conoce (el correlativo STK- de Vehicle, la regla de consignación y
@@ -672,47 +669,6 @@ async function main() {
     contar("Message");
   }
 
-  // --- Cambios de suscripción QR (2: QrSubscriptionStatus y ChangeSource) ---
-  // PLATFORM_ADMIN exige changed_by_platform_admin_id (CHECK de 20260903120000)
-  // con FK a platform_admins. Si la base local no tiene ninguno, se registra
-  // al ADMIN de la organización como platform admin — SOLO tiene sentido en
-  // local, y se avisa. La organización no cambia de estado: solo se registra
-  // el historial (INACTIVE → ACTIVE por webhook, ACTIVE → INACTIVE por admin).
-  let platformAdmin = await prisma.platformAdmin.findFirst();
-  if (!platformAdmin) {
-    platformAdmin = await prisma.platformAdmin.create({ data: { userId: adminId } });
-    contar("PlatformAdmin (creado para poder cubrir PLATFORM_ADMIN)");
-  }
-  const cambiosQr: Array<
-    [QrSubscriptionStatus, QrSubscriptionStatus, QrSubscriptionChangeSource, string | null]
-  > = [
-    [
-      QrSubscriptionStatus.INACTIVE,
-      QrSubscriptionStatus.ACTIVE,
-      QrSubscriptionChangeSource.MERCADOPAGO_WEBHOOK,
-      null,
-    ],
-    [
-      QrSubscriptionStatus.ACTIVE,
-      QrSubscriptionStatus.INACTIVE,
-      QrSubscriptionChangeSource.PLATFORM_ADMIN,
-      platformAdmin.userId,
-    ],
-  ];
-  for (const [previousStatus, newStatus, source, changedByPlatformAdminId] of cambiosQr) {
-    await prisma.qrSubscriptionStatusChange.create({
-      data: {
-        organizationId,
-        previousStatus,
-        newStatus,
-        source,
-        changedByPlatformAdminId,
-        reason: `${PREFIJO} cambio ${previousStatus} → ${newStatus} vía ${source}`,
-      },
-    });
-    contar("QrSubscriptionStatusChange");
-  }
-
   // --- Automatización (1) y ejecuciones (2: AutomationExecutionStatus) -----
   // El registro de acciones arranca vacío en cada proceso y lo llena
   // server.ts; acá se hace lo mismo para que createAutomation valide la regla
@@ -933,33 +889,6 @@ async function verificarCobertura(organizationId: string): Promise<void> {
       leer: async () =>
         (await prisma.message.findMany({ where, select: { senderType: true } })).map(
           (r) => r.senderType,
-        ),
-    },
-    {
-      campo: "QrSubscriptionStatusChange.previousStatus",
-      valores: Object.values(QrSubscriptionStatus),
-      leer: async () =>
-        (
-          await prisma.qrSubscriptionStatusChange.findMany({
-            where,
-            select: { previousStatus: true },
-          })
-        ).map((r) => r.previousStatus),
-    },
-    {
-      campo: "QrSubscriptionStatusChange.newStatus",
-      valores: Object.values(QrSubscriptionStatus),
-      leer: async () =>
-        (
-          await prisma.qrSubscriptionStatusChange.findMany({ where, select: { newStatus: true } })
-        ).map((r) => r.newStatus),
-    },
-    {
-      campo: "QrSubscriptionStatusChange.source",
-      valores: Object.values(QrSubscriptionChangeSource),
-      leer: async () =>
-        (await prisma.qrSubscriptionStatusChange.findMany({ where, select: { source: true } })).map(
-          (r) => r.source,
         ),
     },
     ...enumsDeVehiculo.map(([campo, valores]) => ({

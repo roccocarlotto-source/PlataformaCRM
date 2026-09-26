@@ -18,8 +18,7 @@ import { createOrganizationHandler } from "./organizationAdmin.controller";
 // común; un platform admin crea Organization + User ADMIN y la identidad
 // queda en auth.users; los conflictos responden 409.
 //
-// EL JWT NO SE PRUEBA ACÁ — mismo criterio y mismo stub que
-// qrBilling.integration-test.ts: la app de test reemplaza `authenticate` por
+// EL JWT NO SE PRUEBA ACÁ: la app de test reemplaza `authenticate` por
 // un middleware que pone en req.auth la identidad que cada test elige. Las
 // filas de platform_admins se insertan directo por Prisma, el único write
 // path que existe, a propósito.
@@ -117,7 +116,7 @@ async function limpiarCreado(creado: Creado) {
 }
 
 // ---------------------------------------------------------------------------
-// requirePlatformAdmin — mismo test que ya existe para los endpoints de qrAdmin
+// requirePlatformAdmin
 // ---------------------------------------------------------------------------
 
 test("un ADMIN de organización común (no platform admin) -> 403 con el mensaje genérico, y no se crea nada", async () => {
