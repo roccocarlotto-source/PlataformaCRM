@@ -359,7 +359,7 @@ export function AgentFormPage() {
   }
 
   if (isEditMode && agentQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && agentQuery.isError) {
@@ -599,7 +599,12 @@ export function AgentFormPage() {
 
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={guardarDeshabilitado}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={guardarDeshabilitado}
+            loading={traduciendo || isSubmitting}
+          >
             {traduciendo ? "Traduciendo…" : isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>

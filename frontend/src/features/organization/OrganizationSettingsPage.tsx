@@ -102,7 +102,7 @@ export function OrganizationSettingsPage() {
   }
 
   if (settingsQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (settingsQuery.isError || !settingsQuery.data) {
@@ -165,7 +165,12 @@ export function OrganizationSettingsPage() {
         {error ? <ErrorState>{error}</ErrorState> : null}
 
         <div>
-          <Button type="submit" variant="primary" disabled={updateMutation.isPending}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={updateMutation.isPending}
+            loading={updateMutation.isPending}
+          >
             {updateMutation.isPending ? "Guardando…" : "Guardar"}
           </Button>
         </div>

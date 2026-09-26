@@ -380,7 +380,7 @@ export function AutomationFormPage() {
   }
 
   if (isEditMode && automationQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && automationQuery.isError) {
@@ -512,7 +512,7 @@ export function AutomationFormPage() {
 
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>

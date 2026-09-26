@@ -119,7 +119,7 @@ export function AutomationListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {automationsQuery.isLoading ? <LoadingState /> : null}
+        {automationsQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {automationsQuery.isError ? (
           <ErrorState>

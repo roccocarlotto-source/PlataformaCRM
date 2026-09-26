@@ -110,7 +110,12 @@ export function ConversationBriefCard({ conversation }: ConversationBriefCardPro
             <Button onClick={cancelarEdicion} disabled={enCurso}>
               Cancelar
             </Button>
-            <Button variant="primary" onClick={confirmarEdicion} disabled={enCurso}>
+            <Button
+              variant="primary"
+              onClick={confirmarEdicion}
+              disabled={enCurso}
+              loading={guardar.isPending}
+            >
               {guardar.isPending ? "Guardando…" : "Guardar"}
             </Button>
           </div>
@@ -143,7 +148,12 @@ export function ConversationBriefCard({ conversation }: ConversationBriefCardPro
                 Editar
               </Button>
             ) : null}
-            <Button variant="primary" onClick={regenerar} disabled={enCurso}>
+            <Button
+              variant="primary"
+              onClick={regenerar}
+              disabled={enCurso}
+              loading={generar.isPending}
+            >
               {generar.isPending
                 ? "Generando…"
                 : tieneBrief

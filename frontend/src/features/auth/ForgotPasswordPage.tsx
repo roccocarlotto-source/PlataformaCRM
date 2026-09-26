@@ -75,7 +75,7 @@ export function ForgotPasswordPage() {
           />
         </FormField>
         {error ? <ErrorState>{error}</ErrorState> : null}
-        <Button type="submit" variant="primary" disabled={isSubmitting}>
+        <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
           {isSubmitting ? "Enviando…" : "Enviar link"}
         </Button>
         <p className="ds-auth-links">

@@ -158,6 +158,7 @@ export function ApiKeyListPage() {
         <Button
           variant="primary"
           disabled={!sourceIdNueva || createApiKeyMutation.isPending}
+          loading={createApiKeyMutation.isPending}
           onClick={() => void handleCreate()}
         >
           {createApiKeyMutation.isPending ? "Creando…" : "Crear clave"}
@@ -218,7 +219,7 @@ export function ApiKeyListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {apiKeysQuery.isLoading ? <LoadingState /> : null}
+        {apiKeysQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {apiKeysQuery.isError ? (
           <ErrorState>

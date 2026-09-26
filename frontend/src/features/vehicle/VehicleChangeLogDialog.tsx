@@ -26,7 +26,7 @@ export function VehicleChangeLogDialog({ vehicleId, onClose }: VehicleChangeLogD
 
   return (
     <Modal title="Historial de cambios" onClose={onClose} closeLabel="Cerrar">
-      {changeLogQuery.isLoading ? <LoadingState /> : null}
+      {changeLogQuery.isLoading ? <LoadingState variant="rows" /> : null}
       {changeLogQuery.isError ? (
         <ErrorState>
           No pudimos cargar el historial

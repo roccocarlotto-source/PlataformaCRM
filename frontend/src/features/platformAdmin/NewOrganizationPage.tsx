@@ -122,7 +122,12 @@ export function NewOrganizationPage() {
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
-          <Button type="submit" variant="primary" disabled={createOrganizationMutation.isPending}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={createOrganizationMutation.isPending}
+            loading={createOrganizationMutation.isPending}
+          >
             {createOrganizationMutation.isPending ? "Creando…" : "Crear organización"}
           </Button>
         </div>

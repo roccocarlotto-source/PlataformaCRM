@@ -107,7 +107,7 @@ export function StageFormPage() {
   }
 
   if (isEditMode && stageQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && stageQuery.isError) {
@@ -184,7 +184,7 @@ export function StageFormPage() {
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>

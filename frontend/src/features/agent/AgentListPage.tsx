@@ -137,7 +137,7 @@ export function AgentListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {agentsQuery.isLoading ? <LoadingState /> : null}
+        {agentsQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {agentsQuery.isError ? (
           <ErrorState>

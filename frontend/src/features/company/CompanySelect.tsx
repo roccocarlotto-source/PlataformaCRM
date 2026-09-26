@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { companyKeys, useCompanies, useCompany } from "./queries";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 interface CompanySelectProps {
   id?: string;
@@ -69,11 +70,13 @@ export function CompanySelect({ id, label, value, onChange }: CompanySelectProps
       {value ? (
         <p>
           Seleccionada:{" "}
-          {selectedCompanyQuery.data
-            ? selectedCompanyQuery.data.name
-            : selectedCompanyQuery.isLoading
-              ? "Cargando…"
-              : "No pudimos cargar la empresa seleccionada."}
+          {selectedCompanyQuery.data ? (
+            selectedCompanyQuery.data.name
+          ) : selectedCompanyQuery.isLoading ? (
+            <InlineLoading />
+          ) : (
+            "No pudimos cargar la empresa seleccionada."
+          )}
         </p>
       ) : null}
       <input
@@ -85,7 +88,11 @@ export function CompanySelect({ id, label, value, onChange }: CompanySelectProps
       />
       {debouncedTerm ? (
         <ul>
-          {searchQuery.isLoading ? <li>Buscando…</li> : null}
+          {searchQuery.isLoading ? (
+            <li>
+              <InlineLoading>Buscando…</InlineLoading>
+            </li>
+          ) : null}
           {searchQuery.isError ? <li role="alert">No pudimos buscar empresas.</li> : null}
           {searchQuery.isSuccess && searchQuery.data.data.length === 0 ? (
             <li>Sin resultados.</li>

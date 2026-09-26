@@ -436,7 +436,7 @@ export function OpportunityFormPage() {
   }
 
   if (isEditMode && opportunityQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && opportunityQuery.isError) {
@@ -790,7 +790,7 @@ export function OpportunityFormPage() {
               </p>
             )}
             <RequiredFieldsHint />
-            <Button type="submit" variant="primary" disabled={isSubmitting}>
+            <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
               {isSubmitting ? "Guardando…" : "Guardar"}
             </Button>
           </div>

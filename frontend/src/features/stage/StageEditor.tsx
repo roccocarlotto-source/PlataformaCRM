@@ -218,7 +218,7 @@ function StageRowForm({
           />
         </FormField>
         <div className="ds-stage-editor-actions">
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
             {isSubmitting ? "Guardando…" : submitLabel}
           </Button>
           {onCancel ? (
@@ -291,7 +291,7 @@ export function StageEditor({ pipelineId }: StageEditorProps) {
   return (
     <Card heading="Etapas" className="ds-stage-editor">
       <div className="ds-stack">
-        {stagesQuery.isLoading ? <LoadingState /> : null}
+        {stagesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {stagesQuery.isError ? (
           <ErrorState>
@@ -398,12 +398,20 @@ export function StageEditor({ pipelineId }: StageEditorProps) {
                       <div className="ds-row-actions">
                         <Button
                           disabled={isFirstOverall || moveStageMutation.isPending}
+                          loading={
+                            moveStageMutation.isPending &&
+                            moveStageMutation.variables?.id === stage.id
+                          }
                           onClick={() => handleMove(stage.id, stage.order - 1)}
                         >
                           Subir
                         </Button>
                         <Button
                           disabled={isLastOverall || moveStageMutation.isPending}
+                          loading={
+                            moveStageMutation.isPending &&
+                            moveStageMutation.variables?.id === stage.id
+                          }
                           onClick={() => handleMove(stage.id, stage.order + 1)}
                         >
                           Bajar

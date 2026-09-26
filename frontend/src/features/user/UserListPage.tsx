@@ -227,7 +227,7 @@ export function UserListPage() {
         <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
       </div>
 
-      {usersQuery.isLoading ? <LoadingState /> : null}
+      {usersQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
       {usersQuery.isError ? (
         <ErrorState>

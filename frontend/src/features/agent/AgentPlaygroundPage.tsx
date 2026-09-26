@@ -196,7 +196,7 @@ export function AgentPlaygroundPage() {
   }
 
   if (agentQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (agentQuery.isError || !agentQuery.data) {
@@ -358,6 +358,7 @@ export function AgentPlaygroundPage() {
                 type="submit"
                 variant="primary"
                 disabled={!puedeEscribir || enviando || texto.trim().length === 0}
+                loading={enviando}
               >
                 {enviando ? "Enviando…" : "Enviar"}
               </Button>

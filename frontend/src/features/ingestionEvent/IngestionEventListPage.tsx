@@ -170,7 +170,7 @@ export function IngestionEventListPage() {
           </p>
         ) : null}
 
-        {eventsQuery.isLoading ? <LoadingState /> : null}
+        {eventsQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {eventsQuery.isError ? (
           <ErrorState>
@@ -239,6 +239,7 @@ export function IngestionEventListPage() {
                        el id del evento que realmente se está reintentando. */
                       <Button
                         disabled={retryMutation.isPending && retryMutation.variables === evento.id}
+                        loading={retryMutation.isPending && retryMutation.variables === evento.id}
                         onClick={() => retryMutation.mutate(evento.id)}
                       >
                         Reintentar

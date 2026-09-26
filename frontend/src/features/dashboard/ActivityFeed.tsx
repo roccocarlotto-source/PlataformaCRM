@@ -42,7 +42,7 @@ export function ActivityFeed() {
 
   return (
     <Card aria-label="Actividad reciente" heading="Actividad reciente">
-      {query.isLoading ? <LoadingState /> : null}
+      {query.isLoading ? <LoadingState variant="rows" /> : null}
 
       {query.isError ? (
         <ErrorState>

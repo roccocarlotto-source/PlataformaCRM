@@ -37,7 +37,7 @@ export function RecentDealsTable() {
 
   return (
     <Card aria-label="Oportunidades recientes" heading="Oportunidades recientes">
-      {query.isLoading ? <LoadingState /> : null}
+      {query.isLoading ? <LoadingState variant="rows" /> : null}
 
       {query.isError ? (
         <ErrorState>

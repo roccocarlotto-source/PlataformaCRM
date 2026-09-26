@@ -203,7 +203,7 @@ export function ContactListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {contactsQuery.isLoading ? <LoadingState /> : null}
+        {contactsQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {contactsQuery.isError ? (
           <ErrorState>

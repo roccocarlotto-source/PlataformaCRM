@@ -100,7 +100,7 @@ export function BranchListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {branchesQuery.isLoading ? <LoadingState /> : null}
+        {branchesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {branchesQuery.isError ? (
           <ErrorState>

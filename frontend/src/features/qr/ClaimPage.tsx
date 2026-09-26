@@ -186,7 +186,12 @@ export function ClaimPage() {
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
-          <Button type="submit" variant="primary" disabled={claimMutation.isPending}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={claimMutation.isPending}
+            loading={claimMutation.isPending}
+          >
             {claimMutation.isPending ? "Reclamando…" : "Reclamar QR"}
           </Button>
         </div>

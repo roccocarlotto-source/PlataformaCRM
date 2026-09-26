@@ -86,7 +86,7 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
   let history: Quote[] = [];
 
   if (quotesQuery.isLoading) {
-    body = <LoadingState />;
+    body = <LoadingState variant="rows" />;
   } else if (quotesQuery.isError) {
     body = (
       <ErrorState>

@@ -122,7 +122,7 @@ export function BranchFormPage() {
   }
 
   if (isEditMode && branchQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && branchQuery.isError) {
@@ -244,7 +244,7 @@ export function BranchFormPage() {
 
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>

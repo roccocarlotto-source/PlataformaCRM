@@ -203,7 +203,7 @@ export function ActivityFormPage() {
   }
 
   if (isEditMode && activityQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && activityQuery.isError) {
@@ -333,7 +333,7 @@ export function ActivityFormPage() {
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>

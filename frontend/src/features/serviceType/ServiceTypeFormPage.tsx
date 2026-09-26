@@ -127,7 +127,7 @@ export function ServiceTypeFormPage() {
   }
 
   if (isEditMode && serviceTypeQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && serviceTypeQuery.isError) {
@@ -225,7 +225,7 @@ export function ServiceTypeFormPage() {
 
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>

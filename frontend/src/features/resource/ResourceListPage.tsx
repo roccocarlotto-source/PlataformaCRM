@@ -121,7 +121,7 @@ export function ResourceListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {resourcesQuery.isLoading ? <LoadingState /> : null}
+        {resourcesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {resourcesQuery.isError ? (
           <ErrorState>

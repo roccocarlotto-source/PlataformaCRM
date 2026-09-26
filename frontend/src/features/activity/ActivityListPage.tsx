@@ -247,7 +247,7 @@ export function ActivityListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {activitiesQuery.isLoading ? <LoadingState /> : null}
+        {activitiesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {activitiesQuery.isError ? (
           <ErrorState>

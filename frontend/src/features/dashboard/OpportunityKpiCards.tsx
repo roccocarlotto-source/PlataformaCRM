@@ -7,6 +7,7 @@ import { AnimatedNumber } from "../../design-system/AnimatedNumber";
 import { Card } from "../../design-system/Card";
 import { buildKpiCards, kpiLabels } from "./kpi";
 import { useDashboardSummary } from "./queries";
+import { Skeleton } from "../../design-system/Skeleton";
 
 interface OpportunityKpiCardsProps {
   // El período elegido en el header de la página (§35). Baja por prop en vez
@@ -72,7 +73,15 @@ export function OpportunityKpiCards({ granularity }: OpportunityKpiCardsProps) {
           return (
             <Card as="div" key={key} className="ds-kpi">
               <dt className="ds-kpi-label">{label}</dt>
-              {summary.isLoading ? <dd className="ds-kpi-state">Cargando…</dd> : null}
+              {summary.isLoading ? (
+                <dd className="ds-kpi-state">
+                  {/* Un bloque animado del tamaño del número que viene, para
+                      que la card no cambie de alto al llegar el dato. El texto
+                      del estado sigue existiendo para lectores de pantalla. */}
+                  <Skeleton width="55%" height="1.75rem" />
+                  <span className="ds-sr-only">Cargando…</span>
+                </dd>
+              ) : null}
               {summary.isError ? (
                 <dd className="ds-kpi-state" role="alert">
                   No pudimos cargar este dato

@@ -100,7 +100,7 @@ export function PipelineListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {pipelinesQuery.isLoading ? <LoadingState /> : null}
+        {pipelinesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {pipelinesQuery.isError ? (
           <ErrorState>

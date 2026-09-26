@@ -149,7 +149,7 @@ export function ContactFormPage() {
   }
 
   if (isEditMode && contactQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && contactQuery.isError) {
@@ -252,7 +252,7 @@ export function ContactFormPage() {
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>

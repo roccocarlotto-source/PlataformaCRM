@@ -116,7 +116,12 @@ export function AgentWhatsappNumberPage() {
         </Card>
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
-          <Button type="submit" variant="primary" disabled={assignMutation.isPending}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={assignMutation.isPending}
+            loading={assignMutation.isPending}
+          >
             {assignMutation.isPending ? "Guardando…" : "Guardar"}
           </Button>
         </div>

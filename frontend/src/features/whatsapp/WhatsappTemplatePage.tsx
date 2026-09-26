@@ -125,10 +125,19 @@ function PlantillaActual({
         <Preview texto={plantilla.bodyText} />
         {error ? <ErrorState>{error}</ErrorState> : null}
         <div>
-          <Button onClick={() => void actualizar()} disabled={ocupado}>
+          <Button
+            onClick={() => void actualizar()}
+            disabled={ocupado}
+            loading={refreshMutation.isPending}
+          >
             {refreshMutation.isPending ? "Consultando…" : "Actualizar estado"}
           </Button>{" "}
-          <Button variant="danger" onClick={() => void borrar()} disabled={ocupado}>
+          <Button
+            variant="danger"
+            onClick={() => void borrar()}
+            disabled={ocupado}
+            loading={deleteMutation.isPending}
+          >
             {deleteMutation.isPending ? "Borrando…" : "Borrar y volver a intentar"}
           </Button>
         </div>
@@ -222,7 +231,12 @@ function NuevaPlantilla({ inicial }: { inicial: FormValues }) {
           <Preview texto={values.bodyText} />
           {error ? <ErrorState>{error}</ErrorState> : null}
           <div>
-            <Button type="submit" variant="primary" disabled={createMutation.isPending}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={createMutation.isPending}
+              loading={createMutation.isPending}
+            >
               {createMutation.isPending ? "Enviando…" : "Enviar a Meta para aprobación"}
             </Button>
           </div>
@@ -247,7 +261,7 @@ export function WhatsappTemplatePage() {
   const [borrada, setBorrada] = useState<WhatsappTemplate | null>(null);
 
   if (plantillaQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (plantillaQuery.isError) {

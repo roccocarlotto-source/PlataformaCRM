@@ -108,7 +108,7 @@ export function InvitationListPage() {
         <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
       </div>
 
-      {invitationsQuery.isLoading ? <LoadingState /> : null}
+      {invitationsQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
       {invitationsQuery.isError ? (
         <ErrorState>
@@ -166,6 +166,10 @@ export function InvitationListPage() {
                       variant="danger"
                       onClick={() => handleRevoke(invitation.id)}
                       disabled={revokeInvitationMutation.isPending}
+                      loading={
+                        revokeInvitationMutation.isPending &&
+                        revokeInvitationMutation.variables === invitation.id
+                      }
                     >
                       Revocar
                     </Button>

@@ -86,7 +86,7 @@ export function StageListPage() {
   }
 
   if (pipelineQuery.isLoading) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (pipelineQuery.isError || !pipelineQuery.data) {
@@ -130,7 +130,7 @@ export function StageListPage() {
           </label>
         </div>
 
-        {stagesQuery.isLoading ? <LoadingState /> : null}
+        {stagesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {stagesQuery.isError ? (
           <ErrorState>

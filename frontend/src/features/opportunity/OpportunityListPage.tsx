@@ -39,6 +39,7 @@ import {
   useStageNames,
 } from "./relationResolution";
 import type { OpportunitySortBy, OpportunityStatus, SortOrder } from "./types";
+import { InlineLoading } from "../../design-system/LoadingState";
 
 const PAGE_SIZE = 20;
 
@@ -249,7 +250,7 @@ function OpportunityTableView() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {opportunitiesQuery.isLoading ? <LoadingState /> : null}
+        {opportunitiesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {opportunitiesQuery.isError ? (
           <ErrorState>
@@ -435,13 +436,13 @@ function OpportunityTableView() {
                 items: [
                   {
                     label: "Unidad de stock",
-                    value: !detalle.vehicleId
-                      ? null
-                      : vehiculoDelDetalle.data
-                        ? unitTitle(vehiculoDelDetalle.data)
-                        : vehiculoDelDetalle.isLoading
-                          ? "Cargando…"
-                          : "—",
+                    value: !detalle.vehicleId ? null : vehiculoDelDetalle.data ? (
+                      unitTitle(vehiculoDelDetalle.data)
+                    ) : vehiculoDelDetalle.isLoading ? (
+                      <InlineLoading />
+                    ) : (
+                      "—"
+                    ),
                   },
                   {
                     label: "Financiación",

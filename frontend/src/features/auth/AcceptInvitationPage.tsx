@@ -318,7 +318,7 @@ export function AcceptInvitationPage() {
               autoComplete="new-password"
             />
             {error ? <ErrorState>{error}</ErrorState> : null}
-            <Button type="submit" variant="primary" disabled={isBusy}>
+            <Button type="submit" variant="primary" disabled={isBusy} loading={isBusy}>
               {isBusy ? "Procesando…" : "Configurar contraseña"}
             </Button>
           </form>
@@ -397,7 +397,7 @@ export function AcceptInvitationPage() {
             autoComplete="new-password"
           />
           {error ? <ErrorState>{error}</ErrorState> : null}
-          <Button type="submit" variant="primary" disabled={isBusy}>
+          <Button type="submit" variant="primary" disabled={isBusy} loading={isBusy}>
             {isBusy ? "Procesando…" : "Guardar contraseña"}
           </Button>
         </form>
@@ -435,7 +435,7 @@ export function AcceptInvitationPage() {
           autoComplete="new-password"
         />
         {error ? <ErrorState>{error}</ErrorState> : null}
-        <Button type="submit" variant="primary" disabled={isBusy}>
+        <Button type="submit" variant="primary" disabled={isBusy} loading={isBusy}>
           {isBusy ? "Procesando…" : "Completar registro"}
         </Button>
       </form>

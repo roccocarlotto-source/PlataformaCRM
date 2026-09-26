@@ -195,7 +195,7 @@ export function BookingListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {bookingsQuery.isLoading ? <LoadingState /> : null}
+        {bookingsQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {bookingsQuery.isError ? (
           <ErrorState>
@@ -256,6 +256,10 @@ export function BookingListPage() {
                           variant="danger"
                           onClick={() => handleCancel(booking.id)}
                           disabled={cancelBookingMutation.isPending}
+                          loading={
+                            cancelBookingMutation.isPending &&
+                            cancelBookingMutation.variables === booking.id
+                          }
                         >
                           Cancelar
                         </Button>

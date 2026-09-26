@@ -155,7 +155,7 @@ export function SourceListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {sourcesQuery.isLoading ? <LoadingState /> : null}
+        {sourcesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {sourcesQuery.isError ? (
           <ErrorState>

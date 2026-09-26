@@ -173,7 +173,7 @@ export function QrListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {qrCodesQuery.isLoading ? <LoadingState /> : null}
+        {qrCodesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {qrCodesQuery.isError ? (
           <ErrorState>

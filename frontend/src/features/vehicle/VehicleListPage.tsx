@@ -249,7 +249,7 @@ export function VehicleListPage() {
           <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
         </div>
 
-        {vehiclesQuery.isLoading ? <LoadingState /> : null}
+        {vehiclesQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
         {vehiclesQuery.isError ? (
           <ErrorState>

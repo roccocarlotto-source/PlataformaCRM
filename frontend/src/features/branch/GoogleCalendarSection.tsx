@@ -141,6 +141,7 @@ export function GoogleCalendarSection({
                 <Button
                   onClick={() => void connectionQuery.refetch()}
                   disabled={connectionQuery.isFetching}
+                  loading={connectionQuery.isFetching}
                 >
                   {connectionQuery.isFetching ? "Consultando…" : "Volver a consultar"}
                 </Button>

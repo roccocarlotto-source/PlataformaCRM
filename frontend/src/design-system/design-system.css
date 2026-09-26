@@ -609,6 +609,176 @@ fieldset.ds-field {
   padding: var(--space-3) 0;
 }
 
+/* ---------------------------------------------------------------------------
+   Animaciones de carga (design-system/Spinner.tsx, Skeleton.tsx y la variante
+   de LoadingState.tsx). Dos formas, no más: un anillo girando para una espera
+   puntual (un botón, una linea de texto, una seccion chica) y un esqueleto con
+   brillo para la carga de listas, tablas y tarjetas, donde conviene reservar el
+   lugar del contenido que viene para que la pantalla no salte al llegar.
+
+   Las dos tiran de los mismos tokens que el resto del sistema y el spinner usa
+   currentColor, asi que no hay una variante por color de fondo: hereda la del
+   botón o el texto donde se monta.
+
+   Toda la animación queda envuelta en @media (prefers-reduced-motion: reduce)
+   mas abajo: con esa preferencia el spinner y el esqueleto se ven igual, pero
+   quietos.
+   --------------------------------------------------------------------------- */
+
+.ds-spinner {
+  display: inline-block;
+  flex: none;
+  box-sizing: border-box;
+  border-radius: var(--radius-full);
+  border-style: solid;
+  border-color: currentColor;
+  border-top-color: transparent;
+  /* El anillo se apoya en el color del texto de al lado, bajado de opacidad
+     para que no pese mas que el propio mensaje. */
+  opacity: 0.7;
+  vertical-align: -0.125em;
+  animation: ds-spin 700ms linear infinite;
+}
+
+.ds-spinner--sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.ds-spinner--md {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}
+
+.ds-spinner--lg {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+@keyframes ds-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Un botón con `loading` queda deshabilitado, pero no tan apagado como uno
+   deshabilitado de verdad: la acción está corriendo, no vedada. */
+.ds-button--loading:disabled {
+  opacity: 0.75;
+  cursor: progress;
+}
+
+.ds-skeleton {
+  /* El brillo va como capa translúcida y no como un token de color: sobre la
+     tarjeta clara tiene que aclarar y sobre la oscura también, y un token fijo
+     (surface, surface-muted) invierte el efecto al cambiar de tema. */
+  --ds-skeleton-base: var(--color-border);
+  --ds-skeleton-shine: rgb(255 255 255 / 0.85);
+
+  display: block;
+  width: 100%;
+  height: 1em;
+  background-color: var(--ds-skeleton-base);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ds-skeleton-shine) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: ds-skeleton-shimmer 1400ms ease-in-out infinite;
+}
+
+:root[data-theme="dark"] .ds-skeleton {
+  --ds-skeleton-base: var(--color-surface-muted);
+  --ds-skeleton-shine: rgb(255 255 255 / 0.07);
+}
+
+.ds-skeleton--sm {
+  border-radius: var(--radius-sm);
+}
+
+.ds-skeleton--md {
+  border-radius: var(--radius-md);
+}
+
+.ds-skeleton--full {
+  border-radius: var(--radius-full);
+}
+
+@keyframes ds-skeleton-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+.ds-skeleton-lines,
+.ds-skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Cada fila del esqueleto ocupa el alto de una fila real de .ds-table y lleva
+   la misma línea divisoria, así el bloque en carga tiene la misma silueta que
+   la tabla que lo reemplaza. */
+.ds-skeleton-rows {
+  gap: 0;
+}
+
+.ds-skeleton-row {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ds-skeleton-row:last-child {
+  border-bottom: none;
+}
+
+/* El texto del estado sigue al lado del spinner, en la misma línea. */
+.ds-loading--spinner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Versión en línea (InlineLoading): dentro de una frase, una celda o un <li>,
+   así que inline-flex y sin padding propio. */
+.ds-inline-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+/* En las variantes con esqueleto el texto va en .ds-sr-only, así que el
+   párrafo es solo el contenedor del bloque animado. */
+.ds-loading--rows,
+.ds-loading--lines {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-spinner {
+    animation: none;
+  }
+
+  .ds-skeleton {
+    animation: none;
+    background-image: none;
+  }
+}
+
 .ds-error {
   color: var(--color-danger);
   background: var(--color-danger-soft);

@@ -153,7 +153,7 @@ export function ResourceFormPage() {
   }
 
   if (isEditMode && (resourceQuery.isLoading || hoursQuery.isLoading)) {
-    return <LoadingState />;
+    return <LoadingState variant="lines" />;
   }
 
   if (isEditMode && (resourceQuery.isError || hoursQuery.isError)) {
@@ -235,7 +235,7 @@ export function ResourceFormPage() {
 
         <div>
           <RequiredFieldsHint />
-          <Button type="submit" variant="primary" disabled={isSubmitting}>
+          <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
             {isSubmitting ? "Guardando…" : "Guardar"}
           </Button>
         </div>
