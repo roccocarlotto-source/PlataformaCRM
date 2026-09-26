@@ -825,12 +825,14 @@ accesible).
 - `grep -rn qrMercadopagoSubscriptionId src scripts frontend/src`: solo la lectura en `qrBilling.repository.ts:24-32` y comentarios; la migración `20260903120000` crea la columna; ningún endpoint, script ni seed la asigna.
 - **Escenario:** MercadoPago manda un `subscription_preapproval` firmado y válido → `findOrganizationByMercadopagoSubscriptionId` → `null` → 200 `{ignored, reason: "no_linked_organization"}`. Ninguna suscripción real puede activar una organización salvo `UPDATE organizations SET qr_mercadopago_subscription_id = …` a mano. Además `deployment.md:311` no muestra `MERCADOPAGO_*` en Render → el webhook responde 500 y MP reintenta.
 - **Arreglo:** endpoint de platform admin (`POST /api/admin/organizations/:id/qr-mercadopago-subscription` con el `preapproval.id`), o documentar que el cobro se opera solo por `qr-subscription-status` manual y retirar el webhook hasta que exista el flujo.
+- **✅ Resuelto (25/09/2026, ítem 135, PR #312) — con otra decisión:** Rocco decidió que el módulo QR **viene incluido con la cuenta, sin suscripción aparte**. No se construyó ningún endpoint: se retiró todo el subsistema de facturación del QR (webhook, endpoints de platform admin, `qrBilling.*`, `MERCADOPAGO_*`) y la migración `20261001120000_retirar_facturacion_qr` dropea sus tablas, columnas y enums. Todo QR no borrado redirige.
 
 #### D-03 — MEDIO — `fetchPreapprovalReal` (MercadoPago) y `fetchRatesFromApi` (open.er-api.com) son los únicos `fetch` salientes SIN timeout
 
 - `src/services/qrWebhook.service.ts:85-87` y `exchangeRate.service.ts:59` (sin `signal`); los otros tres (`llmProvider:329`, `whatsappGraph:33`, `googleCalendar:358`) sí lo tienen.
 - **Escenario:** `api.mercadopago.com` acepta y no responde → el request del webhook queda colgado lo que tarde el SO; MP reintenta y apila. Cotizaciones: el tick queda colgado; `detener()` espera `tickEnCurso` → el apagado llega a `SHUTDOWN_TIMEOUT_MS` y sale con código 1.
 - **Arreglo:** `signal: AbortSignal.timeout(10_000)` en ambos (una línea cada uno).
+- **Mitad MercadoPago moot (25/09/2026, ítem 135):** `fetchPreapprovalReal` se borró con el webhook. Sigue abierta la mitad de `fetchRatesFromApi`.
 
 #### D-04 — MEDIO — Credenciales de Meta globales de plataforma en texto plano en el entorno, mientras el mapeo de números es por agente (ver A-01, E-03)
 
@@ -847,6 +849,7 @@ accesible).
 #### D-07 — BAJO (VERIFICAR) — Firma de MercadoPago: el manifiesto usa `data.id` tal cual llega
 
 - `qrWebhook.controller.ts:86` + `mercadopagoSignature.ts:45-47`. La doc de MP indica que si `data.id_url` es alfanumérico va en minúsculas en el manifiesto; no está contemplado ni testeado. **Arreglo:** `toLowerCase()` al armar el manifiesto, tras confirmarlo en sandbox.
+- **Moot (25/09/2026, ítem 135):** el webhook de MercadoPago y `mercadopagoSignature.ts` se retiraron.
 
 #### D-08 — BAJO — `Payment.amount` acepta más de 2 decimales y Postgres redondea en silencio
 
@@ -1024,6 +1027,7 @@ Coherencia con `docs/frontend-cambios-pendientes.md`: los ítems 100–124 son
 #### F-08 — VERIFICAR — Sin CSP/headers de seguridad en `vercel.json`; panel de platform admin del módulo QR sin UI
 
 - `frontend/vercel.json` solo rewrite (puede estar en el dashboard de Vercel). `src/routes/qrAdmin.routes.ts` (activación manual de suscripción, exención) no tiene consumidor en `frontend/src`; la única pantalla de platform admin es `/admin/organizations/new`. Puede ser intencional (se opera por curl/SQL) — junto con D-02, el módulo de cobro de QR se opera hoy enteramente a mano.
+- **Mitad QR resuelta (25/09/2026, ítem 135, PR #312):** `qrAdmin.routes.ts` se retiró — el módulo QR viene incluido con la cuenta, no hay nada que activar. La mitad de CSP/headers de `vercel.json` sigue abierta.
 
 **No se pudo verificar en F:** configuración real de Vercel (headers, `VITE_*` de producción); comportamiento en navegador contra un backend real; `plataforma-qr/admin` (repo no accesible).
 
@@ -1258,7 +1262,7 @@ Formato: **qué** · por qué · dónde · esfuerzo (S/M/L) · hallazgos · ¿de
 8. **Validar con Zod antes de `puedeEjecutarTool` (o considerar solo claves declaradas).** El único candado de datos se salta. `agentOrchestration.service.ts:1473`. **S**. B-06. No.
 9. **Envolver el bloque de contacto del prompt en `<datos_del_crm>` con neutralización.** Inyección vía perfil de WhatsApp. `agentOrchestration.service.ts:583-611`. **S**. B-07, B-14. No.
 10. **Enhebrar `AbortSignal` hasta `llm.complete` en la acción `agent.draft_follow_up`, y sacar el HTTP de la tx del evento.** Borradores duplicados. `automationDispatch.service.ts:112`, `draftFollowUpMessage.ts`, `outbox.service.ts`. **M**. C-02. No.
-11. **Write path para `Organization.qrMercadopagoSubscriptionId` (endpoint de platform admin) o retirar el webhook.** Cobro del QR inoperante. `qrAdmin.*`. **S**. D-02, F-08. Decisión: sí (¿cómo se vende el QR?).
+11. **Write path para `Organization.qrMercadopagoSubscriptionId` (endpoint de platform admin) o retirar el webhook.** Cobro del QR inoperante. `qrAdmin.*`. **S**. D-02, F-08. Decisión: sí (¿cómo se vende el QR?). **→ Decidido y resuelto (ítem 135, 25/09):** el QR viene incluido con la cuenta; se retiró el cobro entero.
 12. **Borrar `ClaimPage` y `POST /qr/claim` del frontend.** Página muerta. `frontend/src/features/qr/*`, `router.tsx:131`. **S**. F-01. No.
 13. **`AbortSignal.timeout(10_000)` en `fetchPreapprovalReal` y `fetchRatesFromApi`.** **S**. D-03. No.
 14. **`x-internal-proxy-secret` en `REDACT_PATHS` + rotar el secreto.** **S**. E-02. No.
@@ -1335,6 +1339,7 @@ Una línea por ítem: problema → consecuencia. Numeración continua con los í
 133. `puedeEjecutarTool` mira los args crudos y Zod descarta claves desconocidas → el candado de "datos requeridos" se pasa con `phone: "sí"`. (B-06 — 6.1.8)
 134. El bloque de contacto del prompt va sin delimitar → el nombre de perfil de WhatsApp es una instrucción para el modelo. (B-07 — 6.1.9)
 135. Nada escribe `qrMercadopagoSubscriptionId` → el webhook de MercadoPago no puede activar ninguna organización; el cobro del QR es 100 % manual y sin UI. (D-02, F-08 — 6.1.11, decisión)
+    **✅ Resuelto 25/09/2026 (PR #312):** decisión de Rocco — el QR viene incluido con la cuenta, sin suscripción aparte. Se retiró todo el subsistema de facturación del QR (no se construyó el endpoint self-serve); migración `20261001120000_retirar_facturacion_qr`.
 136. El handler `agent.draft_follow_up` no recibe la señal de aborto y el tope (10 s) es menor que el timeout del LLM (60 s) → dos borradores por oportunidad y tx del outbox abierta durante el HTTP. (C-02 — 6.1.10)
 137. `deleteBranch`/`deleteContact` no cuentan agentes, vehículos, KB, conversaciones ni reservas → sucursal borrada atendiendo WhatsApp, sesión del widget muerta, stock invisible. (C-03, C-04 — 6.1.15)
 138. El cupo del widget es por token (= por sitio) y cada `sessionId` crea un contacto → 8 visitantes reales ya saturan, y un script deja 28.800 "Visitante" por día. (B-10, F-05 — 6.1.19, decisión)
