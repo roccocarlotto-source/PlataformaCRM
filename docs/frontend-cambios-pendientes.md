@@ -7354,7 +7354,7 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 
 ## 161. Pasar el agente a un modelo de pago con soporte de audio e imagen
 
-**Estado:** pendiente — decisión y configuración de Rocco, sin código ni PR.
+**Estado:** hecho (26/09/2026). Se configuró `google/gemini-3.1-flash-lite` como modelo del agente AutoMax (campo "Modelo" en `/agents/:id/edit`, vía `PATCH /api/agents/:id`).
 
 **Qué pasa hoy.** `OPENROUTER_MODEL` (default de `env.ts`) apunta a `google/gemma-4-31b-it:free`, un modelo gratuito que solo entiende texto. `Agent.modelName` es libre (`agent.controller.ts`): cualquier organización puede pedir otro modelo, pero nadie lo hizo. Este es el ítem 131 de la auditoría (B-05/E-01), que quedaba abierto.
 
@@ -7368,7 +7368,7 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 
 ## 162. El agente entiende audio de WhatsApp
 
-**Estado:** hecho (26/09/2026). Lleva migración (`20261004120000_agent_inbound_job_media`). **No funciona de verdad en producción hasta aplicar el ítem 161**: sin un modelo multimodal, el audio se baja y se le pasa al modelo, pero el modelo actual no lo interpreta.
+**Estado:** hecho (26/09/2026). Lleva migración (`20261004120000_agent_inbound_job_media`). Confirmado funcionando en producción (26/09/2026): un audio real de WhatsApp al agente AutoMax fue entendido y respondido coherentemente.
 
 **Qué pasa hoy.** `mensajeDeTextoSchema` en `whatsappWebhook.service.ts:64-69` es el único tipo que procesa: todo lo demás (`type !== "text"`) cae en `resumen.ignorado` sin persistir nada y sin que el cliente reciba ningún aviso (B-09 de la auditoría). Un cliente que manda un audio no tiene ningún rastro en el CRM.
 
