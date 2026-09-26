@@ -281,27 +281,21 @@ enum AgentInboundJobStatus {
 }
 
 // ---------------------------------------------------------------------------
-// QrType / QrSubscriptionStatus / QrSubscriptionChangeSource — módulo QR
-// (integración de QR Reviews, ver docs/qr-integration.md). Portados 1:1 de
-// los enums `subscription_status` / `subscription_change_source` del proyecto
-// Supabase original de QR Reviews (Plataforma-QR/supabase/migrations/0001_init.sql).
+// Enums del módulo QR (integración de QR Reviews, ver docs/qr-integration.md):
+// hoy no queda ninguno.
 //
 // QrType (REUSABLE/SINGLE_USE, de 0015_single_use_qr.sql) EXISTIÓ acá y se
 // eliminó en 20260904120000_remove_qr_claim_and_single_use: Rocco descartó el
 // QR físico/de un solo uso a favor de mandar el link directo por CRM (ver
 // docs/qr-integration.md, sección "Qué se desvió"). No lo reintroduzcas sin
 // leer esa sección primero.
+//
+// QrSubscriptionStatus y QrSubscriptionChangeSource (portados de
+// `subscription_status` / `subscription_change_source` del original)
+// EXISTIERON acá y se eliminaron en 20261001120000_retirar_facturacion_qr
+// (ítem 135): el módulo QR viene incluido con la cuenta, sin suscripción
+// aparte — ver docs/qr-integration.md, "Changelog".
 // ---------------------------------------------------------------------------
-
-enum QrSubscriptionStatus {
-  ACTIVE
-  INACTIVE
-}
-
-enum QrSubscriptionChangeSource {
-  MERCADOPAGO_WEBHOOK
-  PLATFORM_ADMIN
-}
 
 // ---------------------------------------------------------------------------
 // Enums del módulo de stock de vehículos (Fase 1: solo esquema). Los modelos
@@ -482,21 +476,16 @@ model Organization {
   deletedAt DateTime? @map("deleted_at")
 
   // ---------------------------------------------------------------------
-  // Módulo QR (integración de QR Reviews) — billing a nivel Organization,
-  // no por Branch (decisión del plan de integración): todas las sucursales
-  // de una cuenta con el módulo activo pueden generar/gestionar QRs.
-  // Prefijo "qr" deliberado: esto es el estado de la suscripción del
-  // MÓDULO QR específicamente (hoy facturada aparte vía MercadoPago), no
-  // necesariamente el mismo mecanismo de billing que el resto del SaaS
-  // termine usando — no colisionar los dos conceptos.
+  // Módulo QR (integración de QR Reviews).
   // ---------------------------------------------------------------------
-  qrSubscriptionStatus        QrSubscriptionStatus @default(INACTIVE) @map("qr_subscription_status")
-  qrMercadopagoSubscriptionId String?              @unique @map("qr_mercadopago_subscription_id")
-  // DEC-057 original: independiente de qrSubscriptionStatus. Escribible
-  // solo desde el endpoint de platform admin (Fase 2) — nunca por el propio
-  // dueño de la cuenta, nunca por el webhook de MercadoPago.
-  qrBillingExempt             Boolean              @default(false) @map("qr_billing_exempt")
-  // ACÁ VIVÍA nextQrDisplayNumber (DEC-064/066 original): el contador durable
+  // ACÁ VIVÍAN qrSubscriptionStatus, qrMercadopagoSubscriptionId y
+  // qrBillingExempt: el estado de la suscripción aparte del módulo QR
+  // (facturada vía MercadoPago, con exención manual por un platform admin).
+  // Los eliminó 20261001120000_retirar_facturacion_qr (ítem 135): el módulo
+  // QR viene incluido con la cuenta, así que no hay estado que guardar — ver
+  // docs/qr-integration.md, "Changelog".
+  //
+  // ACÁ VIVÍA TAMBIÉN nextQrDisplayNumber (DEC-064/066 original): el contador durable
   // del próximo display_number de los QRs de la cuenta. Lo eliminó
   // 20260921120000_qr_display_number_por_sucursal
   // (docs/frontend-cambios-pendientes.md §54): el N° de un QR pasó a ser una
@@ -563,10 +552,7 @@ model Organization {
   // como todas las demás.
   knowledgeBaseEntries KnowledgeBaseEntry[]
 
-  qrCodes                     QrCode[]
-  qrPaymentEvents             PaymentEvent[]
-  qrSubscriptionStatusChanges QrSubscriptionStatusChange[]
-  qrBillingExemptionChanges   QrBillingExemptionChange[]
+  qrCodes QrCode[]
 
   vehicles          Vehicle[]
   vehiclePhotos     VehiclePhoto[]
@@ -2236,9 +2222,6 @@ model Message {
   inboundJob         AgentInboundJob? @relation("AgentInboundJobMessage")
   inboundJobResponse AgentInboundJob? @relation("AgentInboundJobResponse")
 
-  // El patrón de lectura real, y el único: los mensajes de una conversación,
-  // en orden. No hay listado de mensajes por organización.
-  @@index([conversationId, createdAt])
   // Ítem 81: Meta reintenta la entrega del webhook ante cualquier cosa que no
   // sea un 2xx rápido, así que el mismo mensaje puede llegar dos veces. Por
   // organización y no global: el id lo emite el canal, y dos organizaciones no
@@ -2247,6 +2230,9 @@ model Message {
   // El UNIQUE que habilita las FKs compuestas de agent_inbound_jobs (C-3),
   // mismo criterio que el de conversations.
   @@unique([organizationId, id])
+  // El patrón de lectura real, y el único: los mensajes de una conversación,
+  // en orden. No hay listado de mensajes por organización.
+  @@index([conversationId, createdAt])
   @@map("messages")
 }
 
@@ -2406,75 +2392,21 @@ model QrCode {
 }
 
 // ---------------------------------------------------------------------------
-// PaymentEvent — ledger de idempotencia de webhooks de MercadoPago (D7
-// original, payment_events en 0001_init.sql). organizationId nullable:
-// preserva el caso de un evento que llega para una suscripción que ya no
-// resuelve a ninguna cuenta.
+// ACÁ VIVÍAN PaymentEvent (qr_payment_events, ledger de idempotencia del
+// webhook de MercadoPago), QrSubscriptionStatusChange
+// (qr_subscription_status_changes) y QrBillingExemptionChange
+// (qr_billing_exemption_changes): la facturación aparte del módulo QR y su
+// auditoría. Los eliminó 20261001120000_retirar_facturacion_qr (ítem 135) —
+// el módulo QR viene incluido con la cuenta. Ver docs/qr-integration.md,
+// "Changelog".
 // ---------------------------------------------------------------------------
 
-model PaymentEvent {
-  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  mercadopagoEventId String   @unique @map("mercadopago_event_id")
-  organizationId     String?  @map("organization_id") @db.Uuid
-  eventType          String   @map("event_type")
-  processedAt        DateTime @default(now()) @map("processed_at")
-
-  organization Organization? @relation(fields: [organizationId], references: [id])
-
-  @@map("qr_payment_events")
-}
-
 // ---------------------------------------------------------------------------
-// QrSubscriptionStatusChange — auditoría de cada cambio de
-// qrSubscriptionStatus (D9 original, subscription_status_changes). source
-// distingue si vino del webhook o de un platform admin; changedByAdmin solo
-// se completa en el segundo caso (ver CHECK equivalente a
-// changed_by_only_for_platform_admin, 0001_init.sql — agregar a mano igual
-// que en QrCode).
-// ---------------------------------------------------------------------------
-
-model QrSubscriptionStatusChange {
-  id                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId           String                     @map("organization_id") @db.Uuid
-  previousStatus           QrSubscriptionStatus       @map("previous_status")
-  newStatus                QrSubscriptionStatus       @map("new_status")
-  source                   QrSubscriptionChangeSource
-  changedByPlatformAdminId String?                    @map("changed_by_platform_admin_id") @db.Uuid
-  reason                   String?
-  createdAt                DateTime                   @default(now()) @map("created_at")
-
-  organization   Organization   @relation(fields: [organizationId], references: [id])
-  changedByAdmin PlatformAdmin? @relation(fields: [changedByPlatformAdminId], references: [userId])
-
-  @@map("qr_subscription_status_changes")
-}
-
-// ---------------------------------------------------------------------------
-// QrBillingExemptionChange — auditoría de cada cambio de qrBillingExempt
-// (DEC-057..062 original, billing_exemption_changes). A diferencia de
-// QrSubscriptionStatusChange, acá siempre hay un platform admin — no existe
-// un "source = webhook" para la exención (DEC-058: el webhook de
-// MercadoPago nunca toca este campo).
-// ---------------------------------------------------------------------------
-
-model QrBillingExemptionChange {
-  id                       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organizationId           String   @map("organization_id") @db.Uuid
-  previousValue            Boolean  @map("previous_value")
-  newValue                 Boolean  @map("new_value")
-  changedByPlatformAdminId String   @map("changed_by_platform_admin_id") @db.Uuid
-  reason                   String
-  createdAt                DateTime @default(now()) @map("created_at")
-
-  organization   Organization  @relation(fields: [organizationId], references: [id])
-  changedByAdmin PlatformAdmin @relation(fields: [changedByPlatformAdminId], references: [userId])
-
-  @@map("qr_billing_exemption_changes")
-}
-
-// ---------------------------------------------------------------------------
-// PlatformAdmin — allowlist de activación manual (D8 original,
-// platform_admins). Global, sin scope por Organization: es Rocco (el
+// PlatformAdmin — allowlist global de operadores de la plataforma (D8
+// original, platform_admins). Nació para la activación manual del módulo QR
+// (retirada en el ítem 135); hoy la usan requirePlatformAdmin (alta de
+// organizaciones, número de WhatsApp de un agente) y GET /api/me. Global, sin
+// scope por Organization: es Rocco (el
 // operador de la plataforma), no un rol dentro de una cuenta. Deliberadamente
 // sin write path de aplicación (igual que el original) — la única forma de
 // agregar una fila es acceso directo a la base. userId NO tiene FK declarada
@@ -2487,9 +2419,6 @@ model QrBillingExemptionChange {
 model PlatformAdmin {
   userId    String   @id @map("user_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at")
-
-  subscriptionStatusChanges QrSubscriptionStatusChange[]
-  billingExemptionChanges   QrBillingExemptionChange[]
 
   @@map("platform_admins")
 }
@@ -2779,11 +2708,11 @@ model Vehicle {
   assignedSalesperson User?        @relation("VehicleAssignedSalesperson", fields: [organizationId, assignedSalespersonId], references: [organizationId, id], onDelete: NoAction)
   tradeInOpportunity  Opportunity? @relation("VehicleTradeInOpportunity", fields: [organizationId, tradeInOpportunityId], references: [organizationId, id], onDelete: NoAction)
 
-  photos        VehiclePhoto[]
-  changeLog     VehicleChangeLog[]
-  opportunities Opportunity[]      @relation("OpportunityVehicle")
-  quotes        Quote[]
-  deliveries    Delivery[]
+  photos               VehiclePhoto[]
+  changeLog            VehicleChangeLog[]
+  opportunities        Opportunity[]        @relation("OpportunityVehicle")
+  quotes               Quote[]
+  deliveries           Delivery[]
   // §70 — la entrada de la base de conocimiento que esta unidad genera, si
   // califica. Lista y no `KnowledgeBaseEntry?` por cómo Prisma modela las
   // relaciones: el UNIQUE que la hace 1 a 1 es el compuesto
@@ -2913,9 +2842,7 @@ model VehiclePhoto {
 // SE LLENA EN EL SERVICE al guardar una edición (Fase 2), NO por trigger. Un
 // trigger de base no sabe quién es el usuario (la app se conecta con un solo
 // rol) y tendría que reconstruir el diff columna por columna en PL/pgSQL; el
-// service ya tiene el antes y el después en memoria y sabe quién es. Es la
-// misma división que QrSubscriptionStatusChange, que también se escribe desde
-// código.
+// service ya tiene el antes y el después en memoria y sabe quién es.
 //
 // APPEND-ONLY: sin updatedAt ni deletedAt, mismo criterio que IngestionEvent
 // y OutboxEvent. Una fila de auditoría que se edita o se borra lógicamente
@@ -3249,27 +3176,21 @@ model KnowledgeBaseEntry {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  organization  Organization @relation(fields: [organizationId], references: [id])
   // FK COMPUESTA contra (organization_id, id) de branches, el estándar del
   // proyecto desde C-3 y lo que la fila 14 del diagnóstico exige de toda FK
   // entre tablas con organization_id. Es la misma forma que usa Agent.branch, y
   // no la FK simple a branches(id): esta hace imposible a nivel motor que una
   // entrada cuelgue de una sucursal de otra organización.
-  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+  branch        Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
   // §70 — FK compuesta contra (organization_id, id) de vehicles, el mismo
   // estándar que la de branches de arriba. NO ACTION porque la columna
   // referenciante es NULLABLE (regla de 20260821140200): borrar un vehículo no
   // tiene por qué tumbar la entrada, y de hecho no es así como se da de baja —
   // la propia sincronización la da de baja (soft delete) en cuanto el vehículo
   // deja de calificar, esté borrado, vendido o despublicado.
-  sourceVehicle Vehicle? @relation(fields: [organizationId, sourceVehicleId], references: [organizationId, id], onDelete: NoAction)
+  sourceVehicle Vehicle?     @relation(fields: [organizationId, sourceVehicleId], references: [organizationId, id], onDelete: NoAction)
 
-  // Un solo índice para los dos accesos reales, mismo criterio que
-  // payments_organization_id_opportunity_id_paid_at_idx: el listado filtrado
-  // por sucursal y la lectura ordenada que hace el loop del agente en cada
-  // turno (las entradas activas de su sucursal, por createdAt). Cubre además
-  // el lado referenciante de la FK compuesta, que Postgres no indexa solo.
-  @@index([organizationId, branchId, createdAt])
   // §70 — una entrada por vehículo, que es lo que hace idempotente a la
   // sincronización. NULLABLE-SAFE en Postgres: un UNIQUE no compara dos NULL
   // entre sí, así que todas las entradas escritas a mano (source_vehicle_id
@@ -3282,5 +3203,11 @@ model KnowledgeBaseEntry {
   // a calificar la sincronización REVIVE esa misma fila en vez de insertar
   // otra. Es lo correcto además de lo obligatorio: la entrada conserva su id.
   @@unique([organizationId, sourceVehicleId])
+  // Un solo índice para los dos accesos reales, mismo criterio que
+  // payments_organization_id_opportunity_id_paid_at_idx: el listado filtrado
+  // por sucursal y la lectura ordenada que hace el loop del agente en cada
+  // turno (las entradas activas de su sucursal, por createdAt). Cubre además
+  // el lado referenciante de la FK compuesta, que Postgres no indexa solo.
+  @@index([organizationId, branchId, createdAt])
   @@map("knowledge_base_entries")
 }

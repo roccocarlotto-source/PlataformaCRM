@@ -149,13 +149,6 @@ test("las rutas autenticadas del módulo QR están montadas bajo /api", async ()
 
   const del = await fetch(`${baseUrl}/api/qr/${randomUUID()}`, { method: "DELETE" });
   assert.equal(del.status, 401, "DELETE /api/qr/:id no está montado");
-
-  for (const sufijo of ["qr-subscription-status", "qr-billing-exemption"]) {
-    const res = await fetch(`${baseUrl}/api/admin/organizations/${randomUUID()}/${sufijo}`, {
-      method: "POST",
-    });
-    assert.equal(res.status, 401, `POST .../${sufijo} no está montado`);
-  }
 });
 
 test("la resolución pública de QR está montada SIN /api y sin authenticate", async () => {
@@ -174,14 +167,20 @@ test("la resolución pública de QR está montada SIN /api y sin authenticate", 
   );
 });
 
-test("el webhook de MercadoPago está montado en app.ts, ANTES del express.json() global, sin /api", async () => {
-  // Sin data.id la cadena corta con 400 desde verifyMercadopagoSignature (o
-  // con 500 si el entorno no tiene los secretos de MercadoPago, que es el caso
-  // del job unitario del CI). Cualquiera de los dos prueba que el request lo
-  // atendió SU cadena y no notFound.
-  const res = await fetch(`${baseUrl}/webhooks/mercadopago`, { method: "POST" });
-  assert.ok([400, 500].includes(res.status), `status inesperado: ${res.status}`);
-  assert.notEqual(res.status, 404);
+test("ítem 135: la facturación del módulo QR ya no está montada — viene incluido con la cuenta", async () => {
+  // Hasta el ítem 135 el webhook lo atendía su propia cadena (firma HMAC +
+  // parser propio) montada en app.ts, y los dos endpoints de platform admin
+  // respondían 401 sin token. Se retiraron junto con toda la facturación
+  // aparte del módulo QR; un 404 de notFound prueba que no quedó nada montado.
+  const webhook = await fetch(`${baseUrl}/webhooks/mercadopago`, { method: "POST" });
+  assert.equal(webhook.status, 404, "POST /webhooks/mercadopago sigue montado");
+
+  for (const sufijo of ["qr-subscription-status", "qr-billing-exemption"]) {
+    const res = await fetch(`${baseUrl}/api/admin/organizations/${randomUUID()}/${sufijo}`, {
+      method: "POST",
+    });
+    assert.equal(res.status, 404, `POST .../${sufijo} sigue montado`);
+  }
 });
 
 test("montar la capa de ingesta no desmontó nada de lo anterior", async () => {

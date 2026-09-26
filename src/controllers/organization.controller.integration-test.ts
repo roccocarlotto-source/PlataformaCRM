@@ -187,7 +187,7 @@ before(async () => {
       name: `Org settings test ${randomUUID()}`,
       slug: `org-settings-${Date.now()}-${randomUUID().slice(0, 8)}`,
       // Un valor interno del row que NO tiene que salir por la API.
-      qrBillingExempt: true,
+      nextVehicleStockNumber: 42,
     },
   });
   orgId = org.id;
@@ -251,7 +251,7 @@ test("GET /api/organization — sin moneda configurada: las dos en null, sin cot
     alternateCurrency: null,
     exchangeRates: [],
   });
-  for (const interno of ["qrBillingExempt", "qrMercadopago", "nextVehicleStockNumber", "slug"]) {
+  for (const interno of ["nextVehicleStockNumber", "slug"]) {
     assert.ok(!crudo.includes(interno), `${interno} no debe salir por la API`);
   }
 });

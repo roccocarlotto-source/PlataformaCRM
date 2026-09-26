@@ -11,7 +11,7 @@ export const agentAdminRouter = Router();
 // 127). Es el único camino que escribe agents.whatsapp_phone_number_id: el
 // CRUD del tenant ya no lo cambia (ver agent.service.ts).
 //
-// Misma cadena exacta que qrAdmin.routes.ts y organizationAdmin.routes.ts:
+// Misma cadena exacta que organizationAdmin.routes.ts:
 // authenticate + businessWriteRateLimiter + requirePlatformAdmin, y NO
 // authorize("ADMIN") — un PlatformAdmin es global, no un rol dentro de la
 // organización del agente.

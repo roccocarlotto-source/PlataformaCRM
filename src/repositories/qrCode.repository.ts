@@ -167,13 +167,15 @@ export function softDeleteQrCode(id: string, organizationId: string, db: Db = pr
 // Lectura pública — equivalente a get_qr_public_state (0015 original).
 //
 // Devuelve null para "no existe" / "borrado", indistinguibles entre sí
-// (DEC-007). Desde 20260904120000_remove_qr_claim_and_single_use ya no hay
-// single-use ni "Stock" (branchId es NOT NULL): todo QR encontrado es
-// reusable, así que el único estado que queda es "puede redirigir" o no.
+// (DEC-007). Todo QR encontrado redirige: desde
+// 20260904120000_remove_qr_claim_and_single_use ya no hay single-use ni
+// "Stock", y desde el ítem 135 tampoco hay suscripción que chequear — el módulo
+// QR viene incluido con la cuenta (docs/qr-integration.md, "Changelog"). Hasta
+// ese ítem este estado llevaba un `canRedirect` que dependía de
+// qrSubscriptionStatus/qrBillingExempt de la organización.
 // ---------------------------------------------------------------------------
 
 export interface QrPublicState {
-  canRedirect: boolean;
   destinationUrl: string;
 }
 
@@ -183,20 +185,12 @@ export async function findQrCodePublicState(
 ): Promise<QrPublicState | null> {
   const row = await db.qrCode.findUnique({
     where: { id },
-    select: {
-      deletedAt: true,
-      destinationUrl: true,
-      organization: { select: { qrSubscriptionStatus: true, qrBillingExempt: true } },
-    },
+    select: { deletedAt: true, destinationUrl: true },
   });
 
   if (!row || row.deletedAt !== null) {
     return null;
   }
 
-  return {
-    canRedirect:
-      row.organization.qrSubscriptionStatus === "ACTIVE" || row.organization.qrBillingExempt,
-    destinationUrl: row.destinationUrl,
-  };
+  return { destinationUrl: row.destinationUrl };
 }

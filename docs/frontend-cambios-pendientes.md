@@ -2546,6 +2546,8 @@ Nadie decidió que todos los QR se vieran "Activo" y "Reusable": es lo que queda
 
 Porque además **hay** un "activo/inactivo" real, y no es éste: depende de la suscripción de QR de la organización (`qrSubscriptionStatus` / `qrBillingExempt`, ver `findQrCodePublicState` en `src/repositories/qrCode.repository.ts`), y es lo que de verdad decide si el QR redirige o si el visitante ve la página de QR inactivo. `GET /api/qr` no lo expone. Traerlo hasta acá es un ítem propio con backend incluido; mientras tanto es mejor no mostrar nada que mostrar un verde que no significa eso. El porqué quedó como comentario en `QrListPage.tsx`, donde estaban las constantes, para que la columna no vuelva por olvido.
 
+> **Actualización 25/09/2026 — ítem 135:** ese "activo/inactivo" real ya no existe. El módulo QR viene incluido con la cuenta, la suscripción y sus columnas se retiraron, y todo QR no borrado redirige. No queda ningún estado para traer hasta esta pantalla.
+
 **Qué NO cambió:**
 
 - **El backend, el schema y las migraciones.** No había nada que hacer: la limpieza del backend ya estaba hecha desde `20260904120000`. Este ítem es puramente el frontend poniéndose al día.
@@ -7171,3 +7173,53 @@ El handoff proponía un escenario: *"el cliente primero dice que no y después s
 |---|---|
 | `src/services/agentTools.service.ts` | la primera etapa abierta, `MENSAJE_PIPELINE_SIN_ETAPA_ABIERTA`, y el descarte de `lostReason` con su aviso |
 | `src/services/agentReadTools.integration-test.ts` | 4 de integración: la etapa que se saltea, el motivo descartado, el motivo legítimo que sí se guarda, y la pared de la oportunidad perdida |
+
+---
+
+## 135. El módulo QR viene incluido con la cuenta: se retira su facturación aparte
+
+**Estado:** hecho (25/09/2026). Lleva migración — ver "Cómo se aplica" abajo.
+
+**Qué pasaba.** Toda organización nace con `qrSubscriptionStatus = INACTIVE`, y con ese valor sus QRs no redirigen: el visitante que escanea ve la landing genérica en vez del destino. Para activarlo había dos caminos y ninguno lo podía recorrer el negocio: el webhook de MercadoPago (`POST /webhooks/mercadopago`) o un platform admin con `curl` contra `/api/admin/organizations/:id/qr-subscription-status` o `/qr-billing-exemption`. La auditoría del 24/09 (D-02, F-08 de `docs/auditoria-2026-09-24-punta-a-punta.md`) encontró además que el webhook era **código muerto**: nada escribía nunca `Organization.qrMercadopagoSubscriptionId`, así que ninguna notificación podía resolver a una organización. En la práctica, el cobro del QR era 100 % manual y sin UI.
+
+**Por qué pasa.** El módulo se portó 1:1 de QR Reviews (`docs/qr-integration.md`, Fase 2), que era un producto aparte con su propia suscripción. Al integrarlo al CRM se trajo la facturación entera —webhook, ledger de idempotencia, auditoría de cambios, exención— pero nunca el alta de la suscripción, porque la pregunta de fondo (¿cómo se vende el QR dentro del CRM?) no estaba decidida.
+
+**Qué se hizo.** Rocco lo decidió: **el QR viene incluido con la cuenta, sin suscripción aparte**. El hallazgo pedía un endpoint de activación self-serve; con esta decisión no hay nada que activar, así que en vez de construirlo se retiró todo el subsistema:
+
+- **El gate.** `findQrCodePublicState` ya no lee la organización: todo QR no borrado redirige. `QrPublicState` pierde `canRedirect` (siempre habría sido `true`) y `renderPublicState` pierde la rama "suscripción vencida y sin exención" que respondía 200 con la landing. Lo que sigue igual: un id inexistente, malformado o borrado da el mismo 404 byte a byte (DEC-007), y el gate de secreto compartido del Worker no se tocó.
+- **El webhook de MercadoPago** (service, controller, router y su montaje en `app.ts`) y `utils/mercadopagoSignature.ts`. `utils/hmac.ts` se queda: lo usa el webhook de WhatsApp.
+- **Los endpoints de platform admin del QR** (`qrAdmin.controller.ts`, `qrAdmin.routes.ts`), `qrBilling.service.ts` y `qrBilling.repository.ts` completos. `requirePlatformAdmin` y `platform_admins` se quedan: los usan el alta de organizaciones, el número de WhatsApp de un agente y `GET /api/me`.
+- **`MERCADOPAGO_WEBHOOK_SECRET` y `MERCADOPAGO_ACCESS_TOKEN`** de `env.ts`, `.env.example` y `docs/deployment.md`.
+- **Esquema**, migración `20261001120000_retirar_facturacion_qr`: dropea `qr_payment_events`, `qr_subscription_status_changes` y `qr_billing_exemption_changes`, las columnas `qr_subscription_status`, `qr_mercadopago_subscription_id` y `qr_billing_exempt` de `organizations`, y los enums `QrSubscriptionStatus` y `QrSubscriptionChangeSource`. Escrita a mano: `prisma migrate diff` también proponía dropear los índices trigram de búsqueda (ALTO-7), que viven fuera del DSL de Prisma a propósito.
+- **Diagnóstico y `verify:schema`**: el CHECK `qr_subscription_status_changes_changed_by_only_for_admin` sale de la fila 8 (28 → 27 CHECK afirmados).
+- **`scripts/seed-dev-data.ts`**: ya no siembra historial de suscripción (ni crea un platform admin para poder hacerlo).
+
+**Datos que se pierden, medidos antes de escribir el DROP.** Consulta de solo lectura contra producción del 25/09: `qr_payment_events` 0 filas, `qr_subscription_status_changes` 0, `qr_billing_exemption_changes` **1** — la verificación end-to-end del PR #155 (5/9, motivo *"Verificacion end-to-end PR #155"*, organización de prueba "Mi Empresa"). De 351 organizaciones, ninguna con suscripción `ACTIVE` ni con id de MercadoPago; una sola exenta, la misma de prueba. Ningún dato comercial real, y ningún QR que hoy redirija deja de hacerlo: el cambio solo prende los que estaban apagados.
+
+### Cómo se aplica
+
+**Al revés del orden de siempre: primero la imagen nueva, después `npm run migrate:deploy`.** Es el caso que `docs/deployment.md` §2.2 reserva para una migración que borra algo que el código viejo todavía lee:
+
+- Imagen nueva contra el esquema viejo: funciona. El cliente de Prisma nuevo no nombra ninguna de las columnas ni tablas que se van, y las columnas que sobran en `organizations` tienen default, así que un INSERT que no las menciona sigue pasando.
+- Imagen vieja contra el esquema nuevo: se rompe. Su `findQrCodePublicState` selecciona `qr_subscription_status` y `qr_billing_exempt`, y su cliente de Prisma lista esas columnas en cualquier lectura de `organizations` sin `select` — `/qr/resolve` y todo lo que lea la organización entera responderían 500 hasta el deploy.
+
+Secuencia: (1) deploy de la imagen desde `master` y verificar que un QR real redirige; (2) `npm run migrate:deploy` + `npm run verify:schema`; (3) si estaban cargadas, borrar `MERCADOPAGO_*` de Render, y el webhook del panel de MercadoPago si se hubiera configurado.
+
+### Lo que se tocó
+
+| Archivo | Qué |
+|---|---|
+| `src/repositories/qrCode.repository.ts` | `findQrCodePublicState` sin gate de suscripción; `QrPublicState` sin `canRedirect` |
+| `src/controllers/qrPublic.controller.ts` | sin la rama de suscripción vencida; comentario de DEC-007 actualizado |
+| `src/app.ts`, `src/routes/index.ts` | sin `qrWebhookRouter` ni `qrAdminRouter` |
+| `src/services/qrWebhook.service.ts`, `src/controllers/qrWebhook.controller.ts`, `src/routes/qrWebhook.routes.ts`, `src/controllers/qrAdmin.controller.ts`, `src/routes/qrAdmin.routes.ts`, `src/services/qrBilling.service.ts`, `src/repositories/qrBilling.repository.ts`, `src/utils/mercadopagoSignature.ts` | **borrados**, con sus tests (`qrWebhook.service.test.ts`, `qrWebhook.controller.integration-test.ts`, `qrBilling.integration-test.ts`, `mercadopagoSignature.test.ts`) |
+| `src/config/env.ts`, `.env.example`, `docs/deployment.md` | sin `MERCADOPAGO_*` |
+| `prisma/schema.prisma`, `prisma/migrations/20261001120000_retirar_facturacion_qr/` | modelos, campos y enums retirados |
+| `docs/auditoria-2026-08-21-diagnostico.sql`, `scripts/verify-schema.ts` | 27 CHECK afirmados |
+| `scripts/seed-dev-data.ts` | sin historial de suscripción QR |
+| `src/controllers/qrPublic.controller.integration-test.ts` | el caso "inactiva → landing / exenta → 302" pasa a ser "organización recién creada, sin nada configurado → 302" |
+| `src/routes/index.test.ts` | `POST /webhooks/mercadopago` y los dos endpoints de platform admin del QR → 404 |
+| `src/controllers/qr.controller.test.ts` | sin los tests de los schemas de `qrAdmin` |
+| `src/controllers/organization.controller.integration-test.ts` | el campo interno que no tiene que salir por la API pasa a ser `nextVehicleStockNumber` |
+| `docs/qr-integration.md` | entrada en "Changelog" |
+| comentarios en `whatsappWebhook.*`, `hmac.ts`, `organizationAdmin.*`, `agentAdmin.*`, `vehicle.repository.ts`, `QrListPage.tsx` | dejaban de apuntar a archivos que ya no existen |

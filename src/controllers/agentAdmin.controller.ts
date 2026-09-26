@@ -11,7 +11,7 @@ import { whatsappPhoneNumberIdSchema } from "./agent.controller";
 // (ítem 127, A-01 de docs/auditoria-2026-09-24-punta-a-punta.md). Corre detrás
 // de authenticate + requirePlatformAdmin — NO authorize("ADMIN"), deliberado:
 // ver middlewares/requirePlatformAdmin.ts. Mismo esqueleto que
-// qrAdmin.controller.ts.
+// organizationAdmin.controller.ts.
 // ---------------------------------------------------------------------------
 
 const agentIdParamSchema = z.string().uuid("agentId inválido");

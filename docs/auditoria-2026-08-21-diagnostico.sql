@@ -187,10 +187,12 @@ from (
       ('outbox_events'), ('branches'), ('resources'), ('service_types'),
       ('working_hours'), ('bookings'),
       -- Fase 1 de docs/qr-integration.md, migración 20260903120000: la única
-      -- tabla del módulo QR con política de aislamiento. Las otras cuatro
-      -- (qr_payment_events, qr_subscription_status_changes,
-      -- qr_billing_exemption_changes, platform_admins) tienen RLS habilitada y
-      -- cero políticas a propósito — deny-all, como api_keys.
+      -- tabla del módulo QR con política de aislamiento. platform_admins
+      -- tiene RLS habilitada y cero políticas a propósito — deny-all, como
+      -- api_keys. Las tres de facturación del módulo (qr_payment_events,
+      -- qr_subscription_status_changes, qr_billing_exemption_changes) estaban
+      -- en ese mismo caso hasta que 20261001120000_retirar_facturacion_qr las
+      -- eliminó (ítem 135).
       ('qr_codes'),
       -- Fase 1 del módulo de stock de vehículos, migración 20260907120000:
       -- las tres tablas con organization_id. exchange_rates no tiene
@@ -335,7 +337,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 28 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 27 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -384,10 +386,7 @@ from (
      'CHECK (starts_at < ends_at)'),
     ('google_calendar_connections_channel_all_or_none_check', 'google_calendar_connections',
      'CHECK (channel_id IS NULL AND channel_resource_id IS NULL AND channel_expiration IS NULL OR channel_id IS NOT NULL AND channel_resource_id IS NOT NULL AND channel_expiration IS NOT NULL)'),
-    -- Módulo QR (docs/qr-integration.md, migración 20260903120000): el CHECK
-    -- portado de QR Reviews que sigue en pie. El normalizador quita el cast
-    -- al enum (::"QrSubscriptionChangeSource") que pg_get_constraintdef
-    -- agrega al literal.
+    -- Módulo QR (docs/qr-integration.md): hoy no afirma ningún CHECK.
     --
     -- qr_codes_name_destination_iff_claimed y qr_codes_used_at_only_single_use
     -- ESTUVIERON acá y se sacaron en 20260904120000_remove_qr_claim_and_single_use
@@ -397,8 +396,11 @@ from (
     -- claimed_at), así que dejarlas acá haría fallar esta fila con FALTA en
     -- cuanto la migración se aplique. No las reintroduzcas sin leer esa
     -- sección primero.
-    ('qr_subscription_status_changes_changed_by_only_for_admin', 'qr_subscription_status_changes',
-     'CHECK (source = ''PLATFORM_ADMIN'' AND changed_by_platform_admin_id IS NOT NULL OR source = ''MERCADOPAGO_WEBHOOK'' AND changed_by_platform_admin_id IS NULL)'),
+    --
+    -- qr_subscription_status_changes_changed_by_only_for_admin ESTUVO acá por
+    -- el mismo motivo y se sacó en 20261001120000_retirar_facturacion_qr (ítem
+    -- 135): esa migración dropea la tabla entera junto con la facturación
+    -- aparte del módulo QR.
     -- Módulo de stock de vehículos (migración 20260907120000): los ocho CHECK
     -- que sostienen el modo borrador sin dejar pasar datos imposibles. Las
     -- expectativas se transcribieron de pg_get_constraintdef después de aplicar
@@ -447,8 +449,7 @@ from (
     -- y el normalizador quita los casts al enum (::"MessageSenderType") pero
     -- NO los corchetes del ARRAY, así que van tal cual. Tiene la forma
     -- (A AND B) OR (C AND D), el mismo límite conocido que
-    -- google_calendar_connections_channel_all_or_none_check y
-    -- qr_subscription_status_changes_source_actor_check: esta fila no
+    -- google_calendar_connections_channel_all_or_none_check: esta fila no
     -- distingue esa parentización de otra con los mismos operandos. Se acepta
     -- a sabiendas, igual que allá.
     ('messages_sender_user_id_consistency_check', 'messages',

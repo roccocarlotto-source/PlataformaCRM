@@ -14,21 +14,17 @@ import { hmacSha256Hex, timingSafeEqual } from "../utils/hmac";
 // GET y POST /webhooks/whatsapp — el canal WhatsApp del módulo de Agentes de
 // IA (ítem 81; paso 6 de §9 de docs/ai-agent-architecture.md).
 //
-// SIN authenticate, igual que el webhook de MercadoPago: lo llama Meta, no un
-// cliente nuestro. El GET se autentica con el verify token (un string que
-// elegimos nosotros y cargamos en el panel de Meta); el POST con la firma HMAC
-// de Meta sobre el cuerpo crudo.
+// SIN authenticate: lo llama Meta, no un cliente nuestro. El GET se autentica
+// con el verify token (un string que elegimos nosotros y cargamos en el panel
+// de Meta); el POST con la firma HMAC de Meta sobre el cuerpo crudo.
 //
-// LA DIFERENCIA CON MERCADOPAGO QUE DEFINE EL ORDEN DE LA CADENA: MercadoPago
-// firma headers + query, así que allá la firma se verifica ANTES de leer el
-// cuerpo. Meta firma el CUERPO CRUDO COMPLETO, así que acá hay que leerlo
-// primero —con un parser que guarde los bytes tal cual llegaron (ver
+// EL ORDEN DE LA CADENA: Meta firma el CUERPO CRUDO COMPLETO, así que hay que
+// leerlo primero —con un parser que guarde los bytes tal cual llegaron (ver
 // routes/whatsappWebhook.routes.ts)— y recién después verificar. El parser
 // tiene un tope chico justamente porque corre antes de saber quién manda.
 //
-// Los secretos se inyectan por factory, mismo patrón que
-// qrWebhook.controller.ts: producción los toma del entorno; los tests le pasan
-// secretos conocidos y ejercitan la MISMA cadena por HTTP real. El cliente de
+// Los secretos se inyectan por factory: producción los toma del entorno; los
+// tests le pasan secretos conocidos y ejercitan la MISMA cadena por HTTP real. El cliente de
 // la Graph API ya no está acá: desde el ítem 125 la respuesta la manda el
 // worker de la cola (src/workers/agentInboundWorker.ts), no el webhook.
 // ---------------------------------------------------------------------------
@@ -96,7 +92,7 @@ export function createWhatsappVerificationHandler(deps: WhatsappWebhookDeps): Re
 // Firma ausente, mal formada o que no coincide -> 401 sin llegar al handler.
 //
 // Sin WHATSAPP_APP_SECRET o WHATSAPP_ACCESS_TOKEN: 500 que dice qué falta (en
-// el log, isOperational false), mismo criterio que MercadoPago. Nunca un
+// el log, isOperational false). Nunca un
 // webhook que "funciona" sin verificar nada, ni uno que encola turnos cuyas
 // respuestas el worker después no va a poder mandar. Un 5xx además hace que
 // Meta reintente, que es lo que se quiere mientras la configuración esté rota.

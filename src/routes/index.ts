@@ -30,7 +30,6 @@ import { resourceRouter } from "./resource.routes";
 import { serviceTypeRouter } from "./serviceType.routes";
 import { pipelineRouter } from "./pipeline.routes";
 import { qrRouter } from "./qr.routes";
-import { qrAdminRouter } from "./qrAdmin.routes";
 import { qrPublicRouter } from "./qrPublic.routes";
 import { quoteRouter } from "./quote.routes";
 import { sourceRouter } from "./source.routes";
@@ -161,16 +160,14 @@ routes.use("/api", ingestionEventRouter);
 //   - qrRouter: gestión de los QRs de la organización (digital/listar/editar/
 //     borrar). Misma forma que branchRouter: authenticate para leer,
 //     + authorize("ADMIN") para escribir.
-//   - qrAdminRouter: activación manual por un platform admin. authenticate +
-//     requirePlatformAdmin, NO authorize("ADMIN") — ver ese middleware.
 //
-// LA RUTA QUE NO ESTÁ ACÁ es qrWebhookRouter (POST /webhooks/mercadopago): se
-// monta a mano en app.ts, ANTES del express.json() global, por el mismo motivo
-// exacto que ingestRouter — verifica la firma antes de leer el cuerpo y trae su
-// propio parser. Ver el comentario de app.ts.
+// HASTA EL ÍTEM 135 también estaban qrAdminRouter (activación manual por un
+// platform admin) y qrWebhookRouter (POST /webhooks/mercadopago, montado en
+// app.ts): el módulo QR se facturaba aparte. Desde ese ítem viene incluido con
+// la cuenta y el subsistema de facturación se retiró entero — ver
+// docs/qr-integration.md, "Changelog".
 routes.use(qrPublicRouter);
 routes.use("/api", qrRouter);
-routes.use("/api", qrAdminRouter);
 
 // Módulo de stock de vehículos (Fase 2a): CRUD, historial y completitud para
 // publicar. Misma forma que qrRouter: authenticate para leer, + authorize
@@ -186,9 +183,8 @@ routes.use("/api", vehicleRouter);
 routes.use("/api", organizationRouter);
 
 // Alta de organizaciones por un platform admin (Fase 4a del módulo SaaS):
-// POST /api/admin/organizations. Misma gate que qrAdminRouter (authenticate +
-// requirePlatformAdmin, sin authorize("ADMIN")) en un router propio, porque
-// qrAdmin.routes.ts es específico del módulo QR.
+// POST /api/admin/organizations. authenticate + requirePlatformAdmin, sin
+// authorize("ADMIN") — ver ese middleware.
 routes.use("/api", organizationAdminRouter);
 
 // Asignación del número de WhatsApp de un agente por un platform admin (ítem

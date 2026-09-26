@@ -394,21 +394,12 @@ const envSchema = z.object({
   // -------------------------------------------------------------------------
   // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
   //
-  // MERCADOPAGO_WEBHOOK_SECRET: el secreto con el que MercadoPago firma cada
-  //   notificación (HMAC-SHA256 sobre id/request-id/ts — ver
-  //   src/utils/mercadopagoSignature.ts). Sale del panel de la integración.
-  // MERCADOPAGO_ACCESS_TOKEN: el access token con el que el webhook vuelve a
-  //   pedir el preapproval a la API de MercadoPago — nunca se confía en el
-  //   `status` del payload, porque la firma no lo cubre.
-  // QR_CLAIM_APP_URL EXISTIÓ acá y se eliminó en
-  // 20260904120000_remove_qr_claim_and_single_use junto con el claim físico
-  // (nunca llegó a apuntar a ningún lado — Fase 3 nunca la completó).
-  //
-  // Opcionales por el mismo criterio que SECRET_ENCRYPTION_KEY y las GOOGLE_*:
-  // el servidor arranca sin ellas, y un webhook real sin las dos de MercadoPago
-  // configuradas falla con un 500 que dice exactamente qué falta (en el log).
-  MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
-  MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
+  // MERCADOPAGO_WEBHOOK_SECRET y MERCADOPAGO_ACCESS_TOKEN EXISTIERON acá (el
+  // webhook de la suscripción aparte del módulo) y se eliminaron en el ítem 135:
+  // el módulo QR viene incluido con la cuenta. QR_CLAIM_APP_URL se eliminó
+  // antes, en 20260904120000_remove_qr_claim_and_single_use, junto con el
+  // claim físico. Las variables vivas del módulo son las QR_RESOLVE_PROXY_*,
+  // más abajo.
 
   // -------------------------------------------------------------------------
   // Canal WhatsApp del módulo de Agentes de IA (ítem 81; paso 6 de §9 de
@@ -422,8 +413,8 @@ const envSchema = z.object({
   // WHATSAPP_ACCESS_TOKEN: el token con el que se manda la respuesta del agente
   //   por la Graph API (POST /{phone_number_id}/messages).
   //
-  // Opcionales por el mismo criterio que las de MercadoPago: el servidor
-  // arranca sin ellas, y un webhook real sin la que necesita falla con un 500
+  // Opcionales por el mismo criterio que SECRET_ENCRYPTION_KEY y las GOOGLE_*:
+  // el servidor arranca sin ellas, y un webhook real sin la que necesita falla con un 500
   // que dice exactamente qué falta (en el log) — nunca un webhook que
   // "funciona" sin verificar nada.
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
@@ -456,7 +447,7 @@ const envSchema = z.object({
   // src/services/llmProvider.service.ts.
   //
   // OPENROUTER_API_KEY: la clave de OpenRouter. OPCIONAL por el mismo criterio
-  //   que las GOOGLE_* y las de MercadoPago: el servidor arranca sin ella y
+  //   que las GOOGLE_* y las WHATSAPP_*: el servidor arranca sin ella y
   //   /health responde; la validación de presencia ocurre en el momento de uso
   //   (getLlmProvider), que falla con un 500 que dice exactamente qué falta.
   //   Se carga a mano en el .env local, nunca se commitea.

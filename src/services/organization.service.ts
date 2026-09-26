@@ -16,8 +16,8 @@ import {
 // cotización USD→X de cada una.
 //
 // LA RESPUESTA ES UN OBJETO ACOTADO, NUNCA EL ROW DE Organization. El row
-// tiene campos de billing/QR internos (qrMercadopagoSubscriptionId,
-// qrBillingExempt, nextVehicleStockNumber…) que no son parte de este contrato
+// tiene campos internos (slug, nextVehicleStockNumber…) que no son parte de
+// este contrato
 // — mismo criterio que me.controller.ts, que serializa el AuthContext a mano
 // en vez de devolver una fila de Prisma.
 // ---------------------------------------------------------------------------

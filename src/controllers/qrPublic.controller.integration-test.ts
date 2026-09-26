@@ -17,8 +17,9 @@ import { createDigitalQrCode, deleteQrCode } from "../services/qr.service";
 // mismo criterio que googleCalendarWebhook.controller.integration-test. La app
 // monta SOLO este router con la cadena real (router + notFound + errorHandler).
 //
-// Lo que este archivo fija: los 3 casos de estado del árbol de la guía para el
-// GET (no encontrado, activo -> redirect, inactivo -> landing), y (Fase 4) que
+// Lo que este archivo fija: los 2 casos de estado del GET (no encontrado ->
+// landing, encontrado -> redirect; el tercero, "inactivo -> landing", se fue
+// con la facturación aparte del módulo QR en el ítem 135), y (Fase 4) que
 // el gate de secreto compartido está montado en el router real y que su
 // respuesta de falla es byte a byte la de un QR inexistente.
 //
@@ -82,16 +83,14 @@ interface Escenario {
   branchId: string;
 }
 
-async function montar(
-  etiqueta: string,
-  billing: { qrSubscriptionStatus?: "ACTIVE" | "INACTIVE"; qrBillingExempt?: boolean } = {},
-): Promise<Escenario> {
+// Una organización recién creada, sin nada configurado: desde el ítem 135 el
+// módulo QR viene incluido con la cuenta, así que no hay estado de
+// facturación que preparar.
+async function montar(etiqueta: string): Promise<Escenario> {
   const org = await prisma.organization.create({
     data: {
       name: `QR público ${etiqueta} ${randomUUID()}`,
       slug: `qr-pub-${etiqueta}-${Date.now()}-${randomUUID().slice(0, 8)}`,
-      qrSubscriptionStatus: billing.qrSubscriptionStatus ?? "ACTIVE",
-      qrBillingExempt: billing.qrBillingExempt ?? false,
     },
   });
   const branch = await createBranch(org.id, { name: "Centro", timezone: TZ });
@@ -130,7 +129,7 @@ async function esLandingGenerica(res: Response) {
 }
 
 // ---------------------------------------------------------------------------
-// GET — los 3 casos de estado
+// GET — los 2 casos de estado
 // ---------------------------------------------------------------------------
 
 test("no encontrado, malformado y borrado -> 404 con la MISMA landing (DEC-007)", async () => {
@@ -151,8 +150,11 @@ test("no encontrado, malformado y borrado -> 404 con la MISMA landing (DEC-007)"
   }
 });
 
-test("con organización activa -> 302 al destino", async () => {
-  const e = await montar("activo");
+// Ítem 135: el caso que cubre la decisión de producto. Hasta ese ítem, una
+// organización recién creada tenía qrSubscriptionStatus INACTIVE por default y
+// su QR respondía 200 con la landing genérica en vez de redirigir.
+test("QR de una organización recién creada, sin nada configurado -> 302 al destino", async () => {
+  const e = await montar("nueva");
   try {
     const qr = await crear(e);
     const res = await get(qr.id);
@@ -160,28 +162,6 @@ test("con organización activa -> 302 al destino", async () => {
     assert.equal(res.headers.get("location"), DESTINO);
   } finally {
     await desmontar(e);
-  }
-});
-
-test("con organización inactiva -> 200 landing genérica; con billing exempt -> 302 igual", async () => {
-  const inactiva = await montar("inactivo", { qrSubscriptionStatus: "INACTIVE" });
-  const exenta = await montar("exento", {
-    qrSubscriptionStatus: "INACTIVE",
-    qrBillingExempt: true,
-  });
-  try {
-    const qrInactivo = await crear(inactiva);
-    const res = await get(qrInactivo.id);
-    assert.equal(res.status, 200);
-    await esLandingGenerica(res);
-
-    const qrExento = await crear(exenta);
-    const res2 = await get(qrExento.id);
-    assert.equal(res2.status, 302);
-    assert.equal(res2.headers.get("location"), DESTINO);
-  } finally {
-    await desmontar(inactiva);
-    await desmontar(exenta);
   }
 });
 

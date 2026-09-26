@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { setQrBillingExemptionSchema, setQrSubscriptionStatusSchema } from "./qrAdmin.controller";
 import {
   QR_DESTINATION_URL_MAX_LENGTH,
   QR_MESSAGE_MAX_LENGTH,
@@ -126,45 +125,5 @@ test("listado: defaults y tope de pageSize, branchId opcional y UUID", () => {
   assert.equal(
     listQrQuerySchema.safeParse({ branchId: BRANCH_ID, sortBy: "displayNumber" }).success,
     true,
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Endpoints de platform admin.
-// ---------------------------------------------------------------------------
-
-test("subscription-status: newStatus ACTIVE|INACTIVE, reason opcional (vacío -> null)", () => {
-  assert.equal(setQrSubscriptionStatusSchema.safeParse({ newStatus: "active" }).success, false);
-
-  const sinMotivo = setQrSubscriptionStatusSchema.safeParse({ newStatus: "ACTIVE" });
-  assert.equal(sinMotivo.success && sinMotivo.data.reason, null);
-
-  const vacio = setQrSubscriptionStatusSchema.safeParse({ newStatus: "INACTIVE", reason: "  " });
-  assert.equal(vacio.success && vacio.data.reason, null);
-
-  const conMotivo = setQrSubscriptionStatusSchema.safeParse({
-    newStatus: "ACTIVE",
-    reason: " pagó en efectivo ",
-  });
-  assert.equal(conMotivo.success && conMotivo.data.reason, "pagó en efectivo");
-});
-
-test("billing-exemption: newValue boolean real y reason OBLIGATORIO no vacío (DEC-061)", () => {
-  assert.equal(
-    setQrBillingExemptionSchema.safeParse({ newValue: true, reason: "piloto" }).success,
-    true,
-  );
-  assert.equal(
-    setQrBillingExemptionSchema.safeParse({ newValue: "true", reason: "piloto" }).success,
-    false,
-  );
-  assert.equal(setQrBillingExemptionSchema.safeParse({ newValue: true }).success, false);
-  assert.equal(
-    setQrBillingExemptionSchema.safeParse({ newValue: true, reason: "   " }).success,
-    false,
-  );
-  assert.equal(
-    setQrBillingExemptionSchema.safeParse({ newValue: false, reason: null }).success,
-    false,
   );
 });
