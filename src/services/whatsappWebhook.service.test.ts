@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { leerMensaje, MARCADOR_DE_AUDIO, MARCADOR_DE_IMAGEN } from "./whatsappWebhook.service";
+import {
+  leerMensaje,
+  MARCADOR_DE_AUDIO,
+  MARCADOR_DE_IMAGEN,
+  MARCADOR_DE_UBICACION,
+  textoDeUbicacion,
+} from "./whatsappWebhook.service";
 
 // ---------------------------------------------------------------------------
 // Qué mensajes del webhook de WhatsApp se procesan y cómo se leen, sin base.
@@ -107,8 +113,88 @@ test("leerMensaje: una imagen sin id de media no se procesa", () => {
   );
 });
 
-test("leerMensaje: los tipos que todavía no se procesan (ubicación, sticker, reacción) devuelven null", () => {
-  for (const tipo of ["location", "sticker", "reaction"]) {
+test("leerMensaje: una ubicación con nombre y dirección (ítem 164) se lee como texto, sin media", () => {
+  assert.deepEqual(
+    leerMensaje({
+      from: "598991",
+      id: "wamid.9",
+      timestamp: "1",
+      type: "location",
+      location: {
+        latitude: -34.901112,
+        longitude: -56.164532,
+        name: "Concesionaria Norte",
+        address: "Av. Italia 1234",
+        url: "https://example.com",
+      },
+    }),
+    {
+      wamid: "wamid.9",
+      waId: "598991",
+      texto: "[ubicación] -34.901112, -56.164532 — Concesionaria Norte (Av. Italia 1234)",
+    },
+  );
+});
+
+test("leerMensaje: una ubicación solo con nombre lleva el nombre y no la dirección", () => {
+  assert.equal(
+    leerMensaje({
+      from: "598991",
+      id: "wamid.10",
+      type: "location",
+      location: { latitude: -34.901112, longitude: -56.164532, name: "Concesionaria Norte" },
+    })?.texto,
+    "[ubicación] -34.901112, -56.164532 — Concesionaria Norte",
+  );
+});
+
+test("leerMensaje: una ubicación sin nombre ni dirección son solo las coordenadas", () => {
+  assert.deepEqual(
+    leerMensaje({
+      from: "598991",
+      id: "wamid.11",
+      type: "location",
+      location: { latitude: -34.901112, longitude: -56.164532 },
+    }),
+    { wamid: "wamid.11", waId: "598991", texto: `${MARCADOR_DE_UBICACION} -34.901112, -56.164532` },
+  );
+});
+
+test("leerMensaje: una ubicación sin coordenadas numéricas no se procesa", () => {
+  for (const location of [
+    { longitude: -56.1 },
+    { latitude: "-34.9", longitude: "-56.1" },
+    { name: "Concesionaria Norte" },
+  ]) {
+    assert.equal(
+      leerMensaje({ from: "598991", id: "wamid.12", type: "location", location }),
+      null,
+      JSON.stringify(location),
+    );
+  }
+});
+
+test("textoDeUbicacion: coordenadas fijas a 6 decimales; nombre o dirección vacíos cuentan como ausentes", () => {
+  assert.equal(
+    textoDeUbicacion({ latitude: -34.9, longitude: -56 }),
+    "[ubicación] -34.900000, -56.000000",
+  );
+  assert.equal(
+    textoDeUbicacion({ latitude: -34.9011123456, longitude: -56.1645329 }),
+    "[ubicación] -34.901112, -56.164533",
+  );
+  assert.equal(
+    textoDeUbicacion({ latitude: 1, longitude: 2, name: "  ", address: "Av. Italia 1234" }),
+    "[ubicación] 1.000000, 2.000000 (Av. Italia 1234)",
+  );
+  assert.equal(
+    textoDeUbicacion({ latitude: 1, longitude: 2, name: " Casa ", address: "" }),
+    "[ubicación] 1.000000, 2.000000 — Casa",
+  );
+});
+
+test("leerMensaje: los tipos que todavía no se procesan (sticker, reacción, contactos) devuelven null", () => {
+  for (const tipo of ["sticker", "reaction", "contacts"]) {
     assert.equal(
       leerMensaje({ from: "598991", id: "wamid.4", type: tipo, [tipo]: { id: "x" } }),
       null,

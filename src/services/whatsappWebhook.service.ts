@@ -12,8 +12,9 @@ import { applyWhatsappTemplateStatusFromMeta } from "./whatsappTemplate.service"
 // El procesamiento de un POST /webhooks/whatsapp ya verificado (ítem 81; paso
 // 6 de §9 de docs/ai-agent-architecture.md). La firma HMAC y el parseo del
 // cuerpo los resolvió la cadena del router; esto recorre el lote y, por cada
-// mensaje de texto, de audio (ítem 162) o de imagen (ítem 163), resuelve el
-// Contact, persiste el Message entrante y ENCOLA el turno. El turno lo corre
+// mensaje de texto, de audio (ítem 162), de imagen (ítem 163) o de ubicación
+// (ítem 164), resuelve el Contact, persiste el Message entrante y ENCOLA el
+// turno. El turno lo corre
 // src/workers/agentInboundWorker.ts, con el mismo
 // loop de orquestación que el canal Web (§9), y es el worker quien manda la
 // respuesta por la Graph API.
@@ -60,9 +61,9 @@ export const whatsappWebhookPayloadSchema = z.object({
 
 export type WhatsappWebhookPayload = z.infer<typeof whatsappWebhookPayloadSchema>;
 
-// Los tipos que se procesan: texto (ítem 81), audio (ítem 162) e imagen (ítem
-// 163). Ubicaciones, reacciones, botones: fuera de alcance, se ignoran sin
-// error.
+// Los tipos que se procesan: texto (ítem 81), audio (ítem 162), imagen (ítem
+// 163) y ubicación (ítem 164). Stickers, reacciones, botones: fuera de
+// alcance, se ignoran sin error.
 const mensajeDeTextoSchema = z.object({
   id: z.string().min(1),
   from: z.string().min(1),
@@ -102,6 +103,43 @@ const mensajeDeImagenSchema = z.object({
 // entrante (lo que escribió el cliente), igual que un mensaje de texto común.
 export const MARCADOR_DE_IMAGEN = "[imagen]";
 
+// Ítem 164: una ubicación compartida no trae media — las coordenadas vienen en
+// el propio payload, así que se convierte en texto y sigue el camino de un
+// mensaje de texto común (sin adjunto, sin tocar el contrato del LLM). name y
+// address vienen cuando el cliente elige un lugar en vez de su posición.
+const mensajeDeUbicacionSchema = z.object({
+  id: z.string().min(1),
+  from: z.string().min(1),
+  type: z.literal("location"),
+  location: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+    name: z.string().optional(),
+    address: z.string().optional(),
+  }),
+});
+
+export const MARCADOR_DE_UBICACION = "[ubicación]";
+
+// Pura y exportada para probar el formato sin base. 6 decimales: la precisión
+// que manda WhatsApp, fija para que el historial se lea parejo. Un name o
+// address de puros espacios no dice nada: cuenta como ausente, mismo criterio
+// que el caption de una imagen. No se valida que el lugar exista ni se hace
+// geocoding: es un dato más que el cliente comparte, y el modelo lo lee así.
+export function textoDeUbicacion(ubicacion: {
+  latitude: number;
+  longitude: number;
+  name?: string;
+  address?: string;
+}): string {
+  let texto = `${MARCADOR_DE_UBICACION} ${ubicacion.latitude.toFixed(6)}, ${ubicacion.longitude.toFixed(6)}`;
+  const nombre = ubicacion.name?.trim();
+  const direccion = ubicacion.address?.trim();
+  if (nombre) texto += ` — ${nombre}`;
+  if (direccion) texto += ` (${direccion})`;
+  return texto;
+}
+
 export interface MensajeLeido {
   wamid: string;
   waId: string;
@@ -135,6 +173,15 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
       waId: imagen.data.from,
       texto: caption?.trim() ? caption : MARCADOR_DE_IMAGEN,
       media: { id: imagen.data.image.id, mimeType: imagen.data.image.mime_type },
+    };
+  }
+  const ubicacion = mensajeDeUbicacionSchema.safeParse(crudo);
+  if (ubicacion.success) {
+    // Sin media a propósito: para el resto del camino es un texto más.
+    return {
+      wamid: ubicacion.data.id,
+      waId: ubicacion.data.from,
+      texto: textoDeUbicacion(ubicacion.data.location),
     };
   }
   return null;

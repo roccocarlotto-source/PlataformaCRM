@@ -7451,7 +7451,34 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 
 ## 164. Ubicación de WhatsApp como texto
 
-**Estado:** pendiente. No depende del 161 (es texto, no un adjunto multimodal): `type: "location"` trae `latitude`/`longitude` y opcionalmente `name`/`address` en el payload — se arma un texto simple (ej. `"[ubicación] lat, lng — nombre"`) y se persiste/procesa como un mensaje de texto más, sin tocar `llmProvider.service.ts`.
+**Estado:** hecho (26/09/2026). Sin migración.
+
+**Qué pasa hoy.** `leerMensaje` (`whatsappWebhook.service.ts`) reconoce `type: "text"`, `type: "audio"` (ítem 162) y `type: "image"` (ítem 163); un mensaje `type: "location"` no matchea ningún schema y cae en `null` → `ignorado`, sin persistir nada.
+
+**Qué se hace.** Reconocer `type: "location"` en `leerMensaje`: nuevo `mensajeDeUbicacionSchema` (`{ id, from, type: "location", location: { latitude: number, longitude: number, name?: string, address?: string } }`). Se arma un texto simple con las coordenadas y, si vienen, el nombre y la dirección, y se persiste y procesa **exactamente como un mensaje de texto más — sin `media`, sin tocar `llmProvider.service.ts`, `agentInboundWorker.ts` ni `agentOrchestration.service.ts` para nada**. El modelo ve el texto igual que cualquier otro mensaje del cliente; no hay adjunto que descargar.
+
+**Formato del texto** (función nueva y pura, exportada para poder probarla sin base, ej. `textoDeUbicacion`): `[ubicación] <lat>, <lng>` + ` — <name>` si `name` viene + ` (<address>)` si `address` viene. Ejemplo completo: `[ubicación] -34.901112, -56.164532 — Concesionaria Norte (Av. Italia 1234)`. Sin nombre ni dirección: `[ubicación] -34.901112, -56.164532`. Las coordenadas van con 6 decimales (la precisión que manda WhatsApp).
+
+**Qué NO se hace:** no se valida que la ubicación exista, no se calcula distancia a ninguna sucursal ni se hace geocoding inverso — es texto plano que el modelo puede usar como cualquier otro dato que el cliente comparte. Ese tipo de lógica queda para cuando haya un caso de uso real que lo pida.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/services/whatsappWebhook.service.ts` | `mensajeDeUbicacionSchema`, función que arma el texto, `leerMensaje` reconoce `type: "location"` |
+| tests | `whatsappWebhook.service.test.ts`, y el integration test del webhook con un payload de ubicación (con y sin `name`/`address`) |
+
+**No lleva migración ni cambios en el contrato del LLM**: es texto puro, mismo camino que cualquier mensaje de texto desde el ítem 81.
+
+### Decisiones tomadas al implementarlo
+
+- **El marcador se exporta como `MARCADOR_DE_UBICACION = "[ubicación]"`**, junto a `textoDeUbicacion`, igual que `MARCADOR_DE_AUDIO`/`MARCADOR_DE_IMAGEN`: los tests (unitarios e integración) lo usan en vez de repetir el literal.
+- **Un `name` o `address` vacío o de puros espacios cuenta como ausente**, mismo criterio que el caption de una imagen (ítem 163); con contenido se recortan los espacios de los bordes.
+- **Las coordenadas se fijan con `toFixed(6)`**, así que un valor con más decimales se redondea y uno con menos se completa con ceros (`-34.9` → `-34.900000`): el historial se lee parejo.
+- **Sin validación de rango**: `latitude`/`longitude` solo tienen que ser números. Una ubicación sin coordenadas, o con coordenadas como string, no matchea el schema y cae en `null` → `ignorado`, como cualquier payload sin la forma esperada.
+- **El integration test del webhook suma dos casos**: con nombre y dirección (content = texto armado, job sin `mediaId`/`mediaType`, nada descargado, y el modelo recibe el `content` como string común — sin partes multimodales) y sin ninguno de los dos (solo coordenadas). El caso "solo con nombre" se cubre en el unitario.
+
+**Cómo se aplica:** solo deploy. No depende del 161 (el modelo recibe texto, no un adjunto).
 
 ## 165. Aviso fijo para lo que sigue sin soportarse (stickers, contactos compartidos, documentos, reacciones)
 
