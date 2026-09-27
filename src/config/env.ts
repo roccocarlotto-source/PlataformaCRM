@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { z } from "zod";
+import { assertBaseLocalEnTest } from "../utils/baseLocal";
 
 // Qué .env cargar. Por defecto ".env" (mismo comportamiento de siempre, el que
 // tenía "dotenv/config"), salvo que el propio proceso ya traiga NODE_ENV=test
@@ -20,7 +21,19 @@ import { z } from "zod";
 // la elección funcione — lo está, porque "test:integration" lo antepone al
 // propio comando de tsx, así que ya es parte del entorno del proceso cuando
 // Node ejecuta este módulo.
+//
+// Y ESTE MÓDULO TIENE QUE CORRER ANTES QUE @prisma/client — incidente del
+// 27/09/2026. El cliente de Prisma carga `.env` por su cuenta AL IMPORTARSE,
+// y dotenv no pisa variables ya seteadas: si un archivo de test importaba
+// @prisma/client antes que esto, DATABASE_URL quedaba la del `.env` (la base
+// real) y `.env.test` ya no la cambiaba. Por eso "test:integration" precarga
+// este archivo con `--import` (package.json), antes que cualquier test.
 dotenv.config({ path: process.env.NODE_ENV === "test" ? ".env.test" : ".env" });
+
+// Freno temprano: con NODE_ENV=test, una base que no es local aborta acá. El
+// definitivo está en lib/prisma.ts, justo antes de construir el cliente. Ver
+// assertBaseLocalEnTest en utils/baseLocal.ts.
+assertBaseLocalEnTest(process.env);
 
 // DATABASE_URL, DIRECT_URL y las variables SUPABASE_* quedaron opcionales acá
 // a propósito (ver src/lib/*.ts): cada consumidor valida su propia presencia

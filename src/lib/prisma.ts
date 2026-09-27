@@ -1,5 +1,14 @@
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { env } from "../config/env";
+import { assertBaseLocalEnTest } from "../utils/baseLocal";
+
+// El freno DEFINITIVO de la suite de integración contra una base real
+// (incidente del 27/09/2026, ver utils/baseLocal.ts). Va acá y no solo en
+// config/env.ts porque este es el único punto donde DATABASE_URL ya es la que
+// va a usar el cliente: @prisma/client, importado arriba, ya cargó su `.env`
+// si iba a cargarlo. Sin importar en qué orden se importó todo, con
+// NODE_ENV=test no se construye un cliente contra una base remota.
+assertBaseLocalEnTest(process.env);
 
 // Singleton con guard en globalThis: evita que "tsx watch" cree una instancia
 // nueva de PrismaClient (y agote el pool de conexiones) en cada hot-reload
