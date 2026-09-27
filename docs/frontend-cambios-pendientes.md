@@ -7483,3 +7483,50 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 ## 165. Aviso fijo para lo que sigue sin soportarse (stickers, contactos compartidos, documentos, reacciones)
 
 **Estado:** pendiente. Para cualquier `type` que no sea `text` (ya resuelto)/`audio`/`image`/`location` (162, 163, 164): persistir un marcador (`[sticker]`, `[contacto compartido]`, etc.) y mandar un aviso fijo al cliente en vez de silencio absoluto — el B-09 original, acotado a lo que de verdad no vale la pena interpretar. Texto del aviso: a definir cuando se llegue a este ítem (los tres anteriores tienen prioridad).
+
+## 166. El borrador de seguimiento automático se corta antes de tiempo y puede duplicarse (C-02 de la auditoría)
+
+**Estado:** hecho (26/09/2026). Sin migración.
+
+**Qué pasa hoy.** `OUTBOX_HANDLER_TIMEOUT_MS` (`src/config/env.ts`) tiene un default de 10 segundos: es el tope que `ejecutarConTope` (`outbox.service.ts`) aplica a CUALQUIER handler de un evento del outbox, sea cual sea. El proveedor de LLM (`llmProvider.service.ts`) tiene su propio `TIMEOUT_MS` de 60 segundos **por intento**, con hasta `REINTENTOS_LLM` = 2 reintentos más ante fallas transitorias (esperas de 500/1500 ms entre ellos) — en el peor caso realista, bastante más de 60 segundos.
+
+La única acción que hace una llamada al LLM DENTRO de un handler del outbox es `agent.draft_follow_up` (vía `generarBorradorDeSeguimiento` → `llm.complete`, colgada del trigger `opportunity.stale`). Consecuencia: el tope de 10 s del outbox vence sistemáticamente antes de que el LLM pueda responder, incluso en su primer intento. `ejecutarConTope` corta la ESPERA (el evento se reprograma con backoff) pero el handler sigue corriendo huérfano — la señal de aborto existe (`AbortSignal`, ítem M-14 de la auditoría de agosto) pero nadie la escucha: ni `automationDispatch.service.ts` se la reenvía a `accion.handler`, ni `generarBorradorDeSeguimiento`/`llm.complete` la reciben para pasarla al fetch real. Si ese handler huérfano termina bien DESPUÉS de que el reintento (que no sabe nada del primero) ya generó su propio borrador, la oportunidad termina con dos Activities de seguimiento.
+
+**Qué se hace.**
+
+1. **Subir `OUTBOX_HANDLER_TIMEOUT_MS`** por encima del peor caso real del proveedor de LLM (3 intentos de 60 s + las esperas entre reintentos ≈ 182 s) — a 200.000 ms. Sigue siendo un tope de seguridad para un handler colgado, no una comodidad: ninguna acción rápida (crear una Activity, mandar un WhatsApp) se acerca a ese número: solo lo alcanza algo genuinamente anómalo.
+2. **Hacer que la señal de aborto llegue de verdad hasta el fetch**, para que si el tope alguna vez se cumple (un proveedor realmente colgado más allá de su propio timeout), la llamada se cancele en vez de seguir corriendo huérfana:
+   - `AccionAEjecutar` (`automationActions.ts`) suma `signal?: AbortSignal`.
+   - `automationDispatch.service.ts`, en `ejecutarAutomatizacion`, pasa `evento.signal` a `accion.handler(...)`.
+   - `draftFollowUpMessage.ts` recibe `signal` en su handler y lo pasa a `generarBorradorDeSeguimiento(organizationId, opportunityId, { signal })`.
+   - `opportunityFollowUpDraft.service.ts`: `OpcionesDeBorrador` suma `signal?: AbortSignal`, que se pasa a `llm.complete({ ..., signal })`.
+   - `llmProvider.service.ts`: `LlmCompletionRequest` suma `signal?: AbortSignal`; el adaptador de OpenRouter combina esa señal externa con su propio `AbortSignal.timeout(TIMEOUT_MS)` vía `AbortSignal.any([...])` (nativo desde Node 20.3, el repo corre Node 22) para que cualquiera de las dos corte el fetch primero.
+   - **Todo el resto de las acciones no cambia**: `signal` es opcional en `AccionAEjecutar`, así que `activity.create_follow_up`, `opportunity.send_qr_followup`, etc. siguen exactamente igual.
+
+**Qué NO se hace:** no se rediseña el modelo transaccional del outbox — que el handler corra dentro de la transacción del evento es una decisión ya tomada (el ítem 125 la cambió para WhatsApp por su propia razón: volumen y latencia de Meta); acá alcanza con que el tope no le mienta al handler sobre cuánto puede tardar. Tampoco se le arma una cola propia a este borrador (repetir la arquitectura del ítem 125 para un caso de bajo volumen sería sobre-ingeniería).
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/config/env.ts` | `OUTBOX_HANDLER_TIMEOUT_MS` default sube a 200.000 ms |
+| `src/services/automationActions.ts` | `AccionAEjecutar` suma `signal?: AbortSignal` |
+| `src/services/automationDispatch.service.ts` | `ejecutarAutomatizacion` reenvía `evento.signal` al handler |
+| `src/services/automationActions/draftFollowUpMessage.ts` | recibe `signal` y lo reenvía a `generarBorradorDeSeguimiento` |
+| `src/services/opportunityFollowUpDraft.service.ts` | `OpcionesDeBorrador.signal`, se lo pasa a `llm.complete` |
+| `src/services/llmProvider.service.ts` | `LlmCompletionRequest.signal?`; `AbortSignal.any` en el adaptador de OpenRouter |
+| tests | de cada archivo tocado |
+
+**No lleva migración.**
+
+### Decisiones tomadas al implementarlo
+
+- **Una señal externa abortada corta el loop de reintentos del ítem 114.** Ese loop trataba CUALQUIER excepción del fetch como falla de red transitoria y la reintentaba; con la señal nueva, eso habría sido reintentar dos veces una llamada que quien llamó ya dio por perdida (cada intento abortando al instante, o peor, arrancando otro fetch). `lanzarSiSeCancelo` se chequea antes de cada intento —cubre la señal que llega ya abortada y la que se aborta durante la espera entre reintentos— y en el `catch` del fetch, y lanza `LlmProviderError("Se canceló la llamada a OpenRouter: <motivo>")` con el motivo que dejó quien abortó (el outbox deja "el handler no respondió en N ms"). Un timeout del PROPIO tope por intento sigue reintentándose como siempre.
+- **El tope propio sigue siendo por intento y la señal externa abarca la llamada entera**: `AbortSignal.timeout(TIMEOUT_MS)` se crea nuevo en cada vuelta y se combina con la externa vía `AbortSignal.any`. Sin señal externa, el fetch recibe solo el tope propio, igual que antes (no se envuelve en un `any` de un elemento).
+- **`AbortSignal.any` sin combinador a mano**: Node 22 en CI y en el `Dockerfile`, y `@types/node` 22 ya lo declara.
+- **`DependenciasDelBorrador.generarBorrador` suma un tercer parámetro opcional `signal`**, así los dobles existentes del test unitario (que ignoran el tercer argumento) siguen compilando sin cambios.
+- **El timeout de la transacción del worker (`outboxWorker.ts`) no se tocó**: ya es `OUTBOX_HANDLER_TIMEOUT_MS + 5000`, así que acompaña solo el nuevo default. Consecuencia conocida y aceptada por el diseño del ítem: una entrega que llama al LLM sostiene la transacción del evento (lock de la fila y una conexión del pool) mientras el modelo responde — lo normal son segundos, el peor caso ~3 min; con el tope viejo el handler seguía corriendo lo mismo, solo que huérfano.
+- **`docs/deployment.md`** actualizado: el default documentado pasa de 10 000 a 200 000.
+- **Tests**: `llmProvider.service.test.ts` (+6: señal combinada y no la externa tal cual, abortar corta el fetch sin reintentar, señal ya abortada no llama, aborto durante la espera entre reintentos, sin señal todo igual incluido el reintento de un timeout propio), `draftFollowUpMessage.test.ts` (+3: reenvía la MISMA señal, sin señal recibe `undefined`, cancelación = nada escrito), `automationDispatch.integration-test.ts` (el `deepEqual` de la invocación suma `signal`, +1 caso: la acción ve el aborto de la señal del evento) y `automationOpportunityStale.integration-test.ts` (el pedido al modelo lleva la señal del outbox por el camino real worker → dispatcher → acción → borrador). `generarBorradorDeSeguimiento` no tiene test unitario propio (toca la base); su reenvío queda cubierto por ese integration test.
+
+**Cómo se aplica:** solo deploy. Si en Render hubiera un `OUTBOX_HANDLER_TIMEOUT_MS` explícito, ese valor gana sobre el default nuevo y habría que sacarlo o subirlo.

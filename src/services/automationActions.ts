@@ -35,6 +35,11 @@ export interface AccionAEjecutar {
   config: Record<string, unknown>;
   // El payload del OutboxEvent, tal como lo emitió el service de negocio.
   payload: Record<string, unknown>;
+  // La señal de EventoAEntregar (M-14), que se aborta cuando vence
+  // OUTBOX_HANDLER_TIMEOUT_MS. Opcional: solo le sirve a la acción que tiene
+  // algo cancelable adentro —hoy, agent.draft_follow_up y su llamada al LLM
+  // (ítem 166)—; las demás la ignoran y no cambian.
+  signal?: AbortSignal;
 }
 
 // Entrega o lanza. No devuelve nada, igual que OutboxHandler: pedirle un

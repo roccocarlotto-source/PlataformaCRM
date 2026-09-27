@@ -120,6 +120,10 @@ const MENSAJE_SIN_BORRADOR = "El modelo no devolvió ningún borrador de seguimi
 export interface OpcionesDeBorrador {
   llmProvider?: LlmProvider;
   ahora?: Date;
+  // La señal del outbox, reenviada por agent.draft_follow_up (ítem 166). Va
+  // derecho a llm.complete: es la única parte de esta función que puede tardar
+  // lo suficiente como para que el tope del outbox la alcance.
+  signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +185,7 @@ export async function generarBorradorDeSeguimiento(
       },
     ],
     tools: [],
+    signal: opciones.signal,
   });
 
   const borrador = limpiarRespuesta(resultado.text ?? "", BORRADOR_MAX_LENGTH);

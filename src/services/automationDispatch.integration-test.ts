@@ -112,7 +112,10 @@ test("varias reglas activas para el mismo trigger disparan todas, cada una con s
     automationId: reglaA.id,
     config: CONFIG,
     payload: { opportunityId: "opp-1" },
+    // La señal del outbox llega tal cual a la acción (ítem 166).
+    signal: evento.signal,
   });
+  assert.equal(a.invocaciones[0].signal, evento.signal);
 
   for (const regla of [reglaA, reglaB]) {
     const marcas = await ejecucionesDe(regla.id);
@@ -177,6 +180,34 @@ test("sin reglas para el trigger, el despacho es un no-op que no lanza", async (
   const registro = crearRegistroDeAcciones();
   const { correr } = await despachar(registro, "test.sin_reglas");
   await correr();
+});
+
+test("la acción ve el aborto de la señal del evento: es la misma que el outbox aborta al vencer su tope (ítem 166)", async () => {
+  const registro = crearRegistroDeAcciones();
+  const trigger = "test.senal";
+  const vistas: boolean[] = [];
+  const controller = new AbortController();
+  registro.registrar({
+    actionType: "test.senal",
+    schema: accionCrearActividadDeSeguimiento.schema,
+    handler({ signal }) {
+      vistas.push(signal?.aborted ?? false);
+      // Lo que hace ejecutarConTope al vencer el tope, mientras la acción corre.
+      controller.abort(new Error("el handler no respondió en 200000 ms"));
+      vistas.push(signal?.aborted ?? false);
+      return Promise.resolve();
+    },
+  });
+  await crearRegla(e, { triggerType: trigger, actionType: "test.senal", actionConfig: CONFIG });
+
+  const fila = await emitir(e, trigger, {});
+  await despacharAutomatizaciones(
+    { ...eventoAEntregar(fila), signal: controller.signal },
+    trigger,
+    { registro },
+  );
+
+  assert.deepEqual(vistas, [false, true]);
 });
 
 // ---------------------------------------------------------------------------

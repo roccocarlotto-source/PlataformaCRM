@@ -696,3 +696,130 @@ test("el tope de espera es bajo: del otro lado hay un webhook de Meta esperando"
   const peorCaso = ESPERAS_ENTRE_REINTENTOS_MS.reduce((a, b) => a + b, 0);
   assert.ok(peorCaso <= 3000, `la espera acumulada no puede pasar de 3s (es ${peorCaso}ms)`);
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 166 (C-02): la señal de quien llama llega hasta el fetch
+// ---------------------------------------------------------------------------
+// El caso que lo motiva: el outbox aborta su señal cuando vence el tope del
+// handler, y sin esto el borrador de seguimiento seguía llamando al modelo
+// huérfano — si terminaba después de que el reintento ya había redactado el
+// suyo, quedaban dos Activities.
+
+// Un fetch falso que se comporta como el real ante la señal: no responde nunca
+// por su cuenta, y rechaza en cuanto la señal que recibió se aborta.
+function mockearFetchColgado(): { fetch: FetchLike; llamadas: LlamadaRegistrada[] } {
+  const llamadas: LlamadaRegistrada[] = [];
+  const fetchFalso: FetchLike = (url, init) => {
+    llamadas.push({ url, init });
+    return new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => {
+        reject(new DOMException("This operation was aborted", "AbortError"));
+      });
+    });
+  };
+  return { fetch: fetchFalso, llamadas };
+}
+
+test("sin señal externa el fetch recibe solo el tope propio, igual que antes", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "ok" }) });
+
+  const resultado = await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete(PEDIDO_BASICO);
+
+  assert.equal(resultado.text, "ok");
+  const senal = llamadas[0].init.signal;
+  assert.ok(senal instanceof AbortSignal, "el tope por intento sigue viajando");
+  assert.equal(senal.aborted, false);
+});
+
+test("con señal externa, el fetch recibe una señal COMBINADA: no la externa tal cual, y la llamada anda igual", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "ok" }) });
+  const controller = new AbortController();
+
+  const resultado = await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete({
+    ...PEDIDO_BASICO,
+    signal: controller.signal,
+  });
+
+  assert.equal(resultado.text, "ok");
+  const senal = llamadas[0].init.signal;
+  assert.ok(senal instanceof AbortSignal);
+  // Si fuera la externa tal cual, el tope propio de 60 s se habría perdido.
+  assert.notEqual(senal, controller.signal);
+  assert.equal(senal.aborted, false);
+});
+
+test("abortar la señal externa corta el fetch en curso, con el motivo, y NO se reintenta", async () => {
+  const { fetch, llamadas } = mockearFetchColgado();
+  const controller = new AbortController();
+  const proveedor = crearProveedorOpenRouter({ ...CONFIG, fetch });
+
+  const llamada = proveedor.complete({ ...PEDIDO_BASICO, signal: controller.signal });
+  // El motivo que deja el outbox al vencer su tope (ejecutarConTope).
+  controller.abort(new Error("el handler no respondió en 200000 ms"));
+
+  await assert.rejects(
+    llamada,
+    (err: unknown) =>
+      err instanceof LlmProviderError &&
+      err.message.includes("Se canceló") &&
+      err.message.includes("el handler no respondió en 200000 ms"),
+  );
+  // Una cancelación no es una falla de red: reintentarla sería seguir
+  // gastando llamadas en algo que quien llamó ya dio por perdido.
+  assert.equal(llamadas.length, 1);
+  assert.equal(llamadas[0].init.signal?.aborted, true, "la señal que vio el fetch quedó abortada");
+});
+
+test("una señal que ya llega abortada no hace ninguna llamada", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: respuestaConMensaje({ content: "ok" }) });
+  const controller = new AbortController();
+  controller.abort(new Error("ya vencido"));
+
+  await assert.rejects(
+    () =>
+      crearProveedorOpenRouter({ ...CONFIG, fetch }).complete({
+        ...PEDIDO_BASICO,
+        signal: controller.signal,
+      }),
+    (err: unknown) => err instanceof LlmProviderError && err.message.includes("ya vencido"),
+  );
+  assert.equal(llamadas.length, 0);
+});
+
+test("si la señal se aborta durante la espera entre reintentos, no arranca el siguiente intento", async () => {
+  const controller = new AbortController();
+  const llamadas: LlamadaRegistrada[] = [];
+  // Primer intento: un 429 (transitorio, se reintentaría), y en ese mismo
+  // momento quien llamó aborta.
+  const fetchFalso: FetchLike = (url, init) => {
+    llamadas.push({ url, init });
+    controller.abort(new Error("tope vencido"));
+    return Promise.resolve({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve(ERROR_429.json),
+    } as Response);
+  };
+
+  await assert.rejects(
+    () =>
+      crearProveedorOpenRouter({ ...CONFIG, fetch: fetchFalso }).complete({
+        ...PEDIDO_BASICO,
+        signal: controller.signal,
+      }),
+    (err: unknown) => err instanceof LlmProviderError && err.message.includes("tope vencido"),
+  );
+  assert.equal(llamadas.length, 1);
+});
+
+test("sin señal externa, una falla de red se sigue reintentando como siempre (ítem 114 intacto)", async () => {
+  const { fetch, llamadas } = mockearSecuencia([
+    new DOMException("The operation was aborted due to timeout", "TimeoutError"),
+    { json: respuestaConMensaje({ content: "Listo." }) },
+  ]);
+
+  const resultado = await crearProveedorOpenRouter({ ...CONFIG, fetch }).complete(PEDIDO_BASICO);
+
+  assert.equal(resultado.text, "Listo.");
+  assert.equal(llamadas.length, 2);
+});

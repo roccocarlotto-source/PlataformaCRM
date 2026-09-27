@@ -51,7 +51,14 @@ export function asuntoDelBorrador(tituloDeLaOportunidad: string): string {
 // Producción usa las reales (abajo).
 export interface DependenciasDelBorrador {
   leerOportunidad: typeof findOpportunityById;
-  generarBorrador: (organizationId: string, opportunityId: string) => Promise<string>;
+  // `signal` es la del outbox (ítem 166): llega hasta el fetch al LLM para que
+  // una llamada que el tope ya dio por perdida se cancele en vez de terminar
+  // tarde y dejar un segundo borrador.
+  generarBorrador: (
+    organizationId: string,
+    opportunityId: string,
+    signal?: AbortSignal,
+  ) => Promise<string>;
   crearActividad: typeof createActivity;
   marcarBorrador: (id: string, organizationId: string, cuando: Date) => Promise<unknown>;
   ahora: () => Date;
@@ -59,8 +66,8 @@ export interface DependenciasDelBorrador {
 
 const dependenciasReales: DependenciasDelBorrador = {
   leerOportunidad: findOpportunityById,
-  generarBorrador: (organizationId, opportunityId) =>
-    generarBorradorDeSeguimiento(organizationId, opportunityId),
+  generarBorrador: (organizationId, opportunityId, signal) =>
+    generarBorradorDeSeguimiento(organizationId, opportunityId, { signal }),
   crearActividad: createActivity,
   marcarBorrador: markStaleFollowUpDrafted,
   ahora: () => new Date(),
@@ -77,7 +84,7 @@ export function crearAccionBorradorDeSeguimiento(
     // con una oportunidad quieta" — colgado de opportunity.won redactaría un
     // seguimiento de venta para una venta ya cerrada.
     triggers: [TRIGGER_OPPORTUNITY_STALE],
-    async handler({ organizationId, payload }) {
+    async handler({ organizationId, payload, signal }) {
       // Mismo criterio que activity.create_follow_up: el payload se valida en
       // el consumidor, no se confía ciegamente en el productor.
       const { opportunityId, ownerId } = payloadDeOportunidadSchema.parse(payload);
@@ -131,7 +138,7 @@ export function crearAccionBorradorDeSeguimiento(
       // tomar si los reintentos se agotan.
       let borrador: string;
       try {
-        borrador = await deps.generarBorrador(organizationId, opportunityId);
+        borrador = await deps.generarBorrador(organizationId, opportunityId, signal);
       } catch (err) {
         logger.error(
           { err, organizationId, opportunityId },

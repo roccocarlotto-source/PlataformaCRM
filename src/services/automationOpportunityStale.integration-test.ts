@@ -220,6 +220,10 @@ test("flujo completo: barrido -> evento -> outbox -> Activity con el borrador de
   assert.equal(modelo.requests.length, 1);
   const [pedido] = modelo.requests;
   assert.deepEqual(pedido.tools, []);
+  // Ítem 166: la señal del outbox llegó hasta el modelo por el camino real
+  // (worker -> dispatcher -> acción -> borrador), sin abortar: el tope no venció.
+  assert.ok(pedido.signal instanceof AbortSignal, "el pedido al modelo lleva la señal del outbox");
+  assert.equal(pedido.signal.aborted, false);
   const contexto = pedido.messages[0].content ?? "";
   assert.ok(typeof contexto === "string");
   assert.match(contexto, /- Título: Corolla 2024 gris/);
