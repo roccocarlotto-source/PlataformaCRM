@@ -1,15 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { WhatsappGraphError } from "../services/whatsappGraph.service";
+import type { ConversationChannel } from "@prisma/client";
+import type { JobReclamado } from "../repositories/agentInboundJob.repository";
+import {
+  MENSAJE_CONEXION_INACTIVA,
+  MENSAJE_PAGINA_RECONECTADA,
+} from "../services/metaPageConnection.service";
+import { MetaSendError, type SendMetaTextInput } from "../services/metaSend.service";
+import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
 import { AppError } from "../utils/AppError";
 import {
   clasificarFallo,
   descargarAdjuntos,
+  enviarPorElCanal,
   ErrorDeDescarga,
   ErrorDeEnvio,
   ErrorPermanenteDelJob,
   procesarJob,
   resolverFalloDelJob,
+  resolverTokenDePagina,
+  type DepsDeEnvio,
 } from "./agentInboundWorker";
 
 // ---------------------------------------------------------------------------
@@ -148,31 +158,123 @@ test("descargarAdjuntos: sin pendientes con media no llama a Meta ni exige el to
   assert.equal(adjuntos.size, 0);
 });
 
-test("procesarJob: un job de Messenger o Instagram falla como permanente ANTES del turno y sin tocar WhatsApp (guarda hasta el ítem 172)", async () => {
-  const noDebeLlamarse = async () => {
-    throw new Error("no debería llegar a Meta");
+// ---------------------------------------------------------------------------
+// Messenger e Instagram (ítem 172). El envío se prueba en sus dos piezas
+// puras —resolverTokenDePagina y enviarPorElCanal— y en procesarJob solo lo
+// que corta ANTES de tocar la base. El recorrido completo (turno, envío,
+// delivery_status, conexión en ERROR) está en
+// src/controllers/metaWebhook.controller.integration-test.ts.
+// ---------------------------------------------------------------------------
+
+function jobDe(channel: ConversationChannel): JobReclamado {
+  return {
+    id: "job-1",
+    organizationId: "org-1",
+    messageId: "msg-1",
+    channel,
+    channelAccountId: channel === "WHATSAPP" ? "phone-1" : "pagina-1",
+    externalUserId: channel === "WHATSAPP" ? "5491155550000" : `${channel.toLowerCase()}-sid-1`,
+    attempts: 1,
+    responseMessageId: null,
   };
-  for (const channel of ["MESSENGER", "INSTAGRAM"] as const) {
-    await assert.rejects(
-      procesarJob(
-        {
-          id: "job-1",
-          organizationId: "org-1",
-          messageId: "msg-1",
-          channel,
-          channelAccountId: "pagina-1",
-          externalUserId: "psid-1",
-          attempts: 1,
-          responseMessageId: null,
-        },
-        { accessToken: () => "token", sendText: noDebeLlamarse, downloadMedia: noDebeLlamarse },
-      ),
-      (err: unknown) => {
-        assert.ok(err instanceof ErrorPermanenteDelJob, channel);
+}
+
+function depsQueRegistran() {
+  const whatsapp: SendWhatsappTextInput[] = [];
+  const meta: SendMetaTextInput[] = [];
+  const tokensPedidos: [string, string][] = [];
+  const deps: DepsDeEnvio = {
+    accessToken: () => "token-whatsapp",
+    sendText: async (input) => {
+      whatsapp.push(input);
+    },
+    downloadMedia: () => Promise.reject(new Error("no debería bajar nada")),
+    pageAccessToken: async (organizationId, pageId) => {
+      tokensPedidos.push([organizationId, pageId]);
+      return "token-de-pagina";
+    },
+    sendMetaText: async (input) => {
+      meta.push(input);
+    },
+  };
+  return { deps, whatsapp, meta, tokensPedidos };
+}
+
+for (const channel of ["MESSENGER", "INSTAGRAM"] as const) {
+  test(`${channel}: el token se pide por organización y Page ID, y la respuesta sale por el Send API al ${channel === "MESSENGER" ? "PSID" : "IGSID"}, sin tocar WhatsApp`, async () => {
+    const { deps, whatsapp, meta, tokensPedidos } = depsQueRegistran();
+    const job = jobDe(channel);
+
+    const token = await resolverTokenDePagina(job, deps);
+    assert.equal(token, "token-de-pagina");
+    assert.deepEqual(tokensPedidos, [["org-1", "pagina-1"]]);
+
+    await enviarPorElCanal(job, "¡Hola!", token, deps);
+    assert.deepEqual(meta, [
+      { pageAccessToken: "token-de-pagina", recipientId: job.externalUserId, text: "¡Hola!" },
+    ]);
+    assert.equal(whatsapp.length, 0);
+  });
+}
+
+test("WHATSAPP: no pide token de página y manda exactamente como antes", async () => {
+  const { deps, whatsapp, meta, tokensPedidos } = depsQueRegistran();
+  const job = jobDe("WHATSAPP");
+
+  const token = await resolverTokenDePagina(job, deps);
+  assert.equal(token, null);
+  assert.equal(tokensPedidos.length, 0);
+
+  await enviarPorElCanal(job, "¡Hola!", token, deps);
+  assert.deepEqual(whatsapp, [
+    {
+      phoneNumberId: "phone-1",
+      to: "5491155550000",
+      body: "¡Hola!",
+      accessToken: "token-whatsapp",
+    },
+  ]);
+  assert.equal(meta.length, 0);
+});
+
+test("procesarJob: página reconectada o conexión REVOKED/ERROR → falla PERMANENTE antes del turno, sin llamar a Meta", async () => {
+  for (const mensaje of [MENSAJE_PAGINA_RECONECTADA, MENSAJE_CONEXION_INACTIVA]) {
+    const { deps, meta } = depsQueRegistran();
+    deps.pageAccessToken = () => Promise.reject(new AppError(mensaje, 409));
+    for (const channel of ["MESSENGER", "INSTAGRAM"] as const) {
+      await assert.rejects(procesarJob(jobDe(channel), deps), (err: unknown) => {
+        assert.ok(err instanceof AppError, channel);
+        assert.equal(err.message, mensaje);
         assert.equal(clasificarFallo(err), "PERMANENTE");
-        assert.match((err as Error).message, /ítem 172/);
         return true;
-      },
-    );
+      });
+    }
+    assert.equal(meta.length, 0);
   }
+});
+
+test("clasificarFallo: MetaSendError — rate limits por código (aun con 400) y 5xx transitorios; fuera de ventana, token y bloqueo permanentes", () => {
+  const envio = (status: number, codigo: number | null, subcodigo: number | null = null) =>
+    new ErrorDeEnvio(new MetaSendError(status, "x", codigo, subcodigo), "MESSENGER");
+  assert.equal(clasificarFallo(envio(400, 4)), "TRANSITORIO");
+  assert.equal(clasificarFallo(envio(400, 613)), "TRANSITORIO");
+  assert.equal(clasificarFallo(envio(500, 2)), "TRANSITORIO");
+  assert.equal(clasificarFallo(envio(503, null)), "TRANSITORIO");
+  assert.equal(
+    clasificarFallo(envio(400, 10, 2018278)),
+    "PERMANENTE",
+    "fuera de la ventana de 24 h",
+  );
+  assert.equal(clasificarFallo(envio(401, 190)), "PERMANENTE", "token inválido");
+  assert.equal(clasificarFallo(envio(400, 551)), "PERMANENTE", "el usuario no recibe");
+  // Sin respuesta de Meta (red, timeout): se reintenta, igual que WhatsApp.
+  assert.equal(
+    clasificarFallo(new ErrorDeEnvio(new Error("fetch failed"), "INSTAGRAM")),
+    "TRANSITORIO",
+  );
+});
+
+test("ErrorDeEnvio nombra el canal por el que no salió la respuesta", () => {
+  assert.match(new ErrorDeEnvio(new Error("x"), "INSTAGRAM").message, /por Instagram/);
+  assert.match(new ErrorDeEnvio(new Error("x")).message, /por WhatsApp/);
 });

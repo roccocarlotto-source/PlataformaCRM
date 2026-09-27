@@ -117,6 +117,10 @@ const depsDeEnvio: DepsDeEnvio = {
     descargados.push(mediaId);
     return { data: BYTES_DEL_AUDIO, mimeType: "audio/ogg; codecs=opus" };
   },
+  // Messenger e Instagram (ítem 172) no pasan por este archivo: su camino
+  // está en metaWebhook.controller.integration-test.ts.
+  pageAccessToken: () => Promise.reject(new Error("no es un job de Meta")),
+  sendMetaText: () => Promise.reject(new Error("no es un job de Meta")),
 };
 
 // El texto de un mensaje del historial, tenga o no adjunto.

@@ -16,8 +16,8 @@ import { resolveMetaContact, type CanalMeta } from "./metaContact.service";
 // router; esto recorre el lote y, por cada mensaje de TEXTO, resuelve el
 // Contact, persiste el Message entrante y ENCOLA el turno en la misma
 // transacción. El turno lo corre el mismo worker que WhatsApp
-// (src/workers/agentInboundWorker.ts); el ENVÍO de la respuesta por Messenger
-// e Instagram es el ítem 172, no este.
+// (src/workers/agentInboundWorker.ts), que desde el ítem 172 también manda la
+// respuesta por el Send API de Messenger e Instagram.
 //
 // SOLO TEXTO, decisión de toda la serie de canales de Meta: imágenes, audio,
 // adjuntos, postbacks y reacciones se ignoran sin error, igual que WhatsApp

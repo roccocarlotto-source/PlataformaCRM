@@ -3,6 +3,7 @@ import { findOrganizationById } from "../repositories/organization.repository";
 import {
   findMetaConnectionByOrganization,
   findMetaConnectionWithSecretByOrganization,
+  markMetaConnectionError,
   markMetaConnectionRevoked,
   upsertMetaConnection,
   type ConexionMetaPublica,
@@ -30,8 +31,11 @@ import { getClienteMetaOAuth, type ClienteMetaOAuth } from "./metaOAuth.service"
 // la app (POST /{page-id}/subscribed_apps); recibir los mensajes es
 // metaWebhook.service.ts.
 //
-// QUÉ NO ESTÁ ACÁ, y no es un olvido: mandar respuestas con el Page token y marcar ERROR cuando Meta lo rechace — ítem
-// 172; la pantalla del CRM — ítem 173.
+// Desde el ítem 172, obtenerTokenParaEnviar le da al worker el Page token en
+// claro para mandar la respuesta, y marcarTokenRechazado lleva la conexión a
+// ERROR cuando Meta lo rechaza.
+//
+// QUÉ NO ESTÁ ACÁ, y no es un olvido: la pantalla del CRM — ítem 173.
 // ---------------------------------------------------------------------------
 
 // La inyección existe para los tests: producción no pasa nada y usa el cliente
@@ -237,4 +241,63 @@ export async function obtenerConexion(organizationId: string): Promise<ConexionM
   }
 
   return conexion;
+}
+
+// ---------------------------------------------------------------------------
+// 5. El token para ENVIAR (ítem 172)
+//
+// Lo llama el worker de la cola ANTES de correr el turno de un job de
+// Messenger o Instagram: si no se va a poder mandar, no se gasta un turno del
+// LLM ni se escribe una respuesta que nadie va a recibir. Todos los rechazos
+// son AppError de 4xx, que el worker clasifica como PERMANENTES: ninguno se
+// arregla solo en 15 segundos, hace falta que una persona reconecte.
+// ---------------------------------------------------------------------------
+
+export const MENSAJE_SIN_CONEXION_PARA_ENVIAR =
+  "La organización no tiene una página de Facebook conectada: no se puede mandar la respuesta. Hay que conectarla desde el CRM.";
+
+export const MENSAJE_PAGINA_RECONECTADA =
+  "La organización reconectó OTRA página de Facebook después de que llegó este mensaje: el cliente escribió a la página anterior y no se le puede responder desde la nueva.";
+
+export const MENSAJE_CONEXION_INACTIVA =
+  "La conexión con Facebook está desconectada o con error: no se puede mandar la respuesta. Hay que reconectarla desde el CRM.";
+
+export async function obtenerTokenParaEnviar(
+  organizationId: string,
+  pageIdEsperado: string,
+): Promise<string> {
+  const conexion = await findMetaConnectionWithSecretByOrganization(organizationId);
+
+  if (!conexion) {
+    throw new AppError(MENSAJE_SIN_CONEXION_PARA_ENVIAR, 404);
+  }
+
+  // El PSID/IGSID que trajo el webhook es un id POR PÁGINA: el mismo cliente
+  // tiene otro id en otra página. Mandar con el token de la página nueva a un
+  // id de la anterior falla en el mejor caso, y en el peor le llega a otra
+  // persona. No se reintenta: la página vieja ya no tiene token acá.
+  if (conexion.pageId !== pageIdEsperado) {
+    throw new AppError(MENSAJE_PAGINA_RECONECTADA, 409);
+  }
+
+  // El CHECK de la base garantiza que ACTIVE tiene token; la segunda
+  // condición es para el tipo y para no confiar solo en eso.
+  if (conexion.status !== "ACTIVE" || !conexion.pageAccessToken) {
+    throw new AppError(MENSAJE_CONEXION_INACTIVA, 409);
+  }
+
+  return getCifrador().decrypt(conexion.pageAccessToken);
+}
+
+// Meta rechazó el Page token al mandar (código 190): la conexión pasa a ERROR
+// con el motivo, para que la pantalla del CRM (ítem 173) pida reconectar y los
+// próximos mensajes fallen en obtenerTokenParaEnviar sin llamar a Meta. Solo si
+// la conexión sigue siendo la de esa página y no está REVOKED (ver el
+// repositorio): entre la lectura del token y el rechazo pudo haber cambiado.
+export async function marcarTokenRechazado(
+  organizationId: string,
+  pageId: string,
+  motivo: string,
+): Promise<void> {
+  await markMetaConnectionError(organizationId, motivo, undefined, { pageId });
 }

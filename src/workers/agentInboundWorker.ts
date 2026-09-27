@@ -24,6 +24,11 @@ import {
 } from "../services/agentOrchestration.service";
 import { esTransitorio, type LlmContentPart } from "../services/llmProvider.service";
 import {
+  marcarTokenRechazado,
+  obtenerTokenParaEnviar,
+} from "../services/metaPageConnection.service";
+import { MetaSendError, sendMetaTextReal, type SendMetaText } from "../services/metaSend.service";
+import {
   downloadWhatsappMediaReal,
   sendWhatsappTextReal,
   WhatsappGraphError,
@@ -38,6 +43,9 @@ import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils
 // docs/auditoria-2026-09-24-punta-a-punta.md: D-01, B-02, B-08). El webhook
 // persiste el entrante y encola un AgentInboundJob; esto corre el turno del
 // agente, manda la respuesta por la Graph API y deja el resultado en la fila.
+// Desde el ítem 172 también atiende Messenger e Instagram (el webhook del
+// ítem 171 encola en la misma cola): mismo turno, y el envío va por el Send
+// API con el Page token de la organización (ver enviarPorElCanal).
 //
 // MISMO PATRÓN QUE src/workers/ingestionWorker.ts (polling in-process,
 // setTimeout encadenado, arranque en server.ts, stop que espera la pasada en
@@ -71,12 +79,26 @@ export interface DepsDeEnvio {
   accessToken: () => string | undefined;
   sendText: SendWhatsappText;
   downloadMedia: DownloadWhatsappMedia;
+  // Ítem 172, Messenger e Instagram. El token de página es el equivalente de
+  // accessToken() para WhatsApp, pero por organización y cifrado en la base:
+  // inyectable por el mismo motivo, que los unitarios no necesiten Postgres.
+  pageAccessToken: (organizationId: string, pageId: string) => Promise<string>;
+  sendMetaText: SendMetaText;
 }
 
 export const depsDeEnvioReales: DepsDeEnvio = {
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
   sendText: sendWhatsappTextReal,
   downloadMedia: downloadWhatsappMediaReal,
+  pageAccessToken: obtenerTokenParaEnviar,
+  sendMetaText: sendMetaTextReal,
+};
+
+const NOMBRE_DEL_CANAL: Record<ConversationChannel, string> = {
+  WHATSAPP: "WhatsApp",
+  MESSENGER: "Messenger",
+  INSTAGRAM: "Instagram",
+  WEB: "la web",
 };
 
 // Un fallo que no se arregla reintentando, sin ser un AppError: un job que
@@ -95,8 +117,10 @@ export class ErrorPermanenteDelJob extends Error {
 export class ErrorDeEnvio extends Error {
   readonly causa: unknown;
 
-  constructor(causa: unknown) {
-    super(`No se pudo mandar la respuesta por WhatsApp: ${describirError(causa)}`);
+  constructor(causa: unknown, canal: ConversationChannel = ConversationChannel.WHATSAPP) {
+    super(
+      `No se pudo mandar la respuesta por ${NOMBRE_DEL_CANAL[canal]}: ${describirError(causa)}`,
+    );
     this.name = "ErrorDeEnvio";
     this.causa = causa;
     Object.setPrototypeOf(this, ErrorDeEnvio.prototype);
@@ -136,6 +160,14 @@ export function clasificarFallo(err: unknown): ClaseDeFallo {
   ) {
     return esTransitorio(err.causa.status) ? "TRANSITORIO" : "PERMANENTE";
   }
+  // Ítem 172: el Send API de Messenger/Instagram. No alcanza el status: Meta
+  // manda los rate limits (4, 613) con un 400, así que MetaSendError mira
+  // también el código (ver metaSend.service.ts). Fuera de la ventana de 24 h
+  // (10/2018278), token inválido (190), usuario que no recibe (551): 4xx sin
+  // código transitorio, PERMANENTES.
+  if (err instanceof ErrorDeEnvio && err.causa instanceof MetaSendError) {
+    return err.causa.transitorio ? "TRANSITORIO" : "PERMANENTE";
+  }
   // Red, timeout, la base que no responde, un bug: se reintenta, y el tope de
   // intentos es lo que evita que un bug determinístico gire para siempre.
   return "TRANSITORIO";
@@ -153,18 +185,66 @@ export { resolverFalloDelJob, type ClaseDeFallo, type ResolucionDelFallo } from 
 // lo respondió junto, o lo retomó otro worker).
 export type ResultadoDelJob = "respondido" | "omitido";
 
-async function enviarRespuesta(saliente: Message, job: JobReclamado, deps: DepsDeEnvio) {
-  try {
-    const accessToken = deps.accessToken();
-    if (!accessToken) {
-      throw new Error("Falta WHATSAPP_ACCESS_TOKEN en el entorno");
+function esCanalDeMeta(channel: ConversationChannel): boolean {
+  return channel === ConversationChannel.MESSENGER || channel === ConversationChannel.INSTAGRAM;
+}
+
+// Ítem 172: el Page token de un job de Messenger o Instagram, o null para
+// WhatsApp (que lee el suyo del entorno al mandar). Se resuelve ANTES del
+// turno: sin conexión, con la conexión caída, o si la organización reconectó
+// a otra página (el PSID/IGSID del job es de la anterior), el AppError de 4xx
+// sale PERMANENTE sin gastar un turno del LLM ni escribir una respuesta que
+// nadie va a recibir. El entrante queda en la bandeja y el job en FAILED con
+// el motivo.
+export async function resolverTokenDePagina(
+  job: JobReclamado,
+  deps: Pick<DepsDeEnvio, "pageAccessToken">,
+): Promise<string | null> {
+  if (!esCanalDeMeta(job.channel)) {
+    return null;
+  }
+  return deps.pageAccessToken(job.organizationId, job.channelAccountId);
+}
+
+// Pura respecto de la base: despacha el texto por la API del canal del job.
+// WhatsApp: exactamente lo de siempre. Messenger e Instagram: el mismo POST
+// del Send API, que no distingue canal (ver metaSend.service.ts), con el Page
+// ID en channelAccountId y el PSID/IGSID en externalUserId (ítem 171).
+export async function enviarPorElCanal(
+  job: JobReclamado,
+  texto: string,
+  pageAccessToken: string | null,
+  deps: Pick<DepsDeEnvio, "accessToken" | "sendText" | "sendMetaText">,
+): Promise<void> {
+  if (esCanalDeMeta(job.channel)) {
+    if (!pageAccessToken) {
+      // resolverTokenDePagina corre antes y no devuelve null para estos
+      // canales: llegar acá es un bug, no un estado de la conexión.
+      throw new Error(`Falta el token de página para mandar por ${job.channel}`);
     }
-    await deps.sendText({
-      phoneNumberId: job.channelAccountId,
-      to: job.externalUserId,
-      body: saliente.content,
-      accessToken,
-    });
+    await deps.sendMetaText({ pageAccessToken, recipientId: job.externalUserId, text: texto });
+    return;
+  }
+  const accessToken = deps.accessToken();
+  if (!accessToken) {
+    throw new Error("Falta WHATSAPP_ACCESS_TOKEN en el entorno");
+  }
+  await deps.sendText({
+    phoneNumberId: job.channelAccountId,
+    to: job.externalUserId,
+    body: texto,
+    accessToken,
+  });
+}
+
+async function enviarRespuesta(
+  saliente: Message,
+  job: JobReclamado,
+  pageAccessToken: string | null,
+  deps: DepsDeEnvio,
+) {
+  try {
+    await enviarPorElCanal(job, saliente.content, pageAccessToken, deps);
   } catch (err) {
     // B-02: el fallo queda en la fila del Message, a la vista de la bandeja,
     // y no solo en el log. Si el reintento sale bien, SENT lo limpia.
@@ -172,7 +252,23 @@ async function enviarRespuesta(saliente: Message, job: JobReclamado, deps: DepsD
       status: "FAILED",
       error: describirError(err),
     });
-    throw new ErrorDeEnvio(err);
+    if (err instanceof MetaSendError && err.tokenInvalido) {
+      // Meta rechazó el Page token: la conexión pasa a ERROR para que el CRM
+      // pida reconectar y los próximos jobs fallen antes del turno. Si esta
+      // escritura falla, igual se relanza el error del envío, que es el que
+      // decide el destino del job.
+      await marcarTokenRechazado(
+        job.organizationId,
+        job.channelAccountId,
+        `Meta rechazó el token de la página al mandar un mensaje: ${err.detalle}`,
+      ).catch((errMarca: unknown) => {
+        logger.error(
+          { err: errMarca, organizationId: job.organizationId },
+          "No se pudo marcar en ERROR la conexión con Facebook",
+        );
+      });
+    }
+    throw new ErrorDeEnvio(err, job.channel);
   }
   await markMessageDelivery(saliente.id, job.organizationId, { status: "SENT" });
 }
@@ -224,18 +320,8 @@ export async function descargarAdjuntos(
 export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise<ResultadoDelJob> {
   const { organizationId } = job;
 
-  // GUARDA TRANSITORIA, entre el ítem 171 (el webhook de Messenger e
-  // Instagram ya encola) y el 172 (el envío por esos canales). Todo lo de abajo
-  // manda por la API de WhatsApp: un job de otro canal correría un turno del
-  // LLM que nadie va a recibir y después le pediría a WhatsApp que mande al
-  // PSID/IGSID usando el Page ID como phone_number_id. Se corta ANTES del
-  // turno, como permanente: el entrante queda registrado en la bandeja y el
-  // job en FAILED con el motivo. El ítem 172 reemplaza esto por el envío real.
-  if (job.channel !== ConversationChannel.WHATSAPP) {
-    throw new ErrorPermanenteDelJob(
-      `El envío por ${job.channel} todavía no está implementado (ítem 172): el entrante queda registrado sin respuesta`,
-    );
-  }
+  // Ítem 172 (reemplaza la guarda transitoria del 171): ver resolverTokenDePagina.
+  const pageAccessToken = await resolverTokenDePagina(job, deps);
 
   const entrante = await findMessageById(job.messageId, organizationId);
   if (!entrante) {
@@ -314,7 +400,7 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
       throw new ErrorPermanenteDelJob("El Message de la respuesta ya no existe");
     }
     if (saliente.deliveryStatus !== "SENT") {
-      await enviarRespuesta(saliente, job, deps);
+      await enviarRespuesta(saliente, job, pageAccessToken, deps);
     }
 
     await markAgentInboundJobDone(job);
@@ -362,23 +448,35 @@ async function registrarFallo(job: JobReclamado, err: unknown, resumen: ResumenD
       await markAgentInboundJobFailed(job, lastError);
       resumen.fallidos++;
       logger.error(
-        { err, jobId: job.id, messageId: job.messageId, attempts: job.attempts },
-        "Turno de WhatsApp en FAILED: el cliente no recibió respuesta y requiere revisión manual",
+        {
+          err,
+          jobId: job.id,
+          channel: job.channel,
+          messageId: job.messageId,
+          attempts: job.attempts,
+        },
+        "Turno del agente en FAILED: el cliente no recibió respuesta y requiere revisión manual",
       );
       return;
     }
     await rescheduleAgentInboundJob(job, { nextAttemptAt: resolucion.nextAttemptAt, lastError });
     resumen.pospuestos++;
     logger.warn(
-      { err, jobId: job.id, attempts: job.attempts, nextAttemptAt: resolucion.nextAttemptAt },
-      "Turno de WhatsApp fallido: queda en PENDING para reintentar con backoff",
+      {
+        err,
+        jobId: job.id,
+        channel: job.channel,
+        attempts: job.attempts,
+        nextAttemptAt: resolucion.nextAttemptAt,
+      },
+      "Turno del agente fallido: queda en PENDING para reintentar con backoff",
     );
   } catch (errContable) {
     // La base es justamente lo que falló: el job queda en PROCESSING y el
     // lease vencido lo devuelve a la cola, con el intento ya contado.
     logger.error(
       { err: errContable, jobId: job.id },
-      "No se pudo registrar el fallo del turno de WhatsApp; se retoma cuando venza el lease",
+      "No se pudo registrar el fallo del turno del agente; se retoma cuando venza el lease",
     );
   }
 }
@@ -408,7 +506,7 @@ export async function drenarTurnosPendientes(
     } catch (err) {
       // No se llegó a reclamar nada (la base no responde): se corta la pasada
       // y se reintenta en el próximo tick.
-      logger.error({ err }, "No se pudo reclamar un turno de WhatsApp de la cola");
+      logger.error({ err }, "No se pudo reclamar un turno del agente de la cola");
       break;
     }
     if (!job) {
@@ -424,7 +522,7 @@ export async function drenarTurnosPendientes(
         job,
         `Agotó sus ${String(env.AGENT_INBOUND_MAX_ATTEMPTS)} intentos sin terminar (el proceso que lo tomaba no llegó a cerrarlo)`,
       ).catch((err: unknown) => {
-        logger.error({ err, jobId: job?.id }, "No se pudo marcar FAILED un turno de WhatsApp");
+        logger.error({ err, jobId: job?.id }, "No se pudo marcar FAILED un turno del agente");
       });
       resumen.fallidos++;
       continue;
@@ -472,7 +570,7 @@ export function iniciarWorkerDeTurnosDeAgente(
 ): () => Promise<void> {
   if (!env.AGENT_INBOUND_WORKER_ENABLED) {
     logger.info(
-      "Worker de turnos de WhatsApp deshabilitado por AGENT_INBOUND_WORKER_ENABLED: los mensajes quedan en la cola",
+      "Worker de turnos del agente deshabilitado por AGENT_INBOUND_WORKER_ENABLED: los mensajes quedan en la cola",
     );
     return () => Promise.resolve();
   }
@@ -494,20 +592,20 @@ export function iniciarWorkerDeTurnosDeAgente(
       try {
         const resumen = await drenar(() => !detenido);
         if (resumen.respondidos + resumen.omitidos + resumen.pospuestos + resumen.fallidos > 0) {
-          logger.info(resumen, "Drenado de turnos de WhatsApp");
+          logger.info(resumen, "Drenado de turnos del agente");
         }
         if (resumen.fallidos > 0) {
           // Con nombre propio y en warn, igual que los DEAD_LETTER de las
           // otras colas: un FAILED acá es un cliente sin respuesta.
           logger.warn(
             { fallidos: resumen.fallidos },
-            "Turnos de WhatsApp en FAILED: clientes sin respuesta que requieren revisión manual",
+            "Turnos del agente en FAILED: clientes sin respuesta que requieren revisión manual",
           );
         }
       } catch (err) {
         // Red de seguridad del bucle, mismo motivo que en la ingesta: si el
         // bucle muere, la cola deja de drenarse en silencio.
-        logger.error({ err }, "Fallo inesperado en el drenado de turnos de WhatsApp");
+        logger.error({ err }, "Fallo inesperado en el drenado de turnos del agente");
       }
     })();
 
@@ -520,7 +618,7 @@ export function iniciarWorkerDeTurnosDeAgente(
 
   logger.info(
     { pollMs, batchSize: env.AGENT_INBOUND_WORKER_BATCH_SIZE },
-    "Worker de turnos de WhatsApp iniciado",
+    "Worker de turnos del agente iniciado",
   );
 
   timer = setTimeout(() => void tick(), pollMs);
