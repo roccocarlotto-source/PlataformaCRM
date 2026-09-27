@@ -458,6 +458,24 @@ test("la asignación de la página de Facebook por platform admin (ítem 169) es
   assert.equal(res.status, 401, "PUT /api/admin/agents/:agentId/facebook-page no está montado");
 });
 
+test("la conexión de la página de Facebook (ítem 170) está montada bajo /api", async () => {
+  const casos: [string, string][] = [
+    ["GET", "/api/integrations/meta"],
+    ["POST", "/api/integrations/meta/connect"],
+    ["DELETE", "/api/integrations/meta"],
+  ];
+  for (const [method, path] of casos) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+  }
+});
+
+test("el callback de Meta (ítem 170) está montado SIN authenticate: sin state responde 400, no 401", async () => {
+  const res = await fetch(`${baseUrl}/api/integrations/meta/callback`);
+  assert.equal(res.status, 400);
+  assert.match(res.headers.get("content-type") ?? "", /^text\/plain/);
+});
+
 test("la plantilla de WhatsApp de la organización (ítem 160) está montada bajo /api", async () => {
   const id = randomUUID();
   const casos: [string, string][] = [
