@@ -103,6 +103,11 @@ export interface LlmCompletionRequest {
   // El modelo a usar (Agent.modelName). Si no viene, el adaptador usa su
   // default de configuración.
   model?: string;
+  // Una cancelación de quien llama (ítem 166): hoy, la señal del outbox que
+  // llega vía agent.draft_follow_up. El adaptador la combina con su propio
+  // tope por intento, y cualquiera de las dos corta la llamada. Sin ella, todo
+  // sigue exactamente como antes: solo el tope del adaptador.
+  signal?: AbortSignal;
 }
 
 export interface LlmCompletionResult {
@@ -215,6 +220,20 @@ export function esTransitorio(status: number): boolean {
 }
 
 const dormir = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Ítem 166: una señal externa abortada NO es una falla transitoria. El loop de
+// reintentos de abajo trata cualquier excepción del fetch como falla de red y
+// la reintenta — con una cancelación, eso sería seguir gastando llamadas (y
+// dinero) en algo que quien llamó ya dio por perdido. Se corta acá, con el
+// motivo que dejó quien abortó (el outbox deja "el handler no respondió en N
+// ms").
+function lanzarSiSeCancelo(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    const motivo: unknown = signal.reason;
+    const detalle = motivo instanceof Error ? motivo.message : String(motivo);
+    throw new LlmProviderError(`Se canceló la llamada a OpenRouter: ${detalle}`);
+  }
+}
 
 // Formato de OpenAI para las tool calls de un mensaje del asistente.
 interface ToolCallDeOpenAi {
@@ -397,7 +416,7 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
   return {
     name: OPENROUTER_PROVIDER_NAME,
 
-    async complete({ systemPrompt, messages, tools, model }) {
+    async complete({ systemPrompt, messages, tools, model, signal }) {
       const cuerpo: Record<string, unknown> = {
         model: model ?? config.defaultModel,
         messages: aMensajesDeOpenAi(systemPrompt, messages),
@@ -447,6 +466,16 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
         if (intento > 0) {
           await dormir(ESPERAS_ENTRE_REINTENTOS_MS[intento - 1] ?? 0);
         }
+        // Antes de cada intento, incluido el primero: una señal que llegó
+        // abortada, o que se abortó durante la espera entre reintentos, no
+        // arranca otra llamada.
+        lanzarSiSeCancelo(signal);
+
+        // El tope propio es POR INTENTO (uno nuevo en cada vuelta); la señal
+        // externa, si viene, abarca la llamada entera. AbortSignal.any (nativo
+        // desde Node 20.3; el repo corre Node 22) aborta en cuanto lo haga
+        // cualquiera de las dos.
+        const topeDelIntento = AbortSignal.timeout(TIMEOUT_MS);
         try {
           res = await hacerFetch(urlChatCompletions, {
             method: "POST",
@@ -456,9 +485,11 @@ export function crearProveedorOpenRouter(config: ConfiguracionOpenRouter): LlmPr
             },
             body: JSON.stringify(cuerpo),
             // AbortSignal.timeout: nativo desde Node 18, sin dependencia.
-            signal: AbortSignal.timeout(TIMEOUT_MS),
+            signal: signal ? AbortSignal.any([signal, topeDelIntento]) : topeDelIntento,
           });
         } catch (err) {
+          // Si fue la señal externa, no es una falla de red: no se reintenta.
+          lanzarSiSeCancelo(signal);
           // Falla de RED: no llegó respuesta. Transitoria por definición.
           const detalle = err instanceof Error ? err.message : String(err);
           ultimoError = `No se pudo contactar a OpenRouter: ${detalle}`;

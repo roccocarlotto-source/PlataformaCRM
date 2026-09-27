@@ -240,3 +240,70 @@ test("ya hay un borrador posterior (o simultáneo) al último movimiento: un eve
     assert.deepEqual(registro.pasos, ["leer"], marca.toISOString());
   }
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 166 (C-02): la señal del outbox llega hasta el borrador
+// ---------------------------------------------------------------------------
+
+test("la señal que recibe el handler se reenvía, la MISMA, a generarBorrador", async () => {
+  const recibidas: (AbortSignal | undefined)[] = [];
+  const { deps } = doblar({
+    generarBorrador: (_org, _opp, signal) => {
+      recibidas.push(signal);
+      return Promise.resolve("Hola, ¿seguís interesado?");
+    },
+  });
+  const controller = new AbortController();
+
+  await crearAccionBorradorDeSeguimiento(deps).handler({
+    organizationId: ORG,
+    automationId: "00000000-0000-4000-8000-00000000a070",
+    config: {},
+    payload: { opportunityId: OPP, ownerId: OWNER },
+    signal: controller.signal,
+  });
+
+  assert.equal(recibidas.length, 1);
+  assert.equal(recibidas[0], controller.signal);
+});
+
+test("sin señal (signal es opcional en AccionAEjecutar) todo sigue igual: generarBorrador recibe undefined", async () => {
+  const recibidas: (AbortSignal | undefined)[] = [];
+  const { deps, registro } = doblar({
+    generarBorrador: (_org, _opp, signal) => {
+      recibidas.push(signal);
+      return Promise.resolve("Hola, ¿seguís interesado?");
+    },
+  });
+
+  await correr(deps);
+
+  assert.deepEqual(recibidas, [undefined]);
+  assert.equal(registro.actividades.length, 1);
+  assert.equal(registro.marcas.length, 1);
+});
+
+test("si el borrador se cancela por la señal: nada escrito y el error sube, igual que cualquier fallo del modelo", async () => {
+  const controller = new AbortController();
+  const { deps, registro } = doblar({
+    generarBorrador: (_org, _opp, signal) => {
+      controller.abort(new Error("el handler no respondió en 200000 ms"));
+      return Promise.reject(
+        new Error(`Se canceló la llamada a OpenRouter: ${String(signal?.aborted)}`),
+      );
+    },
+  });
+
+  await assert.rejects(
+    crearAccionBorradorDeSeguimiento(deps).handler({
+      organizationId: ORG,
+      automationId: "00000000-0000-4000-8000-00000000a070",
+      config: {},
+      payload: { opportunityId: OPP, ownerId: OWNER },
+      signal: controller.signal,
+    }),
+    /Se canceló la llamada a OpenRouter: true/,
+  );
+  assert.equal(registro.actividades.length, 0, "ninguna Activity: no hay segundo borrador");
+  assert.equal(registro.marcas.length, 0);
+});

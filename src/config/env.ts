@@ -158,11 +158,22 @@ const envSchema = z.object({
   // que Prisma aborte la transacción por su propio timeout — y ahí el fallo NO
   // se registra, porque el UPDATE de attempts/nextAttemptAt se revierte con
   // ella. Con este tope el fallo ocurre ADENTRO y queda contabilizado.
+  //
+  // 200 s Y NO 10 (ítem 166, C-02 de la auditoría): el tope es uno solo para
+  // todos los handlers, y agent.draft_follow_up llama al LLM adentro del suyo.
+  // El proveedor tiene su propio tope de 60 s POR INTENTO con hasta dos
+  // reintentos (llmProvider.service.ts): peor caso ≈ 3 × 60 s + 2 s de esperas
+  // ≈ 182 s. Con 10 s el tope vencía antes de que el modelo pudiera contestar
+  // su primer intento, el evento se reintentaba y el borrador podía quedar
+  // duplicado. Tiene que quedar POR ENCIMA de ese peor caso, para que quien
+  // corte una llamada lenta sea el proveedor —con su propio error— y no éste.
+  // Sigue siendo un tope de seguridad y no una holgura: ninguna acción rápida
+  // (crear una Activity, encolar un WhatsApp) se acerca a este número.
   OUTBOX_HANDLER_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .positive()
-    .default(10 * 1000),
+    .default(200 * 1000),
 
   // Tope total del apagado ordenado (M-12 de docs/auditoria-2026-08-29.md):
   // cuánto se espera a que los workers terminen su pasada en curso, el servidor

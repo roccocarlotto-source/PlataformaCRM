@@ -114,6 +114,10 @@ async function ejecutarAutomatizacion(
     automationId: automation.id,
     config: config.data,
     payload: payloadComoObjeto(evento.payload),
+    // Sin esto la señal del outbox moría acá: el tope vencía, el evento se
+    // reprogramaba, y la acción seguía corriendo huérfana hasta terminar —
+    // con un borrador de seguimiento, dos Activities (ítem 166).
+    signal: evento.signal,
   });
 }
 
