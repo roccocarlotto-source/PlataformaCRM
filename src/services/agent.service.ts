@@ -7,6 +7,7 @@ import {
   findAgentById,
   findAgentByIdForPlatformAdmin,
   findManyAgents,
+  setAgentFacebookPageId,
   setAgentWhatsappPhoneNumberId,
   softDeleteAgent,
   updateAgent as updateAgentRepo,
@@ -326,6 +327,67 @@ export async function asignarNumeroDeWhatsapp(input: {
       nuevo: input.whatsappPhoneNumberId,
     },
     "Número de WhatsApp de un agente asignado por platform admin",
+  );
+
+  return getAgentById(agente.organizationId, agente.id);
+}
+
+// ---------------------------------------------------------------------------
+// LA PÁGINA DE FACEBOOK TAMBIÉN LA ASIGNA LA PLATAFORMA (ítem 169).
+//
+// Calco de asignarNumeroDeWhatsapp y por el mismo motivo: facebook_page_id es
+// lo único que va a decir, en el webhook de Messenger/Instagram (ítem 171), de
+// qué agente es un mensaje, y un page id no es secreto. A diferencia del
+// número de WhatsApp, el CRUD del tenant ni siquiera acepta el campo: nació
+// después del ítem 127, así que ningún formulario lo reenvía y el borde lo
+// descarta sin más.
+// ---------------------------------------------------------------------------
+
+// agents.facebook_page_id es UNIQUE GLOBAL. Mismo criterio que
+// traducirNumeroDeWhatsappDuplicado: solo un platform admin llega acá, y
+// cualquier otro P2002 se relanza tal cual.
+function traducirPaginaDeFacebookDuplicada(err: unknown): never {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+    const target = Array.isArray(err.meta?.target)
+      ? err.meta.target.join(",")
+      : String(err.meta?.target ?? "");
+    if (target.includes("facebook_page_id")) {
+      throw new AppError("Esa página de Facebook ya está asignada a otro agente", 409);
+    }
+  }
+  throw err;
+}
+
+// PUT /api/admin/agents/:agentId/facebook-page (ítem 169). Mismo contrato que
+// asignarNumeroDeWhatsapp: 404 si el agente no existe o está borrado; 409 si
+// la página ya la tiene otro agente, de cualquier organización; null la
+// libera; una línea de log con quién, a qué agente, y de qué página a cuál.
+export async function asignarPaginaDeFacebook(input: {
+  agentId: string;
+  facebookPageId: string | null;
+  platformAdminUserId: string;
+}) {
+  const agente = await findAgentByIdForPlatformAdmin(input.agentId);
+  if (!agente) {
+    throw new AppError("Agente no encontrado", 404);
+  }
+
+  const result = await setAgentFacebookPageId(agente.id, input.facebookPageId).catch(
+    traducirPaginaDeFacebookDuplicada,
+  );
+  if (result.count === 0) {
+    throw new AppError("Agente no encontrado", 404);
+  }
+
+  logger.info(
+    {
+      platformAdminUserId: input.platformAdminUserId,
+      agentId: agente.id,
+      organizationId: agente.organizationId,
+      anterior: agente.facebookPageId,
+      nuevo: input.facebookPageId,
+    },
+    "Página de Facebook de un agente asignada por platform admin",
   );
 
   return getAgentById(agente.organizationId, agente.id);

@@ -1,5 +1,8 @@
 import { Router } from "express";
-import { asignarNumeroDeWhatsappHandler } from "../controllers/agentAdmin.controller";
+import {
+  asignarNumeroDeWhatsappHandler,
+  asignarPaginaDeFacebookHandler,
+} from "../controllers/agentAdmin.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { businessWriteRateLimiter } from "../middlewares/rateLimit";
 import { requirePlatformAdmin } from "../middlewares/requirePlatformAdmin";
@@ -22,4 +25,14 @@ agentAdminRouter.put(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   asignarNumeroDeWhatsappHandler,
+);
+
+// La página de Facebook del agente (ítem 169), con la misma cadena exacta: es
+// el único camino que escribe agents.facebook_page_id.
+agentAdminRouter.put(
+  "/admin/agents/:agentId/facebook-page",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  asignarPaginaDeFacebookHandler,
 );

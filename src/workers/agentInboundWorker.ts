@@ -160,8 +160,8 @@ async function enviarRespuesta(saliente: Message, job: JobReclamado, deps: DepsD
       throw new Error("Falta WHATSAPP_ACCESS_TOKEN en el entorno");
     }
     await deps.sendText({
-      phoneNumberId: job.phoneNumberId,
-      to: job.waId,
+      phoneNumberId: job.channelAccountId,
+      to: job.externalUserId,
       body: saliente.content,
       accessToken,
     });

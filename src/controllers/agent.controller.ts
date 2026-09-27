@@ -25,9 +25,12 @@ const idParamSchema = z.string().uuid("id inválido");
 
 // z.nativeEnum sobre el enum real de Prisma, no literales a mano: si
 // ConversationChannel cambia en schema.prisma, este schema se actualiza solo.
-// Mismo patrón que resourceTypeSchema.
+// Mismo patrón que resourceTypeSchema — y el mensaje de error también sale del
+// enum, para que no quede desactualizado (ítem 169 sumó INSTAGRAM y MESSENGER).
 const channelSchema = z.nativeEnum(ConversationChannel, {
-  errorMap: () => ({ message: "channels solo admite WHATSAPP o WEB" }),
+  errorMap: () => ({
+    message: `channels solo admite ${Object.values(ConversationChannel).join(", ")}`,
+  }),
 });
 
 // Sin duplicados: un agente con ["WEB", "WEB"] no es un error de negocio pero

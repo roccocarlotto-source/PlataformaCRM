@@ -295,7 +295,7 @@ test("POST /api/agents — validación: sin guardrails, proveedor desconocido, t
     [{ guardrailsText: "x".repeat(4001) }, /guardrailsText no puede superar/],
     [{ modelProvider: "anthropic" }, /modelProvider debe ser uno de: openrouter/],
     [{ enabledTools: ["Create Opportunity"] }, /snake_case/],
-    [{ channels: ["SMS"] }, /channels solo admite WHATSAPP o WEB/],
+    [{ channels: ["SMS"] }, /channels solo admite WHATSAPP, WEB, INSTAGRAM, MESSENGER/],
     [{ instructions: "   " }, /instructions es requerido/],
   ];
 
@@ -1077,6 +1077,151 @@ test("whatsappPhoneNumberId — borrar el agente libera el número para otro", a
   const nuevo = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
   assert.equal((await asignarNumero(plataforma.accessToken, nuevo.id, numero)).status, 200);
   assert.equal(await numeroEnLaBase(nuevo.id), numero);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 169: la página de Facebook del agente, calco EXACTO del número de
+// WhatsApp — PUT /api/admin/agents/:agentId/facebook-page, solo platform
+// admin. Mismo set de casos que los de arriba.
+// ---------------------------------------------------------------------------
+
+// Un page id al azar (solo dígitos). Distinto por corrida para no chocar con
+// otros archivos contra el UNIQUE global.
+function paginaDeFacebookAlAzar(): string {
+  return `2${randomUUID().replace(/\D/g, "").padEnd(15, "3").slice(0, 15)}`;
+}
+
+function asignarPagina(token: string, agentId: unknown, facebookPageId: unknown) {
+  return call("PUT", `/api/admin/agents/${String(agentId)}/facebook-page`, token, {
+    facebookPageId,
+  });
+}
+
+async function paginaEnLaBase(agentId: unknown): Promise<string | null> {
+  const fila = await prisma.agent.findUniqueOrThrow({ where: { id: String(agentId) } });
+  return fila.facebookPageId;
+}
+
+test("facebookPageId — el tenant NO lo asigna: POST y PATCH lo descartan y la base no cambia", async () => {
+  // A diferencia del número de WhatsApp, el CRUD del tenant ni acepta el campo
+  // (nunca lo aceptó): el borde lo descarta y el resto del cuerpo se aplica.
+  const pagina = paginaDeFacebookAlAzar();
+  const creado = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
+    facebookPageId: pagina,
+  });
+  assert.equal(creado.facebookPageId, null);
+  assert.equal(await paginaEnLaBase(creado.id), null);
+
+  const patch = await call("PATCH", `/api/agents/${creado.id}`, adminA.accessToken, {
+    facebookPageId: pagina,
+    name: "Se guarda el nombre, no la página",
+  });
+  assert.equal(patch.status, 200);
+  assert.equal(await paginaEnLaBase(creado.id), null);
+
+  // Con página ya asignada, el tenant tampoco la cambia ni la vacía.
+  assert.equal((await asignarPagina(plataforma.accessToken, creado.id, pagina)).status, 200);
+  for (const distinto of [paginaDeFacebookAlAzar(), null, ""]) {
+    const res = await call("PATCH", `/api/agents/${creado.id}`, adminA.accessToken, {
+      facebookPageId: distinto,
+      name: "Otro nombre",
+    });
+    assert.equal(res.status, 200);
+    assert.equal(await paginaEnLaBase(creado.id), pagina);
+  }
+});
+
+test("PUT /api/admin/agents/:agentId/facebook-page — el platform admin asigna, cambia y libera; 409 si está en uso", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  const pagina = paginaDeFacebookAlAzar();
+
+  // Mismo criterio que el número: se recorta, y solo admite dígitos.
+  const asignado = await asignarPagina(plataforma.accessToken, agente.id, ` ${pagina} `);
+  assert.equal(asignado.status, 200);
+  const cuerpo = (await asignado.json()) as Record<string, unknown>;
+  assert.equal(cuerpo.facebookPageId, pagina);
+  assert.equal(cuerpo.organizationId, orgA.id, "el agente sigue siendo de su organización");
+  assert.equal(await paginaEnLaBase(agente.id), pagina);
+
+  for (const invalido of ["facebook.com/minegocio", "123 456", "abc", "1".repeat(65)]) {
+    const res = await asignarPagina(plataforma.accessToken, agente.id, invalido);
+    assert.equal(res.status, 400, `debía ser 400 para ${invalido}`);
+  }
+  const sinCampo = await call(
+    "PUT",
+    `/api/admin/agents/${agente.id}/facebook-page`,
+    plataforma.accessToken,
+    {},
+  );
+  assert.equal(sinCampo.status, 400);
+
+  // En uso por otro agente, de CUALQUIER organización: 409.
+  const otro = await crearAgentePorHttp(adminB.accessToken, orgB.branchId);
+  const enUso = await asignarPagina(plataforma.accessToken, otro.id, pagina);
+  assert.equal(enUso.status, 409);
+  assert.match(await mensajeDeError(enUso), /ya está asignada a otro agente/);
+  assert.equal(await paginaEnLaBase(otro.id), null);
+
+  // "" (o null) la libera, y entonces el otro la puede tomar.
+  const liberado = await asignarPagina(plataforma.accessToken, agente.id, "");
+  assert.equal(liberado.status, 200);
+  assert.equal(await paginaEnLaBase(agente.id), null);
+  assert.equal((await asignarPagina(plataforma.accessToken, otro.id, pagina)).status, 200);
+  assert.equal(await paginaEnLaBase(otro.id), pagina);
+  assert.equal((await asignarPagina(plataforma.accessToken, otro.id, null)).status, 200);
+  assert.equal(await paginaEnLaBase(otro.id), null);
+});
+
+test("PUT /api/admin/agents/:agentId/facebook-page — la página y el número de WhatsApp son independientes", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  const numero = numeroDeWhatsappAlAzar();
+  const pagina = paginaDeFacebookAlAzar();
+  assert.equal((await asignarNumero(plataforma.accessToken, agente.id, numero)).status, 200);
+  assert.equal((await asignarPagina(plataforma.accessToken, agente.id, pagina)).status, 200);
+  assert.equal(await numeroEnLaBase(agente.id), numero, "asignar la página no toca el número");
+  assert.equal((await asignarPagina(plataforma.accessToken, agente.id, null)).status, 200);
+  assert.equal(await numeroEnLaBase(agente.id), numero, "liberar la página no toca el número");
+});
+
+test("PUT /api/admin/agents/:agentId/facebook-page — 404 si el agente no existe o está borrado", async () => {
+  const inexistente = await asignarPagina(
+    plataforma.accessToken,
+    randomUUID(),
+    paginaDeFacebookAlAzar(),
+  );
+  assert.equal(inexistente.status, 404);
+
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  assert.equal((await call("DELETE", `/api/agents/${agente.id}`, adminA.accessToken)).status, 204);
+  const borrado = await asignarPagina(plataforma.accessToken, agente.id, paginaDeFacebookAlAzar());
+  assert.equal(borrado.status, 404);
+  assert.equal(await paginaEnLaBase(agente.id), null);
+});
+
+test("PUT /api/admin/agents/:agentId/facebook-page — quien no es platform admin recibe 403 (aunque sea ADMIN del agente)", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  for (const u of [adminA, userA, adminB]) {
+    const res = await asignarPagina(u.accessToken, agente.id, paginaDeFacebookAlAzar());
+    assert.equal(res.status, 403);
+  }
+  const sinToken = await fetch(`${baseUrl}/api/admin/agents/${String(agente.id)}/facebook-page`, {
+    method: "PUT",
+  });
+  assert.equal(sinToken.status, 401);
+  assert.equal(await paginaEnLaBase(agente.id), null);
+});
+
+test("facebookPageId — borrar el agente libera la página para otro", async () => {
+  const pagina = paginaDeFacebookAlAzar();
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  assert.equal((await asignarPagina(plataforma.accessToken, agente.id, pagina)).status, 200);
+  const borrado = await call("DELETE", `/api/agents/${agente.id}`, adminA.accessToken);
+  assert.equal(borrado.status, 204);
+  assert.equal(await paginaEnLaBase(agente.id), null);
+
+  const nuevo = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+  assert.equal((await asignarPagina(plataforma.accessToken, nuevo.id, pagina)).status, 200);
+  assert.equal(await paginaEnLaBase(nuevo.id), pagina);
 });
 
 // ---------------------------------------------------------------------------

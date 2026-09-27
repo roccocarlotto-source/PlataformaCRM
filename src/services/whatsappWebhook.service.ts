@@ -278,8 +278,9 @@ async function procesarMensaje(mensaje: MensajeEntrante): Promise<ResultadoDelMe
             {
               organizationId,
               messageId: entrante.id,
-              phoneNumberId: mensaje.phoneNumberId,
-              waId: mensaje.waId,
+              channel: ConversationChannel.WHATSAPP,
+              channelAccountId: mensaje.phoneNumberId,
+              externalUserId: mensaje.waId,
               // Ítem 162: solo el id. El media (audio o imagen) lo baja el worker; bajarlo acá
               // sumaría una llamada a Meta al camino que tiene que contestar
               // en milisegundos (ítem 125).

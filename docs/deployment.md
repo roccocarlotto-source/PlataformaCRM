@@ -128,6 +128,19 @@ inverso: imagen nueva primero, migración después.** Dropea columnas de
 la organización sin `select`); la imagen nueva no las nombra y anda igual contra
 el esquema viejo. Detalle en el ítem 135 de `docs/frontend-cambios-pendientes.md`.
 
+**Nota — `20261005120000_canales_meta_infraestructura` (ítem 169) no tiene un
+orden sin ventana.** Renombra `agent_inbound_jobs.phone_number_id`/`wa_id` a
+`channel_account_id`/`external_user_id` (y agrega `channel`): la imagen vieja
+usa los nombres viejos y la nueva los nuevos, así que cada una falla contra el
+esquema de la otra. Con el orden de siempre (migración y después imagen),
+mientras corre la imagen vieja contra la base migrada, el webhook de WhatsApp
+no puede encolar: la transacción del entrante se revierte, el error se loguea y
+el webhook responde 200 igual, así que **Meta no reintenta y esos mensajes se
+pierden**. Los jobs que ya estaban en cola no se pierden: el rename conserva
+sus valores y la imagen nueva los toma al arrancar. Por eso: correr la
+migración y desplegar la imagen nueva **inmediatamente después**, en un
+horario de poco tráfico.
+
 ### 2.3 Variables de entorno del backend
 
 Lista completa de `src/config/env.ts`, agrupada por lo que pasa si falta. El
