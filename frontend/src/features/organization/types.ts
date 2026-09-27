@@ -37,3 +37,31 @@ export interface UpdateOrganizationCurrencyInput {
   preferredCurrency?: string | null;
   alternateCurrency?: string | null;
 }
+
+// Conexión de la página de Facebook de la organización (ítem 173 en el
+// frontend; backend del ítem 170) — la fila pública de GET
+// /api/integrations/meta. Nunca trae el token. Una por organización, sin
+// sucursal. REVOKED: se desconectó. ERROR: Meta dejó de aceptar el token;
+// lastErrorMessage dice por qué.
+export type MetaPageConnectionStatus = "ACTIVE" | "REVOKED" | "ERROR";
+
+export interface MetaPageConnection {
+  id: string;
+  organizationId: string;
+  pageId: string;
+  // null = la página no tiene una cuenta de Instagram Business vinculada.
+  instagramBusinessAccountId: string | null;
+  status: MetaPageConnectionStatus;
+  lastErrorAt: string | null;
+  lastErrorMessage: string | null;
+  connectedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// La respuesta de POST /api/integrations/meta/connect: la URL de autorización
+// de Meta en el cuerpo, no un 302 (un redirect no lleva el header
+// Authorization).
+export interface MetaAuthorization {
+  authorizationUrl: string;
+}

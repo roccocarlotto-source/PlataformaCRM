@@ -1,6 +1,10 @@
 import { useMutation } from "@tanstack/react-query";
-import { assignWhatsappNumber, createOrganization } from "./api";
-import type { AssignWhatsappNumberInput, CreateOrganizationInput } from "./types";
+import { assignFacebookPage, assignWhatsappNumber, createOrganization } from "./api";
+import type {
+  AssignFacebookPageInput,
+  AssignWhatsappNumberInput,
+  CreateOrganizationInput,
+} from "./types";
 
 // Sin invalidación: la organización nueva no aparece en ninguna query de
 // este frontend (el platform admin no ve listado de organizaciones — solo
@@ -16,5 +20,12 @@ export function useCreateOrganization() {
 export function useAssignWhatsappNumber() {
   return useMutation({
     mutationFn: (input: AssignWhatsappNumberInput) => assignWhatsappNumber(input),
+  });
+}
+
+// Sin invalidación, por el mismo motivo que el número de WhatsApp.
+export function useAssignFacebookPage() {
+  return useMutation({
+    mutationFn: (input: AssignFacebookPageInput) => assignFacebookPage(input),
   });
 }

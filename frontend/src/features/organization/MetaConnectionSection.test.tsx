@@ -1,0 +1,215 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { http, HttpResponse } from "msw";
+import { server } from "../../test/msw/server";
+import { env } from "../../config/env";
+import { MetaConnectionSection } from "./MetaConnectionSection";
+
+vi.mock("../../auth/getAccessToken", () => ({
+  getAccessToken: vi.fn(async () => "test-token"),
+}));
+
+// ---------------------------------------------------------------------------
+// Ítem 173 — la sección "Facebook e Instagram" de la configuración de la
+// organización. Mismos casos que la sección de Google Calendar en
+// BranchFormPage.test.tsx, sin el de "conectando" (pestaña nueva + volver a
+// consultar), que acá no existe: al conectar se navega esta misma pestaña.
+// ---------------------------------------------------------------------------
+
+const baseUrl = `${env.apiUrl}/api/integrations/meta`;
+
+function renderSection(resultadoDelCallback?: { conectado: boolean; error: string | null }) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MetaConnectionSection resultadoDelCallback={resultadoDelCallback} />
+    </QueryClientProvider>,
+  );
+}
+
+function sinConectar() {
+  return http.get(baseUrl, () =>
+    HttpResponse.json(
+      { error: { message: "Esta organización no tiene una página de Facebook conectada" } },
+      { status: 404 },
+    ),
+  );
+}
+
+function conexion(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "mc1",
+    organizationId: "org-1",
+    pageId: "104857600000001",
+    instagramBusinessAccountId: null,
+    status: "ACTIVE",
+    lastErrorAt: null,
+    lastErrorMessage: null,
+    connectedAt: "2026-09-01T00:00:00.000Z",
+    createdAt: "2026-09-01T00:00:00.000Z",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+// jsdom no navega: se reemplaza window.location por un objeto que registra
+// lo que se asigna a href, y se restaura después de cada test.
+const locationOriginal = window.location;
+function espiarNavegacion() {
+  const asignaciones: string[] = [];
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: {
+      ...locationOriginal,
+      get href() {
+        return asignaciones.at(-1) ?? locationOriginal.href;
+      },
+      set href(url: string) {
+        asignaciones.push(url);
+      },
+    },
+  });
+  return asignaciones;
+}
+
+afterEach(() => {
+  Object.defineProperty(window, "location", { configurable: true, value: locationOriginal });
+});
+
+describe("MetaConnectionSection", () => {
+  it("sin conectar (404): Conectar navega ESTA pestaña a la URL de Meta, sin abrir otra", async () => {
+    let posts = 0;
+    const asignaciones = espiarNavegacion();
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    const user = userEvent.setup();
+    server.use(
+      sinConectar(),
+      http.post(`${baseUrl}/connect`, () => {
+        posts += 1;
+        return HttpResponse.json({
+          authorizationUrl: "https://www.facebook.com/v21.0/dialog/oauth?x=1",
+        });
+      }),
+    );
+    renderSection();
+
+    expect(await screen.findByText("Sin conectar")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Conectar con Facebook" }));
+
+    await waitFor(() =>
+      expect(asignaciones).toEqual(["https://www.facebook.com/v21.0/dialog/oauth?x=1"]),
+    );
+    expect(posts).toBe(1);
+    expect(openSpy).not.toHaveBeenCalled();
+    // Mientras la pestaña navega, el botón no firma un segundo state.
+    expect(screen.getByRole("button", { name: "Abriendo Facebook…" })).toBeDisabled();
+    openSpy.mockRestore();
+  });
+
+  it("conectada: muestra la página y el Instagram vinculado; Desconectar pregunta antes y manda el DELETE", async () => {
+    let deletes = 0;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValueOnce(false);
+    const user = userEvent.setup();
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json(
+          deletes === 0
+            ? conexion({ instagramBusinessAccountId: "17841400000000001" })
+            : conexion({ status: "REVOKED" }),
+        ),
+      ),
+      http.delete(baseUrl, () => {
+        deletes += 1;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderSection();
+
+    expect(await screen.findByText("Conectado")).toBeInTheDocument();
+    expect(screen.getByText("104857600000001")).toBeInTheDocument();
+    expect(screen.getByText("17841400000000001")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Desconectar" }));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/Messenger y por Instagram/));
+    expect(deletes).toBe(0);
+
+    confirmSpy.mockReturnValueOnce(true);
+    await user.click(screen.getByRole("button", { name: "Desconectar" }));
+    await waitFor(() => expect(deletes).toBe(1));
+    // Se vuelve a consultar, y una conexión REVOKED se lee como sin conectar.
+    expect(
+      await screen.findByRole("button", { name: "Conectar con Facebook" }),
+    ).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it("conectada sin Instagram vinculado lo dice", async () => {
+    server.use(http.get(baseUrl, () => HttpResponse.json(conexion())));
+    renderSection();
+
+    expect(await screen.findByText(/sin cuenta vinculada/)).toBeInTheDocument();
+  });
+
+  it("una conexión en ERROR dice por qué y ofrece reconectar", async () => {
+    server.use(
+      http.get(baseUrl, () =>
+        HttpResponse.json(
+          conexion({ status: "ERROR", lastErrorMessage: "El token de la página venció" }),
+        ),
+      ),
+    );
+    renderSection();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "La conexión dejó de funcionar: El token de la página venció",
+    );
+    expect(screen.getByRole("button", { name: "Conectar con Facebook" })).toBeInTheDocument();
+  });
+
+  it("si iniciar la conexión falla, se muestra el error y no se navega", async () => {
+    const asignaciones = espiarNavegacion();
+    const user = userEvent.setup();
+    server.use(
+      sinConectar(),
+      http.post(`${baseUrl}/connect`, () =>
+        HttpResponse.json(
+          { error: { message: "La integración con Meta no está configurada" } },
+          { status: 500 },
+        ),
+      ),
+    );
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: "Conectar con Facebook" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No pudimos iniciar la conexión: La integración con Meta no está configurada",
+    );
+    expect(asignaciones).toEqual([]);
+  });
+
+  it("la vuelta del callback con metaConnected=true avisa que quedó conectada", async () => {
+    server.use(http.get(baseUrl, () => HttpResponse.json(conexion())));
+    renderSection({ conectado: true, error: null });
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "La página de Facebook quedó conectada.",
+    );
+  });
+
+  it("la vuelta del callback con metaError se muestra aunque no haya conexión guardada", async () => {
+    server.use(sinConectar());
+    renderSection({
+      conectado: false,
+      error: "Autorizaste más de una página. Este negocio conecta una sola página de Facebook.",
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No se pudo conectar Facebook: Autorizaste más de una página.",
+    );
+    expect(
+      await screen.findByRole("button", { name: "Conectar con Facebook" }),
+    ).toBeInTheDocument();
+  });
+});

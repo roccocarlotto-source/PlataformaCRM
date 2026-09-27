@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { updateOrganizationCurrency } from "./api";
+import { disconnectMetaConnection, startMetaConnection, updateOrganizationCurrency } from "./api";
 import { organizationKeys } from "./queries";
 import type { UpdateOrganizationCurrencyInput } from "./types";
 
@@ -13,6 +13,25 @@ export function useUpdateOrganizationCurrency() {
     mutationFn: (input: UpdateOrganizationCurrencyInput) => updateOrganizationCurrency(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: organizationKeys.settings() });
+    },
+  });
+}
+
+// Iniciar la conexión con Facebook no cambia nada todavía (solo firma el state
+// y devuelve la URL de Meta): no hay nada que invalidar. El cambio real
+// ocurre del otro lado de la navegación, en el callback.
+export function useStartMetaConnection() {
+  return useMutation({
+    mutationFn: () => startMetaConnection(),
+  });
+}
+
+export function useDisconnectMetaConnection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => disconnectMetaConnection(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: organizationKeys.metaConnection() });
     },
   });
 }

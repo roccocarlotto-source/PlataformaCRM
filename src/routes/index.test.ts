@@ -470,10 +470,13 @@ test("la conexión de la página de Facebook (ítem 170) está montada bajo /api
   }
 });
 
-test("el callback de Meta (ítem 170) está montado SIN authenticate: sin state responde 400, no 401", async () => {
-  const res = await fetch(`${baseUrl}/api/integrations/meta/callback`);
-  assert.equal(res.status, 400);
-  assert.match(res.headers.get("content-type") ?? "", /^text\/plain/);
+test("el callback de Meta (ítem 170) está montado SIN authenticate: sin state vuelve al frontend con el error, no 401", async () => {
+  // Desde el ítem 173 responde un 302 a /organization?metaError=… si
+  // CORS_ORIGIN es una URL utilizable, o el 400 text/plain si no. Acá solo
+  // importa que está montado sin authenticate; el detalle lo fija
+  // metaPageConnection.controller.test.ts.
+  const res = await fetch(`${baseUrl}/api/integrations/meta/callback`, { redirect: "manual" });
+  assert.ok([302, 400].includes(res.status), `status ${res.status}`);
 });
 
 test("la plantilla de WhatsApp de la organización (ítem 160) está montada bajo /api", async () => {

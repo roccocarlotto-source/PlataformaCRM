@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -9,6 +10,7 @@ import { CURRENCY_OPTIONS, isKnownCurrency } from "../../lib/currencies";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { formatDate } from "../opportunity/format";
 import { formatExchangeRate } from "./format";
+import { MetaConnectionSection } from "./MetaConnectionSection";
 import { useUpdateOrganizationCurrency } from "./mutations";
 import { useOrganizationSettings } from "./queries";
 import type { OrganizationSettings } from "./types";
@@ -80,6 +82,14 @@ export function OrganizationSettingsPage() {
   const settingsQuery = useOrganizationSettings();
   const updateMutation = useUpdateOrganizationCurrency();
   const toast = useToast();
+  // La vuelta del callback de Meta (ítem 173): el backend redirige acá con
+  // ?metaConnected=true o ?metaError=<mensaje>. Mismo patrón que
+  // BranchFormPage con Google Calendar.
+  const [searchParams] = useSearchParams();
+  const resultadoDelCallback = {
+    conectado: searchParams.get("metaConnected") === "true",
+    error: searchParams.get("metaError"),
+  };
 
   const [values, setValues] = useFormDraft<OrganizationFormValues>(
     settingsQuery.data?.id,
@@ -161,6 +171,8 @@ export function OrganizationSettingsPage() {
             </ul>
           )}
         </Card>
+
+        <MetaConnectionSection resultadoDelCallback={resultadoDelCallback} />
 
         {error ? <ErrorState>{error}</ErrorState> : null}
 

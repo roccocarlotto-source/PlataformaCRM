@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
@@ -18,14 +19,24 @@ vi.mock("../../auth/getAccessToken", () => ({
 const baseUrl = `${env.apiUrl}/api/organization`;
 
 // ToastProvider como en App.tsx: la página llama a useToast() y sin el
-// provider falla ruidosamente (ver design-system/useToast.ts). Sin router:
-// la página no navega (es un singleton que se edita en el lugar).
-function renderPage() {
+// provider falla ruidosamente (ver design-system/useToast.ts). MemoryRouter
+// desde el ítem 173: la página lee la vuelta del callback de Meta de la query
+// string. La sección de Facebook consulta GET /integrations/meta; el default
+// es "nunca se conectó" (404). Sus estados los cubre
+// MetaConnectionSection.test.tsx.
+function renderPage(initialEntry = "/organization") {
+  server.use(
+    http.get(`${env.apiUrl}/api/integrations/meta`, () =>
+      HttpResponse.json({ error: { message: "Sin conexión" } }, { status: 404 }),
+    ),
+  );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <OrganizationSettingsPage />
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <OrganizationSettingsPage />
+        </MemoryRouter>
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -197,5 +208,22 @@ describe("OrganizationSettingsPage — guardado", () => {
     expect(screen.getByRole("status")).toHaveTextContent("");
     // El formulario sigue editable con lo elegido: no se pierde nada.
     expect(screen.getByLabelText("Moneda alternativa")).toHaveValue("USD");
+  });
+});
+
+describe("OrganizationSettingsPage — Facebook e Instagram (ítem 173)", () => {
+  it("la sección de Facebook es una tarjeta más de la pantalla y lee la vuelta del callback de la URL", async () => {
+    mockSettings(makeOrganizationSettings());
+    renderPage("/organization?metaError=" + encodeURIComponent("Se canceló la autorización"));
+
+    expect(
+      await screen.findByRole("heading", { name: "Facebook e Instagram" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("No se pudo conectar Facebook: Se canceló la autorización"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Conectar con Facebook" }),
+    ).toBeInTheDocument();
   });
 });

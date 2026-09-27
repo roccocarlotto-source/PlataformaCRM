@@ -6,12 +6,14 @@ import type { ConversationChannel } from "./types";
 // —mismo criterio que opportunity/labels.ts y contact/labels.ts— para que el
 // listado y el formulario nombren cada valor igual sin importarse entre sí.
 
-// Canales del enum ConversationChannel. Son dos y están fijos en el schema de
-// Prisma: acá no hay riesgo de desincronización como en tools.ts, un canal
-// nuevo es una migración.
+// Canales del enum ConversationChannel. Están fijos en el schema de Prisma
+// (Messenger e Instagram se sumaron en el ítem 169): acá no hay riesgo de
+// desincronización como en tools.ts, un canal nuevo es una migración.
 export const CHANNEL_OPTIONS: MultiSelectOption<ConversationChannel>[] = [
   { value: "WHATSAPP", label: "WhatsApp" },
   { value: "WEB", label: "Web" },
+  { value: "MESSENGER", label: "Messenger" },
+  { value: "INSTAGRAM", label: "Instagram" },
 ];
 
 // Derivado de la lista de arriba, no escrito de nuevo: un rótulo que cambie se

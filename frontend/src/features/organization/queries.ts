@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getOrganizationSettings } from "./api";
+import { getMetaConnection, getOrganizationSettings } from "./api";
 
 // Una sola clave: la configuración es un singleton por organización (no hay
 // lista ni detail por id). Sin namespacing por organizationId, por el mismo
@@ -8,6 +8,7 @@ import { getOrganizationSettings } from "./api";
 export const organizationKeys = {
   all: ["organization"] as const,
   settings: () => [...organizationKeys.all, "settings"] as const,
+  metaConnection: () => [...organizationKeys.all, "meta-connection"] as const,
 };
 
 // La consumen dos pantallas con necesidades distintas: la página de
@@ -18,5 +19,16 @@ export function useOrganizationSettings() {
   return useQuery({
     queryKey: organizationKeys.settings(),
     queryFn: ({ signal }) => getOrganizationSettings(signal),
+  });
+}
+
+// El estado de la conexión con la página de Facebook (ítem 173). null = nunca
+// se conectó (ver getMetaConnection). A diferencia de Google Calendar no hace
+// falta refetch al volver el foco: la conexión se completa navegando esta
+// misma pestaña, que al volver carga la pantalla de cero.
+export function useMetaConnection() {
+  return useQuery({
+    queryKey: organizationKeys.metaConnection(),
+    queryFn: ({ signal }) => getMetaConnection(signal),
   });
 }
