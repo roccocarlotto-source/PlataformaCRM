@@ -176,7 +176,7 @@ sepa que existen y qué tocan:
 | `INGEST_WORKER_ENABLED`, `INGEST_WORKER_POLL_MS`, `INGEST_WORKER_BATCH_SIZE` | `true` / 5 000 / 50 | Worker de ingesta |
 | `INGEST_MAX_ATTEMPTS`, `INGEST_BACKOFF_BASE_MS`, `INGEST_BACKOFF_MAX_MS` | 5 / 30 000 / 900 000 | Reintentos de la promoción |
 | `OUTBOX_WORKER_ENABLED`, `OUTBOX_WORKER_POLL_MS`, `OUTBOX_WORKER_BATCH_SIZE` | `true` / 5 000 / 20 | Worker de eventos salientes |
-| `OUTBOX_MAX_ATTEMPTS`, `OUTBOX_BACKOFF_BASE_MS`, `OUTBOX_BACKOFF_MAX_MS`, `OUTBOX_HANDLER_TIMEOUT_MS` | 5 / 30 000 / 900 000 / 10 000 | Reintentos y tope por entrega |
+| `OUTBOX_MAX_ATTEMPTS`, `OUTBOX_BACKOFF_BASE_MS`, `OUTBOX_BACKOFF_MAX_MS`, `OUTBOX_HANDLER_TIMEOUT_MS` | 5 / 30 000 / 900 000 / 200 000 | Reintentos y tope por entrega (ítem 166: por encima del peor caso del LLM) |
 | `GOOGLE_CHANNEL_WORKER_ENABLED`, `GOOGLE_CHANNEL_WORKER_POLL_MS`, `GOOGLE_CHANNEL_RENEW_MARGIN_MS`, `GOOGLE_CHANNEL_TTL_SECONDS` | `true` / 3 600 000 / 86 400 000 / 604 800 | Renovación de canales de Google |
 | `EXCHANGE_RATE_WORKER_ENABLED`, `EXCHANGE_RATE_WORKER_POLL_MS` | `true` / 86 400 000 | Worker de cotizaciones (open.er-api.com, sin clave) |
 | `SHUTDOWN_TIMEOUT_MS` | 8 000 | Tope del apagado ordenado — ver 2.1 |
