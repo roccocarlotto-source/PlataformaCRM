@@ -1,4 +1,6 @@
 import { prisma } from "../lib/prisma";
+import { countAgentsByBranch } from "../repositories/agent.repository";
+import { countConfirmedBookingsOf } from "../repositories/booking.repository";
 import {
   countBranches,
   createBranch as createBranchRepo,
@@ -11,9 +13,11 @@ import {
   type SortOrder,
 } from "../repositories/branch.repository";
 import { countConnectionsWithSecretByBranch } from "../repositories/googleCalendarConnection.repository";
+import { countKnowledgeBaseEntriesByBranch } from "../repositories/knowledgeBaseEntry.repository";
 import { countActiveQrCodesByBranch } from "../repositories/qrCode.repository";
 import { countActiveResourcesByBranch } from "../repositories/resource.repository";
 import { countActiveServiceTypesByBranch } from "../repositories/serviceType.repository";
+import { countVehiclesInStockByBranch } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
 import { validarUsuarioAsignable } from "./ownership.service";
 
@@ -148,7 +152,8 @@ export async function updateBranch(organizationId: string, id: string, input: Up
 }
 
 // RESTRICT lógico, el criterio ya establecido en ALTO-8: no se borra una
-// sucursal que tiene recursos, servicios o QRs activos colgando, ni Google
+// sucursal que tiene recursos, servicios o QRs activos colgando, agentes,
+// stock, entradas de la KB o reservas confirmadas (ítem 167), ni Google
 // Calendar todavía conectado. Mismo formato de error que "el último pipeline"
 // y que los dos RESTRICT de ALTO-8: AppError con 400.
 //
@@ -217,6 +222,82 @@ export async function deleteBranch(organizationId: string, id: string) {
       );
     }
 
+    // DEL QUINTO AL OCTAVO RESTRICT — ítem 167 de
+    // docs/frontend-cambios-pendientes.md (C-03 de la auditoría). Mismo
+    // problema que los QRs, con datos que importan más: sin estos chequeos se
+    // podía borrar una sucursal que en ese mismo momento estaba atendiendo
+    // WhatsApp (el Agent quedaba con un branchId que ya no resuelve), con stock
+    // que desaparecía del resto de la API, o con reservas confirmadas de
+    // clientes que iban a venir igual. Todos son datos que hay que migrar o
+    // borrar a mano, así que van junto a recursos, servicios y QRs, antes de
+    // Google Calendar — mismo criterio de orden que se explica ahí abajo.
+    //
+    // SIN RESTRICT DE CONVERSACIONES ABIERTAS, aunque el ítem lo pedía: hoy
+    // nada pasa una conversación a CLOSED (ni endpoint ni proceso), así que
+    // ese chequeo bloquearía para siempre a toda sucursal que alguna vez tuvo
+    // un agente atendiendo. Queda pendiente hasta que exista cómo cerrarlas.
+    // Mientras tanto, el chequeo de agentes cubre el caso que importa: sin
+    // agente en la sucursal no nacen conversaciones nuevas en ella.
+    //
+    // QUÉ ESTÁ SERIALIZADO CON EL LOCK Y QUÉ NO. createAgent
+    // (agent.service.ts) y la alta manual de una entrada de la KB
+    // (knowledgeBaseEntry.service.ts) ya toman lockBranchForUpdate, así que
+    // esos dos conteos no se pueden quedar viejos: un alta concurrente espera a
+    // que este borrado termine y después falla la revalidación de sucursal.
+    //
+    // VENTANA CONOCIDA Y ACEPTADA: la creación de un Vehicle o de un Booking
+    // (y el traslado de un Vehicle, que acepta branchId en el PATCH) NO toma
+    // lockBranchForUpdate. Un alta de cualquiera de los dos justo en el
+    // instante del borrado puede colarse entre este conteo y el commit, y
+    // dejar la fila apuntando a una sucursal borrada — la misma inconsistencia
+    // que este RESTRICT evita en el caso normal. Cerrarla exige sumarles el
+    // lock a vehicle.service.ts y booking.service.ts, cuyas creaciones no
+    // pasan hoy por ninguna transacción con la sucursal; es más cambio del que
+    // pidió el ítem 167 y queda documentada acá, no cerrada.
+
+    // Cualquier agente, activo o no: uno inactivo sigue siendo una fila que
+    // quedaría apuntando a la sucursal borrada. Va primero de los cuatro
+    // porque es el que para la atención en vivo.
+    const agentes = await countAgentsByBranch(id, organizationId, tx);
+    if (agentes > 0) {
+      throw new AppError(
+        "No se puede eliminar una sucursal que tiene agentes. Eliminá primero sus agentes.",
+        400,
+      );
+    }
+
+    // SOLD y DELIVERED no bloquean: esa unidad ya no está en la sucursal.
+    const vehiculosEnStock = await countVehiclesInStockByBranch(id, organizationId, tx);
+    if (vehiculosEnStock > 0) {
+      throw new AppError(
+        "No se puede eliminar una sucursal que tiene vehículos en stock. Eliminá primero sus vehículos o pasalos a otra sucursal.",
+        400,
+      );
+    }
+
+    // Manuales o generadas por la sincronización del stock (ítem 132): las
+    // dos quedarían huérfanas.
+    const entradasDeKb = await countKnowledgeBaseEntriesByBranch(id, organizationId, tx);
+    if (entradasDeKb > 0) {
+      throw new AppError(
+        "No se puede eliminar una sucursal que tiene entradas en la base de conocimiento. Eliminá primero sus entradas.",
+        400,
+      );
+    }
+
+    // Solo CONFIRMED, mismo criterio que el RESTRICT de deleteServiceType.
+    const reservasConfirmadas = await countConfirmedBookingsOf(
+      { branchId: id },
+      organizationId,
+      tx,
+    );
+    if (reservasConfirmadas > 0) {
+      throw new AppError(
+        "No se puede eliminar una sucursal que tiene reservas confirmadas. Cancelalas primero.",
+        400,
+      );
+    }
+
     // CUARTO RESTRICT (P2.1, paso 2): no se borra una sucursal que todavía tiene
     // Google Calendar conectado. La conexión guarda una credencial viva sobre la
     // cuenta de Google del negocio, y borrar la sucursal la dejaría huérfana:
@@ -234,10 +315,11 @@ export async function deleteBranch(organizationId: string, id: string) {
     // desconectar() acepta una conexión en ERROR (solo rechaza REVOKED) y pone
     // el token en NULL; después de eso, el borrado procede.
     //
-    // VA ÚLTIMO, después de recursos, servicios y QRs, y no es indiferente: los
-    // cuatro mensajes son excluyentes —se devuelve el primero que dispara— así
-    // que el orden decide cuál ve el ADMIN. Recursos, servicios y QRs son datos
-    // que hay que migrar o borrar a mano; desconectar Google es un click.
+    // VA ÚLTIMO, después de recursos, servicios, QRs y los cuatro del ítem 167,
+    // y no es indiferente: los mensajes son excluyentes —se devuelve el primero
+    // que dispara— así que el orden decide cuál ve el ADMIN. Todo lo anterior
+    // son datos que hay que migrar o borrar a mano; desconectar Google es un
+    // click.
     // Empezar por lo caro deja el trámite corto para el final, en vez de
     // hacerle desconectar Google para descubrir recién ahí que igual no puede
     // borrar la sucursal.

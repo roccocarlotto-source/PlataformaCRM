@@ -3,6 +3,7 @@ import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import {
   CONTACTO_CON_OPORTUNIDADES_ABIERTAS,
+  CONTACTO_CON_RESERVAS_CONFIRMADAS,
   createContact,
   deleteContact,
 } from "./contact.service";
@@ -13,6 +14,8 @@ import {
 } from "./company.service";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
 import { createPipeline, PIPELINE_DEFAULT_SIN_ETAPAS, updatePipeline } from "./pipeline.service";
+import { createResource } from "./resource.service";
+import { createServiceType } from "./serviceType.service";
 import { createStage, deleteStage, ULTIMA_ETAPA_DEL_DEFAULT } from "./stage.service";
 import { listVehicles } from "./vehicle.service";
 import {
@@ -46,6 +49,9 @@ before(async () => {
 after(async () => {
   if (!e) return;
   const where = { organizationId: e.organizationId };
+  await prisma.booking.deleteMany({ where });
+  await prisma.serviceType.deleteMany({ where });
+  await prisma.resource.deleteMany({ where });
   await prisma.opportunity.deleteMany({ where });
   await prisma.vehicle.deleteMany({ where });
   await prisma.stage.deleteMany({ where });
@@ -112,6 +118,60 @@ test("ítem 155: con la oportunidad cerrada, o sin oportunidades, la baja proced
 
   const empresa = await createCompany(e.organizationId, e.userId, { name: "Empresa sin nada" });
   await deleteCompany(e.organizationId, empresa.id);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 167 de docs/frontend-cambios-pendientes.md (C-04 de la auditoría) —
+// contacto con reservas confirmadas
+// ---------------------------------------------------------------------------
+
+async function reservaDe(contactId: string, status: "CONFIRMED" | "CANCELLED") {
+  seq++;
+  const recurso = await createResource(e.organizationId, {
+    branchId: e.branchId,
+    name: `Recurso ${seq}`,
+    type: "PERSON",
+  });
+  const servicio = await createServiceType(e.organizationId, {
+    branchId: e.branchId,
+    resourceId: recurso.id,
+    name: `Servicio ${seq}`,
+    durationMin: 30,
+  });
+  await prisma.booking.create({
+    data: {
+      organizationId: e.organizationId,
+      branchId: e.branchId,
+      resourceId: recurso.id,
+      serviceTypeId: servicio.id,
+      contactId,
+      startsAt: new Date("2026-10-05T12:00:00Z"),
+      endsAt: new Date("2026-10-05T12:30:00Z"),
+      status,
+    },
+  });
+}
+
+test("ítem 167: dar de baja un contacto con una reserva confirmada es 409 y no lo borra", async () => {
+  const c = await contacto();
+  await reservaDe(c.id, "CONFIRMED");
+
+  assertAppError(
+    await capturar(() => deleteContact(e.organizationId, c.id)),
+    409,
+    CONTACTO_CON_RESERVAS_CONFIRMADAS,
+  );
+  const releido = await prisma.contact.findUniqueOrThrow({ where: { id: c.id } });
+  assert.equal(releido.deletedAt, null);
+});
+
+test("ítem 167: con la reserva cancelada la baja procede", async () => {
+  const c = await contacto();
+  await reservaDe(c.id, "CANCELLED");
+
+  await deleteContact(e.organizationId, c.id);
+  const releido = await prisma.contact.findUniqueOrThrow({ where: { id: c.id } });
+  assert.ok(releido.deletedAt !== null);
 });
 
 // ---------------------------------------------------------------------------

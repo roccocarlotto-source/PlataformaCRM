@@ -71,6 +71,20 @@ export function countKnowledgeBaseEntries(
   return db.knowledgeBaseEntry.count({ where: buildWhere(organizationId, filters) });
 }
 
+// Entradas de la Knowledge Base de una sucursal — el conteo del RESTRICT de
+// deleteBranch (ítem 167, C-03 de la auditoría). Manuales o generadas por la
+// sincronización del stock (ítem 132): las dos son datos reales que quedarían
+// huérfanos. Activas o no, mismo criterio que countAgentsByBranch: solo el
+// soft delete las saca. organizationId en el WHERE por el mismo motivo que
+// countActiveResourcesByBranch.
+export function countKnowledgeBaseEntriesByBranch(
+  branchId: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.knowledgeBaseEntry.count({ where: { branchId, organizationId, deletedAt: null } });
+}
+
 export function findKnowledgeBaseEntryById(id: string, organizationId: string, db: Db = prisma) {
   return db.knowledgeBaseEntry.findFirst({ where: { id, organizationId, deletedAt: null } });
 }

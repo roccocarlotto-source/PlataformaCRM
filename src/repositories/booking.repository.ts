@@ -143,6 +143,20 @@ export function countActiveBookingsByServiceType(
   });
 }
 
+// Reservas CONFIRMADAS de una sucursal o de un contacto — los conteos de los
+// RESTRICT de deleteBranch y deleteContact (ítem 167, C-03/C-04 de la
+// auditoría). Mismo criterio exacto que countActiveBookingsByServiceType:
+// COMPLETED, NO_SHOW y CANCELLED son historia, no reservas vivas.
+// organizationId en el WHERE por el mismo motivo que
+// countActiveResourcesByBranch.
+export function countConfirmedBookingsOf(
+  where: { branchId: string } | { contactId: string },
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.booking.count({ where: { ...where, organizationId, status: "CONFIRMED" } });
+}
+
 export interface CreateBookingData {
   organizationId: string;
   branchId: string;

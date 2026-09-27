@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { Prisma } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import { AppError } from "../utils/AppError";
 import {
+  CONTACTO_CON_OPORTUNIDADES_ABIERTAS,
+  CONTACTO_CON_RESERVAS_CONFIRMADAS,
+  deleteContact,
   identidadAplicable,
   nombreEsUnMarcador,
   normalizeEmail,
@@ -192,4 +196,72 @@ test("lo que se guarda va trimeado", () => {
   assert.deepEqual(identidadAplicable(MARCADOR, { firstName: "  Diego  " }).aplica, {
     firstName: "Diego",
   });
+});
+
+// --------------------------------------------------------------------------
+// deleteContact — los RESTRICT de oportunidades abiertas (ítem 155) y de
+// reservas confirmadas (ítem 167, C-04 de la auditoría), sin base: el cliente
+// de Prisma se reemplaza por uno en memoria que responde cada conteo con lo
+// que el test le pida. Que Postgres cuente esas filas lo cubre
+// crmIntegridad.integration-test.ts.
+// --------------------------------------------------------------------------
+
+function baseDeContactoFalsa(conteos: { opportunity?: number; booking?: number } = {}) {
+  const borrados: unknown[] = [];
+  const p = prisma as unknown as Record<string, unknown>;
+  mock.property(p, "contact", {
+    findFirst: async () => ({ id: "contact-1", organizationId: "org-a" }),
+    updateMany: async (args: unknown) => {
+      borrados.push(args);
+      return { count: 1 };
+    },
+  });
+  mock.property(p, "opportunity", { count: async () => conteos.opportunity ?? 0 });
+  mock.property(p, "booking", { count: async () => conteos.booking ?? 0 });
+  return { borrados };
+}
+
+async function capturarRechazo(fn: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await fn();
+  } catch (err) {
+    return err;
+  }
+  assert.fail("se esperaba un error");
+}
+
+test("deleteContact con reservas confirmadas: 409 con su mensaje, y no borra", async () => {
+  try {
+    const { borrados } = baseDeContactoFalsa({ booking: 1 });
+    const err = await capturarRechazo(() => deleteContact("org-a", "contact-1"));
+    assert.ok(err instanceof AppError);
+    assert.equal(err.statusCode, 409);
+    assert.equal(err.message, CONTACTO_CON_RESERVAS_CONFIRMADAS);
+    assert.equal(borrados.length, 0);
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("deleteContact con oportunidades abiertas sigue dando su propio 409", async () => {
+  try {
+    const { borrados } = baseDeContactoFalsa({ opportunity: 1, booking: 1 });
+    const err = await capturarRechazo(() => deleteContact("org-a", "contact-1"));
+    assert.ok(err instanceof AppError);
+    assert.equal(err.statusCode, 409);
+    assert.equal(err.message, CONTACTO_CON_OPORTUNIDADES_ABIERTAS);
+    assert.equal(borrados.length, 0);
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("deleteContact sin oportunidades abiertas ni reservas confirmadas lo da de baja", async () => {
+  try {
+    const { borrados } = baseDeContactoFalsa();
+    await deleteContact("org-a", "contact-1");
+    assert.equal(borrados.length, 1);
+  } finally {
+    mock.restoreAll();
+  }
 });

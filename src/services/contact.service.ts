@@ -1,5 +1,6 @@
 import { Prisma, type LeadUrgency, type LifecycleStage } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { countConfirmedBookingsOf } from "../repositories/booking.repository";
 import { findCompanyById } from "../repositories/company.repository";
 import {
   countContacts,
@@ -257,6 +258,9 @@ export async function updateContact(
 export const CONTACTO_CON_OPORTUNIDADES_ABIERTAS =
   "Este contacto tiene oportunidades abiertas: cerralas o pasalas a otro contacto antes de darlo de baja";
 
+export const CONTACTO_CON_RESERVAS_CONFIRMADAS =
+  "Este contacto tiene reservas confirmadas: cancelalas antes de darlo de baja";
+
 export async function deleteContact(organizationId: string, id: string) {
   await getContactById(organizationId, id);
   // Ítem 155 de docs/matriz-de-datos-crm.md: darlo de baja dejaba sus
@@ -265,6 +269,18 @@ export async function deleteContact(organizationId: string, id: string) {
   // de datos personales a pedido (erasePersonalData) no pasa por acá.
   if ((await countOpenOpportunitiesOf({ contactId: id }, organizationId)) > 0) {
     throw new AppError(CONTACTO_CON_OPORTUNIDADES_ABIERTAS, 409);
+  }
+  // Ítem 167 de docs/frontend-cambios-pendientes.md (C-04 de la auditoría):
+  // mismo RESTRICT para sus reservas CONFIRMADAS — un cliente que va a venir
+  // no se da de baja con el turno colgando. Mismo criterio que el RESTRICT de
+  // deleteServiceType: las COMPLETED, NO_SHOW y CANCELLED son historia.
+  //
+  // SIN RESTRICT DE CONVERSACIONES ABIERTAS, aunque el ítem lo pedía: hoy
+  // nada pasa una conversación a CLOSED, así que bloquearía para siempre a
+  // todo contacto que alguna vez escribió. Queda pendiente hasta que exista
+  // cómo cerrarlas.
+  if ((await countConfirmedBookingsOf({ contactId: id }, organizationId)) > 0) {
+    throw new AppError(CONTACTO_CON_RESERVAS_CONFIRMADAS, 409);
   }
   const result = await softDeleteContact(id, organizationId);
   if (result.count === 0) {
