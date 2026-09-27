@@ -15,13 +15,18 @@ import {
 import { firmarMetaState, resetClaveDeFirmaMetaParaTests } from "../utils/metaOauthState";
 import { MetaAuthError, type ClienteMetaOAuth, type PaginaAutorizada } from "./metaOAuth.service";
 import {
+  MENSAJE_CONEXION_INACTIVA,
   MENSAJE_PAGINA_DE_OTRA_CUENTA,
+  MENSAJE_PAGINA_RECONECTADA,
+  MENSAJE_SIN_CONEXION_PARA_ENVIAR,
   MENSAJE_SIN_PAGINAS,
   MENSAJE_VARIAS_PAGINAS,
   completarConexion,
   desconectar,
   iniciarConexion,
+  marcarTokenRechazado,
   obtenerConexion,
+  obtenerTokenParaEnviar,
 } from "./metaPageConnection.service";
 
 // ---------------------------------------------------------------------------
@@ -432,4 +437,81 @@ test("obtenerConexion sin conexión → 404; con conexión, la devuelve", async 
   baseFalsa({ conexion: { organizationId: ORG, pageId: "111", status: "ACTIVE" } });
   const conexion = await obtenerConexion(ORG);
   assert.equal(conexion.pageId, "111");
+});
+
+// ---------------------------------------------------------------------------
+// obtenerTokenParaEnviar / marcarTokenRechazado (ítem 172)
+// ---------------------------------------------------------------------------
+
+test("obtenerTokenParaEnviar: sin conexión → 404 legible", async () => {
+  baseFalsa({ conexion: null });
+  assertAppError(
+    await capturar(() => obtenerTokenParaEnviar(ORG, "111")),
+    404,
+    MENSAJE_SIN_CONEXION_PARA_ENVIAR,
+  );
+});
+
+test("obtenerTokenParaEnviar: la organización reconectó OTRA página → 409, aunque la nueva esté ACTIVE", async () => {
+  baseFalsa({
+    conexion: {
+      organizationId: ORG,
+      pageId: "222",
+      status: "ACTIVE",
+      pageAccessToken: getCifrador().encrypt("token-de-la-222"),
+    },
+  });
+  assertAppError(
+    await capturar(() => obtenerTokenParaEnviar(ORG, "111")),
+    409,
+    MENSAJE_PAGINA_RECONECTADA,
+  );
+});
+
+test("obtenerTokenParaEnviar: REVOKED o ERROR → 409 'hay que reconectarla'", async () => {
+  for (const conexion of [
+    { status: "REVOKED", pageAccessToken: null },
+    { status: "ERROR", pageAccessToken: getCifrador().encrypt("token-viejo") },
+  ]) {
+    mock.restoreAll();
+    baseFalsa({ conexion: { organizationId: ORG, pageId: "111", ...conexion } });
+    assertAppError(
+      await capturar(() => obtenerTokenParaEnviar(ORG, "111")),
+      409,
+      MENSAJE_CONEXION_INACTIVA,
+    );
+  }
+});
+
+test("obtenerTokenParaEnviar: ACTIVE sin token (lo que el CHECK impide) → 409, sin intentar descifrar", async () => {
+  baseFalsa({
+    conexion: { organizationId: ORG, pageId: "111", status: "ACTIVE", pageAccessToken: null },
+  });
+  assertAppError(await capturar(() => obtenerTokenParaEnviar(ORG, "111")), 409);
+});
+
+test("obtenerTokenParaEnviar: camino feliz → el token DESCIFRADO", async () => {
+  baseFalsa({
+    conexion: {
+      organizationId: ORG,
+      pageId: "111",
+      status: "ACTIVE",
+      pageAccessToken: getCifrador().encrypt("page-token-111"),
+    },
+  });
+  assert.equal(await obtenerTokenParaEnviar(ORG, "111"), "page-token-111");
+});
+
+test("marcarTokenRechazado: ERROR solo sobre ESA página y nunca sobre una REVOKED, conservando el token", async () => {
+  const base = baseFalsa();
+  await marcarTokenRechazado(ORG, "111", "Meta rechazó el token");
+  assert.equal(base.revocaciones.length, 1);
+  const { where, data } = base.revocaciones[0] as {
+    where: unknown;
+    data: Record<string, unknown>;
+  };
+  assert.deepEqual(where, { organizationId: ORG, status: { not: "REVOKED" }, pageId: "111" });
+  assert.equal(data.status, "ERROR");
+  assert.equal(data.lastErrorMessage, "Meta rechazó el token");
+  assert.equal("pageAccessToken" in data, false);
 });

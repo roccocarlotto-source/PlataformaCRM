@@ -151,9 +151,24 @@ export function markMetaConnectionRevoked(organizationId: string, db: Db = prism
 // El motivo se trunca a 500 para entrar en la columna: truncar acá es la
 // diferencia entre registrar el error y que la escritura del error falle por
 // su propio largo.
-export function markMetaConnectionError(organizationId: string, motivo: string, db: Db = prisma) {
+//
+// Desde el ítem 172 la marca el ENVÍO, que lee el token, manda y recién
+// después se entera del rechazo. En ese rato la organización pudo haber
+// desconectado (REVOKED) o reconectado a otra página: por eso nunca pisa una
+// REVOKED, y con `pageId` solo marca si la conexión sigue siendo la de esa
+// página.
+export function markMetaConnectionError(
+  organizationId: string,
+  motivo: string,
+  db: Db = prisma,
+  opciones: { pageId?: string } = {},
+) {
   return db.metaPageConnection.updateMany({
-    where: { organizationId },
+    where: {
+      organizationId,
+      status: { not: "REVOKED" },
+      ...(opciones.pageId !== undefined ? { pageId: opciones.pageId } : {}),
+    },
     data: {
       status: "ERROR",
       lastErrorAt: new Date(),

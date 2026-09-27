@@ -7,15 +7,21 @@ import { prisma } from "../lib/prisma";
 import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { createMetaWebhookRouter } from "../routes/metaWebhook.routes";
+import { resetLlmProviderParaTests, setLlmProviderForTests } from "../services/llmProvider.service";
+import { obtenerTokenParaEnviar } from "../services/metaPageConnection.service";
+import { MetaSendError, type SendMetaTextInput } from "../services/metaSend.service";
+import { getCifrador } from "../utils/encryption";
 import { hmacSha256Hex } from "../utils/hmac";
+import { drenarTurnosPendientes, type DepsDeEnvio } from "../workers/agentInboundWorker";
 import type { MetaWebhookDeps } from "./metaWebhook.controller";
 
 // ---------------------------------------------------------------------------
 // GET y POST /webhooks/meta (ítem 171) por HTTP real, contra Postgres real,
 // con LA MISMA cadena de routes/metaWebhook.routes.ts (vía su factory) y
-// secretos conocidos. El webhook solo ENCOLA; el envío por Messenger e
-// Instagram es el ítem 172, así que acá no se drena la cola: lo que se afirma
-// es lo que el webhook deja escrito.
+// secretos conocidos. El webhook solo ENCOLA. Desde el ítem 172 la cola se
+// drena a mano (drenarTurnosPendientes acotado a la organización del negocio
+// C, que es el único con un Page token cifrado de verdad) con un doble del
+// Send API y un doble del LLM: nunca se habla con Meta ni con OpenRouter.
 //
 // Lo que este archivo fija:
 //   - GET: handshake correcto -> 200 con el challenge crudo; token incorrecto
@@ -30,6 +36,11 @@ import type { MetaWebhookDeps } from "./metaWebhook.controller";
 //     MetaPageConnection, y el job lleva el PAGE ID.
 //   - echo, adjunto sin texto y el mismo mid dos veces -> nada nuevo.
 //   - dos organizaciones: cada webhook resuelve la suya y no mezcla.
+//   - el envío (ítem 172): Messenger e Instagram de punta a punta (turno,
+//     Send API con el token DESCIFRADO al PSID/IGSID, SENT, DONE); rate limit
+//     con 400 -> reintento que reenvía sin otro turno; token rechazado (190)
+//     -> FAILED y la conexión en ERROR, y el siguiente falla sin turno;
+//     página reconectada -> FAILED sin turno ni envío.
 // ---------------------------------------------------------------------------
 
 const VERIFY_TOKEN = "test_meta_verify_token";
@@ -58,10 +69,39 @@ interface Negocio {
 
 let negocioA: Negocio;
 let negocioB: Negocio;
+// El del envío (ítem 172): su conexión guarda TOKEN_DE_PAGINA cifrado.
+let negocioC: Negocio;
+
+const TOKEN_DE_PAGINA = "page-token-en-claro-de-prueba";
+const RESPUESTA_DEL_AGENTE = "¡Hola! ¿En qué te ayudo?";
+
+// Los dobles del Send API y del LLM. `falloDelEnvio` hace que el próximo
+// envío lo rechace Meta con ese error (y se consume).
+let enviadosAMeta: SendMetaTextInput[] = [];
+let falloDelEnvio: MetaSendError | null = null;
+let llamadasAlLlm = 0;
+
+const depsDeEnvio: DepsDeEnvio = {
+  accessToken: () => undefined,
+  sendText: () => Promise.reject(new Error("un job de Meta no manda por WhatsApp")),
+  downloadMedia: () => Promise.reject(new Error("solo texto")),
+  // El REAL: lee la MetaPageConnection y descifra.
+  pageAccessToken: obtenerTokenParaEnviar,
+  sendMetaText: async (input) => {
+    if (falloDelEnvio) {
+      const err = falloDelEnvio;
+      falloDelEnvio = null;
+      throw err;
+    }
+    enviadosAMeta.push(input);
+  },
+};
 let baseUrl: string;
 let closeApp: () => Promise<void>;
 
-async function crearNegocio(nombre: string): Promise<Negocio> {
+// `tokenEnClaro`: el Page token que el worker va a descifrar (ítem 172). Sin
+// él, un valor cualquiera que solo satisface el CHECK de "ACTIVE exige token".
+async function crearNegocio(nombre: string, tokenEnClaro?: string): Promise<Negocio> {
   const org = await prisma.organization.create({
     data: {
       name: `Meta webhook ${nombre} ${randomUUID()}`,
@@ -91,9 +131,8 @@ async function crearNegocio(nombre: string): Promise<Negocio> {
     data: {
       organizationId: org.id,
       pageId,
-      // El webhook no lo lee: el envío es el ítem 172. Cualquier valor
-      // satisface el CHECK de "ACTIVE exige token".
-      pageAccessToken: "v1.cifrado-de-prueba",
+      pageAccessToken:
+        tokenEnClaro !== undefined ? getCifrador().encrypt(tokenEnClaro) : "v1.cifrado-de-prueba",
       instagramBusinessAccountId: igId,
       status: "ACTIVE",
     },
@@ -119,11 +158,21 @@ before(async () => {
 
   negocioA = await crearNegocio("A");
   negocioB = await crearNegocio("B");
+  negocioC = await crearNegocio("C", TOKEN_DE_PAGINA);
+
+  setLlmProviderForTests({
+    name: "doble",
+    async complete() {
+      llamadasAlLlm++;
+      return { text: RESPUESTA_DEL_AGENTE, toolCalls: [] };
+    },
+  });
 });
 
 after(async () => {
+  resetLlmProviderParaTests();
   if (closeApp) await closeApp();
-  const ids = [negocioA?.orgId, negocioB?.orgId].filter(Boolean) as string[];
+  const ids = [negocioA?.orgId, negocioB?.orgId, negocioC?.orgId].filter(Boolean) as string[];
   if (ids.length === 0) return;
   const where = { organizationId: { in: ids } };
   // Antes que messages: las dos FKs de la cola apuntan ahí.
@@ -469,4 +518,168 @@ test("un contacto borrado que vuelve a escribir: contacto nuevo, la identidad ap
     where: { id: entrante.conversationId },
   });
   assert.equal(conversacion.contactId, nuevo.id);
+});
+
+// ---------------------------------------------------------------------------
+// El envío (ítem 172). Todo sobre el negocio C, y el drenado acotado a su
+// organización: los demás casos dejan jobs en A y B que nadie drena.
+// ---------------------------------------------------------------------------
+
+function drenarC() {
+  return drenarTurnosPendientes({ organizationId: negocioC.orgId, deps: depsDeEnvio });
+}
+
+async function jobDe(mid: string) {
+  const [entrante] = await mensajesCon(mid);
+  assert.ok(entrante, `el entrante ${mid} se registró`);
+  const [job] = await prisma.agentInboundJob.findMany({ where: { messageId: entrante.id } });
+  return { entrante, job };
+}
+
+function reiniciarDobles() {
+  enviadosAMeta = [];
+  falloDelEnvio = null;
+  llamadasAlLlm = 0;
+}
+
+async function restaurarConexionC() {
+  await prisma.metaPageConnection.update({
+    where: { organizationId: negocioC.orgId },
+    data: {
+      pageId: negocioC.pageId,
+      status: "ACTIVE",
+      pageAccessToken: getCifrador().encrypt(TOKEN_DE_PAGINA),
+      lastErrorAt: null,
+      lastErrorMessage: null,
+    },
+  });
+}
+
+for (const canal of ["MESSENGER", "INSTAGRAM"] as const) {
+  test(`${canal} de punta a punta: turno, respuesta por el Send API con el token DESCIFRADO al ${canal === "MESSENGER" ? "PSID" : "IGSID"}, SENT y DONE`, async () => {
+    reiniciarDobles();
+    const remitente = idAlAzar(canal === "MESSENGER" ? "2" : "3");
+    const mid = `m_${randomUUID()}`;
+    const res = await enviar(
+      payload({
+        object: canal === "MESSENGER" ? "page" : "instagram",
+        cuentaId: canal === "MESSENGER" ? negocioC.pageId : negocioC.igId,
+        senderId: remitente,
+        mid,
+      }),
+    );
+    assert.equal(res.status, 200);
+
+    const resumen = await drenarC();
+    assert.equal(resumen.respondidos, 1);
+    assert.equal(resumen.fallidos, 0);
+    assert.equal(llamadasAlLlm, 1);
+    assert.deepEqual(enviadosAMeta, [
+      { pageAccessToken: TOKEN_DE_PAGINA, recipientId: remitente, text: RESPUESTA_DEL_AGENTE },
+    ]);
+
+    const { entrante, job } = await jobDe(mid);
+    assert.equal(job.status, "DONE");
+    const [saliente] = await prisma.message.findMany({
+      where: { conversationId: entrante.conversationId, direction: "OUTBOUND" },
+    });
+    assert.equal(saliente.content, RESPUESTA_DEL_AGENTE);
+    assert.equal(saliente.deliveryStatus, "SENT");
+  });
+}
+
+test("rate limit de Meta con HTTP 400 (código 613) -> reintento con backoff que REENVÍA sin otro turno", async () => {
+  reiniciarDobles();
+  falloDelEnvio = new MetaSendError(400, '{"error":{"code":613}}', 613, null);
+  const mid = `m_${randomUUID()}`;
+  await enviar(
+    payload({ object: "page", cuentaId: negocioC.pageId, senderId: idAlAzar("4"), mid }),
+  );
+
+  const primera = await drenarC();
+  assert.equal(primera.pospuestos, 1);
+  const { job } = await jobDe(mid);
+  assert.equal(job.status, "PENDING");
+  const saliente = await prisma.message.findUniqueOrThrow({
+    where: { id: job.responseMessageId ?? "" },
+  });
+  assert.equal(saliente.deliveryStatus, "FAILED");
+
+  await prisma.agentInboundJob.updateMany({
+    where: { organizationId: negocioC.orgId, status: "PENDING" },
+    data: { nextAttemptAt: new Date(Date.now() - 1000) },
+  });
+  const segunda = await drenarC();
+  assert.equal(segunda.respondidos, 1);
+  assert.equal(llamadasAlLlm, 1, "el reintento no corrió otro turno");
+  assert.equal(enviadosAMeta.length, 1);
+  assert.equal((await jobDe(mid)).job.status, "DONE");
+});
+
+test("Meta rechaza el token (190) -> FAILED sin reintentos, la conexión pasa a ERROR, y el siguiente mensaje falla SIN turno", async () => {
+  reiniciarDobles();
+  try {
+    falloDelEnvio = new MetaSendError(
+      401,
+      '{"error":{"message":"Error validating access token","code":190}}',
+      190,
+      null,
+    );
+    const psid = idAlAzar("5");
+    const mid = `m_${randomUUID()}`;
+    await enviar(payload({ object: "page", cuentaId: negocioC.pageId, senderId: psid, mid }));
+
+    const resumen = await drenarC();
+    assert.equal(resumen.fallidos, 1);
+    const { job } = await jobDe(mid);
+    assert.equal(job.status, "FAILED");
+    assert.equal(job.attempts, 1);
+
+    const conexion = await prisma.metaPageConnection.findUniqueOrThrow({
+      where: { organizationId: negocioC.orgId },
+    });
+    assert.equal(conexion.status, "ERROR");
+    assert.match(conexion.lastErrorMessage ?? "", /Error validating access token/);
+    assert.ok(conexion.pageAccessToken, "el ERROR conserva el token");
+
+    // El próximo mensaje ya no gasta un turno: falla en obtenerTokenParaEnviar.
+    llamadasAlLlm = 0;
+    const mid2 = `m_${randomUUID()}`;
+    await enviar(payload({ object: "page", cuentaId: negocioC.pageId, senderId: psid, mid: mid2 }));
+    const siguiente = await drenarC();
+    assert.equal(siguiente.fallidos, 1);
+    assert.equal(llamadasAlLlm, 0, "sin turno del LLM");
+    const { job: job2 } = await jobDe(mid2);
+    assert.equal(job2.status, "FAILED");
+    assert.match(job2.lastError ?? "", /reconectarla/);
+    assert.equal(job2.responseMessageId, null, "no se escribió ninguna respuesta");
+  } finally {
+    await restaurarConexionC();
+  }
+});
+
+test("la organización reconectó OTRA página después de que llegó el mensaje -> FAILED sin turno ni envío", async () => {
+  reiniciarDobles();
+  try {
+    const mid = `m_${randomUUID()}`;
+    await enviar(
+      payload({ object: "page", cuentaId: negocioC.pageId, senderId: idAlAzar("6"), mid }),
+    );
+    // El job ya está encolado con la página vieja; la conexión cambia de página.
+    await prisma.metaPageConnection.update({
+      where: { organizationId: negocioC.orgId },
+      data: { pageId: idAlAzar("1") },
+    });
+
+    const resumen = await drenarC();
+    assert.equal(resumen.fallidos, 1);
+    assert.equal(llamadasAlLlm, 0);
+    assert.equal(enviadosAMeta.length, 0);
+    const { job } = await jobDe(mid);
+    assert.equal(job.status, "FAILED");
+    assert.equal(job.attempts, 1, "permanente: sin reintentos");
+    assert.match(job.lastError ?? "", /OTRA página/);
+  } finally {
+    await restaurarConexionC();
+  }
 });

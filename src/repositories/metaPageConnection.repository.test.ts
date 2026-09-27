@@ -97,6 +97,21 @@ test("markMetaConnectionError: conserva el token y trunca el motivo a 500", asyn
   assert.equal(data.status, "ERROR");
   assert.equal((data.lastErrorMessage as string).length, 500);
   assert.equal("pageAccessToken" in data, false, "el ERROR no toca el token");
+  // Ítem 172: nunca pisa una REVOKED; sin pageId, toda la organización.
+  assert.deepEqual(llamadas[0].args.where, {
+    organizationId: "org-a",
+    status: { not: "REVOKED" },
+  });
+});
+
+test("markMetaConnectionError con pageId (ítem 172): solo si la conexión sigue siendo la de esa página", async () => {
+  const { db, llamadas } = dbQueCaptura();
+  await markMetaConnectionError("org-a", "rechazado", db, { pageId: "111" });
+  assert.deepEqual(llamadas[0].args.where, {
+    organizationId: "org-a",
+    status: { not: "REVOKED" },
+    pageId: "111",
+  });
 });
 
 test("findPageIdByInstagramBusinessAccountId (ítem 171): sin organizationId, sin las REVOKED, solo el pageId y con orden estable", async () => {

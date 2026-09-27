@@ -124,7 +124,9 @@ export class MetaAuthError extends AppError {
 // límite de uso ("Handling errors"): 1 API desconocida/temporal, 2 servicio
 // temporalmente no disponible, 4/17/32/613 rate limits, 341 límite de la
 // aplicación. Reintentar más tarde los resuelve; no son un rechazo del token.
-const CODIGOS_TRANSITORIOS = new Set([1, 2, 4, 17, 32, 341, 613]);
+// Exportada desde el ítem 172: el envío (metaSend.service.ts) clasifica con la
+// misma lista, que la tabla de errores del Send API confirma (2, 4, 613).
+export const CODIGOS_TRANSITORIOS = new Set([1, 2, 4, 17, 32, 341, 613]);
 
 interface ErrorDeGraph {
   message?: unknown;
