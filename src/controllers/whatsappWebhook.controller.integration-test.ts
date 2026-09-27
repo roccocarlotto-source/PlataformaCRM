@@ -16,7 +16,11 @@ import {
   type LlmMessage,
 } from "../services/llmProvider.service";
 import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
-import { MARCADOR_DE_AUDIO, MARCADOR_DE_IMAGEN } from "../services/whatsappWebhook.service";
+import {
+  MARCADOR_DE_AUDIO,
+  MARCADOR_DE_IMAGEN,
+  MARCADOR_DE_UBICACION,
+} from "../services/whatsappWebhook.service";
 import { WHATSAPP_CONTACT_SOURCE } from "../services/whatsappContact.service";
 import { hmacSha256Hex } from "../utils/hmac";
 import { drenarTurnosPendientes, type DepsDeEnvio } from "../workers/agentInboundWorker";
@@ -947,6 +951,74 @@ test("una imagen sin caption -> se persiste el marcador [imagen]", async () => {
   assert.equal((await enviar(payloadDeImagen({ waId, wamid, mediaId: "123" }))).status, 200);
   const entrante = await entranteConWamid(wamid);
   assert.equal(entrante.content, MARCADOR_DE_IMAGEN);
+});
+
+// ---------------------------------------------------------------------------
+// Ubicación (ítem 164)
+// ---------------------------------------------------------------------------
+
+function payloadDeUbicacion(opts: {
+  waId: string;
+  wamid: string;
+  name?: string;
+  address?: string;
+}) {
+  const payload = payloadDeTexto({ waId: opts.waId });
+  (payload.entry[0].changes[0].value as { messages: unknown[] }).messages = [
+    {
+      from: opts.waId,
+      id: opts.wamid,
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      type: "location",
+      location: {
+        latitude: -34.901112,
+        longitude: -56.164532,
+        ...(opts.name === undefined ? {} : { name: opts.name }),
+        ...(opts.address === undefined ? {} : { address: opts.address }),
+      },
+    },
+  ];
+  return payload;
+}
+
+test("una ubicación con nombre y dirección -> se persiste como texto, el job va SIN media, y el modelo la recibe como un string común", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  const esperado = "[ubicación] -34.901112, -56.164532 — Concesionaria Norte (Av. Italia 1234)";
+
+  const res = await enviar(
+    payloadDeUbicacion({ waId, wamid, name: "Concesionaria Norte", address: "Av. Italia 1234" }),
+  );
+  assert.equal(res.status, 200);
+
+  const entrante = await entranteConWamid(wamid);
+  assert.equal(entrante.content, esperado);
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.mediaId, null);
+  assert.equal(job.mediaType, null);
+
+  const resumen = await drenar();
+  assert.equal(resumen.respondidos, 1);
+  assert.deepEqual(descargados, [], "una ubicación no tiene nada que bajar");
+
+  // Mismo contrato que un texto: content string, sin partes multimodales.
+  const ultimo = requestsAlLlm[0].messages.at(-1);
+  assert.equal(ultimo?.role, "user");
+  assert.equal(typeof ultimo.content, "string");
+  assert.ok(typeof ultimo.content === "string" && ultimo.content.includes(esperado));
+  assert.deepEqual(
+    enviados.map((e) => e.body),
+    [RESPUESTA_DEL_AGENTE],
+  );
+});
+
+test("una ubicación sin nombre ni dirección -> se persisten solo las coordenadas", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+
+  assert.equal((await enviar(payloadDeUbicacion({ waId, wamid }))).status, 200);
+  const entrante = await entranteConWamid(wamid);
+  assert.equal(entrante.content, `${MARCADOR_DE_UBICACION} -34.901112, -56.164532`);
 });
 
 test("un phone_number_id sin agente, o de un agente sin el canal WHATSAPP -> 200 sin procesar, y el resto del lote sí", async () => {
