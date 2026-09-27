@@ -1,4 +1,4 @@
-import { AgentInboundJobStatus, Prisma } from "@prisma/client";
+import { AgentInboundJobStatus, Prisma, type ConversationChannel } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
@@ -21,11 +21,16 @@ import { prisma, type Db } from "../lib/prisma";
 // outbox, con un dato que distingue además QUIÉN reclamó.
 // ---------------------------------------------------------------------------
 
+// channelAccountId/externalUserId son genéricos desde el ítem 169 (antes
+// phoneNumberId/waId): la cuenta del negocio y el id del cliente del lado de
+// Meta, según el canal. Ver el modelo AgentInboundJob en schema.prisma.
 export interface CreateAgentInboundJobData {
   organizationId: string;
   messageId: string;
-  phoneNumberId: string;
-  waId: string;
+  // Sin él, la base pone WHATSAPP (el default de la columna).
+  channel?: ConversationChannel;
+  channelAccountId: string;
+  externalUserId: string;
   // Ítem 162: solo para un entrante con adjunto (un audio).
   mediaId?: string;
   mediaType?: string;
@@ -43,8 +48,9 @@ export interface JobReclamado {
   id: string;
   organizationId: string;
   messageId: string;
-  phoneNumberId: string;
-  waId: string;
+  channel: ConversationChannel;
+  channelAccountId: string;
+  externalUserId: string;
   // El valor DESPUÉS del reclamo: es el token que exigen las transiciones.
   attempts: number;
   responseMessageId: string | null;
@@ -54,8 +60,9 @@ interface FilaReclamada {
   id: string;
   organization_id: string;
   message_id: string;
-  phone_number_id: string;
-  wa_id: string;
+  channel: ConversationChannel;
+  channel_account_id: string;
+  external_user_id: string;
   attempts: number;
   response_message_id: string | null;
 }
@@ -115,8 +122,8 @@ export async function claimNextAgentInboundJob(
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     )
-    RETURNING j.id, j.organization_id, j.message_id, j.phone_number_id, j.wa_id,
-              j.attempts, j.response_message_id
+    RETURNING j.id, j.organization_id, j.message_id, j.channel, j.channel_account_id,
+              j.external_user_id, j.attempts, j.response_message_id
   `;
 
   if (filas.length === 0) {
@@ -127,8 +134,9 @@ export async function claimNextAgentInboundJob(
     id: fila.id,
     organizationId: fila.organization_id,
     messageId: fila.message_id,
-    phoneNumberId: fila.phone_number_id,
-    waId: fila.wa_id,
+    channel: fila.channel,
+    channelAccountId: fila.channel_account_id,
+    externalUserId: fila.external_user_id,
     attempts: fila.attempts,
     responseMessageId: fila.response_message_id,
   };

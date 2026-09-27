@@ -451,6 +451,13 @@ test("la asignación del número de WhatsApp por platform admin (ítem 127) est�
   );
 });
 
+test("la asignación de la página de Facebook por platform admin (ítem 169) está montada bajo /api", async () => {
+  const res = await fetch(`${baseUrl}/api/admin/agents/${randomUUID()}/facebook-page`, {
+    method: "PUT",
+  });
+  assert.equal(res.status, 401, "PUT /api/admin/agents/:agentId/facebook-page no está montado");
+});
+
 test("la plantilla de WhatsApp de la organización (ítem 160) está montada bajo /api", async () => {
   const id = randomUUID();
   const casos: [string, string][] = [

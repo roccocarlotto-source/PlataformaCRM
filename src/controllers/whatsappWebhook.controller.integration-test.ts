@@ -475,8 +475,11 @@ test("mensaje de texto de un número nuevo -> el webhook crea el Contact, persis
   const [job] = await jobsDe(entrante.id);
   assert.equal(job.status, "PENDING");
   assert.equal(job.attempts, 0);
-  assert.equal(job.phoneNumberId, fx.phoneNumberId);
-  assert.equal(job.waId, waId);
+  // Ítem 169: las columnas son genéricas; para WhatsApp llevan el
+  // phone_number_id del negocio y el wa_id del cliente, como antes.
+  assert.equal(job.channel, "WHATSAPP");
+  assert.equal(job.channelAccountId, fx.phoneNumberId);
+  assert.equal(job.externalUserId, waId);
 
   const resumen = await drenar();
   assert.equal(resumen.respondidos, 1);

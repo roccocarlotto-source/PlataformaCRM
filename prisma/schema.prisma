@@ -205,9 +205,16 @@ enum BookingStatus {
 
 // En qué canal ocurre una conversación. Un Agent declara en `channels` en
 // cuáles puede operar; una Conversation nace en uno solo.
+//
+// INSTAGRAM y MESSENGER llegan con el ítem 169 (paso 1 de 5 de los canales de
+// Meta): el mismo agente contesta por los tres canales de Meta con la misma
+// lógica de negocio. En el ítem 169 son solo valores — el webhook, el envío y
+// el OAuth que los usan son los ítems 170-173.
 enum ConversationChannel {
   WHATSAPP
   WEB
+  INSTAGRAM
+  MESSENGER
 }
 
 // Ciclo de vida de una Conversation. Es la fuente de verdad (no hay
@@ -585,15 +592,19 @@ model Organization {
   workingHours WorkingHours[]
   bookings     Booking[]
 
-  agents               Agent[]
-  conversations        Conversation[]
-  messages             Message[]
-  agentEmbedTokens     AgentEmbedToken[]
-  agentInboundJobs     AgentInboundJob[]
+  agents                   Agent[]
+  conversations            Conversation[]
+  messages                 Message[]
+  agentEmbedTokens         AgentEmbedToken[]
+  agentInboundJobs         AgentInboundJob[]
+  // Canales de Meta (ítem 169): la identidad de sus contactos en Instagram y
+  // Messenger, y la conexión con SU página de Facebook (una por organización).
+  contactChannelIdentities ContactChannelIdentity[]
+  metaPageConnection       MetaPageConnection?
   // La información del negocio que los agentes usan para responder (ítem 59).
   // Cuelga de una sucursal, igual que Agent; acá está por el organizationId,
   // como todas las demás.
-  knowledgeBaseEntries KnowledgeBaseEntry[]
+  knowledgeBaseEntries     KnowledgeBaseEntry[]
 
   qrCodes           QrCode[]
   qrFollowUps       QrFollowUp[]
@@ -843,12 +854,15 @@ model Contact {
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
   owner        User?        @relation("ContactOwner", fields: [organizationId, ownerId], references: [organizationId, id], onDelete: NoAction)
 
-  opportunities   Opportunity[]
-  activities      Activity[]
-  ingestionEvents IngestionEvent[]
-  bookings        Booking[]
-  conversations   Conversation[]
-  qrFollowUps     QrFollowUp[]
+  opportunities     Opportunity[]
+  activities        Activity[]
+  ingestionEvents   IngestionEvent[]
+  bookings          Booking[]
+  conversations     Conversation[]
+  qrFollowUps       QrFollowUp[]
+  // Su id en Instagram/Messenger (ítem 169). WhatsApp no pasa por acá: se
+  // resuelve por `phone`.
+  channelIdentities ContactChannelIdentity[]
 
   @@unique([organizationId, id])
   // Único (organization_id, lower(email)) WHERE email IS NOT NULL AND
@@ -2113,6 +2127,16 @@ model Agent {
   // (vuelve a NULL) al borrar el agente, para que el número pueda pasar a otro.
   whatsappPhoneNumberId String? @unique @map("whatsapp_phone_number_id") @db.VarChar(40)
 
+  // El id de la página de Facebook que atiende este agente por Messenger (y
+  // por Instagram, resolviendo antes la página desde
+  // MetaPageConnection.instagramBusinessAccountId) — ítem 169. Mismo patrón
+  // EXACTO que whatsappPhoneNumberId: lo asigna SOLO un platform admin (PUT
+  // /api/admin/agents/:agentId/facebook-page), nunca el tenant; UNIQUE GLOBAL
+  // porque el webhook de Meta trae el page id y ninguna otra pista; se libera
+  // al borrar el agente. VarChar(64), el mismo ancho que
+  // MetaPageConnection.pageId: son el mismo dato. NULL = sin página.
+  facebookPageId String? @unique @map("facebook_page_id") @db.VarChar(64)
+
   isActive  Boolean   @default(true) @map("is_active")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -2299,11 +2323,17 @@ model Message {
 // dedup y el cliente no recibía respuesta nunca.
 //
 // Una fila por Message entrante (UNIQUE sobre messageId), y el job solo
-// guarda lo que no se puede derivar del mensaje: a qué número de negocio
-// responder y a qué wa_id. No se lee de Conversation.externalThreadId a
-// propósito — una conversación de WhatsApp abierta desde el probador del
+// guarda lo que no se puede derivar del mensaje: desde qué cuenta del negocio
+// responder y a qué id del cliente. No se lee de Conversation.externalThreadId
+// a propósito — una conversación de WhatsApp abierta desde el probador del
 // agente no tiene hilo externo, y el mensaje real que llegue después cae en
 // ella.
+//
+// GENERALIZADA A LOS TRES CANALES DE META en el ítem 169: las columnas
+// phone_number_id/wa_id pasaron a channel_account_id/external_user_id (RENAME,
+// no drop+create: la cola tiene filas en tránsito) y se agregó `channel`, para
+// que el mismo worker —con sus reintentos y su lease— sirva a WhatsApp,
+// Messenger e Instagram sin triplicarse.
 // ---------------------------------------------------------------------------
 model AgentInboundJob {
   id                String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -2311,10 +2341,17 @@ model AgentInboundJob {
   // El Message INBOUND a responder. De él salen la conversación, el agente y
   // el contacto.
   messageId         String                @map("message_id") @db.Uuid
-  // El phone_number_id del negocio (metadata del webhook) y el wa_id del
-  // cliente, tal cual los mandó Meta: es lo que necesita sendText.
-  phoneNumberId     String                @map("phone_number_id") @db.VarChar(40)
-  waId              String                @map("wa_id") @db.VarChar(40)
+  // Por qué canal llegó el entrante, y por lo tanto por cuál se responde. El
+  // default existe SOLO para que las filas anteriores al ítem 169 —todas de
+  // WhatsApp— quedaran bien clasificadas sin tocarlas a mano.
+  channel           ConversationChannel   @default(WHATSAPP)
+  // El id de CUENTA del lado del negocio desde la que se responde, tal cual lo
+  // mandó Meta: el phone_number_id para WhatsApp, el page id para Messenger e
+  // Instagram. Es lo que necesita el envío.
+  channelAccountId  String                @map("channel_account_id") @db.VarChar(40)
+  // El id del CLIENTE del lado de Meta, tal cual lo mandó: el wa_id para
+  // WhatsApp, el PSID para Messenger, el IGSID para Instagram.
+  externalUserId    String                @map("external_user_id") @db.VarChar(40)
   status            AgentInboundJobStatus @default(PENDING)
   // Mismo significado que en OutboxEvent/IngestionEvent, con UNA diferencia:
   // acá sube al RECLAMAR, no al fallar. Un proceso que muere a mitad de un
@@ -2354,6 +2391,118 @@ model AgentInboundJob {
   // en la migración.
   @@index([organizationId, createdAt])
   @@map("agent_inbound_jobs")
+}
+
+// ---------------------------------------------------------------------------
+// ContactChannelIdentity — la identidad de un contacto en un canal que NO lo
+// identifica por teléfono (ítem 169, paso 1 de 5 de los canales de Meta).
+//
+// WhatsApp identifica al contacto por teléfono (Contact.phone, resuelto por
+// resolveWhatsappContact). Instagram y Messenger lo identifican por un id
+// OPACO por página —el PSID o el IGSID—, que no es un teléfono y no se puede
+// representar en Contact.phone sin inventar números falsos. Esta tabla es el
+// mapeo (organizationId, channel, externalId) → contactId. WhatsApp NO la usa.
+//
+// Sin updatedAt ni deletedAt: una fila es un hecho ("este PSID es este
+// contacto"), no configuración que se edita. Nace vacía: la llena el webhook
+// del ítem 171.
+// ---------------------------------------------------------------------------
+model ContactChannelIdentity {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  channel        ConversationChannel
+  // El PSID o IGSID tal cual lo manda Meta, sin normalizar: se compara por
+  // igualdad exacta contra el del próximo webhook.
+  externalId     String              @map("external_id") @db.VarChar(128)
+  contactId      String              @map("contact_id") @db.Uuid
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  // NOT NULL -> RESTRICT (regla de 20260821140200). Contact se borra por soft
+  // delete; un borrado físico que dejara identidades colgando tiene que fallar.
+  contact      Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
+
+  // LA GARANTÍA REAL de "un contacto por PSID": sin este UNIQUE, dos webhooks
+  // concurrentes del mismo contacto nuevo crearían dos Contact duplicados — el
+  // mismo problema que conversations_open_unique resolvió para las
+  // conversaciones. El segundo INSERT es P2002 y quien lo reciba relee.
+  @@unique([organizationId, channel, externalId])
+  // El camino inverso: las identidades de un contacto.
+  @@index([organizationId, contactId])
+  @@map("contact_channel_identities")
+}
+
+// ---------------------------------------------------------------------------
+// MetaPageConnection — la autorización OAuth de UNA organización contra SU
+// página de Facebook, y el Instagram profesional vinculado a esa página si
+// tiene (ítem 169; la llena el OAuth del ítem 170).
+//
+// A DIFERENCIA DE WHATSAPP, que comparte UN número de toda la plataforma (el
+// token vive en el entorno), para Instagram y Messenger cada negocio conecta
+// su PROPIA página. Mismo molde que GoogleCalendarConnection, con una sola
+// diferencia real: acá es UNA FILA POR ORGANIZACIÓN, no por sucursal —
+// organization_id es UNIQUE a nivel base, y reconectar ACTUALIZA la fila.
+//
+// EL pageAccessToken ES NULLABLE, y es la mitad de la política de secretos de
+// esta tabla, igual que en Google: una conexión REVOKED no tiene token, no
+// tiene un token vacío. El CHECK de la migración sostiene la otra mitad: una
+// fila ACTIVE SIN token es imposible.
+// ---------------------------------------------------------------------------
+model MetaPageConnection {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @unique @map("organization_id") @db.Uuid
+
+  // La página de Facebook conectada. UNIQUE GLOBAL: una página no puede estar
+  // conectada a dos organizaciones — el webhook trae el page id y ninguna otra
+  // pista para saber de quién es el mensaje.
+  pageId String @unique @map("page_id") @db.VarChar(64)
+
+  // CIFRADO EN REPOSO con AES-256-GCM (src/utils/encryption.ts) — NUNCA en
+  // claro, NUNCA en una respuesta de la API y NUNCA en un log.
+  //
+  // Cifrado y no hasheado, mismo criterio que
+  // GoogleCalendarConnection.refreshToken: ApiKey está HASHEADA
+  // (src/utils/apiKey.ts) porque una API key solo hay que RECONOCERLA. Un page
+  // access token hay que RECUPERARLO para poder llamar a la Graph API con él,
+  // así que hashearlo lo volvería inútil.
+  pageAccessToken String? @map("page_access_token")
+
+  // El Instagram profesional vinculado a la página. Nullable: no todas las
+  // páginas tienen uno. Es por donde el webhook de Instagram, que trae este id
+  // y no el de la página, encuentra la conexión (ítem 171).
+  instagramBusinessAccountId String? @map("instagram_business_account_id") @db.VarChar(64)
+
+  status ConnectionStatus @default(ACTIVE)
+
+  // Por qué esta conexión dejó de funcionar. No hay ningún mecanismo de aviso
+  // al admin todavía, así que el registro en la fila ES la notificación: sin
+  // esto, "status = ERROR" no dice si el negocio revocó el permiso desde
+  // Facebook, si la página se borró, o si Meta estaba caído — tres cosas con
+  // tres respuestas distintas.
+  //
+  // VarChar(500) y no `text`: lo que se guarda acá es el mensaje de error de la
+  // Graph API, no un stack. El tope obliga a truncar en el service en vez de
+  // dejar que una respuesta inesperadamente larga entre entera.
+  lastErrorAt      DateTime? @map("last_error_at")
+  lastErrorMessage String?   @map("last_error_message") @db.VarChar(500)
+
+  // Cuándo se autorizó POR ÚLTIMA VEZ, distinto de createdAt: reconectar
+  // actualiza la fila existente, así que createdAt sigue diciendo cuándo esta
+  // organización conectó su página por primera vez y connectedAt cuándo vale
+  // el token que hay guardado ahora.
+  connectedAt DateTime @default(now()) @map("connected_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  // El webhook de Instagram resuelve la página por acá (ítem 171). Índice
+  // común y no UNIQUE: el UNIQUE que importa es el de pageId, y una cuenta de
+  // Instagram cuelga de una sola página por construcción de Meta.
+  @@index([instagramBusinessAccountId])
+  // SIN (organization_id, created_at): no hay listado. Todo acceso es por
+  // organización —una fila— y lo sirve el UNIQUE de organizationId.
+  @@map("meta_page_connections")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

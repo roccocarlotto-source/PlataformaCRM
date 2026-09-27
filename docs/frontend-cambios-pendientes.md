@@ -7672,3 +7672,150 @@ el cierre ya existiendo, se vuelve a agregar el chequeo que se sacó:
 - **El conteo de conversaciones de `deleteBranch` no está serializado por el lock** (una conversación nace de un mensaje entrante, no de un alta que tome `lockBranchForUpdate`), igual que Vehicle y Booking. En la práctica la ventana la cierra el RESTRICT de agentes, que va antes: sin agente en la sucursal no nacen conversaciones nuevas. Documentado en el código.
 - **Confirmación del botón**: "¿Cerrar esta conversación? Si el contacto vuelve a escribir, se abre una nueva." — deja explícito el comportamiento de `conversations_open_unique` a quien lo aprieta. El botón es `secondary` (cerrar es el final normal, no una baja) y un error se muestra dentro de la tarjeta de datos.
 - **Tests**: unitarios nuevos `conversation.service.test.ts` (cierre, idempotencia, 404 sin escribir) y `conversation.controller.test.ts` (200 scopeado por el JWT, id no UUID = 400 sin tocar la base, 404 sube tal cual); `conversation.repository.test.ts` (+2: el CAS y el WHERE del conteo); `branch.service.test.ts`/`contact.service.test.ts` (el RESTRICT nuevo y que el conteo es solo de abiertas y de la organización); integración en `conversation.controller.integration-test.ts` (+6, incluido que después de cerrar se puede abrir una nueva con la misma tupla), `booking-config.integration-test.ts` (+3, el agente se siembra borrado para que el único dependiente vivo sea la conversación) y `crmIntegridad.integration-test.ts` (+3); frontend `mutations.test.tsx` (nuevo) y `ConversationDetail.test.tsx` (+5). Los dos tests que afirmaban que no había "Cerrar conversación" en el detalle se ajustaron: la barrera que cuidan (no se RESPONDE desde la pantalla) sigue igual.
+
+---
+## 169. Infraestructura de canales Meta: identidad de contacto, conexión de página de Facebook y cola generalizada (paso 1 de 5 — Instagram + Messenger)
+
+**Estado:** hecho (27/09/2026). Lleva migración (`20261005120000_canales_meta_infraestructura`) — no se mergea por iniciativa propia. Ver las decisiones al final.
+
+**Contexto.** El agente hoy solo habla por WhatsApp y por el widget web
+(`ConversationChannel`: `WHATSAPP` | `WEB`). Se suman `INSTAGRAM` y `MESSENGER`
+para que el mismo agente conteste por los tres canales de Meta con la misma
+lógica de negocio (`runAgentTurn` ya es agnóstico de canal, no cambia). Este
+ítem es SOLO la infraestructura de datos — sin webhook, sin envío, sin OAuth
+todavía (esos son los ítems 170-173). Al terminar este ítem no cambia ningún
+comportamiento visible: son tablas y columnas nuevas sin nada que las llene
+todavía.
+
+**Por qué hace falta algo nuevo y no alcanza con lo que ya existe para WhatsApp:**
+
+1. **Identidad de contacto.** WhatsApp identifica al contacto por teléfono
+   (`Contact.phone`, resuelto por `resolveWhatsappContact` en
+   `whatsappContact.service.ts`). Instagram y Messenger identifican por
+   PSID/IGSID (un id opaco por página, no un teléfono) — no hay forma de
+   representarlo en `Contact.phone` sin inventar números falsos. Hace falta una
+   tabla de identidad genérica.
+2. **Conexión con Meta.** WhatsApp hoy comparte UN número de toda la
+   plataforma (`WHATSAPP_BUSINESS_ACCOUNT_ID`/`WHATSAPP_ACCESS_TOKEN` en env).
+   Para Instagram/Messenger cada NEGOCIO conecta su PROPIA página de Facebook
+   por OAuth (así quedó configurado del lado de Meta, ver
+   `claude/meta-setup-instagram-messenger.md` del proyecto) — hace falta guardar
+   un token por organización, cifrado, con el mismo patrón que ya existe para
+   Google Calendar (`GoogleCalendarConnection`, `src/utils/encryption.ts`).
+3. **Cola de mensajes entrantes.** `AgentInboundJob` tiene columnas
+   WhatsApp-específicas (`phoneNumberId`, `waId`) porque hoy solo hace falta
+   eso. Para que el mismo worker sirva a los tres canales sin triplicar la
+   lógica de reintentos/lease, esas columnas se generalizan con un
+   discriminador de canal.
+
+**Qué se hace.**
+
+1. **`ConversationChannel`** (enum de Prisma): agregar `INSTAGRAM` y
+   `MESSENGER`, junto a los dos que ya existen.
+
+2. **Tabla nueva `ContactChannelIdentity`** — identidad de un contacto en un
+   canal que NO es teléfono: `(organizationId, channel, externalId) →
+   contactId`. Campos: `id`, `organizationId`, `channel` (`ConversationChannel`),
+   `externalId` (VarChar 128 — el PSID o IGSID tal cual lo manda Meta),
+   `contactId`, `createdAt`. `@@unique([organizationId, channel, externalId])`
+   (es la garantía real: sin ella, dos webhooks concurrentes del mismo contacto
+   nuevo crearían dos Contact duplicados — mismo problema que ya resolvió el
+   índice `conversations_open_unique`). Índice por `(organizationId,
+   contactId)` para el camino inverso. Relaciones a `Organization` y `Contact`
+   con `organizationId` en la FK compuesta, mismo criterio que el resto del
+   repo. WhatsApp NO usa esta tabla — sigue resolviendo por teléfono como
+   siempre, no se migra nada existente.
+
+3. **Tabla nueva `MetaPageConnection`** — la conexión OAuth de UNA organización
+   con SU página de Facebook (y el Instagram profesional vinculado a esa
+   página, si tiene). Mismo estilo que `GoogleCalendarConnection`: leé ese
+   modelo completo en schema.prisma antes de escribir este, para copiar
+   exactamente sus comentarios de "por qué cifrado", "por qué VarChar(500)
+   para el error", etc. — la única diferencia real es que acá es UNA conexión
+   por ORGANIZACIÓN (no por sucursal). Campos: `id`, `organizationId`
+   (`@unique` — una por organización), `pageId` (VarChar 64, `@unique` global —
+   una página de Facebook no puede estar conectada a dos organizaciones),
+   `pageAccessToken` (String? — CIFRADO con `src/utils/encryption.ts`, mismo
+   criterio que `GoogleCalendarConnection.refreshToken`: se puede recuperar
+   porque hay que volver a usarlo, así que NO se hashea),
+   `instagramBusinessAccountId` (VarChar 64, nullable — no todas las páginas
+   tienen un Instagram profesional vinculado), `status` (reusa el enum
+   `ConnectionStatus` que ya existe, `ACTIVE`/`ERROR`/`REVOKED`), `lastErrorAt`,
+   `lastErrorMessage` (VarChar 500, mismo criterio que Google), `connectedAt`,
+   `createdAt`, `updatedAt`. Esta tabla se llena recién en el ítem 170 (OAuth) —
+   acá solo el modelo y el repositorio.
+
+4. **`Agent.facebookPageId`** — columna nueva, `String? @unique`, mismo patrón
+   EXACTO que `Agent.whatsappPhoneNumberId` (ítem 127): la asigna SOLO un
+   platform admin, nunca el tenant. Es lo que va a permitir, en el ítem 171,
+   encontrar qué agente responde un mensaje de Messenger que llega con un page
+   id (y, para Instagram, resolviendo primero el page id desde
+   `MetaPageConnection.instagramBusinessAccountId`). Leé completos
+   `src/repositories/agent.repository.ts` (las funciones
+   `findAgentByIdForPlatformAdmin`, `setAgentWhatsappPhoneNumberId`,
+   `softDeleteAgent`), `src/services/agent.service.ts`
+   (`asignarNumeroDeWhatsapp`), `src/controllers/agentAdmin.controller.ts` y
+   `src/routes/agentAdmin.routes.ts` COMPLETOS antes de escribir el equivalente
+   de Facebook — tiene que ser un calco: mismo esquema de validación (dígitos
+   solamente, `""` → `null`, tope de longitud), mismo 409 si el page id ya lo
+   tiene otro agente, mismo log, mismo softDelete liberando la columna,
+   endpoint nuevo `PUT /api/admin/agents/:agentId/facebook-page` con
+   `authenticate + businessWriteRateLimiter + requirePlatformAdmin`.
+
+5. **Generalizar `AgentInboundJob`** para que sirva a los tres canales:
+   - `phoneNumberId` → renombrar a `channelAccountId` (VarChar 40): el id de
+     CUENTA del lado del negocio que el envío necesita — `phone_number_id`
+     para WhatsApp, el `pageId` para Messenger e Instagram.
+   - `waId` → renombrar a `externalUserId` (VarChar 40): el id del CLIENTE del
+     lado de Meta — `wa_id`, PSID o IGSID según el canal.
+   - Agregar `channel ConversationChannel @default(WHATSAPP)` — el default
+     existe SOLO para que las filas ya existentes (todas WhatsApp hoy) queden
+     bien clasificadas sin tocarlas a mano.
+   - **IMPORTANTE — no se puede perder datos:** esta tabla es una cola con
+     filas en tránsito (`PENDING`/`PROCESSING`). Al generar la migración con
+     `npx prisma migrate dev`, Prisma va a preguntar si el cambio de nombre de
+     columna es un rename o un drop+create — decile que SÍ, que es un rename
+     (o si no te lo pregunta, abrí el `.sql` generado y confirmá que usa
+     `ALTER TABLE ... RENAME COLUMN ...` y no `DROP COLUMN` + `ADD COLUMN`).
+     Si el `.sql` generado hace drop+create en vez de rename, editalo a mano
+     para que sea un rename antes de aplicarlo — así ninguna fila en cola
+     pierde su valor.
+   - Actualizá todo el código que usa `phoneNumberId`/`waId` de esta tabla
+     (repositorio, worker, cualquier test) a los nombres nuevos. El worker
+     (`agentInboundWorker.ts`) sigue funcionando igual para WhatsApp — sigue
+     leyendo `channelAccountId`/`externalUserId`, que para las filas actuales
+     tienen el mismo valor que antes, solo cambió el nombre de la columna.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `prisma/schema.prisma` | `ConversationChannel` +2 valores; `ContactChannelIdentity` nueva; `MetaPageConnection` nueva; `Agent.facebookPageId`; `AgentInboundJob` columnas renombradas + `channel` |
+| `prisma/migrations/` | la migración nueva (rename de columnas, no drop+create) |
+| `src/repositories/contactChannelIdentity.repository.ts` | nuevo — `findContactIdByExternalIdentity`, `upsertIdentity` o equivalente |
+| `src/repositories/metaPageConnection.repository.ts` | nuevo — CRUD básico, mismo esqueleto que `googleCalendarConnection.repository.ts` (sin el service de OAuth todavía) |
+| `src/repositories/agent.repository.ts` | `findAgentByFacebookPageId`, `setAgentFacebookPageId` |
+| `src/services/agent.service.ts` | `asignarPaginaDeFacebook` |
+| `src/controllers/agentAdmin.controller.ts` | handler nuevo |
+| `src/routes/agentAdmin.routes.ts` | `PUT /api/admin/agents/:agentId/facebook-page` |
+| `src/repositories/agentInboundJob.repository.ts`, `src/workers/agentInboundWorker.ts` | renombrar columnas usadas |
+| tests | de cada repositorio nuevo, del endpoint de asignación (mismo set de casos que el de WhatsApp: 403 tenant, 404 agente inexistente, 409 duplicado, null libera, softDelete libera), y de integración de la migración si el patrón del repo lo pide |
+
+**Lleva migración — no se mergea por iniciativa propia.** Además: sin cambios de
+configuración de producción ni de pricing.
+
+### Decisiones tomadas al implementarlo
+
+- **La migración se escribió a mano, no con `prisma migrate dev`**: es la convención del repo desde 20260821 (la shadow database no tiene el schema `auth`). `prisma migrate diff` proponía `DROP COLUMN` + `ADD COLUMN NOT NULL` para las dos columnas de `agent_inbound_jobs` (además de perder los datos, fallaría con filas presentes); se reemplazó por `RENAME COLUMN`. Verificado contra el Supabase local: dos jobs en tránsito (`PENDING` y `PROCESSING`) insertados antes de migrar conservaron `channel_account_id`/`external_user_id` y quedaron con `channel = WHATSAPP`; `prisma migrate diff` contra la base migrada no muestra drift (solo los índices GIN `gin_trgm_ops`, que viven fuera del DSL a propósito) y `verify:schema` pasa.
+- **Orden de despliegue: no hay uno sin ventana.** El rename rompe la compatibilidad en los dos sentidos. Durante la ventana (migración aplicada, imagen vieja corriendo) el webhook de WhatsApp no puede encolar y responde 200 igual, así que los mensajes que lleguen en ese rato se pierden; los jobs ya encolados no. Nota agregada en `docs/deployment.md` §2.2: migración e imagen seguidas, en horario de poco tráfico. La alternativa sin ventana (expand/contract: columnas nuevas + doble escritura en un PR, borrar las viejas en otro) no se hizo porque el ítem pide rename explícitamente; queda a criterio de Rocco al revisar.
+- **`meta_page_connections` con RLS y CERO políticas** (deny-all), igual que `google_calendar_connections` y `api_keys`, porque guarda un secreto. `contact_channel_identities` con la política de aislamiento uniforme.
+- **CHECK `meta_page_connections_active_requires_token_check`**: el mismo invariante que la conexión de Google ("una fila ACTIVE sin token es imposible"). El ítem no lo pedía explícitamente, pero sí "mismo estilo que `GoogleCalendarConnection`", y es la mitad de su política de secretos.
+- **Diagnóstico actualizado** (`docs/auditoria-2026-08-21-diagnostico.sql` + `scripts/verify-schema.ts`): la política nueva a la fila 5, el CHECK a la fila 8 (27 → 28) y la FK compuesta `contact_channel_identities → contacts` a la fila 16 (62 → 63).
+- **`Agent.facebookPageId` es `VarChar(64)`, no 40** como `whatsappPhoneNumberId`: es el mismo dato que `MetaPageConnection.pageId`, que el ítem fija en 64. El schema de validación (`facebookPageIdSchema`, en `agentAdmin.controller.ts` porque el tenant no lo usa) tiene el tope en 64; todo lo demás es calco del de WhatsApp (dígitos, trim, `""` → `null`, obligatorio en el PUT). `channelAccountId` sigue en `VarChar(40)` como pide el ítem: un page id de Meta hoy tiene 15-16 dígitos.
+- **El CRUD del tenant ni acepta `facebookPageId`**: a diferencia de `whatsappPhoneNumberId` (que el formulario reenvía desde antes del ítem 127 y por eso se admite "el mismo valor"), el campo nació solo-plataforma. Zod lo descarta sin error; un test de integración lo cubre.
+- **`createContactChannelIdentity` es un `create`, no un `upsert`**: la carrera real es sobre el `Contact` que se crea junto con la identidad. El P2002 del UNIQUE le llega al caller (el webhook del ítem 171), que tiene que crear contacto + identidad en la misma transacción y releer al chocar. Un upsert dejaría huérfano el segundo contacto.
+- **`findContactIdByExternalIdentity` devuelve el contacto aunque esté dado de baja**: la identidad sigue ocupando el UNIQUE, así que esconderla haría chocar al crear uno nuevo. Qué hacer con un contacto borrado que vuelve a escribir lo decide el ítem 171.
+- **`metaPageConnection.repository.ts` no cifra**: recibe y devuelve el token ya cifrado; cifrar/descifrar con `getCifrador()` es del service del ítem 170, igual que en Google. La lectura pública usa `CAMPOS_PUBLICOS` (sin el token) y la que trae el secreto se llama `...WithSecret...`.
+- **El mensaje de error de `channels`** en el CRUD de agentes ahora sale del enum (`channels solo admite WHATSAPP, WEB, INSTAGRAM, MESSENGER`) en vez de estar escrito a mano.
+- **`JobReclamado` trae `channel`** aunque el worker todavía no lo use (sigue mandando solo por WhatsApp): el reclamo devuelve la fila completa que el ítem 172 va a necesitar para elegir el canal de envío.
+- **Tests**: unitarios `agent.repository.test.ts` (+4), `metaPageConnection.repository.test.ts` y `contactChannelIdentity.repository.test.ts` (nuevos), `routes/index.test.ts` (+1, montaje); integración `agent.controller.integration-test.ts` (+6: tenant no asigna, asignar/cambiar/liberar/409/400, independencia con el número de WhatsApp, 404 inexistente y borrado, 403 no platform admin y 401, softDelete libera), `canalesMeta.integration-test.ts` (nuevo: UNIQUE de identidad, FK compuesta, una conexión por organización, página en una sola organización, CHECK y token cifrado) y `whatsappWebhook.controller.integration-test.ts` (columnas renombradas).

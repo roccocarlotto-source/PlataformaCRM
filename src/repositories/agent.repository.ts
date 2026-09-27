@@ -101,6 +101,18 @@ export function findAgentByWhatsappPhoneNumberId(phoneNumberId: string, db: Db =
   });
 }
 
+// SIN organizationId, A PROPÓSITO — el calco de findAgentByWhatsappPhoneNumberId
+// para Messenger e Instagram (ítem 169; la usa el webhook del ítem 171): Meta
+// manda el page id y ninguna otra pista, así que la organización sale de acá.
+// Es seguro por lo mismo: la firma HMAC de Meta y el UNIQUE global de la
+// columna. Mismo select: solo lo que el webhook necesita para decidir.
+export function findAgentByFacebookPageId(facebookPageId: string, db: Db = prisma) {
+  return db.agent.findFirst({
+    where: { facebookPageId, deletedAt: null },
+    select: { id: true, organizationId: true, branchId: true, isActive: true, channels: true },
+  });
+}
+
 // El número de WhatsApp desde el que la sucursal le escribe a un cliente por
 // iniciativa propia (ítem 159: el seguimiento con el QR). El número vive en el
 // Agent que lo atiende —no hay otro lugar del esquema que diga "el WhatsApp de
@@ -144,7 +156,8 @@ export interface CreateAgentData {
   // docs/auditoria-2026-09-24-punta-a-punta.md): un agente nace sin número y
   // el número lo escribe SOLO setAgentWhatsappPhoneNumberId, desde el endpoint
   // de platform admin. Que no esté en el tipo es lo que impide que un camino
-  // del tenant lo escriba.
+  // del tenant lo escriba. Lo mismo facebookPageId (ítem 169) con
+  // setAgentFacebookPageId.
   isActive?: boolean;
 }
 
@@ -164,7 +177,7 @@ export interface UpdateAgentData {
   enabledTools?: string[];
   channels?: ConversationChannel[];
   allowedOrigins?: string[];
-  // Sin whatsappPhoneNumberId: ver CreateAgentData.
+  // Sin whatsappPhoneNumberId ni facebookPageId: ver CreateAgentData.
   // Se reemplaza entero, nunca se mergea: guardrails es NOT NULL sin default
   // en el schema, así que acá no hay DbNull que contemplar.
   guardrails?: Prisma.InputJsonValue;
@@ -185,15 +198,15 @@ export function updateAgent(
   return db.agent.updateMany({ where: { id, organizationId, deletedAt: null }, data });
 }
 
-// SIN organizationId, A PROPÓSITO — las dos de abajo son del endpoint de
-// platform admin que asigna el número de WhatsApp (ítem 127): quien llama no
-// es parte de la organización del agente, y la autorización ya la hizo
-// requirePlatformAdmin. deletedAt: null — a un agente borrado no se le asigna
-// nada (y el borrado ya le liberó el número).
+// SIN organizationId, A PROPÓSITO — las de abajo son de los endpoints de
+// platform admin que asignan el número de WhatsApp (ítem 127) y la página de
+// Facebook (ítem 169): quien llama no es parte de la organización del agente,
+// y la autorización ya la hizo requirePlatformAdmin. deletedAt: null — a un
+// agente borrado no se le asigna nada (y el borrado ya le liberó los dos).
 export function findAgentByIdForPlatformAdmin(id: string, db: Db = prisma) {
   return db.agent.findFirst({
     where: { id, deletedAt: null },
-    select: { id: true, organizationId: true, whatsappPhoneNumberId: true },
+    select: { id: true, organizationId: true, whatsappPhoneNumberId: true, facebookPageId: true },
   });
 }
 
@@ -208,13 +221,21 @@ export function setAgentWhatsappPhoneNumberId(
   return db.agent.updateMany({ where: { id, deletedAt: null }, data: { whatsappPhoneNumberId } });
 }
 
+// El ÚNICO camino que escribe facebook_page_id (fuera del borrado, que lo
+// vacía) — ítem 169, calco de setAgentWhatsappPhoneNumberId. null libera la
+// página; el UNIQUE global resuelve dos asignaciones concurrentes (P2002).
+export function setAgentFacebookPageId(id: string, facebookPageId: string | null, db: Db = prisma) {
+  return db.agent.updateMany({ where: { id, deletedAt: null }, data: { facebookPageId } });
+}
+
 export function softDeleteAgent(id: string, organizationId: string, db: Db = prisma) {
   return db.agent.updateMany({
     where: { id, organizationId, deletedAt: null },
     // El número de WhatsApp se libera junto con el borrado (ítem 81): la
     // columna es UNIQUE global, y un agente borrado que lo retuviera impediría
     // pasárselo al agente que lo reemplaza. Un borrado lógico no tiene por qué
-    // seguir reservando un recurso externo.
-    data: { deletedAt: new Date(), whatsappPhoneNumberId: null },
+    // seguir reservando un recurso externo. Lo mismo la página de Facebook
+    // (ítem 169).
+    data: { deletedAt: new Date(), whatsappPhoneNumberId: null, facebookPageId: null },
   });
 }

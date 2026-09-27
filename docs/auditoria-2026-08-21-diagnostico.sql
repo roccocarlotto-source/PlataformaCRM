@@ -226,7 +226,12 @@ from (
       ('qr_follow_ups'),
       -- La plantilla de WhatsApp de cada organización (ítem 160, migración
       -- 20261003120000): ídem.
-      ('whatsapp_templates')
+      ('whatsapp_templates'),
+      -- Identidad de un contacto en Instagram/Messenger (ítem 169, migración
+      -- 20261005120000): ídem. meta_page_connections NO está acá a propósito,
+      -- igual que google_calendar_connections: RLS habilitada y cero
+      -- políticas (deny-all, guarda el page access token).
+      ('contact_channel_identities')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -355,7 +360,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 27 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 28 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -490,7 +495,11 @@ from (
     -- de quotes_amount_non_negative_check — un pago de $0 no es un pago. Un
     -- `>=` en su lugar difiere en un carácter y esta fila lo atrapa.
     ('payments_amount_positive_check', 'payments',
-     'CHECK (amount > 0)')
+     'CHECK (amount > 0)'),
+    -- Conexión con la página de Facebook (ítem 169, migración 20261005120000):
+    -- el mismo invariante que google_calendar_connections_active_requires_token_check.
+    ('meta_page_connections_active_requires_token_check', 'meta_page_connections',
+     'CHECK (status <> ''ACTIVE'' OR page_access_token IS NOT NULL)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -872,7 +881,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 62 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 63 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -896,7 +905,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 62 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 63 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1026,7 +1035,12 @@ from (
     ('qr_follow_ups_organization_id_automation_id_fkey|qr_follow_ups(organization_id,automation_id)->automations(organization_id,id)'),
     ('qr_follow_ups_organization_id_contact_id_fkey|qr_follow_ups(organization_id,contact_id)->contacts(organization_id,id)'),
     ('qr_follow_ups_organization_id_opportunity_id_fkey|qr_follow_ups(organization_id,opportunity_id)->opportunities(organization_id,id)'),
-    ('qr_follow_ups_organization_id_qr_code_id_fkey|qr_follow_ups(organization_id,qr_code_id)->qr_codes(organization_id,id)')
+    ('qr_follow_ups_organization_id_qr_code_id_fkey|qr_follow_ups(organization_id,qr_code_id)->qr_codes(organization_id,id)'),
+    -- Identidad de un contacto en Instagram/Messenger (ítem 169, migración
+    -- 20261005120000): el PSID/IGSID apunta a contacts. Una FK bien formada
+    -- hacia users (que también tiene UNIQUE (organization_id, id)) pasaría la
+    -- fila 14 y dejaría la identidad colgada de un vendedor.
+    ('contact_channel_identities_organization_id_contact_id_fkey|contact_channel_identities(organization_id,contact_id)->contacts(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
