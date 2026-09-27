@@ -41,6 +41,15 @@ async function montar(etiqueta: string): Promise<Escenario> {
 }
 
 async function desmontar(escenario: Escenario) {
+  // Los dependientes que agregan los RESTRICT del ítem 167, antes que sus
+  // padres por las FK.
+  await prisma.booking.deleteMany({ where: { organizationId: escenario.organizationId } });
+  await prisma.contact.deleteMany({ where: { organizationId: escenario.organizationId } });
+  await prisma.knowledgeBaseEntry.deleteMany({
+    where: { organizationId: escenario.organizationId },
+  });
+  await prisma.agent.deleteMany({ where: { organizationId: escenario.organizationId } });
+  await prisma.vehicle.deleteMany({ where: { organizationId: escenario.organizationId } });
   await prisma.serviceType.deleteMany({ where: { organizationId: escenario.organizationId } });
   await prisma.resource.deleteMany({ where: { organizationId: escenario.organizationId } });
   await prisma.branch.deleteMany({ where: { organizationId: escenario.organizationId } });
@@ -314,6 +323,172 @@ test("el borrado en orden funciona: servicio, recurso, sucursal", async () => {
 
     const viva = await prisma.branch.findUniqueOrThrow({ where: { id: branch.id } });
     assert.notEqual(viva.deletedAt, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Los RESTRICT del ítem 167 (C-03 de la auditoría): agentes, stock, KB y
+// reservas confirmadas de la sucursal. Las filas se escriben directo: qué
+// hace falta para PODER crearlas es regla de sus propios services, no de este
+// borrado.
+// ---------------------------------------------------------------------------
+
+function crearAgente(organizationId: string, branchId: string, extra: { deletedAt?: Date } = {}) {
+  return prisma.agent.create({
+    data: {
+      organizationId,
+      branchId,
+      name: "Agente",
+      instructions: "x",
+      modelProvider: "openrouter",
+      modelName: "doble/modelo",
+      enabledTools: [],
+      channels: ["WEB"],
+      guardrails: {},
+      isActive: false,
+      ...extra,
+    },
+  });
+}
+
+function crearVehiculo(
+  organizationId: string,
+  branchId: string,
+  status: "AVAILABLE" | "SOLD" | "DELIVERED",
+) {
+  return prisma.vehicle.create({
+    data: {
+      organizationId,
+      branchId,
+      internalCode: `STK-${randomUUID().slice(0, 8)}`,
+      condition: "USED",
+      make: "Toyota",
+      model: "Corolla",
+      year: 2022,
+      status,
+    },
+  });
+}
+
+// Una reserva necesita recurso y servicio vivos para nacer; después se dan de
+// baja los dos a mano, para que el único dependiente vivo que quede sea la
+// reserva y el RESTRICT que dispare sea el suyo.
+async function crearReserva(
+  organizationId: string,
+  branchId: string,
+  status: "CONFIRMED" | "CANCELLED",
+) {
+  const recurso = await createResource(organizationId, { branchId, name: "Juan", type: "PERSON" });
+  const servicio = await createServiceType(organizationId, {
+    branchId,
+    resourceId: recurso.id,
+    name: "Corte",
+    durationMin: 30,
+  });
+  const contacto = await prisma.contact.create({
+    data: { organizationId, firstName: "Ana", lastName: "Reserva" },
+  });
+  await prisma.booking.create({
+    data: {
+      organizationId,
+      branchId,
+      resourceId: recurso.id,
+      serviceTypeId: servicio.id,
+      contactId: contacto.id,
+      startsAt: new Date("2026-10-05T12:00:00Z"),
+      endsAt: new Date("2026-10-05T12:30:00Z"),
+      status,
+    },
+  });
+  await prisma.serviceType.update({ where: { id: servicio.id }, data: { deletedAt: new Date() } });
+  await prisma.resource.update({ where: { id: recurso.id }, data: { deletedAt: new Date() } });
+}
+
+const RESTRICTS_ITEM_167: {
+  nombre: string;
+  sembrar: (organizationId: string, branchId: string) => Promise<unknown>;
+  mensaje: string;
+}[] = [
+  {
+    nombre: "agentes (aunque estén inactivos)",
+    sembrar: (org, branch) => crearAgente(org, branch),
+    mensaje: "No se puede eliminar una sucursal que tiene agentes. Eliminá primero sus agentes.",
+  },
+  {
+    nombre: "vehículos en stock",
+    sembrar: (org, branch) => crearVehiculo(org, branch, "AVAILABLE"),
+    mensaje:
+      "No se puede eliminar una sucursal que tiene vehículos en stock. Eliminá primero sus vehículos o pasalos a otra sucursal.",
+  },
+  {
+    nombre: "entradas de la base de conocimiento",
+    sembrar: (org, branch) =>
+      prisma.knowledgeBaseEntry.create({
+        data: { organizationId: org, branchId: branch, title: "Garantía", content: "12 meses." },
+      }),
+    mensaje:
+      "No se puede eliminar una sucursal que tiene entradas en la base de conocimiento. Eliminá primero sus entradas.",
+  },
+  {
+    nombre: "reservas confirmadas",
+    sembrar: (org, branch) => crearReserva(org, branch, "CONFIRMED"),
+    mensaje:
+      "No se puede eliminar una sucursal que tiene reservas confirmadas. Cancelalas primero.",
+  },
+];
+
+for (const caso of RESTRICTS_ITEM_167) {
+  test(`deleteBranch rechaza con 400 si la sucursal tiene ${caso.nombre}, y la sucursal sigue viva`, async () => {
+    const escenario = await montar("branch-167");
+    try {
+      const branch = await createBranch(escenario.organizationId, { name: "Centro", timezone: TZ });
+      await caso.sembrar(escenario.organizationId, branch.id);
+
+      const err = await capturar(() => deleteBranch(escenario.organizationId, branch.id));
+
+      assertAppError(err, 400, caso.mensaje);
+      const persistida = await prisma.branch.findUniqueOrThrow({ where: { id: branch.id } });
+      assert.equal(persistida.deletedAt, null, "el rechazo no debe dejar el borrado a medias");
+    } finally {
+      await desmontar(escenario);
+    }
+  });
+}
+
+test("deleteBranch no se frena por lo que ya es historia: agente borrado, stock vendido/entregado, reserva cancelada", async () => {
+  const escenario = await montar("branch-167-historia");
+  try {
+    const org = escenario.organizationId;
+    const branch = await createBranch(org, { name: "Centro", timezone: TZ });
+    await crearAgente(org, branch.id, { deletedAt: new Date() });
+    await crearVehiculo(org, branch.id, "SOLD");
+    await crearVehiculo(org, branch.id, "DELIVERED");
+    await crearReserva(org, branch.id, "CANCELLED");
+
+    await deleteBranch(org, branch.id);
+
+    const persistida = await prisma.branch.findUniqueOrThrow({ where: { id: branch.id } });
+    assert.notEqual(persistida.deletedAt, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("los conteos del ítem 167 son por sucursal: lo de OTRA sucursal no bloquea", async () => {
+  const escenario = await montar("branch-167-vecina");
+  try {
+    const org = escenario.organizationId;
+    const centro = await createBranch(org, { name: "Centro", timezone: TZ });
+    const norte = await createBranch(org, { name: "Norte", timezone: TZ });
+    await crearAgente(org, norte.id);
+    await crearVehiculo(org, norte.id, "AVAILABLE");
+
+    await deleteBranch(org, centro.id);
+
+    const persistida = await prisma.branch.findUniqueOrThrow({ where: { id: centro.id } });
+    assert.notEqual(persistida.deletedAt, null);
   } finally {
     await desmontar(escenario);
   }

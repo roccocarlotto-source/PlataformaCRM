@@ -56,6 +56,16 @@ export function countAgents(organizationId: string, filters: AgentFilters, db: D
   return db.agent.count({ where: buildWhere(organizationId, filters) });
 }
 
+// Agentes de una sucursal — el conteo del RESTRICT de deleteBranch (ítem 167,
+// C-03 de la auditoría). CUALQUIERA, activo o no: un Agent inactivo sigue
+// siendo una fila real que quedaría apuntando a una sucursal borrada. Mismo
+// criterio que countActiveResourcesByBranch: organizationId además de branchId
+// porque esto decide si una escritura procede, así que el aislamiento va en el
+// propio WHERE y no en el del caller.
+export function countAgentsByBranch(branchId: string, organizationId: string, db: Db = prisma) {
+  return db.agent.count({ where: { branchId, organizationId, deletedAt: null } });
+}
+
 export function findAgentById(id: string, organizationId: string, db: Db = prisma) {
   return db.agent.findFirst({ where: { id, organizationId, deletedAt: null } });
 }

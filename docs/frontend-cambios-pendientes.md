@@ -7483,3 +7483,43 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 ## 165. Aviso fijo para lo que sigue sin soportarse (stickers, contactos compartidos, documentos, reacciones)
 
 **Estado:** pendiente. Para cualquier `type` que no sea `text` (ya resuelto)/`audio`/`image`/`location` (162, 163, 164): persistir un marcador (`[sticker]`, `[contacto compartido]`, etc.) y mandar un aviso fijo al cliente en vez de silencio absoluto — el B-09 original, acotado a lo que de verdad no vale la pena interpretar. Texto del aviso: a definir cuando se llegue a este ítem (los tres anteriores tienen prioridad).
+
+## 167. `deleteBranch`/`deleteContact` no cuentan todos sus datos vivos (C-03/C-04 de la auditoría)
+
+**Estado:** hecho (26/09/2026 — parcial, sin el chequeo de conversaciones: ver la nota de implementación al final). Los mensajes nuevos de `deleteBranch` siguen el formato de los cuatro existentes (400, "Eliminá primero sus X"); el de vehículos agrega "o pasalos a otra sucursal" porque `Vehicle` sí acepta cambiar de `branchId`, y el de reservas dice "Cancelalas primero", el mismo verbo que el RESTRICT de `deleteServiceType`. El de `deleteContact` es 409 (`CONTACTO_CON_RESERVAS_CONFIRMADAS`), igual que el de oportunidades. Tests de integración en `booking-config.integration-test.ts` y `crmIntegridad.integration-test.ts`.
+
+**Qué pasa hoy.** `deleteBranch` (`src/services/branch.service.ts`) ya es un RESTRICT lógico con lock (`lockBranchForUpdate`, dentro de una transacción) contra recursos activos, tipos de servicio activos, QRs activos y conexiones de Google Calendar con secreto — pero no cuenta agentes (activos o no) de la sucursal, vehículos en stock, entradas de la Knowledge Base, conversaciones abiertas, ni reservas confirmadas. `deleteContact` (`src/services/contact.service.ts`) solo bloquea con oportunidades abiertas del contacto, sin mirar sus conversaciones abiertas ni sus reservas confirmadas. Resultado: se puede borrar una sucursal que en ese mismo momento está atendiendo WhatsApp (el Agent queda con un `branchId` que ya no resuelve), con stock invisible desde el resto de la API, o un contacto con una conversación en curso.
+
+**Qué se hace.**
+
+**`deleteBranch`**, mismo criterio RESTRICT y en el mismo lugar (dentro de la transacción que ya toma `lockBranchForUpdate`), cinco chequeos nuevos, en este orden — junto a los cuatro que ya existen, antes de Google Calendar (mismo criterio ya documentado en el archivo: lo que hay que migrar o borrar a mano va antes de lo que se destraba con un click):
+
+1. **Agentes de la sucursal** (`db.agent.count({ branchId, organizationId, deletedAt: null })`, cualquiera, activo o no — un Agent inactivo sigue siendo una fila real que quedaría apuntando a una sucursal borrada). `agent.service.ts` YA toma `lockBranchForUpdate` al crear un Agent, así que este chequeo queda serializado de verdad contra una alta concurrente — no hace falta tocar ese archivo.
+2. **Vehículos en stock** (`status NOT IN (SOLD, DELIVERED)`, `deletedAt: null` — un vehículo ya vendido/entregado no está físicamente en la sucursal, no bloquea).
+3. **Entradas de la Knowledge Base** (`deletedAt: null` — manuales o generadas por la sincronización de stock, ítem 132; las dos son datos reales que quedarían huérfanos). `knowledgeBaseEntry.service.ts` YA toma `lockBranchForUpdate` al crear una entrada manual, mismo beneficio que con Agent.
+4. **Conversaciones abiertas** (`status IN (ACTIVE, TRANSFERRED_TO_HUMAN)`).
+5. **Reservas confirmadas** (`status = CONFIRMED` — mismo criterio exacto que ya usa `countActiveBookingsByServiceType` para el RESTRICT de `deleteServiceType`).
+
+**Ventana conocida y aceptada, a documentar en el código igual que las demás del repo:** a diferencia de Agent y KnowledgeBaseEntry, la creación de un Vehicle o de un Booking NO toma `lockBranchForUpdate` — un alta de cualquiera de los dos justo en el instante del borrado podría, en teoría, colarse entre la lectura del conteo y el commit. Cerrarlo del todo exigiría sumarles el lock a esos dos flujos, que es más cambio del que este ítem pide (tocaría `vehicle.service.ts` y `booking.service.ts`, cuyas creaciones no pasan hoy por ninguna transacción con la sucursal); se documenta como ventana conocida, no se cierra en este ítem.
+
+**`deleteContact`**, mismo criterio que el RESTRICT de oportunidades abiertas que ya tiene (sin transacción ni lock — no los usa hoy y el chequeo nuevo no los necesita más que el existente):
+
+1. **Conversaciones abiertas del contacto** (`status IN (ACTIVE, TRANSFERRED_TO_HUMAN)`) → 409, mismo formato de mensaje que `CONTACTO_CON_OPORTUNIDADES_ABIERTAS` pero con su propio texto.
+2. **Reservas confirmadas del contacto** (`status = CONFIRMED`) → 409, ídem.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/repositories/agent.repository.ts` | cuenta de agentes por sucursal (no borrados) |
+| `src/repositories/vehicle.repository.ts` | cuenta de vehículos activos por sucursal |
+| `src/repositories/knowledgeBaseEntry.repository.ts` | cuenta de entradas por sucursal |
+| ~~`src/repositories/conversation.repository.ts`~~ | ~~cuenta de conversaciones abiertas por sucursal y por contacto~~ — fuera del ítem, ver la nota de implementación |
+| `src/repositories/booking.repository.ts` | cuenta de reservas confirmadas por sucursal y por contacto |
+| `src/services/branch.service.ts` | `deleteBranch`: 5 RESTRICT nuevos |
+| `src/services/contact.service.ts` | `deleteContact`: 2 RESTRICT nuevos |
+| tests | de cada repositorio y de los dos services, con los casos de bloqueo y de borrado exitoso sin dependientes |
+
+**Nota de implementación (descubierta al implementarlo):** el chequeo de "conversaciones abiertas" quedó AFUERA de este ítem. Nada en el sistema le pone `CLOSED` a una Conversation hoy — ni un endpoint, ni una automatización: `ConversationStatus.CLOSED` existe en el enum y en el filtro de listado, pero ningún código lo escribe. Bloquear el borrado por "no CLOSED" haría que cualquier sucursal o contacto que alguna vez tuvo una conversación quedara imposible de borrar para siempre. Se implementan los otros 4 RESTRICT (agentes, vehículos, KB y reservas de sucursal; reservas de contacto) tal cual el diseño original. El de conversaciones queda pendiente de un ítem futuro que agregue una forma real de cerrar una conversación (manual desde la bandeja, o automática al derivar/resolver) — recién ahí este RESTRICT tiene sentido.
+
+**No lleva migración.**

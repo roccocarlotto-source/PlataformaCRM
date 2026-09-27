@@ -244,6 +244,21 @@ export function countVehicles(organizationId: string, filters: VehicleFilters, d
   return db.vehicle.count({ where: buildWhere(organizationId, filters) });
 }
 
+// Vehículos EN STOCK de una sucursal — el conteo del RESTRICT de deleteBranch
+// (ítem 167, C-03 de la auditoría). SOLD y DELIVERED no cuentan: esa unidad ya
+// no está físicamente en la sucursal, es historia, y no tiene por qué frenar la
+// baja. organizationId en el WHERE por el mismo motivo que
+// countActiveResourcesByBranch.
+export function countVehiclesInStockByBranch(
+  branchId: string,
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.vehicle.count({
+    where: { branchId, organizationId, deletedAt: null, status: { notIn: ["SOLD", "DELIVERED"] } },
+  });
+}
+
 export function findVehicleById(id: string, organizationId: string, db: Db = prisma) {
   return db.vehicle.findFirst({ where: { id, organizationId, deletedAt: null } });
 }
