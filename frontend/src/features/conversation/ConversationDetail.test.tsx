@@ -302,9 +302,7 @@ describe("ConversationDetail", () => {
     // existe todavía). Si alguien agrega una caja de texto para CONTESTAR sin
     // resolver eso primero, este test se cae y obliga a pensarlo.
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /Enviar|Responder|Cerrar conversación/ }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Enviar|Responder/ })).toBeNull();
     expect(screen.queryByRole("form")).not.toBeInTheDocument();
   });
 
@@ -325,9 +323,7 @@ describe("ConversationDetail", () => {
     await user.click(await screen.findByRole("button", { name: "Editar" }));
 
     expect(screen.getByRole("textbox")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /Enviar|Responder|Cerrar conversación/ }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Enviar|Responder/ })).toBeNull();
   });
 
   // -------------------------------------------------------------------------
@@ -593,6 +589,101 @@ describe("ConversationDetail", () => {
     );
     // Lo importante: no se perdió lo que había.
     expect(screen.getByText("Resumen viejo.")).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // El cierre manual (ítem 168)
+  // -------------------------------------------------------------------------
+
+  it("'Cerrar conversación' confirma, llama al POST y deja la conversación Cerrada sin el botón", async () => {
+    let cierres = 0;
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(
+      http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))),
+      http.post(`${detailUrl}/close`, () => {
+        cierres += 1;
+        return HttpResponse.json(makeConversationDetail({ status: "CLOSED" }, HILO));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Cerrar conversación" }));
+
+    expect(await screen.findByText("Cerrada")).toHaveClass("ds-badge");
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(cierres).toBe(1);
+    expect(screen.queryByRole("button", { name: "Cerrar conversación" })).toBeNull();
+    confirm.mockRestore();
+  });
+
+  it("cancelar la confirmación no llama al backend", async () => {
+    let cierres = 0;
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    server.use(
+      http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))),
+      http.post(`${detailUrl}/close`, () => {
+        cierres += 1;
+        return HttpResponse.json(makeConversationDetail({ status: "CLOSED" }, HILO));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Cerrar conversación" }));
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(cierres).toBe(0);
+    expect(screen.getByText("Activa")).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
+  it("una derivada a un humano también se puede cerrar, y un USER ve el botón", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ status: "TRANSFERRED_TO_HUMAN" }, HILO)),
+      ),
+    );
+
+    renderDetail("USER");
+
+    expect(await screen.findByRole("button", { name: "Cerrar conversación" })).toBeInTheDocument();
+  });
+
+  it("una conversación ya cerrada no ofrece cerrarla", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ status: "CLOSED" }, HILO)),
+      ),
+    );
+
+    renderDetail();
+
+    expect(await screen.findByText("Cerrada")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cerrar conversación" })).toBeNull();
+  });
+
+  it("si cerrar falla, muestra el error y la conversación sigue abierta", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(
+      http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))),
+      http.post(`${detailUrl}/close`, () =>
+        HttpResponse.json({ error: { message: "Conversación no encontrada" } }, { status: 404 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderDetail();
+
+    await user.click(await screen.findByRole("button", { name: "Cerrar conversación" }));
+
+    expect(await screen.findByText(/No pudimos cerrar la conversación/)).toHaveTextContent(
+      "Conversación no encontrada",
+    );
+    expect(screen.getByText("Activa")).toBeInTheDocument();
+    confirm.mockRestore();
   });
 
   // -------------------------------------------------------------------------

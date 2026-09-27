@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { generateConversationBrief, updateConversationBrief } from "./api";
+import { closeConversation, generateConversationBrief, updateConversationBrief } from "./api";
 import { conversationKeys } from "./queries";
 import type { ConversationDetail } from "./types";
 
@@ -24,9 +24,9 @@ import type { ConversationDetail } from "./types";
 // varias en la cache.
 // ---------------------------------------------------------------------------
 
-// El onSuccess es idéntico en las dos y sale de un solo lado: las dos guardan
-// un brief nuevo en la misma conversación, así que dejar la cache al día
-// significa exactamente lo mismo para las dos.
+// El onSuccess es idéntico en las tres y sale de un solo lado: las tres
+// devuelven la misma conversación actualizada, así que dejar la cache al día
+// significa exactamente lo mismo para todas (el cierre es del ítem 168).
 function useGuardarEnCache(id: string) {
   const queryClient = useQueryClient();
   return (conversation: ConversationDetail) => {
@@ -54,6 +54,18 @@ export function useGenerateConversationBrief(id: string) {
   const guardarEnCache = useGuardarEnCache(id);
   return useMutation({
     mutationFn: () => generateConversationBrief(id),
+    onSuccess: guardarEnCache,
+  });
+}
+
+// El cierre manual (ítem 168). Mismo onSuccess que el brief: la respuesta es
+// la conversación entera, y el listado se invalida porque muestra el status
+// por fila (y puede estar filtrado por status, así que la fila tiene que
+// poder desaparecer de "Activas").
+export function useCloseConversation(id: string) {
+  const guardarEnCache = useGuardarEnCache(id);
+  return useMutation({
+    mutationFn: () => closeConversation(id),
     onSuccess: guardarEnCache,
   });
 }

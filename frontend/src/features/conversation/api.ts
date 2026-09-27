@@ -6,8 +6,8 @@ import type { ConversationDetail, ConversationListQuery, ConversationListRespons
 // features/knowledgeBase/api.ts. organizationId nunca viaja acá: se resuelve
 // exclusivamente server-side desde el JWT.
 //
-// LO QUE SIGUE SIN ESTAR, y es lo que el ítem 66 dejó dicho: no hay crear, no
-// hay cerrar y sobre todo NO HAY RESPONDER — no porque falte escribirlo acá,
+// LO QUE SIGUE SIN ESTAR, y es lo que el ítem 66 dejó dicho: no hay crear y
+// sobre todo NO HAY RESPONDER (cerrar sí, desde el ítem 168) — no porque falte escribirlo acá,
 // sino porque no existe del lado del backend y no puede existir hasta que haya
 // forma de ENTREGAR un mensaje saliente por el canal (ver el comentario de
 // src/services/conversation.service.ts).
@@ -72,6 +72,18 @@ export function updateConversationBrief(
 // la pantalla muestra el botón en curso mientras corre.
 export function generateConversationBrief(id: string): Promise<ConversationDetail> {
   return request<ConversationDetail>(`/conversations/${id}/generate-brief`, {
+    method: "POST",
+    getAccessToken,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// El cierre manual (ítem 168). Sin body —el único destino es CLOSED— y con la
+// conversación ENTERA de vuelta, igual que el brief. Cerrar una ya cerrada no
+// es un error del lado del backend: devuelve la conversación como está.
+// ---------------------------------------------------------------------------
+export function closeConversation(id: string): Promise<ConversationDetail> {
+  return request<ConversationDetail>(`/conversations/${id}/close`, {
     method: "POST",
     getAccessToken,
   });

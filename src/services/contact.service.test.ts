@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { AppError } from "../utils/AppError";
 import {
+  CONTACTO_CON_CONVERSACIONES_ABIERTAS,
   CONTACTO_CON_OPORTUNIDADES_ABIERTAS,
   CONTACTO_CON_RESERVAS_CONFIRMADAS,
   deleteContact,
@@ -199,15 +200,19 @@ test("lo que se guarda va trimeado", () => {
 });
 
 // --------------------------------------------------------------------------
-// deleteContact — los RESTRICT de oportunidades abiertas (ítem 155) y de
-// reservas confirmadas (ítem 167, C-04 de la auditoría), sin base: el cliente
+// deleteContact — los RESTRICT de oportunidades abiertas (ítem 155), de
+// conversaciones abiertas (ítem 168) y de reservas confirmadas (ítem 167, C-04
+// de la auditoría), sin base: el cliente
 // de Prisma se reemplaza por uno en memoria que responde cada conteo con lo
 // que el test le pida. Que Postgres cuente esas filas lo cubre
 // crmIntegridad.integration-test.ts.
 // --------------------------------------------------------------------------
 
-function baseDeContactoFalsa(conteos: { opportunity?: number; booking?: number } = {}) {
+function baseDeContactoFalsa(
+  conteos: { opportunity?: number; conversation?: number; booking?: number } = {},
+) {
   const borrados: unknown[] = [];
+  const wheres: { conversation?: unknown } = {};
   const p = prisma as unknown as Record<string, unknown>;
   mock.property(p, "contact", {
     findFirst: async () => ({ id: "contact-1", organizationId: "org-a" }),
@@ -217,8 +222,14 @@ function baseDeContactoFalsa(conteos: { opportunity?: number; booking?: number }
     },
   });
   mock.property(p, "opportunity", { count: async () => conteos.opportunity ?? 0 });
+  mock.property(p, "conversation", {
+    count: async (args: { where: unknown }) => {
+      wheres.conversation = args.where;
+      return conteos.conversation ?? 0;
+    },
+  });
   mock.property(p, "booking", { count: async () => conteos.booking ?? 0 });
-  return { borrados };
+  return { borrados, wheres };
 }
 
 async function capturarRechazo(fn: () => Promise<unknown>): Promise<unknown> {
@@ -243,9 +254,37 @@ test("deleteContact con reservas confirmadas: 409 con su mensaje, y no borra", a
   }
 });
 
+test("deleteContact con conversaciones abiertas: 409 con su mensaje, antes que el de reservas, y no borra", async () => {
+  try {
+    const { borrados } = baseDeContactoFalsa({ conversation: 1, booking: 1 });
+    const err = await capturarRechazo(() => deleteContact("org-a", "contact-1"));
+    assert.ok(err instanceof AppError);
+    assert.equal(err.statusCode, 409);
+    assert.equal(err.message, CONTACTO_CON_CONVERSACIONES_ABIERTAS);
+    assert.equal(borrados.length, 0);
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+// Ítem 168: una conversación CLOSED no entra en el conteo, así que no bloquea.
+test("el conteo de conversaciones es solo de las abiertas, del contacto y de la organización", async () => {
+  try {
+    const { wheres } = baseDeContactoFalsa();
+    await deleteContact("org-a", "contact-1");
+    assert.deepEqual(wheres.conversation, {
+      contactId: "contact-1",
+      organizationId: "org-a",
+      status: { in: ["ACTIVE", "TRANSFERRED_TO_HUMAN"] },
+    });
+  } finally {
+    mock.restoreAll();
+  }
+});
+
 test("deleteContact con oportunidades abiertas sigue dando su propio 409", async () => {
   try {
-    const { borrados } = baseDeContactoFalsa({ opportunity: 1, booking: 1 });
+    const { borrados } = baseDeContactoFalsa({ opportunity: 1, conversation: 1, booking: 1 });
     const err = await capturarRechazo(() => deleteContact("org-a", "contact-1"));
     assert.ok(err instanceof AppError);
     assert.equal(err.statusCode, 409);

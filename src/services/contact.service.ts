@@ -2,6 +2,7 @@ import { Prisma, type LeadUrgency, type LifecycleStage } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { countConfirmedBookingsOf } from "../repositories/booking.repository";
 import { findCompanyById } from "../repositories/company.repository";
+import { countOpenConversationsOf } from "../repositories/conversation.repository";
 import {
   countContacts,
   createContact as createContactRepo,
@@ -258,6 +259,9 @@ export async function updateContact(
 export const CONTACTO_CON_OPORTUNIDADES_ABIERTAS =
   "Este contacto tiene oportunidades abiertas: cerralas o pasalas a otro contacto antes de darlo de baja";
 
+export const CONTACTO_CON_CONVERSACIONES_ABIERTAS =
+  "Este contacto tiene conversaciones abiertas: cerralas desde la bandeja antes de darlo de baja";
+
 export const CONTACTO_CON_RESERVAS_CONFIRMADAS =
   "Este contacto tiene reservas confirmadas: cancelalas antes de darlo de baja";
 
@@ -270,15 +274,17 @@ export async function deleteContact(organizationId: string, id: string) {
   if ((await countOpenOpportunitiesOf({ contactId: id }, organizationId)) > 0) {
     throw new AppError(CONTACTO_CON_OPORTUNIDADES_ABIERTAS, 409);
   }
+  // Ítem 168 (el chequeo que el ítem 167 difirió hasta que existiera cómo
+  // cerrarlas): no se da de baja a alguien con quien se está hablando. Solo
+  // ACTIVE y TRANSFERRED_TO_HUMAN; las CLOSED son historia. Se destraba
+  // cerrándolas desde la bandeja.
+  if ((await countOpenConversationsOf({ contactId: id }, organizationId)) > 0) {
+    throw new AppError(CONTACTO_CON_CONVERSACIONES_ABIERTAS, 409);
+  }
   // Ítem 167 de docs/frontend-cambios-pendientes.md (C-04 de la auditoría):
   // mismo RESTRICT para sus reservas CONFIRMADAS — un cliente que va a venir
   // no se da de baja con el turno colgando. Mismo criterio que el RESTRICT de
   // deleteServiceType: las COMPLETED, NO_SHOW y CANCELLED son historia.
-  //
-  // SIN RESTRICT DE CONVERSACIONES ABIERTAS, aunque el ítem lo pedía: hoy
-  // nada pasa una conversación a CLOSED, así que bloquearía para siempre a
-  // todo contacto que alguna vez escribió. Queda pendiente hasta que exista
-  // cómo cerrarlas.
   if ((await countConfirmedBookingsOf({ contactId: id }, organizationId)) > 0) {
     throw new AppError(CONTACTO_CON_RESERVAS_CONFIRMADAS, 409);
   }

@@ -12,6 +12,7 @@ import {
   type BranchSortBy,
   type SortOrder,
 } from "../repositories/branch.repository";
+import { countOpenConversationsOf } from "../repositories/conversation.repository";
 import { countConnectionsWithSecretByBranch } from "../repositories/googleCalendarConnection.repository";
 import { countKnowledgeBaseEntriesByBranch } from "../repositories/knowledgeBaseEntry.repository";
 import { countActiveQrCodesByBranch } from "../repositories/qrCode.repository";
@@ -153,9 +154,10 @@ export async function updateBranch(organizationId: string, id: string, input: Up
 
 // RESTRICT lógico, el criterio ya establecido en ALTO-8: no se borra una
 // sucursal que tiene recursos, servicios o QRs activos colgando, agentes,
-// stock, entradas de la KB o reservas confirmadas (ítem 167), ni Google
-// Calendar todavía conectado. Mismo formato de error que "el último pipeline"
-// y que los dos RESTRICT de ALTO-8: AppError con 400.
+// stock, entradas de la KB, reservas confirmadas (ítem 167) o conversaciones
+// abiertas (ítem 168), ni Google Calendar todavía conectado. Mismo formato
+// de error que "el último pipeline" y que los dos RESTRICT de ALTO-8:
+// AppError con 400.
 //
 // Y CON EL LOCK, que es la mitad que el chequeo solo no cubre. Un RESTRICT es
 // una decisión sobre un conteo: sin serializar contra createResource /
@@ -222,7 +224,7 @@ export async function deleteBranch(organizationId: string, id: string) {
       );
     }
 
-    // DEL QUINTO AL OCTAVO RESTRICT — ítem 167 de
+    // DEL QUINTO AL NOVENO RESTRICT — ítems 167 y 168 de
     // docs/frontend-cambios-pendientes.md (C-03 de la auditoría). Mismo
     // problema que los QRs, con datos que importan más: sin estos chequeos se
     // podía borrar una sucursal que en ese mismo momento estaba atendiendo
@@ -232,12 +234,10 @@ export async function deleteBranch(organizationId: string, id: string) {
     // borrar a mano, así que van junto a recursos, servicios y QRs, antes de
     // Google Calendar — mismo criterio de orden que se explica ahí abajo.
     //
-    // SIN RESTRICT DE CONVERSACIONES ABIERTAS, aunque el ítem lo pedía: hoy
-    // nada pasa una conversación a CLOSED (ni endpoint ni proceso), así que
-    // ese chequeo bloquearía para siempre a toda sucursal que alguna vez tuvo
-    // un agente atendiendo. Queda pendiente hasta que exista cómo cerrarlas.
-    // Mientras tanto, el chequeo de agentes cubre el caso que importa: sin
-    // agente en la sucursal no nacen conversaciones nuevas en ella.
+    // El de CONVERSACIONES ABIERTAS se difirió en el ítem 167 —nada las
+    // pasaba a CLOSED y habría bloqueado para siempre— y volvió en el ítem
+    // 168, junto con el cierre manual desde la bandeja (POST
+    // /api/conversations/:id/close).
     //
     // QUÉ ESTÁ SERIALIZADO CON EL LOCK Y QUÉ NO. createAgent
     // (agent.service.ts) y la alta manual de una entrada de la KB
@@ -256,7 +256,7 @@ export async function deleteBranch(organizationId: string, id: string) {
     // pidió el ítem 167 y queda documentada acá, no cerrada.
 
     // Cualquier agente, activo o no: uno inactivo sigue siendo una fila que
-    // quedaría apuntando a la sucursal borrada. Va primero de los cuatro
+    // quedaría apuntando a la sucursal borrada. Va primero de los cinco
     // porque es el que para la atención en vivo.
     const agentes = await countAgentsByBranch(id, organizationId, tx);
     if (agentes > 0) {
@@ -281,6 +281,26 @@ export async function deleteBranch(organizationId: string, id: string) {
     if (entradasDeKb > 0) {
       throw new AppError(
         "No se puede eliminar una sucursal que tiene entradas en la base de conocimiento. Eliminá primero sus entradas.",
+        400,
+      );
+    }
+
+    // ACTIVE o TRANSFERRED_TO_HUMAN (ítem 168): alguien —el agente o una
+    // persona— sigue atendiendo ahí. Las CLOSED son historia y no bloquean.
+    // Se destraba cerrándolas desde la bandeja.
+    //
+    // Sin lock que lo serialice, igual que Vehicle y Booking: una conversación
+    // nace de un mensaje entrante, no de un alta que tome lockBranchForUpdate.
+    // En la práctica la ventana la cierra el chequeo de agentes de arriba: sin
+    // agente en la sucursal no nacen conversaciones nuevas en ella.
+    const conversacionesAbiertas = await countOpenConversationsOf(
+      { branchId: id },
+      organizationId,
+      tx,
+    );
+    if (conversacionesAbiertas > 0) {
+      throw new AppError(
+        "No se puede eliminar una sucursal que tiene conversaciones abiertas. Cerralas primero desde la bandeja.",
         400,
       );
     }
@@ -315,8 +335,8 @@ export async function deleteBranch(organizationId: string, id: string) {
     // desconectar() acepta una conexión en ERROR (solo rechaza REVOKED) y pone
     // el token en NULL; después de eso, el borrado procede.
     //
-    // VA ÚLTIMO, después de recursos, servicios, QRs y los cuatro del ítem 167,
-    // y no es indiferente: los mensajes son excluyentes —se devuelve el primero
+    // VA ÚLTIMO, después de recursos, servicios, QRs y los cinco de los ítems
+    // 167 y 168, y no es indiferente: los mensajes son excluyentes —se devuelve el primero
     // que dispara— así que el orden decide cuál ve el ADMIN. Todo lo anterior
     // son datos que hay que migrar o borrar a mano; desconectar Google es un
     // click.

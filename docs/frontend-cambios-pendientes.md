@@ -7570,3 +7570,105 @@ La única acción que hace una llamada al LLM DENTRO de un handler del outbox es
 **Nota de implementación (descubierta al implementarlo):** el chequeo de "conversaciones abiertas" quedó AFUERA de este ítem. Nada en el sistema le pone `CLOSED` a una Conversation hoy — ni un endpoint, ni una automatización: `ConversationStatus.CLOSED` existe en el enum y en el filtro de listado, pero ningún código lo escribe. Bloquear el borrado por "no CLOSED" haría que cualquier sucursal o contacto que alguna vez tuvo una conversación quedara imposible de borrar para siempre. Se implementan los otros 4 RESTRICT (agentes, vehículos, KB y reservas de sucursal; reservas de contacto) tal cual el diseño original. El de conversaciones queda pendiente de un ítem futuro que agregue una forma real de cerrar una conversación (manual desde la bandeja, o automática al derivar/resolver) — recién ahí este RESTRICT tiene sentido.
 
 **No lleva migración.**
+
+## 168. Cerrar una conversación desde la bandeja (y reactivar el RESTRICT de conversaciones abiertas diferido en el ítem 167)
+
+**Estado:** hecho (26/09/2026). Sin migración. Ver las decisiones al final.
+
+**Qué pasa hoy.** `Conversation.status` nunca llega a `CLOSED`: es un enum de tres
+valores (`ACTIVE`, `TRANSFERRED_TO_HUMAN`, `CLOSED`) pero ningún código lo escribe
+— `CLOSED` solo existe como filtro de lectura en `listQuerySchema`
+(`conversation.controller.ts`). Esto es lo que obligó, en el ítem 167, a sacar del
+alcance el RESTRICT de "conversaciones abiertas" en `deleteBranch`/`deleteContact`:
+sin forma de cerrar una conversación, ese chequeo hubiera bloqueado para siempre a
+cualquier sucursal o contacto que alguna vez tuvo una.
+
+**Qué se hace.** Alcance acotado a cierre MANUAL desde la bandeja (decisión
+explícita: el cierre automático —por IA o por una Automation— queda para un ítem
+futuro, si hace falta).
+
+1. **Repositorio** (`src/repositories/conversation.repository.ts`):
+   `closeConversation(id, organizationId, db)`, mismo patrón compare-and-swap que
+   `transferConversationToHuman` — `updateMany` con `status: { not: "CLOSED" }` en
+   el WHERE, sin tirar error si ya estaba cerrada (queda en 0 filas afectadas, no
+   es un error).
+2. **Service** (`src/services/conversation.service.ts`):
+   `closeConversation(organizationId, id)` — mismo molde que
+   `updateConversationBrief`/`generateConversationBrief`: `getConversationById`
+   primero (404 antes de escribir), llama al repo, y devuelve
+   `getConversationById` de nuevo (conversación entera, no solo el status, para
+   que la pantalla actualice la cache sin una segunda lectura).
+3. **Controller** (`src/controllers/conversation.controller.ts`):
+   `closeConversationHandler`, mismo molde que `generateConversationBriefHandler`
+   — POST sin body (no hay nada que elegir), síncrono, el error sube tal cual.
+4. **Rutas** (`src/routes/conversation.routes.ts`): `POST /conversations/:id/close`,
+   con `authenticate` + `businessWriteRateLimiter`, SIN `authorize("ADMIN")` —
+   mismo criterio que las dos escrituras del brief: cerrar una conversación es
+   trabajo de quien la atiende, no una decisión de configuración.
+5. **Frontend** (`frontend/src/features/conversation/`):
+   - `mutations.ts`: `useCloseConversation(id)`, mismo patrón que la mutación del
+     brief — al tener éxito, escribe la conversación completa en la cache de
+     `conversationKeys.detail(id)` e invalida `conversationKeys.lists()` (la
+     lista muestra el status por fila).
+   - `ConversationDetail.tsx`: botón "Cerrar conversación", visible solo cuando
+     `status !== "CLOSED"`, con `window.confirm` antes de disparar la mutación
+     (mismo patrón de confirmación que el resto del repo, ver
+     `OpportunityListPage.tsx`/`ActivityListPage.tsx`). Este es el único cambio a
+     la invariante "sin ninguna acción" que documenta hoy
+     `ConversationListPage.tsx` — está bien: la lista en sí sigue sin acciones,
+     el botón va en el detalle.
+   - `api.ts` / `labels.ts` ya tienen todo lo necesario para mostrar `CLOSED`
+     (no tocar).
+
+**Comportamiento a tener en cuenta (no es un bug, es la garantía que ya documenta
+`findOrCreateOpenConversation`):** cerrar una conversación no la archiva sin más —
+el próximo mensaje entrante de ese mismo contacto por el mismo canal abre una
+conversación NUEVA (el índice único `conversations_open_unique` solo cubre
+`ACTIVE`/`TRANSFERRED_TO_HUMAN`). Es el comportamiento correcto y ya esperado por
+el código existente; se documenta acá para que quede claro en el PR y no se lea
+como una regresión.
+
+**Reactivación del RESTRICT diferido (ítem 167, C-03/C-04 de la auditoría).** Con
+el cierre ya existiendo, se vuelve a agregar el chequeo que se sacó:
+   - `src/repositories/conversation.repository.ts`: reponer
+     `countOpenConversationsOf(where, organizationId, db)` (se había escrito y se
+     borró en el ítem 167 — están los dos commits de referencia en el historial de
+     `fix/restrict-borrado-sucursal-contacto`), mismo criterio:
+     `status: { in: ["ACTIVE", "TRANSFERRED_TO_HUMAN"] }`.
+   - `src/services/branch.service.ts`: `deleteBranch` — RESTRICT nuevo entre las
+     entradas de la Knowledge Base y las reservas confirmadas (el orden original
+     del diseño del ítem 167, antes de que se difiriera), mismo formato
+     `AppError(..., 400)`.
+   - `src/services/contact.service.ts`: `deleteContact` — RESTRICT nuevo 409 entre
+     el de oportunidades abiertas (existente) y el de reservas confirmadas (ítem
+     167), mismo formato que `CONTACTO_CON_OPORTUNIDADES_ABIERTAS`/
+     `CONTACTO_CON_RESERVAS_CONFIRMADAS`.
+   - Actualizar los comentarios de `deleteBranch`/`deleteContact` que hoy
+     documentan por qué el chequeo de conversaciones NO estaba (los que dicen
+     "SIN RESTRICT DE CONVERSACIONES ABIERTAS, aunque el ítem lo pedía...") —
+     sacarlos o reemplazarlos, ya no aplican.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/repositories/conversation.repository.ts` | `closeConversation` (CAS) + repone `countOpenConversationsOf` |
+| `src/services/conversation.service.ts` | `closeConversation` |
+| `src/controllers/conversation.controller.ts` | `closeConversationHandler` |
+| `src/routes/conversation.routes.ts` | `POST /conversations/:id/close` |
+| `src/services/branch.service.ts` | `deleteBranch`: RESTRICT nuevo (conversaciones abiertas) |
+| `src/services/contact.service.ts` | `deleteContact`: RESTRICT nuevo (conversaciones abiertas) |
+| `frontend/src/features/conversation/mutations.ts` | `useCloseConversation` |
+| `frontend/src/features/conversation/ConversationDetail.tsx` | botón "Cerrar conversación" |
+| tests | unitarios de cada capa tocada (backend y frontend) + integración de `deleteBranch`/`deleteContact` con conversación abierta |
+
+**No lleva migración** (el enum `CLOSED` ya existe en el schema desde antes).
+
+### Decisiones tomadas al implementarlo
+
+- **`api.ts` sí se tocó**: le faltaba la llamada `closeConversation(id)` (POST sin body) que usa la mutación. Lo de "no tocar" aplicaba a mostrar `CLOSED`, que efectivamente ya estaba resuelto en `api.ts`/`labels.ts`.
+- **`countOpenConversationsOf` se escribió de nuevo**: los commits de referencia del ítem 167 no quedaron en el historial (la rama se aplastó en uno solo). Misma forma que `countConfirmedBookingsOf`: `{ branchId } | { contactId }`, `organizationId` en el WHERE y `status IN (ACTIVE, TRANSFERRED_TO_HUMAN)`.
+- **Mensajes**: sucursal (400) "No se puede eliminar una sucursal que tiene conversaciones abiertas. Cerralas primero desde la bandeja."; contacto (409, `CONTACTO_CON_CONVERSACIONES_ABIERTAS`) "Este contacto tiene conversaciones abiertas: cerralas desde la bandeja antes de darlo de baja".
+- **El conteo de conversaciones de `deleteBranch` no está serializado por el lock** (una conversación nace de un mensaje entrante, no de un alta que tome `lockBranchForUpdate`), igual que Vehicle y Booking. En la práctica la ventana la cierra el RESTRICT de agentes, que va antes: sin agente en la sucursal no nacen conversaciones nuevas. Documentado en el código.
+- **Confirmación del botón**: "¿Cerrar esta conversación? Si el contacto vuelve a escribir, se abre una nueva." — deja explícito el comportamiento de `conversations_open_unique` a quien lo aprieta. El botón es `secondary` (cerrar es el final normal, no una baja) y un error se muestra dentro de la tarjeta de datos.
+- **Tests**: unitarios nuevos `conversation.service.test.ts` (cierre, idempotencia, 404 sin escribir) y `conversation.controller.test.ts` (200 scopeado por el JWT, id no UUID = 400 sin tocar la base, 404 sube tal cual); `conversation.repository.test.ts` (+2: el CAS y el WHERE del conteo); `branch.service.test.ts`/`contact.service.test.ts` (el RESTRICT nuevo y que el conteo es solo de abiertas y de la organización); integración en `conversation.controller.integration-test.ts` (+6, incluido que después de cerrar se puede abrir una nueva con la misma tupla), `booking-config.integration-test.ts` (+3, el agente se siembra borrado para que el único dependiente vivo sea la conversación) y `crmIntegridad.integration-test.ts` (+3); frontend `mutations.test.tsx` (nuevo) y `ConversationDetail.test.tsx` (+5). Los dos tests que afirmaban que no había "Cerrar conversación" en el detalle se ajustaron: la barrera que cuidan (no se RESPONDE desde la pantalla) sigue igual.
