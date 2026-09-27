@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
+import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import type { ClienteMetaOAuth } from "../services/metaOAuth.service";
 import {
@@ -23,16 +24,50 @@ import { parseOrThrow } from "../utils/validation";
 // (mismo patrón que createWhatsappTemplateHandlers); producción no pasa nada.
 // ---------------------------------------------------------------------------
 
-// El callback responde text/plain: del otro lado hay una persona en un
-// navegador, no un cliente de API. El mensaje sale del AppError del service.
+// El callback vuelve al frontend con un 302 (ítem 173), igual que el de Google
+// Calendar desde el ítem 75: al primer origen de CORS_ORIGIN, a /organization
+// (la pantalla donde vive la sección de Facebook) con ?metaConnected=true o
+// ?metaError=<mensaje>. Sin :branchId hay un solo destino posible, así que el
+// camino de error no necesita revalidar el state como hace Google.
 //
-// APUNTAR ACÁ CUANDO EXISTA EL ÍTEM 173 (la pantalla de conexión en el
-// frontend): igual que hizo Google Calendar en el ítem 75, el callback tiene
-// que pasar a un 302 al origen de CORS_ORIGIN con ?metaConnected=true o
-// ?metaError=<mensaje> (tope de 200 caracteres), dejando este text/plain como
-// fallback para cuando no hay un origen utilizable. Hoy no hay a qué ruta del
-// frontend volver, y un 302 a una pantalla que no existe sería peor que este
-// texto.
+// El text/plain de antes queda como fallback cuando no hay un origen
+// utilizable: del otro lado hay una persona en un navegador, y un 302 a
+// ninguna parte sería peor que un texto legible.
+
+// Tope del mensaje que viaja en la URL, mismo criterio que Google: el que se
+// arma con el `error` de Meta sale de la query string y podría ser cualquier
+// cosa.
+const MAX_MENSAJE_EN_URL = 200;
+
+// La URL del frontend a la que vuelve el navegador, o undefined si no hay un
+// origen utilizable (y entonces el handler responde text/plain). Pura y
+// exportada para probarla sin HTTP ni base.
+export function urlDeVueltaAlFrontend(
+  corsOrigin: string | undefined,
+  vuelta: { error?: string },
+): string | undefined {
+  const primero = (corsOrigin ?? "").split(",")[0].trim();
+  if (!primero) return undefined;
+
+  let origen: URL;
+  try {
+    origen = new URL(primero);
+  } catch {
+    return undefined;
+  }
+  if (origen.protocol !== "http:" && origen.protocol !== "https:") return undefined;
+
+  // /organization es la ruta real de OrganizationSettingsPage
+  // (frontend/src/app/router.tsx).
+  const destino = new URL("/organization", origen.origin);
+  if (vuelta.error !== undefined) {
+    destino.searchParams.set("metaError", vuelta.error.slice(0, MAX_MENSAJE_EN_URL));
+  } else {
+    destino.searchParams.set("metaConnected", "true");
+  }
+  return destino.toString();
+}
+
 const queryDeCallbackSchema = z.object({
   state: z.string().optional(),
   code: z.string().optional(),
@@ -67,6 +102,12 @@ export function createMetaPageConnectionHandlers(cliente?: ClienteMetaOAuth) {
     try {
       const conexion = await completarConexion(query, cliente);
 
+      const destino = urlDeVueltaAlFrontend(env.CORS_ORIGIN, {});
+      if (destino) {
+        res.redirect(302, destino);
+        return;
+      }
+
       res
         .status(200)
         .type("text/plain")
@@ -94,6 +135,12 @@ export function createMetaPageConnectionHandlers(cliente?: ClienteMetaOAuth) {
       // req.path y no req.originalUrl: la URL completa lleva el `code` y el
       // `state`, que no tienen por qué quedar en un log.
       logger.error({ err, path: req.path }, "Falló el callback de la conexión con Meta");
+
+      const destino = urlDeVueltaAlFrontend(env.CORS_ORIGIN, { error: mensaje });
+      if (destino) {
+        res.redirect(302, destino);
+        return;
+      }
 
       res.status(status).type("text/plain").send(`No se pudo conectar Facebook.\n\n${mensaje}`);
     }

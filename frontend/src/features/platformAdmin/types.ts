@@ -19,3 +19,11 @@ export interface AssignWhatsappNumberInput {
   agentId: string;
   whatsappPhoneNumberId: string | null;
 }
+
+// Contrato de PUT /api/admin/agents/:agentId/facebook-page
+// (src/controllers/agentAdmin.controller.ts) — backend del ítem 169, pantalla
+// del ítem 173. null libera la página.
+export interface AssignFacebookPageInput {
+  agentId: string;
+  facebookPageId: string | null;
+}

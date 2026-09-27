@@ -2,6 +2,7 @@ import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type { Agent } from "../agent/types";
 import type {
+  AssignFacebookPageInput,
   AssignWhatsappNumberInput,
   CreateOrganizationInput,
   CreateOrganizationResponse,
@@ -28,6 +29,18 @@ export function assignWhatsappNumber({
   return request<Agent>(`/admin/agents/${encodeURIComponent(agentId)}/whatsapp-phone-number`, {
     method: "PUT",
     body: { whatsappPhoneNumberId },
+    getAccessToken,
+  });
+}
+
+// Mismo contrato que el número de WhatsApp: devuelve el agente actualizado.
+export function assignFacebookPage({
+  agentId,
+  facebookPageId,
+}: AssignFacebookPageInput): Promise<Agent> {
+  return request<Agent>(`/admin/agents/${encodeURIComponent(agentId)}/facebook-page`, {
+    method: "PUT",
+    body: { facebookPageId },
     getAccessToken,
   });
 }

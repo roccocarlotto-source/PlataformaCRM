@@ -8,8 +8,9 @@
 // de los de abajo está verificado contra el modelo `Agent` del schema y contra
 // createAgentSchema/updateAgentSchema del controller.
 
-// Espejo del enum ConversationChannel de Prisma. Dos valores y nada más.
-export type ConversationChannel = "WHATSAPP" | "WEB";
+// Espejo del enum ConversationChannel de Prisma. MESSENGER e INSTAGRAM desde
+// el ítem 169 (el frontend los suma en el 173).
+export type ConversationChannel = "WHATSAPP" | "WEB" | "MESSENGER" | "INSTAGRAM";
 
 // Espejo del enum ConversationStatus de Prisma. Lo devuelve el turno de
 // prueba (ítem 65) y es el estado de la conversación DESPUÉS del turno.
@@ -53,6 +54,11 @@ export interface Agent {
   // Desde el ítem 127 es de solo lectura para el tenant: lo asigna la
   // plataforma.
   whatsappPhoneNumberId: string | null;
+  // El id de la página de Facebook (ítem 169): con él el webhook de Messenger
+  // e Instagram sabe de qué agente es cada mensaje. Mismo criterio que el
+  // número de WhatsApp: solo dígitos, único, de solo lectura para el tenant,
+  // lo asigna un platform admin (ítem 173). null = sin página.
+  facebookPageId: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

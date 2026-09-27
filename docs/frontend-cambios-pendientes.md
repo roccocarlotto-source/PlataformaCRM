@@ -8025,3 +8025,45 @@ Sin migración. En Render: `META_WEBHOOK_VERIFY_TOKEN` (un valor que elijas;
 ### Cómo se aplica
 
 Sin migración y sin variables nuevas. Con los ítems 170 y 171 aplicados (página conectada y suscripta, webhook cargado en el panel), el agente empieza a contestar solo. Mientras la app de Meta esté en modo desarrollo, el Send API solo entrega a administradores, desarrolladores y testers de la app (código 200 para el resto): para clientes reales, `pages_messaging` e `instagram_manage_messages` tienen que pasar App Review.
+
+---
+
+## 173. Pantalla de conexión de Facebook, canales Messenger/Instagram en el frontend y asignación de página por platform admin (paso 5 de 5 — Instagram + Messenger)
+
+**Estado:** hecho (27/09/2026). Sin migración. **Cierra la serie de canales Instagram + Messenger (ítems 169-173, cinco de cinco).** Con esto un ADMIN conecta la página de Facebook desde el CRM, el platform admin le asigna esa página a un agente, y el tenant habilita Messenger/Instagram en los canales del agente y filtra la bandeja por esos canales.
+
+**Contexto.** Los ítems 169-172 dejaron todo el backend (modelo, OAuth, webhook, envío), pero el frontend no se había tocado: `ConversationChannel` seguía tipado como `"WHATSAPP" | "WEB"`, no había pantalla para conectar la página, y el callback de Meta respondía `text/plain` con un comentario "apuntar acá cuando exista el ítem 173".
+
+**Qué se hace.**
+
+1. **Backend — el callback de Meta pasa a 302** (`metaPageConnection.controller.ts`). Mismo patrón que Google Calendar desde el ítem 75: `urlDeVueltaAlFrontend(corsOrigin, { error? })`, pura y exportada, toma el primer origen de `CORS_ORIGIN`, exige http/https y arma `/organization?metaConnected=true` o `/organization?metaError=<mensaje>` (tope de 200 caracteres). Sin un origen utilizable, el `text/plain` de siempre como fallback. El criterio de qué mensaje es seguro mostrar (`isOperational`) no cambió.
+2. **Catálogo de canales** (`features/agent/types.ts`, `labels.ts`): `ConversationChannel` suma `MESSENGER` e `INSTAGRAM`, y `CHANNEL_OPTIONS` sus dos rótulos. Alimenta sin más cambios el selector de canales del agente, el playground, el filtro de la bandeja y la columna "Canal". `Agent` suma `facebookPageId` (el backend ya lo devolvía desde el 169).
+3. **Sección "Facebook e Instagram"** (`features/organization/MetaConnectionSection.tsx`) en `OrganizationSettingsPage`, no una ruta nueva. API (`getMetaConnection` con 404 → null, `startMetaConnection`, `disconnectMetaConnection`), `organizationKeys.metaConnection`, `useMetaConnection`, `useStartMetaConnection` (sin invalidación) y `useDisconnectMetaConnection` (invalida la conexión).
+4. **Asignación de la página a un agente** (`features/platformAdmin/AgentFacebookPagePage.tsx`), calco de `AgentWhatsappNumberPage`: `assignFacebookPage` → `PUT /admin/agents/:agentId/facebook-page`, `useAssignFacebookPage` sin invalidación, ruta `/admin/agents/facebook-page` bajo `PlatformAdminRoute`.
+
+### Decisiones tomadas al implementarlo
+
+- **Navegación completa, no pestaña nueva** — distinto de Google a propósito (ya lo decía `iniciarConexion` en el service): `window.location.href = authorizationUrl`. Por eso la sección no tiene estado "conectando" ni "volver a consultar": al volver de Meta la pantalla carga de cero con el resultado en la query string. Mientras la pestaña navega, el botón queda deshabilitado ("Abriendo Facebook…") para no firmar un segundo state con un doble click.
+- **Destino único `/organization`**: sin `branchId`, el camino de error no necesita revalidar el state (el equivalente de `branchIdVerificado` de Google).
+- **Ubicación de la tarjeta**: después del bloque de moneda (Moneda + Cotización vigente) y antes del "Guardar", con la aclaración de que se aplica al momento sin tocar Guardar — mismo texto que la sección de Google en el formulario de sucursal. La página es un `<form>`, pero `Button` es `type="button"` por defecto, así que Conectar/Desconectar no disparan el PATCH de monedas.
+- **Enlace en la sidebar de Plataforma** ("Página de Facebook", junto a "Número de WhatsApp"): no estaba en el pedido, pero sin él la pantalla solo es alcanzable tipeando la URL.
+- **`routes/index.test.ts`**: el test de montaje del callback ya no fija `400 text/plain` — acepta 302 o 400 según `CORS_ORIGIN`, y el detalle lo fija el test nuevo del controller (que fuerza `env.CORS_ORIGIN`). El de integración fija `CORS_ORIGIN` en su `before` para no depender del entorno.
+- **Lo que no se hace, a propósito**: selector de "elegí qué página" (el service sigue rechazando más de una), íconos o distinción visual por canal más allá del rótulo, y nada del envío/recepción.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/controllers/metaPageConnection.controller.ts` | `urlDeVueltaAlFrontend` y 302 en los dos caminos del callback |
+| `src/controllers/metaPageConnection.controller.test.ts` | nuevo — 5 de la función pura + 3 del handler por HTTP |
+| `src/controllers/metaPageConnection.controller.integration-test.ts` | el callback espera 302 con `metaConnected` / `metaError` |
+| `src/routes/index.test.ts` | test de montaje del callback |
+| `frontend/src/features/agent/types.ts`, `labels.ts` | canales MESSENGER/INSTAGRAM, `Agent.facebookPageId` |
+| `frontend/src/features/organization/` | `types.ts`, `api.ts`, `queries.ts`, `mutations.ts`, `MetaConnectionSection.tsx` (nuevo), `OrganizationSettingsPage.tsx` |
+| `frontend/src/features/platformAdmin/` | `types.ts`, `api.ts`, `mutations.ts`, `AgentFacebookPagePage.tsx` (nuevo) |
+| `frontend/src/app/router.tsx`, `frontend/src/layout/AppLayout.tsx` | ruta y enlace de platform admin |
+| tests frontend | `MetaConnectionSection.test.tsx` (7), `AgentFacebookPagePage.test.tsx` (3), `OrganizationSettingsPage.test.tsx` (router + 1), `router.test.tsx` (+1), `agentFixtures.ts` |
+
+### Cómo se aplica
+
+Sin migración ni variables nuevas: `CORS_ORIGIN` ya apunta al frontend. En el panel de la app de Meta, la URI de redirección del OAuth sigue siendo la del callback del backend (ítem 170); lo que cambia es a dónde manda el backend al navegador después. Orden de uso: un ADMIN conecta la página en **Organización → Facebook e Instagram**; el platform admin asigna esa página al agente en **Plataforma → Página de Facebook**; el tenant habilita Messenger/Instagram en los canales del agente.
