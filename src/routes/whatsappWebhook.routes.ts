@@ -1,14 +1,12 @@
-import express, { type NextFunction, type Request, type Response, Router } from "express";
+import { Router } from "express";
 import {
   createVerifyWhatsappSignature,
   createWhatsappVerificationHandler,
   createWhatsappWebhookHandler,
   whatsappWebhookDepsReales,
   type WhatsappWebhookDeps,
-  type WhatsappWebhookRequest,
 } from "../controllers/whatsappWebhook.controller";
-import { envolverParserConTraduccion } from "../middlewares/bodyParserError";
-import { AppError } from "../utils/AppError";
+import { crearParserConRawBody, requireJsonBody } from "../middlewares/metaWebhookBody";
 
 // ---------------------------------------------------------------------------
 // GET y POST /webhooks/whatsapp (ítem 81). Se monta en app.ts ANTES del
@@ -33,6 +31,10 @@ import { AppError } from "../utils/AppError";
 // La firma va DESPUÉS del parser: Meta firma el
 // cuerpo, así que hay que leerlo para poder verificarla (ver el comentario de
 // whatsappWebhook.controller.ts).
+//
+// requireJsonBody y el parser con rawBody viven en
+// middlewares/metaWebhookBody.ts desde el ítem 171: los comparte el webhook de
+// Messenger e Instagram (routes/metaWebhook.routes.ts).
 // ---------------------------------------------------------------------------
 
 // Un webhook de mensajes de texto es un JSON chico: metadata, un contacto y
@@ -41,31 +43,7 @@ import { AppError } from "../utils/AppError";
 // que cualquiera puede hacernos parsear sin estar autenticado.
 export const WHATSAPP_MAX_BODY_BYTES = 32 * 1024;
 
-function requireJsonBody(req: Request, _res: Response, next: NextFunction): void {
-  if (!req.is("application/json")) {
-    next(new AppError("El webhook solo acepta application/json", 400));
-    return;
-  }
-  next();
-}
-
-const whatsappJsonParser = envolverParserConTraduccion(
-  express.json({
-    limit: WHATSAPP_MAX_BODY_BYTES,
-    type: "application/json",
-    verify: (req, _res, buf) => {
-      (req as WhatsappWebhookRequest).rawBody = Buffer.from(buf);
-    },
-  }),
-  {
-    demasiado_grande: {
-      message: `El cuerpo del request supera el máximo de ${WHATSAPP_MAX_BODY_BYTES} bytes`,
-      statusCode: 413,
-    },
-    cuerpo_invalido: { message: "El cuerpo del request no es JSON válido", statusCode: 400 },
-    codificacion_no_soportada: { message: "Codificación de cuerpo no soportada", statusCode: 415 },
-  },
-);
+const whatsappJsonParser = crearParserConRawBody(WHATSAPP_MAX_BODY_BYTES);
 
 // Factory y no un router armado a mano en el test: el test de integración construye ESTA MISMA cadena con
 // secretos conocidos, así que una diferencia entre lo que se prueba y lo que

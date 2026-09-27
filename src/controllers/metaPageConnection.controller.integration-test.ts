@@ -54,6 +54,7 @@ let closeApp: () => Promise<void>;
 // El doble de Meta: devuelve las páginas que cada test le pida.
 let paginasEnMeta: PaginaAutorizada[] = [];
 let codesCanjeados: string[] = [];
+let paginasSuscriptas: string[] = [];
 
 const cliente: ClienteMetaOAuth = {
   construirUrlDeAutorizacion: (state) =>
@@ -67,6 +68,10 @@ const cliente: ClienteMetaOAuth = {
     expiraEnSegundos: 5183944,
   }),
   listarPaginasAutorizadas: async () => paginasEnMeta,
+  // Ítem 171: la suscripción de la página. Registra a quién se suscribió.
+  suscribirPaginaALaApp: async (pageId) => {
+    paginasSuscriptas.push(pageId);
+  },
 };
 
 // page_id es UNIQUE en toda la tabla: uno al azar por caso.
@@ -171,6 +176,7 @@ function conexionDe(organizationId: string) {
 beforeEach(async () => {
   paginasEnMeta = [pagina()];
   codesCanjeados = [];
+  paginasSuscriptas = [];
   if (orgA && orgB) {
     await prisma.metaPageConnection.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
   }
@@ -251,6 +257,8 @@ test("el callback, sin JWT y con un state real, deja la fila ACTIVE con el token
   assert.equal(res.status, 200, await res.clone().text());
   assert.match(res.headers.get("content-type") ?? "", /^text\/plain/);
   assert.deepEqual(codesCanjeados, ["el-code"]);
+  // Ítem 171: la página quedó suscripta al webhook de la app.
+  assert.deepEqual(paginasSuscriptas, [unaPagina.id]);
 
   const fila = await conexionDe(orgA);
   assert.ok(fila);

@@ -1,4 +1,4 @@
-import type { Message } from "@prisma/client";
+import { ConversationChannel, type Message } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
@@ -223,6 +223,19 @@ export async function descargarAdjuntos(
 
 export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise<ResultadoDelJob> {
   const { organizationId } = job;
+
+  // GUARDA TRANSITORIA, entre el ítem 171 (el webhook de Messenger e
+  // Instagram ya encola) y el 172 (el envío por esos canales). Todo lo de abajo
+  // manda por la API de WhatsApp: un job de otro canal correría un turno del
+  // LLM que nadie va a recibir y después le pediría a WhatsApp que mande al
+  // PSID/IGSID usando el Page ID como phone_number_id. Se corta ANTES del
+  // turno, como permanente: el entrante queda registrado en la bandeja y el
+  // job en FAILED con el motivo. El ítem 172 reemplaza esto por el envío real.
+  if (job.channel !== ConversationChannel.WHATSAPP) {
+    throw new ErrorPermanenteDelJob(
+      `El envío por ${job.channel} todavía no está implementado (ítem 172): el entrante queda registrado sin respuesta`,
+    );
+  }
 
   const entrante = await findMessageById(job.messageId, organizationId);
   if (!entrante) {

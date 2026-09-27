@@ -41,6 +41,15 @@ import { AppError } from "../utils/AppError";
 //    elemento trae id, name, access_token (el Page access token) y, si se pide
 //    en `fields`, instagram_business_account { id }.
 //
+// 5. Suscribir la página a la app (ítem 171): POST /{page-id}/subscribed_apps
+//    con el PAGE access token y subscribed_fields. La guía de webhooks de
+//    Messenger lo dice explícito: además de configurar el webhook en el panel
+//    de la app, "you must also subscribe the specific Page"; sin esto la
+//    página no manda nada. La de Instagram (Instagram API with Facebook Login)
+//    exige lo mismo — "POST /me/subscribed_apps" con el Page token, que es
+//    esta misma llamada. Requiere pages_messaging y pages_manage_metadata (ya
+//    en la configuración de Login). Responde { success: true }.
+//
 // LA VERSIÓN DE LA GRAPH API es la misma que usa whatsappGraph.service.ts
 // (v25.0) pero es una constante propia, mismo criterio que META_APP_SECRET vs.
 // WHATSAPP_APP_SECRET: subir la versión de un canal no debería arrastrar al
@@ -166,7 +175,17 @@ export interface ClienteMetaOAuth {
   obtenerTokenDeLargaDuracion(userAccessToken: string): Promise<TokenDeUsuarioMeta>;
   // Las páginas que la persona autorizó, con su Page access token.
   listarPaginasAutorizadas(userAccessToken: string): Promise<PaginaAutorizada[]>;
+  // Ítem 171: que la página le mande sus mensajes al webhook de la app.
+  suscribirPaginaALaApp(pageId: string, pageAccessToken: string): Promise<void>;
 }
+
+// Los campos de la página que se suscriben (ítem 171): los mismos que se
+// tildan en el panel de la app. `messages` trae los mensajes de Messenger y de
+// Instagram; `messaging_postbacks` los botones (hoy se ignoran, pero quedan
+// suscriptos para no tener que reconectar cada página el día que se usen).
+// Sin message_echoes: el webhook descarta los echoes igual, no hace falta
+// recibirlos.
+export const CAMPOS_SUSCRIPTOS_DE_LA_PAGINA = ["messages", "messaging_postbacks"];
 
 // FACTORY, mismo patrón que crearClienteGoogleCalendar: la configuración y el
 // fetch entran por parámetro para que el test unitario exista.
@@ -310,6 +329,30 @@ export function crearClienteMetaOAuth(config: ConfiguracionMeta): ClienteMetaOAu
       }
 
       return paginas;
+    },
+
+    async suscribirPaginaALaApp(pageId, pageAccessToken) {
+      // Token en el header, igual que /me/accounts; los campos en el cuerpo.
+      const res = await pedir(`${URL_GRAPH}/${encodeURIComponent(pageId)}/subscribed_apps`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${pageAccessToken}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          subscribed_fields: CAMPOS_SUSCRIPTOS_DE_LA_PAGINA.join(","),
+        }).toString(),
+      });
+
+      if (!res.ok) {
+        const { mensaje, tokenInvalido } = await describirFallo(res);
+        throw new MetaAuthError(mensaje, tokenInvalido);
+      }
+
+      const datos = (await res.json().catch(() => null)) as { success?: unknown } | null;
+      if (datos?.success !== true) {
+        throw new MetaAuthError("Meta no confirmó la suscripción de la página", false);
+      }
     },
   };
 }

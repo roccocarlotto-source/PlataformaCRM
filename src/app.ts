@@ -10,6 +10,7 @@ import { errorHandler } from "./middlewares/errorHandler";
 import { notFound } from "./middlewares/notFound";
 import { routes } from "./routes";
 import { ingestRouter } from "./routes/ingest.routes";
+import { metaWebhookRouter } from "./routes/metaWebhook.routes";
 import { publicWidgetRouter } from "./routes/publicWidget.routes";
 import { whatsappWebhookRouter } from "./routes/whatsappWebhook.routes";
 
@@ -141,6 +142,9 @@ app.use("/api", ingestRouter);
 // SIN /api: lo llama Meta, no un cliente nuestro — misma excepción de prefijo
 // que las rutas públicas de resolución de QR.
 app.use(whatsappWebhookRouter);
+// Messenger e Instagram (ítem 171): mismo motivo exacto, mismo lugar. Ver
+// routes/metaWebhook.routes.ts.
+app.use(metaWebhookRouter);
 
 // El mismo express.json() de siempre, con los mismos límites por default,
 // pero con sus errores traducidos a 413/400/415 en vez del 500 que producía

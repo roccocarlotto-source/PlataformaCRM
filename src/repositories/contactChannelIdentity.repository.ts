@@ -7,8 +7,8 @@ import { prisma, type Db } from "../lib/prisma";
 //
 // El PSID/IGSID de un contacto en Instagram o Messenger, que no es un
 // teléfono. WhatsApp NO pasa por acá: sigue resolviendo por Contact.phone
-// (resolveWhatsappContact). Nada llama todavía a estas funciones: las usa el
-// webhook del ítem 171.
+// (resolveWhatsappContact). Las usa el webhook del ítem 171, a través de
+// services/metaContact.service.ts.
 //
 // SIN deletedAt en ningún WHERE: la tabla no tiene soft delete. Una identidad
 // es un hecho ("este PSID es este contacto"), no configuración.
@@ -63,4 +63,27 @@ export function createContactChannelIdentity(
   db: Db = prisma,
 ) {
   return db.contactChannelIdentity.create({ data });
+}
+
+// Vuelve a apuntar una identidad existente a otro contacto (ítem 171). Existe
+// para UN caso: el contacto al que apuntaba se dio de baja (soft delete) y la
+// persona volvió a escribir. WhatsApp, en ese caso, crea un contacto nuevo
+// (findContactIdByNormalizedPhone excluye los borrados); acá el UNIQUE de la
+// identidad impide crear una segunda fila, así que se mueve la que hay. Quien
+// llama lo hace bajo el lock de la organización y en la misma transacción que
+// el create del Contact nuevo (ver resolveMetaContact).
+export function reassignContactChannelIdentity(
+  identidad: IdentidadExterna & { contactId: string },
+  db: Db = prisma,
+) {
+  return db.contactChannelIdentity.update({
+    where: {
+      organizationId_channel_externalId: {
+        organizationId: identidad.organizationId,
+        channel: identidad.channel,
+        externalId: identidad.externalId,
+      },
+    },
+    data: { contactId: identidad.contactId },
+  });
 }

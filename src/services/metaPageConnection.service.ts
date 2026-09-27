@@ -26,9 +26,11 @@ import { getClienteMetaOAuth, type ClienteMetaOAuth } from "./metaOAuth.service"
 // Por eso no hay branchId en ninguna firma, ni en el state, ni lock de
 // sucursal: el UNIQUE y el upsert del repositorio alcanzan.
 //
-// QUÉ NO ESTÁ ACÁ, y no es un olvido: suscribir la página al webhook de la app
-// (POST /{page-id}/subscribed_apps) y recibir mensajes — ítem 171; mandar
-// respuestas con el Page token y marcar ERROR cuando Meta lo rechace — ítem
+// Desde el ítem 171 completarConexion además suscribe la página al webhook de
+// la app (POST /{page-id}/subscribed_apps); recibir los mensajes es
+// metaWebhook.service.ts.
+//
+// QUÉ NO ESTÁ ACÁ, y no es un olvido: mandar respuestas con el Page token y marcar ERROR cuando Meta lo rechace — ítem
 // 172; la pantalla del CRM — ítem 173.
 // ---------------------------------------------------------------------------
 
@@ -176,6 +178,15 @@ export async function completarConexion(
   }
 
   const [pagina] = paginas;
+
+  // Ítem 171: sin esta suscripción la página no le manda ningún mensaje al
+  // webhook, aunque el panel de la app esté configurado. Va ANTES de guardar:
+  // si Meta la rechaza, el callback falla y no queda una conexión ACTIVE que
+  // en silencio nunca recibe nada. Reconectar la repite, y es idempotente del
+  // lado de Meta. Si después el upsert choca con la página de otra
+  // organización (409), la suscripción no cambió nada: esa página ya estaba
+  // suscripta a esta misma app por la otra conexión.
+  await meta.suscribirPaginaALaApp(pagina.id, pagina.accessToken);
 
   return upsertMetaConnection({
     organizationId,

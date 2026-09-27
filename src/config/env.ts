@@ -536,6 +536,21 @@ const envSchema = z.object({
   META_REDIRECT_URI: z.string().optional(),
   META_LOGIN_CONFIG_ID: z.string().optional(),
 
+  // Webhook de entrada de Messenger e Instagram (ítem 171). Ver
+  // src/controllers/metaWebhook.controller.ts.
+  //
+  // META_WEBHOOK_VERIFY_TOKEN: el string que se escribe en el panel de Meta al
+  //   guardar la URL …/webhooks/meta; Meta lo devuelve en el handshake GET. Lo
+  //   elegimos nosotros. SEPARADO de WHATSAPP_VERIFY_TOKEN a propósito, mismo
+  //   criterio que META_APP_SECRET: cada integración con su variable aunque
+  //   hoy compartan valor. La firma del POST usa META_APP_SECRET (arriba): es
+  //   el mismo secreto de app, no hace falta una tercera variable.
+  //
+  // Opcional por el mismo criterio que las de arriba: sin ella el handshake
+  // responde un 500 que la nombra (en el log), nunca uno que acepte cualquier
+  // token.
+  META_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
+
   // Gate de secreto compartido de /qr/resolve/:qrId (Fase 4, backend — ver
   // src/middlewares/requireInternalProxySecret.ts). El Cloudflare Worker que
   // hace el rate limiting manda el secreto en el header
