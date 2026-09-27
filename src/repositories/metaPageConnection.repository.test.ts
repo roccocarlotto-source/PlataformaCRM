@@ -4,6 +4,7 @@ import type { Db } from "../lib/prisma";
 import {
   CAMPOS_PUBLICOS,
   findMetaConnectionByOrganization,
+  findPageIdByInstagramBusinessAccountId,
   markMetaConnectionError,
   markMetaConnectionRevoked,
   upsertMetaConnection,
@@ -23,6 +24,7 @@ function dbQueCaptura() {
   const db = {
     metaPageConnection: {
       findUnique: registrar("findUnique", null),
+      findFirst: registrar("findFirst", null),
       upsert: registrar("upsert", {}),
       updateMany: registrar("updateMany", { count: 1 }),
     },
@@ -95,4 +97,15 @@ test("markMetaConnectionError: conserva el token y trunca el motivo a 500", asyn
   assert.equal(data.status, "ERROR");
   assert.equal((data.lastErrorMessage as string).length, 500);
   assert.equal("pageAccessToken" in data, false, "el ERROR no toca el token");
+});
+
+test("findPageIdByInstagramBusinessAccountId (ítem 171): sin organizationId, sin las REVOKED, solo el pageId y con orden estable", async () => {
+  const { db, llamadas } = dbQueCaptura();
+  await findPageIdByInstagramBusinessAccountId("1784", db);
+  assert.equal(llamadas[0].metodo, "findFirst");
+  assert.deepEqual(llamadas[0].args, {
+    where: { instagramBusinessAccountId: "1784", status: { not: "REVOKED" } },
+    select: { pageId: true },
+    orderBy: [{ connectedAt: "desc" }, { id: "asc" }],
+  });
 });

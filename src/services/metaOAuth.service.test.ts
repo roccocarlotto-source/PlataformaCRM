@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MetaAuthError, crearClienteMetaOAuth, type FetchLike } from "./metaOAuth.service";
+import {
+  CAMPOS_SUSCRIPTOS_DE_LA_PAGINA,
+  MetaAuthError,
+  crearClienteMetaOAuth,
+  type FetchLike,
+} from "./metaOAuth.service";
 
 // Unitarios, SIN RED Y SIN CREDENCIALES REALES: Meta se mockea inyectando un
 // fetch falso en la factory, mismo patrón que googleCalendar.service.test.ts.
@@ -317,4 +322,43 @@ test("listarPaginasAutorizadas: Meta rechaza el token → tokenInvalido", async 
   const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
 
   await assert.rejects(() => cliente.listarPaginasAutorizadas("t"), esMetaAuthError(true));
+});
+
+// ---------------------------------------------------------------------------
+// Suscripción de la página a la app (ítem 171)
+// ---------------------------------------------------------------------------
+
+test("suscribirPaginaALaApp: POST /{page-id}/subscribed_apps con el PAGE token en el header y los campos en el cuerpo", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: { success: true } });
+  const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
+
+  await cliente.suscribirPaginaALaApp("111", "page-token-111");
+
+  assert.equal(llamadas.length, 1);
+  assert.equal(llamadas[0].url, "https://graph.facebook.com/v25.0/111/subscribed_apps");
+  assert.equal(llamadas[0].init.method, "POST");
+  assert.equal(
+    (llamadas[0].init.headers as Record<string, string>).Authorization,
+    "Bearer page-token-111",
+  );
+  const cuerpo = new URLSearchParams(String(llamadas[0].init.body));
+  assert.equal(cuerpo.get("subscribed_fields"), CAMPOS_SUSCRIPTOS_DE_LA_PAGINA.join(","));
+  assert.ok(CAMPOS_SUSCRIPTOS_DE_LA_PAGINA.includes("messages"));
+  assert.equal(String(llamadas[0].init.body).includes("page-token-111"), false);
+});
+
+test("suscribirPaginaALaApp: Meta rechaza (permiso faltante) → MetaAuthError con tokenInvalido", async () => {
+  const { fetch } = mockearFetch({
+    ok: false,
+    status: 403,
+    json: { error: { message: "(#200) Permissions error", type: "OAuthException", code: 200 } },
+  });
+  const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
+  await assert.rejects(cliente.suscribirPaginaALaApp("111", "t"), esMetaAuthError(true));
+});
+
+test("suscribirPaginaALaApp: un 200 sin success: true no cuenta como suscripta", async () => {
+  const { fetch } = mockearFetch({ json: { success: false } });
+  const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
+  await assert.rejects(cliente.suscribirPaginaALaApp("111", "t"), esMetaAuthError(false));
 });

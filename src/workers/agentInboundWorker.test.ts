@@ -8,6 +8,7 @@ import {
   ErrorDeDescarga,
   ErrorDeEnvio,
   ErrorPermanenteDelJob,
+  procesarJob,
   resolverFalloDelJob,
 } from "./agentInboundWorker";
 
@@ -145,4 +146,33 @@ test("descargarAdjuntos: sin pendientes con media no llama a Meta ni exige el to
     downloadMedia: () => Promise.reject(new Error("no debería llamarse")),
   });
   assert.equal(adjuntos.size, 0);
+});
+
+test("procesarJob: un job de Messenger o Instagram falla como permanente ANTES del turno y sin tocar WhatsApp (guarda hasta el ítem 172)", async () => {
+  const noDebeLlamarse = async () => {
+    throw new Error("no debería llegar a Meta");
+  };
+  for (const channel of ["MESSENGER", "INSTAGRAM"] as const) {
+    await assert.rejects(
+      procesarJob(
+        {
+          id: "job-1",
+          organizationId: "org-1",
+          messageId: "msg-1",
+          channel,
+          channelAccountId: "pagina-1",
+          externalUserId: "psid-1",
+          attempts: 1,
+          responseMessageId: null,
+        },
+        { accessToken: () => "token", sendText: noDebeLlamarse, downloadMedia: noDebeLlamarse },
+      ),
+      (err: unknown) => {
+        assert.ok(err instanceof ErrorPermanenteDelJob, channel);
+        assert.equal(clasificarFallo(err), "PERMANENTE");
+        assert.match((err as Error).message, /ítem 172/);
+        return true;
+      },
+    );
+  }
 });

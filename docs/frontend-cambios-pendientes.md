@@ -7902,3 +7902,86 @@ Sin migración. En el panel de Meta (app Xentech-CRM):
    idéntica a `META_REDIRECT_URI`.
 3. En Render: `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI`,
    `META_LOGIN_CONFIG_ID`.
+
+## 171. Webhook de entrada de Messenger e Instagram (paso 3 de 5 — Instagram + Messenger)
+
+**Estado:** hecho (27/09/2026). Sin migración: usa las tablas del ítem 169 (`schema.prisma` no se tocó). Pendiente del lado de Meta: cargar el webhook en el panel y reconectar la página (ver "Cómo se aplica"). La respuesta del agente por estos canales es el ítem 172: hasta entonces los mensajes se registran pero no se contestan.
+
+**Contexto.** El webhook que recibe los mensajes entrantes de Messenger e
+Instagram y los encola para el mismo worker que ya atiende WhatsApp
+(`agentInboundWorker.ts`). Es el calco de
+`whatsappWebhook.controller.ts`/`.routes.ts`/`.service.ts`, generalizado a los
+dos canales de Meta que faltaban. SOLO TEXTO, decisión de toda la serie:
+imágenes, audio, adjuntos y postbacks se ignoran sin error.
+
+**Qué se hace.**
+
+1. **Variable de entorno** `META_WEBHOOK_VERIFY_TOKEN` (el verify token del
+   handshake GET), separada de `WHATSAPP_VERIFY_TOKEN`. La firma del POST usa
+   `META_APP_SECRET` (ítem 170): no hay tercera variable para el mismo secreto.
+2. **`GET`/`POST /webhooks/meta`** — un solo endpoint para los dos canales,
+   montado en `app.ts` antes del `express.json()` global, al lado del de
+   WhatsApp. Cadena del POST: `requireJsonBody` → parser con `rawBody` →
+   firma HMAC → handler.
+3. **`services/metaWebhook.service.ts`** — fork por `payload.object` (`page` =
+   Messenger, `instagram` = Instagram); por cada `entry[].messaging[]`: echo →
+   ignorado; sin texto → ignorado; página (Messenger: `entry.id`; Instagram:
+   `entry.id` es el IGID → `findPageIdByInstagramBusinessAccountId`) → agente
+   por `findAgentByFacebookPageId` (sin agente, inactivo o sin el canal →
+   ignorado); dedup por `mid`; `resolveMetaContact`; `registrarEntrante` +
+   `createAgentInboundJob` en la misma transacción con
+   `channelAccountId` = **Page ID siempre** y `externalUserId` = PSID/IGSID.
+   Un mensaje que falla no tumba el lote; 200 siempre que la forma sea válida.
+4. **`services/metaContact.service.ts`** — `resolveMetaContact`: buscar-o-crear
+   por `ContactChannelIdentity` bajo el lock de la organización, Contact +
+   identidad en la MISMA transacción, y el P2002 de la identidad releído
+   (contrato de `createContactChannelIdentity`).
+5. **Repositorios**: `findPageIdByInstagramBusinessAccountId` (sin
+   `organizationId`, mismo criterio que `findAgentByFacebookPageId`) y
+   `reassignContactChannelIdentity`.
+6. **Suscripción de la página a la app** en el callback del ítem 170
+   (`POST /{page-id}/subscribed_apps` con el Page token), que el propio 170
+   había dejado anotada para este ítem.
+
+### Decisiones tomadas al implementarlo
+
+- **Verificado contra la documentación de Meta, no asumido** (comentario en el encabezado de `metaWebhook.service.ts`). Messenger: `object: "page"`, `entry.id` = Page ID, `messaging[]` con `sender.id` (PSID), `recipient.id`, `timestamp` y `message { mid, text, attachments? }`. Instagram: `object: "instagram"` y la MISMA forma `messaging[]`, pero `entry.id` y `recipient.id` son el **id de la cuenta profesional de Instagram** (el `instagram_business_account` que guarda `MetaPageConnection`), no el Page ID — confirma el lookup por IGID. Se usa `entry.id` y no `recipient.id` porque en un echo los roles se invierten.
+- **Echoes**: vienen con `message.is_echo: true` y se descartan primero. En Messenger solo llegan si se suscribe el campo aparte `message_echoes` (no se suscribe); en Instagram llegan dentro de `messages`, así que la guarda es necesaria.
+- **Adjuntos**: `message.attachments[]` sin `text` (sin campo `type` a nivel mensaje). Instagram agrega `is_deleted`/`is_unsupported`, también sin texto. Postbacks, lecturas y reacciones vienen sin `message`. Todo cae en "ignorado" sin romper el resto del lote. Un adjunto CON texto se procesa como texto.
+- **Suscribir la página a la app es obligatorio** (guía de webhooks de Messenger: además de configurar el panel "you must also subscribe the specific Page"; la de Instagram con Facebook Login exige el mismo `subscribed_apps` con el Page token). No estaba en el pedido de este ítem pero el 170 lo había asignado acá, y sin él el webhook nunca recibe un mensaje real. Se hace en `completarConexion`, ANTES del upsert: si Meta la rechaza, el callback falla y no queda una conexión ACTIVE que en silencio no recibe nada. Campos: `messages,messaging_postbacks`. Las páginas conectadas antes de este ítem hay que **reconectarlas** una vez.
+- **Nombre genérico del contacto** ("Messenger …a1b2c3d4" / "Instagram …"), simplificación deliberada: el nombre real exige una llamada a la Graph API con el Page token en el camino que tiene que contestar en milisegundos. Si hace falta, es una vuelta aparte (idealmente en el worker).
+- **Contacto borrado que vuelve a escribir** (lo que el 169 dejó para este ítem): se crea un contacto nuevo y la identidad se MUEVE (`reassignContactChannelIdentity`), mismo resultado que WhatsApp (que no encuentra el teléfono de un borrado y crea otro). No se resucita el borrado.
+- **Instagram excluye conexiones `REVOKED`** al buscar la página (la columna no es UNIQUE; una conexión revocada conserva sus ids). Messenger va directo al agente por `facebookPageId`, como pedía el ítem, sin mirar la conexión — queda para el 172 decidir si un Messenger de una organización desconectada se ignora antes de encolar.
+- **Guarda transitoria en el worker hasta el ítem 172**: todo el envío del worker es por la API de WhatsApp, así que un job `MESSENGER`/`INSTAGRAM` correría un turno del LLM y después le pediría a WhatsApp que mande con el Page ID como `phone_number_id`. `procesarJob` corta esos jobs ANTES del turno como `ErrorPermanenteDelJob` (FAILED con el motivo); el entrante queda en la bandeja. El 172 reemplaza la guarda por el envío real.
+- **`middlewares/metaWebhookBody.ts`**: el parser con `rawBody`, `requireJsonBody` y la verificación de la firma se mudaron desde el webhook de WhatsApp al aparecer el segundo consumidor (mismo criterio que `utils/hmac.ts`). WhatsApp los usa sin cambio de comportamiento (sus 34 casos de integración siguen en verde).
+- **`DepsDelWebhookMeta`** inyectables en `procesarWebhookDeMeta`: los unitarios prueban la decisión sin base; producción usa las reales.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/config/env.ts`, `.env.example`, `docs/deployment.md` | `META_WEBHOOK_VERIFY_TOKEN` |
+| `src/middlewares/metaWebhookBody.ts` | nuevo — parser con `rawBody`, `requireJsonBody`, firma de Meta (compartidos) |
+| `src/controllers/whatsappWebhook.controller.ts`, `src/routes/whatsappWebhook.routes.ts` | usan el módulo compartido |
+| `src/controllers/metaWebhook.controller.ts`, `src/routes/metaWebhook.routes.ts`, `src/app.ts` | nuevos — `/webhooks/meta`, montado antes del parser global |
+| `src/services/metaWebhook.service.ts` | nuevo — recorre el lote y encola |
+| `src/services/metaContact.service.ts` | nuevo — `resolveMetaContact` |
+| `src/repositories/metaPageConnection.repository.ts`, `contactChannelIdentity.repository.ts` | `findPageIdByInstagramBusinessAccountId`, `reassignContactChannelIdentity` |
+| `src/services/metaOAuth.service.ts`, `metaPageConnection.service.ts` | `suscribirPaginaALaApp` y su llamada en el callback |
+| `src/workers/agentInboundWorker.ts` | guarda de canal hasta el ítem 172 |
+| tests | unitarios `metaWebhook.service.test.ts` (14), `metaContact.service.test.ts` (6), `metaPageConnection.repository.test.ts` (+1), `metaOAuth.service.test.ts` (+3), `metaPageConnection.service.test.ts` (+1 y la suscripción en el camino feliz), `agentInboundWorker.test.ts` (+1); integración `metaWebhook.controller.integration-test.ts` (10: handshake 200/403/500, firma 401/500, Messenger e Instagram de punta a punta, echo/adjunto/mid repetido en paralelo, dos organizaciones, contacto borrado que vuelve) y `metaPageConnection.controller.integration-test.ts` (la suscripción en el callback) |
+
+### Cómo se aplica
+
+Sin migración. En Render: `META_WEBHOOK_VERIFY_TOKEN` (un valor que elijas;
+`META_APP_SECRET` ya está desde el 170). En el panel de Meta (app Xentech-CRM):
+
+1. **Messenger → Configuración de la API de Messenger → Webhooks**: URL de
+   devolución de llamada `https://plataformacrm.onrender.com/webhooks/meta`
+   (sin `/api`), token de verificación = `META_WEBHOOK_VERIFY_TOKEN`. Campos:
+   `messages` y `messaging_postbacks`.
+2. **Instagram → Webhooks** (producto "Instagram API con inicio de sesión de
+   Facebook"): la MISMA URL y el MISMO token. Campo: `messages`.
+3. **Reconectar la página** desde el CRM (o repetir el flujo del ítem 170): el
+   callback ahora la suscribe a la app; una conexión hecha antes de este ítem
+   no está suscripta y no recibe nada.

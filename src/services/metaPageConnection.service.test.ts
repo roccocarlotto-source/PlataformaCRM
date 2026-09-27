@@ -105,7 +105,7 @@ interface DobleDeMeta {
 }
 
 function doblarMeta(
-  opciones: { paginas?: PaginaAutorizada[]; falloAlCanjear?: Error } = {},
+  opciones: { paginas?: PaginaAutorizada[]; falloAlCanjear?: Error; falloAlSuscribir?: Error } = {},
 ): DobleDeMeta {
   const llamadas: string[] = [];
   const cliente: ClienteMetaOAuth = {
@@ -122,6 +122,10 @@ function doblarMeta(
     listarPaginasAutorizadas: async (token) => {
       llamadas.push(`paginas:${token}`);
       return opciones.paginas ?? [pagina("111", "17841400000000000")];
+    },
+    suscribirPaginaALaApp: async (pageId, pageAccessToken) => {
+      llamadas.push(`suscribir:${pageId}:${pageAccessToken}`);
+      if (opciones.falloAlSuscribir) throw opciones.falloAlSuscribir;
     },
   };
   return { cliente, llamadas };
@@ -275,7 +279,13 @@ test("camino feliz: code → token corto → token LARGO → páginas, y se guar
 
   // El orden importa: las páginas se piden con el token LARGO, que es lo que
   // hace que el Page token no venza.
-  assert.deepEqual(meta.llamadas, ["canje:el-code", "largo:user-corto", "paginas:user-largo"]);
+  // Ítem 171: y la página se suscribe a la app con SU token antes de guardar.
+  assert.deepEqual(meta.llamadas, [
+    "canje:el-code",
+    "largo:user-corto",
+    "paginas:user-largo",
+    "suscribir:111:page-token-111",
+  ]);
 
   assert.equal(base.upserts.length, 1);
   const [upsert] = base.upserts;
@@ -366,6 +376,16 @@ test("si Meta falla al canjear, el MetaAuthError sube y no se escribe nada", asy
   const base = baseFalsa();
   const fallo = new MetaAuthError("Meta rechazó la solicitud: code usado", true);
   const meta = doblarMeta({ falloAlCanjear: fallo });
+  const state = await firmarMetaState({ organizationId: ORG });
+
+  assert.equal(await capturar(() => completarConexion({ state, code: "c" }, meta.cliente)), fallo);
+  assert.equal(base.upserts.length, 0);
+});
+
+test("si Meta rechaza la suscripción de la página (ítem 171), el error sube y NO se guarda la conexión", async () => {
+  const base = baseFalsa();
+  const fallo = new MetaAuthError("Meta rechazó la solicitud: permisos", true);
+  const meta = doblarMeta({ falloAlSuscribir: fallo });
   const state = await firmarMetaState({ organizationId: ORG });
 
   assert.equal(await capturar(() => completarConexion({ state, code: "c" }, meta.cliente)), fallo);

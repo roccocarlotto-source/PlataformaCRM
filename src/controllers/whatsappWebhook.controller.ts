@@ -1,6 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
+import { firmaDeMetaValida } from "../middlewares/metaWebhookBody";
 import { secretsMatch } from "../middlewares/requireInternalProxySecret";
 import {
   procesarWebhookDeWhatsapp,
@@ -8,7 +9,6 @@ import {
 } from "../services/whatsappWebhook.service";
 import { AppError } from "../utils/AppError";
 import { asyncHandler } from "../utils/asyncHandler";
-import { hmacSha256Hex, timingSafeEqual } from "../utils/hmac";
 
 // ---------------------------------------------------------------------------
 // GET y POST /webhooks/whatsapp — el canal WhatsApp del módulo de Agentes de
@@ -40,14 +40,6 @@ export const whatsappWebhookDepsReales: WhatsappWebhookDeps = {
   appSecret: () => env.WHATSAPP_APP_SECRET,
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
 };
-
-// El request con los bytes crudos que dejó el `verify` del parser propio.
-export interface WhatsappWebhookRequest extends Request {
-  rawBody?: Buffer;
-}
-
-export const WHATSAPP_SIGNATURE_HEADER = "x-hub-signature-256";
-const PREFIJO_DE_FIRMA = "sha256=";
 
 function leerQuery(req: Request, nombre: string): string | undefined {
   const valor = req.query[nombre];
@@ -107,16 +99,9 @@ export function createVerifyWhatsappSignature(deps: WhatsappWebhookDeps): Reques
       return;
     }
 
-    const rawBody = (req as WhatsappWebhookRequest).rawBody;
-    const header = req.headers[WHATSAPP_SIGNATURE_HEADER];
-    const firma =
-      typeof header === "string" && header.startsWith(PREFIJO_DE_FIRMA)
-        ? header.slice(PREFIJO_DE_FIRMA.length)
-        : undefined;
-
-    // Sin rawBody no hay qué verificar (cuerpo vacío): es tan inválido como
-    // una firma que no coincide, y cae en el mismo 401.
-    if (!rawBody || !firma || !timingSafeEqual(hmacSha256Hex(appSecret, rawBody), firma)) {
+    // La comparación vive en middlewares/metaWebhookBody.ts, compartida con
+    // el webhook de Messenger e Instagram (ítem 171).
+    if (!firmaDeMetaValida(req, appSecret)) {
       logger.warn("Webhook de WhatsApp rechazado: firma ausente o inválida");
       next(new AppError("Firma inválida", 401));
       return;
