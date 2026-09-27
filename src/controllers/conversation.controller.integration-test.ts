@@ -774,3 +774,100 @@ test("generar el brief de una conversación SIN mensajes es 400 y no llama al mo
   assert.equal(res.status, 400);
   assert.match(await mensajeDeError(res), /todavía no tiene mensajes/);
 });
+
+// ---------------------------------------------------------------------------
+// El cierre manual (ítem 168), por HTTP real
+//
+// Cada caso arma su propia conversación en vez de cerrar una del `before`: los
+// filtros por estado de arriba cuentan esas, y cerrarlas cambiaría lo que
+// afirman según el orden de ejecución.
+// ---------------------------------------------------------------------------
+
+async function conversacionAbiertaNueva(): Promise<string> {
+  // (agentB, Ana, WHATSAPP) no la ocupa ninguna abierta del `before`, así que
+  // conversations_open_unique la admite.
+  return crearConversacion({
+    org: orgA,
+    agentId: orgA.agentB,
+    branchId: orgA.branchB,
+    contactId: orgA.contactAna,
+    channel: "WHATSAPP",
+  });
+}
+
+test("POST /close la pasa a CLOSED y devuelve el detalle entero", async () => {
+  const id = await conversacionAbiertaNueva();
+
+  const res = await call("POST", `/api/conversations/${id}/close`, adminA.accessToken);
+  const cuerpo = (await res.json()) as Detalle;
+
+  assert.equal(res.status, 200);
+  assert.equal(cuerpo.status, "CLOSED");
+  assert.ok(Array.isArray(cuerpo.messages));
+  assert.equal(cuerpo.contact.firstName, "Ana");
+  assert.equal((await detalle(id, adminA.accessToken)).status, "CLOSED");
+});
+
+test("cerrar una ya cerrada es idempotente: 200 y queda igual", async () => {
+  const res = await call("POST", `/api/conversations/${convCerradaAna}/close`, adminA.accessToken);
+  const cuerpo = (await res.json()) as Detalle;
+
+  assert.equal(res.status, 200);
+  assert.equal(cuerpo.status, "CLOSED");
+});
+
+test("un USER también puede cerrar: es trabajo de quien atiende, no configuración", async () => {
+  const id = await conversacionAbiertaNueva();
+
+  const res = await call("POST", `/api/conversations/${id}/close`, userA.accessToken);
+
+  assert.equal(res.status, 200);
+  assert.equal(((await res.json()) as Detalle).status, "CLOSED");
+});
+
+test("una conversación derivada a un humano también se cierra", async () => {
+  const id = await crearConversacion({
+    org: orgA,
+    agentId: orgA.agentB,
+    branchId: orgA.branchB,
+    contactId: orgA.contactAna,
+    channel: "WEB",
+    status: "TRANSFERRED_TO_HUMAN",
+  });
+
+  const res = await call("POST", `/api/conversations/${id}/close`, adminA.accessToken);
+
+  assert.equal(res.status, 200);
+  assert.equal(((await res.json()) as Detalle).status, "CLOSED");
+});
+
+test("cerrar exige sesión, respeta el aislamiento y valida el id", async () => {
+  const sinToken = await call("POST", `/api/conversations/${convDeOtraOrg}/close`);
+  assert.equal(sinToken.status, 401);
+
+  const otraOrg = await call(
+    "POST",
+    `/api/conversations/${convDeOtraOrg}/close`,
+    adminA.accessToken,
+  );
+  assert.equal(otraOrg.status, 404);
+  // La de la organización B quedó intacta.
+  assert.equal((await detalle(convDeOtraOrg, adminB.accessToken)).status, "ACTIVE");
+
+  const noUuid = await call("POST", "/api/conversations/no-es-uuid/close", adminA.accessToken);
+  assert.equal(noUuid.status, 400);
+});
+
+test("cerrada, el mismo contacto por el mismo canal puede abrir una conversación NUEVA", async () => {
+  // La garantía de findOrCreateOpenConversation: conversations_open_unique
+  // solo cubre las abiertas, así que cerrar libera el lugar.
+  const id = await conversacionAbiertaNueva();
+  await call("POST", `/api/conversations/${id}/close`, adminA.accessToken);
+
+  const nueva = await conversacionAbiertaNueva();
+
+  assert.notEqual(nueva, id);
+  assert.equal((await detalle(nueva, adminA.accessToken)).status, "ACTIVE");
+  // Se cierra para no dejarle ocupado el lugar a los casos de abajo.
+  await call("POST", `/api/conversations/${nueva}/close`, adminA.accessToken);
+});

@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { Badge } from "../../design-system/Badge";
+import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { DetailList, type DetailSection } from "../../design-system/DetailList";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -11,6 +12,7 @@ import { CHANNEL_LABEL } from "../agent/labels";
 import { ToolCallBlock } from "../agent/ToolCallBlock";
 import { ConversationBriefCard } from "./ConversationBriefCard";
 import { STATUS_BADGE_VARIANT, STATUS_LABEL } from "./labels";
+import { useCloseConversation } from "./mutations";
 import { useConversation } from "./queries";
 import { parseToolCalls } from "./toolCalls";
 import type { Conversation, ConversationMessage } from "./types";
@@ -20,9 +22,8 @@ import type { Conversation, ConversationMessage } from "./types";
 // docs/frontend-cambios-pendientes.md): quién habló con quién, y todo lo que
 // se dijeron, en orden.
 //
-// ES SOLO LECTURA, Y LA PANTALLA TERMINA AHÍ: no hay caja de texto, no hay
-// "Responder", no hay "Cerrar conversación". No es una omisión de esta
-// pantalla sino del sistema entero: guardar un Message OUTBOUND no lo
+// NO SE RESPONDE DESDE ACÁ: no hay caja de texto ni "Responder". No es una
+// omisión de esta pantalla sino del sistema entero: guardar un Message OUTBOUND no lo
 // ENTREGA por el canal —el widget web solo puede recibir la respuesta a su
 // propio mensaje, y WhatsApp todavía no existe (paso 6 de
 // docs/ai-agent-architecture.md §9)—, así que un botón "Responder" mostraría
@@ -37,10 +38,11 @@ import type { Conversation, ConversationMessage } from "./types";
 // una conversación. Lo único que cambia entre los dos usos es el encabezado:
 // adentro del Modal no va, porque el Modal ya tiene el suyo.
 //
-// LO QUE SÍ SE ESCRIBE DESDE ACÁ, y es la única escritura de toda la feature:
-// el brief (ConversationBriefCard). Sigue sin haber forma de responder ni de
-// cerrar una conversación, por el motivo de abajo — un brief no es un mensaje
-// y no se entrega por ningún canal.
+// LO QUE SÍ SE ESCRIBE DESDE ACÁ: el brief (ConversationBriefCard, ítem 73) y
+// el cierre manual ("Cerrar conversación", ítem 168). Ninguno de los dos es un
+// mensaje ni se entrega por ningún canal, así que la barrera de arriba sigue
+// en pie. El botón de cerrar va acá y no en la bandeja: la lista sigue sin
+// acciones.
 //
 // FUERA DE AdminRoute, como el listado. El único gate por rol de toda la
 // feature está abajo, en el link a la ficha del contacto, y es por una razón
@@ -111,6 +113,9 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
   const { id: idDeLaRuta } = useParams<{ id: string }>();
   const id = idDelProp ?? idDeLaRuta;
   const conversationQuery = useConversation(id);
+  // `id ?? ""`: el hook no se puede llamar condicionalmente, y sin id la
+  // pantalla nunca llega a mostrar el botón (la query queda deshabilitada).
+  const cerrar = useCloseConversation(id ?? "");
   const { me } = useAuth();
   const isAdmin = me?.role === "ADMIN";
   // El pop up ya tiene su propio encabezado (el título del Modal) y su propio
@@ -132,6 +137,17 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
   }
 
   const conversation = conversationQuery.data;
+
+  // Confirma antes, mismo patrón que el resto del repo: cerrar no se deshace
+  // desde la pantalla, y el próximo mensaje del contacto abre una conversación
+  // NUEVA en vez de seguir en esta.
+  function handleCerrar() {
+    const confirmado = window.confirm(
+      "¿Cerrar esta conversación? Si el contacto vuelve a escribir, se abre una nueva.",
+    );
+    if (!confirmado) return;
+    cerrar.mutate();
+  }
   const nombreDelContacto = `${conversation.contact.firstName} ${conversation.contact.lastName}`;
 
   const sections: DetailSection[] = [
@@ -175,6 +191,20 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
       <div className="ds-stack">
         <Card heading="Datos de la conversación">
           <DetailList sections={sections} />
+          {/* Solo mientras está abierta: una CLOSED no tiene nada que cerrar. */}
+          {conversation.status !== "CLOSED" ? (
+            <div className="ds-card-actions">
+              <Button onClick={handleCerrar} disabled={cerrar.isPending} loading={cerrar.isPending}>
+                {cerrar.isPending ? "Cerrando…" : "Cerrar conversación"}
+              </Button>
+            </div>
+          ) : null}
+          {cerrar.error ? (
+            <ErrorState>
+              No pudimos cerrar la conversación
+              {cerrar.error instanceof Error ? `: ${cerrar.error.message}` : "."}
+            </ErrorState>
+          ) : null}
         </Card>
 
         {/* El resumen va ANTES del hilo (ítem 73): la pregunta que trae a

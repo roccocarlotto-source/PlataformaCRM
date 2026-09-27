@@ -1,4 +1,5 @@
 import {
+  closeConversation as closeConversationRepo,
   countConversations,
   findConversationWithMessages,
   findManyConversations,
@@ -18,16 +19,16 @@ import { generarBriefDeConversacion } from "./conversationBrief.service";
 // organizationId en cada operación, paginación con la misma forma de
 // respuesta, 404 con AppError.
 //
-// LO QUE SIGUE SIN HABER, Y NO ES UN OLVIDO: no hay crear, no hay cerrar, y
-// sobre todo NO HAY RESPONDER. Un mensaje saliente no es una fila más en
+// LO QUE SIGUE SIN HABER, Y NO ES UN OLVIDO: no hay crear, y sobre todo NO
+// HAY RESPONDER (cerrar sí, desde el ítem 168 — ver closeConversation). Un mensaje saliente no es una fila más en
 // `messages`: hay que ENTREGARLO por el canal (el widget web no tiene forma de
 // recibir un mensaje que no sea la respuesta al suyo; WhatsApp todavía no
 // existe, es el paso 6 de §9). Guardar un Message OUTBOUND que nadie entrega
 // sería mostrarle a un vendedor que contestó cuando el contacto no recibió
 // nada. Eso sigue afuera hasta que exista la entrega.
 //
-// LAS DOS ÚNICAS ESCRITURAS son las del brief (ítem 73), y no contradicen
-// nada de lo anterior: el brief es una anotación INTERNA sobre la
+// LAS ESCRITURAS son las dos del brief (ítem 73) y el cierre (ítem 168), y no
+// contradicen nada de lo anterior. Sobre el brief: el brief es una anotación INTERNA sobre la
 // conversación, no un mensaje. No viaja a ningún lado, no lo ve el contacto y
 // no se entrega por ningún canal — vive en dos columnas de `conversations` y
 // se lee desde el CRM. La barrera que este módulo cuida es "no escribir en
@@ -138,5 +139,24 @@ export async function updateConversationBrief(
 export async function generateConversationBrief(organizationId: string, id: string) {
   await getConversationById(organizationId, id);
   await generarBriefDeConversacion(organizationId, id);
+  return getConversationById(organizationId, id);
+}
+
+// ---------------------------------------------------------------------------
+// El cierre manual (ítem 168). Mismo molde que las dos del brief: 404 antes de
+// escribir y la conversación ENTERA de vuelta, para que la pantalla actualice
+// la cache sin una segunda lectura.
+//
+// Tampoco escribe en `messages`: cerrar es un cambio de status, no un mensaje
+// que se le entregue al contacto. La barrera del ítem 66 sigue intacta.
+//
+// IDEMPOTENTE: cerrar una conversación ya cerrada no es un error. El CAS del
+// repositorio deja 0 filas afectadas y esto devuelve el estado actual, que es
+// justo lo que pidió quien apretó el botón (con dos pestañas abiertas, la
+// segunda no tiene por qué ver un error).
+// ---------------------------------------------------------------------------
+export async function closeConversation(organizationId: string, id: string) {
+  await getConversationById(organizationId, id);
+  await closeConversationRepo(id, organizationId);
   return getConversationById(organizationId, id);
 }

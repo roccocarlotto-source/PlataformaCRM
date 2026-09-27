@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import {
+  CONTACTO_CON_CONVERSACIONES_ABIERTAS,
   CONTACTO_CON_OPORTUNIDADES_ABIERTAS,
   CONTACTO_CON_RESERVAS_CONFIRMADAS,
   createContact,
@@ -12,6 +13,7 @@ import {
   deleteCompany,
   EMPRESA_CON_OPORTUNIDADES_ABIERTAS,
 } from "./company.service";
+import { closeConversation } from "./conversation.service";
 import { createOpportunity, updateOpportunity } from "./opportunity.service";
 import { createPipeline, PIPELINE_DEFAULT_SIN_ETAPAS, updatePipeline } from "./pipeline.service";
 import { createResource } from "./resource.service";
@@ -50,6 +52,9 @@ after(async () => {
   if (!e) return;
   const where = { organizationId: e.organizationId };
   await prisma.booking.deleteMany({ where });
+  // Ítem 168: las conversaciones cuelgan del agente y del contacto.
+  await prisma.conversation.deleteMany({ where });
+  await prisma.agent.deleteMany({ where });
   await prisma.serviceType.deleteMany({ where });
   await prisma.resource.deleteMany({ where });
   await prisma.opportunity.deleteMany({ where });
@@ -170,6 +175,71 @@ test("ítem 167: con la reserva cancelada la baja procede", async () => {
   await reservaDe(c.id, "CANCELLED");
 
   await deleteContact(e.organizationId, c.id);
+  const releido = await prisma.contact.findUniqueOrThrow({ where: { id: c.id } });
+  assert.ok(releido.deletedAt !== null);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 168 — contacto con conversaciones abiertas (el RESTRICT que el ítem 167
+// difirió hasta que existiera cómo cerrarlas)
+// ---------------------------------------------------------------------------
+
+let agenteId: string | undefined;
+async function conversacionDe(
+  contactId: string,
+  status: "ACTIVE" | "TRANSFERRED_TO_HUMAN" | "CLOSED",
+) {
+  if (!agenteId) {
+    const agente = await prisma.agent.create({
+      data: {
+        organizationId: e.organizationId,
+        branchId: e.branchId,
+        name: "Agente",
+        instructions: "x",
+        modelProvider: "openrouter",
+        modelName: "doble/modelo",
+        enabledTools: [],
+        channels: ["WEB"],
+        guardrails: {},
+        isActive: false,
+      },
+    });
+    agenteId = agente.id;
+  }
+  return prisma.conversation.create({
+    data: {
+      organizationId: e.organizationId,
+      branchId: e.branchId,
+      agentId: agenteId,
+      contactId,
+      channel: "WEB",
+      status,
+    },
+  });
+}
+
+for (const status of ["ACTIVE", "TRANSFERRED_TO_HUMAN"] as const) {
+  test(`ítem 168: dar de baja un contacto con una conversación ${status} es 409 y no lo borra`, async () => {
+    const c = await contacto();
+    await conversacionDe(c.id, status);
+
+    assertAppError(
+      await capturar(() => deleteContact(e.organizationId, c.id)),
+      409,
+      CONTACTO_CON_CONVERSACIONES_ABIERTAS,
+    );
+    const releido = await prisma.contact.findUniqueOrThrow({ where: { id: c.id } });
+    assert.equal(releido.deletedAt, null);
+  });
+}
+
+test("ítem 168: cerrada la conversación (por el camino real), la baja procede", async () => {
+  const c = await contacto();
+  const conversacion = await conversacionDe(c.id, "ACTIVE");
+
+  await closeConversation(e.organizationId, conversacion.id);
+  await deleteContact(e.organizationId, c.id);
+
   const releido = await prisma.contact.findUniqueOrThrow({ where: { id: c.id } });
   assert.ok(releido.deletedAt !== null);
 });

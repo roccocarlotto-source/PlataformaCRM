@@ -1,6 +1,7 @@
 import type { Response } from "express";
 import { z } from "zod";
 import {
+  closeConversation,
   generateConversationBrief,
   getConversationById,
   listConversations,
@@ -14,7 +15,7 @@ import { parseOrThrow } from "../utils/validation";
 // ---------------------------------------------------------------------------
 // Bandeja de conversaciones (ítem 66 de docs/frontend-cambios-pendientes.md).
 // Empezó con dos GET —el listado y el hilo de una— y el ítem 73 le sumó las
-// dos escrituras del brief. Mismo molde que automation.controller.ts para la
+// dos escrituras del brief, y el ítem 168 el cierre manual. Mismo molde que automation.controller.ts para la
 // query del listado.
 //
 // Los enums se validan contra sus valores REALES de Prisma (ConversationStatus
@@ -103,6 +104,22 @@ export const generateConversationBriefHandler = asyncHandler<AuthenticatedReques
   async (req, res: Response) => {
     const id = parseOrThrow(idParamSchema, req.params.id);
     const conversation = await generateConversationBrief(req.auth.organizationId, id);
+    res.status(200).json(conversation);
+  },
+);
+
+// ---------------------------------------------------------------------------
+// El cierre manual (ítem 168)
+// ---------------------------------------------------------------------------
+
+// SIN BODY, mismo criterio que generate-brief: no hay nada que elegir — el
+// único destino posible es CLOSED. Síncrono, y el error (404) sube tal cual.
+// Cerrar una ya cerrada es 200 con la conversación como está (ver
+// closeConversation en el service).
+export const closeConversationHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const id = parseOrThrow(idParamSchema, req.params.id);
+    const conversation = await closeConversation(req.auth.organizationId, id);
     res.status(200).json(conversation);
   },
 );

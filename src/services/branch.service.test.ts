@@ -5,7 +5,8 @@ import { AppError } from "../utils/AppError";
 import { deleteBranch } from "./branch.service";
 
 // ---------------------------------------------------------------------------
-// deleteBranch — los RESTRICT del ítem 167 (C-03 de la auditoría), sin base.
+// deleteBranch — los RESTRICT de los ítems 167 y 168 (C-03 de la auditoría),
+// sin base.
 //
 // Se reemplaza el cliente de Prisma por uno falso: `$transaction` corre el
 // callback con un `tx` en memoria que responde cada conteo con lo que el test
@@ -25,11 +26,13 @@ type Modelo =
   | "agent"
   | "vehicle"
   | "knowledgeBaseEntry"
+  | "conversation"
   | "booking"
   | "googleCalendarConnection";
 
 function baseFalsa(conteos: Partial<Record<Modelo, number>> = {}) {
   const borrados: unknown[] = [];
+  const wheres: Partial<Record<Modelo, unknown>> = {};
   const sucursal = { id: BRANCH, organizationId: ORG };
   const modelos = Object.fromEntries(
     (
@@ -40,10 +43,19 @@ function baseFalsa(conteos: Partial<Record<Modelo, number>> = {}) {
         "agent",
         "vehicle",
         "knowledgeBaseEntry",
+        "conversation",
         "booking",
         "googleCalendarConnection",
       ] as Modelo[]
-    ).map((m) => [m, { count: async () => conteos[m] ?? 0 }]),
+    ).map((m) => [
+      m,
+      {
+        count: async (args: { where: unknown }) => {
+          wheres[m] = args.where;
+          return conteos[m] ?? 0;
+        },
+      },
+    ]),
   );
   const branch = {
     findFirst: async () => sucursal,
@@ -57,7 +69,7 @@ function baseFalsa(conteos: Partial<Record<Modelo, number>> = {}) {
   mock.property(prisma as unknown as Record<string, unknown>, "branch", branch);
   mock.method(prisma, "$transaction", (async (fn: (t: unknown) => Promise<unknown>) =>
     fn(tx)) as never);
-  return { borrados };
+  return { borrados, wheres };
 }
 
 afterEach(() => mock.restoreAll());
@@ -87,6 +99,11 @@ const CASOS: { modelo: Modelo; mensaje: string }[] = [
       "No se puede eliminar una sucursal que tiene entradas en la base de conocimiento. Eliminá primero sus entradas.",
   },
   {
+    modelo: "conversation",
+    mensaje:
+      "No se puede eliminar una sucursal que tiene conversaciones abiertas. Cerralas primero desde la bandeja.",
+  },
+  {
     modelo: "booking",
     mensaje:
       "No se puede eliminar una sucursal que tiene reservas confirmadas. Cancelalas primero.",
@@ -103,6 +120,19 @@ for (const { modelo, mensaje } of CASOS) {
     assert.equal(borrados.length, 0);
   });
 }
+
+// Ítem 168: lo que bloquea es una conversación ABIERTA de ESTA organización.
+// Una CLOSED no entra en el conteo — es la condición para que el RESTRICT no
+// bloquee para siempre a toda sucursal que alguna vez atendió.
+test("el conteo de conversaciones es solo de las abiertas, de la sucursal y de la organización", async () => {
+  const { wheres } = baseFalsa();
+  await deleteBranch(ORG, BRANCH);
+  assert.deepEqual(wheres.conversation, {
+    branchId: BRANCH,
+    organizationId: ORG,
+    status: { in: ["ACTIVE", "TRANSFERRED_TO_HUMAN"] },
+  });
+});
 
 test("deleteBranch sin ningún dependiente vivo borra la sucursal", async () => {
   const { borrados } = baseFalsa();

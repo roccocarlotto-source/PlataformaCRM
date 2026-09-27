@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  closeConversation,
   countConversations,
+  countOpenConversationsOf,
   findConversationWithMessages,
   findManyConversations,
   type ConversationFilters,
@@ -254,4 +256,49 @@ test("el detalle trae las mismas relaciones de exhibición que el listado", asyn
   assert.deepEqual(include.contact, { select: { id: true, firstName: true, lastName: true } });
   assert.deepEqual(include.agent, { select: { id: true, name: true } });
   assert.deepEqual(include.branch, { select: { id: true, name: true } });
+});
+
+// ---------------------------------------------------------------------------
+// El cierre manual y el conteo de abiertas (ítem 168)
+// ---------------------------------------------------------------------------
+
+test("closeConversation es compare-and-swap: solo toca una NO cerrada, de esta organización", async () => {
+  const llamadas: unknown[] = [];
+  const db = {
+    conversation: {
+      updateMany: async (args: unknown) => {
+        llamadas.push(args);
+        return { count: 0 };
+      },
+    },
+  } as unknown as Db;
+
+  // count 0 (ya estaba cerrada) vuelve tal cual: no es un error.
+  const result = await closeConversation("conv-1", ORG, db);
+
+  assert.deepEqual(result, { count: 0 });
+  assert.deepEqual(llamadas, [
+    {
+      where: { id: "conv-1", organizationId: ORG, status: { not: "CLOSED" } },
+      data: { status: "CLOSED" },
+    },
+  ]);
+});
+
+test("countOpenConversationsOf cuenta solo las abiertas, con organizationId, por sucursal o por contacto", async () => {
+  const { db, llamadas } = espia();
+
+  await countOpenConversationsOf({ branchId: "branch-1" }, ORG, db);
+  await countOpenConversationsOf({ contactId: "contact-1" }, ORG, db);
+
+  assert.deepEqual(llamadas.count[0].where, {
+    branchId: "branch-1",
+    organizationId: ORG,
+    status: { in: ["ACTIVE", "TRANSFERRED_TO_HUMAN"] },
+  });
+  assert.deepEqual(llamadas.count[1].where, {
+    contactId: "contact-1",
+    organizationId: ORG,
+    status: { in: ["ACTIVE", "TRANSFERRED_TO_HUMAN"] },
+  });
 });

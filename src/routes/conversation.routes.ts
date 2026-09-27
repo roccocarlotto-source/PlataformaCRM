@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  closeConversationHandler,
   generateConversationBriefHandler,
   getConversationHandler,
   listConversationsHandler,
@@ -10,8 +11,8 @@ import { businessWriteRateLimiter } from "../middlewares/rateLimit";
 
 export const conversationRouter = Router();
 
-// SOLO `authenticate`, sin `authorize("ADMIN")` en NINGUNA de las cuatro — ni
-// siquiera en las dos que escriben, que es donde el resto del módulo de
+// SOLO `authenticate`, sin `authorize("ADMIN")` en NINGUNA de las cinco — ni
+// siquiera en las tres que escriben, que es donde el resto del módulo de
 // agentes sí pone el gate.
 //
 // Es el mismo esquema que la LECTURA de /api/agents, /api/knowledge-base y
@@ -26,11 +27,13 @@ export const conversationRouter = Router();
 // corregir el resumen de una conversación es trabajo del vendedor que la
 // atiende, no una decisión de configuración. Un ADMIN-only acá dejaría la
 // pantalla con un botón que la mayoría de quienes la usan no podría apretar.
+// Lo mismo vale para el cierre manual (ítem 168): cerrar una conversación es
+// parte de atenderla, no configuración.
 //
 // El aislamiento por organización no depende de nada de esto: el
 // organizationId sale del JWT y entra en el WHERE de todas las consultas (ver
 // conversation.repository.ts), así que un id de otra organización es 404
-// también en el PATCH y en el POST.
+// también en el PATCH y en los POST.
 conversationRouter.get("/conversations", authenticate, listConversationsHandler);
 conversationRouter.get("/conversations/:id", authenticate, getConversationHandler);
 
@@ -61,4 +64,16 @@ conversationRouter.post(
   authenticate,
   businessWriteRateLimiter,
   generateConversationBriefHandler,
+);
+
+// ---------------------------------------------------------------------------
+// El cierre manual (ítem 168). Mismo gate y mismo limiter que las escrituras
+// del brief, por el mismo motivo (ver arriba). Tampoco toca `messages`: es un
+// cambio de status, al contacto no se le entrega nada.
+// ---------------------------------------------------------------------------
+conversationRouter.post(
+  "/conversations/:id/close",
+  authenticate,
+  businessWriteRateLimiter,
+  closeConversationHandler,
 );

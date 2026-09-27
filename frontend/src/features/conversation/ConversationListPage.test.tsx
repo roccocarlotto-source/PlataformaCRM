@@ -285,8 +285,9 @@ describe("ConversationListPage", () => {
     const tabla = within(await screen.findByRole("table"));
 
     // La barrera del ítem, del lado de la pantalla: sin "Nueva conversación",
-    // sin columna Acciones y sin menú de 3 puntos. Responder o cerrar una
-    // conversación exige antes poder ENTREGAR el mensaje por el canal.
+    // sin columna Acciones y sin menú de 3 puntos. Responder a una
+    // conversación exige antes poder ENTREGAR el mensaje por el canal, y
+    // cerrarla (ítem 168) se hace desde el detalle, no desde la fila.
     expect(screen.queryByRole("link", { name: /Nueva/ })).not.toBeInTheDocument();
     expect(tabla.queryByRole("columnheader", { name: "Acciones" })).not.toBeInTheDocument();
     expect(tabla.queryByRole("button", { name: "Acciones" })).not.toBeInTheDocument();

@@ -145,6 +145,37 @@ export function transferConversationToHuman(
   });
 }
 
+// El cierre manual desde la bandeja (ítem 168), como compare-and-swap, mismo
+// molde que transferConversationToHuman: pasa a CLOSED solo si no lo estaba.
+// count 0 NO es un error — la conversación ya estaba cerrada (o la cerró otra
+// llamada concurrente), y cerrar dos veces deja exactamente el mismo estado.
+//
+// Cerrarla la saca del índice único conversations_open_unique, así que el
+// próximo mensaje del mismo contacto por el mismo canal abre una conversación
+// NUEVA (ver findOrCreateOpenConversation). Es lo esperado, no una regresión.
+export function closeConversation(id: string, organizationId: string, db: Db = prisma) {
+  return db.conversation.updateMany({
+    where: { id, organizationId, status: { not: "CLOSED" } },
+    data: { status: "CLOSED" },
+  });
+}
+
+// Conversaciones ABIERTAS (ACTIVE o TRANSFERRED_TO_HUMAN) de una sucursal o de
+// un contacto — los conteos de los RESTRICT de deleteBranch y deleteContact
+// (ítem 167, C-03/C-04 de la auditoría, reactivado en el ítem 168 cuando
+// existió cómo cerrarlas). Mismo criterio de "abierta" que
+// findOpenConversation. organizationId en el WHERE por el mismo motivo que
+// countConfirmedBookingsOf.
+export function countOpenConversationsOf(
+  where: { branchId: string } | { contactId: string },
+  organizationId: string,
+  db: Db = prisma,
+) {
+  return db.conversation.count({
+    where: { ...where, organizationId, status: { in: ["ACTIVE", "TRANSFERRED_TO_HUMAN"] } },
+  });
+}
+
 // La conversación MÁS RECIENTE de un agente por un canal con ese id de hilo
 // externo (para el canal Web: el sessionId del navegador). SIN filtro de
 // status, a diferencia de findOpenConversation: lo que se busca acá es el

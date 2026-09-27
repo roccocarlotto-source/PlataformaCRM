@@ -7,6 +7,7 @@ import { lockBranchForUpdate } from "../repositories/branch.repository";
 import { lockResourceForUpdate } from "../repositories/resource.repository";
 import { AppError } from "../utils/AppError";
 import { createBranch, deleteBranch, updateBranch } from "./branch.service";
+import { closeConversation } from "./conversation.service";
 import { createResource, deleteResource } from "./resource.service";
 import { createServiceType, deleteServiceType, updateServiceType } from "./serviceType.service";
 
@@ -44,6 +45,8 @@ async function desmontar(escenario: Escenario) {
   // Los dependientes que agregan los RESTRICT del ítem 167, antes que sus
   // padres por las FK.
   await prisma.booking.deleteMany({ where: { organizationId: escenario.organizationId } });
+  // Ítem 168: cuelgan del agente y del contacto.
+  await prisma.conversation.deleteMany({ where: { organizationId: escenario.organizationId } });
   await prisma.contact.deleteMany({ where: { organizationId: escenario.organizationId } });
   await prisma.knowledgeBaseEntry.deleteMany({
     where: { organizationId: escenario.organizationId },
@@ -467,6 +470,74 @@ test("deleteBranch no se frena por lo que ya es historia: agente borrado, stock 
     await crearVehiculo(org, branch.id, "DELIVERED");
     await crearReserva(org, branch.id, "CANCELLED");
 
+    await deleteBranch(org, branch.id);
+
+    const persistida = await prisma.branch.findUniqueOrThrow({ where: { id: branch.id } });
+    assert.notEqual(persistida.deletedAt, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// El RESTRICT de conversaciones abiertas (ítem 168, diferido en el 167). Una
+// conversación exige un agente, y un agente vivo ya bloquea por su cuenta:
+// por eso el agente se siembra BORRADO, para que el único dependiente vivo
+// sea la conversación y el mensaje que se vea sea el suyo.
+// ---------------------------------------------------------------------------
+
+async function crearConversacion(
+  organizationId: string,
+  branchId: string,
+  status: "ACTIVE" | "TRANSFERRED_TO_HUMAN" | "CLOSED",
+) {
+  const agente = await crearAgente(organizationId, branchId, { deletedAt: new Date() });
+  const contacto = await prisma.contact.create({
+    data: { organizationId, firstName: "Ana", lastName: "Conversación" },
+  });
+  return prisma.conversation.create({
+    data: {
+      organizationId,
+      branchId,
+      agentId: agente.id,
+      contactId: contacto.id,
+      channel: "WEB",
+      status,
+    },
+  });
+}
+
+for (const status of ["ACTIVE", "TRANSFERRED_TO_HUMAN"] as const) {
+  test(`deleteBranch rechaza con 400 si la sucursal tiene una conversación ${status}`, async () => {
+    const escenario = await montar("branch-168");
+    try {
+      const org = escenario.organizationId;
+      const branch = await createBranch(org, { name: "Centro", timezone: TZ });
+      await crearConversacion(org, branch.id, status);
+
+      const err = await capturar(() => deleteBranch(org, branch.id));
+
+      assertAppError(
+        err,
+        400,
+        "No se puede eliminar una sucursal que tiene conversaciones abiertas. Cerralas primero desde la bandeja.",
+      );
+      const persistida = await prisma.branch.findUniqueOrThrow({ where: { id: branch.id } });
+      assert.equal(persistida.deletedAt, null);
+    } finally {
+      await desmontar(escenario);
+    }
+  });
+}
+
+test("deleteBranch procede cuando sus conversaciones están cerradas (por el camino real)", async () => {
+  const escenario = await montar("branch-168-cerrada");
+  try {
+    const org = escenario.organizationId;
+    const branch = await createBranch(org, { name: "Centro", timezone: TZ });
+    const conversacion = await crearConversacion(org, branch.id, "ACTIVE");
+
+    await closeConversation(org, conversacion.id);
     await deleteBranch(org, branch.id);
 
     const persistida = await prisma.branch.findUniqueOrThrow({ where: { id: branch.id } });
