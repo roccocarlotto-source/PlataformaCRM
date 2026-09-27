@@ -509,6 +509,33 @@ const envSchema = z.object({
   // (tabla whatsapp_templates) y el worker la lee de ahí.
   WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().optional(),
 
+  // -------------------------------------------------------------------------
+  // OAuth de la página de Facebook de cada organización — canales Instagram y
+  // Messenger (ítem 170 de docs/frontend-cambios-pendientes.md). Ver
+  // src/services/metaOAuth.service.ts.
+  //
+  // META_APP_ID / META_APP_SECRET: el id y el App Secret de la app de Meta.
+  //   HOY COINCIDEN con los de WhatsApp (WHATSAPP_APP_SECRET) porque es la
+  //   misma app ("Xentech-CRM"), pero el código NO se apoya en esa
+  //   coincidencia: cada integración lee su propia variable, mismo criterio
+  //   que separar whatsappTemplate.service.ts de googleCalendar.service.ts. Si
+  //   algún día los canales se mudan a otra app, se cambia acá y nada más.
+  // META_REDIRECT_URI: el callback de ESTE backend
+  //   (…/api/integrations/meta/callback). Tiene que coincidir carácter por
+  //   carácter con la "URI de redireccionamiento de OAuth válida" cargada en el
+  //   panel de Meta, mismo criterio que GOOGLE_REDIRECT_URI.
+  // META_LOGIN_CONFIG_ID: el id de la configuración de Facebook Login for
+  //   Business creada en el panel. Es la que lleva los permisos: en este flujo
+  //   `config_id` reemplaza a `scope` en la URL de autorización.
+  //
+  // Opcionales por el mismo criterio que las GOOGLE_*: el servidor arranca sin
+  // ellas, y conectar una página sin la que falta responde un 500 que las
+  // nombra (en el log).
+  META_APP_ID: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
+  META_REDIRECT_URI: z.string().optional(),
+  META_LOGIN_CONFIG_ID: z.string().optional(),
+
   // Gate de secreto compartido de /qr/resolve/:qrId (Fase 4, backend — ver
   // src/middlewares/requireInternalProxySecret.ts). El Cloudflare Worker que
   // hace el rate limiting manda el secreto en el header

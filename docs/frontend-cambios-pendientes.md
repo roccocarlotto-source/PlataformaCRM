@@ -7819,3 +7819,86 @@ configuración de producción ni de pricing.
 - **El mensaje de error de `channels`** en el CRUD de agentes ahora sale del enum (`channels solo admite WHATSAPP, WEB, INSTAGRAM, MESSENGER`) en vez de estar escrito a mano.
 - **`JobReclamado` trae `channel`** aunque el worker todavía no lo use (sigue mandando solo por WhatsApp): el reclamo devuelve la fila completa que el ítem 172 va a necesitar para elegir el canal de envío.
 - **Tests**: unitarios `agent.repository.test.ts` (+4), `metaPageConnection.repository.test.ts` y `contactChannelIdentity.repository.test.ts` (nuevos), `routes/index.test.ts` (+1, montaje); integración `agent.controller.integration-test.ts` (+6: tenant no asigna, asignar/cambiar/liberar/409/400, independencia con el número de WhatsApp, 404 inexistente y borrado, 403 no platform admin y 401, softDelete libera), `canalesMeta.integration-test.ts` (nuevo: UNIQUE de identidad, FK compuesta, una conexión por organización, página en una sola organización, CHECK y token cifrado) y `whatsappWebhook.controller.integration-test.ts` (columnas renombradas).
+
+## 170. OAuth de la página de Facebook de cada organización (paso 2 de 5 — Instagram + Messenger)
+
+**Estado:** hecho (27/09/2026). Sin migración: todo lo que necesita en la base lo creó el ítem 169 (`schema.prisma` no se tocó). Pendiente del lado de Meta: crear la configuración de Facebook Login for Business y cargar la redirect URI (ver "Cómo se aplica").
+
+**Contexto.** A diferencia de WhatsApp (un número compartido de toda la
+plataforma, con el token en el entorno), Instagram y Messenger requieren que
+CADA organización conecte SU PROPIA página de Facebook — es lo que modela
+`MetaPageConnection` (una fila por organización, ítem 169). Este ítem construye
+el flujo de autorización: un ADMIN del tenant inicia la conexión, Meta le hace
+elegir la página y aceptar los permisos, y el callback guarda el Page access
+token cifrado.
+
+Es el calco del flujo de Google Calendar
+(`googleCalendarConnection.service.ts`/`.controller.ts`/`.routes.ts` +
+`utils/oauthState.ts`) con una diferencia estructural: Google es POR SUCURSAL,
+Meta es POR ORGANIZACIÓN — no hay `branchId` en el state, en las rutas ni en
+la conexión.
+
+**Qué se hace.**
+
+1. **Variables de entorno** (`config/env.ts`, opcionales como las `GOOGLE_*`,
+   validadas al usarse): `META_APP_ID`, `META_APP_SECRET` (hoy vale lo mismo
+   que `WHATSAPP_APP_SECRET` porque es la misma app, pero el código lee la
+   suya), `META_REDIRECT_URI`, `META_LOGIN_CONFIG_ID`.
+2. **`utils/metaOauthState.ts`** — hermano de `oauthState.ts`, sin tocarlo:
+   JWT HS256 con `jose`, payload `{ organizationId }`, audiencia `meta-oauth`,
+   subclave derivada con `info` propio (`plataforma-crm:oauth-state:meta:v1`),
+   10 minutos, 400 en todos los fallos (mensaje propio para el vencido).
+3. **`services/metaOAuth.service.ts`** — cliente HTTP aislado (factory con
+   fetch inyectable, timeout de 10 s, `MetaAuthError` 502 con
+   `tokenInvalido`): `construirUrlDeAutorizacion`, `intercambiarCodigo`,
+   `obtenerTokenDeLargaDuracion` (`fb_exchange_token`) y
+   `listarPaginasAutorizadas` (`/me/accounts` con
+   `id,name,access_token,instagram_business_account{id}`).
+4. **`services/metaPageConnection.service.ts`** — `iniciarConexion`,
+   `completarConexion`, `desconectar`, `obtenerConexion`.
+5. **Controller + rutas**: `GET /api/integrations/meta` (cualquier usuario),
+   `POST /api/integrations/meta/connect` y `DELETE /api/integrations/meta`
+   (ADMIN + `businessWriteRateLimiter`), `GET /api/integrations/meta/callback`
+   (sin `authenticate`, sin `authorize`, sin rate limiter — mismo motivo que
+   Google).
+
+### Decisiones tomadas al implementarlo
+
+- **Verificado contra la documentación de Meta, no asumido.** El diálogo es `https://www.facebook.com/v25.0/dialog/oauth` con `client_id`, `redirect_uri`, `config_id`, `response_type=code` y `state`, SIN `scope`: en Facebook Login for Business "config_id has replaced scope" (los permisos viven en la configuración del panel). El canje es `GET graph.facebook.com/v25.0/oauth/access_token`; el de larga duración, el mismo endpoint con `grant_type=fb_exchange_token`. La guía de tokens de larga duración confirma que un Page token sacado de un user token largo no tiene fecha de vencimiento (se invalida si la persona revoca el permiso, cambia la contraseña o deja de administrar la página). Por eso el orden es code → token corto → token largo → páginas, y un test unitario lo fija.
+- **Versión de la Graph API propia** (`META_GRAPH_API_VERSION = "v25.0"`): es la misma que usa `whatsappGraph.service.ts`, pero es otra constante — subir la de un canal no arrastra al otro sin decidirlo.
+- **Más de una página autorizada es un error explícito (400), no un selector.** Simplificación deliberada del alcance: `MetaPageConnection` es una fila por organización y el ítem no trae una pantalla para elegir. Quedarse con "la primera" sería elegir por la persona según un orden que no controla. Si hace falta un selector, es una vuelta posterior. Cero páginas → 400 también.
+- **Página ya conectada a otra organización** → 409 "Esa página de Facebook ya está conectada a otra cuenta.", traduciendo solo el P2002 sobre `page_id` (cualquier otro se relanza), mismo criterio que `traducirPaginaDeFacebookDuplicada`.
+- **Desconectar no revoca nada del lado de Meta.** El endpoint que existe (`DELETE /{user-id}/permissions`) se autentica con un USER token, y este sistema no guarda ninguno: el user token largo se usa una vez en el callback y se descarta. Guardarlo solo para poder revocar sería conservar una credencial más amplia que la que el producto usa. La fila queda `REVOKED` con el token en `NULL` en una sola escritura; desconectar dos veces es 409, como en Google.
+- **`MetaAuthError.tokenInvalido`** = Meta respondió un `OAuthException` (o el código 190) en un 4xx; red, timeout, 5xx y los códigos que Meta documenta como transitorios (1, 2, 4, 17, 32, 341, 613) son `false`. Hoy el callback responde igual en los dos casos; la distinción es para el envío del ítem 172, donde solo un rechazo real debe llevar la conexión a `ERROR`.
+- **Tokens fuera de las URLs y de los logs**: `/me/accounts` se pide con el token en `Authorization: Bearer` (también en las páginas siguientes de `paging.next`); el mensaje de un fallo de red no incluye la URL (la del canje lleva el `client_secret`); el callback loguea `req.path` y no `req.originalUrl` (que lleva `code` y `state`).
+- **El callback responde `text/plain`, sin 302 al frontend**: la pantalla de conexión es el ítem 173 y todavía no existe. El controller deja el comentario "apuntar acá cuando exista el ítem 173" con lo que hay que hacer (302 a `CORS_ORIGIN` con `?metaConnected=true` / `?metaError=<mensaje>`, tope de 200 caracteres, como hizo Google en el ítem 75).
+- **Un `AppError` no operacional no muestra su mensaje en el callback** (sale el genérico): esos nombran variables de entorno ("Faltan: META_APP_ID…", M-11 b). El callback de Google sí los muestra; no se tocó porque está fuera del alcance de este ítem.
+- **Router con factory** (`createMetaPageConnectionRouter(cliente?)`), mismo patrón que `whatsappTemplate.routes.ts`: el test de integración inyecta un doble de Meta; producción monta `metaPageConnectionRouter` con el cliente real.
+- **La organización se valida con `findOrganizationById` + `deletedAt`** (404 si no existe o está dada de baja), al iniciar y otra vez en el callback antes de canjear el code. Sin lock de organización: a diferencia de la sucursal en Google, ningún borrado decide sobre un conteo de estas conexiones.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/config/env.ts`, `.env.example`, `docs/deployment.md` | `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI`, `META_LOGIN_CONFIG_ID` |
+| `src/utils/metaOauthState.ts` | nuevo — state firmado de Meta |
+| `src/services/metaOAuth.service.ts` | nuevo — cliente HTTP de Meta OAuth |
+| `src/services/metaPageConnection.service.ts` | nuevo — cruza Postgres con el cliente de Meta |
+| `src/controllers/metaPageConnection.controller.ts` | nuevo |
+| `src/routes/metaPageConnection.routes.ts`, `src/routes/index.ts` | nuevo router, montado bajo `/api` junto al de Google |
+| tests | unitarios `metaOauthState.test.ts` (8), `metaOAuth.service.test.ts` (17), `metaPageConnection.service.test.ts` (19), `routes/index.test.ts` (+2, montaje); integración `metaPageConnection.controller.integration-test.ts` (13: 401/403/200, callback real con fila cifrada, reconectar actualiza, 409 de página ajena, cero/varias páginas, cancelación, state manipulado, desconectar y 409, aislamiento) |
+
+### Cómo se aplica
+
+Sin migración. En el panel de Meta (app Xentech-CRM):
+
+1. **Inicio de sesión con Facebook para empresas → Configuraciones**: crear (o
+   confirmar) una configuración de tipo *token de acceso de usuario* con los
+   permisos `pages_messaging`, `pages_manage_metadata`, `pages_show_list`,
+   `pages_read_engagement`, `instagram_basic`, `instagram_manage_messages`,
+   `business_management`. Su id va en `META_LOGIN_CONFIG_ID`.
+2. **Inicio de sesión con Facebook para empresas → Configuración → URI de
+   redireccionamiento de OAuth válidos**: `https://plataformacrm.onrender.com/api/integrations/meta/callback` (backend de producción según `docs/deployment.md`),
+   idéntica a `META_REDIRECT_URI`.
+3. En Render: `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI`,
+   `META_LOGIN_CONFIG_ID`.

@@ -19,6 +19,7 @@ import { ingestionEventRouter } from "./ingestionEvent.routes";
 import { invitationRouter } from "./invitation.routes";
 import { knowledgeBaseEntryRouter } from "./knowledgeBaseEntry.routes";
 import { meRouter } from "./me.routes";
+import { metaPageConnectionRouter } from "./metaPageConnection.routes";
 import { onboardingRouter } from "./onboarding.routes";
 import { opportunityRouter } from "./opportunity.routes";
 import { organizationRouter } from "./organization.routes";
@@ -145,6 +146,12 @@ routes.use("/api", whatsappTemplateRouter);
 // redirige el navegador del usuario y no reenvía el JWT. Lo que sostiene la
 // frontera de tenant ahí es el `state` firmado; ver el comentario del router.
 routes.use("/api", googleCalendarConnectionRouter);
+
+// Conexión de la página de Facebook de la organización (ítem 170; canales
+// Instagram y Messenger). Misma forma que la de Google Calendar —tres rutas
+// administrativas y un callback sin authenticate que se apoya en un state
+// firmado—, pero por organización y no por sucursal. Ver su router.
+routes.use("/api", metaPageConnectionRouter);
 
 // Agenda propiamente dicha (paso 3): horario de trabajo por recurso,
 // disponibilidad y reservas. Con esto queda cerrado GET /api/availability, que
