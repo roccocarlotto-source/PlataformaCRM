@@ -48,6 +48,7 @@ import { AgentListPage } from "../features/agent/AgentListPage";
 import { AgentPlaygroundPage } from "../features/agent/AgentPlaygroundPage";
 import { InternalAgentChatPage } from "../features/internalAgent/InternalAgentChatPage";
 import { InternalAgentSettingsPage } from "../features/internalAgent/InternalAgentSettingsPage";
+import { VoucherScanPage } from "../features/voucher/VoucherScanPage";
 import { KnowledgeBaseFormPage } from "../features/knowledgeBase/KnowledgeBaseFormPage";
 import { KnowledgeBaseListPage } from "../features/knowledgeBase/KnowledgeBaseListPage";
 import { AutomationFormPage } from "../features/automation/AutomationFormPage";
@@ -91,6 +92,11 @@ export const router = createBrowserRouter([
       // backend (la pantalla muestra su 403). La configuración, en cambio, va
       // dentro de AppLayout y de AdminRoute (/internal-agent/settings).
       { path: "/internal-agent", element: <InternalAgentChatPage /> },
+      // Escáner de cupones de descuento (ítem 178): mismo criterio y mismo
+      // motivo que /internal-agent — pantalla de celular, fuera de AppLayout.
+      // Sin AdminRoute: el canje (POST /api/vouchers/:id/redeem) no restringe
+      // por rol; cualquier usuario de la organización puede canjear.
+      { path: "/vouchers/scan", element: <VoucherScanPage /> },
       {
         element: <AppLayout />,
         children: [

@@ -27,6 +27,7 @@ import {
   Settings2,
   Shapes,
   Target,
+  TicketCheck,
   UserCog,
   UserRound,
   Users,
@@ -245,6 +246,12 @@ export function AppLayout() {
               Agente interno
             </SidebarLink>
           ) : null}
+          {/* Canjear cupón (ítem 178): para cualquier rol, igual que el canje en
+              el backend (sin authorize). Suelto al lado del agente interno por
+              el mismo motivo: herramienta de mostrador, y abre fuera del shell. */}
+          <SidebarLink to="/vouchers/scan" end icon={TicketCheck}>
+            Canjear cupón
+          </SidebarLink>
           <SidebarSection
             label="CRM"
             paths={[
