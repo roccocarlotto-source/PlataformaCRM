@@ -37,6 +37,8 @@ import { sourceRouter } from "./source.routes";
 import { stageRouter } from "./stage.routes";
 import { userRouter } from "./user.routes";
 import { vehicleRouter } from "./vehicle.routes";
+import { voucherRouter } from "./voucher.routes";
+import { voucherPublicRouter } from "./voucherPublic.routes";
 import { whatsappTemplateRouter } from "./whatsappTemplate.routes";
 
 // Agrega acá cada router nuevo a medida que se implementen entidades del CRM.
@@ -181,6 +183,17 @@ routes.use("/api", ingestionEventRouter);
 // docs/qr-integration.md, "Changelog".
 routes.use(qrPublicRouter);
 routes.use("/api", qrRouter);
+
+// Cupón de descuento de un solo uso (ítem 176). NO es el QR de un solo uso que
+// se eliminó el 04/09: entidad separada (ver el modelo DiscountVoucher).
+//
+//   - voucherPublicRouter: GET /vouchers/resolve/:id, mismo molde exacto que
+//     qrPublicRouter — sin /api, sin authenticate, detrás del secreto del
+//     Worker. Solo lectura: abrir el link no consume el cupón.
+//   - voucherRouter: POST /api/vouchers/:id/redeem, el canje. authenticate
+//     SIN authorize: cualquier usuario de la organización puede canjear.
+routes.use(voucherPublicRouter);
+routes.use("/api", voucherRouter);
 
 // Módulo de stock de vehículos (Fase 2a): CRUD, historial y completitud para
 // publicar. Misma forma que qrRouter: authenticate para leer, + authorize

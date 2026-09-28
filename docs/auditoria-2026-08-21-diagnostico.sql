@@ -231,7 +231,10 @@ from (
       -- 20261005120000): ídem. meta_page_connections NO está acá a propósito,
       -- igual que google_calendar_connections: RLS habilitada y cero
       -- políticas (deny-all, guarda el page access token).
-      ('contact_channel_identities')
+      ('contact_channel_identities'),
+      -- Cupón de descuento de un solo uso (ítem 176, migración
+      -- 20261006120000): organization_id propio y la política uniforme.
+      ('discount_vouchers')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -360,7 +363,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 28 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 29 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -499,7 +502,15 @@ from (
     -- Conexión con la página de Facebook (ítem 169, migración 20261005120000):
     -- el mismo invariante que google_calendar_connections_active_requires_token_check.
     ('meta_page_connections_active_requires_token_check', 'meta_page_connections',
-     'CHECK (status <> ''ACTIVE'' OR page_access_token IS NOT NULL)')
+     'CHECK (status <> ''ACTIVE'' OR page_access_token IS NOT NULL)'),
+    -- Cupón de descuento de un solo uso (ítem 176, migración 20261006120000):
+    -- consumed_at y consumed_by_user_id van con el status — ACTIVE los exige
+    -- NULL, CONSUMED los exige los dos. Forma (A AND B AND C) OR (D AND E AND
+    -- F), el mismo límite conocido que messages_sender_user_id_consistency_check.
+    -- Transcripto de pg_get_constraintdef; el normalizador quita el cast al
+    -- enum (::"DiscountVoucherStatus").
+    ('discount_vouchers_consumed_consistency_check', 'discount_vouchers',
+     'CHECK (status = ''ACTIVE'' AND consumed_at IS NULL AND consumed_by_user_id IS NULL OR status = ''CONSUMED'' AND consumed_at IS NOT NULL AND consumed_by_user_id IS NOT NULL)')
   ) as e(nombre, tabla, esperado)
   left join lateral (
     select pg_get_constraintdef(c.oid) as def
@@ -881,7 +892,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 63 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 67 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -905,7 +916,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 63 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 67 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1040,7 +1051,15 @@ from (
     -- 20261005120000): el PSID/IGSID apunta a contacts. Una FK bien formada
     -- hacia users (que también tiene UNIQUE (organization_id, id)) pasaría la
     -- fila 14 y dejaría la identidad colgada de un vendedor.
-    ('contact_channel_identities_organization_id_contact_id_fkey|contact_channel_identities(organization_id,contact_id)->contacts(organization_id,id)')
+    ('contact_channel_identities_organization_id_contact_id_fkey|contact_channel_identities(organization_id,contact_id)->contacts(organization_id,id)'),
+    -- Cupón de descuento de un solo uso (ítem 176, migración 20261006120000).
+    -- consumed_by_user_id es el candidato de siempre: una FK bien formada
+    -- hacia contacts (el cliente, no el empleado que canjeó) pasaría la fila
+    -- 14 entera.
+    ('discount_vouchers_organization_id_automation_id_fkey|discount_vouchers(organization_id,automation_id)->automations(organization_id,id)'),
+    ('discount_vouchers_organization_id_consumed_by_user_id_fkey|discount_vouchers(organization_id,consumed_by_user_id)->users(organization_id,id)'),
+    ('discount_vouchers_organization_id_contact_id_fkey|discount_vouchers(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('discount_vouchers_organization_id_opportunity_id_fkey|discount_vouchers(organization_id,opportunity_id)->opportunities(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
