@@ -29,6 +29,7 @@ function mockAuth(meId = "self1"): AuthContextValue {
       organizationId: "org-1",
       role: "ADMIN",
       isPlatformAdmin: false,
+      canUseInternalAgent: false,
     },
     accountUnavailableReason: null,
     profileError: null,
@@ -177,6 +178,57 @@ describe("UserListPage", () => {
     await user.click(screen.getByText("Desactivar"));
 
     await waitFor(() => expect(patchedBody).toEqual({ isActive: false }));
+  });
+
+  it("la casilla 'Acceso al agente interno' de un USER viaja en el PATCH como canUseInternalAgent", async () => {
+    useAuthMock.mockReturnValue(mockAuth("self1"));
+    let patchedBody: Record<string, unknown> | undefined;
+    const usuario = makeUser({
+      id: "u2",
+      fullName: "Beto Gómez",
+      role: { ...makeUser().role, id: "role-user", name: "USER" },
+    });
+    server.use(
+      http.get(usersUrl, () =>
+        HttpResponse.json({
+          data: [usuario],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+      http.patch(`${usersUrl}/u2`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ ...usuario, canUseInternalAgent: true });
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+    const casilla = await screen.findByRole("checkbox", {
+      name: "Acceso al agente interno de Beto Gómez",
+    });
+    expect(casilla).not.toBeChecked();
+    await user.click(casilla);
+
+    await waitFor(() => expect(patchedBody).toEqual({ canUseInternalAgent: true }));
+  });
+
+  it("a un ADMIN la casilla del agente interno se le muestra marcada y deshabilitada", async () => {
+    useAuthMock.mockReturnValue(mockAuth("self1"));
+    server.use(
+      http.get(usersUrl, () =>
+        HttpResponse.json({
+          data: [makeUser({ id: "u2", fullName: "Beto Gómez" })],
+          pagination: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
+        }),
+      ),
+    );
+
+    renderPage();
+    const casilla = await screen.findByRole("checkbox", {
+      name: "Acceso al agente interno de Beto Gómez",
+    });
+    expect(casilla).toBeChecked();
+    expect(casilla).toBeDisabled();
   });
 
   it("eliminar: confirma, ejecuta la mutation y muestra error real si falla", async () => {

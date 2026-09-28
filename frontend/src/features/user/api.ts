@@ -29,8 +29,9 @@ export function listUsers(query: UserListQuery, signal?: AbortSignal): Promise<U
   });
 }
 
-// M7 — únicamente isActive/role (ver UpdateUserInput). Sin getUser(id): ver
-// nota de arriba, sigue sin existir GET /api/users/:id.
+// M7 — únicamente isActive/role, y canUseInternalAgent desde el ítem 180 (ver
+// UpdateUserInput). Sin getUser(id): ver nota de arriba, sigue sin existir
+// GET /api/users/:id.
 export function updateUser(id: string, input: UpdateUserInput): Promise<User> {
   return request<User>(`/users/${id}`, {
     method: "PATCH",

@@ -46,6 +46,8 @@ import { AgentEmbedPage } from "../features/agent/AgentEmbedPage";
 import { AgentFormPage } from "../features/agent/AgentFormPage";
 import { AgentListPage } from "../features/agent/AgentListPage";
 import { AgentPlaygroundPage } from "../features/agent/AgentPlaygroundPage";
+import { InternalAgentChatPage } from "../features/internalAgent/InternalAgentChatPage";
+import { InternalAgentSettingsPage } from "../features/internalAgent/InternalAgentSettingsPage";
 import { KnowledgeBaseFormPage } from "../features/knowledgeBase/KnowledgeBaseFormPage";
 import { KnowledgeBaseListPage } from "../features/knowledgeBase/KnowledgeBaseListPage";
 import { AutomationFormPage } from "../features/automation/AutomationFormPage";
@@ -81,6 +83,14 @@ export const router = createBrowserRouter([
   {
     element: <ProtectedRoute />,
     children: [
+      // Chat con el agente de IA interno (ítem 180). Dentro de ProtectedRoute
+      // pero FUERA de AppLayout: el shell es una sidebar fija que no colapsa en
+      // un teléfono, y esta pantalla se usa desde el celular — tiene su propio
+      // layout de una columna. Sin AdminRoute: la usan también los USER
+      // habilitados, y quién pasa lo decide requireInternalAgentAccess en el
+      // backend (la pantalla muestra su 403). La configuración, en cambio, va
+      // dentro de AppLayout y de AdminRoute (/internal-agent/settings).
+      { path: "/internal-agent", element: <InternalAgentChatPage /> },
       {
         element: <AppLayout />,
         children: [
@@ -273,6 +283,11 @@ export const router = createBrowserRouter([
               { path: "/automations", element: <AutomationListPage /> },
               { path: "/automations/new", element: <AutomationFormPage /> },
               { path: "/automations/:id/edit", element: <AutomationFormPage /> },
+              // Configuración del agente de IA interno (ítem 180). Singleton
+              // como /organization y /whatsapp-template, y ADMIN-only incluida
+              // la lectura en el backend (internalAgent.routes.ts): las
+              // instructions son el prompt.
+              { path: "/internal-agent/settings", element: <InternalAgentSettingsPage /> },
               // Recursos y Tipos de servicio de la Agenda (ítem 75). MISMO
               // criterio que /branches y /knowledge-base: el GET es de lectura
               // abierta —un USER lo consume en los filtros de /bookings— pero

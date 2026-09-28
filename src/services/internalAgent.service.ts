@@ -39,6 +39,11 @@ export interface ListInternalAgentMessagesParams {
 
 // El hilo de QUIEN PREGUNTA, y de nadie más: el userId sale de req.auth, no
 // de un parámetro. Ni un ADMIN lee el hilo de otro por acá.
+//
+// agentName (ítem 180) viaja acá porque el chat lo muestra en su encabezado y
+// un USER habilitado no puede leer GET /internal-agent (ADMIN-only, por las
+// instructions). El nombre no es sensible; el resto de la configuración sí
+// queda afuera.
 export async function listInternalAgentMessages(
   organizationId: string,
   userId: string,
@@ -56,6 +61,7 @@ export async function listInternalAgentMessages(
   ]);
 
   return {
+    agentName: agente.name,
     data,
     pagination: {
       page: params.page,

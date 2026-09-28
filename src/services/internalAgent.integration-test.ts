@@ -444,6 +444,12 @@ test("el ADMIN habilita a un USER por PATCH /users/:id y desde ahí el USER pasa
   guionar([texto("Hola")]);
   assert.equal((await escribir(userA.accessToken, "hola")).status, 200);
 
+  // El historial trae el nombre del agente (ítem 180): el USER no puede leer
+  // la configuración, y el chat lo muestra en su encabezado.
+  const get = await pedir("GET", "/api/internal-agent/messages", userA.accessToken);
+  assert.equal(get.status, 200);
+  assert.equal(((await get.json()) as { agentName: string }).agentName, "Asistente interno");
+
   // Y se lo puede volver a sacar.
   const quitar = await pedir("PATCH", `/api/users/${userA.authUserId}`, adminA.accessToken, {
     canUseInternalAgent: false,

@@ -22,6 +22,7 @@ function mockAuth(role: "ADMIN" | "USER", isPlatformAdmin: boolean): AuthContext
       organizationId: "org-1",
       role,
       isPlatformAdmin,
+      canUseInternalAgent: false,
     },
     accountUnavailableReason: null,
     profileError: null,

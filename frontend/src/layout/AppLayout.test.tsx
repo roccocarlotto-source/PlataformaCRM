@@ -28,6 +28,7 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
       organizationId: "org-1",
       role,
       isPlatformAdmin: false,
+      canUseInternalAgent: false,
     },
     accountUnavailableReason: null,
     profileError: null,
@@ -550,6 +551,55 @@ describe("AppLayout — nav de platform admin (Fase 4a del módulo SaaS)", () =>
     renderLayout();
 
     expect(screen.queryByText("Nueva organización")).not.toBeInTheDocument();
+  });
+});
+
+describe("AppLayout — link al agente interno (ítem 180)", () => {
+  function conAcceso(role: "ADMIN" | "USER", canUseInternalAgent: boolean): AuthContextValue {
+    const base = mockAuth(role);
+    return { ...base, me: { ...base.me!, canUseInternalAgent } };
+  }
+
+  it("un ADMIN lo ve siempre, aunque /me dijera false", () => {
+    useAuthMock.mockReturnValue(conAcceso("ADMIN", false));
+    renderLayout();
+
+    expect(screen.getByRole("link", { name: "Agente interno" })).toHaveAttribute(
+      "href",
+      "/internal-agent",
+    );
+  });
+
+  it("un USER habilitado lo ve", () => {
+    useAuthMock.mockReturnValue(conAcceso("USER", true));
+    renderLayout();
+
+    expect(screen.getByRole("link", { name: "Agente interno" })).toHaveAttribute(
+      "href",
+      "/internal-agent",
+    );
+    // Sin exponerle la configuración ni el resto de "Agentes de IA".
+    expect(screen.queryByText("Configurar agente interno")).not.toBeInTheDocument();
+    expect(screen.queryByText("Agentes de IA")).not.toBeInTheDocument();
+  });
+
+  it("un USER sin habilitar no lo ve", () => {
+    useAuthMock.mockReturnValue(conAcceso("USER", false));
+    renderLayout();
+
+    expect(screen.queryByRole("link", { name: "Agente interno" })).not.toBeInTheDocument();
+  });
+
+  it("un ADMIN ve 'Configurar agente interno' dentro de Agentes de IA", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(conAcceso("ADMIN", true));
+    renderLayout();
+
+    await user.click(screen.getByRole("link", { name: "Agentes de IA" }));
+    expect(screen.getByRole("link", { name: "Configurar agente interno" })).toHaveAttribute(
+      "href",
+      "/internal-agent/settings",
+    );
   });
 });
 

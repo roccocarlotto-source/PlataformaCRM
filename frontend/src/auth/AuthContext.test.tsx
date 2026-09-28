@@ -73,6 +73,7 @@ const profileA: MeResponse = {
   organizationId: "org-a",
   role: "ADMIN",
   isPlatformAdmin: false,
+  canUseInternalAgent: false,
 };
 
 const profileB: MeResponse = {
@@ -82,6 +83,7 @@ const profileB: MeResponse = {
   organizationId: "org-b",
   role: "USER",
   isPlatformAdmin: false,
+  canUseInternalAgent: false,
 };
 
 // Consumidor mínimo de prueba. El manejo de logout (try/catch + estado local

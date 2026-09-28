@@ -22,7 +22,9 @@ import {
   MapPin,
   MessageCircle,
   MessagesSquare,
+  MessageSquareText,
   QrCode,
+  Settings2,
   Shapes,
   Target,
   UserCog,
@@ -201,6 +203,10 @@ export function AppLayout() {
   // gatea por la allowlist global (isPlatformAdmin de /me), no por el rol —
   // mismo criterio de renderizado condicional que el grupo Administración.
   const isPlatformAdmin = me?.isPlatformAdmin === true;
+  // Ítem 180: el chat con el agente interno. Un ADMIN siempre (el backend ya
+  // manda canUseInternalAgent true para él, pero no depende de eso); un USER
+  // solo si un ADMIN lo habilitó.
+  const canUseInternalAgent = isAdmin || me?.canUseInternalAgent === true;
 
   async function handleLogout() {
     setIsLoggingOut(true);
@@ -230,6 +236,15 @@ export function AppLayout() {
           <SidebarLink to="/" end icon={LayoutDashboard}>
             Dashboard
           </SidebarLink>
+          {/* Agente interno (ítem 180): suelto, al lado de Dashboard, y no dentro
+              de "Agentes de IA" — esa sección es ADMIN-only entera, y esto lo usa
+              también un USER habilitado. Es una herramienta de trabajo diaria,
+              no configuración. La pantalla abre fuera del shell (sin sidebar). */}
+          {canUseInternalAgent ? (
+            <SidebarLink to="/internal-agent" end icon={MessageSquareText}>
+              Agente interno
+            </SidebarLink>
+          ) : null}
           <SidebarSection
             label="CRM"
             paths={[
@@ -395,7 +410,7 @@ export function AppLayout() {
             <SidebarSection
               label="Agentes de IA"
               link={{ to: "/agents", icon: Bot }}
-              paths={["/knowledge-base", "/automations"]}
+              paths={["/knowledge-base", "/automations", "/internal-agent/settings"]}
             >
               {/* Base de conocimiento (ítem 59): debajo de Agentes de IA
                   porque es el dato que ellos consumen, y con el mismo criterio
@@ -409,6 +424,12 @@ export function AppLayout() {
                   abierto, pantalla ADMIN-only. */}
               <SidebarLink to="/automations" icon={Zap}>
                 Automatizaciones
+              </SidebarLink>
+              {/* Configuración del agente interno (ítem 180): mismo criterio que
+                  las dos de arriba — configuración de un módulo de IA,
+                  ADMIN-only incluida la lectura. */}
+              <SidebarLink to="/internal-agent/settings" icon={Settings2}>
+                Configurar agente interno
               </SidebarLink>
             </SidebarSection>
           ) : null}
