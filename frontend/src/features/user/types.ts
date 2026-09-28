@@ -19,6 +19,9 @@ export interface User {
   email: string;
   fullName: string;
   isActive: boolean;
+  // Ítem 179: si un ADMIN le habilitó el agente de IA interno. Para un ADMIN
+  // no cambia nada (siempre tiene acceso), pero se guarda igual.
+  canUseInternalAgent: boolean;
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -56,9 +59,11 @@ export interface UserListQuery {
 }
 
 // M7: PATCH /api/users/:id (user.controller.ts, updateUserSchema) — SOLO
-// isActive y role. email/fullName/id/organizationId no son campos de este
-// schema, ni siquiera llegan al service — no se agregan acá tampoco.
+// isActive, role y (desde el ítem 179) canUseInternalAgent.
+// email/fullName/id/organizationId no son campos de este schema, ni siquiera
+// llegan al service — no se agregan acá tampoco.
 export interface UpdateUserInput {
   isActive?: boolean;
   role?: "ADMIN" | "USER";
+  canUseInternalAgent?: boolean;
 }

@@ -26,6 +26,10 @@ export interface MeResponse {
   // organización). Solo decide qué se muestra — la autorización real la
   // hace requirePlatformAdmin en el backend, en cada request.
   isPlatformAdmin: boolean;
+  // Ítem 180: si puede usar el agente de IA interno — true fijo para un
+  // ADMIN, User.canUseInternalAgent para un USER. Solo decide si se muestra
+  // el link al chat; la autorización real es requireInternalAgentAccess.
+  canUseInternalAgent: boolean;
 }
 
 export type AuthStatus =

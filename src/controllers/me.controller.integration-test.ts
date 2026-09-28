@@ -159,7 +159,7 @@ async function createOrphanAuthUser(label: string) {
   return { accessToken: signInData.session.access_token, authUserId: data.user.id };
 }
 
-test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/fullName/organizationId/role/isPlatformAdmin", async () => {
+test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/fullName/organizationId/role/isPlatformAdmin/canUseInternalAgent", async () => {
   const fx = await createFixtureUser("happy", "ADMIN");
   const { url, close } = await startTestApp();
   try {
@@ -171,7 +171,15 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     const body = (await res.json()) as Record<string, unknown>;
     assert.deepEqual(
       Object.keys(body).sort(),
-      ["email", "fullName", "id", "isPlatformAdmin", "organizationId", "role"],
+      [
+        "canUseInternalAgent",
+        "email",
+        "fullName",
+        "id",
+        "isPlatformAdmin",
+        "organizationId",
+        "role",
+      ],
       "el body no debe incluir isActive/createdAt/updatedAt ni ningún otro campo",
     );
     assert.equal(body.id, fx.authUserId);
@@ -182,6 +190,9 @@ test("GET /api/me — usuario de negocio válido: 200 con exactamente id/email/f
     // Un ADMIN de organización común NO es platform admin: el rol dentro de
     // la organización y la allowlist global son cosas distintas.
     assert.equal(body.isPlatformAdmin, false);
+    // Ítem 180: un ADMIN siempre puede usar el agente interno, aunque su
+    // columna User.canUseInternalAgent quede en el default false.
+    assert.equal(body.canUseInternalAgent, true);
   } finally {
     await close();
     await prisma.user.delete({ where: { id: fx.authUserId } });
@@ -207,9 +218,36 @@ test("GET /api/me — usuario presente en platform_admins: isPlatformAdmin true 
     const body = (await res.json()) as Record<string, unknown>;
     assert.equal(body.isPlatformAdmin, true);
     assert.equal(body.role, "USER");
+    // Un USER sin habilitar: el default de la columna.
+    assert.equal(body.canUseInternalAgent, false);
   } finally {
     await close();
     await prisma.platformAdmin.deleteMany({ where: { userId: fx.authUserId } });
+    await prisma.user.delete({ where: { id: fx.authUserId } });
+    await prisma.organization.delete({ where: { id: fx.organizationId } });
+    await getSupabaseAdmin().auth.admin.deleteUser(fx.authUserId);
+  }
+});
+
+test("GET /api/me — USER habilitado por un ADMIN: canUseInternalAgent true (ítem 180)", async () => {
+  const fx = await createFixtureUser("internal-agent", "USER");
+  const { url, close } = await startTestApp();
+  try {
+    await prisma.user.update({
+      where: { id: fx.authUserId },
+      data: { canUseInternalAgent: true },
+    });
+
+    const res = await fetch(`${url}/api/me`, {
+      headers: { authorization: `Bearer ${fx.accessToken}` },
+    });
+    assert.equal(res.status, 200);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    assert.equal(body.role, "USER");
+    assert.equal(body.canUseInternalAgent, true);
+  } finally {
+    await close();
     await prisma.user.delete({ where: { id: fx.authUserId } });
     await prisma.organization.delete({ where: { id: fx.organizationId } });
     await getSupabaseAdmin().auth.admin.deleteUser(fx.authUserId);

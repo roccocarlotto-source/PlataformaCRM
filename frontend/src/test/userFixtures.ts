@@ -10,6 +10,7 @@ export function makeUser(overrides: Partial<User> = {}): User {
     email: "ana@example.com",
     fullName: "Ana Pérez",
     isActive: true,
+    canUseInternalAgent: false,
     lastLoginAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

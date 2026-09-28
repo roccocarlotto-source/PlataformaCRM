@@ -48,6 +48,12 @@ function UserRow({
     updateUserMutation.mutate({ role });
   }
 
+  // Ítem 180: la única forma de que un ADMIN habilite a un USER a usar el
+  // agente interno. Mismo PATCH en línea que rol y estado, sin "Guardar".
+  function handleToggleInternalAgent(canUseInternalAgent: boolean) {
+    updateUserMutation.mutate({ canUseInternalAgent });
+  }
+
   function handleToggleActive() {
     updateUserMutation.mutate({ isActive: !user.isActive });
   }
@@ -94,6 +100,29 @@ function UserRow({
           <Badge variant="success">Activo</Badge>
         ) : (
           <Badge variant="neutral">Inactivo</Badge>
+        )}
+      </td>
+      <td>
+        {/* Un ADMIN siempre tiene acceso (requireInternalAgentAccess no mira
+            la columna para él): la casilla se muestra marcada y deshabilitada
+            en vez de ofrecer un valor que no cambia nada. Cubre también la
+            fila propia, que en esta pantalla ADMIN-only es siempre un ADMIN. */}
+        {user.role.name === "ADMIN" ? (
+          <input
+            type="checkbox"
+            checked
+            disabled
+            aria-label={`Acceso al agente interno de ${user.fullName}`}
+            title="Un administrador siempre tiene acceso al agente interno"
+          />
+        ) : (
+          <input
+            type="checkbox"
+            checked={user.canUseInternalAgent}
+            disabled={updateUserMutation.isPending}
+            aria-label={`Acceso al agente interno de ${user.fullName}`}
+            onChange={(event) => handleToggleInternalAgent(event.target.checked)}
+          />
         )}
       </td>
       <td>
@@ -248,6 +277,7 @@ export function UserListPage() {
               <th>Email</th>
               <th>Rol</th>
               <th>Estado</th>
+              <th>Acceso al agente interno</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -299,6 +329,11 @@ export function UserListPage() {
                     ) : (
                       <Badge variant="neutral">Inactivo</Badge>
                     ),
+                  },
+                  {
+                    label: "Acceso al agente interno",
+                    value:
+                      detalle.role.name === "ADMIN" || detalle.canUseInternalAgent ? "Sí" : "No",
                   },
                   { label: "Último acceso", value: formatDateTime(detalle.lastLoginAt) },
                   { label: "Fecha de alta", value: formatDateTime(detalle.createdAt) },

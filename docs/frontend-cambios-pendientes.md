@@ -8282,3 +8282,50 @@ El dominio público `nexoraqrs.com` pasa por un Cloudflare Worker que vive en el
 
 1. `npm run migrate:deploy` + `npm run verify:schema` (la migración solo agrega: dos tablas, un tipo, una columna con default). La migración antes o junto con el deploy del backend.
 2. Nada visible hasta la pantalla: ninguna organización tiene agente interno configurado, así que el chat responde 404 en todas. Para probarlo antes, un ADMIN hace `PUT /api/internal-agent` con `name`, `instructions` y `enabledTools: ["create_internal_task", "get_agenda"]`.
+
+## 180. Agente de IA interno: la pantalla de chat (mobile-first) y la configuración
+
+**Estado:** hecho (28/09/2026). Sin migración (todo lo de base está desde el 179). Sin variables nuevas.
+
+**Contexto.** El 179 dejó el backend del agente interno sin ninguna pantalla: ni el chat, ni la configuración, ni forma de habilitar a un USER. El pedido concreto es poder usarlo **desde el celular**.
+
+**Qué se hace.**
+
+1. **`GET /api/me` expone `canUseInternalAgent`**: `true` fijo para un ADMIN (sin lectura, mismo criterio que `requireInternalAgentAccess`), el valor de la columna para un USER (una lectura más del `User`, en paralelo con la de `isPlatformAdmin`). Solo decide si se muestra el link; la autorización sigue siendo el middleware.
+2. **Chat** (`/internal-agent`, `InternalAgentChatPage.tsx`): dentro de `ProtectedRoute` pero **fuera de `AppLayout`**, con layout propio de una columna a `100dvh` (encabezado con "‹ Volver", nombre del agente y `ThemeToggle`; hilo con scroll propio; formulario fijo abajo con un `textarea` que crece). Reusa `.ds-chat*` tal cual. Carga la página más reciente (50) y "Ver mensajes anteriores" antepone la siguiente. Burbuja propia optimista + "Escribiendo…" mientras se espera, y el botón **deshabilitado mientras hay un turno en curso** (y Enter no manda otro). 404 → estado vacío distinto por rol (ADMIN: link a configurar; USER: "pedíselo a un administrador"); 403 → el mensaje del backend, sin reintento.
+3. **Configuración** (`/internal-agent/settings`, `InternalAgentSettingsPage.tsx`): dentro de `AdminRoute` y de `AppLayout`. Singleton como Organización/Plantilla de WhatsApp: GET 404 = formulario vacío, PUT (upsert) al guardar. Nombre, instrucciones, proveedor (`MODEL_PROVIDER_OPTIONS` reusado tal cual), modelo libre y `MultiSelect` de acciones con `features/internalAgent/tools.ts` (espejo a mano de `CATALOGO_DE_TOOLS_INTERNAS`, descripciones textuales).
+4. **Sidebar:** "Agente interno" visible si `isAdmin || me.canUseInternalAgent`; "Configurar agente interno" dentro de "Agentes de IA" (ADMIN-only).
+5. **Usuarios:** columna "Acceso al agente interno" con una casilla por fila que manda `canUseInternalAgent` en el `PATCH /api/users/:id` existente.
+
+### Decisiones tomadas al implementarlo
+
+- **`/claim/:qrId` NO estaba fuera de `AppLayout`**, como decía el pedido: en `router.tsx` está dentro del bloque de `AppLayout`. Así que no había un precedente de "dentro de `ProtectedRoute`, fuera del shell" para copiar; la ruta del chat se agregó como hermana del elemento `<AppLayout />`, directo bajo `ProtectedRoute`. No se movió `/claim`.
+- **`GET /api/internal-agent/messages` ahora devuelve también `agentName`** (cambio chico de backend, sin migración). El encabezado del chat muestra el nombre del agente, pero `GET /api/internal-agent` es ADMIN-only (por las `instructions`) y un USER habilitado no lo puede leer. El nombre no es sensible; el resto de la configuración sigue afuera. Cubierto en la integración de `internalAgent`.
+- **Las tool calls no se muestran en el chat.** Del otro lado hay un empleado usando una herramienta, no un ADMIN diagnosticando; la respuesta del agente ya cuenta lo que hizo. `ToolCallBlock` tampoco sabría nombrar las tools internas (usa el catálogo de clientes).
+- **Después de un turno se escriben en la cache los dos mensajes** (el del agente, que devuelve el POST, y el del usuario con un id local) y se invalida: el hilo queda completo en el mismo render en que desaparece "Escribiendo…", y el refetch lo reemplaza por lo guardado. La lista se deduplica por id porque la paginación es por offset (tras mandar, la página 2 puede repetir el final de la 1 hasta el refetch). Primer uso de `useInfiniteQuery` en el frontend: es la herramienta de TanStack para "acumular páginas".
+- **Si el envío falla**, el texto vuelve a la caja (salvo que ya se haya empezado a escribir otro) y el error del backend queda como nota en el hilo.
+- **CSS nuevo solo de layout** (`.ds-internal-chat*`, 7 reglas en `design-system.css`): lo de adentro del hilo es `.ds-chat*` sin cambios. El `textarea` va a 16px como mínimo (con menos, Safari de iPhone hace zoom al enfocar) y el formulario respeta `safe-area-inset-bottom`.
+- **Link al chat suelto, debajo de Dashboard**, no dentro de "Agentes de IA": esa sección es ADMIN-only entera y sacarla del `isAdmin` para un solo link obligaba a gatear cada hijo. El de configuración sí va adentro.
+- **En Usuarios, la casilla de un ADMIN se muestra marcada y deshabilitada**: `requireInternalAgentAccess` no mira la columna para un ADMIN, así que ofrecer tildarla no cambiaría nada. El detalle del usuario también muestra el acceso.
+- **`MeResponse.canUseInternalAgent` es obligatorio** (el backend siempre lo manda): se sumó a los ~35 `mockAuth` de los tests.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/controllers/me.controller.ts` | `canUseInternalAgent` en la respuesta |
+| `src/controllers/me.controller.integration-test.ts` | el campo en la lista exacta de keys; ADMIN true, USER false, USER habilitado true (test nuevo) |
+| `src/services/internalAgent.service.ts` | `agentName` en el historial |
+| `src/services/internalAgent.integration-test.ts` | assert de `agentName` para un USER habilitado |
+| `frontend/src/auth/AuthContext.tsx` | `MeResponse.canUseInternalAgent` |
+| `frontend/src/features/internalAgent/` | nuevo — `types.ts`, `api.ts`, `queries.ts`, `mutations.ts`, `tools.ts`, `InternalAgentChatPage.tsx`, `InternalAgentSettingsPage.tsx` y sus dos tests |
+| `frontend/src/app/router.tsx` | `/internal-agent` fuera de `AppLayout`; `/internal-agent/settings` en `AdminRoute` |
+| `frontend/src/layout/AppLayout.tsx` | los dos links |
+| `frontend/src/features/user/` | `canUseInternalAgent` en `User`/`UpdateUserInput`, columna y casilla en `UserListPage` |
+| `frontend/src/design-system/design-system.css` | `.ds-internal-chat*` |
+| tests | `AppLayout.test.tsx` (link por rol/acceso), `UserListPage.test.tsx` (casilla → PATCH), `userFixtures.ts`, y `canUseInternalAgent` en los `mockAuth` |
+
+### Cómo se aplica
+
+1. Deploy normal de backend y frontend; sin migración.
+2. Un ADMIN entra a **Agentes de IA → Configurar agente interno**, lo crea, y habilita a los USER que quiera en **Usuarios**. Ellos ven "Agente interno" en la sidebar al recargar (el `/me` se lee una vez por sesión).
