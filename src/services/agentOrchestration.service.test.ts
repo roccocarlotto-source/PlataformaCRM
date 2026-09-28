@@ -34,6 +34,7 @@ import {
   aHistorial,
 } from "./agentOrchestration.service";
 import { logger } from "../lib/logger";
+import { isoEnZona } from "../utils/timezone";
 import { CATALOGO_DE_TOOLS, type ToolDelAgente } from "./agentTools.service";
 
 // Unitarios, sin base: armarSystemPrompt es pura. Lo que se verifica es que
@@ -579,18 +580,38 @@ test("lineaDeFechaActual escribe la fecha en la zona de la SUCURSAL, no la del s
   assert.match(montevideo, /22 de septiembre de 2026/);
   assert.match(montevideo, /23:30/);
   assert.match(montevideo, /America\/Montevideo/);
+  assert.match(montevideo, /offset -03:00/);
 
-  // El mismo instante, otra sucursal, otra fecha.
+  // El mismo instante, otra sucursal, otra fecha. El 23/09/2026 Madrid sigue
+  // en horario de verano (CEST, termina el 25/10), así que +02:00 y no +01:00.
   const madrid = lineaDeFechaActual(instante, "Europe/Madrid");
   assert.match(madrid, /miércoles/);
   assert.match(madrid, /23 de septiembre de 2026/);
+  assert.match(madrid, /offset \+02:00/);
 });
 
 test("lineaDeFechaActual le dice al modelo para qué usarla", () => {
   const linea = lineaDeFechaActual(new Date("2026-09-23T15:00:00Z"), "America/Montevideo");
   assert.match(linea, /el próximo martes/, "los ejemplos son los que dice un cliente real");
-  assert.match(linea, /ISO 8601 con zona/, "es el formato que exigen las tools de agenda");
+  assert.match(
+    linea,
+    /ISO 8601 con este offset exacto \(-03:00\)/,
+    "es el formato que exigen las tools de agenda",
+  );
+  assert.match(linea, /nunca en UTC ni terminada en "Z"/);
   assert.match(linea, /Nunca supongas otra fecha/);
+});
+
+// Ítem 174: con solo el nombre IANA el modelo calculaba el offset él mismo y
+// en 8 de 12 corridas mandaba `desde` en UTC. Ahora se le da ya calculado.
+test("lineaDeFechaActual le da el offset numérico explícito, no solo el nombre de la zona", () => {
+  const instante = new Date("2026-09-23T15:00:00Z");
+  for (const zona of ["America/Montevideo", "Europe/Madrid", "Asia/Kolkata"]) {
+    const conOffset = isoEnZona(instante, zona);
+    const linea = lineaDeFechaActual(instante, zona);
+    assert.ok(linea.includes(`offset ${conOffset.slice(-6)} respecto a UTC`), zona);
+    assert.ok(linea.includes(`ahora mismo en ISO 8601: ${conOffset}`), zona);
+  }
 });
 
 test("el prompt lleva la fecha cuando hay contexto temporal, y no la lleva cuando no", () => {
