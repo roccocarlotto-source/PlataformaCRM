@@ -1,4 +1,5 @@
 import type { Contact, DiscountVoucher, Opportunity } from "@prisma/client";
+import { prisma, type Db } from "../lib/prisma";
 import { findContactById } from "../repositories/contact.repository";
 import {
   consumirDiscountVoucher,
@@ -17,9 +18,10 @@ import { isUuid } from "./qrPublic.service";
 // docs/frontend-cambios-pendientes.md). Tres operaciones:
 //
 //   - crearDiscountVoucher: la emisión. Sin HTTP propio en esta v1: la llama
-//     la acción de automatización del ítem 177, igual que sendQrFollowup
-//     llama a agendarQrFollowUp. La idempotencia por (regla, oportunidad) NO
-//     vive acá: la va a resolver la tabla de agendado de ese ítem.
+//     el worker del ítem 177 (discountVoucherFollowUpWorker.ts) al mandar un
+//     cupón agendado. La idempotencia por (regla, oportunidad) NO vive acá:
+//     la resuelve la tabla de agendado de ese ítem
+//     (discount_voucher_follow_ups).
 //   - canjearDiscountVoucher: la única escritura sobre un cupón emitido. La
 //     dispara un empleado logueado escaneando el QR desde el CRM (ítem 178).
 //   - getDiscountVoucherPublicState: lo que ve el cliente al abrir su link.
@@ -60,16 +62,24 @@ export interface DependenciasDeCupones {
   ahora: () => Date;
 }
 
-const dependenciasReales: DependenciasDeCupones = {
-  leerOportunidad: (id, organizationId) => findOpportunityById(id, organizationId),
-  leerContacto: (id, organizationId) => findContactById(id, organizationId),
-  insertar: (data) => crearDiscountVoucherRow(data),
-  leerCupon: (id, organizationId) => findDiscountVoucherById(id, organizationId),
-  consumir: (id, organizationId, userId, ahora) =>
-    consumirDiscountVoucher(id, organizationId, userId, ahora),
-  leerCuponPublico: (id) => findDiscountVoucherPublicRow(id),
-  ahora: () => new Date(),
-};
+// Las reales, contra `db`: el cliente singleton, o el `tx` de una transacción.
+// Exportada para el worker del ítem 177, que emite el cupón y lo anota en su
+// fila agendada en la MISMA transacción (ver emitirCupon en
+// discountVoucherFollowUpWorker.ts).
+export function dependenciasDeCuponesEn(db: Db): DependenciasDeCupones {
+  return {
+    leerOportunidad: (id, organizationId) => findOpportunityById(id, organizationId, db),
+    leerContacto: (id, organizationId) => findContactById(id, organizationId, db),
+    insertar: (data) => crearDiscountVoucherRow(data, db),
+    leerCupon: (id, organizationId) => findDiscountVoucherById(id, organizationId, db),
+    consumir: (id, organizationId, userId, ahora) =>
+      consumirDiscountVoucher(id, organizationId, userId, ahora, db),
+    leerCuponPublico: (id) => findDiscountVoucherPublicRow(id, db),
+    ahora: () => new Date(),
+  };
+}
+
+const dependenciasReales = dependenciasDeCuponesEn(prisma);
 
 // Exportada para probarla sin base: el único lugar que decide "vencido".
 export function estaVencido(cupon: { status: string; expiresAt: Date }, ahora: Date): boolean {

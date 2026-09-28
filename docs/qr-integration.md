@@ -1590,6 +1590,15 @@ reseñas/fidelización siguen siendo reusables. La decisión de arriba sigue en
 pie para su caso — ahí un link alcanza —; un descuento, en cambio, sí tiene
 que gastarse una sola vez. El porqué completo está en ese ítem.
 
+**Nota posterior (2026-09-28, ítem 177):** el cupón se manda por WhatsApp con
+el mismo molde que el seguimiento con QR (ítem 159), pero con un link propio,
+`${VOUCHER_PUBLIC_BASE_URL}/v/:id`, que arma el backend
+(`linkDelCupon` en `src/workers/discountVoucherFollowUpWorker.ts`) y no
+`lib/publicUrl.ts` del frontend. Esa ruta `/v/:id` todavía no existe en el
+Worker de Cloudflare (repo `Plataforma-QR`): tiene que apuntar a
+`GET /vouchers/resolve/:id` con `X-Internal-Proxy-Secret`, igual que
+`/r/:qrId` → `/qr/resolve/:qrId`. Hasta entonces el link da 404.
+
 ## Qué se corrigió: publicUrl.ts apunta al Worker (2026-09-04)
 
 **Contexto.** Después de mergear la limpieza de QR físico/single-use (PR

@@ -8,6 +8,7 @@ import { iniciarWorkerDeIngesta } from "./ingestionWorker";
 import { iniciarWorkerDeOportunidadesEstancadas } from "./opportunityStaleWorker";
 import { iniciarWorkerDeOutbox } from "./outboxWorker";
 import { iniciarWorkerDeSeguimientosQr } from "./qrFollowUpWorker";
+import { iniciarWorkerDeCupones } from "./discountVoucherFollowUpWorker";
 
 // ---------------------------------------------------------------------------
 // M-12 (c) de docs/auditoria-2026-08-29.md: el stop que devuelve cada
@@ -17,7 +18,7 @@ import { iniciarWorkerDeSeguimientosQr } from "./qrFollowUpWorker";
 // worker es una promesa que el test resuelve a mano, así que el orden de los
 // eventos lo decide el test, no el scheduler.
 //
-// Los siete workers comparten el patrón y el bug, y por eso se prueban con la
+// Los ocho workers comparten el patrón y el bug, y por eso se prueban con la
 // misma tabla: si alguno se desviara del patrón, este archivo lo vería.
 // ---------------------------------------------------------------------------
 
@@ -111,6 +112,24 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
     nombre: "seguimientos con QR",
     iniciar: ({ pollMs, pasada }) =>
       iniciarWorkerDeSeguimientosQr({
+        pollMs,
+        drenar: async () => {
+          await pasada();
+          return {
+            enviados: 0,
+            cancelados: 0,
+            pospuestos: 0,
+            fallidos: 0,
+            sinConfiguracion: false,
+          };
+        },
+      }),
+  },
+  {
+    // Ítem 177: la cola de cupones de descuento. El mismo molde que la del QR.
+    nombre: "cupones de descuento",
+    iniciar: ({ pollMs, pasada }) =>
+      iniciarWorkerDeCupones({
         pollMs,
         drenar: async () => {
           await pasada();
