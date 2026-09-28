@@ -8139,3 +8139,71 @@ Sin migración ni variables nuevas. Toma efecto con el deploy.
 ### Cómo se aplica
 
 Sin migración ni variables nuevas. Toma efecto con el deploy, pero no cambia el comportamiento de ningún agente hasta que un negocio la habilite en "Acciones habilitadas". No se habilitó en la organización de AutoMax: eso es una decisión de negocio aparte.
+
+---
+
+## 176. Cupón de descuento de un solo uso: modelo, canje atómico y estado público (paso 1 de 3)
+
+**Estado:** hecho (28/09/2026). **Lleva migración** (`20261006120000_discount_vouchers`), escrita a mano. Sin variables nuevas: el GET público usa el mismo `QR_RESOLVE_PROXY_SECRET` que `/qr/resolve/:qrId`. Es el primero de tres ítems: la emisión automática es el **177** y la pantalla de escaneo del CRM el **178**. Este ítem todavía no le manda nada a ningún cliente.
+
+**Contexto.** Rocco quiere que, N días después de que una oportunidad pase a `WON`, le llegue al cliente por WhatsApp un cupón (ej. "15% de descuento en el taller") que:
+
+- el cliente puede **abrir** las veces que quiera desde su link, y ve su QR y si está "Activo" o "Ya canjeado" — abrirlo **no** lo consume;
+- se **canjea** solo cuando un empleado, logueado en el CRM, escanea ese QR desde una pantalla del CRM (ítem 178) — ahí, y solo ahí, el backend lo marca consumido de forma atómica. Cualquier usuario de la organización puede hacerlo, no hace falta ser ADMIN;
+- vence a los N días si nadie lo canjea (N configurable por regla, ítem 177).
+
+### Por qué esto no es reabrir el QR de un solo uso que se eliminó el 04/09
+
+El 04/09 Rocco decidió eliminar el QR de un solo uso (`QrType.SINGLE_USE`, columnas `used_at`/`claimed_at` de `qr_codes`, migración `20260904120000_remove_qr_claim_and_single_use`) — ver `docs/qr-integration.md`, "Qué se elimina: QR físico y QR de un solo uso". El motivo era el caso de uso: para reseñas y fidelización **un link reusable alcanza**, y el "un solo uso" era complejidad sin valor.
+
+Un cupón de descuento es un caso genuinamente distinto: si se puede usar dos veces, deja de ser un cupón. Por eso esto es una **entidad nueva y separada** (`DiscountVoucher`, tabla `discount_vouchers`), sin ninguna relación con `qr_codes`: no reutiliza `QrCode`, no le devuelve `qr_type`/`used_at`/`claimed_at`, y los QR de reseñas siguen siendo reusables. La decisión del 04/09 sigue en pie para su caso. El comentario de `schema.prisma` junto a los enums del módulo QR ("No lo reintroduzcas sin leer esa sección primero") habla de aquella tabla, no de esta; y `docs/qr-integration.md` tiene ahora una nota al final de esa sección que apunta acá.
+
+**Qué se hace.**
+
+1. **Modelo `DiscountVoucher`** (`discount_vouchers`): `organizationId`, `opportunityId`, `contactId`, `automationId` (la regla que lo emitió; NOT NULL, en esta v1 no hay alta manual), `label` (`VARCHAR(200)`, texto libre), `status` (`DiscountVoucherStatus`: `ACTIVE` / `CONSUMED`), `expiresAt`, `consumedAt`, `consumedByUserId`. FKs compuestas (C-3) a oportunidad, contacto y regla (NOT NULL → `RESTRICT`) y a `users` para `consumedByUserId` (nullable → `NO ACTION`), regla de `20260821140200`. `@@unique([organizationId, id])` para la FK compuesta que va a necesitar la tabla de agendado del 177 (mismo patrón que `qr_follow_ups → qr_codes`). RLS con la política de aislamiento uniforme. Sin `deletedAt`: todavía no hay ningún caso de borrado.
+2. **`src/services/discountVoucher.service.ts`** (+ `src/repositories/discountVoucher.repository.ts`):
+   - `crearDiscountVoucher(organizationId, { automationId, opportunityId, contactId, label, expiresAt })`: valida que la oportunidad y el contacto existan, no estén borrados y sean de la organización (400 con los mismos mensajes que `opportunity.service.ts`), recorta el label (vacío o > 200 → 400) e inserta. Sin HTTP: la va a llamar la acción del 177, como `sendQrFollowup` llama a `agendarQrFollowUp`. **Sin idempotencia por (regla, oportunidad)**: la resuelve la tabla de agendado del 177.
+   - `canjearDiscountVoucher(organizationId, id, userId)`: no existe / otra organización → **404** "El cupón no existe o no pertenece a tu organización"; `CONSUMED` → **409** "Este cupón ya fue canjeado" (con `consumedAt` en `error`); `ACTIVE` vencido → **409** "Este cupón venció", sin tocarlo; si no, el `UPDATE ... WHERE id AND organization_id AND status = 'ACTIVE' AND expires_at > ahora`. Si afecta 0 filas (alguien ganó la carrera), relee y devuelve el 409 que corresponda, nunca un 500.
+   - `getDiscountVoucherPublicState(id)`: sin `organizationId`, devuelve `{ status: "ACTIVE" | "CONSUMED" | "EXPIRED", label }` y nada más. Un id malformado es "no encontrado" antes de tocar la base (reusa `isUuid` de `qrPublic.service.ts`).
+3. **Endpoints:**
+   - `GET /vouchers/resolve/:id` — público, sin `/api`, sin auth, detrás de `requireInternalProxySecret`. Mismo molde que `qrPublic.routes.ts`/`qrPublic.controller.ts`. 200 con el JSON de arriba; un id inexistente o malformado responde **byte a byte** el mismo 404 que el gate sin secreto (la misma `sendQrNotFoundLanding`, DEC-007).
+   - `POST /api/vouchers/:id/redeem` — `authenticate` + `businessWriteRateLimiter`, **sin `authorize`**. 200 con la fila ya `CONSUMED`.
+
+### Decisiones tomadas al implementarlo
+
+- **"Vencido" se deriva, no se guarda.** No hay tercer valor en el enum, ni worker, ni columna: es `status = ACTIVE && expiresAt <= ahora`, en una sola función (`estaVencido`). Un vencido queda `ACTIVE` en la base para siempre y el canje lo rechaza. El borde (`expiresAt == ahora`) cuenta como vencido, igual que el `expires_at > ahora` del `UPDATE`: los dos lados tienen que decir lo mismo.
+- **El `UPDATE` también exige `expires_at > ahora`**, además de `status = 'ACTIVE'`. Cierra la ventana de un cupón que vence entre la lectura previa y la escritura; sin esto, ese caso se consumiría pasado su vencimiento.
+- **CHECK `discount_vouchers_consumed_consistency_check`** (en la migración, no en `manual_constraints.sql`, que desde B-15 ya no recibe CHECKs nuevos): `ACTIVE` exige `consumed_at` y `consumed_by_user_id` en NULL; `CONSUMED` exige los dos. Un canje a medio escribir es imposible a nivel de motor.
+- **La política RLS vive solo en la migración**, no en `prisma/sql/rls_policies.sql`. Es lo que hicieron las últimas tablas (`qr_follow_ups`, `whatsapp_templates`, `contact_channel_identities`): `rls_policies.sql` no se toca desde el módulo de vehículos.
+- **Índices en los cuatro lados referenciantes** (oportunidad, contacto, regla, usuario que canjeó), no solo en el de la oportunidad: Postgres no los indexa solo, y sin ellos un `RESTRICT`/`NO ACTION` escanea la tabla entera.
+- **El GET público responde JSON, no HTML ni redirect.** A diferencia del QR (que redirige a un destino), acá lo consume la página del cupón del 178. El 404 sí es la landing HTML compartida con el gate, para no revelar la diferencia.
+- **La carrera se prueba dos veces.** Por HTTP (dos `Promise.all` → uno 200, otro 409, mismo patrón que `reserve_vehicle` del 175) y directo contra el `UPDATE` (cinco consumos simultáneos sin lectura previa → exactamente uno afecta la fila). El segundo existe porque por HTTP el perdedor casi siempre cae ya en la lectura previa y nunca llega al `UPDATE`; se verificó que sacar el `status: "ACTIVE"` del `WHERE` lo hace fallar.
+- **Los 409 llevan el dato en `error`** (`consumedAt` o `expiresAt`) vía `AppError.details`, para que la pantalla del 178 pueda mostrar "canjeado el …" sin otra consulta.
+
+### Pendiente fuera de este repo: el Cloudflare Worker de `nexoraqrs.com`
+
+El dominio público `nexoraqrs.com` pasa por un Cloudflare Worker que vive en el repo **`Plataforma-QR`** (no este), y hoy solo enruta `/r/:qrId` → `/qr/resolve/:qrId` de este backend, agregando el header `X-Internal-Proxy-Secret`. Para que el link del cupón funcione de punta a punta hace falta sumarle una ruta (ej. `nexoraqrs.com/v/:id` → `/vouchers/resolve/:id`, con el mismo header), y definir qué sirve el Worker en ese path (la página del cupón del 178, que a su vez consulta este endpoint). **No bloquea este ítem**, que todavía no le manda ningún link a un cliente; **sí bloquea el 177/178**: hay que resolverlo antes de que un WhatsApp con ese link salga a un cliente real.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `prisma/schema.prisma` | enum `DiscountVoucherStatus`, modelo `DiscountVoucher`, relaciones inversas en `Organization`, `Contact`, `Opportunity`, `Automation` y `User` |
+| `prisma/migrations/20261006120000_discount_vouchers/migration.sql` | nueva — tabla, índices, `UNIQUE (organization_id, id)`, 4 FKs compuestas, CHECK, RLS |
+| `docs/auditoria-2026-08-21-diagnostico.sql` | fila 5 (política), fila 8 (CHECK, 28 → 29), fila 16 (4 FKs, 63 → 67) |
+| `scripts/verify-schema.ts` | conteos de las filas 8 y 16 |
+| `src/repositories/discountVoucher.repository.ts` | nuevo — alta, lecturas y el `UPDATE` atómico del canje |
+| `src/services/discountVoucher.service.ts` | nuevo — `crearDiscountVoucher`, `canjearDiscountVoucher`, `getDiscountVoucherPublicState`, `estaVencido` |
+| `src/controllers/voucherPublic.controller.ts`, `src/routes/voucherPublic.routes.ts` | nuevos — `GET /vouchers/resolve/:id` |
+| `src/controllers/voucher.controller.ts`, `src/routes/voucher.routes.ts` | nuevos — `POST /api/vouchers/:id/redeem` |
+| `src/routes/index.ts` | monta los dos routers junto al módulo QR |
+| `src/services/discountVoucher.service.test.ts` | nuevo — 12 unitarios con dobles: `estaVencido`, alta (OK, oportunidad/contacto ajenos, label inválido), las cuatro ramas del canje más la carrera perdida, estado público |
+| `src/services/discountVoucher.integration-test.ts` | nuevo — 13 contra el Supabase local: alta real, CHECK, GET público (activo/consumido/vencido, 404 idéntico con y sin secreto), canje (USER lo canjea, doble canje, vencido, otra organización, inexistente, sin token) y las dos carreras |
+| `src/routes/index.test.ts` | test de montaje de las dos rutas |
+| `docs/qr-integration.md` | nota al final de "Qué se elimina" que apunta a este ítem |
+
+### Cómo se aplica
+
+1. `npm run migrate:deploy` + `npm run verify:schema` (la migración solo agrega: tabla y tipo nuevos, un índice único sobre la tabla nueva). Orden de siempre: la migración antes o junto con el deploy del backend.
+2. Nada más hasta el 177: ninguna pantalla ni automatización crea cupones todavía, así que en producción la tabla queda vacía.
+3. Antes del 177/178: el cambio del Worker en `Plataforma-QR` descripto arriba.

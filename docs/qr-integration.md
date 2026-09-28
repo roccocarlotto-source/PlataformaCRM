@@ -1582,6 +1582,14 @@ en esa misma rama — no en el checkout principal):**
   Business Platform vía Meta/Twilio) queda explícitamente fuera de alcance
   por ahora: *"el tema de agentes de ia no lo vamos a tocar por ahora."*
 
+**Nota posterior (2026-09-28, ítem 176 de `docs/frontend-cambios-pendientes.md`):
+esto NO se reabrió.** El cupón de descuento de un solo uso (`DiscountVoucher`,
+tabla `discount_vouchers`) es una entidad nueva y separada, sin relación con
+`qr_codes`: no reintroduce `QrType`, `used_at` ni `claimed_at`, y los QR de
+reseñas/fidelización siguen siendo reusables. La decisión de arriba sigue en
+pie para su caso — ahí un link alcanza —; un descuento, en cambio, sí tiene
+que gastarse una sola vez. El porqué completo está en ese ítem.
+
 ## Qué se corrigió: publicUrl.ts apunta al Worker (2026-09-04)
 
 **Contexto.** Después de mergear la limpieza de QR físico/single-use (PR

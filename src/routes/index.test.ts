@@ -492,3 +492,18 @@ test("la plantilla de WhatsApp de la organización (ítem 160) está montada baj
     assert.equal(res.status, 401, `${method} ${path} no está montado`);
   }
 });
+
+test("el cupón de descuento (ítem 176): el GET público y el canje están montados", async () => {
+  // Público: sin secreto del Worker contesta la landing HTML del gate, que
+  // solo existe en la cadena de voucherPublicRouter — el notFound genérico es
+  // JSON. Mismo criterio que el test de /qr/resolve/:qrId.
+  const publico = await fetch(`${baseUrl}/vouchers/resolve/${randomUUID()}`);
+  assert.equal(publico.status, 404, "GET /vouchers/resolve/:id no está montado");
+  assert.ok(
+    publico.headers.get("content-type")?.startsWith("text/html"),
+    "respondió la landing HTML, no el notFound genérico",
+  );
+
+  const canje = await fetch(`${baseUrl}/api/vouchers/${randomUUID()}/redeem`, { method: "POST" });
+  assert.equal(canje.status, 401, "POST /api/vouchers/:id/redeem no está montado");
+});
