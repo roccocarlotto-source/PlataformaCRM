@@ -182,7 +182,7 @@ export async function procesarCupon(
   config: ConfiguracionDelCupon,
   deps: Pick<
     DepsDelCupon,
-    "plantillaDeLaOrganizacion" | "numeroDeLaSucursal" | "sendTemplate" | "emitirCupon" | "ahora"
+    "plantillaDeLaRegla" | "numeroDeLaSucursal" | "sendTemplate" | "emitirCupon" | "ahora"
   >,
   leer: (
     id: string,
@@ -213,10 +213,12 @@ export async function procesarCupon(
     );
   }
 
-  const plantilla = await deps.plantillaDeLaOrganizacion(fila.organizationId);
+  // La de ESTA regla (ítem 181): la del QR de la misma organización habla de
+  // una reseña, no del cupón.
+  const plantilla = await deps.plantillaDeLaRegla(fila.organizationId, fila.automationId);
   if (!plantilla) {
     throw new ErrorPermanenteDelSeguimiento(
-      "La organización ya no tiene una plantilla de WhatsApp aprobada (se borró o Meta dejó de aprobarla antes del envío)",
+      "La automatización ya no tiene una plantilla de WhatsApp aprobada (se borró o Meta dejó de aprobarla antes del envío)",
     );
   }
 

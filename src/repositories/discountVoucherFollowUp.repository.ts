@@ -54,9 +54,10 @@ interface FilaReclamada {
 }
 
 // Reclama UN envío vencido; mismo SQL y mismos motivos que
-// claimNextQrFollowUp, incluido el EXISTS de la plantilla aprobada (ítem 160):
-// una organización sin plantilla no tiene con qué mandar, y sus filas no
-// gastan intentos hasta que Meta la apruebe. Lo sirve el índice parcial
+// claimNextQrFollowUp, incluido el EXISTS de la plantilla aprobada DE LA
+// REGLA (ítem 160; por regla desde el 181): una regla sin plantilla no tiene
+// con qué mandar, y sus filas no gastan intentos hasta que Meta la apruebe. La
+// del QR de la misma organización no sirve: habla de una reseña, no del cupón. Lo sirve el índice parcial
 // discount_voucher_follow_ups_claimable_idx.
 export async function claimNextDiscountVoucherFollowUp(
   leaseMs: number,
@@ -85,6 +86,7 @@ export async function claimNextDiscountVoucherFollowUp(
           SELECT 1
           FROM whatsapp_templates t
           WHERE t.organization_id = c.organization_id
+            AND t.automation_id = c.automation_id
             AND t.deleted_at IS NULL
             AND t.status = 'APPROVED'::"WhatsappTemplateStatus"
         )

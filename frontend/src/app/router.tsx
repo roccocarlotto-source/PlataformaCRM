@@ -39,6 +39,7 @@ import { AgentFacebookPagePage } from "../features/platformAdmin/AgentFacebookPa
 import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
+import { WhatsappTemplateListPage } from "../features/whatsapp/WhatsappTemplateListPage";
 import { WhatsappTemplatePage } from "../features/whatsapp/WhatsappTemplatePage";
 import { BranchFormPage } from "../features/branch/BranchFormPage";
 import { BranchListPage } from "../features/branch/BranchListPage";
@@ -219,10 +220,13 @@ export const router = createBrowserRouter([
               // pantalla es toda escritura (PATCH ADMIN-only), así que va acá
               // adentro como /sources.
               { path: "/organization", element: <OrganizationSettingsPage /> },
-              // La plantilla de WhatsApp del seguimiento post-venta (ítem 160).
-              // Singleton como /organization, y ADMIN-only incluida la lectura
-              // en el backend (whatsappTemplate.routes.ts).
-              { path: "/whatsapp-template", element: <WhatsappTemplatePage /> },
+              // Las plantillas de WhatsApp (ítem 160), una por regla de
+              // automatización desde el ítem 181: la ruta de siempre lista las
+              // reglas que mandan WhatsApp, y cada una tiene su pantalla.
+              // ADMIN-only incluida la lectura en el backend
+              // (whatsappTemplate.routes.ts).
+              { path: "/whatsapp-template", element: <WhatsappTemplateListPage /> },
+              { path: "/whatsapp-template/:automationId", element: <WhatsappTemplatePage /> },
               // Sucursales (ítem 20 de docs/frontend-cambios-pendientes.md). El
               // LISTADO va acá adentro aunque GET /api/branches sea de lectura
               // abierta (branch.routes.ts): la pantalla es toda escritura

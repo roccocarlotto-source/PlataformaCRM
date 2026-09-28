@@ -117,8 +117,8 @@ export async function desmontar(...escenarios: Escenario[]) {
     // que apunta al cupón, después el cupón.
     await prisma.discountVoucherFollowUp.deleteMany({ where });
     await prisma.discountVoucher.deleteMany({ where });
-    // La plantilla de WhatsApp de la organización (ítem 160): su FK a
-    // organizations es RESTRICT.
+    // La plantilla de WhatsApp de cada regla (ítems 160 y 181): sus FKs a
+    // organizations y a automations son RESTRICT, así que va antes que la regla.
     await prisma.whatsappTemplate.deleteMany({ where });
     await prisma.automationExecution.deleteMany({ where });
     await prisma.automation.deleteMany({ where });

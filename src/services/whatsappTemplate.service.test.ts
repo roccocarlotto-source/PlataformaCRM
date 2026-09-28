@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { WhatsappGraphError } from "./whatsappGraph.service";
-import { esPlantillaInexistenteEnMeta, estadoLocalDeMeta } from "./whatsappTemplate.service";
+import {
+  esAccionConPlantilla,
+  esPlantillaInexistenteEnMeta,
+  estadoLocalDeMeta,
+} from "./whatsappTemplate.service";
 
 // ---------------------------------------------------------------------------
 // Las decisiones puras del service de plantillas (ítem 160), sin base ni red:
@@ -74,4 +78,13 @@ test("esPlantillaInexistenteEnMeta: cualquier otro error sigue siendo un error",
   );
   assert.equal(esPlantillaInexistenteEnMeta(new WhatsappGraphError(503, "not found")), false);
   assert.equal(esPlantillaInexistenteEnMeta(new TypeError("fetch failed")), false);
+});
+
+// Ítem 181: solo las reglas que mandan un WhatsApp con plantilla llevan una.
+test("esAccionConPlantilla: el QR y el cupón sí; cualquier otra acción no", () => {
+  assert.equal(esAccionConPlantilla("opportunity.send_qr_followup"), true);
+  assert.equal(esAccionConPlantilla("opportunity.send_discount_voucher"), true);
+  assert.equal(esAccionConPlantilla("activity.create_follow_up"), false);
+  assert.equal(esAccionConPlantilla("agent.draft_follow_up"), false);
+  assert.equal(esAccionConPlantilla(""), false);
 });

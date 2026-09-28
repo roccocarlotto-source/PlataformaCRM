@@ -8225,6 +8225,8 @@ De los tres bloqueos que tenía este ítem al escribirse, **dos ya están resuel
 
 3. **El texto de la plantilla.** La organización tiene UNA plantilla aprobada (ítem 160), con `{nombre}` y `{link}`, que hoy está escrita para el QR de reseñas ("…dejanos tu opinión: {link}"). El cupón sale con **esa misma plantilla**: el cliente recibiría el link del cupón con el texto de la reseña. Es una decisión de producto abierta (una segunda plantilla por organización, una plantilla por regla, o un texto genérico que sirva para los dos), no un bug de este ítem. Hasta resolverla, en una organización con las dos reglas el texto no le va a servir a una de las dos.
 
+   **Resuelto en código por el ítem 181** (28/09/2026, decisión de Rocco: una plantilla por regla). Lo que queda antes de activar una regla del cupón en una organización real ya no es código: cargar la plantilla de ESA regla (Administración → Plantilla de WhatsApp) y esperar a que Meta la apruebe. Sin ella, las filas del cupón esperan en `PENDING` sin gastar intentos.
+
 Todo lo de este ítem se escribió y se probó con dobles de la Graph API (mismo criterio que el ítem 159).
 
 **Contexto.** Es la emisión automática que el 176 dejó preparada: N horas después de que una oportunidad pasa a `WON`, crear un cupón de un solo uso para el cliente y mandárselo por WhatsApp. Es **exactamente el molde de `opportunity.send_qr_followup` (ítem 159)** —la acción agenda, un worker manda— con una diferencia real: el QR ya existe cuando se configura la regla (se elige uno del desplegable); el cupón **no existe todavía**, nace cuando el worker lo va a mandar.
@@ -8447,3 +8449,87 @@ Todo lo de este ítem se escribió y se probó con dobles de la Graph API (mismo
 
 1. Deploy normal de backend y frontend; sin migración.
 2. Un ADMIN entra a **Agentes de IA → Configurar agente interno**, lo crea, y habilita a los USER que quiera en **Usuarios**. Ellos ven "Agente interno" en la sidebar al recargar (el `/me` se lee una vez por sesión).
+
+---
+
+## 181. Plantilla de WhatsApp por regla de automatización, no por organización
+
+**Estado:** hecho (28/09/2026). **Lleva migración** (`20261009120000_whatsapp_template_per_automation`), escrita a mano — ver "Cómo se aplica": en una base con plantillas cargadas NO se aplica sola. Sin variables nuevas. Decisión de Rocco (28/09/2026): reemplaza la opción "texto genérico compartido" que había quedado como recomendación en el ítem 177 — en vez de eso, cada regla de automatización que manda WhatsApp (`opportunity.send_qr_followup`, `opportunity.send_discount_voucher`, y cualquier otra que se agregue después) tiene su PROPIA plantilla, aprobada por separado en Meta.
+
+**Contexto.** El ítem 160 dejó `WhatsappTemplate` como una plantilla activa por ORGANIZACIÓN (`UNIQUE` parcial `whatsapp_templates_org_active_unique`, `findActiveWhatsappTemplate(organizationId)` / `findApprovedWhatsappTemplate(organizationId)`). Con dos automatizaciones que mandan WhatsApp en la misma organización (QR de reseñas e ítem 177, cupón de descuento), esa única plantilla no alcanza: el texto de una le queda mal a la otra. La solución es que la plantilla pase a estar atada a la REGLA (`Automation`), no a la organización.
+
+**Qué se hace.**
+
+1. **Schema:** agregar `automationId` (uuid, NOT NULL) a `WhatsappTemplate`, con FK compuesta `(organizationId, automationId)` → `automations (organizationId, id)` RESTRICT (mismo patrón que `QrFollowUp.automationId` / `DiscountVoucherFollowUp.automationId`). Reemplazar el UNIQUE parcial de "una activa por organización" por uno de "una activa por (organización, automación)" (`whatsapp_templates_automation_active_unique`). El UNIQUE de nombre global (`whatsapp_templates_name_active_unique`) NO cambia: el WABA sigue compartido entre organizaciones.
+
+   **OJO CON EL BACKFILL:** si en la base de este entorno ya existe alguna fila de `whatsapp_templates` (activa o no), la migración no puede backfillear `automation_id` sola — no hay forma automática de saber a qué regla pertenecía una plantilla que se creó cuando el concepto era "una por organización". Antes de escribir la migración, se consulta el Supabase LOCAL para ver si hay filas. Si las hay: en el entorno de desarrollo se trunca `whatsapp_templates` (no hay integración real con Meta corriendo desde ahí, y son datos de prueba) y se documenta como decisión en este ítem; NO se hace en un entorno con datos reales sin preguntarle a Rocco — ahí `automation_id` hay que completarlo a mano antes del deploy, asignando cada plantilla existente a la automatización `send_qr_followup` de su organización (es el único caso que existía antes de este ítem).
+
+2. **Repositorio** (`src/repositories/whatsappTemplate.repository.ts`): todas las funciones que hoy reciben `organizationId` para identificar LA plantilla (`findActiveWhatsappTemplate`, `findApprovedWhatsappTemplate`, `findWhatsappTemplateById`, `findPublicWhatsappTemplateById`, `reserveWhatsappTemplate`) pasan a recibir también `automationId` y a filtrar por los dos. `isWhatsappTemplateNameTaken` NO cambia (sigue global). `setWhatsappTemplateStatusByMetaId` (el webhook) tampoco cambia, sigue identificando por `metaTemplateId`.
+
+3. **Colas que ya tienen `automationId` en su fila** (`qr_follow_ups`, `discount_voucher_follow_ups`): el `EXISTS` de `claimNextQrFollowUp` (`src/repositories/qrFollowUp.repository.ts`) y `claimNextDiscountVoucherFollowUp` (`src/repositories/discountVoucherFollowUp.repository.ts`) suman `AND t.automation_id = c.automation_id` a la condición que ya compara `organization_id` — así cada fila solo se reclama si la REGLA que la agendó tiene su propia plantilla aprobada, no cualquier plantilla de la organización.
+
+4. **Workers:** `DepsDelSeguimiento.plantillaDeLaOrganizacion(organizationId)` (definido en `src/workers/qrFollowUpWorker.ts`, reusado por `discountVoucherFollowUpWorker.ts` vía `DepsDelCupon extends DepsDelSeguimiento`) pasa a `plantillaDeLaRegla(organizationId, automationId)`. Los call sites (`procesarSeguimiento`, `procesarCupon`) ya tienen `fila.automationId` a mano (viene de la fila reclamada) — pasarlo.
+
+5. **Service/controller/routes** (`whatsappTemplate.service.ts`, `.controller.ts`, `.routes.ts`): los 4 endpoints existentes (`POST`/`GET`/`DELETE`/`POST .../refresh`) pasan a requerir `automationId`:
+   - `POST /api/whatsapp-templates`: `automationId` en el body, valida que sea una automatización existente y no borrada DE ESA organización (mismo patrón que valida `branchId` en el ítem 177 — 400 si no existe o es de otra organización). El 409 "ya hay una PENDING/APPROVED" pasa a preguntarse por (organización, automación), no solo organización.
+   - `GET /api/whatsapp-templates`: `automationId` como query param requerido — devuelve la de ESA regla, o ninguna.
+   - `DELETE`/`refresh` por id: sin cambio de firma (el id ya es único), pero se confirma que el service sigue resolviendo bien con el `automationId` de la fila encontrada donde haga falta.
+
+6. **Frontend** (`frontend/src/features/whatsapp/`): la pantalla pasa de "una plantilla de la organización" a una lista de las automatizaciones que usan una acción que manda WhatsApp (`opportunity.send_qr_followup`, `opportunity.send_discount_voucher` — filtrar por `actionType` sobre `GET /api/automations` existente), cada una con su badge de estado (sin plantilla / pendiente / aprobada / rechazada) y accediendo al mismo formulario de siempre (texto libre + `{nombre}`/`{link}`, preview) para crear/editar/borrar LA plantilla de esa automatización puntual. Se reusan los componentes ya escritos (`WhatsappTemplatePage.tsx` y afines), solo parametrizados por `automationId` en vez de ser una pantalla singular. La ruta y el link en Administración pueden seguir siendo los mismos; lo que cambia es que ahora lista en vez de mostrar directo el formulario.
+
+**Qué NO se hace:** no se toca el formulario de alta de automatizaciones (`AutomationFormPage.tsx`/`catalog.ts`) para agregar la acción `opportunity.send_discount_voucher` — ese es un gap ya documentado y abierto del ítem 177, independiente de este.
+
+### Decisiones tomadas al implementarlo
+
+- **Backfill: no hizo falta truncar.** La consulta contra el Supabase local dio 0 filas en `whatsapp_templates` (ni activas ni borradas), así que no se borró nada. La migración no backfillea: si la tabla tiene filas sin `automation_id`, el `SET NOT NULL` falla y frena el deploy (probado en local: error 23502, la migración queda revertida sin dejar la columna a medias). Para eso el `ADD COLUMN` va en dos pasos con `IF NOT EXISTS` (y no el `ADD COLUMN … NOT NULL` de una que da `prisma migrate diff`; el estado final es el mismo, sin drift): el procedimiento manual de "Cómo se aplica" —agregar la columna, completarla, y recién ahí migrar— también se probó en local de punta a punta.
+- **Desvío del punto 2: las búsquedas POR ID no reciben `automationId`.** `findWhatsappTemplateById` y `findPublicWhatsappTemplateById` siguen con `(organizationId, id)`: el id ya es único, el `organizationId` del WHERE es el aislamiento de siempre, y pedir además la regla obligaría al DELETE/refresh a conocerla sin necesidad (el punto 5 ya dice que esos dos endpoints no cambian de firma). Lo que sí filtra por los dos es lo que busca "LA plantilla" sin id: `findActiveWhatsappTemplate` y `findApprovedWhatsappTemplate`; `reserveWhatsappTemplate` recibe `automationId` en los datos.
+- **El POST además exige que la regla mande WhatsApp.** Una regla existente de la organización pero con otra acción (`activity.create_follow_up`, `agent.draft_follow_up`) es 400 "no manda WhatsApp: no lleva plantilla", sin tocar Meta: si no, se ocuparía un nombre del WABA compartido con una plantilla que nadie va a usar. La lista vive en `ACCIONES_CON_PLANTILLA` (`whatsappTemplate.service.ts`), con su espejo en `frontend/src/features/whatsapp/acciones.ts`.
+- **Una regla INACTIVA sí acepta plantilla, y aparece en el listado.** Cargar y aprobar la plantilla antes de activar la regla es el orden razonable (Meta tarda en revisarla).
+- **El GET con una regla de otra organización devuelve `null` (200), no 404.** El filtro por `organizationId` ya la deja sin plantilla, y no hay nada que revelar; mismo criterio de "no tiene es un estado normal" del 160. Sin `automationId` (o con uno que no es UUID) es 400.
+- **`automationId` sale en la respuesta** (`seleccionPublica`): el frontend lo usa para saber qué entrada de su cache actualizar tras un refresh.
+- **Pantallas: listado en la ruta de siempre, una pantalla por regla en una subruta.** `/whatsapp-template` lista las reglas y `/whatsapp-template/:automationId` es la pantalla del 160 parametrizada (mismo formulario, preview, badge, "Actualizar estado" y "Borrar y volver a intentar"). El link de Administración no cambia. El texto inicial del formulario y la ayuda sobre `{link}` dependen de la acción (el del cupón habla del cupón).
+- **El listado pide `GET /api/automations?triggerType=opportunity.won&pageSize=100` y filtra por acción en el cliente.** El endpoint no tiene filtro por `actionType` y las dos acciones cuelgan de "oportunidad ganada"; 100 es el tope del backend. Si una organización tuviera más de 100 reglas de ese trigger, la pantalla lo avisa (no es un caso real hoy). Cada badge sale de un GET por regla (`useQueries`), con la misma clave de cache que la pantalla de la regla.
+- **`acciones.ts` y no `automation/catalog.ts`** para las etiquetas de las dos acciones: el catálogo alimenta el formulario de alta de automatizaciones, y sumarle el cupón lo ofrecería ahí (el gap del 177, fuera de alcance).
+
+### Limitación conocida (no bloqueante)
+
+- **Borrar una automatización no borra su plantilla.** La regla se borra con soft delete (así que la FK `RESTRICT` no molesta), y su plantilla queda activa: sigue ocupando su nombre en el WABA compartido y en `whatsapp_templates_name_active_unique`, y ya no aparece en el listado para borrarla desde el CRM. No manda nada (el worker cancela las filas de una regla borrada). Si molesta, el arreglo natural es que `deleteAutomation` borre también la plantilla (en Meta y localmente) — queda como candidato a ítem aparte, porque mete una llamada a Meta en el borrado de automatizaciones.
+
+### Archivos
+
+| Archivo | Qué cambia |
+|---|---|
+| `prisma/schema.prisma` | `WhatsappTemplate.automationId` + relación compuesta; `Automation.whatsappTemplates` |
+| `prisma/migrations/20261009120000_whatsapp_template_per_automation/migration.sql` | nueva — columna, FK compuesta, `whatsapp_templates_org_active_unique` → `whatsapp_templates_automation_active_unique` |
+| `docs/auditoria-2026-08-21-diagnostico.sql`, `scripts/verify-schema.ts` | fila 7 (el índice nuevo reemplaza al viejo, siguen 12), fila 16 (FK nueva, 74 → 75) |
+| `src/repositories/whatsappTemplate.repository.ts` | `automationId` en la búsqueda de "la" plantilla, en la aprobada y en la reserva; sale en la selección pública |
+| `src/services/whatsappTemplate.service.ts` | `ACCIONES_CON_PLANTILLA`/`esAccionConPlantilla`, validación de la regla, una activa por regla |
+| `src/controllers/whatsappTemplate.controller.ts` | `automationId` en el body del POST y como query requerido del GET |
+| `src/repositories/qrFollowUp.repository.ts`, `src/repositories/discountVoucherFollowUp.repository.ts` | el `EXISTS` del reclamo compara `automation_id` |
+| `src/workers/qrFollowUpWorker.ts`, `src/workers/discountVoucherFollowUpWorker.ts` | `plantillaDeLaOrganizacion` → `plantillaDeLaRegla(organizationId, automationId)` |
+| `scripts/smoke-qr-followup-whatsapp.ts`, `src/services/automation.test-helper.ts` | la plantilla sembrada cuelga de la regla del smoke; comentario del orden de borrado |
+| tests backend | `whatsappTemplate.controller.integration-test.ts` (reglas por organización; nuevos: GET sin `automationId`, dos reglas conviviendo, los 400 de la regla), `qrFollowUpWorker.integration-test.ts` y `discountVoucherFollowUpWorker.integration-test.ts` (plantilla por regla; nuevo: la de OTRA regla no alcanza), `whatsappWebhook.controller.integration-test.ts`, `qrFollowUpWorker.test.ts`, `discountVoucherFollowUpWorker.test.ts`, `whatsappTemplate.service.test.ts` |
+| `frontend/src/features/whatsapp/` | `types.ts`, `api.ts`, `queries.ts`, `mutations.ts` por regla; nuevos `acciones.ts`, `estados.ts`, `WhatsappTemplateListPage.tsx` (+ test); `WhatsappTemplatePage.tsx` parametrizada por `automationId` (+ test actualizado) |
+| `frontend/src/app/router.tsx` (+ test) | `/whatsapp-template` → listado; `/whatsapp-template/:automationId` → la plantilla de la regla |
+| `docs/automations-architecture.md`, `docs/qr-integration.md` | la plantilla es de la regla; changelog |
+
+**Verificación:** backend `typecheck`, `lint`, `format:check` limpios, unitarios **1410/1410**, integración **1230/1230** contra el Supabase local; `prisma migrate diff` sin drift y `verify:schema` 14/14. Frontend `typecheck`, `lint` y `build` limpios, **1875/1875** (176 archivos).
+
+### Cómo se aplica
+
+1. **Antes del deploy, en la base real:** `SELECT count(*) FROM whatsapp_templates;`
+   - **0 filas:** nada que hacer; seguir al paso 2.
+   - **Alguna fila (activa o borrada): NO seguir sin Rocco.** Hay que completar `automation_id` a mano, asignando cada plantilla a la regla `opportunity.send_qr_followup` de su organización (el único caso que existía antes de este ítem):
+     ```sql
+     ALTER TABLE whatsapp_templates ADD COLUMN automation_id uuid;
+     UPDATE whatsapp_templates t SET automation_id = (
+       SELECT a.id FROM automations a
+       WHERE a.organization_id = t.organization_id
+         AND a.action_type = 'opportunity.send_qr_followup'
+       ORDER BY a.deleted_at IS NULL DESC, a.created_at
+       LIMIT 1);
+     SELECT id, organization_id FROM whatsapp_templates WHERE automation_id IS NULL; -- tiene que dar 0 filas
+     ```
+     Si una organización tiene más de una regla del QR, revisar a cuál corresponde. Si alguna fila queda sin regla (una organización con plantilla y sin regla del QR), decidir con Rocco antes de seguir.
+2. **`npm run migrate:deploy` + `npm run verify:schema`**, con la imagen nueva del backend **junto** con la migración: la imagen vieja lee bien el esquema nuevo, pero su alta de plantilla falla (inserta sin `automation_id`).
+3. Deploy del frontend. La pantalla de Administración → Plantilla de WhatsApp pasa a ser el listado por regla.

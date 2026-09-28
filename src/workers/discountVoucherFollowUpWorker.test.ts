@@ -78,9 +78,12 @@ function doblar(
 ) {
   const enviados: SendWhatsappTemplateInput[] = [];
   const emisiones: Emision[] = [];
+  const plantillasPedidas: string[] = [];
   const deps = {
-    plantillaDeLaOrganizacion: () =>
-      Promise.resolve(opciones.plantilla === undefined ? PLANTILLA : opciones.plantilla),
+    plantillaDeLaRegla: (organizationId: string, automationId: string) => {
+      plantillasPedidas.push(`${organizationId}/${automationId}`);
+      return Promise.resolve(opciones.plantilla === undefined ? PLANTILLA : opciones.plantilla);
+    },
     numeroDeLaSucursal: () =>
       Promise.resolve(opciones.numero === undefined ? "1234567890" : opciones.numero),
     sendTemplate: (input: SendWhatsappTemplateInput) => {
@@ -97,7 +100,7 @@ function doblar(
     },
     ahora: () => AHORA,
   };
-  return { deps, enviados, emisiones };
+  return { deps, enviados, emisiones, plantillasPedidas };
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +218,16 @@ test("emite el cupón con expiresAt = AHORA + expiresInDays (no desde el agendad
       accessToken: "token",
     },
   ]);
+});
+
+// Ítem 181: la plantilla es la de la regla que agendó el cupón, no "la" de la
+// organización (que puede ser la del QR de reseñas, con otro texto).
+test("pide la plantilla de la REGLA de la fila (organización + automatización)", async () => {
+  const { deps, plantillasPedidas } = doblar();
+
+  await procesarCupon(RECLAMO, CONFIG, deps, () => Promise.resolve(fila()));
+
+  assert.deepEqual(plantillasPedidas, ["org/regla"]);
 });
 
 test("un reintento con el cupón ya emitido NO emite otro: manda el mismo", async () => {

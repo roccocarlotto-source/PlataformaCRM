@@ -321,8 +321,10 @@ after(async () => {
   if (closeApp) await closeApp();
   if (!fx) return;
   const where = { organizationId: fx.orgId };
-  // La plantilla del caso de message_template_status_update (ítem 160).
+  // La plantilla del caso de message_template_status_update (ítem 160), y
+  // después la regla de la que cuelga (ítem 181).
   await prisma.whatsappTemplate.deleteMany({ where });
+  await prisma.automation.deleteMany({ where });
   // Antes que messages: las dos FKs de la cola apuntan ahí.
   await prisma.agentInboundJob.deleteMany({ where });
   await prisma.message.deleteMany({ where });
@@ -1306,9 +1308,21 @@ function cambioDePlantilla(value: Record<string, unknown>) {
 test("message_template_status_update: Meta aprueba y después rechaza -> la fila con ese id cambia de estado", async () => {
   // Meta manda el id como NÚMERO; se guarda como string.
   const metaId = randomInt(10 ** 9, 10 ** 10 - 1);
+  // Desde el ítem 181 la plantilla cuelga de una regla. El webhook no la mira:
+  // identifica la fila solo por el id de Meta.
+  const regla = await prisma.automation.create({
+    data: {
+      organizationId: fx.orgId,
+      name: "QR por WhatsApp",
+      triggerType: "opportunity.won",
+      actionType: "opportunity.send_qr_followup",
+      actionConfig: {},
+    },
+  });
   const plantilla = await prisma.whatsappTemplate.create({
     data: {
       organizationId: fx.orgId,
+      automationId: regla.id,
       name: `webhook_${String(metaId)}`,
       language: "es_AR",
       bodyText: "Hola {nombre}, gracias. Tu opinión: {link} ¡Gracias!",

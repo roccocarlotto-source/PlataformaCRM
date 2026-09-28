@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
-import { Badge, type BadgeVariant } from "../../design-system/Badge";
+import { Link, useParams } from "react-router-dom";
+import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -7,20 +8,17 @@ import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Select } from "../../design-system/Select";
 import { useToast } from "../../design-system/useToast";
+import { useAutomation } from "../automation/queries";
+import { accionConPlantilla, type AccionConPlantilla } from "./acciones";
+import { ESTADOS } from "./estados";
 import {
   useCreateWhatsappTemplate,
   useDeleteWhatsappTemplate,
   useRefreshWhatsappTemplate,
 } from "./mutations";
 import { insertarToken, previewDePlantilla, TOKEN_LINK, TOKEN_NOMBRE } from "./preview";
-import { useCurrentWhatsappTemplate } from "./queries";
-import type { WhatsappTemplate, WhatsappTemplateStatus } from "./types";
-
-const ESTADOS: Record<WhatsappTemplateStatus, { label: string; variant: BadgeVariant }> = {
-  PENDING: { label: "Pendiente", variant: "info" },
-  APPROVED: { label: "Aprobada", variant: "success" },
-  REJECTED: { label: "Rechazada", variant: "danger" },
-};
+import { useWhatsappTemplate } from "./queries";
+import type { WhatsappTemplate } from "./types";
 
 // Los idiomas que tiene sentido ofrecer hoy. El backend acepta cualquier
 // código de Meta; la UI acota, igual que las monedas en Organización.
@@ -39,12 +37,11 @@ interface FormValues {
   bodyText: string;
 }
 
-const FORM_INICIAL: FormValues = {
-  name: "seguimiento_postventa",
-  language: "es_AR",
-  bodyText:
-    "Hola {nombre}, gracias por tu compra. Nos ayudaría mucho conocer tu opinión sobre la atención que recibiste. Podés dejarla en este enlace: {link} ¡Muchas gracias!",
-};
+// Con qué arranca una plantilla nueva: depende de la acción de la regla (el
+// texto del cupón no es el del QR).
+function formInicial(accion: AccionConPlantilla): FormValues {
+  return { name: accion.nombreInicial, language: "es_AR", bodyText: accion.textoInicial };
+}
 
 function Preview({ texto }: { texto: string }) {
   return (
@@ -84,14 +81,14 @@ function PlantillaActual({
   async function borrar() {
     if (
       !window.confirm(
-        "¿Borrar esta plantilla? Se borra también en WhatsApp y, hasta que cargues otra y Meta la apruebe, no sale ningún seguimiento.",
+        "¿Borrar esta plantilla? Se borra también en WhatsApp y, hasta que cargues otra y Meta la apruebe, esta automatización no manda ningún mensaje.",
       )
     ) {
       return;
     }
     setError(null);
     try {
-      await deleteMutation.mutateAsync(plantilla.id);
+      await deleteMutation.mutateAsync(plantilla);
       onBorrada(plantilla);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo borrar la plantilla");
@@ -111,8 +108,9 @@ function PlantillaActual({
         </p>
         {plantilla.status === "PENDING" ? (
           <p className="ds-hint">
-            Meta la está revisando (suele tardar de minutos a unas horas). Mientras tanto no sale
-            ningún seguimiento; quedan en espera y salen solos cuando se apruebe.
+            Meta la está revisando (suele tardar de minutos a unas horas). Mientras tanto esta
+            automatización no manda nada; los envíos quedan en espera y salen solos cuando se
+            apruebe.
           </p>
         ) : null}
         {plantilla.status === "REJECTED" ? (
@@ -146,7 +144,15 @@ function PlantillaActual({
   );
 }
 
-function NuevaPlantilla({ inicial }: { inicial: FormValues }) {
+function NuevaPlantilla({
+  automationId,
+  accion,
+  inicial,
+}: {
+  automationId: string;
+  accion: AccionConPlantilla;
+  inicial: FormValues;
+}) {
   const createMutation = useCreateWhatsappTemplate();
   const toast = useToast();
   const [values, setValues] = useState<FormValues>(inicial);
@@ -172,6 +178,7 @@ function NuevaPlantilla({ inicial }: { inicial: FormValues }) {
     setError(null);
     try {
       await createMutation.mutateAsync({
+        automationId,
         name: values.name.trim(),
         language: values.language,
         bodyText: values.bodyText,
@@ -188,9 +195,10 @@ function NuevaPlantilla({ inicial }: { inicial: FormValues }) {
         <div className="ds-stack">
           <p className="ds-hint">
             Escribí el mensaje con tus palabras. Donde va el nombre del cliente poné {TOKEN_NOMBRE}{" "}
-            y donde va el link del QR poné {TOKEN_LINK}: cada uno una vez, {TOKEN_NOMBRE} antes que{" "}
-            {TOKEN_LINK}, y con texto antes y después de los dos (Meta no acepta un mensaje que
-            empiece o termine con uno). Meta revisa la plantilla antes de que se pueda usar.
+            y donde va {accion.queEsElLink} poné {TOKEN_LINK}: cada uno una vez, {TOKEN_NOMBRE}{" "}
+            antes que {TOKEN_LINK}, y con texto antes y después de los dos (Meta no acepta un
+            mensaje que empiece o termine con uno). Meta revisa la plantilla antes de que se pueda
+            usar.
           </p>
           <div className="ds-field-grid">
             <FormField label={<span className="ds-required">Nombre interno</span>}>
@@ -246,29 +254,46 @@ function NuevaPlantilla({ inicial }: { inicial: FormValues }) {
   );
 }
 
-// La plantilla de WhatsApp del seguimiento post-venta (ítem 160 de
-// docs/frontend-cambios-pendientes.md): el mensaje que la automatización
-// "Enviar QR por WhatsApp" le manda al cliente cuando se gana una
-// oportunidad. Singleton, como Organización: la organización tiene a lo sumo
-// una plantilla activa, así que la pantalla muestra esa o el formulario para
-// crearla. Vive bajo AdminRoute (todo el endpoint es ADMIN-only).
+// La plantilla de WhatsApp de UNA regla de automatización (ítem 160 de
+// docs/frontend-cambios-pendientes.md; por regla desde el ítem 181): el
+// mensaje con que esa regla le escribe al cliente. Se llega desde el listado
+// (WhatsappTemplateListPage), con la regla en la URL. Singleton por regla:
+// muestra la plantilla actual o el formulario para crearla. Vive bajo
+// AdminRoute (todo el endpoint es ADMIN-only).
 //
 // "Borrar y volver a intentar" deja el formulario precargado con el texto que
 // se borró: el caso típico es un rechazo de Meta, y corregir es más corto que
 // reescribir.
 export function WhatsappTemplatePage() {
-  const plantillaQuery = useCurrentWhatsappTemplate();
+  const { automationId = "" } = useParams<{ automationId: string }>();
+  const reglaQuery = useAutomation(automationId);
+  const plantillaQuery = useWhatsappTemplate(automationId);
   const [borrada, setBorrada] = useState<WhatsappTemplate | null>(null);
 
-  if (plantillaQuery.isLoading) {
+  if (reglaQuery.isLoading || plantillaQuery.isLoading) {
     return <LoadingState variant="lines" />;
   }
 
-  if (plantillaQuery.isError) {
+  const error = reglaQuery.error ?? plantillaQuery.error;
+  if (reglaQuery.isError || plantillaQuery.isError) {
     return (
       <ErrorState>
         No pudimos cargar la plantilla de WhatsApp
-        {plantillaQuery.error instanceof Error ? `: ${plantillaQuery.error.message}` : "."}
+        {error instanceof Error ? `: ${error.message}` : "."}
+      </ErrorState>
+    );
+  }
+
+  const regla = reglaQuery.data;
+  const accion = regla ? accionConPlantilla(regla.actionType) : undefined;
+  if (!regla || !accion) {
+    // Una regla que no manda WhatsApp no lleva plantilla (el backend la
+    // rechazaría con un 400); se dice acá en vez de ofrecer un formulario
+    // que no puede funcionar.
+    return (
+      <ErrorState>
+        Esta automatización no manda WhatsApp, así que no lleva plantilla.{" "}
+        <Link to="/whatsapp-template">Volver a Plantillas de WhatsApp</Link>
       </ErrorState>
     );
   }
@@ -280,8 +305,11 @@ export function WhatsappTemplatePage() {
       <h1>Plantilla de WhatsApp</h1>
       <div className="ds-stack">
         <p className="ds-hint">
-          Es el mensaje con el que sale el seguimiento post-venta por WhatsApp (la automatización
-          &quot;Enviar QR por WhatsApp&quot; al ganar una oportunidad). Sin una plantilla aprobada
+          Automatización: <strong>{regla.name}</strong> ({accion.label}).{" "}
+          <Link to="/whatsapp-template">Volver a Plantillas de WhatsApp</Link>
+        </p>
+        <p className="ds-hint">
+          Es el mensaje con el que sale esta automatización por WhatsApp. Sin una plantilla aprobada
           por Meta, no se manda ninguno.
         </p>
         {plantilla ? (
@@ -289,10 +317,12 @@ export function WhatsappTemplatePage() {
         ) : (
           <NuevaPlantilla
             key={borrada?.id ?? "nueva"}
+            automationId={automationId}
+            accion={accion}
             inicial={
               borrada
                 ? { name: borrada.name, language: borrada.language, bodyText: borrada.bodyText }
-                : FORM_INICIAL
+                : formInicial(accion)
             }
           />
         )}

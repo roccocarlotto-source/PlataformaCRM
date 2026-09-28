@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AdminRoute } from "../auth/AdminRoute";
+import { WhatsappTemplateListPage } from "../features/whatsapp/WhatsappTemplateListPage";
 import { WhatsappTemplatePage } from "../features/whatsapp/WhatsappTemplatePage";
 import { PlatformAdminRoute } from "../auth/PlatformAdminRoute";
 import { ProtectedRoute } from "../auth/ProtectedRoute";
@@ -271,11 +272,21 @@ describe("router.tsx — wiring real de platform admin (Fase 4a del módulo SaaS
   });
 });
 
-describe("router.tsx — plantilla de WhatsApp (ítem 160)", () => {
-  it("/whatsapp-template está bajo AdminRoute y renderiza WhatsappTemplatePage", () => {
+describe("router.tsx — plantillas de WhatsApp (ítems 160 y 181)", () => {
+  it("/whatsapp-template está bajo AdminRoute y renderiza el LISTADO por regla", () => {
     const parent = findParentElement(router.routes, "/whatsapp-template") as
       { type: unknown } | undefined;
     const route = findRoute(router.routes, "/whatsapp-template") as
+      { element: { type: unknown } } | undefined;
+
+    expect(parent?.type).toBe(AdminRoute);
+    expect(route?.element.type).toBe(WhatsappTemplateListPage);
+  });
+
+  it("/whatsapp-template/:automationId está bajo AdminRoute y renderiza la plantilla de esa regla", () => {
+    const parent = findParentElement(router.routes, "/whatsapp-template/:automationId") as
+      { type: unknown } | undefined;
+    const route = findRoute(router.routes, "/whatsapp-template/:automationId") as
       { element: { type: unknown } } | undefined;
 
     expect(parent?.type).toBe(AdminRoute);

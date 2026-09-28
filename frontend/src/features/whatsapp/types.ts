@@ -3,14 +3,17 @@
 // src/repositories/whatsappTemplate.repository.ts — seleccionPublica). No se
 // agrega ningún campo que el backend no devuelva o no acepte.
 //
-// Como organization/, NO es una lista: la organización tiene a lo sumo UNA
-// plantilla activa, así que el GET devuelve esa o null.
+// NO es una lista: cada REGLA de automatización tiene a lo sumo UNA plantilla
+// activa (ítem 181; en el 160 era una por organización), así que el GET, que
+// pide el automationId, devuelve esa o null.
 
 // El estado de la revisión de Meta, ya traducido por el backend a tres.
 export type WhatsappTemplateStatus = "PENDING" | "APPROVED" | "REJECTED";
 
 export interface WhatsappTemplate {
   id: string;
+  // La regla de automatización que manda con esta plantilla (ítem 181).
+  automationId: string;
   // Minúsculas, números y guion bajo: el nombre con que se registró en Meta.
   name: string;
   // Código de idioma de Meta (es_AR, es, en_US...).
@@ -25,6 +28,7 @@ export interface WhatsappTemplate {
 }
 
 export interface CreateWhatsappTemplateInput {
+  automationId: string;
   name: string;
   language: string;
   bodyText: string;
