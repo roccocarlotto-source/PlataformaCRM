@@ -463,3 +463,33 @@ export function erasePersonalDataFromContact(id: string, organizationId: string,
     },
   });
 }
+
+// Resolver un contacto por lo que escribió una PERSONA ("Juan Pérez",
+// "juan@acme.com") — ítem 179, la tool create_internal_task del agente
+// interno. Distinto de `search` a propósito: `search` busca la frase entera en
+// un solo campo, así que "Juan Pérez" no encuentra a nadie (ningún campo
+// contiene las dos palabras). Acá CADA palabra tiene que aparecer en alguno de
+// los campos. Sin normalizar acentos: `contains` de Postgres los distingue.
+export function findContactsMatchingAllWords(
+  organizationId: string,
+  palabras: string[],
+  take: number,
+  db: Db = prisma,
+) {
+  return db.contact.findMany({
+    where: {
+      organizationId,
+      deletedAt: null,
+      AND: palabras.map((palabra) => ({
+        OR: [
+          { firstName: { contains: palabra, mode: "insensitive" as const } },
+          { lastName: { contains: palabra, mode: "insensitive" as const } },
+          { email: { contains: palabra, mode: "insensitive" as const } },
+          { phone: { contains: palabra } },
+        ],
+      })),
+    },
+    orderBy: { updatedAt: "desc" },
+    take,
+  });
+}

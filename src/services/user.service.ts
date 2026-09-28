@@ -8,6 +8,7 @@ import {
   softDeleteUser,
   updateUser as updateUserRepo,
   type SortOrder,
+  type UpdateUserData,
   type UserSortBy,
 } from "../repositories/user.repository";
 import { findRoleByName } from "../repositories/role.repository";
@@ -71,6 +72,7 @@ export function staysActiveAdmin(
 export interface UpdateUserInput {
   isActive?: boolean;
   role?: RoleName;
+  canUseInternalAgent?: boolean;
 }
 
 // No es un editor genérico: solo isActive (activar/desactivar, reversible)
@@ -90,10 +92,16 @@ export async function updateUser(
 
   const user = await getUserById(organizationId, id);
 
-  const data: { isActive?: boolean; roleId?: string } = {};
+  const data: UpdateUserData = {};
 
   if (input.isActive !== undefined) {
     data.isActive = input.isActive;
+  }
+
+  // Ítem 179. No interviene en la protección del último ADMIN de abajo: no
+  // cambia quién administra la organización.
+  if (input.canUseInternalAgent !== undefined) {
+    data.canUseInternalAgent = input.canUseInternalAgent;
   }
 
   if (input.role !== undefined) {

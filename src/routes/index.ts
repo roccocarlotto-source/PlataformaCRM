@@ -16,6 +16,7 @@ import { googleCalendarConnectionRouter } from "./googleCalendarConnection.route
 import { healthRouter } from "./health.routes";
 import { importRouter } from "./import.routes";
 import { ingestionEventRouter } from "./ingestionEvent.routes";
+import { internalAgentRouter } from "./internalAgent.routes";
 import { invitationRouter } from "./invitation.routes";
 import { knowledgeBaseEntryRouter } from "./knowledgeBaseEntry.routes";
 import { meRouter } from "./me.routes";
@@ -129,6 +130,11 @@ routes.use("/api", knowledgeBaseEntryRouter);
 // entrega de un mensaje saliente por el canal (paso 6 de §9). Ver el
 // comentario de su router.
 routes.use("/api", conversationRouter);
+// El agente de IA INTERNO (ítem 179): el chat de un empleado con un agente
+// sobre su propio negocio. Va con el resto del módulo de IA, pero es un
+// subsistema aparte (no usa Agent ni Conversation): chat con authenticate +
+// requireInternalAgentAccess, configuración ADMIN-only. Ver su router.
+routes.use("/api", internalAgentRouter);
 
 // Motor de automatizaciones (docs/automations-architecture.md §8): CRUD de las
 // reglas trigger -> acción de la organización. Va acá, con los demás CRUD de

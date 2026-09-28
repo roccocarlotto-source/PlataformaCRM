@@ -8207,3 +8207,78 @@ El dominio público `nexoraqrs.com` pasa por un Cloudflare Worker que vive en el
 1. `npm run migrate:deploy` + `npm run verify:schema` (la migración solo agrega: tabla y tipo nuevos, un índice único sobre la tabla nueva). Orden de siempre: la migración antes o junto con el deploy del backend.
 2. Nada más hasta el 177: ninguna pantalla ni automatización crea cupones todavía, así que en producción la tabla queda vacía.
 3. Antes del 177/178: el cambio del Worker en `Plataforma-QR` descripto arriba.
+
+---
+
+## 179. Agente de IA interno: backend (modelo, catálogo de 2 tools, loop y endpoints)
+
+**Estado:** hecho (28/09/2026). **Lleva migración** (`20261007120000_internal_agent`), escrita a mano. Sin variables nuevas: usa el mismo `OPENROUTER_API_KEY`/`OPENROUTER_MODEL` que los agentes de cliente. Solo backend: la pantalla (una pestaña de chat) es el ítem siguiente.
+
+**Contexto.** Rocco quiere que el ADMIN de una organización, y los usuarios que el ADMIN habilite, puedan chatear con un agente de IA de uso **interno** para consultar datos del negocio y pedirle acciones (crear una tarea, ver la agenda) sin sentarse en una computadora. Es un agente separado por completo de los que hablan con clientes.
+
+**Por qué es un subsistema nuevo y no una extensión de `Agent`/`Conversation`.** `ContextoDeEjecucionDeTool` (`agentTools.service.ts`) exige `conversation.contactId`, y `Conversation.contactId` es NOT NULL: todo el loop de `agentOrchestration.service.ts` está armado alrededor de un `Contact` real del otro lado y de una posible derivación a un humano (handoff, brief, guardas de fuga del prompt hacia un cliente). Nada de eso aplica cuando quien escribe es un empleado consultando sobre su propio negocio. Forzarlo en la misma tubería hubiera sido más código, no menos.
+
+**Alcance decidido con el dueño del producto:** UN agente interno POR ORGANIZACIÓN, no por sucursal. `User` no tiene `branchId` —los usuarios son de la organización—, así que "por sucursal" hubiera exigido agregar esa asignación primero, sin aportar nada en esta versión.
+
+**Qué se hace.**
+
+1. **Schema** (migración a mano, mismo motivo que las anteriores: la shadow DB no tiene el schema `auth`):
+   - **`InternalAgent`** (`internal_agents`): `name`, `instructions`, `modelProvider`, `modelName`, `enabledTools` — el espíritu de `Agent` sin `channels`/`guardrails`/`tone`/`goal`. `@@unique([organizationId])` (uno por organización; si algún día son varios, es lo primero que se saca) más `@@unique([organizationId, id])` para la FK compuesta de los mensajes. RLS con la política uniforme.
+   - **`InternalAgentMessage`** (`internal_agent_messages`): un hilo continuo por usuario, ordenado por `createdAt`; `senderType` (enum nuevo `InternalAgentMessageSenderType`: `USER`/`AGENT`), `content`, `toolCalls` (jsonb, misma forma que `Message.toolCalls`). FKs compuestas a `internal_agents` y a `users`, las dos NOT NULL → `RESTRICT`. Índices `organizationId` y `(internalAgentId, userId, createdAt)`. RLS con la política uniforme.
+   - **`User.canUseInternalAgent`** (`boolean`, default `false`). El ADMIN siempre tiene acceso, valga lo que valga la columna.
+2. **`src/services/internalAgentTools.service.ts`** — catálogo SEPARADO (`CATALOGO_DE_TOOLS_INTERNAS` + `toolsHabilitadasInternas`, mismo patrón que `toolsHabilitadas`) con un contexto sin `conversation` (`{ organizationId, userId }`):
+   - **`create_internal_task`**: `asunto` (requerido), `contacto` y/o `oportunidad` (texto, al menos uno), `fechaLimite`, `descripcion`. Resuelve el contacto/oportunidad por texto dentro de la organización y llama al mismo `createActivity` del panel. Sin nada resoluble devuelve un error legible pidiendo precisión y nunca llega a la base (el CHECK de `activities` exige `company_id`, `contact_id` u `opportunity_id`).
+   - **`get_agenda`**: `desde` (requerido), `hasta` (opcional, 24 h por defecto, tope de 62 días como `get_availability`), `sucursal` (texto). Envuelve `listBookings` sin tocarlo y devuelve fecha, hora, contacto, servicio, sucursal y estado de cada turno — sin ids. Hasta 50 turnos, con `total` y `hayMas` para que el modelo sepa si la lista está cortada.
+3. **`src/services/internalAgentOrchestration.service.ts`** — `runInternalAgentTurn`: busca el agente de la organización (404 "Esta organización no configuró un agente interno todavía"), guarda el mensaje `USER`, lee la ventana del hilo (`VENTANA_DE_MENSAJES = 20`, reusada), corre el tool-calling contra `getLlmProvider()` con `MAX_TOOL_ROUNDS_PER_TURN = 5` (reusado) y guarda la respuesta `AGENT` con la auditoría de tools. Sin respuesta utilizable tras el tope, o con el proveedor caído, el mensaje fijo "No pude resolver esto. Probá de nuevo o hacelo desde el panel."
+4. **Endpoints** (`src/routes/internalAgent.routes.ts`):
+   - `POST /api/internal-agent/messages` — `{ content }`. `authenticate` + `businessWriteRateLimiter` + `requireInternalAgentAccess`. Devuelve el mensaje del agente ya persistido.
+   - `GET /api/internal-agent/messages` — el hilo del usuario autenticado, paginado (`page`, `pageSize` hasta 100, default 50), lo más nuevo primero.
+   - `GET /api/internal-agent` / `PUT /api/internal-agent` — configuración, solo ADMIN. El PUT es un upsert por `organizationId` (reemplazo completo; `modelProvider`/`modelName`/`enabledTools` con los mismos defaults que al crear un `Agent`).
+   - `PATCH /api/users/:id` (ya existía, ADMIN-only) acepta `canUseInternalAgent`.
+
+### Decisiones tomadas al implementarlo
+
+- **El PATCH de usuarios ya existía con schema Zod explícito** (`updateUserSchema` en `user.controller.ts`): se sumó el campo ahí, no se inventó un endpoint nuevo. Se guarda también si el usuario es ADMIN (hoy no le cambia nada, pero si después se lo degrada a USER conserva lo que se decidió para él). No interviene en la protección del último ADMIN.
+- **`requireInternalAgentAccess` lee la columna de la base en cada request**, y solo para un USER. No se sumó `canUseInternalAgent` al `AuthContext`: es un dato que solo le importa a esta ruta, y agregarlo a `req.auth` lo haría viajar por todos los requests del sistema.
+- **La configuración es ADMIN-only incluida la lectura** (las `instructions` son el prompt del agente: un USER habilitado lo usa, no lo configura). Distinto de `/api/agents`, que se lee con cualquier usuario.
+- **Sin agente configurado, los dos `GET` también responden 404** con el mismo mensaje que el `POST`, para que la pantalla pueda mostrar el estado "no configurado" desde cualquiera de las tres llamadas.
+- **La resolución por texto es nueva y desacoplada** (`resolverContactoPorTexto` y `resolverOportunidadPorTexto` en el catálogo interno; `findContactsMatchingAllWords` y `findOpportunitiesMatchingAllWords` en los repositorios). No había un resolver reusable: `resolverOportunidad` está atado al `contactId` de la conversación, y el filtro `search` de contactos busca la frase entera en un solo campo, así que "Juan Pérez" no encuentra a nadie. Acá **cada palabra** tiene que aparecer en nombre, apellido, email o teléfono (o en el título de la oportunidad). Con varios candidatos, uno cuyo nombre sea exactamente lo escrito gana ("Ana López" no es ambiguo aunque exista "Ana López Martínez"); si no, el error nombra a los candidatos para que el modelo pregunte. Con `contacto` y `oportunidad` juntos, la oportunidad se busca entre las de ese contacto. **Límite conocido:** la búsqueda en la base distingue acentos (`contains` de Postgres) — "Perez" no encuentra a "Pérez". Si molesta en la práctica, la salida es la extensión `unaccent`.
+- **La tarea queda asignada a quien la pidió**, además de tenerlo como autor: una tarea que alguien se pidió a sí mismo y no aparece en sus tareas no le sirve. Tipo `TASK`.
+- **Fechas: el mismo criterio que las tools de agenda de cliente** (ítems 99 y 174). La tool exige ISO 8601 con offset (`instanteIso`); el lenguaje natural lo convierte el modelo con una "Referencia temporal" en el prompt que trae el offset ya calculado. La zona es la de la **organización** (`Organization.timezone`), porque este agente no tiene sucursal; las horas de cada turno de `get_agenda` sí van en la zona de su sucursal (es la hora a la que el cliente se presenta).
+- **Se exportaron helpers de `agentTools.service.ts`** (`fallo`, `exito`, `validarArgs`, `conErroresDeNegocio`, `vacioComoAusente`, `textoOpcional`, `instanteIso`, `normalizarNombre`) en vez de duplicarlos: es la misma mecánica de validación y de errores de negocio. `validarArgs` ganó un tercer parámetro opcional, `sufijo`, porque `SUFIJO_ERROR_DE_ARGUMENTOS` habla de "el cliente"; el catálogo interno usa el suyo. `CATALOGO_DE_TOOLS` no se tocó.
+- **Los validadores de modelo y tools se extrajeron a `src/schemas/agentModelConfig.schema.ts`** (`modelProviderSchema`, `modelNameSchema`, `enabledToolsSchema`, `sinDuplicados`), usados por `agent.controller.ts` y por el nuevo `internalAgent.controller.ts`. Refactor sin cambio de comportamiento.
+- **El loop no reusa `resolverToolCall` ni `puedeEjecutarTool`**: aquel chequeo existe por los guardrails de un agente de cliente, que acá no hay. Lo único que decide es `enabledTools`. Sí reusa `canonizarNombreDeTool` (ítem 90) y los criterios del ítem 88 (con tools siempre hay otra ronda) y del 120 (solo `LlmProviderError` se cierra con el mensaje fijo; un bug sigue rompiendo fuerte).
+- **Si el proveedor no está configurado en el servidor, el error sale antes de guardar el mensaje del usuario**, para que el hilo no quede con una pregunta sin respuesta.
+- **Base y catálogo inyectables en el loop** (`DependenciasDelTurnoInterno`, mismo patrón que `DependenciasDeCupones` del 176): el loop entero se prueba sin Postgres, además de la integración.
+- **Índices: los dos pedidos, y ninguno más.** El lado referenciante de la FK a `users` (`organization_id, user_id`) no tiene índice propio: `users` usa soft delete, así que el `RESTRICT` no se dispara en ningún flujo. Si algún día aparece un borrado físico de usuarios, conviene sumarlo.
+- **Sin lock por hilo.** Dos mensajes simultáneos del mismo usuario pueden intercalarse en el historial (a diferencia del canal de clientes, que toma un advisory lock por conversación). Para una persona escribiendo desde el celular no vale la complejidad; si la pantalla permite mandar sin esperar la respuesta, es lo primero a revisar.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `prisma/schema.prisma` | enum `InternalAgentMessageSenderType`, modelos `InternalAgent` e `InternalAgentMessage`, `User.canUseInternalAgent`, relaciones inversas en `Organization` y `User` |
+| `prisma/migrations/20261007120000_internal_agent/migration.sql` | nueva — dos tablas, columna en `users`, índices, 2 FKs compuestas, RLS de las dos tablas |
+| `docs/auditoria-2026-08-21-diagnostico.sql` | fila 5 (2 políticas), fila 16 (2 FKs, 67 → 69). Sin CHECK nuevo |
+| `scripts/verify-schema.ts` | conteo de la fila 16 |
+| `src/repositories/internalAgent.repository.ts` | nuevo — agente (lectura/upsert), mensajes (alta, ventana, página, conteo), etiquetas de agenda |
+| `src/repositories/contact.repository.ts`, `src/repositories/opportunity.repository.ts` | `findContactsMatchingAllWords`, `findOpportunitiesMatchingAllWords` |
+| `src/repositories/user.repository.ts`, `src/services/user.service.ts`, `src/controllers/user.controller.ts` | `canUseInternalAgent` en el PATCH de usuarios |
+| `src/services/internalAgentTools.service.ts` | nuevo — `create_internal_task`, `get_agenda`, resolución por texto, catálogo |
+| `src/services/internalAgentOrchestration.service.ts` | nuevo — `runInternalAgentTurn`, system prompt interno |
+| `src/services/internalAgent.service.ts` | nuevo — configuración e historial paginado |
+| `src/middlewares/requireInternalAgentAccess.ts` | nuevo |
+| `src/controllers/internalAgent.controller.ts`, `src/routes/internalAgent.routes.ts` | nuevos — los 4 endpoints |
+| `src/routes/index.ts` | monta `internalAgentRouter` junto al módulo de IA |
+| `src/schemas/agentModelConfig.schema.ts` | nuevo — validadores extraídos de `agent.controller.ts` |
+| `src/controllers/agent.controller.ts` | importa esos validadores |
+| `src/services/agentTools.service.ts` | exporta los helpers genéricos; `validarArgs` con `sufijo` opcional |
+| `src/services/internalAgentTools.service.test.ts` | nuevo — 12 unitarios: catálogo separado, `toolsHabilitadasInternas`, definiciones, validación de args de las dos tools |
+| `src/services/internalAgentOrchestration.service.test.ts` | nuevo — 12 unitarios con LLM guionado: sin agente, respuesta directa, prompt, ventana, tool call y auditoría, tool no habilitada, canonización, tope de rondas, modelo mudo, proveedor caído, bug que se propaga |
+| `src/services/internalAgent.integration-test.ts` | nuevo — 23 contra el Supabase local: acceso (ADMIN siempre, USER 403, habilitar/deshabilitar por PATCH, config ADMIN-only), upsert, aislamiento del historial entre usuarios y organizaciones, FK compuesta, `create_internal_task` (contacto, oportunidad, sin vínculo, otra organización, ambiguo, CHECK), el loop entero por HTTP, `get_agenda` (aislamiento, zona por sucursal, filtro, vacía) |
+| `src/routes/index.test.ts` | test de montaje de las 4 rutas |
+
+### Cómo se aplica
+
+1. `npm run migrate:deploy` + `npm run verify:schema` (la migración solo agrega: dos tablas, un tipo, una columna con default). La migración antes o junto con el deploy del backend.
+2. Nada visible hasta la pantalla: ninguna organización tiene agente interno configurado, así que el chat responde 404 en todas. Para probarlo antes, un ADMIN hace `PUT /api/internal-agent` con `name`, `instructions` y `enabledTools: ["create_internal_task", "get_agenda"]`.
