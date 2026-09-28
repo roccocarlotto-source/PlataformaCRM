@@ -25,6 +25,7 @@ import {
   hasHumanMessage,
 } from "../repositories/message.repository";
 import { AppError } from "../utils/AppError";
+import { isoEnZona } from "../utils/timezone";
 import { createActivity } from "./activity.service";
 import { puedeEjecutarTool, type DatosDisponibles } from "./agentPermissions.service";
 import { generarBriefDeConversacion } from "./conversationBrief.service";
@@ -504,6 +505,17 @@ export function revelaInstrucciones(respuesta: string, secretos: string[]): bool
 // 10 donde está el negocio. Es la misma zona con la que availability.service
 // expande los horarios, así que lo que el modelo lee y lo que la tool calcula
 // hablan del mismo reloj.
+//
+// EL OFFSET VA ESCRITO, NO SE DEDUCE (ítem 174). Con solo el nombre IANA
+// ("America/Montevideo") y la instrucción "ISO 8601 con zona", el modelo tenía
+// que calcular el offset por su cuenta — y en 8 de 12 corridas de
+// eval-agente-real.ts (M3/I1/I4 × 4, gemini-3.1-flash-lite) le pasó a
+// get_availability un `desde` en UTC ("...Z"): tres horas corridas para
+// Montevideo/Buenos Aires. Las otras 4 lo acertó, que es el patrón de una
+// cuenta que a veces sale y a veces no. En vez de sumar prosa, se le da el
+// offset ya calculado con `isoEnZona` (ítem 104, el mismo que formatea los
+// resultados de las tools de agenda, así que respeta horario de verano) y se
+// le pide copiarlo literal.
 export function lineaDeFechaActual(ahora: Date, zona: string): string {
   const formato = new Intl.DateTimeFormat("es-AR", {
     timeZone: zona,
@@ -515,7 +527,9 @@ export function lineaDeFechaActual(ahora: Date, zona: string): string {
     minute: "2-digit",
     hour12: false,
   });
-  return `Referencia temporal: ahora es ${formato.format(ahora)} en la zona horaria de la sucursal (${zona}). Usala para interpretar lo que diga el cliente ("mañana", "el próximo martes", "el finde") y para cualquier fecha que le mandes a una herramienta, que siempre va en formato ISO 8601 con zona. Nunca supongas otra fecha ni uses uno de estos valores de ejemplo como si fuera hoy.`;
+  const conOffset = isoEnZona(ahora, zona);
+  const offset = conOffset.slice(-6); // "-03:00" / "+01:00", isoEnZona siempre termina así
+  return `Referencia temporal: ahora es ${formato.format(ahora)} en la zona horaria de la sucursal (${zona}), que en este momento tiene el offset ${offset} respecto a UTC (ahora mismo en ISO 8601: ${conOffset}). Usala para interpretar lo que diga el cliente ("mañana", "el próximo martes", "el finde") y para cualquier fecha que le mandes a una herramienta: siempre en formato ISO 8601 con este offset exacto (${offset}), nunca en UTC ni terminada en "Z" — copiá el offset de acá, no lo calcules vos. Nunca supongas otra fecha ni uses uno de estos valores de ejemplo como si fuera hoy.`;
 }
 
 // ---------------------------------------------------------------------------

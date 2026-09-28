@@ -8067,3 +8067,43 @@ Sin migración y sin variables nuevas. Con los ítems 170 y 171 aplicados (pági
 ### Cómo se aplica
 
 Sin migración ni variables nuevas: `CORS_ORIGIN` ya apunta al frontend. En el panel de la app de Meta, la URI de redirección del OAuth sigue siendo la del callback del backend (ítem 170); lo que cambia es a dónde manda el backend al navegador después. Orden de uso: un ADMIN conecta la página en **Organización → Facebook e Instagram**; el platform admin asigna esa página al agente en **Plataforma → Página de Facebook**; el tenant habilita Messenger/Instagram en los canales del agente.
+
+---
+
+## 174. El agente recibe el offset numérico de la zona de la sucursal, no solo su nombre IANA
+
+**Estado:** hecho (27/09/2026). Sin migración ni variables nuevas. Cambio de prompt de producción: afecta cómo el agente escribe fechas para las tools en TODAS las sucursales.
+
+**Contexto.** Investigando el residual "pregunta en vez de tool" (que se cerró sin cambios de código), la corrida de `scripts/eval-agente-real.ts` sobre M3/I1/I4 con `REPES=4` y el modelo de producción (`google/gemini-3.1-flash-lite`) mostró un efecto colateral: en **8 de 12** corridas el `desde` que el modelo le pasaba a `get_availability` venía en UTC (`...Z`) en vez de con el offset de la sucursal — tres horas corridas para Montevideo/Buenos Aires. En las otras 4 el modelo acertó el offset por su cuenta.
+
+**Causa.** `lineaDeFechaActual` (ítem 99) le daba al modelo la zona IANA (`America/Montevideo`) y la fecha/hora ya formateadas, pero la instrucción decía solo "formato ISO 8601 con zona". El modelo tenía que deducir el offset a partir del nombre de la zona: una cuenta que a veces le sale y a veces no, justo el patrón intermitente observado. Los RESULTADOS de las tools de agenda ya salían bien porque desde el ítem 104 se formatean con `isoEnZona`, pero ese helper nunca se usó para la línea de referencia temporal.
+
+**Qué se hace.** `lineaDeFechaActual` (`agentOrchestration.service.ts`) calcula con `isoEnZona(ahora, zona)` el instante actual en ISO 8601 con offset y le da al modelo las dos cosas explícitas: el offset (`-03:00`) y el "ahora" completo (`2026-09-27T15:00:00-03:00`), con la instrucción de usar ESE offset exacto en toda fecha que mande a una herramienta, nunca UTC ni `Z`, y de copiarlo en vez de calcularlo.
+
+### Decisiones tomadas al implementarlo
+
+- **Se reusa `isoEnZona` (ítem 104), no se agrega otro cálculo de offset.** Es el mismo helper que formatea los resultados de `get_availability`/`create_booking`, así que lo que el modelo lee en la referencia temporal y lo que recibe de las tools usan exactamente el mismo formato. Respeta horario de verano sin tablas propias.
+- **El offset se extrae con `slice(-6)`**: `isoEnZona` siempre termina en `±HH:MM`, también para UTC (`+00:00`, nunca `Z`) — verificado contra el helper, no supuesto.
+- **Dato explícito en vez de más prosa.** El problema era una cuenta que el modelo hacía mal, no una instrucción que no entendía; darle el resultado de la cuenta ataca la causa.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/services/agentOrchestration.service.ts` | importa `isoEnZona`; `lineaDeFechaActual` da offset y "ahora" en ISO; comentario del ítem 174 |
+| `src/services/agentOrchestration.service.test.ts` | asserts de offset (Montevideo `-03:00`, Madrid `+02:00` en CEST) en el test de zona; texto nuevo en "para qué usarla"; test nuevo que compara contra `isoEnZona` en tres zonas (incluida `Asia/Kolkata`, `+05:30`) |
+
+### Validación con el modelo real
+
+`REPES=4 OPENROUTER_MODEL=google/gemini-3.1-flash-lite npx tsx scripts/eval-agente-real.ts M3 I1 I4`, mirando el argumento `desde` de cada llamada a `get_availability`:
+
+| | `desde` con el offset de la sucursal | en UTC (`Z`) |
+|---|---|---|
+| Antes (baseline del residual anterior) | 4/12 | 8/12 |
+| Después (este ítem) | **12/12** (`-03:00`, también `hasta`) | 0/12 |
+
+Las fechas además son las correctas (corrida del domingo 27/09: "pasado mañana" → 29/09, "el viernes" → 02/10) y los 12 escenarios pasan. Costo de la corrida: ~USD 0.035.
+
+### Cómo se aplica
+
+Sin migración ni variables nuevas. Toma efecto con el deploy.
