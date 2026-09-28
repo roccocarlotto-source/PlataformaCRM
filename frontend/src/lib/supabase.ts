@@ -30,3 +30,25 @@ export const supabase = createClient(env.supabaseUrl, env.supabaseAnonKey, {
     detectSessionInUrl: true,
   },
 });
+
+
+// Limpieza de la clave de sesión que supabase-js escribía en localStorage
+// ANTES del cambio a sessionStorage (ver comentario de arriba). Esa clave
+// quedó huérfana: nada la lee ni la escribe desde el cambio, así que se
+// queda pegada indefinidamente con la sesión de quien haya sido el último
+// en loguearse con la versión vieja — confunde a cualquiera que inspeccione
+// localStorage pensando que es la sesión vigente (no lo es: la vigente está
+// en sessionStorage, bajo la misma clave). No es un problema funcional,
+// pero no cuesta nada barrerla al bootear la app.
+//
+// El nombre de la clave lo arma supabase-js como `sb-<project-ref>-auth-token`,
+// con <project-ref> el subdominio de supabaseUrl (ver supabase-js
+// SupabaseAuthClient#storageKey) — se deriva acá en vez de hardcodearlo para
+// no desincronizarse si `env.supabaseUrl` cambia entre entornos.
+try {
+  const projectRef = new URL(env.supabaseUrl).hostname.split(".")[0];
+  window.localStorage.removeItem(`sb-${projectRef}-auth-token`);
+} catch {
+  // localStorage puede no estar disponible (modo privado estricto, etc.);
+  // no es crítico, no vale la pena romper el arranque de la app por esto.
+}
