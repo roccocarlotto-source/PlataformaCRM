@@ -4225,21 +4225,21 @@ a.ds-button--secondary:hover {
   border-color: var(--color-accent);
 }
 
-/* Chat del agente interno (ítem 180): el único layout propio del chat, que
-   vive FUERA de .ds-shell para poder usarse desde un teléfono (la sidebar no
-   colapsa). Una columna a pantalla completa: encabezado chico, el hilo con
-   scroll propio y el formulario abajo de todo. Todo lo de adentro del hilo es
-   .ds-chat* tal cual; acá solo se le saca el alto máximo y la caja para que
-   ocupe el alto disponible. 100dvh y no 100vh: en el celular el vh no
-   descuenta la barra del navegador y el formulario quedaría tapado. */
-.ds-internal-chat {
+/* Pantalla mobile standalone (MobileScreen.tsx): las que viven FUERA de
+   .ds-shell para poder usarse desde un teléfono (la sidebar no colapsa) — el
+   chat del agente interno (ítem 180) y el escáner de cupones (ítem 178). Una
+   columna a pantalla completa con un encabezado chico ("‹ Volver", título,
+   tema). 100dvh y no 100vh: en el celular el vh no descuenta la barra del
+   navegador y lo de abajo quedaría tapado. Nacieron como .ds-internal-chat-*
+   en el 180 y se generalizaron en el 178. */
+.ds-mobile-screen {
   display: flex;
   flex-direction: column;
   height: 100dvh;
   background: var(--color-bg);
 }
 
-.ds-internal-chat-header {
+.ds-mobile-screen-header {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -4249,12 +4249,12 @@ a.ds-button--secondary:hover {
   background: var(--color-surface);
 }
 
-.ds-internal-chat-back {
+.ds-mobile-screen-back {
   flex-shrink: 0;
   white-space: nowrap;
 }
 
-.ds-internal-chat-title {
+.ds-mobile-screen-title {
   flex: 1;
   min-width: 0;
   margin: 0;
@@ -4266,11 +4266,22 @@ a.ds-button--secondary:hover {
 
 /* El ThemeToggle reparte sus botones a lo ancho de su contenedor (pensado
    para el pie de la sidebar); en el encabezado va con un ancho fijo. */
-.ds-internal-chat-header .ds-theme-toggle {
+.ds-mobile-screen-header .ds-theme-toggle {
   flex: 0 0 auto;
   width: 6.5rem;
 }
 
+/* El cuerpo cuando no hay contenido propio que mostrar (cargando, vacío,
+   error). */
+.ds-mobile-screen-notice {
+  flex: 1;
+  padding: var(--space-4);
+}
+
+/* Chat del agente interno (ítem 180), adentro de .ds-mobile-screen: el hilo
+   con scroll propio y el formulario abajo de todo. Todo lo de adentro del
+   hilo es .ds-chat* tal cual; acá solo se le saca el alto máximo y la caja
+   para que ocupe el alto disponible. */
 .ds-internal-chat .ds-chat {
   flex: 1;
   min-height: 0;
@@ -4289,11 +4300,6 @@ a.ds-button--secondary:hover {
   justify-content: center;
 }
 
-.ds-internal-chat-notice {
-  flex: 1;
-  padding: var(--space-4);
-}
-
 .ds-internal-chat-form {
   flex-shrink: 0;
   padding: var(--space-3) var(--space-4);
@@ -4308,6 +4314,73 @@ a.ds-button--secondary:hover {
   min-height: var(--control-height);
   font-size: max(16px, 1rem);
   resize: none;
+}
+
+/* Escáner de cupones (ítem 178), adentro de .ds-mobile-screen: una columna
+   con scroll propio y ancho acotado — en una compu no se estira a toda la
+   pantalla. La cámara va cuadrada (el QR es cuadrado) y en negro mientras
+   arranca. */
+.ds-voucher-scan {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
+  max-width: 32rem;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: var(--space-4);
+  padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ds-voucher-scan .ds-hint,
+.ds-voucher-scan .ds-error {
+  margin: 0;
+}
+
+.ds-voucher-scan-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  background: #000;
+}
+
+/* Mismo esquema que .ds-error, en verde: el resultado del último canje. */
+.ds-voucher-scan-ok {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--color-success);
+  background: var(--color-success-soft);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+
+.ds-voucher-scan-label {
+  color: var(--color-text);
+  font-size: var(--font-size-lg);
+}
+
+.ds-voucher-scan-form {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.ds-voucher-scan-form .ds-field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* 16px como mínimo, mismo motivo que el textarea del chat. */
+.ds-voucher-scan-form input {
+  font-size: max(16px, 1rem);
 }
 
 /* ---------------------------------------------------------------------------
