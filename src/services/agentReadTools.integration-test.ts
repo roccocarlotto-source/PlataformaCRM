@@ -1901,3 +1901,216 @@ test("update_opportunity: perder SÍ guarda el motivo (ítems 124 y 128)", async
   assert.notEqual(contactoDespues.lifecycleStage, "CUSTOMER");
   assert.deepEqual(await eventosGanadaDe(a.organizationId, opportunityId), []);
 });
+
+// ---------------------------------------------------------------------------
+// Ítem 175: reserve_vehicle — la reserva explícita que el ítem 107 dejó afuera
+// ---------------------------------------------------------------------------
+// Unidades propias de cada test (una Ranger con una versión distinta por
+// caso): reservar cambia el estado de la unidad, y las Hilux de arriba las
+// usan los tests del ítem 107 esperando que sigan AVAILABLE.
+
+async function ranger(version: string) {
+  return unidad(a, {
+    make: "Ford",
+    model: "Ranger",
+    trim: version,
+    year: 2024,
+    priceListUsd: 45_000,
+  });
+}
+
+test("reserve_vehicle vincula la unidad a la oportunidad abierta y la deja RESERVED", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const v = await ranger("Reserva OK");
+  const { opportunityId } = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "Interés en Ranger" },
+    ctx,
+  );
+
+  // Sin opportunityId: se toma la abierta del contacto (mismo camino que el 112).
+  const r = await datosDe<{
+    opportunityId: string;
+    vehicleId: string;
+    vehiculo: string;
+    status: string;
+    yaEstabaReservada: boolean;
+  }>("reserve_vehicle", { vehiculo: "Ranger Reserva OK" }, ctx);
+
+  assert.equal(r.opportunityId, opportunityId);
+  assert.equal(r.vehicleId, v.id);
+  assert.match(r.vehiculo, /Ford Ranger Reserva OK 2024/);
+  assert.equal(r.status, "OPEN");
+  assert.equal(r.yaEstabaReservada, false);
+  assert.ok(!("amount" in r), "el precio interno no vuelve al modelo (ítem 98)");
+
+  const fila = await prisma.opportunity.findUniqueOrThrow({ where: { id: opportunityId } });
+  assert.equal(fila.vehicleId, v.id);
+  assert.equal(Number(fila.amount), 45_000, "la oportunidad toma el precio, como en el panel");
+  const unidadDespues = await prisma.vehicle.findUniqueOrThrow({ where: { id: v.id } });
+  assert.equal(unidadDespues.status, "RESERVED", "sale del stock para todos");
+
+  // Y efectivamente sale del stock: otro cliente ya no puede reservarla.
+  const otro = await nuevoContacto(a);
+  const otroCtx = contextoDe(a.organizationId, otro.id, a.branchId);
+  await datosDe("create_opportunity", { title: "Otro interesado" }, otroCtx);
+  const r2 = await ejecutar("reserve_vehicle", { vehiculo: "Ranger Reserva OK" }, otroCtx);
+  assert.equal(r2.ok, false);
+});
+
+test("reserve_vehicle pedida de nuevo sobre la misma unidad es idempotente, no un «ya no está»", async () => {
+  // resolverVehiculo solo ve las AVAILABLE: sin este caso, la segunda llamada
+  // contestaría "no hay ninguna unidad que coincida" sobre la unidad que el
+  // mismo cliente acaba de reservar, y el modelo le diría que ya no está.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const v = await ranger("Idempotente");
+  await datosDe("create_opportunity", { title: "Ranger" }, ctx);
+  await datosDe("reserve_vehicle", { vehiculo: "Ranger Idempotente" }, ctx);
+
+  const r = await datosDe<{ vehicleId: string; yaEstabaReservada: boolean }>(
+    "reserve_vehicle",
+    { vehiculo: "Ranger Idempotente" },
+    ctx,
+  );
+  assert.equal(r.vehicleId, v.id);
+  assert.equal(r.yaEstabaReservada, true);
+});
+
+test("reserve_vehicle no cambia una unidad ya reservada por otra: eso lo decide una persona", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const primera = await ranger("Primera");
+  const segunda = await ranger("Segunda");
+  await datosDe("create_opportunity", { title: "Ranger" }, ctx);
+  await datosDe("reserve_vehicle", { vehiculo: "Ranger Primera" }, ctx);
+
+  const r = await ejecutar("reserve_vehicle", { vehiculo: "Ranger Segunda" }, ctx);
+  assert.equal(r.ok, false);
+  const error = r.ok === false ? r.error : "";
+  assert.match(error, /ya tiene reservada otra unidad/);
+  assert.match(error, /Ranger Primera/);
+
+  // Nada se movió: la primera sigue reservada, la segunda libre.
+  const estadoDe = async (id: string) =>
+    (await prisma.vehicle.findUniqueOrThrow({ where: { id } })).status;
+  assert.equal(await estadoDe(primera.id), "RESERVED");
+  assert.equal(await estadoDe(segunda.id), "AVAILABLE");
+});
+
+test("reserve_vehicle sin oportunidad abierta avisa y sugiere create_opportunity, sin reservar", async () => {
+  const contacto = await nuevoContacto(a);
+  const v = await ranger("Sin oportunidad");
+  const r = await ejecutar(
+    "reserve_vehicle",
+    { vehiculo: "Ranger Sin oportunidad" },
+    contextoDe(a.organizationId, contacto.id, a.branchId),
+  );
+  // Mismo resultado que update_opportunity en ese estado (ítem 112).
+  assert.equal(r.ok, true);
+  const data = (r as { ok: true; data: { opportunityId: null; queHacer: string } }).data;
+  assert.equal(data.opportunityId, null);
+  assert.match(data.queHacer, /no tiene ninguna oportunidad abierta/);
+  assert.match(data.queHacer, /create_opportunity/);
+  const unidadDespues = await prisma.vehicle.findUniqueOrThrow({ where: { id: v.id } });
+  assert.equal(unidadDespues.status, "AVAILABLE");
+});
+
+test("reserve_vehicle con un vehículo inexistente, ambiguo o no publicado no reserva nada", async () => {
+  // Los casos de resolverVehiculo ya están probados con create_opportunity;
+  // acá solo se fija que ESTA tool también pasa por ahí.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const { opportunityId } = await datosDe<{ opportunityId: string }>(
+    "create_opportunity",
+    { title: "x" },
+    ctx,
+  );
+
+  const inexistente = await ejecutar("reserve_vehicle", { vehiculo: "Fiat Uno" }, ctx);
+  assert.equal(inexistente.ok, false);
+  assert.match(
+    inexistente.ok === false ? inexistente.error : "",
+    /No hay ninguna unidad publicada que coincida/,
+  );
+
+  const ambiguo = await ejecutar("reserve_vehicle", { vehiculo: "Hilux" }, ctx);
+  assert.equal(ambiguo.ok, false);
+  assert.match(ambiguo.ok === false ? ambiguo.error : "", /coincide con más de una unidad/);
+
+  const noPublicada = await ejecutar("reserve_vehicle", { vehiculo: "Corolla Reservada" }, ctx);
+  assert.equal(noPublicada.ok, false);
+
+  const fila = await prisma.opportunity.findUniqueOrThrow({ where: { id: opportunityId } });
+  assert.equal(fila.vehicleId, null);
+  for (const id of [hiluxSrv, hiluxDx]) {
+    const unidadDespues = await prisma.vehicle.findUniqueOrThrow({ where: { id } });
+    assert.equal(unidadDespues.status, "AVAILABLE");
+  }
+});
+
+test("reserve_vehicle: dos clientes a la vez por la misma unidad — gana uno, el otro recibe un resultado, no un throw", async () => {
+  // El 409 de opportunity.service (UNIDAD_NO_DISPONIBLE) es un error de
+  // negocio: conErroresDeNegocio lo devuelve como resultado. Según quién lea
+  // primero, el perdedor ve el 409 o directamente no encuentra la unidad
+  // entre las disponibles; en los dos casos es un ok: false limpio.
+  const v = await ranger("Carrera");
+  const contextos: ContextoDeEjecucionDeTool[] = [];
+  for (let i = 0; i < 2; i++) {
+    const contacto = await nuevoContacto(a);
+    const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+    await datosDe("create_opportunity", { title: `Ranger ${i}` }, ctx);
+    contextos.push(ctx);
+  }
+
+  const resultados = await Promise.all(
+    contextos.map((ctx) => ejecutar("reserve_vehicle", { vehiculo: "Ranger Carrera" }, ctx)),
+  );
+
+  assert.equal(resultados.filter((r) => r.ok).length, 1, JSON.stringify(resultados));
+  const perdedor = resultados.find((r) => !r.ok);
+  assert.match(
+    perdedor && perdedor.ok === false ? perdedor.error : "",
+    /no está disponible para vincularse|No hay ninguna unidad publicada que coincida/,
+  );
+  assert.equal(
+    await prisma.opportunity.count({ where: { vehicleId: v.id } }),
+    1,
+    "una sola oportunidad tiene la unidad",
+  );
+});
+
+test("reserve_vehicle nunca vincula a una oportunidad cerrada: sobre una ganada vendería la unidad", async () => {
+  // vehicleStatusForOpportunityStatus(WON) = SOLD. El service se lo permite a
+  // un vendedor; al agente no.
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const v = await ranger("Ganada");
+  const ganada = await prisma.opportunity.create({
+    data: {
+      organizationId: a.organizationId,
+      contactId: contacto.id,
+      ownerId: a.userId,
+      pipelineId,
+      stageId: primeraEtapaId,
+      title: "Ya ganada",
+      status: "WON",
+    },
+  });
+
+  const r = await ejecutar(
+    "reserve_vehicle",
+    { vehiculo: "Ranger Ganada", opportunityId: ganada.id },
+    ctx,
+  );
+  assert.equal(r.ok, false);
+  assert.match(
+    r.ok === false ? r.error : "",
+    /Solo se puede reservar una unidad para una oportunidad abierta/,
+  );
+  const unidadDespues = await prisma.vehicle.findUniqueOrThrow({ where: { id: v.id } });
+  assert.equal(unidadDespues.status, "AVAILABLE");
+  const fila = await prisma.opportunity.findUniqueOrThrow({ where: { id: ganada.id } });
+  assert.equal(fila.vehicleId, null);
+});

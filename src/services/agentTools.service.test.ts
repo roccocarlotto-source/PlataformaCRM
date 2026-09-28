@@ -46,7 +46,7 @@ async function rechazoDe(nombre: string, args: Record<string, unknown>): Promise
 // Forma del catálogo
 // ---------------------------------------------------------------------------
 
-test("el catálogo tiene exactamente las once tools (pasos 2b y 3, ítems 74 y 85), con su nombre como clave", () => {
+test("el catálogo tiene exactamente las doce tools (pasos 2b y 3, ítems 74, 85 y 175), con su nombre como clave", () => {
   assert.deepEqual([...CATALOGO_DE_TOOLS.keys()].sort(), [
     "create_booking",
     "create_lead",
@@ -56,6 +56,7 @@ test("el catálogo tiene exactamente las once tools (pasos 2b y 3, ítems 74 y 8
     "get_contact_info",
     "get_payment_info",
     "get_service_types",
+    "reserve_vehicle",
     "search_vehicles",
     "update_lead",
     "update_opportunity",
@@ -86,6 +87,61 @@ test("toolsHabilitadas es la intersección con el catálogo, en el orden del age
     ["create_booking", "create_opportunity"],
   );
   assert.deepEqual(toolsHabilitadas([]), []);
+});
+
+// ---------------------------------------------------------------------------
+// Ítem 175: reserve_vehicle
+// ---------------------------------------------------------------------------
+
+test("reserve_vehicle solo se le ofrece al modelo si el agente la tiene en enabledTools", () => {
+  // Es toda la configurabilidad: ningún agente existente la tiene, así que la
+  // reserva por IA arranca apagada para todos.
+  const sinReserva = toolsHabilitadas([
+    "create_opportunity",
+    "update_opportunity",
+    "search_vehicles",
+  ]).map((t) => t.definition.name);
+  assert.ok(!sinReserva.includes("reserve_vehicle"));
+
+  const conReserva = toolsHabilitadas(["create_opportunity", "reserve_vehicle"]).map(
+    (t) => t.definition.name,
+  );
+  assert.deepEqual(conReserva, ["create_opportunity", "reserve_vehicle"]);
+});
+
+test("reserve_vehicle exige el vehículo y nada más; el opportunityId es opcional", () => {
+  const params = CATALOGO_DE_TOOLS.get("reserve_vehicle")!.definition.parameters as {
+    required: string[];
+    properties: Record<string, { description: string }>;
+    additionalProperties: boolean;
+  };
+  assert.deepEqual(params.required, ["vehiculo"]);
+  assert.deepEqual(Object.keys(params.properties).sort(), ["opportunityId", "vehiculo"]);
+  assert.equal(params.additionalProperties, false);
+  assert.match(params.properties.opportunityId.description, /Nunca lo inventes/);
+});
+
+test("reserve_vehicle: la descripción dice que saca la unidad del stock y cuándo NO usarla", () => {
+  const descripcion = CATALOGO_DE_TOOLS.get("reserve_vehicle")!.definition.description;
+  assert.match(descripcion, /SACA LA UNIDAD DEL STOCK/);
+  assert.match(descripcion, /¿tenés esa camioneta\?/);
+  assert.match(descripcion, /create_opportunity/);
+  assert.match(descripcion, /no se lo podés confirmar al cliente/);
+});
+
+test("reserve_vehicle rechaza args inválidos antes de tocar la base, como error del modelo", async () => {
+  for (const args of [
+    {},
+    { vehiculo: "" },
+    { vehiculo: "   " },
+    { vehiculo: "Hilux SRV", opportunityId: "no-es-uuid" },
+    // .strict(): un vehicleId o un contactId no desaparecen en silencio.
+    { vehiculo: "Hilux SRV", vehicleId: UUID },
+    { vehiculo: "Hilux SRV", contactId: UUID },
+  ]) {
+    const mensaje = await rechazoDe("reserve_vehicle", args);
+    assert.ok(mensaje.endsWith(SUFIJO_ERROR_DE_ARGUMENTOS), JSON.stringify(args));
+  }
 });
 
 // ---------------------------------------------------------------------------

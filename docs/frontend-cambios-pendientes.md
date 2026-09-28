@@ -8107,3 +8107,35 @@ Las fechas además son las correctas (corrida del domingo 27/09: "pasado mañana
 ### Cómo se aplica
 
 Sin migración ni variables nuevas. Toma efecto con el deploy.
+
+## 175. Tool `reserve_vehicle`: el agente de IA puede reservar una unidad del stock, apagada por defecto
+
+**Estado:** hecho (27/09/2026). Sin migración, sin variables nuevas, sin campo nuevo en la base ni pantalla nueva. No se habilita en ningún agente existente: la reserva por IA arranca apagada para todos.
+
+**Contexto.** El ítem 107 hizo que `create_opportunity`/`update_opportunity` resolvieran el vehículo por nombre **solo para leer su precio**, nunca para vincularlo: `Opportunity.vehicleId` reserva la unidad de verdad (queda `RESERVED` y sale del stock para todos), y que la IA haga eso porque alguien escribió "me interesa la Hilux" es justo lo que el producto dice que la IA no hace sola. El comentario del ítem 107 lo dejó escrito: "si el negocio quiere que el agente reserve, es una decisión suya y necesita su propia tool, explícita". Este ítem es esa tool.
+
+**Qué se hace.** Tool nueva `reserve_vehicle` en `agentTools.service.ts`, con el mismo molde que `update_opportunity`: argumentos `vehiculo` (requerido, texto como figura en el stock, resuelto con `resolverVehiculo`) y `opportunityId` (opcional; sin él se toma la oportunidad abierta del contacto con `resolverOportunidad`). Llama al mismo `updateOpportunity` del panel con `{ vehicleId }` dentro de `conErroresDeNegocio`, así que el 409 `UNIDAD_NO_DISPONIBLE` del service vuelve como resultado de tool y no como throw. Devuelve `opportunityId`, `vehicleId`, `vehiculo` (etiqueta), `status` y `yaEstabaReservada`. Se suma a `CATALOGO_DE_TOOLS` y al checklist `AGENT_TOOL_OPTIONS` del frontend ("Reservar unidad"), con la misma descripción que lee el modelo.
+
+### Decisiones tomadas al implementarlo
+
+- **La configurabilidad es `Agent.enabledTools`, sin campo nuevo.** Es el mismo mecanismo que gobierna las otras 11 tools: el ADMIN la prende desde la pantalla de edición del agente (`AgentFormPage`). Como ningún agente existente tiene `reserve_vehicle` en su lista, queda apagada para todos sin migrar nada. No hay otra lista de "tools sensibles" que actualizar: los guardrails (`agentGuardrailsTranslation.service.ts`) y los permisos (`agentPermissions.service.ts`) se derivan del catálogo, así que `accionesProhibidas` puede nombrarla desde el primer día.
+- **Solo sobre una oportunidad ABIERTA.** El service le permite a un vendedor vincular una unidad a una oportunidad ganada, y eso la pasa a `SOLD` (`vehicleStatusForOpportunityStatus`). Con un `opportunityId` explícito el modelo podría apuntar a una cerrada; el wrapper lo rechaza antes de tocar nada.
+- **No cambia una unidad ya reservada por otra.** Si la oportunidad ya tiene una unidad vinculada, el service liberaría la anterior al vincular la nueva, y esa reserva pudo haberla hecho un vendedor. Soltarla es decisión de una persona: la tool devuelve un error que le dice al modelo que no se reservó nada y que derive.
+- **Pedir de nuevo la misma unidad es un éxito idempotente** (`yaEstabaReservada: true`). `resolverVehiculo` solo ve unidades `AVAILABLE`; sin este caso, una segunda llamada contestaría "no hay ninguna unidad que coincida" sobre la unidad que el propio cliente acaba de reservar, y el modelo le diría que ya no está. Para reconocerla con el mismo criterio se extrajeron `etiquetaDeVehiculo` y `coincideConTexto` de `resolverVehiculo` (refactor sin cambio de comportamiento).
+- **El monto no va en el resultado.** Al vincular, el service le pasa a la oportunidad el precio de la unidad (igual que desde el panel), pero ese es el precio interno, no necesariamente el publicado (ítem 98): el modelo no lo recibe.
+- **La descripción dice cuándo NO usarla** ("¿tenés esa camioneta?", una pregunta de precio o un "me interesa" → para eso está `create_opportunity`) y que hasta un resultado exitoso la unidad no está reservada — mismo tono que `create_booking`.
+- **Sin eval con el modelo real:** es lógica determinística, cubierta por unitarios e integración. La primera vez que un negocio la prenda conviene mirar sus primeras conversaciones.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `src/services/agentTools.service.ts` | tool `reserve_vehicle` + mensajes exportados; `resolverOportunidad` expone `status` y `vehicleId`; `etiquetaDeVehiculo`/`coincideConTexto` extraídas; comentario del ítem 107 apunta a esta tool; catálogo con 12 tools |
+| `src/services/agentTools.service.test.ts` | catálogo de 12; `toolsHabilitadas` sin/con la tool; forma de los parámetros; descripción; validación de args (vacío, UUID inválido, claves de más) |
+| `src/services/agentReadTools.integration-test.ts` | reserva OK (unidad `RESERVED`, monto de la unidad, no se ofrece a otro cliente); idempotencia; no cambia una reservada por otra; sin oportunidad abierta; inexistente/ambiguo/no publicado; dos clientes a la vez (gana uno, el otro recibe `ok: false`, no un throw); nunca sobre una ganada |
+| `frontend/src/features/agent/tools.ts` | entrada "Reservar unidad" en `AGENT_TOOL_OPTIONS` |
+| `frontend/src/features/agent/AgentFormPage.test.tsx` | la casilla aparece apagada en un agente existente y al prenderla viaja en `enabledTools` |
+
+### Cómo se aplica
+
+Sin migración ni variables nuevas. Toma efecto con el deploy, pero no cambia el comportamiento de ningún agente hasta que un negocio la habilite en "Acciones habilitadas". No se habilitó en la organización de AutoMax: eso es una decisión de negocio aparte.
