@@ -507,3 +507,16 @@ test("el cupón de descuento (ítem 176): el GET público y el canje están mont
   const canje = await fetch(`${baseUrl}/api/vouchers/${randomUUID()}/redeem`, { method: "POST" });
   assert.equal(canje.status, 401, "POST /api/vouchers/:id/redeem no está montado");
 });
+
+test("el agente interno (ítem 179): el chat y la configuración están montados bajo /api", async () => {
+  const casos: [string, string][] = [
+    ["GET", "/api/internal-agent/messages"],
+    ["POST", "/api/internal-agent/messages"],
+    ["GET", "/api/internal-agent"],
+    ["PUT", "/api/internal-agent"],
+  ];
+  for (const [method, path] of casos) {
+    const res = await fetch(`${baseUrl}${path}`, { method });
+    assert.equal(res.status, 401, `${method} ${path} no está montado`);
+  }
+});

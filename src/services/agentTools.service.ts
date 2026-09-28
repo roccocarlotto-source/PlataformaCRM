@@ -84,11 +84,15 @@ export interface ToolDelAgente {
   ): Promise<ResultadoDeTool>;
 }
 
-function fallo(error: string): ResultadoDeTool {
+// Ítem 179: exportados —junto con validarArgs, conErroresDeNegocio y los
+// helpers de argumentos opcionales de más abajo— para el catálogo del agente
+// interno (internalAgentTools.service.ts). Es la misma mecánica de
+// validación y de errores de negocio; lo que NO se comparte es el catálogo.
+export function fallo(error: string): ResultadoDeTool {
   return { ok: false, error };
 }
 
-function exito(data: unknown): ResultadoDeTool {
+export function exito(data: unknown): ResultadoDeTool {
   return { ok: true, data };
 }
 
@@ -148,7 +152,14 @@ export const SUFIJO_ERROR_DE_ARGUMENTOS =
 // Los argumentos vienen del modelo, así que son tan poco confiables como un
 // body HTTP: se validan con Zod igual que en un controller. Un fallo de
 // validación es un resultado de tool, no un 400 — el modelo puede corregirse.
-function validarArgs<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, args: unknown) {
+//
+// `sufijo` existe por el agente interno (ítem 179): SUFIJO_ERROR_DE_ARGUMENTOS
+// habla de "el cliente", y del otro lado de ese agente hay un empleado.
+export function validarArgs<T>(
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  args: unknown,
+  sufijo: string = SUFIJO_ERROR_DE_ARGUMENTOS,
+) {
   const parsed = schema.safeParse(args);
   if (parsed.success) {
     return { ok: true as const, value: parsed.data };
@@ -158,13 +169,15 @@ function validarArgs<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, args: unkno
     .join("; ");
   return {
     ok: false as const,
-    resultado: fallo(`Argumentos inválidos — ${detalle}${SUFIJO_ERROR_DE_ARGUMENTOS}`),
+    resultado: fallo(`Argumentos inválidos — ${detalle}${sufijo}`),
   };
 }
 
 // Ejecuta `fn` y traduce un AppError del service a un resultado de tool. Todo
 // lo demás se propaga (ver el encabezado).
-async function conErroresDeNegocio(fn: () => Promise<ResultadoDeTool>): Promise<ResultadoDeTool> {
+export async function conErroresDeNegocio(
+  fn: () => Promise<ResultadoDeTool>,
+): Promise<ResultadoDeTool> {
   try {
     return await fn();
   } catch (err) {
@@ -195,11 +208,11 @@ function esVacio(v: unknown): boolean {
   return v === null || (typeof v === "string" && v.trim() === "");
 }
 
-function vacioComoAusente<T extends z.ZodTypeAny>(schema: T) {
+export function vacioComoAusente<T extends z.ZodTypeAny>(schema: T) {
   return z.preprocess((v) => (esVacio(v) ? undefined : v), schema.optional());
 }
 
-function textoOpcional(max: number) {
+export function textoOpcional(max: number) {
   return vacioComoAusente(z.string().trim().min(1).max(max));
 }
 
@@ -221,7 +234,7 @@ function cantidadDeArgumentos(data: Record<string, unknown>): number {
 // Un instante ISO 8601 con zona (el modelo tiene que ser explícito: una fecha
 // "flotante" se interpretaría con la zona del servidor, que no es la de la
 // sucursal).
-const instanteIso = z
+export const instanteIso = z
   .string()
   .datetime({
     offset: true,
@@ -1038,7 +1051,7 @@ function nombresDe(tipos: { name: string }[]): string {
   return tipos.map((t) => `"${t.name}"`).join(", ");
 }
 
-function normalizarNombre(texto: string): string {
+export function normalizarNombre(texto: string): string {
   return texto
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")

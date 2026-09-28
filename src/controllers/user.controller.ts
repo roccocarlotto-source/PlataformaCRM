@@ -24,13 +24,17 @@ const listQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("asc"),
 });
 
-// No es un editor genérico: únicamente isActive y role. email/id/
-// organizationId/deletedAt no son campos de este schema — no hay forma de
-// enviarlos, ni por error.
+// No es un editor genérico: únicamente isActive, role y —desde el ítem 179—
+// canUseInternalAgent. email/id/organizationId/deletedAt no son campos de este
+// schema — no hay forma de enviarlos, ni por error.
 const updateUserSchema = z
   .object({
     isActive: z.boolean(),
     role: roleSchema,
+    // Acceso al agente de IA interno. Para un ADMIN no cambia nada (siempre lo
+    // tiene), pero se guarda igual: si después se lo degrada a USER, conserva
+    // lo que el ADMIN haya decidido para él.
+    canUseInternalAgent: z.boolean(),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {

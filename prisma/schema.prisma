@@ -345,6 +345,14 @@ enum DiscountVoucherStatus {
   CONSUMED
 }
 
+// Quién escribió un mensaje del hilo con el agente INTERNO (ítem 179). Mismo
+// espíritu que MessageSenderType, sin CONTACT ni HUMAN: del otro lado no hay un
+// cliente ni una derivación a una persona — quien escribe ya es la persona.
+enum InternalAgentMessageSenderType {
+  USER
+  AGENT
+}
+
 // ---------------------------------------------------------------------------
 // Enums del módulo QR (integración de QR Reviews, ver docs/qr-integration.md):
 // hoy no queda ninguno.
@@ -621,13 +629,16 @@ model Organization {
   // como todas las demás.
   knowledgeBaseEntries     KnowledgeBaseEntry[]
 
-  qrCodes           QrCode[]
-  qrFollowUps       QrFollowUp[]
+  qrCodes               QrCode[]
+  qrFollowUps           QrFollowUp[]
   // Cupones de descuento de un solo uso (ítem 176).
-  discountVouchers  DiscountVoucher[]
+  discountVouchers      DiscountVoucher[]
+  // El agente de IA de uso interno (ítem 179) — a lo sumo uno — y su historial.
+  internalAgents        InternalAgent[]
+  internalAgentMessages InternalAgentMessage[]
   // La plantilla de WhatsApp con la que salen sus seguimientos (ítem 160).
   // Una activa a la vez; las borradas quedan como historial.
-  whatsappTemplates WhatsappTemplate[]
+  whatsappTemplates     WhatsappTemplate[]
 
   vehicles          Vehicle[]
   vehiclePhotos     VehiclePhoto[]
@@ -677,16 +688,20 @@ model Role {
 // ---------------------------------------------------------------------------
 
 model User {
-  id             String    @id @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  roleId         String    @map("role_id") @db.Uuid
-  email          String    @unique @db.VarChar(255)
-  fullName       String    @map("full_name") @db.VarChar(255)
-  isActive       Boolean   @default(true) @map("is_active")
-  lastLoginAt    DateTime? @map("last_login_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-  deletedAt      DateTime? @map("deleted_at")
+  id                  String    @id @db.Uuid
+  organizationId      String    @map("organization_id") @db.Uuid
+  roleId              String    @map("role_id") @db.Uuid
+  email               String    @unique @db.VarChar(255)
+  fullName            String    @map("full_name") @db.VarChar(255)
+  isActive            Boolean   @default(true) @map("is_active")
+  // Acceso al agente de IA interno (ítem 179). Solo cuenta para USER: un ADMIN
+  // lo usa siempre, valga lo que valga esta columna (requireInternalAgentAccess).
+  // Default false: nadie que no sea ADMIN lo usa hasta que un ADMIN lo habilite.
+  canUseInternalAgent Boolean   @default(false) @map("can_use_internal_agent")
+  lastLoginAt         DateTime? @map("last_login_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
   role         Role         @relation(fields: [roleId], references: [id])
@@ -722,6 +737,10 @@ model User {
 
   // Los cupones de descuento que canjeó escaneándolos (ítem 176).
   consumedDiscountVouchers DiscountVoucher[] @relation("DiscountVoucherConsumedBy")
+
+  // Su hilo con el agente interno (ítem 179): lo que escribió y las respuestas
+  // que recibió — el hilo es por usuario.
+  internalAgentMessages InternalAgentMessage[] @relation("InternalAgentMessageUser")
 
   @@unique([organizationId, id])
   @@index([organizationId])
@@ -3630,4 +3649,97 @@ model KnowledgeBaseEntry {
   // el lado referenciante de la FK compuesta, que Postgres no indexa solo.
   @@index([organizationId, branchId, createdAt])
   @@map("knowledge_base_entries")
+}
+
+// ---------------------------------------------------------------------------
+// InternalAgent — el agente de IA de uso INTERNO de una organización (ítem 179
+// de docs/frontend-cambios-pendientes.md). El ADMIN, y los usuarios que el
+// ADMIN habilite (User.canUseInternalAgent), le consultan datos del negocio y
+// le piden acciones sin sentarse en una computadora.
+//
+// NO ES UN Agent. Es deliberadamente un subsistema aparte y chico: Agent,
+// Conversation y el loop de agentOrchestration.service.ts están armados
+// alrededor de un Contact real del otro lado (Conversation.contactId es NOT
+// NULL, las tools exigen conversation.contactId) y de una posible derivación
+// a un humano. Acá quien escribe es un empleado consultando sobre su propio
+// negocio. Por eso no tiene channels, guardrails, tone ni goal, y sus tools
+// son otro catálogo (internalAgentTools.service.ts).
+//
+// UNO POR ORGANIZACIÓN, no por sucursal: User no tiene branchId, así que "por
+// sucursal" hubiera exigido primero esa asignación, sin aportar nada en esta
+// versión. Si algún día son varios, @@unique([organizationId]) es lo primero
+// que se saca.
+//
+// Sin deletedAt: es un registro único de configuración que se edita con un
+// upsert; no hay alta ni baja.
+// ---------------------------------------------------------------------------
+model InternalAgent {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  name         String @db.VarChar(200)
+  // El prompt real, mismo criterio que Agent.instructions.
+  instructions String @db.Text
+
+  // String y no enum, mismo motivo que en Agent: el catálogo de proveedores y
+  // de modelos cambia más rápido de lo que conviene versionar en un enum.
+  modelProvider String @map("model_provider") @db.VarChar(50)
+  modelName     String @map("model_name") @db.VarChar(100)
+
+  // Mismo mecanismo que Agent.enabledTools, pero contra OTRO catálogo:
+  // CATALOGO_DE_TOOLS_INTERNAS, no el CATALOGO_DE_TOOLS de los agentes de
+  // cliente. Un nombre que no esté en ese catálogo nunca se le ofrece al modelo.
+  enabledTools String[] @map("enabled_tools")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  messages InternalAgentMessage[]
+
+  // Un solo agente interno por organización, hoy (ver el encabezado).
+  @@unique([organizationId])
+  // El UNIQUE que habilita la FK compuesta de internal_agent_messages (C-3).
+  // Redundante con el de arriba en lo lógico, pero una FK exige un UNIQUE
+  // exactamente sobre sus columnas.
+  @@unique([organizationId, id])
+  @@map("internal_agents")
+}
+
+// ---------------------------------------------------------------------------
+// InternalAgentMessage — el historial con el agente interno (ítem 179). Le da
+// memoria entre sesiones y deja rastro de qué acciones tomó (toolCalls).
+//
+// UN SOLO HILO CONTINUO POR USUARIO: no hay "conversaciones" como con los
+// clientes. El hilo es (internalAgentId, userId) ordenado por createdAt, y los
+// mensajes del AGENT llevan el userId de la persona a la que le contestó.
+//
+// Sin updatedAt ni deletedAt, igual que Message: es historia.
+// ---------------------------------------------------------------------------
+model InternalAgentMessage {
+  id              String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId  String @map("organization_id") @db.Uuid
+  internalAgentId String @map("internal_agent_id") @db.Uuid
+  userId          String @map("user_id") @db.Uuid
+
+  senderType InternalAgentMessageSenderType @map("sender_type")
+  content    String                         @db.Text
+  // Auditoría de qué tool se intentó, con qué argumentos y qué devolvió — la
+  // misma forma que Message.toolCalls. NULL si el turno no usó ninguna.
+  toolCalls  Json?                          @map("tool_calls")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  organization  Organization  @relation(fields: [organizationId], references: [id])
+  // Compuestas (C-3), NOT NULL -> RESTRICT (regla de 20260821140200). La de
+  // users, mismo criterio que Activity.author: no se pierde el rastro de quién
+  // escribió. User usa soft delete, así que en la práctica no se dispara.
+  internalAgent InternalAgent @relation(fields: [organizationId, internalAgentId], references: [organizationId, id])
+  user          User          @relation("InternalAgentMessageUser", fields: [organizationId, userId], references: [organizationId, id])
+
+  @@index([organizationId])
+  // Leer un hilo ordenado: la ventana del turno y el GET paginado.
+  @@index([internalAgentId, userId, createdAt])
+  @@map("internal_agent_messages")
 }

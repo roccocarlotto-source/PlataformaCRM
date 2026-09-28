@@ -3,6 +3,12 @@ import type { Response } from "express";
 import { z } from "zod";
 import { env } from "../config/env";
 import {
+  enabledToolsSchema,
+  modelNameSchema,
+  modelProviderSchema,
+  sinDuplicados,
+} from "../schemas/agentModelConfig.schema";
+import {
   createAgent,
   deleteAgent,
   getAgentById,
@@ -11,11 +17,7 @@ import {
 } from "../services/agent.service";
 import { translateGuardrailsText } from "../services/agentGuardrailsTranslation.service";
 import { runAgentTurn } from "../services/agentOrchestration.service";
-import {
-  LLM_PROVIDER_NAMES,
-  OPENROUTER_PROVIDER_NAME,
-  isLlmProviderName,
-} from "../services/llmProvider.service";
+import { OPENROUTER_PROVIDER_NAME } from "../services/llmProvider.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { normalizeOrigin } from "../utils/origin";
@@ -33,52 +35,7 @@ const channelSchema = z.nativeEnum(ConversationChannel, {
   }),
 });
 
-// Sin duplicados: un agente con ["WEB", "WEB"] no es un error de negocio pero
-// sí un dato sucio que cualquier consumidor tendría que limpiar. Se dedupe
-// acá, una vez, conservando el orden.
-function sinDuplicados<T>(valores: T[]): T[] {
-  return Array.from(new Set(valores));
-}
-
 const channelsSchema = z.array(channelSchema).transform(sinDuplicados);
-
-// Los nombres de tools del catálogo de §7 son snake_case ("create_opportunity",
-// "get_availability"). Se valida la FORMA, no la pertenencia al catálogo: el
-// catálogo vive en código y recién existe en 2b — validar contra él acá sería
-// acoplar el CRUD a un archivo que todavía no está. Un nombre que no esté en el
-// catálogo simplemente nunca se ofrece al modelo (paso 2 de §4 filtra por
-// intersección), así que un typo es inofensivo pero visible.
-const toolNameSchema = z
-  .string()
-  .trim()
-  .min(1, "enabledTools no admite nombres vacíos")
-  .max(100, "un nombre de tool no puede superar los 100 caracteres")
-  .regex(
-    /^[a-z][a-z0-9_]*$/,
-    "cada tool de enabledTools debe ser snake_case (ej. create_opportunity)",
-  );
-
-const enabledToolsSchema = z.array(toolNameSchema).transform(sinDuplicados);
-
-// Agent.modelProvider es VarChar libre en la base; el borde valida contra los
-// adaptadores que existen (LLM_PROVIDER_NAMES). Ver la nota en
-// llmProvider.service.ts.
-const modelProviderSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .refine(isLlmProviderName, {
-    message: `modelProvider debe ser uno de: ${LLM_PROVIDER_NAMES.join(", ")}`,
-  });
-
-// modelName es libre a propósito: el catálogo de modelos cambia más rápido de
-// lo que conviene versionar (comentario del schema y de OPENROUTER_MODEL). Un
-// modelo inexistente falla con un 404 claro de OpenRouter al usarlo, no acá.
-const modelNameSchema = z
-  .string()
-  .trim()
-  .min(1, "modelName es requerido")
-  .max(100, "modelName no puede superar los 100 caracteres");
 
 // Objeto JSON plano. z.record rechaza arrays y null (parsedType distinto de
 // "object"), que es exactamente la forma que §6 documenta para guardrails.

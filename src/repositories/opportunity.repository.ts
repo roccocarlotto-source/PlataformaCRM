@@ -337,3 +337,28 @@ export function markStaleFollowUpDrafted(
 ) {
   return db.$executeRaw`UPDATE opportunities SET last_stale_follow_up_drafted_at = (${cuando.toISOString()}::timestamptz AT TIME ZONE 'UTC') WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid`;
 }
+
+// Resolver una oportunidad por su título escrito por una persona (ítem 179,
+// create_internal_task). Mismo criterio que findContactsMatchingAllWords:
+// cada palabra tiene que aparecer en el título. `contactId` acota la búsqueda
+// a las oportunidades de un contacto ya resuelto.
+export function findOpportunitiesMatchingAllWords(
+  organizationId: string,
+  palabras: string[],
+  filtros: { contactId?: string },
+  take: number,
+  db: Db = prisma,
+) {
+  return db.opportunity.findMany({
+    where: {
+      organizationId,
+      deletedAt: null,
+      ...(filtros.contactId ? { contactId: filtros.contactId } : {}),
+      AND: palabras.map((palabra) => ({
+        title: { contains: palabra, mode: "insensitive" as const },
+      })),
+    },
+    orderBy: { updatedAt: "desc" },
+    take,
+  });
+}

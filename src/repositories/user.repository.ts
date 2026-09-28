@@ -140,6 +140,7 @@ export function countActiveAdmins(organizationId: string, excludeId?: string, db
 export interface UpdateUserData {
   isActive?: boolean;
   roleId?: string;
+  canUseInternalAgent?: boolean;
 }
 
 // updateMany en vez de update: el WHERE efectivo tiene que exigir

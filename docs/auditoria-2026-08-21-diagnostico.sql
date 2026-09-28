@@ -234,7 +234,10 @@ from (
       ('contact_channel_identities'),
       -- Cupón de descuento de un solo uso (ítem 176, migración
       -- 20261006120000): organization_id propio y la política uniforme.
-      ('discount_vouchers')
+      ('discount_vouchers'),
+      -- Agente de IA interno (ítem 179, migración 20261007120000): las dos
+      -- tablas con organization_id propio y la política uniforme.
+      ('internal_agents'), ('internal_agent_messages')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -892,7 +895,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 67 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 69 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -916,7 +919,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 67 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 69 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1059,7 +1062,13 @@ from (
     ('discount_vouchers_organization_id_automation_id_fkey|discount_vouchers(organization_id,automation_id)->automations(organization_id,id)'),
     ('discount_vouchers_organization_id_consumed_by_user_id_fkey|discount_vouchers(organization_id,consumed_by_user_id)->users(organization_id,id)'),
     ('discount_vouchers_organization_id_contact_id_fkey|discount_vouchers(organization_id,contact_id)->contacts(organization_id,id)'),
-    ('discount_vouchers_organization_id_opportunity_id_fkey|discount_vouchers(organization_id,opportunity_id)->opportunities(organization_id,id)')
+    ('discount_vouchers_organization_id_opportunity_id_fkey|discount_vouchers(organization_id,opportunity_id)->opportunities(organization_id,id)'),
+    -- Agente de IA interno (ítem 179, migración 20261007120000). user_id es
+    -- el candidato de siempre: una FK bien formada hacia contacts (que también
+    -- tiene UNIQUE (organization_id, id)) pasaría la fila 14 y dejaría el hilo
+    -- colgado de un cliente en vez de un empleado.
+    ('internal_agent_messages_organization_id_internal_agent_id_fkey|internal_agent_messages(organization_id,internal_agent_id)->internal_agents(organization_id,id)'),
+    ('internal_agent_messages_organization_id_user_id_fkey|internal_agent_messages(organization_id,user_id)->users(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
