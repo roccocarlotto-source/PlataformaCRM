@@ -779,6 +779,36 @@ describe("AgentFormPage — edición", () => {
     expect(bodies[0].enabledTools).toEqual(["create_lead", "tool_del_futuro"]);
   });
 
+  it("reservar unidad aparece apagada en un agente existente, y el negocio la prende desde acá", async () => {
+    // Ítem 175: reserve_vehicle saca una unidad del stock, así que ningún
+    // agente la trae; la configurabilidad es la misma casilla que las demás.
+    const bodies: Record<string, unknown>[] = [];
+    server.use(
+      mockBranches(),
+      mockAgentDetalle({ enabledTools: ["create_opportunity"] }),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        bodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+    await screen.findByLabelText("Nombre");
+
+    await user.click(screen.getByLabelText("Acciones habilitadas", { selector: "button" }));
+    const reservar = screen.getByRole("checkbox", { name: "Reservar unidad" });
+    expect(reservar).not.toBeChecked();
+    expect(screen.getByText(/SACA LA UNIDAD DEL STOCK/)).toBeInTheDocument();
+    await user.click(reservar);
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0].enabledTools).toEqual(["create_opportunity", "reserve_vehicle"]);
+  });
+
   it("vaciar el Modelo se frena en el cliente: borrarlo no vuelve al modelo por defecto", async () => {
     let llamadas = 0;
     server.use(

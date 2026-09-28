@@ -37,6 +37,14 @@ export const AGENT_TOOL_OPTIONS: MultiSelectOption<string>[] = [
       "Modifica la oportunidad abierta del contacto de esta conversación: título, monto, moneda o vehículo, o la marca como perdida con el motivo del cliente. No puede ganarla, reabrirla ni moverla de etapa: eso lo hace una persona del equipo. No permite cambiar el vendedor ni el pipeline.",
   },
   {
+    // Ítem 175: la única tool que saca una unidad del stock. Ningún agente la
+    // trae habilitada; la prende el negocio acá si quiere que su agente reserve.
+    value: "reserve_vehicle",
+    label: "Reservar unidad",
+    subtitle:
+      "Reserva una unidad del stock para el contacto de esta conversación, vinculándola a su oportunidad abierta. Esto SACA LA UNIDAD DEL STOCK para cualquier otro cliente hasta que el equipo la libere. Usala SOLO cuando el cliente confirmó que quiere avanzar con ESA unidad puntual («quiero reservar la Hilux SRV», «apartámela», «vamos con esa»); NO ante un «¿tenés esa camioneta?», una pregunta de precio o un «me interesa»: para registrar interés está create_opportunity. Si el contacto no tiene una oportunidad abierta, primero llamá a create_opportunity. Hasta que esta tool no devuelva un resultado exitoso, la unidad NO está reservada y no se lo podés confirmar al cliente. Si la unidad ya no está disponible, se te va a avisar: no la presentes como disponible. No cambia una unidad que ya esté reservada por otra.",
+  },
+  {
     value: "get_availability",
     label: "Consultar disponibilidad",
     subtitle:

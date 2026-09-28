@@ -1,5 +1,6 @@
 import {
   LeadUrgency,
+  OpportunityStatus,
   VehicleBodyType,
   VehicleCondition,
   VehicleFuelType,
@@ -18,6 +19,7 @@ import { findStageById, findStagesByPipeline } from "../repositories/stage.repos
 import {
   countVehicles,
   findManyVehicles,
+  findVehicleById,
   type VehicleFilters,
 } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
@@ -246,7 +248,8 @@ const instanteIso = z
 // la Hilux" es exactamente lo que el producto dice que la IA no hace sola, y
 // lo mismo que el ítem 92 le prohíbe en materia comercial. Así que acá se lee
 // el precio y nada más. Si el negocio quiere que el agente reserve, es una
-// decisión suya y necesita su propia tool, explícita.
+// decisión suya y necesita su propia tool, explícita: es reserve_vehicle
+// (ítem 175), apagada salvo que el negocio la habilite en su agente.
 //
 // Se resuelve por TEXTO ("Hilux SRV"), no por id, por la misma razón del ítem
 // 106: acarrear UUIDs es lo que el modelo hace mal, y el nombre del auto es lo
@@ -263,6 +266,28 @@ function palabrasNormalizadas(texto: string): string[] {
     .filter((p) => p.length > 0);
 }
 
+interface VehiculoNombrable {
+  internalCode: string;
+  make: string;
+  model: string;
+  trim: string | null;
+  year: number;
+}
+
+function etiquetaDeVehiculo(v: VehiculoNombrable): string {
+  return [v.make, v.model, v.trim, v.year].filter(Boolean).join(" ");
+}
+
+// Todas las palabras que dijo el cliente tienen que aparecer: "Hilux SRV"
+// encuentra la SRV y no la DX, y "Hilux" solo devolvería las dos (y pide
+// desambiguar, que es lo correcto). Ítem 175: fuera de resolverVehiculo para
+// que reserve_vehicle reconozca con el mismo criterio la unidad que la
+// oportunidad ya tiene reservada.
+function coincideConTexto(v: VehiculoNombrable, texto: string): boolean {
+  const heno = normalizarNombre(`${v.internalCode} ${etiquetaDeVehiculo(v)}`);
+  return palabrasNormalizadas(texto).every((palabra) => heno.includes(palabra));
+}
+
 async function resolverVehiculo(
   texto: string,
   contexto: ContextoDeEjecucionDeTool,
@@ -277,16 +302,7 @@ async function resolverVehiculo(
     { sortBy: "priceListUsd", sortOrder: "asc" },
   );
 
-  const etiquetaDe = (v: (typeof publicados)[number]) =>
-    [v.make, v.model, v.trim, v.year].filter(Boolean).join(" ");
-  const buscadas = palabrasNormalizadas(texto);
-  // Todas las palabras que dijo el cliente tienen que aparecer: "Hilux SRV"
-  // encuentra la SRV y no la DX, y "Hilux" solo devolvería las dos (y pide
-  // desambiguar, que es lo correcto).
-  const candidatos = publicados.filter((v) => {
-    const heno = normalizarNombre(`${v.internalCode} ${etiquetaDe(v)}`);
-    return buscadas.every((palabra) => heno.includes(palabra));
-  });
+  const candidatos = publicados.filter((v) => coincideConTexto(v, texto));
 
   if (candidatos.length === 1) {
     const v = candidatos[0];
@@ -294,7 +310,7 @@ async function resolverVehiculo(
       ok: true,
       vehiculo: {
         id: v.id,
-        etiqueta: etiquetaDe(v),
+        etiqueta: etiquetaDeVehiculo(v),
         // Solo el precio que el negocio publica (ítem 98), y nunca el de una
         // unidad "a consultar".
         priceListUsd:
@@ -315,7 +331,7 @@ async function resolverVehiculo(
   return {
     ok: false,
     resultado: fallo(
-      `"${texto}" coincide con más de una unidad: ${candidatos.map((v) => `"${etiquetaDe(v)}"`).join(", ")}. Preguntale al cliente cuál es y volvé a intentarlo con esa.`,
+      `"${texto}" coincide con más de una unidad: ${candidatos.map((v) => `"${etiquetaDeVehiculo(v)}"`).join(", ")}. Preguntale al cliente cuál es y volvé a intentarlo con esa.`,
     ),
   };
 }
@@ -645,7 +661,16 @@ async function resolverOportunidad(
   opportunityId: string | undefined,
   contexto: ContextoDeEjecucionDeTool,
 ): Promise<
-  | { ok: true; opportunity: { id: string; contactId: string | null; ownerId: string } }
+  | {
+      ok: true;
+      opportunity: {
+        id: string;
+        contactId: string | null;
+        ownerId: string;
+        status: OpportunityStatus;
+        vehicleId: string | null;
+      };
+    }
   | { ok: false; resultado: ResultadoDeTool }
 > {
   if (opportunityId !== undefined) {
@@ -791,6 +816,131 @@ const updateOpportunityTool: ToolDelAgente = {
         currency: actualizada.currency,
         status: actualizada.status,
         lostReason: actualizada.lostReason,
+      });
+    });
+  },
+};
+
+// ---------------------------------------------------------------------------
+// reserve_vehicle (ítem 175)
+// ---------------------------------------------------------------------------
+// La tool que el ítem 107 dejó pendiente a propósito: vincular la unidad a la
+// oportunidad, que la RESERVA (queda RESERVED y sale del stock para todos).
+// Es una decisión del negocio, así que la configurabilidad es la de siempre:
+// Agent.enabledTools. Ningún agente la tiene habilitada hasta que un ADMIN la
+// prenda desde la pantalla del agente — no hay campo ni flag aparte.
+//
+// El wrapper no reimplementa nada de la reserva: llama al mismo
+// updateOpportunity del panel, que toma el lock de organización, exige que la
+// unidad esté AVAILABLE (409 si no, que conErroresDeNegocio devuelve como
+// resultado) y le pasa el precio de la unidad a la oportunidad.
+//
+// Lo que SÍ decide este wrapper, porque el service se lo permitiría a un
+// humano pero no a un agente:
+//   - Solo sobre una oportunidad ABIERTA. Vincular una unidad a una ganada la
+//     pasa a SOLD (vehicleStatusForOpportunityStatus): eso sería vender un auto.
+//   - No cambia una unidad ya reservada por otra. El service liberaría la
+//     anterior, y esa reserva pudo haberla hecho un vendedor: soltarla es
+//     decisión de una persona.
+//   - Pedir de nuevo la unidad que ya tiene reservada es un éxito idempotente,
+//     no un "no hay ninguna unidad que coincida" (resolverVehiculo solo ve las
+//     AVAILABLE) que el modelo le traduciría al cliente como "ya no está".
+
+const reserveVehicleArgs = z
+  .object({
+    vehiculo: z.string().trim().min(1, "vehiculo es requerido").max(255),
+    opportunityId: vacioComoAusente(uuid("opportunityId")),
+  })
+  .strict();
+
+export const MENSAJE_RESERVA_SOLO_OPORTUNIDAD_ABIERTA =
+  "Solo se puede reservar una unidad para una oportunidad abierta: no se reservó nada. Volvé a llamarla SIN opportunityId para usar la oportunidad abierta del contacto.";
+
+export function mensajeYaTieneOtraUnidadReservada(etiqueta: string): string {
+  return `La oportunidad de este contacto ya tiene reservada otra unidad ("${etiqueta}"): no se reservó nada. Cambiar la unidad reservada lo hace una persona del equipo, no vos. Si el cliente quiere cambiar de unidad, decile que alguien del equipo lo va a gestionar, y derivá si hace falta.`;
+}
+
+const reserveVehicleTool: ToolDelAgente = {
+  definition: {
+    name: "reserve_vehicle",
+    description:
+      "Reserva una unidad del stock para el contacto de esta conversación, vinculándola a su oportunidad abierta. Esto SACA LA UNIDAD DEL STOCK para cualquier otro cliente hasta que el equipo la libere. Usala SOLO cuando el cliente confirmó que quiere avanzar con ESA unidad puntual («quiero reservar la Hilux SRV», «apartámela», «vamos con esa»); NO ante un «¿tenés esa camioneta?», una pregunta de precio o un «me interesa»: para registrar interés está create_opportunity. Si el contacto no tiene una oportunidad abierta, primero llamá a create_opportunity. Hasta que esta tool no devuelva un resultado exitoso, la unidad NO está reservada y no se lo podés confirmar al cliente. Si la unidad ya no está disponible, se te va a avisar: no la presentes como disponible. No cambia una unidad que ya esté reservada por otra.",
+    parameters: {
+      type: "object",
+      properties: {
+        vehiculo: {
+          type: "string",
+          description:
+            "Marca y modelo (y versión si hace falta para distinguirla) de la unidad a reservar, tal como figura en el stock.",
+        },
+        opportunityId: {
+          type: "string",
+          description:
+            "OPCIONAL, y casi siempre sobra: si no lo mandás se toma la oportunidad abierta del contacto de esta conversación, que es la que corresponde. Mandalo SOLO si tenés el id exacto que te devolvió una herramienta en esta misma conversación. Nunca lo inventes ni lo deduzcas.",
+        },
+      },
+      required: ["vehiculo"],
+      additionalProperties: false,
+    },
+  },
+
+  ejecutar(args, contexto) {
+    const validacion = validarArgs(reserveVehicleArgs, args);
+    if (!validacion.ok) {
+      return Promise.resolve(validacion.resultado);
+    }
+    const { vehiculo, opportunityId } = validacion.value;
+
+    return conErroresDeNegocio(async () => {
+      const resuelta = await resolverOportunidad(opportunityId, contexto);
+      if (!resuelta.ok) {
+        return resuelta.resultado;
+      }
+      const { opportunity } = resuelta;
+      if (opportunity.status !== "OPEN") {
+        return fallo(`${MENSAJE_RESERVA_SOLO_OPORTUNIDAD_ABIERTA}${SUFIJO_ERROR_DE_ARGUMENTOS}`);
+      }
+
+      if (opportunity.vehicleId) {
+        const reservada = await findVehicleById(opportunity.vehicleId, contexto.organizationId);
+        if (reservada && coincideConTexto(reservada, vehiculo)) {
+          return exito({
+            opportunityId: opportunity.id,
+            vehicleId: reservada.id,
+            vehiculo: etiquetaDeVehiculo(reservada),
+            status: opportunity.status,
+            yaEstabaReservada: true,
+          });
+        }
+        return fallo(
+          mensajeYaTieneOtraUnidadReservada(
+            reservada ? etiquetaDeVehiculo(reservada) : "una unidad del stock",
+          ),
+        );
+      }
+
+      const resuelto = await resolverVehiculo(vehiculo, contexto);
+      if (!resuelto.ok) {
+        return resuelto.resultado;
+      }
+
+      // Sin amount ni currency: el service le pasa a la oportunidad el precio
+      // de la unidad, igual que cuando un vendedor la vincula desde el panel.
+      // Ese monto NO va en el resultado: es el precio interno, no
+      // necesariamente el publicado (ítem 98).
+      const actualizada = await updateOpportunity(
+        contexto.organizationId,
+        opportunity.ownerId,
+        opportunity.id,
+        { vehicleId: resuelto.vehiculo.id },
+      );
+
+      return exito({
+        opportunityId: actualizada.id,
+        vehicleId: resuelto.vehiculo.id,
+        vehiculo: resuelto.vehiculo.etiqueta,
+        status: actualizada.status,
+        yaEstabaReservada: false,
       });
     });
   },
@@ -1880,6 +2030,7 @@ export const CATALOGO_DE_TOOLS: ReadonlyMap<string, ToolDelAgente> = new Map(
   [
     createOpportunityTool,
     updateOpportunityTool,
+    reserveVehicleTool,
     getAvailabilityTool,
     createBookingTool,
     createLeadTool,
