@@ -615,6 +615,24 @@ const envSchema = z.object({
   QR_RESOLVE_PROXY_SECRET: z.string().optional(),
   QR_RESOLVE_PROXY_SECRET_PREVIOUS: z.string().optional(),
 
+  // QR_PUBLIC_BASE_URL: el origen público del Cloudflare Worker
+  // (https://nexoraqrs.com en producción) — la contraparte de backend de
+  // VITE_QR_PUBLIC_BASE_URL del frontend, mismo valor. La usa
+  // utils/voucherPublicUrl.ts para armar el link del cupón (`/v/:id`), que es
+  // lo que codifica el QR de la página del cupón (ítem 178). El backend no
+  // tiene otra forma de saberlo: el Worker le pega directo, sin contarle desde
+  // qué dominio llegó el cliente.
+  //
+  // OPCIONAL: sin ella la página del cupón funciona igual y el QR codifica
+  // solo el id — la pantalla de escaneo del CRM lo canjea igual (extrae el
+  // UUID del final del texto). Lo único que se pierde es que un celular
+  // cualquiera que escanee ese QR abra la página. Vacía (`QR_PUBLIC_BASE_URL=`,
+  // como queda al copiar .env.example) cuenta como ausente, no como URL
+  // inválida que frena el arranque.
+  QR_PUBLIC_BASE_URL: z
+    .preprocess((valor) => (valor === "" ? undefined : valor), z.string().url().optional())
+    .transform((valor) => valor?.replace(/\/+$/, "")),
+
   // -------------------------------------------------------------------------
   // Proveedor de LLM — módulo de Agentes de IA (docs/ai-agent-architecture.md,
   // paso 2a de §9; decisión de proveedor en §10). Ver

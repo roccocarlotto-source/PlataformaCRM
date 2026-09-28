@@ -14,6 +14,7 @@ import { consumirDiscountVoucher } from "../repositories/discountVoucher.reposit
 import { findRoleByName } from "../repositories/role.repository";
 import { voucherRouter } from "../routes/voucher.routes";
 import { voucherPublicRouter } from "../routes/voucherPublic.routes";
+import { voucherQrDataUrl } from "../utils/voucherLanding";
 import {
   CUPON_NO_ENCONTRADO,
   CUPON_VENCIDO,
@@ -30,7 +31,8 @@ import {
 // Lo que se fija acá y no se puede fijar sin base:
 //
 //   1. La creación real pasa las FKs compuestas y el CHECK de consistencia.
-//   2. GET /vouchers/resolve/:id: ACTIVE / CONSUMED / EXPIRED, y que un id
+//   2. GET /vouchers/resolve/:id: la página HTML de ACTIVE (con el QR del link
+//      público) / CONSUMED / EXPIRED (sin QR), y que un id
 //      inexistente responde byte a byte lo mismo que el gate sin secreto.
 //   3. POST /api/vouchers/:id/redeem: lo canjea un USER (sin authorize), 409
 //      al segundo canje y al vencido (que queda ACTIVE), 404 desde otra
@@ -45,6 +47,7 @@ import {
 
 const PASSWORD = "Voucher-test-password-123!";
 const SECRETO = "secreto-de-prueba-vouchers";
+const BASE_PUBLICA = "https://cupones.example.test";
 const DIA_MS = 24 * 60 * 60 * 1000;
 
 interface FixtureUser {
@@ -66,6 +69,7 @@ let orgB: string;
 let userA: FixtureUser;
 let userB: FixtureUser;
 const secretoOriginal = env.QR_RESOLVE_PROXY_SECRET;
+const basePublicaOriginal = env.QR_PUBLIC_BASE_URL;
 
 function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
   const app = express();
@@ -218,6 +222,7 @@ async function mensajeDeError(res: Response): Promise<string> {
 
 before(async () => {
   env.QR_RESOLVE_PROXY_SECRET = SECRETO;
+  env.QR_PUBLIC_BASE_URL = BASE_PUBLICA;
   const started = await startTestApp();
   baseUrl = started.url;
   closeApp = started.close;
@@ -232,6 +237,7 @@ before(async () => {
 
 after(async () => {
   env.QR_RESOLVE_PROXY_SECRET = secretoOriginal;
+  env.QR_PUBLIC_BASE_URL = basePublicaOriginal;
   if (closeApp) await closeApp();
   for (const org of [a?.organizationId, orgB]) {
     if (!org) continue;
@@ -292,14 +298,22 @@ test("el CHECK de consistencia frena un CONSUMED sin consumed_at / consumed_by_u
 // GET /vouchers/resolve/:id
 // ---------------------------------------------------------------------------
 
-test("GET público: activo -> 200 { status: ACTIVE, label }, sin datos del contacto ni de la oportunidad", async () => {
+test("GET público: activo -> 200 HTML con label, 'Activo' y el QR del link público, sin datos del contacto", async () => {
   const c = await nuevoCupon(a);
   const res = await resolver(c.id);
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), {
-    status: "ACTIVE",
-    label: "15% de descuento en el taller",
-  });
+  assert.ok(res.headers.get("content-type")?.startsWith("text/html"));
+  const html = await res.text();
+  assert.ok(html.includes("<h1>15% de descuento en el taller</h1>"));
+  assert.ok(html.includes(">Activo<"));
+  // El QR codifica el link de ESTA página por el Worker, no el del backend.
+  assert.ok(
+    html.includes(`src="${await voucherQrDataUrl(`${BASE_PUBLICA}/v/${c.id}`)}"`),
+    "el QR codifica ${QR_PUBLIC_BASE_URL}/v/:id",
+  );
+  for (const dato of [a.contactId, a.opportunityId, a.organizationId]) {
+    assert.equal(html.includes(dato), false);
+  }
 
   // Abrirlo no lo consume, las veces que sea.
   await resolver(c.id);
@@ -307,18 +321,23 @@ test("GET público: activo -> 200 { status: ACTIVE, label }, sin datos del conta
   assert.equal(fila.status, "ACTIVE");
 });
 
-test("GET público: consumido -> CONSUMED; vencido -> EXPIRED (derivado, la base sigue en ACTIVE)", async () => {
+test("GET público: consumido -> 'Ya canjeado'; vencido -> 'Vencido' (derivado, la base sigue en ACTIVE); ninguno con QR", async () => {
   const consumido = await nuevoCupon(a);
   assert.equal((await canjear(consumido.id, userA.accessToken)).status, 200);
-  assert.equal(
-    ((await (await resolver(consumido.id)).json()) as { status: string }).status,
-    "CONSUMED",
-  );
+  const resConsumido = await resolver(consumido.id);
+  assert.equal(resConsumido.status, 200);
+  assert.ok(resConsumido.headers.get("content-type")?.startsWith("text/html"));
+  const htmlConsumido = await resConsumido.text();
+  assert.ok(htmlConsumido.includes(">Ya canjeado<"));
+  assert.equal(htmlConsumido.includes("<img"), false);
 
   const vencido = await cuponVencido(a);
   const res = await resolver(vencido.id);
   assert.equal(res.status, 200);
-  assert.equal(((await res.json()) as { status: string }).status, "EXPIRED");
+  assert.ok(res.headers.get("content-type")?.startsWith("text/html"));
+  const html = await res.text();
+  assert.ok(html.includes(">Vencido<"));
+  assert.equal(html.includes("<img"), false);
   const fila = await prisma.discountVoucher.findUniqueOrThrow({ where: { id: vencido.id } });
   assert.equal(fila.status, "ACTIVE");
 });

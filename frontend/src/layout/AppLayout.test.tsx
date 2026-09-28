@@ -554,6 +554,18 @@ describe("AppLayout — nav de platform admin (Fase 4a del módulo SaaS)", () =>
   });
 });
 
+describe("AppLayout — link al escáner de cupones (ítem 178)", () => {
+  it.each(["ADMIN", "USER"] as const)("un %s lo ve: el canje no restringe por rol", (role) => {
+    useAuthMock.mockReturnValue(mockAuth(role));
+    renderLayout();
+
+    expect(screen.getByRole("link", { name: "Canjear cupón" })).toHaveAttribute(
+      "href",
+      "/vouchers/scan",
+    );
+  });
+});
+
 describe("AppLayout — link al agente interno (ítem 180)", () => {
   function conAcceso(role: "ADMIN" | "USER", canUseInternalAgent: boolean): AuthContextValue {
     const base = mockAuth(role);

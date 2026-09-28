@@ -8176,7 +8176,7 @@ Un cupón de descuento es un caso genuinamente distinto: si se puede usar dos ve
 - **CHECK `discount_vouchers_consumed_consistency_check`** (en la migración, no en `manual_constraints.sql`, que desde B-15 ya no recibe CHECKs nuevos): `ACTIVE` exige `consumed_at` y `consumed_by_user_id` en NULL; `CONSUMED` exige los dos. Un canje a medio escribir es imposible a nivel de motor.
 - **La política RLS vive solo en la migración**, no en `prisma/sql/rls_policies.sql`. Es lo que hicieron las últimas tablas (`qr_follow_ups`, `whatsapp_templates`, `contact_channel_identities`): `rls_policies.sql` no se toca desde el módulo de vehículos.
 - **Índices en los cuatro lados referenciantes** (oportunidad, contacto, regla, usuario que canjeó), no solo en el de la oportunidad: Postgres no los indexa solo, y sin ellos un `RESTRICT`/`NO ACTION` escanea la tabla entera.
-- **El GET público responde JSON, no HTML ni redirect.** A diferencia del QR (que redirige a un destino), acá lo consume la página del cupón del 178. El 404 sí es la landing HTML compartida con el gate, para no revelar la diferencia.
+- **El GET público responde JSON, no HTML ni redirect.** A diferencia del QR (que redirige a un destino), acá lo consume la página del cupón del 178. El 404 sí es la landing HTML compartida con el gate, para no revelar la diferencia. **Corregido en el 178:** el Worker fuerza `text/html` y el JSON no llegaba como pantalla; ahora el backend devuelve la página entera.
 - **La carrera se prueba dos veces.** Por HTTP (dos `Promise.all` → uno 200, otro 409, mismo patrón que `reserve_vehicle` del 175) y directo contra el `UPDATE` (cinco consumos simultáneos sin lectura previa → exactamente uno afecta la fila). El segundo existe porque por HTTP el perdedor casi siempre cae ya en la lectura previa y nunca llega al `UPDATE`; se verificó que sacar el `status: "ACTIVE"` del `WHERE` lo hace fallar.
 - **Los 409 llevan el dato en `error`** (`consumedAt` o `expiresAt`) vía `AppError.details`, para que la pantalla del 178 pueda mostrar "canjeado el …" sin otra consulta.
 
@@ -8275,6 +8275,53 @@ Todo lo de este ítem se escribió y se probó con dobles de la Graph API (mismo
 1. `npm run migrate:deploy` + `npm run verify:schema` (solo agrega: tipo y tabla nuevos). Orden de siempre: la migración antes o junto con el deploy del backend.
 2. **No crear ninguna regla `opportunity.send_discount_voucher` en una organización real** hasta que estén las tres piezas de "No activar todavía". Sin reglas, el worker arranca y no encuentra nada que mandar.
 3. Cuando estén: `VOUCHER_PUBLIC_BASE_URL` en Render (ej. `https://nexoraqrs.com`, sin barra final). Sin ella, las filas agendadas quedan en `PENDING` sin gastar intentos y salen solas cuando se configura.
+
+---
+
+## 178. Cupón de descuento: la página del cliente en HTML y la pantalla de escaneo del CRM (paso 3 de 3)
+
+**Estado:** hecho (28/09/2026). Sin migración. **Una variable nueva, opcional:** `QR_PUBLIC_BASE_URL` en el backend. Depende del 176 (ya en master); el 177 (la automatización que manda el cupón) va en paralelo.
+
+**Contexto.** El 176 dejó `GET /vouchers/resolve/:id` respondiendo JSON, pensado para que lo consumiera una página del cupón aparte. Eso no funciona con el Cloudflare Worker de `nexoraqrs.com` (repo `Plataforma-QR`, ver `docs/qr-integration.md`, "Cloudflare Worker — repunte"): es un proxy puro que reenvía la respuesta del backend tal cual y **fuerza `Content-Type: text/html`** en todo lo que no sea un redirect — un JSON le llegaría al navegador del cliente como texto crudo. Y una página de React no puede pedir ese JSON sin el secreto que solo tiene el Worker. Se decidió con Rocco usar el mismo patrón que el QR normal: **el backend arma el HTML completo** y el Worker solo suma la ruta `/v/:id` → `/vouchers/resolve/:id`.
+
+**Qué se hace.**
+
+1. **`GET /vouchers/resolve/:id` devuelve HTML** (`res.type("html")`), armado por `buildVoucherLandingHtml` (`src/utils/voucherLanding.ts`, mismo shell visual que `qrLanding.ts`): el `label`, el estado en texto ("Activo" / "Ya canjeado" / "Vencido") y, **solo si está `ACTIVE`**, la imagen del QR generada del lado del servidor con `qrcode` (`toDataURL`, embebida como `data:image/png;base64,…` — sin JS, sin CDN). El QR codifica el link público de esa misma página. Un id inexistente/malformado sigue devolviendo exactamente `sendQrNotFoundLanding` (DEC-007, sin tocar); `buildVoucherLandingHtml(null)` también cae en esa misma landing.
+2. **Pantalla del empleado `/vouchers/scan`** (`frontend/src/features/voucher/`): dentro de `ProtectedRoute` y **fuera de `AppLayout`**, como `/internal-agent`. Cámara con `getUserMedia` + `jsqr` (`QrCameraReader.tsx`); al leer un QR toma el UUID del final del texto (`voucherId.ts`) y llama `POST /api/vouchers/:id/redeem`. Muestra "Cupón canjeado" + el `label`, o el mensaje del backend tal cual (en un 409, con el cuándo de `consumedAt`/`expiresAt` formateado). La cámara queda prendida para el siguiente. Sin cámara o sin permiso: el motivo + el campo manual (que está siempre) para pegar el link o el id.
+3. **Sidebar:** "Canjear cupón" suelto debajo de "Agente interno", **visible para cualquier rol** (el canje no lleva `authorize`).
+
+### Decisiones tomadas al implementarlo
+
+- **`QR_PUBLIC_BASE_URL` (backend, opcional).** El pedido era que el QR codifique "la misma URL de esta página", pero el backend no conoce el dominio público: el Worker le pega directo a `/vouchers/resolve/:id`. Se sumó la variable (mismo valor que `VITE_QR_PUBLIC_BASE_URL` del frontend: `https://nexoraqrs.com`) y un único armador del link, `buildVoucherPublicUrl` (`src/utils/voucherPublicUrl.ts`) → `${base}/v/:id`. **El 177 debería reusar esa función** para el link del WhatsApp, así el link que recibe el cliente y el que codifica el QR no pueden divergir. **Sin la variable, nada se rompe:** el QR codifica el id pelado y el escáner lo canjea igual (solo se pierde que un celular cualquiera que lo escanee abra la página). Vacía (`QR_PUBLIC_BASE_URL=`) cuenta como ausente.
+- **El `label` se escapa** antes de meterlo en el HTML: es texto libre que escribe un ADMIN en la regla.
+- **El mismo QR no se canjea dos veces seguidas por la cámara.** El lector ve el mismo código varias veces por segundo mientras el celular del cliente siga enfrente; sin filtro, el éxito se pisaba enseguida con el 409 "ya canjeado" del cuadro siguiente. Se ignora el mismo texto mientras se lo siga viendo y hasta 3 s después de la última vez; un QR distinto se procesa en el acto. Un código que no es un cupón muestra "Este código no es un cupón." (único texto nuevo, no viene del backend) sin llamar a la API.
+- **El layout del chat del 180 se sacó a `design-system/MobileScreen.tsx`** (y sus clases `.ds-internal-chat`/`-header`/`-back`/`-title`/`-notice` pasaron a `.ds-mobile-screen*`): las dos pantallas mobile usan el mismo encabezado por construcción, no por copia. Lo propio del chat (hilo, formulario) sigue como `.ds-internal-chat *`. Sin cambios visuales en el chat.
+- **Ningún cambio de lógica en el Worker** más allá de la ruta nueva: el forzado de `text/html` ahora es correcto también para el cupón.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `package.json` / `package-lock.json` | `qrcode` (+ `@types/qrcode`) — primera vez que el backend genera una imagen de QR |
+| `src/config/env.ts`, `.env.example` | `QR_PUBLIC_BASE_URL` opcional |
+| `src/utils/voucherPublicUrl.ts` (+ test) | nuevo — el link público del cupón |
+| `src/utils/voucherLanding.ts` (+ test) | nuevo — `buildVoucherLandingHtml`, `voucherQrDataUrl` |
+| `src/controllers/voucherPublic.controller.ts` | HTML en vez de `res.json` |
+| `src/routes/voucherPublic.routes.ts` | comentario del pendiente del Worker (`/v/:id`) |
+| `src/services/discountVoucher.integration-test.ts` | los dos tests del GET verifican el HTML real: Content-Type, estado, QR solo en ACTIVE y que codifica `${QR_PUBLIC_BASE_URL}/v/:id` |
+| `frontend/package.json` / lock | `jsqr` |
+| `frontend/src/features/voucher/` | nuevo — `types.ts`, `api.ts`, `mutations.ts`, `voucherId.ts` (+ test), `QrCameraReader.tsx`, `VoucherScanPage.tsx` (+ test) |
+| `frontend/src/design-system/MobileScreen.tsx` | nuevo — shell de pantalla mobile, extraído del chat del 180 |
+| `frontend/src/features/internalAgent/InternalAgentChatPage.tsx` | usa `MobileScreen` |
+| `frontend/src/design-system/design-system.css` | `.ds-internal-chat*` genéricas → `.ds-mobile-screen*`; `.ds-voucher-scan*` |
+| `frontend/src/app/router.tsx`, `frontend/src/layout/AppLayout.tsx` (+ test) | ruta `/vouchers/scan` y link "Canjear cupón" |
+
+### Cómo se aplica
+
+1. **Render (backend):** agregar `QR_PUBLIC_BASE_URL=https://nexoraqrs.com`. Recomendado, no obligatorio (ver arriba).
+2. Deploy normal de backend y frontend; sin migración.
+3. **Worker (`Plataforma-QR`), lo que sigue bloqueando que un link de cupón llegue a un cliente real:** sumar la ruta `/v/:id` → `${BACKEND_PUBLIC_BASE_URL}/vouchers/resolve/:id`, con el mismo header `X-Internal-Proxy-Secret` y el mismo rate limiting que `/r/:qrId`. Ningún otro cambio.
+4. Probar punta a punta: abrir `https://nexoraqrs.com/v/<id de un cupón real>` en un celular (debe verse la página con el QR), y escanearlo desde **Canjear cupón** en otro. Al recargar la página del cliente debe decir "Ya canjeado" y no mostrar el QR.
 
 ---
 
