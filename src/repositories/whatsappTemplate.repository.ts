@@ -2,10 +2,15 @@ import { WhatsappTemplateStatus } from "@prisma/client";
 import { prisma, type Db } from "../lib/prisma";
 
 // ---------------------------------------------------------------------------
-// La plantilla de WhatsApp de cada organización (ítem 160 de
-// docs/frontend-cambios-pendientes.md). Ver el modelo WhatsappTemplate en
-// schema.prisma y el flujo de alta/baja con Meta en
-// src/services/whatsappTemplate.service.ts.
+// La plantilla de WhatsApp de cada regla de automatización (ítem 160 de
+// docs/frontend-cambios-pendientes.md; hasta el ítem 181 era una por
+// organización). Ver el modelo WhatsappTemplate en schema.prisma y el flujo
+// de alta/baja con Meta en src/services/whatsappTemplate.service.ts.
+//
+// "LA plantilla" se identifica por (organizationId, automationId): las
+// funciones que la buscan sin id reciben los dos. Las que van por id no
+// necesitan la regla: el id ya es único, y el organizationId del WHERE es el
+// aislamiento de siempre.
 //
 // Mismo molde que el resto de los repositorios: organizationId obligatorio y
 // deletedAt: null en toda lectura, updateMany con organizationId en el WHERE
@@ -19,6 +24,7 @@ import { prisma, type Db } from "../lib/prisma";
 // metaTemplateId: es un detalle de la integración que la pantalla no usa.
 const seleccionPublica = {
   id: true,
+  automationId: true,
   name: true,
   language: true,
   bodyText: true,
@@ -28,9 +34,13 @@ const seleccionPublica = {
   updatedAt: true,
 } as const;
 
-export function findActiveWhatsappTemplate(organizationId: string, db: Db = prisma) {
+export function findActiveWhatsappTemplate(
+  organizationId: string,
+  automationId: string,
+  db: Db = prisma,
+) {
   return db.whatsappTemplate.findFirst({
-    where: { organizationId, deletedAt: null },
+    where: { organizationId, automationId, deletedAt: null },
     select: seleccionPublica,
   });
 }
@@ -73,13 +83,14 @@ export async function isWhatsappTemplateNameTaken(name: string, db: Db = prisma)
 
 export interface ReservarWhatsappTemplateData {
   organizationId: string;
+  automationId: string;
   name: string;
   language: string;
   bodyText: string;
 }
 
 // La fila nace ANTES del alta en Meta, en PENDING y sin metaTemplateId: los
-// dos UNIQUE parciales reservan el lugar de la organización y el nombre, así
+// dos UNIQUE parciales reservan el lugar de la regla y el nombre, así
 // que dos altas concurrentes no llegan las dos a Meta.
 export function reserveWhatsappTemplate(data: ReservarWhatsappTemplateData, db: Db = prisma) {
   return db.whatsappTemplate.create({
@@ -155,11 +166,22 @@ export function softDeleteWhatsappTemplate(organizationId: string, id: string, d
   });
 }
 
-// Lo que el worker de seguimientos necesita para mandar: nombre e idioma de la
-// plantilla APROBADA y activa de la organización, o null si no tiene.
-export function findApprovedWhatsappTemplate(organizationId: string, db: Db = prisma) {
+// Lo que los workers de las colas necesitan para mandar: nombre e idioma de la
+// plantilla APROBADA y activa de la REGLA que agendó el envío, o null si no
+// tiene. Nunca la de otra regla de la misma organización: su texto habla de
+// otra cosa (ítem 181).
+export function findApprovedWhatsappTemplate(
+  organizationId: string,
+  automationId: string,
+  db: Db = prisma,
+) {
   return db.whatsappTemplate.findFirst({
-    where: { organizationId, deletedAt: null, status: WhatsappTemplateStatus.APPROVED },
+    where: {
+      organizationId,
+      automationId,
+      deletedAt: null,
+      status: WhatsappTemplateStatus.APPROVED,
+    },
     select: { name: true, language: true },
   });
 }

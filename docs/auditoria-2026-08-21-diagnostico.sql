@@ -281,7 +281,8 @@ from (
   -- exclusivos borró dos (ver más abajo) y quedaron 8, sin que este conteo se
   -- actualizara. El §54 agrega qr_codes_branch_display_number_unique (9), el
   -- ítem 126 conversations_open_unique (10) y el ítem 160 los dos de
-  -- whatsapp_templates (12). La lista de abajo es la fuente de verdad: este
+  -- whatsapp_templates (12); el ítem 181 reemplazó uno de esos dos (siguen
+  -- siendo 12). La lista de abajo es la fuente de verdad: este
   -- número es una ayuda para leerla, no algo que el chequeo use.
   --
   -- Antes esto buscaba el NOMBRE en pg_indexes y nada más. Los tres agujeros que
@@ -355,8 +356,11 @@ from (
     -- y volver a intentar" necesita.
     ('whatsapp_templates_name_active_unique',
      'CREATE UNIQUE INDEX whatsapp_templates_name_active_unique ON public.whatsapp_templates USING btree (name) WHERE (deleted_at IS NULL)'),
-    ('whatsapp_templates_org_active_unique',
-     'CREATE UNIQUE INDEX whatsapp_templates_org_active_unique ON public.whatsapp_templates USING btree (organization_id) WHERE (deleted_at IS NULL)')
+    -- Ítem 181 (migración 20261009120000): reemplaza al "una activa por
+    -- organización" del 160. Una activa por (organización, regla): cada
+    -- automatización que manda WhatsApp tiene su propio texto.
+    ('whatsapp_templates_automation_active_unique',
+     'CREATE UNIQUE INDEX whatsapp_templates_automation_active_unique ON public.whatsapp_templates USING btree (organization_id, automation_id) WHERE (deleted_at IS NULL)')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def
@@ -899,7 +903,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 74 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 75 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -923,7 +927,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 74 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 75 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1084,7 +1088,12 @@ from (
     ('discount_voucher_follow_ups_organization_id_branch_id_fkey|discount_voucher_follow_ups(organization_id,branch_id)->branches(organization_id,id)'),
     ('discount_voucher_follow_ups_organization_id_contact_id_fkey|discount_voucher_follow_ups(organization_id,contact_id)->contacts(organization_id,id)'),
     ('discount_voucher_follow_ups_organization_id_discount_vouch_fkey|discount_voucher_follow_ups(organization_id,discount_voucher_id)->discount_vouchers(organization_id,id)'),
-    ('discount_voucher_follow_ups_organization_id_opportunity_id_fkey|discount_voucher_follow_ups(organization_id,opportunity_id)->opportunities(organization_id,id)')
+    ('discount_voucher_follow_ups_organization_id_opportunity_id_fkey|discount_voucher_follow_ups(organization_id,opportunity_id)->opportunities(organization_id,id)'),
+    -- Plantilla de WhatsApp por regla (ítem 181, migración 20261009120000):
+    -- la plantilla cuelga de la AUTOMATIZACIÓN que manda con ella. Una FK
+    -- bien formada hacia agents (el otro "configurador" de mensajes, también
+    -- con UNIQUE (organization_id, id)) pasaría la fila 14 entera.
+    ('whatsapp_templates_organization_id_automation_id_fkey|whatsapp_templates(organization_id,automation_id)->automations(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1

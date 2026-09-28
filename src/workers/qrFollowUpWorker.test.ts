@@ -64,8 +64,8 @@ function doblar(
   const enviados: SendWhatsappTemplateInput[] = [];
   const plantillasPedidas: string[] = [];
   const deps = {
-    plantillaDeLaOrganizacion: (organizationId: string) => {
-      plantillasPedidas.push(organizationId);
+    plantillaDeLaRegla: (organizationId: string, automationId: string) => {
+      plantillasPedidas.push(`${organizationId}/${automationId}`);
       return Promise.resolve(opciones.plantilla === undefined ? PLANTILLA : opciones.plantilla);
     },
     numeroDeLaSucursal: () =>
@@ -236,17 +236,17 @@ test("el error de Meta sube tal cual, para que el drenado lo clasifique", async 
 });
 
 // ---------------------------------------------------------------------------
-// La plantilla de la organización (ítem 160)
+// La plantilla de la regla (ítem 160; por regla desde el 181)
 // ---------------------------------------------------------------------------
 
-test("manda con la plantilla de la organización de la fila, leída justo antes de mandar", async () => {
+test("manda con la plantilla de la REGLA de la fila (organización + automatización), leída justo antes de mandar", async () => {
   const { deps, enviados, plantillasPedidas } = doblar({
     plantilla: { name: "gracias_por_tu_compra", languageCode: "es" },
   });
 
   await procesarSeguimiento(RECLAMO, CONFIG, deps, () => Promise.resolve(fila()));
 
-  assert.deepEqual(plantillasPedidas, ["org"]);
+  assert.deepEqual(plantillasPedidas, ["org/regla"]);
   assert.equal(enviados.length, 1);
   assert.equal(enviados[0].templateName, "gracias_por_tu_compra");
   assert.equal(enviados[0].languageCode, "es");

@@ -60,16 +60,20 @@ export interface PlantillaDeSeguimiento {
 
 export interface DepsDelSeguimiento {
   accessToken: () => string | undefined;
-  // La plantilla APROBADA y activa de la organización, o null (ítem 160).
-  plantillaDeLaOrganizacion: (organizationId: string) => Promise<PlantillaDeSeguimiento | null>;
+  // La plantilla APROBADA y activa de la REGLA que agendó el envío, o null
+  // (ítem 160; por regla desde el 181).
+  plantillaDeLaRegla: (
+    organizationId: string,
+    automationId: string,
+  ) => Promise<PlantillaDeSeguimiento | null>;
   numeroDeLaSucursal: (organizationId: string, branchId: string) => Promise<string | null>;
   sendTemplate: SendWhatsappTemplate;
 }
 
 export const depsDelSeguimientoReales: DepsDelSeguimiento = {
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
-  plantillaDeLaOrganizacion: async (organizationId) => {
-    const plantilla = await findApprovedWhatsappTemplate(organizationId);
+  plantillaDeLaRegla: async (organizationId, automationId) => {
+    const plantilla = await findApprovedWhatsappTemplate(organizationId, automationId);
     return plantilla ? { name: plantilla.name, languageCode: plantilla.language } : null;
   },
   numeroDeLaSucursal: findBranchWhatsappPhoneNumberId,
@@ -78,7 +82,7 @@ export const depsDelSeguimientoReales: DepsDelSeguimiento = {
 
 // Lo único GLOBAL que el envío necesita. Hasta el ítem 160 incluía la
 // plantilla (dos variables de Render, una para toda la plataforma); ahora la
-// plantilla es de cada organización y se lee al mandar.
+// plantilla es de cada regla (ítem 181) y se lee al mandar.
 export interface ConfiguracionDeEnvio {
   accessToken: string;
 }
@@ -159,10 +163,7 @@ export type ResultadoDelEnvio =
 export async function procesarSeguimiento(
   reclamo: QrFollowUpReclamado,
   config: ConfiguracionDeEnvio,
-  deps: Pick<
-    DepsDelSeguimiento,
-    "plantillaDeLaOrganizacion" | "numeroDeLaSucursal" | "sendTemplate"
-  >,
+  deps: Pick<DepsDelSeguimiento, "plantillaDeLaRegla" | "numeroDeLaSucursal" | "sendTemplate">,
   leer: (id: string, organizationId: string) => Promise<QrFollowUpParaEnviar | null> = (
     id,
     organizationId,
@@ -194,15 +195,16 @@ export async function procesarSeguimiento(
   }
 
   // La plantilla se relee acá, justo antes de mandar, igual que todo lo demás:
-  // el reclamo solo toma filas de organizaciones con plantilla aprobada, pero
+  // el reclamo solo toma filas cuya regla tiene plantilla aprobada, pero
   // entre el reclamo y este punto el negocio pudo borrarla, o Meta pausarla.
   // Sin plantilla no hay con qué mandar, y no es algo que un reintento
-  // arregle: FAILED con el motivo. (Si la organización carga otra plantilla,
-  // las filas que siguen en PENDING salen con ella.)
-  const plantilla = await deps.plantillaDeLaOrganizacion(fila.organizationId);
+  // arregle: FAILED con el motivo. (Si la regla carga otra plantilla, las
+  // filas que siguen en PENDING salen con ella.) Es la de ESTA regla, nunca
+  // la de otra de la misma organización (ítem 181).
+  const plantilla = await deps.plantillaDeLaRegla(fila.organizationId, fila.automationId);
   if (!plantilla) {
     throw new ErrorPermanenteDelSeguimiento(
-      "La organización ya no tiene una plantilla de WhatsApp aprobada (se borró o Meta dejó de aprobarla antes del envío)",
+      "La automatización ya no tiene una plantilla de WhatsApp aprobada (se borró o Meta dejó de aprobarla antes del envío)",
     );
   }
 

@@ -6,15 +6,24 @@ import type { CreateWhatsappTemplateInput, WhatsappTemplate } from "./types";
 // Sin organizationId en ninguna: la organización se resuelve server-side desde
 // el JWT (whatsappTemplate.routes.ts).
 
-// La plantilla activa de la organización, o null si no tiene (200 en los dos
-// casos: "no tiene" es un estado normal de la pantalla, no un 404).
-export function getCurrentWhatsappTemplate(signal?: AbortSignal): Promise<WhatsappTemplate | null> {
-  return request<WhatsappTemplate | null>("/whatsapp-templates", { getAccessToken, signal });
+// La plantilla activa de UNA regla, o null si no tiene (200 en los dos casos:
+// "no tiene" es un estado normal de la pantalla, no un 404). El automationId
+// es obligatorio en el backend desde el ítem 181.
+export function getWhatsappTemplate(
+  automationId: string,
+  signal?: AbortSignal,
+): Promise<WhatsappTemplate | null> {
+  const query = new URLSearchParams({ automationId }).toString();
+  return request<WhatsappTemplate | null>(`/whatsapp-templates?${query}`, {
+    getAccessToken,
+    signal,
+  });
 }
 
-// Crea la plantilla y el backend la manda a Meta para su revisión. Vuelve en
-// PENDING. Los errores (texto inválido, nombre en uso, Meta que la rechaza en
-// el momento) llegan con el mensaje listo para mostrar.
+// Crea la plantilla de una regla y el backend la manda a Meta para su
+// revisión. Vuelve en PENDING. Los errores (texto inválido, nombre en uso,
+// regla que no manda WhatsApp, Meta que la rechaza en el momento) llegan con
+// el mensaje listo para mostrar.
 export function createWhatsappTemplate(
   input: CreateWhatsappTemplateInput,
 ): Promise<WhatsappTemplate> {

@@ -29,9 +29,10 @@ import type { DepsDePlantillas } from "../services/whatsappTemplate.service";
 //   2. El alta: valida el texto ANTES de tocar Meta (400 sin llamada), manda
 //      a Meta el cuerpo traducido a {{1}}/{{2}} con categoría UTILITY, y
 //      guarda la fila en PENDING con el id de Meta.
-//   3. Una activa por organización: con una PENDING/APPROVED, otro alta es
-//      409 sin llamar a Meta; con una REJECTED, el alta la reemplaza (la
-//      borra en Meta y localmente).
+//   3. Una activa por REGLA (ítem 181): con una PENDING/APPROVED, otro alta
+//      para la misma regla es 409 sin llamar a Meta; con una REJECTED, el
+//      alta la reemplaza (la borra en Meta y localmente). Otra regla de la
+//      misma organización tiene la suya, sin chocar.
 //   4. El nombre es único en TODA la tabla (WABA compartido): otra
 //      organización con el mismo nombre es 409; borrar la libera.
 //   5. Si Meta rechaza o no contesta el alta, la reserva se descarta: 400 con
@@ -41,6 +42,9 @@ import type { DepsDePlantillas } from "../services/whatsappTemplate.service";
 //      que ya no existe, se borra igual localmente.
 //   8. Aislamiento: la organización B no ve, no refresca y no borra la de A.
 //   9. Sin WHATSAPP_BUSINESS_ACCOUNT_ID: 503 con un mensaje para el negocio.
+//  10. La regla (ítem 181): el GET y el POST exigen automationId; el POST
+//      rechaza (400, sin tocar Meta) una regla inexistente, borrada, de otra
+//      organización o que no manda WhatsApp.
 // ---------------------------------------------------------------------------
 
 const PASSWORD = "Whatsapp-template-test-password-123!";
@@ -55,6 +59,11 @@ let orgB: string;
 let adminA: FixtureUser;
 let userA: FixtureUser;
 let adminB: FixtureUser;
+// Las reglas de cada organización (ítem 181: la plantilla es de una regla).
+let reglaQrA: string;
+let reglaCuponA: string;
+let reglaSinWhatsappA: string;
+let reglaQrB: string;
 let baseUrl: string;
 let closeApp: () => Promise<void>;
 
@@ -90,8 +99,29 @@ function nombreAlAzar(etiqueta: string) {
 
 const TEXTO = "Hola {nombre}, gracias por tu compra. Tu opinión acá: {link} ¡Gracias!";
 
+// Por defecto, para la regla del QR de la organización A.
 function cuerpo(extra: Record<string, unknown> = {}) {
-  return { name: nombreAlAzar("alta"), language: "es_AR", bodyText: TEXTO, ...extra };
+  return {
+    automationId: reglaQrA,
+    name: nombreAlAzar("alta"),
+    language: "es_AR",
+    bodyText: TEXTO,
+    ...extra,
+  };
+}
+
+async function crearRegla(organizationId: string, actionType: string): Promise<string> {
+  const regla = await prisma.automation.create({
+    data: {
+      organizationId,
+      name: `Regla ${actionType}`,
+      triggerType: "opportunity.won",
+      actionType,
+      // La forma de la config no importa acá: la plantilla solo mira la regla.
+      actionConfig: {},
+    },
+  });
+  return regla.id;
 }
 
 function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
@@ -183,6 +213,10 @@ async function crearPorHttp(token: string, extra: Record<string, unknown> = {}) 
   return JSON.parse(crudo) as { id: string; name: string; status: string };
 }
 
+function leer(token: string, automationId: string) {
+  return call("GET", `/api/whatsapp-templates?automationId=${automationId}`, token);
+}
+
 function activasDe(organizationId: string) {
   return prisma.whatsappTemplate.findMany({ where: { organizationId, deletedAt: null } });
 }
@@ -213,6 +247,10 @@ before(async () => {
   adminA = await createFixtureUser("admin-a", orgA, "ADMIN");
   userA = await createFixtureUser("user-a", orgA, "USER");
   adminB = await createFixtureUser("admin-b", orgB, "ADMIN");
+  reglaQrA = await crearRegla(orgA, "opportunity.send_qr_followup");
+  reglaCuponA = await crearRegla(orgA, "opportunity.send_discount_voucher");
+  reglaSinWhatsappA = await crearRegla(orgA, "activity.create_follow_up");
+  reglaQrB = await crearRegla(orgB, "opportunity.send_qr_followup");
 });
 
 after(async () => {
@@ -220,6 +258,7 @@ after(async () => {
   for (const org of [orgA, orgB]) {
     if (!org) continue;
     await prisma.whatsappTemplate.deleteMany({ where: { organizationId: org } });
+    await prisma.automation.deleteMany({ where: { organizationId: org } });
     await prisma.user.deleteMany({ where: { organizationId: org } });
     await prisma.organization.delete({ where: { id: org } });
   }
@@ -233,13 +272,22 @@ after(async () => {
 // ---------------------------------------------------------------------------
 
 test("sin plantilla, GET devuelve null (200): 'no tiene' es un estado normal de la pantalla", async () => {
-  const res = await call("GET", "/api/whatsapp-templates", adminA.accessToken);
+  const res = await leer(adminA.accessToken, reglaQrA);
   assert.equal(res.status, 200);
   assert.equal(await res.json(), null);
 });
 
+test("GET sin automationId (o con uno que no es UUID) es 400: no hay 'la' plantilla de la organización", async () => {
+  const sin = await call("GET", "/api/whatsapp-templates", adminA.accessToken);
+  assert.equal(sin.status, 400);
+  assert.match(await mensajeDeError(sin), /automationId es requerido/);
+
+  const roto = await call("GET", "/api/whatsapp-templates?automationId=abc", adminA.accessToken);
+  assert.equal(roto.status, 400);
+});
+
 test("un USER recibe 403 en la lectura y en el alta, y nada llega a Meta", async () => {
-  const get = await call("GET", "/api/whatsapp-templates", userA.accessToken);
+  const get = await leer(userA.accessToken, reglaQrA);
   assert.equal(get.status, 403);
 
   const post = await call("POST", "/api/whatsapp-templates", userA.accessToken, cuerpo());
@@ -275,10 +323,13 @@ test("el alta manda a Meta el texto traducido a {{1}}/{{2}}, UTILITY implícita,
   assert.equal(fila.status, "PENDING");
   assert.ok(fila.metaTemplateId, "guardó el id que dio Meta");
 
-  const get = await call("GET", "/api/whatsapp-templates", adminA.accessToken);
+  const get = await leer(adminA.accessToken, reglaQrA);
   const leida = (await get.json()) as Record<string, unknown>;
   assert.equal(leida.id, creada.id);
   assert.equal(leida.bodyText, TEXTO);
+  // La regla sí sale: la pantalla lista por regla.
+  assert.equal(leida.automationId, reglaQrA);
+  assert.equal(fila.automationId, reglaQrA);
   // Lo interno de la integración no sale por la API.
   assert.equal("metaTemplateId" in leida, false);
   assert.equal("organizationId" in leida, false);
@@ -329,6 +380,62 @@ test("con una PENDING (o APPROVED) activa, otro alta es 409 sin llamar a Meta", 
   assert.equal((await activasDe(orgA)).length, 1);
 });
 
+test("cada regla tiene la suya: la del cupón convive con la del QR, y el 409 es solo para la misma regla", async () => {
+  const deQr = await crearPorHttp(adminA.accessToken);
+  const deCupon = await crearPorHttp(adminA.accessToken, { automationId: reglaCuponA });
+
+  assert.notEqual(deQr.id, deCupon.id);
+  assert.equal((await activasDe(orgA)).length, 2);
+  const leidaQr = (await (await leer(adminA.accessToken, reglaQrA)).json()) as { id: string };
+  const leidaCupon = (await (await leer(adminA.accessToken, reglaCuponA)).json()) as {
+    id: string;
+  };
+  assert.equal(leidaQr.id, deQr.id);
+  assert.equal(leidaCupon.id, deCupon.id);
+
+  // Borrar la del cupón no toca la del QR.
+  const borrar = await call("DELETE", `/api/whatsapp-templates/${deCupon.id}`, adminA.accessToken);
+  assert.equal(borrar.status, 204);
+  assert.equal(await (await leer(adminA.accessToken, reglaCuponA)).json(), null);
+  const sigue = (await (await leer(adminA.accessToken, reglaQrA)).json()) as { id: string };
+  assert.equal(sigue.id, deQr.id);
+});
+
+test("la regla del alta: sin automationId, inexistente, borrada, de OTRA organización o que no manda WhatsApp es 400, sin tocar Meta ni reservar", async () => {
+  const sin = await call(
+    "POST",
+    "/api/whatsapp-templates",
+    adminA.accessToken,
+    cuerpo({ automationId: undefined }),
+  );
+  assert.equal(sin.status, 400);
+  assert.match(await mensajeDeError(sin), /automationId es requerido/);
+
+  const borrada = await crearRegla(orgA, "opportunity.send_qr_followup");
+  await prisma.automation.update({ where: { id: borrada }, data: { deletedAt: new Date() } });
+
+  const casos: [string, RegExp][] = [
+    [randomUUID(), /no existe o fue eliminada/],
+    [borrada, /no existe o fue eliminada/],
+    // La de B, pedida por un ADMIN de A: para A no existe.
+    [reglaQrB, /no existe o fue eliminada/],
+    [reglaSinWhatsappA, /no manda WhatsApp/],
+  ];
+  for (const [automationId, mensaje] of casos) {
+    const res = await call(
+      "POST",
+      "/api/whatsapp-templates",
+      adminA.accessToken,
+      cuerpo({ automationId }),
+    );
+    assert.equal(res.status, 400, automationId);
+    assert.match(await mensajeDeError(res), mensaje);
+  }
+  assert.equal(altas.length, 0);
+  assert.equal(await prisma.whatsappTemplate.count({ where: { organizationId: orgA } }), 0);
+  assert.equal(await prisma.whatsappTemplate.count({ where: { organizationId: orgB } }), 0);
+});
+
 test("con una REJECTED activa, el alta la reemplaza: la borra en Meta y localmente, y crea la nueva", async () => {
   const vieja = await crearPorHttp(adminA.accessToken);
   await prisma.whatsappTemplate.updateMany({
@@ -358,7 +465,7 @@ test("el nombre es único en TODA la tabla: otra organización con el mismo nomb
     "POST",
     "/api/whatsapp-templates",
     adminB.accessToken,
-    cuerpo({ name }),
+    cuerpo({ name, automationId: reglaQrB }),
   );
   assert.equal(choque.status, 409);
   assert.match(await mensajeDeError(choque), /nombre de plantilla ya está en uso/);
@@ -367,7 +474,7 @@ test("el nombre es único en TODA la tabla: otra organización con el mismo nomb
   const borrar = await call("DELETE", `/api/whatsapp-templates/${deA.id}`, adminA.accessToken);
   assert.equal(borrar.status, 204);
 
-  const deB = await crearPorHttp(adminB.accessToken, { name });
+  const deB = await crearPorHttp(adminB.accessToken, { name, automationId: reglaQrB });
   assert.equal(deB.name, name);
 });
 
@@ -461,7 +568,7 @@ test("borrar: en Meta por nombre + id, y soft delete local; GET vuelve a null", 
   ]);
   const borrada = await prisma.whatsappTemplate.findUniqueOrThrow({ where: { id: creada.id } });
   assert.ok(borrada.deletedAt);
-  const get = await call("GET", "/api/whatsapp-templates", adminA.accessToken);
+  const get = await leer(adminA.accessToken, reglaQrA);
   assert.equal(await get.json(), null);
 });
 
@@ -487,7 +594,9 @@ test("borrar una que Meta ya no tiene (404) la borra igual localmente; otro erro
 test("la organización B no ve, no refresca y no borra la plantilla de la A", async () => {
   const deA = await crearPorHttp(adminA.accessToken);
 
-  const get = await call("GET", "/api/whatsapp-templates", adminB.accessToken);
+  // Aun pidiendo por la regla de A: el filtro por organización la deja sin nada.
+  const get = await leer(adminB.accessToken, reglaQrA);
+  assert.equal(get.status, 200);
   assert.equal(await get.json(), null);
 
   const refresh = await call(

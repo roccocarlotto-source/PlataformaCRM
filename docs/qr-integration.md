@@ -1662,6 +1662,17 @@ el gate de Fase 4 se deployó.
 
 ## Changelog
 
+### 2026-09-28 — La plantilla de WhatsApp es de cada regla, no de la organización (ítem 181)
+
+Con el cupón de descuento (ítem 177) una organización puede tener dos reglas
+que mandan WhatsApp, y una sola plantilla no le sirve a las dos: el texto de la
+reseña no sirve para el cupón. La plantilla pasa a estar atada a la regla
+(`whatsapp_templates.automation_id`, una activa por regla), el reclamo de las
+dos colas pide la plantilla aprobada de la regla que agendó la fila, y
+Administración → Plantilla de WhatsApp lista las reglas que mandan WhatsApp,
+cada una con la suya. Detalle en el ítem 181 de
+`docs/frontend-cambios-pendientes.md`.
+
 ### 2026-09-26 — La plantilla del seguimiento la arma cada negocio desde el CRM (ítem 160)
 
 El seguimiento del ítem 159 mandaba UNA plantilla para toda la plataforma,

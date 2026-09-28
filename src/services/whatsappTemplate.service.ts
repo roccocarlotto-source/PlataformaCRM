@@ -1,6 +1,7 @@
 import { Prisma, WhatsappTemplateStatus } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
+import { findAutomationById } from "../repositories/automation.repository";
 import {
   discardWhatsappTemplateReservation,
   findActiveWhatsappTemplate,
@@ -22,6 +23,8 @@ import {
   textoParaMeta,
   validarTextoDePlantilla,
 } from "../utils/whatsappTemplateText";
+import { ACTION_SEND_DISCOUNT_VOUCHER } from "./automationActions/sendDiscountVoucherFollowup";
+import { ACTION_SEND_QR_FOLLOWUP } from "./automationActions/sendQrFollowup";
 import { esTransitorio } from "./llmProvider.service";
 import {
   createWhatsappTemplateReal,
@@ -35,15 +38,20 @@ import {
 } from "./whatsappGraph.service";
 
 // ---------------------------------------------------------------------------
-// La plantilla de seguimiento post-venta de cada organización (ítem 160 de
+// La plantilla de WhatsApp de cada regla de automatización (ítem 160 de
 // docs/frontend-cambios-pendientes.md): el negocio la arma desde el CRM y
 // esto la da de alta, la consulta y la borra en Meta, sobre el WABA
 // compartido (WHATSAPP_BUSINESS_ACCOUNT_ID).
 //
+// UNA POR REGLA, NO POR ORGANIZACIÓN (ítem 181). Cada automatización que
+// manda WhatsApp —el QR de reseñas, el cupón de descuento— tiene su propio
+// texto, aprobado por separado en Meta: una sola plantilla por organización
+// obligaba a que el texto del QR sirviera para el cupón y viceversa.
+//
 // EL ALTA RESERVA ANTES DE HABLAR CON META. La fila se crea primero —en
 // PENDING, sin metaTemplateId— y recién después se llama a Meta. Así los dos
-// UNIQUE parciales de la migración (una activa por organización, nombre único
-// en la tabla) frenan un alta duplicada ANTES de que llegue a Meta: al revés,
+// UNIQUE parciales de las migraciones (una activa por regla, nombre único en
+// la tabla) frenan un alta duplicada ANTES de que llegue a Meta: al revés,
 // dos altas concurrentes crearían dos plantillas en Meta y una quedaría
 // huérfana allá. Si Meta rechaza el alta, la reserva se descarta (borrado
 // físico: la plantilla no llegó a existir). Si el proceso muere entre que Meta
@@ -176,11 +184,40 @@ function traducirErrorDeMeta(err: unknown, accion: string): AppError {
   );
 }
 
-export function getCurrentWhatsappTemplate(organizationId: string) {
-  return findActiveWhatsappTemplate(organizationId);
+// Las acciones de automatización que mandan un WhatsApp con plantilla, y por
+// eso pueden tener una. Una acción nueva de este tipo se suma acá (y en
+// frontend/src/features/whatsapp/acciones.ts, que la lista en la pantalla).
+export const ACCIONES_CON_PLANTILLA: readonly string[] = [
+  ACTION_SEND_QR_FOLLOWUP,
+  ACTION_SEND_DISCOUNT_VOUCHER,
+];
+
+export function esAccionConPlantilla(actionType: string): boolean {
+  return ACCIONES_CON_PLANTILLA.includes(actionType);
+}
+
+export function getCurrentWhatsappTemplate(organizationId: string, automationId: string) {
+  return findActiveWhatsappTemplate(organizationId, automationId);
+}
+
+// La regla a la que se le quiere cargar una plantilla: tiene que existir, no
+// estar borrada, ser de ESTA organización y mandar WhatsApp. Un 400 y no un
+// 404, mismo criterio que el branchId de la acción del cupón (ítem 177): es un
+// dato del cuerpo que no sirve, no el recurso de la URL. Inactiva sí se
+// acepta: cargar y aprobar la plantilla ANTES de activar la regla es
+// justamente el orden razonable (Meta tarda en revisarla).
+async function validarRegla(organizationId: string, automationId: string) {
+  const regla = await findAutomationById(automationId, organizationId);
+  if (!regla) {
+    throw new AppError("La automatización no existe o fue eliminada", 400);
+  }
+  if (!esAccionConPlantilla(regla.actionType)) {
+    throw new AppError("Esa automatización no manda WhatsApp: no lleva plantilla", 400);
+  }
 }
 
 export interface CrearPlantillaInput {
+  automationId: string;
   name: string;
   language: string;
   bodyText: string;
@@ -217,16 +254,19 @@ export async function createWhatsappTemplate(
     throw new AppError(problema, 400);
   }
   const bodyText = input.bodyText.trim();
+  const { automationId } = input;
+  await validarRegla(organizationId, automationId);
   const conexion = leerConexion(deps);
 
-  // Una activa por organización. PENDING o APPROVED: el negocio tiene que
-  // borrarla a propósito (409). REJECTED no sirve para nada, y rehacerla es
-  // justamente lo que el negocio vino a hacer: se borra sola —en Meta también,
-  // para liberar el nombre allá— y sigue el alta.
-  const actual = await findActiveWhatsappTemplate(organizationId);
+  // Una activa por regla. PENDING o APPROVED: el negocio tiene que borrarla a
+  // propósito (409). REJECTED no sirve para nada, y rehacerla es justamente lo
+  // que el negocio vino a hacer: se borra sola —en Meta también, para liberar
+  // el nombre allá— y sigue el alta. La plantilla de OTRA regla de la misma
+  // organización no cuenta: cada una tiene la suya.
+  const actual = await findActiveWhatsappTemplate(organizationId, automationId);
   if (actual && actual.status !== WhatsappTemplateStatus.REJECTED) {
     throw new AppError(
-      "Ya hay una plantilla pendiente o aprobada. Para cambiarla, borrá la actual primero.",
+      "Esta automatización ya tiene una plantilla pendiente o aprobada. Para cambiarla, borrá la actual primero.",
       409,
     );
   }
@@ -245,6 +285,7 @@ export async function createWhatsappTemplate(
   try {
     reserva = await reserveWhatsappTemplate({
       organizationId,
+      automationId,
       name: input.name,
       language: input.language,
       bodyText,
@@ -254,7 +295,7 @@ export async function createWhatsappTemplate(
     // arriba y este INSERT: el UNIQUE parcial es la garantía real.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       throw new AppError(
-        "Ya hay una plantilla con ese nombre, o esta organización ya tiene una. Recargá y probá de nuevo.",
+        "Ya hay una plantilla con ese nombre, o esta automatización ya tiene una. Recargá y probá de nuevo.",
         409,
       );
     }

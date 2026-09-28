@@ -40,21 +40,21 @@ let contactId: string;
 // Global UNIQUE en agents: un número al azar por corrida para no chocar con
 // otro archivo de la suite.
 const PHONE_NUMBER_ID = `9${String(randomInt(100_000_000, 999_999_999))}`;
-// Ítem 160: la plantilla es de la organización. El nombre es único entre las
-// activas de TODA la tabla (WABA compartido): uno al azar por corrida.
-const PLANTILLA = `seguimiento_${String(randomInt(100_000_000, 999_999_999))}`;
-
-// La plantilla activa de la organización del test, en el estado que el caso
-// necesite. Borra (soft) la que hubiera: una activa por organización.
-async function plantillaEn(status: "PENDING" | "APPROVED" | "REJECTED") {
+// La plantilla activa de una REGLA del test (ítem 181: una por regla), en el
+// estado que el caso necesite. Borra (soft) la que hubiera: una activa por
+// regla. El nombre es único entre las activas de TODA la tabla (WABA
+// compartido) y las reglas de los casos anteriores conservan la suya: uno al
+// azar por plantilla.
+async function plantillaEn(automationId: string, status: "PENDING" | "APPROVED" | "REJECTED") {
   await prisma.whatsappTemplate.updateMany({
-    where: { organizationId: e.organizationId, deletedAt: null },
+    where: { organizationId: e.organizationId, automationId, deletedAt: null },
     data: { deletedAt: new Date() },
   });
   return prisma.whatsappTemplate.create({
     data: {
       organizationId: e.organizationId,
-      name: PLANTILLA,
+      automationId,
+      name: `seguimiento_${String(randomInt(100_000_000, 999_999_999))}`,
       language: "es_AR",
       bodyText: "Hola {nombre}, gracias por tu compra. Tu opinión: {link} ¡Gracias!",
       metaTemplateId: `meta-${String(randomInt(1_000_000, 9_999_999))}`,
@@ -105,7 +105,6 @@ before(async () => {
     },
   });
   contactId = contact.id;
-  await plantillaEn("APPROVED");
 });
 
 after(async () => {
@@ -122,8 +121,8 @@ function doblarEnvio(falla?: unknown) {
   const enviados: SendWhatsappTemplateInput[] = [];
   const deps: DepsDelSeguimiento = {
     accessToken: () => "token-de-prueba",
-    // La real: lee la plantilla aprobada de la organización en la base.
-    plantillaDeLaOrganizacion: depsDelSeguimientoReales.plantillaDeLaOrganizacion,
+    // La real: lee la plantilla aprobada de la regla en la base.
+    plantillaDeLaRegla: depsDelSeguimientoReales.plantillaDeLaRegla,
     numeroDeLaSucursal: (organizationId, branch) =>
       prisma.agent
         .findFirst({ where: { organizationId, branchId: branch, deletedAt: null } })
@@ -168,13 +167,24 @@ function seguimientosDe(opportunityId: string) {
 }
 
 // Cada caso trabaja con su propia regla y apaga las de los casos anteriores,
-// para que ninguna oportunidad agende filas de otro caso.
-async function soloEstaRegla(delayHours: number) {
+// para que ninguna oportunidad agende filas de otro caso. La regla nace con su
+// plantilla APROBADA (el caso normal), salvo que el caso pida lo contrario.
+async function soloEstaRegla(delayHours: number, opciones: { sinPlantilla?: boolean } = {}) {
   await prisma.automation.updateMany({
     where: { organizationId: e.organizationId },
     data: { isActive: false },
   });
-  return reglaDeQr(delayHours);
+  const regla = await reglaDeQr(delayHours);
+  if (!opciones.sinPlantilla) {
+    await plantillaEn(regla.id, "APPROVED");
+  }
+  return regla;
+}
+
+function plantillaActivaDe(automationId: string) {
+  return prisma.whatsappTemplate.findFirstOrThrow({
+    where: { organizationId: e.organizationId, automationId, deletedAt: null },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -259,8 +269,9 @@ test("dos reglas activas (distintas demoras) agendan una fila cada una", async (
 // El worker: manda, cancela, reintenta, falla
 // ---------------------------------------------------------------------------
 
-test("con delayHours 0 el worker lo manda: plantilla de la organización, número de la sucursal y {{1}}/{{2}}; queda SENT", async () => {
-  await soloEstaRegla(0);
+test("con delayHours 0 el worker lo manda: plantilla de la regla, número de la sucursal y {{1}}/{{2}}; queda SENT", async () => {
+  const regla = await soloEstaRegla(0);
+  const plantilla = await plantillaActivaDe(regla.id);
   const opp = await ganarOportunidad("Envío");
   const { deps, enviados } = doblarEnvio();
 
@@ -271,7 +282,7 @@ test("con delayHours 0 el worker lo manda: plantilla de la organización, númer
     {
       phoneNumberId: PHONE_NUMBER_ID,
       to: "5491155550000",
-      templateName: PLANTILLA,
+      templateName: plantilla.name,
       languageCode: "es_AR",
       bodyParameters: ["Ana", "https://g.page/r/abc/review"],
       accessToken: "token-de-prueba",
@@ -377,84 +388,100 @@ test("sin el token no reclama nada: la fila sigue PENDING y sin intentos gastado
 });
 
 // ---------------------------------------------------------------------------
-// La plantilla de la organización (ítem 160)
+// La plantilla de la regla (ítem 160; por regla desde el 181)
 // ---------------------------------------------------------------------------
 
-test("con la plantilla PENDING o REJECTED la organización no se reclama: sin intentos gastados, y sale sola al aprobarse", async () => {
-  try {
-    await soloEstaRegla(0);
-    await plantillaEn("PENDING");
-    const opp = await ganarOportunidad("Plantilla en revisión");
-    const { deps, enviados } = doblarEnvio();
+test("con la plantilla PENDING o REJECTED la regla no se reclama: sin intentos gastados, y sale sola al aprobarse", async () => {
+  const regla = await soloEstaRegla(0, { sinPlantilla: true });
+  await plantillaEn(regla.id, "PENDING");
+  const opp = await ganarOportunidad("Plantilla en revisión");
+  const { deps, enviados } = doblarEnvio();
 
-    const pendiente = await drenarSeguimientos(deps);
-    await plantillaEn("REJECTED");
-    const rechazada = await drenarSeguimientos(deps);
+  const pendiente = await drenarSeguimientos(deps);
+  await plantillaEn(regla.id, "REJECTED");
+  const rechazada = await drenarSeguimientos(deps);
 
-    // En silencio: no es "falta configuración" (eso es el token, global).
-    assert.equal(pendiente.sinConfiguracion, false);
-    assert.equal(pendiente.enviados + pendiente.fallidos + pendiente.pospuestos, 0);
-    assert.equal(rechazada.enviados + rechazada.fallidos + rechazada.pospuestos, 0);
-    assert.equal(enviados.length, 0);
-    const [fila] = await seguimientosDe(opp.id);
-    assert.equal(fila.status, "PENDING");
-    assert.equal(fila.attempts, 0, "no se reclamó: ningún intento gastado");
+  // En silencio: no es "falta configuración" (eso es el token, global).
+  assert.equal(pendiente.sinConfiguracion, false);
+  assert.equal(pendiente.enviados + pendiente.fallidos + pendiente.pospuestos, 0);
+  assert.equal(rechazada.enviados + rechazada.fallidos + rechazada.pospuestos, 0);
+  assert.equal(enviados.length, 0);
+  const [fila] = await seguimientosDe(opp.id);
+  assert.equal(fila.status, "PENDING");
+  assert.equal(fila.attempts, 0, "no se reclamó: ningún intento gastado");
 
-    // Meta la aprueba: la pasada siguiente la manda, con esa plantilla.
-    await plantillaEn("APPROVED");
-    const aprobada = await drenarSeguimientos(deps);
-    assert.equal(aprobada.enviados, 1);
-    assert.equal(enviados[0].templateName, PLANTILLA);
-  } finally {
-    await plantillaEn("APPROVED");
-  }
+  // Meta la aprueba: la pasada siguiente la manda, con esa plantilla.
+  const aprobadaEnMeta = await plantillaEn(regla.id, "APPROVED");
+  const aprobada = await drenarSeguimientos(deps);
+  assert.equal(aprobada.enviados, 1);
+  assert.equal(enviados[0].templateName, aprobadaEnMeta.name);
+});
+
+// El corazón del ítem 181: la organización tiene una plantilla aprobada, pero
+// es de OTRA regla (en la vida real, la del cupón). Esa no sirve: su texto
+// habla de otra cosa. La fila espera, sin gastar intentos, a que la regla que
+// la agendó tenga la suya.
+test("la plantilla aprobada de OTRA regla de la misma organización no alcanza: no se reclama, y sale con la propia", async () => {
+  const otra = await reglaDeQr(0);
+  const deOtra = await plantillaEn(otra.id, "APPROVED");
+  // Apaga a `otra`: la oportunidad solo agenda con la regla del caso.
+  const regla = await soloEstaRegla(0, { sinPlantilla: true });
+  const opp = await ganarOportunidad("Plantilla de otra regla");
+  const { deps, enviados } = doblarEnvio();
+
+  const sinLaPropia = await drenarSeguimientos(deps);
+
+  assert.equal(sinLaPropia.enviados + sinLaPropia.fallidos + sinLaPropia.pospuestos, 0);
+  assert.equal(enviados.length, 0);
+  const [fila] = await seguimientosDe(opp.id);
+  assert.equal(fila.automationId, regla.id);
+  assert.equal(fila.attempts, 0, "no se reclamó: ningún intento gastado");
+
+  const propia = await plantillaEn(regla.id, "APPROVED");
+  const conLaPropia = await drenarSeguimientos(deps);
+
+  assert.equal(conLaPropia.enviados, 1);
+  assert.equal(enviados[0].templateName, propia.name);
+  assert.notEqual(enviados[0].templateName, deOtra.name);
 });
 
 test("una plantilla BORRADA no cuenta aunque haya estado aprobada", async () => {
-  try {
-    await soloEstaRegla(0);
-    const opp = await ganarOportunidad("Plantilla borrada");
-    await prisma.whatsappTemplate.updateMany({
-      where: { organizationId: e.organizationId, deletedAt: null },
-      data: { deletedAt: new Date() },
-    });
-    const { deps, enviados } = doblarEnvio();
+  const regla = await soloEstaRegla(0);
+  const opp = await ganarOportunidad("Plantilla borrada");
+  await prisma.whatsappTemplate.updateMany({
+    where: { organizationId: e.organizationId, automationId: regla.id, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
+  const { deps, enviados } = doblarEnvio();
 
-    await drenarSeguimientos(deps);
+  await drenarSeguimientos(deps);
 
-    assert.equal(enviados.length, 0);
-    const [fila] = await seguimientosDe(opp.id);
-    assert.equal(fila.attempts, 0);
-  } finally {
-    await plantillaEn("APPROVED");
-  }
+  assert.equal(enviados.length, 0);
+  const [fila] = await seguimientosDe(opp.id);
+  assert.equal(fila.attempts, 0);
 });
 
 test("si la plantilla se borra entre el reclamo y el envío: FAILED con el motivo, sin mandar", async () => {
-  try {
-    await soloEstaRegla(0);
-    const opp = await ganarOportunidad("Borrada a mitad");
-    const { deps, enviados } = doblarEnvio();
+  await soloEstaRegla(0);
+  const opp = await ganarOportunidad("Borrada a mitad");
+  const { deps, enviados } = doblarEnvio();
 
-    const resumen = await drenarSeguimientos({
-      ...deps,
-      // El negocio la borra justo después de que el worker reclamó la fila.
-      plantillaDeLaOrganizacion: async (organizationId) => {
-        await prisma.whatsappTemplate.updateMany({
-          where: { organizationId, deletedAt: null },
-          data: { deletedAt: new Date() },
-        });
-        return deps.plantillaDeLaOrganizacion(organizationId);
-      },
-    });
+  const resumen = await drenarSeguimientos({
+    ...deps,
+    // El negocio la borra justo después de que el worker reclamó la fila.
+    plantillaDeLaRegla: async (organizationId, automationId) => {
+      await prisma.whatsappTemplate.updateMany({
+        where: { organizationId, automationId, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+      return deps.plantillaDeLaRegla(organizationId, automationId);
+    },
+  });
 
-    assert.equal(resumen.fallidos, 1);
-    assert.equal(enviados.length, 0);
-    const [fila] = await seguimientosDe(opp.id);
-    assert.equal(fila.status, "FAILED");
-    assert.equal(fila.attempts, 1);
-    assert.match(fila.lastError ?? "", /ya no tiene una plantilla de WhatsApp aprobada/);
-  } finally {
-    await plantillaEn("APPROVED");
-  }
+  assert.equal(resumen.fallidos, 1);
+  assert.equal(enviados.length, 0);
+  const [fila] = await seguimientosDe(opp.id);
+  assert.equal(fila.status, "FAILED");
+  assert.equal(fila.attempts, 1);
+  assert.match(fila.lastError ?? "", /ya no tiene una plantilla de WhatsApp aprobada/);
 });

@@ -40,7 +40,6 @@ interface Org {
   branchId: string;
   contactId: string;
   phoneNumberId: string;
-  plantilla: string;
 }
 
 let a: Org;
@@ -52,12 +51,12 @@ function alAzar() {
 }
 
 // Una organización lista para mandar: sucursal con un agente con número de
-// WhatsApp, un contacto con teléfono y una plantilla aprobada. El número y el
-// nombre de la plantilla son únicos en TODA la tabla: uno al azar por corrida.
+// WhatsApp y un contacto con teléfono. La plantilla aprobada ya no es de la
+// organización sino de cada regla (ítem 181): la siembra soloEstaRegla. El
+// número es único en TODA la tabla: uno al azar por corrida.
 async function prepararOrg(etiqueta: string): Promise<Org> {
   const e = await montar(etiqueta);
   const phoneNumberId = `9${alAzar()}`;
-  const plantilla = `cupon_${alAzar()}`;
   const branch = await prisma.branch.create({
     data: { organizationId: e.organizationId, name: "Centro", timezone: "America/Montevideo" },
   });
@@ -83,17 +82,7 @@ async function prepararOrg(etiqueta: string): Promise<Org> {
       phone: "+54 9 11 5555-0000",
     },
   });
-  await prisma.whatsappTemplate.create({
-    data: {
-      organizationId: e.organizationId,
-      name: plantilla,
-      language: "es_AR",
-      bodyText: "Hola {nombre}, gracias por tu compra. Tu cupón: {link} ¡Gracias!",
-      metaTemplateId: `meta-${alAzar()}`,
-      status: "APPROVED",
-    },
-  });
-  return { e, branchId: branch.id, contactId: contact.id, phoneNumberId, plantilla };
+  return { e, branchId: branch.id, contactId: contact.id, phoneNumberId };
 }
 
 before(async () => {
@@ -140,15 +129,50 @@ async function ganarOportunidad(org: Org, titulo: string) {
   return opp;
 }
 
-// Cada caso trabaja con su propia regla y apaga las anteriores de la org.
+// La plantilla APROBADA de una regla (ítem 181: una por regla). El nombre es
+// único entre las activas de TODA la tabla: uno al azar por plantilla.
+function plantillaAprobada(org: Org, automationId: string) {
+  return prisma.whatsappTemplate.create({
+    data: {
+      organizationId: org.e.organizationId,
+      automationId,
+      name: `cupon_${alAzar()}`,
+      language: "es_AR",
+      bodyText: "Hola {nombre}, gracias por tu compra. Tu cupón: {link} ¡Gracias!",
+      metaTemplateId: `meta-${alAzar()}`,
+      status: "APPROVED",
+    },
+  });
+}
+
+function plantillaActivaDe(org: Org, automationId: string) {
+  return prisma.whatsappTemplate.findFirstOrThrow({
+    where: { organizationId: org.e.organizationId, automationId, deletedAt: null },
+  });
+}
+
+// Cada caso trabaja con su propia regla y apaga las anteriores de la org. La
+// regla nace con su plantilla aprobada, salvo que el caso pida lo contrario.
 async function soloEstaRegla(
   org: Org,
   config: { delayHours: number; expiresInDays?: number; branchId?: string },
+  opciones: { sinPlantilla?: boolean } = {},
 ) {
   await prisma.automation.updateMany({
     where: { organizationId: org.e.organizationId },
     data: { isActive: false },
   });
+  const regla = await reglaDeCupon(org, config);
+  if (!opciones.sinPlantilla) {
+    await plantillaAprobada(org, regla.id);
+  }
+  return regla;
+}
+
+function reglaDeCupon(
+  org: Org,
+  config: { delayHours: number; expiresInDays?: number; branchId?: string },
+) {
   return crearRegla(org.e, {
     name: `Cupón a las ${String(config.delayHours)} h`,
     actionType: ACTION_SEND_DISCOUNT_VOUCHER,
@@ -270,7 +294,8 @@ test("una regla con la sucursal de OTRA organización falla la ejecución y no a
 // ---------------------------------------------------------------------------
 
 test("con delayHours 0: emite UN cupón, lo anota en la fila y manda {{1}} nombre y {{2}} el link; queda SENT", async () => {
-  await soloEstaRegla(a, { delayHours: 0, expiresInDays: 30 });
+  const regla = await soloEstaRegla(a, { delayHours: 0, expiresInDays: 30 });
+  const plantilla = await plantillaActivaDe(a, regla.id);
   const opp = await ganarOportunidad(a, "Envío");
   const { deps, enviados } = doblarEnvio();
   const antes = Date.now();
@@ -290,7 +315,7 @@ test("con delayHours 0: emite UN cupón, lo anota en la fila y manda {{1}} nombr
     {
       phoneNumberId: a.phoneNumberId,
       to: "5491155550000",
-      templateName: a.plantilla,
+      templateName: plantilla.name,
       languageCode: "es_AR",
       bodyParameters: ["Ana", buildVoucherPublicUrl(cupon.id)],
       accessToken: "token-de-prueba",
@@ -425,9 +450,36 @@ test("emitirCuponReal con un reclamo que ya no es el dueño de la fila: lanza y 
 // Aislamiento entre organizaciones
 // ---------------------------------------------------------------------------
 
+// Ítem 181: la organización tiene una plantilla aprobada, pero es de OTRA
+// regla (en la vida real, la del QR de reseñas). El EXISTS del reclamo compara
+// automation_id: la fila del cupón espera sin gastar intentos ni emitir nada.
+test("la plantilla aprobada de OTRA regla de la organización no alcanza: no reclama ni emite, y sale con la propia", async () => {
+  const otra = await reglaDeCupon(a, { delayHours: 0 });
+  await plantillaAprobada(a, otra.id);
+  const regla = await soloEstaRegla(a, { delayHours: 0 }, { sinPlantilla: true });
+  const opp = await ganarOportunidad(a, "Plantilla de otra regla");
+  const { deps, enviados } = doblarEnvio();
+
+  const sinLaPropia = await drenar(a, deps);
+
+  assert.equal(sinLaPropia.enviados + sinLaPropia.fallidos + sinLaPropia.pospuestos, 0);
+  assert.equal(enviados.length, 0);
+  assert.equal((await cuponesDe(a, opp.id)).length, 0);
+  const [fila] = await filasDe(a, opp.id);
+  assert.equal(fila.automationId, regla.id);
+  assert.equal(fila.attempts, 0, "no se reclamó: ningún intento gastado");
+
+  const propia = await plantillaAprobada(a, regla.id);
+  const conLaPropia = await drenar(a, deps);
+
+  assert.equal(conLaPropia.enviados, 1);
+  assert.equal(enviados[0].templateName, propia.name);
+});
+
 test("aislamiento: el drenado de una organización no toca las filas de otra, y cada cupón nace en la suya", async () => {
   await soloEstaRegla(a, { delayHours: 0 });
-  await soloEstaRegla(b, { delayHours: 0 });
+  const reglaB = await soloEstaRegla(b, { delayHours: 0 });
+  const plantillaB = await plantillaActivaDe(b, reglaB.id);
   const oppA = await ganarOportunidad(a, "Aislamiento A");
   const oppB = await ganarOportunidad(b, "Aislamiento B");
 
@@ -450,7 +502,7 @@ test("aislamiento: el drenado de una organización no toca las filas de otra, y 
   assert.equal(cuponA.organizationId, a.e.organizationId);
   assert.equal(cuponB.organizationId, b.e.organizationId);
   assert.equal(envioB.enviados[0].phoneNumberId, b.phoneNumberId);
-  assert.equal(envioB.enviados[0].templateName, b.plantilla);
+  assert.equal(envioB.enviados[0].templateName, plantillaB.name);
   assert.equal(envioB.enviados[0].bodyParameters[1], buildVoucherPublicUrl(cuponB.id));
   // Ninguna fila de una organización apunta a un cupón de la otra.
   const cruzadas = await prisma.discountVoucherFollowUp.count({

@@ -303,9 +303,12 @@ async function sembrar(config: ConfiguracionDePrueba, opciones: Opciones): Promi
   // El nombre es único entre las activas de TODA la tabla: una fila local con
   // ese nombre que no sea de una corrida anterior haría fallar este INSERT, y
   // está bien que falle — no se pisa nada que el script no haya creado.
+  // Atada a la regla del smoke: desde el ítem 181 la plantilla es de cada
+  // automatización, no de la organización.
   await prisma.whatsappTemplate.create({
     data: {
       organizationId: org.id,
+      automationId: automation.id,
       name: config.plantilla.name,
       language: config.plantilla.languageCode,
       bodyText: "Plantilla del smoke: ya aprobada en Meta, el texto no viaja.",
@@ -415,8 +418,8 @@ async function main() {
 
     const deps: DepsDelSeguimiento = {
       accessToken: () => config.accessToken,
-      // La real: lee la plantilla aprobada que se sembró para la organización.
-      plantillaDeLaOrganizacion: depsDelSeguimientoReales.plantillaDeLaOrganizacion,
+      // La real: lee la plantilla aprobada que se sembró para la regla.
+      plantillaDeLaRegla: depsDelSeguimientoReales.plantillaDeLaRegla,
       // La real: el agente de la sucursal del QR.
       numeroDeLaSucursal: (organizationId, branchId) =>
         prisma.agent

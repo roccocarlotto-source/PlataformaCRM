@@ -1537,6 +1537,8 @@ model Automation {
   // Los cupones que emitió esta regla (ítem 176) y los que agendó (ítem 177).
   discountVouchers         DiscountVoucher[]
   discountVoucherFollowUps DiscountVoucherFollowUp[]
+  // La plantilla de WhatsApp con que manda esta regla (ítem 181).
+  whatsappTemplates        WhatsappTemplate[]
 
   // El UNIQUE que habilita la FK compuesta de automation_executions (C-3).
   @@unique([organizationId, id])
@@ -2900,8 +2902,10 @@ model DiscountVoucherFollowUp {
 //
 // DOS UNIQUE PARCIALES (sobre las filas no borradas), que viven en la
 // migración porque el DSL de Prisma no expresa el WHERE:
-//   - whatsapp_templates_org_active_unique (organization_id): una activa por
-//     organización. Para cambiarla, se borra la actual.
+//   - whatsapp_templates_automation_active_unique (organization_id,
+//     automation_id): una activa por REGLA de automatización (ítem 181; en el
+//     160 era una por organización). Cada automatización que manda WhatsApp
+//     tiene su propio texto. Para cambiarla, se borra la actual.
 //   - whatsapp_templates_name_active_unique (name): el nombre es único EN TODA
 //     LA TABLA, no por organización. Todas las organizaciones comparten el
 //     mismo WABA de Meta, y en un WABA el nombre identifica a la plantilla:
@@ -2913,6 +2917,9 @@ model DiscountVoucherFollowUp {
 model WhatsappTemplate {
   id             String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String                 @map("organization_id") @db.Uuid
+  // La regla que manda con esta plantilla (ítem 181). La FK es compuesta
+  // (C-3): la regla tiene que ser de la MISMA organización.
+  automationId   String                 @map("automation_id") @db.Uuid
   // Minúsculas, números y guion bajo (regla de Meta). 512 es el tope de Meta.
   name           String                 @db.VarChar(512)
   // Código de idioma de Meta (es_AR, en_US...).
@@ -2928,6 +2935,7 @@ model WhatsappTemplate {
   updatedAt      DateTime               @updatedAt @map("updated_at")
 
   organization Organization @relation(fields: [organizationId], references: [id])
+  automation   Automation   @relation(fields: [organizationId, automationId], references: [organizationId, id])
 
   // El webhook de Meta identifica la plantilla por su id: lo sirve este
   // índice. No es UNIQUE porque una fila borrada conserva el suyo como

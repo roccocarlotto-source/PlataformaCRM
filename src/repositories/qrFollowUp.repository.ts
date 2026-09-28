@@ -62,13 +62,14 @@ interface FilaReclamada {
 // workers nunca reclaman la misma fila. Lo sirve el índice parcial
 // qr_follow_ups_claimable_idx.
 //
-// SOLO DE ORGANIZACIONES CON PLANTILLA APROBADA (ítem 160). Sin una
-// plantilla propia en APPROVED, la organización no tiene con qué mandar: sus
-// filas no se reclaman, no gastan intentos, y salen solas en la primera
-// pasada después de que Meta la apruebe. Es el mismo criterio que antes se
-// aplicaba para toda la plataforma (sin las variables de la plantilla no se
-// reclamaba nada), ahora por organización. El EXISTS lo sirve el UNIQUE
-// parcial whatsapp_templates_org_active_unique.
+// SOLO SI LA REGLA QUE LA AGENDÓ TIENE PLANTILLA APROBADA (ítem 160; por
+// regla desde el 181). Sin una plantilla propia en APPROVED, la regla no tiene
+// con qué mandar: sus filas no se reclaman, no gastan intentos, y salen solas
+// en la primera pasada después de que Meta la apruebe. La plantilla de OTRA
+// regla de la misma organización no sirve —su texto habla de otra cosa (el
+// cupón, por ejemplo)—: por eso el EXISTS compara automation_id además de
+// organization_id. Lo sirve el UNIQUE parcial
+// whatsapp_templates_automation_active_unique.
 //
 // `excluir` y `organizationId` cumplen el mismo rol que en las otras colas:
 // que la pasada no vuelva a tomar lo que acaba de fallar, y que los tests de
@@ -100,6 +101,7 @@ export async function claimNextQrFollowUp(
           SELECT 1
           FROM whatsapp_templates t
           WHERE t.organization_id = c.organization_id
+            AND t.automation_id = c.automation_id
             AND t.deleted_at IS NULL
             AND t.status = 'APPROVED'::"WhatsappTemplateStatus"
         )
