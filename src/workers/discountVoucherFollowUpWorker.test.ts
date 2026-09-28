@@ -9,10 +9,10 @@ import {
   type SendWhatsappTemplateInput,
 } from "../services/whatsappGraph.service";
 import { AppError } from "../utils/AppError";
+import { buildVoucherPublicUrl } from "../utils/voucherPublicUrl";
 import {
   clasificarFallo,
   leerConfiguracion,
-  linkDelCupon,
   motivoDeCancelacion,
   procesarCupon,
   vencimientoDelCupon,
@@ -27,7 +27,7 @@ import { ErrorPermanenteDelSeguimiento } from "./qrFollowUpWorker";
 // ---------------------------------------------------------------------------
 
 const RECLAMO: DiscountVoucherFollowUpReclamado = { id: "f1", organizationId: "org", attempts: 1 };
-const CONFIG: ConfiguracionDelCupon = { accessToken: "token", baseUrl: "https://nexoraqrs.com" };
+const CONFIG: ConfiguracionDelCupon = { accessToken: "token" };
 const PLANTILLA = { name: "seguimiento_resena", languageCode: "es_AR" };
 // El agendado fue hace tres días; el envío es AHORA.
 const AGENDADO = new Date("2026-09-22T15:00:00.000Z");
@@ -104,33 +104,22 @@ function doblar(
 // Configuración, link y vencimiento
 // ---------------------------------------------------------------------------
 
-test("leerConfiguracion: nombra cada variable que falta (vacía cuenta como ausente)", () => {
-  assert.deepEqual(
-    leerConfiguracion({ accessToken: () => undefined, baseUrlPublica: () => undefined }),
-    { ok: false, faltan: ["WHATSAPP_ACCESS_TOKEN", "VOUCHER_PUBLIC_BASE_URL"] },
-  );
-  assert.deepEqual(leerConfiguracion({ accessToken: () => "token", baseUrlPublica: () => "  " }), {
+test("leerConfiguracion: sin token (o vacío) falta WHATSAPP_ACCESS_TOKEN", () => {
+  assert.deepEqual(leerConfiguracion({ accessToken: () => undefined }), {
     ok: false,
-    faltan: ["VOUCHER_PUBLIC_BASE_URL"],
+    faltan: ["WHATSAPP_ACCESS_TOKEN"],
   });
-  assert.deepEqual(
-    leerConfiguracion({ accessToken: () => " ", baseUrlPublica: () => "https://nexoraqrs.com" }),
-    { ok: false, faltan: ["WHATSAPP_ACCESS_TOKEN"] },
-  );
+  assert.deepEqual(leerConfiguracion({ accessToken: () => " " }), {
+    ok: false,
+    faltan: ["WHATSAPP_ACCESS_TOKEN"],
+  });
 });
 
-test("leerConfiguracion: con las dos, recorta y le saca la barra final a la base", () => {
-  assert.deepEqual(
-    leerConfiguracion({
-      accessToken: () => " token ",
-      baseUrlPublica: () => " https://nexoraqrs.com/ ",
-    }),
-    { ok: true, config: CONFIG },
-  );
-});
-
-test("linkDelCupon: <base>/v/<id>, el mismo formato que /r/<qrId> del QR", () => {
-  assert.equal(linkDelCupon("https://nexoraqrs.com", CUPON), `https://nexoraqrs.com/v/${CUPON}`);
+test("leerConfiguracion: con el token, lo recorta", () => {
+  assert.deepEqual(leerConfiguracion({ accessToken: () => " token " }), {
+    ok: true,
+    config: CONFIG,
+  });
 });
 
 test("vencimientoDelCupon: suma días exactos", () => {
@@ -220,7 +209,9 @@ test("emite el cupón con expiresAt = AHORA + expiresInDays (no desde el agendad
       to: "5491155550000",
       templateName: "seguimiento_resena",
       languageCode: "es_AR",
-      bodyParameters: ["Ana", `https://nexoraqrs.com/v/${CUPON}`],
+      // El link lo arma buildVoucherPublicUrl (ítem 178), el mismo que codifica
+      // el QR de la página del cupón.
+      bodyParameters: ["Ana", buildVoucherPublicUrl(CUPON)],
       accessToken: "token",
     },
   ]);
@@ -235,7 +226,7 @@ test("un reintento con el cupón ya emitido NO emite otro: manda el mismo", asyn
   );
 
   assert.equal(emisiones.length, 0, "no se emitió un segundo cupón");
-  assert.equal(enviados[0].bodyParameters[1], `https://nexoraqrs.com/v/${YA}`);
+  assert.equal(enviados[0].bodyParameters[1], buildVoucherPublicUrl(YA));
 });
 
 test("si Meta falla después de emitir, el error sube (y el cupón ya quedó anotado para el reintento)", async () => {

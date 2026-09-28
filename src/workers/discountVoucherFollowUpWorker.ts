@@ -17,6 +17,7 @@ import { crearDiscountVoucher, dependenciasDeCuponesEn } from "../services/disco
 import { soloDigitos } from "../services/whatsappContact.service";
 import { AppError } from "../utils/AppError";
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
+import { buildVoucherPublicUrl } from "../utils/voucherPublicUrl";
 import {
   ErrorPermanenteDelSeguimiento,
   clasificarFallo as clasificarFalloDelSeguimientoQr,
@@ -61,7 +62,6 @@ import {
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
 
 export interface DepsDelCupon extends DepsDelSeguimiento {
-  baseUrlPublica: () => string | undefined;
   // Emite el cupón y lo anota en la fila, atómico. Devuelve su id. Lanza si la
   // fila ya no es de este reclamo (y entonces no queda ningún cupón).
   emitirCupon: (
@@ -104,38 +104,29 @@ export async function emitirCuponReal(
 
 export const depsDelCuponReales: DepsDelCupon = {
   ...depsDelSeguimientoReales,
-  baseUrlPublica: () => env.VOUCHER_PUBLIC_BASE_URL,
   emitirCupon: emitirCuponReal,
   ahora: () => new Date(),
 };
 
 export interface ConfiguracionDelCupon {
   accessToken: string;
-  // Sin barra final.
-  baseUrl: string;
 }
 
 // Pura: la configuración completa, o los nombres de las variables que faltan.
 // El string vacío cuenta como ausente, igual que en el worker del QR.
+//
+// La base del link NO es configuración de este worker: el link lo arma
+// buildVoucherPublicUrl (ítem 178) con QR_PUBLIC_BASE_URL, el mismo que
+// codifica el QR de la página del cupón, así los dos no pueden divergir. Sin
+// esa variable devuelve el id pelado, igual que en la página.
 export function leerConfiguracion(
-  deps: Pick<DepsDelCupon, "accessToken" | "baseUrlPublica">,
+  deps: Pick<DepsDelCupon, "accessToken">,
 ): { ok: true; config: ConfiguracionDelCupon } | { ok: false; faltan: string[] } {
   const accessToken = deps.accessToken()?.trim();
-  const baseUrl = deps.baseUrlPublica()?.trim().replace(/\/+$/, "");
-  const faltan: string[] = [];
-  if (!accessToken) faltan.push("WHATSAPP_ACCESS_TOKEN");
-  if (!baseUrl) faltan.push("VOUCHER_PUBLIC_BASE_URL");
-  if (!accessToken || !baseUrl) {
-    return { ok: false, faltan };
+  if (!accessToken) {
+    return { ok: false, faltan: ["WHATSAPP_ACCESS_TOKEN"] };
   }
-  return { ok: true, config: { accessToken, baseUrl } };
-}
-
-// El link público del cupón: el mismo formato que buildPublicResolutionUrl del
-// frontend arma para el QR (/r/:qrId), con /v/. Lo resuelve el Worker de
-// Cloudflare contra GET /vouchers/resolve/:id (ítem 176).
-export function linkDelCupon(baseUrl: string, discountVoucherId: string): string {
-  return `${baseUrl}/v/${discountVoucherId}`;
+  return { ok: true, config: { accessToken } };
 }
 
 // Pura: cuándo vence un cupón emitido AHORA.
@@ -243,7 +234,7 @@ export async function procesarCupon(
     // Posicionales, los mismos que el del QR: {{1}} el nombre, {{2}} el link.
     bodyParameters: [
       nombreParaElSaludo(fila.contact.firstName),
-      linkDelCupon(config.baseUrl, discountVoucherId),
+      buildVoucherPublicUrl(discountVoucherId),
     ],
     accessToken: config.accessToken,
   });
@@ -350,9 +341,9 @@ export async function drenarCupones(opciones: OpcionesDrenado = {}): Promise<Res
     sinConfiguracion: false,
   };
 
-  // Sin token o sin la base del link no se reclama nada, mismo criterio que el
-  // worker del QR: las filas quedan en PENDING sin gastar intentos, y el error
-  // se loguea en CADA pasada.
+  // Sin token no se reclama nada, mismo criterio que el worker del QR: las
+  // filas quedan en PENDING sin gastar intentos, y el error se loguea en CADA
+  // pasada.
   const configuracion = leerConfiguracion(deps);
   if (!configuracion.ok) {
     logger.error(

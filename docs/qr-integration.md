@@ -1591,13 +1591,11 @@ pie para su caso — ahí un link alcanza —; un descuento, en cambio, sí tien
 que gastarse una sola vez. El porqué completo está en ese ítem.
 
 **Nota posterior (2026-09-28, ítem 177):** el cupón se manda por WhatsApp con
-el mismo molde que el seguimiento con QR (ítem 159), pero con un link propio,
-`${VOUCHER_PUBLIC_BASE_URL}/v/:id`, que arma el backend
-(`linkDelCupon` en `src/workers/discountVoucherFollowUpWorker.ts`) y no
-`lib/publicUrl.ts` del frontend. Esa ruta `/v/:id` todavía no existe en el
-Worker de Cloudflare (repo `Plataforma-QR`): tiene que apuntar a
-`GET /vouchers/resolve/:id` con `X-Internal-Proxy-Secret`, igual que
-`/r/:qrId` → `/qr/resolve/:qrId`. Hasta entonces el link da 404.
+el mismo molde que el seguimiento con QR (ítem 159), con el link del cupón
+armado por `buildVoucherPublicUrl` (`src/utils/voucherPublicUrl.ts`, ítem 178,
+`${QR_PUBLIC_BASE_URL}/v/:id`): el mismo que codifica el QR de la página del
+cupón, sin variable propia. La ruta `/v/:id` del Worker está al final de este
+documento.
 
 ## Qué se corrigió: publicUrl.ts apunta al Worker (2026-09-04)
 
@@ -1769,3 +1767,31 @@ habitual) — ver la nota en `docs/deployment.md` §2.2.
 **`Plataforma-QR`.** No se tocó: desde la Fase 4 el Worker apunta a este
 backend y ese repo no sirve tráfico real. Su propia facturación queda como
 estaba hasta que se archive (Fase 5).
+
+### 2026-09-28 — Ruta del Worker para el cupón de descuento (`/v/:id`, ítem 178)
+
+**Qué se agregó, en `Plataforma-QR` (repo separado, no este).** El mismo
+Worker que ya proxyaba `/r/:qrId` → `${BACKEND_PUBLIC_BASE_URL}/qr/resolve/:qrId`
+ahora también proxya `/v/:id` → `${BACKEND_PUBLIC_BASE_URL}/vouchers/resolve/:id`
+(el endpoint del ítem 178, ver `src/controllers/voucherPublic.controller.ts` en
+este repo). Generalización de `src/handler.ts`, no una copia — mismo relay de
+body/headers, mismo `redirect: "manual"`, mismo forzado de
+`Content-Type: text/html`, mismo header `X-Internal-Proxy-Secret`, mismos
+bindings de rate limit (`RATE_LIMITER_IP`, `RATE_LIMITER_GLOBAL`,
+`BACKEND_PUBLIC_BASE_URL` — ninguno nuevo). `deno test --allow-net
+handler.test.ts` en 34/34 (eran 26 antes de esta ruta). `deno.lock` versionado
+para fijar la versión de `deno.land/std` que usan los tests.
+
+**Estado: mergeado y deployado.** PR #3 de `Plataforma-QR` mergeado; Rocco
+corrió `npx wrangler deploy` a mano (paso que solo él hace, igual que en la
+Fase 4) y confirmó los mismos bindings de siempre, sin ninguno nuevo, 2.39
+KiB subidos. `QR_PUBLIC_BASE_URL=https://nexoraqrs.com` ya estaba configurado
+en el backend (Render) desde antes de este deploy.
+
+**Lo que esto desbloquea.** El link del cupón (`buildVoucherPublicUrl`, este
+repo) ya resuelve de punta a punta: `https://nexoraqrs.com/v/:id` → Worker →
+`GET /vouchers/resolve/:id` → la página HTML del ítem 178. Antes de este
+deploy el link era válido en el backend pero no en el dominio público. Falta
+únicamente el ítem 177 (la automatización que crea y manda el cupón) mergeado
+para poder probar el circuito completo con un cupón real — sin eso no hay
+forma de generar uno para el test end-to-end.

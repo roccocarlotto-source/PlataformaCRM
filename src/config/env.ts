@@ -492,17 +492,8 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(5 * 60 * 1000),
-  // La base del link público del cupón que viaja en el WhatsApp: el worker
-  // manda `${VOUCHER_PUBLIC_BASE_URL}/v/${id}` (ej. https://nexoraqrs.com). Es
-  // el equivalente de VITE_QR_PUBLIC_BASE_URL del frontend, del lado del
-  // backend: el worker del QR nunca la necesitó porque mandaba el
-  // destinationUrl ya armado.
-  //
-  // SIN DEFAULT, mismo criterio que WHATSAPP_ACCESS_TOKEN: el servidor arranca
-  // sin ella, y el worker, sin ella, no reclama nada y lo loguea como error en
-  // cada pasada. Un default apuntando a un dominio sería un link que el
-  // cliente recibe y no sabemos si funciona.
-  VOUCHER_PUBLIC_BASE_URL: z.string().optional(),
+  // El link del cupón NO tiene variable propia: lo arma buildVoucherPublicUrl
+  // (src/utils/voucherPublicUrl.ts, ítem 178) con QR_PUBLIC_BASE_URL, más abajo.
 
   // -------------------------------------------------------------------------
   // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).

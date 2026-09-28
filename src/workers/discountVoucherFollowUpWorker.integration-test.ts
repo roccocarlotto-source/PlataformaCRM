@@ -14,6 +14,7 @@ import {
   WhatsappGraphError,
   type SendWhatsappTemplateInput,
 } from "../services/whatsappGraph.service";
+import { buildVoucherPublicUrl } from "../utils/voucherPublicUrl";
 import {
   depsDelCuponReales,
   drenarCupones,
@@ -32,7 +33,6 @@ import { drenarOutbox } from "./outboxWorker";
 // aislamiento.
 // ---------------------------------------------------------------------------
 
-const BASE = "https://cupones.example.test";
 const DIA_MS = 24 * 60 * 60 * 1000;
 
 interface Org {
@@ -108,14 +108,14 @@ after(async () => {
   if (escenarios.length > 0) await desmontar(...escenarios);
 });
 
-// Un doble de la Graph API y de la base del link; la plantilla, el número de
-// la sucursal y la EMISIÓN del cupón son los reales, contra la base.
-function doblarEnvio(opciones: { falla?: unknown; baseUrl?: string | undefined } = {}) {
+// Un doble de la Graph API y del token; la plantilla, el número de la sucursal
+// y la EMISIÓN del cupón son los reales, contra la base. El link lo arma
+// buildVoucherPublicUrl con QR_PUBLIC_BASE_URL (ítem 178), sin doble.
+function doblarEnvio(opciones: { falla?: unknown; accessToken?: string | undefined } = {}) {
   const enviados: SendWhatsappTemplateInput[] = [];
   const deps: DepsDelCupon = {
     ...depsDelCuponReales,
-    accessToken: () => "token-de-prueba",
-    baseUrlPublica: () => ("baseUrl" in opciones ? opciones.baseUrl : BASE),
+    accessToken: () => ("accessToken" in opciones ? opciones.accessToken : "token-de-prueba"),
     sendTemplate: (input) => {
       enviados.push(input);
       return opciones.falla === undefined ? Promise.resolve() : Promise.reject(opciones.falla);
@@ -292,7 +292,7 @@ test("con delayHours 0: emite UN cupón, lo anota en la fila y manda {{1}} nombr
       to: "5491155550000",
       templateName: a.plantilla,
       languageCode: "es_AR",
-      bodyParameters: ["Ana", `${BASE}/v/${cupon.id}`],
+      bodyParameters: ["Ana", buildVoucherPublicUrl(cupon.id)],
       accessToken: "token-de-prueba",
     },
   ]);
@@ -353,7 +353,7 @@ test("un 503 de Meta después de emitir: PENDING con backoff, y el reintento man
   assert.equal(segundo.enviados, 1);
   const cupones = await cuponesDe(a, opp.id);
   assert.equal(cupones.length, 1, "sigue habiendo un solo cupón");
-  assert.equal(sano.enviados[0].bodyParameters[1], `${BASE}/v/${cupones[0].id}`);
+  assert.equal(sano.enviados[0].bodyParameters[1], buildVoucherPublicUrl(cupones[0].id));
   const [fila] = await filasDe(a, opp.id);
   assert.equal(fila.status, "SENT");
   assert.equal(fila.attempts, 2);
@@ -375,15 +375,15 @@ test("si la oportunidad dejó de estar ganada antes del envío: CANCELA sin emit
   assert.match(fila.lastError ?? "", /estado actual: OPEN/);
 });
 
-test("sin VOUCHER_PUBLIC_BASE_URL no reclama nada: PENDING sin intentos gastados, y sale al configurarla", async () => {
+test("sin WHATSAPP_ACCESS_TOKEN no reclama nada: PENDING sin intentos gastados, y sale al configurarlo", async () => {
   await soloEstaRegla(a, { delayHours: 0 });
-  const opp = await ganarOportunidad(a, "Sin base");
+  const opp = await ganarOportunidad(a, "Sin token");
 
-  const sinBase = doblarEnvio({ baseUrl: undefined });
-  const resumen = await drenar(a, sinBase.deps);
+  const sinToken = doblarEnvio({ accessToken: undefined });
+  const resumen = await drenar(a, sinToken.deps);
 
   assert.equal(resumen.sinConfiguracion, true);
-  assert.equal(sinBase.enviados.length, 0);
+  assert.equal(sinToken.enviados.length, 0);
   const [fila] = await filasDe(a, opp.id);
   assert.equal(fila.status, "PENDING");
   assert.equal(fila.attempts, 0);
@@ -451,7 +451,7 @@ test("aislamiento: el drenado de una organización no toca las filas de otra, y 
   assert.equal(cuponB.organizationId, b.e.organizationId);
   assert.equal(envioB.enviados[0].phoneNumberId, b.phoneNumberId);
   assert.equal(envioB.enviados[0].templateName, b.plantilla);
-  assert.equal(envioB.enviados[0].bodyParameters[1], `${BASE}/v/${cuponB.id}`);
+  assert.equal(envioB.enviados[0].bodyParameters[1], buildVoucherPublicUrl(cuponB.id));
   // Ninguna fila de una organización apunta a un cupón de la otra.
   const cruzadas = await prisma.discountVoucherFollowUp.count({
     where: {

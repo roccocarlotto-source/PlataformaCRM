@@ -8212,17 +8212,20 @@ El dominio público `nexoraqrs.com` pasa por un Cloudflare Worker que vive en el
 
 ## 177. Cupón de descuento por WhatsApp al ganar una oportunidad: la automatización (paso 2 de 3)
 
-**Estado:** hecho (28/09/2026), **sin activar en ninguna organización real** — ver "No activar todavía". **Lleva migración** (`20261008120000_discount_voucher_follow_ups`), escrita a mano. **Variable nueva:** `VOUCHER_PUBLIC_BASE_URL` (sin default), más las siete `DISCOUNT_VOUCHER_FOLLOWUP_*` con default. Sin frontend: la regla todavía no aparece en el formulario de automatizaciones (`frontend/src/features/automation/catalog.ts`), se crea por API.
+**Estado:** hecho (28/09/2026), **sin activar en ninguna organización real** — ver "No activar todavía". **Lleva migración** (`20261008120000_discount_voucher_follow_ups`), escrita a mano. **Variables nuevas:** las siete `DISCOUNT_VOUCHER_FOLLOWUP_*`, todas con default. El link del cupón reusa `QR_PUBLIC_BASE_URL` (ítem 178), que ya está en Render. Sin frontend: la regla todavía no aparece en el formulario de automatizaciones (`frontend/src/features/automation/catalog.ts`), se crea por API.
 
 ### ⚠️ No activar todavía en una organización real
 
-El link que manda esta acción, `${VOUCHER_PUBLIC_BASE_URL}/v/:id`, **hoy no funciona en producción**. Un cliente que reciba el WhatsApp y lo toque va a ver el 404 genérico anti-enumeración. Faltan tres cosas, ninguna de este repo o de este ítem:
+De los tres bloqueos que tenía este ítem al escribirse, **dos ya están resueltos** (28/09/2026):
 
-1. **La ruta `/v/:id` en el Worker de Cloudflare** del repo `Plataforma-QR`, apuntando a `GET /vouchers/resolve/:id` de este backend con el header `X-Internal-Proxy-Secret`: el mismo patrón que ya usa `/r/:qrId` → `/qr/resolve/:qrId` (ver "Pendiente fuera de este repo" en el ítem 176).
-2. **La página del cupón (ítem 178)**, que consume ese JSON (`{ status, label }`) y le muestra algo al cliente.
+1. ~~La ruta `/v/:id` en el Worker de Cloudflare~~ — **hecho:** PR #3 de `Plataforma-QR`, mergeado y deployado (`/v/:id` → `GET /vouchers/resolve/:id`, con `X-Internal-Proxy-Secret`). Ver `docs/qr-integration.md`.
+2. ~~La página del cupón~~ — **hecho:** ítem 178, mergeado y deployado. El link del WhatsApp lo arma el mismo `buildVoucherPublicUrl` que codifica el QR de esa página, así que los dos no pueden divergir.
+
+**Sigue abierto:**
+
 3. **El texto de la plantilla.** La organización tiene UNA plantilla aprobada (ítem 160), con `{nombre}` y `{link}`, que hoy está escrita para el QR de reseñas ("…dejanos tu opinión: {link}"). El cupón sale con **esa misma plantilla**: el cliente recibiría el link del cupón con el texto de la reseña. Es una decisión de producto abierta (una segunda plantilla por organización, una plantilla por regla, o un texto genérico que sirva para los dos), no un bug de este ítem. Hasta resolverla, en una organización con las dos reglas el texto no le va a servir a una de las dos.
 
-Todo lo de este ítem se escribió y se probó con dobles de la Graph API (mismo criterio que el ítem 159), sin depender de esas tres piezas.
+Todo lo de este ítem se escribió y se probó con dobles de la Graph API (mismo criterio que el ítem 159).
 
 **Contexto.** Es la emisión automática que el 176 dejó preparada: N horas después de que una oportunidad pasa a `WON`, crear un cupón de un solo uso para el cliente y mandárselo por WhatsApp. Es **exactamente el molde de `opportunity.send_qr_followup` (ítem 159)** —la acción agenda, un worker manda— con una diferencia real: el QR ya existe cuando se configura la regla (se elige uno del desplegable); el cupón **no existe todavía**, nace cuando el worker lo va a mandar.
 
@@ -8238,9 +8241,9 @@ Todo lo de este ítem se escribió y se probó con dobles de la Graph API (mismo
    - **relee** y **cancela** (sin error) si la regla se borró o está inactiva, la oportunidad se borró o ya no está `WON`, el contacto se borró, o la sucursal se borró;
    - chequea lo que puede impedir el envío —teléfono del contacto, número de WhatsApp de la sucursal, plantilla aprobada— **antes** de emitir el cupón (falla permanente, sin dejar un cupón que nunca va a salir);
    - si la fila no tiene `discountVoucherId`, **emite el cupón** con `crearDiscountVoucher` (176), `expiresAt = ahora + expiresInDays` calculado en ese momento, y lo anota en la fila **en la misma transacción**;
-   - manda la plantilla con `sendWhatsappTemplateReal`, `bodyParameters: [nombreParaElSaludo(firstName), `${VOUCHER_PUBLIC_BASE_URL}/v/${id}`]`.
-   - Sin `WHATSAPP_ACCESS_TOKEN` o sin `VOUCHER_PUBLIC_BASE_URL` no reclama nada (no gasta intentos) y lo loguea como error en cada pasada.
-4. **Variables** (`src/config/env.ts`, `.env.example`): `DISCOUNT_VOUCHER_FOLLOWUP_WORKER_ENABLED` (true), `_WORKER_POLL_MS` (300000), `_WORKER_BATCH_SIZE` (20), `_MAX_ATTEMPTS` (5), `_BACKOFF_BASE_MS` (60000), `_BACKOFF_MAX_MS` (1800000), `_LEASE_MS` (300000) — los mismos defaults que sus `QR_FOLLOWUP_*`. `VOUCHER_PUBLIC_BASE_URL` sin default, mismo criterio que `WHATSAPP_ACCESS_TOKEN`.
+   - manda la plantilla con `sendWhatsappTemplateReal`, `bodyParameters: [nombreParaElSaludo(firstName), buildVoucherPublicUrl(id)]` — el armador del link del ítem 178 (`src/utils/voucherPublicUrl.ts`, `${QR_PUBLIC_BASE_URL}/v/:id`). Sin `QR_PUBLIC_BASE_URL` devuelve el id pelado, igual que en la página del cupón.
+   - Sin `WHATSAPP_ACCESS_TOKEN` no reclama nada (no gasta intentos) y lo loguea como error en cada pasada.
+4. **Variables** (`src/config/env.ts`, `.env.example`): `DISCOUNT_VOUCHER_FOLLOWUP_WORKER_ENABLED` (true), `_WORKER_POLL_MS` (300000), `_WORKER_BATCH_SIZE` (20), `_MAX_ATTEMPTS` (5), `_BACKOFF_BASE_MS` (60000), `_BACKOFF_MAX_MS` (1800000), `_LEASE_MS` (300000) — los mismos defaults que sus `QR_FOLLOWUP_*`. Sin variable propia para el link: se reusa `QR_PUBLIC_BASE_URL` (ítem 178).
 
 ### Decisiones tomadas al implementarlo
 
@@ -8264,17 +8267,17 @@ Todo lo de este ítem se escribió y se probó con dobles de la Graph API (mismo
 | `src/services/automationActions/sendDiscountVoucherFollowup.ts`, `src/services/automationRegistrations.ts` | la acción y su registro |
 | `src/services/discountVoucher.service.ts` | `dependenciasDeCuponesEn(db)` exportada |
 | `src/workers/discountVoucherFollowUpWorker.ts`, `src/server.ts` | el worker y su arranque/apagado |
-| `src/config/env.ts`, `.env.example` | `DISCOUNT_VOUCHER_FOLLOWUP_*`, `VOUCHER_PUBLIC_BASE_URL` |
+| `src/config/env.ts`, `.env.example` | `DISCOUNT_VOUCHER_FOLLOWUP_*` |
 | `src/services/automation.test-helper.ts` | `desmontar` borra las dos tablas de cupones antes que sus padres |
-| tests | `sendDiscountVoucherFollowup.test.ts` (10), `discountVoucherFollowUpWorker.test.ts` (14), `discountVoucherFollowUpWorker.integration-test.ts` (11), el worker nuevo en la tabla de `detenerWorker.test.ts`, la acción en el catálogo de `automationOpportunityWon.integration-test.ts` |
+| tests | `sendDiscountVoucherFollowup.test.ts` (10), `discountVoucherFollowUpWorker.test.ts` (13), `discountVoucherFollowUpWorker.integration-test.ts` (11), el worker nuevo en la tabla de `detenerWorker.test.ts`, la acción en el catálogo de `automationOpportunityWon.integration-test.ts` |
 | `docs/automations-architecture.md` §5 | la acción en el catálogo y el segundo caso del patrón |
-| `docs/qr-integration.md` | nota: el link `/v/:id` del cupón y la ruta que falta en el Worker de Cloudflare |
+| `docs/qr-integration.md` | nota: el link `/v/:id` del cupón reusa `buildVoucherPublicUrl`; entrada del deploy de la ruta `/v/:id` del Worker |
 
 ### Cómo se aplica
 
 1. `npm run migrate:deploy` + `npm run verify:schema` (solo agrega: tipo y tabla nuevos). Orden de siempre: la migración antes o junto con el deploy del backend.
-2. **No crear ninguna regla `opportunity.send_discount_voucher` en una organización real** hasta que estén las tres piezas de "No activar todavía". Sin reglas, el worker arranca y no encuentra nada que mandar.
-3. Cuando estén: `VOUCHER_PUBLIC_BASE_URL` en Render (ej. `https://nexoraqrs.com`, sin barra final). Sin ella, las filas agendadas quedan en `PENDING` sin gastar intentos y salen solas cuando se configura.
+2. **No crear ninguna regla `opportunity.send_discount_voucher` en una organización real** hasta resolver el texto de la plantilla (lo único que sigue abierto en "No activar todavía"). Sin reglas, el worker arranca y no encuentra nada que mandar.
+3. Nada que configurar en Render para el link: usa `QR_PUBLIC_BASE_URL`, que ya está seteada (`https://nexoraqrs.com`) desde el ítem 178.
 
 ---
 
