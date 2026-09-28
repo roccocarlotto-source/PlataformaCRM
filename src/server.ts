@@ -12,6 +12,7 @@ import { iniciarWorkerDeCanales } from "./workers/googleCalendarChannelWorker";
 import { iniciarWorkerDeOportunidadesEstancadas } from "./workers/opportunityStaleWorker";
 import { iniciarWorkerDeOutbox } from "./workers/outboxWorker";
 import { iniciarWorkerDeSeguimientosQr } from "./workers/qrFollowUpWorker";
+import { iniciarWorkerDeCupones } from "./workers/discountVoucherFollowUpWorker";
 
 const server = app.listen(env.PORT, () => {
   logger.info(`Servidor escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
@@ -98,6 +99,11 @@ const detenerWorkerDeTurnosDeAgente = arrancarWorkers ? iniciarWorkerDeTurnosDeA
 // cuando se ganó una oportunidad.
 const detenerWorkerDeSeguimientosQr = arrancarWorkers ? iniciarWorkerDeSeguimientosQr() : sinWorker;
 
+// El worker de cupones de descuento por WhatsApp (ítem 177), el mismo molde y
+// la misma guarda que el del QR: emite el cupón y manda lo que la acción
+// opportunity.send_discount_voucher agendó.
+const detenerWorkerDeCupones = arrancarWorkers ? iniciarWorkerDeCupones() : sinWorker;
+
 // El apagado ordenado (M-12 de docs/auditoria-2026-08-29.md). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
@@ -111,7 +117,7 @@ const shutdown = crearShutdown({
       // dejan terminar solas, que es lo correcto.
       server.closeIdleConnections();
     }),
-  // Los siete stops esperan a la pasada en curso de su worker (M-12 c): cada
+  // Los ocho stops esperan a la pasada en curso de su worker (M-12 c): cada
   // evento va en su propia transacción y ninguna queda a medias, y los que no
   // llegó a tocar siguen en PENDING para el próximo arranque. El de turnos de
   // WhatsApp espera solo el job en curso; si un turno largo supera el tope del
@@ -125,6 +131,7 @@ const shutdown = crearShutdown({
       detenerWorkerDeOportunidadesEstancadas(),
       detenerWorkerDeTurnosDeAgente(),
       detenerWorkerDeSeguimientosQr(),
+      detenerWorkerDeCupones(),
     ]);
   },
   desconectarPrisma: () => prisma.$disconnect(),

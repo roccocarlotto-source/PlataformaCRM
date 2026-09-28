@@ -8210,6 +8210,77 @@ El dominio público `nexoraqrs.com` pasa por un Cloudflare Worker que vive en el
 
 ---
 
+## 177. Cupón de descuento por WhatsApp al ganar una oportunidad: la automatización (paso 2 de 3)
+
+**Estado:** hecho (28/09/2026), **sin activar en ninguna organización real** — ver "No activar todavía". **Lleva migración** (`20261008120000_discount_voucher_follow_ups`), escrita a mano. **Variables nuevas:** las siete `DISCOUNT_VOUCHER_FOLLOWUP_*`, todas con default. El link del cupón reusa `QR_PUBLIC_BASE_URL` (ítem 178), que ya está en Render. Sin frontend: la regla todavía no aparece en el formulario de automatizaciones (`frontend/src/features/automation/catalog.ts`), se crea por API.
+
+### ⚠️ No activar todavía en una organización real
+
+De los tres bloqueos que tenía este ítem al escribirse, **dos ya están resueltos** (28/09/2026):
+
+1. ~~La ruta `/v/:id` en el Worker de Cloudflare~~ — **hecho:** PR #3 de `Plataforma-QR`, mergeado y deployado (`/v/:id` → `GET /vouchers/resolve/:id`, con `X-Internal-Proxy-Secret`). Ver `docs/qr-integration.md`.
+2. ~~La página del cupón~~ — **hecho:** ítem 178, mergeado y deployado. El link del WhatsApp lo arma el mismo `buildVoucherPublicUrl` que codifica el QR de esa página, así que los dos no pueden divergir.
+
+**Sigue abierto:**
+
+3. **El texto de la plantilla.** La organización tiene UNA plantilla aprobada (ítem 160), con `{nombre}` y `{link}`, que hoy está escrita para el QR de reseñas ("…dejanos tu opinión: {link}"). El cupón sale con **esa misma plantilla**: el cliente recibiría el link del cupón con el texto de la reseña. Es una decisión de producto abierta (una segunda plantilla por organización, una plantilla por regla, o un texto genérico que sirva para los dos), no un bug de este ítem. Hasta resolverla, en una organización con las dos reglas el texto no le va a servir a una de las dos.
+
+Todo lo de este ítem se escribió y se probó con dobles de la Graph API (mismo criterio que el ítem 159).
+
+**Contexto.** Es la emisión automática que el 176 dejó preparada: N horas después de que una oportunidad pasa a `WON`, crear un cupón de un solo uso para el cliente y mandárselo por WhatsApp. Es **exactamente el molde de `opportunity.send_qr_followup` (ítem 159)** —la acción agenda, un worker manda— con una diferencia real: el QR ya existe cuando se configura la regla (se elige uno del desplegable); el cupón **no existe todavía**, nace cuando el worker lo va a mandar.
+
+**Qué se hizo.**
+
+1. **Tabla `discount_voucher_follow_ups`** (modelo `DiscountVoucherFollowUp`, enum `DiscountVoucherFollowUpStatus`: `PENDING`/`SENT`/`FAILED`/`CANCELLED`). Las columnas de cola de `QrFollowUp` tal cual (`scheduledFor`, `nextAttemptAt`, `status`, `attempts`, `lastError`, `sentAt`), sin `qrCodeId`, y en su lugar:
+   - `label` (`VARCHAR(200)`) y `expiresInDays`: fotografiados del `actionConfig` al agendar, para no releer una regla que pudo cambiar (mismo criterio que `QrFollowUp.qrCodeId`);
+   - `branchId`: de qué sucursal sale el WhatsApp (ver decisiones);
+   - `discountVoucherId` (nullable): el cupón emitido, que se anota **antes** de mandar.
+   - FKs compuestas NOT NULL → `RESTRICT` a regla, oportunidad, contacto y sucursal; nullable → `NO ACTION` a `discount_vouchers` (usa el `UNIQUE (organization_id, id)` que dejó el 176). `UNIQUE (organization_id, automation_id, opportunity_id)`: a lo sumo un agendado por (regla, oportunidad). Índice parcial de la cola, RLS con la política uniforme.
+2. **Acción `opportunity.send_discount_voucher`** (`src/services/automationActions/sendDiscountVoucherFollowup.ts`), solo con `opportunity.won`. Config `{ label, delayHours, expiresInDays, branchId }`, sin defaults ocultos: `label` 1..200 recortado (tope `MAX_LABEL_LENGTH` del 176), `delayHours` 0..`MAX_DELAY_HOURS` (720, el de la del QR, reusado), `expiresInDays` 1..365, `branchId` UUID. El handler es el de la del QR: sucursal inexistente/borrada/ajena → error visible en la ejecución ("editá la automatización"); oportunidad borrada o no `WON` → no agenda (info); sin contacto → no agenda (warn); si no, `scheduledFor = horaDeEnvio(ahora, delayHours)` (reusada) y `INSERT … ON CONFLICT DO NOTHING`.
+3. **Worker `src/workers/discountVoucherFollowUpWorker.ts`**, el esqueleto de `qrFollowUpWorker.ts` (del que reusa `nombreParaElSaludo`, el error permanente, la clasificación de fallos y las dependencias reales de WhatsApp). Arranca en `server.ts` detrás de `workersHabilitados()`. Al reclamar una fila:
+   - **relee** y **cancela** (sin error) si la regla se borró o está inactiva, la oportunidad se borró o ya no está `WON`, el contacto se borró, o la sucursal se borró;
+   - chequea lo que puede impedir el envío —teléfono del contacto, número de WhatsApp de la sucursal, plantilla aprobada— **antes** de emitir el cupón (falla permanente, sin dejar un cupón que nunca va a salir);
+   - si la fila no tiene `discountVoucherId`, **emite el cupón** con `crearDiscountVoucher` (176), `expiresAt = ahora + expiresInDays` calculado en ese momento, y lo anota en la fila **en la misma transacción**;
+   - manda la plantilla con `sendWhatsappTemplateReal`, `bodyParameters: [nombreParaElSaludo(firstName), buildVoucherPublicUrl(id)]` — el armador del link del ítem 178 (`src/utils/voucherPublicUrl.ts`, `${QR_PUBLIC_BASE_URL}/v/:id`). Sin `QR_PUBLIC_BASE_URL` devuelve el id pelado, igual que en la página del cupón.
+   - Sin `WHATSAPP_ACCESS_TOKEN` no reclama nada (no gasta intentos) y lo loguea como error en cada pasada.
+4. **Variables** (`src/config/env.ts`, `.env.example`): `DISCOUNT_VOUCHER_FOLLOWUP_WORKER_ENABLED` (true), `_WORKER_POLL_MS` (300000), `_WORKER_BATCH_SIZE` (20), `_MAX_ATTEMPTS` (5), `_BACKOFF_BASE_MS` (60000), `_BACKOFF_MAX_MS` (1800000), `_LEASE_MS` (300000) — los mismos defaults que sus `QR_FOLLOWUP_*`. Sin variable propia para el link: se reusa `QR_PUBLIC_BASE_URL` (ítem 178).
+
+### Decisiones tomadas al implementarlo
+
+- **`branchId` en la regla (decisión de Rocco, 28/09/2026).** El spec no lo preveía, pero sin él el worker no tiene desde qué número mandar: el del QR lo saca de `qrCode.branchId`, y ni el cupón ni `Opportunity` tienen sucursal. La alternativa (el primer número de la organización) mandaba desde una sucursal arbitraria en una organización con varias. Por eso la config es `{ label, delayHours, expiresInDays, branchId }` y no los tres campos del spec, y la cancelación tiene un quinto motivo ("se borró la sucursal").
+- **Enum propio, no `QrFollowUpStatus`.** Mismos cuatro valores, pero son dos colas y no el mismo concepto: si una suma un estado no tiene por qué aparecerle a la otra, y un enum "Qr" en una tabla de cupones confunde. Renombrar el del QR a algo genérico sería un `ALTER TYPE` sobre una tabla en uso para ahorrar cuatro líneas.
+- **Cupón + anotación en una transacción, atada al token del reclamo** (`marcarCuponEmitido` exige `status = PENDING`, el `attempts` del reclamo y `discountVoucherId IS NULL`). Si otro worker retomó la fila con el lease vencido, la anotación no afecta ninguna fila, el throw deshace el `INSERT` del cupón, y no queda un cupón huérfano. Para eso `discountVoucher.service.ts` exporta `dependenciasDeCuponesEn(db)` (las dependencias reales contra un `tx`); nada más cambia en el 176.
+- **Cupón emitido y no mandado: aceptado.** Si un intento emite el cupón, Meta falla, y antes del reintento la fila se cancela (la venta dejó de estar ganada) o agota los intentos, el cupón queda `ACTIVE` sin que el cliente tenga el link, y vence solo. Nadie lo puede canjear sin el link, y la fila guarda cuál fue.
+- **Doble envío: la misma ventana que el 159, pero con el mismo cupón.** Si el proceso muere entre que Meta acepta y el `SENT`, el mensaje sale dos veces, con el mismo link, y el cupón sigue siendo de un solo uso.
+- **`expiresInDays` con tope de 365.** El spec pedía "positivo"; el tope es de cordura, igual que el de `delayHours`.
+- **Un 4xx de `crearDiscountVoucher` es permanente** (label inválido, oportunidad o contacto que ya no están): `clasificarFallo` suma ese caso a la del QR.
+- **Código duplicado con el worker del QR, a sabiendas.** El reclamo, el drenado y el loop del worker son copia adaptada de `qrFollowUpWorker.ts`/`qrFollowUp.repository.ts` (unas 150 líneas). Generalizarlos en una "cola con lease" compartida significaba refactorizar un worker que ya está en producción dentro de este mismo PR; queda como oportunidad si aparece una tercera cola de este tipo.
+
+**Archivos:**
+
+| Archivo | Qué cambia |
+|---|---|
+| `prisma/schema.prisma` | enum `DiscountVoucherFollowUpStatus`, modelo `DiscountVoucherFollowUp`, relaciones inversas en `Organization`, `Contact`, `Opportunity`, `Automation`, `Branch` y `DiscountVoucher` |
+| `prisma/migrations/20261008120000_discount_voucher_follow_ups/migration.sql` | nueva — tabla, índices, UNIQUE, 5 FKs compuestas, índice parcial de la cola, RLS |
+| `docs/auditoria-2026-08-21-diagnostico.sql`, `scripts/verify-schema.ts` | fila 5 (política), fila 16 (5 FKs, 69 → 74), fila 17 (índice de la cola) |
+| `src/repositories/discountVoucherFollowUp.repository.ts` | nuevo — agendado, reclamo, relectura, transiciones y `marcarCuponEmitido` |
+| `src/services/automationActions/sendDiscountVoucherFollowup.ts`, `src/services/automationRegistrations.ts` | la acción y su registro |
+| `src/services/discountVoucher.service.ts` | `dependenciasDeCuponesEn(db)` exportada |
+| `src/workers/discountVoucherFollowUpWorker.ts`, `src/server.ts` | el worker y su arranque/apagado |
+| `src/config/env.ts`, `.env.example` | `DISCOUNT_VOUCHER_FOLLOWUP_*` |
+| `src/services/automation.test-helper.ts` | `desmontar` borra las dos tablas de cupones antes que sus padres |
+| tests | `sendDiscountVoucherFollowup.test.ts` (10), `discountVoucherFollowUpWorker.test.ts` (13), `discountVoucherFollowUpWorker.integration-test.ts` (11), el worker nuevo en la tabla de `detenerWorker.test.ts`, la acción en el catálogo de `automationOpportunityWon.integration-test.ts` |
+| `docs/automations-architecture.md` §5 | la acción en el catálogo y el segundo caso del patrón |
+| `docs/qr-integration.md` | nota: el link `/v/:id` del cupón reusa `buildVoucherPublicUrl`; entrada del deploy de la ruta `/v/:id` del Worker |
+
+### Cómo se aplica
+
+1. `npm run migrate:deploy` + `npm run verify:schema` (solo agrega: tipo y tabla nuevos). Orden de siempre: la migración antes o junto con el deploy del backend.
+2. **No crear ninguna regla `opportunity.send_discount_voucher` en una organización real** hasta resolver el texto de la plantilla (lo único que sigue abierto en "No activar todavía"). Sin reglas, el worker arranca y no encuentra nada que mandar.
+3. Nada que configurar en Render para el link: usa `QR_PUBLIC_BASE_URL`, que ya está seteada (`https://nexoraqrs.com`) desde el ítem 178.
+
+---
+
 ## 178. Cupón de descuento: la página del cliente en HTML y la pantalla de escaneo del CRM (paso 3 de 3)
 
 **Estado:** hecho (28/09/2026). Sin migración. **Una variable nueva, opcional:** `QR_PUBLIC_BASE_URL` en el backend. Depende del 176 (ya en master); el 177 (la automatización que manda el cupón) va en paralelo.

@@ -310,6 +310,25 @@ enum QrFollowUpStatus {
   CANCELLED
 }
 
+// Estado de un cupón de descuento AGENDADO para mandarse por WhatsApp (ítem
+// 177, DiscountVoucherFollowUp). Los mismos cuatro valores y el mismo
+// significado que QrFollowUpStatus, con un matiz en CANCELLED: si el cupón ya
+// se había emitido en un intento anterior, queda emitido y sin mandar (ver
+// discountVoucherFollowUpWorker.ts).
+//
+// UN ENUM PROPIO Y NO QrFollowUpStatus, a propósito: son dos colas que hoy
+// coinciden, no el mismo concepto. Si una suma un estado (un PAUSED, un
+// SKIPPED) no tiene por qué aparecerle a la otra, y un enum llamado "Qr" en
+// una tabla de cupones confunde a quien lea la base. Renombrar el del QR a
+// algo genérico lo evitaría, pero es un ALTER TYPE sobre una tabla en uso
+// para ahorrarse cuatro líneas.
+enum DiscountVoucherFollowUpStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
 // Estado de la plantilla de WhatsApp de una organización (ítem 160), tal cual
 // lo decide Meta — el CRM no aprueba nada, lo lee (del webhook
 // message_template_status_update o del refresh a mano).
@@ -629,16 +648,18 @@ model Organization {
   // como todas las demás.
   knowledgeBaseEntries     KnowledgeBaseEntry[]
 
-  qrCodes               QrCode[]
-  qrFollowUps           QrFollowUp[]
-  // Cupones de descuento de un solo uso (ítem 176).
-  discountVouchers      DiscountVoucher[]
+  qrCodes                  QrCode[]
+  qrFollowUps              QrFollowUp[]
+  // Cupones de descuento de un solo uso (ítem 176), y los agendados para
+  // mandarse por WhatsApp (ítem 177).
+  discountVouchers         DiscountVoucher[]
+  discountVoucherFollowUps DiscountVoucherFollowUp[]
   // El agente de IA de uso interno (ítem 179) — a lo sumo uno — y su historial.
-  internalAgents        InternalAgent[]
-  internalAgentMessages InternalAgentMessage[]
+  internalAgents           InternalAgent[]
+  internalAgentMessages    InternalAgentMessage[]
   // La plantilla de WhatsApp con la que salen sus seguimientos (ítem 160).
   // Una activa a la vez; las borradas quedan como historial.
-  whatsappTemplates     WhatsappTemplate[]
+  whatsappTemplates        WhatsappTemplate[]
 
   vehicles          Vehicle[]
   vehiclePhotos     VehiclePhoto[]
@@ -893,17 +914,19 @@ model Contact {
   company      Company?     @relation(fields: [organizationId, companyId], references: [organizationId, id], onDelete: NoAction)
   owner        User?        @relation("ContactOwner", fields: [organizationId, ownerId], references: [organizationId, id], onDelete: NoAction)
 
-  opportunities     Opportunity[]
-  activities        Activity[]
-  ingestionEvents   IngestionEvent[]
-  bookings          Booking[]
-  conversations     Conversation[]
-  qrFollowUps       QrFollowUp[]
-  // Cupones de descuento emitidos a su nombre (ítem 176).
-  discountVouchers  DiscountVoucher[]
+  opportunities            Opportunity[]
+  activities               Activity[]
+  ingestionEvents          IngestionEvent[]
+  bookings                 Booking[]
+  conversations            Conversation[]
+  qrFollowUps              QrFollowUp[]
+  // Cupones de descuento emitidos a su nombre (ítem 176) y los agendados para
+  // mandarle (ítem 177).
+  discountVouchers         DiscountVoucher[]
+  discountVoucherFollowUps DiscountVoucherFollowUp[]
   // Su id en Instagram/Messenger (ítem 169). WhatsApp no pasa por acá: se
   // resuelve por `phone`.
-  channelIdentities ContactChannelIdentity[]
+  channelIdentities        ContactChannelIdentity[]
 
   @@unique([organizationId, id])
   // Único (organization_id, lower(email)) WHERE email IS NOT NULL AND
@@ -1079,20 +1102,22 @@ model Opportunity {
   // opportunities_organization_id_vehicle_id_fkey).
   vehicle      Vehicle?     @relation("OpportunityVehicle", fields: [organizationId, vehicleId], references: [organizationId, id], onDelete: NoAction)
 
-  activities       Activity[]
-  bookings         Booking[]
-  quotes           Quote[]
+  activities               Activity[]
+  bookings                 Booking[]
+  quotes                   Quote[]
   // A lo sumo una (UNIQUE (organization_id, opportunity_id) en Delivery).
-  deliveries       Delivery[]
+  deliveries               Delivery[]
   // Permuta (§41): las unidades que el cliente entregó en esta venta. Cero o
   // más, sin UNIQUE — ver Vehicle.tradeInOpportunityId.
-  tradeInVehicles  Vehicle[]         @relation("VehicleTradeInOpportunity")
+  tradeInVehicles          Vehicle[]                 @relation("VehicleTradeInOpportunity")
   // Pagos del cliente (§43): cero o más, historial editable.
-  payments         Payment[]
+  payments                 Payment[]
   // Seguimientos por WhatsApp agendados al ganarla (ítem 159).
-  qrFollowUps      QrFollowUp[]
-  // Cupones de descuento emitidos por haberla ganado (ítem 176).
-  discountVouchers DiscountVoucher[]
+  qrFollowUps              QrFollowUp[]
+  // Cupones de descuento emitidos por haberla ganado (ítem 176) y los
+  // agendados para mandarse (ítem 177).
+  discountVouchers         DiscountVoucher[]
+  discountVoucherFollowUps DiscountVoucherFollowUp[]
 
   @@unique([organizationId, id])
   // CHECK (company_id IS NOT NULL OR contact_id IS NOT NULL) y
@@ -1506,11 +1531,12 @@ model Automation {
   // Es configuración, no historial: soft delete, como Agent/Branch/Resource.
   deletedAt DateTime? @map("deleted_at")
 
-  organization     Organization          @relation(fields: [organizationId], references: [id])
-  executions       AutomationExecution[]
-  qrFollowUps      QrFollowUp[]
-  // Los cupones que emitió esta regla (ítem 176).
-  discountVouchers DiscountVoucher[]
+  organization             Organization              @relation(fields: [organizationId], references: [id])
+  executions               AutomationExecution[]
+  qrFollowUps              QrFollowUp[]
+  // Los cupones que emitió esta regla (ítem 176) y los que agendó (ítem 177).
+  discountVouchers         DiscountVoucher[]
+  discountVoucherFollowUps DiscountVoucherFollowUp[]
 
   // El UNIQUE que habilita la FK compuesta de automation_executions (C-3).
   @@unique([organizationId, id])
@@ -1687,6 +1713,10 @@ model Branch {
 
   // Módulo QR: los QR digitales de esta sucursal.
   qrCodes QrCode[]
+
+  // Los cupones agendados que salen por el número de WhatsApp de esta
+  // sucursal (ítem 177).
+  discountVoucherFollowUps DiscountVoucherFollowUp[]
 
   // Módulo de stock de vehículos: las unidades que están en esta sucursal.
   // Es la SEGUNDA entidad fuera de Booking que cuelga de Branch (la primera
@@ -2762,14 +2792,16 @@ model DiscountVoucher {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  organization Organization              @relation(fields: [organizationId], references: [id])
   // Compuestas (C-3). Las NOT NULL -> RESTRICT (regla de 20260821140200): las
   // tres tablas padre usan soft delete, así que no se dispara nunca.
-  opportunity  Opportunity  @relation(fields: [organizationId, opportunityId], references: [organizationId, id])
-  contact      Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id])
-  automation   Automation   @relation(fields: [organizationId, automationId], references: [organizationId, id])
+  opportunity  Opportunity               @relation(fields: [organizationId, opportunityId], references: [organizationId, id])
+  contact      Contact                   @relation(fields: [organizationId, contactId], references: [organizationId, id])
+  automation   Automation                @relation(fields: [organizationId, automationId], references: [organizationId, id])
   // Nullable -> NO ACTION, el mismo par que Delivery.deliveredBy.
-  consumedBy   User?        @relation("DiscountVoucherConsumedBy", fields: [organizationId, consumedByUserId], references: [organizationId, id], onDelete: NoAction)
+  consumedBy   User?                     @relation("DiscountVoucherConsumedBy", fields: [organizationId, consumedByUserId], references: [organizationId, id], onDelete: NoAction)
+  // La fila agendada que lo emitió (ítem 177).
+  followUps    DiscountVoucherFollowUp[]
 
   // El que va a necesitar la tabla de agendado del ítem 177 para referenciar
   // esta con una FK compuesta — mismo patrón que QrFollowUp -> QrCode.
@@ -2781,6 +2813,80 @@ model DiscountVoucher {
   @@index([organizationId, automationId])
   @@index([organizationId, consumedByUserId])
   @@map("discount_vouchers")
+}
+
+// ---------------------------------------------------------------------------
+// DiscountVoucherFollowUp — un cupón de descuento AGENDADO para mandarse por
+// WhatsApp (ítem 177 de docs/frontend-cambios-pendientes.md). Mismo molde que
+// QrFollowUp: la acción opportunity.send_discount_voucher deja la fila al
+// ganarse la oportunidad y src/workers/discountVoucherFollowUpWorker.ts la
+// manda cuando vence.
+//
+// LA DIFERENCIA CON QrFollowUp: el QR ya existe cuando se configura la regla,
+// el cupón NO. Por eso al agendar no hay un discountVoucherId sino lo que hace
+// falta para emitirlo después (label, expiresInDays), copiado del actionConfig
+// en ese momento para no releer una regla que pudo cambiar — mismo criterio
+// que QrFollowUp.qrCodeId. discountVoucherId se completa al emitirlo, ANTES
+// de mandar: es la traza de qué cupón salió de qué fila, y lo que evita
+// emitir un segundo cupón si el envío falla y se reintenta.
+//
+// branchId es de dónde sale el WhatsApp. En QrFollowUp lo pone el QR (cada QR
+// es de una sucursal); un cupón no es de ninguna y Opportunity tampoco tiene
+// sucursal, así que la elige la regla.
+// ---------------------------------------------------------------------------
+model DiscountVoucherFollowUp {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  automationId   String @map("automation_id") @db.Uuid
+  opportunityId  String @map("opportunity_id") @db.Uuid
+  contactId      String @map("contact_id") @db.Uuid
+  branchId       String @map("branch_id") @db.Uuid
+
+  // Lo que la regla pidió, fotografiado al agendar. expiresInDays cuenta desde
+  // que el worker EMITE el cupón, no desde el agendado: un envío demorado por
+  // reintentos no tiene por qué darle al cliente menos días de los que el
+  // negocio configuró.
+  label         String @db.VarChar(200)
+  expiresInDays Int    @map("expires_in_days")
+
+  // El cupón que emitió esta fila, o null si todavía no lo emitió.
+  discountVoucherId String? @map("discount_voucher_id") @db.Uuid
+
+  // Mismas columnas y mismo significado que en QrFollowUp.
+  scheduledFor  DateTime                      @map("scheduled_for")
+  nextAttemptAt DateTime                      @map("next_attempt_at")
+  status        DiscountVoucherFollowUpStatus @default(PENDING)
+  attempts      Int                           @default(0)
+  lastError     String?                       @map("last_error")
+  sentAt        DateTime?                     @map("sent_at")
+  createdAt     DateTime                      @default(now()) @map("created_at")
+  updatedAt     DateTime                      @updatedAt @map("updated_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id])
+  // Las cuatro NOT NULL -> RESTRICT (regla de 20260821140200), igual que en
+  // QrFollowUp: las tablas padre usan soft delete.
+  automation      Automation       @relation(fields: [organizationId, automationId], references: [organizationId, id])
+  opportunity     Opportunity      @relation(fields: [organizationId, opportunityId], references: [organizationId, id])
+  contact         Contact          @relation(fields: [organizationId, contactId], references: [organizationId, id])
+  branch          Branch           @relation(fields: [organizationId, branchId], references: [organizationId, id])
+  // Nullable -> NO ACTION, el mismo par que DiscountVoucher.consumedBy.
+  discountVoucher DiscountVoucher? @relation(fields: [organizationId, discountVoucherId], references: [organizationId, id], onDelete: NoAction)
+
+  // A LO SUMO UN AGENDADO POR (REGLA, OPORTUNIDAD), el mismo candado que
+  // QrFollowUp: la reentrega de opportunity.won no emite un segundo cupón. La
+  // acción inserta con ON CONFLICT DO NOTHING. Cubre además el lado
+  // referenciante de la FK a la regla: (organization_id, automation_id) es su
+  // prefijo.
+  @@unique([organizationId, automationId, opportunityId])
+  // El listado por organización nace con su índice (lección de ALTO-6). El
+  // índice de la COLA es parcial y vive en la migración.
+  @@index([organizationId, createdAt])
+  // Los lados referenciantes de las otras FKs compuestas.
+  @@index([organizationId, opportunityId])
+  @@index([organizationId, contactId])
+  @@index([organizationId, branchId])
+  @@index([organizationId, discountVoucherId])
+  @@map("discount_voucher_follow_ups")
 }
 
 // ---------------------------------------------------------------------------

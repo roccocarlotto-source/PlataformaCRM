@@ -237,7 +237,11 @@ from (
       ('discount_vouchers'),
       -- Agente de IA interno (ítem 179, migración 20261007120000): las dos
       -- tablas con organization_id propio y la política uniforme.
-      ('internal_agents'), ('internal_agent_messages')
+      ('internal_agents'), ('internal_agent_messages'),
+      -- Cupón de descuento agendado para mandarse por WhatsApp (ítem 177,
+      -- migración 20261008120000): organization_id propio y la política
+      -- uniforme.
+      ('discount_voucher_follow_ups')
     ) as t(tabla)
     union all
     select 'organizations.organizations_isolation/SELECT/PERMISSIVE/{public}/(id = current_organization_id())/-'
@@ -895,7 +899,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 69 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 74 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -919,7 +923,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 69 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 74 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -1068,7 +1072,19 @@ from (
     -- tiene UNIQUE (organization_id, id)) pasaría la fila 14 y dejaría el hilo
     -- colgado de un cliente en vez de un empleado.
     ('internal_agent_messages_organization_id_internal_agent_id_fkey|internal_agent_messages(organization_id,internal_agent_id)->internal_agents(organization_id,id)'),
-    ('internal_agent_messages_organization_id_user_id_fkey|internal_agent_messages(organization_id,user_id)->users(organization_id,id)')
+    ('internal_agent_messages_organization_id_user_id_fkey|internal_agent_messages(organization_id,user_id)->users(organization_id,id)'),
+    -- Cupón de descuento agendado (ítem 177, migración 20261008120000): el
+    -- mismo molde que qr_follow_ups, con la sucursal en lugar del QR y el
+    -- cupón emitido (nullable). discount_voucher_id es el candidato de esta
+    -- tabla: una FK bien formada hacia qr_codes o hacia cualquier otra tabla
+    -- con UNIQUE (organization_id, id) pasaría la fila 14 entera. Dos nombres
+    -- quedan truncados a 63 caracteres por Postgres, tal cual los genera
+    -- Prisma.
+    ('discount_voucher_follow_ups_organization_id_automation_id_fkey|discount_voucher_follow_ups(organization_id,automation_id)->automations(organization_id,id)'),
+    ('discount_voucher_follow_ups_organization_id_branch_id_fkey|discount_voucher_follow_ups(organization_id,branch_id)->branches(organization_id,id)'),
+    ('discount_voucher_follow_ups_organization_id_contact_id_fkey|discount_voucher_follow_ups(organization_id,contact_id)->contacts(organization_id,id)'),
+    ('discount_voucher_follow_ups_organization_id_discount_vouch_fkey|discount_voucher_follow_ups(organization_id,discount_voucher_id)->discount_vouchers(organization_id,id)'),
+    ('discount_voucher_follow_ups_organization_id_opportunity_id_fkey|discount_voucher_follow_ups(organization_id,opportunity_id)->opportunities(organization_id,id)')
   ) as e(firma)
   where not exists (
     select 1
@@ -1114,6 +1130,10 @@ from (
     -- Ítem 125 de docs/auditoria-2026-09-24-punta-a-punta.md (migración
     -- 20260930120000): la cola del webhook de WhatsApp. Incluye PROCESSING
     -- porque un job con el lease vencido también es reclamable.
+    -- Ítem 177 (migración 20261008120000): la cola de cupones de descuento
+    -- agendados. Mismo molde que qr_follow_ups_claimable_idx.
+    ('discount_voucher_follow_ups_claimable_idx',
+     'CREATE INDEX discount_voucher_follow_ups_claimable_idx ON public.discount_voucher_follow_ups USING btree (next_attempt_at) WHERE (status = ''PENDING''::"DiscountVoucherFollowUpStatus")'),
     ('agent_inbound_jobs_claimable_idx',
      'CREATE INDEX agent_inbound_jobs_claimable_idx ON public.agent_inbound_jobs USING btree (COALESCE(next_attempt_at, created_at)) WHERE (status = ANY (ARRAY[''PENDING''::"AgentInboundJobStatus", ''PROCESSING''::"AgentInboundJobStatus"]))'),
     -- B-14 (docs/auditoria-2026-08-29.md): los índices de las COLAS. Si se

@@ -461,6 +461,41 @@ const envSchema = z.object({
     .default(5 * 60 * 1000),
 
   // -------------------------------------------------------------------------
+  // Cupón de descuento por WhatsApp al ganar una oportunidad (ítem 177 de
+  // docs/frontend-cambios-pendientes.md;
+  // src/workers/discountVoucherFollowUpWorker.ts). Las mismas siete que las
+  // QR_FOLLOWUP_*, con los MISMOS defaults y por los mismos motivos: es el
+  // mismo tipo de envío (post-venta, demorado horas, sin nadie esperando).
+  DISCOUNT_VOUCHER_FOLLOWUP_WORKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((valor) => valor === "true"),
+  DISCOUNT_VOUCHER_FOLLOWUP_WORKER_POLL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
+  DISCOUNT_VOUCHER_FOLLOWUP_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(20),
+  DISCOUNT_VOUCHER_FOLLOWUP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  DISCOUNT_VOUCHER_FOLLOWUP_BACKOFF_BASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(60 * 1000),
+  DISCOUNT_VOUCHER_FOLLOWUP_BACKOFF_MAX_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30 * 60 * 1000),
+  DISCOUNT_VOUCHER_FOLLOWUP_LEASE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
+  // El link del cupón NO tiene variable propia: lo arma buildVoucherPublicUrl
+  // (src/utils/voucherPublicUrl.ts, ítem 178) con QR_PUBLIC_BASE_URL, más abajo.
+
+  // -------------------------------------------------------------------------
   // Módulo QR — integración de QR Reviews (docs/qr-integration.md, Fase 2).
   //
   // MERCADOPAGO_WEBHOOK_SECRET y MERCADOPAGO_ACCESS_TOKEN EXISTIERON acá (el

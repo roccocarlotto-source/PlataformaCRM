@@ -113,6 +113,10 @@ export async function desmontar(...escenarios: Escenario[]) {
     // Primero: sus FKs RESTRICT apuntan a la regla, la oportunidad, el
     // contacto y el QR (ítem 159).
     await prisma.qrFollowUp.deleteMany({ where });
+    // Lo mismo para los cupones (ítems 176 y 177): primero la fila agendada,
+    // que apunta al cupón, después el cupón.
+    await prisma.discountVoucherFollowUp.deleteMany({ where });
+    await prisma.discountVoucher.deleteMany({ where });
     // La plantilla de WhatsApp de la organización (ítem 160): su FK a
     // organizations es RESTRICT.
     await prisma.whatsappTemplate.deleteMany({ where });
