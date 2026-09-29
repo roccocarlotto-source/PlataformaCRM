@@ -25,7 +25,14 @@ export type MessageDirection = "INBOUND" | "OUTBOUND";
 // Espejo del enum MessageSenderType. HUMAN es una persona de la organización
 // que contestó después de una derivación, y es el único que trae senderUser
 // (lo garantiza el CHECK messages_sender_user_id_consistency_check).
-export type MessageSenderType = "CONTACT" | "AGENT" | "HUMAN";
+// AUTOMATION (WA-1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): lo que mandó una
+// regla de automatización, como el seguimiento con QR o el cupón.
+export type MessageSenderType = "CONTACT" | "AGENT" | "HUMAN" | "AUTOMATION";
+
+// Espejo del enum MessageDeliveryStatus: si un saliente por un canal externo
+// llegó al cliente. DELIVERED y READ los informa Meta (WA-1). null en lo que
+// no se manda por un canal externo (entrantes, canal Web).
+export type MessageDeliveryStatus = "PENDING" | "SENT" | "FAILED" | "DELIVERED" | "READ";
 
 // Las tres relaciones que el backend resuelve por nombre en la misma consulta
 // (conversationInclude), para que la tabla no tenga que resolver un contacto
@@ -95,6 +102,9 @@ export interface ConversationMessage {
   content: string;
   toolCalls: unknown;
   externalMessageId: string | null;
+  deliveryStatus: MessageDeliveryStatus | null;
+  // Por qué no se entregó (FAILED): el error del envío o el motivo de Meta.
+  deliveryError: string | null;
   createdAt: string;
   // Solo en los mensajes HUMAN; null en los del contacto y los del agente.
   senderUser: { id: string; fullName: string } | null;

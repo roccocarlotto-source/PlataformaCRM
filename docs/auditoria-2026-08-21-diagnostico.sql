@@ -488,9 +488,10 @@ from (
     -- (A AND B) OR (C AND D), el mismo límite conocido que
     -- google_calendar_connections_channel_all_or_none_check: esta fila no
     -- distingue esa parentización de otra con los mismos operandos. Se acepta
-    -- a sabiendas, igual que allá.
+    -- a sabiendas, igual que allá. WA-1 (migración 20261011120100) sumó
+    -- AUTOMATION al ARRAY.
     ('messages_sender_user_id_consistency_check', 'messages',
-     'CHECK (sender_type = ''HUMAN'' AND sender_user_id IS NOT NULL OR sender_type = ANY (ARRAY[''CONTACT'', ''AGENT'']) AND sender_user_id IS NULL)'),
+     'CHECK (sender_type = ''HUMAN'' AND sender_user_id IS NOT NULL OR sender_type = ANY (ARRAY[''CONTACT'', ''AGENT'', ''AUTOMATION'']) AND sender_user_id IS NULL)'),
     -- Cotización (§39, migración 20260916120000): el mismo CHECK que
     -- opportunities_amount_non_negative_check sobre el precio ofertado.
     ('quotes_amount_non_negative_check', 'quotes',

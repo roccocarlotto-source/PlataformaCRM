@@ -63,6 +63,18 @@ test("el rótulo sale de senderType y NO de direction: son ortogonales", () => {
   assert.match(transcript, /^Humano: Respuesta de una persona$/m);
 });
 
+// WA-1 (pendientes post F1–F5): lo que mandó una regla no lo escribió el agente.
+test("WA-1: un mensaje de una automatización sale rotulado como tal, no como del agente", () => {
+  const transcript = armarTranscript([
+    mensaje("AUTOMATION", "Gracias por tu compra", "OUTBOUND"),
+    mensaje("CONTACT", "¡Gracias!"),
+  ]);
+  assert.deepEqual(transcript.split("\n"), [
+    "Automatización: Gracias por tu compra",
+    "Cliente: ¡Gracias!",
+  ]);
+});
+
 test("el orden recibido se respeta tal cual: el repositorio ya ordena por createdAt", () => {
   const transcript = armarTranscript([
     mensaje("CONTACT", "primero"),

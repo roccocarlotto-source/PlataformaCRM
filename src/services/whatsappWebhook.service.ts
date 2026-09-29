@@ -3,7 +3,10 @@ import { z } from "zod";
 import { logger } from "../lib/logger";
 import { findAgentByWhatsappPhoneNumberId } from "../repositories/agent.repository";
 import { createAgentInboundJob } from "../repositories/agentInboundJob.repository";
-import { findMessageByExternalId } from "../repositories/message.repository";
+import {
+  applyDeliveryStatusByExternalId,
+  findMessageByExternalId,
+} from "../repositories/message.repository";
 import { registrarEntrante } from "./agentOrchestration.service";
 import { resolveWhatsappContact } from "./whatsappContact.service";
 import { applyWhatsappTemplateStatusFromMeta } from "./whatsappTemplate.service";
@@ -194,8 +197,94 @@ const contactoDelPayloadSchema = z.object({
 
 export type ResultadoDelMensaje = "encolado" | "duplicado" | "ignorado" | "fallido";
 
-// Los mensajes, más cuántas plantillas cambiaron de estado (ítem 160).
-export type ResumenDelLote = Record<ResultadoDelMensaje, number> & { plantillas: number };
+// Los mensajes, más cuántas plantillas cambiaron de estado (ítem 160) y
+// cuántos salientes avanzaron de estado de entrega (WA-1).
+export type ResumenDelLote = Record<ResultadoDelMensaje, number> & {
+  plantillas: number;
+  estados: number;
+};
+
+// ---------------------------------------------------------------------------
+// Statuses de entrega (WA-1 de los pendientes post F1–F5,
+// docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)). Meta manda, para cada mensaje SALIENTE, un status por
+// transición: sent, delivered, read o failed (este con errors[]). Hasta WA-1
+// el webhook los ignoraba y el vendedor no sabía si el cliente recibió o leyó
+// un WhatsApp.
+//
+// Se aplica al Message por su wamid (externalMessageId) con
+// applyDeliveryStatusByExternalId, que no deja retroceder el estado y es
+// idempotente (Meta reintenta). La organización sale del phone_number_id del
+// change, como con los mensajes: la firma ya se verificó en el middleware, y
+// el wamid solo se busca dentro de esa organización. Un wamid desconocido
+// (un mensaje que no salió de este CRM, o uno cuyo envío todavía no guardó el
+// wamid) actualiza 0 filas y no es un error. Cualquier otro status (Meta
+// agrega valores, por ejemplo "deleted") se ignora.
+// ---------------------------------------------------------------------------
+const ESTADO_DE_META = {
+  sent: "SENT",
+  delivered: "DELIVERED",
+  read: "READ",
+  failed: "FAILED",
+} as const;
+
+const statusDelPayloadSchema = z.object({
+  id: z.string().min(1),
+  status: z.string(),
+  errors: z
+    .array(
+      z.object({
+        code: z.union([z.number(), z.string()]).optional(),
+        title: z.string().optional(),
+        message: z.string().optional(),
+        error_data: z.object({ details: z.string().optional() }).optional(),
+      }),
+    )
+    .optional(),
+});
+
+// El motivo de un failed, como lo manda Meta: código, título y detalle.
+// Recortado igual que el deliveryError de un envío fallido.
+const MOTIVO_MAX = 500;
+
+function motivoDeMeta(errores: z.infer<typeof statusDelPayloadSchema>["errors"]): string {
+  const e = errores?.[0];
+  if (!e) return "Meta informó que el mensaje no se pudo entregar (sin detalle)";
+  const partes = [
+    e.code !== undefined ? `(${e.code})` : null,
+    e.title ?? e.message ?? null,
+    e.error_data?.details ?? null,
+  ].filter((parte): parte is string => parte !== null && parte.trim() !== "");
+  return partes.join(" ").slice(0, MOTIVO_MAX);
+}
+
+async function procesarEstados(phoneNumberId: string, statuses: unknown[]): Promise<number> {
+  const agent = await findAgentByWhatsappPhoneNumberId(phoneNumberId);
+  if (!agent) {
+    return 0;
+  }
+  let aplicados = 0;
+  for (const crudo of statuses) {
+    const parsed = statusDelPayloadSchema.safeParse(crudo);
+    if (!parsed.success) continue;
+    const estado = ESTADO_DE_META[parsed.data.status as keyof typeof ESTADO_DE_META];
+    if (!estado) continue;
+    try {
+      const r = await applyDeliveryStatusByExternalId(agent.organizationId, parsed.data.id, {
+        status: estado,
+        ...(estado === "FAILED" ? { error: motivoDeMeta(parsed.data.errors) } : {}),
+      });
+      aplicados += r.count;
+    } catch (err) {
+      // Mismo criterio que un mensaje: un fallo se loguea y no tumba el lote
+      // ni el 200. Meta reintenta y la escritura es idempotente.
+      logger.error(
+        { err, phoneNumberId, wamid: parsed.data.id },
+        "No se pudo aplicar un status de WhatsApp — se sigue con el resto del lote",
+      );
+    }
+  }
+  return aplicados;
+}
 
 // El cambio de estado de una plantilla (campo message_template_status_update
 // del webhook, ítem 160). Meta manda el id como NÚMERO; se acepta también como
@@ -351,6 +440,7 @@ export async function procesarWebhookDeWhatsapp(
     ignorado: 0,
     fallido: 0,
     plantillas: 0,
+    estados: 0,
   };
 
   // Otro producto de Meta suscripto a la misma app (Instagram, Page...): no es
@@ -371,10 +461,15 @@ export async function procesarWebhookDeWhatsapp(
       const metadata = value.metadata as { phone_number_id?: unknown } | undefined;
       const phoneNumberId =
         typeof metadata?.phone_number_id === "string" ? metadata.phone_number_id : undefined;
-      // Un change con `statuses` (entregado/leído) y sin `messages` cae acá
-      // sin nada que recorrer: se ignora en silencio, como pide Meta.
+      if (!phoneNumberId) continue;
+      // WA-1: los statuses de los salientes (enviado, entregado, leído,
+      // fallido). Un change puede traer statuses, messages o los dos.
+      const statuses = Array.isArray(value.statuses) ? (value.statuses as unknown[]) : [];
+      if (statuses.length > 0) {
+        resumen.estados += await procesarEstados(phoneNumberId, statuses);
+      }
       const mensajes = Array.isArray(value.messages) ? (value.messages as unknown[]) : [];
-      if (!phoneNumberId || mensajes.length === 0) continue;
+      if (mensajes.length === 0) continue;
 
       const contactos = Array.isArray(value.contacts) ? (value.contacts as unknown[]) : [];
       const nombres = new Map<string, string | undefined>();

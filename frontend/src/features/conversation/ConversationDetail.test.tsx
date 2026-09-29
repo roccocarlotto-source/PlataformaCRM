@@ -206,6 +206,65 @@ describe("ConversationDetail", () => {
     expect(await screen.findByText(/Un integrante del equipo/)).toBeInTheDocument();
   });
 
+  // WA-1 (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): remitente y estado de entrega.
+  it("un mensaje de una automatización se rotula 'Automatización', no con el nombre del agente", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(
+          makeConversationDetail({}, [
+            makeMessage({
+              id: "m1",
+              direction: "OUTBOUND",
+              senderType: "AUTOMATION",
+              content: "Gracias por tu compra",
+              deliveryStatus: "SENT",
+            }),
+          ]),
+        ),
+      ),
+    );
+
+    renderDetail();
+
+    const autor = await screen.findByText(/Automatización ·/);
+    expect(autor.closest(".ds-chat-row")).toHaveClass("ds-chat-row--agente");
+  });
+
+  it("cada saliente muestra su estado de entrega, y un fallido deja ver el motivo", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(
+          makeConversationDetail({}, [
+            makeMessage({ id: "m1", content: "Hola" }),
+            makeMessage({
+              id: "m2",
+              direction: "OUTBOUND",
+              senderType: "AGENT",
+              content: "¡Hola! ¿En qué te ayudo?",
+              deliveryStatus: "READ",
+            }),
+            makeMessage({
+              id: "m3",
+              direction: "OUTBOUND",
+              senderType: "AGENT",
+              content: "¿Seguís ahí?",
+              deliveryStatus: "FAILED",
+              deliveryError: "(131047) Re-engagement message",
+            }),
+          ]),
+        ),
+      ),
+    );
+
+    renderDetail();
+
+    expect(await screen.findByText(/· Leído/)).toBeInTheDocument();
+    const fallido = screen.getByText(/· No entregado/);
+    expect(fallido).toHaveAttribute("title", "(131047) Re-engagement message");
+    // El entrante no tiene estado de entrega.
+    expect(screen.queryByText(/· Enviado/)).not.toBeInTheDocument();
+  });
+
   it("las tool calls guardadas se muestran igual de compactas que en el probador", async () => {
     server.use(http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))));
 

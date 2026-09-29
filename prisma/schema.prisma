@@ -239,13 +239,21 @@ enum MessageDirection {
   OUTBOUND
 }
 
-// Quién escribió un Message. HUMAN exige senderUserId y CONTACT/AGENT exigen
-// que esté en NULL — lo sostiene el CHECK
-// messages_sender_user_id_consistency_check de la migración 20260912130000.
+// Quién escribió un Message. HUMAN exige senderUserId y CONTACT/AGENT/
+// AUTOMATION exigen que esté en NULL — lo sostiene el CHECK
+// messages_sender_user_id_consistency_check (migraciones 20260912130000 y
+// 20261011120100).
+//
+// AUTOMATION (WA-1 de los pendientes post F1–F5,
+// docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): lo que mandó una regla de automatización (el seguimiento con QR
+// y el cupón de F1), que hasta acá quedaba como AGENT. Para el agente es lo
+// mismo que su propio saliente: lo ve como algo que se le mandó al cliente
+// (el historial ramifica por direction) y NO lo calla (solo HUMAN lo calla).
 enum MessageSenderType {
   CONTACT
   AGENT
   HUMAN
+  AUTOMATION
 }
 
 // Estado de ENTREGA de un Message saliente por un canal externo (ítem 125 de
@@ -257,11 +265,21 @@ enum MessageSenderType {
 //
 // PENDING: el turno produjo la respuesta y todavía no se confirmó el envío
 // (incluye el tiempo entre reintentos). SENT: la Graph API la aceptó.
-// FAILED: el último intento falló; deliveryError dice por qué.
+// FAILED: el último intento falló, o Meta avisó que no lo pudo entregar;
+// deliveryError dice por qué.
+//
+// DELIVERED y READ (WA-1 de los pendientes post F1–F5): los statuses que Meta
+// manda al webhook para un wamid ya enviado. El estado NUNCA RETROCEDE: el
+// orden es PENDING < SENT < FAILED < DELIVERED < READ (ver
+// ESTADOS_QUE_AVANZAN_A en message.repository.ts). FAILED queda antes de
+// DELIVERED a propósito: si Meta después dice que se entregó, se entregó; un
+// "failed" que llega tras un "read" es ruido y se ignora.
 enum MessageDeliveryStatus {
   PENDING
   SENT
   FAILED
+  DELIVERED
+  READ
 }
 
 // Ciclo de vida de un AgentInboundJob (ítem 125): la cola del webhook de
@@ -2364,8 +2382,10 @@ model Message {
   externalMessageId String? @map("external_message_id") @db.VarChar(255)
 
   // Ítem 125 (B-02): si la respuesta llegó de verdad al cliente. Ver el enum
-  // MessageDeliveryStatus. La escribe SOLO el worker de la cola de WhatsApp,
-  // que es el único que manda por un canal externo.
+  // MessageDeliveryStatus. La escriben el worker de la cola de WhatsApp (el
+  // envío), el registro de un envío de automatización (F1) y, desde WA-1, el
+  // webhook de WhatsApp con los statuses de Meta (DELIVERED/READ/FAILED),
+  // que busca el mensaje por externalMessageId.
   deliveryStatus MessageDeliveryStatus? @map("delivery_status")
   // Por qué falló el último envío (el cuerpo de error de Meta, recortado).
   // Se limpia cuando un reintento sale bien.

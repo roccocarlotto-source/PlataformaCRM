@@ -187,6 +187,7 @@ function depsQueRegistran() {
     accessToken: () => "token-whatsapp",
     sendText: async (input) => {
       whatsapp.push(input);
+      return { wamid: "wamid.del-doble" };
     },
     downloadMedia: () => Promise.reject(new Error("no debería bajar nada")),
     pageAccessToken: async (organizationId, pageId) => {
@@ -209,7 +210,8 @@ for (const channel of ["MESSENGER", "INSTAGRAM"] as const) {
     assert.equal(token, "token-de-pagina");
     assert.deepEqual(tokensPedidos, [["org-1", "pagina-1"]]);
 
-    await enviarPorElCanal(job, "¡Hola!", token, deps);
+    // WA-1: Messenger e Instagram no tienen wamid que guardar.
+    assert.equal(await enviarPorElCanal(job, "¡Hola!", token, deps), null);
     assert.deepEqual(meta, [
       { pageAccessToken: "token-de-pagina", recipientId: job.externalUserId, text: "¡Hola!" },
     ]);
@@ -225,7 +227,8 @@ test("WHATSAPP: no pide token de página y manda exactamente como antes", async 
   assert.equal(token, null);
   assert.equal(tokensPedidos.length, 0);
 
-  await enviarPorElCanal(job, "¡Hola!", token, deps);
+  // WA-1: devuelve el wamid que dio Meta, para guardarlo en el Message.
+  assert.equal(await enviarPorElCanal(job, "¡Hola!", token, deps), "wamid.del-doble");
   assert.deepEqual(whatsapp, [
     {
       phoneNumberId: "phone-1",

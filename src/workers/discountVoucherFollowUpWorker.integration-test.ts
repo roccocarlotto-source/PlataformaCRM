@@ -345,7 +345,8 @@ test("con delayHours 0: emite UN cupón, lo anota en la fila y manda {{1}} nombr
   });
   assert.ok(anotado, "el envío quedó en la conversación");
   assert.equal(anotado.direction, "OUTBOUND");
-  assert.equal(anotado.senderType, "AGENT");
+  // WA-1: remitente "automatización", no el agente.
+  assert.equal(anotado.senderType, "AUTOMATION");
   assert.equal(anotado.deliveryStatus, "SENT");
   assert.match(anotado.externalMessageId ?? "", /^wamid\.prueba\./);
   assert.equal(anotado.conversation.contactId, a.contactId);

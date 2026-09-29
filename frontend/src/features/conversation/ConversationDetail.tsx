@@ -11,7 +11,7 @@ import { formatDateTime } from "../../design-system/detailFormat";
 import { CHANNEL_LABEL } from "../agent/labels";
 import { ToolCallBlock } from "../agent/ToolCallBlock";
 import { ConversationBriefCard } from "./ConversationBriefCard";
-import { STATUS_BADGE_VARIANT, STATUS_LABEL } from "./labels";
+import { DELIVERY_STATUS_LABEL, STATUS_BADGE_VARIANT, STATUS_LABEL } from "./labels";
 import { useCloseConversation } from "./mutations";
 import { useConversation } from "./queries";
 import { parseToolCalls } from "./toolCalls";
@@ -68,15 +68,18 @@ function ladoDelMensaje(message: ConversationMessage): "contacto" | "agente" {
   return message.direction === "INBOUND" ? "contacto" : "agente";
 }
 
-// Los tres autores posibles. El de una persona es el nombre real cuando el
+// Los autores posibles. El de una persona es el nombre real cuando el
 // backend lo resolvió (senderUser); el fallback cubre el caso raro de un
-// mensaje HUMAN cuyo usuario ya no se puede resolver.
+// mensaje HUMAN cuyo usuario ya no se puede resolver. AUTOMATION (WA-1) no
+// lleva el nombre del agente: el mensaje lo mandó una regla, no el agente.
 function autorDelMensaje(message: ConversationMessage, conversation: Conversation): string {
   switch (message.senderType) {
     case "CONTACT":
       return `${conversation.contact.firstName} ${conversation.contact.lastName}`;
     case "AGENT":
       return conversation.agent.name;
+    case "AUTOMATION":
+      return "Automatización";
     case "HUMAN":
     default:
       return message.senderUser?.fullName ?? "Un integrante del equipo";
@@ -249,6 +252,15 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
                         <span className="ds-chat-author">
                           {autorDelMensaje(message, conversation)} ·{" "}
                           {formatDateTime(message.createdAt)}
+                          {/* WA-1: el estado de entrega de un saliente por un
+                              canal externo, en el mismo texto chico. El
+                              motivo de un FAILED va en el title. */}
+                          {message.deliveryStatus ? (
+                            <span title={message.deliveryError ?? undefined}>
+                              {" "}
+                              · {DELIVERY_STATUS_LABEL[message.deliveryStatus]}
+                            </span>
+                          ) : null}
                         </span>
                         {message.content}
                       </div>

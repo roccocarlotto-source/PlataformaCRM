@@ -1376,12 +1376,14 @@ async function registrarEnConversacion(
 // entrante). Lo que NO hace, a propósito:
 //   - No encola un turno ni cambia el status: registrar lo que ya salió no es
 //     un mensaje del cliente, y el agente no tiene nada que contestar.
-//   - senderType AGENT, y no HUMAN: el enum no tiene "sistema" ni
-//     "automatización" (agregarlo es una migración), HUMAN exige un
-//     senderUserId (CHECK de la migración 20260912130000) y además CALLARÍA al
-//     agente (hasHumanMessage, ítem 83). AGENT es un saliente que no es de una
-//     persona, que es exactamente lo que fue, y el historial se lo presenta al
-//     modelo como algo que el negocio ya dijo.
+//   - senderType AUTOMATION (WA-1 de los pendientes post F1–F5; en F1 era
+//     AGENT porque el enum no tenía otro valor). No es HUMAN: HUMAN exige un
+//     senderUserId y además CALLARÍA al agente (hasHumanMessage, ítem 83).
+//     Para el agente nada cambia respecto de AGENT: el historial ramifica por
+//     direction (aHistorial), así que lo ve como algo que el negocio ya le
+//     mandó al cliente, y solo HUMAN lo calla. Lo que sí cambia es que la
+//     bandeja lo muestra como "Automatización" y no con el nombre del agente,
+//     que no lo escribió.
 //   - deliveryStatus SENT: Meta ya lo aceptó cuando esto corre.
 // ---------------------------------------------------------------------------
 
@@ -1405,7 +1407,7 @@ export async function registrarSalienteDeAutomatizacion(
     { ...input, channel: "WHATSAPP" },
     {
       direction: "OUTBOUND",
-      senderType: "AGENT",
+      senderType: "AUTOMATION",
       content: input.texto,
       deliveryStatus: "SENT",
       ...(input.externalMessageId !== null ? { externalMessageId: input.externalMessageId } : {}),

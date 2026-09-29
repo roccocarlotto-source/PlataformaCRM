@@ -26,7 +26,10 @@ export interface SendWhatsappTextInput {
   accessToken: string;
 }
 
-export type SendWhatsappText = (input: SendWhatsappTextInput) => Promise<void>;
+// Devuelve el wamid que Meta asignó (WA-1): el worker lo guarda en el Message
+// para que los statuses del webhook lo encuentren. null si la respuesta no lo
+// trae (ver wamidDeLaRespuesta).
+export type SendWhatsappText = (input: SendWhatsappTextInput) => Promise<{ wamid: string | null }>;
 
 // La Graph API respondió, y no fue un 2xx. Lleva el status para que el worker
 // decida si reintentar con el mismo criterio que el proveedor de LLM
@@ -129,11 +132,12 @@ export function wamidDeLaRespuesta(respuesta: unknown): string | null {
 }
 
 export const sendWhatsappTextReal: SendWhatsappText = async (input) => {
-  await postMessage(input.phoneNumberId, input.accessToken, {
+  const respuesta = await postMessage(input.phoneNumberId, input.accessToken, {
     to: input.to,
     type: "text",
     text: { body: input.body },
   });
+  return { wamid: wamidDeLaRespuesta(respuesta) };
 };
 
 // ---------------------------------------------------------------------------

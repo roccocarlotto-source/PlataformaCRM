@@ -1,6 +1,6 @@
 import type { BadgeVariant } from "../../design-system/Badge";
 import type { SelectOption } from "../../design-system/Select";
-import type { ConversationStatus } from "./types";
+import type { ConversationStatus, MessageDeliveryStatus } from "./types";
 
 // Rótulos del módulo de conversaciones, fuera de los componentes —mismo
 // criterio que agent/labels.ts y opportunity/labels.ts— para que el listado y
@@ -41,4 +41,15 @@ export const STATUS_BADGE_VARIANT: Record<ConversationStatus, BadgeVariant> = {
   ACTIVE: "success",
   TRANSFERRED_TO_HUMAN: "info",
   CLOSED: "neutral",
+};
+
+// Estado de entrega de un saliente (WA-1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)),
+// como texto chico al lado de la hora de la burbuja. PENDING es "enviando":
+// el turno produjo la respuesta y el envío todavía no se confirmó.
+export const DELIVERY_STATUS_LABEL: Record<MessageDeliveryStatus, string> = {
+  PENDING: "Enviando",
+  SENT: "Enviado",
+  DELIVERED: "Entregado",
+  READ: "Leído",
+  FAILED: "No entregado",
 };
