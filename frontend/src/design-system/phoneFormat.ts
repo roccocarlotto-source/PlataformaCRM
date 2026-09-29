@@ -3,8 +3,9 @@
 // pura, sin React, en archivo aparte (mismo criterio que currencyFormat.ts
 // junto a CurrencyInput.tsx) para poder testearla sola.
 //
-// Contact.phone es texto libre (VarChar(30), sin validación de formato en el
-// backend). Acá se reconoce UN solo patrón, el de los datos reales del
+// Desde F5 (docs/prueba-en-vivo-2026-09-29.md) el backend guarda todo
+// Contact.phone nuevo como "+" y solo dígitos, pero quedan filas viejas en
+// texto libre. Acá se reconoce UN solo patrón, el de los datos reales del
 // negocio: "+598" seguido de solo dígitos, sin espacios ni guiones ya
 // puestos. Ese se parte en el código de país y grupos de 3 dígitos desde la
 // izquierda (el último puede quedar de 1 o 2). Cualquier otro valor — otro

@@ -310,3 +310,26 @@ test("D2-7: un encabezado demasiado largo tampoco se ecoa", () => {
     assert.ok(!mensaje.includes(VALOR_ESPIA), `el mensaje "${mensaje}" hace eco del encabezado`);
   }
 });
+
+// F5 de docs/prueba-en-vivo-2026-09-29.md: la promoción deduplica por teléfono
+// comparando la forma normalizada, así que el schema la entrega ya así.
+test("F5: phone llega normalizado a + y solo dígitos, con o sin + en el payload", () => {
+  for (const phone of ["59894000111", "+598 94 000 111", "+598-94-000-111"]) {
+    const r = ingestContactSchema.parse({ firstName: "Ana", lastName: "Pérez", phone });
+    assert.equal(r.phone, "+59894000111");
+  }
+});
+
+test("F5: un phone que no se puede normalizar sin adivinar el país marca la fila (igual que un email con typo), sin ecoar el valor", () => {
+  const r = ingestContactSchema.safeParse({
+    firstName: "Ana",
+    lastName: "Pérez",
+    phone: "099 123 456",
+  });
+  assert.equal(r.success, false);
+  if (r.success) return;
+  const mensajes = r.error.issues.map((issue) => issue.message).join(" | ");
+  assert.match(mensajes, /formato internacional/);
+  assert.ok(!mensajes.includes("099"), `el mensaje no debe ecoar el valor: ${mensajes}`);
+  assert.deepEqual(r.error.issues[0].path, ["phone"]);
+});

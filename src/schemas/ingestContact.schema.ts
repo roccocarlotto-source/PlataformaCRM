@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizarTelefono, TELEFONO_NO_NORMALIZABLE } from "../lib/telefono";
 
 // ---------------------------------------------------------------------------
 // EL CONTRATO DE PAYLOAD DEL WEBHOOK DE LANDING PAGE (ítem 4 de
@@ -133,7 +134,21 @@ export const ingestContactSchema = z.object({
   // ausencia, decidida por `opcional` antes de que `.email()` la vea (A-6).
   email: opcional(255, "email", (base) => base.email("email inválido")),
 
-  phone: opcional(30, "phone"),
+  // F5: normalizado con el helper único (lib/telefono.ts) ANTES de promover,
+  // porque la promoción deduplica por teléfono y compara la forma normalizada.
+  // Uno que no se puede normalizar sin adivinar (un local con 0 inicial) marca
+  // la fila FAILED con el mismo criterio que un email con typo: queda
+  // consultable (§5), y guardarlo mal haría que nunca se deduplique. Mensaje
+  // propio que no ecoa el valor (D2-7).
+  phone: opcional(30, "phone").transform((valor, ctx) => {
+    if (valor === undefined) return undefined;
+    const normalizado = normalizarTelefono(valor);
+    if (normalizado === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: TELEFONO_NO_NORMALIZABLE });
+      return z.NEVER;
+    }
+    return normalizado;
+  }),
   jobTitle: opcional(100, "jobTitle"),
 });
 

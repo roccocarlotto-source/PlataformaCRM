@@ -1,11 +1,19 @@
 import { IngestionStatus, SourceType } from "@prisma/client";
-import { promoteContact, type PromotedContact } from "../repositories/contact.repository";
+import {
+  findContactIdByEmail,
+  findContactIdByNormalizedPhone,
+  mergeIntoContact,
+  promoteContact,
+  type PromotedContact,
+} from "../repositories/contact.repository";
 import {
   markEventFailed,
   markEventProcessed,
   type EventoReclamado,
 } from "../repositories/ingestionEvent.repository";
 import type { Db } from "../lib/prisma";
+import { soloDigitos } from "../lib/telefono";
+import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { fieldMappingSchema } from "../schemas/fieldMapping.schema";
 import {
   CAMPOS_IGNORADOS,
@@ -88,17 +96,32 @@ function detectarConflictos(
   ];
 
   for (const [campo, entrante, resultado] of comparables) {
-    if (entrante !== undefined && resultado !== null && resultado !== entrante) {
-      notas.push({ tipo: "conflicto", campo, crm: resultado, entrante });
+    if (entrante === undefined || resultado === null || resultado === entrante) {
+      continue;
     }
+    // F5: un teléfono viejo guardado con separadores (`+598 99 123 456`) es el
+    // mismo número que el entrante ya normalizado; no es un conflicto.
+    if (campo === "phone" && soloDigitos(resultado) === soloDigitos(entrante)) {
+      continue;
+    }
+    notas.push({ tipo: "conflicto", campo, crm: resultado, entrante });
   }
 
-  // `email` queda AFUERA de la comparación a propósito. El conflicto se arbitró
-  // por lower(email), así que si hubo update los dos emails son iguales salvo
-  // en mayúsculas — §9.6 decidió conservar la grafía que escribió la persona, y
-  // reportar eso como conflicto sería ruido en cada reingreso del mismo lead.
-  //
-  // `source` también: no viene del payload, lo derivamos nosotros del nombre de
+  // `email` se compara SIN mayúsculas, a propósito. Cuando el conflicto se
+  // arbitró por lower(email) los dos emails son iguales salvo en mayúsculas —
+  // §9.6 decidió conservar la grafía que escribió la persona, y reportar eso
+  // como conflicto sería ruido en cada reingreso del mismo lead. Desde F5 un
+  // contacto también se fusiona por teléfono (mergeIntoContact), y ahí sí
+  // puede tener OTRO email: ese se conserva y el entrante queda anotado.
+  if (
+    candidato.email !== undefined &&
+    final.email !== null &&
+    final.email.toLowerCase() !== candidato.email.toLowerCase()
+  ) {
+    notas.push({ tipo: "conflicto", campo: "email", crm: final.email, entrante: candidato.email });
+  }
+
+  // `source` queda afuera: no viene del payload, lo derivamos nosotros del nombre de
   // la fuente. Un contacto que ya tenía otro origen conserva el suyo (el
   // COALESCE lo garantiza) y anotarlo describiría una decisión nuestra, no un
   // dato que el emisor mandó y se descartó.
@@ -289,6 +312,93 @@ function exigirTransicion(count: number, evento: EventoReclamado, destino: Inges
   }
 }
 
+// ---------------------------------------------------------------------------
+// EL TELÉFONO REPETIDO SE TRATA COMO EL EMAIL REPETIDO — F5 de
+// docs/prueba-en-vivo-2026-09-29.md.
+//
+// En este flujo un email que ya existe no es un error: identifica a la misma
+// persona y el upsert fusiona (COALESCE, gana el CRM). Desde F5 el teléfono
+// —ya normalizado por ingestContactSchema— identifica igual, con el email
+// primero porque es el que la base garantiza único:
+//
+//   1. El email ya es de un contacto          -> upsert por email, como antes.
+//      Si el teléfono es de OTRO contacto, no se escribe en este (dejaría el
+//      número en dos personas) y el evento queda para revisión manual.
+//   2. Sin email conocido, el teléfono es de   -> se fusiona con ESE contacto
+//      un contacto                                (mergeIntoContact), mismas
+//                                                 reglas que el upsert.
+//   3. Ninguno de los dos                      -> se crea, como antes.
+//
+// BAJO lockOrganizationForUpdate, el mismo lock que el POST/PATCH de
+// /api/contacts y el alta por WhatsApp: sin él, dos eventos (o un evento y un
+// alta por HTTP) con el mismo teléfono verían "no existe" a la vez y crearían
+// dos contactos. Se toma solo si el candidato trae teléfono; sin teléfono el
+// camino es el de siempre y el índice de email alcanza. Corre dentro de la
+// transacción del worker, así que se libera al commitear el evento.
+// ---------------------------------------------------------------------------
+async function escribirCandidato(
+  evento: EventoReclamado,
+  candidato: IngestContactPayload,
+  db: Db,
+): Promise<{
+  contacto: PromotedContact;
+  fusionadoPorTelefono: boolean;
+  telefonoDeOtroContacto: boolean;
+}> {
+  const datos = {
+    organizationId: evento.organizationId,
+    firstName: candidato.firstName,
+    lastName: candidato.lastName,
+    email: candidato.email,
+    phone: candidato.phone,
+    jobTitle: candidato.jobTitle,
+    source: nombreDeFuente(evento.sourceName),
+  };
+
+  if (candidato.phone === undefined) {
+    return {
+      contacto: await promoteContact(datos, db),
+      fusionadoPorTelefono: false,
+      telefonoDeOtroContacto: false,
+    };
+  }
+
+  await lockOrganizationForUpdate(evento.organizationId, db);
+
+  const duenoDelTelefono = await findContactIdByNormalizedPhone(
+    evento.organizationId,
+    soloDigitos(candidato.phone),
+    db,
+  );
+  const duenoDelEmail =
+    duenoDelTelefono !== null && candidato.email !== undefined
+      ? await findContactIdByEmail(evento.organizationId, candidato.email, db)
+      : null;
+
+  if (duenoDelTelefono !== null && duenoDelEmail === null) {
+    const fusionado = await mergeIntoContact(duenoDelTelefono, datos, db);
+    if (fusionado === null) {
+      // Bajo el lock no puede pasar: nadie más borra ni escribe este contacto
+      // entre la búsqueda y el UPDATE. Error de sistema, igual que E-1: se
+      // revierte y el worker reintenta.
+      throw new Error(
+        `promoverEvento: el contacto ${duenoDelTelefono} desapareció entre la búsqueda por teléfono y la fusión (evento ${evento.id})`,
+      );
+    }
+    return { contacto: fusionado, fusionadoPorTelefono: true, telefonoDeOtroContacto: false };
+  }
+
+  const telefonoDeOtroContacto = duenoDelTelefono !== null && duenoDelTelefono !== duenoDelEmail;
+  return {
+    contacto: await promoteContact(
+      telefonoDeOtroContacto ? { ...datos, phone: undefined } : datos,
+      db,
+    ),
+    fusionadoPorTelefono: false,
+    telefonoDeOtroContacto,
+  };
+}
+
 export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<ResultadoPromocion> {
   // La traducción por fieldMapping ocurre ANTES de validar y DESPUÉS de
   // staging — ver el bloque de arriba. Para el webhook es un paso transparente:
@@ -322,16 +432,9 @@ export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<R
 
   const candidato = parseado.data;
 
-  const contacto = await promoteContact(
-    {
-      organizationId: evento.organizationId,
-      firstName: candidato.firstName,
-      lastName: candidato.lastName,
-      email: candidato.email,
-      phone: candidato.phone,
-      jobTitle: candidato.jobTitle,
-      source: nombreDeFuente(evento.sourceName),
-    },
+  const { contacto, fusionadoPorTelefono, telefonoDeOtroContacto } = await escribirCandidato(
+    evento,
+    candidato,
     db,
   );
 
@@ -340,10 +443,20 @@ export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<R
     ...detectarConflictos(candidato, contacto),
   ];
 
+  if (telefonoDeOtroContacto) {
+    notas.push({
+      tipo: "revision_manual",
+      motivo:
+        "el teléfono ya es de otro contacto de la organización: no se escribió en este, revisá si son la misma persona",
+    });
+  }
+
   // §4: "Contactos sin email no se deduplican automáticamente. Se promueven
   // como nuevos y SE MARCAN PARA REVISIÓN MANUAL." La marca va acá y no en el
   // repositorio porque es una afirmación sobre el evento, no sobre el contacto.
-  if (candidato.email === undefined) {
+  // Desde F5 el teléfono también deduplica: si el contacto sin email se fusionó
+  // con uno existente por su teléfono, no es "nuevo sin deduplicar".
+  if (candidato.email === undefined && !fusionadoPorTelefono) {
     notas.push({
       tipo: "revision_manual",
       motivo:

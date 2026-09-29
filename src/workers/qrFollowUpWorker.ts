@@ -14,7 +14,7 @@ import {
   type QrFollowUpReclamado,
 } from "../repositories/qrFollowUp.repository";
 import { esTransitorio } from "../services/llmProvider.service";
-import { soloDigitos } from "../services/whatsappContact.service";
+import { soloDigitos } from "../lib/telefono";
 import {
   sendWhatsappTemplateReal,
   WhatsappGraphError,

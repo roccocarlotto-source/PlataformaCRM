@@ -112,13 +112,26 @@ export function findContactByIdIncludingDeleted(
   });
 }
 
-// El contacto de un número de WhatsApp (ítem 81): el primero (más viejo) de la
-// organización cuyo teléfono, SIN nada que no sea dígito, coincide con
-// `digits`. Se normalizan los dos lados porque Contact.phone lo carga una
-// persona o una importación (`+598 99 123 456`, `099123456`...) y el wa_id de
-// Meta llega pelado (`59899123456`). Solo se descartan los no-dígitos: NO se
-// intenta reconciliar prefijos locales (un `099...` sin código de país no
-// matchea), porque adivinar el país sería peor que crear un contacto nuevo.
+// El contacto de un número de WhatsApp (ítem 81): el de la organización cuyo
+// teléfono, SIN nada que no sea dígito, coincide con `digits`. Se comparan
+// dígitos en los dos lados porque Contact.phone tiene filas anteriores a F5
+// cargadas por una persona o una importación (`+598 99 123 456`,
+// `59899123456`...) y el wa_id de Meta llega pelado (`59899123456`). NO se
+// reconcilian prefijos locales (un `099...` sin código de país no matchea),
+// porque adivinar el país sería peor que crear un contacto nuevo — la misma
+// regla que lib/telefono.ts.
+//
+// CUÁL, SI HAY MÁS DE UNO — F5 de docs/prueba-en-vivo-2026-09-29.md. Desde F5
+// no se puede crear un teléfono duplicado, pero quedan los de antes, y la
+// prueba en vivo mostró un entrante asociado a un contacto viejo en vez de al
+// que esperaba quien probaba. El criterio es explícito y determinístico:
+//   1. el que tenga la conversación de WhatsApp más reciente (por
+//      last_message_at, o created_at si todavía no tiene mensajes): es con
+//      quien se está hablando, y el hilo sigue donde quedó;
+//   2. si ninguno tiene conversación de WhatsApp, el creado primero;
+//   3. el id desempata, para que dos llamadas den siempre el mismo.
+// La ingesta usa la misma función para elegir con qué contacto fusionar un
+// teléfono repetido, así que los dos caminos eligen el mismo.
 //
 // Recorre los contactos de la organización sin índice: es un webhook por
 // mensaje entrante sobre las filas de UNA organización, y un índice funcional
@@ -130,12 +143,66 @@ export async function findContactIdByNormalizedPhone(
   db: Db = prisma,
 ): Promise<string | null> {
   const filas = await db.$queryRaw<{ id: string }[]>`
+    SELECT c.id FROM contacts c
+    LEFT JOIN LATERAL (
+      SELECT MAX(COALESCE(cv.last_message_at, cv.created_at)) AS ultima
+      FROM conversations cv
+      WHERE cv.organization_id = c.organization_id
+        AND cv.contact_id = c.id
+        AND cv.channel = 'WHATSAPP'
+    ) wa ON true
+    WHERE c.organization_id = ${organizationId}::uuid
+      AND c.deleted_at IS NULL
+      AND c.phone IS NOT NULL
+      AND regexp_replace(c.phone, '[^0-9]', '', 'g') = ${digits}
+    ORDER BY wa.ultima DESC NULLS LAST, c.created_at ASC, c.id ASC
+    LIMIT 1
+  `;
+  return filas[0]?.id ?? null;
+}
+
+// ¿Hay OTRO contacto no eliminado de la organización con ese teléfono? — el
+// chequeo de duplicado de F5 para el POST y el PATCH de /api/contacts. Compara
+// por dígitos, igual que findContactIdByNormalizedPhone: un `59894000111`
+// viejo choca contra un `+59894000111` nuevo. `excludeId` es el propio
+// contacto en un PATCH (guardar su mismo número no es un duplicado).
+//
+// Solo es correcto bajo lockOrganizationForUpdate: no hay índice único que lo
+// respalde (sería sobre una expresión, y hoy hay duplicados que lo impedirían
+// crear), así que la serialización la da el lock, no la base.
+export async function existsOtherContactWithPhone(
+  organizationId: string,
+  digits: string,
+  excludeId: string | null,
+  db: Db,
+): Promise<boolean> {
+  const filas = await db.$queryRaw<{ id: string }[]>`
     SELECT id FROM contacts
     WHERE organization_id = ${organizationId}::uuid
       AND deleted_at IS NULL
       AND phone IS NOT NULL
       AND regexp_replace(phone, '[^0-9]', '', 'g') = ${digits}
-    ORDER BY created_at ASC, id ASC
+      AND (${excludeId}::uuid IS NULL OR id <> ${excludeId}::uuid)
+    LIMIT 1
+  `;
+  return filas.length > 0;
+}
+
+// El contacto no eliminado con ese email, con la misma comparación que el
+// índice contacts_org_email_unique (lower(email)). Lo usa la promoción (F5)
+// para decidir, ANTES del upsert, si el email ya identifica a alguien o si el
+// teléfono es la única pista.
+export async function findContactIdByEmail(
+  organizationId: string,
+  email: string,
+  db: Db = prisma,
+): Promise<string | null> {
+  const filas = await db.$queryRaw<{ id: string }[]>`
+    SELECT id FROM contacts
+    WHERE organization_id = ${organizationId}::uuid
+      AND deleted_at IS NULL
+      AND email IS NOT NULL
+      AND lower(email) = lower(${email})
     LIMIT 1
   `;
   return filas[0]?.id ?? null;
@@ -412,6 +479,40 @@ export async function promoteContact(
   `;
 
   return aPromotedContact(filas[0]);
+}
+
+// La otra mitad de la deduplicación de la ingesta (F5): el candidato no trae un
+// email que ya exista, pero su TELÉFONO ya es de un contacto. Se trata igual
+// que el email repetido de promoteContact: es la misma persona, y se fusiona
+// con las mismas reglas del ON CONFLICT de arriba —COALESCE campo por campo,
+// "un campo del CRM nunca se pisa"— incluido el email, que acá sí puede
+// completarse si el contacto no tenía uno.
+//
+// Mismo RETURNING que promoteContact para que el service compare el candidato
+// contra la fila real (detectarConflictos). `actualizado` es true por
+// construcción: esto nunca inserta. Si la fila se borró entre la búsqueda y
+// esta escritura, no devuelve nada y el caller decide (bajo el lock de la
+// organización, que es como se llama, no puede pasar).
+export async function mergeIntoContact(
+  id: string,
+  data: PromoteContactData,
+  db: Db,
+): Promise<PromotedContact | null> {
+  const filas = await db.$queryRaw<FilaPromovida[]>`
+    UPDATE contacts SET
+      email      = COALESCE(email,     ${data.email ?? null}),
+      phone      = COALESCE(phone,     ${data.phone ?? null}),
+      job_title  = COALESCE(job_title, ${data.jobTitle ?? null}),
+      source     = COALESCE(source,    ${data.source}),
+      updated_at = now()
+    WHERE id = ${id}::uuid
+      AND organization_id = ${data.organizationId}::uuid
+      AND deleted_at IS NULL
+    RETURNING
+      id, first_name, last_name, email, phone, job_title, source,
+      true AS actualizado
+  `;
+  return filas[0] ? aPromotedContact(filas[0]) : null;
 }
 
 // ---------------------------------------------------------------------------

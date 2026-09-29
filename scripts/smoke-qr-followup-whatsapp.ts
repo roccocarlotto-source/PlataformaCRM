@@ -11,7 +11,7 @@ import { createOpportunity, updateOpportunity } from "../src/services/opportunit
 import { crearRegistroDeHandlers } from "../src/services/outboxHandlers";
 import { createPipeline } from "../src/services/pipeline.service";
 import { createStage } from "../src/services/stage.service";
-import { soloDigitos } from "../src/services/whatsappContact.service";
+import { soloDigitos } from "../src/lib/telefono";
 import {
   cuerpoDePlantilla,
   sendWhatsappTemplateReal,

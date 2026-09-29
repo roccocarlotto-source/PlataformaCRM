@@ -14,7 +14,7 @@ import {
   type DiscountVoucherFollowUpReclamado,
 } from "../repositories/discountVoucherFollowUp.repository";
 import { crearDiscountVoucher, dependenciasDeCuponesEn } from "../services/discountVoucher.service";
-import { soloDigitos } from "../services/whatsappContact.service";
+import { soloDigitos } from "../lib/telefono";
 import { AppError } from "../utils/AppError";
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
 import { buildVoucherPublicUrl } from "../utils/voucherPublicUrl";

@@ -1,6 +1,7 @@
 import { createContact, findContactIdByNormalizedPhone } from "../repositories/contact.repository";
 import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { prisma } from "../lib/prisma";
+import { normalizarTelefono, soloDigitos } from "../lib/telefono";
 
 // ---------------------------------------------------------------------------
 // El Contact de quien escribe por WhatsApp (ítem 81). Mismo papel que
@@ -27,13 +28,6 @@ export const WHATSAPP_CONTACT_FALLBACK_FIRST_NAME = "WhatsApp";
 // firstName/lastName son VARCHAR(100).
 const MAX_NOMBRE = 100;
 
-// Solo dígitos. El wa_id de Meta ya viene así (sin "+"), pero se normaliza
-// igual: es el MISMO criterio con el que se compara contra Contact.phone
-// (findContactIdByNormalizedPhone), y los dos lados tienen que coincidir.
-export function soloDigitos(valor: string): string {
-  return valor.replace(/\D/g, "");
-}
-
 // "Juan Pérez García" -> Juan / Pérez García: la primera palabra es el nombre
 // y el resto el apellido, que es lo menos malo que se puede hacer con un
 // nombre de perfil en texto libre. Una sola palabra deja el apellido vacío —
@@ -59,7 +53,15 @@ export async function resolveWhatsappContact(
   waId: string,
   profileName: string | undefined,
 ): Promise<string> {
+  // F5: el mismo helper que el resto de las escrituras de Contact.phone
+  // (lib/telefono.ts). Los dígitos son el criterio con el que se compara
+  // (findContactIdByNormalizedPhone) y la forma normalizada es la que se
+  // guarda. El wa_id de Meta ya viene en dígitos sin "+", así que siempre
+  // normaliza; el fallback existe para no dejar un mensaje entrante sin
+  // contacto si algún día no lo hiciera: el wa_id ES la identidad del
+  // remitente, y se guarda igual en la forma "+dígitos".
   const digitos = soloDigitos(waId);
+  const telefono = normalizarTelefono(digitos) ?? `+${digitos}`;
 
   return prisma.$transaction(async (tx) => {
     await lockOrganizationForUpdate(organizationId, tx);
@@ -80,9 +82,8 @@ export async function resolveWhatsappContact(
         ownerId: null,
         firstName,
         lastName,
-        // Con "+" adelante: es la forma en la que Contact.phone se guarda en
-        // el resto del sistema (+598XXXXXXXXX, sin separadores).
-        phone: `+${digitos}`,
+        // "+" y solo dígitos: la forma única de Contact.phone (F5).
+        phone: telefono,
         source: WHATSAPP_CONTACT_SOURCE,
       },
       tx,

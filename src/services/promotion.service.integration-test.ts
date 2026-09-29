@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { pidsConTransaccionAbierta } from "../lib/carreras.test-helper";
 import { prisma, type Db } from "../lib/prisma";
@@ -233,18 +233,20 @@ test("un campo entrante VACÍO nunca pisa un valor existente en el CRM", async (
 
 test("valores distintos en ambos lados: gana el CRM y queda REGISTRO — nunca en silencio", async () => {
   const email = `conflicto-${randomUUID()}@ejemplo.test`;
+  // Números propios de este test: desde F5 el teléfono también deduplica, y
+  // el +5411111111 del test anterior (misma organización) lo fusionaría.
   const primero = await promoverUno({
     firstName: "Ana",
     lastName: "Gómez",
     email,
-    phone: "+5411111111",
+    phone: "+5422222222",
   });
 
   const segundo = await promoverUno({
     firstName: "Anita",
     lastName: "Gomez",
     email,
-    phone: "+5499999999",
+    phone: "+5433333333",
   });
 
   // 1. El dato del CRM se conservó, leído de la tabla.
@@ -253,7 +255,7 @@ test("valores distintos en ambos lados: gana el CRM y queda REGISTRO — nunca e
   });
   assert.equal(contacto.firstName, "Ana");
   assert.equal(contacto.lastName, "Gómez");
-  assert.equal(contacto.phone, "+5411111111");
+  assert.equal(contacto.phone, "+5422222222");
 
   // 2. Y quedó registro de lo que se descartó. Esta es la mitad que "nunca
   //    sobrescribir en silencio" exige y que sin promotionNotes se perdería.
@@ -270,8 +272,8 @@ test("valores distintos en ambos lados: gana el CRM y queda REGISTRO — nunca e
   assert.deepEqual(phone, {
     tipo: "conflicto",
     campo: "phone",
-    crm: "+5411111111",
-    entrante: "+5499999999",
+    crm: "+5422222222",
+    entrante: "+5433333333",
   });
 
   // 3. Y el evento se procesó CON ÉXITO: el conflicto no es un fallo.
@@ -335,6 +337,143 @@ test("un contacto SIN email no se dedupea: se crea nuevo y queda marcado para re
     const marcas = notasDe(evento.promotionNotes).filter((n) => n.tipo === "revision_manual");
     assert.equal(marcas.length, 1, "tiene que quedar la marca de revisión manual");
   }
+});
+
+// ---------------------------------------------------------------------------
+// F5 de docs/prueba-en-vivo-2026-09-29.md — el teléfono se normaliza y un
+// teléfono que ya existe se trata como el email que ya existe: es la misma
+// persona y se fusiona (ver escribirCandidato en promotion.service.ts). Cada
+// test usa un número al azar para no fusionarse con los de otro test de la
+// misma organización.
+// ---------------------------------------------------------------------------
+
+function telefonoAlAzar(): string {
+  return `+598${randomInt(10_000_000, 99_999_999)}`;
+}
+
+test("F5: el teléfono entrante se guarda normalizado (+ y solo dígitos)", async () => {
+  const telefono = telefonoAlAzar();
+  const conFormato = `${telefono.slice(1, 4)} ${telefono.slice(4, 6)} ${telefono.slice(6)}`;
+  const { evento } = await promoverUno({
+    firstName: "Norma",
+    lastName: "Lizada",
+    phone: conFormato,
+  });
+
+  assert.equal(evento.status, "PROCESSED");
+  const contacto = await prisma.contact.findUniqueOrThrow({
+    where: { id: evento.promotedContactId! },
+  });
+  assert.equal(contacto.phone, telefono);
+});
+
+test("F5: sin email, un teléfono que ya tiene un contacto (guardado con otro formato) se FUSIONA con él, sin marca de revisión", async () => {
+  const telefono = telefonoAlAzar();
+  const existente = await prisma.contact.create({
+    data: {
+      organizationId: orgId,
+      firstName: "Ya",
+      lastName: "Estaba",
+      // Como los anteriores a F5: sin "+" y con espacios.
+      phone: `${telefono.slice(1, 4)} ${telefono.slice(4)}`,
+    },
+  });
+
+  const { evento } = await promoverUno({
+    firstName: "Otro",
+    lastName: "Nombre",
+    phone: telefono,
+    jobTitle: "Comprador",
+  });
+
+  assert.equal(evento.status, "PROCESSED");
+  assert.equal(evento.promotedContactId, existente.id, "se fusionó, no se creó otro");
+  const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: existente.id } });
+  assert.equal(contacto.firstName, "Ya", "gana el CRM, como con el email");
+  assert.equal(contacto.jobTitle, "Comprador", "lo vacío en el CRM se completa");
+
+  const notas = notasDe(evento.promotionNotes);
+  assert.equal(
+    notas.filter((n) => n.tipo === "revision_manual").length,
+    0,
+    "se deduplicó por teléfono: no es un contacto nuevo sin deduplicar",
+  );
+  assert.equal(
+    notas.some((n) => n.tipo === "conflicto" && n.campo === "phone"),
+    false,
+    "el mismo número con otro formato no es un conflicto",
+  );
+  assert.deepEqual(
+    notas
+      .filter((n) => n.tipo === "conflicto")
+      .map((n) => (n.tipo === "conflicto" ? n.campo : ""))
+      .sort(),
+    ["firstName", "lastName"],
+  );
+});
+
+test("F5: un email nuevo con un teléfono que ya tiene un contacto se fusiona con él y le completa el email", async () => {
+  const telefono = telefonoAlAzar();
+  const existente = await prisma.contact.create({
+    data: { organizationId: orgId, firstName: "Sin", lastName: "Mail", phone: telefono },
+  });
+  const email = `f5-nuevo-${randomUUID()}@ejemplo.test`;
+
+  const { evento } = await promoverUno({
+    firstName: "Sin",
+    lastName: "Mail",
+    email,
+    phone: telefono,
+  });
+
+  assert.equal(evento.status, "PROCESSED");
+  assert.equal(evento.promotedContactId, existente.id);
+  const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: existente.id } });
+  assert.equal(contacto.email, email);
+  assert.equal(evento.promotionNotes, null);
+});
+
+test("F5: si el email es de un contacto y el teléfono de OTRO, gana el email, el teléfono no se duplica y queda para revisión", async () => {
+  const telefono = telefonoAlAzar();
+  const email = `f5-email-${randomUUID()}@ejemplo.test`;
+  const delEmail = await prisma.contact.create({
+    data: { organizationId: orgId, firstName: "Del", lastName: "Email", email },
+  });
+  const delTelefono = await prisma.contact.create({
+    data: { organizationId: orgId, firstName: "Del", lastName: "Telefono", phone: telefono },
+  });
+
+  const { evento } = await promoverUno({
+    firstName: "Del",
+    lastName: "Email",
+    email,
+    phone: telefono,
+  });
+
+  assert.equal(evento.status, "PROCESSED");
+  assert.equal(evento.promotedContactId, delEmail.id);
+  const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: delEmail.id } });
+  assert.equal(contacto.phone, null, "el número sigue siendo solo del otro contacto");
+  assert.equal(
+    await prisma.contact.count({ where: { organizationId: orgId, phone: telefono } }),
+    1,
+  );
+  assert.ok(await prisma.contact.findUnique({ where: { id: delTelefono.id } }));
+  const marcas = notasDe(evento.promotionNotes).filter((n) => n.tipo === "revision_manual");
+  assert.equal(marcas.length, 1);
+  assert.match(marcas[0].tipo === "revision_manual" ? marcas[0].motivo : "", /otro contacto/);
+});
+
+test("F5: un teléfono local con 0 inicial marca la fila FAILED (no se inventa un código de país)", async () => {
+  const { evento } = await promoverUno({
+    firstName: "Local",
+    lastName: "Cero",
+    phone: "099 123 456",
+  });
+
+  assert.equal(evento.status, "FAILED");
+  assert.match(evento.errorMessage ?? "", /phone: .*formato internacional/);
+  assert.equal(evento.promotedContactId, null);
 });
 
 // ---------------------------------------------------------------------------
