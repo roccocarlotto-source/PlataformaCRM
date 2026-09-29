@@ -39,6 +39,11 @@ export interface NotaRevisionManual {
 // escribe en ningún caso (ni al crear ni al actualizar), así que un payload que
 // lo traiga se está ignorando por completo — y "nunca en silencio" aplica igual
 // que a un conflicto, aunque no haya un valor previo que conservar.
+//
+// F5-a: también `phone` cuando el teléfono no se pudo normalizar. Ahí no es
+// "nunca", es "este valor no": el contacto entra sin teléfono y `entrante`
+// guarda lo que llegó. Es la única nota `ignorado` con campo "phone", y el
+// listado de eventos la usa para mostrar el teléfono descartado.
 export interface NotaIgnorado {
   tipo: "ignorado";
   campo: string;

@@ -170,12 +170,15 @@ test("un valor más largo que su columna invalida el payload en vez de reventar 
   });
   assert.equal(largo.success, false);
 
-  const telefono = ingestContactSchema.safeParse({
+  // F5-a: el teléfono es la excepción. Uno más largo que la columna no es
+  // normalizable, así que no invalida la fila: va a telefonoDescartado.
+  const telefono = ingestContactSchema.parse({
     firstName: "Ana",
     lastName: "Gómez",
     phone: "9".repeat(31),
   });
-  assert.equal(telefono.success, false);
+  assert.equal(telefono.phone, undefined);
+  assert.equal(telefono.telefonoDescartado, "9".repeat(31));
 });
 
 // ---------------------------------------------------------------------------
@@ -238,14 +241,15 @@ test("D2-7: email con formato inválido NO ecoa el valor recibido", () => {
 });
 
 test("D2-7: los campos con .max() no ecoan el valor al pasarse de largo", () => {
-  // Los cuatro campos con tope, cada uno con su largo. Es el caso donde un
+  // Los campos con tope, cada uno con su largo. `phone` ya no tiene tope
+  // propio desde F5-a: uno largo no invalida la fila (ver el test de F5-a más
+  // abajo). Es el caso donde un
   // mensaje mal escrito ("«X» supera los N caracteres") sería más natural de
   // escribir y por eso el más fácil de introducir sin querer.
   const casos: [string, unknown][] = [
     ["firstName", largoConEspia(101)],
     ["lastName", largoConEspia(101)],
     ["email", `${largoConEspia(250)}@ejemplo.test`],
-    ["phone", largoConEspia(31)],
     ["jobTitle", largoConEspia(101)],
   ];
 
@@ -320,16 +324,36 @@ test("F5: phone llega normalizado a + y solo dígitos, con o sin + en el payload
   }
 });
 
-test("F5: un phone que no se puede normalizar sin adivinar el país marca la fila (igual que un email con typo), sin ecoar el valor", () => {
-  const r = ingestContactSchema.safeParse({
+// F5-a (pendientes post F1–F5): un teléfono no normalizable ya no invalida la
+// fila. Sale en telefonoDescartado para que la promoción lo anote, y el
+// contacto entra sin teléfono.
+test("F5-a: un phone que no se puede normalizar no invalida la fila: sale en telefonoDescartado", () => {
+  const r = ingestContactSchema.parse({
     firstName: "Ana",
     lastName: "Pérez",
-    phone: "099 123 456",
+    phone: "  099 123 456 ",
   });
-  assert.equal(r.success, false);
-  if (r.success) return;
-  const mensajes = r.error.issues.map((issue) => issue.message).join(" | ");
-  assert.match(mensajes, /formato internacional/);
-  assert.ok(!mensajes.includes("099"), `el mensaje no debe ecoar el valor: ${mensajes}`);
-  assert.deepEqual(r.error.issues[0].path, ["phone"]);
+  assert.equal(r.phone, undefined);
+  assert.equal(r.telefonoDescartado, "099 123 456");
+});
+
+test("F5-a: el teléfono descartado se recorta a 100 caracteres", () => {
+  const r = ingestContactSchema.parse({
+    firstName: "Ana",
+    lastName: "Pérez",
+    phone: "x".repeat(500),
+  });
+  assert.equal(r.telefonoDescartado?.length, 100);
+});
+
+test("F5-a: un phone normalizable no deja telefonoDescartado, y uno vacío no deja ninguno de los dos", () => {
+  const bueno = ingestContactSchema.parse({
+    firstName: "Ana",
+    lastName: "Pérez",
+    phone: "+59894000111",
+  });
+  assert.equal(bueno.telefonoDescartado, undefined);
+  const vacio = ingestContactSchema.parse({ firstName: "Ana", lastName: "Pérez", phone: "   " });
+  assert.equal("phone" in vacio, false);
+  assert.equal("telefonoDescartado" in vacio, false);
 });

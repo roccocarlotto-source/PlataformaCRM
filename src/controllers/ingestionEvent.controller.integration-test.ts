@@ -182,6 +182,7 @@ interface RespuestaListado {
     batchId: string | null;
     status: string;
     errorMessage: string | null;
+    telefonoDescartado: string | null;
   }[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
 }
@@ -554,6 +555,44 @@ test("DE PUNTA A PUNTA: tras el retry, el worker lo recoge y lo promueve de verd
   });
   assert.equal(contacto.email, email);
   assert.equal(contacto.organizationId, fx.orgA);
+});
+
+// F5-a (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md): un evento
+// que F5 dejó FAILED por un teléfono local se recupera con el reproceso, y el
+// listado muestra el teléfono descartado para que el ADMIN lo cargue a mano.
+test("F5-a: un FAILED por teléfono local, reprocesado, entra sin teléfono y el listado muestra el descartado", async () => {
+  const id = await crearEvento({
+    organizationId: fx.orgA,
+    sourceId: fx.sourceRetry,
+    status: "FAILED",
+    errorMessage: "phone: phone tiene que estar en formato internacional",
+    rawPayload: { firstName: "Tel", lastName: "Local", phone: "099 555 000" },
+  });
+
+  const res = await call("POST", `/api/ingestion-events/${id}/retry`, fx.adminA.accessToken);
+  assert.equal(res.status, 200);
+  const reencolado = (await res.json()) as Record<string, unknown>;
+  assert.equal(reencolado.telefonoDescartado, null, "todavía no se promovió");
+
+  await drenarPendientes({ organizationId: fx.orgA });
+  const final = await leerEvento(id);
+  assert.equal(final.status, "PROCESSED");
+  const contacto = await prisma.contact.findUniqueOrThrow({
+    where: { id: final.promotedContactId! },
+  });
+  assert.equal(contacto.phone, null);
+
+  const lista = await call(
+    "GET",
+    `/api/ingestion-events?sourceId=${fx.sourceRetry}&status=PROCESSED&pageSize=100`,
+    fx.adminA.accessToken,
+  );
+  const body = (await lista.json()) as RespuestaListado;
+  const fila = body.data.find((e) => e.id === id);
+  assert.ok(fila);
+  assert.equal(fila.telefonoDescartado, "099 555 000");
+  assert.equal(fila.errorMessage, null);
+  assert.equal("promotionNotes" in (fila as unknown as Record<string, unknown>), false);
 });
 
 test("§1 completo: corregir el fieldMapping y volver a correr el MISMO evento", async () => {

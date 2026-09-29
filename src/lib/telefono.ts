@@ -38,9 +38,10 @@ const MAX_DIGITOS = 15;
 // Dígitos y separadores comunes, con un "+" opcional solo al principio.
 const FORMA_ACEPTADA = /^\+?[\d\s\-.()]+$/;
 
-// El mensaje de error de los tres caminos que pueden recibir un teléfono no
-// normalizable (HTTP, webhook, importación). No ecoa el valor: en la ingesta
-// termina en IngestionEvent.errorMessage (ver D2-7 en ingestContact.schema.ts).
+// El 400 de POST/PATCH /api/contacts ante un teléfono no normalizable: ahí
+// hay una persona que puede corregirlo. No ecoa el valor. La ingesta ya no lo
+// usa: desde F5-a guarda el contacto sin teléfono en vez de fallar la fila
+// (ver ingestContact.schema.ts).
 export const TELEFONO_NO_NORMALIZABLE =
   "phone tiene que estar en formato internacional, con el código de país y sin el 0 inicial (por ejemplo +59899123456)";
 
@@ -53,7 +54,7 @@ export function soloDigitos(valor: string): string {
 
 // `+<dígitos>`, o null si el valor no se puede normalizar sin adivinar (ver la
 // regla arriba). Nunca lanza: cada caller decide qué hace con el null (400 en
-// HTTP, fila FAILED en la ingesta).
+// HTTP; en la ingesta, contacto sin teléfono y nota de revisión — F5-a).
 export function normalizarTelefono(valor: string): string | null {
   const recortado = valor.trim();
   if (!FORMA_ACEPTADA.test(recortado)) {

@@ -169,6 +169,34 @@ Intencional (`qrFollowUpWorker.ts:217`). Consecuencias: si se cambia el destino 
 
 ---
 
+## Pendientes post F1–F5
+
+Lo que dejaron abierto los PR #341–#343. Cada ítem tiene su PR y su Estado.
+
+### F5-a — La ingesta nunca pierde un lead por el teléfono · ALTO (regresión)
+**Estado:** hecho (PR A, rama `fix/f5-ingesta-no-pierde-leads`)
+- Desde F5, un lead que llegaba por webhook o CSV con un teléfono no normalizable (`099 123 456`) quedaba FAILED y no entraba al CRM. Antes de F5 sí entraba.
+- Ahora el contacto se crea (o se fusiona por email) **sin teléfono**, y el evento queda PROCESSED. Queda una nota `ignorado` (campo `phone`, con el valor original) y la marca `revision_manual` en `promotionNotes`. El borrado a pedido (D2-4) ya redacta ese valor. `errorMessage` sigue sin ecoar valores (D2-7).
+- `GET /api/ingestion-events` expone `telefonoDescartado` (solo ese campo, no `promotionNotes`). La pantalla de eventos de ingesta lo muestra en la columna "Motivo" como revisión manual.
+- Los eventos que F5 dejó FAILED por este motivo se recuperan con "Reintentar" en esa pantalla.
+- La API (`POST/PATCH /api/contacts`) sigue devolviendo 400.
+- El resumen de una importación muestra contadores. Su link "Ver estas filas" abre la pantalla de eventos filtrada por lote, donde se ve el teléfono descartado fila por fila.
+- **Pendiente (no es de este PR):** la ficha del contacto no dice que se le descartó un teléfono. Para eso haría falta una Activity con autor, y no existe un usuario de sistema (decisión de Rocco: `promotionNotes`).
+
+### F5-b — País por defecto por organización
+**Estado:** pendiente (PR B)
+
+### WA-1 — Estados de entrega de WhatsApp y remitente "automatización"
+**Estado:** pendiente (PR C)
+
+### F6-a — Latencia: menos idas a la base
+**Estado:** pendiente (PR D)
+
+### E — Diagnóstico de teléfonos duplicados en producción
+**Estado:** pendiente (se corre al terminar los PR, solo lectura)
+
+---
+
 ## Pendientes / no probados por requerir config
 
 - **Requieren cambiar config (no se hizo):** conversación real por el widget (allowedOrigins), tipo de cambio (monedas de la org), Google Calendar, Messenger/Instagram, WhatsApp desde una regla nueva (alta de plantilla en Meta).

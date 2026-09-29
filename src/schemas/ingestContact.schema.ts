@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizarTelefono, TELEFONO_NO_NORMALIZABLE } from "../lib/telefono";
+import { normalizarTelefono } from "../lib/telefono";
 
 // ---------------------------------------------------------------------------
 // EL CONTRATO DE PAYLOAD DEL WEBHOOK DE LANDING PAGE (ítem 4 de
@@ -107,7 +107,7 @@ function opcional(
 // reconocible a cada campo y afirma que no aparece en ningún issue.message. Si
 // alguien agrega un campo sin mensaje propio, ese test lo frena.
 // ---------------------------------------------------------------------------
-export const ingestContactSchema = z.object({
+const ingestContactBaseSchema = z.object({
   // Requeridos porque las columnas son NOT NULL. Los largos replican los
   // VarChar de `contacts` para que un valor excedido se marque FAILED con un
   // mensaje legible en vez de reventar contra Postgres.
@@ -134,25 +134,68 @@ export const ingestContactSchema = z.object({
   // ausencia, decidida por `opcional` antes de que `.email()` la vea (A-6).
   email: opcional(255, "email", (base) => base.email("email inválido")),
 
-  // F5: normalizado con el helper único (lib/telefono.ts) ANTES de promover,
-  // porque la promoción deduplica por teléfono y compara la forma normalizada.
-  // Uno que no se puede normalizar sin adivinar (un local con 0 inicial) marca
-  // la fila FAILED con el mismo criterio que un email con typo: queda
-  // consultable (§5), y guardarlo mal haría que nunca se deduplique. Mensaje
-  // propio que no ecoa el valor (D2-7).
-  phone: opcional(30, "phone").transform((valor, ctx) => {
-    if (valor === undefined) return undefined;
-    const normalizado = normalizarTelefono(valor);
-    if (normalizado === null) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: TELEFONO_NO_NORMALIZABLE });
-      return z.NEVER;
-    }
-    return normalizado;
-  }),
+  // SIN tope de largo, a diferencia del resto: un teléfono normalizado siempre
+  // entra en la columna (30: "+" y hasta 15 dígitos), y uno más largo no es
+  // normalizable, así que va a telefonoDescartado (F5-a, abajo) en vez de
+  // hacer fallar la fila. Misma regla de ausencia que `opcional`.
+  phone: z.preprocess(
+    (valor) => (typeof valor === "string" && valor.trim() === "" ? undefined : valor),
+    z.string().trim().optional(),
+  ),
   jobTitle: opcional(100, "jobTitle"),
 });
 
-export type IngestContactPayload = z.infer<typeof ingestContactSchema>;
+// ---------------------------------------------------------------------------
+// EL TELÉFONO NO NORMALIZABLE NO HACE FALLAR LA FILA — F5-a (pendientes post
+// F1–F5 de docs/prueba-en-vivo-2026-09-29.md).
+//
+// F5 empezó a normalizar el teléfono antes de promover (la promoción deduplica
+// comparando la forma normalizada) y marcaba FAILED la fila cuyo teléfono no
+// se podía normalizar sin adivinar el país, como un email con typo. Eso fue
+// una regresión en la captación: un lead que llegaba con `099 123 456` —como
+// escribe cualquiera en Uruguay— antes entraba al CRM y desde F5 se perdía.
+// El email con typo puede quedarse en FAILED porque sin él el lead igual tiene
+// teléfono; acá el teléfono puede ser lo ÚNICO que identifica al lead.
+//
+// Desde F5-a el contacto se crea (o se fusiona por email) SIN teléfono, y el
+// valor original viaja aparte en `telefonoDescartado`. La promoción lo deja en
+// promotionNotes —nota `ignorado` con el valor más la marca `revision_manual`—
+// y el evento queda PROCESSED. No va en errorMessage: esa columna significa
+// "por qué falló" y no ecoa valores (D2-7).
+//
+// Se guarda recortado a 100 caracteres: alcanza para cualquier teléfono mal
+// escrito, y un payload que mande un texto enorme en `phone` no lo copia
+// entero a una segunda columna (el crudo completo sigue en rawPayload).
+//
+// Con el país por defecto de la organización (PR B de los mismos pendientes),
+// un local con 0 inicial pasa a normalizarse, y este camino queda para los
+// teléfonos realmente mal escritos: letras, largo imposible, un local sin país
+// configurado.
+// ---------------------------------------------------------------------------
+const TELEFONO_DESCARTADO_MAX = 100;
+
+export type IngestContactPayload = {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  jobTitle?: string;
+  // Siempre normalizado (lib/telefono.ts) cuando viene.
+  phone?: string;
+  // F5-a: el teléfono que llegó y no se pudo normalizar. Excluyente con phone.
+  telefonoDescartado?: string;
+};
+
+export const ingestContactSchema = ingestContactBaseSchema.transform(
+  ({ phone, ...resto }): IngestContactPayload => {
+    if (phone === undefined) {
+      return resto;
+    }
+    const normalizado = normalizarTelefono(phone);
+    return normalizado === null
+      ? { ...resto, telefonoDescartado: phone.slice(0, TELEFONO_DESCARTADO_MAX) }
+      : { ...resto, phone: normalizado };
+  },
+);
 
 // Campos que la ingesta reconoce pero NUNCA escribe. Se listan para poder
 // dejar constancia en promotionNotes de que llegaron y se ignoraron: "nunca en

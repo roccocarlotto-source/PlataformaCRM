@@ -443,6 +443,27 @@ export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<R
     ...detectarConflictos(candidato, contacto),
   ];
 
+  // F5-a: el teléfono no se pudo normalizar y el contacto entró sin él (ver
+  // ingestContact.schema.ts). El valor original queda en la nota `ignorado`
+  // —el borrado a pedido ya redacta su `entrante` (D2-4)— y la marca de
+  // revisión manual lo pone en la cola de alguien, sin ecoar el valor en el
+  // motivo. El listado de eventos lo expone (telefonoDescartado).
+  if (candidato.telefonoDescartado !== undefined) {
+    notas.push(
+      {
+        tipo: "ignorado",
+        campo: "phone",
+        entrante: candidato.telefonoDescartado,
+        motivo: "no se pudo normalizar: no se escribió en el contacto",
+      },
+      {
+        tipo: "revision_manual",
+        motivo:
+          "el teléfono no se pudo normalizar: el contacto se guardó sin teléfono, cargalo a mano con el código de país",
+      },
+    );
+  }
+
   if (telefonoDeOtroContacto) {
     notas.push({
       tipo: "revision_manual",

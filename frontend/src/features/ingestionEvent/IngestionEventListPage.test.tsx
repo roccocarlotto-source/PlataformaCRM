@@ -102,6 +102,35 @@ describe("IngestionEventListPage — listado", () => {
     expect(tabla.getAllByText("—").length).toBeGreaterThan(0);
   });
 
+  // F5-a (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md).
+  it("un PROCESSED con teléfono descartado lo muestra como revisión manual en el motivo", async () => {
+    server.use(
+      sourcesHandler(),
+      detalleDeFuente(),
+      http.get(eventsUrl, () =>
+        HttpResponse.json(
+          listResponse({
+            data: [
+              makeIngestionEvent({
+                status: "PROCESSED",
+                promotedContactId: "c1",
+                telefonoDescartado: "099 000 111",
+              }),
+            ],
+          }),
+        ),
+      ),
+    );
+
+    renderPage();
+    const tabla = within(await screen.findByRole("table"));
+    expect(
+      tabla.getByText(
+        "Revisión manual: el teléfono no se pudo normalizar y no se guardó (099 000 111)",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("no hace un request por fila: veinte eventos de la misma fuente resuelven una vez", async () => {
     let resoluciones = 0;
     // LA FUENTE ESTÁ FUERA DE LA LISTA DEL <select> A PROPÓSITO. Lo que este
