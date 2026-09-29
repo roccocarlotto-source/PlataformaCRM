@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
+import { esperarBloqueadoPor, sostenerTransaccion } from "../lib/carreras.test-helper";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { AppError } from "../utils/AppError";
-import { createContact, qualifyLead, updateContact } from "./contact.service";
+import { createContact, qualifyLead, TELEFONO_DUPLICADO, updateContact } from "./contact.service";
 
 // Desde el ítem 116 qualifyLead devuelve { contacto, identidadIgnorada }: los
 // tests de este archivo solo miran el contacto, así que lo desenvuelven acá y
@@ -170,7 +172,8 @@ test("M-10: updateContact con phone/jobTitle/source en null los deja NULL en la 
     const antes = await prisma.contact.findUnique({ where: { id: creado.id } });
     assert.deepEqual(
       { phone: antes?.phone, jobTitle: antes?.jobTitle, source: antes?.source },
-      { phone: "+54 341 555-0000", jobTitle: "CTO", source: "landing" },
+      // F5: el teléfono se guarda normalizado (+ y solo dígitos).
+      { phone: "+543415550000", jobTitle: "CTO", source: "landing" },
       "setup: los tres campos tienen valor antes del PATCH",
     );
 
@@ -470,6 +473,191 @@ test("qualifyLead: 404 sobre un contacto de OTRA organización, uno inexistente 
 
     const fila = await prisma.contact.findUniqueOrThrow({ where: { id: creado.id } });
     assert.equal(fila.leadScore, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// F5 de docs/prueba-en-vivo-2026-09-29.md — teléfono normalizado y único por
+// organización. La prueba en vivo creó un número sin "+" con 201 teniendo ya
+// el mismo con "+"; desde F5 los dos son el mismo número y el segundo es un
+// 409, igual que el email duplicado.
+// ---------------------------------------------------------------------------
+
+function assertTelefonoDuplicado(err: unknown) {
+  assertAppError(err, 409);
+  assert.equal((err as AppError).message, TELEFONO_DUPLICADO);
+  return true;
+}
+
+test("F5: createContact guarda el teléfono normalizado y rechaza con 409 el mismo número escrito distinto", async () => {
+  const escenario = await montar();
+  try {
+    const primero = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Uno",
+      lastName: "Pérez",
+      phone: "+598 94 000 111",
+    });
+    assert.equal(primero.phone, "+59894000111");
+
+    for (const phone of ["59894000111", "+59894000111", "+598-94-000-111"]) {
+      await assert.rejects(
+        createContact(escenario.orgId, escenario.userId, {
+          firstName: "Dos",
+          lastName: "P",
+          phone,
+        }),
+        assertTelefonoDuplicado,
+      );
+    }
+    assert.equal(await prisma.contact.count({ where: { organizationId: escenario.orgId } }), 1);
+
+    // Otra organización puede tener el mismo número: la unicidad es por organización.
+    const ajeno = await prisma.contact.create({
+      data: {
+        organizationId: escenario.otraOrgId,
+        firstName: "Ajeno",
+        lastName: "X",
+        phone: "+59899000111",
+      },
+    });
+    const propio = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Tres",
+      lastName: "P",
+      phone: "59899000111",
+    });
+    assert.notEqual(propio.id, ajeno.id);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("F5: un duplicado VIEJO guardado con otro formato también frena el alta; uno eliminado no", async () => {
+  const escenario = await montar();
+  try {
+    // Como los que dejó la época anterior a F5: escritos directo, con separadores.
+    await prisma.contact.create({
+      data: {
+        organizationId: escenario.orgId,
+        firstName: "Viejo",
+        lastName: "X",
+        phone: "598 94 000 111",
+      },
+    });
+    await assert.rejects(
+      createContact(escenario.orgId, escenario.userId, {
+        firstName: "Nuevo",
+        lastName: "X",
+        phone: "+59894000111",
+      }),
+      assertTelefonoDuplicado,
+    );
+
+    await prisma.contact.create({
+      data: {
+        organizationId: escenario.orgId,
+        firstName: "Borrado",
+        lastName: "X",
+        phone: "+59899555444",
+        deletedAt: new Date(),
+      },
+    });
+    const creado = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Nuevo",
+      lastName: "X",
+      phone: "+59899555444",
+    });
+    assert.equal(creado.phone, "+59899555444");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("F5: updateContact normaliza, deja guardar el propio número y da 409 con el de otro contacto sin tocar nada", async () => {
+  const escenario = await montar();
+  try {
+    const ana = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Ana",
+      lastName: "P",
+      phone: "+59899111222",
+    });
+    const beto = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Beto",
+      lastName: "P",
+      phone: "+59899333444",
+    });
+
+    // El propio número, escrito distinto: no es un duplicado.
+    const mismo = await updateContact(escenario.orgId, escenario.userId, ana.id, {
+      phone: "598 99 111 222",
+    });
+    assert.equal(mismo.phone, "+59899111222");
+
+    await assert.rejects(
+      updateContact(escenario.orgId, escenario.userId, beto.id, {
+        phone: "59899111222",
+        jobTitle: "no se tiene que guardar",
+      }),
+      assertTelefonoDuplicado,
+    );
+    const betoDespues = await prisma.contact.findUniqueOrThrow({ where: { id: beto.id } });
+    assert.equal(betoDespues.phone, "+59899333444");
+    assert.equal(betoDespues.jobTitle, null);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+test("F5: un teléfono local con 0 inicial es un 400 y no crea nada — no se inventa un código de país", async () => {
+  const escenario = await montar();
+  try {
+    await assert.rejects(
+      createContact(escenario.orgId, escenario.userId, {
+        firstName: "Local",
+        lastName: "X",
+        phone: "099 123 456",
+      }),
+      (err: unknown) => assertAppError(err, 400),
+    );
+    assert.equal(await prisma.contact.count({ where: { organizationId: escenario.orgId } }), 0);
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
+// La carrera de dos altas simultáneas con el mismo número: A toma el lock de la
+// organización y crea el contacto sin commitear; B (la llamada real) tiene que
+// quedar bloqueada en ese lock y, cuando A commitea, ver el contacto y
+// responder 409. Sin el lock, B no se bloquearía y crearía el segundo.
+test("F5: dos altas simultáneas con el mismo teléfono — la segunda espera el lock de la organización y recibe 409", async () => {
+  const escenario = await montar();
+  try {
+    const a = await sostenerTransaccion(async (tx) => {
+      await lockOrganizationForUpdate(escenario.orgId, tx);
+      await tx.contact.create({
+        data: {
+          organizationId: escenario.orgId,
+          firstName: "A",
+          lastName: "X",
+          phone: "+59899777888",
+        },
+      });
+    });
+
+    const b = createContact(escenario.orgId, escenario.userId, {
+      firstName: "B",
+      lastName: "X",
+      phone: "59899777888",
+    });
+    b.catch(() => undefined);
+    await esperarBloqueadoPor(a, b, "F5 alta simultánea");
+
+    a.liberar();
+    await a.terminada;
+
+    await assert.rejects(b, assertTelefonoDuplicado);
+    assert.equal(await prisma.contact.count({ where: { organizationId: escenario.orgId } }), 1);
   } finally {
     await desmontar(escenario);
   }

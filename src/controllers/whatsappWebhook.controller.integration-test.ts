@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
+import { findContactIdByNormalizedPhone } from "../repositories/contact.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { createWhatsappWebhookRouter } from "../routes/whatsappWebhook.routes";
 import {
@@ -557,6 +558,82 @@ test("un Contact existente con el mismo teléfono (con + y separadores) se reusa
     where: { organizationId: fx.orgId, contactId: existente.id },
   });
   assert.equal(conversacion.channel, "WHATSAPP");
+});
+
+// ---------------------------------------------------------------------------
+// F5 de docs/prueba-en-vivo-2026-09-29.md — con duplicados VIEJOS del mismo
+// número (desde F5 no se pueden crear, pero quedan los de antes), el entrante
+// elige siempre el mismo contacto: el de la conversación de WhatsApp más
+// reciente y, si ninguno tiene, el creado primero. Los contactos se crean con
+// prisma directo porque el service ya no deja duplicar.
+// ---------------------------------------------------------------------------
+
+async function duplicadosDelNumero(waId: string) {
+  const viejo = await prisma.contact.create({
+    data: {
+      organizationId: fx.orgId,
+      firstName: "Duplicado",
+      lastName: "Viejo",
+      phone: `+${waId}`,
+      createdAt: new Date(Date.now() - 60_000),
+    },
+  });
+  const nuevo = await prisma.contact.create({
+    data: { organizationId: fx.orgId, firstName: "Duplicado", lastName: "Nuevo", phone: waId },
+  });
+  return { viejo, nuevo };
+}
+
+test("F5: duplicados viejos sin conversación de WhatsApp — el entrante va al creado primero", async () => {
+  const waId = waIdAlAzar();
+  const { viejo, nuevo } = await duplicadosDelNumero(waId);
+
+  const res = await enviar(payloadDeTexto({ waId }));
+  assert.equal(res.status, 200);
+
+  const conversaciones = await prisma.conversation.findMany({
+    where: { organizationId: fx.orgId, contactId: { in: [viejo.id, nuevo.id] } },
+  });
+  assert.deepEqual(
+    conversaciones.map((c) => c.contactId),
+    [viejo.id],
+  );
+});
+
+test("F5: duplicados viejos — el entrante va al que tiene la conversación de WhatsApp más reciente, aunque sea el más nuevo", async () => {
+  const waId = waIdAlAzar();
+  const { viejo, nuevo } = await duplicadosDelNumero(waId);
+  const hilo = (contactId: string, lastMessageAt: Date) =>
+    prisma.conversation.create({
+      data: {
+        organizationId: fx.orgId,
+        branchId: fx.branchId,
+        agentId: fx.agentId,
+        contactId,
+        channel: "WHATSAPP",
+        status: "CLOSED",
+        externalThreadId: waId,
+        lastMessageAt,
+      },
+    });
+  await hilo(viejo.id, new Date(Date.now() - 3_600_000));
+  await hilo(nuevo.id, new Date(Date.now() - 60_000));
+
+  // Determinístico: dos resoluciones seguidas eligen el mismo.
+  for (let i = 0; i < 2; i++) {
+    assert.equal(await findContactIdByNormalizedPhone(fx.orgId, waId), nuevo.id);
+  }
+
+  const res = await enviar(payloadDeTexto({ waId }));
+  assert.equal(res.status, 200);
+  const abierta = await prisma.conversation.findFirstOrThrow({
+    where: {
+      organizationId: fx.orgId,
+      contactId: { in: [viejo.id, nuevo.id] },
+      status: "ACTIVE",
+    },
+  });
+  assert.equal(abierta.contactId, nuevo.id);
 });
 
 // ---------------------------------------------------------------------------

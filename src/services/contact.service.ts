@@ -1,5 +1,6 @@
 import { Prisma, type LeadUrgency, type LifecycleStage } from "@prisma/client";
-import { prisma } from "../lib/prisma";
+import { prisma, type Db } from "../lib/prisma";
+import { normalizarTelefono, soloDigitos, TELEFONO_NO_NORMALIZABLE } from "../lib/telefono";
 import { countConfirmedBookingsOf } from "../repositories/booking.repository";
 import { findCompanyById } from "../repositories/company.repository";
 import { countOpenConversationsOf } from "../repositories/conversation.repository";
@@ -7,6 +8,7 @@ import {
   countContacts,
   createContact as createContactRepo,
   erasePersonalDataFromContact,
+  existsOtherContactWithPhone,
   findContactById,
   findContactByIdIncludingDeleted,
   findManyContacts,
@@ -19,6 +21,7 @@ import {
 } from "../repositories/contact.repository";
 import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
 import { countOpenOpportunitiesOf } from "../repositories/opportunity.repository";
+import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
 import { resolveOwnerId } from "./ownership.service";
 import { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME } from "./whatsappContact.service";
@@ -157,6 +160,61 @@ export function normalizeEmail(email: string | undefined): string | undefined {
   return email?.trim();
 }
 
+// ---------------------------------------------------------------------------
+// TELÉFONO — F5 de docs/prueba-en-vivo-2026-09-29.md.
+//
+// Se normaliza con el helper único (lib/telefono.ts, ahí está la regla) y no
+// puede repetirse dentro de la organización, igual que el email. La diferencia
+// con el email es DÓNDE vive la garantía: el email tiene un índice único
+// (contacts_org_email_unique) y el teléfono no puede tenerlo sin migración —y
+// hoy hay duplicados viejos que impedirían crearlo— así que la unicidad la da
+// el chequeo bajo lockOrganizationForUpdate, el mismo lock que toma el alta
+// por WhatsApp y la promoción de la ingesta. Dos altas simultáneas con el
+// mismo número se serializan: la segunda ve la primera y recibe el 409.
+//
+// El lock solo se toma cuando la escritura trae un teléfono: un contacto sin
+// teléfono no puede duplicar ninguno, y no tiene por qué esperar a nadie.
+// ---------------------------------------------------------------------------
+export const TELEFONO_DUPLICADO = "Ya existe un contacto con ese teléfono en esta organización";
+
+// undefined = no vino (PATCH no lo toca), null = sin teléfono. Una cadena
+// vacía —o solo espacios— es ausencia de teléfono, no un teléfono: se guarda
+// NULL, mismo criterio que la ingesta (`opcional` en ingestContact.schema.ts).
+// Exportada para testearla sin base (contact.service.test.ts).
+export function telefonoParaGuardar(phone: string | null | undefined): string | null | undefined {
+  if (phone === undefined || phone === null) {
+    return phone;
+  }
+  if (phone.trim().length === 0) {
+    return null;
+  }
+  const normalizado = normalizarTelefono(phone);
+  if (normalizado === null) {
+    throw new AppError(TELEFONO_NO_NORMALIZABLE, 400);
+  }
+  return normalizado;
+}
+
+// Corre `escribir` bajo el lock de la organización después de confirmar que
+// ningún OTRO contacto tiene ese teléfono. Sin teléfono, escribe directo.
+async function conTelefonoUnico<T>(
+  organizationId: string,
+  phone: string | null | undefined,
+  excludeId: string | null,
+  escribir: (db: Db) => Promise<T>,
+): Promise<T> {
+  if (phone === undefined || phone === null) {
+    return escribir(prisma);
+  }
+  return prisma.$transaction(async (tx) => {
+    await lockOrganizationForUpdate(organizationId, tx);
+    if (await existsOtherContactWithPhone(organizationId, soloDigitos(phone), excludeId, tx)) {
+      throw new AppError(TELEFONO_DUPLICADO, 409);
+    }
+    return escribir(tx);
+  });
+}
+
 export interface CreateContactInput {
   firstName: string;
   lastName: string;
@@ -174,24 +232,32 @@ export async function createContact(
   actorUserId: string,
   input: CreateContactInput,
 ) {
+  // Antes que nada: un teléfono mal formado es un 400, sin tocar la base.
+  const phone = telefonoParaGuardar(input.phone) ?? null;
+
   const [ownerId, companyId] = await Promise.all([
     resolveOwnerId(organizationId, actorUserId, input.ownerId),
     resolveCompanyId(organizationId, input.companyId),
   ]);
 
   try {
-    return await createContactRepo({
-      organizationId,
-      companyId,
-      ownerId,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      email: normalizeEmail(input.email),
-      phone: input.phone ?? null,
-      jobTitle: input.jobTitle ?? null,
-      lifecycleStage: input.lifecycleStage,
-      source: input.source ?? null,
-    });
+    return await conTelefonoUnico(organizationId, phone, null, (db) =>
+      createContactRepo(
+        {
+          organizationId,
+          companyId,
+          ownerId,
+          firstName: input.firstName,
+          lastName: input.lastName,
+          email: normalizeEmail(input.email),
+          phone,
+          jobTitle: input.jobTitle ?? null,
+          lifecycleStage: input.lifecycleStage,
+          source: input.source ?? null,
+        },
+        db,
+      ),
+    );
   } catch (err) {
     rethrowAsConflict(err);
   }
@@ -221,6 +287,12 @@ export async function updateContact(
 
   const data: UpdateContactInput = { ...input };
 
+  // F5: normalizado y único (ver telefonoParaGuardar / conTelefonoUnico).
+  // `"phone" in input` por lo mismo que companyId abajo: null limpia.
+  if ("phone" in input) {
+    data.phone = telefonoParaGuardar(input.phone);
+  }
+
   if (input.ownerId) {
     data.ownerId = await resolveOwnerId(organizationId, actorUserId, input.ownerId);
   }
@@ -245,7 +317,9 @@ export async function updateContact(
   }
 
   try {
-    const result = await updateContactRepo(id, organizationId, data);
+    const result = await conTelefonoUnico(organizationId, data.phone, id, (db) =>
+      updateContactRepo(id, organizationId, data, db),
+    );
     if (result.count === 0) {
       throw new AppError("Contacto no encontrado", 404);
     }

@@ -1,15 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  WHATSAPP_CONTACT_FALLBACK_FIRST_NAME,
-  nombreDelPerfil,
-  soloDigitos,
-} from "./whatsappContact.service";
-
-test("soloDigitos saca el + y cualquier separador", () => {
-  assert.equal(soloDigitos("+598 99-123.456"), "59899123456");
-  assert.equal(soloDigitos("59899123456"), "59899123456");
-});
+import { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME, nombreDelPerfil } from "./whatsappContact.service";
 
 test("nombreDelPerfil: primera palabra nombre, el resto apellido", () => {
   assert.deepEqual(nombreDelPerfil("  Ana   María Pérez ", "598"), {

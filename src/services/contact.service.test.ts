@@ -12,7 +12,9 @@ import {
   nombreEsUnMarcador,
   normalizeEmail,
   rethrowAsConflict,
+  telefonoParaGuardar,
 } from "./contact.service";
+import { TELEFONO_NO_NORMALIZABLE } from "../lib/telefono";
 
 // --------------------------------------------------------------------------
 // normalizeEmail — después de M-13 recorta espacios y NADA MÁS.
@@ -303,4 +305,31 @@ test("deleteContact sin oportunidades abiertas ni reservas confirmadas lo da de 
   } finally {
     mock.restoreAll();
   }
+});
+
+// --------------------------------------------------------------------------
+// telefonoParaGuardar — F5 de docs/prueba-en-vivo-2026-09-29.md. La regla de
+// normalización está probada en lib/telefono.test.ts; acá, lo que agrega el
+// camino HTTP: undefined no toca, null y vacío limpian, lo no normalizable es
+// un 400 con el mensaje del helper.
+// --------------------------------------------------------------------------
+
+test("F5: telefonoParaGuardar normaliza a + y solo dígitos", () => {
+  assert.equal(telefonoParaGuardar("59894000111"), "+59894000111");
+  assert.equal(telefonoParaGuardar("+598 94 000 111"), "+59894000111");
+});
+
+test("F5: telefonoParaGuardar deja undefined como 'no vino' y trata null y vacío como sin teléfono", () => {
+  assert.equal(telefonoParaGuardar(undefined), undefined);
+  assert.equal(telefonoParaGuardar(null), null);
+  assert.equal(telefonoParaGuardar(""), null);
+  assert.equal(telefonoParaGuardar("   "), null);
+});
+
+test("F5: telefonoParaGuardar rechaza con 400 un local con 0 inicial — no inventa código de país", () => {
+  assert.throws(
+    () => telefonoParaGuardar("099 123 456"),
+    (err: unknown) =>
+      err instanceof AppError && err.statusCode === 400 && err.message === TELEFONO_NO_NORMALIZABLE,
+  );
 });
