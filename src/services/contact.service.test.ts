@@ -308,7 +308,7 @@ test("deleteContact sin oportunidades abiertas ni reservas confirmadas lo da de 
 });
 
 // --------------------------------------------------------------------------
-// telefonoParaGuardar — F5 de docs/prueba-en-vivo-2026-09-29.md. La regla de
+// telefonoParaGuardar — F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub). La regla de
 // normalización está probada en lib/telefono.test.ts; acá, lo que agrega el
 // camino HTTP: undefined no toca, null y vacío limpian, lo no normalizable es
 // un 400 con el mensaje del helper.

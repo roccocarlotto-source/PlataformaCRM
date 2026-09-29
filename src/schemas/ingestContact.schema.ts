@@ -147,7 +147,7 @@ const ingestContactBaseSchema = z.object({
 
 // ---------------------------------------------------------------------------
 // EL TELÉFONO NO NORMALIZABLE NO HACE FALLAR LA FILA — F5-a (pendientes post
-// F1–F5 de docs/prueba-en-vivo-2026-09-29.md).
+// F1–F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)).
 //
 // F5 empezó a normalizar el teléfono antes de promover (la promoción deduplica
 // comparando la forma normalizada) y marcaba FAILED la fila cuyo teléfono no

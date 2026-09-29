@@ -189,7 +189,7 @@ export async function createBooking(
   // minutos y romper la grilla de disponibilidad para todos los demás.
   const startsAt = input.startsAt;
 
-  // F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"): el
+  // F6 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base"): el
   // contacto, la oportunidad y el contexto del recurso no dependen entre sí y
   // se leen EN PARALELO, en vez de uno detrás de otro. enParalelo relanza el
   // primer error en el orden de abajo —el de siempre—: por eso el "no existe"

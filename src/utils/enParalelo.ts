@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Lecturas independientes en paralelo SIN cambiar qué error ve el cliente —
-// F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base").
+// F6 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base").
 //
 // Con Render y Supabase en regiones distintas, cada ida a la base cuesta
 // ~100 ms, y lo que más pesa en un request es la cantidad de queries EN SERIE.

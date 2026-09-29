@@ -6,7 +6,7 @@ import { prisma, type Db } from "../lib/prisma";
 // construir el AuthContext: organización y rol en la misma query.
 //
 // UN SOLO SELECT CON JOIN, y no el `include` de antes — F6 de
-// docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"). Prisma 5
+// docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base"). Prisma 5
 // resuelve un `include` con una query POR relación, en serie: users, después
 // organizations, después roles. Eran tres idas a la base en CADA request
 // autenticado, y con Render y Supabase en regiones distintas cada ida cuesta

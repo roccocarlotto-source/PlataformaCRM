@@ -115,7 +115,7 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
     // `body: input.body || undefined`: la actividad queda con body null, que es
     // lo que significa "sin notas".
     //
-    // F4 de docs/prueba-en-vivo-2026-09-29.md: la tarea lleva también el
+    // F4 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): la tarea lleva también el
     // contacto de la oportunidad. Con solo opportunityId no aparecía en la
     // ficha del contacto (GET /api/activities?contactId=… venía vacío). Se
     // relee la oportunidad porque el payload del evento no trae el contacto;

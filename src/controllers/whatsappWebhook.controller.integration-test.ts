@@ -562,7 +562,7 @@ test("un Contact existente con el mismo teléfono (con + y separadores) se reusa
 });
 
 // ---------------------------------------------------------------------------
-// F5 de docs/prueba-en-vivo-2026-09-29.md — con duplicados VIEJOS del mismo
+// F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) — con duplicados VIEJOS del mismo
 // número (desde F5 no se pueden crear, pero quedan los de antes), el entrante
 // elige siempre el mismo contacto: el de la conversación de WhatsApp más
 // reciente y, si ninguno tiene, el creado primero. Los contactos se crean con
@@ -638,7 +638,7 @@ test("F5: duplicados viejos — el entrante va al que tiene la conversación de 
 });
 
 // ---------------------------------------------------------------------------
-// F1 de docs/prueba-en-vivo-2026-09-29.md — el WhatsApp que mandó una
+// F1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) — el WhatsApp que mandó una
 // automatización (el seguimiento con QR, el cupón) queda en la conversación, y
 // cuando el cliente lo contesta el agente lo tiene en el historial. Antes el
 // agente recibía un "¡gracias!" sin saber a qué.

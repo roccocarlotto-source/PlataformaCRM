@@ -166,7 +166,7 @@ test("O9: cambiar si cierra una etapa con oportunidades es 409; vacía, se puede
 });
 
 // ---------------------------------------------------------------------------
-// F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"): las
+// F6 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base"): las
 // lecturas de antes de la transacción van en paralelo, pero el error con
 // varios datos inválidos tiene que ser el mismo que cuando corrían en serie.
 // Se compara contra el error de cada dato inválido SOLO, sin transcribir

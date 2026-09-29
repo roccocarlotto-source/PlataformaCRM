@@ -314,7 +314,7 @@ function exigirTransicion(count: number, evento: EventoReclamado, destino: Inges
 
 // ---------------------------------------------------------------------------
 // EL TELÉFONO REPETIDO SE TRATA COMO EL EMAIL REPETIDO — F5 de
-// docs/prueba-en-vivo-2026-09-29.md.
+// docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub).
 //
 // En este flujo un email que ya existe no es un error: identifica a la misma
 // persona y el upsert fusiona (COALESCE, gana el CRM). Desde F5 el teléfono

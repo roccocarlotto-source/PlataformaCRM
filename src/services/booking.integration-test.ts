@@ -1147,7 +1147,7 @@ test("un contacto de otra organización no se puede reservar", async () => {
   }
 });
 
-// F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"): el
+// F6 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base"): el
 // contacto, la oportunidad y el contexto del recurso se leen en paralelo. Con
 // varios datos inválidos a la vez, el error tiene que seguir siendo el que
 // daba la validación que antes corría primero.

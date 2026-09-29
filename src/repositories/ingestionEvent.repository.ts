@@ -709,7 +709,7 @@ export type PublicIngestionEvent = Omit<FilaDeEventoPublico, "promotionNotes"> &
   telefonoDescartado: string | null;
 };
 
-// F5-a (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md): el
+// F5-a (pendientes post F1–F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): el
 // teléfono que la ingesta no pudo normalizar y dejó afuera del contacto. Es lo
 // que el ADMIN necesita ver en la fila para cargarlo a mano, y vive en la nota
 // `ignorado` de campo "phone" (la única con ese campo, ver types/promotion.ts).

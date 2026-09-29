@@ -1255,7 +1255,7 @@ export async function cargarAgenteYContacto(
   contactId: string,
   channel: ConversationChannel,
 ): Promise<{ agent: AgenteDelTurno; contact: Contact }> {
-  // F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"): el
+  // F6 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base"): el
   // agente y el contacto se leen en paralelo. Los chequeos corren después, en
   // el mismo orden de siempre, así que el error es el mismo.
   const [agent, contact] = await Promise.all([
@@ -1366,7 +1366,7 @@ async function registrarEnConversacion(
 
 // ---------------------------------------------------------------------------
 // El WhatsApp que manda una AUTOMATIZACIÓN queda en la conversación — F1 de
-// docs/prueba-en-vivo-2026-09-29.md. El seguimiento con QR y el cupón salían
+// docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub). El seguimiento con QR y el cupón salían
 // por la Graph API y solo quedaban en su fila de seguimiento: el vendedor no
 // los veía en la bandeja y, si el cliente contestaba, el agente no sabía qué
 // le habían mandado.

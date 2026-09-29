@@ -161,7 +161,7 @@ export function normalizeEmail(email: string | undefined): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// TELÉFONO — F5 de docs/prueba-en-vivo-2026-09-29.md.
+// TELÉFONO — F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub).
 //
 // Se normaliza con el helper único (lib/telefono.ts, ahí está la regla) y no
 // puede repetirse dentro de la organización, igual que el email. La diferencia

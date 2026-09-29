@@ -345,7 +345,7 @@ test("un contacto SIN email no se dedupea: se crea nuevo y queda marcado para re
 });
 
 // ---------------------------------------------------------------------------
-// F5 de docs/prueba-en-vivo-2026-09-29.md — el teléfono se normaliza y un
+// F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) — el teléfono se normaliza y un
 // teléfono que ya existe se trata como el email que ya existe: es la misma
 // persona y se fusiona (ver escribirCandidato en promotion.service.ts). Cada
 // test usa un número al azar para no fusionarse con los de otro test de la
@@ -470,7 +470,7 @@ test("F5: si el email es de un contacto y el teléfono de OTRO, gana el email, e
 });
 
 // ---------------------------------------------------------------------------
-// F5-a (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md) — un
+// F5-a (pendientes post F1–F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)) — un
 // teléfono no normalizable ya no hace perder el lead: el contacto entra sin
 // teléfono, el evento queda PROCESSED y el valor original queda en la nota
 // `ignorado` más la marca de revisión manual. Nunca en errorMessage (D2-7).

@@ -479,7 +479,7 @@ test("qualifyLead: 404 sobre un contacto de OTRA organización, uno inexistente 
 });
 
 // ---------------------------------------------------------------------------
-// F5 de docs/prueba-en-vivo-2026-09-29.md — teléfono normalizado y único por
+// F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) — teléfono normalizado y único por
 // organización. La prueba en vivo creó un número sin "+" con 201 teniendo ya
 // el mismo con "+"; desde F5 los dos son el mismo número y el segundo es un
 // 409, igual que el email duplicado.

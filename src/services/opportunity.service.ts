@@ -481,7 +481,7 @@ export async function updateOpportunity(
     input.actualCloseDate !== undefined ||
     input.lostReason !== undefined;
 
-  // F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"): las
+  // F6 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base"): las
   // lecturas de antes de la transacción van en DOS tandas en paralelo en vez
   // de hasta siete idas en serie. enParalelo relanza el primer error en el
   // orden de abajo, que es el orden en que antes corrían, así que el 404 o el
