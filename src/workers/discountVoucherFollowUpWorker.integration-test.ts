@@ -334,7 +334,7 @@ test("con delayHours 0: emite UN cupón, lo anota en la fila y manda {{1}} nombr
     label: "15% de descuento en el taller",
   });
 
-  // F1 de docs/prueba-en-vivo-2026-09-29.md: el cupón que salió queda como
+  // F1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): el cupón que salió queda como
   // saliente en la conversación de WhatsApp del contacto, con el link real.
   const [anotado] = await prisma.message.findMany({
     where: {

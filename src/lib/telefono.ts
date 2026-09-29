@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// LA FORMA ÚNICA DE Contact.phone — F5 de docs/prueba-en-vivo-2026-09-29.md.
+// LA FORMA ÚNICA DE Contact.phone — F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub).
 //
 // La prueba en vivo encontró dos contactos para el mismo número: uno con "+"
 // (lo creó el WhatsApp entrante) y otro con los mismos dígitos sin "+"

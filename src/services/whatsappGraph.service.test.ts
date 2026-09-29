@@ -365,7 +365,7 @@ test("downloadWhatsappMediaReal: un 2xx sin url es una respuesta rota de Meta (5
   );
 });
 
-// F1 de docs/prueba-en-vivo-2026-09-29.md: el wamid del mensaje que Meta
+// F1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): el wamid del mensaje que Meta
 // aceptó se guarda como Message.externalMessageId.
 test("F1: wamidDeLaRespuesta toma messages[0].id de la respuesta de Meta", () => {
   assert.equal(

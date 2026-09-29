@@ -367,7 +367,7 @@ test(
 );
 
 // ---------------------------------------------------------------------------
-// F5-b (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md): el país
+// F5-b (pendientes post F1–F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): el país
 // por defecto de los teléfonos. Lo configura solo un ADMIN; lo lee cualquiera.
 // ---------------------------------------------------------------------------
 

@@ -16,7 +16,7 @@ import { currencySchema, parseOrThrow } from "../utils/validation";
 //
 // Exportado para fijar con tests unitarios (sin base) qué rechaza el borde.
 //
-// defaultPhoneCountryCode (F5-b de docs/prueba-en-vivo-2026-09-29.md): el
+// defaultPhoneCountryCode (F5-b de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): el
 // código de país con el que se completan los teléfonos locales. De 1 a 3
 // dígitos, sin "+" y sin 0 inicial —ningún código E.164 empieza con 0—; es
 // CODIGO_DE_PAIS de lib/telefono.ts, el mismo que vuelve a chequear el

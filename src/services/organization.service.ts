@@ -13,7 +13,7 @@ import {
 // ---------------------------------------------------------------------------
 // Configuración de la organización expuesta por la API (Fase 2c del módulo de
 // stock de vehículos): la moneda de preferencia y la alternativa, y la última
-// cotización USD→X de cada una. Desde F5-b (docs/prueba-en-vivo-2026-09-29.md),
+// cotización USD→X de cada una. Desde F5-b (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)),
 // también el país por defecto de los teléfonos.
 //
 // LA RESPUESTA ES UN OBJETO ACOTADO, NUNCA EL ROW DE Organization. El row

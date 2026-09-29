@@ -201,7 +201,7 @@ export interface EventoReclamado {
   sourceType: SourceType;
   fieldMapping: unknown;
   rawPayload: unknown;
-  // F5-b (docs/prueba-en-vivo-2026-09-29.md): el país por defecto de los
+  // F5-b (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): el país por defecto de los
   // teléfonos de la organización, para normalizar el phone del payload. Viene
   // del mismo reclamo (JOIN con organizations) por la misma razón que
   // sourceName: preguntarlo aparte sería una ida a la base por fila.
@@ -718,7 +718,7 @@ export type PublicIngestionEvent = Omit<FilaDeEventoPublico, "promotionNotes"> &
   telefonoDescartado: string | null;
 };
 
-// F5-a (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md): el
+// F5-a (pendientes post F1–F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): el
 // teléfono que la ingesta no pudo normalizar y dejó afuera del contacto. Es lo
 // que el ADMIN necesita ver en la fila para cargarlo a mano, y vive en la nota
 // `ignorado` de campo "phone" (la única con ese campo, ver types/promotion.ts).

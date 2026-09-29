@@ -118,7 +118,7 @@ async function postMessage(
 }
 
 // El wamid del mensaje que Meta aceptó: `{ messages: [{ id: "wamid.…" }] }`
-// (F1 de docs/prueba-en-vivo-2026-09-29.md, para guardarlo como
+// (F1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub), para guardarlo como
 // Message.externalMessageId). null si la respuesta no lo trae: un envío que
 // Meta aceptó con un 2xx salió igual, y no tener su id no lo convierte en
 // fallido. Pura y exportada para probarla sin red.

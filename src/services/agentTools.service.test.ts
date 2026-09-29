@@ -757,7 +757,7 @@ test("agendar no exige ningún id: ni resourceId (ítem 102) ni serviceTypeId (�
   }
 });
 
-// F2 de docs/prueba-en-vivo-2026-09-29.md: la unidad de interés queda nombrada
+// F2 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): la unidad de interés queda nombrada
 // en el título de la oportunidad (no se vincula el vehicleId, ítem 175).
 test("F2: tituloConUnidad agrega la etiqueta cuando el título no la nombra", () => {
   assert.equal(

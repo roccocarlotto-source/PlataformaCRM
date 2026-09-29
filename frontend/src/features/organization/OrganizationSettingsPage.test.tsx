@@ -184,7 +184,7 @@ describe("OrganizationSettingsPage — guardado", () => {
     );
   });
 
-  // F5-b (docs/prueba-en-vivo-2026-09-29.md).
+  // F5-b (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)).
   it("el código de país por defecto se hidrata, se edita y viaja en el PATCH; vacío viaja como null", async () => {
     const { getPatchedBody } = mockSettings(
       makeOrganizationSettings({ defaultPhoneCountryCode: "54" }),

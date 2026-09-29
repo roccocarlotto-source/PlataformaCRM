@@ -28,7 +28,7 @@ export function createOrganization(data: { name: string; slug: string }, db: Db 
 // (B-13): el resultado de la escritura —acá, del lock— no se ignora.
 //
 // DEVUELVE EL PAÍS POR DEFECTO de los teléfonos (F5-b de
-// docs/prueba-en-vivo-2026-09-29.md): el alta por WhatsApp y la promoción de
+// docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): el alta por WhatsApp y la promoción de
 // la ingesta toman este lock justo antes de normalizar un teléfono, y leerlo
 // en la misma fila bloqueada les ahorra una ida a la base. Los demás callers
 // lo ignoran.

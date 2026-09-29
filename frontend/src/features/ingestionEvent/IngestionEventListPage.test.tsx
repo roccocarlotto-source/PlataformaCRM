@@ -102,7 +102,7 @@ describe("IngestionEventListPage — listado", () => {
     expect(tabla.getAllByText("—").length).toBeGreaterThan(0);
   });
 
-  // F5-a (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md).
+  // F5-a (pendientes post F1–F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)).
   it("un PROCESSED con teléfono descartado lo muestra como revisión manual en el motivo", async () => {
     server.use(
       sourcesHandler(),

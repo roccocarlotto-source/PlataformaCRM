@@ -6,7 +6,7 @@ import {
   type EnvioDePlantilla,
 } from "./automationWhatsappConversation.service";
 
-// F1 de docs/prueba-en-vivo-2026-09-29.md: el WhatsApp de una automatización
+// F1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): el WhatsApp de una automatización
 // queda en la conversación. El camino contra la base está en
 // qrFollowUpWorker.integration-test.ts y discountVoucherFollowUpWorker
 // .integration-test.ts; acá, el texto y la garantía de que anotar no afecta el

@@ -23,7 +23,7 @@ export interface OrganizationSettings {
   // cualquier código; la UI acota a CURRENCY_OPTIONS (lib/currencies.ts).
   preferredCurrency: string | null;
   alternateCurrency: string | null;
-  // F5-b (docs/prueba-en-vivo-2026-09-29.md): código de país sin "+" ("598")
+  // F5-b (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): código de país sin "+" ("598")
   // con el que el backend completa los teléfonos cargados en formato local.
   // null = sin país por defecto.
   defaultPhoneCountryCode: string | null;

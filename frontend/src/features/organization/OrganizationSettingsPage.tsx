@@ -159,7 +159,7 @@ export function OrganizationSettingsPage() {
           </div>
         </Card>
 
-        {/* F5-b (docs/prueba-en-vivo-2026-09-29.md). Vacío por defecto: sin
+        {/* F5-b (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)). Vacío por defecto: sin
           país, un teléfono local se rechaza como antes. El formato (1 a 3
           dígitos) lo valida el backend y su 400 se muestra abajo. */}
         <Card heading="Teléfonos">

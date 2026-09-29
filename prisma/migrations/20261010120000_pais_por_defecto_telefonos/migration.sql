@@ -1,5 +1,5 @@
 -- ---------------------------------------------------------------------------
--- F5-b de los pendientes post F1–F5 (docs/prueba-en-vivo-2026-09-29.md, rama
+-- F5-b de los pendientes post F1–F5 (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub), rama
 -- feat/f5-pais-por-defecto): país por defecto de la organización para los
 -- teléfonos.
 --
