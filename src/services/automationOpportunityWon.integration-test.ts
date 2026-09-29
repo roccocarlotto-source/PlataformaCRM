@@ -235,6 +235,36 @@ test("flujo completo: updateOpportunity a WON -> evento -> worker -> Activity de
   await prisma.automation.update({ where: { id: regla.id }, data: { deletedAt: new Date() } });
 });
 
+test("F4: la Activity de seguimiento lleva el contacto de la oportunidad y aparece en su ficha", async () => {
+  // docs/prueba-en-vivo-2026-09-29.md: la tarea quedaba con contactId null y
+  // GET /api/activities?contactId=<contacto de la oportunidad> venía vacío.
+  await drenar();
+  const regla = await crearRegla(e, {
+    actionConfig: { subject: "F4 seguimiento", daysUntilDue: 1 },
+  });
+  const contacto = await prisma.contact.create({
+    data: { organizationId: e.organizationId, firstName: "Cliente", lastName: "F4" },
+  });
+  const opp = await oportunidad({ contactId: contacto.id });
+
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { status: "WON" });
+  await drenar();
+
+  const actividades = await actividadesDeOportunidad(opp.id);
+  assert.equal(actividades.length, 1);
+  assert.equal(actividades[0].contactId, contacto.id);
+  assert.equal(actividades[0].opportunityId, opp.id);
+  const porContacto = await prisma.activity.findMany({
+    where: { organizationId: e.organizationId, contactId: contacto.id, deletedAt: null },
+  });
+  assert.deepEqual(
+    porContacto.map((a) => a.id),
+    [actividades[0].id],
+  );
+
+  await prisma.automation.update({ where: { id: regla.id }, data: { deletedAt: new Date() } });
+});
+
 test("una regla con notes deja esas notas en el body de la Activity creada", async () => {
   // El agujero que cerró el ítem 68: hasta acá la tarea que creaba una regla
   // no podía llevar ningún detalle más allá del título, porque el handler
