@@ -29,6 +29,7 @@ export function makeOrganizationSettings(
     name: "Automotora Demo",
     preferredCurrency: "USD",
     alternateCurrency: null,
+    defaultPhoneCountryCode: null,
     exchangeRates: [],
     ...overrides,
   };

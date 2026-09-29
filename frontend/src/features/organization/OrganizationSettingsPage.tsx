@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
+import { FormField } from "../../design-system/FormField";
 import { LoadingState } from "../../design-system/LoadingState";
 import { Select } from "../../design-system/Select";
 import { useToast } from "../../design-system/useToast";
@@ -11,7 +12,7 @@ import { useFormDraft } from "../../lib/useFormDraft";
 import { formatDate } from "../opportunity/format";
 import { formatExchangeRate } from "./format";
 import { MetaConnectionSection } from "./MetaConnectionSection";
-import { useUpdateOrganizationCurrency } from "./mutations";
+import { useUpdateOrganizationSettings } from "./mutations";
 import { useOrganizationSettings } from "./queries";
 import type { OrganizationSettings } from "./types";
 
@@ -20,17 +21,20 @@ import type { OrganizationSettings } from "./types";
 interface OrganizationFormValues {
   preferredCurrency: string;
   alternateCurrency: string;
+  defaultPhoneCountryCode: string;
 }
 
 const EMPTY_FORM: OrganizationFormValues = {
   preferredCurrency: "",
   alternateCurrency: "",
+  defaultPhoneCountryCode: "",
 };
 
 function toFormValues(settings: OrganizationSettings): OrganizationFormValues {
   return {
     preferredCurrency: settings.preferredCurrency ?? "",
     alternateCurrency: settings.alternateCurrency ?? "",
+    defaultPhoneCountryCode: settings.defaultPhoneCountryCode ?? "",
   };
 }
 
@@ -73,14 +77,14 @@ function CurrencySelect({
 // edita en el lugar. Vive bajo AdminRoute (el PATCH es ADMIN-only en el
 // backend; la lectura es abierta pero la pantalla es toda escritura).
 //
-// Se mandan SIEMPRE los dos campos ("" → null): el backend exige al menos
+// Se mandan SIEMPRE todos los campos ("" → null): el backend exige al menos
 // uno, y mandar los dos es la forma más simple de decir "la configuración
 // queda así". La regla "no pueden ser la misma" queda del lado del backend a
 // propósito —no se replica acá— porque el mensaje que devuelve (400) es
 // exactamente el que hay que mostrar.
 export function OrganizationSettingsPage() {
   const settingsQuery = useOrganizationSettings();
-  const updateMutation = useUpdateOrganizationCurrency();
+  const updateMutation = useUpdateOrganizationSettings();
   const toast = useToast();
   // La vuelta del callback de Meta (ítem 173): el backend redirige acá con
   // ?metaConnected=true o ?metaError=<mensaje>. Mismo patrón que
@@ -104,6 +108,7 @@ export function OrganizationSettingsPage() {
       await updateMutation.mutateAsync({
         preferredCurrency: values.preferredCurrency || null,
         alternateCurrency: values.alternateCurrency || null,
+        defaultPhoneCountryCode: values.defaultPhoneCountryCode.trim() || null,
       });
       toast.show("Configuración guardada");
     } catch (err) {
@@ -152,6 +157,29 @@ export function OrganizationSettingsPage() {
               />
             </div>
           </div>
+        </Card>
+
+        {/* F5-b (docs/prueba-en-vivo-2026-09-29.md). Vacío por defecto: sin
+          país, un teléfono local se rechaza como antes. El formato (1 a 3
+          dígitos) lo valida el backend y su 400 se muestra abajo. */}
+        <Card heading="Teléfonos">
+          <div className="ds-field-grid">
+            <FormField label="Código de país por defecto">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={3}
+                placeholder="598"
+                value={values.defaultPhoneCountryCode}
+                onChange={(event) =>
+                  setValues({ ...values, defaultPhoneCountryCode: event.target.value })
+                }
+              />
+            </FormField>
+          </div>
+          <p className="ds-hint">
+            Se usa para completar los teléfonos cargados sin código de país.
+          </p>
         </Card>
 
         <Card heading="Cotización vigente">

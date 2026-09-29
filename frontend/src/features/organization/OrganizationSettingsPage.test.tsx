@@ -154,7 +154,11 @@ describe("OrganizationSettingsPage — guardado", () => {
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() =>
-      expect(getPatchedBody()).toEqual({ preferredCurrency: "USD", alternateCurrency: "UYU" }),
+      expect(getPatchedBody()).toEqual({
+        preferredCurrency: "USD",
+        alternateCurrency: "UYU",
+        defaultPhoneCountryCode: null,
+      }),
     );
     expect(screen.getByRole("status")).toHaveTextContent("Configuración guardada");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -172,8 +176,36 @@ describe("OrganizationSettingsPage — guardado", () => {
     await user.click(screen.getByRole("button", { name: /guardar/i }));
 
     await waitFor(() =>
-      expect(getPatchedBody()).toEqual({ preferredCurrency: "USD", alternateCurrency: null }),
+      expect(getPatchedBody()).toEqual({
+        preferredCurrency: "USD",
+        alternateCurrency: null,
+        defaultPhoneCountryCode: null,
+      }),
     );
+  });
+
+  // F5-b (docs/prueba-en-vivo-2026-09-29.md).
+  it("el código de país por defecto se hidrata, se edita y viaja en el PATCH; vacío viaja como null", async () => {
+    const { getPatchedBody } = mockSettings(
+      makeOrganizationSettings({ defaultPhoneCountryCode: "54" }),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    const campo = await screen.findByLabelText("Código de país por defecto");
+    await waitFor(() => expect(campo).toHaveValue("54"));
+    expect(
+      screen.getByText("Se usa para completar los teléfonos cargados sin código de país."),
+    ).toBeInTheDocument();
+
+    await user.clear(campo);
+    await user.type(campo, "598");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(getPatchedBody()?.defaultPhoneCountryCode).toBe("598"));
+
+    await user.clear(campo);
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+    await waitFor(() => expect(getPatchedBody()?.defaultPhoneCountryCode).toBeNull());
   });
 
   it("el 400 de monedas iguales se muestra tal cual llega del backend, sin toast", async () => {

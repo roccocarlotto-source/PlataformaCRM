@@ -23,19 +23,24 @@ export interface OrganizationSettings {
   // cualquier código; la UI acota a CURRENCY_OPTIONS (lib/currencies.ts).
   preferredCurrency: string | null;
   alternateCurrency: string | null;
+  // F5-b (docs/prueba-en-vivo-2026-09-29.md): código de país sin "+" ("598")
+  // con el que el backend completa los teléfonos cargados en formato local.
+  // null = sin país por defecto.
+  defaultPhoneCountryCode: string | null;
   // Una fila por moneda configurada distinta de USD (con cotización cargada).
   // Con el universo USD/UYU de la UI, como máximo una.
   exchangeRates: OrganizationExchangeRate[];
 }
 
-// updateOrganizationCurrencySchema: cada campo es opcional Y nullable
+// updateOrganizationSettingsSchema: cada campo es opcional Y nullable
 // (null = desconfigurar esa moneda), y hay que mandar al menos uno. Si tras
 // aplicar el body las dos quedan iguales (y ninguna es null), el backend
 // responde 400 con "La moneda de preferencia y la alternativa no pueden ser
 // la misma" — ese mensaje se muestra tal cual, no se replica en el cliente.
-export interface UpdateOrganizationCurrencyInput {
+export interface UpdateOrganizationSettingsInput {
   preferredCurrency?: string | null;
   alternateCurrency?: string | null;
+  defaultPhoneCountryCode?: string | null;
 }
 
 // Conexión de la página de Facebook de la organización (ítem 173 en el

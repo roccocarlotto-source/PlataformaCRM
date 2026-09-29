@@ -249,6 +249,7 @@ test("GET /api/organization — sin moneda configurada: las dos en null, sin cot
     name: body.name,
     preferredCurrency: null,
     alternateCurrency: null,
+    defaultPhoneCountryCode: null,
     exchangeRates: [],
   });
   for (const interno of ["nextVehicleStockNumber", "slug"]) {
@@ -315,6 +316,7 @@ test("PATCH /api/organization — null limpia una moneda y USD no pide cotizaci�
     name: (await prisma.organization.findUniqueOrThrow({ where: { id: orgId } })).name,
     preferredCurrency: "USD",
     alternateCurrency: null,
+    defaultPhoneCountryCode: null,
     exchangeRates: [],
   });
 });
@@ -363,3 +365,44 @@ test(
     ]);
   },
 );
+
+// ---------------------------------------------------------------------------
+// F5-b (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md): el país
+// por defecto de los teléfonos. Lo configura solo un ADMIN; lo lee cualquiera.
+// ---------------------------------------------------------------------------
+
+test("F5-b: PATCH con defaultPhoneCountryCode lo guarda, el GET lo expone y null lo saca", async () => {
+  const patch = await call("PATCH", "/api/organization", admin.accessToken, {
+    defaultPhoneCountryCode: "598",
+  });
+  assert.equal(patch.status, 200);
+  assert.equal(((await patch.json()) as Record<string, unknown>).defaultPhoneCountryCode, "598");
+
+  const get = await call("GET", "/api/organization", user.accessToken);
+  assert.equal(((await get.json()) as Record<string, unknown>).defaultPhoneCountryCode, "598");
+
+  const limpiar = await call("PATCH", "/api/organization", admin.accessToken, {
+    defaultPhoneCountryCode: null,
+  });
+  assert.equal(limpiar.status, 200);
+  const row = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+  assert.equal(row.defaultPhoneCountryCode, null);
+});
+
+test("F5-b: USER recibe 403 al configurar el país y nada cambia", async () => {
+  const res = await call("PATCH", "/api/organization", user.accessToken, {
+    defaultPhoneCountryCode: "54",
+  });
+  assert.equal(res.status, 403);
+  const row = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+  assert.equal(row.defaultPhoneCountryCode, null);
+});
+
+test("F5-b: un código de país que no son 1 a 3 dígitos es 400", async () => {
+  for (const valor of ["", "+598", "0598", "5981", "59a", 598]) {
+    const res = await call("PATCH", "/api/organization", admin.accessToken, {
+      defaultPhoneCountryCode: valor,
+    });
+    assert.equal(res.status, 400, `${JSON.stringify(valor)} no es un código de país`);
+  }
+});

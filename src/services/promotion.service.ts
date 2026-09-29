@@ -17,7 +17,7 @@ import { lockOrganizationForUpdate } from "../repositories/organization.reposito
 import { fieldMappingSchema } from "../schemas/fieldMapping.schema";
 import {
   CAMPOS_IGNORADOS,
-  ingestContactSchema,
+  crearIngestContactSchema,
   type IngestContactPayload,
 } from "../schemas/ingestContact.schema";
 import type { PromotionNote } from "../types/promotion";
@@ -415,7 +415,8 @@ export async function promoverEvento(evento: EventoReclamado, db: Db): Promise<R
     return { estado: "FAILED", errorMessage: preparado.motivo };
   }
 
-  const parseado = ingestContactSchema.safeParse(preparado.datos);
+  // F5-b: con el país por defecto de la organización del evento.
+  const parseado = crearIngestContactSchema(evento.codigoDePais).safeParse(preparado.datos);
 
   if (!parseado.success) {
     // LA FILA MALA SE MARCA Y EL LOTE SIGUE (§5). No se lanza: un throw acá

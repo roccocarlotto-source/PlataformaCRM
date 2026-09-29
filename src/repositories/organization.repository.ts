@@ -26,15 +26,39 @@ export function createOrganization(data: { name: string; slug: string }, db: Db 
 // caller, y por eso es un Error común y no un AppError. Mismo criterio que
 // reindexStages/shiftUpFrom/shiftDownAfter (B-12) y hardDeleteInvitation
 // (B-13): el resultado de la escritura —acá, del lock— no se ignora.
-export async function lockOrganizationForUpdate(organizationId: string, db: Db): Promise<void> {
-  const filas = await db.$queryRaw<
-    { id: string }[]
-  >`SELECT id FROM organizations WHERE id = ${organizationId}::uuid FOR UPDATE`;
+//
+// DEVUELVE EL PAÍS POR DEFECTO de los teléfonos (F5-b de
+// docs/prueba-en-vivo-2026-09-29.md): el alta por WhatsApp y la promoción de
+// la ingesta toman este lock justo antes de normalizar un teléfono, y leerlo
+// en la misma fila bloqueada les ahorra una ida a la base. Los demás callers
+// lo ignoran.
+export async function lockOrganizationForUpdate(
+  organizationId: string,
+  db: Db,
+): Promise<{ defaultPhoneCountryCode: string | null }> {
+  const filas = await db.$queryRaw<{ default_phone_country_code: string | null }[]>`
+    SELECT default_phone_country_code FROM organizations
+    WHERE id = ${organizationId}::uuid FOR UPDATE`;
   if (filas.length === 0) {
     throw new Error(
       `lockOrganizationForUpdate: no existe la organización ${organizationId} — no se tomó ningún lock`,
     );
   }
+  return { defaultPhoneCountryCode: filas[0].default_phone_country_code };
+}
+
+// F5-b: el país por defecto de los teléfonos, para el camino que normaliza
+// ANTES de tomar el lock (POST/PATCH /api/contacts, que responde 400 sin
+// tocar nada si el teléfono no se puede normalizar). Solo la columna.
+export async function findDefaultPhoneCountryCode(
+  organizationId: string,
+  db: Db = prisma,
+): Promise<string | null> {
+  const fila = await db.organization.findUnique({
+    where: { id: organizationId },
+    select: { defaultPhoneCountryCode: true },
+  });
+  return fila?.defaultPhoneCountryCode ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,9 +72,13 @@ export function findOrganizationById(id: string, db: Db = prisma) {
   return db.organization.findUnique({ where: { id } });
 }
 
-export function updateOrganizationCurrency(
+export function updateOrganizationSettings(
   id: string,
-  data: { preferredCurrency?: string | null; alternateCurrency?: string | null },
+  data: {
+    preferredCurrency?: string | null;
+    alternateCurrency?: string | null;
+    defaultPhoneCountryCode?: string | null;
+  },
   db: Db = prisma,
 ) {
   return db.organization.update({ where: { id }, data });

@@ -19,7 +19,7 @@ import { findOrganizationsWithConfiguredCurrency } from "../repositories/organiz
 // inversa se calcula al leer (1/rate), no se guarda una fila más.
 //
 // DOS DISPARADORES, UNA SOLA FUNCIÓN (§24 de docs/frontend-cambios-pendientes.md):
-// el worker una vez por día, y updateOrganizationCurrency a pedido cada vez
+// el worker una vez por día, y updateOrganizationSettings a pedido cada vez
 // que una organización guarda su moneda. Sin lo segundo, la primera pasada
 // "inmediata" del worker es inmediata respecto del ARRANQUE DEL PROCESO, no
 // de cuándo se configuró la moneda: con el servidor ya corriendo, la primera
@@ -152,7 +152,7 @@ export async function fetchAndStoreExchangeRates(
 }
 
 // ---------------------------------------------------------------------------
-// Disparo A PEDIDO (§24): lo llama updateOrganizationCurrency con las monedas
+// Disparo A PEDIDO (§24): lo llama updateOrganizationSettings con las monedas
 // con las que QUEDA la organización, apenas commiteó el UPDATE.
 //
 // NO BLOQUEA AL CALLER. fetchAndStoreExchangeRates hace un fetch real a la

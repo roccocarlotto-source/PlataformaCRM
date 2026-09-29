@@ -4,7 +4,7 @@ import type {
   MetaAuthorization,
   MetaPageConnection,
   OrganizationSettings,
-  UpdateOrganizationCurrencyInput,
+  UpdateOrganizationSettingsInput,
 } from "./types";
 
 // Reutiliza request()/getAccessToken tal cual, como el resto de los features.
@@ -17,8 +17,8 @@ export function getOrganizationSettings(signal?: AbortSignal): Promise<Organizat
 
 // El PATCH devuelve la configuración completa ya actualizada (misma forma
 // que el GET, cotizaciones incluidas), no solo los campos tocados.
-export function updateOrganizationCurrency(
-  input: UpdateOrganizationCurrencyInput,
+export function updateOrganizationSettings(
+  input: UpdateOrganizationSettingsInput,
 ): Promise<OrganizationSettings> {
   return request<OrganizationSettings>("/organization", {
     method: "PATCH",

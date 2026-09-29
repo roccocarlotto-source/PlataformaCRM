@@ -201,6 +201,11 @@ export interface EventoReclamado {
   sourceType: SourceType;
   fieldMapping: unknown;
   rawPayload: unknown;
+  // F5-b (docs/prueba-en-vivo-2026-09-29.md): el país por defecto de los
+  // teléfonos de la organización, para normalizar el phone del payload. Viene
+  // del mismo reclamo (JOIN con organizations) por la misma razón que
+  // sourceName: preguntarlo aparte sería una ida a la base por fila.
+  codigoDePais: string | null;
   // Cuántas veces esta fila ya falló por error de SISTEMA (B-30) — es lo que
   // el catch de drenarPendientes le pasa a resolverFallo para decidir entre
   // reprogramar y DEAD_LETTER. Espejo de EventoReclamado en la cola de outbox.
@@ -216,6 +221,7 @@ interface FilaReclamada {
   field_mapping: unknown;
   raw_payload: unknown;
   attempts: number;
+  default_phone_country_code: string | null;
 }
 
 // Reclama UN evento pendiente y lo deja bloqueado hasta el fin de la
@@ -283,11 +289,13 @@ export async function claimNextPendingEvent(
     SELECT e.id, e.organization_id, e.source_id,
            s.name AS source_name, s.type AS source_type,
            s.field_mapping AS field_mapping,
-           e.raw_payload, e.attempts
+           e.raw_payload, e.attempts,
+           o.default_phone_country_code
     FROM ingestion_events e
     JOIN sources s
       ON s.organization_id = e.organization_id AND s.id = e.source_id
       AND s.is_active AND s.deleted_at IS NULL
+    JOIN organizations o ON o.id = e.organization_id
     WHERE e.status = 'PENDING'::"IngestionStatus"
       AND coalesce(e.next_attempt_at, e.created_at) <= now()
     ${filtroOrg}
@@ -311,6 +319,7 @@ export async function claimNextPendingEvent(
     fieldMapping: fila.field_mapping,
     rawPayload: fila.raw_payload,
     attempts: fila.attempts,
+    codigoDePais: fila.default_phone_country_code,
   };
 }
 

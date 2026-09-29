@@ -626,6 +626,50 @@ test("F5: un teléfono local con 0 inicial es un 400 y no crea nada — no se in
   }
 });
 
+// F5-b (pendientes post F1–F5): con país por defecto, el local se completa y
+// el 409 compara la forma ya normalizada.
+test("F5-b: con país por defecto 598, 099 123 456 se guarda +59899123456 y choca con el mismo número escrito en internacional", async () => {
+  const escenario = await montar();
+  try {
+    await prisma.organization.update({
+      where: { id: escenario.orgId },
+      data: { defaultPhoneCountryCode: "598" },
+    });
+    const local = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Local",
+      lastName: "Uy",
+      phone: "099 123 456",
+    });
+    assert.equal(local.phone, "+59899123456");
+
+    await assert.rejects(
+      createContact(escenario.orgId, escenario.userId, {
+        firstName: "Otro",
+        lastName: "Uy",
+        phone: "+598 99 123 456",
+      }),
+      assertTelefonoDuplicado,
+    );
+
+    // Y al revés, por el PATCH: un contacto sin teléfono no puede tomar el
+    // mismo número escrito en local.
+    const sinTelefono = await createContact(escenario.orgId, escenario.userId, {
+      firstName: "Sin",
+      lastName: "Tel",
+    });
+    await assert.rejects(
+      updateContact(escenario.orgId, escenario.userId, sinTelefono.id, { phone: "(099) 123-456" }),
+      assertTelefonoDuplicado,
+    );
+    const nuevo = await updateContact(escenario.orgId, escenario.userId, sinTelefono.id, {
+      phone: "098 765 432",
+    });
+    assert.equal(nuevo.phone, "+59898765432");
+  } finally {
+    await desmontar(escenario);
+  }
+});
+
 // La carrera de dos altas simultáneas con el mismo número: A toma el lock de la
 // organización y crea el contacto sin commitear; B (la llamada real) tiene que
 // quedar bloqueada en ese lock y, cuando A commitea, ver el contacto y

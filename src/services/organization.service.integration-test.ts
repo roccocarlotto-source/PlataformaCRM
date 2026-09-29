@@ -4,10 +4,10 @@ import { after, before, mock, test } from "node:test";
 import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import type { ResumenDeActualizacion } from "./exchangeRate.service";
-import { updateOrganizationCurrency } from "./organization.service";
+import { updateOrganizationSettings } from "./organization.service";
 
 // ---------------------------------------------------------------------------
-// updateOrganizationCurrency contra Postgres real, con la búsqueda de
+// updateOrganizationSettings contra Postgres real, con la búsqueda de
 // cotización INYECTADA (§24 de docs/frontend-cambios-pendientes.md): guardar
 // una moneda distinta de USD la dispara; guardar solo USD no; el service
 // resuelve sin esperarla; y un fallo de la búsqueda no hace fallar el
@@ -63,7 +63,7 @@ test(
     const actualizar = mock.fn(() => busqueda.promesa);
     const infoLog = mock.method(logger, "info", () => undefined);
     try {
-      const settings = await updateOrganizationCurrency(
+      const settings = await updateOrganizationSettings(
         orgId,
         { preferredCurrency: MONEDA },
         { actualizarCotizaciones: actualizar },
@@ -86,7 +86,7 @@ test(
 test("guardar solo USD, o des-configurar, no dispara ninguna búsqueda", async () => {
   const actualizar = mock.fn(() => Promise.resolve({ actualizadas: 0, fallidas: 0 }));
 
-  const settings = await updateOrganizationCurrency(
+  const settings = await updateOrganizationSettings(
     orgId,
     { preferredCurrency: "USD", alternateCurrency: null },
     { actualizarCotizaciones: actualizar },
@@ -101,7 +101,7 @@ test("un fallo de la búsqueda no hace fallar el guardado ni se propaga al calle
   const falla = new Error("se cayó la consulta de organizaciones");
   const errorLog = mock.method(logger, "error", () => undefined);
   try {
-    const settings = await updateOrganizationCurrency(
+    const settings = await updateOrganizationSettings(
       orgId,
       { alternateCurrency: MONEDA },
       { actualizarCotizaciones: () => Promise.reject(falla) },

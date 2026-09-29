@@ -333,3 +333,14 @@ test("F5: telefonoParaGuardar rechaza con 400 un local con 0 inicial — no inve
       err instanceof AppError && err.statusCode === 400 && err.message === TELEFONO_NO_NORMALIZABLE,
   );
 });
+
+// F5-b (pendientes post F1–F5): con el país por defecto de la organización, un
+// local con 0 inicial se completa en vez de dar 400.
+test("F5-b: telefonoParaGuardar completa un local con el país por defecto", () => {
+  assert.equal(telefonoParaGuardar("099 123 456", "598"), "+59899123456");
+  assert.equal(telefonoParaGuardar("00598 99 123 456"), "+59899123456");
+  assert.throws(
+    () => telefonoParaGuardar("099 123 456", null),
+    (err: unknown) => err instanceof AppError && err.statusCode === 400,
+  );
+});

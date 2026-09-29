@@ -184,7 +184,16 @@ Lo que dejaron abierto los PR #341–#343. Cada ítem tiene su PR y su Estado.
 - **Pendiente (no es de este PR):** la ficha del contacto no dice que se le descartó un teléfono. Para eso haría falta una Activity con autor, y no existe un usuario de sistema (decisión de Rocco: `promotionNotes`).
 
 ### F5-b — País por defecto por organización
-**Estado:** pendiente (PR B)
+**Estado:** en revisión (PR B, rama `feat/f5-pais-por-defecto`). Tiene migración: queda abierto para que Rocco lo mergee.
+- Columna nueva `Organization.defaultPhoneCountryCode` (nullable, sin backfill). Con `598`, `099 123 456` se guarda como `+59899123456`.
+- `normalizarTelefono(valor, codigoDePais)`:
+  - Un 0 inicial se reemplaza por el código, si la organización tiene uno.
+  - `00` se interpreta como `+`, tenga o no país.
+  - Todo lo demás queda igual.
+- Los casos que el criterio no cubre (móviles argentinos con 15, Italia) están documentados en `src/lib/telefono.ts`.
+- Pasan el país los tres caminos: la API de contactos, la ingesta y el alta por WhatsApp. El 409 por duplicado compara la forma ya normalizada.
+- `GET/PATCH /api/organization` lo exponen. El PATCH es solo ADMIN y valida de 1 a 3 dígitos sin 0 inicial. En el frontend es el campo "Código de país por defecto" de Configuración → Organización, vacío por defecto.
+- **A mano, después del merge:** configurar `598` en AutoMax. No se configuró en producción.
 
 ### WA-1 — Estados de entrega de WhatsApp y remitente "automatización"
 **Estado:** pendiente (PR C)
