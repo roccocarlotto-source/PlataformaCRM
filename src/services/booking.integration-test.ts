@@ -1147,6 +1147,55 @@ test("un contacto de otra organización no se puede reservar", async () => {
   }
 });
 
+// F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"): el
+// contacto, la oportunidad y el contexto del recurso se leen en paralelo. Con
+// varios datos inválidos a la vez, el error tiene que seguir siendo el que
+// daba la validación que antes corría primero.
+test("F6: con contacto, oportunidad y recurso inválidos a la vez, el error es el del contacto — el de siempre", async () => {
+  const a = await montar("f6-orden");
+  const b = await montar("f6-orden-b");
+  try {
+    const pedido = {
+      resourceId: "99999999-9999-4999-8999-999999999999",
+      serviceTypeId: a.serviceTypeId,
+      contactId: b.contactId,
+      opportunityId: "99999999-9999-4999-8999-999999999998",
+      startsAt: LUNES_9_LOCAL,
+    };
+    const err = await capturar(() =>
+      createBooking(a.organizationId, pedido, doblarGoogle().cliente),
+    );
+    assertAppError(err, 400);
+    assert.match((err as AppError).message, /El contacto indicado no existe/);
+
+    // Sin el contacto malo, el que manda es el de la oportunidad.
+    const err2 = await capturar(() =>
+      createBooking(
+        a.organizationId,
+        { ...pedido, contactId: a.contactId },
+        doblarGoogle().cliente,
+      ),
+    );
+    assertAppError(err2, 400);
+    assert.match((err2 as AppError).message, /La oportunidad indicada no existe/);
+
+    // Y sin los dos, el del recurso.
+    const err3 = await capturar(() =>
+      createBooking(
+        a.organizationId,
+        { ...pedido, contactId: a.contactId, opportunityId: undefined },
+        doblarGoogle().cliente,
+      ),
+    );
+    assertAppError(err3, 400);
+    assert.match((err3 as AppError).message, /El recurso indicado no existe/);
+    assert.equal(await prisma.booking.count({ where: { organizationId: a.organizationId } }), 0);
+  } finally {
+    await desmontar(a);
+    await desmontar(b);
+  }
+});
+
 test("la base RECHAZA una reserva con fin anterior al inicio", async () => {
   const escenario = await montar("check-reserva");
   try {

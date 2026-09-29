@@ -285,3 +285,54 @@ test("GET /api/me — JWT real sin fila en public.users: 403 heredado tal cual d
     await getSupabaseAdmin().auth.admin.deleteUser(orphan.authUserId);
   }
 });
+
+// ---------------------------------------------------------------------------
+// F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"):
+// findUserForAuth pasó de un `include` (tres queries) a un SELECT con JOIN.
+// Lo que NO puede cambiar es que el estado se lea en CADA request, sin caché:
+// un usuario desactivado, removido, de una organización borrada o con el rol
+// cambiado se ve en el request siguiente, con el MISMO token.
+// ---------------------------------------------------------------------------
+
+test("F6: el mismo token, request tras request, ve al instante el rol cambiado, la desactivación, la baja y la organización borrada", async () => {
+  const fx = await createFixtureUser("f6-estado", "ADMIN");
+  const { url, close } = await startTestApp();
+  const me = () =>
+    fetch(`${url}/api/me`, { headers: { authorization: `Bearer ${fx.accessToken}` } });
+  const mensaje = async (res: Response) =>
+    ((await res.json()) as { error: { message: string } }).error.message;
+  try {
+    assert.equal(((await (await me()).json()) as { role: string }).role, "ADMIN");
+
+    const rolUser = await findRoleByName("USER");
+    await prisma.user.update({ where: { id: fx.authUserId }, data: { roleId: rolUser!.id } });
+    assert.equal(((await (await me()).json()) as { role: string }).role, "USER");
+
+    await prisma.user.update({ where: { id: fx.authUserId }, data: { isActive: false } });
+    const desactivado = await me();
+    assert.equal(desactivado.status, 403);
+    assert.match(await mensaje(desactivado), /desactivada/);
+
+    await prisma.user.update({ where: { id: fx.authUserId }, data: { deletedAt: new Date() } });
+    const removido = await me();
+    assert.equal(removido.status, 403);
+    assert.match(await mensaje(removido), /removida/);
+
+    await prisma.user.update({
+      where: { id: fx.authUserId },
+      data: { isActive: true, deletedAt: null },
+    });
+    await prisma.organization.update({
+      where: { id: fx.organizationId },
+      data: { deletedAt: new Date() },
+    });
+    const sinOrganizacion = await me();
+    assert.equal(sinOrganizacion.status, 403);
+    assert.match(await mensaje(sinOrganizacion), /ya no está disponible/);
+  } finally {
+    await close();
+    await prisma.user.delete({ where: { id: fx.authUserId } });
+    await prisma.organization.delete({ where: { id: fx.organizationId } });
+    await getSupabaseAdmin().auth.admin.deleteUser(fx.authUserId);
+  }
+});

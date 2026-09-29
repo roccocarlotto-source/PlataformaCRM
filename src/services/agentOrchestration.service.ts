@@ -1255,7 +1255,13 @@ export async function cargarAgenteYContacto(
   contactId: string,
   channel: ConversationChannel,
 ): Promise<{ agent: AgenteDelTurno; contact: Contact }> {
-  const agent = await findAgentById(agentId, organizationId);
+  // F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"): el
+  // agente y el contacto se leen en paralelo. Los chequeos corren después, en
+  // el mismo orden de siempre, así que el error es el mismo.
+  const [agent, contact] = await Promise.all([
+    findAgentById(agentId, organizationId),
+    findContactById(contactId, organizationId),
+  ]);
   if (!agent) {
     throw new AppError("Agente no encontrado", 404);
   }
@@ -1269,7 +1275,6 @@ export async function cargarAgenteYContacto(
     throw new AppError(`El agente no opera en el canal ${channel}`, 400);
   }
 
-  const contact = await findContactById(contactId, organizationId);
   if (!contact) {
     throw new AppError("El contacto indicado no existe o no pertenece a tu organización", 400);
   }
@@ -1516,7 +1521,18 @@ export async function responderEnLaConversacion(
   // vendedor se mete a contestar sin que hubiera handoff, el agente se calla
   // igual. Quien escriba ese Message es quien decide qué hacer con el status;
   // acá no se toca.
-  if (await hasHumanMessage(conversation.id, organizationId)) {
+  //
+  // F6 (PR "menos idas a la base"): el gate y las tres lecturas del contexto
+  // (base de conocimiento, sucursal, últimos mensajes) no dependen entre sí y
+  // van en UNA ida en paralelo en vez de cuatro en serie. Si el gate calla al
+  // agente, las otras tres se leyeron de más: son lecturas, y es el caso raro.
+  const [hayHumano, entradasDeLaSucursal, sucursal, ultimosMensajes] = await Promise.all([
+    hasHumanMessage(conversation.id, organizationId),
+    findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
+    findBranchById(agent.branchId, organizationId),
+    findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES),
+  ]);
+  if (hayHumano) {
     return {
       resultado: {
         conversationId: conversation.id,
@@ -1546,7 +1562,7 @@ export async function responderEnLaConversacion(
   // alguna vez el branchId denormalizado de una conversación vieja difiriera,
   // el agente tiene que seguir hablando de SU sucursal.
   const knowledgeBaseEntries = entradasDeKnowledgeBaseParaElPrompt(
-    await findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
+    entradasDeLaSucursal,
     agent.enabledTools,
     { organizationId, agentId: agent.id, conversationId: conversation.id },
   );
@@ -1554,7 +1570,6 @@ export async function responderEnLaConversacion(
   // base de conocimiento sale de agent.branchId. Si la sucursal no se pudiera
   // leer (caso residual, igual que en get_payment_info), el prompt va sin el
   // bloque temporal en vez de tumbar el turno.
-  const sucursal = await findBranchById(agent.branchId, organizationId);
   const systemPrompt = armarSystemPrompt(
     agent,
     knowledgeBaseEntries,
@@ -1562,7 +1577,7 @@ export async function responderEnLaConversacion(
     contact,
   );
   const mensajes = ordenarPendientesAlFinal(
-    await findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES),
+    ultimosMensajes,
     new Set(options.entrantesPendientes ?? []),
   );
   const historial = aHistorial(mensajes, options.adjuntos);
