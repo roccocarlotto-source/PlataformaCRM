@@ -164,7 +164,7 @@ export function crearAccionBorradorDeSeguimiento(
         dueDate: fechaDeVencimiento(ahora, 0),
         assigneeId: ownerId,
         opportunityId,
-        // F4 de docs/prueba-en-vivo-2026-09-29.md: también el contacto, para
+        // F4 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): también el contacto, para
         // que la tarea aparezca en su ficha — mismo arreglo que
         // activity.create_follow_up. La oportunidad ya se releyó arriba.
         ...(oportunidad.contactId ? { contactId: oportunidad.contactId } : {}),

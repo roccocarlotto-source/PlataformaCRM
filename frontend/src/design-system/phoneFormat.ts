@@ -3,7 +3,7 @@
 // pura, sin React, en archivo aparte (mismo criterio que currencyFormat.ts
 // junto a CurrencyInput.tsx) para poder testearla sola.
 //
-// Desde F5 (docs/prueba-en-vivo-2026-09-29.md) el backend guarda todo
+// Desde F5 (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)) el backend guarda todo
 // Contact.phone nuevo como "+" y solo dígitos, pero quedan filas viejas en
 // texto libre. Acá se reconoce UN solo patrón, el de los datos reales del
 // negocio: "+598" seguido de solo dígitos, sin espacios ni guiones ya

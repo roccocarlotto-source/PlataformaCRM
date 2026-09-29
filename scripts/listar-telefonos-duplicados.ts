@@ -4,7 +4,7 @@ import { normalizarTelefono, soloDigitos } from "../src/lib/telefono";
 
 // ---------------------------------------------------------------------------
 // Teléfonos de contacto duplicados o sin normalizar — F5 de
-// docs/prueba-en-vivo-2026-09-29.md.
+// docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub).
 //
 // Desde F5 todo Contact.phone nuevo se guarda como "+" y solo dígitos
 // (src/lib/telefono.ts) y no puede repetirse dentro de una organización. Los

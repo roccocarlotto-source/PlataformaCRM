@@ -917,7 +917,7 @@ test("get_availability y create_booking en dos rondas: la reserva es del contact
   }
 });
 
-// F3 de docs/prueba-en-vivo-2026-09-29.md: en la prueba en vivo el agente creó
+// F3 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): en la prueba en vivo el agente creó
 // la oportunidad y después la reserva en la misma conversación, y la reserva
 // quedó con opportunityId null. Ahora se vincula a la oportunidad abierta del
 // contacto (la que create_opportunity reusa); sin oportunidad, queda sin vínculo.

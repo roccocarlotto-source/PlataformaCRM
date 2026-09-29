@@ -121,7 +121,7 @@ export function findContactByIdIncludingDeleted(
 // porque adivinar el país sería peor que crear un contacto nuevo — la misma
 // regla que lib/telefono.ts.
 //
-// CUÁL, SI HAY MÁS DE UNO — F5 de docs/prueba-en-vivo-2026-09-29.md. Desde F5
+// CUÁL, SI HAY MÁS DE UNO — F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub). Desde F5
 // no se puede crear un teléfono duplicado, pero quedan los de antes, y la
 // prueba en vivo mostró un entrante asociado a un contacto viejo en vez de al
 // que esperaba quien probaba. El criterio es explícito y determinístico:

@@ -287,7 +287,7 @@ test("GET /api/me — JWT real sin fila en public.users: 403 heredado tal cual d
 });
 
 // ---------------------------------------------------------------------------
-// F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"):
+// F6 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base"):
 // findUserForAuth pasó de un `include` (tres queries) a un SELECT con JOIN.
 // Lo que NO puede cambiar es que el estado se lea en CADA request, sin caché:
 // un usuario desactivado, removido, de una organización borrada o con el rol
