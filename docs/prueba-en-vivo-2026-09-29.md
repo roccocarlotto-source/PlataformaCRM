@@ -152,7 +152,7 @@ Todos los turnos por `POST /api/agents/:id/test-message`, canal WEB, contacto `[
 - **Probable:** `src/services/automationActions/createFollowUpActivity.ts:116-120` (no pasa `contactId` de la oportunidad).
 
 ### F5 — Teléfonos duplicados por formato; el match de WhatsApp es ambiguo · MEDIO
-**Estado:** pendiente
+**Estado:** hecho (PR #341)
 - **Pasos:** `POST /api/contacts {phone:"598XXXXXXXX"}` cuando ya existe un contacto con `+598XXXXXXXX`.
 - **Esperado:** normalizar a `+598…` y avisar o rechazar el duplicado (como con el email → 409).
 - **Obtenido:** 201; conviven "." (`+598XXXXXXXX`, creado por WhatsApp entrante) y "[TEST] Rocco WhatsApp" (`598XXXXXXXX`). El entrante matchea por dígitos (`findContactIdByNormalizedPhone`) y agarra uno de los dos.
