@@ -110,6 +110,8 @@ const depsDeEnvio: DepsDeEnvio = {
       throw new WhatsappGraphError(fallarEnvio, "doble");
     }
     enviados.push(input);
+    // WA-1: como la Graph API real, un wamid por envío.
+    return { wamid: `wamid.agente.${randomUUID()}` };
   },
   downloadMedia: async ({ mediaId, accessToken }) => {
     assert.equal(accessToken, ACCESS_TOKEN);
@@ -519,6 +521,9 @@ test("mensaje de texto de un número nuevo -> el webhook crea el Contact, persis
   assert.equal(mensajes[1].deliveryStatus, "SENT");
   assert.equal(mensajes[1].deliveryError, null);
   assert.equal(mensajes[0].deliveryStatus, null);
+  // WA-1: la respuesta del agente guarda el wamid que devolvió Meta, para
+  // que le lleguen los statuses (antes solo lo guardaban las plantillas).
+  assert.match(mensajes[1].externalMessageId ?? "", /^wamid.agente./);
 
   assert.equal(llamadasAlLlm, 1);
   assert.deepEqual(enviados, [
@@ -644,6 +649,191 @@ test("F5: duplicados viejos — el entrante va al que tiene la conversación de 
 // agente recibía un "¡gracias!" sin saber a qué.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// WA-1 (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md): los
+// statuses de Meta avanzan el estado de entrega del saliente, buscándolo por
+// wamid, sin retroceder nunca, de forma idempotente y solo dentro de la
+// organización del phone_number_id.
+// ---------------------------------------------------------------------------
+
+function cambioDeEstados(
+  statuses: Record<string, unknown>[],
+  phoneNumberId: string = fx.phoneNumberId,
+) {
+  return {
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "waba-id",
+        changes: [
+          {
+            field: "messages",
+            value: {
+              messaging_product: "whatsapp",
+              metadata: { phone_number_id: phoneNumberId, display_phone_number: "1" },
+              statuses: statuses.map((st) => ({
+                timestamp: "1",
+                recipient_id: "59800000000",
+                ...st,
+              })),
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+async function salienteConWamid(wamid: string) {
+  const waId = waIdAlAzar();
+  const contacto = await prisma.contact.create({
+    data: { organizationId: fx.orgId, firstName: "Estado", lastName: "Entrega", phone: `+${waId}` },
+  });
+  const conversacion = await prisma.conversation.create({
+    data: {
+      organizationId: fx.orgId,
+      branchId: fx.branchId,
+      agentId: fx.agentId,
+      contactId: contacto.id,
+      channel: "WHATSAPP",
+      status: "CLOSED",
+      externalThreadId: waId,
+    },
+  });
+  return prisma.message.create({
+    data: {
+      organizationId: fx.orgId,
+      conversationId: conversacion.id,
+      direction: "OUTBOUND",
+      senderType: "AGENT",
+      content: "Saliente de prueba",
+      externalMessageId: wamid,
+      deliveryStatus: "SENT",
+    },
+  });
+}
+
+function estadoDe(id: string) {
+  return prisma.message.findUniqueOrThrow({
+    where: { id },
+    select: { deliveryStatus: true, deliveryError: true },
+  });
+}
+
+test("WA-1: delivered y después read avanzan el estado del saliente por su wamid", async () => {
+  const wamid = `wamid.salida.${randomUUID()}`;
+  const m = await salienteConWamid(wamid);
+
+  assert.equal((await enviar(cambioDeEstados([{ id: wamid, status: "delivered" }]))).status, 200);
+  assert.equal((await estadoDe(m.id)).deliveryStatus, "DELIVERED");
+
+  assert.equal((await enviar(cambioDeEstados([{ id: wamid, status: "read" }]))).status, 200);
+  assert.equal((await estadoDe(m.id)).deliveryStatus, "READ");
+});
+
+test("WA-1: el estado nunca retrocede — delivered, sent o failed después de read se ignoran, y reintentar es idempotente", async () => {
+  const wamid = `wamid.salida.${randomUUID()}`;
+  const m = await salienteConWamid(wamid);
+
+  // read llega ANTES que delivered, y Meta reintenta.
+  await enviar(
+    cambioDeEstados([
+      { id: wamid, status: "read" },
+      { id: wamid, status: "delivered" },
+      { id: wamid, status: "sent" },
+      { id: wamid, status: "read" },
+    ]),
+  );
+  assert.equal((await estadoDe(m.id)).deliveryStatus, "READ");
+
+  await enviar(
+    cambioDeEstados([{ id: wamid, status: "failed", errors: [{ code: 131026, title: "x" }] }]),
+  );
+  assert.deepEqual(await estadoDe(m.id), { deliveryStatus: "READ", deliveryError: null });
+});
+
+test("WA-1: failed guarda el motivo que manda Meta, y un delivered posterior lo limpia", async () => {
+  const wamid = `wamid.salida.${randomUUID()}`;
+  const m = await salienteConWamid(wamid);
+
+  await enviar(
+    cambioDeEstados([
+      {
+        id: wamid,
+        status: "failed",
+        errors: [
+          {
+            code: 131047,
+            title: "Re-engagement message",
+            error_data: { details: "More than 24 hours have passed" },
+          },
+        ],
+      },
+    ]),
+  );
+  const estado = await estadoDe(m.id);
+  assert.equal(estado.deliveryStatus, "FAILED");
+  assert.match(estado.deliveryError ?? "", /131047.*Re-engagement message.*24 hours/);
+
+  await enviar(cambioDeEstados([{ id: wamid, status: "delivered" }]));
+  assert.deepEqual(await estadoDe(m.id), { deliveryStatus: "DELIVERED", deliveryError: null });
+});
+
+test("WA-1: un wamid desconocido, un status que no conocemos o uno malformado no rompen el lote", async () => {
+  const wamid = `wamid.salida.${randomUUID()}`;
+  const m = await salienteConWamid(wamid);
+
+  const res = await enviar(
+    cambioDeEstados([
+      { id: "wamid.que-no-existe", status: "read" },
+      { id: wamid, status: "deleted" },
+      { status: "read" },
+      { id: wamid, status: "delivered" },
+    ]),
+  );
+  assert.equal(res.status, 200);
+  assert.equal((await estadoDe(m.id)).deliveryStatus, "DELIVERED");
+});
+
+test("WA-1: un status que llega por un número que no es de esta organización no toca sus salientes", async () => {
+  const wamid = `wamid.salida.${randomUUID()}`;
+  const m = await salienteConWamid(wamid);
+
+  const res = await enviar(
+    cambioDeEstados([{ id: wamid, status: "read" }], "phone-number-de-nadie"),
+  );
+  assert.equal(res.status, 200);
+  assert.equal((await estadoDe(m.id)).deliveryStatus, "SENT");
+});
+
+test("WA-1: con la firma inválida el status no se aplica", async () => {
+  const wamid = `wamid.salida.${randomUUID()}`;
+  const m = await salienteConWamid(wamid);
+
+  const res = await enviar(cambioDeEstados([{ id: wamid, status: "read" }]), {
+    firma: "invalida",
+  });
+  assert.equal(res.status, 401);
+  assert.equal((await estadoDe(m.id)).deliveryStatus, "SENT");
+});
+
+test("WA-1: la respuesta del agente recibe los statuses por el wamid que guardó al enviarla", async () => {
+  const waId = waIdAlAzar();
+  await enviar(payloadDeTexto({ waId, body: "Hola" }));
+  await drenar();
+  const respuesta = await prisma.message.findFirstOrThrow({
+    where: {
+      organizationId: fx.orgId,
+      direction: "OUTBOUND",
+      conversation: { externalThreadId: waId },
+    },
+  });
+  assert.ok(respuesta.externalMessageId);
+
+  await enviar(cambioDeEstados([{ id: respuesta.externalMessageId, status: "read" }]));
+  assert.equal((await estadoDe(respuesta.id)).deliveryStatus, "READ");
+});
+
 test("F1: el cliente contesta el WhatsApp de una automatización — el agente recibe ese saliente en el historial", async () => {
   const waId = waIdAlAzar();
   const contacto = await prisma.contact.create({
@@ -683,6 +873,13 @@ test("F1: el cliente contesta el WhatsApp de una automatización — el agente r
   );
   assert.ok(iSaliente >= 0, "el saliente de la automatización está en el historial");
   assert.ok(iRespuesta > iSaliente, "y va antes de lo que contestó el cliente");
+
+  // WA-1: queda con remitente AUTOMATION y NO calla al agente (contestó
+  // arriba), que lo ve como un saliente más del negocio (role assistant).
+  const saliente = await prisma.message.findFirstOrThrow({
+    where: { organizationId: fx.orgId, externalMessageId: `wamid.automatizacion.${waId}` },
+  });
+  assert.equal(saliente.senderType, "AUTOMATION");
 
   // Una sola conversación: el entrante cayó en la que abrió la automatización.
   const conversaciones = await prisma.conversation.findMany({
@@ -853,7 +1050,7 @@ test("el mismo wamid en dos entregas PARALELAS -> el UNIQUE deja pasar una sola"
   assert.equal(enviados.length, 1);
 });
 
-test("un change con statuses en vez de messages -> 200 sin crear nada", async () => {
+test("un change con statuses de un wamid desconocido -> 200 sin crear nada", async () => {
   const antes = await prisma.message.count({ where: { organizationId: fx.orgId } });
   const res = await enviar({
     object: "whatsapp_business_account",

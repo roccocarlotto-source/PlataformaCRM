@@ -337,7 +337,8 @@ test("F1: el envío queda como saliente del agente en una conversación de Whats
     include: { conversation: true },
   });
   assert.equal(mensaje.direction, "OUTBOUND");
-  assert.equal(mensaje.senderType, "AGENT");
+  // WA-1: remitente "automatización", no el agente.
+  assert.equal(mensaje.senderType, "AUTOMATION");
   assert.equal(mensaje.senderUserId, null);
   assert.equal(mensaje.deliveryStatus, "SENT");
   // bodyText de la plantilla del fixture, con {nombre} y {link} reemplazados.

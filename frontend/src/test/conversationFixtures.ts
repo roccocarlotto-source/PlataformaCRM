@@ -49,6 +49,8 @@ export function makeMessage(overrides: Partial<ConversationMessage> = {}): Conve
     content: "Hola, quiero saber el precio",
     toolCalls: null,
     externalMessageId: null,
+    deliveryStatus: null,
+    deliveryError: null,
     createdAt: "2026-03-03T09:58:00.000Z",
     senderUser: null,
     ...overrides,

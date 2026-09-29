@@ -40,7 +40,7 @@ import { LlmProviderError, getLlmProvider, type LlmProvider } from "./llmProvide
 // desbocada entraría entera en la columna y después en cada fila del listado.
 export const BRIEF_MAX_LENGTH = 2000;
 
-// Los tres autores posibles de un mensaje, con el mismo criterio de etiquetas
+// Los autores posibles de un mensaje, con el mismo criterio de etiquetas
 // que las burbujas del hilo en ConversationDetail.tsx: quién ESCRIBIÓ el
 // mensaje lo dice `senderType`, no `direction` (los dos enums son ortogonales
 // en el schema — la dirección dice por dónde viajó, el tipo de emisor dice
@@ -56,6 +56,8 @@ const ROTULO_POR_EMISOR: Record<Message["senderType"], string> = {
   CONTACT: "Cliente",
   AGENT: "Agente",
   HUMAN: "Humano",
+  // WA-1 (pendientes post F1–F5): lo que mandó una regla de automatización.
+  AUTOMATION: "Automatización",
 };
 
 // El transcript que ve el modelo: una línea por mensaje, en el orden en que

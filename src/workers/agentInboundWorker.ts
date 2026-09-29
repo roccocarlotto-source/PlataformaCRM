@@ -210,12 +210,15 @@ export async function resolverTokenDePagina(
 // WhatsApp: exactamente lo de siempre. Messenger e Instagram: el mismo POST
 // del Send API, que no distingue canal (ver metaSend.service.ts), con el Page
 // ID en channelAccountId y el PSID/IGSID en externalUserId (ítem 171).
+//
+// Devuelve el wamid de WhatsApp (WA-1), o null: Messenger e Instagram no
+// tienen statuses que seguir por este camino.
 export async function enviarPorElCanal(
   job: JobReclamado,
   texto: string,
   pageAccessToken: string | null,
   deps: Pick<DepsDeEnvio, "accessToken" | "sendText" | "sendMetaText">,
-): Promise<void> {
+): Promise<string | null> {
   if (esCanalDeMeta(job.channel)) {
     if (!pageAccessToken) {
       // resolverTokenDePagina corre antes y no devuelve null para estos
@@ -223,18 +226,19 @@ export async function enviarPorElCanal(
       throw new Error(`Falta el token de página para mandar por ${job.channel}`);
     }
     await deps.sendMetaText({ pageAccessToken, recipientId: job.externalUserId, text: texto });
-    return;
+    return null;
   }
   const accessToken = deps.accessToken();
   if (!accessToken) {
     throw new Error("Falta WHATSAPP_ACCESS_TOKEN en el entorno");
   }
-  await deps.sendText({
+  const { wamid } = await deps.sendText({
     phoneNumberId: job.channelAccountId,
     to: job.externalUserId,
     body: texto,
     accessToken,
   });
+  return wamid;
 }
 
 async function enviarRespuesta(
@@ -243,8 +247,9 @@ async function enviarRespuesta(
   pageAccessToken: string | null,
   deps: DepsDeEnvio,
 ) {
+  let wamid: string | null;
   try {
-    await enviarPorElCanal(job, saliente.content, pageAccessToken, deps);
+    wamid = await enviarPorElCanal(job, saliente.content, pageAccessToken, deps);
   } catch (err) {
     // B-02: el fallo queda en la fila del Message, a la vista de la bandeja,
     // y no solo en el log. Si el reintento sale bien, SENT lo limpia.
@@ -270,7 +275,12 @@ async function enviarRespuesta(
     }
     throw new ErrorDeEnvio(err, job.channel);
   }
-  await markMessageDelivery(saliente.id, job.organizationId, { status: "SENT" });
+  // WA-1: con el wamid, así los statuses de Meta (entregado, leído) la
+  // encuentran igual que a las plantillas de F1.
+  await markMessageDelivery(saliente.id, job.organizationId, {
+    status: "SENT",
+    externalMessageId: wamid,
+  });
 }
 
 // El job guarda el mime y no el tipo de mensaje de WhatsApp: las columnas

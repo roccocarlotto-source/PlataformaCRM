@@ -95,10 +95,19 @@ export function findMessageById(id: string, organizationId: string, db: Db = pri
 // SENT limpia el error de un intento anterior: un mensaje entregado no
 // arrastra el diagnóstico de un fallo que ya no describe nada (mismo criterio
 // que markOutboxEventProcessed con lastError).
+//
+// `externalMessageId` (WA-1 de los pendientes post F1–F5): el wamid que Meta
+// devolvió al aceptar el envío. Se guarda junto con el SENT para que los
+// statuses del webhook (DELIVERED/READ) encuentren el mensaje. Hasta WA-1 solo
+// lo guardaban las plantillas de F1; las respuestas del agente lo tiraban.
 export function markMessageDelivery(
   id: string,
   organizationId: string,
-  entrega: { status: MessageDeliveryStatus; error?: string | null },
+  entrega: {
+    status: MessageDeliveryStatus;
+    error?: string | null;
+    externalMessageId?: string | null;
+  },
   db: Db = prisma,
 ) {
   return db.message.updateMany({
@@ -106,6 +115,64 @@ export function markMessageDelivery(
     data: {
       deliveryStatus: entrega.status,
       deliveryError: entrega.status === "SENT" ? null : (entrega.error ?? null),
+      ...(entrega.externalMessageId ? { externalMessageId: entrega.externalMessageId } : {}),
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Statuses de Meta (WA-1 de los pendientes post F1–F5, docs/prueba-en-vivo-
+// 2026-09-29.md): sent / delivered / read / failed de un wamid saliente.
+//
+// EL ESTADO NUNCA RETROCEDE. Meta no garantiza el orden de entrega de los
+// statuses (un "read" puede llegar antes que su "delivered") y además
+// reintenta, así que la escritura es un UPDATE condicional: solo se aplica si
+// el estado actual está ANTES en el orden. Eso la hace idempotente (el mismo
+// status dos veces actualiza 0 filas la segunda) y resistente al desorden, sin
+// leer antes: no hay ventana entre la lectura y la escritura.
+//
+// El orden: PENDING < SENT < FAILED < DELIVERED < READ. FAILED va antes de
+// DELIVERED porque si Meta después dice que se entregó, se entregó; un
+// "failed" que llega después de un "read" es ruido.
+//
+// Aislamiento: organizationId en el WHERE (el wamid es único POR
+// organización), y solo salientes: un wamid entrante nunca recibe statuses.
+// Un wamid desconocido actualiza 0 filas, sin error.
+// ---------------------------------------------------------------------------
+const ORDEN_DE_ENTREGA: MessageDeliveryStatus[] = [
+  "PENDING",
+  "SENT",
+  "FAILED",
+  "DELIVERED",
+  "READ",
+];
+
+// Los estados desde los que se puede pasar a `destino`. Exportada para
+// fijarla con tests sin base.
+export function estadosQueAvanzanA(destino: MessageDeliveryStatus): MessageDeliveryStatus[] {
+  return ORDEN_DE_ENTREGA.slice(0, ORDEN_DE_ENTREGA.indexOf(destino));
+}
+
+export function applyDeliveryStatusByExternalId(
+  organizationId: string,
+  externalMessageId: string,
+  entrega: { status: "SENT" | "DELIVERED" | "READ" | "FAILED"; error?: string | null },
+  db: Db = prisma,
+) {
+  return db.message.updateMany({
+    where: {
+      organizationId,
+      externalMessageId,
+      direction: "OUTBOUND",
+      // NULL también avanza: un saliente anterior a B-02 no tiene estado.
+      OR: [
+        { deliveryStatus: null },
+        { deliveryStatus: { in: estadosQueAvanzanA(entrega.status) } },
+      ],
+    },
+    data: {
+      deliveryStatus: entrega.status,
+      deliveryError: entrega.status === "FAILED" ? (entrega.error ?? null) : null,
     },
   });
 }

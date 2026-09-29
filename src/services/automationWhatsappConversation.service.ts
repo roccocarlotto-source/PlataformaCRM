@@ -9,7 +9,7 @@ import { normalizarParametroDePlantilla } from "./whatsappGraph.service";
 // contacto — F1 de docs/prueba-en-vivo-2026-09-29.md. Lo usan los dos workers
 // que mandan plantillas: el seguimiento con QR (qrFollowUpWorker.ts) y el
 // cupón (discountVoucherFollowUpWorker.ts). Qué se registra y por qué con
-// senderType AGENT está en registrarSalienteDeAutomatizacion
+// senderType AUTOMATION (WA-1) está en registrarSalienteDeAutomatizacion
 // (agentOrchestration.service.ts).
 // ---------------------------------------------------------------------------
 
