@@ -43,7 +43,7 @@ export const STATUS_BADGE_VARIANT: Record<ConversationStatus, BadgeVariant> = {
   CLOSED: "neutral",
 };
 
-// Estado de entrega de un saliente (WA-1 de docs/prueba-en-vivo-2026-09-29.md),
+// Estado de entrega de un saliente (WA-1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)),
 // como texto chico al lado de la hora de la burbuja. PENDING es "enviando":
 // el turno produjo la respuesta y el envío todavía no se confirmó.
 export const DELIVERY_STATUS_LABEL: Record<MessageDeliveryStatus, string> = {

@@ -205,8 +205,8 @@ export type ResumenDelLote = Record<ResultadoDelMensaje, number> & {
 };
 
 // ---------------------------------------------------------------------------
-// Statuses de entrega (WA-1 de los pendientes post F1–F5, docs/prueba-en-
-// vivo-2026-09-29.md). Meta manda, para cada mensaje SALIENTE, un status por
+// Statuses de entrega (WA-1 de los pendientes post F1–F5,
+// docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)). Meta manda, para cada mensaje SALIENTE, un status por
 // transición: sent, delivered, read o failed (este con errors[]). Hasta WA-1
 // el webhook los ignoraba y el vendedor no sabía si el cliente recibió o leyó
 // un WhatsApp.

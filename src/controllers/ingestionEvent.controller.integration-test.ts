@@ -557,7 +557,7 @@ test("DE PUNTA A PUNTA: tras el retry, el worker lo recoge y lo promueve de verd
   assert.equal(contacto.organizationId, fx.orgA);
 });
 
-// F5-a (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md): un evento
+// F5-a (pendientes post F1–F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): un evento
 // que F5 dejó FAILED por un teléfono local se recupera con el reproceso, y el
 // listado muestra el teléfono descartado para que el ADMIN lo cargue a mano.
 test("F5-a: un FAILED por teléfono local, reprocesado, entra sin teléfono y el listado muestra el descartado", async () => {

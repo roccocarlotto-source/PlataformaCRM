@@ -1,7 +1,7 @@
 import {
   findLatestExchangeRates,
   findOrganizationById,
-  updateOrganizationCurrency as updateOrganizationCurrencyRepo,
+  updateOrganizationSettings as updateOrganizationSettingsRepo,
 } from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
 import {
@@ -13,7 +13,8 @@ import {
 // ---------------------------------------------------------------------------
 // Configuración de la organización expuesta por la API (Fase 2c del módulo de
 // stock de vehículos): la moneda de preferencia y la alternativa, y la última
-// cotización USD→X de cada una.
+// cotización USD→X de cada una. Desde F5-b (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)),
+// también el país por defecto de los teléfonos.
 //
 // LA RESPUESTA ES UN OBJETO ACOTADO, NUNCA EL ROW DE Organization. El row
 // tiene campos internos (slug, nextVehicleStockNumber…) que no son parte de
@@ -35,6 +36,8 @@ export interface OrganizationSettings {
   name: string;
   preferredCurrency: string | null;
   alternateCurrency: string | null;
+  // F5-b: código de país sin "+" ("598"), o null = sin país por defecto.
+  defaultPhoneCountryCode: string | null;
   exchangeRates: OrganizationExchangeRate[];
 }
 
@@ -53,6 +56,7 @@ export async function getOrganizationSettings(
     name: organization.name,
     preferredCurrency: organization.preferredCurrency,
     alternateCurrency: organization.alternateCurrency,
+    defaultPhoneCountryCode: organization.defaultPhoneCountryCode,
     exchangeRates: rates.map((row) => ({
       targetCurrency: row.targetCurrency,
       rate: row.rate.toString(),
@@ -61,10 +65,12 @@ export async function getOrganizationSettings(
   };
 }
 
-export interface UpdateOrganizationCurrencyInput {
+export interface UpdateOrganizationSettingsInput {
   // null = "des-configurar esa moneda"; undefined = no tocarla.
   preferredCurrency?: string | null;
   alternateCurrency?: string | null;
+  // F5-b. null = sacar el país por defecto; undefined = no tocarlo.
+  defaultPhoneCountryCode?: string | null;
 }
 
 export const MONEDAS_IGUALES = "La moneda de preferencia y la alternativa no pueden ser la misma";
@@ -75,9 +81,9 @@ export interface OpcionesDeActualizacionDeMoneda {
   actualizarCotizaciones?: () => Promise<ResumenDeActualizacion>;
 }
 
-export async function updateOrganizationCurrency(
+export async function updateOrganizationSettings(
   organizationId: string,
-  input: UpdateOrganizationCurrencyInput,
+  input: UpdateOrganizationSettingsInput,
   opciones: OpcionesDeActualizacionDeMoneda = {},
 ): Promise<OrganizationSettings> {
   const organization = await findOrganizationById(organizationId);
@@ -100,7 +106,7 @@ export async function updateOrganizationCurrency(
     throw new AppError(MONEDAS_IGUALES, 400);
   }
 
-  await updateOrganizationCurrencyRepo(organizationId, input);
+  await updateOrganizationSettingsRepo(organizationId, input);
 
   // §24: la cotización de lo que QUEDÓ configurado se busca ahora, a pedido,
   // sin esperar al worker (cuya primera pasada fue al arrancar el proceso,
@@ -108,7 +114,12 @@ export async function updateOrganizationCurrency(
   // el desenlace se loguea adentro. El GET de abajo lee la base ANTES de que
   // la fuente conteste, así que esta respuesta normalmente no trae todavía
   // la cotización nueva; la trae el GET siguiente.
-  dispararActualizacionDeCotizaciones([preferred, alternate], opciones.actualizarCotizaciones);
+  //
+  // Solo si el PATCH tocó alguna moneda: cambiar únicamente el país por
+  // defecto de los teléfonos (F5-b) no tiene por qué consultar la fuente.
+  if (input.preferredCurrency !== undefined || input.alternateCurrency !== undefined) {
+    dispararActualizacionDeCotizaciones([preferred, alternate], opciones.actualizarCotizaciones);
+  }
 
   return getOrganizationSettings(organizationId);
 }

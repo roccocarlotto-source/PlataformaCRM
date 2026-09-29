@@ -25,7 +25,7 @@ export type MessageDirection = "INBOUND" | "OUTBOUND";
 // Espejo del enum MessageSenderType. HUMAN es una persona de la organización
 // que contestó después de una derivación, y es el único que trae senderUser
 // (lo garantiza el CHECK messages_sender_user_id_consistency_check).
-// AUTOMATION (WA-1 de docs/prueba-en-vivo-2026-09-29.md): lo que mandó una
+// AUTOMATION (WA-1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): lo que mandó una
 // regla de automatización, como el seguimiento con QR o el cupón.
 export type MessageSenderType = "CONTACT" | "AGENT" | "HUMAN" | "AUTOMATION";
 

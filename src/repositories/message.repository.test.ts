@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { estadosQueAvanzanA } from "./message.repository";
 
 // ---------------------------------------------------------------------------
-// WA-1 (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md): el orden
+// WA-1 (pendientes post F1–F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): el orden
 // del estado de entrega. Un status de Meta solo se aplica si el estado actual
 // está ANTES en el orden; el recorrido contra la base (el UPDATE condicional,
 // la idempotencia, el aislamiento) está en

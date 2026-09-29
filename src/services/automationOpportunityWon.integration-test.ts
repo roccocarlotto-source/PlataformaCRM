@@ -236,7 +236,7 @@ test("flujo completo: updateOpportunity a WON -> evento -> worker -> Activity de
 });
 
 test("F4: la Activity de seguimiento lleva el contacto de la oportunidad y aparece en su ficha", async () => {
-  // docs/prueba-en-vivo-2026-09-29.md: la tarea quedaba con contactId null y
+  // docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): la tarea quedaba con contactId null y
   // GET /api/activities?contactId=<contacto de la oportunidad> venía vacío.
   await drenar();
   const regla = await crearRegla(e, {

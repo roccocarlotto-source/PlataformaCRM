@@ -22,6 +22,7 @@ import {
 } from "../repositories/serviceType.repository";
 import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
+import { enParalelo } from "../utils/enParalelo";
 import { estaDentroDelHorario, estaEnLaGrilla } from "../utils/workingHours";
 import { resolverContexto } from "./availability.service";
 import type { ClienteGoogleCalendar } from "./googleCalendar.service";
@@ -183,30 +184,38 @@ export async function createBooking(
     throw new AppError("El horario solicitado ya pasó", 400);
   }
 
-  const contact = await findContactById(input.contactId, organizationId);
-  if (!contact) {
-    throw new AppError("El contacto indicado no existe o no pertenece a tu organización", 400);
-  }
-
-  if (input.opportunityId) {
-    const opportunity = await findOpportunityById(input.opportunityId, organizationId);
-    if (!opportunity) {
-      throw new AppError("La oportunidad indicada no existe o no pertenece a tu organización", 400);
-    }
-  }
-
   // El fin sale de la duración del servicio, NO del cliente. Dejar que quien
   // llama mande endsAt permitiría reservar dos horas de un servicio de treinta
   // minutos y romper la grilla de disponibilidad para todos los demás.
   const startsAt = input.startsAt;
 
-  // resolverContexto es LA MISMA función que usa GET /api/availability: valida
-  // que el servicio lo provea ese recurso, resuelve la zona de la sucursal y
-  // expande el horario de trabajo. Compartirla es lo que garantiza que lo que se
-  // ofrece y lo que se acepta no puedan divergir.
-  const { serviceType, resource, branch, franjasDeTrabajo } = await resolverContexto(
-    organizationId,
-    {
+  // F6 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base"): el
+  // contacto, la oportunidad y el contexto del recurso no dependen entre sí y
+  // se leen EN PARALELO, en vez de uno detrás de otro. enParalelo relanza el
+  // primer error en el orden de abajo —el de siempre—: por eso el "no existe"
+  // del contacto y de la oportunidad se lanza dentro de su propia promesa.
+  const [contact, , contexto] = await enParalelo([
+    findContactById(input.contactId, organizationId).then((encontrado) => {
+      if (!encontrado) {
+        throw new AppError("El contacto indicado no existe o no pertenece a tu organización", 400);
+      }
+      return encontrado;
+    }),
+    input.opportunityId
+      ? findOpportunityById(input.opportunityId, organizationId).then((encontrada) => {
+          if (!encontrada) {
+            throw new AppError(
+              "La oportunidad indicada no existe o no pertenece a tu organización",
+              400,
+            );
+          }
+        })
+      : Promise.resolve(undefined),
+    // resolverContexto es LA MISMA función que usa GET /api/availability:
+    // valida que el servicio lo provea ese recurso, resuelve la zona de la
+    // sucursal y expande el horario de trabajo. Compartirla es lo que
+    // garantiza que lo que se ofrece y lo que se acepta no puedan divergir.
+    resolverContexto(organizationId, {
       resourceId: input.resourceId,
       serviceTypeId: input.serviceTypeId,
       desde: startsAt,
@@ -217,8 +226,9 @@ export async function createBooking(
       // cierre — la validación no probaría nada de ese lado. Con el margen, la
       // franja llega entera y la contención es real.
       hasta: new Date(startsAt.getTime() + 24 * 60 * 60 * 1000),
-    },
-  );
+    }),
+  ] as const);
+  const { serviceType, resource, branch, franjasDeTrabajo } = contexto;
 
   const endsAt = new Date(startsAt.getTime() + serviceType.durationMin * 60 * 1000);
 

@@ -244,8 +244,8 @@ enum MessageDirection {
 // messages_sender_user_id_consistency_check (migraciones 20260912130000 y
 // 20261011120100).
 //
-// AUTOMATION (WA-1 de los pendientes post F1–F5, docs/prueba-en-vivo-2026-
-// 09-29.md): lo que mandó una regla de automatización (el seguimiento con QR
+// AUTOMATION (WA-1 de los pendientes post F1–F5,
+// docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): lo que mandó una regla de automatización (el seguimiento con QR
 // y el cupón de F1), que hasta acá quedaba como AGENT. Para el agente es lo
 // mismo que su propio saliente: lo ve como algo que se le mandó al cliente
 // (el historial ramifica por direction) y NO lo calla (solo HUMAN lo calla).
@@ -614,6 +614,14 @@ model Organization {
   // el mismo dato se describa de la misma forma en las dos tablas.
   preferredCurrency      String? @map("preferred_currency") @db.VarChar(3)
   alternateCurrency      String? @map("alternate_currency") @db.VarChar(3)
+  // Código de país (solo dígitos, sin "+": "598") con el que se completan los
+  // teléfonos cargados en formato local, con el 0 de larga distancia —
+  // F5-b de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub), ver lib/telefono.ts. Null =
+  // sin país por defecto: un local se rechaza (API) o se descarta (ingesta),
+  // como antes. Sin CHECK en la base, igual que las monedas de arriba: el
+  // formato (1 a 3 dígitos) lo valida el PATCH de /api/organization, que es
+  // el único que la escribe.
+  defaultPhoneCountryCode String? @map("default_phone_country_code") @db.VarChar(3)
   // Contador durable del próximo internalCode a asignar a un Vehicle de esta
   // cuenta. Nació como réplica del patrón que usaba nextQrDisplayNumber —
   // eliminado en 20260921120000, ver arriba— y acá el patrón SE QUEDA, porque

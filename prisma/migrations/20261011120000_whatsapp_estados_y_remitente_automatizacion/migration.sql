@@ -1,5 +1,5 @@
 -- ---------------------------------------------------------------------------
--- WA-1 de los pendientes post F1–F5 (docs/prueba-en-vivo-2026-09-29.md, rama
+-- WA-1 de los pendientes post F1–F5 (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub), rama
 -- feat/whatsapp-estados-de-entrega). Parte 1 de 2: los valores nuevos.
 --
 -- 1. MessageSenderType gana AUTOMATION: los WhatsApp que manda una regla de

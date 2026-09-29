@@ -308,7 +308,7 @@ test("deleteContact sin oportunidades abiertas ni reservas confirmadas lo da de 
 });
 
 // --------------------------------------------------------------------------
-// telefonoParaGuardar — F5 de docs/prueba-en-vivo-2026-09-29.md. La regla de
+// telefonoParaGuardar — F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub). La regla de
 // normalización está probada en lib/telefono.test.ts; acá, lo que agrega el
 // camino HTTP: undefined no toca, null y vacío limpian, lo no normalizable es
 // un 400 con el mensaje del helper.
@@ -331,5 +331,16 @@ test("F5: telefonoParaGuardar rechaza con 400 un local con 0 inicial — no inve
     () => telefonoParaGuardar("099 123 456"),
     (err: unknown) =>
       err instanceof AppError && err.statusCode === 400 && err.message === TELEFONO_NO_NORMALIZABLE,
+  );
+});
+
+// F5-b (pendientes post F1–F5): con el país por defecto de la organización, un
+// local con 0 inicial se completa en vez de dar 400.
+test("F5-b: telefonoParaGuardar completa un local con el país por defecto", () => {
+  assert.equal(telefonoParaGuardar("099 123 456", "598"), "+59899123456");
+  assert.equal(telefonoParaGuardar("00598 99 123 456"), "+59899123456");
+  assert.throws(
+    () => telefonoParaGuardar("099 123 456", null),
+    (err: unknown) => err instanceof AppError && err.statusCode === 400,
   );
 });

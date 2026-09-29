@@ -164,3 +164,59 @@ test("O9: cambiar si cierra una etapa con oportunidades es 409; vacía, se puede
   const marcada = await updateStage(e.organizationId, negociacion.id, { isWon: true });
   assert.equal(marcada.isWon, true);
 });
+
+// ---------------------------------------------------------------------------
+// F6 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base"): las
+// lecturas de antes de la transacción van en paralelo, pero el error con
+// varios datos inválidos tiene que ser el mismo que cuando corrían en serie.
+// Se compara contra el error de cada dato inválido SOLO, sin transcribir
+// mensajes.
+// ---------------------------------------------------------------------------
+
+const UUID_INEXISTENTE = "99999999-9999-4999-8999-999999999999";
+
+async function mensajeDe(fn: () => Promise<unknown>): Promise<string> {
+  const err = await capturar(fn);
+  assert.ok(err instanceof Error);
+  return err.message;
+}
+
+test("F6: con varios datos inválidos en el PATCH, el error es el de la validación que antes corría primero", async () => {
+  const opp = await oportunidad();
+  const patch = (body: Record<string, unknown>) =>
+    updateOpportunity(e.organizationId, e.userId, opp.id, body);
+
+  const soloEmpresa = await mensajeDe(() => patch({ companyId: UUID_INEXISTENTE }));
+  const soloPipelineSinEtapa = await mensajeDe(() => patch({ pipelineId }));
+  const soloEtapa = await mensajeDe(() => patch({ stageId: UUID_INEXISTENTE }));
+
+  // Empresa inválida + etapa inválida: gana la empresa.
+  assert.equal(
+    await mensajeDe(() => patch({ companyId: UUID_INEXISTENTE, stageId: UUID_INEXISTENTE })),
+    soloEmpresa,
+  );
+  // Pipeline sin etapa + empresa inválida: gana la empresa (va antes).
+  assert.equal(
+    await mensajeDe(() => patch({ pipelineId, companyId: UUID_INEXISTENTE })),
+    soloEmpresa,
+  );
+  // Pipeline sin etapa, solo: su 400 de siempre, distinto del de la etapa.
+  assert.notEqual(soloPipelineSinEtapa, soloEtapa);
+
+  // Una oportunidad que no existe es 404 aunque el resto también esté mal.
+  assertAppError(
+    await capturar(() =>
+      updateOpportunity(e.organizationId, e.userId, UUID_INEXISTENTE, {
+        companyId: UUID_INEXISTENTE,
+        stageId: UUID_INEXISTENTE,
+      }),
+    ),
+    404,
+    "",
+  );
+
+  // Nada se escribió.
+  const releida = await prisma.opportunity.findUniqueOrThrow({ where: { id: opp.id } });
+  assert.equal(releida.stageId, nuevo);
+  assert.equal(releida.companyId, companyId);
+});

@@ -6,7 +6,7 @@ import { normalizarParametroDePlantilla } from "./whatsappGraph.service";
 
 // ---------------------------------------------------------------------------
 // El WhatsApp que manda una automatización, anotado en la conversación del
-// contacto — F1 de docs/prueba-en-vivo-2026-09-29.md. Lo usan los dos workers
+// contacto — F1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub). Lo usan los dos workers
 // que mandan plantillas: el seguimiento con QR (qrFollowUpWorker.ts) y el
 // cupón (discountVoucherFollowUpWorker.ts). Qué se registra y por qué con
 // senderType AUTOMATION (WA-1) está en registrarSalienteDeAutomatizacion

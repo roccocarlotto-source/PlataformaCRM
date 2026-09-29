@@ -4,14 +4,62 @@ import { prisma, type Db } from "../lib/prisma";
 // Única consulta que resuelve la identidad de negocio de un usuario
 // autenticado, con lo que el middleware de autenticación necesita para
 // construir el AuthContext: organización y rol en la misma query.
-export function findUserForAuth(userId: string) {
-  return prisma.user.findUnique({
-    where: { id: userId },
-    include: {
-      organization: true,
-      role: true,
-    },
-  });
+//
+// UN SOLO SELECT CON JOIN, y no el `include` de antes — F6 de
+// docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) (PR "menos idas a la base"). Prisma 5
+// resuelve un `include` con una query POR relación, en serie: users, después
+// organizations, después roles. Eran tres idas a la base en CADA request
+// autenticado, y con Render y Supabase en regiones distintas cada ida cuesta
+// ~100 ms. Esto es una.
+//
+// Lo que NO cambia, a propósito: se sigue leyendo en cada request (no hay
+// caché), así que un usuario desactivado, removido o con el rol cambiado se
+// ve en el request siguiente, igual que antes. Y trae exactamente lo que
+// resolveAuthContext mira: los estados del usuario, el deletedAt de la
+// organización y el nombre del rol.
+export interface UsuarioParaAuth {
+  id: string;
+  organizationId: string;
+  email: string;
+  fullName: string;
+  isActive: boolean;
+  deletedAt: Date | null;
+  organization: { deletedAt: Date | null };
+  role: { name: string };
+}
+
+interface FilaUsuarioParaAuth {
+  id: string;
+  organization_id: string;
+  email: string;
+  full_name: string;
+  is_active: boolean;
+  deleted_at: Date | null;
+  organization_deleted_at: Date | null;
+  role_name: string;
+}
+
+export async function findUserForAuth(userId: string): Promise<UsuarioParaAuth | null> {
+  const filas = await prisma.$queryRaw<FilaUsuarioParaAuth[]>`
+    SELECT u.id, u.organization_id, u.email, u.full_name, u.is_active, u.deleted_at,
+           o.deleted_at AS organization_deleted_at,
+           r.name AS role_name
+    FROM users u
+    JOIN organizations o ON o.id = u.organization_id
+    JOIN roles r ON r.id = u.role_id
+    WHERE u.id = ${userId}::uuid`;
+  const fila = filas[0];
+  if (!fila) return null;
+  return {
+    id: fila.id,
+    organizationId: fila.organization_id,
+    email: fila.email,
+    fullName: fila.full_name,
+    isActive: fila.is_active,
+    deletedAt: fila.deleted_at,
+    organization: { deletedAt: fila.organization_deleted_at },
+    role: { name: fila.role_name },
+  };
 }
 
 // Crea el perfil de negocio de un usuario ya existente en Supabase Auth.

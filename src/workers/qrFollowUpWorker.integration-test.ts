@@ -301,7 +301,7 @@ test("con delayHours 0 el worker lo manda: plantilla de la regla, número de la 
 });
 
 // ---------------------------------------------------------------------------
-// F1 de docs/prueba-en-vivo-2026-09-29.md: el WhatsApp de la automatización
+// F1 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): el WhatsApp de la automatización
 // queda como saliente en la conversación del contacto, para que el vendedor lo
 // vea en la bandeja y el agente lo tenga si el cliente contesta.
 // ---------------------------------------------------------------------------

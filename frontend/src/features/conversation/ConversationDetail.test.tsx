@@ -206,7 +206,7 @@ describe("ConversationDetail", () => {
     expect(await screen.findByText(/Un integrante del equipo/)).toBeInTheDocument();
   });
 
-  // WA-1 (docs/prueba-en-vivo-2026-09-29.md): remitente y estado de entrega.
+  // WA-1 (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)): remitente y estado de entrega.
   it("un mensaje de una automatización se rotula 'Automatización', no con el nombre del agente", async () => {
     server.use(
       http.get(detailUrl, () =>

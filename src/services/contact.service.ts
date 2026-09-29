@@ -21,7 +21,10 @@ import {
 } from "../repositories/contact.repository";
 import { anonymizeIngestionEventsOfContact } from "../repositories/ingestionEvent.repository";
 import { countOpenOpportunitiesOf } from "../repositories/opportunity.repository";
-import { lockOrganizationForUpdate } from "../repositories/organization.repository";
+import {
+  findDefaultPhoneCountryCode,
+  lockOrganizationForUpdate,
+} from "../repositories/organization.repository";
 import { AppError } from "../utils/AppError";
 import { resolveOwnerId } from "./ownership.service";
 import { WHATSAPP_CONTACT_FALLBACK_FIRST_NAME } from "./whatsappContact.service";
@@ -161,7 +164,7 @@ export function normalizeEmail(email: string | undefined): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// TELÉFONO — F5 de docs/prueba-en-vivo-2026-09-29.md.
+// TELÉFONO — F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub).
 //
 // Se normaliza con el helper único (lib/telefono.ts, ahí está la regla) y no
 // puede repetirse dentro de la organización, igual que el email. La diferencia
@@ -180,19 +183,32 @@ export const TELEFONO_DUPLICADO = "Ya existe un contacto con ese teléfono en es
 // undefined = no vino (PATCH no lo toca), null = sin teléfono. Una cadena
 // vacía —o solo espacios— es ausencia de teléfono, no un teléfono: se guarda
 // NULL, mismo criterio que la ingesta (`opcional` en ingestContact.schema.ts).
+// `codigoDePais` es el país por defecto de la organización (F5-b): con él, un
+// local con 0 inicial se completa en vez de dar 400. Y como el 409 de abajo
+// compara la forma YA normalizada, `099 123 456` choca con un `+59899123456`
+// existente si la organización tiene 598.
 // Exportada para testearla sin base (contact.service.test.ts).
-export function telefonoParaGuardar(phone: string | null | undefined): string | null | undefined {
+export function telefonoParaGuardar(
+  phone: string | null | undefined,
+  codigoDePais: string | null = null,
+): string | null | undefined {
   if (phone === undefined || phone === null) {
     return phone;
   }
   if (phone.trim().length === 0) {
     return null;
   }
-  const normalizado = normalizarTelefono(phone);
+  const normalizado = normalizarTelefono(phone, codigoDePais);
   if (normalizado === null) {
     throw new AppError(TELEFONO_NO_NORMALIZABLE, 400);
   }
   return normalizado;
+}
+
+// Si la escritura trae un teléfono que haya que normalizar: solo entonces hace
+// falta el país por defecto de la organización (F5-b).
+function tieneTelefono(phone: string | null | undefined): phone is string {
+  return typeof phone === "string" && phone.trim().length > 0;
 }
 
 // Corre `escribir` bajo el lock de la organización después de confirmar que
@@ -232,13 +248,15 @@ export async function createContact(
   actorUserId: string,
   input: CreateContactInput,
 ) {
-  // Antes que nada: un teléfono mal formado es un 400, sin tocar la base.
-  const phone = telefonoParaGuardar(input.phone) ?? null;
-
-  const [ownerId, companyId] = await Promise.all([
+  // F5-b: el país por defecto se lee junto con las otras validaciones (en
+  // paralelo, no una ida más a la base en serie) y solo si vino un teléfono.
+  const [codigoDePais, ownerId, companyId] = await Promise.all([
+    tieneTelefono(input.phone) ? findDefaultPhoneCountryCode(organizationId) : null,
     resolveOwnerId(organizationId, actorUserId, input.ownerId),
     resolveCompanyId(organizationId, input.companyId),
   ]);
+  // Un teléfono que ni con el país se normaliza es un 400, antes de escribir.
+  const phone = telefonoParaGuardar(input.phone, codigoDePais) ?? null;
 
   try {
     return await conTelefonoUnico(organizationId, phone, null, (db) =>
@@ -282,15 +300,19 @@ export async function updateContact(
   id: string,
   input: UpdateContactInput,
 ) {
-  // 404 si no existe, no es de esta organización, o ya está borrado.
-  await getContactById(organizationId, id);
+  // 404 si no existe, no es de esta organización, o ya está borrado. El país
+  // por defecto (F5-b) se lee en paralelo, y solo si vino un teléfono.
+  const [, codigoDePais] = await Promise.all([
+    getContactById(organizationId, id),
+    tieneTelefono(input.phone) ? findDefaultPhoneCountryCode(organizationId) : null,
+  ]);
 
   const data: UpdateContactInput = { ...input };
 
   // F5: normalizado y único (ver telefonoParaGuardar / conTelefonoUnico).
   // `"phone" in input` por lo mismo que companyId abajo: null limpia.
   if ("phone" in input) {
-    data.phone = telefonoParaGuardar(input.phone);
+    data.phone = telefonoParaGuardar(input.phone, codigoDePais);
   }
 
   if (input.ownerId) {

@@ -362,7 +362,7 @@ const createOpportunityArgs = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// F2 de docs/prueba-en-vivo-2026-09-29.md — la unidad de interés NO se vincula.
+// F2 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) — la unidad de interés NO se vincula.
 //
 // La prueba en vivo vio `create_opportunity {vehiculo: "Honda Civic EXL"}`
 // devolver `unidad: "Honda Civic EXL 2018"` con la oportunidad guardada sin
@@ -1413,7 +1413,7 @@ const createBookingTool: ToolDelAgente = {
         return recurso.resultado;
       }
 
-      // F3 de docs/prueba-en-vivo-2026-09-29.md: la reserva queda vinculada a
+      // F3 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): la reserva queda vinculada a
       // la oportunidad abierta del contacto —la misma que create_opportunity
       // reusa—, para que el vendedor vea el test drive dentro de la venta. En
       // la prueba en vivo el agente creó la oportunidad y la reserva en la

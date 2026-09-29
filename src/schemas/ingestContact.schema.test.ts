@@ -315,7 +315,7 @@ test("D2-7: un encabezado demasiado largo tampoco se ecoa", () => {
   }
 });
 
-// F5 de docs/prueba-en-vivo-2026-09-29.md: la promoción deduplica por teléfono
+// F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub): la promoción deduplica por teléfono
 // comparando la forma normalizada, así que el schema la entrega ya así.
 test("F5: phone llega normalizado a + y solo dígitos, con o sin + en el payload", () => {
   for (const phone of ["59894000111", "+598 94 000 111", "+598-94-000-111"]) {

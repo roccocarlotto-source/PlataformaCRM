@@ -147,7 +147,7 @@ const ingestContactBaseSchema = z.object({
 
 // ---------------------------------------------------------------------------
 // EL TELÉFONO NO NORMALIZABLE NO HACE FALLAR LA FILA — F5-a (pendientes post
-// F1–F5 de docs/prueba-en-vivo-2026-09-29.md).
+// F1–F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)).
 //
 // F5 empezó a normalizar el teléfono antes de promover (la promoción deduplica
 // comparando la forma normalizada) y marcaba FAILED la fila cuyo teléfono no
@@ -167,10 +167,11 @@ const ingestContactBaseSchema = z.object({
 // escrito, y un payload que mande un texto enorme en `phone` no lo copia
 // entero a una segunda columna (el crudo completo sigue en rawPayload).
 //
-// Con el país por defecto de la organización (PR B de los mismos pendientes),
-// un local con 0 inicial pasa a normalizarse, y este camino queda para los
-// teléfonos realmente mal escritos: letras, largo imposible, un local sin país
-// configurado.
+// Con el país por defecto de la organización (F5-b), un local con 0 inicial
+// pasa a normalizarse, y este camino queda para los teléfonos realmente mal
+// escritos: letras, largo imposible, un local sin país configurado. Por eso el
+// schema es una FÁBRICA: el país es de cada organización, y la promoción arma
+// el schema con el del evento (EventoReclamado.codigoDePais).
 // ---------------------------------------------------------------------------
 const TELEFONO_DESCARTADO_MAX = 100;
 
@@ -185,17 +186,21 @@ export type IngestContactPayload = {
   telefonoDescartado?: string;
 };
 
-export const ingestContactSchema = ingestContactBaseSchema.transform(
-  ({ phone, ...resto }): IngestContactPayload => {
+export function crearIngestContactSchema(codigoDePais: string | null) {
+  return ingestContactBaseSchema.transform(({ phone, ...resto }): IngestContactPayload => {
     if (phone === undefined) {
       return resto;
     }
-    const normalizado = normalizarTelefono(phone);
+    const normalizado = normalizarTelefono(phone, codigoDePais);
     return normalizado === null
       ? { ...resto, telefonoDescartado: phone.slice(0, TELEFONO_DESCARTADO_MAX) }
       : { ...resto, phone: normalizado };
-  },
-);
+  });
+}
+
+// El schema de una organización SIN país por defecto. Lo usan los tests y es
+// el comportamiento de F5 para quien no configuró nada.
+export const ingestContactSchema = crearIngestContactSchema(null);
 
 // Campos que la ingesta reconoce pero NUNCA escribe. Se listan para poder
 // dejar constancia en promotionNotes de que llegaron y se ignoraron: "nunca en

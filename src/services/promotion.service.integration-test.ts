@@ -345,7 +345,7 @@ test("un contacto SIN email no se dedupea: se crea nuevo y queda marcado para re
 });
 
 // ---------------------------------------------------------------------------
-// F5 de docs/prueba-en-vivo-2026-09-29.md — el teléfono se normaliza y un
+// F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub) — el teléfono se normaliza y un
 // teléfono que ya existe se trata como el email que ya existe: es la misma
 // persona y se fusiona (ver escribirCandidato en promotion.service.ts). Cada
 // test usa un número al azar para no fusionarse con los de otro test de la
@@ -470,7 +470,7 @@ test("F5: si el email es de un contacto y el teléfono de OTRO, gana el email, e
 });
 
 // ---------------------------------------------------------------------------
-// F5-a (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md) — un
+// F5-a (pendientes post F1–F5 de docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)) — un
 // teléfono no normalizable ya no hace perder el lead: el contacto entra sin
 // teléfono, el evento queda PROCESSED y el valor original queda en la nota
 // `ignorado` más la marca de revisión manual. Nunca en errorMessage (D2-7).
@@ -547,6 +547,47 @@ test("F5-a: fusionado por email, el teléfono descartado no pisa el que el conta
   const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: existente.id } });
   assert.equal(contacto.phone, telefono);
   assert.equal(telefonoDescartadoDe(evento.promotionNotes), "0 no es un número");
+});
+
+// F5-b: con el país por defecto de la organización, el mismo local que F5-a
+// descartaba se completa y deduplica contra el número ya guardado.
+test("F5-b: con país por defecto, un teléfono local se normaliza y se fusiona con el contacto que ya tiene ese número", async () => {
+  const org = await prisma.organization.create({
+    data: {
+      name: "Org F5-b ingesta",
+      slug: `f5b-ingesta-${randomUUID()}`,
+      defaultPhoneCountryCode: "598",
+    },
+  });
+  const fuente = await prisma.source.create({
+    data: { organizationId: org.id, name: "Landing F5-b", type: "WEBHOOK" },
+  });
+  try {
+    const existente = await prisma.contact.create({
+      data: { organizationId: org.id, firstName: "Ya", lastName: "Estaba", phone: "+59899000222" },
+    });
+    const creado = await prisma.ingestionEvent.create({
+      data: {
+        organizationId: org.id,
+        sourceId: fuente.id,
+        externalId: `f5b-${randomUUID()}`,
+        rawPayload: { firstName: "Ya", lastName: "Estaba", phone: "099 000 222" },
+      },
+      select: { id: true },
+    });
+
+    await drenarPendientes({ organizationId: org.id, limite: 1 });
+
+    const evento = await leerEvento(creado.id);
+    assert.equal(evento.status, "PROCESSED");
+    assert.equal(evento.promotedContactId, existente.id, "se fusionó por teléfono");
+    assert.equal(telefonoDescartadoDe(evento.promotionNotes), undefined);
+  } finally {
+    await prisma.ingestionEvent.deleteMany({ where: { organizationId: org.id } });
+    await prisma.contact.deleteMany({ where: { organizationId: org.id } });
+    await prisma.source.deleteMany({ where: { organizationId: org.id } });
+    await prisma.organization.delete({ where: { id: org.id } });
+  }
 });
 
 test("F5-a: una fila de CSV con un teléfono local se promueve sin teléfono, no queda FAILED", async () => {
@@ -908,6 +949,7 @@ function eventoReclamadoDe(id: string, rawPayload: unknown): EventoReclamado {
     fieldMapping: null,
     attempts: 0,
     rawPayload,
+    codigoDePais: null,
   };
 }
 

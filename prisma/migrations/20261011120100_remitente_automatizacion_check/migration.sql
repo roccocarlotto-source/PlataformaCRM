@@ -1,5 +1,5 @@
 -- ---------------------------------------------------------------------------
--- WA-1 de los pendientes post F1–F5 (docs/prueba-en-vivo-2026-09-29.md).
+-- WA-1 de los pendientes post F1–F5 (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub)).
 -- Parte 2 de 2: el CHECK del remitente acepta AUTOMATION.
 --
 -- messages_sender_user_id_consistency_check se escribió con las dos ramas

@@ -21,7 +21,7 @@ import {
 //   no tiene por qué esperar 24 horas por la primera cotización. Ojo: es
 //   inmediata respecto del ARRANQUE DEL PROCESO. La moneda que se configura
 //   con el servidor ya corriendo no la cubre esta pasada sino el disparo a
-//   pedido de updateOrganizationCurrency (§24 de
+//   pedido de updateOrganizationSettings (§24 de
 //   docs/frontend-cambios-pendientes.md); este worker sigue siendo el que
 //   mantiene la cotización al día después.
 //

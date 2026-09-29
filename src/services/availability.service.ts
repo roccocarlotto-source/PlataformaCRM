@@ -3,6 +3,7 @@ import { findConfirmedBookingsInRange } from "../repositories/booking.repository
 import { findResourceById } from "../repositories/resource.repository";
 import { findWorkingHoursByResource } from "../repositories/workingHours.repository";
 import { AppError } from "../utils/AppError";
+import { enParalelo } from "../utils/enParalelo";
 import {
   estaDentroDelHorario,
   expandirFranjas,
@@ -233,9 +234,15 @@ export async function resolverContexto(
   organizationId: string,
   params: { resourceId: string; serviceTypeId: string; desde: Date; hasta: Date },
 ) {
-  const serviceType = await getServiceTypeById(organizationId, params.serviceTypeId);
-
-  const resource = await findResourceById(params.resourceId, organizationId);
+  // F6 (PR "menos idas a la base"): el servicio, el recurso y el horario de
+  // trabajo se leen EN PARALELO — los tres salen de los ids del pedido, no uno
+  // del otro. Los chequeos de abajo corren igual y en el mismo orden; solo la
+  // sucursal espera, porque sale del recurso.
+  const [serviceType, resource, franjas] = await enParalelo([
+    getServiceTypeById(organizationId, params.serviceTypeId),
+    findResourceById(params.resourceId, organizationId),
+    findWorkingHoursByResource(params.resourceId, organizationId),
+  ] as const);
   if (!resource) {
     throw new AppError("El recurso indicado no existe o no pertenece a tu organización", 400);
   }
@@ -250,8 +257,6 @@ export async function resolverContexto(
 
   // La zona horaria sale de la SUCURSAL del recurso, nunca del servidor.
   const branch = await getBranchById(organizationId, resource.branchId);
-
-  const franjas = await findWorkingHoursByResource(params.resourceId, organizationId);
 
   const franjasDeTrabajo = expandirFranjas({
     franjas,
