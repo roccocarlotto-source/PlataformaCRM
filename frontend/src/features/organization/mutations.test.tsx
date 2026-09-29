@@ -6,7 +6,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeOrganizationSettings } from "../../test/organizationFixtures";
-import { useUpdateOrganizationCurrency } from "./mutations";
+import { useUpdateOrganizationSettings } from "./mutations";
 import { organizationKeys } from "./queries";
 
 vi.mock("../../auth/getAccessToken", () => ({
@@ -27,7 +27,7 @@ describe("organization/mutations — invalidación de cache", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useUpdateOrganizationCurrency(), {
+    const { result } = renderHook(() => useUpdateOrganizationSettings(), {
       wrapper: wrapperFor(queryClient),
     });
     result.current.mutate({ alternateCurrency: "UYU" });
@@ -53,7 +53,7 @@ describe("organization/mutations — invalidación de cache", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-    const { result } = renderHook(() => useUpdateOrganizationCurrency(), {
+    const { result } = renderHook(() => useUpdateOrganizationSettings(), {
       wrapper: wrapperFor(queryClient),
     });
     result.current.mutate({ preferredCurrency: "USD", alternateCurrency: "USD" });

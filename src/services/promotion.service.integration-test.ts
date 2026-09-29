@@ -549,6 +549,47 @@ test("F5-a: fusionado por email, el teléfono descartado no pisa el que el conta
   assert.equal(telefonoDescartadoDe(evento.promotionNotes), "0 no es un número");
 });
 
+// F5-b: con el país por defecto de la organización, el mismo local que F5-a
+// descartaba se completa y deduplica contra el número ya guardado.
+test("F5-b: con país por defecto, un teléfono local se normaliza y se fusiona con el contacto que ya tiene ese número", async () => {
+  const org = await prisma.organization.create({
+    data: {
+      name: "Org F5-b ingesta",
+      slug: `f5b-ingesta-${randomUUID()}`,
+      defaultPhoneCountryCode: "598",
+    },
+  });
+  const fuente = await prisma.source.create({
+    data: { organizationId: org.id, name: "Landing F5-b", type: "WEBHOOK" },
+  });
+  try {
+    const existente = await prisma.contact.create({
+      data: { organizationId: org.id, firstName: "Ya", lastName: "Estaba", phone: "+59899000222" },
+    });
+    const creado = await prisma.ingestionEvent.create({
+      data: {
+        organizationId: org.id,
+        sourceId: fuente.id,
+        externalId: `f5b-${randomUUID()}`,
+        rawPayload: { firstName: "Ya", lastName: "Estaba", phone: "099 000 222" },
+      },
+      select: { id: true },
+    });
+
+    await drenarPendientes({ organizationId: org.id, limite: 1 });
+
+    const evento = await leerEvento(creado.id);
+    assert.equal(evento.status, "PROCESSED");
+    assert.equal(evento.promotedContactId, existente.id, "se fusionó por teléfono");
+    assert.equal(telefonoDescartadoDe(evento.promotionNotes), undefined);
+  } finally {
+    await prisma.ingestionEvent.deleteMany({ where: { organizationId: org.id } });
+    await prisma.contact.deleteMany({ where: { organizationId: org.id } });
+    await prisma.source.deleteMany({ where: { organizationId: org.id } });
+    await prisma.organization.delete({ where: { id: org.id } });
+  }
+});
+
 test("F5-a: una fila de CSV con un teléfono local se promueve sin teléfono, no queda FAILED", async () => {
   const parseado = await parsearArchivo(
     Buffer.from("Nombre,Apellido,Mail,Telefono\nCsv,Local,,099 000 111\n", "utf8"),
@@ -908,6 +949,7 @@ function eventoReclamadoDe(id: string, rawPayload: unknown): EventoReclamado {
     fieldMapping: null,
     attempts: 0,
     rawPayload,
+    codigoDePais: null,
   };
 }
 

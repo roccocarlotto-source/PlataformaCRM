@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw";
 import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeExchangeRate, makeOrganizationSettings } from "../../test/organizationFixtures";
-import { getOrganizationSettings, updateOrganizationCurrency } from "./api";
+import { getOrganizationSettings, updateOrganizationSettings } from "./api";
 
 // getAccessToken es la única frontera externa real de este módulo (vía
 // Supabase) — se mockea acá igual que en source/api.test.ts.
@@ -56,9 +56,9 @@ describe("organization/api — contrato HTTP", () => {
     ]);
   });
 
-  it("updateOrganizationCurrency manda PATCH /organization con el body tal cual", async () => {
+  it("updateOrganizationSettings manda PATCH /organization con el body tal cual", async () => {
     const captured = captureRequests();
-    await updateOrganizationCurrency({ preferredCurrency: "UYU", alternateCurrency: "USD" });
+    await updateOrganizationSettings({ preferredCurrency: "UYU", alternateCurrency: "USD" });
 
     expect(captured[0].method).toBe("PATCH");
     expect(captured[0].url.pathname).toBe("/api/organization");
@@ -69,7 +69,7 @@ describe("organization/api — contrato HTTP", () => {
     // El bug que este test previene: un JSON.stringify con undefined omitiría
     // la clave y el backend dejaría la moneda como estaba.
     const captured = captureRequests();
-    await updateOrganizationCurrency({ alternateCurrency: null });
+    await updateOrganizationSettings({ alternateCurrency: null });
 
     expect(captured[0].body).toEqual({ alternateCurrency: null });
   });
@@ -88,7 +88,7 @@ describe("organization/api — contrato HTTP", () => {
       ),
     );
     await expect(
-      updateOrganizationCurrency({ preferredCurrency: "USD", alternateCurrency: "USD" }),
+      updateOrganizationSettings({ preferredCurrency: "USD", alternateCurrency: "USD" }),
     ).rejects.toThrow("La moneda de preferencia y la alternativa no pueden ser la misma");
   });
 });

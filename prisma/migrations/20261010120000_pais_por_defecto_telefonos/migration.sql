@@ -1,0 +1,36 @@
+-- ---------------------------------------------------------------------------
+-- F5-b de los pendientes post F1–F5 (docs-privados/prueba-en-vivo-2026-09-29.md (local, no está en GitHub), rama
+-- feat/f5-pais-por-defecto): país por defecto de la organización para los
+-- teléfonos.
+--
+-- Desde F5, un teléfono en formato local ("099 123 456", como escribe un
+-- vendedor o un cliente en Uruguay) no se normaliza porque habría que adivinar
+-- el país: la API lo rechaza con 400 y la ingesta lo descarta (F5-a). Con esta
+-- columna la organización declara su país ("598") y lib/telefono.ts completa
+-- esos números: saca el 0 de larga distancia y antepone el código.
+--
+-- Nullable y sin default: null = "sin país por defecto", que se comporta
+-- exactamente como antes. Un default "598" haría que "eligió Uruguay" no se
+-- distinga de "nunca lo configuró", el mismo criterio que preferred_currency.
+--
+-- SIN CHECK: el formato (1 a 3 dígitos, sin "+", sin 0 inicial) lo valida el
+-- PATCH de /api/organization, que es su único escritor (mismo precedente que
+-- las monedas). Por eso el diagnóstico (docs/auditoria-2026-08-21-diagnostico
+-- .sql) no cambia.
+--
+-- SIN BACKFILL de los teléfonos existentes, a propósito: la columna nace null
+-- en todas las organizaciones, y los teléfonos viejos en formato local no se
+-- reescriben. `npm run listar:telefonos-duplicados` muestra cuáles son.
+--
+-- Escrita a mano, no generada por `prisma migrate dev`: mismo motivo que el
+-- resto de las migraciones desde 20260821 (la shadow database no tiene el
+-- schema auth). El ALTER es exactamente lo que `prisma migrate diff` deriva
+-- del schema, para que no aparezca drift.
+--
+-- Compatible en los dos sentidos: la imagen vieja ignora la columna, y la
+-- nueva contra la base vieja solo falla al leerla, así que la migración va
+-- antes que la imagen, como siempre.
+-- ---------------------------------------------------------------------------
+
+-- AlterTable
+ALTER TABLE "organizations" ADD COLUMN     "default_phone_country_code" VARCHAR(3);

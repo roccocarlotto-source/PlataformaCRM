@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
   getOrganizationSettingsHandler,
-  updateOrganizationCurrencyHandler,
+  updateOrganizationSettingsHandler,
 } from "../controllers/organization.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { authorize } from "../middlewares/authorize";
@@ -24,5 +24,5 @@ organizationRouter.patch(
   authenticate,
   businessWriteRateLimiter,
   authorize("ADMIN"),
-  updateOrganizationCurrencyHandler,
+  updateOrganizationSettingsHandler,
 );

@@ -411,7 +411,9 @@ async function esperarBackendsBloqueados(
 test("dos primeros mensajes concurrentes de la MISMA sesión del widget -> un solo contacto y una sola conversación", async () => {
   const sessionId = `sesion-${randomUUID()}`;
 
-  const a = await sostenerTransaccion((tx) => lockOrganizationForUpdate(fx.orgId, tx));
+  const a = await sostenerTransaccion(async (tx) => {
+    await lockOrganizationForUpdate(fx.orgId, tx);
+  });
   const resolver = () =>
     resolveWidgetContact(fx.orgId, fx.agentId, fx.branchId, "WEB", sessionId, randomUUID());
   const ambas = Promise.all([resolver(), resolver()]);
