@@ -71,7 +71,7 @@ jobs:
           CORS_ORIGIN: http://localhost:5173
 
       # Gate de vulnerabilidades de dependencias — hallazgo S-3 de
-      # docs/review-ingesta-2026-08-27.md. Hasta acá el pipeline no miraba las
+      # docs-privados/review-ingesta-2026-08-27.md (local, no está en GitHub). Hasta acá el pipeline no miraba las
       # dependencias en absoluto: las dos vulnerabilidades que encontró ese
       # review aparecieron corriendo `npm audit` a mano.
       #
@@ -115,7 +115,7 @@ jobs:
       - run: npm test
 
       # Gate de vulnerabilidades del frontend — hallazgo S2-1 de
-      # docs/review-fase2-2026-08-28.md. El gate existía desde S-3 pero cubría
+      # docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). El gate existía desde S-3 pero cubría
       # SOLO el paquete raíz, y el frontend es la mitad de los archivos de la
       # Fase 2: sus dependencias no las miraba nadie. Las 2 advisories high de
       # react-router (S2-2) aparecieron corriendo `npm audit` a mano, igual que
@@ -234,7 +234,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    # B-35 de docs/auditoria-2026-08-29.md — el env del JOB, no de steps
+    # B-35 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — el env del JOB, no de steps
     # sueltos.
     #
     # NODE_ENV: sin definirla, el default de Zod en src/config/env.ts es

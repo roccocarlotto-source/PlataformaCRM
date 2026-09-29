@@ -848,7 +848,7 @@ test("un evento CANCELADO llega con status cancelled y se preserva", async () =>
 });
 
 test("un evento de DÍA COMPLETO (date en vez de dateTime) se lee como medianoche EN LA ZONA DE LA SUCURSAL", async () => {
-  // B-6 de docs/auditoria-2026-08-29.md: `new Date("2026-09-07")` es medianoche
+  // B-6 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): `new Date("2026-09-07")` es medianoche
   // UTC por especificación, sin importar dónde esté la sucursal. En Buenos Aires
   // (UTC-3, sin horario de verano) la medianoche del 7 es las 03:00Z del 7 — y
   // la lectura vieja daba las 21:00 del 6, hora local.
@@ -914,7 +914,7 @@ test("un item sin id se descarta en vez de romper la lista", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// timeMin — M-3 de docs/auditoria-2026-08-29.md: la sincronización COMPLETA se
+// timeMin — M-3 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): la sincronización COMPLETA se
 // acota, y el límite viaja en TODAS las páginas.
 // ---------------------------------------------------------------------------
 

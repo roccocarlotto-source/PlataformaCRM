@@ -21,7 +21,7 @@ import { env } from "../config/env";
 // ingesta que llegue deje una credencial viva en el log.
 //
 // x-external-id NO es una credencial pero SÍ puede ser PII — B-20 de
-// docs/auditoria-2026-08-29.md (B-3 del 21/08). Es el header por el que la
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) (B-3 del 21/08). Es el header por el que la
 // fuente identifica al lead en la capa de ingesta (ingest.controller.ts), y
 // ingestionEvent.repository.ts documenta que ese externalId "puede ser el
 // email del lead". Sin redactarlo, cada request a /api/ingest —o cualquier

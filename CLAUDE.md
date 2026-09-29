@@ -93,6 +93,56 @@ de Prisma y exporta `CORS_ORIGIN` para `npm test`.
 
 ---
 
+## Documentación sensible
+
+El repo `roccocarlotto-source/PlataformaCRM` es **público** y va a seguir así.
+La documentación sensible va en `docs-privados/`, en la raíz del repo: está en
+`.gitignore` y solo existe en la PC de Rocco. Su `README.md` (también local)
+lista lo que hay.
+
+**Criterio.** Va a `docs-privados/` todo documento que tenga al menos una de
+estas cosas:
+
+- hallazgos de seguridad con su ubicación en el código (archivo, línea);
+- resultados de pruebas contra producción;
+- ids reales de organizaciones, usuarios o contactos;
+- datos personales;
+- detalles de infraestructura que ayuden a atacar, como nombres de variables
+  secretas junto a cómo se usan o endpoints internos con sus debilidades.
+
+La arquitectura, los diseños y las decisiones de producto se quedan en `docs/`.
+
+**Reglas:**
+
+- Las auditorías, los informes de pruebas en vivo, los handoffs con datos
+  reales y las bitácoras con hallazgos se escriben **siempre** en
+  `docs-privados/`, nunca en `docs/`.
+- No se pushean ramas `audit/*` (ni ninguna rama cuyo único contenido sea un
+  documento de los de arriba).
+- Los comentarios de código que citan un hallazgo apuntan a
+  `docs-privados/<archivo>` y aclaran que es local: quien lea el repo en
+  GitHub no lo va a encontrar, y está bien.
+- Ningún test, script ni job del CI puede leer un archivo de
+  `docs-privados/`: el CI no lo tiene. (Por eso
+  `docs/auditoria-2026-08-21-diagnostico.sql` sigue en `docs/`: lo leen
+  `verify:schema` y el test de integración del diagnóstico.)
+- **Antes de commitear un doc nuevo en `docs/`**, chequear que no tenga ids
+  reales (UUIDs o prefijos de UUIDs de la base), emails, teléfonos ni nombres
+  de personas reales. Si un doc de arquitectura necesita un ejemplo, se usan
+  valores ficticios (`11111111-…`, `persona@example.com`).
+- Lo commiteado antes del 2026-09-29 sigue en el historial de git: no se
+  reescribe. Esto evita publicar más, no despublica lo ya publicado.
+
+**En las sesiones en la nube `docs-privados/` no existe.** Si una tarea
+necesita un documento de ahí (por ejemplo, "cerrá el hallazgo M-7 de
+`docs-privados/auditoria-2026-08-29.md`"), se le pide a Rocco que lo pegue o
+se trabaja sin él con lo que dicen el código y el prompt — nunca se inventa
+ni se reconstruye de memoria su contenido. Y lo que la sesión produzca de ese
+tipo (una auditoría, un informe de prueba) no se commitea: se le entrega a
+Rocco en la respuesta para que lo guarde él en `docs-privados/`.
+
+---
+
 ## Toolkit Discovery
 
 The responsibility of this section is to make the Toolkit locatable —

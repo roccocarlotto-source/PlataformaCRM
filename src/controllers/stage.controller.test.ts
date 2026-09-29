@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { createStageSchema, updateStageSchema } from "./stage.controller";
 
-// M-9 (docs/auditoria-2026-08-29.md) — `order` y `probability` vienen de un
+// M-9 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — `order` y `probability` vienen de un
 // body JSON y se validan con z.number(), no con z.coerce.number().
 //
 // Con coerce, `Number(null)` es 0. En `order` lo frenaba el .positive() por

@@ -7,7 +7,7 @@ import {
   updateContactSchema,
 } from "./contact.controller";
 
-// M-10 (docs/auditoria-2026-08-29.md) — PATCH tiene que poder vaciar los
+// M-10 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — PATCH tiene que poder vaciar los
 // campos opcionales de Contact. email/phone/jobTitle/source/companyId eran
 // `...optional()` sin `.nullable()` en un objeto compartido con create, así
 // que `PATCH {"phone": null}` rebotaba con 400 de Zod antes de llegar al
@@ -68,7 +68,7 @@ test("M-10: ownerId/firstName/lastName/lifecycleStage NO admiten null en update"
 });
 
 // ---------------------------------------------------------------------------
-// B-21 (docs/auditoria-2026-08-29.md) — `page` con tope, igual que `pageSize`.
+// B-21 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — `page` con tope, igual que `pageSize`.
 // Sin `.max()`, ?page=999999999 se aceptaba y llegaba a Postgres como un
 // OFFSET gigante que el motor igual recorre. Mismo 10.000 que ingestionEvent
 // (S2-5). Sin base y sin HTTP: la frontera del schema, como M-10.

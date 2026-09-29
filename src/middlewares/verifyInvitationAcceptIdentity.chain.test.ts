@@ -8,7 +8,7 @@ import { errorHandler } from "./errorHandler";
 import { ACCEPT_IDENTITY_MAX, createAcceptInvitationRateLimiter } from "./rateLimit";
 import { crearCadenaDeAceptacion, type IdentidadDeAuth } from "./verifyInvitationAcceptIdentity";
 
-// V-8 (docs/auditoria-2026-08-29.md) — EL ORDEN de la cadena de aceptación,
+// V-8 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — EL ORDEN de la cadena de aceptación,
 // sin red ni base.
 //
 // Lo que se fija acá no es la decisión de cada etapa (eso lo cubre

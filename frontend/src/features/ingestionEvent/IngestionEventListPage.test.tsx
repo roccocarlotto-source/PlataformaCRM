@@ -409,7 +409,7 @@ describe("IngestionEventListPage — reintento y contacto promovido", () => {
 });
 
 // ---------------------------------------------------------------------------
-// E2-3 y E2-4 — docs/review-fase2-2026-08-28.md.
+// E2-3 y E2-4 — docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub).
 // ---------------------------------------------------------------------------
 
 describe("IngestionEventListPage — resolución de fuentes y reintento por fila", () => {

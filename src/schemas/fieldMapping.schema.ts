@@ -35,7 +35,7 @@ export const MAX_COLUMNAS_MAPEADAS = 50;
 const MAX_LARGO_ENCABEZADO = 255;
 
 // MISMA REGLA QUE ingestContactSchema: todo mensaje de acá tiene que ser
-// custom, nunca el default de zod (D2-7 de docs/review-fase2-2026-08-28.md).
+// custom, nunca el default de zod (D2-7 de docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub)).
 //
 // Aplica aunque este schema valide configuración y no datos de una persona:
 // promotion.service.ts lo REVALIDA en cada promoción (traducirConMapeo) y

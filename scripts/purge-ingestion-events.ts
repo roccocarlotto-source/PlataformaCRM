@@ -9,7 +9,7 @@ import {
 
 // ---------------------------------------------------------------------------
 // Purga de retención de `ingestion_events` — hallazgo D2-3 de
-// docs/review-fase2-2026-08-28.md.
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub).
 //
 // EL PROBLEMA QUE RESUELVE: `STD-LEG-002` exige que toda categoría de dato
 // personal tenga política de retención, y `rawPayload` es el dato personal

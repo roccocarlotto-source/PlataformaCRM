@@ -65,7 +65,7 @@ export function findConnectionWithSecretByBranch(
 // escritura procede, así que el aislamiento va en su propio WHERE y no en el
 // del caller.
 //
-// POR refreshToken Y NO POR status — B-9 de docs/auditoria-2026-08-29.md. Lo
+// POR refreshToken Y NO POR status — B-9 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Lo
 // que no puede quedar huérfano al borrar la sucursal es la credencial cifrada:
 // sin fila, nadie podría desconectarla ni intentar revocarla nunca más. Y el
 // status no la describe: ACTIVE siempre tiene refreshToken (lo exige el CHECK),
@@ -108,7 +108,7 @@ export interface DatosDeConexion {
 // la fecha de ESTA autorización; createdAt no se toca, así que sigue diciendo
 // cuándo esta sucursal conectó Google por primera vez.
 //
-// Y TAMBIÉN LIMPIA syncToken Y EL CANAL — B-3 de docs/auditoria-2026-08-29.md.
+// Y TAMBIÉN LIMPIA syncToken Y EL CANAL — B-3 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
 // El callback de OAuth no tiene forma de saber si la cuenta que acaba de
 // autorizar es la misma de la vez anterior (completarConexion usa siempre
 // calendarId "primary"), así que toda reconexión se trata como un calendario
@@ -209,7 +209,7 @@ export function markConnectionError(
 // ---------------------------------------------------------------------------
 
 // La búsqueda del webhook: llega X-Goog-Channel-ID y hay que encontrar la
-// conexión. SIN el secreto — B-16 de docs/auditoria-2026-08-29.md. El
+// conexión. SIN el secreto — B-16 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). El
 // comentario original decía que devolvía la fila completa "porque el camino que
 // sigue necesita el refresh token para llamar a events.list", y eso era falso:
 // el flujo del webhook (googleCalendarSync.service.ts) usa organizationId,
@@ -250,7 +250,7 @@ export function findConnectionByChannelId(channelId: string, db: Db = prisma) {
 // rama en el worker.
 //
 // `alcance.organizationId` es SOLO para tests (A-8 de
-// docs/auditoria-2026-08-29.md): el worker de producción barre TODAS las
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): el worker de producción barre TODAS las
 // organizaciones, que es su trabajo; un test que ejercita el barrido tiene que
 // poder acotarlo a la organización que él mismo montó, porque la suite corre en
 // paralelo contra una base compartida y sin esto el barrido de un archivo
@@ -292,7 +292,7 @@ export interface DatosDeCanal {
 // migración lo exige, y el motivo es que un canal a medias es inutilizable de
 // forma silenciosa (sin resourceId no se puede detener nunca).
 //
-// SOLO SOBRE UNA CONEXIÓN ACTIVE — B-7 de docs/auditoria-2026-08-29.md. Entre
+// SOLO SOBRE UNA CONEXIÓN ACTIVE — B-7 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Entre
 // que renovarCanal leyó la conexión (y obtenerAccessToken validó el status) y
 // que llega acá hay una llamada a Google en el medio; si desconectar() corrió
 // en esa ventana, la fila ya es REVOKED y escribirle el canal la dejaría con

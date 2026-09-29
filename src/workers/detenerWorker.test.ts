@@ -11,7 +11,7 @@ import { iniciarWorkerDeSeguimientosQr } from "./qrFollowUpWorker";
 import { iniciarWorkerDeCupones } from "./discountVoucherFollowUpWorker";
 
 // ---------------------------------------------------------------------------
-// M-12 (c) de docs/auditoria-2026-08-29.md: el stop que devuelve cada
+// M-12 (c) de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): el stop que devuelve cada
 // iniciarWorkerDe*() ESPERA a que el tick en curso termine. Es el escenario
 // literal del hallazgo —SIGTERM mientras un handler está a mitad de camino—
 // reproducido sin base, sin timers de valor fijo y sin carreras: la pasada del

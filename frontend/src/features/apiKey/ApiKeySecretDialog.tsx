@@ -10,7 +10,7 @@ import { Modal } from "../../design-system/Modal";
 // caiga) ni se persiste. Cerrar el modal la borra del árbol de React.
 //
 // LO QUE ESO NO ALCANZABA A LIMPIAR, hasta el hallazgo S2-4 de
-// docs/review-fase2-2026-08-28.md: el resultado de useCreateApiKey queda en el
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub): el resultado de useCreateApiKey queda en el
 // MutationCache como `.data`, con el secreto adentro, y desmontar este
 // componente no lo toca. Por eso `onClose` no es solo "cerrar": el padre
 // (ApiKeyListPage) llama además a `reset()` sobre la mutación. Recién ahí no

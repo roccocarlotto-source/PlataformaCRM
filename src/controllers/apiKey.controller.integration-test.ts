@@ -468,7 +468,7 @@ test("una Source pausada (isActive: false) sigue aceptando claves nuevas", async
 });
 
 // ---------------------------------------------------------------------------
-// B-21 (docs/auditoria-2026-08-29.md) — `page` con tope, por HTTP real: la
+// B-21 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — `page` con tope, por HTTP real: la
 // cadena completa parseOrThrow → errorHandler → 400. Mismo patrón que el test
 // "pageSize por encima del máximo da 400" de ingestionEvent (S2-5).
 // ---------------------------------------------------------------------------

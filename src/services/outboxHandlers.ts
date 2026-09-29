@@ -27,7 +27,7 @@ export interface EventoAEntregar {
   organizationId: string;
   eventType: string;
   payload: unknown;
-  // M-14 de docs/auditoria-2026-08-29.md: se aborta cuando vence
+  // M-14 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): se aborta cuando vence
   // OUTBOX_HANDLER_TIMEOUT_MS. Un handler que la pasa a su propia operación
   // cancelable (fetch, por ejemplo, que la acepta nativamente) deja de competir
   // con el reintento — sin esto, el handler seguía corriendo solo después de

@@ -16,7 +16,7 @@ export function createOrganization(data: { name: string; slug: string }, db: Db 
 // tiene efecto real (el lock se libera al instante), mismo criterio que
 // shiftUpFrom/shiftDownAfter en stage.repository.ts.
 // Verifica que el SELECT ... FOR UPDATE bloqueó una fila (B-17 de
-// docs/auditoria-2026-08-29.md). Un SELECT que no encuentra nada no es un
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). Un SELECT que no encuentra nada no es un
 // error para Postgres: devuelve cero filas, no bloquea nada, y la función
 // retornaba igual — el caller seguía como si hubiera serializado. Ese camino
 // es inalcanzable en operación normal (todos los callers validan existencia

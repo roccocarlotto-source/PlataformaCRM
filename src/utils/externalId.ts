@@ -69,7 +69,7 @@ function canonicalize(value: unknown, depth: number): unknown {
 
   if (value !== null && typeof value === "object") {
     const entrada = value as Record<string, unknown>;
-    // SIN PROTOTIPO — B-28 de docs/auditoria-2026-08-29.md. `entrada` sale de
+    // SIN PROTOTIPO — B-28 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). `entrada` sale de
     // JSON.parse, que crea una propiedad propia aunque la clave sea "__proto__";
     // pero sobre un `{}` literal, `ordenado["__proto__"] = x` no crea nada:
     // dispara el setter heredado de Object.prototype y la clave desaparece del
@@ -92,7 +92,7 @@ export function canonicalStringify(value: unknown): string {
 }
 
 // El MISMO guard de profundidad, disponible para quien NO necesita el JSON
-// canónico. Existe por M-15 de docs/auditoria-2026-08-29.md: el guard vivía
+// canónico. Existe por M-15 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): el guard vivía
 // solo dentro de canonicalize, y canonicalize solo corre cuando hay que
 // derivar el externalId — es decir, únicamente cuando el cliente NO manda
 // X-External-Id. Con el header provisto, el payload llegaba sin chequear

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { prisma, type Db } from "./prisma";
 
 // ---------------------------------------------------------------------------
-// Carreras forzadas contra Postgres real — M-19 de docs/auditoria-2026-08-29.md.
+// Carreras forzadas contra Postgres real — M-19 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
 //
 // SOLO PARA TESTS (el nombre *.test-helper.ts lo deja fuera del build). Es la
 // técnica que activity.service.integration-test.ts ya usaba, extraída para

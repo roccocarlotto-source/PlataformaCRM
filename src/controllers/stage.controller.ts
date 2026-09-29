@@ -17,7 +17,7 @@ const notBothWonAndLost = (data: { isWon?: boolean; isLost?: boolean }) =>
   !(data.isWon && data.isLost);
 
 // z.number() y NO z.coerce.number() en `order` y `probability` — M-9 de
-// docs/auditoria-2026-08-29.md. Vienen de un body JSON, donde un cliente bien
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Vienen de un body JSON, donde un cliente bien
 // hecho manda un número; coerce es para query strings, que Express entrega
 // siempre como string. Con coerce, `Number(null)` es 0: en `order` lo frenaba
 // el .positive() por casualidad, pero `{"probability": null}` pasaba el

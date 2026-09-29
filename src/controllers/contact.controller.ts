@@ -96,7 +96,7 @@ export const updateContactSchema = z
 // que createContactSchema/updateContactSchema con M-10.
 export const listContactsQuerySchema = z.object({
   // Tope de cordura, el mismo que ingestionEvent (S2-5) — B-21 de
-  // docs/auditoria-2026-08-29.md: sin él, ?page=999999999 llega a Postgres
+  // docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): sin él, ?page=999999999 llega a Postgres
   // como un OFFSET gigante que igual hay que recorrer.
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
@@ -153,7 +153,7 @@ export const deleteContactHandler = asyncHandler<AuthenticatedRequest>(
 
 // ---------------------------------------------------------------------------
 // Borrado de datos personales a pedido — D2-4 de
-// docs/review-fase2-2026-08-28.md.
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub).
 //
 // POST y no DELETE, y no es un detalle de gusto: DELETE /api/contacts/:id ya
 // existe y significa otra cosa (soft delete, reversible). Dos verbos distintos

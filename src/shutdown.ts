@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// La orquestación del apagado — M-12 de docs/auditoria-2026-08-29.md.
+// La orquestación del apagado — M-12 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
 //
 // SIN NINGÚN EFECTO DE LADO AL IMPORTAR. Todo lo que hace falta para apagar
 // —cerrar el servidor HTTP, detener los workers, desconectar Prisma, salir del

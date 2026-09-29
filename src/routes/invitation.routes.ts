@@ -37,7 +37,7 @@ invitationRouter.delete(
 // ya existente) — pero no anónimo: exige un JWT de Supabase válido. Ver
 // invitation.controller.ts. La cadena vive en UN solo lugar
 // (crearCadenaDeAceptacion, verifyInvitationAcceptIdentity.ts) porque su orden
-// es lo que V-8 de docs/auditoria-2026-08-29.md corrigió:
+// es lo que V-8 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) corrigió:
 //   1. verifyInvitationAcceptToken: firma del JWT (barato, JWKS cacheado).
 //   2. body válido (400 barato).
 //   3. acceptInvitationRateLimiter: por el `sub` verificado.
@@ -46,7 +46,7 @@ invitationRouter.delete(
 // ahorraba la llamada cara.
 //
 // SIN LIMITER ANTES DE VERIFICAR, y es una decisión (A-2 de
-// docs/auditoria-2026-08-29.md): hasta el 29/08 acá iba acceptPreAuthRateLimiter,
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): hasta el 29/08 acá iba acceptPreAuthRateLimiter,
 // que keyeaba por IP porque antes de verificar no hay ninguna identidad — y
 // por IP, detrás de un proxy, el cupo era global para todos los clientes. Lo
 // que queda sin acotar es una verificación de firma contra un JWKS cacheado

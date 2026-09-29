@@ -37,7 +37,7 @@ export interface AuthenticatedRequest extends Request {
 }
 
 // El `sub` de un JWT de Supabase con firma verificada, ANTES de resolverlo
-// contra la Admin API — V-8 de docs/auditoria-2026-08-29.md. Es lo único que
+// contra la Admin API — V-8 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Es lo único que
 // acceptInvitationRateLimiter necesita para keyear, y existe como dato
 // separado justamente para que el limiter pueda correr antes de la llamada
 // cara (getUserById) y no después. Adjuntado por verifyInvitationAcceptToken.

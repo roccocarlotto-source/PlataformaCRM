@@ -90,7 +90,7 @@ enum SourceType {
 // worker) -> PROCESSED (promovido a Contact) | FAILED (la fila no era válida;
 // errorMessage dice por qué, y el resto del lote siguió) | DUPLICATE (ya había
 // sido ingerido antes) | DEAD_LETTER (agotó sus reintentos contra un error de
-// SISTEMA — B-30 de docs/auditoria-2026-08-29.md).
+// SISTEMA — B-30 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)).
 //
 // FAILED y DEAD_LETTER son terminales los dos, pero dicen cosas distintas —la
 // misma distinción que el comentario de OutboxStatus, del otro lado: FAILED es
@@ -2097,7 +2097,7 @@ model Booking {
   // google_event_id) WHERE google_event_id IS NOT NULL — el DSL de Prisma no
   // expresa el predicado, vive en la migración
   // 20260902140000_bookings_google_event_id_unique. Nació como índice NO único
-  // por rendimiento (M-7 de docs/auditoria-2026-08-29.md, migración
+  // por rendimiento (M-7 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub), migración
   // 20260902120000: sirve a findBookingByGoogleEventId, que aplicarCambio llama
   // una vez por cada evento cambiado de Google y que sin índice escaneaba el
   // tenant entero) y V-4 lo volvió UNIQUE: findFirst sin orderBy +

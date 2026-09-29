@@ -11,7 +11,7 @@ import {
 
 // ---------------------------------------------------------------------------
 // Atomicidad entre tandas de insertPendingEventsBatch (M-17 de
-// docs/auditoria-2026-08-29.md) contra Postgres real.
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) contra Postgres real.
 //
 // SE LLAMA AL REPOSITORIO DIRECTAMENTE, no por HTTP: es una prueba de la
 // escritura, no del endpoint — mismo criterio que pipeline.service y que

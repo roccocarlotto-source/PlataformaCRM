@@ -43,7 +43,7 @@ import { AppError } from "../utils/AppError";
 // PaaS— por definición. Con trust proxy apagado, detrás de un proxy `req.ip`
 // es LA IP DEL PROXY PARA TODOS LOS CLIENTES, así que un cupo por IP no es
 // "un poco impreciso": es un cupo GLOBAL que cualquiera agota gratis para
-// todos los demás (A-2 de docs/auditoria-2026-08-29.md).
+// todos los demás (A-2 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)).
 //
 // Por eso cada limiter keyea por una identidad que el request trae consigo:
 // el userId del JWT ya verificado, el apiKeyId de la clave de ingesta, o el
@@ -225,7 +225,7 @@ export const onboardingOtpRateLimiter = createOnboardingOtpRateLimiter();
 
 // ---------------------------------------------------------------------------
 // Invitation accept — la etapa PRE-AUTH NO TIENE LIMITER, y es una decisión
-// (A-2 de docs/auditoria-2026-08-29.md), no un olvido.
+// (A-2 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)), no un olvido.
 //
 // Hasta el 29/08 acá vivía acceptPreAuthRateLimiter: 20 requests cada 5
 // minutos sobre POST /api/invitations/accept, montado ANTES de
@@ -276,7 +276,7 @@ export const onboardingOtpRateLimiter = createOnboardingOtpRateLimiter();
 // del JWT y la llamada a la Admin API (crearCadenaDeAceptacion en
 // verifyInvitationAcceptIdentity.ts).
 //
-// V-8 de docs/auditoria-2026-08-29.md: hasta ese fix este limiter corría
+// V-8 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): hasta ese fix este limiter corría
 // DESPUÉS de verifyInvitationAcceptIdentity entero, o sea después de
 // getUserById, en cada request. El 429 le ahorraba el handler a una identidad
 // con el cupo agotado, pero no la llamada a Supabase: N requests eran N
@@ -405,7 +405,7 @@ export const businessWriteRateLimiter = createBusinessWriteRateLimiter();
 // docs/ingestion-architecture.md)— así que es el camino MÁS BARATO del sistema
 // hacia la operación MÁS CARA: expandir un XLSX en memoria, que es un ZIP y por
 // lo tanto no está acotado por el tamaño subido (ver parsearXlsx en
-// utils/spreadsheet.ts, y S-5 de docs/review-ingesta-2026-08-27.md, donde ese
+// utils/spreadsheet.ts, y S-5 de docs-privados/review-ingesta-2026-08-27.md (local, no está en GitHub), donde ese
 // costo ya se aceptó como riesgo conocido).
 //
 // POR QUÉ 10 Y NO 100. BUSINESS_WRITE_MAX es deliberadamente generoso porque su

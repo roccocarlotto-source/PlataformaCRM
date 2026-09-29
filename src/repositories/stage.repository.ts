@@ -69,7 +69,7 @@ export function findStagesByPipeline(pipelineId: string, db: Db = prisma) {
   });
 }
 
-// organizationId además de pipelineId (B-12 de docs/auditoria-2026-08-29.md):
+// organizationId además de pipelineId (B-12 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)):
 // esto decide si createStage/updateStage tiran un 409, así que le aplica el
 // mismo criterio que countActiveStagesByPipeline documenta más abajo — "esto
 // decide si una escritura procede, así que el aislamiento tiene que estar en
@@ -158,7 +158,7 @@ export function softDeleteStage(id: string, organizationId: string, db: Db = pri
 // del más alto al más bajo, cada casillero de destino ya quedó libre por el
 // paso anterior, nunca choca contra la constraint única.
 // pipelineId en el WHERE de cada escritura (B-12 de
-// docs/auditoria-2026-08-29.md), igual que reindexStages y por el mismo
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)), igual que reindexStages y por el mismo
 // motivo documentado ahí: la escritura misma es la garantía, no la lectura de
 // unas líneas más arriba. A diferencia de reindexStages, acá los ids salen de
 // un findMany propio ya filtrado por pipelineId, así que la guarda solo puede

@@ -3,7 +3,7 @@ import { AppError } from "./AppError";
 
 // ---------------------------------------------------------------------------
 // Los códigos de error de Prisma que se traducen CENTRALMENTE, en errorHandler
-// — M-11 (c) de docs/auditoria-2026-08-29.md.
+// — M-11 (c) de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
 //
 // POR QUÉ ESTOS TRES ACÁ Y P2002 NO. P2002 (constraint única violada) se
 // traduce por servicio, cerca de cada escritura (pipeline.service,
@@ -22,7 +22,7 @@ import { AppError } from "./AppError";
 // de siempre, a propósito: devolver undefined es la forma de decir "de este no
 // sé nada".
 //
-// ESTA TRADUCCIÓN TAMBIÉN CIERRA V-6 de docs/auditoria-2026-08-29.md, y lo
+// ESTA TRADUCCIÓN TAMBIÉN CIERRA V-6 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub), y lo
 // cierra sin que nadie haya tocado ningún lock. V-6 señalaba que toda
 // $transaction de los services usa el timeout por defecto de Prisma (5 s) —
 // sigue siendo así: solo outboxWorker.ts y el lote de importación lo ajustan—

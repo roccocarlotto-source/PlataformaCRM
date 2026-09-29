@@ -20,7 +20,7 @@ import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
 // POST /api/contacts/:id/erase-personal-data — D2-4 de
-// docs/review-fase2-2026-08-28.md. HTTP real contra una app Express real, con
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). HTTP real contra una app Express real, con
 // el router real —su authenticate, su authorize y su rate limiter— contra
 // Postgres y GoTrue reales. Mismo patrón que
 // ingestionEvent.controller.integration-test.ts.
@@ -375,7 +375,7 @@ test("el ADMIN de otra organización recibe 404, y no borra nada", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// M-18 (docs/auditoria-2026-08-29.md) — el borrado de datos sobre un contacto
+// M-18 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — el borrado de datos sobre un contacto
 // YA soft-deleteado. Era el caso más común en la práctica —alguien pide que su
 // ficha se oculte y después que sus datos se destruyan, o al revés— y respondía
 // 404: el pre-chequeo reutilizaba findContactById (deletedAt: null) para algo
@@ -632,7 +632,7 @@ test("con varios eventos del mismo contacto se redactan todos, y el conteo los i
 });
 
 // ---------------------------------------------------------------------------
-// B-27 de docs/auditoria-2026-08-29.md — la escritura de cada evento lleva
+// B-27 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — la escritura de cada evento lleva
 // organizationId en su propio WHERE y verifica el count (sexto y último del
 // bucket "escritura-es-garantía"). Estos tests van directo al repository, no
 // al endpoint: la guarda vive ahí, y su camino de error no es alcanzable desde

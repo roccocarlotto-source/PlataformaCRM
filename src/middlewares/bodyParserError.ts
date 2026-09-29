@@ -3,7 +3,7 @@ import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
 // Los errores de body-parser, traducidos a AppError — M-11 (a) de
-// docs/auditoria-2026-08-29.md.
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
 //
 // HACE FALTA PORQUE errorHandler MANDA A 500 TODO LO QUE NO SEA AppError (a
 // propósito: confiar en el `status` que trae un error de terceros es cómo se

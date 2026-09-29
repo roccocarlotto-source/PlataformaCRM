@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Gate de vulnerabilidades de dependencias — hallazgo S-3 de
-// docs/review-ingesta-2026-08-27.md.
+// docs-privados/review-ingesta-2026-08-27.md (local, no está en GitHub).
 //
 // EL PROBLEMA QUE RESUELVE: el pipeline corría typecheck, build, unit, lint,
 // prettier, migraciones, verify:schema e integración, y NADA que mirara las
@@ -30,7 +30,7 @@ import { readFileSync } from "node:fs";
 // testeable contra un archivo armado a mano.
 //
 // POR QUÉ CONOCE EL WORKSPACE — hallazgo S2-1 de
-// docs/review-fase2-2026-08-28.md. El gate cubría solo el paquete raíz, y el
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). El gate cubría solo el paquete raíz, y el
 // frontend —la mitad de la Fase 2— no lo pasaba por ningún lado. Extenderlo era
 // correr el mismo script sobre un segundo JSON, pero las excepciones NO son
 // compartidas: la de uuid/exceljs es un árbol de dependencias que el frontend
@@ -76,7 +76,7 @@ const EXCEPCIONES: Excepcion[] = [
       "cuando se pasa el argumento `buf`, y exceljs usa exclusivamente v4 sin `buf` " +
       "(lib/xlsx/xform/sheet/cf-ext/cf-rule-ext-xform.js): verificado no alcanzable. No hay " +
       "arreglo no disruptivo — `npm audit fix --force` degradaría exceljs a 3.4.0.",
-    hallazgo: "S-1, docs/review-ingesta-2026-08-27.md",
+    hallazgo: "S-1, docs-privados/review-ingesta-2026-08-27.md",
   },
 ];
 

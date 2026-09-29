@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { traducirConMapeo } from "./promotion.service";
 
 // ---------------------------------------------------------------------------
-// B-28 (docs/auditoria-2026-08-29.md): `"constructor" in fila` es true aunque la
+// B-28 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): `"constructor" in fila` es true aunque la
 // fila no tenga esa columna, porque `in` recorre toda la cadena de prototipos.
 // Con un fieldMapping cuya columna origen se llame como algo heredado de
 // Object.prototype ("constructor", "toString", "hasOwnProperty"…), el código

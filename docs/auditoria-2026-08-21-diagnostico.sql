@@ -9,7 +9,7 @@
 --   Devuelve una sola tabla con una fila por chequeo.
 --
 -- Responde las verificaciones pendientes de la sección 8 de
--- docs/auditoria-2026-08-21.md:
+-- docs-privados/auditoria-2026-08-21.md (local, no está en GitHub):
 --   V-1 → ¿C-1 es explotable hoy?
 --   V-2 → ¿cuáles de los 34 objetos de DDL existen en la base real?
 --   V-3 → ¿el rol de la app realmente bypassea RLS?
@@ -319,7 +319,7 @@ from (
      'CREATE UNIQUE INDEX invitations_org_email_pending_unique ON public.invitations USING btree (organization_id, email) WHERE (status = ''PENDING'')'),
     ('ingestion_events_source_external_unique',
      'CREATE UNIQUE INDEX ingestion_events_source_external_unique ON public.ingestion_events USING btree (source_id, external_id) WHERE (external_id IS NOT NULL)'),
-    -- V-4 (docs/auditoria-2026-08-29.md): nació en la fila 17 como índice NO
+    -- V-4 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): nació en la fila 17 como índice NO
     -- único (M-7) y la migración 20260902140000 lo reemplazó por este UNIQUE.
     -- Sin UNIQUE, findFirst + markBookingCancelled podrían cancelar la reserva
     -- equivocada si dos calendarios de la misma organización repitieran un id.
@@ -383,7 +383,7 @@ from (
   -- otra tabla contaba como presente.
   --
   -- Los 6 del módulo de Booking / Google Calendar se agregaron por M-6 de
-  -- docs/auditoria-2026-08-29.md: hasta entonces esta fila afirmaba 5 de 11,
+  -- docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): hasta entonces esta fila afirmaba 5 de 11,
   -- y perder en un rebase la sección de CHECKs de 20260830120000 pasaba
   -- migrate deploy, verify:schema y la suite (Zod frena todo en el borde de
   -- la API) sin que nada lo dijera.
@@ -1119,7 +1119,7 @@ from (
   -- V-2 ─ Los índices parciales NO únicos, comparados por DEFINICIÓN COMPLETA.
   --
   -- La fila 7 afirma solo los índices únicos parciales; hasta M-7 de
-  -- docs/auditoria-2026-08-29.md ningún índice parcial no único estaba
+  -- docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) ningún índice parcial no único estaba
   -- afirmado en ninguna fila. Un índice de rendimiento perdido en un rebase no
   -- rompe ningún test —la consulta sigue devolviendo lo mismo, solo que con un
   -- scan— y es exactamente la clase de regresión que solo un chequeo de esquema
@@ -1145,7 +1145,7 @@ from (
      'CREATE INDEX discount_voucher_follow_ups_claimable_idx ON public.discount_voucher_follow_ups USING btree (next_attempt_at) WHERE (status = ''PENDING''::"DiscountVoucherFollowUpStatus")'),
     ('agent_inbound_jobs_claimable_idx',
      'CREATE INDEX agent_inbound_jobs_claimable_idx ON public.agent_inbound_jobs USING btree (COALESCE(next_attempt_at, created_at)) WHERE (status = ANY (ARRAY[''PENDING''::"AgentInboundJobStatus", ''PROCESSING''::"AgentInboundJobStatus"]))'),
-    -- B-14 (docs/auditoria-2026-08-29.md): los índices de las COLAS. Si se
+    -- B-14 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): los índices de las COLAS. Si se
     -- pierden, los reclamos degradan a seq scan sin ningún error — la clase de
     -- regresión que solo este chequeo ve. El de ingestion_events es además el
     -- caso que motivó el hallazgo: cambió de forma con B-30 (migración
@@ -1174,7 +1174,7 @@ from (
 
   union all
 
-  -- V-3 (docs/auditoria-2026-08-29.md) ─ Privilegios POR DEFECTO sobre las
+  -- V-3 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) ─ Privilegios POR DEFECTO sobre las
   -- tablas NUEVAS de public.
   --
   -- Las filas 1 y 2 preguntan por las tablas que EXISTEN. Ésta pregunta por

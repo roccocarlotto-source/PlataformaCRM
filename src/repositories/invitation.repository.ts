@@ -138,7 +138,7 @@ export function revokeInvitationConditional(id: string, organizationId: string, 
   });
 }
 
-// expiresAt > now() en el propio WHERE (B-18 de docs/auditoria-2026-08-29.md):
+// expiresAt > now() en el propio WHERE (B-18 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)):
 // el CAS es ahora también la defensa real contra la carrera de VENCIMIENTO,
 // no solo contra accept-vs-accept / accept-vs-revoke. Sin esto, una fila que
 // cruzaba expiresAt entre el pre-check del service (Date.now() de JS) y esta
@@ -186,7 +186,7 @@ export async function acceptInvitationRowConditional(
 // llegó a existir funcionalmente (ver invitation.service.ts). No usar para
 // ningún otro caso: revocar/expirar son siempre transiciones de status.
 //
-// organizationId en el WHERE (B-12/B-13 de docs/auditoria-2026-08-29.md), con
+// organizationId en el WHERE (B-12/B-13 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)), con
 // el alcance honesto: el único caller borra la fila que él mismo acaba de
 // insertar en el mismo request, así que hoy no existe ningún camino real por
 // el que llegue un id ajeno — es consistencia con el resto de las escrituras

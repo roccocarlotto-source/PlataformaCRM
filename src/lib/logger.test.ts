@@ -95,7 +95,7 @@ test('redacta req.headers["x-api-key"] en logs', () => {
   );
 });
 
-// B-20 (docs/auditoria-2026-08-29.md; B-3 del 21/08): X-External-Id es el
+// B-20 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub); B-3 del 21/08): X-External-Id es el
 // header por el que la fuente identifica al lead, y "puede ser el email del
 // lead" (ingestionEvent.repository.ts). No es credencial, es PII, y sin
 // redactarlo cada request a /api/ingest lo dejaba en texto plano en

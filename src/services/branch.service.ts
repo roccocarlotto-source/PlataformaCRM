@@ -324,7 +324,7 @@ export async function deleteBranch(organizationId: string, id: string) {
     // sin fila que consultar, nadie podría revocarla nunca más desde el CRM.
     //
     // LO QUE BLOQUEA ES EL SECRETO, NO EL STATUS — B-9 de
-    // docs/auditoria-2026-08-29.md. Una conexión REVOKED ya no tiene token (se
+    // docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Una conexión REVOKED ya no tiene token (se
     // pone en NULL al desconectar) y no bloquea: no hay nada que se pueda
     // perder. Una en ERROR es un grant que Google rechazó, pero
     // markConnectionError CONSERVA el refresh token a propósito —puede ser algo

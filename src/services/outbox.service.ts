@@ -23,7 +23,7 @@ import { registroDeHandlers as registroPorDefecto } from "./outboxHandlers";
 // DECISIONES PURAS
 // ---------------------------------------------------------------------------
 
-// Desde B-30 (docs/auditoria-2026-08-29.md) viven en src/utils/backoff.ts,
+// Desde B-30 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) viven en src/utils/backoff.ts,
 // compartidas con la cola de ingesta: no tienen nada específico de outbox en su
 // firma, y dejarlas acá habría obligado a la capa de ingesta a importar de un
 // archivo llamado outbox.service.ts o a duplicar la matemática. Se reexportan
@@ -63,7 +63,7 @@ export interface OpcionesDeEntrega {
 // Se corre contra el reloj real y no contra `ahora`: `ahora` es la referencia
 // para calcular el próximo turno, esto es tiempo de pared.
 //
-// EL ABORTSIGNAL (M-14 de docs/auditoria-2026-08-29.md) no cancela nada por su
+// EL ABORTSIGNAL (M-14 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) no cancela nada por su
 // cuenta — ningún mecanismo de JS puede forzar a una promesa ajena a dejar de
 // correr, y Promise.race menos: solo decide a quién se le hace caso primero.
 // Lo que hace es darle al handler la SEÑAL para que se pare solo, si la
@@ -131,7 +131,7 @@ export async function ejecutarConTope(
 // lo correcto: la transacción se revierte y el worker lo pospone.
 
 // Calca exigirTransicion de promotion.service.ts (E-1) — B-26 de
-// docs/auditoria-2026-08-29.md: las tres transiciones son updateMany con
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): las tres transiciones son updateMany con
 // status: PENDING en el WHERE, y su { count } se descartaba. Un count === 0
 // significa que la fila ya no estaba en PENDING al escribir, y commitear en
 // silencio la dejaría pisada con un estado que no corresponde. Error pelado y
@@ -153,7 +153,7 @@ function exigirTransicion(count: number, evento: EventoReclamado, destino: strin
     throw new Error(
       `entregarEvento: la transición a ${destino} del evento ${evento.id} no afectó ninguna fila ` +
         "— ya no estaba en PENDING al momento de escribir. Se revierte la transacción para no " +
-        "pisar el estado que otro actor ya dejó (B-26, docs/auditoria-2026-08-29.md).",
+        "pisar el estado que otro actor ya dejó (B-26, docs-privados/auditoria-2026-08-29.md).",
     );
   }
 }

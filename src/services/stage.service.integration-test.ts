@@ -424,7 +424,7 @@ test("updateStage vs updateStage concurrentes: el segundo reorden espera el lock
 });
 
 // ---------------------------------------------------------------------------
-// B-12 de docs/auditoria-2026-08-29.md — shiftUpFrom/shiftDownAfter llevan
+// B-12 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — shiftUpFrom/shiftDownAfter llevan
 // pipelineId en el WHERE de cada escritura, como reindexStages.
 //
 // LO QUE ESTE TEST FIJA, Y LO QUE NO PUEDE FIJAR. Con un pipelineId ajeno, el

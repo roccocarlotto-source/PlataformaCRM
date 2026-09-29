@@ -62,7 +62,7 @@ export function useDeleteAgent() {
 // existe del lado del cliente. No cae en ningún QueryCache (la lista se
 // refresca por invalidación, que trae la proyección pública sin `token`),
 // pero SÍ quedaría en el MutationCache como `.data` hasta que el gcTime lo
-// recoja: es el hallazgo S2-4 de docs/review-fase2-2026-08-28.md, el mismo
+// recoja: es el hallazgo S2-4 de docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub), el mismo
 // que tiene useCreateApiKey.
 //
 // Acá el llamador lo resuelve un paso antes que ApiKeyListPage: copia el

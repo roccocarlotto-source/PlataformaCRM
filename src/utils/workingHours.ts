@@ -131,7 +131,7 @@ export function estaDentroDelHorario(intervalo: Intervalo, franjas: Intervalo[])
 }
 
 // ---------------------------------------------------------------------------
-// La grilla de turnos — V-2 de docs/auditoria-2026-08-29.md
+// La grilla de turnos — V-2 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)
 // ---------------------------------------------------------------------------
 
 // Los turnos de UNA franja: arrancan en el borde real de la franja y avanzan de
@@ -222,7 +222,7 @@ export interface ParametrosDeExpansion {
 // superponen con [desde, hasta).
 //
 // EL INICIO DE UNA FRANJA NUNCA SE RECORTA A `desde` — A-5 de
-// docs/auditoria-2026-08-29.md. Antes sí: si alguien pedía disponibilidad del
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Antes sí: si alguien pedía disponibilidad del
 // martes a las 11:10, la franja "martes de 9 a 13" salía como 11:10-13:00, y
 // como la grilla de turnos arranca en el borde de cada franja, los turnos
 // salían 11:10, 11:40, 12:10… en vez de 11:30, 12:00, 12:30. Dos clientes que

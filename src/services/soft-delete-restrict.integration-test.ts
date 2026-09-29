@@ -248,7 +248,7 @@ test("deletePipeline procede cuando sus etapas ya están borradas", async () => 
 // ---------------------------------------------------------------------------
 // Las carreras — la mitad del arreglo que los tests secuenciales no ven
 //
-// M-19 de docs/auditoria-2026-08-29.md: con Promise.allSettled, el lado
+// M-19 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): con Promise.allSettled, el lado
 // delete siempre commiteaba ANTES de que el lado create llegara a su
 // revalidación interna (el preludio de create, fuera de la transacción, es más
 // largo), así que create se rechazaba a sí mismo por una revalidación que

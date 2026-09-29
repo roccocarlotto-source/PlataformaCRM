@@ -14,7 +14,7 @@ import type { CreateApiKeyInput } from "./types";
 // `key`— en vez de por escritura optimista del objeto creado.
 //
 // PERO SÍ QUEDA EN EL MutationCache, que es lo que este comentario afirmaba de
-// más hasta el hallazgo S2-4 de docs/review-fase2-2026-08-28.md: useMutation
+// más hasta el hallazgo S2-4 de docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub): useMutation
 // cachea su resultado como `.data`, con el secreto adentro, y lo mantiene vivo
 // después de cerrado el modal hasta que el gcTime por defecto lo recoja. Lo que
 // lo limpia es un `reset()` EXPLÍCITO del llamador al cerrar el cuadro — ver

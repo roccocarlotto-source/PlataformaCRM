@@ -28,7 +28,7 @@ export interface ImportPreview {
 
 // FallaDeLote en ingestionEvent.repository.ts.
 //
-// SIN `rawPayload` — hallazgo D2-2 de docs/review-fase2-2026-08-28.md. El
+// SIN `rawPayload` — hallazgo D2-2 de docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). El
 // backend dejó de mandarlo: eran hasta 100 filas crudas de planilla con datos
 // personales que esta pantalla nunca renderizó y que quedaban en el cache de
 // TanStack Query. Declararlo acá sería volver a prometer un campo que ya no

@@ -148,7 +148,7 @@ test("un array vacío se mantiene como array vacío", () => {
 });
 
 // ---------------------------------------------------------------------------
-// B-31 (docs/auditoria-2026-08-29.md): una clave EXTRA en una nota de tipo
+// B-31 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): una clave EXTRA en una nota de tipo
 // conocido. El fail-closed aplicaba solo al `tipo` desconocido; el `{
 // ...objeto }` copiaba todo y solo pisaba los campos de valor conocidos, así
 // que una clave no listada sobrevivía intacta al "redactado" — justo en la

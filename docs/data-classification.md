@@ -8,8 +8,8 @@ Este documento define decisiones, no implementación. Ante una duda no
 cubierta acá, plantearla antes de resolverla por defecto.
 
 Existe porque dos rondas de review lo pidieron y ninguna lo encontró:
-`D-1` de `docs/review-ingesta-2026-08-27.md` y `D2-1` de
-`docs/review-fase2-2026-08-28.md`. El estándar es explícito en que la
+`D-1` de `docs-privados/review-ingesta-2026-08-27.md` y `D2-1` de
+`docs-privados/review-fase2-2026-08-28.md`. El estándar es explícito en que la
 clasificación es el **paso previo** a todo lo demás — sin ella, las
 decisiones de retención, de control de acceso y de borrado se toman a
 ojo. Las tres se venían tomando a ojo.
@@ -171,7 +171,7 @@ verificado por JWKS/ES256) y está aislado por organización.
 
 ### Excepción declarada a la minimización: `POST /api/imports/preview`
 
-*(Hallazgo `D2-6` de `docs/review-fase2-2026-08-28.md`, aceptado como
+*(Hallazgo `D2-6` de `docs-privados/review-fase2-2026-08-28.md`, aceptado como
 excepción el 2026-08-28.)*
 
 El endpoint **sube el archivo completo —hasta 10 MB, hasta 10.000 filas de

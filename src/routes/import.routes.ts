@@ -68,7 +68,7 @@ importRouter.post(
 // endpoint que además no escribe nada que lo frene naturalmente.
 //
 // PERO NO EL MISMO QUE EL POST DE ARRIBA — hallazgo S2-3 de
-// docs/review-fase2-2026-08-28.md. Hasta acá compartía `businessWriteRateLimiter`
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). Hasta acá compartía `businessWriteRateLimiter`
 // (100/min), y esa cuota está calibrada para escritura de negocio de alta
 // frecuencia. La diferencia con el `POST /imports` de al lado es que ESE paga el
 // parseo caro recién después de tres precondiciones baratas que quien llama no

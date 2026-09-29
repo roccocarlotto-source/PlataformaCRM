@@ -90,7 +90,7 @@ export const resumenDeLoteHandler = asyncHandler<AuthenticatedRequest>(
 //
 // SUBE EL ARCHIVO ENTERO PARA LEER UNA SOLA FILA, y es una excepción CONSCIENTE
 // a la minimización de datos — hallazgo D2-6 de
-// docs/review-fase2-2026-08-28.md. Hasta 10 MB y hasta 10.000 filas de datos
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). Hasta 10 MB y hasta 10.000 filas de datos
 // personales cruzan la red y se expanden en memoria para devolver los
 // encabezados y nada más. En términos estrictos de STD-LEG-002 es recolección
 // desproporcionada.

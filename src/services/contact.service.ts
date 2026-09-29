@@ -370,7 +370,7 @@ export async function deleteContact(organizationId: string, id: string) {
 
 // ---------------------------------------------------------------------------
 // Borrado de datos personales a pedido — D2-4 de
-// docs/review-fase2-2026-08-28.md. La política está en
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). La política está en
 // docs/data-classification.md §5.2.
 //
 // NO ES deleteContact. Ese sigue existiendo, sigue siendo soft delete y sigue

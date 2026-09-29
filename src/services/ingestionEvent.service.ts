@@ -82,7 +82,7 @@ export async function retryIngestionEvent(organizationId: string, id: string) {
     throw new AppError(`Solo se puede reprocesar un evento FAILED (está en ${evento.status})`, 409);
   }
 
-  // V-9 de docs/auditoria-2026-08-29.md: LA FUENTE TIENE QUE ESTAR ACTIVA Y NO
+  // V-9 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): LA FUENTE TIENE QUE ESTAR ACTIVA Y NO
   // RETIRADA. Este endpoint era el camino sin carrera del hallazgo: un FAILED
   // puede llevar semanas en la cola, y si mientras tanto un ADMIN pausó o
   // retiró la fuente, el retry lo devolvía a PENDING y el worker lo promovía

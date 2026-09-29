@@ -512,7 +512,7 @@ test("un archivo por encima de IMPORT_MAX_FILE_BYTES da 413, no el 500 que darí
   assert.equal(res.status, 413);
 });
 
-// M-16 de docs/auditoria-2026-08-29.md. csv-parse conserva un byte NUL dentro
+// M-16 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). csv-parse conserva un byte NUL dentro
 // de la celda (verificado contra la librería: "a" + NUL + "b" vuelve como un
 // string de 3 caracteres con códigos [97, 0, 98]), así que llega intacto al
 // jsonb y Postgres lo rechaza con 22P05. Se rechaza el archivo ENTERO con 400
@@ -782,7 +782,7 @@ test("GET /api/imports/:batchId cuenta bien ANTES y DESPUÉS de drenar", async (
   assert.equal(despues.fallasOmitidas, 0);
 
   // Y NO viene la fila cruda — hallazgo D2-2 de
-  // docs/review-fase2-2026-08-28.md. Esta respuesta cargaba hasta 100
+  // docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). Esta respuesta cargaba hasta 100
   // rawPayload de leads reales hacia una pantalla que solo muestra el motivo.
   // Se afirma la ausencia en vez de simplemente dejar de mirar el campo: si
   // alguien vuelve a agregarlo al select, este test lo tiene que frenar.

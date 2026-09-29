@@ -91,7 +91,7 @@ export function findContactById(id: string, organizationId: string, db: Db = pri
 }
 
 // Mismo shape que findContactById, SIN el filtro de deletedAt — M-18 de
-// docs/auditoria-2026-08-29.md. Existe para UN solo consumidor: el pre-chequeo
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Existe para UN solo consumidor: el pre-chequeo
 // de erasePersonalData. El borrado de datos personales (D2-4) y el soft delete
 // son dos conceptos distintos —existencia del dato contra visibilidad del
 // registro, ver erasePersonalDataFromContact más abajo— y el caso más común en
@@ -517,7 +517,7 @@ export async function mergeIntoContact(
 
 // ---------------------------------------------------------------------------
 // BORRADO DE DATOS PERSONALES A PEDIDO — hallazgo D2-4 de
-// docs/review-fase2-2026-08-28.md.
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub).
 //
 // NO ES EL SOFT DELETE, y la diferencia es el punto entero:
 //

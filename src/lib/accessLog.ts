@@ -4,7 +4,7 @@ import type { AuthContext } from "../types/auth";
 
 // ---------------------------------------------------------------------------
 // Registro de acceso a datos personales — hallazgo D2-5 de
-// docs/review-fase2-2026-08-28.md.
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub).
 //
 // `STD-LEG-002` es literal: todo acceso a datos Sensitive debe quedar
 // registrado — quién accedió a qué, y cuándo. La Fase 2 estrenó los primeros

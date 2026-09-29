@@ -3,7 +3,7 @@
 // cola con reintentos, sin base y sin red.
 //
 // Nacieron en outbox.service.ts y se movieron acá con B-30 de
-// docs/auditoria-2026-08-29.md, cuando la cola de ingesta ganó el mismo
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub), cuando la cola de ingesta ganó el mismo
 // mecanismo: no tienen NADA específico de outbox en su firma (números y una
 // Date, ningún OutboxEvent), y dejarlas allá habría obligado a la capa de
 // ingesta a importar de un archivo llamado outbox.service.ts o a duplicar la

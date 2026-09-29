@@ -153,7 +153,7 @@ test("tiposRegistrados devuelve los tipos ordenados — es lo que loguea el arra
 });
 
 // ---------------------------------------------------------------------------
-// ejecutarConTope — M-14 de docs/auditoria-2026-08-29.md
+// ejecutarConTope — M-14 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)
 //
 // Sin base ni red: la función no toca Prisma. Los topes son chicos (10-20 ms)
 // porque el VALOR del tope no es lo que se prueba, solo que se respete; y no

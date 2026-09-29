@@ -19,7 +19,7 @@ import { googleCalendarWebhookHandler } from "./googleCalendarWebhook.controller
 // LO QUE ESTE ARCHIVO FIJA es la política de códigos de respuesta del
 // controller, que es el mecanismo de reintento de Google: 200 corta el
 // reintento, 403 lo rechaza, 503 lo pide. El caso central es M-4 de
-// docs/auditoria-2026-08-29.md: una conexión en ERROR no es transitoria —exige
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): una conexión en ERROR no es transitoria —exige
 // que un humano reconecte— y responder 503 hacía que Google reintentara con
 // backoff durante días una notificación imposible de procesar.
 //

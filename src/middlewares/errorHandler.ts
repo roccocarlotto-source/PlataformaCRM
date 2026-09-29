@@ -9,7 +9,7 @@ import { traducirErrorDePrisma } from "../utils/prismaErrors";
 // rutas y del middleware notFound. La firma de 4 parámetros es lo que Express
 // usa para reconocerlo como manejador de errores.
 //
-// LO QUE DECIDE (M-11 de docs/auditoria-2026-08-29.md):
+// LO QUE DECIDE (M-11 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)):
 //
 //   - QUÉ STATUS. El de un AppError; el de la traducción de Prisma para los
 //     códigos genéricos (P2034/P2028 -> 409, P2003 -> 400, ver
@@ -41,7 +41,7 @@ import { traducirErrorDePrisma } from "../utils/prismaErrors";
 //     operacional ya dice todo lo que tiene que decir en su mensaje.
 //
 //   - SI LOS HEADERS YA SALIERON, NO ESCRIBE (B-24 de
-//     docs/auditoria-2026-08-29.md). Un handler que ya mandó headers —o empezó
+//     docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). Un handler que ya mandó headers —o empezó
 //     a escribir el cuerpo— y recién ahí falla no puede recibir un segundo
 //     res.status().json(): Node tira ERR_HTTP_HEADERS_SENT desde adentro del
 //     propio error handler, el último eslabón, y ese crash secundario tapa al

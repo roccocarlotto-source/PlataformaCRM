@@ -11,7 +11,7 @@ import {
 } from "./ingestionEvent.repository";
 
 // ---------------------------------------------------------------------------
-// Purga de retención (D2-3 de docs/review-fase2-2026-08-28.md) contra Postgres
+// Purga de retención (D2-3 de docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub)) contra Postgres
 // real.
 //
 // LE PREGUNTA A LA BASE, NO A LA FUNCIÓN: cada afirmación sobre qué sobrevivió

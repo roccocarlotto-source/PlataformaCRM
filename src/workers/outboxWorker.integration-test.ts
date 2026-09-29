@@ -407,7 +407,7 @@ test("el reclamo respeta el turno: un evento reprogramado cede el paso a uno rec
 });
 
 // ---------------------------------------------------------------------------
-// M-14 de docs/auditoria-2026-08-29.md — la señal se aborta de verdad en el
+// M-14 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — la señal se aborta de verdad en el
 // camino real, con transacción y todo, no solo en el aislamiento sin base de
 // outbox.service.test.ts.
 //
@@ -459,7 +459,7 @@ test("M-14: al vencer el tope, la señal que recibió el handler queda abortada 
 });
 
 // ---------------------------------------------------------------------------
-// B-26 de docs/auditoria-2026-08-29.md — las tres transiciones verifican su
+// B-26 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — las tres transiciones verifican su
 // count, calcando E-1 de la ingesta.
 //
 // SE LLAMA A entregarEvento DIRECTO, SIN PASAR POR EL RECLAMO, y es el punto

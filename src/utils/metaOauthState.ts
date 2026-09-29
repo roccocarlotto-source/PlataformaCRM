@@ -82,7 +82,7 @@ export async function firmarMetaState(state: MetaOAuthState, clave?: Uint8Array)
 
 // Verifica firma, vencimiento, emisor y audiencia. 400 en todos los caminos de
 // fallo, por el mismo razonamiento que verificarState() (V-1 de
-// docs/auditoria-2026-08-29.md): el state lo trae el navegador de una persona
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): el state lo trae el navegador de una persona
 // como parámetro del request; no es una credencial de API (401) ni hay una
 // máquina a la que cerrarle la puerta (403). Y, como allá, "firma inválida" y
 // "manipulado" comparten mensaje; solo el vencimiento —lo único que le pasa a

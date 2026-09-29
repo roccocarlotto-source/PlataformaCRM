@@ -54,7 +54,7 @@ export interface ResumenDeRenovacion {
   fallidos: number;
 }
 
-// Las dos opciones son SOLO PARA TESTS (A-8 de docs/auditoria-2026-08-29.md);
+// Las dos opciones son SOLO PARA TESTS (A-8 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub));
 // el tick de producción (abajo) no pasa ninguna y el comportamiento sin ellas
 // es el de siempre.
 //

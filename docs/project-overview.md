@@ -2487,7 +2487,7 @@ contra el deliverable final, sin heredar nada de la auditoría anterior.
 **Reviews obligatorios (Claude-Toolkit-V1), ejecutados desde cero contra el
 deliverable final de los ítems 1 a 5** (2026-08-27 — registro completo, con el
 modelo de amenaza, las 10 categorías OWASP y los 12 hallazgos, en
-`docs/review-ingesta-2026-08-27.md`):
+`docs-privados/review-ingesta-2026-08-27.md`):
 
 - `RV-ENG`: **PASS**. Partió `CONDITIONAL PASS` por **E-1**:
   `promotion.service.ts` descartaba el `count` de la escritura condicional que
@@ -2604,7 +2604,7 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
    sin arriesgar el cupo de envío de email del proyecto.
 
    **Rate limits de INTENTO de Supabase Auth — ajustados a mano (2026-09-03,
-   V-5 de `docs/auditoria-2026-08-29.md`).** La otra mitad del mismo
+   V-5 de `docs-privados/auditoria-2026-08-29.md`).** La otra mitad del mismo
    hallazgo de origen: no el cupo de envío de email de arriba, sino los cupos
    por IP de GoTrue sobre pedir un código y verificarlo. El registro público
    (`src/services/onboarding.service.ts`) llama `signInWithOtp` (línea 97) y
@@ -2929,7 +2929,7 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
   **Corregido por dos vías complementarias (C-2, 2026-08-21; `migrate:deploy`,
   2026-08-23):** el DDL de ambos archivos ya forma parte del historial de
   migraciones desde `20260821140000_incorporate_manual_ddl_into_migrations`
-  (C-2, ver `docs/auditoria-2026-08-21.md`), así que una base reconstruida solo
+  (C-2, ver `docs-privados/auditoria-2026-08-21.md`), así que una base reconstruida solo
   con `prisma migrate deploy` queda completa; y `scripts/apply-manual-sql.ts`
   —expuesto como `npm run migrate:deploy`— encadena `prisma migrate deploy` +
   la reaplicación idempotente de `manual_constraints.sql` y `rls_policies.sql`
@@ -2965,7 +2965,7 @@ queda ningún módulo CRUD pendiente del modelo de datos actual.
   paquetes, hoy con cero violaciones; el job `lint` de `.github/workflows/ci.yml`
   corre `npm run lint` en backend y en frontend, y `npm run format:check` sobre
   todo el repo, de forma bloqueante. Que esta entrada siguiera diciendo lo
-  contrario lo detectó Q-4 de `docs/review-ingesta-2026-08-27.md`. Sí existen
+  contrario lo detectó Q-4 de `docs-privados/review-ingesta-2026-08-27.md`. Sí existen
   suites de test persistentes desde H1: unitarias
   (`*.test.ts`, `npm test`, sin DB) y de integración (`*.integration-test.ts`,
   `npm run test:integration`, contra Postgres/Supabase real) — 27 archivos de

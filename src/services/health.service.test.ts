@@ -4,7 +4,7 @@ import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { checkHealth } from "./health.service";
 
-// B-19 (docs/auditoria-2026-08-29.md; B-13 del 21/08) — /health tragaba el
+// B-19 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub); B-13 del 21/08) — /health tragaba el
 // error de la base: el 503 salía bien, pero en el log no quedaba nada. Lo que
 // se fija acá es que el error REAL llegue a logger.error, y que el camino
 // feliz siga sin loguear nada.

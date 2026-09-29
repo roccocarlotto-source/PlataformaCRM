@@ -99,7 +99,7 @@ function normalizarCelda(valor: unknown): ValorDeCelda {
     // `{ error: "#N/A" }` (o "#DIV/0!", "#REF!", …). Sin esta rama, la llamada
     // recursiva de arriba caía al String(valor) final y guardaba literalmente
     // "[object Object]" — silencioso e indistinguible de un valor real (B-29 de
-    // docs/auditoria-2026-08-29.md). Se guarda el código de error tal cual: es
+    // docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). Se guarda el código de error tal cual: es
     // exactamente lo que la persona ve en la celda, mismo criterio que `text`.
     if (typeof obj.error === "string") {
       return obj.error;
@@ -150,7 +150,7 @@ function armarFila(encabezados: string[], celdas: unknown[]): FilaCruda {
       return; // columna sin nombre: se ignora, ver validarEncabezados
     }
     // defineProperty Y NO `fila[encabezado] = …` — B-28 de
-    // docs/auditoria-2026-08-29.md. Sobre un objeto normal, la asignación con
+    // docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Sobre un objeto normal, la asignación con
     // la clave literal "__proto__" no crea una propiedad: dispara el setter
     // heredado de Object.prototype y esa columna se pierde en silencio para
     // TODAS las filas del archivo. defineProperty crea la propiedad propia

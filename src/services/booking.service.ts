@@ -135,7 +135,7 @@ export interface BookingActor {
 // concurrencia peor.
 // ---------------------------------------------------------------------------
 // El "ahora" contra el que createBooking rechaza un startsAt en el pasado (V-2
-// de docs/auditoria-2026-08-29.md). Es un objeto y no un Date.now() inline por
+// de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). Es un objeto y no un Date.now() inline por
 // una razón concreta: los tests de integración de agenda fijan sus reservas en
 // fechas de calendario concretas (un lunes de septiembre de 2026, porque el
 // horario de trabajo es por día de la semana y la zona importa), y "en el
@@ -346,7 +346,7 @@ export async function createBooking(
   try {
     enlazado = await setGoogleEventId(booking.id, organizationId, googleEventId);
   } catch (err) {
-    // V-4 (docs/auditoria-2026-08-29.md) — (organization_id, google_event_id)
+    // V-4 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — (organization_id, google_event_id)
     // es ÚNICO desde la migración 20260902140000. Un P2002 acá significa que
     // OTRA reserva de esta organización ya tiene este id de evento: dos
     // calendarios de Google (dos sucursales con dos cuentas) repitieron un id,

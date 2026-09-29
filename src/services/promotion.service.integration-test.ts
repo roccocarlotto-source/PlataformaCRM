@@ -477,7 +477,7 @@ test("F5: un teléfono local con 0 inicial marca la fila FAILED (no se inventa u
 });
 
 // ---------------------------------------------------------------------------
-// A-6 (docs/auditoria-2026-08-29.md) — el camino CSV entero, con la celda de
+// A-6 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — el camino CSV entero, con la celda de
 // email vacía.
 //
 // Es el escenario 2 del hallazgo: csv-parse entrega "" para una celda vacía, el
@@ -634,7 +634,7 @@ test("el límite por pasada se respeta y el resto queda para la siguiente", asyn
 // Concurrencia
 // ---------------------------------------------------------------------------
 
-// M-19 de docs/auditoria-2026-08-29.md: con limite: 1 y Promise.all, "1 y 1"
+// M-19 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): con limite: 1 y Promise.all, "1 y 1"
 // no distinguía solapamiento de secuencia — cada drenado toma un evento sea o
 // no concurrente, y una ejecución en la que el segundo arranca después de que
 // el primero commiteó produce exactamente el mismo resultado sin haber
@@ -784,7 +784,7 @@ test("el contacto promovido pertenece a la organización del evento", async () =
 });
 
 // ---------------------------------------------------------------------------
-// E-1 (docs/review-ingesta-2026-08-27.md) — el CAS de la transición de estado
+// E-1 (docs-privados/review-ingesta-2026-08-27.md (local, no está en GitHub)) — el CAS de la transición de estado
 // tiene que hacer fallar la transacción, no commitear en silencio.
 //
 // SE LLAMA A promoverEvento DIRECTO, SIN PASAR POR EL WORKER, y es el punto

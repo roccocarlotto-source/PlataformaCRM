@@ -56,7 +56,7 @@ import { normalizarTelefono, TELEFONO_NO_NORMALIZABLE } from "../lib/telefono";
 // vez, y no en cada rama del merge.
 //
 // LA AUSENCIA SE DECIDE ANTES DE CUALQUIER OTRA REGLA (z.preprocess), y ese
-// orden es A-6 de docs/auditoria-2026-08-29.md. Hasta entonces `email` tenía su
+// orden es A-6 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Hasta entonces `email` tenía su
 // propia copia de esta regla, con el `.transform()` al FINAL de la cadena:
 // `.email("email inválido")` corría antes y rechazaba la cadena vacía, así que
 // el transform que la habría convertido en `undefined` nunca llegaba a
@@ -98,7 +98,7 @@ function opcional(
 // a pedido no alcanza.
 //
 // Hoy ningún mensaje ecoa nada; el hallazgo D2-7 de
-// docs/review-fase2-2026-08-28.md es que NADA lo garantizaba para el campo que
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub) es que NADA lo garantizaba para el campo que
 // alguien agregue mañana. El caso concreto que hay que evitar es `z.enum` sin
 // `errorMap`, cuyo default es literalmente "Invalid enum value. Expected ...,
 // received '<el valor real>'". Lo mismo vale para z.literal.

@@ -628,7 +628,7 @@ test("un evento que NO cambió de horario no cuenta como movido", async () => {
   }
 });
 
-// B-5 (docs/auditoria-2026-08-29.md): el test de arriba no detectaba el bug
+// B-5 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): el test de arriba no detectaba el bug
 // porque manda booking.startsAt tal cual, con los mismos milisegundos de los
 // dos lados. Google devuelve SEGUNDOS: una reserva creada con milisegundos
 // —cualquier cliente que serialice con toISOString()— notificada con el mismo
@@ -884,7 +884,7 @@ test("al renovar, el canal NUEVO se guarda ANTES de cerrar el viejo", async () =
 });
 
 // ---------------------------------------------------------------------------
-// A-8 (docs/auditoria-2026-08-29.md) — el barrido del worker, probado de verdad.
+// A-8 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — el barrido del worker, probado de verdad.
 //
 // Los dos tests negativos de acá abajo llamaban `renovarCanalesVencidos()` sin
 // doble y afirmaban que la fila no había cambiado. En CI no hay ninguna
@@ -1153,7 +1153,7 @@ test("dos conexiones no pueden compartir el mismo channelId", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// B-16 de docs/auditoria-2026-08-29.md — las dos lecturas del canal no traen el
+// B-16 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — las dos lecturas del canal no traen el
 // secreto. Directo al repository: la garantía es el `select`, y el shape exacto
 // de las claves es el contrato — el deepEqual falla tanto si falta un campo que
 // un caller necesita como si alguien vuelve a traer de más.
@@ -1212,7 +1212,7 @@ test("B-16: findConnectionsNeedingChannel devuelve solo lo que renovarCanal nece
 });
 
 // ---------------------------------------------------------------------------
-// B-6 de docs/auditoria-2026-08-29.md — la zona de la sucursal llega hasta
+// B-6 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — la zona de la sucursal llega hasta
 // events.list. El bug vive en leerInstante (probado en
 // googleCalendar.service.test.ts); acá se prueba el cableado: la zona sale de
 // la fila por findConnectionByChannelId y sincronizar la pasa en LAS DOS
@@ -1241,7 +1241,7 @@ test("B-6: sincronizar pasa la zona de la SUCURSAL a listarCambios, también en 
 });
 
 // ---------------------------------------------------------------------------
-// B-7 de docs/auditoria-2026-08-29.md — la carrera entre renovar el canal y
+// B-7 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — la carrera entre renovar el canal y
 // desconectar. renovarCanal lee la conexión (obtenerAccessToken valida ACTIVE),
 // va a Google a crear el canal, y recién después escribe la fila. Si
 // desconectar() corre en el medio, la escritura vieja pisaba una fila REVOKED
