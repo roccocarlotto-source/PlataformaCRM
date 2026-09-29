@@ -31,7 +31,6 @@ export const supabase = createClient(env.supabaseUrl, env.supabaseAnonKey, {
   },
 });
 
-
 // Limpieza de la clave de sesión que supabase-js escribía en localStorage
 // ANTES del cambio a sessionStorage (ver comentario de arriba). Esa clave
 // quedó huérfana: nada la lee ni la escribe desde el cambio, así que se
