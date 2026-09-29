@@ -88,7 +88,9 @@ function doblar(
       Promise.resolve(opciones.numero === undefined ? "1234567890" : opciones.numero),
     sendTemplate: (input: SendWhatsappTemplateInput) => {
       enviados.push(input);
-      return opciones.falla === undefined ? Promise.resolve() : Promise.reject(opciones.falla);
+      return opciones.falla === undefined
+        ? Promise.resolve({ wamid: null })
+        : Promise.reject(opciones.falla);
     },
     emitirCupon: (
       reclamo: DiscountVoucherFollowUpReclamado,
@@ -200,7 +202,13 @@ test("emite el cupón con expiresAt = AHORA + expiresInDays (no desde el agendad
 
   const resultado = await procesarCupon(RECLAMO, CONFIG, deps, () => Promise.resolve(fila()));
 
-  assert.deepEqual(resultado, { resultado: "ENVIADO" });
+  // F1: el resultado lleva lo que salió, para anotarlo en la conversación.
+  assert.equal(resultado.resultado, "ENVIADO");
+  if (resultado.resultado === "ENVIADO") {
+    assert.equal(resultado.envio.contactId, "contacto");
+    assert.equal(resultado.envio.destino, "5491155550000");
+    assert.deepEqual(resultado.envio.parametros, enviados[0].bodyParameters);
+  }
   assert.deepEqual(emisiones, [
     { reclamo: RECLAMO, filaId: "f1", expiresAt: new Date("2026-10-25T15:00:00.000Z") },
   ]);

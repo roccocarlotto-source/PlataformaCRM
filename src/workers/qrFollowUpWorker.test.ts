@@ -72,7 +72,9 @@ function doblar(
       Promise.resolve(opciones.numero === undefined ? "1234567890" : opciones.numero),
     sendTemplate: (input: SendWhatsappTemplateInput) => {
       enviados.push(input);
-      return opciones.falla === undefined ? Promise.resolve() : Promise.reject(opciones.falla);
+      return opciones.falla === undefined
+        ? Promise.resolve({ wamid: null })
+        : Promise.reject(opciones.falla);
     },
   };
   return { deps, enviados, plantillasPedidas };
@@ -178,7 +180,19 @@ test("envía la plantilla desde el número de la sucursal del QR, con {{1}} nomb
 
   const resultado = await procesarSeguimiento(RECLAMO, CONFIG, deps, () => Promise.resolve(fila()));
 
-  assert.deepEqual(resultado, { resultado: "ENVIADO" });
+  // F1: el resultado lleva lo que salió, para anotarlo en la conversación.
+  assert.deepEqual(resultado, {
+    resultado: "ENVIADO",
+    envio: {
+      organizationId: "org",
+      contactId: "contacto",
+      phoneNumberId: "1234567890",
+      destino: "5491155550000",
+      plantilla: PLANTILLA,
+      parametros: ["Ana", "https://g.page/r/abc/review"],
+      wamid: null,
+    },
+  });
   assert.deepEqual(enviados, [
     {
       phoneNumberId: "1234567890",

@@ -21,6 +21,8 @@ export interface CreateMessageData {
   // argumentos, si puedeEjecutarTool la permitió y qué devolvió. Forma libre.
   toolCalls?: Prisma.InputJsonValue;
   externalMessageId?: string;
+  // F1: el WhatsApp de una automatización se registra ya enviado (SENT).
+  deliveryStatus?: MessageDeliveryStatus;
 }
 
 export function createMessage(data: CreateMessageData, db: Db = prisma) {

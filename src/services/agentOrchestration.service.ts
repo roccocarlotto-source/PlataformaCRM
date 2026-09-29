@@ -23,6 +23,7 @@ import {
   createMessage,
   findLastMessages,
   hasHumanMessage,
+  type CreateMessageData,
 } from "../repositories/message.repository";
 import { AppError } from "../utils/AppError";
 import { isoEnZona } from "../utils/timezone";
@@ -1304,42 +1305,108 @@ export async function registrarEntrante(
   input: RegistrarEntranteInput,
   opciones: { enLaMismaTransaccion?: (tx: Db, entrante: Message) => Promise<unknown> } = {},
 ): Promise<{ conversation: Conversation; entrante: Message }> {
-  const { organizationId, agentId, contactId, channel } = input;
+  const { conversation, mensaje } = await registrarEnConversacion(
+    input,
+    {
+      direction: "INBOUND",
+      senderType: "CONTACT",
+      content: input.texto,
+      ...(input.externalMessageId !== undefined
+        ? { externalMessageId: input.externalMessageId }
+        : {}),
+    },
+    opciones.enLaMismaTransaccion,
+  );
+  return { conversation, entrante: mensaje };
+}
+
+// Lo común a registrar un mensaje en la conversación abierta del contacto con
+// el agente: la conversación con la MISMA lógica que el entrante
+// (findOrCreateOpenConversation, el único camino que abre una) y, en una
+// transacción, el Message y el lastMessageAt que ordena la bandeja. No toca el
+// status de la conversación ni encola ningún turno: eso lo decide cada caller.
+async function registrarEnConversacion(
+  datos: Omit<RegistrarEntranteInput, "texto" | "externalMessageId">,
+  mensaje: Omit<CreateMessageData, "organizationId" | "conversationId">,
+  enLaMismaTransaccion?: (tx: Db, creado: Message) => Promise<unknown>,
+): Promise<{ conversation: Conversation; mensaje: Message }> {
+  const { organizationId } = datos;
 
   const conversation = await findOrCreateOpenConversation({
     organizationId,
-    branchId: input.branchId,
-    agentId,
-    contactId,
-    channel,
-    externalThreadId: input.externalThreadId,
+    branchId: datos.branchId,
+    agentId: datos.agentId,
+    contactId: datos.contactId,
+    channel: datos.channel,
+    externalThreadId: datos.externalThreadId,
   });
 
-  const entrante = await prisma.$transaction(async (tx) => {
-    const creado = await createMessage(
-      {
-        organizationId,
-        conversationId: conversation.id,
-        direction: "INBOUND",
-        senderType: "CONTACT",
-        content: input.texto,
-        ...(input.externalMessageId !== undefined
-          ? { externalMessageId: input.externalMessageId }
-          : {}),
-      },
+  const creado = await prisma.$transaction(async (tx) => {
+    const nuevo = await createMessage(
+      { ...mensaje, organizationId, conversationId: conversation.id },
       tx,
     );
     await updateConversation(
       conversation.id,
       organizationId,
-      { lastMessageAt: creado.createdAt },
+      { lastMessageAt: nuevo.createdAt },
       tx,
     );
-    await opciones.enLaMismaTransaccion?.(tx, creado);
-    return creado;
+    await enLaMismaTransaccion?.(tx, nuevo);
+    return nuevo;
   });
 
-  return { conversation, entrante };
+  return { conversation, mensaje: creado };
+}
+
+// ---------------------------------------------------------------------------
+// El WhatsApp que manda una AUTOMATIZACIÓN queda en la conversación — F1 de
+// docs/prueba-en-vivo-2026-09-29.md. El seguimiento con QR y el cupón salían
+// por la Graph API y solo quedaban en su fila de seguimiento: el vendedor no
+// los veía en la bandeja y, si el cliente contestaba, el agente no sabía qué
+// le habían mandado.
+//
+// Se guarda como un saliente más en la conversación de WhatsApp abierta del
+// contacto con el agente dueño del número (la crea si no hay, igual que el
+// entrante). Lo que NO hace, a propósito:
+//   - No encola un turno ni cambia el status: registrar lo que ya salió no es
+//     un mensaje del cliente, y el agente no tiene nada que contestar.
+//   - senderType AGENT, y no HUMAN: el enum no tiene "sistema" ni
+//     "automatización" (agregarlo es una migración), HUMAN exige un
+//     senderUserId (CHECK de la migración 20260912130000) y además CALLARÍA al
+//     agente (hasHumanMessage, ítem 83). AGENT es un saliente que no es de una
+//     persona, que es exactamente lo que fue, y el historial se lo presenta al
+//     modelo como algo que el negocio ya dijo.
+//   - deliveryStatus SENT: Meta ya lo aceptó cuando esto corre.
+// ---------------------------------------------------------------------------
+
+export interface RegistrarSalienteDeAutomatizacionInput {
+  organizationId: string;
+  agentId: string;
+  branchId: string;
+  contactId: string;
+  // El wa_id del cliente, el mismo externalThreadId que usa el entrante.
+  externalThreadId: string;
+  texto: string;
+  // El wamid que devolvió Meta: el mismo UNIQUE (organizationId,
+  // externalMessageId) que los entrantes. null si Meta no lo mandó.
+  externalMessageId: string | null;
+}
+
+export async function registrarSalienteDeAutomatizacion(
+  input: RegistrarSalienteDeAutomatizacionInput,
+): Promise<{ conversation: Conversation; saliente: Message }> {
+  const { conversation, mensaje } = await registrarEnConversacion(
+    { ...input, channel: "WHATSAPP" },
+    {
+      direction: "OUTBOUND",
+      senderType: "AGENT",
+      content: input.texto,
+      deliveryStatus: "SENT",
+      ...(input.externalMessageId !== null ? { externalMessageId: input.externalMessageId } : {}),
+    },
+  );
+  return { conversation, saliente: mensaje };
 }
 
 // El turno sincrónico: canal Web y el probador del agente. Valida, toma el

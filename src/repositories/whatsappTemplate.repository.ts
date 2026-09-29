@@ -182,6 +182,7 @@ export function findApprovedWhatsappTemplate(
       deletedAt: null,
       status: WhatsappTemplateStatus.APPROVED,
     },
-    select: { name: true, language: true },
+    // bodyText: F1, para anotar en la conversación el texto que se mandó.
+    select: { name: true, language: true, bodyText: true },
   });
 }

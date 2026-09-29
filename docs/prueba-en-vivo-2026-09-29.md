@@ -124,7 +124,7 @@ Todos los turnos por `POST /api/agents/:id/test-message`, canal WEB, contacto `[
 ## Fallas y hallazgos
 
 ### F1 — El WhatsApp automático no deja rastro en el CRM · MEDIO
-**Estado:** pendiente
+**Estado:** hecho (PR #343)
 - **Pasos:** con la regla `opportunity.won → opportunity.send_qr_followup` activa, ganar una oportunidad cuyo contacto tiene teléfono; esperar al worker; `GET /api/conversations?contactId=…` y `GET /api/activities?contactId=…`.
 - **Esperado:** el vendedor ve en la ficha / inbox que al cliente se le mandó un WhatsApp (mensaje OUTBOUND en una conversación, o al menos una actividad).
 - **Obtenido:** nada. El envío solo queda en `qr_follow_ups`, que no tiene endpoint. Si el cliente contesta, el agente no tiene ese mensaje en el historial.

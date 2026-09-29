@@ -110,19 +110,31 @@ async function postMessage(
   phoneNumberId: string,
   accessToken: string,
   cuerpo: Record<string, unknown>,
-): Promise<void> {
-  await llamarGraph(buildSendMessageUrl(phoneNumberId), "POST", accessToken, {
+): Promise<unknown> {
+  return llamarGraph(buildSendMessageUrl(phoneNumberId), "POST", accessToken, {
     messaging_product: "whatsapp",
     ...cuerpo,
   });
 }
 
-export const sendWhatsappTextReal: SendWhatsappText = (input) =>
-  postMessage(input.phoneNumberId, input.accessToken, {
+// El wamid del mensaje que Meta aceptó: `{ messages: [{ id: "wamid.…" }] }`
+// (F1 de docs/prueba-en-vivo-2026-09-29.md, para guardarlo como
+// Message.externalMessageId). null si la respuesta no lo trae: un envío que
+// Meta aceptó con un 2xx salió igual, y no tener su id no lo convierte en
+// fallido. Pura y exportada para probarla sin red.
+export function wamidDeLaRespuesta(respuesta: unknown): string | null {
+  const mensajes = (respuesta as { messages?: unknown } | null)?.messages;
+  const id = Array.isArray(mensajes) ? (mensajes[0] as { id?: unknown } | undefined)?.id : null;
+  return typeof id === "string" && id.trim() !== "" ? id : null;
+}
+
+export const sendWhatsappTextReal: SendWhatsappText = async (input) => {
+  await postMessage(input.phoneNumberId, input.accessToken, {
     to: input.to,
     type: "text",
     text: { body: input.body },
   });
+};
 
 // ---------------------------------------------------------------------------
 // Plantillas (ítem 159)
@@ -149,7 +161,11 @@ export interface SendWhatsappTemplateInput {
   accessToken: string;
 }
 
-export type SendWhatsappTemplate = (input: SendWhatsappTemplateInput) => Promise<void>;
+// Devuelve el wamid del mensaje que Meta aceptó (F1), o null si la respuesta
+// no lo trae.
+export type SendWhatsappTemplate = (
+  input: SendWhatsappTemplateInput,
+) => Promise<{ wamid: string | null }>;
 
 // Meta rechaza (400, código 132000/131008) un parámetro de texto vacío, o con
 // saltos de línea, tabs o más de cuatro espacios seguidos. El texto que llega
@@ -195,8 +211,11 @@ export function cuerpoDePlantilla(
   };
 }
 
-export const sendWhatsappTemplateReal: SendWhatsappTemplate = (input) =>
-  postMessage(input.phoneNumberId, input.accessToken, cuerpoDePlantilla(input));
+export const sendWhatsappTemplateReal: SendWhatsappTemplate = async (input) => ({
+  wamid: wamidDeLaRespuesta(
+    await postMessage(input.phoneNumberId, input.accessToken, cuerpoDePlantilla(input)),
+  ),
+});
 
 // ---------------------------------------------------------------------------
 // Administración de la plantilla de un negocio (ítem 160)

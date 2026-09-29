@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomInt } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import { agendarDiscountVoucherFollowUp } from "../repositories/discountVoucherFollowUp.repository";
@@ -107,7 +107,9 @@ function doblarEnvio(opciones: { falla?: unknown; accessToken?: string | undefin
     accessToken: () => ("accessToken" in opciones ? opciones.accessToken : "token-de-prueba"),
     sendTemplate: (input) => {
       enviados.push(input);
-      return opciones.falla === undefined ? Promise.resolve() : Promise.reject(opciones.falla);
+      return opciones.falla === undefined
+        ? Promise.resolve({ wamid: `wamid.prueba.${randomUUID()}` })
+        : Promise.reject(opciones.falla);
     },
   };
   return { deps, enviados };
@@ -331,6 +333,23 @@ test("con delayHours 0: emite UN cupón, lo anota en la fila y manda {{1}} nombr
     status: "ACTIVE",
     label: "15% de descuento en el taller",
   });
+
+  // F1 de docs/prueba-en-vivo-2026-09-29.md: el cupón que salió queda como
+  // saliente en la conversación de WhatsApp del contacto, con el link real.
+  const [anotado] = await prisma.message.findMany({
+    where: {
+      organizationId: a.e.organizationId,
+      content: { contains: buildVoucherPublicUrl(cupon.id) },
+    },
+    include: { conversation: true },
+  });
+  assert.ok(anotado, "el envío quedó en la conversación");
+  assert.equal(anotado.direction, "OUTBOUND");
+  assert.equal(anotado.senderType, "AGENT");
+  assert.equal(anotado.deliveryStatus, "SENT");
+  assert.match(anotado.externalMessageId ?? "", /^wamid\.prueba\./);
+  assert.equal(anotado.conversation.contactId, a.contactId);
+  assert.equal(anotado.conversation.channel, "WHATSAPP");
 });
 
 test("expiresAt se cuenta desde el ENVÍO, no desde el agendado", async () => {
