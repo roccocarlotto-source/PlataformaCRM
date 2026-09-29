@@ -917,6 +917,93 @@ test("get_availability y create_booking en dos rondas: la reserva es del contact
   }
 });
 
+// F3 de docs/prueba-en-vivo-2026-09-29.md: en la prueba en vivo el agente creó
+// la oportunidad y después la reserva en la misma conversación, y la reserva
+// quedó con opportunityId null. Ahora se vincula a la oportunidad abierta del
+// contacto (la que create_opportunity reusa); sin oportunidad, queda sin vínculo.
+async function agendaDeLunes(e: { organizationId: string; branchId: string }) {
+  const resource = await createResource(e.organizationId, {
+    branchId: e.branchId,
+    name: "Vendedor",
+    type: "PERSON",
+  });
+  const serviceType = await createServiceType(e.organizationId, {
+    branchId: e.branchId,
+    resourceId: resource.id,
+    name: "Test drive",
+    durationMin: 60,
+  });
+  await replaceWorkingHoursForResource(e.organizationId, resource.id, [
+    { weekday: "MONDAY", startMinute: 540, endMinute: 780 },
+  ]);
+  return serviceType;
+}
+
+test("F3: create_opportunity y create_booking en la misma conversación — la reserva queda vinculada a la oportunidad", async () => {
+  const e = await montar("f3-vinculo", { enabledTools: ["create_opportunity", "create_booking"] });
+  try {
+    const serviceType = await agendaDeLunes(e);
+    const doble = doblarProveedor([
+      pideTool("c1", "create_opportunity", { title: "Test drive del Civic" }),
+      pideTool("c2", "create_booking", {
+        serviceTypeId: serviceType.id,
+        startsAt: LUNES_9_LOCAL,
+      }),
+      texto("Listo, te espero el lunes."),
+    ]);
+
+    const resultado = await turno(e, "Quiero probar el Civic el lunes", doble.proveedor);
+
+    assert.equal(resultado.toolCalls[1].result?.ok, true, JSON.stringify(resultado.toolCalls[1]));
+    const [opp] = await prisma.opportunity.findMany({
+      where: { organizationId: e.organizationId },
+    });
+    const [booking] = await prisma.booking.findMany({
+      where: { organizationId: e.organizationId },
+    });
+    assert.ok(opp && booking);
+    assert.equal(booking.opportunityId, opp.id);
+    const data = (resultado.toolCalls[1].result as { ok: true; data: { opportunityId: string } })
+      .data;
+    assert.equal(data.opportunityId, opp.id, "el modelo se entera del vínculo");
+  } finally {
+    await desmontar(e);
+  }
+});
+
+test("F3: sin oportunidad abierta, create_booking reserva igual y queda sin vínculo", async () => {
+  const e = await montar("f3-sin-opp", { enabledTools: ["create_booking"] });
+  try {
+    const serviceType = await agendaDeLunes(e);
+    // Una GANADA no cuenta: el criterio es el de create_opportunity (solo OPEN).
+    await prisma.opportunity.create({
+      data: {
+        organizationId: e.organizationId,
+        contactId: e.contactId,
+        ownerId: e.ownerId,
+        pipelineId: e.pipelineId!,
+        stageId: e.stageId!,
+        title: "Ya ganada",
+        status: "WON",
+      },
+    });
+    const doble = doblarProveedor([
+      pideTool("c1", "create_booking", { serviceTypeId: serviceType.id, startsAt: LUNES_9_LOCAL }),
+      texto("Listo."),
+    ]);
+
+    const resultado = await turno(e, "Quiero un turno el lunes", doble.proveedor);
+
+    assert.equal(resultado.toolCalls[0].result?.ok, true, JSON.stringify(resultado.toolCalls[0]));
+    const [booking] = await prisma.booking.findMany({
+      where: { organizationId: e.organizationId },
+    });
+    assert.equal(booking.opportunityId, null);
+  } finally {
+    await desmontar(e);
+  }
+});
+
 test("el agente no reserva en un recurso de otra sucursal de la misma organización", async () => {
   const e = await montar("otra-sucursal", { enabledTools: ["create_booking"] });
   try {

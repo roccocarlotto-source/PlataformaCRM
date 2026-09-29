@@ -131,21 +131,22 @@ Todos los turnos por `POST /api/agents/:id/test-message`, canal WEB, contacto `[
 - **Probable:** `src/workers/qrFollowUpWorker.ts:211-218` (manda la plantilla y solo actualiza la fila de seguimiento). Mismo patrón en `discountVoucherFollowUpWorker.ts`.
 
 ### F2 — `create_opportunity` del agente no vincula el vehículo · MEDIO
-**Estado:** pendiente
+**Estado:** hecho (PR #342) — resuelto sin vincular vehicleId, por el ítem 175
+Pendiente de producto: campo 'vehículo de interés' separado de la reserva (requiere migración)
 - **Pasos:** turno "Me interesa el Honda Civic EXL…" → tool `create_opportunity {vehiculo:"Honda Civic EXL"}` → `GET /api/opportunities/8e6b0ca3…`.
 - **Esperado:** `vehicleId` del Civic (la tool devuelve `unidad: "Honda Civic EXL 2018"` y el monto sale de su precio).
 - **Obtenido:** `vehicleId: null`. El vendedor ve la oportunidad sin la unidad, y la unidad no queda reservada ni con historial.
 - **Probable:** `src/services/agentTools.service.ts:571-579` (el `createOpportunity` no recibe `vehicleId`; el comentario de la l.549 lo admite: "hoy no puede"). Limitación conocida, pero engaña al modelo porque la respuesta dice "unidad".
 
 ### F3 — La reserva del agente no se vincula a la oportunidad · BAJO
-**Estado:** pendiente
+**Estado:** hecho (PR #342)
 - **Pasos:** turnos 2-3 (el agente crea la oportunidad y después la reserva en la misma conversación) → `GET /api/bookings/c25fd14e…`.
 - **Esperado:** `opportunityId` = la oportunidad abierta del contacto.
 - **Obtenido:** `opportunityId: null`.
 - **Probable:** `src/services/agentTools.service.ts:1325-1331` (no pasa `opportunityId` a `createBooking`).
 
 ### F4 — La tarea que crea la automatización no aparece en la ficha del contacto · BAJO
-**Estado:** pendiente
+**Estado:** hecho (PR #342)
 - **Pasos:** ganar una oportunidad con la regla `activity.create_follow_up` activa → `GET /api/activities?contactId=<contacto de la opp>`.
 - **Esperado:** la tarea aparece también por contacto.
 - **Obtenido:** `contactId: null` (solo `opportunityId`); la lista por contacto viene vacía.

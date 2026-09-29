@@ -1,5 +1,6 @@
 import { ActivityType } from "@prisma/client";
 import { z } from "zod";
+import { findOpportunityById } from "../../repositories/opportunity.repository";
 import { createActivity } from "../activity.service";
 import type { AccionRegistrada } from "../automationActions";
 import { TRIGGER_OPPORTUNITY_WON } from "../automationTriggers";
@@ -113,12 +114,21 @@ export const accionCrearActividadDeSeguimiento: AccionRegistrada = {
     // NO se manda —y no un ""—, igual que hace ese formulario con
     // `body: input.body || undefined`: la actividad queda con body null, que es
     // lo que significa "sin notas".
+    //
+    // F4 de docs/prueba-en-vivo-2026-09-29.md: la tarea lleva también el
+    // contacto de la oportunidad. Con solo opportunityId no aparecía en la
+    // ficha del contacto (GET /api/activities?contactId=… venía vacío). Se
+    // relee la oportunidad porque el payload del evento no trae el contacto;
+    // si ya no existe o no tiene contacto, la tarea sale como antes y
+    // createActivity decide sobre la oportunidad con su propia validación.
+    const oportunidad = await findOpportunityById(opportunityId, organizationId);
     await createActivity(organizationId, ownerId, {
       type: ActivityType.TASK,
       subject,
       dueDate: fechaDeVencimiento(new Date(), daysUntilDue),
       assigneeId: ownerId,
       opportunityId,
+      ...(oportunidad?.contactId ? { contactId: oportunidad.contactId } : {}),
       ...(notes === undefined ? {} : { body: notes }),
     });
   },

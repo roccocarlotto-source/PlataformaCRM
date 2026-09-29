@@ -153,6 +153,19 @@ test("crea UNA Activity TASK con el texto del modelo, asignada al dueño y venci
   assert.deepEqual(registro.marcas, [{ id: OPP, organizationId: ORG, cuando: AHORA }]);
 });
 
+test("F4: la Activity lleva también el contacto de la oportunidad, para que aparezca en su ficha", async () => {
+  const CONTACTO = "44444444-4444-4444-8444-444444444444";
+  const conContacto = doblar({ fila: oportunidad({ contactId: CONTACTO }) });
+  await correr(conContacto.deps);
+  assert.equal(conContacto.registro.actividades[0].input.contactId, CONTACTO);
+  assert.equal(conContacto.registro.actividades[0].input.opportunityId, OPP);
+
+  // Una oportunidad sin contacto no inventa uno: la clave no se manda.
+  const sinContacto = doblar();
+  await correr(sinContacto.deps);
+  assert.equal("contactId" in sinContacto.registro.actividades[0].input, false);
+});
+
 test("una marca ANTERIOR al último movimiento no frena: hubo movimiento real después del último borrador", async () => {
   const { deps, registro } = doblar({
     fila: oportunidad({

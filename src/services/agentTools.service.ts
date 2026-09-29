@@ -361,6 +361,63 @@ const createOpportunityArgs = z.object({
   vehiculo: textoOpcional(255),
 });
 
+// ---------------------------------------------------------------------------
+// F2 de docs/prueba-en-vivo-2026-09-29.md — la unidad de interés NO se vincula.
+//
+// La prueba en vivo vio `create_opportunity {vehiculo: "Honda Civic EXL"}`
+// devolver `unidad: "Honda Civic EXL 2018"` con la oportunidad guardada sin
+// vehicleId: el modelo entendía "unidad vinculada" y el vendedor veía una
+// oportunidad sin la unidad. Guardar el vehicleId NO es el arreglo: en este
+// sistema vincular una unidad a una oportunidad abierta la RESERVA (queda
+// RESERVED y sale del stock para todos, vehicleStatusForOpportunityStatus), y
+// el ítem 175 decidió que reservar desde el agente es otra tool
+// (reserve_vehicle), apagada por defecto y solo para un cliente que confirmó
+// esa unidad — nunca para un "me interesa". Decisión de Rocco (29/09):
+//   - la unidad queda NOMBRADA EN EL TÍTULO, siempre, para que el vendedor la
+//     vea en el pipeline aunque el modelo no la haya escrito;
+//   - el resultado le dice al modelo que es de interés y NO quedó reservada.
+// Pendiente de producto: un campo "vehículo de interés" separado de la
+// reserva (requiere migración).
+// ---------------------------------------------------------------------------
+
+export const NOTA_UNIDAD_DE_INTERES =
+  "La unidad quedó registrada como de interés en el título de la oportunidad, pero NO está reservada: sigue disponible para otros clientes. No le digas al cliente que se la reservaste. Reservarla es reserve_vehicle (si la tenés entre tus herramientas y el cliente confirmó que quiere avanzar con esa unidad); si no, lo hace una persona del equipo.";
+
+const MAX_TITULO = 255;
+
+// El título con la etiqueta de la unidad. Si ya la nombra —todas las palabras
+// de la etiqueta aparecen, sin importar el orden ni los acentos— se deja como
+// está; si no, se le agrega al final. Recorta el título del modelo, nunca la
+// etiqueta, para no pasarse de los 255 de la columna. Exportada para testearla.
+export function tituloConUnidad(titulo: string, etiqueta: string): string {
+  const normalizado = normalizarNombre(titulo);
+  if (palabrasNormalizadas(etiqueta).every((palabra) => normalizado.includes(palabra))) {
+    return titulo;
+  }
+  const sufijo = ` — ${etiqueta}`;
+  return `${titulo.slice(0, Math.max(0, MAX_TITULO - sufijo.length)).trimEnd()}${sufijo}`;
+}
+
+export function mensajeReusoConOtraUnidadReservada(etiqueta: string): string {
+  return `La oportunidad abierta de este contacto ya tiene reservada otra unidad ("${etiqueta}"): no se cambió nada. Cambiar la unidad lo hace una persona del equipo, no vos; si el cliente ahora quiere otra, decile que alguien del equipo lo va a gestionar, y derivá si hace falta.`;
+}
+
+// La oportunidad abierta del contacto de la conversación: la que create_opportunity
+// reusa (ítem 84), la que update_opportunity y reserve_vehicle toman sin id
+// (ítem 112) y a la que create_booking vincula la reserva (F3). Con más de una
+// OPEN (datos de antes del ítem 84) gana la más reciente. Un único criterio
+// para las cuatro tools: si divergieran, la reserva quedaría colgada de una
+// oportunidad distinta de la que el modelo acaba de crear.
+async function oportunidadAbiertaDelContacto(organizationId: string, contactId: string) {
+  const [abierta] = await findManyOpportunities(
+    organizationId,
+    { contactId, status: "OPEN" },
+    { skip: 0, take: 1 },
+    { sortBy: "createdAt", sortOrder: "desc" },
+  );
+  return abierta ?? null;
+}
+
 export const MENSAJE_CONTACTO_SIN_VENDEDOR =
   "No se puede crear la oportunidad: el contacto no tiene un vendedor asignado";
 export const MENSAJE_SIN_PIPELINE_POR_DEFECTO =
@@ -379,7 +436,7 @@ const createOpportunityTool: ToolDelAgente = {
   definition: {
     name: "create_opportunity",
     description:
-      "Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda asignada al vendedor del contacto, en la primera etapa del pipeline por defecto. Usala apenas el contacto muestra intención concreta de compra o contratación, en ese mismo turno y sin pedirle permiso ni más datos. Frases que YA son intención concreta y con las que corresponde llamarla: «me interesa mucho la Hilux SRV, ¿cómo seguimos?», «quiero avanzar con la Amarok», «me la llevo», «¿qué necesito para comprarla?». Registrar el interés no compromete al cliente a nada ni cierra ninguna venta: es lo que hace que un vendedor lo vea y lo atienda. No es algo que haya que consultarle. Si la conversación es por un vehículo concreto, mandá `vehiculo` con su marca y modelo: el monto se completa con su precio de lista, que es lo que el equipo de ventas necesita ver en el pipeline. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true, y es sobre esa que tenés que seguir. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.",
+      "Crea una oportunidad de venta para el contacto de esta conversación. La oportunidad queda asignada al vendedor del contacto, en la primera etapa del pipeline por defecto. Usala apenas el contacto muestra intención concreta de compra o contratación, en ese mismo turno y sin pedirle permiso ni más datos. Frases que YA son intención concreta y con las que corresponde llamarla: «me interesa mucho la Hilux SRV, ¿cómo seguimos?», «quiero avanzar con la Amarok», «me la llevo», «¿qué necesito para comprarla?». Registrar el interés no compromete al cliente a nada ni cierra ninguna venta: es lo que hace que un vendedor lo vea y lo atienda. No es algo que haya que consultarle. Si la conversación es por un vehículo concreto, mandá `vehiculo` con su marca y modelo: el monto se completa con su precio de lista, que es lo que el equipo de ventas necesita ver en el pipeline, y la unidad queda nombrada en el título; registrar el interés NO la reserva. Si el contacto ya tiene una oportunidad abierta, no crea otra: devuelve esa con reused en true, y es sobre esa que tenés que seguir. Para cambiarle el título, el monto u otro dato usá update_opportunity con su opportunityId, no vuelvas a llamar a esta.",
     parameters: {
       type: "object",
       properties: {
@@ -439,12 +496,7 @@ const createOpportunityTool: ToolDelAgente = {
       // No es un candado: dos turnos concurrentes del mismo contacto podrían
       // crear dos. Los turnos de una conversación no corren en paralelo en la
       // práctica, y lo que este ítem arregla es el caso secuencial.
-      const [existente] = await findManyOpportunities(
-        contexto.organizationId,
-        { contactId: contact.id, status: "OPEN" },
-        { skip: 0, take: 1 },
-        { sortBy: "createdAt", sortOrder: "desc" },
-      );
+      const existente = await oportunidadAbiertaDelContacto(contexto.organizationId, contact.id);
       if (existente) {
         // Ítem 112. El reuso tal como estaba DESCARTABA el auto nuevo en
         // silencio. Caso real contra el modelo: el cliente pasó de la Amarok a
@@ -465,13 +517,45 @@ const createOpportunityTool: ToolDelAgente = {
         // reuso sin vehículo no cambia: devuelve lo que hay, como siempre.
         const cambios: { title?: string; amount?: number; currency?: string } = {};
         let unidadDelReuso: string | null = null;
+        if (input.vehiculo !== undefined && existente.vehicleId) {
+          // F2: la oportunidad ya tiene una unidad VINCULADA (reservada por un
+          // vendedor o por reserve_vehicle). Esa manda: el reuso no le cambia
+          // el título ni el monto por los de otra unidad —quedarían hablando
+          // de un auto mientras el reservado es otro— y no la suelta. Si el
+          // modelo nombró justo la reservada, es la misma: se devuelve tal
+          // cual. resolverVehiculo no serviría para reconocerla: solo ve las
+          // AVAILABLE.
+          const reservada = await findVehicleById(existente.vehicleId, contexto.organizationId);
+          const etapa = await findStageById(existente.stageId, contexto.organizationId);
+          const etiquetaReservada = reservada ? etiquetaDeVehiculo(reservada) : null;
+          const esLaMisma = reservada !== null && coincideConTexto(reservada, input.vehiculo);
+          return exito({
+            opportunityId: existente.id,
+            title: existente.title,
+            amount: existente.amount,
+            currency: existente.currency,
+            status: existente.status,
+            stage: etapa?.name ?? null,
+            reused: true,
+            actualizada: false,
+            unidadReservada: etiquetaReservada,
+            ...(esLaMisma
+              ? {}
+              : {
+                  nota: mensajeReusoConOtraUnidadReservada(
+                    etiquetaReservada ?? "una unidad del stock",
+                  ),
+                }),
+          });
+        }
         if (input.vehiculo !== undefined) {
           const resuelto = await resolverVehiculo(input.vehiculo, contexto);
           if (!resuelto.ok) {
             return resuelto.resultado;
           }
           unidadDelReuso = resuelto.vehiculo.etiqueta;
-          cambios.title = input.title;
+          // F2: la unidad siempre nombrada en el título, sin duplicarla.
+          cambios.title = tituloConUnidad(input.title, unidadDelReuso);
           if (input.amount === undefined && resuelto.vehiculo.priceListUsd !== null) {
             cambios.amount = resuelto.vehiculo.priceListUsd;
             cambios.currency = input.currency ?? "USD";
@@ -503,7 +587,9 @@ const createOpportunityTool: ToolDelAgente = {
           // Para que el modelo pueda contar lo que de verdad pasó: si es false,
           // la oportunidad quedó como estaba y no registró nada nuevo.
           actualizada: Object.keys(cambios).length > 0,
-          ...(unidadDelReuso !== null ? { unidad: unidadDelReuso } : {}),
+          ...(unidadDelReuso !== null
+            ? { unidad: unidadDelReuso, unidadReservada: false, nota: NOTA_UNIDAD_DE_INTERES }
+            : {}),
         });
       }
 
@@ -546,10 +632,13 @@ const createOpportunityTool: ToolDelAgente = {
       }
 
       // actorUserId = el vendedor efectivo del contacto (el suyo, o el de la
-      // sucursal): es a quien se le atribuye la oportunidad (y quien figura en
-      // el historial de la unidad si algún día el agente vinculara un vehículo
-      // — hoy no puede). resolveOwnerId lo revalida adentro de createOpportunity;
-      // si no estuviera activo, el AppError vuelve como resultado.
+      // sucursal): es a quien se le atribuye la oportunidad. resolveOwnerId lo
+      // revalida adentro de createOpportunity; si no estuviera activo, el
+      // AppError vuelve como resultado.
+      //
+      // SIN vehicleId, a propósito (F2, ver NOTA_UNIDAD_DE_INTERES): vincular
+      // la unidad la reservaría y la sacaría del stock, y eso es reserve_vehicle
+      // (ítem 175), no un "me interesa". La unidad queda nombrada en el título.
       // Ítem 107: el vehículo y, si el modelo no mandó monto, su precio de
       // lista. Un monto explícito del modelo SIEMPRE gana — puede ser lo que
       // el cliente ofreció, y registrarlo es correcto (ítem 92: registrar no
@@ -557,12 +646,14 @@ const createOpportunityTool: ToolDelAgente = {
       let unidad: string | undefined;
       let amount = input.amount;
       let currency = input.currency;
+      let title = input.title;
       if (input.vehiculo !== undefined) {
         const resuelto = await resolverVehiculo(input.vehiculo, contexto);
         if (!resuelto.ok) {
           return resuelto.resultado;
         }
         unidad = resuelto.vehiculo.etiqueta;
+        title = tituloConUnidad(input.title, unidad);
         if (amount === undefined && resuelto.vehiculo.priceListUsd !== null) {
           amount = resuelto.vehiculo.priceListUsd;
           currency = currency ?? "USD";
@@ -570,7 +661,7 @@ const createOpportunityTool: ToolDelAgente = {
       }
 
       const opportunity = await createOpportunity(contexto.organizationId, ownerId, {
-        title: input.title,
+        title,
         amount,
         currency,
         contactId: contact.id,
@@ -585,7 +676,9 @@ const createOpportunityTool: ToolDelAgente = {
         amount: opportunity.amount,
         currency: opportunity.currency,
         status: opportunity.status,
-        ...(unidad === undefined ? {} : { unidad }),
+        ...(unidad === undefined
+          ? {}
+          : { unidad, unidadReservada: false, nota: NOTA_UNIDAD_DE_INTERES }),
         stage: primeraEtapa.name,
         reused: false,
       });
@@ -712,11 +805,9 @@ async function resolverOportunidad(
 
   // Sin id: la oportunidad abierta del contacto, la misma que devuelve
   // create_opportunity cuando reusa (ítem 84).
-  const [abierta] = await findManyOpportunities(
+  const abierta = await oportunidadAbiertaDelContacto(
     contexto.organizationId,
-    { contactId: contexto.conversation.contactId, status: "OPEN" },
-    { skip: 0, take: 1 },
-    { sortBy: "createdAt", sortOrder: "desc" },
+    contexto.conversation.contactId,
   );
   if (!abierta) {
     // No es un error de argumentos: es un estado legítimo del negocio, y el
@@ -1322,11 +1413,24 @@ const createBookingTool: ToolDelAgente = {
         return recurso.resultado;
       }
 
+      // F3 de docs/prueba-en-vivo-2026-09-29.md: la reserva queda vinculada a
+      // la oportunidad abierta del contacto —la misma que create_opportunity
+      // reusa—, para que el vendedor vea el test drive dentro de la venta. En
+      // la prueba en vivo el agente creó la oportunidad y la reserva en la
+      // misma conversación y la reserva quedó con opportunityId null. Sin
+      // oportunidad abierta queda sin vínculo, como antes: no se crea una solo
+      // para colgarle un turno.
+      const oportunidad = await oportunidadAbiertaDelContacto(
+        contexto.organizationId,
+        contexto.conversation.contactId,
+      );
+
       const booking = await createBooking(contexto.organizationId, {
         resourceId: recurso.resourceId,
         serviceTypeId: servicio.serviceTypeId,
         // Siempre el contacto de la conversación.
         contactId: contexto.conversation.contactId,
+        ...(oportunidad ? { opportunityId: oportunidad.id } : {}),
         startsAt: input.startsAt,
       });
 
@@ -1337,6 +1441,8 @@ const createBookingTool: ToolDelAgente = {
         startsAt: isoEnZona(booking.startsAt, zona),
         endsAt: isoEnZona(booking.endsAt, zona),
         status: booking.status,
+        // F3: null si el contacto no tenía una oportunidad abierta.
+        opportunityId: booking.opportunityId,
       });
     });
   },

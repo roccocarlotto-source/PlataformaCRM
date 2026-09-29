@@ -11,6 +11,7 @@ import {
   canonizarNombreDeTool,
   toolsHabilitadas,
   type ContextoDeEjecucionDeTool,
+  tituloConUnidad,
 } from "./agentTools.service";
 
 // Unitarios, SIN BASE: lo que se prueba acá es la forma del catálogo y la
@@ -754,4 +755,37 @@ test("agendar no exige ningún id: ni resourceId (ítem 102) ni serviceTypeId (�
     assert.match(params.properties.servicio.description, /forma preferida/);
     assert.match(params.properties.serviceTypeId.description, /nunca lo escribas de memoria/);
   }
+});
+
+// F2 de docs/prueba-en-vivo-2026-09-29.md: la unidad de interés queda nombrada
+// en el título de la oportunidad (no se vincula el vehicleId, ítem 175).
+test("F2: tituloConUnidad agrega la etiqueta cuando el título no la nombra", () => {
+  assert.equal(
+    tituloConUnidad("Interés", "Ford Mustang GT V8 2020"),
+    "Interés — Ford Mustang GT V8 2020",
+  );
+  // Nombrarla a medias no alcanza: falta el año.
+  assert.equal(
+    tituloConUnidad("Compra de Honda Civic EXL", "Honda Civic EXL 2018"),
+    "Compra de Honda Civic EXL — Honda Civic EXL 2018",
+  );
+});
+
+test("F2: tituloConUnidad no duplica una etiqueta que ya está, en cualquier orden, mayúsculas o acentos", () => {
+  assert.equal(
+    tituloConUnidad("Interés en Ford Mustang GT V8 2020", "Ford Mustang GT V8 2020"),
+    "Interés en Ford Mustang GT V8 2020",
+  );
+  assert.equal(
+    tituloConUnidad("mustang 2020 ford gt v8 para Ana", "Ford Mustang GT V8 2020"),
+    "mustang 2020 ford gt v8 para Ana",
+  );
+  assert.equal(tituloConUnidad("Citroën C3 2021", "Citroen C3 2021"), "Citroën C3 2021");
+});
+
+test("F2: tituloConUnidad nunca pasa de 255 y recorta el título del modelo, no la etiqueta", () => {
+  const etiqueta = "Toyota Hilux SRV 4x4 2022";
+  const r = tituloConUnidad("x".repeat(300), etiqueta);
+  assert.ok(r.length <= 255);
+  assert.ok(r.endsWith(` — ${etiqueta}`));
 });

@@ -1214,6 +1214,98 @@ test("create_opportunity con `vehiculo` vincula la unidad y completa el monto", 
   assert.match(data.unidad ?? "", /Hilux/);
 });
 
+// ---------------------------------------------------------------------------
+// F2 de docs/prueba-en-vivo-2026-09-29.md — la unidad de interés queda en el
+// título y el resultado dice que NO se reservó (sin vehicleId, ítem 175).
+// ---------------------------------------------------------------------------
+
+test("F2: create_opportunity nombra la unidad en el título y avisa que es de interés, no reservada", async () => {
+  const contacto = await nuevoContacto(a);
+  const data = await datosDe<{
+    opportunityId: string;
+    title: string;
+    unidad: string;
+    unidadReservada: boolean;
+    nota: string;
+  }>(
+    "create_opportunity",
+    { title: "Consulta por camioneta", vehiculo: "Hilux SRV" },
+    contextoDe(a.organizationId, contacto.id, a.branchId),
+  );
+
+  assert.equal(data.title, "Consulta por camioneta — Toyota Hilux SRV 4x4 2022");
+  assert.equal(data.unidad, "Toyota Hilux SRV 4x4 2022");
+  assert.equal(data.unidadReservada, false);
+  assert.match(data.nota, /NO está reservada/);
+
+  const guardada = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: data.opportunityId },
+  });
+  assert.equal(guardada.title, "Consulta por camioneta — Toyota Hilux SRV 4x4 2022");
+  assert.equal(guardada.vehicleId, null, "sigue sin vincular: vincular la reservaría");
+  const unidadDespues = await prisma.vehicle.findUniqueOrThrow({ where: { id: hiluxSrv } });
+  assert.equal(unidadDespues.status, "AVAILABLE");
+});
+
+test("F2: si el título ya nombra la unidad (en otro orden o con otras mayúsculas) no se duplica", async () => {
+  const contacto = await nuevoContacto(a);
+  const data = await datosDe<{ title: string }>(
+    "create_opportunity",
+    { title: "Interés en la toyota hilux 2022 SRV 4X4", vehiculo: "Hilux SRV" },
+    contextoDe(a.organizationId, contacto.id, a.branchId),
+  );
+  assert.equal(data.title, "Interés en la toyota hilux 2022 SRV 4X4");
+});
+
+test("F2: el reuso sobre una oportunidad con OTRA unidad ya reservada no la pisa, no le cambia título ni monto, y lo dice", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const reservada = await ranger("F2 reservada");
+  await datosDe("create_opportunity", { title: "Interés en Ranger" }, ctx);
+  await datosDe("reserve_vehicle", { vehiculo: "Ranger F2 reservada" }, ctx);
+  const antes = await prisma.opportunity.findFirstOrThrow({
+    where: { contactId: contacto.id, status: "OPEN" },
+  });
+
+  const r = await datosDe<{
+    opportunityId: string;
+    reused: boolean;
+    actualizada: boolean;
+    unidadReservada: string;
+    nota?: string;
+  }>("create_opportunity", { title: "Ahora la Hilux", vehiculo: "Hilux DX" }, ctx);
+
+  assert.equal(r.opportunityId, antes.id);
+  assert.equal(r.reused, true);
+  assert.equal(r.actualizada, false);
+  assert.match(r.unidadReservada, /Ford Ranger F2 reservada 2024/);
+  assert.match(r.nota ?? "", /ya tiene reservada otra unidad/);
+
+  const despues = await prisma.opportunity.findUniqueOrThrow({ where: { id: antes.id } });
+  assert.equal(despues.vehicleId, reservada.id, "la reservada sigue vinculada");
+  assert.equal(despues.title, antes.title);
+  assert.equal(Number(despues.amount), Number(antes.amount));
+  const dx = await prisma.vehicle.findUniqueOrThrow({ where: { id: hiluxDx } });
+  assert.equal(dx.status, "AVAILABLE");
+});
+
+test("F2: el reuso nombrando la MISMA unidad reservada la devuelve tal cual, sin nota de otra unidad", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  await ranger("F2 misma");
+  await datosDe("create_opportunity", { title: "Interés en Ranger" }, ctx);
+  await datosDe("reserve_vehicle", { vehiculo: "Ranger F2 misma" }, ctx);
+
+  const r = await datosDe<{ actualizada: boolean; unidadReservada: string; nota?: string }>(
+    "create_opportunity",
+    { title: "Ranger", vehiculo: "Ranger F2 misma" },
+    ctx,
+  );
+  assert.equal(r.actualizada, false);
+  assert.match(r.unidadReservada, /Ford Ranger F2 misma 2024/);
+  assert.equal(r.nota, undefined);
+});
+
 test("un monto explícito del modelo GANA sobre el precio de lista", async () => {
   // Ítem 92: registrar lo que el cliente ofreció es correcto; lo que no se
   // puede es presentárselo como aceptado. Acá se verifica que se registre.
@@ -1391,7 +1483,9 @@ test("create_opportunity que reusa APLICA el auto nuevo en vez de descartarlo", 
   assert.equal(segunda.reused, true);
   // ...pero ahora refleja lo que el cliente pidió, y el resultado lo dice.
   assert.equal(segunda.actualizada, true);
-  assert.equal(segunda.title, "Interés en Hilux DX");
+  // F2: la unidad queda nombrada en el título aunque el modelo la haya
+  // escrito incompleta ("Hilux DX" no nombra la versión ni el año).
+  assert.equal(segunda.title, "Interés en Hilux DX — Toyota Hilux DX 4x2 2019");
   assert.equal(Number(segunda.amount), 27_500);
   assert.match(segunda.unidad, /Hilux DX/);
 
@@ -1409,7 +1503,7 @@ test("create_opportunity que reusa SIN vehículo no toca nada, y lo dice", async
   // modelo no le anuncie al cliente algo que no pasó.
   const contacto = await nuevoContacto(a);
   const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
-  await datosDe(
+  const primera = await datosDe<{ title: string }>(
     "create_opportunity",
     { title: "Interés en Hilux SRV", vehiculo: "Hilux SRV" },
     ctx,
@@ -1422,7 +1516,7 @@ test("create_opportunity que reusa SIN vehículo no toca nada, y lo dice", async
   );
 
   assert.equal(segunda.actualizada, false);
-  assert.equal(segunda.title, "Interés en Hilux SRV", "el título viejo no se pisa");
+  assert.equal(segunda.title, primera.title, "el título viejo no se pisa");
   assert.equal(Number(segunda.amount), 38_000);
 });
 
