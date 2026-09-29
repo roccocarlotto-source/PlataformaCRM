@@ -10,6 +10,7 @@ import { notFound } from "../middlewares/notFound";
 import { findContactIdByNormalizedPhone } from "../repositories/contact.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { createWhatsappWebhookRouter } from "../routes/whatsappWebhook.routes";
+import { registrarPlantillaEnConversacion } from "../services/automationWhatsappConversation.service";
 import {
   resetLlmProviderParaTests,
   setLlmProviderForTests,
@@ -634,6 +635,60 @@ test("F5: duplicados viejos — el entrante va al que tiene la conversación de 
     },
   });
   assert.equal(abierta.contactId, nuevo.id);
+});
+
+// ---------------------------------------------------------------------------
+// F1 de docs/prueba-en-vivo-2026-09-29.md — el WhatsApp que mandó una
+// automatización (el seguimiento con QR, el cupón) queda en la conversación, y
+// cuando el cliente lo contesta el agente lo tiene en el historial. Antes el
+// agente recibía un "¡gracias!" sin saber a qué.
+// ---------------------------------------------------------------------------
+
+test("F1: el cliente contesta el WhatsApp de una automatización — el agente recibe ese saliente en el historial", async () => {
+  const waId = waIdAlAzar();
+  const contacto = await prisma.contact.create({
+    data: { organizationId: fx.orgId, firstName: "Ana", lastName: "Postventa", phone: `+${waId}` },
+  });
+  const textoDeLaPlantilla =
+    "Hola Ana, gracias por tu compra. Tu opinión: https://g.page/r/abc/review ¡Gracias!";
+  await registrarPlantillaEnConversacion({
+    organizationId: fx.orgId,
+    contactId: contacto.id,
+    phoneNumberId: fx.phoneNumberId,
+    destino: waId,
+    plantilla: {
+      name: "seguimiento_postventa",
+      bodyText: "Hola {nombre}, gracias por tu compra. Tu opinión: {link} ¡Gracias!",
+    },
+    parametros: ["Ana", "https://g.page/r/abc/review"],
+    wamid: `wamid.automatizacion.${waId}`,
+  });
+
+  // Registrarlo no encola ningún turno: el agente no le escribe solo.
+  await drenar();
+  assert.equal(llamadasAlLlm, 0);
+  assert.equal(enviados.length, 0);
+
+  const res = await enviar(payloadDeTexto({ waId, body: "¡Gracias! ¿Hacen service?" }));
+  assert.equal(res.status, 200);
+  await drenar();
+
+  assert.equal(llamadasAlLlm, 1);
+  const historial = requestsAlLlm[0].messages;
+  const iSaliente = historial.findIndex(
+    (m) => m.role === "assistant" && textoDe(m) === textoDeLaPlantilla,
+  );
+  const iRespuesta = historial.findIndex(
+    (m) => m.role === "user" && textoDe(m).includes("¿Hacen service?"),
+  );
+  assert.ok(iSaliente >= 0, "el saliente de la automatización está en el historial");
+  assert.ok(iRespuesta > iSaliente, "y va antes de lo que contestó el cliente");
+
+  // Una sola conversación: el entrante cayó en la que abrió la automatización.
+  const conversaciones = await prisma.conversation.findMany({
+    where: { organizationId: fx.orgId, contactId: contacto.id },
+  });
+  assert.equal(conversaciones.length, 1);
 });
 
 // ---------------------------------------------------------------------------

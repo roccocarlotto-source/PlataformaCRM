@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomInt } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { prisma } from "../lib/prisma";
 import { crearRegla, desmontar, montar, type Escenario } from "../services/automation.test-helper";
@@ -119,6 +119,8 @@ function drenarEventos() {
 // pide, falla con lo que Meta habría contestado.
 function doblarEnvio(falla?: unknown) {
   const enviados: SendWhatsappTemplateInput[] = [];
+  // F1: el wamid que "devolvió Meta" en cada envío, para encontrar el Message.
+  const wamids: string[] = [];
   const deps: DepsDelSeguimiento = {
     accessToken: () => "token-de-prueba",
     // La real: lee la plantilla aprobada de la regla en la base.
@@ -129,10 +131,13 @@ function doblarEnvio(falla?: unknown) {
         .then((a) => a?.whatsappPhoneNumberId ?? null),
     sendTemplate: (input) => {
       enviados.push(input);
-      return falla === undefined ? Promise.resolve() : Promise.reject(falla);
+      if (falla !== undefined) return Promise.reject(falla);
+      const wamid = `wamid.prueba.${randomUUID()}`;
+      wamids.push(wamid);
+      return Promise.resolve({ wamid });
     },
   };
-  return { deps, enviados };
+  return { deps, enviados, wamids };
 }
 
 function drenarSeguimientos(deps: DepsDelSeguimiento) {
@@ -293,6 +298,137 @@ test("con delayHours 0 el worker lo manda: plantilla de la regla, número de la 
   assert.ok(fila.sentAt);
   assert.equal(fila.attempts, 1);
   assert.equal(fila.lastError, null);
+});
+
+// ---------------------------------------------------------------------------
+// F1 de docs/prueba-en-vivo-2026-09-29.md: el WhatsApp de la automatización
+// queda como saliente en la conversación del contacto, para que el vendedor lo
+// vea en la bandeja y el agente lo tenga si el cliente contesta.
+// ---------------------------------------------------------------------------
+
+// El agente dueño del número, que es el de la conversación.
+function agenteDelNumero() {
+  return prisma.agent.findFirstOrThrow({ where: { whatsappPhoneNumberId: PHONE_NUMBER_ID } });
+}
+
+// Cierra las conversaciones abiertas que dejaron los casos anteriores (todos
+// le mandan al mismo contacto): cada caso de F1 arranca sin hilo abierto.
+function cerrarConversacionesDelContacto() {
+  return prisma.conversation.updateMany({
+    where: { organizationId: e.organizationId, contactId, status: { not: "CLOSED" } },
+    data: { status: "CLOSED" },
+  });
+}
+
+test("F1: el envío queda como saliente del agente en una conversación de WhatsApp nueva, con el texto de la plantilla y el wamid", async () => {
+  await cerrarConversacionesDelContacto();
+  await soloEstaRegla(0);
+  await ganarOportunidad("F1 registro");
+  const { deps, wamids } = doblarEnvio();
+  const jobsAntes = await prisma.agentInboundJob.count({
+    where: { organizationId: e.organizationId },
+  });
+
+  const resumen = await drenarSeguimientos(deps);
+
+  assert.equal(resumen.enviados, 1);
+  const mensaje = await prisma.message.findFirstOrThrow({
+    where: { organizationId: e.organizationId, externalMessageId: wamids[0] },
+    include: { conversation: true },
+  });
+  assert.equal(mensaje.direction, "OUTBOUND");
+  assert.equal(mensaje.senderType, "AGENT");
+  assert.equal(mensaje.senderUserId, null);
+  assert.equal(mensaje.deliveryStatus, "SENT");
+  // bodyText de la plantilla del fixture, con {nombre} y {link} reemplazados.
+  assert.equal(
+    mensaje.content,
+    "Hola Ana, gracias por tu compra. Tu opinión: https://g.page/r/abc/review ¡Gracias!",
+  );
+
+  const conversacion = mensaje.conversation;
+  assert.equal(conversacion.channel, "WHATSAPP");
+  assert.equal(conversacion.contactId, contactId);
+  assert.equal(conversacion.agentId, (await agenteDelNumero()).id);
+  assert.equal(conversacion.branchId, branchId);
+  assert.equal(conversacion.externalThreadId, "5491155550000");
+  assert.equal(conversacion.status, "ACTIVE");
+  assert.equal(conversacion.lastMessageAt?.getTime(), mensaje.createdAt.getTime());
+
+  // Registrar lo que salió no es un mensaje del cliente: no encola ningún turno.
+  assert.equal(
+    await prisma.agentInboundJob.count({ where: { organizationId: e.organizationId } }),
+    jobsAntes,
+  );
+});
+
+test("F1: con una conversación de WhatsApp abierta, el saliente va a esa y no le cambia el estado", async () => {
+  await cerrarConversacionesDelContacto();
+  const agente = await agenteDelNumero();
+  const abierta = await prisma.conversation.create({
+    data: {
+      organizationId: e.organizationId,
+      branchId,
+      agentId: agente.id,
+      contactId,
+      channel: "WHATSAPP",
+      status: "TRANSFERRED_TO_HUMAN",
+      assignedUserId: e.userId,
+      externalThreadId: "5491155550000",
+    },
+  });
+  await soloEstaRegla(0);
+  await ganarOportunidad("F1 hilo abierto");
+  const { deps, wamids } = doblarEnvio();
+
+  await drenarSeguimientos(deps);
+
+  const mensaje = await prisma.message.findFirstOrThrow({
+    where: { organizationId: e.organizationId, externalMessageId: wamids[0] },
+  });
+  assert.equal(mensaje.conversationId, abierta.id);
+  const despues = await prisma.conversation.findUniqueOrThrow({ where: { id: abierta.id } });
+  assert.equal(despues.status, "TRANSFERRED_TO_HUMAN");
+  assert.equal(despues.assignedUserId, e.userId);
+  assert.equal(
+    await prisma.conversation.count({
+      where: { organizationId: e.organizationId, contactId, status: { not: "CLOSED" } },
+    }),
+    1,
+    "no abre otra",
+  );
+});
+
+test("F1: si anotar en la conversación falla, la fila queda SENT y el envío NUNCA se reintenta", async () => {
+  await soloEstaRegla(0);
+  const opp = await ganarOportunidad("F1 registro que falla");
+  const primero = doblarEnvio();
+  let intentosDeAnotar = 0;
+  const resumen = await drenarSeguimientos({
+    ...primero.deps,
+    registrarEnConversacion: () => {
+      intentosDeAnotar++;
+      return Promise.reject(new Error("la base se cayó justo acá"));
+    },
+  });
+
+  assert.equal(resumen.enviados, 1);
+  assert.equal(resumen.fallidos + resumen.pospuestos, 0, "no se cuenta como fallo");
+  assert.equal(intentosDeAnotar, 1);
+  const [fila] = await seguimientosDe(opp.id);
+  assert.equal(fila.status, "SENT");
+  assert.equal(fila.lastError, null);
+  assert.equal(await prisma.message.count({ where: { externalMessageId: primero.wamids[0] } }), 0);
+
+  // Aunque su turno siga vencido, no se vuelve a mandar: sería un WhatsApp
+  // duplicado al cliente por un problema que es solo nuestro.
+  await prisma.qrFollowUp.updateMany({
+    where: { opportunityId: opp.id },
+    data: { nextAttemptAt: new Date(Date.now() - 60_000) },
+  });
+  const segundo = doblarEnvio();
+  await drenarSeguimientos(segundo.deps);
+  assert.equal(segundo.enviados.length, 0);
 });
 
 test("un SENT no se reprocesa: la pasada siguiente no manda nada", async () => {

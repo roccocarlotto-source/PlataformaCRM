@@ -16,6 +16,7 @@ import {
   sendWhatsappTemplateReal,
   sendWhatsappTextReal,
   WhatsappGraphError,
+  wamidDeLaRespuesta,
 } from "./whatsappGraph.service";
 
 // ---------------------------------------------------------------------------
@@ -362,4 +363,23 @@ test("downloadWhatsappMediaReal: un 2xx sin url es una respuesta rota de Meta (5
     downloadWhatsappMediaReal({ mediaId: "x", accessToken: "t" }),
     (err: unknown) => err instanceof WhatsappGraphError && err.status === 502,
   );
+});
+
+// F1 de docs/prueba-en-vivo-2026-09-29.md: el wamid del mensaje que Meta
+// aceptó se guarda como Message.externalMessageId.
+test("F1: wamidDeLaRespuesta toma messages[0].id de la respuesta de Meta", () => {
+  assert.equal(
+    wamidDeLaRespuesta({
+      messaging_product: "whatsapp",
+      contacts: [{ input: "59899123456", wa_id: "59899123456" }],
+      messages: [{ id: "wamid.HBgLNTk4OTkxMjM0NTYVAgARGBI" }],
+    }),
+    "wamid.HBgLNTk4OTkxMjM0NTYVAgARGBI",
+  );
+});
+
+test("F1: wamidDeLaRespuesta devuelve null si la respuesta no lo trae, sin lanzar", () => {
+  for (const respuesta of [{}, null, undefined, { messages: [] }, { messages: [{ id: 3 }] }, "x"]) {
+    assert.equal(wamidDeLaRespuesta(respuesta), null);
+  }
 });

@@ -13,6 +13,7 @@ import {
   type DiscountVoucherFollowUpParaEnviar,
   type DiscountVoucherFollowUpReclamado,
 } from "../repositories/discountVoucherFollowUp.repository";
+import { anotarEnvioEnConversacion } from "../services/automationWhatsappConversation.service";
 import { crearDiscountVoucher, dependenciasDeCuponesEn } from "../services/discountVoucher.service";
 import { soloDigitos } from "../lib/telefono";
 import { AppError } from "../utils/AppError";
@@ -24,6 +25,7 @@ import {
   depsDelSeguimientoReales,
   nombreParaElSaludo,
   type DepsDelSeguimiento,
+  type ResultadoDelEnvio as ResultadoDelEnvioDelSeguimiento,
 } from "./qrFollowUpWorker";
 
 // ---------------------------------------------------------------------------
@@ -172,8 +174,9 @@ export function motivoDeCancelacion(
   return null;
 }
 
-export type ResultadoDelEnvio =
-  { resultado: "ENVIADO" } | { resultado: "CANCELADO"; motivo: string };
+// El mismo que el del QR: ENVIADO lleva lo que salió para anotarlo en la
+// conversación (F1).
+export type ResultadoDelEnvio = ResultadoDelEnvioDelSeguimiento;
 
 // Un envío reclamado: relee, decide, emite el cupón si hace falta y manda.
 // Lanza ante cualquier fallo; el que llama lo clasifica.
@@ -228,19 +231,31 @@ export async function procesarCupon(
     fila.discountVoucherId ??
     (await deps.emitirCupon(reclamo, fila, vencimientoDelCupon(deps.ahora(), fila.expiresInDays)));
 
-  await deps.sendTemplate({
+  // Posicionales, los mismos que el del QR: {{1}} el nombre, {{2}} el link.
+  const parametros = [
+    nombreParaElSaludo(fila.contact.firstName),
+    buildVoucherPublicUrl(discountVoucherId),
+  ];
+  const { wamid } = await deps.sendTemplate({
     phoneNumberId,
     to: destino,
     templateName: plantilla.name,
     languageCode: plantilla.languageCode,
-    // Posicionales, los mismos que el del QR: {{1}} el nombre, {{2}} el link.
-    bodyParameters: [
-      nombreParaElSaludo(fila.contact.firstName),
-      buildVoucherPublicUrl(discountVoucherId),
-    ],
+    bodyParameters: parametros,
     accessToken: config.accessToken,
   });
-  return { resultado: "ENVIADO" };
+  return {
+    resultado: "ENVIADO",
+    envio: {
+      organizationId: fila.organizationId,
+      contactId: fila.contactId,
+      phoneNumberId,
+      destino,
+      plantilla,
+      parametros,
+      wamid,
+    },
+  };
 }
 
 export interface ResumenDrenado {
@@ -309,11 +324,14 @@ async function registrarResultado(
   reclamo: DiscountVoucherFollowUpReclamado,
   resultado: ResultadoDelEnvio,
   resumen: ResumenDrenado,
+  deps: DepsDelCupon,
 ) {
   try {
     if (resultado.resultado === "ENVIADO") {
       await markDiscountVoucherFollowUpSent(reclamo, new Date());
       resumen.enviados++;
+      // F1, igual que el del QR: recién con la fila marcada, y nunca lanza.
+      await anotarEnvioEnConversacion(resultado.envio, deps.registrarEnConversacion);
       return;
     }
     await markDiscountVoucherFollowUpCancelled(reclamo, resultado.motivo);
@@ -400,7 +418,7 @@ export async function drenarCupones(opciones: OpcionesDrenado = {}): Promise<Res
       pospuestos.push(reclamo.id);
       continue;
     }
-    await registrarResultado(reclamo, resultado, resumen);
+    await registrarResultado(reclamo, resultado, resumen, deps);
   }
 
   return resumen;

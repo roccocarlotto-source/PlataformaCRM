@@ -176,7 +176,7 @@ const envioSimulado: SendWhatsappTemplate = (input) => {
   console.log(
     `  ${JSON.stringify({ phoneNumberId: input.phoneNumberId, messaging_product: "whatsapp", ...cuerpoDePlantilla(input) })}`,
   );
-  return Promise.resolve();
+  return Promise.resolve({ wamid: null });
 };
 
 interface Escenario {

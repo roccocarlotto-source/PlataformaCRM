@@ -13,6 +13,10 @@ import {
   type QrFollowUpParaEnviar,
   type QrFollowUpReclamado,
 } from "../repositories/qrFollowUp.repository";
+import {
+  anotarEnvioEnConversacion,
+  type EnvioDePlantilla,
+} from "../services/automationWhatsappConversation.service";
 import { esTransitorio } from "../services/llmProvider.service";
 import { soloDigitos } from "../lib/telefono";
 import {
@@ -56,6 +60,9 @@ import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils
 export interface PlantillaDeSeguimiento {
   name: string;
   languageCode: string;
+  // El cuerpo con {{1}}, {{2}}… (F1: el texto que queda en la conversación).
+  // Opcional: sin él se anota una línea descriptiva (textoDePlantilla).
+  bodyText?: string | null;
 }
 
 export interface DepsDelSeguimiento {
@@ -68,13 +75,18 @@ export interface DepsDelSeguimiento {
   ) => Promise<PlantillaDeSeguimiento | null>;
   numeroDeLaSucursal: (organizationId: string, branchId: string) => Promise<string | null>;
   sendTemplate: SendWhatsappTemplate;
+  // F1: anota el envío en la conversación del contacto. Opcional para los
+  // dobles de los tests; el real es registrarPlantillaEnConversacion.
+  registrarEnConversacion?: (envio: EnvioDePlantilla) => Promise<void>;
 }
 
 export const depsDelSeguimientoReales: DepsDelSeguimiento = {
   accessToken: () => env.WHATSAPP_ACCESS_TOKEN,
   plantillaDeLaRegla: async (organizationId, automationId) => {
     const plantilla = await findApprovedWhatsappTemplate(organizationId, automationId);
-    return plantilla ? { name: plantilla.name, languageCode: plantilla.language } : null;
+    return plantilla
+      ? { name: plantilla.name, languageCode: plantilla.language, bodyText: plantilla.bodyText }
+      : null;
   },
   numeroDeLaSucursal: findBranchWhatsappPhoneNumberId,
   sendTemplate: sendWhatsappTemplateReal,
@@ -155,8 +167,10 @@ export function nombreParaElSaludo(firstName: string): string {
   return firstName.trim() || "cliente";
 }
 
+// ENVIADO lleva lo que salió, para anotarlo en la conversación (F1) DESPUÉS de
+// marcar la fila: ver anotarEnvioEnConversacion.
 export type ResultadoDelEnvio =
-  { resultado: "ENVIADO" } | { resultado: "CANCELADO"; motivo: string };
+  { resultado: "ENVIADO"; envio: EnvioDePlantilla } | { resultado: "CANCELADO"; motivo: string };
 
 // Un envío reclamado: relee, decide y manda. Lanza ante cualquier fallo; el
 // que llama lo clasifica. No escribe ninguna marca: eso lo hace el drenado.
@@ -208,16 +222,28 @@ export async function procesarSeguimiento(
     );
   }
 
-  await deps.sendTemplate({
+  // Posicionales: {{1}} el nombre del contacto, {{2}} el link del QR.
+  const parametros = [nombreParaElSaludo(fila.contact.firstName), fila.qrCode.destinationUrl];
+  const { wamid } = await deps.sendTemplate({
     phoneNumberId,
     to: destino,
     templateName: plantilla.name,
     languageCode: plantilla.languageCode,
-    // Posicionales: {{1}} el nombre del contacto, {{2}} el link del QR.
-    bodyParameters: [nombreParaElSaludo(fila.contact.firstName), fila.qrCode.destinationUrl],
+    bodyParameters: parametros,
     accessToken: config.accessToken,
   });
-  return { resultado: "ENVIADO" };
+  return {
+    resultado: "ENVIADO",
+    envio: {
+      organizationId: fila.organizationId,
+      contactId: fila.contactId,
+      phoneNumberId,
+      destino,
+      plantilla,
+      parametros,
+      wamid,
+    },
+  };
 }
 
 export interface ResumenDrenado {
@@ -285,11 +311,15 @@ async function registrarResultado(
   reclamo: QrFollowUpReclamado,
   resultado: ResultadoDelEnvio,
   resumen: ResumenDrenado,
+  deps: DepsDelSeguimiento,
 ) {
   try {
     if (resultado.resultado === "ENVIADO") {
       await markQrFollowUpSent(reclamo, new Date());
       resumen.enviados++;
+      // F1: recién con la fila marcada. Nunca lanza, así que no puede caer en
+      // el catch de abajo ni cambiar el resultado del envío.
+      await anotarEnvioEnConversacion(resultado.envio, deps.registrarEnConversacion);
       return;
     }
     await markQrFollowUpCancelled(reclamo, resultado.motivo);
@@ -390,7 +420,7 @@ export async function drenarSeguimientosQr(
       pospuestos.push(reclamo.id);
       continue;
     }
-    await registrarResultado(reclamo, resultado, resumen);
+    await registrarResultado(reclamo, resultado, resumen, deps);
   }
 
   return resumen;
