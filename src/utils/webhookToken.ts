@@ -112,7 +112,7 @@ export async function firmarWebhookToken(datos: WebhookToken, clave?: Uint8Array
 
 // ---------------------------------------------------------------------------
 // EL STATUS DEL RECHAZO ES 403, Y NO ES COSMÉTICO — V-1 de
-// docs/auditoria-2026-08-29.md
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)
 // ---------------------------------------------------------------------------
 //
 // Tres endpoints del proyecto reciben una credencial sin sesión y la rechazan

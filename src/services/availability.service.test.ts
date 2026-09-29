@@ -247,7 +247,7 @@ test("Google y las reservas propias se restan a la vez", () => {
 });
 
 // ---------------------------------------------------------------------------
-// A-5 (docs/auditoria-2026-08-29.md) — la grilla se ancla en el borde REAL de
+// A-5 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — la grilla se ancla en el borde REAL de
 // la franja, y `desde` solo FILTRA.
 //
 // El escenario del hallazgo: mismo horario, misma reserva existente, dos

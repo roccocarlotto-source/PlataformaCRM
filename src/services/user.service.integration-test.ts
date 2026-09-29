@@ -122,7 +122,7 @@ async function assertExactlyOneActiveAdminRemains(organizationId: string) {
   );
 }
 
-// M-19 de docs/auditoria-2026-08-29.md — la carrera ya no se deja al azar del
+// M-19 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — la carrera ya no se deja al azar del
 // scheduler (Promise.allSettled detectaba el bug en ~29 % de las corridas: un
 // PR que borrara lockOrganizationForUpdate pasaba CI 7 de 10 veces). Ahora:
 //
@@ -216,7 +216,7 @@ test("degradación ADMIN→USER vs degradación ADMIN→USER: adminA degrada a a
 });
 
 // ---------------------------------------------------------------------------
-// M-11 (b), §28.7 de docs/bitacora-2026-08-29.md — "No se encontró el rol
+// M-11 (b), §28.7 de docs-privados/bitacora-2026-08-29.md (local, no está en GitHub) — "No se encontró el rol
 // indicado" en updateUser es un error de configuración del servidor (falta el
 // seed) y va con isOperational: false.
 // ---------------------------------------------------------------------------

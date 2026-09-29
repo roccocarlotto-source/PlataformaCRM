@@ -18,7 +18,7 @@ const calificar = async (
 ): Promise<Awaited<ReturnType<typeof qualifyLead>>["contacto"]> =>
   (await qualifyLead(...args)).contacto;
 
-// M-10 (docs/auditoria-2026-08-29.md) — PATCH no podía vaciar los campos
+// M-10 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — PATCH no podía vaciar los campos
 // opcionales de Contact. Para phone/jobTitle/source el bug vivía solo en el
 // schema del controller (contact.controller.test.ts). Para `email` y
 // `companyId` el schema era la mitad: updateContact colapsaba el `null` a

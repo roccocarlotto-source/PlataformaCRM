@@ -201,7 +201,7 @@ test("onboardOrganization con el código correcto crea Organization + User y dej
 });
 
 // ---------------------------------------------------------------------------
-// M-13 (docs/auditoria-2026-08-29.md) — dos bugs en el mismo flujo.
+// M-13 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — dos bugs en el mismo flujo.
 //
 // Bug 1: un nombre sin caracteres ASCII alfanuméricos slugifica a "" y pasaba el
 // schema (min(1) es sobre el nombre). Bug 2: el chequeo "¿ya existe una
@@ -383,7 +383,7 @@ test("onboardOrganization rechaza con 409 un email que ya tiene cuenta, y NO bor
 });
 
 // ---------------------------------------------------------------------------
-// M-11 (b), §28.7 de docs/bitacora-2026-08-29.md — el sitio "No se encontró el
+// M-11 (b), §28.7 de docs-privados/bitacora-2026-08-29.md (local, no está en GitHub) — el sitio "No se encontró el
 // rol ADMIN" es un error de configuración del servidor (falta el seed) y va
 // con isOperational: false. Este test dispara ESE throw de verdad, con el
 // flujo real completo hasta la transacción.
@@ -448,7 +448,7 @@ test("M-11 b: sin el rol ADMIN en la base, onboardOrganization lanza un AppError
 });
 
 // ---------------------------------------------------------------------------
-// B-22 de docs/auditoria-2026-08-29.md — requestOnboardingOtp aplastaba TODO
+// B-22 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — requestOnboardingOtp aplastaba TODO
 // error de signInWithOtp en el 502 genérico, incluido el 429 real de
 // over_email_send_rate_limit (el mismo que ya se observó E2E, ver
 // docs/project-overview.md): un cliente rate-limiteado tiene que hacer
@@ -515,7 +515,7 @@ test("B-22: cualquier otro error de signInWithOtp sigue en el 502 genérico, sin
 });
 
 // ---------------------------------------------------------------------------
-// V-5 (docs/verificacion-v1-v14-estado.md) — el espejo de B-22 del lado de
+// V-5 (docs-privados/verificacion-v1-v14-estado.md (local, no está en GitHub)) — el espejo de B-22 del lado de
 // verifyOtp. onboardOrganization aplastaba TODO error de verifyOtp en el 401
 // genérico "inválido o expiró", incluido over_request_rate_limit: el 429 por
 // IP de /verify, que —como el registro entero pasa server-side— es la IP del

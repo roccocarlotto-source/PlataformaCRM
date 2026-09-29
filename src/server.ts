@@ -104,7 +104,7 @@ const detenerWorkerDeSeguimientosQr = arrancarWorkers ? iniciarWorkerDeSeguimien
 // opportunity.send_discount_voucher agendó.
 const detenerWorkerDeCupones = arrancarWorkers ? iniciarWorkerDeCupones() : sinWorker;
 
-// El apagado ordenado (M-12 de docs/auditoria-2026-08-29.md). La orquestación
+// El apagado ordenado (M-12 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). La orquestación
 // vive en shutdown.ts, sin efectos de lado y con todo inyectado, para poder
 // probarla sin señales reales; acá solo se cablean los efectos de verdad.
 const shutdown = crearShutdown({

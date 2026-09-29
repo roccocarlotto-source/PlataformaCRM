@@ -16,7 +16,7 @@ import { AppError } from "../utils/AppError";
 import { resolveAuthContext } from "./auth.service";
 
 // ---------------------------------------------------------------------------
-// El séptimo sitio de §28.7 de docs/bitacora-2026-08-29.md (M-11 b): un
+// El séptimo sitio de §28.7 de docs-privados/bitacora-2026-08-29.md (local, no está en GitHub) (M-11 b): un
 // usuario cuyo rol tiene un `name` fuera de RoleName. Role.name es un string
 // en la base, no un enum de Postgres, así que la fila se puede crear; es el
 // invariante de datos roto que resolveAuthContext detecta con isRoleName().

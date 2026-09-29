@@ -73,7 +73,7 @@ const URL_FREEBUSY = "https://www.googleapis.com/calendar/v3/freeBusy";
 // uno se leyera como "sin horario" en vez de como un cambio.
 //
 // LA ZONA ES DE LA SUCURSAL, y solo importa para `date` — B-6 de
-// docs/auditoria-2026-08-29.md. Un `dateTime` trae su propio offset o Z, así
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Un `dateTime` trae su propio offset o Z, así
 // que se parsea tal cual. Un `date` no trae hora: `new Date("2026-09-07")` lo
 // leía como medianoche UTC por la propia especificación de Date para fechas ISO
 // sin hora, sin importar dónde esté la sucursal, y en Buenos Aires eso son las
@@ -279,7 +279,7 @@ export interface ConsultaDeCambios {
   // instante (RFC3339). Google no admite combinarlo con syncToken —quien
   // llama nunca debería pasar los dos juntos— y el syncToken que resulte de
   // una consulta con timeMin recuerda ese límite para las sincronizaciones
-  // incrementales siguientes. Ver M-3 de docs/auditoria-2026-08-29.md: sin
+  // incrementales siguientes. Ver M-3 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): sin
   // esto, una sincronización completa listaba el calendario ENTERO —años de
   // eventos que igual se descartan— y en un calendario grande el bucle de
   // 100 páginas cortaba antes de la última, nextSyncToken quedaba undefined y

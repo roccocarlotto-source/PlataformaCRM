@@ -131,7 +131,7 @@ test("validatePayloadDepth acepta el anidamiento justo en el límite (control de
 });
 
 // ---------------------------------------------------------------------------
-// B-28 (docs/auditoria-2026-08-29.md): una clave literal "__proto__" en el
+// B-28 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): una clave literal "__proto__" en el
 // payload. JSON.parse la crea como propiedad propia, pero la copia canónica se
 // armaba sobre un `{}` literal, donde `ordenado["__proto__"] = …` dispara el
 // setter heredado en vez de crear la clave: desaparecía del JSON canónico y dos

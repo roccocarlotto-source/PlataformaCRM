@@ -249,7 +249,7 @@ export async function desconectar(
 
   // UNA SOLA ESCRITURA, y es deliberado. markConnectionRevoked deja en la misma
   // sentencia status = REVOKED, el token, el syncToken y los tres campos del
-  // canal en NULL (decisión de B-3 de docs/auditoria-2026-08-29.md: "REVOKED"
+  // canal en NULL (decisión de B-3 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): "REVOKED"
   // queda definido por esa única función como "sin credencial y sin ningún
   // estado de la cuenta"). Acá había además un clearConnectionChannel justo
   // después, que era la segunda escritura sin transacción que señalaba B-8: un
@@ -296,7 +296,7 @@ export async function obtenerConexion(
 // de marcar la conexión cuando Google la rechaza, y el día que uno se olvide la
 // sucursal quedaría rota y en ACTIVE, o sea invisible.
 //
-// CON CACHE EN MEMORIA DEL ACCESS TOKEN — B-2 de docs/auditoria-2026-08-29.md.
+// CON CACHE EN MEMORIA DEL ACCESS TOKEN — B-2 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
 // Antes se renovaba contra Google en CADA llamada: dos requests por operación
 // (disponibilidad, reserva, cancelación, webhook, worker), descartando el
 // `expires_in` que Google devuelve. Un Map a nivel de módulo, sin librería:
@@ -473,7 +473,7 @@ export async function consultarDisponibilidad(
 // ---------------------------------------------------------------------------
 
 // Un grant muerto detectado EN LA LLAMADA A LA API, no en el refresh — B-4 de
-// docs/auditoria-2026-08-29.md. obtenerAccessToken cubre el refresh del token y
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). obtenerAccessToken cubre el refresh del token y
 // consultarDisponibilidad hace este mismo chequeo (y relanza); las dos funciones
 // de abajo lo hacían a medias: el GoogleAuthError que lanzan crearEvento y
 // eliminarEvento ante un 401 de Google es un 502, nunca 404/409, así que ya
@@ -680,7 +680,7 @@ export async function renovarCanal(
     channelExpiration: creado.expiration,
   });
 
-  // B-7 de docs/auditoria-2026-08-29.md: la conexión dejó de estar ACTIVE
+  // B-7 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): la conexión dejó de estar ACTIVE
   // mientras se creaba el canal en Google (desconectar() o markConnectionError
   // corrieron en esa ventana), y setConnectionChannel no escribió nada. El
   // canal que se acaba de abrir quedó huérfano: no está en ninguna fila, así

@@ -5,7 +5,7 @@ import { AppError } from "../utils/AppError";
 import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
 
 // ---------------------------------------------------------------------------
-// El carácter NUL (U+0000) y jsonb — M-16 de docs/auditoria-2026-08-29.md.
+// El carácter NUL (U+0000) y jsonb — M-16 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
 //
 // Postgres no admite U+0000 dentro de un jsonb (error 22P05, "unsupported
 // Unicode escape sequence"), y nada antes de este archivo lo filtra:
@@ -267,7 +267,7 @@ export async function claimNextPendingEvent(
   // espera su turno sin que nadie la mire hasta entonces.
   //
   // LA FUENTE TIENE QUE ESTAR ACTIVA Y NO RETIRADA — V-9 de
-  // docs/auditoria-2026-08-29.md. Hasta ahí el JOIN solo exigía que la fuente
+  // docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Hasta ahí el JOIN solo exigía que la fuente
   // existiera: la compuerta de is_active/deleted_at vivía únicamente en la
   // ENTRADA (resolveIngestContext, ingestAuth.service.ts), que decide si se
   // crea la fila, y nada volvía a mirarla entre el reclamo y promoverEvento
@@ -443,7 +443,7 @@ export function markEventFailed(
 export const FILAS_POR_TANDA = 500;
 
 // Tope de la transacción que envuelve TODAS las tandas de un archivo (M-17 de
-// docs/auditoria-2026-08-29.md). No es el default de Prisma (5 s) por
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). No es el default de Prisma (5 s) por
 // decisión, no por descuido: el peor caso legítimo son MAX_FILAS_POR_ARCHIVO
 // (10.000, utils/spreadsheet.ts) / FILAS_POR_TANDA = 20 round-trips
 // secuenciales dentro de una sola transacción interactiva. MEDIDO al escribir
@@ -573,7 +573,7 @@ export async function insertPendingEventsBatch(
 // ---------------------------------------------------------------------------
 
 // SIN `rawPayload`, y es deliberado — hallazgo D2-2 de
-// docs/review-fase2-2026-08-28.md. Esta respuesta viajaba con hasta 100 filas
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). Esta respuesta viajaba con hasta 100 filas
 // crudas de planilla (nombre, email y teléfono de personas reales) hacia una
 // pantalla que solo renderiza `errorMessage` y no las lee nunca: datos
 // personales cruzando la frontera HTTP sin que nadie los consuma.
@@ -679,7 +679,7 @@ export async function getResumenDeLote(
 //
 // Dónde sigue estando disponible el crudo: SOLO en la tabla. Ninguna respuesta
 // HTTP lo expone hoy — `getResumenDeLote` lo devolvía hasta el hallazgo D2-2 de
-// docs/review-fase2-2026-08-28.md, y se lo sacó por ser un dato personal que
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub), y se lo sacó por ser un dato personal que
 // nadie consumía. Que un evento fallido —de webhook o de importación— pueda
 // verse fila por fila sigue siendo la pregunta abierta del endpoint de detalle,
 // que no se construyó acá porque no se pidió.
@@ -748,7 +748,7 @@ export function findManyIngestionEvents(
     where: buildIngestionEventWhere(organizationId, filters),
     select: INGESTION_EVENT_PUBLIC_SELECT,
     // DESEMPATE POR ID, y no es cosmético — hallazgo E2-1 de
-    // docs/review-fase2-2026-08-28.md. Una importación inserta hasta 500 filas
+    // docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). Una importación inserta hasta 500 filas
     // por sentencia con el `now()` de una sola transacción, que en Postgres es
     // constante dentro de ella: el lote entero comparte created_at al
     // microsegundo. Con una sola clave de orden el desempate lo elige el plan y
@@ -820,7 +820,7 @@ export function retryIngestionEventConditional(
 }
 
 // ---------------------------------------------------------------------------
-// PURGA DE RETENCIÓN — hallazgo D2-3 de docs/review-fase2-2026-08-28.md (y D-3
+// PURGA DE RETENCIÓN — hallazgo D2-3 de docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub) (y D-3
 // de la ronda anterior: el mismo hueco sin cerrar por segunda vez).
 //
 // La política vive en docs/data-classification.md §5.1: 90 días desde
@@ -944,7 +944,7 @@ export const RAW_PAYLOAD_BORRADO = { erased: true } as const;
 // justo en la operación que existe para destruirlo.
 //
 // Y TAMBIÉN ANTE UNA CLAVE EXTRA EN UNA NOTA CONOCIDA — B-31 de
-// docs/auditoria-2026-08-29.md. El fail-closed aplicaba solo al `tipo`
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). El fail-closed aplicaba solo al `tipo`
 // desconocido; para un tipo reconocido, el `{ ...objeto }` copiaba TODO y solo
 // pisaba los campos de valor conocidos, así que una clave no listada (una
 // `notaInterna` dejada por una escritura directa, por ejemplo) sobrevivía
@@ -1027,7 +1027,7 @@ export function redactPromotionNotes(
 // transacción que anonimiza el Contact.
 //
 // LA ESCRITURA DE CADA FILA LLEVA organizationId EN SU PROPIO WHERE — B-27 de
-// docs/auditoria-2026-08-29.md. Antes era `update({ where: { id } })`: correcto
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Antes era `update({ where: { id } })`: correcto
 // en la práctica, porque cada `id` sale del findMany de arriba, que ya filtra
 // por organizationId, pero el aislamiento de la escritura dependía de que ese
 // findMany se mantuviera bien para siempre. Con `updateMany({ where: { id,

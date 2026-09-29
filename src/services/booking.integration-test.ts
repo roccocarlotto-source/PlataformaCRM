@@ -592,7 +592,7 @@ test("una reserva FUERA del horario de trabajo se rechaza", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// V-2 (docs/auditoria-2026-08-29.md) — createBooking aceptaba cualquier
+// V-2 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — createBooking aceptaba cualquier
 // startsAt dentro del horario: en el pasado, y desalineado de la grilla (9:07
 // con turnos de 30 minutos tapaba los turnos de 9:00 y 9:30 que la
 // disponibilidad ofrece). A-5 (bitácora §13.2) lo dejó afuera a propósito al
@@ -881,7 +881,7 @@ test("una clase con cupo acepta varias reservas y rechaza la que pasa el tope", 
 });
 
 // ---------------------------------------------------------------------------
-// A-7 (docs/auditoria-2026-08-29.md) — LA CARRERA POR EL ÚLTIMO CUPO, forzada
+// A-7 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — LA CARRERA POR EL ÚLTIMO CUPO, forzada
 // de verdad y contra el lock correcto.
 //
 // El test anterior hacía Promise.allSettled sobre dos createBooking reales del
@@ -1233,7 +1233,7 @@ test("si Google FALLA al crear el evento, la reserva se guarda igual", async () 
   }
 });
 
-// B-4 (docs/auditoria-2026-08-29.md): un 401 de Google EN events.insert —no en
+// B-4 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): un 401 de Google EN events.insert —no en
 // el refresh del token, que obtenerAccessToken ya cubre— tiene que dejar la
 // conexión en ERROR. Antes solo quedaba un logger.warn y la fila seguía ACTIVE
 // indefinidamente: la conexión rota era invisible. El test de arriba es el
@@ -1459,7 +1459,7 @@ test("si Google está caído al borrar el evento, la reserva queda cancelada igu
 });
 
 // ---------------------------------------------------------------------------
-// M-2 (docs/auditoria-2026-08-29.md) — la ventana entre el commit y Google.
+// M-2 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — la ventana entre el commit y Google.
 //
 // La reserva se commitea en la FASE 2 y Google se llama DESPUÉS, fuera de la
 // transacción (decisión documentada en createBooking, que no se toca). En esa
@@ -1559,7 +1559,7 @@ test("M-2: cancelar mientras Google todavía no respondió deja la reserva CANCE
 });
 
 // ---------------------------------------------------------------------------
-// V-4 (docs/auditoria-2026-08-29.md) — (organization_id, google_event_id) es
+// V-4 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — (organization_id, google_event_id) es
 // ÚNICO desde la migración 20260902140000, y setGoogleEventId puede por lo
 // tanto fallar con P2002: otra reserva de la organización ya tiene ese id.
 //
@@ -1727,7 +1727,7 @@ test("no se puede borrar un servicio con reservas CONFIRMED", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// A-4 (docs/auditoria-2026-08-29.md) — mover un servicio de recurso con
+// A-4 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — mover un servicio de recurso con
 // reservas CONFIRMED se rechaza, igual que borrarlo.
 // ---------------------------------------------------------------------------
 
@@ -1871,7 +1871,7 @@ test("A-4: reservar contra un recurso que YA NO provee el servicio se rechaza co
 });
 
 // ---------------------------------------------------------------------------
-// A-5 (docs/auditoria-2026-08-29.md) — la grilla no se corre con `from`, contra
+// A-5 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — la grilla no se corre con `from`, contra
 // la base y el horario real.
 // ---------------------------------------------------------------------------
 

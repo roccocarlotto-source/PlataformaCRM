@@ -8,7 +8,7 @@ import {
 } from "./opportunity.controller";
 import { MAX_AMOUNT } from "../utils/validation";
 
-// M-9 (docs/auditoria-2026-08-29.md) — `amount` viene de un body JSON y se
+// M-9 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — `amount` viene de un body JSON y se
 // valida con z.number(), no con z.coerce.number().
 //
 // Con coerce, `Number(null)` es 0, así que `PATCH {"amount": null}` —la forma

@@ -21,7 +21,7 @@ export async function checkHealth(): Promise<HealthStatus> {
     await prisma.$queryRaw`SELECT 1`;
     database = "ok";
   } catch (err) {
-    // EL ERROR QUEDA EN EL LOG — B-19 de docs/auditoria-2026-08-29.md (B-13 del
+    // EL ERROR QUEDA EN EL LOG — B-19 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) (B-13 del
     // 21/08). El 503 ya salía bien, pero el catch descartaba el error: un
     // operador que veía el health check en rojo no tenía forma de saber QUÉ
     // rechazó la base (Postgres caído, credenciales rotadas, timeout de red) ni

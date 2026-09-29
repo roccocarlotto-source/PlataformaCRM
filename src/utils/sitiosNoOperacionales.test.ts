@@ -9,7 +9,7 @@ import { firmarState, resetClaveDeFirmaParaTests, type OAuthState } from "./oaut
 import { firmarWebhookToken, resetClaveDeWebhookParaTests } from "./webhookToken";
 
 // ---------------------------------------------------------------------------
-// Los siete sitios de §28.7 de docs/bitacora-2026-08-29.md (M-11 b, segundo
+// Los siete sitios de §28.7 de docs-privados/bitacora-2026-08-29.md (local, no está en GitHub) (M-11 b, segundo
 // commit del PR #63): AppError(…, 500) que nombran variables de entorno o
 // exponen un dato interno, reclasificados a isOperational: false.
 //

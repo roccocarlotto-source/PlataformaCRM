@@ -10,7 +10,7 @@ import { lockServiceTypeForUpdate } from "./serviceType.repository";
 import { lockStageForUpdate } from "./stage.repository";
 
 // ---------------------------------------------------------------------------
-// B-17 de docs/auditoria-2026-08-29.md — los seis lock*ForUpdate verifican que
+// B-17 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — los seis lock*ForUpdate verifican que
 // bloquearon una fila.
 //
 // Antes, un SELECT ... FOR UPDATE que no encontraba nada (id inexistente, u

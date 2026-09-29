@@ -5,7 +5,7 @@ import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { drenarPendientes } from "./ingestionWorker";
 
-// B-30 (docs/auditoria-2026-08-29.md) — reintentos con backoff y DEAD_LETTER
+// B-30 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — reintentos con backoff y DEAD_LETTER
 // para la cola de ingesta, contra Postgres real.
 //
 // Lo que se prueba acá y no se puede probar sin base: que un error de SISTEMA
@@ -251,7 +251,7 @@ test("B-30: control — un payload inválido sigue yendo a FAILED en el primer i
 });
 
 // ---------------------------------------------------------------------------
-// V-9 (docs/auditoria-2026-08-29.md) — el worker promovía eventos de fuentes
+// V-9 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — el worker promovía eventos de fuentes
 // pausadas o retiradas: el JOIN de claimNextPendingEvent solo exigía que la
 // fuente existiera, y nada entre el reclamo y promoverEvento volvía a mirar
 // is_active/deleted_at. La compuerta de entrada (ingestAuth.service.ts) decide

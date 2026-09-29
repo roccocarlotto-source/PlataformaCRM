@@ -719,7 +719,7 @@ test("un array da 400 — los lotes son el ítem 5 y todavía no tienen contrato
 });
 
 // ---------------------------------------------------------------------------
-// Profundidad del payload (M-15 de docs/auditoria-2026-08-29.md)
+// Profundidad del payload (M-15 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub))
 //
 // El guard de MAX_PAYLOAD_DEPTH vivía solo dentro de canonicalize, que corre
 // únicamente para DERIVAR el externalId. Con X-External-Id provisto no se
@@ -796,7 +796,7 @@ test("el anidamiento justo dentro del límite CON X-External-Id se acepta (contr
 });
 
 // ---------------------------------------------------------------------------
-// El carácter NUL (M-16 de docs/auditoria-2026-08-29.md)
+// El carácter NUL (M-16 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub))
 //
 // Postgres no admite U+0000 dentro de un jsonb (22P05). JSON.parse acepta el
 // escape de NUL como string válido, así que el byte llegaba decodificado hasta
@@ -858,7 +858,7 @@ test("el texto plano backslash-u0000 (sin NUL real) se acepta y se guarda tal cu
 });
 
 // ---------------------------------------------------------------------------
-// B-25 de docs/auditoria-2026-08-29.md — headers repetidos en el wire
+// B-25 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — headers repetidos en el wire
 //
 // Node une los valores de un header repetido con ", " ANTES de que ningún
 // middleware los vea (el array solo existe para set-cookie), así que los

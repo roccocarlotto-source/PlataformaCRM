@@ -25,7 +25,7 @@ import { hashApiKey } from "../utils/apiKey";
 // forma natural de romper esto sin darse cuenta.
 //
 // EL STATUS ES 401, y es el tercero de tres (V-1 de
-// docs/auditoria-2026-08-29.md, que solo vio dos): el `state` de OAuth
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub), que solo vio dos): el `state` de OAuth
 // rechaza con 400 (oauthState.ts) y el token del canal de Google con 403
 // (webhookToken.ts, que lista los tres y el porqué). Acá 401 porque una API
 // key es una credencial de un cliente de API que puede volver a presentar

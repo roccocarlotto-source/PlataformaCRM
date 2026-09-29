@@ -17,7 +17,7 @@ import { errorHandler } from "./errorHandler";
 import { notFound } from "./notFound";
 
 // ---------------------------------------------------------------------------
-// errorHandler de punta a punta por HTTP — M-11 de docs/auditoria-2026-08-29.md
+// errorHandler de punta a punta por HTTP — M-11 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)
 // — SIN base de datos: todo lo que decide errorHandler se puede provocar con
 // una app Express mínima y rutas que lanzan. Por eso es un .test.ts y no un
 // .integration-test.ts. Lo que sí hace falta es la cadena real: pinoHttp con
@@ -404,7 +404,7 @@ test("un 404 de notFound pasa por errorHandler como cualquier otro 4xx", async (
 });
 
 // ---------------------------------------------------------------------------
-// (f) res.headersSent — B-24 de docs/auditoria-2026-08-29.md.
+// (f) res.headersSent — B-24 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
 //
 // DEFENSA EN PROFUNDIDAD, NO UN BUG ALCANZABLE HOY: ningún endpoint de src/
 // manda headers ni empieza a escribir el cuerpo antes de poder fallar (todos

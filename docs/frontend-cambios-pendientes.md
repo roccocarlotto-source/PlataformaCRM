@@ -3332,7 +3332,7 @@ La lista vacía de dominios **no se muestra como un vacío neutro**: dice "El wi
 `POST /api/agents/:id/embed-tokens` devuelve el token en claro **en la respuesta de ese request y nunca más**: el backend guarda solo su hash (`agentEmbedToken.service.ts`). La pantalla no finge lo contrario en ningún lado.
 
 - **Vive en un único lugar:** `tokenEnClaro`, estado de React de la pantalla. El listado (`GET`) nunca lo trae —no existe en esa respuesta— y el tipo lo garantiza: `EmbedToken` no tiene la propiedad y `CreatedEmbedToken` es un tipo aparte que la agrega, así que leer `.token` sobre una fila del listado es un error de compilación, no un `undefined` en runtime. Es la misma garantía que `ApiKey`/`CreatedApiKey`.
-- **No queda en el `MutationCache`,** que es el matiz que este ítem resuelve un paso mejor que `ApiKeyListPage`. `useMutation` guarda su resultado como `.data`, con el secreto adentro, hasta que el `gcTime` lo recoja — es el hallazgo **S2-4** de `docs/review-fase2-2026-08-28.md`. Ahí se limpia con un `reset()` al cerrar el modal; acá no hay nada que cerrar (el token queda a la vista mientras dure la visita), así que el `reset()` se hace **en el acto**, apenas el valor se copió al estado de React: una sola copia en memoria en vez de dos.
+- **No queda en el `MutationCache`,** que es el matiz que este ítem resuelve un paso mejor que `ApiKeyListPage`. `useMutation` guarda su resultado como `.data`, con el secreto adentro, hasta que el `gcTime` lo recoja — es el hallazgo **S2-4** de `docs-privados/review-fase2-2026-08-28.md`. Ahí se limpia con un `reset()` al cerrar el modal; acá no hay nada que cerrar (el token queda a la vista mientras dure la visita), así que el `reset()` se hace **en el acto**, apenas el valor se copió al estado de React: una sola copia en memoria en vez de dos.
 - **Al navegar afuera se pierde, y está probado** (`primera.unmount()` + volver a montar): queda el prefijo en la tabla y el código vuelve a mostrar el marcador. Es exactamente lo que promete el backend.
 
 En la tabla se muestra el **`tokenPrefix`**, que es lo único que permite saber cuál de varios se está por revocar, y **nunca se lo ofrece como si fuera el token**: el marcador del snippet es `PEGÁ_ACÁ_TU_TOKEN`, no el prefijo. Poner ahí un fragmento que no autentica sugeriría que sirve.
@@ -5013,7 +5013,7 @@ Backend: `typecheck` y `lint` limpios, **969/969** unitarios y **953/953** de in
 
 **Estado:** hecho
 
-**Qué pasó (caso real, AutoMax, 22/09/2026).** En la misma conversación de WhatsApp del ítem 83, el mismo contacto volvió a preguntar por vehículos de menos de USD 30.000 en un segundo turno. El agente llamó `create_opportunity()` de nuevo con el mismo título casi idéntico ("Consulta sobre vehículo de menos de 30 mil dólares") y creó una **segunda** oportunidad (`opportunityId` distinto) para el mismo contacto, en vez de seguir con la que ya existía de la consulta anterior (`5ee595e5-...` → `84e7d055-...`).
+**Qué pasó (caso real, AutoMax, 22/09/2026).** En la misma conversación de WhatsApp del ítem 83, el mismo contacto volvió a preguntar por vehículos de menos de USD 30.000 en un segundo turno. El agente llamó `create_opportunity()` de nuevo con el mismo título casi idéntico ("Consulta sobre vehículo de menos de 30 mil dólares") y creó una **segunda** oportunidad (`opportunityId` distinto) para el mismo contacto, en vez de seguir con la que ya existía de la consulta anterior (`11111111-...` → `22222222-...`).
 
 **Por qué pasa.** `createOpportunityTool.ejecutar()` (`src/services/agentTools.service.ts`) nunca mira si el contacto ya tiene una oportunidad `OPEN`: resuelve el vendedor, resuelve el pipeline por defecto, y crea. Nada en la tool ni en `createOpportunity()` (`src/services/opportunity.service.ts`) es idempotente respecto del contacto — cada llamada es un INSERT nuevo. El modelo, por su lado, no tiene forma de saber que ya existe una (no hay ninguna tool de lectura — ver ítem 85) así que no tiene con qué evitarlo por su cuenta.
 
@@ -5944,7 +5944,7 @@ Antes, `get_availability` no se llamaba nunca. Después, con `google/gemini-2.5-
 👤 Dale, ¿qué horarios tenés el próximo martes?
 🔧 get_availability({ desde: "2026-09-29T09:00:00-03:00",
                       hasta: "2026-09-29T18:00:00-03:00",
-                      serviceTypeId: "2859d6e9-…", resourceId: "5b3db23f-…" })
+                      serviceTypeId: "33333333-…", resourceId: "44444444-…" })
 🤖 "El martes 29 de septiembre de 2026 tengo disponibilidad para el test drive…"
 ```
 
@@ -6170,10 +6170,10 @@ Se considera nombre solo lo que tiene al menos una letra o un dígito (`/[\p{L}\
 
 ```
 👤 El próximo lunes a las 11 de la mañana
-🔧 get_availability({ serviceTypeId: "7358bbb9-…", desde: "2026-09-28T11:00:00-03:00" })
+🔧 get_availability({ serviceTypeId: "55555555-…", desde: "2026-09-28T11:00:00-03:00" })
    → ok, turnos disponibles
 👤 Perfecto, dale, reservámelo
-🔧 create_booking({ serviceTypeId: "8a176846-…", startsAt: "2026-09-28T11:30:00-03:00" })
+🔧 create_booking({ serviceTypeId: "66666666-…", startsAt: "2026-09-28T11:30:00-03:00" })
    → ✗ "El tipo de servicio indicado no existe"
 🤖 "Uy, disculpame, tuve un problema al intentar reservar el turno."
 ```
@@ -6203,7 +6203,7 @@ Se considera nombre solo lo que tiene al menos una letra o un dígito (`/[\p{L}\
     El primer turno libre ese día es a las 11:30. Te sirve?"       ← ítems 104 y 101
 👤 Perfecto, dale, reservámelo
 🔧 create_booking({ startsAt: "2026-09-28T11:30:00-03:00", servicio: "Test drive" })
-   → { bookingId: "003a7091-…", status: "CONFIRMED" }
+   → { bookingId: "77777777-…", status: "CONFIRMED" }
 🤖 "¡Listo Martín! Tu test drive quedó confirmado para el lunes 28
     de septiembre a las 11:30 hs."                                  ← ítem 100
 ```
@@ -6517,9 +6517,9 @@ Textual de producción:
 
 ```
 🔧 create_opportunity({"vehiculo":"Amarok","title":"Interés en Amarok"})
-   → ok, opportunityId: e2909afe-20dc-421b-8a32-b9d3f26b3d42
+   → ok, opportunityId: 88888888-8888-4888-8888-888888888888
 
-🔧 update_opportunity({"opportunityId":"60155209-679e-4e3e-9097-4b2a65824982", "vehiculo":"Territory"})
+🔧 update_opportunity({"opportunityId":"99999999-9999-4999-8999-999999999999", "vehiculo":"Territory"})
    → { ok: false, error: "La oportunidad indicada no existe" }
 
 🤖 Hubo un problema al actualizar la información del vehículo. Por favor,

@@ -133,7 +133,7 @@ function mountOnboarding(app: express.Express) {
 
 // Los dos tests de abajo usaban una organización con el mismo slug para que el
 // controller respondiera 409 "sin tocar Supabase". Desde M-13
-// (docs/auditoria-2026-08-29.md) ese chequeo corre DESPUÉS de verifyOtp —era un
+// (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) ese chequeo corre DESPUÉS de verifyOtp —era un
 // oráculo de nombres para cualquiera con un código inventado—, así que un body
 // válido con un código inventado ahora rebota en el 401 del OTP. Para este
 // archivo da igual: lo que se mide es que el limiter CUENTE el request (corre
@@ -275,7 +275,7 @@ test("onboardingRateLimiter: un request real dentro del cupo completa el flujo d
 });
 
 // ---------------------------------------------------------------------------
-// A-2 (docs/auditoria-2026-08-29.md) — el keying de onboarding es por EMAIL del
+// A-2 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — el keying de onboarding es por EMAIL del
 // body, nunca por IP.
 //
 // Estos tests montan el limiter con un handler stub (200) en vez del controller
@@ -420,7 +420,7 @@ test("los cupos de /onboarding/otp y /onboarding son independientes para el mism
 // acceptPreAuthRateLimiter (por IP), con dos tests propios: "cuenta todo
 // request sin excepción" y "bloquea incluso a una identidad real una vez
 // agotado". Los dos probaban exactamente el comportamiento por IP que A-2 de
-// docs/auditoria-2026-08-29.md sacó, así que se fueron con él. Lo que queda
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) sacó, así que se fueron con él. Lo que queda
 // bajo prueba es lo que quedó montado — y desde V-8 se monta con la MISMA
 // función que invitation.routes.ts (crearCadenaDeAceptacion: firma del JWT →
 // body válido → limiter por `sub` → Admin API), con un limiter nuevo por app

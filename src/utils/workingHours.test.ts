@@ -137,7 +137,7 @@ test("un turno NO puede cruzar el hueco entre dos franjas del mismo día", () =>
 });
 
 // ---------------------------------------------------------------------------
-// La grilla — V-2 de docs/auditoria-2026-08-29.md. Lo que se ofrece
+// La grilla — V-2 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Lo que se ofrece
 // (calcularTurnos) y lo que se acepta (createBooking) pasan por generarGrilla.
 // ---------------------------------------------------------------------------
 

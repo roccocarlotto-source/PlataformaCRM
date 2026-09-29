@@ -75,7 +75,7 @@ const opportunityFields = {
     .trim()
     .min(1, "title es requerido")
     .max(255, "title no puede superar los 255 caracteres"),
-  // z.number() y NO z.coerce.number() — M-9 de docs/auditoria-2026-08-29.md.
+  // z.number() y NO z.coerce.number() — M-9 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
   // `amount` viene de un body JSON, donde un cliente bien hecho manda un
   // número; coerce solo tiene sentido en query strings, que Express entrega
   // siempre como string. Con coerce, `Number(null)` es 0, así que

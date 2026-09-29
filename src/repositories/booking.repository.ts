@@ -176,7 +176,7 @@ export function createBooking(data: CreateBookingData, db: Db = prisma) {
 // de creación. Ver el comentario de createBooking en booking.service.ts sobre
 // por qué la llamada a Google no puede vivir adentro de la transacción.
 //
-// SOLO SOBRE UNA RESERVA TODAVÍA CONFIRMED — M-2 de docs/auditoria-2026-08-29.md.
+// SOLO SOBRE UNA RESERVA TODAVÍA CONFIRMED — M-2 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub).
 // Entre el commit de la reserva y la respuesta de Google pasan hasta diez
 // segundos, y en esa ventana puede llegar una cancelación: markBookingCancelled
 // la aplica (la fila está CONFIRMED y sin googleEventId, así que no hay nada que

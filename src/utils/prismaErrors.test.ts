@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "./AppError";
 import { traducirErrorDePrisma } from "./prismaErrors";
 
-// M-11 (c) de docs/auditoria-2026-08-29.md — la traducción central de los
+// M-11 (c) de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — la traducción central de los
 // códigos genéricos de Prisma. Sin base: el error se construye a mano con el
 // mismo constructor que usa el cliente, y eso alcanza porque la función solo
 // mira `instanceof` y `code`.

@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 //      es el comando pensado para CI/producción.
 //   2. Reaplicación de manual_constraints.sql (triggers e índices únicos
 //      parciales — los CHECK constraints ya no: B-15 de
-//      docs/auditoria-2026-08-29.md los sacó de la reaplicación, porque un
+//      docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) los sacó de la reaplicación, porque un
 //      ADD CONSTRAINT ... CHECK revalida cada fila bajo ACCESS EXCLUSIVE en
 //      cada deploy y desde C-2 viven en las migraciones versionadas).
 //   3. Reaplicación de rls_policies.sql (políticas RLS).

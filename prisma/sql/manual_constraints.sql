@@ -1,14 +1,14 @@
 -- Prisma no soporta nativamente: índices únicos parciales (WHERE), CHECK
 -- constraints, ni triggers. Este archivo completa dos de esas tres piezas
 -- (triggers e índices); los CHECK constraints ya NO viven acá — B-15 de
--- docs/auditoria-2026-08-29.md los sacó de la reaplicación por deploy, porque
+-- docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) los sacó de la reaplicación por deploy, porque
 -- un ADD CONSTRAINT ... CHECK revalida cada fila bajo ACCESS EXCLUSIVE y desde
 -- C-2 los crean las migraciones versionadas (20260821140000 los cuatro
 -- originales, 20260825120000 el de M-13).
 --
 -- Este contenido ya forma parte del historial de migraciones desde
 -- prisma/migrations/20260821140000_incorporate_manual_ddl_into_migrations
--- (C-2, docs/auditoria-2026-08-21.md). Se conserva acá como referencia
+-- (C-2, docs-privados/auditoria-2026-08-21.md (local, no está en GitHub)). Se conserva acá como referencia
 -- legible y como red de seguridad idempotente para scripts/apply-manual-sql.ts
 -- — barata para triggers e índices (puro catálogo, o if not exists), que es
 -- justamente lo que los CHECK no eran.

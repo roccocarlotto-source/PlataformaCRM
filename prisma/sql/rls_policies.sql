@@ -3,7 +3,7 @@
 --
 -- Este contenido ya forma parte del historial de migraciones desde
 -- prisma/migrations/20260821140000_incorporate_manual_ddl_into_migrations
--- (C-2, docs/auditoria-2026-08-21.md). Se conserva acá como referencia
+-- (C-2, docs-privados/auditoria-2026-08-21.md (local, no está en GitHub)). Se conserva acá como referencia
 -- legible y como red de seguridad idempotente para scripts/apply-manual-sql.ts.
 --
 -- IMPORTANTE: estas políticas son una defensa SECUNDARIA, no la principal.

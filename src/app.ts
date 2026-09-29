@@ -21,7 +21,7 @@ export const app = express();
 app.use(helmet());
 
 // Cache-Control: no-store en TODA la API — hallazgo S2-6 de
-// docs/review-fase2-2026-08-28.md.
+// docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub).
 //
 // EN TODA LA API Y NO EN UNA LISTA DE ENDPOINTS, que es la decisión: una lista
 // de rutas "con datos personales" es algo que alguien tiene que acordarse de
@@ -151,7 +151,7 @@ app.use(metaWebhookRouter);
 // errorHandler (M-11 a). Ver middlewares/bodyParserError.ts.
 //
 // SIN express.urlencoded(): ningún endpoint de la app consume ese
-// content-type (B-23 de docs/auditoria-2026-08-29.md) — montarlo era correr
+// content-type (B-23 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — montarlo era correr
 // qs (extended: true) en cada request para un body que nadie leía. La única
 // vía multipart es multer en importRouter, y la ingesta trae su propio
 // parser JSON (arriba). Un application/x-www-form-urlencoded sigue sin

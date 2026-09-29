@@ -52,7 +52,7 @@ export function IngestionEventListPage() {
 
   // ---------------------------------------------------------------------
   // RESOLUCIÓN DE NOMBRES EN DOS PASOS — hallazgo E2-3 de
-  // docs/review-fase2-2026-08-28.md.
+  // docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub).
   //
   // Hasta acá se le pasaban a useSourcesByIds TODOS los sourceId visibles, sin
   // mirar antes `fuentes` — que ya tiene hasta 100 fuentes cargadas para el
@@ -232,7 +232,7 @@ export function IngestionEventListPage() {
                       con el del intento nuevo. */}
                     {evento.status === "FAILED" ? (
                       /* SOLO LA FILA EN VUELO — hallazgo E2-4 de
-                       docs/review-fase2-2026-08-28.md. `isPending` es un solo
+                       docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). `isPending` es un solo
                        booleano para toda la mutación, así que reintentar una
                        fila deshabilitaba el botón de las otras diecinueve.
                        `variables` es el argumento del mutate() en curso, o sea

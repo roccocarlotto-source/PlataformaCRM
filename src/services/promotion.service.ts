@@ -215,7 +215,7 @@ export function traducirConMapeo(rawPayload: unknown, fieldMapping: unknown): Re
   const columnasAusentes: string[] = [];
 
   for (const [encabezado, destino] of Object.entries(mapeo.data)) {
-    // Object.hasOwn y NO `in` — B-28 de docs/auditoria-2026-08-29.md. `in`
+    // Object.hasOwn y NO `in` — B-28 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). `in`
     // recorre toda la cadena de prototipos: con una columna origen llamada
     // "constructor" (o "toString", "hasOwnProperty"…) en el mapeo, `"constructor"
     // in fila` daba true aunque la fila no la tuviera, y fila["constructor"]
@@ -274,7 +274,7 @@ function prepararCandidato(evento: EventoReclamado): ResultadoTraduccion {
 
 // ---------------------------------------------------------------------------
 // EL COMPARE-AND-SWAP DE LA TRANSICIÓN SOLO PROTEGE SI ALGUIEN MIRA SU
-// RESULTADO. Hallazgo E-1 de docs/review-ingesta-2026-08-27.md.
+// RESULTADO. Hallazgo E-1 de docs-privados/review-ingesta-2026-08-27.md (local, no está en GitHub).
 //
 // markEventProcessed y markEventFailed son `updateMany` con `status: PENDING`
 // en el WHERE — un CAS deliberado (ver ingestionEvent.repository.ts). Un
@@ -307,7 +307,7 @@ function exigirTransicion(count: number, evento: EventoReclamado, destino: Inges
       `promoverEvento: la transición a ${destino} del evento ${evento.id} no afectó ninguna fila ` +
         "— ya no estaba en PENDING al momento de escribir. Se revierte la transacción para no " +
         "dejar un Contact promovido sin su IngestionEvent actualizado (E-1, " +
-        "docs/review-ingesta-2026-08-27.md).",
+        "docs-privados/review-ingesta-2026-08-27.md).",
     );
   }
 }

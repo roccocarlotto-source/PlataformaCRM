@@ -63,7 +63,7 @@ test("una fila con menos o más columnas que el encabezado NO aborta el archivo"
 });
 
 test("A-6: una celda VACÍA de un CSV llega como cadena vacía, no como null — es la forma que el schema tiene que tratar como ausencia", async () => {
-  // Es la premisa de A-6 (docs/auditoria-2026-08-29.md): csv-parse entrega ""
+  // Es la premisa de A-6 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): csv-parse entrega ""
   // para una celda sin contenido, y este parser la conserva tal cual. Del otro
   // lado, ingestContactSchema tiene que leer "" como "sin email"; hasta A-6 la
   // rechazaba con "email inválido" y toda fila CSV sin email terminaba FAILED,
@@ -255,7 +255,7 @@ test("una celda de FÓRMULA guarda su RESULTADO, no la fórmula", async () => {
   assert.deepEqual(parseado.filas, [{ Nombre: "Ana", Mail: "ana@ejemplo.test" }]);
 });
 
-// B-29 (docs/auditoria-2026-08-29.md): cuando la fórmula FALLA, exceljs pone en
+// B-29 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): cuando la fórmula FALLA, exceljs pone en
 // `result` un CellErrorValue `{ error: "#N/A" }`, y la recursión sobre `result`
 // no tenía rama para eso: caía al String() final y guardaba "[object Object]",
 // silencioso e indistinguible de un valor real. Se prueba por el camino real
@@ -387,7 +387,7 @@ test("el rawPayload de cada fila es la fila cruda, sin tocar", () => {
 });
 
 // ---------------------------------------------------------------------------
-// B-28 (docs/auditoria-2026-08-29.md): una columna llamada literalmente
+// B-28 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): una columna llamada literalmente
 // "__proto__". Con `fila[encabezado] = …` sobre un objeto normal, esa clave no
 // se crea —dispara el setter heredado— y la columna se perdía en silencio para
 // todas las filas. Se prueba por el camino real (xlsx y csv) y se afirma que la

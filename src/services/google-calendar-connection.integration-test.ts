@@ -818,7 +818,7 @@ test("una conexión REVOKED NO bloquea el borrado de la sucursal", async () => {
 });
 
 test("una conexión en ERROR SÍ bloquea el borrado: conserva el refresh token, y desconectar es el camino", async () => {
-  // B-9 de docs/auditoria-2026-08-29.md. Este test decía lo contrario
+  // B-9 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub). Este test decía lo contrario
   // ("tampoco bloquea") sobre la premisa de que en ERROR "no hay nada que
   // perder" — falsa: markConnectionError conserva el refresh token cifrado a
   // propósito, y borrar la sucursal lo dejaba sin fila desde la que revocarlo.
@@ -985,7 +985,7 @@ test("la FK compuesta rechaza una conexión cuya organización no es la de su su
 });
 
 // ---------------------------------------------------------------------------
-// B-3 de docs/auditoria-2026-08-29.md — reconectar resetea el estado de
+// B-3 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — reconectar resetea el estado de
 // sincronización. A diferencia de B-16, este era un camino alcanzable: tras
 // reconectar con OTRA cuenta de Google, el syncToken ajeno daba 410 en el
 // primer sync y el canal viejo —con vencimiento lejano— dejaba a la sucursal
@@ -1079,7 +1079,7 @@ test("B-3 (repository): markConnectionRevoked limpia también syncToken y el can
 });
 
 // ---------------------------------------------------------------------------
-// 10. B-2 (docs/auditoria-2026-08-29.md) — el cache del access token
+// 10. B-2 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — el cache del access token
 //
 // obtenerAccessToken renovaba contra Google en CADA llamada. Ahora reusa el
 // token mientras esté vigente, y solo eso: la lectura fresca de la fila y el

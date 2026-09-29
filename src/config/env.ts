@@ -8,7 +8,7 @@ import { assertBaseLocalEnTest } from "../utils/baseLocal";
 // carga ".env.test" en su lugar y NO ".env": dotenv.config({ path }) con un
 // path explícito reemplaza la búsqueda por default, no se combina con ella.
 //
-// Es la contraparte local de B-35 (docs/auditoria-2026-08-29.md): ahí el fix
+// Es la contraparte local de B-35 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): ahí el fix
 // fue que el job de integración del CI declare NODE_ENV=test para no correr
 // con el nivel de log de "development" contra un Postgres real. Acá el motivo
 // es más fuerte que el logging — separa la base contra la que corre la suite
@@ -99,7 +99,7 @@ const envSchema = z.object({
   INGEST_WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(50),
 
   // Reintentos de la promoción ante un error de SISTEMA (B-30 de
-  // docs/auditoria-2026-08-29.md) — réplica de los OUTBOX_* de abajo, mismos
+  // docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — réplica de los OUTBOX_* de abajo, mismos
   // defaults y mismo razonamiento: 5 intentos con base de 30 s duplicando dan
   // 30 s, 1 m, 2 m, 4 m; suficiente para atravesar un reinicio o un pico de la
   // base, corto para que un bug determinístico no haga ruido durante horas
@@ -188,7 +188,7 @@ const envSchema = z.object({
     .positive()
     .default(200 * 1000),
 
-  // Tope total del apagado ordenado (M-12 de docs/auditoria-2026-08-29.md):
+  // Tope total del apagado ordenado (M-12 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)):
   // cuánto se espera a que los workers terminen su pasada en curso, el servidor
   // cierre sus conexiones y Prisma se desconecte, antes de forzar la salida con
   // código 1. Ver src/shutdown.ts.
@@ -240,7 +240,7 @@ const envSchema = z.object({
   //
   // NINGUNA TIENE VALOR TODAVÍA: salen de crear un proyecto en Google Cloud
   // Console, habilitar la Google Calendar API y crear credenciales de tipo
-  // "OAuth client ID / Web application". Ver docs/bitacora-2026-08-29.md.
+  // "OAuth client ID / Web application". Ver docs-privados/bitacora-2026-08-29.md (local, no está en GitHub).
   //
   // GOOGLE_REDIRECT_URI tiene que coincidir EXACTAMENTE (esquema, host, puerto y
   // path) con una de las "Authorized redirect URIs" cargadas en esa consola:

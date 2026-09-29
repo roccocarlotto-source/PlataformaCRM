@@ -12,7 +12,7 @@ import { acceptInvitationRateLimiter } from "./rateLimit";
 
 // La verificación de identidad para POST /api/invitations/accept (M1, punto A
 // del ciclo de rate limiting), en DOS etapas desde V-8 de
-// docs/auditoria-2026-08-29.md — antes era un solo middleware:
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — antes era un solo middleware:
 //
 //   1. verifyInvitationAcceptToken: verifica la firma del JWT de Supabase
 //      (barato: JWKS cacheado, sin red a Supabase) y deja el `sub` en
@@ -57,7 +57,7 @@ import { acceptInvitationRateLimiter } from "./rateLimit";
 // auth.users.
 //
 // COSTO: una llamada a la Admin API por intento de aceptación, y QUIÉN PUEDE
-// PROVOCARLA es lo que V-8 (docs/auditoria-2026-08-29.md) corrigió. La firma
+// PROVOCARLA es lo que V-8 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) corrigió. La firma
 // del JWT se verifica ANTES de getUserById, así que un anónimo con tokens
 // basura muere en el 401 de verifySupabaseJwt sin llegar nunca a Supabase —
 // eso ya era así. Lo que NO era así, aunque el comentario anterior lo
@@ -136,7 +136,7 @@ export function resolverIdentidadDeInvitacion(
 }
 
 // ---------------------------------------------------------------------------
-// A-3 (docs/auditoria-2026-08-29.md) — "la Admin API no encontró al usuario" y
+// A-3 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — "la Admin API no encontró al usuario" y
 // "la Admin API no respondió" NO SON EL MISMO 401.
 //
 // Antes, cualquier `error` de getUserById se descartaba sin log y se pasaba

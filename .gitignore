@@ -16,6 +16,16 @@ dist/
 # describe.
 pr-body*.md
 
+# Parches sueltos (`git format-patch`, exportes de sesiones) en la raíz: son
+# material de trabajo, no parte del proyecto. Ninguno está versionado.
+/*.patch
+
+# Documentación sensible. El repo es PÚBLICO: auditorías con archivo y línea,
+# resultados de pruebas contra producción, ids y datos personales reales van en
+# docs-privados/, que solo existe en la PC de Rocco. Criterio completo en la
+# sección "Documentación sensible" de CLAUDE.md.
+docs-privados/
+
 # Salida intermedia de `npm audit --json` que consume el gate de dependencias
 # (scripts/audit-gate.ts, hallazgo S-3). Se regenera en cada corrida; commitearla
 # congelaría una foto del árbol de dependencias que nadie va a actualizar.

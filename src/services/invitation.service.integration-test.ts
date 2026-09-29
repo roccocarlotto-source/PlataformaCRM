@@ -479,7 +479,7 @@ test("revokeInvitation: id inexistente → 404 (sin cambios)", async () => {
 // CAS perdido — carrera real forzada de forma determinística vía lock de
 // Postgres, no Promise.all esperando quién gane.
 //
-// M-19 de docs/auditoria-2026-08-29.md: la sincronización entre la transacción
+// M-19 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): la sincronización entre la transacción
 // A y la llamada real era por setTimeout (400 ms / 150 ms) — en un runner
 // lento, flaky. Ahora A se sostiene por señal (src/lib/carreras.test-helper.ts)
 // y se libera recién cuando Postgres confirma, vía pg_blocking_pids, que la
@@ -543,7 +543,7 @@ test("revokeInvitation: pierde el CAS por una transición real concurrente → r
 });
 
 // ---------------------------------------------------------------------------
-// M-11 (b), §28.7 de docs/bitacora-2026-08-29.md — "No se encontró el rol
+// M-11 (b), §28.7 de docs-privados/bitacora-2026-08-29.md (local, no está en GitHub) — "No se encontró el rol
 // indicado" es un error de configuración del servidor (falta el seed) y va con
 // isOperational: false. El logger.error del service ya deja el detalle.
 // ---------------------------------------------------------------------------
@@ -592,7 +592,7 @@ test("M-11 b: createInvitation sin el rol en el catálogo lanza un AppError 500 
 });
 
 // ---------------------------------------------------------------------------
-// B-18 de docs/auditoria-2026-08-29.md — el CAS de aceptación revalida el
+// B-18 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — el CAS de aceptación revalida el
 // vencimiento en su propia escritura (expires_at > clock_timestamp()).
 // ---------------------------------------------------------------------------
 
@@ -635,7 +635,7 @@ test("B-18 (service, camino perezoso): aceptar una PENDING ya vencida da el 410 
 });
 
 // ---------------------------------------------------------------------------
-// B-22 de docs/auditoria-2026-08-29.md — createInvitation traducía CUALQUIER
+// B-22 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — createInvitation traducía CUALQUIER
 // 422 de inviteUserByEmail a "email ya registrado" (409): status === 422 no
 // distingue el duplicado de las demás validaciones de GoTrue. La señal
 // correcta es error.code ("email_exists", verificado contra GoTrue real).

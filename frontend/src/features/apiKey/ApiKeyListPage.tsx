@@ -299,7 +299,7 @@ export function ApiKeyListPage() {
           apiKey={secreto.key}
           sourceName={secreto.sourceName}
           /* EL reset() NO ES OPCIONAL — hallazgo S2-4 de
-             docs/review-fase2-2026-08-28.md. setSecreto(null) desmonta el modal
+             docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). setSecreto(null) desmonta el modal
              y saca la clave del árbol de React, pero useMutation guarda su
              resultado en el MutationCache como createApiKeyMutation.data, con
              el secreto adentro, y ahí sobrevive al cierre hasta que el gcTime

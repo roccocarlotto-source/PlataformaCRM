@@ -37,7 +37,7 @@ import { STATUS_TOKEN_DE_CANAL_INVALIDO } from "../utils/webhookToken";
 // proveedor ya provee, para un volumen (negocios chicos, pocos cambios por
 // día) que no lo justifica.
 //
-// LA SEMÁNTICA EXACTA, corregida en V-1 (docs/auditoria-2026-08-29.md) contra
+// LA SEMÁNTICA EXACTA, corregida en V-1 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) contra
 // la guía de push de Calendar — antes este bloque decía que Google reintentaba
 // "cuando la respuesta no es 2xx", y no es así: reintenta con backoff SOLO ante
 // 500, 502, 503 o 504; "every other return status code is considered to be a
@@ -58,7 +58,7 @@ import { STATUS_TOKEN_DE_CANAL_INVALIDO } from "../utils/webhookToken";
 // procesar, y el canal seguiría vivo hasta vencer. Se responde 200 y se loguea.
 //
 // EL MISMO CRITERIO APLICA A LA CONEXIÓN QUE NO ESTÁ ACTIVA (M-4 de
-// docs/auditoria-2026-08-29.md): findConnectionByChannelId no filtra por status,
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): findConnectionByChannelId no filtra por status,
 // así que un canal cuya conexión está en ERROR se sigue encontrando, y
 // obtenerAccessToken tira AppError(409) —"hay que reconectar"— en cada
 // notificación. Ese 409 NO es transitorio: exige que un humano reconecte la
@@ -115,7 +115,7 @@ export const googleCalendarWebhookHandler = asyncHandler<Request>(async (req, re
     //
     // SE DESPACHA POR EL VALOR NUMÉRICO DEL STATUS, y por eso el número viene
     // de la misma constante que webhookToken.ts usa para lanzarlo (V-1 de
-    // docs/auditoria-2026-08-29.md): si aquel archivo cambiara su status y
+    // docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): si aquel archivo cambiara su status y
     // este `if` siguiera comparando contra un literal, un token FALSIFICADO
     // dejaría de matchear acá en silencio y caería al 503 de abajo — y Google
     // reintentaría con backoff, durante días, una notificación que nunca va a
@@ -134,7 +134,7 @@ export const googleCalendarWebhookHandler = asyncHandler<Request>(async (req, re
     // humano reconecte la sucursal desde la UI. Responder 503 haría que Google
     // reintentara con backoff durante días (hasta 7, según su documentación) una
     // notificación que nunca vamos a poder procesar, y llenaría el log de errores
-    // por una condición ya conocida (M-4 de docs/auditoria-2026-08-29.md). Se
+    // por una condición ya conocida (M-4 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)). Se
     // responde 200 para cortar el reintento — el canal de Google sigue vivo hasta
     // que alguien reconecte la sucursal, a propósito: cerrarlo contra Google
     // (channels.stop) queda fuera de este fix. warn y no error, por el mismo

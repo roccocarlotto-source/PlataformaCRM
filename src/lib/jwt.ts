@@ -26,7 +26,7 @@ function getJwks() {
 }
 
 // ---------------------------------------------------------------------------
-// A-3 (docs/auditoria-2026-08-29.md; el ALTO-4 del 21/08 que seguía abierto):
+// A-3 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub); el ALTO-4 del 21/08 que seguía abierto):
 // "este token es inválido" y "no pudimos verificar nada" NO SON EL MISMO 401.
 //
 // Antes, el catch alrededor de jwtVerify distinguía JWTExpired de "todo lo
@@ -119,7 +119,7 @@ export async function verifySupabaseJwtWith(
   try {
     const result = await jwtVerify(token, getKey, {
       algorithms: ["ES256"],
-      // V-7 (docs/auditoria-2026-08-29.md §6): jose NO valida `aud` salvo que
+      // V-7 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) §6): jose NO valida `aud` salvo que
       // se le pida — sin esta línea, cualquier JWT ES256 firmado por el JWKS
       // del proyecto y no vencido pasaba con cualquier `aud`, o sin ninguno.
       // Los tokens de sesión de Supabase Auth traen SIEMPRE aud:
@@ -131,7 +131,7 @@ export async function verifySupabaseJwtWith(
       // cae en ERRORES_DEL_TOKEN (401) sin caso nuevo en la tabla de abajo.
       //
       // `iss` queda deliberadamente SIN pinnear, y no por descuido: ALTO-3 de
-      // docs/auditoria-2026-08-21.md descartó la opción (A) —issuer/audience
+      // docs-privados/auditoria-2026-08-21.md (local, no está en GitHub) descartó la opción (A) —issuer/audience
       // en jwtVerify— porque un cambio de formato de `iss` rompería el login
       // de golpe (ver verifyInvitationAcceptIdentity.ts). Esa objeción es
       // solo sobre `iss`; `aud` es un valor fijo de GoTrue.

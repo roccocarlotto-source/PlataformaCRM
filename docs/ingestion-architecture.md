@@ -312,7 +312,7 @@ naturaleza —un reintento de webhook es cuestión de minutos u horas— así qu
 purgar filas viejas no rompe la garantía en la práctica.
 
 **Esa purga ya existe** *(2026-08-28, cerrando el hallazgo D2-3 de
-`docs/review-fase2-2026-08-28.md`)*. Hasta acá esta sección describía la
+`docs-privados/review-fase2-2026-08-28.md`)*. Hasta acá esta sección describía la
 consulta correcta y nada la ejecutaba, que es exactamente lo que los dos
 reviews señalaron. Se corre a mano:
 
@@ -726,7 +726,7 @@ fuente de ese tipo hoy no haría nada.
 
 ### 9.13 Un payload corregido bajo el mismo `X-External-Id` no se guarda ni se procesa
 
-*(2026-09-02, V-12 de `docs/auditoria-2026-08-29.md`.)*
+*(2026-09-02, V-12 de `docs-privados/auditoria-2026-08-29.md`.)*
 
 Es la contracara de §4 y **es lo que §4 pide**: la idempotencia a nivel
 evento se apoya en el único parcial `(sourceId, externalId)`, y el `INSERT`

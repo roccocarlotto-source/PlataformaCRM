@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createCompanySchema, updateCompanySchema } from "./company.controller";
 
-// M-10 (docs/auditoria-2026-08-29.md) — PATCH tiene que poder vaciar los
+// M-10 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — PATCH tiene que poder vaciar los
 // campos opcionales de Company. domain/industry/phone/city/country eran
 // `z.string()...optional()` sin `.nullable()` en un objeto compartido con
 // create, así que `PATCH {"domain": null}` rebotaba con 400 de Zod antes de

@@ -98,7 +98,7 @@ import type { NotaIgnorado, PromotionNote } from "../types/promotion";
 // crear código muerto para poder testearlo. Sus escrituras nacen con el ítem 4
 // —el worker y la promoción— y sus tests van con ellas.
 //
-// M-20 (docs/auditoria-2026-08-29.md) SALDÓ ESA DEUDA Y LA DEL MÓDULO DE
+// M-20 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) SALDÓ ESA DEUDA Y LA DEL MÓDULO DE
 // AGENDA: las escrituras de Branch, Resource, ServiceType, WorkingHours,
 // Booking, GoogleCalendarConnection, OutboxEvent y las tres nuevas de
 // IngestionEvent (retry, markEventFailed, anonymize) ya filtraban por
@@ -908,7 +908,7 @@ test("dos IngestionEvent con externalId nulo sobre la misma Source: entran los d
 });
 
 // ---------------------------------------------------------------------------
-// M-20 de docs/auditoria-2026-08-29.md — el módulo de agenda, outbox y las
+// M-20 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — el módulo de agenda, outbox y las
 // escrituras nuevas de ingesta. Mismo patrón que las 20 de arriba: la
 // garantía bajo prueba es el WHERE efectivo del repository, y el éxito es
 // count === 0 con B intacta.

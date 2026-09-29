@@ -99,7 +99,7 @@ export function calcularTurnos({
     // y la más predecible para quien mira la agenda — "cada media hora desde
     // las 9".
     //
-    // "REAL" es la corrección de A-5 (docs/auditoria-2026-08-29.md): antes
+    // "REAL" es la corrección de A-5 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): antes
     // expandirFranjas recortaba el inicio de la franja al `from` de la
     // consulta, así que la grilla arrancaba donde el cliente preguntó y no
     // donde el recurso abre — dos consultas a distinta hora del mismo día

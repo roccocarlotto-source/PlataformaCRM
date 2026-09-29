@@ -6,7 +6,7 @@ import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { findRoleByName } from "../repositories/role.repository";
 import { createCompany, updateCompany } from "./company.service";
 
-// M-10 (docs/auditoria-2026-08-29.md) — PATCH no podía vaciar los campos
+// M-10 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — PATCH no podía vaciar los campos
 // opcionales de Company. El bug vivía SOLO en el schema del controller
 // (company.controller.test.ts lo cubre); service y repositorio ya tipaban
 // `string | null` y pasaban el valor tal cual. Este archivo prueba que, con

@@ -68,7 +68,7 @@ const CABEZA_NORMALIZADOR = "lower(regexp_replace(regexp_replace(regexp_replace(
 //
 // 13 = 6 comparaciones con dos lados (filas 5, 7, 8, 9, 10 y 17) + la fila 15,
 // que compara un solo lado contra un literal ya normalizado. La fila 17 (M-7 de
-// docs/auditoria-2026-08-29.md, índices parciales no únicos) sumó las dos
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub), índices parciales no únicos) sumó las dos
 // últimas: es el único cambio legítimo de este número — una fila NUEVA que
 // compara por definición—, no una copia de más en una fila que ya existía.
 const COPIAS_ESPERADAS = 13;
@@ -248,7 +248,7 @@ test("fila 7 distingue un índice que dejó de ser único", async () => {
   );
 });
 
-// V-4 (docs/auditoria-2026-08-29.md) — el índice de google_event_id nació en la
+// V-4 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — el índice de google_event_id nació en la
 // fila 17 (M-7, no único) y la migración 20260902140000 lo reemplazó por
 // bookings_org_google_event_unique, que la fila 7 afirma. La mutación que
 // importa es exactamente la forma vieja: mismas columnas, mismo predicado, sin
@@ -279,7 +279,7 @@ test("fila 7 distingue el índice de google_event_id al que le sacaron el predic
 });
 
 // ---------------------------------------------------------------------------
-// Fila 17 — índices parciales NO únicos (M-7 de docs/auditoria-2026-08-29.md;
+// Fila 17 — índices parciales NO únicos (M-7 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub);
 // desde V-4 contiene solo los tres de B-14)
 // ---------------------------------------------------------------------------
 
@@ -697,7 +697,7 @@ test("fila 15 mira la 2.ª columna clave, no cualquier mención de lower en la d
 
 // ---------------------------------------------------------------------------
 // Fila 18 — privilegios por defecto sobre tablas nuevas (V-3 de
-// docs/auditoria-2026-08-29.md)
+// docs-privados/auditoria-2026-08-29.md (local, no está en GitHub))
 // ---------------------------------------------------------------------------
 
 // Misma técnica que la fila 14: la fila afirma algo universal ("ningún rol que

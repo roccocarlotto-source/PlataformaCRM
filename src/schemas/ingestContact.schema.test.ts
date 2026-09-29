@@ -24,7 +24,7 @@ test("un campo vacío se trata como AUSENTE, no como valor — si no, pisaría e
 });
 
 // ---------------------------------------------------------------------------
-// A-6 (docs/auditoria-2026-08-29.md) — un email VACÍO es ausencia, no un email
+// A-6 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — un email VACÍO es ausencia, no un email
 // inválido.
 //
 // La regla "cadena vacía = ausente" ya existía para phone y jobTitle, pero

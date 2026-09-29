@@ -1,4 +1,4 @@
-# ALTO-11 (docs/auditoria-2026-08-21.md, sección 4) — la mitad del hallazgo que
+# ALTO-11 (docs-privados/auditoria-2026-08-21.md (local, no está en GitHub), sección 4) — la mitad del hallazgo que
 # faltaba. ESLint, Prettier y su gate bloqueante en CI ya estaban; lo que no
 # había era ninguna forma reproducible de desplegar este backend: ni Dockerfile,
 # ni docker-compose, ni Procfile, ni fly.toml, ni render.yaml. El CI corría

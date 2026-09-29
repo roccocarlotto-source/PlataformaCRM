@@ -693,7 +693,7 @@ test("un id que no es uuid da 400, no 404 ni 500", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// V-9 (docs/auditoria-2026-08-29.md) — el retry era el camino SIN carrera para
+// V-9 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)) — el retry era el camino SIN carrera para
 // promover un evento de una fuente pausada o retirada: solo miraba que el
 // evento siguiera en FAILED, nunca la Source. Un FAILED de hace semanas, con
 // la fuente pausada mientras tanto, volvía a PENDING y el worker lo promovía.

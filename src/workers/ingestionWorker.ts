@@ -62,7 +62,7 @@ export interface OpcionesDrenado {
   // Acota el drenado a una organización. Producción no lo usa; ver
   // claimNextPendingEvent.
   organizationId?: string;
-  // SOLO PARA TESTS (M-19 de docs/auditoria-2026-08-29.md): se ejecuta DENTRO
+  // SOLO PARA TESTS (M-19 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)): se ejecuta DENTRO
   // de la transacción del evento, después del reclamo con SKIP LOCKED y antes
   // de promoverlo. Es el único punto donde un test puede sostener un drenado a
   // mitad de camino —con su fila reclamada y su transacción abierta— y
@@ -131,7 +131,7 @@ export async function drenarPendientes(opciones: OpcionesDrenado = {}): Promise<
         break;
       }
 
-      // B-30 de docs/auditoria-2026-08-29.md: el fallo se CONTABILIZA en la
+      // B-30 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): el fallo se CONTABILIZA en la
       // fila. Antes solo se posponía en memoria y un error determinístico para
       // este contenido se repetía en cada tick, para siempre, sin que nada lo
       // detuviera ni lo señalara. Este catch es el ÚNICO lugar que puede

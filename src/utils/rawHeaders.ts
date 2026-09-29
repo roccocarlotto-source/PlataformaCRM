@@ -1,4 +1,4 @@
-// B-25 de docs/auditoria-2026-08-29.md — detección de headers repetidos.
+// B-25 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — detección de headers repetidos.
 //
 // req.headers NO sirve para esto: Node normaliza los headers ANTES de que
 // ningún middleware los vea, y para casi todos los nombres une los valores

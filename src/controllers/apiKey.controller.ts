@@ -13,7 +13,7 @@ const createApiKeySchema = z.object({
 
 const listQuerySchema = z.object({
   // Tope de cordura, el mismo que ingestionEvent (S2-5) — B-21 de
-  // docs/auditoria-2026-08-29.md: sin él, ?page=999999999 llega a Postgres
+  // docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): sin él, ?page=999999999 llega a Postgres
   // como un OFFSET gigante que igual hay que recorrer.
   page: z.coerce.number().int().positive().max(10_000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),

@@ -134,7 +134,7 @@ export async function firmarState(state: OAuthState, clave?: Uint8Array): Promis
 // vencido es un problema del request, no del servidor.
 //
 // 400 Y NO 403 COMO EL TOKEN DEL WEBHOOK, NI 401 COMO LA API KEY DE INGESTA —
-// V-1 de docs/auditoria-2026-08-29.md lo marcó como inconsistencia entre
+// V-1 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) lo marcó como inconsistencia entre
 // "hermanos", y es una decisión por tipo de llamador (ver el bloque V-1 de
 // webhookToken.ts, que lista los tres): acá el `state` lo trae el navegador de
 // una PERSONA como parámetro del request, no es una credencial que un cliente

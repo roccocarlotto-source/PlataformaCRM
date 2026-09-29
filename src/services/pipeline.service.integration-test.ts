@@ -111,7 +111,7 @@ test("createPipeline traduce la violación real del nombre duplicado a 409, no a
 //     de mostrarlo, aunque el mismo código, en un proceso tibio con
 //     muchas iteraciones, sí lo reproducía la enorme mayoría de las veces
 //     (evidencia del diagnóstico temporal, arriba).
-//   - "ambos no-default" quedó así hasta M-19 (docs/auditoria-2026-08-29.md):
+//   - "ambos no-default" quedó así hasta M-19 (docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)):
 //     0/4 de detección aislada era un test secuencial disfrazado de carrera.
 //     Desde M-19 fuerza el interleaving peligroso con la técnica de
 //     src/lib/carreras.test-helper.ts: una transacción A toma el MISMO

@@ -22,7 +22,7 @@ const idParamSchema = z.string().uuid("id inválido");
 const statusSchema = z.nativeEnum(IngestionStatus);
 
 const listQuerySchema = z.object({
-  // TOPE EXPLÍCITO — hallazgo S2-5 de docs/review-fase2-2026-08-28.md. `page`
+  // TOPE EXPLÍCITO — hallazgo S2-5 de docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). `page`
   // no tenía `.max()`, a diferencia de `pageSize`, así que `?page=999999999`
   // se aceptaba y llegaba a Postgres como un OFFSET gigante: el motor igual
   // tiene que recorrer y descartar todas esas filas antes de devolver una

@@ -165,7 +165,7 @@ async function sincronizar(
   // llamadas a listarCambios de abajo.
   const timezone = conexion.branch.timezone;
 
-  // M-3 de docs/auditoria-2026-08-29.md: una sincronización COMPLETA se acota
+  // M-3 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub): una sincronización COMPLETA se acota
   // desde ahora. Las dos ramas que la hacen (primera sincronización, y 410)
   // descartan los eventos que trae —solo usan nextSyncToken—, así que listar
   // el calendario entero era paginar años de eventos para tirarlos; y en un
@@ -273,7 +273,7 @@ async function sincronizar(
 }
 
 // ---------------------------------------------------------------------------
-// ¿Google y el CRM dicen horarios distintos? — B-5 de docs/auditoria-2026-08-29.md
+// ¿Google y el CRM dicen horarios distintos? — B-5 de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub)
 //
 // Google devuelve `dateTime` con precisión de SEGUNDOS (RFC3339 sin fracción),
 // y Booking.startsAt/endsAt pueden traer milisegundos: createBooking guarda

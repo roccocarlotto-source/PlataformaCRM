@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { clasificarErrorDeBodyParser } from "./bodyParserError";
 
-// M-11 (a) de docs/auditoria-2026-08-29.md — la clasificación compartida entre
+// M-11 (a) de docs-privados/auditoria-2026-08-29.md (local, no está en GitHub) — la clasificación compartida entre
 // el parser de la ingesta y los globales. Sin mensaje ni status: eso lo decide
 // cada call site.
 
