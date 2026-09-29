@@ -190,7 +190,28 @@ Lo que dejaron abierto los PR #341–#343. Cada ítem tiene su PR y su Estado.
 **Estado:** pendiente (PR C)
 
 ### F6-a — Latencia: menos idas a la base
-**Estado:** pendiente (PR D)
+**Estado:** hecho (PR D, rama `perf/f6-menos-idas-a-la-base`). Es la parte de código de F6; la región de Render sigue siendo de infraestructura.
+- **Cómo se midió:** contra el Supabase local, con un proxy que suma 50 ms a cada ida a la base. Se cuentan las queries de Prisma y las olas secuenciales, que son las idas en serie reales leídas del protocolo de Postgres. Mediana de 9 corridas.
+
+  | Camino | Queries antes → después | Olas en serie antes → después | Tiempo con 50 ms/ida |
+  |---|---|---|---|
+  | Request autenticado (`GET /api/me`) | 4 → 2 | 4 → 2 | 269 → 145 ms |
+  | `PATCH /api/opportunities` a otra etapa | 14 → 12 | 14 → 9 | 890 → 584 ms |
+  | `PATCH /api/opportunities` a Ganado (con unidad y contacto) | 25 → 25 | 26 → 22 | 1718 → 1433 ms |
+  | `POST /api/bookings` | 18 → 17 | 18 → 14 | 1144 → 982 ms |
+  | Turno del agente, solo texto | 19 → 20 | 19 → 16 | 1183 → 1001 ms |
+  | Turno del agente, con `search_vehicles` | 20 → 20 | 21 → 18 | 1311 → 1120 ms |
+
+- **Qué cambió:**
+  - `authenticate` resuelve usuario, organización y rol en un solo SELECT con JOIN. Antes el `include` de Prisma hacía 3 queries en serie. Sigue sin caché: la desactivación o el cambio de rol se ven en el request siguiente, y hay test.
+  - El PATCH de oportunidades y la reserva leen en paralelo lo que no depende entre sí. `utils/enParalelo.ts` relanza el primer error en el orden de antes, así que el 400/404 es el de siempre, y hay tests.
+  - En el turno del agente, agente y contacto van juntos, y también el gate de "habló una persona" con la base de conocimiento, la sucursal y el historial.
+  - No se tocaron las transacciones, los locks ni el aislamiento por organización.
+- **Recomendaciones que no entraron:**
+  - Hacer que los locks (`lockStageForUpdate`, `lockResourceForUpdate`, `lockServiceTypeForUpdate`) devuelvan la fila y ahorrarse la relectura de adentro de la transacción. Toca el código que protege carreras: conviene hacerlo aparte y con sus tests de concurrencia.
+  - Pasarle a las tools del agente la sucursal y el contacto ya cargados, en vez de releerlos.
+  - Leer la conexión de Google Calendar junto con la sucursal después de reservar.
+  - No hizo falta ningún índice nuevo.
 
 ### E — Diagnóstico de teléfonos duplicados en producción
 **Estado:** pendiente (se corre al terminar los PR, solo lectura)

@@ -35,6 +35,7 @@ import {
 } from "../repositories/stage.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
+import { enParalelo } from "../utils/enParalelo";
 import { lastMonthsUTC, monthWindowUTC } from "../utils/utcMonth";
 import { dayWindowUTC, lastDaysUTC, lastWeeksUTC, weekWindowUTC } from "../utils/utcWindow";
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
@@ -44,12 +45,7 @@ import {
   ensureDeliveryForSoldVehicle,
   hasConfirmedDelivery,
 } from "./delivery.service";
-import {
-  hoyEnLaZona,
-  resolverCamposDeCierre,
-  resolverEstadoYEtapa,
-  type EtapaConMarca,
-} from "./opportunityClosing";
+import { hoyEnLaZona, resolverCamposDeCierre, resolverEstadoYEtapa } from "./opportunityClosing";
 import { resolveOwnerId } from "./ownership.service";
 import { setVehicleStatusForOpportunityLink } from "./vehicle.service";
 
@@ -475,57 +471,76 @@ export async function updateOpportunity(
   id: string,
   input: UpdateOpportunityInput,
 ) {
-  // 404 si no existe, no es de esta organización, o ya está borrada.
-  const opportunity = await getOpportunityById(organizationId, id);
-
-  const data: UpdateOpportunityInput = { ...input };
-
-  if (input.ownerId) {
-    data.ownerId = await resolveOwnerId(organizationId, actorUserId, input.ownerId);
-  }
-
-  if (input.companyId) {
-    data.companyId = (await validateCompanyId(organizationId, input.companyId)) ?? undefined;
-  }
-
-  if (input.contactId) {
-    data.contactId = (await validateContactId(organizationId, input.contactId)) ?? undefined;
-  }
-
-  // Mover de stage: el nuevo stage tiene que pertenecer al pipeline actual
-  // de la oportunidad, salvo que el pipeline también se esté cambiando en
-  // esta misma operación — nunca se cambia el pipeline "solo" implícito por
-  // mover el stage.
-  if (input.pipelineId && !input.stageId) {
-    throw new AppError(
-      "Si cambiás el pipeline, indicá también el nuevo stageId en la misma operación",
-      400,
-    );
-  }
-
-  if (input.pipelineId) {
-    await validatePipelineId(organizationId, input.pipelineId);
-  }
-
-  const effectivePipelineId = input.pipelineId ?? opportunity.pipelineId;
-  let nuevoStageId = input.stageId;
-
-  let etapaPedida: EtapaConMarca | undefined;
-  if (nuevoStageId) {
-    etapaPedida = await validateStageId(organizationId, nuevoStageId, effectivePipelineId);
-  }
-
   // Ítem 154 de docs/matriz-de-datos-crm.md: la etapa manda sobre el estado
   // (la regla del §51, que hasta acá vivía solo en el frontend), y la fecha de
   // cierre y el motivo acompañan al estado. Solo si el PATCH toca alguno de
   // los cuatro: un cambio de título no revisa nada.
-  if (
+  const tocaEstado =
     input.status !== undefined ||
     input.stageId !== undefined ||
     input.actualCloseDate !== undefined ||
-    input.lostReason !== undefined
-  ) {
-    const etapaActual = (await findStageById(opportunity.stageId, organizationId)) ?? {
+    input.lostReason !== undefined;
+
+  // F6 de docs/prueba-en-vivo-2026-09-29.md (PR "menos idas a la base"): las
+  // lecturas de antes de la transacción van en DOS tandas en paralelo en vez
+  // de hasta siete idas en serie. enParalelo relanza el primer error en el
+  // orden de abajo, que es el orden en que antes corrían, así que el 404 o el
+  // 400 que ve el cliente es el mismo de siempre. Nada de esto decide la
+  // escritura: lo que la protege se relee adentro, con el lock tomado.
+  //
+  // Tanda 1: la oportunidad (404 si no existe, no es de esta organización, o
+  // ya está borrada) y el "hoy" de la organización, que no depende de ella.
+  const [opportunity, hoy] = await enParalelo([
+    getOpportunityById(organizationId, id),
+    tocaEstado ? hoyDeLaOrganizacion(organizationId) : Promise.resolve(null),
+  ] as const);
+
+  const data: UpdateOpportunityInput = { ...input };
+  const effectivePipelineId = input.pipelineId ?? opportunity.pipelineId;
+  let nuevoStageId = input.stageId;
+
+  // Tanda 2: todo lo que depende de la oportunidad pero no entre sí.
+  const [ownerId, companyId, contactId, , , etapaPedida, etapaActualLeida, etapasDelPipeline] =
+    await enParalelo([
+      input.ownerId
+        ? resolveOwnerId(organizationId, actorUserId, input.ownerId)
+        : Promise.resolve(undefined),
+      input.companyId ? validateCompanyId(organizationId, input.companyId) : Promise.resolve(null),
+      input.contactId ? validateContactId(organizationId, input.contactId) : Promise.resolve(null),
+      // Mover de stage: el nuevo stage tiene que pertenecer al pipeline actual
+      // de la oportunidad, salvo que el pipeline también se esté cambiando en
+      // esta misma operación — nunca se cambia el pipeline "solo" implícito
+      // por mover el stage. En su lugar de siempre en el orden de errores.
+      input.pipelineId && !input.stageId
+        ? Promise.reject(
+            new AppError(
+              "Si cambiás el pipeline, indicá también el nuevo stageId en la misma operación",
+              400,
+            ),
+          )
+        : Promise.resolve(undefined),
+      input.pipelineId
+        ? validatePipelineId(organizationId, input.pipelineId)
+        : Promise.resolve(undefined),
+      nuevoStageId
+        ? validateStageId(organizationId, nuevoStageId, effectivePipelineId)
+        : Promise.resolve(undefined),
+      tocaEstado ? findStageById(opportunity.stageId, organizationId) : Promise.resolve(null),
+      tocaEstado ? findStagesByPipeline(effectivePipelineId) : Promise.resolve([]),
+    ] as const);
+
+  if (input.ownerId) {
+    data.ownerId = ownerId;
+  }
+  if (input.companyId) {
+    data.companyId = companyId ?? undefined;
+  }
+  if (input.contactId) {
+    data.contactId = contactId ?? undefined;
+  }
+
+  if (tocaEstado) {
+    const etapaActual = etapaActualLeida ?? {
       id: opportunity.stageId,
       isWon: false,
       isLost: false,
@@ -536,7 +551,7 @@ export async function updateOpportunity(
       creando: false,
       statusPedido: input.status,
       statusActual: opportunity.status,
-      etapasDelPipeline: await findStagesByPipeline(effectivePipelineId),
+      etapasDelPipeline,
     });
     if (resuelto.status !== opportunity.status || input.status !== undefined) {
       data.status = resuelto.status;
@@ -558,7 +573,8 @@ export async function updateOpportunity(
           actualCloseDate: opportunity.actualCloseDate,
           lostReason: opportunity.lostReason,
         },
-        hoy: await hoyDeLaOrganizacion(organizationId),
+        // Siempre leído si tocaEstado (tanda 1).
+        hoy: hoy!,
       }),
     );
   }
