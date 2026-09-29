@@ -88,7 +88,12 @@ before(async () => {
       organizationId: orgId,
       name: "Planilla de la feria",
       type: "FILE_IMPORT",
-      fieldMapping: { Nombre: "firstName", Apellido: "lastName", Mail: "email" },
+      fieldMapping: {
+        Nombre: "firstName",
+        Apellido: "lastName",
+        Mail: "email",
+        Telefono: "phone",
+      },
     },
   });
   fileSourceId = archivo.id;
@@ -464,16 +469,113 @@ test("F5: si el email es de un contacto y el teléfono de OTRO, gana el email, e
   assert.match(marcas[0].tipo === "revision_manual" ? marcas[0].motivo : "", /otro contacto/);
 });
 
-test("F5: un teléfono local con 0 inicial marca la fila FAILED (no se inventa un código de país)", async () => {
+// ---------------------------------------------------------------------------
+// F5-a (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md) — un
+// teléfono no normalizable ya no hace perder el lead: el contacto entra sin
+// teléfono, el evento queda PROCESSED y el valor original queda en la nota
+// `ignorado` más la marca de revisión manual. Nunca en errorMessage (D2-7).
+// ---------------------------------------------------------------------------
+
+function telefonoDescartadoDe(promotionNotes: unknown): string | undefined {
+  const nota = notasDe(promotionNotes).find((n) => n.tipo === "ignorado" && n.campo === "phone");
+  return nota?.tipo === "ignorado" ? nota.entrante : undefined;
+}
+
+function motivosDeRevision(promotionNotes: unknown): string[] {
+  return notasDe(promotionNotes).flatMap((n) => (n.tipo === "revision_manual" ? [n.motivo] : []));
+}
+
+test("F5-a: un teléfono local con 0 inicial no hace fallar la fila: el contacto entra sin teléfono y queda marcado", async () => {
+  const email = `f5a-${randomUUID()}@ejemplo.test`;
   const { evento } = await promoverUno({
     firstName: "Local",
     lastName: "Cero",
+    email,
     phone: "099 123 456",
   });
 
-  assert.equal(evento.status, "FAILED");
-  assert.match(evento.errorMessage ?? "", /phone: .*formato internacional/);
-  assert.equal(evento.promotedContactId, null);
+  assert.equal(evento.status, "PROCESSED");
+  assert.equal(evento.errorMessage, null);
+  const contacto = await prisma.contact.findUniqueOrThrow({
+    where: { id: evento.promotedContactId! },
+  });
+  assert.equal(contacto.email, email);
+  assert.equal(contacto.phone, null);
+
+  assert.equal(telefonoDescartadoDe(evento.promotionNotes), "099 123 456");
+  const motivos = motivosDeRevision(evento.promotionNotes);
+  assert.equal(motivos.length, 1);
+  assert.match(motivos[0], /no se pudo normalizar/);
+  assert.ok(!motivos[0].includes("099"), "el motivo no ecoa el valor");
+});
+
+test("F5-a: si el teléfono era lo único que identificaba al lead (sin email), el lead igual entra y queda marcado", async () => {
+  const { evento } = await promoverUno({
+    firstName: "Solo",
+    lastName: "Telefono",
+    phone: "(099) 12-34-56 int. 3",
+  });
+
+  assert.equal(evento.status, "PROCESSED");
+  assert.ok(evento.promotedContactId);
+  const contacto = await prisma.contact.findUniqueOrThrow({
+    where: { id: evento.promotedContactId },
+  });
+  assert.equal(contacto.phone, null);
+  assert.equal(contacto.email, null);
+  assert.equal(telefonoDescartadoDe(evento.promotionNotes), "(099) 12-34-56 int. 3");
+  // Dos marcas: la del teléfono descartado y la de "sin email" (§4).
+  assert.equal(motivosDeRevision(evento.promotionNotes).length, 2);
+});
+
+test("F5-a: fusionado por email, el teléfono descartado no pisa el que el contacto ya tenía", async () => {
+  const telefono = telefonoAlAzar();
+  const email = `f5a-existente-${randomUUID()}@ejemplo.test`;
+  const existente = await prisma.contact.create({
+    data: { organizationId: orgId, firstName: "Ya", lastName: "Estaba", email, phone: telefono },
+  });
+
+  const { evento } = await promoverUno({
+    firstName: "Ya",
+    lastName: "Estaba",
+    email,
+    phone: "0 no es un número",
+  });
+
+  assert.equal(evento.status, "PROCESSED");
+  assert.equal(evento.promotedContactId, existente.id);
+  const contacto = await prisma.contact.findUniqueOrThrow({ where: { id: existente.id } });
+  assert.equal(contacto.phone, telefono);
+  assert.equal(telefonoDescartadoDe(evento.promotionNotes), "0 no es un número");
+});
+
+test("F5-a: una fila de CSV con un teléfono local se promueve sin teléfono, no queda FAILED", async () => {
+  const parseado = await parsearArchivo(
+    Buffer.from("Nombre,Apellido,Mail,Telefono\nCsv,Local,,099 000 111\n", "utf8"),
+    "csv",
+  );
+  const [fila] = filasParaStaging(parseado.filas);
+  const creado = await prisma.ingestionEvent.create({
+    data: {
+      organizationId: orgId,
+      sourceId: fileSourceId,
+      externalId: `f5a-${randomUUID()}`,
+      rawPayload: fila.rawPayload as never,
+    },
+    select: { id: true },
+  });
+
+  const resumen = await drenarPendientes({ organizationId: orgId, limite: 1 });
+  assert.equal(resumen.procesados, 1);
+
+  const evento = await leerEvento(creado.id);
+  assert.equal(evento.status, "PROCESSED", `quedó FAILED con: ${evento.errorMessage}`);
+  const contacto = await prisma.contact.findUniqueOrThrow({
+    where: { id: evento.promotedContactId! },
+    select: { firstName: true, phone: true },
+  });
+  assert.deepEqual(contacto, { firstName: "Csv", phone: null });
+  assert.equal(telefonoDescartadoDe(evento.promotionNotes), "099 000 111");
 });
 
 // ---------------------------------------------------------------------------

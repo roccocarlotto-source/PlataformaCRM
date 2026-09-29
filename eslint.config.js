@@ -42,6 +42,10 @@ module.exports = tseslint.config(
       // `eslint .` desde la raíz lo tomaría con las reglas de Node y sin las de
       // React, que es exactamente lo que no queremos.
       "frontend/",
+      // Lo genera la CLI de Supabase al levantar el stack local (npm run
+      // supabase:start). No es código del repo, y sin esta línea `npm run
+      // lint` falla en local apenas existe (PR A de los pendientes post F1–F5).
+      "supabase/.temp/",
     ],
   },
 

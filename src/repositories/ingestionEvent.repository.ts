@@ -697,11 +697,44 @@ const INGESTION_EVENT_PUBLIC_SELECT = {
   promotedContactId: true,
   createdAt: true,
   updatedAt: true,
+  // Se LEE para derivar telefonoDescartado (abajo) y no sale en la respuesta.
+  promotionNotes: true,
 } satisfies Prisma.IngestionEventSelect;
 
-export type PublicIngestionEvent = Prisma.IngestionEventGetPayload<{
+type FilaDeEventoPublico = Prisma.IngestionEventGetPayload<{
   select: typeof INGESTION_EVENT_PUBLIC_SELECT;
 }>;
+
+export type PublicIngestionEvent = Omit<FilaDeEventoPublico, "promotionNotes"> & {
+  telefonoDescartado: string | null;
+};
+
+// F5-a (pendientes post F1–F5 de docs/prueba-en-vivo-2026-09-29.md): el
+// teléfono que la ingesta no pudo normalizar y dejó afuera del contacto. Es lo
+// que el ADMIN necesita ver en la fila para cargarlo a mano, y vive en la nota
+// `ignorado` de campo "phone" (la única con ese campo, ver types/promotion.ts).
+//
+// Sale ESTE campo y no promotionNotes entero, por la misma razón por la que la
+// columna quedó afuera de la proyección: el listado es para ver estados. Las
+// notas de una fila son pocas y cortas, así que leerlas no cambia el peso de la
+// consulta; lo que no se quiere es mandarlas todas al navegador.
+//
+// Después de un borrado a pedido el valor es el marcador de redactado
+// (redactPromotionNotes), no el teléfono: se muestra eso, que es la verdad.
+function telefonoDescartadoDe(notas: Prisma.JsonValue): string | null {
+  if (!Array.isArray(notas)) return null;
+  for (const nota of notas) {
+    if (typeof nota !== "object" || nota === null || Array.isArray(nota)) continue;
+    if (nota.tipo === "ignorado" && nota.campo === "phone" && typeof nota.entrante === "string") {
+      return nota.entrante;
+    }
+  }
+  return null;
+}
+
+function aEventoPublico({ promotionNotes, ...fila }: FilaDeEventoPublico): PublicIngestionEvent {
+  return { ...fila, telefonoDescartado: telefonoDescartadoDe(promotionNotes) };
+}
 
 export interface IngestionEventFilters {
   sourceId?: string;
@@ -737,14 +770,14 @@ function buildIngestionEventWhere(
   };
 }
 
-export function findManyIngestionEvents(
+export async function findManyIngestionEvents(
   organizationId: string,
   filters: IngestionEventFilters,
   pagination: { skip: number; take: number },
   sort: { sortBy: IngestionEventSortBy; sortOrder: SortOrder },
   db: Db = prisma,
-) {
-  return db.ingestionEvent.findMany({
+): Promise<PublicIngestionEvent[]> {
+  const filas = await db.ingestionEvent.findMany({
     where: buildIngestionEventWhere(organizationId, filters),
     select: INGESTION_EVENT_PUBLIC_SELECT,
     // DESEMPATE POR ID, y no es cosmético — hallazgo E2-1 de
@@ -762,6 +795,7 @@ export function findManyIngestionEvents(
     skip: pagination.skip,
     take: pagination.take,
   });
+  return filas.map(aEventoPublico);
 }
 
 export function countIngestionEvents(
@@ -772,11 +806,16 @@ export function countIngestionEvents(
   return db.ingestionEvent.count({ where: buildIngestionEventWhere(organizationId, filters) });
 }
 
-export function findIngestionEventById(id: string, organizationId: string, db: Db = prisma) {
-  return db.ingestionEvent.findFirst({
+export async function findIngestionEventById(
+  id: string,
+  organizationId: string,
+  db: Db = prisma,
+): Promise<PublicIngestionEvent | null> {
+  const fila = await db.ingestionEvent.findFirst({
     where: { id, organizationId },
     select: INGESTION_EVENT_PUBLIC_SELECT,
   });
+  return fila ? aEventoPublico(fila) : null;
 }
 
 // ---------------------------------------------------------------------------

@@ -24,7 +24,8 @@ export const ETIQUETA_DE_ESTADO: Record<IngestionStatus, string> = {
   DUPLICATE: "Duplicado",
 };
 
-// Exactamente INGESTION_EVENT_PUBLIC_SELECT del repositorio: diez campos.
+// Exactamente la proyección pública del repositorio: los diez campos de
+// INGESTION_EVENT_PUBLIC_SELECT más telefonoDescartado (F5-a).
 //
 // SIN `rawPayload` ni `promotionNotes`, y no es un olvido — la proyección
 // pública del backend los excluye a propósito: son las dos columnas JSONB de la
@@ -39,6 +40,9 @@ export const ETIQUETA_DE_ESTADO: Record<IngestionStatus, string> = {
 //                     fuente no manda X-External-Id).
 //   errorMessage      solo tiene contenido en FAILED. Un reintento lo limpia.
 //   promotedContactId solo tiene contenido en PROCESSED.
+//   telefonoDescartado F5-a: el teléfono que la ingesta no pudo normalizar y
+//                     dejó afuera del contacto (PROCESSED con revisión
+//                     manual). Derivado de promotionNotes en el backend.
 export interface IngestionEvent {
   id: string;
   organizationId: string;
@@ -48,6 +52,7 @@ export interface IngestionEvent {
   status: IngestionStatus;
   errorMessage: string | null;
   promotedContactId: string | null;
+  telefonoDescartado: string | null;
   createdAt: string;
   updatedAt: string;
 }

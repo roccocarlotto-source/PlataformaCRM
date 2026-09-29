@@ -11,7 +11,13 @@ import { useSources } from "../source/queries";
 import { useRetryIngestionEvent } from "./mutations";
 import { useIngestionEvents } from "./queries";
 import { useSourcesByIds } from "./sourceResolution";
-import { ESTADOS, ETIQUETA_DE_ESTADO, type IngestionStatus, type SortOrder } from "./types";
+import {
+  ESTADOS,
+  ETIQUETA_DE_ESTADO,
+  type IngestionEvent,
+  type IngestionStatus,
+  type SortOrder,
+} from "./types";
 
 const PAGE_SIZE = 20;
 
@@ -21,6 +27,14 @@ const PAGE_SIZE = 20;
 const SOURCES_PARA_SELECT = 100;
 
 const SIN_RESOLVER = "—";
+
+function motivoDe(evento: IngestionEvent): string | null {
+  if (evento.errorMessage) return evento.errorMessage;
+  if (evento.telefonoDescartado) {
+    return `Revisión manual: el teléfono no se pudo normalizar y no se guardó (${evento.telefonoDescartado})`;
+  }
+  return null;
+}
 
 export function IngestionEventListPage() {
   // sourceId y batchId viven en la URL, no en estado local: es lo que permite
@@ -207,10 +221,12 @@ export function IngestionEventListPage() {
                 <tr key={evento.id}>
                   <td>{nombreDeFuente(evento.sourceId)}</td>
                   <td>{ETIQUETA_DE_ESTADO[evento.status]}</td>
-                  {/* errorMessage solo tiene contenido en FAILED: en el resto es
-                    null y no hay nada que decir. */}
-                  <td className="ds-cell-truncate" title={evento.errorMessage ?? undefined}>
-                    {evento.errorMessage ?? SIN_RESOLVER}
+                  {/* errorMessage solo tiene contenido en FAILED. En un PROCESSED
+                    la columna muestra, si lo hay, el teléfono que la ingesta
+                    descartó por no poder normalizarlo (F5-a): el contacto entró
+                    sin él y alguien tiene que cargarlo a mano. */}
+                  <td className="ds-cell-truncate" title={motivoDe(evento) ?? undefined}>
+                    {motivoDe(evento) ?? SIN_RESOLVER}
                   </td>
                   <td>{new Date(evento.createdAt).toLocaleString()}</td>
                   <td>{new Date(evento.updatedAt).toLocaleString()}</td>
