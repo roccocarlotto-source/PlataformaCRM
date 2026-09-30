@@ -100,9 +100,11 @@ export const MENSAJE_VARIAS_PAGINAS =
 export const MENSAJE_PAGINA_DE_OTRA_CUENTA =
   "Esa página de Facebook ya está conectada a otra cuenta.";
 
-// meta_page_connections.page_id es UNIQUE GLOBAL (ítem 169): una página no
+// meta_page_connections.page_id es UNIQUE entre las conexiones no REVOKED
+// (ítem 169; parcial desde D-10, migración 20261012120000): una página no
 // puede estar conectada a dos organizaciones, porque el webhook trae el page id
-// y ninguna otra pista de a quién pertenece el mensaje. Mismo criterio que
+// y ninguna otra pista de a quién pertenece el mensaje; la que otra
+// organización desconectó ya no ocupa el lugar. Mismo criterio que
 // traducirPaginaDeFacebookDuplicada de agent.service.ts: se traduce SOLO el
 // P2002 sobre page_id; cualquier otro error se relanza tal cual.
 function traducirPaginaYaConectada(err: unknown): never {

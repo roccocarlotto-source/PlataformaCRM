@@ -278,14 +278,15 @@ from (
 
   union all
 
-  -- V-2 ─ Los 12 índices únicos parciales, comparados por DEFINICIÓN COMPLETA.
+  -- V-2 ─ Los 13 índices únicos parciales, comparados por DEFINICIÓN COMPLETA.
   --
   -- Eran 10 cuando esta fila se escribió; 20260910120000_stages_won_lost_no_
   -- exclusivos borró dos (ver más abajo) y quedaron 8, sin que este conteo se
   -- actualizara. El §54 agrega qr_codes_branch_display_number_unique (9), el
   -- ítem 126 conversations_open_unique (10) y el ítem 160 los dos de
   -- whatsapp_templates (12); el ítem 181 reemplazó uno de esos dos (siguen
-  -- siendo 12). La lista de abajo es la fuente de verdad: este
+  -- siendo 12); D-10 (20261012120000) convirtió el UNIQUE de
+  -- meta_page_connections.page_id en parcial (13). La lista de abajo es la fuente de verdad: este
   -- número es una ayuda para leerla, no algo que el chequeo use.
   --
   -- Antes esto buscaba el NOMBRE en pg_indexes y nada más. Los tres agujeros que
@@ -363,7 +364,13 @@ from (
     -- organización" del 160. Una activa por (organización, regla): cada
     -- automatización que manda WhatsApp tiene su propio texto.
     ('whatsapp_templates_automation_active_unique',
-     'CREATE UNIQUE INDEX whatsapp_templates_automation_active_unique ON public.whatsapp_templates USING btree (organization_id, automation_id) WHERE (deleted_at IS NULL)')
+     'CREATE UNIQUE INDEX whatsapp_templates_automation_active_unique ON public.whatsapp_templates USING btree (organization_id, automation_id) WHERE (deleted_at IS NULL)'),
+    -- D-10 (migración 20261012120000): una página de Facebook conectada a una
+    -- sola organización a la vez. El predicado es la mitad del arreglo: sin
+    -- él, la página que una organización desconectó (fila REVOKED) no la
+    -- podría conectar nunca otra.
+    ('meta_page_connections_page_id_active_unique',
+     'CREATE UNIQUE INDEX meta_page_connections_page_id_active_unique ON public.meta_page_connections USING btree (page_id) WHERE (status <> ''REVOKED''::"ConnectionStatus")')
   ) as e(nombre, esperado)
   left join lateral (
     select pg_get_indexdef(i.oid) as def

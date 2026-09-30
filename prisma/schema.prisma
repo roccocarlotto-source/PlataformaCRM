@@ -2611,10 +2611,14 @@ model MetaPageConnection {
   id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organizationId String @unique @map("organization_id") @db.Uuid
 
-  // La página de Facebook conectada. UNIQUE GLOBAL: una página no puede estar
-  // conectada a dos organizaciones — el webhook trae el page id y ninguna otra
-  // pista para saber de quién es el mensaje.
-  pageId String @unique @map("page_id") @db.VarChar(64)
+  // La página de Facebook conectada. Una página no puede estar conectada a dos
+  // organizaciones — el webhook trae el page id y ninguna otra pista para
+  // saber de quién es el mensaje. SIN @unique acá a propósito: la garantía es
+  // el UNIQUE PARCIAL meta_page_connections_page_id_active_unique
+  // (WHERE status <> 'REVOKED', migración 20261012120000), que Prisma no
+  // puede expresar. Una conexión desconectada no retiene la página (D-10 de
+  // docs-privados/auditoria-2026-09-30-corta.md, local).
+  pageId String @map("page_id") @db.VarChar(64)
 
   // CIFRADO EN REPOSO con AES-256-GCM (src/utils/encryption.ts) — NUNCA en
   // claro, NUNCA en una respuesta de la API y NUNCA en un log.
@@ -2656,7 +2660,7 @@ model MetaPageConnection {
   organization Organization @relation(fields: [organizationId], references: [id])
 
   // El webhook de Instagram resuelve la página por acá (ítem 171). Índice
-  // común y no UNIQUE: el UNIQUE que importa es el de pageId, y una cuenta de
+  // común y no UNIQUE: el UNIQUE que importa es el (parcial) de pageId, y una cuenta de
   // Instagram cuelga de una sola página por construcción de Meta.
   @@index([instagramBusinessAccountId])
   // SIN (organization_id, created_at): no hay listado. Todo acceso es por
