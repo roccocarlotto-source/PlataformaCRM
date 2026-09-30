@@ -66,8 +66,9 @@ export const whatsappWebhookPayloadSchema = z.object({
 export type WhatsappWebhookPayload = z.infer<typeof whatsappWebhookPayloadSchema>;
 
 // Los tipos que se procesan: texto (ítem 81), audio (ítem 162), imagen (ítem
-// 163) y ubicación (ítem 164). Stickers, reacciones, botones: fuera de
-// alcance, se ignoran sin error.
+// 163) y ubicación (ítem 164). Botones como texto, y el resto con respuesta
+// fija (B-09 residual, ver MARCADORES_NO_SOPORTADOS). Las reacciones se
+// ignoran sin error.
 const mensajeDeTextoSchema = z.object({
   id: z.string().min(1),
   from: z.string().min(1),
@@ -144,6 +145,63 @@ export function textoDeUbicacion(ubicacion: {
   return texto;
 }
 
+// ---------------------------------------------------------------------------
+// B-09 residual (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local;
+// ítem 165 de docs/frontend-cambios-pendientes.md). Lo que el agente todavía
+// no interpreta —video, documento, sticker, contacto compartido, y lo que Meta
+// marca como "unsupported"— ya no se ignora en silencio: se registra en la
+// conversación con un marcador y el cliente recibe una respuesta fija, sin
+// pasar por el modelo (ver agentInboundWorker.ts). Las reacciones (un emoji
+// sobre un mensaje) se siguen ignorando sin respuesta.
+//
+// Los botones (la respuesta rápida de una plantilla, type "button") y las
+// respuestas de un mensaje interactivo (type "interactive") traen el TEXTO que
+// el cliente tocó, así que se leen como texto y los contesta el agente:
+// "no puedo abrir este tipo de archivo" ante un "Sí, me interesa" sería
+// absurdo. Sin texto legible, caen en la respuesta fija como los demás.
+// ---------------------------------------------------------------------------
+
+export const MARCADORES_NO_SOPORTADOS = {
+  video: "[video]",
+  document: "[documento]",
+  sticker: "[sticker]",
+  contacts: "[contacto compartido]",
+  unsupported: "[mensaje no soportado]",
+} as const;
+
+// Los valores de arriba, más el de un botón sin texto: todo lo que el worker
+// contesta con la respuesta fija.
+const MARCADOR_BOTON_SIN_TEXTO = "[botón]";
+const MARCADORES_CON_RESPUESTA_FIJA = new Set<string>([
+  ...Object.values(MARCADORES_NO_SOPORTADOS),
+  MARCADOR_BOTON_SIN_TEXTO,
+]);
+
+// La respuesta que recibe el cliente. Corta y sin prometer nada que el agente
+// no pueda cumplir.
+export const RESPUESTA_TIPO_NO_SOPORTADO =
+  "Por ahora no puedo abrir este tipo de archivo. ¿Me lo escribís?";
+
+// ¿Este entrante se contesta con la respuesta fija? Por su contenido, que es
+// el marcador que puso leerMensaje. Pura y exportada para el worker.
+export function esEntranteNoSoportado(contenido: string): boolean {
+  return MARCADORES_CON_RESPUESTA_FIJA.has(contenido.trim());
+}
+
+const mensajeBaseSchema = z.object({
+  id: z.string().min(1),
+  from: z.string().min(1),
+  type: z.string(),
+});
+
+const botonSchema = z.object({ button: z.object({ text: z.string().optional() }) });
+const interactivoSchema = z.object({
+  interactive: z.object({
+    button_reply: z.object({ title: z.string().optional() }).optional(),
+    list_reply: z.object({ title: z.string().optional() }).optional(),
+  }),
+});
+
 export interface MensajeLeido {
   wamid: string;
   waId: string;
@@ -188,6 +246,38 @@ export function leerMensaje(crudo: unknown): MensajeLeido | null {
       texto: textoDeUbicacion(ubicacion.data.location),
     };
   }
+
+  // B-09 residual: todo lo demás que trae id y remitente.
+  const base = mensajeBaseSchema.safeParse(crudo);
+  if (!base.success) {
+    return null;
+  }
+  const { id: wamid, from: waId, type } = base.data;
+
+  if (type === "button" || type === "interactive") {
+    let tocado: string | undefined;
+    const boton = botonSchema.safeParse(crudo);
+    if (type === "button" && boton.success) {
+      tocado = boton.data.button.text;
+    }
+    const interactivo = interactivoSchema.safeParse(crudo);
+    if (type === "interactive" && interactivo.success) {
+      const { button_reply, list_reply } = interactivo.data.interactive;
+      tocado = button_reply?.title ?? list_reply?.title;
+    }
+    return { wamid, waId, texto: tocado?.trim() ? tocado.trim() : MARCADOR_BOTON_SIN_TEXTO };
+  }
+
+  if (type in MARCADORES_NO_SOPORTADOS) {
+    return {
+      wamid,
+      waId,
+      texto: MARCADORES_NO_SOPORTADOS[type as keyof typeof MARCADORES_NO_SOPORTADOS],
+    };
+  }
+
+  // Reacciones, y cualquier tipo que Meta agregue y no esté en la lista de
+  // arriba (system, order…): se ignoran sin error, como siempre.
   return null;
 }
 

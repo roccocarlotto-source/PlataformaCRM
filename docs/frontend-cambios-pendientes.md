@@ -7482,7 +7482,7 @@ Con la plantilla de muestra `hello_world` (sin variables) el script hace antes u
 
 ## 165. Aviso fijo para lo que sigue sin soportarse (stickers, contactos compartidos, documentos, reacciones)
 
-**Estado:** pendiente. Para cualquier `type` que no sea `text` (ya resuelto)/`audio`/`image`/`location` (162, 163, 164): persistir un marcador (`[sticker]`, `[contacto compartido]`, etc.) y mandar un aviso fijo al cliente en vez de silencio absoluto — el B-09 original, acotado a lo que de verdad no vale la pena interpretar. Texto del aviso: a definir cuando se llegue a este ítem (los tres anteriores tienen prioridad).
+**Estado:** hecho (B-09 residual de la auditoría del 24/09). Video, documento, sticker, contacto compartido y lo que Meta marca `unsupported` se persisten con un marcador (`[video]`, `[documento]`, `[sticker]`, `[contacto compartido]`, `[mensaje no soportado]`) y el cliente recibe, sin pasar por el modelo, "Por ahora no puedo abrir este tipo de archivo. ¿Me lo escribís?" (`RESPUESTA_TIPO_NO_SOPORTADO`, `whatsappWebhook.service.ts`; el worker la manda como un saliente del agente). Si una persona atiende el hilo, no se manda. Las reacciones se siguen ignorando sin respuesta. Los botones (`button`) y las respuestas interactivas (`interactive`) se leen como el texto que tocó el cliente y los contesta el agente; sin texto legible, respuesta fija. Solo WhatsApp: Messenger e Instagram no cambian.
 
 ## 166. El borrador de seguimiento automático se corta antes de tiempo y puede duplicarse (C-02 de la auditoría)
 

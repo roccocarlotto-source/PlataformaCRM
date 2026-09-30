@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  esEntranteNoSoportado,
   leerMensaje,
+  MARCADORES_NO_SOPORTADOS,
   MARCADOR_DE_AUDIO,
   MARCADOR_DE_IMAGEN,
   MARCADOR_DE_UBICACION,
@@ -193,12 +195,60 @@ test("textoDeUbicacion: coordenadas fijas a 6 decimales; nombre o dirección vac
   );
 });
 
-test("leerMensaje: los tipos que todavía no se procesan (sticker, reacción, contactos) devuelven null", () => {
-  for (const tipo of ["sticker", "reaction", "contacts"]) {
+// B-09 residual (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local).
+test("leerMensaje: video, documento, sticker, contacto y 'unsupported' se leen con su marcador de respuesta fija", () => {
+  for (const [tipo, marcador] of Object.entries(MARCADORES_NO_SOPORTADOS)) {
+    const leido = leerMensaje({ from: "598991", id: "wamid.4", type: tipo, [tipo]: { id: "x" } });
+    assert.deepEqual(leido, { wamid: "wamid.4", waId: "598991", texto: marcador }, tipo);
+    assert.equal(esEntranteNoSoportado(marcador), true, tipo);
+  }
+});
+
+test("leerMensaje: una reacción, o un tipo desconocido, se sigue ignorando sin respuesta", () => {
+  for (const tipo of ["reaction", "system", "order"]) {
     assert.equal(
-      leerMensaje({ from: "598991", id: "wamid.4", type: tipo, [tipo]: { id: "x" } }),
+      leerMensaje({ from: "598991", id: "wamid.4", type: tipo, [tipo]: { emoji: "👍" } }),
       null,
       tipo,
     );
   }
+});
+
+test("leerMensaje: un botón o una respuesta interactiva se leen como el texto que tocó el cliente", () => {
+  assert.deepEqual(
+    leerMensaje({
+      from: "598991",
+      id: "wamid.5",
+      type: "button",
+      button: { text: "Sí, me interesa", payload: "SI" },
+    }),
+    { wamid: "wamid.5", waId: "598991", texto: "Sí, me interesa" },
+  );
+  assert.equal(
+    leerMensaje({
+      from: "598991",
+      id: "wamid.6",
+      type: "interactive",
+      interactive: { type: "button_reply", button_reply: { id: "b1", title: "Agendar visita" } },
+    })?.texto,
+    "Agendar visita",
+  );
+  assert.equal(
+    leerMensaje({
+      from: "598991",
+      id: "wamid.7",
+      type: "interactive",
+      interactive: { type: "list_reply", list_reply: { id: "l1", title: "Hilux SRV" } },
+    })?.texto,
+    "Hilux SRV",
+  );
+  // Sin texto legible: respuesta fija, como un tipo no soportado.
+  const sinTexto = leerMensaje({ from: "598991", id: "wamid.8", type: "button", button: {} });
+  assert.ok(sinTexto && esEntranteNoSoportado(sinTexto.texto));
+});
+
+test("esEntranteNoSoportado: un texto común, o uno que solo contiene un marcador, no", () => {
+  assert.equal(esEntranteNoSoportado("Hola"), false);
+  assert.equal(esEntranteNoSoportado("te mando el [video] ahora"), false);
+  assert.equal(esEntranteNoSoportado(" [video] "), true);
 });

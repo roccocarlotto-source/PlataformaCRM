@@ -1,4 +1,4 @@
-import { ConversationChannel, type Message } from "@prisma/client";
+import { ConversationChannel, type Conversation, type Message } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
 import { aplicarEstadosRetenidos } from "../services/estadosDeEntregaRetenidos.service";
@@ -17,8 +17,12 @@ import {
   type EntrantePendiente,
   type JobReclamado,
 } from "../repositories/agentInboundJob.repository";
-import { findConversationById } from "../repositories/conversation.repository";
-import { findMessageById, markMessageDelivery } from "../repositories/message.repository";
+import { findConversationById, updateConversation } from "../repositories/conversation.repository";
+import {
+  createMessage,
+  findMessageById,
+  markMessageDelivery,
+} from "../repositories/message.repository";
 import {
   cargarAgenteYContacto,
   conLockDeConversacion,
@@ -38,6 +42,10 @@ import {
   type DownloadWhatsappMedia,
   type SendWhatsappText,
 } from "../services/whatsappGraph.service";
+import {
+  RESPUESTA_TIPO_NO_SOPORTADO,
+  esEntranteNoSoportado,
+} from "../services/whatsappWebhook.service";
 import { AppError } from "../utils/AppError";
 import { describirError, resolverFalloDelJob, type ClaseDeFallo } from "../utils/backoff";
 
@@ -335,6 +343,77 @@ export async function descargarAdjuntos(
   return adjuntos;
 }
 
+// El turno del modelo sobre un entrante (lo que procesarJob hacía en línea
+// hasta B-09). Devuelve el id del saliente ya atado al job en PENDING, o null
+// si el agente no contesta porque una persona atiende el hilo.
+async function correrElTurno(
+  job: JobReclamado,
+  texto: string,
+  conversacionActual: Conversation,
+  agent: Awaited<ReturnType<typeof cargarAgenteYContacto>>["agent"],
+  contact: Awaited<ReturnType<typeof cargarAgenteYContacto>>["contact"],
+  deps: DepsDeEnvio,
+): Promise<string | null> {
+  const { organizationId } = job;
+  const entrantesPendientes = await findPendingInboundMessages(
+    organizationId,
+    conversacionActual.id,
+  );
+  const pendientes = entrantesPendientes.map((p) => p.messageId);
+  const adjuntos = await descargarAdjuntos(entrantesPendientes, deps);
+
+  const respuesta = await responderEnLaConversacion(
+    { agent, contact, conversation: conversacionActual, texto },
+    { entrantesPendientes: pendientes, adjuntos },
+  );
+
+  // La ráfaga: los otros entrantes pendientes que el modelo tuvo en su
+  // ventana quedaron respondidos por ESTE turno. Sus jobs se cierran para que
+  // no corran un turno cada uno sobre un historial que ya termina en la
+  // respuesta.
+  const vistos = new Set(respuesta.mensajesVistos);
+  const cubiertos = pendientes.filter((id) => id !== job.messageId && vistos.has(id));
+  if (cubiertos.length > 0) {
+    await markAgentInboundJobsCovered(organizationId, cubiertos);
+  }
+
+  if (respuesta.salienteId === null) {
+    return null;
+  }
+  await atarRespuestaAlJob(job, respuesta.salienteId);
+  return respuesta.salienteId;
+}
+
+// B-09 residual: la respuesta fija a un tipo que el agente no interpreta, como
+// un saliente AGENT más (el cliente la recibe del número del negocio, igual
+// que las del agente), atada al job en PENDING.
+async function registrarRespuestaFija(
+  conversacionActual: Conversation,
+  job: JobReclamado,
+): Promise<string> {
+  const saliente = await createMessage({
+    organizationId: job.organizationId,
+    conversationId: conversacionActual.id,
+    direction: "OUTBOUND",
+    senderType: "AGENT",
+    content: RESPUESTA_TIPO_NO_SOPORTADO,
+  });
+  await updateConversation(conversacionActual.id, job.organizationId, {
+    lastMessageAt: saliente.createdAt,
+  });
+  await atarRespuestaAlJob(job, saliente.id);
+  return saliente.id;
+}
+
+// El saliente queda atado al job ANTES de mandarlo (ítem 125): si el envío
+// falla, el reintento reenvía este mismo mensaje en vez de producir otro.
+async function atarRespuestaAlJob(job: JobReclamado, salienteId: string) {
+  await prisma.$transaction(async (tx) => {
+    await setAgentInboundJobResponse(job, salienteId, tx);
+    await markMessageDelivery(salienteId, job.organizationId, { status: "PENDING" }, tx);
+  });
+}
+
 export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise<ResultadoDelJob> {
   const { organizationId } = job;
 
@@ -385,38 +464,33 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
       if (conversacionActual.status === "CLOSED") {
         throw new ErrorPermanenteDelJob(MOTIVO_CONVERSACION_CERRADA);
       }
-      const entrantesPendientes = await findPendingInboundMessages(organizationId, conversacion.id);
-      const pendientes = entrantesPendientes.map((p) => p.messageId);
-      const adjuntos = await descargarAdjuntos(entrantesPendientes, deps);
-
-      const respuesta = await responderEnLaConversacion(
-        { agent, contact, conversation: conversacionActual, texto: entrante.content },
-        { entrantesPendientes: pendientes, adjuntos },
-      );
-
-      // La ráfaga: los otros entrantes pendientes que el modelo tuvo en su
-      // ventana quedaron respondidos por ESTE turno. Sus jobs se cierran para
-      // que no corran un turno cada uno sobre un historial que ya termina en
-      // la respuesta.
-      const vistos = new Set(respuesta.mensajesVistos);
-      const cubiertos = pendientes.filter((id) => id !== job.messageId && vistos.has(id));
-      if (cubiertos.length > 0) {
-        await markAgentInboundJobsCovered(organizationId, cubiertos);
+      // B-09 residual (docs-privados/auditoria-2026-09-24-punta-a-punta.md,
+      // local): un video, documento, sticker o contacto compartido no pasa
+      // por el modelo. El cliente recibe la respuesta fija y las dos cosas
+      // quedan en la conversación. Si una persona atiende el hilo, tampoco
+      // esto: el agente no habla.
+      if (job.channel === ConversationChannel.WHATSAPP && esEntranteNoSoportado(entrante.content)) {
+        if (await humanoAtiendeLaConversacion(conversacionActual)) {
+          await markAgentInboundJobDone(job);
+          return "respondido";
+        }
+        salienteId = await registrarRespuestaFija(conversacionActual, job);
+      } else {
+        salienteId = await correrElTurno(
+          job,
+          entrante.content,
+          conversacionActual,
+          agent,
+          contact,
+          deps,
+        );
+        if (salienteId === null) {
+          // Una persona ya escribió en el hilo (ítem 83): el entrante quedó
+          // registrado y el agente se calla. No hay nada que mandar.
+          await markAgentInboundJobDone(job);
+          return "respondido";
+        }
       }
-
-      if (respuesta.salienteId === null) {
-        // Una persona ya escribió en el hilo (ítem 83): el entrante quedó
-        // registrado y el agente se calla. No hay nada que mandar.
-        await markAgentInboundJobDone(job);
-        return "respondido";
-      }
-
-      salienteId = respuesta.salienteId;
-      const idDelSaliente = salienteId;
-      await prisma.$transaction(async (tx) => {
-        await setAgentInboundJobResponse(job, idDelSaliente, tx);
-        await markMessageDelivery(idDelSaliente, organizationId, { status: "PENDING" }, tx);
-      });
     }
 
     const saliente = await findMessageById(salienteId, organizationId);
