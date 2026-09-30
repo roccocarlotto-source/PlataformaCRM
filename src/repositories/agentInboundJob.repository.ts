@@ -230,6 +230,38 @@ export function markAgentInboundJobFailed(
   });
 }
 
+// B-16 de docs-privados/auditoria-2026-09-30-corta.md (local): el motivo con
+// el que queda FAILED un job cuya conversación se cerró antes de que el
+// agente respondiera. Lo escriben el cierre (para los PENDING) y el worker
+// (para el que ya estaba reclamado).
+export const MOTIVO_CONVERSACION_CERRADA =
+  "La conversación se cerró antes de que el agente respondiera";
+
+// Al cerrar una conversación: sus jobs que todavía no corrieron no corren.
+// Solo PENDING y sin respuesta propia: uno en PROCESSING lo tiene un worker, que
+// relee la conversación bajo el lock y lo corta él; uno con responseMessageId
+// ya tiene respuesta y solo falta entregarla.
+export function cancelPendingInboundJobsOfConversation(
+  organizationId: string,
+  conversationId: string,
+  db: Db = prisma,
+) {
+  return db.agentInboundJob.updateMany({
+    where: {
+      organizationId,
+      status: AgentInboundJobStatus.PENDING,
+      responseMessageId: null,
+      message: { conversationId },
+    },
+    data: {
+      status: AgentInboundJobStatus.FAILED,
+      lockedUntil: null,
+      nextAttemptAt: null,
+      lastError: MOTIVO_CONVERSACION_CERRADA,
+    },
+  });
+}
+
 export interface EntrantePendiente {
   messageId: string;
   // Ítem 162: el adjunto que el worker tiene que bajar antes del turno.

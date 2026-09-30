@@ -8,6 +8,7 @@ import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
+import { MOTIVO_CONVERSACION_CERRADA } from "../repositories/agentInboundJob.repository";
 import { findContactIdByNormalizedPhone } from "../repositories/contact.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { createWhatsappWebhookRouter } from "../routes/whatsappWebhook.routes";
@@ -26,6 +27,7 @@ import {
   MARCADOR_DE_UBICACION,
 } from "../services/whatsappWebhook.service";
 import { proximaAperturaDeLaSucursal } from "../services/branchBusinessHours.service";
+import { closeConversation } from "../services/conversation.service";
 import { WHATSAPP_CONTACT_SOURCE } from "../services/whatsappContact.service";
 import { hmacSha256Hex } from "../utils/hmac";
 import { weekdayDesdeIso } from "../utils/workingHours";
@@ -1097,6 +1099,52 @@ test("con un mensaje HUMAN en el hilo -> el entrante se registra, el agente NO c
     ],
     "el entrante queda en el hilo para que la persona lo vea",
   );
+});
+
+// B-16 de docs-privados/auditoria-2026-09-30-corta.md (local): un vendedor
+// cierra la conversación con un entrante todavía sin responder.
+test("B-16: cerrar la conversación cancela el job PENDING de su entrante: el worker no corre el turno ni manda nada", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  assert.equal((await enviar(payloadDeTexto({ waId, wamid }))).status, 200);
+  const entrante = await entranteConWamid(wamid);
+
+  await closeConversation(fx.orgId, entrante.conversationId);
+
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "FAILED");
+  assert.equal(job.lastError, MOTIVO_CONVERSACION_CERRADA);
+
+  await drenar();
+  assert.equal(llamadasAlLlm, 0);
+  assert.equal(enviados.length, 0);
+  const conversacion = await prisma.conversation.findUniqueOrThrow({
+    where: { id: entrante.conversationId },
+  });
+  assert.equal(conversacion.status, "CLOSED");
+});
+
+test("B-16: un job cuya conversación se cerró sin pasar por el cierre (o mientras estaba reclamado) falla de una, sin turno", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  assert.equal((await enviar(payloadDeTexto({ waId, wamid }))).status, 200);
+  const entrante = await entranteConWamid(wamid);
+  // Directo en la base: el job sigue PENDING, como el que un worker ya tenía
+  // reclamado cuando el vendedor cerró.
+  await prisma.conversation.update({
+    where: { id: entrante.conversationId },
+    data: { status: "CLOSED" },
+  });
+
+  const resumen = await drenar();
+
+  assert.equal(resumen.fallidos, 1);
+  assert.equal(llamadasAlLlm, 0);
+  assert.equal(enviados.length, 0);
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "FAILED");
+  assert.equal(job.attempts, 1, "permanente: no gasta reintentos");
+  assert.match(job.lastError ?? "", /se cerró antes de que el agente respondiera/);
 });
 
 test("el mismo wamid dos veces -> un solo entrante, un solo turno, una sola respuesta", async () => {
