@@ -1065,6 +1065,12 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
   if (!actual) {
     throw new AppError("Conversación no encontrada", 404);
   }
+  if (actual.status === "CLOSED") {
+    // B-16 (docs-privados/auditoria-2026-09-30-corta.md, local): un vendedor
+    // la cerró mientras el turno corría. Derivar la reabriría; el vendedor ya
+    // decidió qué hacer con ella. Atajo del caso común: la garantía es el CAS.
+    return { activityId: null };
+  }
   if (actual.status === "TRANSFERRED_TO_HUMAN") {
     // Ya derivada: nada que hacer, y sobre todo nada que notificar dos veces.
     //

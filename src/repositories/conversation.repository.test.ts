@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   closeConversation,
+  transferConversationToHuman,
   countConversations,
   countOpenConversationsOf,
   findConversationWithMessages,
@@ -281,6 +282,30 @@ test("closeConversation es compare-and-swap: solo toca una NO cerrada, de esta o
     {
       where: { id: "conv-1", organizationId: ORG, status: { not: "CLOSED" } },
       data: { status: "CLOSED" },
+    },
+  ]);
+});
+
+// B-16 de docs-privados/auditoria-2026-09-30-corta.md (local): con
+// `status: { not: "TRANSFERRED_TO_HUMAN" }` el CAS también matcheaba CLOSED y
+// reabría una conversación que un vendedor acababa de cerrar.
+test("transferConversationToHuman es compare-and-swap SOLO desde ACTIVE: nunca reabre una CLOSED", async () => {
+  const llamadas: unknown[] = [];
+  const db = {
+    conversation: {
+      updateMany: async (args: unknown) => {
+        llamadas.push(args);
+        return { count: 0 };
+      },
+    },
+  } as unknown as Db;
+
+  await transferConversationToHuman("conv-1", ORG, "vendedor-1", db);
+
+  assert.deepEqual(llamadas, [
+    {
+      where: { id: "conv-1", organizationId: ORG, status: "ACTIVE" },
+      data: { status: "TRANSFERRED_TO_HUMAN", assignedUserId: "vendedor-1" },
     },
   ]);
 });

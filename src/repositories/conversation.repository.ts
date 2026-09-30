@@ -130,9 +130,16 @@ export function updateConversation(
 }
 
 // La derivación a humano como compare-and-swap (ítem 126, C-05): pasa a
-// TRANSFERRED_TO_HUMAN solo si no lo estaba. count 1 = esta llamada hizo la
+// TRANSFERRED_TO_HUMAN solo si estaba ACTIVE. count 1 = esta llamada hizo la
 // transición y le toca avisar; 0 = ya estaba derivada (o la ganó otra llamada
-// concurrente). Ver ejecutarHandoff.
+// concurrente), o se CERRÓ. Ver ejecutarHandoff.
+//
+// "ACTIVE" y no "distinto de TRANSFERRED_TO_HUMAN" — B-16 de
+// docs-privados/auditoria-2026-09-30-corta.md (local): con el WHERE anterior,
+// el turno en curso de una conversación que un vendedor acababa de cerrar la
+// reabría en silencio, o chocaba con conversations_open_unique si el contacto
+// ya tenía otra abierta (P2002 → el worker repetía el turno entero hasta
+// FAILED).
 export function transferConversationToHuman(
   id: string,
   organizationId: string,
@@ -140,7 +147,7 @@ export function transferConversationToHuman(
   db: Db = prisma,
 ) {
   return db.conversation.updateMany({
-    where: { id, organizationId, status: { not: "TRANSFERRED_TO_HUMAN" } },
+    where: { id, organizationId, status: "ACTIVE" },
     data: { status: "TRANSFERRED_TO_HUMAN", assignedUserId },
   });
 }

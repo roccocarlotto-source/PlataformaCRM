@@ -6,6 +6,7 @@ import {
   claimNextAgentInboundJob,
   findAgentInboundJobById,
   findPendingInboundMessages,
+  MOTIVO_CONVERSACION_CERRADA,
   markAgentInboundJobDone,
   markAgentInboundJobFailed,
   markAgentInboundJobsCovered,
@@ -371,6 +372,12 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
       // También releída bajo el lock: un turno anterior pudo haberla derivado.
       const conversacionActual =
         (await findConversationById(conversacion.id, organizationId)) ?? conversacion;
+      // B-16 (docs-privados/auditoria-2026-09-30-corta.md, local): un vendedor
+      // la cerró mientras el job esperaba. No se corre un turno sobre una
+      // conversación cerrada; el entrante queda en la bandeja.
+      if (conversacionActual.status === "CLOSED") {
+        throw new ErrorPermanenteDelJob(MOTIVO_CONVERSACION_CERRADA);
+      }
       const entrantesPendientes = await findPendingInboundMessages(organizationId, conversacion.id);
       const pendientes = entrantesPendientes.map((p) => p.messageId);
       const adjuntos = await descargarAdjuntos(entrantesPendientes, deps);

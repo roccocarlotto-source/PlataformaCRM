@@ -395,6 +395,84 @@ test("dos derivaciones concurrentes de la misma conversación -> UNA Activity de
   assert.equal(despues.assignedUserId, fx.ownerId);
 });
 
+// B-16 de docs-privados/auditoria-2026-09-30-corta.md (local): el turno de
+// la conversación A deriva justo cuando un vendedor la cerró y el contacto ya
+// abrió B. Con el CAS viejo (`not TRANSFERRED_TO_HUMAN`) el UPDATE pasaba A de
+// CLOSED a TRANSFERRED y chocaba con conversations_open_unique (P2002): el
+// worker lo trataba como transitorio y repetía el turno entero hasta FAILED.
+test("B-16: derivar una conversación que se cerró en el medio (y el contacto ya abrió otra) no la reabre ni falla", async () => {
+  reiniciarDoble();
+  const contacto = await crearContacto();
+  const datos = {
+    organizationId: fx.orgId,
+    branchId: fx.branchId,
+    agentId: fx.agentId,
+    contactId: contacto.id,
+    channel: "WEB" as const,
+  };
+  const a = await prisma.conversation.create({ data: datos });
+
+  // La transacción sostenida hace lo del vendedor y el contacto —cerrar A y
+  // abrir B— sin commitear. La derivación lee A todavía ACTIVE (el cambio no
+  // está commiteado), pasa el atajo y se bloquea en su UPDATE; al soltar, el
+  // UPDATE reevalúa el WHERE contra A ya CLOSED.
+  let bId = "";
+  const vendedor = await sostenerTransaccion(async (tx) => {
+    await tx.conversation.update({ where: { id: a.id }, data: { status: "CLOSED" } });
+    const b = await tx.conversation.create({ data: datos });
+    bId = b.id;
+  });
+  const derivacion = ejecutarHandoff({
+    organizationId: fx.orgId,
+    conversationId: a.id,
+    branchId: fx.branchId,
+    contact: { id: contacto.id, ownerId: fx.ownerId, firstName: "Ana", lastName: "Pérez" },
+    agentName: "Agente",
+    motivo: "quiere una persona",
+  });
+  await esperarBloqueadoPor(vendedor, derivacion, "ejecutarHandoff");
+  vendedor.liberar();
+  await vendedor.terminada;
+
+  const resultado = await derivacion;
+
+  assert.equal(resultado.activityId, null, "no se avisa: no hubo derivación");
+  assert.equal(await prisma.activity.count({ where: { contactId: contacto.id } }), 0);
+  const despuesA = await prisma.conversation.findUniqueOrThrow({ where: { id: a.id } });
+  assert.equal(despuesA.status, "CLOSED", "A sigue cerrada");
+  const despuesB = await prisma.conversation.findUniqueOrThrow({ where: { id: bId } });
+  assert.equal(despuesB.status, "ACTIVE", "B no se tocó");
+});
+
+test("B-16: derivar una conversación ya CLOSED es un no-op, sin aviso ni brief", async () => {
+  reiniciarDoble();
+  const contacto = await crearContacto();
+  const conversacion = await prisma.conversation.create({
+    data: {
+      organizationId: fx.orgId,
+      branchId: fx.branchId,
+      agentId: fx.agentId,
+      contactId: contacto.id,
+      channel: "WEB",
+      status: "CLOSED",
+    },
+  });
+
+  const resultado = await ejecutarHandoff({
+    organizationId: fx.orgId,
+    conversationId: conversacion.id,
+    branchId: fx.branchId,
+    contact: { id: contacto.id, ownerId: fx.ownerId, firstName: "Ana", lastName: "Pérez" },
+    agentName: "Agente",
+    motivo: "quiere una persona",
+  });
+
+  assert.equal(resultado.activityId, null);
+  assert.equal(llamadas, 0);
+  const despues = await prisma.conversation.findUniqueOrThrow({ where: { id: conversacion.id } });
+  assert.equal(despues.status, "CLOSED");
+});
+
 // esperarBloqueadoPor vuelve con el PRIMER backend bloqueado; acá hacen falta
 // los dos, para que la carrera sea real y no una ejecución en serie. Se cuenta
 // la cadena y no solo los bloqueados DIRECTAMENTE por A: el segundo en llegar

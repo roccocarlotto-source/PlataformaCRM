@@ -1,3 +1,5 @@
+import { prisma } from "../lib/prisma";
+import { cancelPendingInboundJobsOfConversation } from "../repositories/agentInboundJob.repository";
 import {
   closeConversation as closeConversationRepo,
   countConversations,
@@ -155,8 +157,18 @@ export async function generateConversationBrief(organizationId: string, id: stri
 // justo lo que pidió quien apretó el botón (con dos pestañas abiertas, la
 // segunda no tiene por qué ver un error).
 // ---------------------------------------------------------------------------
+//
+// B-16 (docs-privados/auditoria-2026-09-30-corta.md, local): en la misma
+// transacción se cancelan los jobs del agente que todavía no corrieron sobre
+// esta conversación. El que ya estaba corriendo lo corta el worker al releer la
+// conversación bajo el lock, y derivar ya no reabre una CLOSED.
 export async function closeConversation(organizationId: string, id: string) {
   await getConversationById(organizationId, id);
-  await closeConversationRepo(id, organizationId);
+  await prisma.$transaction(async (tx) => {
+    const cierre = await closeConversationRepo(id, organizationId, tx);
+    if (cierre.count === 1) {
+      await cancelPendingInboundJobsOfConversation(organizationId, id, tx);
+    }
+  });
   return getConversationById(organizationId, id);
 }
