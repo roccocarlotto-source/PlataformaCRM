@@ -1,5 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { getBranch, getGoogleCalendarConnection, listBranches } from "./api";
+import {
+  getBranch,
+  getBranchBusinessHours,
+  getGoogleCalendarConnection,
+  listBranches,
+} from "./api";
 import type { BranchListQuery } from "./types";
 
 // Misma forma jerárquica que userKeys/companyKeys/sourceKeys. Sin namespacing
@@ -13,6 +18,7 @@ export const branchKeys = {
   detail: (id: string) => [...branchKeys.details(), id] as const,
   // Cuelga del detalle: invalidar detail(id) la alcanza también.
   googleCalendar: (id: string) => [...branchKeys.detail(id), "google-calendar"] as const,
+  businessHours: (id: string) => [...branchKeys.detail(id), "business-hours"] as const,
 };
 
 // La query que comparten BranchSelect y la resolución de nombres de
@@ -51,5 +57,13 @@ export function useGoogleCalendarConnection(branchId: string) {
   return useQuery({
     queryKey: branchKeys.googleCalendar(branchId),
     queryFn: ({ signal }) => getGoogleCalendarConnection(branchId, signal),
+  });
+}
+
+// El horario de atención de la sucursal (GET /branches/:id/business-hours).
+export function useBranchBusinessHours(branchId: string) {
+  return useQuery({
+    queryKey: branchKeys.businessHours(branchId),
+    queryFn: ({ signal }) => getBranchBusinessHours(branchId, signal),
   });
 }

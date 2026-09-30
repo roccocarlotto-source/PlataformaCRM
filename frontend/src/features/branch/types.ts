@@ -4,6 +4,8 @@
 // para el selector de sucursal del módulo QR; el CRUD completo llegó con el
 // ítem 20 de docs/frontend-cambios-pendientes.md (pantalla "Sucursales").
 
+import type { WorkingHoursSlot } from "../resource/types";
+
 export interface Branch {
   id: string;
   organizationId: string;
@@ -104,4 +106,19 @@ export interface GoogleCalendarConnection {
 // en el backend: un redirect no llevaría el header Authorization).
 export interface GoogleCalendarAuthorization {
   authorizationUrl: string;
+}
+
+// ---------------------------------------------------------------------------
+// Horario de atención de la sucursal — GET/PATCH
+// /api/branches/:branchId/business-hours. Mismo formato de franjas que el
+// horario laboral de un recurso (WorkingHoursSlot), por eso se reusa el tipo.
+// ---------------------------------------------------------------------------
+
+// La respuesta del GET y del PATCH. `configured: false` = la sucursal no tiene
+// horario propio: `businessHours` viene vacío y rige `defaultBusinessHours`
+// (lunes a sábado de 09:00 a 20:00).
+export interface BranchBusinessHours {
+  configured: boolean;
+  businessHours: WorkingHoursSlot[];
+  defaultBusinessHours: WorkingHoursSlot[];
 }

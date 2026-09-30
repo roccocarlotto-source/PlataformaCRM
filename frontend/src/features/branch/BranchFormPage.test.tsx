@@ -73,12 +73,34 @@ function googleCalendarSinConectar() {
   );
 }
 
+// La sección "Horario de atención" también se monta en toda edición y consulta
+// GET /branches/:id/business-hours. El default es "sin horario propio"; los
+// tests de esa sección pasan el suyo a renderForm.
+const HORARIO_POR_DEFECTO = (
+  ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"] as const
+).map((weekday) => ({ weekday, startTime: "09:00", endTime: "20:00" }));
+
+function horarioDeAtencionSinConfigurar() {
+  return http.get(`${baseUrl}/:id/business-hours`, () =>
+    HttpResponse.json({
+      configured: false,
+      businessHours: [],
+      defaultBusinessHours: HORARIO_POR_DEFECTO,
+    }),
+  );
+}
+
 // Se renderiza dentro de un Routes real para que useParams vea (o no vea) el
 // :id — es lo único que distingue el modo creación del de edición. Los
 // `handlers` extra van PRIMERO: en un mismo server.use, el primero gana, así
 // pisan los defaults de acá.
 function renderForm(ruta: string, ...handlers: HttpHandler[]) {
-  server.use(...handlers, usuariosHandler(), googleCalendarSinConectar());
+  server.use(
+    ...handlers,
+    usuariosHandler(),
+    googleCalendarSinConectar(),
+    horarioDeAtencionSinConfigurar(),
+  );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -669,7 +691,7 @@ describe("BranchFormPage — cobro", () => {
 // Misma jerarquía real que app/router.tsx (ProtectedRoute → AdminRoute →
 // BranchFormPage), mismo criterio que auth/AdminRoute.test.tsx.
 function renderUnderAdminRoute(initialPath: string) {
-  server.use(usuariosHandler(), googleCalendarSinConectar());
+  server.use(usuariosHandler(), googleCalendarSinConectar(), horarioDeAtencionSinConfigurar());
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -906,5 +928,224 @@ describe("BranchFormPage — Google Calendar", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "No se pudo conectar Google Calendar: Se canceló la autorización en Google. La sucursal quedó sin conectar.",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// La sección "Horario de atención": solo en edición, el horario por defecto
+// cuando la sucursal no tiene uno propio, el PATCH con la semana entera y la
+// vuelta al default con [].
+// ---------------------------------------------------------------------------
+
+const TEXTO_DE_AYUDA_HORARIO =
+  "Los mensajes automáticos (reseñas, cupones) solo se envían dentro de este horario. El agente responde a los clientes a cualquier hora.";
+
+interface FranjaDePrueba {
+  weekday: string;
+  startTime: string;
+  endTime: string;
+}
+
+function horarioDeAtencion(businessHours: FranjaDePrueba[]) {
+  return {
+    configured: businessHours.length > 0,
+    businessHours,
+    defaultBusinessHours: HORARIO_POR_DEFECTO,
+  };
+}
+
+describe("BranchFormPage — Horario de atención", () => {
+  it("no aparece en el alta: el horario cuelga del id de la sucursal", () => {
+    renderForm("/branches/new");
+    expect(screen.queryByRole("heading", { name: "Horario de atención" })).not.toBeInTheDocument();
+    expect(screen.queryByText(TEXTO_DE_AYUDA_HORARIO)).not.toBeInTheDocument();
+  });
+
+  it("en edición aparece con el texto de ayuda literal", async () => {
+    renderForm("/branches/b1/edit", sucursalB1());
+
+    expect(await screen.findByRole("heading", { name: "Horario de atención" })).toBeInTheDocument();
+    expect(await screen.findByText(TEXTO_DE_AYUDA_HORARIO)).toBeInTheDocument();
+  });
+
+  it("sin horario propio (configured: false) muestra el default y arranca el editor con él", async () => {
+    renderForm("/branches/b1/edit", sucursalB1());
+
+    expect(
+      await screen.findByText(
+        "Esta sucursal usa el horario por defecto: lunes a sábado de 9:00 a 20:00. Cargar uno propio es opcional.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Lunes, franja 1: desde")).toHaveValue("09:00");
+    expect(screen.getByLabelText("Sábado, franja 1: hasta")).toHaveValue("20:00");
+    // El domingo no atiende en el default.
+    expect(screen.queryByLabelText("Domingo, franja 1: desde")).not.toBeInTheDocument();
+    // No hay nada que borrar: ya está en el default.
+    expect(
+      screen.queryByRole("button", { name: "Volver al horario por defecto" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Guardar horario manda PATCH con la semana entera", async () => {
+    let body: unknown;
+    const user = userEvent.setup();
+    renderForm(
+      "/branches/b1/edit",
+      sucursalB1(),
+      http.get(`${baseUrl}/:id/business-hours`, () =>
+        HttpResponse.json(
+          horarioDeAtencion([
+            { weekday: "MONDAY", startTime: "09:00", endTime: "13:00" },
+            { weekday: "WEDNESDAY", startTime: "10:00", endTime: "18:00" },
+          ]),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id/business-hours`, async ({ request }) => {
+        body = await request.json();
+        const { businessHours } = body as { businessHours: FranjaDePrueba[] };
+        return HttpResponse.json(horarioDeAtencion(businessHours));
+      }),
+    );
+
+    const hasta = await screen.findByLabelText("Lunes, franja 1: hasta");
+    expect(hasta).toHaveValue("13:00");
+    // Ya tiene horario propio: no se muestra el aviso del default.
+    expect(screen.queryByText(/usa el horario por defecto/)).not.toBeInTheDocument();
+
+    await user.clear(hasta);
+    await user.type(hasta, "14:00");
+    await user.click(screen.getByRole("button", { name: "Guardar horario" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body).toEqual({
+      businessHours: [
+        { weekday: "MONDAY", startTime: "09:00", endTime: "14:00" },
+        { weekday: "WEDNESDAY", startTime: "10:00", endTime: "18:00" },
+      ],
+    });
+    expect(await screen.findByText("El horario de atención quedó guardado.")).toBeInTheDocument();
+    // Guardar el horario no navega: el "Guardar" del formulario es otro.
+    expect(screen.queryByText("listado")).not.toBeInTheDocument();
+  });
+
+  it("franjas superpuestas no viajan: se avisa en la pantalla sin llamar al backend", async () => {
+    let patches = 0;
+    const user = userEvent.setup();
+    renderForm(
+      "/branches/b1/edit",
+      sucursalB1(),
+      http.patch(`${baseUrl}/:id/business-hours`, () => {
+        patches += 1;
+        return HttpResponse.json(horarioDeAtencion([]));
+      }),
+    );
+
+    await screen.findByLabelText("Lunes, franja 1: desde");
+    // Agrega una segunda franja al lunes (20:00–21:00) y la corre para que
+    // pise la de 09:00–20:00.
+    await user.click(screen.getByRole("button", { name: "Agregar una franja al Lunes" }));
+    const desde = screen.getByLabelText("Lunes, franja 2: desde");
+    await user.clear(desde);
+    await user.type(desde, "19:00");
+    await user.click(screen.getByRole("button", { name: "Guardar horario" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Lunes: las franjas 09:00–20:00 y 19:00–21:00 se superponen.",
+    );
+    expect(patches).toBe(0);
+  });
+
+  it("Volver al horario por defecto manda PATCH con [] y vuelve a mostrar el default", async () => {
+    let body: unknown;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderForm(
+      "/branches/b1/edit",
+      sucursalB1(),
+      http.get(`${baseUrl}/:id/business-hours`, () =>
+        HttpResponse.json(
+          horarioDeAtencion([{ weekday: "SUNDAY", startTime: "10:00", endTime: "14:00" }]),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id/business-hours`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(horarioDeAtencion([]));
+      }),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Volver al horario por defecto" }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    await waitFor(() => expect(body).toEqual({ businessHours: [] }));
+    expect(await screen.findByText(/usa el horario por defecto/)).toBeInTheDocument();
+    expect(screen.getByText("La sucursal volvió al horario por defecto.")).toBeInTheDocument();
+    // El editor se re-siembra con el default: el domingo ya no atiende.
+    expect(screen.queryByLabelText("Domingo, franja 1: desde")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Lunes, franja 1: desde")).toHaveValue("09:00");
+    confirmSpy.mockRestore();
+  });
+
+  it("si se cancela la confirmación, no se manda nada", async () => {
+    let patches = 0;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+    renderForm(
+      "/branches/b1/edit",
+      sucursalB1(),
+      http.get(`${baseUrl}/:id/business-hours`, () =>
+        HttpResponse.json(
+          horarioDeAtencion([{ weekday: "MONDAY", startTime: "09:00", endTime: "13:00" }]),
+        ),
+      ),
+      http.patch(`${baseUrl}/:id/business-hours`, () => {
+        patches += 1;
+        return HttpResponse.json(horarioDeAtencion([]));
+      }),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Volver al horario por defecto" }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(patches).toBe(0);
+    confirmSpy.mockRestore();
+  });
+
+  it("el mensaje de error del backend se muestra y el horario tipeado se conserva", async () => {
+    const user = userEvent.setup();
+    renderForm(
+      "/branches/b1/edit",
+      sucursalB1(),
+      http.patch(`${baseUrl}/:id/business-hours`, () =>
+        HttpResponse.json(
+          { error: { message: "Hay franjas superpuestas el día MONDAY" } },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    const hasta = await screen.findByLabelText("Lunes, franja 1: hasta");
+    await user.clear(hasta);
+    await user.type(hasta, "18:00");
+    await user.click(screen.getByRole("button", { name: "Guardar horario" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No se pudo guardar el horario de atención: Hay franjas superpuestas el día MONDAY",
+    );
+    expect(screen.getByLabelText("Lunes, franja 1: hasta")).toHaveValue("18:00");
+  });
+
+  it("si el GET falla, la sección lo dice sin romper el resto del formulario", async () => {
+    renderForm(
+      "/branches/b1/edit",
+      sucursalB1(),
+      http.get(`${baseUrl}/:id/business-hours`, () =>
+        HttpResponse.json({ error: { message: "Sucursal no encontrada" } }, { status: 404 }),
+      ),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "No pudimos cargar el horario de atención: Sucursal no encontrada",
+    );
+    expect(screen.getByLabelText("Nombre")).toHaveValue("Casa Central");
   });
 });

@@ -120,6 +120,7 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
             cancelados: 0,
             pospuestos: 0,
             fallidos: 0,
+            fueraDeHorario: 0,
             sinConfiguracion: false,
           };
         },
@@ -138,6 +139,7 @@ const WORKERS: { nombre: string; iniciar: Iniciar; prepararEntorno?: () => () =>
             cancelados: 0,
             pospuestos: 0,
             fallidos: 0,
+            fueraDeHorario: 0,
             sinConfiguracion: false,
           };
         },

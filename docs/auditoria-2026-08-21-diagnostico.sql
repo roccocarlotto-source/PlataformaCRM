@@ -186,6 +186,9 @@ from (
       -- api_keys: RLS habilitada y cero políticas (deny-all, guarda secretos).
       ('outbox_events'), ('branches'), ('resources'), ('service_types'),
       ('working_hours'), ('bookings'),
+      -- Horario de atención de la sucursal (G-07, migración 20261013120000):
+      -- el calco de working_hours, con la misma política.
+      ('branch_business_hours'),
       -- Fase 1 de docs/qr-integration.md, migración 20260903120000: la única
       -- tabla del módulo QR con política de aislamiento. platform_admins
       -- tiene RLS habilitada y cero políticas a propósito — deny-all, como
@@ -374,7 +377,7 @@ from (
 
   union all
 
-  -- V-2 ─ Los 29 CHECK constraints, comparados por DEFINICIÓN.
+  -- V-2 ─ Los 30 CHECK constraints, comparados por DEFINICIÓN.
   --
   -- Antes se buscaba `conname = x and contype = 'c'`. Reescribir
   -- opportunities_amount_non_negative_check como `check (true)` pasaba, y la
@@ -418,6 +421,9 @@ from (
     ('google_calendar_connections_active_requires_token_check', 'google_calendar_connections',
      'CHECK (status <> ''ACTIVE'' OR refresh_token IS NOT NULL)'),
     ('working_hours_minute_range_check', 'working_hours',
+     'CHECK (start_minute >= 0 AND end_minute <= 1440 AND start_minute < end_minute)'),
+    -- G-07 (migración 20261013120000): el mismo CHECK en el horario de la sucursal.
+    ('branch_business_hours_minute_range_check', 'branch_business_hours',
      'CHECK (start_minute >= 0 AND end_minute <= 1440 AND start_minute < end_minute)'),
     ('bookings_time_range_check', 'bookings',
      'CHECK (starts_at < ends_at)'),
@@ -904,7 +910,7 @@ from (
     'sobre lower(email)'
   union all
 
-  -- C-3 (bis) ─ El MAPA hijo -> padre de las 75 FKs conocidas.
+  -- C-3 (bis) ─ El MAPA hijo -> padre de las 76 FKs conocidas.
   --
   -- Lo único que la fila 14 no puede saber. Ese chequeo es estructural, y una
   -- FK compuesta bien formada que apunte a la tabla equivocada
@@ -928,7 +934,7 @@ from (
   -- todas, y repetirlas acá sería un segundo lugar donde mantener el mismo
   -- dato. Esta fila responde una sola pregunta, y es a quién apunta cada una.
   select 16,
-    'C-3 · Las 75 FKs conocidas siguen apuntando a la tabla padre de su diseño',
+    'C-3 · Las 76 FKs conocidas siguen apuntando a la tabla padre de su diseño',
     coalesce(string_agg('FALTA/CAMBIÓ DE PADRE: ' || e.firma, ' ;; ' order by e.firma), 'ninguna'),
     'ninguna'
   from (values
@@ -939,6 +945,7 @@ from (
     ('activities_organization_id_opportunity_id_fkey|activities(organization_id,opportunity_id)->opportunities(organization_id,id)'),
     ('api_keys_organization_id_source_id_fkey|api_keys(organization_id,source_id)->sources(organization_id,id)'),
     ('bookings_organization_id_branch_id_fkey|bookings(organization_id,branch_id)->branches(organization_id,id)'),
+    ('branch_business_hours_organization_id_branch_id_fkey|branch_business_hours(organization_id,branch_id)->branches(organization_id,id)'),
     ('bookings_organization_id_contact_id_fkey|bookings(organization_id,contact_id)->contacts(organization_id,id)'),
     ('bookings_organization_id_opportunity_id_fkey|bookings(organization_id,opportunity_id)->opportunities(organization_id,id)'),
     ('bookings_organization_id_resource_id_fkey|bookings(organization_id,resource_id)->resources(organization_id,id)'),

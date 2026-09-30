@@ -1,7 +1,9 @@
 import { ApiError, request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
+import type { WorkingHoursSlot } from "../resource/types";
 import type {
   Branch,
+  BranchBusinessHours,
   BranchListQuery,
   BranchListResponse,
   CreateBranchInput,
@@ -104,6 +106,33 @@ export function startGoogleCalendarConnection(
 export function disconnectGoogleCalendar(branchId: string): Promise<void> {
   return request<void>(`/branches/${branchId}/google-calendar`, {
     method: "DELETE",
+    getAccessToken,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Horario de atención de la sucursal. Solo ADMIN (403 para USER).
+// ---------------------------------------------------------------------------
+
+export function getBranchBusinessHours(
+  branchId: string,
+  signal?: AbortSignal,
+): Promise<BranchBusinessHours> {
+  return request<BranchBusinessHours>(`/branches/${branchId}/business-hours`, {
+    getAccessToken,
+    signal,
+  });
+}
+
+// Reemplaza la SEMANA ENTERA (no es un merge por día). [] borra el horario y
+// la sucursal vuelve al de por defecto. Responde con la misma forma que el GET.
+export function replaceBranchBusinessHours(
+  branchId: string,
+  businessHours: WorkingHoursSlot[],
+): Promise<BranchBusinessHours> {
+  return request<BranchBusinessHours>(`/branches/${branchId}/business-hours`, {
+    method: "PATCH",
+    body: { businessHours },
     getAccessToken,
   });
 }

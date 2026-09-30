@@ -105,6 +105,8 @@ function doblarEnvio(opciones: { falla?: unknown; accessToken?: string | undefin
   const deps: DepsDelCupon = {
     ...depsDelCuponReales,
     accessToken: () => ("accessToken" in opciones ? opciones.accessToken : "token-de-prueba"),
+    // G-07: siempre abierta; la ventana tiene sus propios casos.
+    proximaApertura: (_organizationId, _branchId, ahora) => Promise.resolve(ahora),
     sendTemplate: (input) => {
       enviados.push(input);
       return opciones.falla === undefined

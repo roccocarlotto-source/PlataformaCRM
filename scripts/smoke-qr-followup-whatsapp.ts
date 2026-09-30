@@ -433,6 +433,9 @@ async function main() {
             select: { whatsappPhoneNumberId: true },
           })
           .then((a) => a?.whatsappPhoneNumberId ?? null),
+      // G-07: el smoke se corre a mano y a demanda, así que manda ya, sin
+      // esperar el horario de atención de la sucursal.
+      proximaApertura: (_organizationId, _branchId, ahora) => Promise.resolve(ahora),
       sendTemplate: enviar,
     };
     const resumen = await drenarSeguimientosQr({ organizationId: e.organizationId, deps });

@@ -9,6 +9,7 @@ import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { UserSelect } from "../user/UserSelect";
+import { BusinessHoursSection } from "./BusinessHoursSection";
 import { GoogleCalendarSection } from "./GoogleCalendarSection";
 import { useCreateBranch, useUpdateBranch } from "./mutations";
 import { useBranch } from "./queries";
@@ -236,6 +237,10 @@ export function BranchFormPage() {
             pero independiente de él —sus botones son type="button" y actúan
             al momento—, al lado del resto de la configuración de la
             sucursal. */}
+        {/* Horario de atención: también solo en edición (cuelga del id) y
+            con su propio botón de guardar, ver BusinessHoursSection. */}
+        {isEditMode ? <BusinessHoursSection branchId={id} /> : null}
+
         {isEditMode ? (
           <GoogleCalendarSection branchId={id} resultadoDelCallback={resultadoDelCallback} />
         ) : null}

@@ -1,17 +1,20 @@
 import assert from "node:assert/strict";
 import { randomInt, randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
+import { DateTime } from "luxon";
 import { prisma } from "../lib/prisma";
 import { crearRegla, desmontar, montar, type Escenario } from "../services/automation.test-helper";
 import { crearRegistroDeAcciones } from "../services/automationActions";
 import { ACTION_SEND_QR_FOLLOWUP } from "../services/automationActions/sendQrFollowup";
 import { registrarAutomatizaciones } from "../services/automationRegistrations";
+import { proximaAperturaDeLaSucursal } from "../services/branchBusinessHours.service";
 import { createOpportunity, updateOpportunity } from "../services/opportunity.service";
 import { crearRegistroDeHandlers, type RegistroDeHandlers } from "../services/outboxHandlers";
 import {
   WhatsappGraphError,
   type SendWhatsappTemplateInput,
 } from "../services/whatsappGraph.service";
+import { weekdayDesdeIso } from "../utils/workingHours";
 import { drenarOutbox } from "./outboxWorker";
 import {
   depsDelSeguimientoReales,
@@ -125,6 +128,8 @@ function doblarEnvio(falla?: unknown) {
     accessToken: () => "token-de-prueba",
     // La real: lee la plantilla aprobada de la regla en la base.
     plantillaDeLaRegla: depsDelSeguimientoReales.plantillaDeLaRegla,
+    // G-07: siempre abierta; la ventana tiene sus propios casos.
+    proximaApertura: (_organizationId, _branchId, ahora) => Promise.resolve(ahora),
     numeroDeLaSucursal: (organizationId, branch) =>
       prisma.agent
         .findFirst({ where: { organizationId, branchId: branch, deletedAt: null } })
@@ -490,6 +495,48 @@ test("un 503 de Meta es transitorio: queda PENDING con backoff y el motivo en la
   const otra = doblarEnvio();
   await drenarSeguimientos(otra.deps);
   assert.equal(otra.enviados.length, 0);
+});
+
+// G-07 de docs-privados/auditoria-2026-09-30-corta.md (local, no está en
+// GitHub): con la ventana REAL (proximaAperturaDeLaSucursal) y la sucursal del
+// QR cerrada según su horario de atención, el envío se corre a la próxima
+// apertura sin mandar nada y SIN gastar el intento.
+test("G-07: con la sucursal cerrada según su horario, se corre a la próxima apertura sin mandar ni gastar el intento", async () => {
+  await soloEstaRegla(0);
+  const opp = await ganarOportunidad("Fuera de horario");
+  const [agendada] = await seguimientosDe(opp.id);
+  const qr = await prisma.qrCode.findUniqueOrThrow({ where: { id: agendada.qrCodeId } });
+  const sucursal = await prisma.branch.findUniqueOrThrow({ where: { id: qr.branchId } });
+
+  // Un solo minuto, pasado mañana en la zona de la sucursal: cerrada ahora.
+  const pasadoManiana = DateTime.now().setZone(sucursal.timezone).plus({ days: 2 });
+  await prisma.branchBusinessHours.create({
+    data: {
+      organizationId: e.organizationId,
+      branchId: qr.branchId,
+      weekday: weekdayDesdeIso(pasadoManiana.weekday),
+      startMinute: 0,
+      endMinute: 1,
+    },
+  });
+  try {
+    const { deps, enviados } = doblarEnvio();
+    const conVentanaReal = { ...deps, proximaApertura: proximaAperturaDeLaSucursal };
+
+    const resumen = await drenarSeguimientos(conVentanaReal);
+
+    assert.equal(resumen.fueraDeHorario, 1);
+    assert.equal(resumen.enviados, 0);
+    assert.equal(enviados.length, 0);
+    const [fila] = await seguimientosDe(opp.id);
+    assert.equal(fila.status, "PENDING");
+    assert.equal(fila.attempts, 0, "esperar a que abra no gasta un intento");
+    assert.equal(fila.lastError, null);
+    const apertura = pasadoManiana.startOf("day").toJSDate();
+    assert.equal(fila.nextAttemptAt.toISOString(), apertura.toISOString());
+  } finally {
+    await prisma.branchBusinessHours.deleteMany({ where: { organizationId: e.organizationId } });
+  }
 });
 
 test("un 400 de Meta es permanente: FAILED al primer intento", async () => {

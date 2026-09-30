@@ -3,6 +3,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, test } from "node:test";
 import express from "express";
+import { DateTime } from "luxon";
 import { prisma } from "../lib/prisma";
 import { getSupabaseAdmin } from "../lib/supabaseAdmin";
 import { errorHandler } from "../middlewares/errorHandler";
@@ -23,8 +24,10 @@ import {
   MARCADOR_DE_IMAGEN,
   MARCADOR_DE_UBICACION,
 } from "../services/whatsappWebhook.service";
+import { proximaAperturaDeLaSucursal } from "../services/branchBusinessHours.service";
 import { WHATSAPP_CONTACT_SOURCE } from "../services/whatsappContact.service";
 import { hmacSha256Hex } from "../utils/hmac";
+import { weekdayDesdeIso } from "../utils/workingHours";
 import { drenarTurnosPendientes, type DepsDeEnvio } from "../workers/agentInboundWorker";
 import type { WhatsappWebhookDeps } from "./whatsappWebhook.controller";
 
@@ -331,6 +334,8 @@ after(async () => {
   await prisma.automation.deleteMany({ where });
   // Antes que messages: las dos FKs de la cola apuntan ahí.
   await prisma.agentInboundJob.deleteMany({ where });
+  // G-07: el horario de atención del caso de "sucursal cerrada" (FK a branches).
+  await prisma.branchBusinessHours.deleteMany({ where });
   await prisma.message.deleteMany({ where });
   await prisma.conversation.deleteMany({ where });
   await prisma.activity.deleteMany({ where });
@@ -540,6 +545,46 @@ test("mensaje de texto de un número nuevo -> el webhook crea el Contact, persis
   assert.equal(terminado.attempts, 1);
   assert.equal(terminado.responseMessageId, mensajes[1].id);
   assert.equal(terminado.lockedUntil, null);
+});
+
+// G-07 de docs-privados/auditoria-2026-09-30-corta.md (local, no está en
+// GitHub): el horario de atención de la sucursal es SOLO para los mensajes que
+// inicia el negocio (seguimiento con QR, cupón). Las respuestas del agente a
+// un cliente que escribió siguen 24/7: con la sucursal cerrada en este mismo
+// momento, el turno corre y la respuesta sale igual.
+test("G-07: con la sucursal CERRADA según su horario de atención, el agente igual responde al cliente (24/7)", async () => {
+  // Un horario que seguro no incluye este momento: un solo minuto, pasado
+  // mañana (hora local de la sucursal, America/Montevideo).
+  const pasadoManiana = DateTime.now().setZone("America/Montevideo").plus({ days: 2 });
+  await prisma.branchBusinessHours.create({
+    data: {
+      organizationId: fx.orgId,
+      branchId: fx.branchId,
+      weekday: weekdayDesdeIso(pasadoManiana.weekday),
+      startMinute: 0,
+      endMinute: 1,
+    },
+  });
+  try {
+    const ahora = new Date();
+    const apertura = await proximaAperturaDeLaSucursal(fx.orgId, fx.branchId, ahora);
+    assert.ok(apertura.getTime() > ahora.getTime(), "la sucursal está cerrada ahora");
+
+    const waId = waIdAlAzar();
+    const wamid = `wamid.${randomUUID()}`;
+    assert.equal((await enviar(payloadDeTexto({ waId, wamid, nombre: "Ana" }))).status, 200);
+
+    const resumen = await drenar();
+    assert.equal(resumen.respondidos, 1);
+    assert.equal(llamadasAlLlm, 1);
+    assert.equal(enviados.length, 1);
+    assert.equal(enviados[0].to, waId);
+    assert.equal(enviados[0].body, RESPUESTA_DEL_AGENTE);
+  } finally {
+    await prisma.branchBusinessHours.deleteMany({
+      where: { organizationId: fx.orgId, branchId: fx.branchId },
+    });
+  }
 });
 
 test("un Contact existente con el mismo teléfono (con + y separadores) se reusa, no se duplica", async () => {
