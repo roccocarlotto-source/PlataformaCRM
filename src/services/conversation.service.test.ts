@@ -18,6 +18,17 @@ const ORG = "org-a";
 
 function conversacionesFalsas(estado: { status: string } | null) {
   const escrituras: unknown[] = [];
+  const cancelaciones: unknown[] = [];
+  // B-16: el cierre y la cancelación de los jobs van en una transacción. Acá
+  // la "transacción" es el mismo prisma falso.
+  mock.method(prisma, "$transaction", (async (fn: (tx: unknown) => Promise<unknown>) =>
+    fn(prisma)) as unknown as typeof prisma.$transaction);
+  mock.property(prisma as unknown as Record<string, unknown>, "agentInboundJob", {
+    updateMany: async (args: unknown) => {
+      cancelaciones.push(args);
+      return { count: 1 };
+    },
+  });
   mock.property(prisma as unknown as Record<string, unknown>, "conversation", {
     findFirst: async () => (estado ? { id: "conv-1", organizationId: ORG, ...estado } : null),
     updateMany: async (args: { data: { status: string } }) => {
@@ -30,26 +41,46 @@ function conversacionesFalsas(estado: { status: string } | null) {
       return { count: 0 };
     },
   });
-  return { escrituras };
+  return { escrituras, cancelaciones };
 }
 
 afterEach(() => mock.restoreAll());
 
 test("cierra una abierta y devuelve la conversación releída, ya CLOSED", async () => {
-  const { escrituras } = conversacionesFalsas({ status: "ACTIVE" });
+  const { escrituras, cancelaciones } = conversacionesFalsas({ status: "ACTIVE" });
 
   const result = await closeConversation(ORG, "conv-1");
 
   assert.equal(result.status, "CLOSED");
   assert.equal(escrituras.length, 1);
+  // B-16 (docs-privados/auditoria-2026-09-30-corta.md, local): los jobs del
+  // agente que todavía no corrieron sobre esta conversación se cancelan.
+  assert.deepEqual(cancelaciones, [
+    {
+      where: {
+        organizationId: ORG,
+        status: "PENDING",
+        responseMessageId: null,
+        message: { conversationId: "conv-1" },
+      },
+      data: {
+        status: "FAILED",
+        lockedUntil: null,
+        nextAttemptAt: null,
+        lastError: "La conversación se cerró antes de que el agente respondiera",
+      },
+    },
+  ]);
 });
 
 test("cerrar una ya cerrada NO es un error: devuelve el estado actual", async () => {
-  conversacionesFalsas({ status: "CLOSED" });
+  const { cancelaciones } = conversacionesFalsas({ status: "CLOSED" });
 
   const result = await closeConversation(ORG, "conv-1");
 
   assert.equal(result.status, "CLOSED");
+  // No la cerró esta llamada: no le toca cancelar nada.
+  assert.equal(cancelaciones.length, 0);
 });
 
 test("una conversación inexistente (u otra organización) es 404 y no escribe nada", async () => {

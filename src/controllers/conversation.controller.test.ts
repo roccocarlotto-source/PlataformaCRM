@@ -54,6 +54,16 @@ afterEach(() => mock.restoreAll());
 test("responde 200 con la conversación cerrada, scopeada por la organización del JWT", async () => {
   const wheres: { organizationId?: string }[] = [];
   let status = "ACTIVE";
+  // B-16: el cierre va en una transacción junto con la cancelación de los jobs
+  // pendientes; acá la "transacción" es el mismo prisma falso.
+  mock.method(prisma, "$transaction", (async (fn: (tx: unknown) => Promise<unknown>) =>
+    fn(prisma)) as unknown as typeof prisma.$transaction);
+  mock.property(prisma as unknown as Record<string, unknown>, "agentInboundJob", {
+    updateMany: async (args: { where: { organizationId?: string } }) => {
+      wheres.push(args.where);
+      return { count: 0 };
+    },
+  });
   mock.property(prisma as unknown as Record<string, unknown>, "conversation", {
     findFirst: async (args: { where: { organizationId?: string } }) => {
       wheres.push(args.where);
