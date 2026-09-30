@@ -1,3 +1,4 @@
+import type { Conversation, Message } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { cancelPendingInboundJobsOfConversation } from "../repositories/agentInboundJob.repository";
 import {
@@ -11,6 +12,8 @@ import {
   type SortOrder,
 } from "../repositories/conversation.repository";
 import { AppError } from "../utils/AppError";
+import { humanoAtiendeLaConversacion } from "./agentOrchestration.service";
+import { finDeLaVentanaDeWhatsapp } from "../utils/ventanaDeWhatsapp";
 import { generarBriefDeConversacion } from "./conversationBrief.service";
 
 // ---------------------------------------------------------------------------
@@ -21,20 +24,17 @@ import { generarBriefDeConversacion } from "./conversationBrief.service";
 // organizationId en cada operación, paginación con la misma forma de
 // respuesta, 404 con AppError.
 //
-// LO QUE SIGUE SIN HABER, Y NO ES UN OLVIDO: no hay crear, y sobre todo NO
-// HAY RESPONDER (cerrar sí, desde el ítem 168 — ver closeConversation). Un mensaje saliente no es una fila más en
-// `messages`: hay que ENTREGARLO por el canal (el widget web no tiene forma de
-// recibir un mensaje que no sea la respuesta al suyo; WhatsApp todavía no
-// existe, es el paso 6 de §9). Guardar un Message OUTBOUND que nadie entrega
-// sería mostrarle a un vendedor que contestó cuando el contacto no recibió
-// nada. Eso sigue afuera hasta que exista la entrega.
+// RESPONDER vive aparte, en conversationReply.service.ts (I-03 de
+// docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): hasta ese PR
+// no existía porque un Message saliente no es una fila más en `messages` —hay
+// que ENTREGARLO por el canal—, y guardar uno que nadie entrega le mostraría
+// al vendedor que contestó cuando el contacto no recibió nada. Por eso
+// responder existe solo para WhatsApp, que sí tiene entrega.
 //
-// LAS ESCRITURAS son las dos del brief (ítem 73) y el cierre (ítem 168), y no
-// contradicen nada de lo anterior. Sobre el brief: el brief es una anotación INTERNA sobre la
-// conversación, no un mensaje. No viaja a ningún lado, no lo ve el contacto y
-// no se entrega por ningún canal — vive en dos columnas de `conversations` y
-// se lee desde el CRM. La barrera que este módulo cuida es "no escribir en
-// `messages`", y sigue intacta: acá no se crea ni un solo Message.
+// LAS ESCRITURAS DE ESTE ARCHIVO son las dos del brief (ítem 73) y el cierre
+// (ítem 168). Ninguna crea un Message: el brief es una anotación INTERNA sobre
+// la conversación —vive en dos columnas de `conversations` y no lo ve el
+// contacto— y cerrar es un cambio de status.
 //
 // LA OTRA COSA QUE NO HAY: aislamiento por usuario. A diferencia de
 // activity.service.ts —que acota a un USER a lo que tiene asignado (ítem
@@ -92,7 +92,30 @@ export async function getConversationById(organizationId: string, id: string) {
   if (!conversation) {
     throw new AppError("Conversación no encontrada", 404);
   }
-  return conversation;
+  return { ...conversation, ...(await estadoDeAtencion(conversation)) };
+}
+
+// Lo que la pantalla necesita para el cuadro de respuesta (I-03 de
+// docs-privados/auditoria-2026-09-24-punta-a-punta.md, local), calculado acá
+// y no en el frontend para que la regla viva en un solo lugar:
+//   - agentPaused: una persona atiende y el agente no contesta (la MISMA
+//     función que usa el gate del loop, humanoAtiendeLaConversacion).
+//   - replyWindowEndsAt: hasta cuándo WhatsApp acepta texto libre (24 h desde
+//     el último mensaje del cliente). null si el cliente nunca escribió.
+// El hilo ya viene entero en la conversación, así que salen de ahí sin otra
+// ida a la base.
+export async function estadoDeAtencion(
+  conversation: Pick<Conversation, "id" | "organizationId" | "status"> & {
+    messages: Pick<Message, "direction" | "senderType" | "createdAt">[];
+  },
+) {
+  const ultimoEntrante = conversation.messages
+    .filter((m) => m.direction === "INBOUND" && m.senderType === "CONTACT")
+    .at(-1);
+  return {
+    agentPaused: await humanoAtiendeLaConversacion(conversation),
+    replyWindowEndsAt: finDeLaVentanaDeWhatsapp(ultimoEntrante?.createdAt ?? null),
+  };
 }
 
 // ---------------------------------------------------------------------------

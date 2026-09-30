@@ -1651,6 +1651,50 @@ test("la Graph API falla con un 5xx -> Meta recibe 200, la respuesta queda FAILE
   assert.equal(terminado.attempts, 2);
 });
 
+// I-03 (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): la
+// respuesta del agente falló y, antes del reintento, un vendedor contestó
+// desde el CRM. El reintento no le manda al cliente la respuesta vieja del
+// agente encima de la de la persona.
+test("I-03: si una persona tomó el hilo antes del reintento, la respuesta fallida del agente NO se reenvía", async () => {
+  fallarEnvio = 503;
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+
+  assert.equal((await enviar(payloadDeTexto({ waId, wamid }))).status, 200);
+  assert.equal((await drenar()).pospuestos, 1);
+  const entrante = await entranteConWamid(wamid);
+
+  // Lo que deja responder desde el CRM: un HUMAN posterior y la conversación
+  // derivada.
+  await prisma.message.create({
+    data: {
+      organizationId: fx.orgId,
+      conversationId: entrante.conversationId,
+      direction: "OUTBOUND",
+      senderType: "HUMAN",
+      senderUserId: fx.userId,
+      content: "Hola, te atiendo yo.",
+    },
+  });
+  await prisma.conversation.update({
+    where: { id: entrante.conversationId },
+    data: { status: "TRANSFERRED_TO_HUMAN" },
+  });
+
+  fallarEnvio = null;
+  await adelantarReintentos();
+  const segunda = await drenar();
+  assert.equal(segunda.respondidos, 1, "el job se cierra");
+  assert.equal(enviados.length, 0, "la respuesta del agente no sale");
+
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "DONE");
+  const saliente = await prisma.message.findUniqueOrThrow({
+    where: { id: job.responseMessageId! },
+  });
+  assert.equal(saliente.deliveryStatus, "FAILED", "queda como registro de lo que no salió");
+});
+
 test("la Graph API rechaza con un 4xx -> FAILED de una, sin gastar reintentos", async () => {
   fallarEnvio = 400;
   const waId = waIdAlAzar();

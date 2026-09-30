@@ -67,7 +67,7 @@ test("responde 200 con la conversación cerrada, scopeada por la organización d
   mock.property(prisma as unknown as Record<string, unknown>, "conversation", {
     findFirst: async (args: { where: { organizationId?: string } }) => {
       wheres.push(args.where);
-      return { id: ID, organizationId: "org-a", status };
+      return { id: ID, organizationId: "org-a", status, messages: [] };
     },
     updateMany: async (args: { where: { organizationId?: string } }) => {
       wheres.push(args.where);

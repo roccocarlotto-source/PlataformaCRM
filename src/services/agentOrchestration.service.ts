@@ -23,7 +23,7 @@ import { findActiveKnowledgeBaseEntriesByBranch } from "../repositories/knowledg
 import {
   createMessage,
   findLastMessages,
-  hasHumanMessage,
+  humanSpokeLast,
   type CreateMessageData,
 } from "../repositories/message.repository";
 import { AppError } from "../utils/AppError";
@@ -1076,7 +1076,7 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
     // Ya derivada: nada que hacer, y sobre todo nada que notificar dos veces.
     //
     // DESDE EL ÍTEM 83 este chequeo es SOLO eso —no duplicar el aviso— y ya no
-    // tiene nada que ver con callar al agente: eso lo decide hasHumanMessage
+    // tiene nada que ver con callar al agente: eso lo decide humanoAtiendeLaConversacion
     // en el loop. Leer el status para saber si ya se avisó sigue siendo
     // correcto porque es exactamente lo que ese status significa ahora.
     //
@@ -1400,7 +1400,7 @@ async function registrarEnConversacion(
 //     un mensaje del cliente, y el agente no tiene nada que contestar.
 //   - senderType AUTOMATION (WA-1 de los pendientes post F1–F5; en F1 era
 //     AGENT porque el enum no tenía otro valor). No es HUMAN: HUMAN exige un
-//     senderUserId y además CALLARÍA al agente (hasHumanMessage, ítem 83).
+//     senderUserId y además CALLARÍA al agente (humanoAtiendeLaConversacion, ítem 83).
 //     Para el agente nada cambia respecto de AGENT: el historial ramifica por
 //     direction (aHistorial), así que lo ve como algo que el negocio ya le
 //     mandó al cliente, y solo HUMAN lo calla. Lo que sí cambia es que la
@@ -1483,6 +1483,29 @@ export async function runAgentTurn(
   });
 }
 
+// ¿Hay una persona atendiendo esta conversación? (ítem 83, I-03). Es el gate
+// del loop del agente y lo que la bandeja muestra como "agente en pausa".
+//
+// Las dos condiciones hacen falta:
+//   - TRANSFERRED_TO_HUMAN: "Devolver al agente" la pasa a ACTIVE, y ese es el
+//     único marcador de que el vendedor soltó el hilo (sin columna nueva).
+//   - humanSpokeLast: una derivación del propio agente también deja
+//     TRANSFERRED_TO_HUMAN, y ahí el agente sigue atendiendo hasta que una
+//     persona escriba (ítem 83). Y si después de devolverla el agente vuelve
+//     a derivar, su respuesta queda después del HUMAN viejo: no se calla solo.
+//
+// Recibe la conversación ya leída: el worker la relee bajo el lock y el turno
+// Web la trae recién resuelta, así que el status es el vigente.
+export async function humanoAtiendeLaConversacion(
+  conversation: Pick<Conversation, "id" | "organizationId" | "status">,
+  db: Db = prisma,
+): Promise<boolean> {
+  if (conversation.status !== "TRANSFERRED_TO_HUMAN") {
+    return false;
+  }
+  return humanSpokeLast(conversation.id, conversation.organizationId, db);
+}
+
 export interface RespuestaEnLaConversacion {
   resultado: ResultadoDelTurno;
   // El Message OUTBOUND que el turno persistió, o null si no respondió.
@@ -1541,23 +1564,22 @@ export async function responderEnLaConversacion(
   // contando como conversación abierta en findOpenConversation y sigue siendo
   // un filtro útil de la bandeja — solo dejó de silenciar por sí solo.
   //
-  // CUALQUIER mensaje HUMAN del hilo, y no "uno posterior al último del
-  // agente": las dos reglas dan el mismo resultado —bloqueado el agente, su
-  // último mensaje nunca avanza, así que un HUMAN siempre queda después— y
-  // esta se explica en una línea. Una vez que una persona entró al hilo, el
-  // hilo es suyo.
-  //
-  // Vale para una conversación ACTIVE también, y es a propósito: si un
-  // vendedor se mete a contestar sin que hubiera handoff, el agente se calla
-  // igual. Quien escriba ese Message es quien decide qué hacer con el status;
-  // acá no se toca.
+  // DESDE I-03 (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local)
+  // la regla exacta es humanoAtiendeLaConversacion: derivada Y el último que
+  // habló por el negocio fue una persona. Antes era "cualquier HUMAN del
+  // hilo", que no tenía vuelta atrás; ahora el vendedor puede devolverle la
+  // conversación al agente (vuelve a ACTIVE) y el agente retoma. El único que
+  // escribe HUMAN —responder desde el CRM, conversationReply.service.ts— deja
+  // la conversación en TRANSFERRED_TO_HUMAN en la misma escritura, así que
+  // "una persona contestó" sigue callando al agente también cuando no hubo
+  // handoff previo.
   //
   // F6 (PR "menos idas a la base"): el gate y las tres lecturas del contexto
   // (base de conocimiento, sucursal, últimos mensajes) no dependen entre sí y
   // van en UNA ida en paralelo en vez de cuatro en serie. Si el gate calla al
   // agente, las otras tres se leyeron de más: son lecturas, y es el caso raro.
   const [hayHumano, entradasDeLaSucursal, sucursal, ultimosMensajes] = await Promise.all([
-    hasHumanMessage(conversation.id, organizationId),
+    humanoAtiendeLaConversacion(conversation),
     findActiveKnowledgeBaseEntriesByBranch(agent.branchId, organizationId),
     findBranchById(agent.branchId, organizationId),
     findLastMessages(conversation.id, organizationId, VENTANA_DE_MENSAJES),

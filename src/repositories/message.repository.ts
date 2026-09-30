@@ -63,28 +63,49 @@ export async function findLastMessages(
   return ultimos.reverse();
 }
 
-// ¿Ya intervino una persona de la organización en este hilo? (ítem 83). Es el
-// gate del loop del agente: mientras la respuesta sea `false`, el agente
-// contesta; desde el primer mensaje HUMAN, se calla.
+// ¿El último que le habló al contacto en nombre del negocio fue una PERSONA?
+// (ítem 83, ajustado por I-03 de
+// docs-privados/auditoria-2026-09-24-punta-a-punta.md, local). Es la mitad
+// "mensajes" del gate del loop del agente; la otra mitad es el status (ver
+// humanoAtiendeLaConversacion en agentOrchestration.service.ts).
+//
+// "El último entre HUMAN y AGENT" y no "existe algún HUMAN": desde I-03 el
+// vendedor puede devolverle la conversación al agente, y después de eso el
+// agente vuelve a hablar. Un HUMAN viejo, anterior a una respuesta del agente,
+// ya no describe a nadie atendiendo. AUTOMATION y CONTACT no cuentan: ninguno
+// de los dos es alguien del negocio atendiendo el hilo.
 //
 // EL HILO ENTERO Y NO LA VENTANA DE CONTEXTO: findLastMessages trae los
-// últimos 20, y un humano que escribió hace 21 mensajes intervino igual. Es
-// una consulta aparte por eso, no por no poder reusar la otra.
-//
-// findFirst + select id: alcanza con saber si existe alguno. Sirve el mismo
-// índice (conversation_id, created_at) que el resto de las lecturas de esta
-// tabla — filtra por el prefijo y descarta por senderType sobre las pocas
-// filas de una conversación.
-export async function hasHumanMessage(
+// últimos 20, y un humano que escribió hace 21 mensajes (todos del contacto)
+// sigue siendo el último que habló. Sirve el mismo índice
+// (conversation_id, created_at) que el resto de las lecturas de esta tabla.
+export async function humanSpokeLast(
   conversationId: string,
   organizationId: string,
   db: Db = prisma,
 ): Promise<boolean> {
-  const humano = await db.message.findFirst({
-    where: { conversationId, organizationId, senderType: "HUMAN" },
-    select: { id: true },
+  const ultimo = await db.message.findFirst({
+    where: { conversationId, organizationId, senderType: { in: ["HUMAN", "AGENT"] } },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    select: { senderType: true },
   });
-  return humano !== null;
+  return ultimo?.senderType === "HUMAN";
+}
+
+// Cuándo escribió el contacto por última vez en este hilo, o null si nunca
+// (I-03): la ventana de 24 h de WhatsApp para mandar texto libre se cuenta
+// desde acá.
+export async function findLastInboundAt(
+  conversationId: string,
+  organizationId: string,
+  db: Db = prisma,
+): Promise<Date | null> {
+  const ultimo = await db.message.findFirst({
+    where: { conversationId, organizationId, direction: "INBOUND", senderType: "CONTACT" },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
+  return ultimo?.createdAt ?? null;
 }
 
 export function findMessageById(id: string, organizationId: string, db: Db = prisma) {

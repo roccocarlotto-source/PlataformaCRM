@@ -120,6 +120,13 @@ export interface ConversationDetail extends Conversation {
   // redactó la IA. Solo viaja en el DETALLE: el listado no lo trae, porque no
   // lo muestra (ver findConversationWithMessages en el repositorio).
   briefEditedBy: { id: string; fullName: string } | null;
+  // Responder desde el CRM (I-03). Los calcula el backend con la misma regla
+  // que usa el agente, para que la pantalla no la repita:
+  // agentPaused: una persona atiende y el agente no contesta.
+  agentPaused: boolean;
+  // Hasta cuándo WhatsApp acepta texto libre (24 h desde el último mensaje
+  // del cliente). null si el cliente nunca escribió.
+  replyWindowEndsAt: string | null;
 }
 
 export interface ConversationListPagination {
