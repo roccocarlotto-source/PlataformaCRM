@@ -280,7 +280,7 @@ export function VehicleListPage() {
                 <th>Precio</th>
                 <th>Estado</th>
                 {isAdmin ? <th>Vendedor</th> : null}
-                {isAdmin ? <th>Acciones</th> : null}
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -328,26 +328,36 @@ export function VehicleListPage() {
                         )}
                       </td>
                     ) : null}
-                    {isAdmin ? (
-                      <td>
-                        <ActionsMenu
-                          actions={[
-                            // Primero "Ver detalle": la acción de consulta,
-                            // antes que las de escritura (§28).
-                            {
-                              label: "Ver detalle",
-                              onClick: () => setDetalleAbierto(vehicle.id),
-                            },
-                            { label: "Editar", to: `/vehicles/${vehicle.id}/edit` },
-                            {
-                              label: "Eliminar",
-                              onClick: () => handleDelete(vehicle.id),
-                              destructive: true,
-                            },
-                          ]}
-                        />
-                      </td>
-                    ) : null}
+                    {/* F-02 (docs-privados/auditoria-2026-09-24-punta-a-punta.md,
+                        local): decisión de Rocco — el vendedor (USER) ve la
+                        ficha completa, incluidos el costo de adquisición y el
+                        precio mínimo aceptable, igual que un ADMIN. Para él
+                        la única acción es "Ver detalle"; editar y borrar
+                        siguen siendo del ADMIN. El agente de IA nunca ve esos
+                        dos campos (search_vehicles y la base de conocimiento
+                        los excluyen). */}
+                    <td>
+                      <ActionsMenu
+                        actions={[
+                          // Primero "Ver detalle": la acción de consulta,
+                          // antes que las de escritura (§28).
+                          {
+                            label: "Ver detalle",
+                            onClick: () => setDetalleAbierto(vehicle.id),
+                          },
+                          ...(isAdmin
+                            ? [
+                                { label: "Editar", to: `/vehicles/${vehicle.id}/edit` },
+                                {
+                                  label: "Eliminar",
+                                  onClick: () => handleDelete(vehicle.id),
+                                  destructive: true,
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+                    </td>
                   </tr>
                 );
               })}

@@ -121,7 +121,8 @@ cuáles de esos leads son residentes de la UE.
 |---|---|---|
 | `Company.name`, `.domain`, `.industry`, `.city`, `.country` | **Internal** | Datos de una persona jurídica, no de una física |
 | `Company.phone` | **Internal**, con borde | Un conmutador es dato de empresa; en una empresa unipersonal es el teléfono de una persona. Se clasifica Internal y se deja el borde escrito en vez de fingir que no existe |
-| `Opportunity.amount`, `.currency`, `.status` | **Internal** | |
+| `Opportunity.amount`, `.currency`, `.status` | **Internal** | Si el monto es el precio de una unidad "a consultar", las tools del agente de IA no lo devuelven (B-17 de la auditoría del 30/09) |
+| `Vehicle.acquisitionCostUsd`, `.minAcceptablePriceUsd` | **Internal** | Visibles para todo el equipo, ADMIN y USER (decisión de producto, F-02 de la auditoría del 24/09). **Nunca** llegan al agente de IA: `search_vehicles` y la sincronización del stock a la base de conocimiento los excluyen |
 | `Organization.*`, `Role.*` | **Internal** | Datos del tenant y catálogo de roles |
 
 ### 2.5 Texto libre — la categoría incómoda
