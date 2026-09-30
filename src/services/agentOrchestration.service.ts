@@ -107,6 +107,32 @@ export const MOTIVO_RESPUESTA_INUTILIZABLE =
 export const MOTIVO_PROVEEDOR_CAIDO =
   "El proveedor del modelo no respondió: el contacto quedó esperando y hay que contestarle";
 
+// ---------------------------------------------------------------------------
+// PRESUPUESTO DE TIEMPO POR TURNO (B-08 de
+// docs-privados/auditoria-2026-09-24-punta-a-punta.md, local).
+//
+// Cada llamada al modelo tiene su tope (60 s) y hasta dos reintentos, y un
+// turno hace hasta MAX_TOOL_ROUNDS_PER_TURN llamadas: con el proveedor lento,
+// un turno podía durar muchos minutos, con el lock de la conversación tomado y
+// el cliente sin respuesta. Ahora el turno entero tiene un presupuesto: todas
+// sus llamadas al modelo comparten una señal que se aborta al cumplirse. Lo
+// que se aborta sale por el mismo camino que un proveedor caído (ítem 120):
+// derivación con el mensaje fijo, nunca silencio. Las tools que ya corrieron
+// no se repiten.
+//
+// 90 s: holgado para un turno normal (unos segundos por ronda) y por debajo de
+// lo que un visitante del widget espera mirando la pantalla.
+// ---------------------------------------------------------------------------
+export const PRESUPUESTO_DEL_TURNO_MS = 90_000;
+
+export const MOTIVO_TIEMPO_AGOTADO =
+  "El agente tardó demasiado en responder: el contacto quedó esperando y hay que contestarle";
+
+// Los motivos en los que el proveedor del modelo es justamente lo que falló:
+// generar el brief sería volver a golpearlo (con sus propios reintentos) en el
+// peor momento. El brief se puede pedir a mano desde la bandeja después.
+const MOTIVOS_SIN_BRIEF = new Set([MOTIVO_PROVEEDOR_CAIDO, MOTIVO_TIEMPO_AGOTADO]);
+
 // El tercer disparador fijo de derivación (ítem 110), junto a los dos que ya
 // había. Exportado para poder medirlo solo: la sonda de prompt lo saca del
 // system prompt para correr la línea base.
@@ -171,6 +197,9 @@ export interface RunAgentTurnInput {
 
 export interface RunAgentTurnOptions {
   llmProvider?: LlmProvider;
+  // B-08: el presupuesto del turno. SOLO PARA TESTS; en producción es
+  // PRESUPUESTO_DEL_TURNO_MS.
+  presupuestoMs?: number;
 }
 
 export interface OpcionesDeRespuesta extends RunAgentTurnOptions {
@@ -1123,6 +1152,12 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
   // El brief, best-effort y SIEMPRE al final: es lo más lento de la función
   // (una llamada al proveedor de LLM) y lo menos crítico de las tres mitades,
   // así que no se pone delante de la notificación al vendedor.
+  //
+  // B-08: si se deriva PORQUE el proveedor falló o el turno se quedó sin
+  // tiempo, no se lo vuelve a llamar para el brief.
+  if (MOTIVOS_SIN_BRIEF.has(input.motivo)) {
+    return { activityId };
+  }
   try {
     await generarBriefDeConversacion(organizationId, conversationId);
   } catch (err) {
@@ -1655,6 +1690,9 @@ export async function responderEnLaConversacion(
   };
 
   const llm = options.llmProvider ?? getLlmProvider();
+  // B-08: una sola señal para todas las llamadas al modelo del turno. Ver
+  // PRESUPUESTO_DEL_TURNO_MS.
+  const presupuesto = AbortSignal.timeout(options.presupuestoMs ?? PRESUPUESTO_DEL_TURNO_MS);
   const auditoria: ToolCallDelTurno[] = [];
   let respuestaFinal: string | null = null;
   // El motivo con el que se deriva, si este turno deriva. null = no derivar.
@@ -1690,21 +1728,30 @@ export async function responderEnLaConversacion(
     // técnico" lo escondería y nadie se enteraría nunca.
     let resultado: LlmCompletionResult;
     try {
+      if (presupuesto.aborted) {
+        // Se agotó mientras corrían las tools de la ronda anterior: no se
+        // arranca otra llamada.
+        throw new LlmProviderError("Se agotó el presupuesto de tiempo del turno");
+      }
       resultado = await llm.complete({
         systemPrompt,
         messages: historial,
         tools: definiciones,
         model: agent.modelName,
+        signal: presupuesto,
       });
     } catch (err) {
       if (!(err instanceof LlmProviderError)) {
         throw err;
       }
+      const sinTiempo = presupuesto.aborted;
       logger.error(
-        { err, organizationId, agentId, conversationId: conversation.id, ronda },
-        "El proveedor del modelo falló tras los reintentos: se deriva en vez de dejar al contacto sin respuesta",
+        { err, organizationId, agentId, conversationId: conversation.id, ronda, sinTiempo },
+        sinTiempo
+          ? "El turno agotó su presupuesto de tiempo: se deriva en vez de dejar al contacto esperando"
+          : "El proveedor del modelo falló tras los reintentos: se deriva en vez de dejar al contacto sin respuesta",
       );
-      motivoDeHandoff ??= MOTIVO_PROVEEDOR_CAIDO;
+      motivoDeHandoff ??= sinTiempo ? MOTIVO_TIEMPO_AGOTADO : MOTIVO_PROVEEDOR_CAIDO;
       respuestaFinal = MENSAJE_DE_HANDOFF;
       break;
     }

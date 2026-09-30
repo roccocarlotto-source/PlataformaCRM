@@ -2439,6 +2439,85 @@ test("ítem 120: una falla del proveedor deriva en vez de tumbar el turno", asyn
   }
 });
 
+// B-08 (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): derivar
+// PORQUE el proveedor falló no vuelve a llamarlo para el brief.
+test("B-08: con el proveedor caído se deriva SIN generar el brief (no se lo vuelve a golpear)", async () => {
+  const e = await montar("proveedor-caido-sin-brief", { enabledTools: [] });
+  // El brief usa el proveedor global: si se lo llamara, dejaría este texto.
+  let llamadasAlBrief = 0;
+  setLlmProviderForTests({
+    name: "brief-doble",
+    complete: () => {
+      llamadasAlBrief++;
+      return Promise.resolve({ text: "no debería generarse", toolCalls: [] });
+    },
+  });
+  try {
+    const proveedor: LlmProvider = {
+      name: "openrouter",
+      complete: () => Promise.reject(new LlmProviderError("OpenRouter respondió 503")),
+    };
+    const resultado = await turno(e, "¿Tenés Hilux?", proveedor);
+    assert.equal(resultado.handoff, true);
+    assert.notEqual(resultado.handoffActivityId, null, "el aviso al vendedor sale igual");
+    assert.equal(llamadasAlBrief, 0);
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: resultado.conversationId },
+    });
+    assert.equal(conversation.brief, null, "se puede pedir a mano después");
+  } finally {
+    resetLlmProviderParaTests();
+    await desmontar(e);
+  }
+});
+
+// B-08: el turno entero tiene un presupuesto. Un proveedor que no contesta
+// nunca no deja al contacto esperando: se aborta y se deriva.
+test("B-08: un turno que agota su presupuesto de tiempo deriva con el mensaje fijo", async () => {
+  const e = await montar("presupuesto-agotado", { enabledTools: [] });
+  // AbortSignal.timeout usa un timer UNREF: si lo único pendiente es este doble
+  // esperando el abort, el event loop se vacía y el runner cancela el test
+  // (pasaba en Linux, en el CI). En producción el servidor mantiene el loop
+  // vivo; acá lo sostiene un intervalo propio mientras dura el test.
+  const loopVivo = setInterval(() => undefined, 1_000);
+  try {
+    let senalRecibida: AbortSignal | undefined;
+    const colgado: LlmProvider = {
+      name: "openrouter",
+      complete: ({ signal }) => {
+        senalRecibida = signal;
+        return new Promise((_, reject) => {
+          signal?.addEventListener("abort", () =>
+            reject(new LlmProviderError("Se canceló la llamada a OpenRouter")),
+          );
+        });
+      },
+    };
+    const inicio = Date.now();
+    const resultado = await runAgentTurn(
+      {
+        organizationId: e.organizationId,
+        agentId: e.agentId,
+        contactId: e.contactId,
+        channel: "WEB",
+        texto: "¿Tenés Hilux?",
+      },
+      { llmProvider: colgado, presupuestoMs: 100 },
+    );
+    assert.ok(senalRecibida, "la llamada al modelo recibe la señal del presupuesto");
+    assert.ok(Date.now() - inicio < 5_000, "no esperó el tope de 60 s por llamada");
+    assert.equal(resultado.respuesta, MENSAJE_DE_HANDOFF);
+    assert.equal(resultado.handoff, true);
+    const aviso = await prisma.activity.findUniqueOrThrow({
+      where: { id: resultado.handoffActivityId! },
+    });
+    assert.match(aviso.body ?? "", /tardó demasiado/);
+  } finally {
+    clearInterval(loopVivo);
+    await desmontar(e);
+  }
+});
+
 test("ítem 120: un error que NO es del proveedor sigue subiendo", async () => {
   // Un bug de programación tiene que romper fuerte. Convertirlo en "tuvimos un
   // problema técnico" lo escondería y nadie se enteraría nunca.
