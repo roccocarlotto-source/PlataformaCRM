@@ -35,6 +35,7 @@ import { QrListPage } from "../features/qr/QrListPage";
 import { VehicleFormPage } from "../features/vehicle/VehicleFormPage";
 import { VehicleListPage } from "../features/vehicle/VehicleListPage";
 import { AgentFacebookPagePage } from "../features/platformAdmin/AgentFacebookPagePage";
+import { AgentModelPage } from "../features/platformAdmin/AgentModelPage";
 import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { OrganizationSettingsPage } from "../features/organization/OrganizationSettingsPage";
@@ -359,6 +360,9 @@ export const router = createBrowserRouter([
               // Ítem 173: lo mismo para la página de Facebook del agente
               // (PUT /api/admin/agents/:agentId/facebook-page, ítem 169).
               { path: "/admin/agents/facebook-page", element: <AgentFacebookPagePage /> },
+              // B-05: el modelo de IA de un agente o del agente interno lo
+              // elige solo la plataforma (PUT /api/admin/.../model).
+              { path: "/admin/agents/model", element: <AgentModelPage /> },
             ],
           },
         ],

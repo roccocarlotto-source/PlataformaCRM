@@ -1,7 +1,17 @@
-import { useMutation } from "@tanstack/react-query";
-import { assignFacebookPage, assignWhatsappNumber, createOrganization } from "./api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { agentKeys } from "../agent/queries";
+import { internalAgentKeys } from "../internalAgent/queries";
+import {
+  assignAgentModel,
+  assignFacebookPage,
+  assignInternalAgentModel,
+  assignWhatsappNumber,
+  createOrganization,
+} from "./api";
 import type {
+  AssignAgentModelInput,
   AssignFacebookPageInput,
+  AssignInternalAgentModelInput,
   AssignWhatsappNumberInput,
   CreateOrganizationInput,
 } from "./types";
@@ -27,5 +37,28 @@ export function useAssignWhatsappNumber() {
 export function useAssignFacebookPage() {
   return useMutation({
     mutationFn: (input: AssignFacebookPageInput) => assignFacebookPage(input),
+  });
+}
+
+// B-05. Invalidan agentes y agente interno: el platform admin puede estar
+// cambiando el de SU organización desde el formulario, y ahí sí hay queries
+// que refrescar. Si es de otra organización, invalidar no cuesta nada.
+export function useAssignAgentModel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AssignAgentModelInput) => assignAgentModel(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: agentKeys.all });
+    },
+  });
+}
+
+export function useAssignInternalAgentModel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: AssignInternalAgentModelInput) => assignInternalAgentModel(input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: internalAgentKeys.all });
+    },
   });
 }

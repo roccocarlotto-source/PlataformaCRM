@@ -279,7 +279,6 @@ function configurar(
   return pedir("PUT", "/api/internal-agent", token, {
     name: "Asistente interno",
     instructions: "Sos el asistente del equipo.",
-    modelName: "modelo-de-prueba",
     enabledTools,
   });
 }
@@ -387,6 +386,34 @@ test("PUT crea el agente la primera vez y lo reemplaza después (upsert por orga
   const get = await pedir("GET", "/api/internal-agent", adminA.accessToken);
   assert.equal(get.status, 200);
   assert.equal(((await get.json()) as { id: string }).id, creado.id);
+});
+
+// B-05 (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): el modelo
+// lo elige la plataforma. El agente interno nace con OPENROUTER_MODEL y el
+// ADMIN no lo cambia; lo cambia un platform admin (probado en
+// agent.controller.integration-test.ts).
+test("B-05 — PUT con un modelo distinto del vigente es 403 y no toca nada; con el mismo, 200", async () => {
+  assert.equal((await configurar(adminA.accessToken)).status, 200);
+  const vigente = await prisma.internalAgent.findUniqueOrThrow({ where: { organizationId: orgA } });
+  assert.equal(vigente.modelName, env.OPENROUTER_MODEL);
+
+  const otro = await pedir("PUT", "/api/internal-agent", adminA.accessToken, {
+    name: "Otro nombre",
+    instructions: "Otras instrucciones",
+    modelName: "openai/o1-pro",
+  });
+  assert.equal(otro.status, 403);
+  const despues = await prisma.internalAgent.findUniqueOrThrow({ where: { organizationId: orgA } });
+  assert.equal(despues.modelName, env.OPENROUTER_MODEL);
+  assert.equal(despues.name, vigente.name, "el resto del PUT tampoco se aplicó");
+
+  const mismo = await pedir("PUT", "/api/internal-agent", adminA.accessToken, {
+    name: "Asistente interno",
+    instructions: "Sos el asistente del equipo.",
+    modelName: env.OPENROUTER_MODEL,
+    enabledTools: [...CATALOGO_DE_TOOLS_INTERNAS.keys()],
+  });
+  assert.equal(mismo.status, 200);
 });
 
 test("PUT valida el body: sin instructions o con un proveedor inexistente -> 400", async () => {

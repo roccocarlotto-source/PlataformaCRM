@@ -1,7 +1,6 @@
 import { ConversationChannel } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
-import { env } from "../config/env";
 import {
   enabledToolsSchema,
   modelNameSchema,
@@ -17,7 +16,6 @@ import {
 } from "../services/agent.service";
 import { translateGuardrailsText } from "../services/agentGuardrailsTranslation.service";
 import { runAgentTurn } from "../services/agentOrchestration.service";
-import { OPENROUTER_PROVIDER_NAME } from "../services/llmProvider.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { normalizeOrigin } from "../utils/origin";
@@ -124,12 +122,11 @@ const createAgentSchema = z.object({
   goal: goalSchema.nullish(),
   instructions: instructionsSchema,
   tone: toneSchema.nullish(),
-  // Con default los dos: el único adaptador que existe es OpenRouter y el
-  // modelo por defecto ya está decidido en OPENROUTER_MODEL. Un POST con
-  // branchId + name + instructions + guardrails alcanza para tener un agente
-  // funcional; quien quiera otro modelo lo dice explícitamente.
-  modelProvider: modelProviderSchema.default(OPENROUTER_PROVIDER_NAME),
-  modelName: modelNameSchema.default(() => env.OPENROUTER_MODEL),
+  // Opcionales desde B-05: el agente nace con el modelo de la plataforma
+  // (OPENROUTER_MODEL) y el service rechaza con 403 cualquier otro. Ver
+  // modeloDeIa.service.ts.
+  modelProvider: modelProviderSchema.optional(),
+  modelName: modelNameSchema.optional(),
   enabledTools: enabledToolsSchema.default([]),
   channels: channelsSchema.default([]),
   guardrails: guardrailsSchema,

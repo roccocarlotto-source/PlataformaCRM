@@ -109,8 +109,10 @@ export interface CreateAgentInput {
   goal?: string | null;
   instructions: string;
   tone?: string | null;
-  modelProvider: string;
-  // Opcional: omitirlo hace que el backend use el default de OPENROUTER_MODEL.
+  // B-05: el modelo lo elige la plataforma. El backend acepta que se reenvíe
+  // el vigente y rechaza (403) cualquier otro; este frontend ya no los manda
+  // (el platform admin lo cambia por /api/admin/agents/:id/model).
+  modelProvider?: string;
   modelName?: string;
   enabledTools: string[];
   channels: ConversationChannel[];

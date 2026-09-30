@@ -7,6 +7,7 @@ import { ProtectedRoute } from "../auth/ProtectedRoute";
 import { AppLayout } from "../layout/AppLayout";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { AgentFacebookPagePage } from "../features/platformAdmin/AgentFacebookPagePage";
+import { AgentModelPage } from "../features/platformAdmin/AgentModelPage";
 import { AgentWhatsappNumberPage } from "../features/platformAdmin/AgentWhatsappNumberPage";
 import { NewOrganizationPage } from "../features/platformAdmin/NewOrganizationPage";
 import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
@@ -230,6 +231,15 @@ describe("router.tsx — wiring real de platform admin (Fase 4a del módulo SaaS
       element?: { type?: unknown };
     };
     expect(route?.element?.type).toBe(AgentFacebookPagePage);
+  });
+
+  it("/admin/agents/model (B-05) está bajo PlatformAdminRoute y renderiza AgentModelPage", () => {
+    const parent = findParentElement(router.routes, "/admin/agents/model") as { type: unknown };
+    expect(parent?.type).toBe(PlatformAdminRoute);
+    const route = findRoute(router.routes, "/admin/agents/model") as {
+      element?: { type?: unknown };
+    };
+    expect(route?.element?.type).toBe(AgentModelPage);
   });
 
   it("/admin/organizations/new está anidada bajo PlatformAdminRoute, no bajo AdminRoute", () => {

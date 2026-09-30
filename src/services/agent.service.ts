@@ -8,6 +8,7 @@ import {
   findAgentByIdForPlatformAdmin,
   findManyAgents,
   setAgentFacebookPageId,
+  setAgentModel,
   setAgentWhatsappPhoneNumberId,
   softDeleteAgent,
   updateAgent as updateAgentRepo,
@@ -19,6 +20,7 @@ import { revokeEmbedTokensByAgent } from "../repositories/agentEmbedToken.reposi
 import { findBranchById, lockBranchForUpdate } from "../repositories/branch.repository";
 import { findActiveMetaConnectionByPageId } from "../repositories/metaPageConnection.repository";
 import { AppError } from "../utils/AppError";
+import { assertModeloSinCambios, modeloPorDefecto } from "./modeloDeIa.service";
 
 // ---------------------------------------------------------------------------
 // CRUD administrativo del Agent (docs/ai-agent-architecture.md §5, paso 2a de
@@ -92,8 +94,10 @@ export interface CreateAgentInput {
   goal?: string | null;
   instructions: string;
   tone?: string | null;
-  modelProvider: string;
-  modelName: string;
+  // B-05: opcionales, y solo pasan si son el modelo de la plataforma (ver
+  // modeloDeIa.service.ts). El agente nace siempre con OPENROUTER_MODEL.
+  modelProvider?: string;
+  modelName?: string;
   enabledTools: string[];
   channels: ConversationChannel[];
   guardrails: Record<string, unknown>;
@@ -154,6 +158,9 @@ function traducirNumeroDeWhatsappDuplicado(err: unknown): never {
 export async function createAgent(organizationId: string, input: CreateAgentInput) {
   // Un agente nace sin número: solo se acepta que el body diga eso mismo.
   assertNumeroDeWhatsappSinCambios(null, input.whatsappPhoneNumberId);
+  // B-05: y con el modelo de la plataforma.
+  const modelo = modeloPorDefecto();
+  assertModeloSinCambios(modelo, input);
 
   // 400 rápido en el caso común, sin abrir transacción.
   await validateBranchId(organizationId, input.branchId);
@@ -180,8 +187,8 @@ export async function createAgent(organizationId: string, input: CreateAgentInpu
         goal: input.goal ?? null,
         instructions: input.instructions,
         tone: input.tone ?? null,
-        modelProvider: input.modelProvider,
-        modelName: input.modelName,
+        modelProvider: modelo.modelProvider,
+        modelName: modelo.modelName,
         enabledTools: input.enabledTools,
         channels: input.channels,
         allowedOrigins: input.allowedOrigins,
@@ -274,8 +281,10 @@ export async function updateAgent(organizationId: string, id: string, input: Upd
 
   // El mismo número que ya tiene (el formulario lo reenvía) pasa y no se
   // escribe; otro es 403. Nunca llega al repositorio.
-  const { guardrails, whatsappPhoneNumberId, ...resto } = input;
+  const { guardrails, whatsappPhoneNumberId, modelProvider, modelName, ...resto } = input;
   assertNumeroDeWhatsappSinCambios(actual.whatsappPhoneNumberId, whatsappPhoneNumberId);
+  // B-05: lo mismo con el modelo. El mismo que tiene pasa y no se escribe.
+  assertModeloSinCambios(actual, { modelProvider, modelName });
   const result = await updateAgentRepo(id, organizationId, {
     ...resto,
     ...(guardrails !== undefined
@@ -330,6 +339,40 @@ export async function asignarNumeroDeWhatsapp(input: {
     "Número de WhatsApp de un agente asignado por platform admin",
   );
 
+  return getAgentById(agente.organizationId, agente.id);
+}
+
+// PUT /api/admin/agents/:agentId/model (B-05). Lo llama SOLO un platform
+// admin: busca el agente sin organización, 404 si no existe o está borrado.
+// El nombre del modelo es libre, igual que antes (lo valida OpenRouter al
+// usarlo): la decisión de qué modelo paga la plataforma es de quien la opera.
+export async function asignarModeloDeAgente(input: {
+  agentId: string;
+  modelProvider: string;
+  modelName: string;
+  platformAdminUserId: string;
+}) {
+  const agente = await findAgentByIdForPlatformAdmin(input.agentId);
+  if (!agente) {
+    throw new AppError("Agente no encontrado", 404);
+  }
+  const result = await setAgentModel(agente.id, {
+    modelProvider: input.modelProvider,
+    modelName: input.modelName,
+  });
+  if (result.count === 0) {
+    throw new AppError("Agente no encontrado", 404);
+  }
+  logger.info(
+    {
+      platformAdminUserId: input.platformAdminUserId,
+      agentId: agente.id,
+      organizationId: agente.organizationId,
+      modelProvider: input.modelProvider,
+      modelName: input.modelName,
+    },
+    "Modelo de IA de un agente asignado por platform admin",
+  );
   return getAgentById(agente.organizationId, agente.id);
 }
 

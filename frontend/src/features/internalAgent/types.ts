@@ -17,13 +17,13 @@ export interface InternalAgent {
   updatedAt: string;
 }
 
-// PUT /api/internal-agent: reemplazo completo. modelProvider/modelName/
-// enabledTools tienen default en el backend; la pantalla los manda siempre
-// salvo modelName vacío (ver InternalAgentSettingsPage).
+// PUT /api/internal-agent: reemplazo completo. Desde B-05 el modelo no lo
+// elige el tenant: el backend acepta el vigente y rechaza otro (403), y la
+// pantalla ya no lo manda (ver InternalAgentSettingsPage).
 export interface PutInternalAgentInput {
   name: string;
   instructions: string;
-  modelProvider: string;
+  modelProvider?: string;
   modelName?: string;
   enabledTools: string[];
 }

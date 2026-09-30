@@ -1,8 +1,11 @@
 import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type { Agent } from "../agent/types";
+import type { InternalAgent } from "../internalAgent/types";
 import type {
+  AssignAgentModelInput,
   AssignFacebookPageInput,
+  AssignInternalAgentModelInput,
   AssignWhatsappNumberInput,
   CreateOrganizationInput,
   CreateOrganizationResponse,
@@ -43,4 +46,24 @@ export function assignFacebookPage({
     body: { facebookPageId },
     getAccessToken,
   });
+}
+
+// B-05: el modelo de un agente y el del agente interno de una organización.
+// Devuelven el agente actualizado, igual que los de arriba.
+export function assignAgentModel({ agentId, ...body }: AssignAgentModelInput): Promise<Agent> {
+  return request<Agent>(`/admin/agents/${encodeURIComponent(agentId)}/model`, {
+    method: "PUT",
+    body,
+    getAccessToken,
+  });
+}
+
+export function assignInternalAgentModel({
+  organizationId,
+  ...body
+}: AssignInternalAgentModelInput): Promise<InternalAgent> {
+  return request<InternalAgent>(
+    `/admin/organizations/${encodeURIComponent(organizationId)}/internal-agent/model`,
+    { method: "PUT", body, getAccessToken },
+  );
 }

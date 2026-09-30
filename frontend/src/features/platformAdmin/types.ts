@@ -27,3 +27,19 @@ export interface AssignFacebookPageInput {
   agentId: string;
   facebookPageId: string | null;
 }
+
+// Contratos de PUT /api/admin/agents/:agentId/model y
+// PUT /api/admin/organizations/:organizationId/internal-agent/model
+// (src/controllers/agentAdmin.controller.ts) — B-05: el modelo de IA lo elige
+// solo la plataforma. modelProvider es opcional (el backend usa OpenRouter).
+export interface AssignAgentModelInput {
+  agentId: string;
+  modelProvider?: string;
+  modelName: string;
+}
+
+export interface AssignInternalAgentModelInput {
+  organizationId: string;
+  modelProvider?: string;
+  modelName: string;
+}

@@ -33,6 +33,16 @@ export function upsertInternalAgent(
   });
 }
 
+// El modelo del agente interno, SOLO desde el endpoint de platform admin
+// (B-05 de docs-privados/auditoria-2026-09-24-punta-a-punta.md, local).
+export function setInternalAgentModel(
+  organizationId: string,
+  model: { modelProvider: string; modelName: string },
+  db: Db = prisma,
+) {
+  return db.internalAgent.updateMany({ where: { organizationId }, data: model });
+}
+
 export interface CreateInternalAgentMessageData {
   organizationId: string;
   internalAgentId: string;

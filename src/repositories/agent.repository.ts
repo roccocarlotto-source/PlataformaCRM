@@ -172,8 +172,9 @@ export interface UpdateAgentData {
   goal?: string | null;
   instructions?: string;
   tone?: string | null;
-  modelProvider?: string;
-  modelName?: string;
+  // Sin modelProvider ni modelName desde B-05
+  // (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): el modelo lo
+  // cambia SOLO setAgentModel, desde el endpoint de platform admin.
   enabledTools?: string[];
   channels?: ConversationChannel[];
   allowedOrigins?: string[];
@@ -226,6 +227,18 @@ export function setAgentWhatsappPhoneNumberId(
 // página; el UNIQUE global resuelve dos asignaciones concurrentes (P2002).
 export function setAgentFacebookPageId(id: string, facebookPageId: string | null, db: Db = prisma) {
   return db.agent.updateMany({ where: { id, deletedAt: null }, data: { facebookPageId } });
+}
+
+// El ÚNICO camino que cambia el modelo de un agente (B-05 de
+// docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): lo elige la
+// plataforma, que es la que paga el proveedor. Mismo esquema que los dos de
+// arriba.
+export function setAgentModel(
+  id: string,
+  model: { modelProvider: string; modelName: string },
+  db: Db = prisma,
+) {
+  return db.agent.updateMany({ where: { id, deletedAt: null }, data: model });
 }
 
 export function softDeleteAgent(id: string, organizationId: string, db: Db = prisma) {

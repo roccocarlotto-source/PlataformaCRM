@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -18,12 +18,13 @@ vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
 
-// Solo lo usa el bloque de AdminRoute del final: el formulario no consume
-// useAuth.
+// Desde B-05 el formulario también lo usa (isPlatformAdmin decide si el modelo
+// es editable). Por defecto, un ADMIN común; el bloque de AdminRoute del
+// final pisa el rol.
 const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
 vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
 
-function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
+function mockAuth(role: "ADMIN" | "USER", isPlatformAdmin = false): AuthContextValue {
   return {
     status: "authenticated",
     me: {
@@ -32,7 +33,7 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
       fullName: "A",
       organizationId: "org-1",
       role,
-      isPlatformAdmin: false,
+      isPlatformAdmin,
       canUseInternalAgent: false,
     },
     accountUnavailableReason: null,
@@ -42,6 +43,10 @@ function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
     retryProfile: vi.fn(),
   };
 }
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+});
 
 const baseUrl = `${env.apiUrl}/api/agents`;
 const translateUrl = `${baseUrl}/guardrails/translate`;
@@ -123,7 +128,6 @@ describe("AgentFormPage — creación", () => {
     await completarMinimo(user);
     await user.type(screen.getByLabelText("Objetivo"), "Calificar el lead");
     await user.type(screen.getByLabelText("Tono"), "cercano");
-    await user.type(screen.getByLabelText("Modelo"), "openai/gpt-4o-mini");
     await escribirGuardrails(user, "No modifiques oportunidades.");
 
     await user.click(screen.getByLabelText("Canales", { selector: "button" }));
@@ -150,8 +154,7 @@ describe("AgentFormPage — creación", () => {
         goal: "Calificar el lead",
         instructions: "Contestá corto.",
         tone: "cercano",
-        modelProvider: "openrouter",
-        modelName: "openai/gpt-4o-mini",
+        // Sin modelProvider ni modelName: los elige la plataforma (B-05).
         enabledTools: [],
         channels: ["WHATSAPP"],
         // El objeto que devolvió la traducción, TAL CUAL se mostró.
@@ -374,7 +377,7 @@ describe("AgentFormPage — creación", () => {
     expect(posts).toBe(2);
   });
 
-  it("sin Modelo el POST sale SIN la clave: el backend usa el modelo por defecto", async () => {
+  it("el POST sale SIN el modelo: el agente nace con el de la plataforma (B-05)", async () => {
     const bodies: Record<string, unknown>[] = [];
     server.use(
       mockBranches(),
@@ -390,8 +393,7 @@ describe("AgentFormPage — creación", () => {
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(bodies).toHaveLength(1));
-    // Ausente, no null ni "": el campo es .default() y no .nullable(), así que
-    // mandarlo vacío sería un 400.
+    // Ausente: lo pone el backend (OPENROUTER_MODEL), y otro valor sería 403.
     expect("modelName" in bodies[0]).toBe(false);
     // Los opcionales vacíos sí viajan, como null.
     expect(bodies[0].goal).toBeNull();
@@ -708,8 +710,6 @@ describe("AgentFormPage — edición", () => {
         goal: "Atender consultas de la web y calificar el lead",
         instructions: "Sos el asistente de una concesionaria. Contestá corto y ofrecé un turno.",
         tone: "cercano",
-        modelProvider: "openrouter",
-        modelName: "openai/gpt-4o-mini",
         enabledTools: ["create_lead"],
         channels: ["WEB"],
         // Los dos SIEMPRE juntos: el backend rechaza un PATCH con uno solo.
@@ -722,6 +722,8 @@ describe("AgentFormPage — edición", () => {
     expect("branchId" in bodies[0]).toBe(false);
     // El número de WhatsApp lo asigna la plataforma (ítem 127): no viaja.
     expect("whatsappPhoneNumberId" in bodies[0]).toBe(false);
+    // El modelo tampoco (B-05).
+    expect("modelName" in bodies[0]).toBe(false);
     // Omitir allowedOrigins es lo que deja intacta la configuración del widget:
     // mandarlo como [] la borraría.
     expect("allowedOrigins" in bodies[0]).toBe(false);
@@ -810,7 +812,73 @@ describe("AgentFormPage — edición", () => {
     expect(bodies[0].enabledTools).toEqual(["create_opportunity", "reserve_vehicle"]);
   });
 
-  it("vaciar el Modelo se frena en el cliente: borrarlo no vuelve al modelo por defecto", async () => {
+  it("B-05: para un ADMIN común el Modelo es de solo lectura, con el porqué", async () => {
+    server.use(mockBranches(), mockAgentDetalle());
+    renderForm("/agents/ag1/edit");
+
+    const modelo = await screen.findByLabelText("Modelo");
+    expect(modelo).toBeDisabled();
+    expect(modelo).toHaveValue("openai/gpt-4o-mini");
+    expect(screen.getByText(/Lo elige el equipo de la plataforma/)).toBeInTheDocument();
+  });
+
+  it("B-05: un platform admin cambia el Modelo y se guarda por el endpoint de admin, no por el PATCH", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", true));
+    const patches: Record<string, unknown>[] = [];
+    const modelos: unknown[] = [];
+    server.use(
+      mockBranches(),
+      mockAgentDetalle(),
+      http.patch(`${baseUrl}/:id`, async ({ request }) => {
+        patches.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(makeAgent());
+      }),
+      http.put(`${env.apiUrl}/api/admin/agents/:id/model`, async ({ request }) => {
+        modelos.push(await request.json());
+        return HttpResponse.json(makeAgent({ modelName: "anthropic/claude-sonnet-4" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+
+    const modelo = await screen.findByLabelText("Modelo");
+    expect(modelo).toBeEnabled();
+    await user.clear(modelo);
+    await user.type(modelo, "anthropic/claude-sonnet-4");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect("modelName" in patches[0]).toBe(false);
+    expect(modelos).toEqual([
+      { modelProvider: "openrouter", modelName: "anthropic/claude-sonnet-4" },
+    ]);
+  });
+
+  it("B-05: si el platform admin no cambió el Modelo, no llama al endpoint de admin", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", true));
+    let llamadasDeModelo = 0;
+    server.use(
+      mockBranches(),
+      mockAgentDetalle(),
+      http.patch(`${baseUrl}/:id`, () => HttpResponse.json(makeAgent())),
+      http.put(`${env.apiUrl}/api/admin/agents/:id/model`, () => {
+        llamadasDeModelo += 1;
+        return HttpResponse.json(makeAgent());
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderForm("/agents/ag1/edit");
+    await screen.findByLabelText("Modelo");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(screen.getByText("listado")).toBeInTheDocument());
+    expect(llamadasDeModelo).toBe(0);
+  });
+
+  it("vaciar el Modelo se frena en el cliente (platform admin): borrarlo no vuelve al modelo por defecto", async () => {
+    useAuthMock.mockReturnValue(mockAuth("ADMIN", true));
     let llamadas = 0;
     server.use(
       mockBranches(),
