@@ -36,7 +36,10 @@ type Agente = Awaited<ReturnType<DepsDelWebhookMeta["findAgentByFacebookPageId"]
 function dobles(
   opciones: {
     agente?: Agente;
-    paginaDeInstagram?: { pageId: string } | null;
+    paginaDeInstagram?: { pageId: string; organizationId: string } | null;
+    // La conexión vigente de la página de Messenger (D-11 / A-08). Por defecto,
+    // conectada en ORG.
+    conexionDeLaPagina?: { pageId: string; organizationId: string } | null;
     yaProcesados?: string[];
     falloAlRegistrar?: (mid: string) => unknown;
   } = {},
@@ -65,7 +68,11 @@ function dobles(
       estado.consultasDeInstagram.push(igid);
       return "paginaDeInstagram" in opciones
         ? (opciones.paginaDeInstagram ?? null)
-        : { pageId: PAGE_ID };
+        : { pageId: PAGE_ID, organizationId: ORG };
+    },
+    findActiveMetaConnectionByPageId: async (pageId) => {
+      if ("conexionDeLaPagina" in opciones) return opciones.conexionDeLaPagina ?? null;
+      return pageId === PAGE_ID ? { pageId, organizationId: ORG } : null;
     },
     findAgentByFacebookPageId: async (pageId) => {
       estado.consultasDeAgente.push(pageId);
@@ -325,4 +332,45 @@ test("otro objeto (whatsapp_business_account) o entry sin id / sin messaging: na
     vacio,
   );
   assert.deepEqual(estado.consultasDeAgente, []);
+});
+
+// ---------------------------------------------------------------------------
+// D-11 y A-08 de docs-privados/auditoria-2026-09-30-corta.md (local): la
+// página tiene que tener una conexión vigente, y en la MISMA organización que
+// el agente que la tiene asignada.
+// ---------------------------------------------------------------------------
+
+test("D-11: Messenger de una página sin conexión vigente (desconectada) → ignorado, sin buscar agente ni crear nada", async () => {
+  const { deps, estado } = dobles({ conexionDeLaPagina: null });
+
+  const resumen = await procesarWebhookDeMeta(lote("page", PAGE_ID, [evento()]), deps);
+
+  assert.equal(resumen.ignorado, 1);
+  assert.equal(estado.consultasDeAgente.length, 0);
+  assert.equal(estado.contactos.length, 0);
+  assert.equal(estado.jobs.length, 0);
+});
+
+test("A-08: Messenger de una página conectada en OTRA organización que la del agente → ignorado, sin crear contacto", async () => {
+  const { deps, estado } = dobles({
+    conexionDeLaPagina: { pageId: PAGE_ID, organizationId: "otra-org" },
+  });
+
+  const resumen = await procesarWebhookDeMeta(lote("page", PAGE_ID, [evento()]), deps);
+
+  assert.equal(resumen.ignorado, 1);
+  assert.equal(estado.contactos.length, 0);
+  assert.equal(estado.entrantes.length, 0);
+});
+
+test("A-08: Instagram cuya conexión es de OTRA organización que la del agente de la página → ignorado", async () => {
+  const { deps, estado } = dobles({
+    paginaDeInstagram: { pageId: PAGE_ID, organizationId: "otra-org" },
+  });
+
+  const resumen = await procesarWebhookDeMeta(lote("instagram", IGID, [evento()]), deps);
+
+  assert.equal(resumen.ignorado, 1);
+  assert.equal(estado.contactos.length, 0);
+  assert.equal(estado.jobs.length, 0);
 });

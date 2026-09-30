@@ -17,6 +17,7 @@ import {
 } from "../repositories/agent.repository";
 import { revokeEmbedTokensByAgent } from "../repositories/agentEmbedToken.repository";
 import { findBranchById, lockBranchForUpdate } from "../repositories/branch.repository";
+import { findActiveMetaConnectionByPageId } from "../repositories/metaPageConnection.repository";
 import { AppError } from "../utils/AppError";
 
 // ---------------------------------------------------------------------------
@@ -362,6 +363,14 @@ function traducirPaginaDeFacebookDuplicada(err: unknown): never {
 // asignarNumeroDeWhatsapp: 404 si el agente no existe o está borrado; 409 si
 // la página ya la tiene otro agente, de cualquier organización; null la
 // libera; una línea de log con quién, a qué agente, y de qué página a cuál.
+//
+// Desde A-08 (docs-privados/auditoria-2026-09-30-corta.md, local), 409 también
+// si la página no está conectada (conexión no REVOKED) en la organización del
+// agente: un error de tipeo del platform admin mandaba los mensajes de los
+// clientes de una organización a la bandeja de otra. El webhook exige lo mismo
+// al recibir, por si la conexión cambia después de asignar.
+export const MENSAJE_PAGINA_NO_CONECTADA_EN_LA_ORGANIZACION =
+  "Esa página de Facebook no está conectada en la organización de este agente. Un ADMIN de la organización la tiene que conectar primero desde Configuración.";
 export async function asignarPaginaDeFacebook(input: {
   agentId: string;
   facebookPageId: string | null;
@@ -370,6 +379,16 @@ export async function asignarPaginaDeFacebook(input: {
   const agente = await findAgentByIdForPlatformAdmin(input.agentId);
   if (!agente) {
     throw new AppError("Agente no encontrado", 404);
+  }
+
+  if (input.facebookPageId !== null) {
+    const conexion = await findActiveMetaConnectionByPageId(input.facebookPageId);
+    // El mismo 409 si no está conectada en ningún lado o si está conectada en
+    // otra organización: al platform admin le alcanza con saber que no es de
+    // esta, y no hace falta confirmar de quién es.
+    if (!conexion || conexion.organizationId !== agente.organizationId) {
+      throw new AppError(MENSAJE_PAGINA_NO_CONECTADA_EN_LA_ORGANIZACION, 409);
+    }
   }
 
   const result = await setAgentFacebookPageId(agente.id, input.facebookPageId).catch(

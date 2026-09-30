@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { SignJWT, jwtVerify, errors as joseErrors } from "jose";
 import { env } from "../config/env";
 import { AppError } from "./AppError";
@@ -16,7 +17,7 @@ import { deriveKey, parseMasterKey } from "./encryption";
 //
 // Lo que cambia, y es la razón de que sea otro archivo:
 //
-//   - EL PAYLOAD ES { organizationId } SIN branchId: MetaPageConnection es una
+//   - EL PAYLOAD ES { organizationId, userId } + jti, SIN branchId: MetaPageConnection es una
 //     fila por ORGANIZACIÓN (organization_id UNIQUE, ítem 169), a diferencia de
 //     Google Calendar que es por sucursal. Reusar OAuthState obligaría a
 //     inventar un branchId que acá no significa nada.
@@ -26,6 +27,15 @@ import { deriveKey, parseMasterKey } from "./encryption";
 //   - SUBCLAVE PROPIA (otro `info` en deriveKey). La audiencia ya separa los
 //     flujos; la subclave distinta además evita que los dos compartan material
 //     de firma, que es la misma disciplina que separar firma de cifrado.
+//
+// userId Y jti — A-07 de docs-privados/auditoria-2026-09-30-corta.md (local,
+// no está en GitHub). Con solo { organizationId }, el ADMIN de B podía mandarle
+// su URL de autorización legítima al dueño de la página de A: si la aceptaba,
+// la página quedaba conectada a B. Desde A-07 el callback ya no canjea nada:
+// rebota al CRM, y el canje lo hace un endpoint AUTENTICADO que exige que quien
+// termina el flujo sea el mismo usuario (userId) de la misma organización que
+// lo empezó. El jti hace que cada state sirva para un solo intento (ver
+// consumirMetaState).
 // ---------------------------------------------------------------------------
 
 const ALGORITMO = "HS256";
@@ -43,6 +53,15 @@ export const META_STATE_TTL_SEGUNDOS = 10 * 60;
 
 export interface MetaOAuthState {
   organizationId: string;
+  // El usuario que tocó "Conectar": el único que puede terminar el flujo.
+  userId: string;
+}
+
+// Lo que devuelve la verificación: además del payload, el jti y cuándo vence,
+// que es lo que necesita consumirMetaState.
+export interface MetaOAuthStateVerificado extends MetaOAuthState {
+  jti: string;
+  expiraEnMs: number;
 }
 
 // Perezoso y memoizado, mismo criterio que getCifrador(): SECRET_ENCRYPTION_KEY
@@ -71,8 +90,9 @@ function getClaveDeFirma(): Uint8Array {
 // La clave por parámetro opcional existe SOLO para los tests unitarios, mismo
 // motivo que en firmarState().
 export async function firmarMetaState(state: MetaOAuthState, clave?: Uint8Array): Promise<string> {
-  return new SignJWT({ organizationId: state.organizationId })
+  return new SignJWT({ organizationId: state.organizationId, userId: state.userId })
     .setProtectedHeader({ alg: ALGORITMO })
+    .setJti(randomUUID())
     .setIssuer(EMISOR)
     .setAudience(AUDIENCIA)
     .setIssuedAt()
@@ -90,7 +110,7 @@ export async function firmarMetaState(state: MetaOAuthState, clave?: Uint8Array)
 export async function verificarMetaState(
   token: string,
   clave?: Uint8Array,
-): Promise<MetaOAuthState> {
+): Promise<MetaOAuthStateVerificado> {
   let payload: Record<string, unknown>;
 
   try {
@@ -111,11 +131,59 @@ export async function verificarMetaState(
     throw new AppError("El parámetro state es inválido", 400);
   }
 
-  if (typeof payload.organizationId !== "string") {
+  // Un state firmado antes de A-07 no trae userId ni jti: se rechaza como
+  // cualquier otro inválido (vivía 10 minutos, no hay nada que migrar).
+  if (
+    typeof payload.organizationId !== "string" ||
+    typeof payload.userId !== "string" ||
+    typeof payload.jti !== "string" ||
+    typeof payload.exp !== "number"
+  ) {
     throw new AppError("El parámetro state es inválido", 400);
   }
 
-  return { organizationId: payload.organizationId };
+  return {
+    organizationId: payload.organizationId,
+    userId: payload.userId,
+    jti: payload.jti,
+    expiraEnMs: payload.exp * 1000,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// UN SOLO USO POR STATE (A-07). Sin esto, un mismo state disparaba canjes
+// ilimitados contra Meta durante sus 10 minutos.
+//
+// EN MEMORIA Y NO EN LA BASE, a propósito: el backend es un solo proceso (G-04
+// del 24/09), y lo que se protege dura 10 minutos. Si el proceso reinicia en
+// esa ventana, el registro se pierde y un state ya usado vuelve a pasar este
+// chequeo — pero sigue atado a su usuario, y el `code` que viaja con él Meta
+// lo acepta una sola vez. Persistirlo exigiría una tabla (migración) para
+// cubrir ese hueco.
+//
+// Se consume ANTES de canjear: un intento que falla a mitad de camino gasta el
+// state, y reintentar es volver a tocar "Conectar", que firma uno nuevo.
+// ---------------------------------------------------------------------------
+const statesUsados = new Map<string, number>();
+
+// true si el jti no se había usado (y queda marcado); false si ya se usó.
+// Síncrona de punta a punta: entre el has() y el set() no hay un await, así
+// que dos requests con el mismo state no pueden pasar los dos.
+export function consumirMetaState(
+  state: Pick<MetaOAuthStateVerificado, "jti" | "expiraEnMs">,
+  ahoraMs: number = Date.now(),
+): boolean {
+  for (const [jti, expira] of statesUsados) {
+    if (expira <= ahoraMs) statesUsados.delete(jti);
+  }
+  if (statesUsados.has(state.jti)) return false;
+  statesUsados.set(state.jti, state.expiraEnMs);
+  return true;
+}
+
+// Solo para tests.
+export function resetStatesUsadosParaTests(): void {
+  statesUsados.clear();
 }
 
 // Solo para tests, mismo motivo que resetClaveDeFirmaParaTests() de oauthState.

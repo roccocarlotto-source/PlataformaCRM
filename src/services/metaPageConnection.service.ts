@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { logger } from "../lib/logger";
 import { findOrganizationById } from "../repositories/organization.repository";
 import {
   findMetaConnectionByOrganization,
@@ -10,8 +11,8 @@ import {
 } from "../repositories/metaPageConnection.repository";
 import { AppError } from "../utils/AppError";
 import { getCifrador } from "../utils/encryption";
-import { firmarMetaState, verificarMetaState } from "../utils/metaOauthState";
-import { getClienteMetaOAuth, type ClienteMetaOAuth } from "./metaOAuth.service";
+import { consumirMetaState, firmarMetaState, verificarMetaState } from "../utils/metaOauthState";
+import { getClienteMetaOAuth, MetaAuthError, type ClienteMetaOAuth } from "./metaOAuth.service";
 
 // ---------------------------------------------------------------------------
 // Conexión de una ORGANIZACIÓN con su página de Facebook (ítem 170; paso 2 de 5
@@ -69,27 +70,47 @@ export interface InicioDeConexionMeta {
 // navegador siguiendo una redirección no reenvía el header Authorization. El
 // frontend hace `window.location.href = authorizationUrl`.
 export async function iniciarConexion(
-  organizationId: string,
+  auth: { organizationId: string; userId: string },
   cliente?: ClienteInyectado,
 ): Promise<InicioDeConexionMeta> {
-  await asegurarOrganizacion(organizationId);
+  await asegurarOrganizacion(auth.organizationId);
 
-  const state = await firmarMetaState({ organizationId });
+  const state = await firmarMetaState({ organizationId: auth.organizationId, userId: auth.userId });
 
   return { authorizationUrl: resolverCliente(cliente).construirUrlDeAutorizacion(state) };
 }
 
 // ---------------------------------------------------------------------------
-// 2. El callback
+// 2. Completar la conexión
+//
+// DESDE A-07 (docs-privados/auditoria-2026-09-30-corta.md, local) ESTO YA NO
+// LO LLAMA EL CALLBACK. El callback de Meta corre sin JWT, así que cualquiera
+// que tuviera una URL de autorización ajena (el ADMIN de B se la manda al dueño
+// de la página de A) podía terminar el flujo en el navegador de otro. Ahora el
+// callback solo rebota el code y el state al CRM (en el fragmento de la URL), y
+// el CRM, con la sesión de quien esté logueado, llama a
+// POST /api/integrations/meta/complete. Acá se exige que ese usuario sea el
+// mismo que firmó el state.
+//
+// Meta manda error=access_denied cuando la persona cancela; eso lo resuelve el
+// callback antes de rebotar y nunca llega acá.
 // ---------------------------------------------------------------------------
 
-export interface EntradaDeCallbackMeta {
-  state?: string;
-  code?: string;
-  // Meta manda error=access_denied (con error_reason=user_denied) cuando la
-  // persona cancela en su pantalla. Es un camino normal.
-  error?: string;
+export interface EntradaDeCompletarMeta {
+  state: string;
+  code: string;
 }
+
+// Los tres casos en que la persona tiene que volver a tocar "Conectar": el
+// mensaje lo muestra el CRM tal cual, así que dice qué hacer.
+export const MENSAJE_OTRA_SESION =
+  "Esta conexión con Facebook la empezó otro usuario o se abrió en otra sesión. Volvé a tocar «Conectar con Facebook» desde tu cuenta.";
+
+export const MENSAJE_STATE_YA_USADO =
+  "Este intento de conexión con Facebook ya se usó. Volvé a tocar «Conectar con Facebook».";
+
+export const MENSAJE_CODE_VENCIDO =
+  "Facebook no aceptó la autorización porque venció o ya se había usado. Volvé a tocar «Conectar con Facebook».";
 
 export const MENSAJE_SIN_PAGINAS =
   "No autorizaste ninguna página de Facebook. Volvé a intentarlo y elegí al menos una.";
@@ -120,34 +141,29 @@ function traducirPaginaYaConectada(err: unknown): never {
 }
 
 export async function completarConexion(
-  entrada: EntradaDeCallbackMeta,
+  entrada: EntradaDeCompletarMeta,
+  auth: { organizationId: string; userId: string },
   cliente?: ClienteInyectado,
 ): Promise<ConexionMetaPublica> {
   // -------------------------------------------------------------------------
-  // EL ORDEN ES LA SEGURIDAD DE ESTE ENDPOINT, igual que en Google: corre sin
-  // authenticate (Meta redirige el navegador y no hay JWT), así que el state
-  // se verifica ANTES DE TOCAR NADA, y todo lo que sigue usa el organizationId
-  // QUE SALE DEL TOKEN FIRMADO — nunca algo suelto en la query string.
+  // EL ORDEN ES LA SEGURIDAD DE ESTE ENDPOINT: el state se verifica ANTES DE
+  // TOCAR NADA, tiene que ser del mismo usuario y de la misma organización que
+  // la sesión, y se consume antes de hablar con Meta.
   // -------------------------------------------------------------------------
-  if (!entrada.state) {
-    throw new AppError("Falta el parámetro state", 400);
+  const state = await verificarMetaState(entrada.state);
+
+  // 403 y el mismo mensaje para "otra organización" y "otro usuario": en los
+  // dos casos lo que corresponde es volver a empezar desde la cuenta propia.
+  // No se consume el state: quien lo empezó todavía puede terminarlo.
+  if (state.organizationId !== auth.organizationId || state.userId !== auth.userId) {
+    throw new AppError(MENSAJE_OTRA_SESION, 403);
   }
 
-  const { organizationId } = await verificarMetaState(entrada.state);
-
-  if (entrada.error) {
-    // Cancelar es una decisión de la persona: 400 legible y nada escrito.
-    throw new AppError(
-      entrada.error === "access_denied"
-        ? "Se canceló la autorización en Facebook. La página quedó sin conectar."
-        : `Facebook rechazó la autorización (${entrada.error})`,
-      400,
-    );
+  if (!consumirMetaState(state)) {
+    throw new AppError(MENSAJE_STATE_YA_USADO, 400);
   }
 
-  if (!entrada.code) {
-    throw new AppError("Falta el parámetro code", 400);
-  }
+  const { organizationId } = state;
 
   // La organización puede haberse dado de baja entre que se inició el flujo y
   // que volvió el callback: el state vale diez minutos. Va antes de hablar con
@@ -160,7 +176,15 @@ export async function completarConexion(
   // es opcional: el Page token que devuelve /me/accounts hereda la vida del user
   // token con el que se pide, y solo con el largo sale uno que no vence (ver el
   // encabezado de metaOAuth.service.ts).
-  const corto = await meta.intercambiarCodigo(entrada.code);
+  // Un code vencido o ya canjeado es un OAuthException de Meta (tokenInvalido):
+  // se traduce a un 400 que le dice a la persona qué hacer, en vez del 502
+  // genérico. Una falla de red sigue siendo 502.
+  const corto = await meta.intercambiarCodigo(entrada.code).catch((err: unknown) => {
+    if (err instanceof MetaAuthError && err.tokenInvalido) {
+      throw new AppError(MENSAJE_CODE_VENCIDO, 400);
+    }
+    throw err;
+  });
   const largo = await meta.obtenerTokenDeLargaDuracion(corto.accessToken);
   const paginas = await meta.listarPaginasAutorizadas(largo.accessToken);
 
@@ -205,7 +229,19 @@ export async function completarConexion(
 // ---------------------------------------------------------------------------
 // 3. Desconectar
 //
-// SIN REVOCAR NADA DEL LADO DE META, a diferencia de Google. Lo que Meta ofrece
+// DESDE D-11 (docs-privados/auditoria-2026-09-30-corta.md, local) SE DA DE BAJA
+// LA SUSCRIPCIÓN DE LA PÁGINA (DELETE /{page-id}/subscribed_apps) antes de
+// borrar el token: sin eso, la página seguía mandándole mensajes al webhook. Es
+// la inversa exacta de lo que hace completarConexion al conectar.
+//
+// LA BAJA ES "MEJOR ESFUERZO": si Meta la rechaza (token ya inválido: la
+// conexión estaba en ERROR, o la persona quitó la app desde Facebook) o no
+// responde, se loguea y se desconecta igual. Que Meta esté caído no puede
+// impedirle a un negocio desconectarse, y lo que llegue después al webhook se
+// ignora igual: metaWebhook.service.ts exige una conexión no REVOKED de la
+// misma organización que el agente.
+//
+// FUERA DE ESO, SIN REVOCAR NADA DEL LADO DE META, a diferencia de Google. Lo que Meta ofrece
 // es DELETE /{user-id}/permissions, que se autentica con un USER token — y este
 // sistema no guarda ninguno: el user token largo se usa una sola vez en el
 // callback para pedir las páginas y se descarta; lo único persistido es el
@@ -215,7 +251,10 @@ export async function completarConexion(
 // sin forma de usarlo; quitar la app del lado de Facebook lo hace la persona
 // desde la configuración de su cuenta.
 // ---------------------------------------------------------------------------
-export async function desconectar(organizationId: string): Promise<void> {
+export async function desconectar(
+  organizationId: string,
+  cliente?: ClienteInyectado,
+): Promise<void> {
   const conexion = await findMetaConnectionWithSecretByOrganization(organizationId);
 
   if (!conexion) {
@@ -225,6 +264,20 @@ export async function desconectar(organizationId: string): Promise<void> {
   if (conexion.status === "REVOKED") {
     // 409 y no un no-op silencioso, mismo criterio que desconectar() de Google.
     throw new AppError("Esta conexión ya estaba desconectada", 409);
+  }
+
+  if (conexion.pageAccessToken) {
+    try {
+      await resolverCliente(cliente).desuscribirPaginaDeLaApp(
+        conexion.pageId,
+        getCifrador().decrypt(conexion.pageAccessToken),
+      );
+    } catch (err) {
+      logger.warn(
+        { err, organizationId, pageId: conexion.pageId },
+        "No se pudo dar de baja la suscripción de la página en Meta; se desconecta igual",
+      );
+    }
   }
 
   // Una sola escritura: status REVOKED y el token en NULL en la misma sentencia.

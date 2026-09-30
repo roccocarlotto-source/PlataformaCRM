@@ -38,6 +38,18 @@ export function createMetaPageConnectionRouter(cliente?: ClienteMetaOAuth) {
     handlers.conectar,
   );
 
+  // El segundo tramo del flujo (A-07 de docs-privados/auditoria-2026-09-30-corta.md,
+  // local): el CRM manda el code y el state que le rebotó el callback. Mismo
+  // esquema que conectar, porque es lo que escribe la conexión; el service
+  // exige además que el usuario sea el que firmó el state.
+  router.post(
+    "/integrations/meta/complete",
+    authenticate,
+    businessWriteRateLimiter,
+    authorize("ADMIN"),
+    handlers.completar,
+  );
+
   // Desconectar: la fila queda REVOKED y sin token.
   router.delete(
     "/integrations/meta",
@@ -48,13 +60,12 @@ export function createMetaPageConnectionRouter(cliente?: ClienteMetaOAuth) {
   );
 
   // -------------------------------------------------------------------------
-  // EL CALLBACK — SIN authenticate, SIN authorize Y SIN RATE LIMITER, por los
-  // mismos motivos exactos que el de Google (ver su router): Meta redirige el
-  // navegador y no hay JWT; la frontera de tenant la sostiene el `state`
-  // firmado (utils/metaOauthState.ts), que se verifica antes de tocar la base;
-  // y no hay identidad verificada por la cual keyear un limiter (por IP está
-  // descartado: el proyecto no configura trust proxy). Un request sin state
-  // válido muere en un HMAC.
+  // EL CALLBACK — SIN authenticate, SIN authorize Y SIN RATE LIMITER: Meta
+  // redirige el navegador y no hay JWT, y no hay identidad verificada por la
+  // cual keyear un limiter (por IP está descartado: el proyecto no configura
+  // trust proxy). Desde A-07 no hace falta: no toca la base ni habla con Meta,
+  // solo rebota el code y el state al CRM. Lo que escribe es /complete, que
+  // tiene el esquema de siempre.
   //
   // URL fija, sin parámetros en el path: es la que se carga en el panel de
   // Meta como "URI de redireccionamiento de OAuth válida" y tiene que coincidir

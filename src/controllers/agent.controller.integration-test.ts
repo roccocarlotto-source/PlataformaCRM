@@ -12,7 +12,10 @@ import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
 import { agentRouter } from "../routes/agent.routes";
 import { agentAdminRouter } from "../routes/agentAdmin.routes";
-import { MENSAJE_NUMERO_LO_ASIGNA_LA_PLATAFORMA } from "../services/agent.service";
+import {
+  MENSAJE_NUMERO_LO_ASIGNA_LA_PLATAFORMA,
+  MENSAJE_PAGINA_NO_CONECTADA_EN_LA_ORGANIZACION,
+} from "../services/agent.service";
 import {
   MENSAJE_DE_HANDOFF,
   envolverMensajeDelCliente,
@@ -216,6 +219,7 @@ after(async () => {
     await prisma.conversation.deleteMany({ where: { organizationId: org.id } });
     await prisma.activity.deleteMany({ where: { organizationId: org.id } });
     await prisma.agentEmbedToken.deleteMany({ where: { organizationId: org.id } });
+    await prisma.metaPageConnection.deleteMany({ where: { organizationId: org.id } });
     await prisma.agent.deleteMany({ where: { organizationId: org.id } });
     await prisma.contact.deleteMany({ where: { organizationId: org.id } });
     await prisma.branch.deleteMany({ where: { organizationId: org.id } });
@@ -1097,6 +1101,27 @@ function asignarPagina(token: string, agentId: unknown, facebookPageId: unknown)
   });
 }
 
+// A-08: la página se asigna solo si está conectada (no REVOKED) en la
+// organización del agente. La conexión es UNA por organización, así que
+// "conectar" una página nueva reemplaza la anterior, como reconectar desde el
+// CRM. El token es un valor cualquiera que satisface el CHECK de ACTIVE.
+async function conectarPagina(
+  organizationId: string,
+  pageId: string,
+  status: "ACTIVE" | "REVOKED" = "ACTIVE",
+): Promise<void> {
+  const datos = {
+    pageId,
+    status,
+    pageAccessToken: status === "ACTIVE" ? "v1.cifrado-de-prueba" : null,
+  };
+  await prisma.metaPageConnection.upsert({
+    where: { organizationId },
+    create: { organizationId, ...datos },
+    update: datos,
+  });
+}
+
 async function paginaEnLaBase(agentId: unknown): Promise<string | null> {
   const fila = await prisma.agent.findUniqueOrThrow({ where: { id: String(agentId) } });
   return fila.facebookPageId;
@@ -1120,6 +1145,7 @@ test("facebookPageId — el tenant NO lo asigna: POST y PATCH lo descartan y la 
   assert.equal(await paginaEnLaBase(creado.id), null);
 
   // Con página ya asignada, el tenant tampoco la cambia ni la vacía.
+  await conectarPagina(orgA.id, pagina);
   assert.equal((await asignarPagina(plataforma.accessToken, creado.id, pagina)).status, 200);
   for (const distinto of [paginaDeFacebookAlAzar(), null, ""]) {
     const res = await call("PATCH", `/api/agents/${creado.id}`, adminA.accessToken, {
@@ -1134,6 +1160,7 @@ test("facebookPageId — el tenant NO lo asigna: POST y PATCH lo descartan y la 
 test("PUT /api/admin/agents/:agentId/facebook-page — el platform admin asigna, cambia y libera; 409 si está en uso", async () => {
   const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
   const pagina = paginaDeFacebookAlAzar();
+  await conectarPagina(orgA.id, pagina);
 
   // Mismo criterio que el número: se recorta, y solo admite dígitos.
   const asignado = await asignarPagina(plataforma.accessToken, agente.id, ` ${pagina} `);
@@ -1155,8 +1182,10 @@ test("PUT /api/admin/agents/:agentId/facebook-page — el platform admin asigna,
   );
   assert.equal(sinCampo.status, 400);
 
-  // En uso por otro agente, de CUALQUIER organización: 409.
-  const otro = await crearAgentePorHttp(adminB.accessToken, orgB.branchId);
+  // En uso por otro agente: 409. Desde A-08 el otro tiene que ser de la misma
+  // organización (la de la conexión); el de otra organización ya recibe el 409
+  // de "no está conectada" (ver el test de A-08).
+  const otro = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
   const enUso = await asignarPagina(plataforma.accessToken, otro.id, pagina);
   assert.equal(enUso.status, 409);
   assert.match(await mensajeDeError(enUso), /ya está asignada a otro agente/);
@@ -1176,6 +1205,7 @@ test("PUT /api/admin/agents/:agentId/facebook-page — la página y el número d
   const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
   const numero = numeroDeWhatsappAlAzar();
   const pagina = paginaDeFacebookAlAzar();
+  await conectarPagina(orgA.id, pagina);
   assert.equal((await asignarNumero(plataforma.accessToken, agente.id, numero)).status, 200);
   assert.equal((await asignarPagina(plataforma.accessToken, agente.id, pagina)).status, 200);
   assert.equal(await numeroEnLaBase(agente.id), numero, "asignar la página no toca el número");
@@ -1213,6 +1243,7 @@ test("PUT /api/admin/agents/:agentId/facebook-page — quien no es platform admi
 
 test("facebookPageId — borrar el agente libera la página para otro", async () => {
   const pagina = paginaDeFacebookAlAzar();
+  await conectarPagina(orgA.id, pagina);
   const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
   assert.equal((await asignarPagina(plataforma.accessToken, agente.id, pagina)).status, 200);
   const borrado = await call("DELETE", `/api/agents/${agente.id}`, adminA.accessToken);
@@ -1222,6 +1253,39 @@ test("facebookPageId — borrar el agente libera la página para otro", async ()
   const nuevo = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
   assert.equal((await asignarPagina(plataforma.accessToken, nuevo.id, pagina)).status, 200);
   assert.equal(await paginaEnLaBase(nuevo.id), pagina);
+});
+
+// A-08 de docs-privados/auditoria-2026-09-30-corta.md (local): un error de
+// tipeo del platform admin mandaba los mensajes de Messenger de una
+// organización a la bandeja de otra.
+test("A-08: PUT /api/admin/agents/:agentId/facebook-page — 409 si la página no está conectada en la organización del agente", async () => {
+  const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId);
+
+  // Sin conexión en ningún lado.
+  const sinConexion = await asignarPagina(
+    plataforma.accessToken,
+    agente.id,
+    paginaDeFacebookAlAzar(),
+  );
+  assert.equal(sinConexion.status, 409);
+  assert.equal(await mensajeDeError(sinConexion), MENSAJE_PAGINA_NO_CONECTADA_EN_LA_ORGANIZACION);
+
+  // Conectada, pero en OTRA organización: el mismo 409.
+  const deB = paginaDeFacebookAlAzar();
+  await conectarPagina(orgB.id, deB);
+  const ajena = await asignarPagina(plataforma.accessToken, agente.id, deB);
+  assert.equal(ajena.status, 409);
+  assert.equal(await mensajeDeError(ajena), MENSAJE_PAGINA_NO_CONECTADA_EN_LA_ORGANIZACION);
+
+  // Conectada en la organización del agente pero desconectada (REVOKED): 409.
+  const revocada = paginaDeFacebookAlAzar();
+  await conectarPagina(orgA.id, revocada, "REVOKED");
+  assert.equal((await asignarPagina(plataforma.accessToken, agente.id, revocada)).status, 409);
+
+  assert.equal(await paginaEnLaBase(agente.id), null);
+
+  // Liberar (null) no exige conexión.
+  assert.equal((await asignarPagina(plataforma.accessToken, agente.id, null)).status, 200);
 });
 
 // ---------------------------------------------------------------------------

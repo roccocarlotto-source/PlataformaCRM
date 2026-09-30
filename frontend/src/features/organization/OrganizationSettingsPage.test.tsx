@@ -244,6 +244,28 @@ describe("OrganizationSettingsPage — guardado", () => {
 });
 
 describe("OrganizationSettingsPage — Facebook e Instagram (ítem 173)", () => {
+  it("A-07: con #metaCode y #metaState en la URL manda los dos a /complete una sola vez", async () => {
+    mockSettings(makeOrganizationSettings());
+    const enviados: unknown[] = [];
+    server.use(
+      http.post(`${env.apiUrl}/api/integrations/meta/complete`, async ({ request }) => {
+        enviados.push(await request.json());
+        return HttpResponse.json(
+          { error: { message: "Este intento de conexión con Facebook ya se usó." } },
+          { status: 400 },
+        );
+      }),
+    );
+    renderPage("/organization#metaCode=el-code&metaState=el-state");
+
+    expect(
+      await screen.findByText(
+        "No se pudo conectar Facebook: Este intento de conexión con Facebook ya se usó.",
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(enviados).toEqual([{ code: "el-code", state: "el-state" }]));
+  });
+
   it("la sección de Facebook es una tarjeta más de la pantalla y lee la vuelta del callback de la URL", async () => {
     mockSettings(makeOrganizationSettings());
     renderPage("/organization?metaError=" + encodeURIComponent("Se canceló la autorización"));
