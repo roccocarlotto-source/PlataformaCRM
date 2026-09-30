@@ -16,6 +16,7 @@ import {
   resetLlmProviderParaTests,
   setLlmProviderForTests,
   type LlmCompletionRequest,
+  type LlmCompletionResult,
   type LlmMessage,
 } from "../services/llmProvider.service";
 import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
@@ -99,6 +100,8 @@ let llamadasAlLlm = 0;
 let requestsAlLlm: LlmCompletionRequest[] = [];
 let fallosDelLlm = 0;
 let alLlamarAlLlm: (() => Promise<void>) | null = null;
+// Respuestas guionadas, en orden; agotadas, vuelve la respuesta de texto fija.
+let guionDelLlm: LlmCompletionResult[] = [];
 
 const deps: WhatsappWebhookDeps = {
   verifyToken: () => VERIFY_TOKEN,
@@ -218,7 +221,7 @@ before(async () => {
         fallosDelLlm--;
         throw new Error("fallo del doble que no es del proveedor");
       }
-      return { text: RESPUESTA_DEL_AGENTE, toolCalls: [] };
+      return guionDelLlm.shift() ?? { text: RESPUESTA_DEL_AGENTE, toolCalls: [] };
     },
   });
 
@@ -317,6 +320,7 @@ beforeEach(async () => {
   requestsAlLlm = [];
   fallosDelLlm = 0;
   alLlamarAlLlm = null;
+  guionDelLlm = [];
   appSecretConfigurado = APP_SECRET;
   accessTokenDelWorker = ACCESS_TOKEN;
   descargados = [];
@@ -545,6 +549,50 @@ test("mensaje de texto de un número nuevo -> el webhook crea el Contact, persis
   assert.equal(terminado.attempts, 1);
   assert.equal(terminado.responseMessageId, mensajes[1].id);
   assert.equal(terminado.lockedUntil, null);
+});
+
+// Prueba en vivo del 29/09, de punta a punta: «¿tienen alguna pickup usada?»
+// por WhatsApp, el modelo busca y contesta SIN llamar a create_lead —el
+// residual real—, y la ficha igual queda con la intención. La guarda el
+// backend al correr search_vehicles, no el modelo.
+test("entrante de WhatsApp → search_vehicles → la ficha del contacto queda con la intención, aunque el modelo no llame a create_lead", async () => {
+  await prisma.agent.update({
+    where: { id: fx.agentId },
+    data: { enabledTools: ["search_vehicles"] },
+  });
+  try {
+    guionDelLlm = [
+      {
+        text: null,
+        toolCalls: [
+          {
+            id: "call_busqueda",
+            name: "search_vehicles",
+            arguments: { bodyType: "PICKUP", condition: "USED" },
+          },
+        ],
+      },
+      { text: RESPUESTA_DEL_AGENTE, toolCalls: [] },
+    ];
+    const waId = waIdAlAzar();
+
+    const res = await enviar(payloadDeTexto({ waId, body: "¿tienen alguna pickup usada?" }));
+    assert.equal(res.status, 200);
+    const resumen = await drenar();
+    assert.equal(resumen.respondidos, 1);
+
+    const [contacto] = await contactosConTelefono(`+${waId}`);
+    assert.equal(contacto.leadIntent, "Busca: pickup · usado");
+
+    // El modelo recibió en el resultado que ya quedó guardada.
+    assert.equal(llamadasAlLlm, 2);
+    const resultado = requestsAlLlm[1].messages.find((m) => m.role === "tool");
+    assert.ok(resultado, "la segunda ronda lleva el resultado de la tool");
+    assert.match(textoDe(resultado), /"intencionGuardada"/);
+    assert.equal(enviados.at(-1)?.body, RESPUESTA_DEL_AGENTE);
+  } finally {
+    await prisma.agent.update({ where: { id: fx.agentId }, data: { enabledTools: [] } });
+  }
 });
 
 // G-07 de docs-privados/auditoria-2026-09-30-corta.md (local, no está en
