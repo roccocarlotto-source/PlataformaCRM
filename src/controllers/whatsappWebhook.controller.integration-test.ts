@@ -25,6 +25,8 @@ import {
   MARCADOR_DE_AUDIO,
   MARCADOR_DE_IMAGEN,
   MARCADOR_DE_UBICACION,
+  MARCADORES_NO_SOPORTADOS,
+  RESPUESTA_TIPO_NO_SOPORTADO,
 } from "../services/whatsappWebhook.service";
 import { proximaAperturaDeLaSucursal } from "../services/branchBusinessHours.service";
 import { closeConversation } from "../services/conversation.service";
@@ -1288,25 +1290,137 @@ test("un change con statuses de un wamid desconocido -> 200 sin crear nada", asy
 
 // Desde el ítem 163 las imágenes se procesan: el ejemplo de tipo ignorado es
 // un sticker (ítem 165, pendiente).
-test("un mensaje de un tipo que no se procesa (sticker) -> 200 sin procesar", async () => {
-  const waId = waIdAlAzar();
+// B-09 residual (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local):
+// lo que el agente no interpreta ya no se ignora en silencio.
+
+// Un payload con UN mensaje de cualquier tipo, armado sobre el de texto.
+function payloadConMensaje(waId: string, mensaje: Record<string, unknown>, wamid?: string) {
   const payload = payloadDeTexto({ waId });
-  // Un sticker no trae `text`: se reemplaza el array entero.
   (payload.entry[0].changes[0].value as { messages: unknown[] }).messages = [
     {
       from: waId,
-      id: `wamid.${randomUUID()}`,
-      timestamp: "1",
-      type: "sticker",
-      sticker: { id: "media-id", mime_type: "image/webp", animated: false },
+      id: wamid ?? `wamid.${randomUUID()}`,
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      ...mensaje,
     },
   ];
+  return payload;
+}
 
-  const res = await enviar(payload);
+test("B-09: un sticker queda en la conversación y el cliente recibe la respuesta fija, sin pasar por el modelo", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  const res = await enviar(
+    payloadConMensaje(
+      waId,
+      { type: "sticker", sticker: { id: "media-id", mime_type: "image/webp", animated: false } },
+      wamid,
+    ),
+  );
   assert.equal(res.status, 200);
+  await drenar();
+
+  assert.equal(llamadasAlLlm, 0, "no se llamó al modelo");
+  assert.deepEqual(
+    enviados.map((e) => [e.to, e.body]),
+    [[waId, RESPUESTA_TIPO_NO_SOPORTADO]],
+  );
+
+  const entrante = await entranteConWamid(wamid);
+  assert.equal(entrante.content, MARCADORES_NO_SOPORTADOS.sticker);
+  const mensajes = await prisma.message.findMany({
+    where: { conversationId: entrante.conversationId },
+    orderBy: { createdAt: "asc" },
+  });
+  assert.deepEqual(
+    mensajes.map((m) => [m.senderType, m.content, m.deliveryStatus]),
+    [
+      ["CONTACT", "[sticker]", null],
+      ["AGENT", RESPUESTA_TIPO_NO_SOPORTADO, "SENT"],
+    ],
+  );
+  const [job] = await jobsDe(entrante.id);
+  assert.equal(job.status, "DONE");
+});
+
+test("B-09: video, documento y contacto compartido reciben la misma respuesta fija", async () => {
+  for (const mensaje of [
+    { type: "video", video: { id: "v1", mime_type: "video/mp4" } },
+    { type: "document", document: { id: "d1", mime_type: "application/pdf", filename: "x.pdf" } },
+    { type: "contacts", contacts: [{ name: { formatted_name: "Juan" } }] },
+  ]) {
+    enviados.length = 0;
+    const waId = waIdAlAzar();
+    assert.equal((await enviar(payloadConMensaje(waId, mensaje))).status, 200);
+    await drenar();
+    assert.deepEqual(
+      enviados.map((e) => e.body),
+      [RESPUESTA_TIPO_NO_SOPORTADO],
+      mensaje.type,
+    );
+  }
+  assert.equal(llamadasAlLlm, 0);
+});
+
+test("B-09: una reacción se ignora sin respuesta y sin crear nada", async () => {
+  const waId = waIdAlAzar();
+  const res = await enviar(
+    payloadConMensaje(waId, { type: "reaction", reaction: { message_id: "wamid.x", emoji: "👍" } }),
+  );
+  assert.equal(res.status, 200);
+  await drenar();
   assert.equal((await contactosConTelefono(`+${waId}`)).length, 0);
   assert.equal(llamadasAlLlm, 0);
   assert.equal(enviados.length, 0);
+});
+
+test("B-09: un botón se lee como el texto que tocó el cliente y lo contesta el agente", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.${randomUUID()}`;
+  await enviar(
+    payloadConMensaje(
+      waId,
+      { type: "button", button: { text: "Sí, me interesa", payload: "SI" } },
+      wamid,
+    ),
+  );
+  await drenar();
+
+  assert.equal((await entranteConWamid(wamid)).content, "Sí, me interesa");
+  assert.equal(llamadasAlLlm, 1, "el turno corrió");
+  assert.deepEqual(
+    enviados.map((e) => e.body),
+    [RESPUESTA_DEL_AGENTE],
+  );
+});
+
+test("B-09: si una persona atiende el hilo, un documento tampoco recibe la respuesta fija", async () => {
+  const waId = waIdAlAzar();
+  const { conversation } = await conversacionPreexistente(waId, "TRANSFERRED_TO_HUMAN");
+  await prisma.message.create({
+    data: {
+      organizationId: fx.orgId,
+      conversationId: conversation.id,
+      direction: "OUTBOUND",
+      senderType: "HUMAN",
+      senderUserId: fx.userId,
+      content: "Te atiendo yo.",
+    },
+  });
+
+  await enviar(
+    payloadConMensaje(waId, {
+      type: "document",
+      document: { id: "d1", mime_type: "application/pdf" },
+    }),
+  );
+  await drenar();
+
+  assert.equal(enviados.length, 0, "el agente no le habla encima a la persona");
+  const entrantes = await prisma.message.count({
+    where: { conversationId: conversation.id, content: MARCADORES_NO_SOPORTADOS.document },
+  });
+  assert.equal(entrantes, 1, "el documento queda registrado para la persona");
 });
 
 // ---------------------------------------------------------------------------
