@@ -414,6 +414,13 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(30 * 60 * 1000),
+  // Cuántos turnos del agente pueden tener tomado el lock por conversación a
+  // la vez (C-12 de docs-privados/auditoria-2026-09-30-corta.md, local, no
+  // está en GitHub; src/utils/limitadorDeTurnos.ts). Cada uno ocupa una
+  // conexión del pool durante todo el turno, así que tiene que quedar por
+  // debajo del pool. Sin valor, se deriva de `connection_limit` en
+  // DATABASE_URL (la mitad) o, si no está, es 2 (cupoDeTurnosPorDefecto).
+  AGENT_TURN_MAX_CONCURRENT: z.coerce.number().int().positive().optional(),
 
   // -------------------------------------------------------------------------
   // Seguimientos por WhatsApp con el QR al ganar una oportunidad (ítem 159 de

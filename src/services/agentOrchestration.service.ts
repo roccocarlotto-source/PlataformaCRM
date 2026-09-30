@@ -26,6 +26,7 @@ import {
   type CreateMessageData,
 } from "../repositories/message.repository";
 import { AppError } from "../utils/AppError";
+import { crearLimitadorDeTurnos, cupoDeTurnosPorDefecto } from "../utils/limitadorDeTurnos";
 import { isoEnZona } from "../utils/timezone";
 import { createActivity } from "./activity.service";
 import { puedeEjecutarTool, type DatosDisponibles } from "./agentPermissions.service";
@@ -1194,8 +1195,15 @@ async function crearActivityDeAviso(
 // cliente de siempre, en otras conexiones del pool—; la transacción solo
 // existe para ser dueña del lock, que Postgres suelta solo al commitear o al
 // abortarse (incluido un proceso muerto: la conexión se cae y el lock con
-// ella). El costo es una conexión del pool ocupada por turno en curso, y una
-// más por cada turno que espera el lock del mismo contacto.
+// ella). El costo es una conexión del pool ocupada por turno en curso.
+//
+// CUÁNTAS Y DÓNDE SE ESPERA (C-12 de docs-privados/auditoria-2026-09-30-corta.md,
+// local, no está en GitHub): antes, cada turno que esperaba el lock del mismo
+// contacto ocupaba además su propia conexión esperando, y no había tope de
+// turnos con el lock tomado; unos pocos mensajes seguidos por el widget
+// público llenaban el pool y trababan todo el backend. Ahora el turno pasa
+// primero por limitadorDeTurnos: espera en memoria a los otros turnos de la
+// misma clave y a que haya cupo, y recién ahí abre la transacción.
 //
 // hashtext() lleva la clave a un entero de 32 bits: dos conversaciones
 // distintas pueden compartir el número, y lo único que pasa es que se
@@ -1232,14 +1240,21 @@ export async function conLockDeConversacion<T>(
   clave: ClaveDeConversacion,
   fn: () => Promise<T>,
 ): Promise<T> {
-  return prisma.$transaction(
-    async (tx) => {
-      await tomarLockDeConversacion(tx, clave);
-      return fn();
-    },
-    { maxWait: 10_000, timeout: env.AGENT_TURN_LOCK_TIMEOUT_MS },
+  return limitadorDeTurnos.correr(claveDeLockDeConversacion(clave), () =>
+    prisma.$transaction(
+      async (tx) => {
+        await tomarLockDeConversacion(tx, clave);
+        return fn();
+      },
+      { maxWait: 10_000, timeout: env.AGENT_TURN_LOCK_TIMEOUT_MS },
+    ),
   );
 }
+
+// Uno por proceso: el cupo es de las conexiones de ESTE pool de Prisma.
+const limitadorDeTurnos = crearLimitadorDeTurnos(
+  env.AGENT_TURN_MAX_CONCURRENT ?? cupoDeTurnosPorDefecto(env.DATABASE_URL),
+);
 
 // ---------------------------------------------------------------------------
 // El turno
