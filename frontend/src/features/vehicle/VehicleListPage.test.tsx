@@ -440,6 +440,39 @@ describe("VehicleListPage", () => {
   // fila ya cargada (VehicleListItem) y sin GET /vehicles/:id.
   // -------------------------------------------------------------------------
 
+  // F-02 (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local):
+  // decisión de Rocco — el vendedor ve el costo de adquisición y el precio
+  // mínimo aceptable, igual que un ADMIN. Antes el backend ya se los mandaba y
+  // la pantalla se los escondía (no tenía "Ver detalle").
+  it("F-02: un USER abre Ver detalle (su única acción) y ve el costo y el precio mínimo", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      branchesHandler(),
+      vehiclesHandler([
+        makeVehicleListItem({
+          priceListUsd: "25000.00",
+          minAcceptablePriceUsd: "23500.00",
+          acquisitionCostUsd: "21000.00",
+        }),
+      ]),
+    );
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Toyota Corolla 2020")).toBeInTheDocument());
+    await openActionsMenu(user);
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Ver detalle",
+    ]);
+    await user.click(screen.getByRole("menuitem", { name: "Ver detalle" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Detalle de la unidad" });
+    expect(within(dialog).getByText("Precio mínimo aceptable (USD)")).toBeInTheDocument();
+    expect(within(dialog).getByText("23.500")).toBeInTheDocument();
+    expect(within(dialog).getByText("Costo de adquisición (USD)")).toBeInTheDocument();
+    expect(within(dialog).getByText("21.000")).toBeInTheDocument();
+  });
+
   it("§28 Ver detalle abre la ficha por secciones con importes/kilometraje formateados, sucursal y vendedor por nombre; cierra con × y con Escape", async () => {
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     let detailRequests = 0;
