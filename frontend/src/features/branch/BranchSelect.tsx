@@ -12,8 +12,8 @@ interface BranchSelectProps {
   emptyOptionLabel?: string;
   // Obligatorio: "*" de .ds-required en el rótulo Y `required` en el input
   // del selector, siempre juntos (mismo contrato que PipelineSelect/
-  // StageSelect). Lo pasan los formularios que exigen sucursal (QR, Vehículo,
-  // Claim); el filtro del listado de QR no. El selector solo existe con la
+  // StageSelect). Lo pasan los formularios que exigen sucursal (QR,
+  // Vehículo); el filtro del listado de QR no. El selector solo existe con la
   // lista cargada: cada formulario cubre ese hueco con su propio chequeo.
   required?: boolean;
   // Para mostrar una sucursal que NO se puede cambiar, en vez de esconder el

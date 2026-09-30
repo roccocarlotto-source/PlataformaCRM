@@ -4,7 +4,6 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeQrCode } from "../../test/qrFixtures";
 import {
-  claimQrCode,
   createDigitalQrCode,
   deleteQrCode,
   getSuggestedQrDisplayNumber,
@@ -112,49 +111,6 @@ describe("features/qr/api", () => {
       message: null,
     });
     expect(created).toEqual(creado);
-  });
-
-  it("claimQrCode: POST /api/qr/claim con qrId en el body (nunca en el path)", async () => {
-    let body: unknown;
-    server.use(
-      http.post(`${baseUrl}/claim`, async ({ request }) => {
-        body = await request.json();
-        return HttpResponse.json(makeQrCode(), { status: 201 });
-      }),
-    );
-
-    await claimQrCode({
-      qrId: "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11",
-      branchId: "b1",
-      name: "Mostrador",
-      destinationUrl: "https://g.page/r/abc/review",
-      message: "Gracias",
-    });
-
-    expect(body).toEqual({
-      qrId: "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11",
-      branchId: "b1",
-      name: "Mostrador",
-      destinationUrl: "https://g.page/r/abc/review",
-      message: "Gracias",
-    });
-  });
-
-  it("claimQrCode: el 409 genérico del backend llega como ApiError con su mensaje", async () => {
-    server.use(
-      http.post(`${baseUrl}/claim`, () =>
-        HttpResponse.json({ error: { message: "QR ya reclamado o no existe" } }, { status: 409 }),
-      ),
-    );
-
-    await expect(
-      claimQrCode({
-        qrId: "d54f2f0e-4d3c-4a3b-9a3e-8f2c9c1f0a11",
-        branchId: "b1",
-        name: "x",
-        destinationUrl: "https://x.y",
-      }),
-    ).rejects.toMatchObject({ status: 409, message: "QR ya reclamado o no existe" });
   });
 
   it("updateQrCode: PATCH /api/qr/:id con solo los campos enviados", async () => {

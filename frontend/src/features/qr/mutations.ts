@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { claimQrCode, createDigitalQrCode, deleteQrCode, updateQrCode } from "./api";
+import { createDigitalQrCode, deleteQrCode, updateQrCode } from "./api";
 import { qrKeys } from "./queries";
-import type { ClaimQrInput, CreateDigitalQrInput, UpdateQrInput } from "./types";
+import type { CreateDigitalQrInput, UpdateQrInput } from "./types";
 
 // Invalidación mínima, mismo patrón que company/apiKey: cada mutación
 // invalida `all` — no hay `detail` porque no existe el endpoint.
@@ -24,16 +24,6 @@ export function useCreateDigitalQrCode() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateDigitalQrInput) => createDigitalQrCode(input),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: qrKeys.all });
-    },
-  });
-}
-
-export function useClaimQrCode() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: ClaimQrInput) => claimQrCode(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: qrKeys.all });
     },

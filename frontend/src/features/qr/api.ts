@@ -1,7 +1,6 @@
 import { request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type {
-  ClaimQrInput,
   CreateDigitalQrInput,
   QrCode,
   QrCodeListQuery,
@@ -15,7 +14,7 @@ import type {
 // organizationId nunca viaja: se resuelve server-side desde el JWT.
 //
 // Sin getQrCode(id): no existe GET /api/qr/:id en el backend (qr.routes.ts
-// tiene GET del listado, POST claim/digital, PATCH y DELETE — nada más).
+// tiene GET del listado, POST digital, PATCH y DELETE — nada más).
 // Por eso la edición se hace en un diálogo con la fila ya cargada en el
 // listado, no en una ruta /qr/:id/edit que tendría que refetchear el
 // registro (ver QrFormDialog.tsx).
@@ -56,14 +55,6 @@ export function getSuggestedQrDisplayNumber(
 
 export function createDigitalQrCode(input: CreateDigitalQrInput): Promise<QrCode> {
   return request<QrCode>("/qr/digital", {
-    method: "POST",
-    body: input,
-    getAccessToken,
-  });
-}
-
-export function claimQrCode(input: ClaimQrInput): Promise<QrCode> {
-  return request<QrCode>("/qr/claim", {
     method: "POST",
     body: input,
     getAccessToken,

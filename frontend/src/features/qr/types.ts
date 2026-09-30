@@ -85,21 +85,6 @@ export interface CreateDigitalQrInput {
   displayNumber?: number;
 }
 
-// claimQrSchema: mismo shape que digital más el qrId del sticker.
-//
-// OJO: POST /api/qr/claim ya NO existe en el backend (lo sacó la misma
-// migración; ver el comentario de qr.routes.ts). Esto y su consumidor
-// —api.ts::claimQrCode y la ruta /qr/claim/:id de ClaimPage— quedan en pie
-// porque sacarlos es borrar una página entera con su ruta y sus tests: un ítem
-// propio, anotado en el 53. Hoy esa pantalla le pega a un endpoint inexistente.
-export interface ClaimQrInput {
-  qrId: string;
-  branchId: string;
-  name: string;
-  destinationUrl: string;
-  message?: string | null;
-}
-
 // updateQrSchema: parcial de verdad, al menos un campo; `message: null` lo
 // vacía explícitamente. Sin branchId: mover un QR de sucursal no es una
 // operación del contrato.
