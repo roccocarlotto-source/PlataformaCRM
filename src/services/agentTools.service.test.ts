@@ -13,6 +13,7 @@ import {
   toolsHabilitadas,
   type ContextoDeEjecucionDeTool,
   tituloConUnidad,
+  precioOcultoParaElModelo,
 } from "./agentTools.service";
 
 // Unitarios, SIN BASE: lo que se prueba acá es la forma del catálogo y la
@@ -855,4 +856,22 @@ test("intención de búsqueda: nunca pasa del largo de la columna", () => {
   );
   assert.ok(r !== null && r.length <= 200);
   assert.ok(r.startsWith("Busca: pickup · "));
+});
+
+// B-17 (docs-privados/auditoria-2026-09-30-corta.md, local): cuándo el monto
+// de una oportunidad es el precio de una unidad que el negocio no publica.
+test("precioOcultoParaElModelo: a consultar siempre; si no, según la moneda que se publica", () => {
+  const unidad = (priceOnRequest: boolean, publicationCurrency: string) => ({
+    priceOnRequest,
+    publicationCurrency,
+  });
+  assert.equal(precioOcultoParaElModelo(unidad(true, "BOTH"), "USD"), true);
+  assert.equal(precioOcultoParaElModelo(unidad(true, "BOTH"), null), true);
+  assert.equal(precioOcultoParaElModelo(unidad(false, "BOTH"), "USD"), false);
+  assert.equal(precioOcultoParaElModelo(unidad(false, "BOTH"), "UYU"), false);
+  assert.equal(precioOcultoParaElModelo(unidad(false, "LOCAL_ONLY"), "USD"), true);
+  assert.equal(precioOcultoParaElModelo(unidad(false, "LOCAL_ONLY"), "UYU"), false);
+  assert.equal(precioOcultoParaElModelo(unidad(false, "USD_ONLY"), "UYU"), true);
+  assert.equal(precioOcultoParaElModelo(unidad(false, "USD_ONLY"), "USD"), false);
+  assert.equal(precioOcultoParaElModelo(unidad(false, "USD_ONLY"), null), false);
 });

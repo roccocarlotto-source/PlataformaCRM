@@ -2179,6 +2179,93 @@ test("reserve_vehicle vincula la unidad a la oportunidad abierta y la deja RESER
   assert.equal(r2.ok, false);
 });
 
+// B-17 (docs-privados/auditoria-2026-09-30-corta.md, local): reservar una
+// unidad le copia su precio de lista a la oportunidad. Si la unidad es "a
+// consultar", ese monto no puede volverle al modelo por create_opportunity ni
+// por update_opportunity.
+test("B-17: reservada una unidad a consultar, ninguna tool de oportunidad le devuelve su precio al modelo", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  const v = await unidad(a, {
+    make: "Ford",
+    model: "Ranger",
+    trim: "B17 Consultar",
+    year: 2024,
+    priceListUsd: 61_000,
+    priceOnRequest: true,
+  });
+  await datosDe("create_opportunity", { title: "Interés en Ranger" }, ctx);
+  await datosDe("reserve_vehicle", { vehiculo: "Ranger B17 Consultar" }, ctx);
+
+  const fila = await prisma.opportunity.findFirstOrThrow({
+    where: { contactId: contacto.id, vehicleId: v.id },
+  });
+  assert.equal(Number(fila.amount), 61_000, "la oportunidad sí guarda el precio (para el panel)");
+
+  const reuso = await datosDe<Record<string, unknown>>(
+    "create_opportunity",
+    { title: "Interés en Ranger" },
+    ctx,
+  );
+  const reusoConUnidad = await datosDe<Record<string, unknown>>(
+    "create_opportunity",
+    { title: "Interés", vehiculo: "Ranger B17 Consultar" },
+    ctx,
+  );
+  const actualizada = await datosDe<Record<string, unknown>>(
+    "update_opportunity",
+    { title: "Ranger a consultar" },
+    ctx,
+  );
+
+  for (const resultado of [reuso, reusoConUnidad, actualizada]) {
+    assert.equal(resultado.amount, null);
+    assert.equal(resultado.currency, null);
+    assert.equal(resultado.precioAConsultar, true);
+    assert.doesNotMatch(JSON.stringify(resultado), /61000|61\.000|61,000/);
+  }
+});
+
+test("B-17: una unidad que solo publica precio en moneda local no filtra su precio en USD", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  await unidad(a, {
+    make: "Ford",
+    model: "Ranger",
+    trim: "B17 Solo Local",
+    year: 2024,
+    priceListUsd: 52_000,
+    publicationCurrency: "LOCAL_ONLY",
+  });
+  await datosDe("create_opportunity", { title: "Interés en Ranger" }, ctx);
+  await datosDe("reserve_vehicle", { vehiculo: "Ranger B17 Solo Local" }, ctx);
+
+  const reuso = await datosDe<Record<string, unknown>>(
+    "create_opportunity",
+    { title: "Interés en Ranger" },
+    ctx,
+  );
+  assert.equal(reuso.amount, null);
+  assert.doesNotMatch(JSON.stringify(reuso), /52000/);
+});
+
+test("B-17: con una unidad de precio publicado, el monto sigue viajando", async () => {
+  const contacto = await nuevoContacto(a);
+  const ctx = contextoDe(a.organizationId, contacto.id, a.branchId);
+  await ranger("B17 Publicada");
+  await datosDe("create_opportunity", { title: "Interés en Ranger" }, ctx);
+  await datosDe("reserve_vehicle", { vehiculo: "Ranger B17 Publicada" }, ctx);
+
+  const reuso = await datosDe<Record<string, unknown>>(
+    "create_opportunity",
+    { title: "Interés en Ranger" },
+    ctx,
+  );
+  assert.equal(Number(reuso.amount), 45_000);
+  assert.equal(reuso.currency, "USD");
+  assert.ok(!("precioAConsultar" in reuso));
+});
+
 test("reserve_vehicle pedida de nuevo sobre la misma unidad es idempotente, no un «ya no está»", async () => {
   // resolverVehiculo solo ve las AVAILABLE: sin este caso, la segunda llamada
   // contestaría "no hay ninguna unidad que coincida" sobre la unidad que el
