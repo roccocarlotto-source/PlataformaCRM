@@ -2,14 +2,16 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AppError } from "../utils/AppError";
 import {
+  MENSAJE_USER_SOLO_AUTOASIGNA,
   canReadActivity,
-  canSelfServiceCompleteActivity,
+  canUserPatchActivity,
+  resolveAssigneeForActor,
   resolveConfirmationPatch,
   scopeActivityFiltersToActor,
 } from "./activity.service";
 
 // --------------------------------------------------------------------------
-// canSelfServiceCompleteActivity — la regla de autorización por recurso de
+// canUserPatchActivity — la regla de autorización por recurso de
 // PATCH /api/activities/:id, que reemplazó a authorize("ADMIN") en la ruta.
 // Función pura: se prueba sin base ni mocks, mismo criterio que
 // contact.service.test.ts. La aplicación real con filas y roles reales está
@@ -18,83 +20,79 @@ import {
 
 const admin = { userId: "admin-1", role: "ADMIN" as const };
 const user = { userId: "user-1", role: "USER" as const };
-const own = { assigneeId: "user-1", completedAt: null };
-const ajena = { assigneeId: "user-2", completedAt: null };
-const sinAsignar = { assigneeId: null, completedAt: null };
+// `own` es la que un ADMIN le asignó a user-1 (autor ajeno): solo puede
+// completarla. `ownCreada` (B-18) es la que user-1 creó para sí mismo.
+const own = { assigneeId: "user-1", authorId: "admin-1", completedAt: null };
+const ownCreada = { assigneeId: "user-1", authorId: "user-1", completedAt: null };
+const ajena = { assigneeId: "user-2", authorId: "admin-1", completedAt: null };
+const sinAsignar = { assigneeId: null, authorId: "admin-1", completedAt: null };
 // §29: la propia, pero ya tildada (esperando confirmación o confirmada).
-const ownCompletada = { assigneeId: "user-1", completedAt: new Date("2026-09-14T10:00:00Z") };
+const ownCompletada = {
+  assigneeId: "user-1",
+  authorId: "admin-1",
+  completedAt: new Date("2026-09-14T10:00:00Z"),
+};
+const ownCreadaCompletada = { ...ownCompletada, authorId: "user-1" };
 
 test("ADMIN: cualquier campo, cualquier assignee (incluso sin asignar)", () => {
-  assert.equal(canSelfServiceCompleteActivity(admin, ajena, { subject: "x" }), true);
-  assert.equal(canSelfServiceCompleteActivity(admin, sinAsignar, { assigneeId: "u9" }), true);
-  assert.equal(
-    canSelfServiceCompleteActivity(admin, own, { completedAt: new Date(), type: "CALL" }),
-    true,
-  );
+  assert.equal(canUserPatchActivity(admin, ajena, { subject: "x" }), true);
+  assert.equal(canUserPatchActivity(admin, sinAsignar, { assigneeId: "u9" }), true);
+  assert.equal(canUserPatchActivity(admin, own, { completedAt: new Date(), type: "CALL" }), true);
   // Y sobre una ya completada también: destildar o confirmar es cosa suya.
-  assert.equal(canSelfServiceCompleteActivity(admin, ownCompletada, { completedAt: null }), true);
-  assert.equal(canSelfServiceCompleteActivity(admin, ownCompletada, { confirmed: true }), true);
+  assert.equal(canUserPatchActivity(admin, ownCompletada, { completedAt: null }), true);
+  assert.equal(canUserPatchActivity(admin, ownCompletada, { confirmed: true }), true);
 });
 
 test("USER completando su propia actividad pendiente, solo completedAt: true", () => {
-  assert.equal(canSelfServiceCompleteActivity(user, own, { completedAt: new Date() }), true);
+  assert.equal(canUserPatchActivity(user, own, { completedAt: new Date() }), true);
 });
 
 // §29: antes un USER podía mandar completedAt: null y destildarse. Con la
 // confirmación de por medio, eso revertiría una tarea que ya espera
 // revisión. Solo puede completar, nunca destildar.
 test("§29 USER intentando destildar su propia actividad ya completada (completedAt: null): false", () => {
-  assert.equal(canSelfServiceCompleteActivity(user, ownCompletada, { completedAt: null }), false);
+  assert.equal(canUserPatchActivity(user, ownCompletada, { completedAt: null }), false);
 });
 
 test("§29 USER volviendo a mandar completedAt sobre su propia actividad ya completada: false", () => {
-  assert.equal(
-    canSelfServiceCompleteActivity(user, ownCompletada, { completedAt: new Date() }),
-    false,
-  );
+  assert.equal(canUserPatchActivity(user, ownCompletada, { completedAt: new Date() }), false);
 });
 
 // completedAt: null sobre una todavía pendiente no revierte nada: es un
 // no-op, y la regla no lo distingue de tildar (mira la fila, no el valor).
 test("USER mandando completedAt: null sobre su propia actividad todavía pendiente: true (no-op)", () => {
-  assert.equal(canSelfServiceCompleteActivity(user, own, { completedAt: null }), true);
+  assert.equal(canUserPatchActivity(user, own, { completedAt: null }), true);
 });
 
 test("USER assignee mandando otro campo además de completedAt: false", () => {
-  assert.equal(
-    canSelfServiceCompleteActivity(user, own, { completedAt: new Date(), subject: "x" }),
-    false,
-  );
+  assert.equal(canUserPatchActivity(user, own, { completedAt: new Date(), subject: "x" }), false);
 });
 
 test("USER assignee mandando un campo que NO es completedAt: false", () => {
-  assert.equal(canSelfServiceCompleteActivity(user, own, { subject: "x" }), false);
+  assert.equal(canUserPatchActivity(user, own, { subject: "x" }), false);
   // Reasignarse a sí mismo o a otro tampoco: no es completedAt.
-  assert.equal(canSelfServiceCompleteActivity(user, own, { assigneeId: "user-2" }), false);
+  assert.equal(canUserPatchActivity(user, own, { assigneeId: "user-2" }), false);
 });
 
 // §29: Confirmar/Rechazar no es completedAt, así que un USER nunca llega a
 // la rama de confirmación — ni sobre la propia pendiente de confirmar.
 test("§29 USER mandando `confirmed` (solo o con completedAt): false, sea cual sea la fila", () => {
-  assert.equal(canSelfServiceCompleteActivity(user, ownCompletada, { confirmed: true }), false);
-  assert.equal(canSelfServiceCompleteActivity(user, ownCompletada, { confirmed: false }), false);
-  assert.equal(canSelfServiceCompleteActivity(user, own, { confirmed: false }), false);
+  assert.equal(canUserPatchActivity(user, ownCompletada, { confirmed: true }), false);
+  assert.equal(canUserPatchActivity(user, ownCompletada, { confirmed: false }), false);
+  assert.equal(canUserPatchActivity(user, own, { confirmed: false }), false);
   assert.equal(
-    canSelfServiceCompleteActivity(user, own, { completedAt: new Date(), confirmed: true }),
+    canUserPatchActivity(user, own, { completedAt: new Date(), confirmed: true }),
     false,
   );
 });
 
 test("USER con completedAt pero NO siendo el assignee: false (ajena y sin asignar)", () => {
-  assert.equal(canSelfServiceCompleteActivity(user, ajena, { completedAt: new Date() }), false);
-  assert.equal(
-    canSelfServiceCompleteActivity(user, sinAsignar, { completedAt: new Date() }),
-    false,
-  );
+  assert.equal(canUserPatchActivity(user, ajena, { completedAt: new Date() }), false);
+  assert.equal(canUserPatchActivity(user, sinAsignar, { completedAt: new Date() }), false);
 });
 
 test("USER con body vacío: false", () => {
-  assert.equal(canSelfServiceCompleteActivity(user, own, {}), false);
+  assert.equal(canUserPatchActivity(user, own, {}), false);
 });
 
 // Una clave presente con valor undefined sigue siendo una clave del body
@@ -104,9 +102,63 @@ test("USER con body vacío: false", () => {
 // cambia nada, pero la regla no depende de esa suposición.
 test("USER: una clave extra con valor undefined también cuenta como campo extra", () => {
   assert.equal(
-    canSelfServiceCompleteActivity(user, own, { completedAt: new Date(), subject: undefined }),
+    canUserPatchActivity(user, own, { completedAt: new Date(), subject: undefined }),
     false,
   );
+});
+
+// B-18: la que creó él mismo sí la edita entera (salvo `confirmed`).
+test("B-18 USER autor y assignee de una pendiente: edita cualquier campo", () => {
+  assert.equal(canUserPatchActivity(user, ownCreada, { subject: "x" }), true);
+  assert.equal(
+    canUserPatchActivity(user, ownCreada, {
+      type: "CALL",
+      body: "notas",
+      dueDate: new Date(),
+      contactId: "c-1",
+    }),
+    true,
+  );
+  assert.equal(canUserPatchActivity(user, ownCreada, { completedAt: new Date() }), true);
+  assert.equal(canUserPatchActivity(user, ownCreada, { confirmed: true }), false);
+});
+
+test("B-18 USER autor de una que ya completó: congelada, ni editar ni destildar", () => {
+  assert.equal(canUserPatchActivity(user, ownCreadaCompletada, { subject: "x" }), false);
+  assert.equal(canUserPatchActivity(user, ownCreadaCompletada, { completedAt: null }), false);
+});
+
+test("B-18 USER autor que ya no es el assignee (se la reasignó un ADMIN): no la edita", () => {
+  const reasignada = { ...ownCreada, assigneeId: "user-2" };
+  assert.equal(canUserPatchActivity(user, reasignada, { subject: "x" }), false);
+});
+
+// --------------------------------------------------------------------------
+// B-18 — resolveAssigneeForActor: a quién puede asignar cada rol. Una sola
+// regla para POST, PATCH y create_internal_task.
+// --------------------------------------------------------------------------
+
+test("B-18 ADMIN: asigna a cualquiera, o deja sin asignar", () => {
+  assert.equal(resolveAssigneeForActor(admin, "user-2"), "user-2");
+  assert.equal(resolveAssigneeForActor(admin, undefined), undefined);
+  assert.equal(resolveAssigneeForActor(admin, null), null);
+});
+
+test("B-18 USER sin assignee o con el propio: queda asignada a sí mismo", () => {
+  assert.equal(resolveAssigneeForActor(user, undefined), "user-1");
+  assert.equal(resolveAssigneeForActor(user, "user-1"), "user-1");
+});
+
+test("B-18 USER con otro assignee o sin asignar (null): 403 con mensaje claro", () => {
+  for (const pedido of ["user-2", "admin-1", null]) {
+    assert.throws(
+      () => resolveAssigneeForActor(user, pedido),
+      (err: unknown) =>
+        err instanceof AppError &&
+        err.statusCode === 403 &&
+        err.message === MENSAJE_USER_SOLO_AUTOASIGNA,
+    );
+  }
 });
 
 // --------------------------------------------------------------------------
@@ -173,7 +225,7 @@ test("§29 Rechazar una que NO está completada: 400", () => {
   );
 });
 
-// Defensa en profundidad: canSelfServiceCompleteActivity ya rechaza a un
+// Defensa en profundidad: canUserPatchActivity ya rechaza a un
 // USER con `confirmed` en el body, pero la rama vuelve a exigir ADMIN.
 test("§29 `confirmed` con un actor USER: 403, aunque sea el assignee", () => {
   const forbidden = esperarAppError(403, "No tenés permisos para realizar esta acción");

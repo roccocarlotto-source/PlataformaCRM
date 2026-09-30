@@ -47,7 +47,7 @@ function findParentElement(
 }
 
 describe("router.tsx — wiring real de Activity", () => {
-  it("/activities/new y /activities/:id/edit están anidadas bajo AdminRoute", () => {
+  it("B-18: /activities/new y /activities/:id/edit están bajo AppLayout y NO bajo AdminRoute — el vendedor también crea tareas", () => {
     const newParent = findParentElement(router.routes, "/activities/new") as {
       type: unknown;
     };
@@ -55,8 +55,8 @@ describe("router.tsx — wiring real de Activity", () => {
       type: unknown;
     };
 
-    expect(newParent?.type).toBe(AdminRoute);
-    expect(editParent?.type).toBe(AdminRoute);
+    expect(newParent?.type).toBe(AppLayout);
+    expect(editParent?.type).toBe(AppLayout);
   });
 
   it("/activities (listado) está anidada bajo AdminRoute desde el ítem 25 — el listado completo es ADMIN-only", () => {

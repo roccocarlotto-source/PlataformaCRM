@@ -78,6 +78,7 @@ export const postInternalAgentMessageHandler = asyncHandler<AuthenticatedRequest
     const { mensaje } = await runInternalAgentTurn({
       organizationId: req.auth.organizationId,
       userId: req.auth.userId,
+      role: req.auth.role,
       userFullName: req.auth.fullName,
       texto: input.content,
     });

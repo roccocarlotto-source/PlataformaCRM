@@ -7,6 +7,7 @@ import {
   type CreateInternalAgentMessageData,
 } from "../repositories/internalAgent.repository";
 import { findOrganizationById } from "../repositories/organization.repository";
+import type { RoleName } from "../types/auth";
 import { AppError } from "../utils/AppError";
 import { isoEnZona } from "../utils/timezone";
 import {
@@ -129,6 +130,7 @@ async function resolverToolCallInterna(
 export interface TurnoInternoInput {
   organizationId: string;
   userId: string;
+  role: RoleName;
   userFullName: string;
   texto: string;
 }
@@ -172,7 +174,7 @@ export async function runInternalAgentTurn(
   input: TurnoInternoInput,
   options: TurnoInternoOptions = {},
 ): Promise<ResultadoDelTurnoInterno> {
-  const { organizationId, userId } = input;
+  const { organizationId, userId, role } = input;
   const deps = options.deps ?? dependenciasReales;
 
   // 1. El agente de la organización.
@@ -208,7 +210,7 @@ export async function runInternalAgentTurn(
   const toolsPorNombre = new Map(tools.map((t) => [t.definition.name, t]));
   const definiciones = tools.map((t) => t.definition);
   const existeLaTool = (nombre: string) => toolsPorNombre.has(nombre);
-  const contextoDeTools: ContextoDeEjecucionDeToolInterna = { organizationId, userId };
+  const contextoDeTools: ContextoDeEjecucionDeToolInterna = { organizationId, userId, role };
 
   // 4. El loop de tool-calling, con el mismo tope que el de cliente: una tool
   // que falla siempre no se arregla insistiendo.

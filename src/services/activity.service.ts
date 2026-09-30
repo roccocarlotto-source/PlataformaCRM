@@ -57,7 +57,7 @@ export interface ActivityActor {
 // "Mis tareas" (MyTasksPage.tsx, para ambos roles) usa el MISMO endpoint,
 // GET /api/activities?assigneeId=<yo>&confirmed=false, así que un USER
 // necesita seguir pidiendo su propio listado. La restricción vive acá, en
-// el service, igual que la del PATCH (canSelfServiceCompleteActivity):
+// el service, igual que la del PATCH (canUserPatchActivity):
 //
 //   - ADMIN: ve todo, con cualquier filtro que mande (incluido el
 //     assigneeId de otra persona). Sin cambios de comportamiento.
@@ -119,7 +119,7 @@ export async function listActivities(
 // Lectura interna: existe, es de esta organización y no está eliminada. Sin
 // actor a propósito — la usan updateActivity y deleteActivity, cuya
 // autorización es otra (la del PATCH da 403 y vive en
-// canSelfServiceCompleteActivity; DELETE es ADMIN-only en la ruta).
+// canUserPatchActivity; DELETE es ADMIN-only en la ruta).
 async function requireActivity(organizationId: string, id: string) {
   const activity = await findActivityById(id, organizationId);
   if (!activity) {
@@ -232,10 +232,40 @@ export interface CreateActivityInput {
   opportunityId?: string;
 }
 
+// ---------------------------------------------------------------------------
+// B-18 — a quién puede asignar una actividad quien la crea o la edita. Única
+// regla, compartida por POST /api/activities, PATCH /api/activities/:id y la
+// tool create_internal_task del agente interno (vía createActivityAsActor):
+//
+//   - ADMIN: a cualquiera de la organización, o sin asignar. Devuelve lo
+//     pedido tal cual (validateAssigneeId decide después si existe).
+//   - USER (vendedor): solo a sí mismo. Sin assignee → el propio; el propio
+//     explícito → pasa; otro usuario o null (dejarla sin asignar, que es
+//     sacársela de "Mis tareas") → 403 con un mensaje que dice por qué.
+//
+// Función pura: se prueba sin base en activity.service.test.ts.
+// ---------------------------------------------------------------------------
+export const MENSAJE_USER_SOLO_AUTOASIGNA =
+  "Como vendedor solo podés crear o editar actividades asignadas a vos";
+
+export function resolveAssigneeForActor(
+  actor: ActivityActor,
+  requested: string | null | undefined,
+): string | null | undefined {
+  if (actor.role === "ADMIN") return requested;
+  if (requested === undefined || requested === actor.userId) return actor.userId;
+  throw new AppError(MENSAJE_USER_SOLO_AUTOASIGNA, 403);
+}
+
 // authorId nunca viene de acá: lo resuelve authenticate.ts (req.auth.userId)
 // y lo pasa el controller como actorUserId — no existe en CreateActivityInput
 // a propósito, para que sea imposible que un valor del cliente llegue a
 // pisarlo, ni por error de tipeo futuro.
+//
+// Sin regla de rol a propósito: la llaman así, directo, los caminos de
+// SISTEMA sin un humano con rol detrás (derivación del agente de clientes,
+// automatizaciones), que asignan siempre al dueño. Lo que crea una persona
+// —el panel y el agente interno— entra por createActivityAsActor.
 export async function createActivity(
   organizationId: string,
   actorUserId: string,
@@ -263,6 +293,22 @@ export async function createActivity(
   });
 }
 
+// Creación en nombre de una persona (B-18): la del panel (POST
+// /api/activities, abierto a ADMIN y USER) y la del agente interno
+// (create_internal_task). Autor = el actor; assignee según
+// resolveAssigneeForActor. Las relaciones se validan contra la organización
+// en createActivity, igual para los dos roles: no existe visibilidad de
+// contactos/oportunidades por vendedor (un USER lee todos los de su
+// organización), así que no hay otra regla que aplicar acá.
+export function createActivityAsActor(
+  organizationId: string,
+  actor: ActivityActor,
+  input: CreateActivityInput,
+) {
+  const assigneeId = resolveAssigneeForActor(actor, input.assigneeId) ?? undefined;
+  return createActivity(organizationId, actor.userId, { ...input, assigneeId });
+}
+
 export interface UpdateActivityInput {
   type?: ActivityType;
   subject?: string;
@@ -286,43 +332,44 @@ export interface UpdateActivityInput {
 // ruta; ahora la regla depende del RECURSO, así que vive acá:
 //
 //   - ADMIN: cualquier campo de cualquier actividad, exactamente como hoy.
-//   - USER: self-service ACOTADO, decidido con el dueño del proyecto —
-//     puede PATCHear si y solo si (a) es su propio assigneeId, (b) el
-//     ÚNICO campo del body es completedAt (tildar en "Mis tareas"), Y (c) la
-//     actividad todavía NO está completada. No puede tocar subject/type/
-//     relaciones ni reasignarse.
+//   - USER: solo sobre una actividad (a) asignada a sí mismo y (b) todavía
+//     NO completada. Dentro de eso:
+//       - completar (el ÚNICO campo del body es completedAt, el tilde de
+//         "Mis tareas"): cualquiera de las suyas, la haya creado quien sea.
+//       - editar cualquier otro campo (B-18): solo las que además CREÓ él
+//         (authorId). Las que le asignó un ADMIN no las reescribe —decisión
+//         de Rocco—: no puede mover el vencimiento ni cambiar el asunto que
+//         puso otro. Reasignar sigue acotado por resolveAssigneeForActor.
+//     `confirmed` (Confirmar/Rechazar) nunca, en ningún caso.
 //
-// (c) es del §29: desde que el tilde queda "pendiente de confirmar" hasta
-// que un ADMIN lo revisa, dejar que el asignado mande completedAt: null
-// sería dejarlo revertir una tarea que ya está esperando revisión. Un USER
-// solo puede COMPLETAR su tarea, nunca destildarla: para deshacer un tilde
-// por error, la vía es que el ADMIN la rechace. (Un completedAt: null sobre
-// una tarea todavía pendiente sigue pasando: es un no-op, no una reversión.)
+// (b) es del §29: desde que el tilde queda "pendiente de confirmar" hasta
+// que un ADMIN lo revisa, la tarea queda congelada para el USER — ni
+// destildarla (completedAt: null sería revertir una tarea que ya espera
+// revisión; deshacer un tilde es "Rechazar", del ADMIN) ni editarla (B-18,
+// también decisión de Rocco). (Un completedAt: null sobre una tarea todavía
+// pendiente sigue pasando: es un no-op, no una reversión.)
 //
-// El motivo de todo el self-service: el checkbox de "Mis tareas" lo usa
-// quien tiene la tarea asignada, que casi nunca es ADMIN (quien asigna sí lo
-// es: el selector "Asignado a" sale de GET /api/users, ADMIN-only). Sin
-// esto, ese checkbox devolvería 403 a cualquier USER.
-//
-// `confirmed` (Confirmar/Rechazar) nunca pasa por acá para un USER: no es
-// completedAt, así que (b) ya lo rechaza. updateActivity vuelve a exigir
-// ADMIN en esa rama igual, como defensa en profundidad.
+// updateActivity vuelve a exigir ADMIN en la rama de `confirmed` igual,
+// como defensa en profundidad.
 //
 // Función pura a propósito (no toca la base): se prueba sola, sin DB —
 // mismo criterio que normalizeEmail/rethrowAsConflict en contact.service.ts.
 // Un body vacío es false: nada que autorizar (el schema ya lo rechaza
 // antes, esto es defensa en profundidad).
 // ---------------------------------------------------------------------------
-export function canSelfServiceCompleteActivity(
+export function canUserPatchActivity(
   actor: ActivityActor,
-  activity: { assigneeId: string | null; completedAt: Date | null },
+  activity: { assigneeId: string | null; authorId: string; completedAt: Date | null },
   input: UpdateActivityInput,
 ): boolean {
   if (actor.role === "ADMIN") return true;
 
   const fields = Object.keys(input);
-  const onlyCompletedAt = fields.length > 0 && fields.every((field) => field === "completedAt");
-  return onlyCompletedAt && activity.assigneeId === actor.userId && activity.completedAt === null;
+  if (fields.length === 0 || fields.includes("confirmed")) return false;
+  if (activity.assigneeId !== actor.userId || activity.completedAt !== null) return false;
+
+  const onlyCompletedAt = fields.every((field) => field === "completedAt");
+  return onlyCompletedAt || activity.authorId === actor.userId;
 }
 
 // ---------------------------------------------------------------------------
@@ -426,7 +473,7 @@ export async function updateActivity(
 
   // Autorización ANTES de tocar nada más: mismo mensaje y status que
   // authorize("ADMIN"), para que un USER sin permiso vea lo mismo que veía.
-  if (!canSelfServiceCompleteActivity(actor, activity, input)) {
+  if (!canUserPatchActivity(actor, activity, input)) {
     throw new AppError("No tenés permisos para realizar esta acción", 403);
   }
 
@@ -442,9 +489,9 @@ export async function updateActivity(
   };
 
   if ("assigneeId" in input) {
-    data.assigneeId = input.assigneeId
-      ? await validateAssigneeId(organizationId, input.assigneeId)
-      : null;
+    // B-18: un USER no reasigna a otro ni la deja sin asignar (403).
+    const assigneeId = resolveAssigneeForActor(actor, input.assigneeId);
+    data.assigneeId = assigneeId ? await validateAssigneeId(organizationId, assigneeId) : null;
   }
 
   if ("companyId" in input && input.companyId) {

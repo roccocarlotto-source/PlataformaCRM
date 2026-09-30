@@ -36,7 +36,7 @@ export function useUpdateActivity(id: string) {
 // handler de click, no se puede montar un hook por actividad. El body es
 // SOLO completedAt a propósito: es lo único que un USER (no-ADMIN) tiene
 // permitido PATCHear sobre su propia actividad, y solo mientras está
-// pendiente (activity.service.ts, canSelfServiceCompleteActivity — desde el
+// pendiente (activity.service.ts, canUserPatchActivity — desde el
 // §29 no puede destildarla: deshacer un tilde es "Rechazar", del ADMIN).
 // completedAt sigue admitiendo null en el tipo porque el contrato del PATCH
 // lo admite (un ADMIN sí puede limpiarlo); "Mis tareas" nunca lo manda.

@@ -43,6 +43,7 @@ let orgId: string;
 let admin: FixtureUser;
 let user: FixtureUser;
 let other: FixtureUser;
+let companyId: string;
 let propiaId: string;
 let ajenaId: string;
 let baseUrl: string;
@@ -121,6 +122,21 @@ function patch(path: string, token: string, body: unknown): Promise<Response> {
   });
 }
 
+function post(path: string, token: string, body: unknown): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function del(path: string, token: string): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  });
+}
+
 interface ListBody {
   data: { id: string; assigneeId: string | null; completedAt: string | null }[];
   pagination: { total: number };
@@ -152,6 +168,7 @@ before(async () => {
   const company = await prisma.company.create({
     data: { organizationId: orgId, name: "Act Company" },
   });
+  companyId = company.id;
   const propia = await prisma.activity.create({
     data: {
       organizationId: orgId,
@@ -384,4 +401,138 @@ test("§29 rechazar por HTTP: la tarea vuelve a 'Mis tareas' del USER como pendi
     completedAt: new Date().toISOString(),
   });
   assert.equal(tildar.status, 200);
+});
+
+// ---------------------------------------------------------------------------
+// B-18 (docs-privados/auditoria-2026-09-30-corta.md, local, no está en
+// GitHub) — el vendedor crea tareas. POST ya no es ADMIN-only: un USER crea
+// actividades asignadas a sí mismo (sin assignee → él; otro → 403). PATCH:
+// edita las que creó y tiene asignadas mientras no estén completadas; las
+// que le asignó un ADMIN solo las completa. DELETE sigue siendo ADMIN.
+// La regla pura está en activity.service.test.ts; esto prueba que el
+// controller arma el actor desde el JWT y que un 403 no escribe nada.
+// ---------------------------------------------------------------------------
+
+const MENSAJE_SOLO_A_VOS = "Como vendedor solo podés crear o editar actividades asignadas a vos";
+
+interface CreatedBody {
+  id: string;
+  authorId: string;
+  assigneeId: string | null;
+  subject: string;
+}
+
+test("B-18 POST — ADMIN crea una actividad asignada a otro usuario: 201", async () => {
+  const res = await post("/api/activities", admin.accessToken, {
+    type: "TASK",
+    subject: "B-18 admin a otro",
+    companyId,
+    assigneeId: other.id,
+  });
+  assert.equal(res.status, 201);
+  const body = (await res.json()) as CreatedBody;
+  assert.equal(body.authorId, admin.id);
+  assert.equal(body.assigneeId, other.id);
+});
+
+test("B-18 POST — USER sin assignee: 201 y queda asignada a sí mismo", async () => {
+  const res = await post("/api/activities", user.accessToken, {
+    type: "TASK",
+    subject: "B-18 user sin assignee",
+    companyId,
+  });
+  assert.equal(res.status, 201);
+  const body = (await res.json()) as CreatedBody;
+  assert.equal(body.authorId, user.id);
+  assert.equal(body.assigneeId, user.id);
+});
+
+test("B-18 POST — USER con su propio assignee: 201", async () => {
+  const res = await post("/api/activities", user.accessToken, {
+    type: "CALL",
+    subject: "B-18 user a sí mismo",
+    companyId,
+    assigneeId: user.id,
+  });
+  assert.equal(res.status, 201);
+  assert.equal(((await res.json()) as CreatedBody).assigneeId, user.id);
+});
+
+test("B-18 POST — USER asignando a otro usuario: 403 con mensaje claro, y no se crea nada", async () => {
+  const antes = await prisma.activity.count({ where: { organizationId: orgId } });
+  const res = await post("/api/activities", user.accessToken, {
+    type: "TASK",
+    subject: "B-18 user a otro",
+    companyId,
+    assigneeId: other.id,
+  });
+  assert.equal(res.status, 403);
+  assert.equal(
+    ((await res.json()) as { error: { message: string } }).error.message,
+    MENSAJE_SOLO_A_VOS,
+  );
+  assert.equal(await prisma.activity.count({ where: { organizationId: orgId } }), antes);
+});
+
+test("B-18 PATCH — USER edita la que creó y tiene asignada; no puede reasignarla ni dejarla sin asignar", async () => {
+  const creada = (await (
+    await post("/api/activities", user.accessToken, {
+      type: "TASK",
+      subject: "B-18 editable",
+      companyId,
+    })
+  ).json()) as CreatedBody;
+
+  const editar = await patch(`/api/activities/${creada.id}`, user.accessToken, {
+    subject: "B-18 editada",
+    dueDate: "2026-10-15T12:00:00.000Z",
+  });
+  assert.equal(editar.status, 200);
+  assert.equal(((await editar.json()) as CreatedBody).subject, "B-18 editada");
+
+  for (const assigneeId of [other.id, null]) {
+    const reasignar = await patch(`/api/activities/${creada.id}`, user.accessToken, {
+      assigneeId,
+    });
+    assert.equal(reasignar.status, 403);
+    assert.equal(
+      ((await reasignar.json()) as { error: { message: string } }).error.message,
+      MENSAJE_SOLO_A_VOS,
+    );
+  }
+  const fila = await prisma.activity.findUniqueOrThrow({ where: { id: creada.id } });
+  assert.equal(fila.assigneeId, user.id);
+
+  // Completada, queda congelada para el USER (§29).
+  const tildar = await patch(`/api/activities/${creada.id}`, user.accessToken, {
+    completedAt: new Date().toISOString(),
+  });
+  assert.equal(tildar.status, 200);
+  const despues = await patch(`/api/activities/${creada.id}`, user.accessToken, {
+    subject: "B-18 tarde",
+  });
+  assert.equal(despues.status, 403);
+});
+
+test("B-18 PATCH — USER no edita la que le asignó un ADMIN (solo puede completarla)", async () => {
+  const res = await patch(`/api/activities/${propiaId}`, user.accessToken, {
+    subject: "B-18 pisada",
+  });
+  assert.equal(res.status, 403);
+  const fila = await prisma.activity.findUniqueOrThrow({ where: { id: propiaId } });
+  assert.equal(fila.subject, "§25 propia");
+});
+
+test("B-18 DELETE — sigue siendo solo ADMIN, aunque el USER la haya creado", async () => {
+  const creada = (await (
+    await post("/api/activities", user.accessToken, {
+      type: "NOTE",
+      subject: "B-18 no borrable",
+      companyId,
+    })
+  ).json()) as CreatedBody;
+  const res = await del(`/api/activities/${creada.id}`, user.accessToken);
+  assert.equal(res.status, 403);
+  const fila = await prisma.activity.findUniqueOrThrow({ where: { id: creada.id } });
+  assert.equal(fila.deletedAt, null);
 });

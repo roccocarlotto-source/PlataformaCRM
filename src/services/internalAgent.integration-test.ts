@@ -550,10 +550,16 @@ test("la FK compuesta impide colgar un mensaje de A del agente de B", async () =
 // create_internal_task
 // ---------------------------------------------------------------------------
 
-function crearTarea(organizationId: string, userId: string, args: Record<string, unknown>) {
+function crearTarea(
+  organizationId: string,
+  userId: string,
+  args: Record<string, unknown>,
+  role: "ADMIN" | "USER" = "ADMIN",
+) {
   return CATALOGO_DE_TOOLS_INTERNAS.get("create_internal_task")!.ejecutar(args, {
     organizationId,
     userId,
+    role,
   });
 }
 
@@ -581,6 +587,24 @@ test("create_internal_task por nombre y apellido: TASK ligada al contacto, autor
   assert.equal(fila.authorId, adminA.authUserId);
   assert.equal(fila.assigneeId, adminA.authUserId);
   assert.equal(fila.dueDate?.toISOString(), "2026-11-12T12:00:00.000Z");
+});
+
+// B-18: la tool pasa por la MISMA regla que POST /api/activities
+// (createActivityAsActor). Un USER crea la tarea asignada a sí mismo — lo
+// único que esta tool pide —, igual que desde el panel.
+test("B-18 create_internal_task pedida por un USER: TASK autor y asignada a ese USER", async () => {
+  const resultado = await crearTarea(
+    orgA,
+    otroUserA.authUserId,
+    { asunto: "Seguimiento del vendedor", contacto: "ana suárez" },
+    "USER",
+  );
+  assert.equal(resultado.ok, true, JSON.stringify(resultado));
+  const { activityId } = (resultado as { data: { activityId: string } }).data;
+  const fila = await prisma.activity.findUniqueOrThrow({ where: { id: activityId } });
+  assert.equal(fila.authorId, otroUserA.authUserId);
+  assert.equal(fila.assigneeId, otroUserA.authUserId);
+  assert.equal(fila.contactId, a.contactId);
 });
 
 test("create_internal_task solo con la oportunidad: la liga a la oportunidad", async () => {
@@ -714,6 +738,7 @@ async function agenda(organizationId: string, args: Record<string, unknown>) {
   const resultado = await CATALOGO_DE_TOOLS_INTERNAS.get("get_agenda")!.ejecutar(args, {
     organizationId,
     userId: randomUUID(),
+    role: "ADMIN",
   });
   assert.equal(resultado.ok, true, JSON.stringify(resultado));
   return (resultado as { data: { turnos: TurnoResumido[]; sinResultados?: boolean } }).data;
@@ -765,7 +790,7 @@ test("get_agenda filtra por sucursal escrita a mano (una palabra, en minúsculas
 
   const inexistente = await CATALOGO_DE_TOOLS_INTERNAS.get("get_agenda")!.ejecutar(
     { ...RANGO_DEL_DIA, sucursal: "Sur" },
-    { organizationId: orgA, userId: randomUUID() },
+    { organizationId: orgA, userId: randomUUID(), role: "ADMIN" },
   );
   assert.equal(inexistente.ok, false);
   assert.match((inexistente as { error: string }).error, /"Casa Central", "Sucursal Norte"/);

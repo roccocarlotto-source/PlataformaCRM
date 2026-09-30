@@ -9,6 +9,7 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { Select } from "../../design-system/Select";
 import { useCompanyNames, useContactNames } from "../opportunity/relationResolution";
 import { useCompleteActivity } from "./mutations";
+import { canUserEditActivity } from "./permissions";
 import { activityKeys, useMyPendingActivities } from "./queries";
 import { useOpportunityNames } from "./relationResolution";
 import {
@@ -41,13 +42,15 @@ import type { Activity, ActivityListResponse, ActivityType } from "./types";
 //
 // Completar es PATCH { completedAt } sobre la propia actividad, permitido a
 // cualquier rol desde esta fase (activity.service.ts,
-// canSelfServiceCompleteActivity), pero desde el §29 no es la palabra final:
+// canUserPatchActivity), pero desde el §29 no es la palabra final:
 // la tarea queda "pendiente de confirmar" hasta que un ADMIN la confirme
 // (desaparece de acá) o la rechace (vuelve a su bloque por vencimiento).
 // Por eso una fila tildada NO se va: cambia de bloque. Un ADMIN que tilda
 // la suya queda confirmado en el acto (auto-confirmación del backend) y sí
-// desaparece. Crear sigue siendo ADMIN-only, por eso "+ Nueva tarea" solo
-// aparece para ADMIN.
+// desaparece. Desde B-18 los dos roles crean: "+ Nueva tarea" aparece para
+// todos (un USER, siempre asignada a sí mismo). El link de editar en el
+// título, para un USER, solo en las que creó y todavía no completó
+// (canUserEditActivity); las que le asignó un ADMIN solo las tilda.
 // ---------------------------------------------------------------------------
 
 export function MyTasksPage() {
@@ -169,14 +172,14 @@ export function MyTasksPage() {
     return parts.join(" · ");
   }
 
-  // Tipo + asunto (link a editar solo para ADMIN) + relacionados: lo mismo
+  // Tipo + asunto (link a editar si puede editarla) + relacionados: lo mismo
   // en una fila pendiente que en una esperando confirmación.
   function taskMain(task: Activity) {
     return (
       <div className="ds-task-main">
         <div className="ds-task-title">
           <Badge variant="neutral">{ACTIVITY_TYPE_LABELS[task.type]}</Badge>
-          {isAdmin ? (
+          {isAdmin || canUserEditActivity(task, meId) ? (
             <Link to={`/activities/${task.id}/edit`}>{task.subject}</Link>
           ) : (
             <span>{task.subject}</span>
@@ -206,9 +209,9 @@ export function MyTasksPage() {
           <h1>Mis tareas</h1>
           <p className="ds-page-subtitle">Actividades asignadas a vos, con o sin vencimiento.</p>
         </div>
-        {isAdmin && meId ? (
+        {meId ? (
           // Nace asignada a quien la pide (ActivityFormPage lee assigneeId
-          // solo en creación).
+          // solo en creación; para un USER lo fija igual, B-18).
           <Link
             to={`/activities/new?assigneeId=${encodeURIComponent(meId)}`}
             className="ds-link-button"

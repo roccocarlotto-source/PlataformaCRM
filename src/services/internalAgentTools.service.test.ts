@@ -18,7 +18,7 @@ import {
 // internalAgent.integration-test.ts.
 // ---------------------------------------------------------------------------
 
-const CONTEXTO = { organizationId: randomUUID(), userId: randomUUID() };
+const CONTEXTO = { organizationId: randomUUID(), userId: randomUUID(), role: "USER" as const };
 
 function tool(nombre: string): ToolInterna {
   const t = CATALOGO_DE_TOOLS_INTERNAS.get(nombre);

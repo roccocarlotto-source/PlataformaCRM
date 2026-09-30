@@ -2,7 +2,7 @@ import { ActivityType } from "@prisma/client";
 import type { Response } from "express";
 import { z } from "zod";
 import {
-  createActivity,
+  createActivityAsActor,
   deleteActivity,
   getActivityById,
   listActivities,
@@ -126,7 +126,8 @@ const listQuerySchema = z
 
 // Quién pide, para las reglas de autorización a nivel de RECURSO que viven
 // en el service (lectura acotada por assignee para USER, §25; self-service
-// del PATCH). Siempre desde req.auth, nunca desde la query ni el body.
+// del PATCH; a quién puede asignar al crear, B-18). Siempre desde req.auth,
+// nunca desde la query ni el body.
 function actorFromRequest(req: AuthenticatedRequest): ActivityActor {
   return { userId: req.auth.userId, role: req.auth.role };
 }
@@ -134,7 +135,13 @@ function actorFromRequest(req: AuthenticatedRequest): ActivityActor {
 export const createActivityHandler = asyncHandler<AuthenticatedRequest>(
   async (req, res: Response) => {
     const input = parseOrThrow(createActivitySchema, req.body);
-    const activity = await createActivity(req.auth.organizationId, req.auth.userId, input);
+    // B-18: ADMIN y USER llegan acá; a quién puede asignar cada uno lo decide
+    // el service (un USER, solo a sí mismo).
+    const activity = await createActivityAsActor(
+      req.auth.organizationId,
+      actorFromRequest(req),
+      input,
+    );
     res.status(201).json(activity);
   },
 );
