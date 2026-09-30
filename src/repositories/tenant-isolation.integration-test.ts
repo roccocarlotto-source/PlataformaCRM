@@ -48,6 +48,71 @@ import { confirmDeliveryConditional, updatePendingDelivery } from "./delivery.re
 import { deletePayment, updatePayment } from "./payment.repository";
 import { MARCADOR_DE_DATO_BORRADO } from "./contact.repository";
 import type { NotaIgnorado, PromotionNote } from "../types/promotion";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  softDeleteAgent as softDeleteAgentRepo,
+  updateAgent as updateAgentRepo,
+} from "./agent.repository";
+import {
+  revokeEmbedTokenConditional,
+  revokeEmbedTokensByAgent,
+  touchEmbedTokenLastUsed,
+} from "./agentEmbedToken.repository";
+import {
+  softDeleteAutomation,
+  updateAutomation,
+  upsertAutomationExecution,
+} from "./automation.repository";
+import { replaceBusinessHours } from "./branchBusinessHours.repository";
+import {
+  closeConversation as closeConversationRepo,
+  returnConversationToAgent,
+  takeOverConversation,
+  transferConversationToHuman,
+  updateConversation as updateConversationRepo,
+} from "./conversation.repository";
+import { applyDeliveryStatusByExternalId, markMessageDelivery } from "./message.repository";
+import {
+  cancelPendingInboundJobsOfConversation,
+  markAgentInboundJobDone,
+  markAgentInboundJobFailed,
+  markAgentInboundJobsCovered,
+  setAgentInboundJobResponse,
+} from "./agentInboundJob.repository";
+import { reassignContactChannelIdentity } from "./contactChannelIdentity.repository";
+import {
+  markMetaConnectionError,
+  markMetaConnectionRevoked,
+} from "./metaPageConnection.repository";
+import { softDeleteQrCode, updateQrCode } from "./qrCode.repository";
+import {
+  markQrFollowUpCancelled,
+  markQrFollowUpFailed,
+  markQrFollowUpSent,
+} from "./qrFollowUp.repository";
+import { consumirDiscountVoucher } from "./discountVoucher.repository";
+import {
+  markDiscountVoucherFollowUpCancelled,
+  markDiscountVoucherFollowUpFailed,
+  markDiscountVoucherFollowUpSent,
+} from "./discountVoucherFollowUp.repository";
+import {
+  setWhatsappTemplateMetaId,
+  setWhatsappTemplateStatus,
+  softDeleteWhatsappTemplate,
+} from "./whatsappTemplate.repository";
+import {
+  softDeleteVehicle as softDeleteVehicleRepo,
+  updateVehicle as updateVehicleRepo,
+} from "./vehicle.repository";
+import { clearCover, deletePhoto, updatePhoto } from "./vehiclePhoto.repository";
+import {
+  softDeleteKnowledgeBaseEntry,
+  updateKnowledgeBaseEntry,
+  writeSyncedKnowledgeBaseEntry,
+} from "./knowledgeBaseEntry.repository";
+import { setInternalAgentModel } from "./internalAgent.repository";
 
 // Test de integración: prueba el contrato de aislamiento multi-tenant de las
 // 16 escrituras tenant-scoped incluidas en M4, directamente contra Postgres
@@ -1307,5 +1372,856 @@ test("deletePayment: id de Organization B + organizationId de Organization A no 
     leerPaymentB,
     () => deletePayment(fx.paymentB.id, fx.orgA.id),
     "deletePayment",
+  );
+});
+
+// ===========================================================================
+// H-01 (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): los
+// modelos con organizationId nacidos después del 29/08 —agente de IA,
+// conversaciones, automatizaciones, stock, QR, cupones, plantillas, canales de
+// Meta, agente interno— tenían solo pruebas HTTP de 404 cross-org, que
+// prueban el pre-check del service y no el WHERE de la escritura. Acá, la
+// misma propiedad que arriba, escritura por escritura: el id (o la clave) de
+// Y con el organizationId de X no toca nada, y la fila de Y queda igual.
+//
+// Los modelos que no tienen escrituras por organización en su repositorio
+// (solo se insertan: VehicleChangeLog, InternalAgentMessage,
+// AutomationExecution, Message, ContactChannelIdentity) se cubren con la
+// segunda propiedad del archivo: la base rechaza una fila de X que apunta a
+// un padre de Y (FK compuesta).
+//
+// FIXTURE PROPIO, con dos organizaciones propias (X ataca, Y es la víctima):
+// no toca el de arriba, y su limpieza no depende del orden de los `after`.
+// ===========================================================================
+
+interface FixtureNuevos {
+  orgX: string;
+  orgY: string;
+  authUserY: string;
+  userY: string;
+  branchY: string;
+  contactY: string;
+  opportunityY: string;
+  agentY: string;
+  embedTokenY: string;
+  automationY: string;
+  outboxEventY: string;
+  conversationY: string;
+  messageY: string;
+  wamidY: string;
+  jobProcessingY: string;
+  jobPendingY: string;
+  mensajePendienteY: string;
+  metaConnectionY: string;
+  qrCodeY: string;
+  qrFollowUpY: string;
+  voucherY: string;
+  voucherFollowUpY: string;
+  templateY: string;
+  vehicleY: string;
+  photoY: string;
+  kbY: string;
+  internalAgentY: string;
+  identityExternalIdY: string;
+}
+
+let nx: FixtureNuevos;
+
+before(async () => {
+  const adminRole = await findRoleByName("ADMIN");
+  if (!adminRole) throw new Error("No está sembrado el rol ADMIN. Abortando.");
+
+  const orgX = await prisma.organization.create({
+    data: { name: `H01 org-x ${randomUUID()}`, slug: `h01-org-x-${Date.now()}` },
+  });
+  const orgY = await prisma.organization.create({
+    data: { name: `H01 org-y ${randomUUID()}`, slug: `h01-org-y-${Date.now()}` },
+  });
+  const auth = await createRealAuthUser("h01-org-y");
+  const userY = await prisma.user.create({
+    data: {
+      id: auth.id,
+      organizationId: orgY.id,
+      roleId: adminRole.id,
+      email: auth.email,
+      fullName: "H01 Org Y",
+    },
+  });
+  const org = orgY.id;
+  const branchY = await prisma.branch.create({
+    data: { organizationId: org, name: "H01 Y", timezone: "America/Montevideo" },
+  });
+  const contactY = await prisma.contact.create({
+    data: { organizationId: org, firstName: "H01", lastName: "Y" },
+  });
+  const pipelineY = await prisma.pipeline.create({
+    data: { organizationId: org, name: `H01 Y ${randomUUID()}` },
+  });
+  const stageY = await prisma.stage.create({
+    data: { organizationId: org, pipelineId: pipelineY.id, name: "Y", order: 1 },
+  });
+  const opportunityY = await prisma.opportunity.create({
+    data: {
+      organizationId: org,
+      ownerId: userY.id,
+      pipelineId: pipelineY.id,
+      stageId: stageY.id,
+      contactId: contactY.id,
+      title: "H01 Y",
+    },
+  });
+  const agentY = await prisma.agent.create({
+    data: {
+      organizationId: org,
+      branchId: branchY.id,
+      name: "H01 Y",
+      instructions: "x",
+      modelProvider: "openrouter",
+      modelName: "x/y",
+      guardrails: {},
+      channels: ["WHATSAPP", "WEB"],
+    },
+  });
+  const embedTokenY = await prisma.agentEmbedToken.create({
+    data: {
+      organizationId: org,
+      agentId: agentY.id,
+      tokenHash: `h01-${randomUUID()}`,
+      tokenPrefix: "h01y",
+    },
+  });
+  const automationY = await prisma.automation.create({
+    data: {
+      organizationId: org,
+      name: "H01 Y",
+      triggerType: "opportunity.won",
+      actionType: "noop",
+      actionConfig: {},
+    },
+  });
+  const outboxEventY = await prisma.outboxEvent.create({
+    data: { organizationId: org, eventType: "h01.test", payload: {} },
+  });
+  await prisma.automationExecution.create({
+    data: {
+      organizationId: org,
+      automationId: automationY.id,
+      outboxEventId: outboxEventY.id,
+      status: "SUCCESS",
+    },
+  });
+  await prisma.branchBusinessHours.create({
+    data: {
+      organizationId: org,
+      branchId: branchY.id,
+      weekday: "MONDAY",
+      startMinute: 540,
+      endMinute: 1080,
+    },
+  });
+  const conversationY = await prisma.conversation.create({
+    data: {
+      organizationId: org,
+      branchId: branchY.id,
+      agentId: agentY.id,
+      contactId: contactY.id,
+      channel: "WHATSAPP",
+      status: "TRANSFERRED_TO_HUMAN",
+      externalThreadId: "59800000001",
+    },
+  });
+  const wamidY = `wamid.h01-${randomUUID()}`;
+  const messageY = await prisma.message.create({
+    data: {
+      organizationId: org,
+      conversationId: conversationY.id,
+      direction: "OUTBOUND",
+      senderType: "AGENT",
+      content: "h01",
+      externalMessageId: wamidY,
+      deliveryStatus: "SENT",
+    },
+  });
+  const entranteProcesando = await prisma.message.create({
+    data: {
+      organizationId: org,
+      conversationId: conversationY.id,
+      direction: "INBOUND",
+      senderType: "CONTACT",
+      content: "h01 procesando",
+    },
+  });
+  const entrantePendiente = await prisma.message.create({
+    data: {
+      organizationId: org,
+      conversationId: conversationY.id,
+      direction: "INBOUND",
+      senderType: "CONTACT",
+      content: "h01 pendiente",
+    },
+  });
+  const jobBase = { organizationId: org, channelAccountId: "1", externalUserId: "59800000001" };
+  const jobProcessingY = await prisma.agentInboundJob.create({
+    data: {
+      ...jobBase,
+      messageId: entranteProcesando.id,
+      status: "PROCESSING",
+      attempts: 1,
+      lockedUntil: new Date(Date.now() + 60_000),
+    },
+  });
+  const jobPendingY = await prisma.agentInboundJob.create({
+    data: { ...jobBase, messageId: entrantePendiente.id },
+  });
+  const identityExternalIdY = `h01-psid-${randomUUID()}`;
+  await prisma.contactChannelIdentity.create({
+    data: {
+      organizationId: org,
+      channel: "MESSENGER",
+      externalId: identityExternalIdY,
+      contactId: contactY.id,
+    },
+  });
+  const metaConnectionY = await prisma.metaPageConnection.create({
+    data: {
+      organizationId: org,
+      pageId: `h01${Date.now()}`,
+      pageAccessToken: "h01-token-cifrado",
+    },
+  });
+  const qrCodeY = await prisma.qrCode.create({
+    data: {
+      organizationId: org,
+      branchId: branchY.id,
+      name: "H01 Y",
+      destinationUrl: "https://example.test/y",
+    },
+  });
+  const futuro = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const qrFollowUpY = await prisma.qrFollowUp.create({
+    data: {
+      organizationId: org,
+      automationId: automationY.id,
+      opportunityId: opportunityY.id,
+      contactId: contactY.id,
+      qrCodeId: qrCodeY.id,
+      scheduledFor: futuro,
+      nextAttemptAt: futuro,
+      attempts: 1,
+    },
+  });
+  const voucherY = await prisma.discountVoucher.create({
+    data: {
+      organizationId: org,
+      opportunityId: opportunityY.id,
+      contactId: contactY.id,
+      automationId: automationY.id,
+      label: "H01 10%",
+      expiresAt: futuro,
+    },
+  });
+  const voucherFollowUpY = await prisma.discountVoucherFollowUp.create({
+    data: {
+      organizationId: org,
+      automationId: automationY.id,
+      opportunityId: opportunityY.id,
+      contactId: contactY.id,
+      branchId: branchY.id,
+      label: "H01 10%",
+      expiresInDays: 30,
+      scheduledFor: futuro,
+      nextAttemptAt: futuro,
+      attempts: 1,
+    },
+  });
+  const templateY = await prisma.whatsappTemplate.create({
+    data: {
+      organizationId: org,
+      automationId: automationY.id,
+      name: `h01_y_${Date.now()}`,
+      language: "es_AR",
+      bodyText: "Hola {{1}}",
+    },
+  });
+  const vehicleY = await prisma.vehicle.create({
+    data: {
+      organizationId: org,
+      branchId: branchY.id,
+      internalCode: `H01-${Date.now()}`,
+      condition: "USED",
+      make: "Ford",
+      model: "Ranger",
+      year: 2024,
+    },
+  });
+  const photoY = await prisma.vehiclePhoto.create({
+    data: {
+      organizationId: org,
+      vehicleId: vehicleY.id,
+      storagePath: `h01/${randomUUID()}.jpg`,
+      position: 0,
+      isCover: true,
+    },
+  });
+  await prisma.vehicleChangeLog.create({
+    data: { organizationId: org, vehicleId: vehicleY.id, changedById: userY.id, fieldName: "make" },
+  });
+  const kbY = await prisma.knowledgeBaseEntry.create({
+    data: { organizationId: org, branchId: branchY.id, title: "H01 Y", content: "y" },
+  });
+  const internalAgentY = await prisma.internalAgent.create({
+    data: {
+      organizationId: org,
+      name: "H01 Y",
+      instructions: "y",
+      modelProvider: "openrouter",
+      modelName: "x/y",
+    },
+  });
+  await prisma.internalAgentMessage.create({
+    data: {
+      organizationId: org,
+      internalAgentId: internalAgentY.id,
+      userId: userY.id,
+      senderType: "USER",
+      content: "h01",
+    },
+  });
+
+  nx = {
+    orgX: orgX.id,
+    orgY: orgY.id,
+    authUserY: auth.id,
+    userY: userY.id,
+    branchY: branchY.id,
+    contactY: contactY.id,
+    opportunityY: opportunityY.id,
+    agentY: agentY.id,
+    embedTokenY: embedTokenY.id,
+    automationY: automationY.id,
+    outboxEventY: outboxEventY.id,
+    conversationY: conversationY.id,
+    messageY: messageY.id,
+    wamidY,
+    jobProcessingY: jobProcessingY.id,
+    jobPendingY: jobPendingY.id,
+    mensajePendienteY: entrantePendiente.id,
+    metaConnectionY: metaConnectionY.id,
+    qrCodeY: qrCodeY.id,
+    qrFollowUpY: qrFollowUpY.id,
+    voucherY: voucherY.id,
+    voucherFollowUpY: voucherFollowUpY.id,
+    templateY: templateY.id,
+    vehicleY: vehicleY.id,
+    photoY: photoY.id,
+    kbY: kbY.id,
+    internalAgentY: internalAgentY.id,
+    identityExternalIdY,
+  };
+});
+
+after(async () => {
+  if (!nx) return;
+  const ambas = { in: [nx.orgX, nx.orgY] };
+  const w = { where: { organizationId: ambas } };
+  await prisma.internalAgentMessage.deleteMany(w);
+  await prisma.internalAgent.deleteMany(w);
+  await prisma.vehicleChangeLog.deleteMany(w);
+  await prisma.vehiclePhoto.deleteMany(w);
+  await prisma.knowledgeBaseEntry.deleteMany(w);
+  await prisma.vehicle.deleteMany(w);
+  await prisma.whatsappTemplate.deleteMany(w);
+  await prisma.discountVoucherFollowUp.deleteMany(w);
+  await prisma.discountVoucher.deleteMany(w);
+  await prisma.qrFollowUp.deleteMany(w);
+  await prisma.qrCode.deleteMany(w);
+  await prisma.metaPageConnection.deleteMany(w);
+  await prisma.contactChannelIdentity.deleteMany(w);
+  await prisma.agentInboundJob.deleteMany(w);
+  await prisma.message.deleteMany(w);
+  await prisma.conversation.deleteMany(w);
+  await prisma.branchBusinessHours.deleteMany(w);
+  await prisma.automationExecution.deleteMany(w);
+  await prisma.outboxEvent.deleteMany(w);
+  await prisma.automation.deleteMany(w);
+  await prisma.agentEmbedToken.deleteMany(w);
+  await prisma.agent.deleteMany(w);
+  await prisma.opportunity.deleteMany(w);
+  await prisma.stage.deleteMany(w);
+  await prisma.pipeline.deleteMany(w);
+  await prisma.contact.deleteMany(w);
+  await prisma.branch.deleteMany(w);
+  await prisma.user.deleteMany(w);
+  await prisma.organization.deleteMany({ where: { id: ambas } });
+  await getSupabaseAdmin().auth.admin.deleteUser(nx.authUserY);
+});
+
+// Lectores de la fila de Y, para comparar antes y después.
+const leerY = {
+  agent: () => prisma.agent.findUniqueOrThrow({ where: { id: nx.agentY } }),
+  embedToken: () => prisma.agentEmbedToken.findUniqueOrThrow({ where: { id: nx.embedTokenY } }),
+  automation: () => prisma.automation.findUniqueOrThrow({ where: { id: nx.automationY } }),
+  horarios: () =>
+    prisma.branchBusinessHours.findMany({
+      where: { branchId: nx.branchY },
+      orderBy: { id: "asc" },
+    }),
+  conversation: () => prisma.conversation.findUniqueOrThrow({ where: { id: nx.conversationY } }),
+  message: () => prisma.message.findUniqueOrThrow({ where: { id: nx.messageY } }),
+  jobs: () =>
+    prisma.agentInboundJob.findMany({ where: { organizationId: nx.orgY }, orderBy: { id: "asc" } }),
+  meta: () => prisma.metaPageConnection.findUniqueOrThrow({ where: { id: nx.metaConnectionY } }),
+  qr: () => prisma.qrCode.findUniqueOrThrow({ where: { id: nx.qrCodeY } }),
+  qrFollowUp: () => prisma.qrFollowUp.findUniqueOrThrow({ where: { id: nx.qrFollowUpY } }),
+  voucher: () => prisma.discountVoucher.findUniqueOrThrow({ where: { id: nx.voucherY } }),
+  voucherFollowUp: () =>
+    prisma.discountVoucherFollowUp.findUniqueOrThrow({ where: { id: nx.voucherFollowUpY } }),
+  template: () => prisma.whatsappTemplate.findUniqueOrThrow({ where: { id: nx.templateY } }),
+  vehicle: () => prisma.vehicle.findUniqueOrThrow({ where: { id: nx.vehicleY } }),
+  photo: () => prisma.vehiclePhoto.findUniqueOrThrow({ where: { id: nx.photoY } }),
+  kb: () => prisma.knowledgeBaseEntry.findUniqueOrThrow({ where: { id: nx.kbY } }),
+  internalAgent: () => prisma.internalAgent.findUniqueOrThrow({ where: { id: nx.internalAgentY } }),
+  identity: () =>
+    prisma.contactChannelIdentity.findMany({ where: { externalId: nx.identityExternalIdY } }),
+};
+
+function reclamoCruzado(id: string) {
+  return { id, organizationId: nx.orgX, attempts: 1 };
+}
+
+test("H-01 Agent: updateAgent y softDeleteAgent con el id de Y y la organización de X no tocan nada", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.agent,
+    () => updateAgentRepo(nx.agentY, nx.orgX, { name: "hijacked" }),
+    "updateAgent",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.agent,
+    () => softDeleteAgentRepo(nx.agentY, nx.orgX),
+    "softDeleteAgent",
+  );
+});
+
+test("H-01 AgentEmbedToken: revocar (uno o por agente) y touchLastUsed no tocan el token de Y", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.embedToken,
+    () => revokeEmbedTokenConditional(nx.embedTokenY, nx.orgX, nx.agentY),
+    "revokeEmbedTokenConditional",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.embedToken,
+    () => revokeEmbedTokensByAgent(nx.agentY, nx.orgX),
+    "revokeEmbedTokensByAgent",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.embedToken,
+    () => touchEmbedTokenLastUsed(nx.embedTokenY, nx.orgX, new Date()),
+    "touchEmbedTokenLastUsed",
+  );
+});
+
+test("H-01 Automation: updateAutomation y softDeleteAutomation no tocan la regla de Y", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.automation,
+    () => updateAutomation(nx.automationY, nx.orgX, { name: "hijacked" }),
+    "updateAutomation",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.automation,
+    () => softDeleteAutomation(nx.automationY, nx.orgX),
+    "softDeleteAutomation",
+  );
+});
+
+test("H-01 AutomationExecution: una ejecución NUEVA de X sobre la regla de Y la rechaza la base", async () => {
+  // Un evento de Y sin ejecución todavía: el upsert va por el INSERT, y ahí
+  // la FK compuesta (organization_id, automation_id) frena la referencia.
+  const eventoNuevoY = await prisma.outboxEvent.create({
+    data: { organizationId: nx.orgY, eventType: "h01.nuevo", payload: {} },
+  });
+  await assertViolaFk(
+    () =>
+      upsertAutomationExecution({
+        organizationId: nx.orgX,
+        automationId: nx.automationY,
+        outboxEventId: eventoNuevoY.id,
+        status: "FAILED",
+        error: "h01",
+      }),
+    "AutomationExecution de X con la regla de Y",
+  );
+});
+
+// HALLAZGO ABIERTO de H-01 (docs-privados/auditoria-2026-09-24-punta-a-punta.md,
+// local), pendiente de decisión de Rocco: cuando la ejecución YA existe, el
+// upsert va por el UPDATE, que busca por el único (automation_id,
+// outbox_event_id) SIN organizationId, y pisa la fila de Y (status y error).
+// Hoy no es explotable —el único caller, automationDispatch, pasa siempre la
+// organización del evento—, pero la garantía a nivel repositorio no está.
+// Queda como `todo`: corre y documenta el comportamiento, sin romper la suite.
+test(
+  "H-01 AutomationExecution: upsertAutomationExecution con la organización de X no pisa la ejecución existente de Y",
+  { todo: "hallazgo H-01 abierto: el UPDATE del upsert no filtra por organizationId" },
+  async () => {
+    const antes = await prisma.automationExecution.findFirstOrThrow({
+      where: { automationId: nx.automationY, outboxEventId: nx.outboxEventY },
+    });
+    await upsertAutomationExecution({
+      organizationId: nx.orgX,
+      automationId: nx.automationY,
+      outboxEventId: nx.outboxEventY,
+      status: "FAILED",
+      error: "h01",
+    }).catch(() => undefined);
+    const despues = await prisma.automationExecution.findUniqueOrThrow({ where: { id: antes.id } });
+    // Se restaura antes de afirmar, para no dejar el fixture mutado.
+    await prisma.automationExecution.update({
+      where: { id: antes.id },
+      data: { status: antes.status, error: antes.error },
+    });
+    assert.equal(despues.status, antes.status);
+    assert.equal(despues.error, antes.error);
+  },
+);
+
+test("H-01 BranchBusinessHours: replaceBusinessHours con la sucursal de Y no borra su horario (y no puede escribirle)", async () => {
+  const antes = await leerY.horarios();
+  await prisma.$transaction((tx) => replaceBusinessHours(nx.branchY, nx.orgX, [], tx));
+  assert.deepEqual(await leerY.horarios(), antes, "sin franjas: el horario de Y sigue igual");
+  await assertViolaFk(
+    () =>
+      prisma.$transaction((tx) =>
+        replaceBusinessHours(
+          nx.branchY,
+          nx.orgX,
+          [{ weekday: "TUESDAY", startMinute: 540, endMinute: 600 }],
+          tx,
+        ),
+      ),
+    "BranchBusinessHours de X sobre la sucursal de Y",
+  );
+  assert.deepEqual(await leerY.horarios(), antes);
+});
+
+test("H-01 Conversation: las cinco escrituras con el id de Y y la organización de X no la tocan", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.conversation,
+    () => updateConversationRepo(nx.conversationY, nx.orgX, { brief: "hijacked" }),
+    "updateConversation",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.conversation,
+    () => transferConversationToHuman(nx.conversationY, nx.orgX, null),
+    "transferConversationToHuman",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.conversation,
+    () => takeOverConversation(nx.conversationY, nx.orgX, nx.userY, new Date()),
+    "takeOverConversation",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.conversation,
+    () => returnConversationToAgent(nx.conversationY, nx.orgX),
+    "returnConversationToAgent",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.conversation,
+    () => closeConversationRepo(nx.conversationY, nx.orgX),
+    "closeConversation",
+  );
+});
+
+test("H-01 Message: markMessageDelivery y applyDeliveryStatusByExternalId no tocan el mensaje de Y; un Message de X en la conversación de Y lo rechaza la base", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.message,
+    () => markMessageDelivery(nx.messageY, nx.orgX, { status: "FAILED", error: "hijacked" }),
+    "markMessageDelivery",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.message,
+    () => applyDeliveryStatusByExternalId(nx.orgX, nx.wamidY, { status: "READ" }),
+    "applyDeliveryStatusByExternalId",
+  );
+  await assertViolaFk(
+    () =>
+      prisma.message.create({
+        data: {
+          organizationId: nx.orgX,
+          conversationId: nx.conversationY,
+          direction: "INBOUND",
+          senderType: "CONTACT",
+          content: "x",
+        },
+      }),
+    "Message de X en la conversación de Y",
+  );
+});
+
+test("H-01 AgentInboundJob: las transiciones y cancelaciones con la organización de X no tocan los jobs de Y", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.jobs,
+    () => setAgentInboundJobResponse(reclamoCruzado(nx.jobProcessingY), nx.messageY),
+    "setAgentInboundJobResponse",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.jobs,
+    () => markAgentInboundJobDone(reclamoCruzado(nx.jobProcessingY)),
+    "markAgentInboundJobDone",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.jobs,
+    () => markAgentInboundJobFailed(reclamoCruzado(nx.jobProcessingY), "hijacked"),
+    "markAgentInboundJobFailed",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.jobs,
+    () => cancelPendingInboundJobsOfConversation(nx.orgX, nx.conversationY),
+    "cancelPendingInboundJobsOfConversation",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.jobs,
+    () => markAgentInboundJobsCovered(nx.orgX, [nx.mensajePendienteY]),
+    "markAgentInboundJobsCovered",
+  );
+});
+
+test("H-01 ContactChannelIdentity: reasignar la identidad de Y desde X falla sin tocarla; una identidad de X hacia el contacto de Y la rechaza la base", async () => {
+  const antes = await leerY.identity();
+  await assert.rejects(() =>
+    reassignContactChannelIdentity({
+      organizationId: nx.orgX,
+      channel: "MESSENGER",
+      externalId: nx.identityExternalIdY,
+      contactId: nx.contactY,
+    }),
+  );
+  assert.deepEqual(await leerY.identity(), antes);
+  await assertViolaFk(
+    () =>
+      prisma.contactChannelIdentity.create({
+        data: {
+          organizationId: nx.orgX,
+          channel: "INSTAGRAM",
+          externalId: `h01-x-${randomUUID()}`,
+          contactId: nx.contactY,
+        },
+      }),
+    "ContactChannelIdentity de X hacia el contacto de Y",
+  );
+});
+
+test("H-01 MetaPageConnection: marcar REVOKED o ERROR desde X no toca la conexión de Y", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.meta,
+    () => markMetaConnectionRevoked(nx.orgX),
+    "markMetaConnectionRevoked",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.meta,
+    () => markMetaConnectionError(nx.orgX, "hijacked"),
+    "markMetaConnectionError",
+  );
+});
+
+test("H-01 QrCode: updateQrCode y softDeleteQrCode no tocan el QR de Y", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.qr,
+    () => updateQrCode(nx.qrCodeY, nx.orgX, { destinationUrl: "https://evil.test" }),
+    "updateQrCode",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.qr,
+    () => softDeleteQrCode(nx.qrCodeY, nx.orgX),
+    "softDeleteQrCode",
+  );
+});
+
+test("H-01 QrFollowUp: las tres transiciones con la organización de X no tocan el seguimiento de Y", async () => {
+  const r = reclamoCruzado(nx.qrFollowUpY);
+  await assertCrossTenantWriteNoOp(
+    leerY.qrFollowUp,
+    () => markQrFollowUpSent(r, new Date()),
+    "markQrFollowUpSent",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.qrFollowUp,
+    () => markQrFollowUpCancelled(r, "hijacked"),
+    "markQrFollowUpCancelled",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.qrFollowUp,
+    () => markQrFollowUpFailed(r, "hijacked"),
+    "markQrFollowUpFailed",
+  );
+});
+
+test("H-01 DiscountVoucher: canjear el cupón de Y desde X no lo consume", async () => {
+  const antes = await leerY.voucher();
+  const canje = await consumirDiscountVoucher(nx.voucherY, nx.orgX, nx.userY, new Date());
+  assert.equal(canje, null);
+  assert.deepEqual(await leerY.voucher(), antes);
+});
+
+test("H-01 DiscountVoucherFollowUp: las tres transiciones con la organización de X no tocan el de Y", async () => {
+  const r = reclamoCruzado(nx.voucherFollowUpY);
+  await assertCrossTenantWriteNoOp(
+    leerY.voucherFollowUp,
+    () => markDiscountVoucherFollowUpSent(r, new Date()),
+    "markDiscountVoucherFollowUpSent",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.voucherFollowUp,
+    () => markDiscountVoucherFollowUpCancelled(r, "hijacked"),
+    "markDiscountVoucherFollowUpCancelled",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.voucherFollowUp,
+    () => markDiscountVoucherFollowUpFailed(r, "hijacked"),
+    "markDiscountVoucherFollowUpFailed",
+  );
+});
+
+test("H-01 WhatsappTemplate: setMetaId, setStatus y softDelete con la organización de X no tocan la plantilla de Y", async () => {
+  const estado = { status: "REJECTED" as const, rejectedReason: "hijacked" };
+  await assertCrossTenantWriteNoOp(
+    leerY.template,
+    () => setWhatsappTemplateMetaId(nx.orgX, nx.templateY, { ...estado, metaTemplateId: "x" }),
+    "setWhatsappTemplateMetaId",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.template,
+    () => setWhatsappTemplateStatus(nx.orgX, nx.templateY, estado),
+    "setWhatsappTemplateStatus",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.template,
+    () => softDeleteWhatsappTemplate(nx.orgX, nx.templateY),
+    "softDeleteWhatsappTemplate",
+  );
+});
+
+test("H-01 Vehicle: updateVehicle y softDeleteVehicle no tocan la unidad de Y", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.vehicle,
+    () => updateVehicleRepo(nx.vehicleY, nx.orgX, { make: "hijacked" }),
+    "updateVehicle",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.vehicle,
+    () => softDeleteVehicleRepo(nx.vehicleY, nx.orgX),
+    "softDeleteVehicle",
+  );
+});
+
+test("H-01 VehiclePhoto: updatePhoto, clearCover y deletePhoto no tocan la foto de Y; una foto de X en la unidad de Y la rechaza la base", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.photo,
+    () => updatePhoto(nx.photoY, nx.vehicleY, nx.orgX, { position: 9 }, prisma),
+    "updatePhoto",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.photo,
+    () => clearCover(nx.vehicleY, nx.orgX, prisma),
+    "clearCover",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.photo,
+    () => deletePhoto(nx.photoY, nx.vehicleY, nx.orgX, prisma),
+    "deletePhoto",
+  );
+  await assertViolaFk(
+    () =>
+      prisma.vehiclePhoto.create({
+        data: {
+          organizationId: nx.orgX,
+          vehicleId: nx.vehicleY,
+          storagePath: `h01/x-${randomUUID()}.jpg`,
+          position: 1,
+        },
+      }),
+    "VehiclePhoto de X en la unidad de Y",
+  );
+});
+
+test("H-01 VehicleChangeLog: una entrada de historial de X sobre la unidad de Y la rechaza la base", async () => {
+  await assertViolaFk(
+    () =>
+      prisma.vehicleChangeLog.create({
+        data: {
+          organizationId: nx.orgX,
+          vehicleId: nx.vehicleY,
+          changedById: nx.userY,
+          fieldName: "make",
+        },
+      }),
+    "VehicleChangeLog de X sobre la unidad de Y",
+  );
+});
+
+test("H-01 KnowledgeBaseEntry: update, softDelete y la escritura de sincronización no tocan la entrada de Y", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.kb,
+    () => updateKnowledgeBaseEntry(nx.kbY, nx.orgX, { title: "hijacked" }),
+    "updateKnowledgeBaseEntry",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.kb,
+    () => softDeleteKnowledgeBaseEntry(nx.kbY, nx.orgX),
+    "softDeleteKnowledgeBaseEntry",
+  );
+  await assertCrossTenantWriteNoOp(
+    leerY.kb,
+    () =>
+      writeSyncedKnowledgeBaseEntry(nx.kbY, nx.orgX, {
+        branchId: nx.branchY,
+        title: "hijacked",
+        content: "hijacked",
+      }),
+    "writeSyncedKnowledgeBaseEntry",
+  );
+});
+
+test("H-01 InternalAgent e InternalAgentMessage: cambiar el modelo desde X no toca el de Y; un mensaje de X en el agente de Y lo rechaza la base", async () => {
+  await assertCrossTenantWriteNoOp(
+    leerY.internalAgent,
+    () => setInternalAgentModel(nx.orgX, { modelProvider: "openrouter", modelName: "hijacked" }),
+    "setInternalAgentModel",
+  );
+  await assertViolaFk(
+    () =>
+      prisma.internalAgentMessage.create({
+        data: {
+          organizationId: nx.orgX,
+          internalAgentId: nx.internalAgentY,
+          userId: nx.userY,
+          senderType: "USER",
+          content: "x",
+        },
+      }),
+    "InternalAgentMessage de X en el agente de Y",
+  );
+});
+
+// La fila que evita que el próximo modelo nuevo quede afuera sin que nadie se
+// entere: todo modelo con organizationId del schema tiene que aparecer en
+// este archivo (como prisma.<modelo>.). Si agregás un modelo, agregale su
+// prueba acá.
+test("H-01: todo modelo con organizationId del schema aparece en este archivo", async () => {
+  const schema = await readFile(join(process.cwd(), "prisma", "schema.prisma"), "utf8");
+  const esteArchivo = await readFile(
+    join(process.cwd(), "src", "repositories", "tenant-isolation.integration-test.ts"),
+    "utf8",
+  );
+  const conOrganizacion = [...schema.matchAll(/^model (\w+) \{([\s\S]*?)^\}/gm)]
+    .filter(([, , cuerpo]) => /^\s+organizationId\s/m.test(cuerpo))
+    .map(([, nombre]) => nombre);
+  assert.ok(conOrganizacion.length > 30, "el parseo del schema encontró los modelos");
+  const faltan = conOrganizacion.filter(
+    (nombre) => !esteArchivo.includes(`prisma.${nombre[0].toLowerCase()}${nombre.slice(1)}.`),
+  );
+  assert.deepEqual(
+    faltan,
+    [],
+    `modelos con organizationId sin prueba de aislamiento: ${faltan.join(", ")}`,
   );
 });
