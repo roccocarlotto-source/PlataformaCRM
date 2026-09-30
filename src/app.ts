@@ -4,7 +4,7 @@ import express from "express";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import { env } from "./config/env";
-import { logger } from "./lib/logger";
+import { httpLoggerOptions, logger } from "./lib/logger";
 import { jsonParser } from "./middlewares/bodyParserError";
 import { errorHandler } from "./middlewares/errorHandler";
 import { notFound } from "./middlewares/notFound";
@@ -54,7 +54,7 @@ app.use((_req, res, next) => {
 // incidental (más visibilidad), no un requisito de este PR; el motivo real de
 // moverlo es el de abajo: la ruta pública del widget se monta antes del cors()
 // global, y tiene que quedar cubierta por el log igual que la ingesta.
-app.use(pinoHttp({ logger }));
+app.use(pinoHttp({ logger, ...httpLoggerOptions }));
 
 // EL ROUTER PÚBLICO DEL WIDGET VA ANTES DEL cors() GLOBAL, Y NO ES COSMÉTICO —
 // es el mismo motivo estructural por el que ingestRouter y whatsappWebhookRouter
