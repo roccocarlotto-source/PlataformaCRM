@@ -129,6 +129,7 @@ function dependencias(
 const ENTRADA = {
   organizationId: ORG,
   userId: USER,
+  role: "USER" as const,
   userFullName: "Laura Gómez",
   texto: "¿Qué turnos hay hoy?",
 };
@@ -216,7 +217,7 @@ test("aHistorialInterno descarta los mensajes vacíos", () => {
   );
 });
 
-test("tool call: se ejecuta con {organizationId, userId}, el resultado vuelve al modelo y queda auditada", async () => {
+test("tool call: se ejecuta con {organizationId, userId, role}, el resultado vuelve al modelo y queda auditada", async () => {
   const tool = toolDePrueba();
   const { deps, guardados } = dependencias({ catalogo: [tool] });
   const { llm, requests } = proveedor([
@@ -228,7 +229,7 @@ test("tool call: se ejecuta con {organizationId, userId}, el resultado vuelve al
 
   assert.equal(tool.llamadas.length, 1);
   assert.deepEqual(tool.llamadas[0].args, { algo: 1 });
-  assert.deepEqual(tool.llamadas[0].contexto, { organizationId: ORG, userId: USER });
+  assert.deepEqual(tool.llamadas[0].contexto, { organizationId: ORG, userId: USER, role: "USER" });
 
   assert.equal(requests.length, 2);
   const ultimo = requests[1].messages.at(-1);

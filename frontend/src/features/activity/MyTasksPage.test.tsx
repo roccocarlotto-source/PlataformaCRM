@@ -331,20 +331,40 @@ describe("MyTasksPage", () => {
     expect(captured.listRequests).toHaveLength(requestsBefore);
   });
 
-  it("(e) '+ Nueva tarea' navega con ?assigneeId=<yo> y SOLO aparece para ADMIN", async () => {
-    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
-    const { handlers } = tasksHandlers(SAMPLE);
+  it.each(["ADMIN", "USER"] as const)(
+    "(e) B-18 '+ Nueva tarea' aparece para %s y navega con ?assigneeId=<yo>",
+    async (role) => {
+      useAuthMock.mockReturnValue(mockAuth(role));
+      const { handlers } = tasksHandlers(SAMPLE);
+      server.use(...handlers);
+
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Llamar a Andrés")).toBeInTheDocument());
+      expect(screen.getByText("+ Nueva tarea")).toHaveAttribute(
+        "href",
+        "/activities/new?assigneeId=u1",
+      );
+    },
+  );
+
+  it("B-18 USER: link a editar solo en la tarea que creó él; la que le asignó un ADMIN no", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    const { handlers } = tasksHandlers([
+      makeActivity({ id: "t-mia", subject: "Creada por mí", authorId: "u1", assigneeId: "u1" }),
+      makeActivity({ id: "t-admin", subject: "Me la asignaron", authorId: "a9", assigneeId: "u1" }),
+    ]);
     server.use(...handlers);
 
     renderPage();
-    await waitFor(() => expect(screen.getByText("Llamar a Andrés")).toBeInTheDocument());
-    expect(screen.getByText("+ Nueva tarea")).toHaveAttribute(
+    await waitFor(() => expect(screen.getByText("Creada por mí")).toBeInTheDocument());
+    expect(screen.getByText("Creada por mí").closest("a")).toHaveAttribute(
       "href",
-      "/activities/new?assigneeId=u1",
+      "/activities/t-mia/edit",
     );
+    expect(screen.getByText("Me la asignaron").closest("a")).toBeNull();
   });
 
-  it("(f) USER: no ve '+ Nueva tarea' ni el link de editar en el título, pero SÍ puede tildar el checkbox", async () => {
+  it("(f) USER: sin link de editar en las que le asignaron, pero SÍ puede tildar el checkbox", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
     let usersRequests = 0;
     const { handlers, captured } = tasksHandlers(SAMPLE);
@@ -360,7 +380,6 @@ describe("MyTasksPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("Llamar a Andrés")).toBeInTheDocument());
 
-    expect(screen.queryByText("+ Nueva tarea")).not.toBeInTheDocument();
     expect(screen.getByText("Llamar a Andrés").closest("a")).toBeNull();
 
     await user.click(screen.getByRole("checkbox", { name: "Completar: Llamar a Andrés" }));

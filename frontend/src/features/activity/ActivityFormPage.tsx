@@ -23,6 +23,8 @@ import {
 import { ACTIVITY_TYPES, ACTIVITY_TYPE_LABELS } from "./types";
 import type { Activity, ActivityType, CreateActivityInput, UpdateActivityInput } from "./types";
 import { useFormDraft } from "../../lib/useFormDraft";
+import { useAuth } from "../../auth/AuthContext";
+import { canUserEditActivity } from "./permissions";
 
 interface ActivityFormValues {
   type: ActivityType;
@@ -147,10 +149,19 @@ function toFormValues(data: Activity): ActivityFormValues {
 // Los selectores (Select de Tipo, UserSelect, CompanySelect, ContactSelect,
 // OpportunitySelect) se montan sueltos, sin FormField: traen su propio <label
 // htmlFor>, y FormField ES un <label>. Mismo trato que en CompanyFormPage.
+//
+// B-18: la usan los dos roles. Un USER (vendedor) crea actividades asignadas
+// SOLO a sí mismo, así que no ve UserSelect (además GET /api/users es
+// ADMIN-only): "Asignado a" es un campo fijo con su nombre. Edita solo las
+// que creó, tiene asignadas y no completó (canUserEditActivity); cualquier
+// otra muestra un aviso en vez del formulario. Al guardar vuelve a "Mis
+// tareas", su única pantalla de actividades.
 export function ActivityFormPage() {
   const { id } = useParams<{ id?: string }>();
   const isEditMode = id !== undefined;
   const navigate = useNavigate();
+  const { me } = useAuth();
+  const isAdmin = me?.role === "ADMIN";
 
   const activityQuery = useActivity(isEditMode ? id : undefined);
   const createActivityMutation = useCreateActivity();
@@ -161,10 +172,14 @@ export function ActivityFormPage() {
   // Valor inicial derivado, igual que EMPTY_FORM (mismo patrón que
   // pipelineId/stageId en OpportunityFormPage): sigue editable, y un id
   // inexistente lo rechaza el backend como siempre. En edición se ignora.
+  // Un USER no elige: nace asignada a sí mismo (B-18).
   const [searchParams] = useSearchParams();
   const initialValues: ActivityFormValues = isEditMode
     ? EMPTY_FORM
-    : { ...EMPTY_FORM, assigneeId: searchParams.get("assigneeId") };
+    : {
+        ...EMPTY_FORM,
+        assigneeId: isAdmin ? searchParams.get("assigneeId") : (me?.id ?? null),
+      };
 
   const [values, setValues] = useFormDraft<ActivityFormValues>(
     activityQuery.data?.id,
@@ -196,7 +211,7 @@ export function ActivityFormPage() {
       } else {
         await createActivityMutation.mutateAsync(toCreateInput(values));
       }
-      navigate("/activities");
+      navigate(isAdmin ? "/activities" : "/tasks");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar la actividad");
     }
@@ -211,6 +226,20 @@ export function ActivityFormPage() {
       <ErrorState>
         No pudimos cargar la actividad
         {activityQuery.error instanceof Error ? `: ${activityQuery.error.message}` : "."}
+      </ErrorState>
+    );
+  }
+
+  if (
+    isEditMode &&
+    !isAdmin &&
+    activityQuery.data &&
+    !canUserEditActivity(activityQuery.data, me?.id)
+  ) {
+    return (
+      <ErrorState>
+        Solo podés editar las tareas que creaste vos, que tenés asignadas y que todavía no
+        completaste.
       </ErrorState>
     );
   }
@@ -306,14 +335,21 @@ export function ActivityFormPage() {
               Debe indicar Empresa, Contacto, Oportunidad, o una combinación de estos.
             </p>
             {/* assigneeId nunca se autoasigna al omitirse (a diferencia de
-                ownerId en Opportunity) — emptyOptionLabel refleja eso. */}
-            <UserSelect
-              id="activity-form-assignee"
-              label="Asignado a"
-              value={values.assigneeId ?? undefined}
-              onChange={(assigneeId) => setValues({ ...values, assigneeId: assigneeId || null })}
-              emptyOptionLabel="Sin asignar"
-            />
+                ownerId en Opportunity) — emptyOptionLabel refleja eso. Un
+                USER no elige (B-18): el campo es fijo en sí mismo. */}
+            {isAdmin ? (
+              <UserSelect
+                id="activity-form-assignee"
+                label="Asignado a"
+                value={values.assigneeId ?? undefined}
+                onChange={(assigneeId) => setValues({ ...values, assigneeId: assigneeId || null })}
+                emptyOptionLabel="Sin asignar"
+              />
+            ) : (
+              <FormField label="Asignado a">
+                <input type="text" value={me?.fullName ?? ""} disabled />
+              </FormField>
+            )}
             <FormField label="Vencimiento">
               <input
                 type="datetime-local"

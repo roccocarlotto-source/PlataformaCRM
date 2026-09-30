@@ -132,6 +132,14 @@ export const router = createBrowserRouter([
           // así que NO va en AdminRoute. El listado completo (/activities) sí,
           // abajo.
           { path: "/tasks", element: <MyTasksPage /> },
+          // B-18: el formulario de actividad también es de los dos roles. Un
+          // USER crea tareas asignadas a sí mismo (POST /api/activities ya no
+          // es ADMIN-only; el service le da 403 si pide otro assignee) y edita
+          // las que creó y todavía no completó. El formulario se adapta al
+          // rol (ActivityFormPage.tsx); el listado completo sigue en el
+          // AdminRoute de abajo.
+          { path: "/activities/new", element: <ActivityFormPage /> },
+          { path: "/activities/:id/edit", element: <ActivityFormPage /> },
           // Módulo QR (docs/qr-integration.md, Fase 3). El LISTADO va acá afuera,
           // como /companies: GET /api/qr es lectura abierta a
           // cualquier usuario autenticado (qr.routes.ts: solo authenticate) y las
@@ -168,13 +176,11 @@ export const router = createBrowserRouter([
             // Restricción de UX/autorización visual — ver auth/AdminRoute.tsx.
             // La autorización real de escritura sigue siendo authorize("ADMIN")
             // en el backend. Un único AdminRoute cubre las rutas de escritura
-            // de Company, Contact, Pipeline, Stage, Opportunity y Activity — el
-            // componente no sabe ni le importa qué ruta envuelve. Una sola
-            // excepción, y no cambia este bloque: PATCH /api/activities/:id
-            // admite que un USER complete SU propia actividad mandando solo
-            // completedAt (activity.service.ts) — eso lo usa /tasks, arriba;
-            // /activities/:id/edit manda todos los campos y sigue siendo
-            // ADMIN-only, así que sigue acá adentro. M7 (Users,
+            // de Company, Contact, Pipeline, Stage y Opportunity — el
+            // componente no sabe ni le importa qué ruta envuelve. Activity es
+            // la excepción desde B-18: su formulario (crear/editar) está
+            // arriba, afuera, porque el vendedor también crea tareas; acá
+            // queda solo el listado completo. M7 (Users,
             // Invitations) también entra acá, con una diferencia real: a
             // diferencia de todos los módulos anteriores, GET /api/users y
             // GET /api/invitations son TAMBIÉN ADMIN-only (verificado en
@@ -330,8 +336,6 @@ export const router = createBrowserRouter([
               // es del service; esto evita mostrar una pantalla vacía de
               // sentido para ese rol.
               { path: "/activities", element: <ActivityListPage /> },
-              { path: "/activities/new", element: <ActivityFormPage /> },
-              { path: "/activities/:id/edit", element: <ActivityFormPage /> },
               // Ficha de vehículo: POST/PATCH /api/vehicles son ADMIN-only, y la
               // ficha es toda escritura (incluida la galería de fotos).
               { path: "/vehicles/new", element: <VehicleFormPage /> },

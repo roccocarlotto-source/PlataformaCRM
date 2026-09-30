@@ -5,7 +5,8 @@ import { findEtiquetasDeAgenda } from "../repositories/internalAgent.repository"
 import { findOrganizationById } from "../repositories/organization.repository";
 import { findOpportunitiesMatchingAllWords } from "../repositories/opportunity.repository";
 import { isoEnZona } from "../utils/timezone";
-import { createActivity } from "./activity.service";
+import type { RoleName } from "../types/auth";
+import { createActivityAsActor } from "./activity.service";
 import {
   conErroresDeNegocio,
   exito,
@@ -44,6 +45,9 @@ export interface ContextoDeEjecucionDeToolInterna {
   organizationId: string;
   // Quien escribió el mensaje: es el autor de lo que la tool cree.
   userId: string;
+  // Su rol (req.auth.role): las tools que escriben aplican las MISMAS reglas
+  // por rol que el panel (B-18: createActivityAsActor).
+  role: RoleName;
 }
 
 export interface ToolInterna {
@@ -175,10 +179,12 @@ async function zonaDeLaOrganizacion(organizationId: string): Promise<string> {
 // ---------------------------------------------------------------------------
 // create_internal_task
 //
-// Crea una Activity de tipo TASK con el MISMO createActivity que usa el panel:
-// autor = quien escribió el mensaje, y también asignada a esa persona, para que
-// la vea en sus tareas (una tarea que pidió para sí misma y no aparece en
-// ningún lado no le sirve).
+// Crea una Activity de tipo TASK con el MISMO createActivityAsActor que usa
+// POST /api/activities (B-18): autor = quien escribió el mensaje, y también
+// asignada a esa persona, para que la vea en sus tareas (una tarea que pidió
+// para sí misma y no aparece en ningún lado no le sirve). La regla de a quién
+// puede asignar cada rol es la del panel, no una copia: un USER solo a sí
+// mismo, que es justo lo que esta tool pide.
 //
 // Activity exige por CHECK de base un companyId, contactId u opportunityId: no
 // hay tareas sueltas, y está bien — es un CRM, no una lista de pendientes.
@@ -268,7 +274,8 @@ const createInternalTaskTool: ToolInterna = {
         oportunidad = resuelta.valor;
       }
 
-      const activity = await createActivity(contexto.organizationId, contexto.userId, {
+      const actor = { userId: contexto.userId, role: contexto.role };
+      const activity = await createActivityAsActor(contexto.organizationId, actor, {
         type: "TASK",
         subject: params.asunto,
         body: params.descripcion,

@@ -21,28 +21,28 @@ export const activityRouter = Router();
 activityRouter.get("/activities", authenticate, listActivitiesHandler);
 activityRouter.get("/activities/:id", authenticate, getActivityHandler);
 
-// Escritura: solo ADMIN. businessWriteRateLimiter (R1.9) va después de
-// authenticate (necesita req.auth.userId) y antes de authorize — ver
-// rateLimit.ts.
-activityRouter.post(
-  "/activities",
-  authenticate,
-  businessWriteRateLimiter,
-  authorize("ADMIN"),
-  createActivityHandler,
-);
-// PATCH es la única escritura SIN authorize("ADMIN") en la ruta, y no es
-// un olvido: su autorización es a nivel de RECURSO, no de rol, así que
-// vive en el service (canSelfServiceCompleteActivity, activity.service.ts),
-// que es el único lugar que tiene la actividad real a mano. La regla:
-// ADMIN edita cualquier campo de cualquier actividad, como siempre; un
-// USER puede PATCHear una actividad si y solo si es su propio assignee, el
-// único campo del body es completedAt (tildar en "Mis tareas") y la tarea
-// todavía no está completada (§29: no puede destildarse a sí mismo; deshacer
-// un tilde es "Rechazar", que solo hace un ADMIN). Cualquier otra
-// combinación —incluido `confirmed`, la acción Confirmar/Rechazar— recibe
-// el mismo 403 que daría authorize. POST y DELETE siguen siendo ADMIN-only,
-// sin cambios.
+// Escritura. businessWriteRateLimiter (R1.9) va después de authenticate
+// (necesita req.auth.userId) y antes de authorize — ver rateLimit.ts.
+//
+// POST sin authorize("ADMIN") desde B-18 (docs-privados/auditoria-2026-09-30-corta.md,
+// local, no está en GitHub): el vendedor también crea tareas, como ya podía
+// hacerlo por create_internal_task. La regla es de rol pero depende del
+// body (a quién se asigna), así que vive en el service
+// (resolveAssigneeForActor): un USER solo crea actividades asignadas a sí
+// mismo — sin assignee, queda él; con otro, 403.
+activityRouter.post("/activities", authenticate, businessWriteRateLimiter, createActivityHandler);
+// PATCH tampoco lleva authorize("ADMIN"), y no es un olvido: su
+// autorización es a nivel de RECURSO, no de rol, así que vive en el service
+// (canUserPatchActivity, activity.service.ts), que es el único lugar que
+// tiene la actividad real a mano. La regla: ADMIN edita cualquier campo de
+// cualquier actividad, como siempre; un USER solo toca una actividad
+// asignada a sí mismo y todavía no completada (§29: no puede destildarse;
+// deshacer un tilde es "Rechazar", que solo hace un ADMIN). Sobre esas,
+// completa cualquiera (solo completedAt, el tilde de "Mis tareas") y edita
+// el resto de los campos solo de las que creó él (B-18), sin reasignarlas
+// a otro. Cualquier otra combinación —incluido `confirmed`, la acción
+// Confirmar/Rechazar— recibe el mismo 403 que daría authorize. DELETE sigue
+// siendo ADMIN-only.
 activityRouter.patch(
   "/activities/:id",
   authenticate,

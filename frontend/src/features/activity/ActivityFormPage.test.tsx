@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -12,10 +12,40 @@ import { makeContact } from "../../test/contactFixtures";
 import { makeUser } from "../../test/userFixtures";
 import { ActivityFormPage } from "./ActivityFormPage";
 import { chooseSelectOption, listSelectOptions } from "../../test/chooseSelectOption";
+import type { AuthContextValue } from "../../auth/AuthContext";
 
 vi.mock("../../auth/getAccessToken", () => ({
   getAccessToken: vi.fn(async () => "test-token"),
 }));
+
+// B-18: el formulario se adapta al rol. Por defecto ADMIN (lo que probaban
+// todos los tests de antes); los de USER lo cambian.
+const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
+vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+function mockAuth(role: "ADMIN" | "USER"): AuthContextValue {
+  return {
+    status: "authenticated",
+    me: {
+      id: "me-1",
+      email: "yo@example.com",
+      fullName: "Vera Vendedora",
+      organizationId: "org-1",
+      role,
+      isPlatformAdmin: false,
+      canUseInternalAgent: false,
+    },
+    accountUnavailableReason: null,
+    profileError: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    retryProfile: vi.fn(),
+  };
+}
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+});
 
 // Ver datetimeLocal.test.ts: sin @types/node en este paquete, se accede a
 // process vía globalThis con un cast puntual en vez de agregar una
@@ -51,6 +81,7 @@ function renderForm(initialPath: string) {
           <Route path="/activities/new" element={<ActivityFormPage />} />
           <Route path="/activities/:id/edit" element={<ActivityFormPage />} />
           <Route path="/activities" element={<div>lista de actividades</div>} />
+          <Route path="/tasks" element={<div>mis tareas</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -131,6 +162,89 @@ describe("ActivityFormPage — create", () => {
 
     await waitFor(() => expect(screen.getByText("lista de actividades")).toBeInTheDocument());
     expect(postedBody).toMatchObject({ subject: "Desde Mis tareas", assigneeId: "u2" });
+  });
+
+  // B-18: un USER crea tareas asignadas solo a sí mismo. No hay selector
+  // (ni GET /api/users, que es ADMIN-only): el campo es fijo, y aunque la
+  // URL traiga el assigneeId de otro, viaja el propio.
+  it("B-18 USER: 'Asignado a' fijo en sí mismo, sin pedir usuarios; el POST lleva su id y vuelve a Mis tareas", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    let usersRequests = 0;
+    let postedBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get(usersUrl, () => {
+        usersRequests += 1;
+        return HttpResponse.json({ data: [], pagination: {} });
+      }),
+      http.post(activitiesUrl, async ({ request }) => {
+        postedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeActivity(), { status: 201 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/activities/new?assigneeId=u2");
+
+    const assignee = screen.getByLabelText("Asignado a");
+    expect(assignee).toHaveValue("Vera Vendedora");
+    expect(assignee).toBeDisabled();
+
+    await user.type(screen.getByLabelText("Asunto"), "Tarea del vendedor");
+    await selectCompany(user, "Acme Corp", "co1");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("mis tareas")).toBeInTheDocument());
+    expect(postedBody).toMatchObject({ subject: "Tarea del vendedor", assigneeId: "me-1" });
+    expect(usersRequests).toBe(0);
+  });
+
+  it("B-18 USER: editar una que le asignó otro muestra un aviso en vez del formulario", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    server.use(
+      http.get(`${activitiesUrl}/:id`, () =>
+        HttpResponse.json(makeActivity({ id: "a1", authorId: "admin-9", assigneeId: "me-1" })),
+      ),
+    );
+    renderForm("/activities/a1/edit");
+
+    expect(
+      await screen.findByText(/Solo podés editar las tareas que creaste vos/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /guardar/i })).not.toBeInTheDocument();
+  });
+
+  it("B-18 USER: edita la que creó él y vuelve a Mis tareas", async () => {
+    useAuthMock.mockReturnValue(mockAuth("USER"));
+    let patchedBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get(companiesUrl + "/:id", () =>
+        HttpResponse.json(makeCompany({ id: "co1", name: "Acme Corp" })),
+      ),
+      http.get(`${activitiesUrl}/:id`, () =>
+        HttpResponse.json(
+          makeActivity({
+            id: "a1",
+            subject: "Mía",
+            authorId: "me-1",
+            assigneeId: "me-1",
+            companyId: "co1",
+          }),
+        ),
+      ),
+      http.patch(`${activitiesUrl}/:id`, async ({ request }) => {
+        patchedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(makeActivity({ id: "a1" }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm("/activities/a1/edit");
+
+    const subject = await screen.findByDisplayValue("Mía");
+    await user.clear(subject);
+    await user.type(subject, "Mía editada");
+    await user.click(screen.getByRole("button", { name: /guardar/i }));
+
+    await waitFor(() => expect(screen.getByText("mis tareas")).toBeInTheDocument());
+    expect(patchedBody).toMatchObject({ subject: "Mía editada", assigneeId: "me-1" });
   });
 
   it("41. create con una relación (Company): payload correcto, navega tras éxito", async () => {

@@ -485,10 +485,11 @@ function renderActivityRouteAt(initialPath: string) {
         <Routes>
           <Route element={<ProtectedRoute />}>
             <Route path="/companies" element={<div>lista de empresas</div>} />
+            {/* B-18: el formulario está afuera, como en router.tsx. */}
+            <Route path="/activities/new" element={<ActivityFormPage />} />
+            <Route path="/activities/:id/edit" element={<ActivityFormPage />} />
             <Route element={<AdminRoute />}>
               <Route path="/activities" element={<ActivityListPage />} />
-              <Route path="/activities/new" element={<ActivityFormPage />} />
-              <Route path="/activities/:id/edit" element={<ActivityFormPage />} />
             </Route>
           </Route>
         </Routes>
@@ -542,30 +543,14 @@ describe("AdminRoute — protección visual de rutas de escritura de Activity", 
     );
   });
 
-  it("USER entrando directamente a /activities/new no renderiza el formulario", async () => {
+  // B-18: el vendedor también crea tareas, así que el formulario ya no
+  // está detrás de AdminRoute (se adapta al rol, ver ActivityFormPage).
+  it("B-18 USER sí accede a /activities/new", async () => {
     useAuthMock.mockReturnValue(mockAuth("USER"));
 
     renderActivityRouteAt("/activities/new");
 
-    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
-    expect(screen.queryByText("Nueva actividad")).not.toBeInTheDocument();
-  });
-
-  it("USER entrando directamente a /activities/:id/edit no renderiza el formulario ni pide el detail", async () => {
-    useAuthMock.mockReturnValue(mockAuth("USER"));
-    let detailRequested = false;
-    server.use(
-      http.get(`${activitiesUrl}/:id`, () => {
-        detailRequested = true;
-        return HttpResponse.json(makeActivity());
-      }),
-    );
-
-    renderActivityRouteAt("/activities/act1/edit");
-
-    await waitFor(() => expect(screen.getByText("lista de empresas")).toBeInTheDocument());
-    expect(screen.queryByText("Editar actividad")).not.toBeInTheDocument();
-    expect(detailRequested).toBe(false);
+    await waitFor(() => expect(screen.getByText("Nueva actividad")).toBeInTheDocument());
   });
 
   it("ADMIN sí accede a /activities/new", async () => {
