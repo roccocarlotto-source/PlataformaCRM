@@ -559,6 +559,37 @@ test("mismo sessionId = mismo Contact y misma Conversation; cerrada la conversac
   assert.notEqual(convOtra.contactId, contactId);
 });
 
+// C-04 / C-14 (docs-privados/auditoria-2026-09-30-corta.md, local): si el
+// contacto de la sesión se borró (a mano, o la purga de "Visitante"), la
+// sesión no queda muerta: el próximo mensaje arranca con un contacto nuevo.
+test("C-04: borrado el contacto de la sesión, el próximo mensaje responde con un contacto nuevo, no 400", async () => {
+  const sessionId = randomUUID();
+  const primera = (await (
+    await enviar(fx.agente, { token: fx.token, origin: ORIGEN, body: { sessionId, message: "1" } })
+  ).json()) as { conversationId: string };
+  const conv = await prisma.conversation.findUniqueOrThrow({
+    where: { id: primera.conversationId },
+  });
+  await prisma.conversation.update({ where: { id: conv.id }, data: { status: "CLOSED" } });
+  await prisma.contact.update({
+    where: { id: conv.contactId },
+    data: { deletedAt: new Date() },
+  });
+
+  const res = await enviar(fx.agente, {
+    token: fx.token,
+    origin: ORIGEN,
+    body: { sessionId, message: "¿Siguen ahí?" },
+  });
+  assert.equal(res.status, 200, await res.clone().text());
+  const segunda = (await res.json()) as { conversationId: string };
+  const nueva = await prisma.conversation.findUniqueOrThrow({
+    where: { id: segunda.conversationId },
+  });
+  assert.notEqual(nueva.contactId, conv.contactId, "un contacto nuevo, no el borrado");
+  assert.equal(nueva.externalThreadId, sessionId, "la misma sesión del navegador");
+});
+
 // ---------------------------------------------------------------------------
 // 6. Validación del cuerpo — desde la cadena propia
 // ---------------------------------------------------------------------------

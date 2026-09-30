@@ -233,6 +233,13 @@ export function countOpenConversationsOf(
 // previa ya esté CLOSED — quien decide si hace falta una Conversation nueva es
 // findOpenConversation, que runAgentTurn llama después con el contactId ya
 // resuelto. Ver widgetContact.service.ts.
+//
+// SOLO con el contacto vivo (C-04/C-14 de
+// docs-privados/auditoria-2026-09-30-corta.md, local): si el contacto de esa
+// sesión se borró —a mano o por la purga de "Visitante"—, devolverlo dejaba
+// la sesión del widget muerta para siempre (runAgentTurn responde 400 "el
+// contacto no existe" en cada mensaje). Ignorándola, la sesión arranca de
+// cero con un contacto nuevo, como un visitante nuevo.
 export function findConversationByExternalThreadId(
   organizationId: string,
   agentId: string,
@@ -241,7 +248,13 @@ export function findConversationByExternalThreadId(
   db: Db = prisma,
 ) {
   return db.conversation.findFirst({
-    where: { organizationId, agentId, channel, externalThreadId },
+    where: {
+      organizationId,
+      agentId,
+      channel,
+      externalThreadId,
+      contact: { is: { deletedAt: null } },
+    },
     select: { id: true, contactId: true, status: true },
     orderBy: { createdAt: "desc" },
   });
