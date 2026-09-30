@@ -389,6 +389,27 @@ test("un ADMIN desconecta: 204, la fila queda REVOKED sin token; otra vez es 409
   assert.equal(otra.status, 409);
 });
 
+// D-10 de docs-privados/auditoria-2026-09-30-corta.md (local, no está en
+// GitHub): con el UNIQUE global de page_id, la página que B desconectó (fila
+// REVOKED) no la podía conectar nadie más, nunca. Ahora el UNIQUE es parcial.
+test("D-10: la página que otra organización desconectó se puede conectar; mientras esté conectada, vuelve a ser 409", async () => {
+  const compartida = pagina();
+  paginasEnMeta = [compartida];
+  exito(await callback(orgB));
+  assert.equal((await call("DELETE", "/api/integrations/meta", adminB.accessToken)).status, 204);
+
+  exito(await callback(orgA));
+  const deA = await conexionDe(orgA);
+  assert.equal(deA?.pageId, compartida.id);
+  assert.equal(deA?.status, "ACTIVE");
+
+  // B reconecta la misma página mientras A la tiene: la fila revocada de B
+  // pasaría a ACTIVE con la página de A, y eso sigue siendo imposible.
+  assert.match(mensajeDeError(await callback(orgB)), /ya está conectada a otra cuenta/);
+  assert.equal((await conexionDe(orgB))?.status, "REVOKED");
+  assert.equal((await conexionDe(orgA))?.status, "ACTIVE");
+});
+
 test("desconectar sin conexión → 404; el ADMIN de otra organización no toca la de A", async () => {
   assert.equal((await call("DELETE", "/api/integrations/meta", adminA.accessToken)).status, 404);
 

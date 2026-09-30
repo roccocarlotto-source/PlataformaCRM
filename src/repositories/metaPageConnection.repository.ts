@@ -132,6 +132,10 @@ export function upsertMetaConnection(datos: DatosDeConexionMeta, db: Db = prisma
 // que un volcado de la base arrastra secretos de organizaciones que ya se
 // desconectaron. El CHECK de la migración permite el NULL justamente en los
 // estados que no son ACTIVE.
+//
+// La fila conserva su page_id, pero ya no retiene la página: el UNIQUE de
+// page_id es parcial (WHERE status <> 'REVOKED', D-10), así que otra
+// organización puede conectarla.
 export function markMetaConnectionRevoked(organizationId: string, db: Db = prisma) {
   return db.metaPageConnection.updateMany({
     where: { organizationId },
