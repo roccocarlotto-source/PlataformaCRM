@@ -134,10 +134,16 @@ parar cada pieza y qué falta para terminar de aplicarla.
     propósito la misma respuesta, DEC-007) y confirmar que redirige a su
     `destinationUrl`. Esto es manual, contra el Worker y el backend reales —
     no se puede confirmar desde acá.
-  - [ ] **Decomiso** (deployment de Vercel del admin viejo, borrado manual
-    del proyecto `qr-reviews` desde el dashboard de Supabase) — sin
-    empezar, correctamente: es lo último, después de la verificación
-    end-to-end real.
+  - [x] **Decomiso. Hecho (2026-09-30).**
+    - [x] Proyecto de Vercel del admin viejo: borrado.
+    - [x] Proyecto `qr-reviews` de Supabase: borrado desde el dashboard
+      (Rocco confirmó en el panel que ya no existe). Con él se fueron sus
+      datos, las Edge Functions y los secretos que tenía cargados.
+    - [x] MercadoPago: nada que desconectar, nunca se conectó (la
+      facturación del QR se retiró en el ítem 135).
+    - [x] Repo `Plataforma-QR`: `supabase/` y `admin/` movidas a `archive/`
+      con un README que explica qué eran. Nada vivo las importaba; el
+      Worker no cambió, así que no hizo falta redeployarlo.
 - [ ] **Fase 5 — Repo.** Archivar/borrar `Plataforma-QR` una vez portado.
 
 ## Cómo aplicar Fase 1
@@ -1661,6 +1667,13 @@ el gate de Fase 4 se deployó.
   desde el dashboard) — ver el checklist de Fase 4 en "Estado".
 
 ## Changelog
+
+### 2026-09-30 — Decomiso de `qr-reviews` y del admin viejo
+
+El proyecto de Supabase `qr-reviews` y el proyecto de Vercel del admin viejo
+ya no existen. En `Plataforma-QR`, `supabase/` y `admin/` pasaron a
+`archive/`; lo único vivo de ese repo es el Worker de Cloudflare, que no
+cambió. Checklist de Fase 4 actualizado en "Estado".
 
 ### 2026-09-28 — La plantilla de WhatsApp es de cada regla, no de la organización (ítem 181)
 
