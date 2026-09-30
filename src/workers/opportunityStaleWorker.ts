@@ -3,7 +3,10 @@ import { logger } from "../lib/logger";
 import { prisma } from "../lib/prisma";
 import { findActiveAutomationsByTriggerForSweep } from "../repositories/automation.repository";
 import { findStaleOpportunities } from "../repositories/opportunity.repository";
-import { emitOutboxEvent } from "../repositories/outboxEvent.repository";
+import {
+  emitOutboxEvent,
+  findOpportunityIdsWithEventSince,
+} from "../repositories/outboxEvent.repository";
 import {
   TRIGGER_OPPORTUNITY_STALE,
   configDeOportunidadEstancadaSchema,
@@ -39,13 +42,11 @@ import {
 //   crea la Activity: el barrido solo toma las que no tienen marca o la tienen
 //   ANTERIOR a su último movimiento real.
 //
-//   NO HAY RECLAMO NI LOCK POR FILA. Con varias instancias —o con un reinicio,
-//   que dispara una pasada inmediata— la misma oportunidad puede recibir dos
-//   eventos antes de que el primero se despache. El segundo es inofensivo: la
-//   acción relee la fila y, si ya hay un borrador posterior al último
-//   movimiento, no hace nada. La ventana que queda —dos despachos EN
-//   PARALELO de la misma oportunidad, los dos antes de la marca— exige dos
-//   instancias drenando el outbox en el mismo segundo; se acepta.
+//   UN EVENTO POR OPORTUNIDAD POR DÍA (G-08, ver VENTANA_SIN_REPETIR_MS). Un
+//   reinicio dispara una pasada inmediata, pero una oportunidad que ya
+//   recibió su evento en las últimas 23 h no recibe otro. Y si igual llegaran
+//   dos, el segundo es inofensivo: la acción relee la fila y, si ya hay un
+//   borrador posterior al último movimiento, no hace nada.
 //
 //   UN EVENTO POR OPORTUNIDAD, NO POR REGLA. El dispatcher corre todas las
 //   reglas activas del trigger para cada evento, así que emitir por regla
@@ -55,6 +56,33 @@ import {
 // ---------------------------------------------------------------------------
 
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// UNA VEZ POR DÍA, AUNQUE EL PROCESO REINICIE (G-08 de
+// docs-privados/auditoria-2026-09-30-corta.md, local).
+//
+// La primera pasada es inmediata al arrancar, y Render Free reinicia el
+// proceso cada vez que despierta. La marca anti-redraft evita borradores
+// duplicados, pero no eventos: con el LLM caído (la acción no llega a poner la
+// marca), cada despertada emitía un opportunity.stale nuevo por oportunidad →
+// filas, reintentos y DEAD_LETTER multiplicados.
+//
+// Ahora una oportunidad que ya recibió un evento en la ventana de abajo no
+// recibe otro, esté ese evento pendiente, procesado o muerto: la memoria es el
+// propio outbox, sin columna nueva. Una hora menos que un día para que la
+// pasada de mañana —que corre 24 h después del FIN de la de hoy— no la saltee
+// por segundos. La consulta y la emisión van bajo un advisory lock por
+// organización, así que dos procesos que arrancan a la vez tampoco duplican.
+// ---------------------------------------------------------------------------
+export const VENTANA_SIN_REPETIR_MS = 23 * 60 * 60 * 1000;
+
+// Pura y exportada para probarla sin base.
+export function sinEventoReciente<T extends { id: string }>(
+  estancadas: T[],
+  conEventoReciente: Set<string>,
+): T[] {
+  return estancadas.filter((oportunidad) => !conEventoReciente.has(oportunidad.id));
+}
 
 export interface ResumenDeBarrido {
   organizaciones: number;
@@ -149,8 +177,17 @@ export async function barrerOportunidadesEstancadas(
       // ninguno, y el reintento es la pasada de mañana. Por evento sería lo
       // mismo con más viajes a la base — no hay ningún cambio de negocio que
       // acompañar, solo filas en la cola.
-      await prisma.$transaction(async (tx) => {
-        for (const oportunidad of estancadas) {
+      const emitidas = await prisma.$transaction(async (tx) => {
+        // G-08: ver VENTANA_SIN_REPETIR_MS.
+        await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`opportunity-stale:${organizationId}`}::text))`;
+        const conEventoReciente = await findOpportunityIdsWithEventSince(
+          organizationId,
+          TRIGGER_OPPORTUNITY_STALE,
+          new Date(ahora.getTime() - VENTANA_SIN_REPETIR_MS),
+          tx,
+        );
+        const aEmitir = sinEventoReciente(estancadas, conEventoReciente);
+        for (const oportunidad of aEmitir) {
           await emitOutboxEvent(
             {
               organizationId,
@@ -160,11 +197,15 @@ export async function barrerOportunidadesEstancadas(
             tx,
           );
         }
+        return aEmitir.length;
       });
 
-      resumen.emitidos += estancadas.length;
+      if (emitidas === 0) {
+        continue;
+      }
+      resumen.emitidos += emitidas;
       logger.info(
-        { organizationId, daysWithoutActivity: dias, emitidos: estancadas.length },
+        { organizationId, daysWithoutActivity: dias, emitidos: emitidas },
         "Oportunidades estancadas: eventos opportunity.stale emitidos",
       );
     } catch (err) {

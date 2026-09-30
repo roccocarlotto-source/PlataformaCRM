@@ -220,3 +220,50 @@ test("con movimiento DESPUÉS del último borrador y vuelta a estancarse: SÍ vu
 
   await prisma.automation.update({ where: { id: regla.id }, data: { deletedAt: new Date() } });
 });
+
+// ---------------------------------------------------------------------------
+// G-08 (docs-privados/auditoria-2026-09-30-corta.md, local): Render Free
+// reinicia el proceso cada vez que despierta, y cada arranque corre una
+// pasada. Una oportunidad estancada recibe UN evento por día, no uno por
+// arranque — aunque el primero no se haya despachado (el LLM caído no deja la
+// marca anti-redraft).
+// ---------------------------------------------------------------------------
+
+async function quietaDesdeHace(opportunityId: string, dias: number) {
+  await prisma.$executeRaw`UPDATE opportunities SET updated_at = ${new Date(Date.now() - dias * DIA)} WHERE id = ${opportunityId}::uuid`;
+}
+
+test("G-08: dos arranques seguidos emiten UN solo evento; al día siguiente, si sigue sin despacharse, otro", async () => {
+  const regla = await reglaEstancada(3);
+  const opp = await oportunidad();
+  await quietaDesdeHace(opp.id, 10);
+
+  const ahora = new Date();
+  const primero = await barrer(ahora);
+  const segundo = await barrer(new Date(ahora.getTime() + 60_000));
+  assert.equal((await eventosDeOportunidad(opp.id)).length, 1, "el reinicio no duplica");
+  assert.ok(primero.emitidos >= 1);
+  assert.equal(segundo.emitidos, 0, "la segunda pasada no emite nada");
+
+  // Pasó un día (se envejece el evento: el created_at lo pone la base, no
+  // el reloj del test) y sigue sin marca —el evento de ayer no redactó nada—:
+  // corresponde volver a intentarlo, una vez.
+  await prisma.$executeRaw`UPDATE outbox_events SET created_at = created_at - interval '24 hours' WHERE organization_id = ${e.organizationId}::uuid AND payload->>'opportunityId' = ${opp.id}`;
+  await barrer(new Date());
+  await barrer(new Date(Date.now() + 60_000));
+  assert.equal((await eventosDeOportunidad(opp.id)).length, 2);
+
+  await prisma.automation.update({ where: { id: regla.id }, data: { deletedAt: new Date() } });
+});
+
+test("G-08: dos barridos EN PARALELO tampoco duplican (lock por organización)", async () => {
+  const regla = await reglaEstancada(3);
+  const opp = await oportunidad();
+  await quietaDesdeHace(opp.id, 10);
+
+  const ahora = new Date();
+  await Promise.all([barrer(ahora), barrer(ahora)]);
+  assert.equal((await eventosDeOportunidad(opp.id)).length, 1);
+
+  await prisma.automation.update({ where: { id: regla.id }, data: { deletedAt: new Date() } });
+});
