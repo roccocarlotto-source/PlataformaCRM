@@ -214,11 +214,13 @@ from (
       -- Pago del cliente (§43, migración 20260920120000): ídem.
       ('payments'),
       -- Base de conocimiento por sucursal (§59, migración 20260924120000):
-      -- organization_id propio y la política uniforme. A diferencia de
-      -- `agents` —el modelo del que copia todo lo demás, y que no tiene
-      -- política en ningún lado (ver el encabezado de 20260912130000)— esta
-      -- nace con la suya, que es la convención vigente desde M-5.
+      -- organization_id propio y la política uniforme, la convención vigente
+      -- desde M-5.
       ('knowledge_base_entries'),
+      -- Agentes de IA, conversaciones y mensajes (A-02 de la auditoría del
+      -- 24/09, migración 20261014120000): eran las únicas tablas sin RLS; el
+      -- encabezado de 20260912130000 que lo justificaba estaba desactualizado.
+      ('agents'), ('conversations'), ('messages'),
       -- Cola del webhook de WhatsApp (ítem 125 de
       -- docs/auditoria-2026-09-24-punta-a-punta.md, migración
       -- 20260930120000): organization_id propio y la política uniforme.
