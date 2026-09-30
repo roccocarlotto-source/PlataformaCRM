@@ -75,7 +75,9 @@ parar cada pieza y qué falta para terminar de aplicarla.
   está trabajando en paralelo. No confundir con un "Fase 3 sigue abierta":
   la implementación funcional de Fase 3 ya está mergeada y verificada; esto
   es una pasada de estilo posterior e independiente.)**
-- [ ] **Fase 4 — Corte e infraestructura.** Guía completa en "Fase 4 — Corte
+- [x] **Fase 4 — Corte e infraestructura. Cerrada (2026-09-30):** todos los
+  ítems de abajo hechos, incluida la verificación end-to-end con un QR real
+  y el decomiso. Guía completa en "Fase 4 — Corte
   e infraestructura" más abajo. Dos PRs separados, en dos repos: el gate de
   secreto compartido en `/qr/resolve/:qrId` (`Plataforma CRM`) y el repunte
   del Cloudflare Worker al nuevo backend (`Plataforma-QR`). Decomiso de
@@ -128,7 +130,12 @@ parar cada pieza y qué falta para terminar de aplicarla.
     obsoleta por este cambio, se deja sin reescribir como registro
     histórico). Ver "Qué se corrigió: publicUrl.ts apunta al Worker
     (2026-09-04)" al final del documento.
-  - [ ] **Verificación end-to-end pendiente**, ya NO bloqueada por el gap de
+  - [x] **Verificación end-to-end. Hecha (2026-09-30).** Un QR digital
+    activo de una organización real resuelve con 302 a su `destinationUrl`
+    a través del Worker (`nexoraqrs.com/r/:qrId`). Se verificó antes,
+    durante y después de rotar `QR_RESOLVE_PROXY_SECRET`, así que el valor
+    del secreto coincide en los dos lados. Texto original del ítem, como
+    registro: Verificación end-to-end pendiente, ya NO bloqueada por el gap de
     arriba (resuelto): abrir el link público de un QR digital real (uno
     inventado no sirve — un secreto mal puesto y un QR inexistente dan a
     propósito la misma respuesta, DEC-007) y confirmar que redirige a su
@@ -1666,7 +1673,17 @@ el gate de Fase 4 se deployó.
   (deployment de Vercel del admin viejo + borrado del proyecto de Supabase
   desde el dashboard) — ver el checklist de Fase 4 en "Estado".
 
+**Nota posterior (2026-09-30):** los dos pendientes de arriba están
+cerrados. La verificación end-to-end se hizo con un QR digital real, y
+después se hizo el decomiso. Fase 4 quedó cerrada (ver "Estado").
+
 ## Changelog
+
+### 2026-09-30 — Verificación end-to-end hecha: Fase 4 cerrada
+
+Un QR digital activo de una organización real resuelve con 302 a su destino a
+través del Worker. Se verificó antes, durante y después de rotar
+`QR_RESOLVE_PROXY_SECRET`. Con esto y el decomiso, Fase 4 queda cerrada.
 
 ### 2026-09-30 — Decomiso de `qr-reviews` y del admin viejo
 
