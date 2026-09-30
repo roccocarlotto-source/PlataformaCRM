@@ -155,7 +155,7 @@ de negocio funciona):
 | Variable | Qué pasa si falta | Notas |
 |---|---|---|
 | `CORS_ORIGIN` | **El proceso no arranca** — la única que Zod exige | Lista separada por comas con los orígenes del frontend. **El primero** es el que la invitación de platform admin usa como `redirectTo` (`<primero>/reset-password`, Fase 4a): el dominio real del frontend va primero |
-| `DATABASE_URL` | `/health` reporta la base caída; toda ruta de negocio falla | Conexión **pooled** (PgBouncer, 6543) con `?pgbouncer=true` |
+| `DATABASE_URL` | `/health` reporta la base caída; toda ruta de negocio falla | Conexión **pooled** (PgBouncer, 6543) con `?pgbouncer=true`. Conviene fijar `&connection_limit=N` (no `1`): de ahí sale cuántos turnos del agente pueden tener el lock por conversación a la vez (la mitad del pool, `AGENT_TURN_MAX_CONCURRENT` lo pisa; sin `connection_limit` son 2) |
 | `SUPABASE_URL` | Ningún JWT se puede verificar (el JWKS sale de acá) | Sin barra final |
 | `SUPABASE_SERVICE_ROLE_KEY` | Invitaciones, alta de organización por platform admin, purgas y el bucket de fotos fallan con 500 | Exclusiva del backend. Nunca con prefijo `VITE_` |
 | `NODE_ENV` | — | La imagen ya lo fija en `production` |

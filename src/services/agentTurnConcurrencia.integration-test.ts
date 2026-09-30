@@ -259,6 +259,36 @@ test("dos turnos concurrentes del mismo contacto nunca están adentro del modelo
   );
 });
 
+// C-12 de docs-privados/auditoria-2026-09-30-corta.md (local, no está en
+// GitHub): antes, cada turno que esperaba el lock del mismo contacto esperaba
+// DENTRO de su transacción, con una conexión del pool tomada; unos pocos
+// mensajes seguidos por el widget llenaban el pool. Ahora esperan en memoria
+// (limitadorDeTurnos) y en Postgres hay un solo backend esperando.
+test("C-12: cinco turnos de la misma sesión esperando el lock ocupan UNA conexión, no cinco", async () => {
+  reiniciarDoble();
+  const contacto = await crearContacto();
+
+  const a = await sostenerTransaccion((tx) =>
+    tomarLockDeConversacion(tx, { agentId: fx.agentId, contactId: contacto.id, channel: "WEB" }),
+  );
+  const turnos = Promise.all(
+    Array.from({ length: 5 }, (_, i) => turnoWeb(contacto.id, `mensaje ${String(i)}`)),
+  );
+  await esperarBloqueadoPor(a, turnos, "runAgentTurn");
+
+  // Margen para que, si los otros cuatro abrieran su transacción, aparezcan.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const bloqueados = await contarBloqueadosDetrasDe(a);
+
+  a.liberar();
+  await a.terminada;
+  const resultados = await turnos;
+
+  assert.equal(bloqueados, 1, "un solo turno esperando en Postgres; los demás, en memoria");
+  assert.equal(llamadas, 5);
+  assert.equal(new Set(resultados.map((r) => r.conversationId)).size, 1);
+});
+
 // ---------------------------------------------------------------------------
 // 3. conversations_open_unique
 // ---------------------------------------------------------------------------
@@ -378,22 +408,7 @@ async function esperarBackendsBloqueados(
 ) {
   const limite = Date.now() + plazoMs;
   while (Date.now() < limite) {
-    const filas = await prisma.$queryRaw<{ pid: number; bloqueadores: number[] }[]>`
-      SELECT pid, pg_blocking_pids(pid) AS bloqueadores FROM pg_stat_activity
-      WHERE cardinality(pg_blocking_pids(pid)) > 0
-    `;
-    const cadena = new Set<number>([a.pid]);
-    let crecio = true;
-    while (crecio) {
-      crecio = false;
-      for (const fila of filas) {
-        if (!cadena.has(fila.pid) && fila.bloqueadores.some((p) => cadena.has(p))) {
-          cadena.add(fila.pid);
-          crecio = true;
-        }
-      }
-    }
-    if (cadena.size - 1 >= cuantos) {
+    if ((await contarBloqueadosDetrasDe(a)) >= cuantos) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -402,6 +417,26 @@ async function esperarBackendsBloqueados(
   assert.fail(
     `en ${String(plazoMs)} ms no aparecieron ${String(cuantos)} backends bloqueados detrás de A`,
   );
+}
+
+// Cuántos backends esperan, directa o indirectamente, a la transacción A.
+async function contarBloqueadosDetrasDe(a: TransaccionSostenida): Promise<number> {
+  const filas = await prisma.$queryRaw<{ pid: number; bloqueadores: number[] }[]>`
+    SELECT pid, pg_blocking_pids(pid) AS bloqueadores FROM pg_stat_activity
+    WHERE cardinality(pg_blocking_pids(pid)) > 0
+  `;
+  const cadena = new Set<number>([a.pid]);
+  let crecio = true;
+  while (crecio) {
+    crecio = false;
+    for (const fila of filas) {
+      if (!cadena.has(fila.pid) && fila.bloqueadores.some((p) => cadena.has(p))) {
+        cadena.add(fila.pid);
+        crecio = true;
+      }
+    }
+  }
+  return cadena.size - 1;
 }
 
 // ---------------------------------------------------------------------------
