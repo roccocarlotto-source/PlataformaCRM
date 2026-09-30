@@ -179,14 +179,18 @@ export function softDeleteOpportunity(id: string, organizationId: string, db: Db
 // Sin default para `db`: fuera de una transacción el lock se libera al
 // instante. Cero filas = no se bloqueó nada (B-17): la oportunidad
 // desapareció entre el pre-check y acá, y el UPDATE de después daría count 0.
+//
+// Devuelve también la unidad vinculada TAL COMO ESTÁ bajo el lock (C-13 de
+// docs-privados/auditoria-2026-09-30-corta.md, local): updateOpportunity la
+// compara con la que leyó antes de la transacción.
 export async function lockOpportunityForUpdate(
   id: string,
   organizationId: string,
   db: Db,
-): Promise<{ status: OpportunityStatus } | null> {
+): Promise<{ status: OpportunityStatus; vehicleId: string | null } | null> {
   const filas = await db.$queryRaw<
-    { status: OpportunityStatus }[]
-  >`SELECT status FROM opportunities WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid AND deleted_at IS NULL FOR UPDATE`;
+    { status: OpportunityStatus; vehicleId: string | null }[]
+  >`SELECT status, vehicle_id AS "vehicleId" FROM opportunities WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid AND deleted_at IS NULL FOR UPDATE`;
   return filas[0] ?? null;
 }
 
