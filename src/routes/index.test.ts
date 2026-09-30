@@ -353,34 +353,33 @@ test("el CRUD de automatizaciones (docs/automations-architecture.md §8) está m
   }
 });
 
-test("la bandeja de conversaciones (ítem 66) está montada bajo /api, y NO se puede responder", async () => {
+test("la bandeja de conversaciones (ítem 66) está montada bajo /api, con responder desde el CRM", async () => {
   const id = randomUUID();
   // Las que existen: 401 desde authenticate = montadas. Los dos GET del ítem
-  // 66 y las dos escrituras del brief del ítem 73.
+  // 66, las dos escrituras del brief del ítem 73, el cierre del ítem 168 y
+  // las tres de responder desde el CRM (I-03 de
+  // docs-privados/auditoria-2026-09-24-punta-a-punta.md, local), que
+  // existen porque WhatsApp ya ENTREGA el mensaje.
   const montadas: [string, string][] = [
     ["GET", "/api/conversations"],
     ["GET", `/api/conversations/${id}`],
     ["PATCH", `/api/conversations/${id}`],
     ["POST", `/api/conversations/${id}/generate-brief`],
+    ["POST", `/api/conversations/${id}/close`],
+    ["POST", `/api/conversations/${id}/messages`],
+    ["POST", `/api/conversations/${id}/messages/${randomUUID()}/retry`],
+    ["POST", `/api/conversations/${id}/return-to-agent`],
   ];
   for (const [method, path] of montadas) {
     const res = await fetch(`${baseUrl}${path}`, { method });
     assert.equal(res.status, 401, `${method} ${path} no está montado`);
   }
 
-  // Y las que NO existen: 404 desde notFound, no 401.
-  //
-  // ESTA ES LA BARRERA DEL ÍTEM 66, y el ítem 73 NO la movió: las dos
-  // escrituras que agregó son sobre el BRIEF —una anotación interna que no
-  // viaja por ningún canal—, no sobre los mensajes. Lo que sigue sin existir
-  // es crear una conversación, borrarla y, sobre todo, RESPONDER: eso exige
-  // antes poder ENTREGAR el mensaje por el canal (el widget Web solo contesta
-  // a su propio mensaje; WhatsApp no existe todavía). Si alguien agrega
-  // POST /:id/messages sin resolver eso, este test se cae.
+  // Y las que NO existen: 404 desde notFound, no 401. Crear o borrar una
+  // conversación sigue sin existir: las abre el canal, y son historial.
   const inexistentes: [string, string][] = [
     ["POST", "/api/conversations"],
     ["DELETE", `/api/conversations/${id}`],
-    ["POST", `/api/conversations/${id}/messages`],
   ];
   for (const [method, path] of inexistentes) {
     const res = await fetch(`${baseUrl}${path}`, { method });

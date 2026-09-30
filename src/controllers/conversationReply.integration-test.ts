@@ -1,0 +1,648 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import type { AddressInfo } from "node:net";
+import { after, before, test } from "node:test";
+import { createClient } from "@supabase/supabase-js";
+import express from "express";
+import { env } from "../config/env";
+import { prisma } from "../lib/prisma";
+import { getSupabaseAdmin } from "../lib/supabaseAdmin";
+import { errorHandler } from "../middlewares/errorHandler";
+import { notFound } from "../middlewares/notFound";
+import { applyDeliveryStatusByExternalId } from "../repositories/message.repository";
+import { findRoleByName } from "../repositories/role.repository";
+import { createConversationRouter } from "../routes/conversation.routes";
+import { runAgentTurn } from "../services/agentOrchestration.service";
+import {
+  MENSAJE_CANAL_NO_SOPORTADO,
+  MENSAJE_CERRADA,
+  MENSAJE_SIN_PERMISO,
+  MENSAJE_VENTANA_VENCIDA,
+  type DepsDeRespuestaHumana,
+} from "../services/conversationReply.service";
+import type { LlmProvider } from "../services/llmProvider.service";
+import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/whatsappGraph.service";
+
+// ---------------------------------------------------------------------------
+// Responder desde el CRM (I-03 de
+// docs-privados/auditoria-2026-09-24-punta-a-punta.md, local), por HTTP real
+// contra el router real —con su authenticate— y Postgres y GoTrue reales. El
+// envío por la Graph API es un doble que registra lo que se habría mandado (o
+// falla cuando el test lo pide): mismo patrón que
+// whatsappTemplate.controller.integration-test.ts.
+//
+// Lo que se prueba:
+//   1. El mensaje sale por WhatsApp desde el número del agente al del
+//      cliente, y queda OUTBOUND / HUMAN / SENT con su wamid.
+//   2. Permisos: el vendedor asignado y cualquier ADMIN; nadie más.
+//   3. La ventana de 24 h de WhatsApp, el canal y el status.
+//   4. Un fallo de Meta queda a la vista (FAILED con el motivo) y se reintenta
+//      sobre el MISMO mensaje.
+//   5. El agente se calla mientras una persona atiende, y "Devolver al agente"
+//      lo reactiva.
+//
+// Cada organización de este archivo es propia (los archivos de integración
+// corren en paralelo contra una base compartida).
+// ---------------------------------------------------------------------------
+
+const PASSWORD = "Reply-test-password-123!";
+const HORA = 60 * 60 * 1000;
+
+interface FixtureUser {
+  accessToken: string;
+  authUserId: string;
+  userId: string;
+}
+
+const envios: SendWhatsappTextInput[] = [];
+// Lo que devuelve el próximo envío: un wamid, o un error a lanzar.
+let proximoFallo: Error | null = null;
+
+const deps: DepsDeRespuestaHumana = {
+  accessToken: () => "token-de-prueba",
+  sendText: async (input) => {
+    if (proximoFallo) {
+      const err = proximoFallo;
+      proximoFallo = null;
+      throw err;
+    }
+    envios.push(input);
+    return { wamid: `wamid.${randomUUID()}` };
+  },
+};
+
+let orgId: string;
+let otraOrgId: string;
+let branchId: string;
+let agentId: string;
+let agentWebId: string;
+let phoneNumberId: string;
+let admin: FixtureUser;
+let vendedor: FixtureUser;
+let otroVendedor: FixtureUser;
+let adminOtraOrg: FixtureUser;
+let baseUrl: string;
+let closeApp: () => Promise<void>;
+
+function startTestApp(): Promise<{ url: string; close: () => Promise<void> }> {
+  const app = express();
+  app.use(express.json());
+  app.use("/api", createConversationRouter(deps));
+  app.use(notFound);
+  app.use(errorHandler);
+  return new Promise((resolve) => {
+    const server = app.listen(0, () => {
+      const { port } = server.address() as AddressInfo;
+      resolve({
+        url: `http://127.0.0.1:${port}`,
+        close: () => new Promise((r) => server.close(() => r())),
+      });
+    });
+  });
+}
+
+async function createFixtureUser(
+  label: string,
+  organizationId: string,
+  role: "ADMIN" | "USER",
+): Promise<FixtureUser> {
+  const email = `reply-${label}-${Date.now()}-${randomUUID().slice(0, 8)}@example.test`;
+  const { data, error } = await getSupabaseAdmin().auth.admin.createUser({
+    email,
+    password: PASSWORD,
+    email_confirm: true,
+  });
+  if (error || !data.user) {
+    throw new Error(`No se pudo crear usuario real de Supabase Auth (${label}): ${error?.message}`);
+  }
+  const roleRow = await findRoleByName(role);
+  if (!roleRow) {
+    throw new Error(`No está sembrado el rol ${role}. Abortando.`);
+  }
+  const user = await prisma.user.create({
+    data: {
+      id: data.user.id,
+      organizationId,
+      roleId: roleRow.id,
+      email,
+      fullName: `Reply Test ${label}`,
+    },
+  });
+  const anonClient = createClient(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!);
+  const { data: signInData, error: signInError } = await anonClient.auth.signInWithPassword({
+    email,
+    password: PASSWORD,
+  });
+  if (signInError || !signInData.session) {
+    throw new Error(`No se pudo iniciar sesión real (${label}): ${signInError?.message}`);
+  }
+  return {
+    accessToken: signInData.session.access_token,
+    authUserId: data.user.id,
+    userId: user.id,
+  };
+}
+
+interface OpcionesDeConversacion {
+  channel?: "WHATSAPP" | "WEB";
+  status?: "ACTIVE" | "TRANSFERRED_TO_HUMAN" | "CLOSED";
+  assignedUserId?: string | null;
+  // Hace cuánto escribió el cliente por última vez; null = nunca escribió.
+  ultimoEntranteHace?: number | null;
+  organizationId?: string;
+}
+
+// Una conversación de WhatsApp con un contacto propio (el índice de "una
+// abierta por contacto" no deja reusar el mismo contacto entre tests).
+async function crearConversacion(opciones: OpcionesDeConversacion = {}) {
+  const organizationId = opciones.organizationId ?? orgId;
+  const channel = opciones.channel ?? "WHATSAPP";
+  const waId = `598${Math.floor(Math.random() * 1e8)}`;
+  const contacto = await prisma.contact.create({
+    data: { organizationId, firstName: "Cliente", lastName: randomUUID().slice(0, 6) },
+  });
+  const agente =
+    organizationId === orgId
+      ? channel === "WEB"
+        ? agentWebId
+        : agentId
+      : (await prisma.agent.findFirstOrThrow({ where: { organizationId }, select: { id: true } }))
+          .id;
+  const sucursal =
+    organizationId === orgId
+      ? branchId
+      : (await prisma.agent.findUniqueOrThrow({ where: { id: agente } })).branchId;
+  const conversation = await prisma.conversation.create({
+    data: {
+      organizationId,
+      branchId: sucursal,
+      agentId: agente,
+      contactId: contacto.id,
+      channel,
+      status: opciones.status ?? "TRANSFERRED_TO_HUMAN",
+      assignedUserId: opciones.assignedUserId === undefined ? null : opciones.assignedUserId,
+      externalThreadId: waId,
+    },
+  });
+  const hace = opciones.ultimoEntranteHace === undefined ? HORA : opciones.ultimoEntranteHace;
+  if (hace !== null) {
+    await prisma.message.create({
+      data: {
+        organizationId,
+        conversationId: conversation.id,
+        direction: "INBOUND",
+        senderType: "CONTACT",
+        content: "Hola, ¿sigue disponible?",
+        createdAt: new Date(Date.now() - hace),
+      },
+    });
+  }
+  return { id: conversation.id, contactId: contacto.id, waId };
+}
+
+function call(method: string, path: string, token?: string, body?: unknown): Promise<Response> {
+  return fetch(`${baseUrl}${path}`, {
+    method,
+    headers: {
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+}
+
+interface Detalle {
+  status: string;
+  assignedUserId: string | null;
+  agentPaused: boolean;
+  replyWindowEndsAt: string | null;
+  messages: {
+    id: string;
+    direction: string;
+    senderType: string;
+    senderUserId: string | null;
+    content: string;
+    deliveryStatus: string | null;
+    deliveryError: string | null;
+    externalMessageId: string | null;
+  }[];
+}
+
+async function responder(token: string, conversationId: string, text: string) {
+  return call("POST", `/api/conversations/${conversationId}/messages`, token, { text });
+}
+
+async function mensajeDeError(res: Response): Promise<string> {
+  const body = (await res.json()) as { error: { message: string } };
+  return body.error.message;
+}
+
+function humanos(detalle: Detalle) {
+  return detalle.messages.filter((m) => m.senderType === "HUMAN");
+}
+
+before(async () => {
+  const started = await startTestApp();
+  baseUrl = started.url;
+  closeApp = started.close;
+
+  const org = await prisma.organization.create({
+    data: {
+      name: `Reply ${randomUUID()}`,
+      slug: `reply-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    },
+  });
+  orgId = org.id;
+  const branch = await prisma.branch.create({
+    data: { organizationId: orgId, name: "Centro", timezone: "America/Montevideo" },
+  });
+  branchId = branch.id;
+  phoneNumberId = `9${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(0, 18);
+  const agentBase = {
+    organizationId: orgId,
+    branchId,
+    instructions: "Atendé consultas.",
+    modelProvider: "openrouter",
+    modelName: "test/model",
+    enabledTools: [],
+    guardrails: {},
+  };
+  agentId = (
+    await prisma.agent.create({
+      data: {
+        ...agentBase,
+        name: "Vera",
+        channels: ["WHATSAPP"],
+        whatsappPhoneNumberId: phoneNumberId,
+      },
+    })
+  ).id;
+  agentWebId = (
+    await prisma.agent.create({ data: { ...agentBase, name: "Nilo", channels: ["WEB"] } })
+  ).id;
+
+  const otra = await prisma.organization.create({
+    data: {
+      name: `Reply B ${randomUUID()}`,
+      slug: `reply-b-${Date.now()}-${randomUUID().slice(0, 8)}`,
+    },
+  });
+  otraOrgId = otra.id;
+  const otraBranch = await prisma.branch.create({
+    data: { organizationId: otraOrgId, name: "Costa", timezone: "America/Montevideo" },
+  });
+  await prisma.agent.create({
+    data: {
+      ...agentBase,
+      organizationId: otraOrgId,
+      branchId: otraBranch.id,
+      name: "Otro",
+      channels: ["WHATSAPP"],
+    },
+  });
+
+  admin = await createFixtureUser("admin", orgId, "ADMIN");
+  vendedor = await createFixtureUser("vendedor", orgId, "USER");
+  otroVendedor = await createFixtureUser("otro-vendedor", orgId, "USER");
+  adminOtraOrg = await createFixtureUser("admin-b", otraOrgId, "ADMIN");
+});
+
+after(async () => {
+  if (closeApp) await closeApp();
+  for (const id of [orgId, otraOrgId]) {
+    if (!id) continue;
+    await prisma.activity.deleteMany({ where: { organizationId: id } });
+    await prisma.message.deleteMany({ where: { organizationId: id } });
+    await prisma.conversation.deleteMany({ where: { organizationId: id } });
+    await prisma.agent.deleteMany({ where: { organizationId: id } });
+    await prisma.contact.deleteMany({ where: { organizationId: id } });
+    await prisma.branch.deleteMany({ where: { organizationId: id } });
+    await prisma.user.deleteMany({ where: { organizationId: id } });
+    await prisma.organization.delete({ where: { id } });
+  }
+  for (const u of [admin, vendedor, otroVendedor, adminOtraOrg]) {
+    if (u) await getSupabaseAdmin().auth.admin.deleteUser(u.authUserId);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 1. El envío
+// ---------------------------------------------------------------------------
+
+test("el vendedor asignado responde: sale por WhatsApp y queda HUMAN / SENT con su wamid", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  const antes = envios.length;
+
+  const res = await responder(vendedor.accessToken, conv.id, "  Hola, soy de la concesionaria.  ");
+  assert.equal(res.status, 201, await res.clone().text());
+  const detalle = (await res.json()) as Detalle;
+
+  assert.equal(envios.length, antes + 1);
+  const envio = envios.at(-1)!;
+  assert.equal(envio.phoneNumberId, phoneNumberId, "sale desde el número del agente");
+  assert.equal(envio.to, conv.waId, "al número del cliente");
+  assert.equal(envio.body, "Hola, soy de la concesionaria.", "el texto va recortado");
+
+  const [mensaje] = humanos(detalle);
+  assert.equal(mensaje.direction, "OUTBOUND");
+  assert.equal(mensaje.senderUserId, vendedor.userId);
+  assert.equal(mensaje.deliveryStatus, "SENT");
+  assert.match(mensaje.externalMessageId ?? "", /^wamid\./, "el wamid queda para los estados");
+  assert.equal(detalle.status, "TRANSFERRED_TO_HUMAN");
+  assert.equal(detalle.agentPaused, true);
+  assert.equal(detalle.assignedUserId, vendedor.userId);
+});
+
+test("un estado de Meta posterior (entregado) encuentra el mensaje por su wamid", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  const detalle = (await (
+    await responder(vendedor.accessToken, conv.id, "Hola")
+  ).json()) as Detalle;
+  const [mensaje] = humanos(detalle);
+  const aplicado = await applyDeliveryStatusByExternalId(orgId, mensaje.externalMessageId!, {
+    status: "DELIVERED",
+  });
+  assert.equal(aplicado.count, 1);
+});
+
+test("un ADMIN responde una conversación sin asignar y pasa a ser suya", async () => {
+  const conv = await crearConversacion({ status: "ACTIVE", assignedUserId: null });
+  const res = await responder(admin.accessToken, conv.id, "Te atiendo yo");
+  assert.equal(res.status, 201);
+  const detalle = (await res.json()) as Detalle;
+  assert.equal(detalle.assignedUserId, admin.userId);
+  assert.equal(detalle.status, "TRANSFERRED_TO_HUMAN", "contestar sin handoff previo la deriva");
+});
+
+test("un ADMIN que responde una conversación de otro vendedor no se la quita", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  const detalle = (await (await responder(admin.accessToken, conv.id, "Hola")).json()) as Detalle;
+  assert.equal(detalle.assignedUserId, vendedor.userId);
+});
+
+// ---------------------------------------------------------------------------
+// 2. Permisos
+// ---------------------------------------------------------------------------
+
+test("un vendedor que no es el asignado no puede responder: 403 y no sale nada", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  const antes = envios.length;
+  const res = await responder(otroVendedor.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 403);
+  assert.equal(await mensajeDeError(res), MENSAJE_SIN_PERMISO);
+  assert.equal(envios.length, antes);
+  assert.equal(
+    await prisma.message.count({ where: { conversationId: conv.id, senderType: "HUMAN" } }),
+    0,
+  );
+});
+
+test("una conversación sin asignar solo la toma un ADMIN: un vendedor recibe 403", async () => {
+  const conv = await crearConversacion({ assignedUserId: null });
+  const res = await responder(vendedor.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 403);
+});
+
+test("otra organización: 404 en responder, reintentar y devolver", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  assert.equal((await responder(adminOtraOrg.accessToken, conv.id, "Hola")).status, 404);
+  assert.equal(
+    (await call("POST", `/api/conversations/${conv.id}/return-to-agent`, adminOtraOrg.accessToken))
+      .status,
+    404,
+  );
+  assert.equal(
+    (
+      await call(
+        "POST",
+        `/api/conversations/${conv.id}/messages/${randomUUID()}/retry`,
+        adminOtraOrg.accessToken,
+      )
+    ).status,
+    404,
+  );
+});
+
+test("sin sesión es 401; texto vacío o faltante es 400", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  assert.equal((await responder("", conv.id, "Hola")).status, 401);
+  assert.equal((await responder(admin.accessToken, conv.id, "   ")).status, 400);
+  assert.equal(
+    (await call("POST", `/api/conversations/${conv.id}/messages`, admin.accessToken, {})).status,
+    400,
+  );
+  assert.equal((await responder(admin.accessToken, conv.id, "x".repeat(4097))).status, 400);
+});
+
+// ---------------------------------------------------------------------------
+// 3. Ventana de 24 h, canal y status
+// ---------------------------------------------------------------------------
+
+test("pasadas 24 h del último mensaje del cliente: 409 con la explicación y no sale nada", async () => {
+  const conv = await crearConversacion({
+    assignedUserId: vendedor.userId,
+    ultimoEntranteHace: 25 * HORA,
+  });
+  const antes = envios.length;
+  const res = await responder(vendedor.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 409);
+  assert.equal(await mensajeDeError(res), MENSAJE_VENTANA_VENCIDA);
+  assert.equal(envios.length, antes);
+
+  const detalle = (await (
+    await call("GET", `/api/conversations/${conv.id}`, admin.accessToken)
+  ).json()) as Detalle;
+  assert.ok(detalle.replyWindowEndsAt, "el detalle dice cuándo venció");
+  assert.ok(new Date(detalle.replyWindowEndsAt) < new Date());
+});
+
+test("dentro de la ventana, el detalle dice hasta cuándo se puede responder", async () => {
+  const conv = await crearConversacion({ ultimoEntranteHace: 2 * HORA });
+  const detalle = (await (
+    await call("GET", `/api/conversations/${conv.id}`, admin.accessToken)
+  ).json()) as Detalle;
+  const fin = new Date(detalle.replyWindowEndsAt!).getTime();
+  const esperado = Date.now() + 22 * HORA;
+  assert.ok(Math.abs(fin - esperado) < 60_000, "24 h desde el último mensaje del cliente");
+});
+
+test("si el cliente nunca escribió, no hay ventana: 409", async () => {
+  const conv = await crearConversacion({ ultimoEntranteHace: null });
+  const res = await responder(admin.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 409);
+  assert.equal(await mensajeDeError(res), MENSAJE_VENTANA_VENCIDA);
+});
+
+test("una conversación del chat web no se responde desde acá (409)", async () => {
+  const conv = await crearConversacion({ channel: "WEB" });
+  const res = await responder(admin.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 409);
+  assert.equal(await mensajeDeError(res), MENSAJE_CANAL_NO_SOPORTADO);
+});
+
+test("una conversación cerrada no se responde (409)", async () => {
+  const conv = await crearConversacion({ status: "CLOSED" });
+  const res = await responder(admin.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 409);
+  assert.equal(await mensajeDeError(res), MENSAJE_CERRADA);
+});
+
+// ---------------------------------------------------------------------------
+// 4. Errores de Meta y reintento
+// ---------------------------------------------------------------------------
+
+test("si Meta rechaza el envío, el mensaje queda FAILED con el motivo y se reintenta el MISMO", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  proximoFallo = new WhatsappGraphError(
+    400,
+    JSON.stringify({ error: { message: "Recipient phone number not in allowed list" } }),
+  );
+
+  const res = await responder(vendedor.accessToken, conv.id, "¿Te llegó?");
+  assert.equal(res.status, 201, "un fallo de Meta no es un error del request");
+  const detalle = (await res.json()) as Detalle;
+  const [fallido] = humanos(detalle);
+  assert.equal(fallido.deliveryStatus, "FAILED");
+  assert.equal(fallido.deliveryError, "Recipient phone number not in allowed list");
+  assert.equal(detalle.agentPaused, true, "el agente se calla igual: la persona tomó el hilo");
+
+  const antes = envios.length;
+  const retry = await call(
+    "POST",
+    `/api/conversations/${conv.id}/messages/${fallido.id}/retry`,
+    vendedor.accessToken,
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  const despues = (await retry.json()) as Detalle;
+  assert.equal(envios.length, antes + 1);
+  assert.equal(envios.at(-1)!.body, "¿Te llegó?");
+  const reenviados = humanos(despues);
+  assert.equal(reenviados.length, 1, "no se duplicó el mensaje");
+  assert.equal(reenviados[0].id, fallido.id);
+  assert.equal(reenviados[0].deliveryStatus, "SENT");
+  assert.equal(reenviados[0].deliveryError, null);
+});
+
+test("un corte de red también queda FAILED, no como un 500", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  proximoFallo = new Error("fetch failed");
+  const res = await responder(vendedor.accessToken, conv.id, "Hola");
+  assert.equal(res.status, 201);
+  const [fallido] = humanos((await res.json()) as Detalle);
+  assert.equal(fallido.deliveryStatus, "FAILED");
+});
+
+test("reintentar un mensaje que ya salió es 409; uno que no es de la conversación, 404", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  const detalle = (await (
+    await responder(vendedor.accessToken, conv.id, "Hola")
+  ).json()) as Detalle;
+  const [enviado] = humanos(detalle);
+  const res = await call(
+    "POST",
+    `/api/conversations/${conv.id}/messages/${enviado.id}/retry`,
+    vendedor.accessToken,
+  );
+  assert.equal(res.status, 409);
+
+  const otra = await crearConversacion({ assignedUserId: vendedor.userId });
+  const cruzado = await call(
+    "POST",
+    `/api/conversations/${otra.id}/messages/${enviado.id}/retry`,
+    vendedor.accessToken,
+  );
+  assert.equal(cruzado.status, 404);
+});
+
+// ---------------------------------------------------------------------------
+// 5. El agente callado y "Devolver al agente"
+// ---------------------------------------------------------------------------
+
+function proveedorQueCuenta(): { proveedor: LlmProvider; llamadas: () => number } {
+  let llamadas = 0;
+  return {
+    proveedor: {
+      name: "openrouter",
+      complete: async () => {
+        llamadas++;
+        return { text: "Respuesta del agente", toolCalls: [] };
+      },
+    },
+    llamadas: () => llamadas,
+  };
+}
+
+function turnoDelCliente(conv: { contactId: string; waId: string }, proveedor: LlmProvider) {
+  return runAgentTurn(
+    {
+      organizationId: orgId,
+      agentId,
+      contactId: conv.contactId,
+      channel: "WHATSAPP",
+      texto: "¿Y el precio?",
+      externalThreadId: conv.waId,
+    },
+    { llmProvider: proveedor },
+  );
+}
+
+test("después de que una persona responde, el agente no contesta; devuelto, vuelve a contestar", async () => {
+  const conv = await crearConversacion({ status: "ACTIVE", assignedUserId: vendedor.userId });
+  assert.equal((await responder(vendedor.accessToken, conv.id, "Te atiendo yo")).status, 201);
+
+  const callado = proveedorQueCuenta();
+  const turno = await turnoDelCliente(conv, callado.proveedor);
+  assert.equal(turno.respuesta, null, "el agente no contesta");
+  assert.equal(callado.llamadas(), 0, "ni siquiera llama al modelo");
+  assert.equal(
+    turno.conversationId,
+    conv.id,
+    "el mensaje del cliente cae en la misma conversación",
+  );
+
+  const devuelta = await call(
+    "POST",
+    `/api/conversations/${conv.id}/return-to-agent`,
+    vendedor.accessToken,
+  );
+  assert.equal(devuelta.status, 200);
+  const detalle = (await devuelta.json()) as Detalle;
+  assert.equal(detalle.status, "ACTIVE");
+  assert.equal(detalle.agentPaused, false);
+  assert.equal(detalle.assignedUserId, vendedor.userId, "el vendedor sigue asignado");
+
+  const activo = proveedorQueCuenta();
+  const otroTurno = await turnoDelCliente(conv, activo.proveedor);
+  assert.equal(activo.llamadas(), 1);
+  assert.equal(otroTurno.respuesta, "Respuesta del agente");
+});
+
+test("devolver al agente: el vendedor no asignado recibe 403; devolver una ya activa es idempotente", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  const ajeno = await call(
+    "POST",
+    `/api/conversations/${conv.id}/return-to-agent`,
+    otroVendedor.accessToken,
+  );
+  assert.equal(ajeno.status, 403);
+
+  const activa = await crearConversacion({ status: "ACTIVE", assignedUserId: vendedor.userId });
+  const res = await call(
+    "POST",
+    `/api/conversations/${activa.id}/return-to-agent`,
+    admin.accessToken,
+  );
+  assert.equal(res.status, 200);
+  assert.equal(((await res.json()) as Detalle).status, "ACTIVE");
+});
+
+test("devolver una cerrada no la reabre", async () => {
+  const conv = await crearConversacion({ status: "CLOSED" });
+  const res = await call(
+    "POST",
+    `/api/conversations/${conv.id}/return-to-agent`,
+    admin.accessToken,
+  );
+  assert.equal(res.status, 200);
+  assert.equal(((await res.json()) as Detalle).status, "CLOSED");
+});

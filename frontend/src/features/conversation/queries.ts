@@ -6,11 +6,10 @@ import type { ConversationListQuery } from "./types";
 // manual por organizationId — la higiene de cache entre identidades ya la da
 // queryClient.clear() en la frontera de AuthContext.
 //
-// Sin invalidaciones en ningún lado, y no es un olvido: esta feature no tiene
-// ni una mutación (ver api.ts). Lo único que puede cambiar una conversación
-// es un turno del agente, que ocurre del lado del servidor y no pasa por este
-// cliente — salvo desde el probador del ítem 65, que sí escribe. Ver el
-// comentario de useTestMessage en features/agent/mutations.ts.
+// Las mutaciones de esta feature (brief, cierre, responder) escriben su
+// respuesta en la cache del detalle (ver mutations.ts). Lo que cambia por
+// fuera —un turno del agente, un mensaje nuevo del cliente— ocurre del lado
+// del servidor y se ve al volver a abrir la conversación.
 export const conversationKeys = {
   all: ["conversations"] as const,
   lists: () => [...conversationKeys.all, "list"] as const,

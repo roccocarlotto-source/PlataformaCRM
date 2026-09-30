@@ -22,6 +22,7 @@ import { findMessageById, markMessageDelivery } from "../repositories/message.re
 import {
   cargarAgenteYContacto,
   conLockDeConversacion,
+  humanoAtiendeLaConversacion,
   responderEnLaConversacion,
 } from "../services/agentOrchestration.service";
 import { esTransitorio, type LlmContentPart } from "../services/llmProvider.service";
@@ -423,6 +424,20 @@ export async function procesarJob(job: JobReclamado, deps: DepsDeEnvio): Promise
       throw new ErrorPermanenteDelJob("El Message de la respuesta ya no existe");
     }
     if (saliente.deliveryStatus !== "SENT") {
+      // I-03 (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): un
+      // reintento de envío que llega DESPUÉS de que un vendedor tomó el hilo
+      // desde el CRM no manda la respuesta vieja del agente encima de la suya.
+      // Queda en la bandeja con su FAILED/PENDING, como registro de lo que el
+      // agente iba a decir.
+      const conversacionAlEnviar = await findConversationById(conversacion.id, organizationId);
+      if (
+        saliente.senderType === "AGENT" &&
+        conversacionAlEnviar &&
+        (await humanoAtiendeLaConversacion(conversacionAlEnviar))
+      ) {
+        await markAgentInboundJobDone(job);
+        return "respondido";
+      }
       await enviarRespuesta(saliente, job, pageAccessToken, deps);
     }
 

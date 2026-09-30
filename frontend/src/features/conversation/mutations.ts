@@ -1,5 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { closeConversation, generateConversationBrief, updateConversationBrief } from "./api";
+import {
+  closeConversation,
+  generateConversationBrief,
+  replyToConversation,
+  retryConversationMessage,
+  returnConversationToAgent,
+  updateConversationBrief,
+} from "./api";
 import { conversationKeys } from "./queries";
 import type { ConversationDetail } from "./types";
 
@@ -66,6 +73,33 @@ export function useCloseConversation(id: string) {
   const guardarEnCache = useGuardarEnCache(id);
   return useMutation({
     mutationFn: () => closeConversation(id),
+    onSuccess: guardarEnCache,
+  });
+}
+
+// Responder desde el CRM (I-03). Mismo onSuccess que el resto: la respuesta
+// es la conversación entera, y el listado se invalida porque muestra el
+// status y el último mensaje.
+export function useReplyToConversation(id: string) {
+  const guardarEnCache = useGuardarEnCache(id);
+  return useMutation({
+    mutationFn: (text: string) => replyToConversation(id, text),
+    onSuccess: guardarEnCache,
+  });
+}
+
+export function useRetryConversationMessage(id: string) {
+  const guardarEnCache = useGuardarEnCache(id);
+  return useMutation({
+    mutationFn: (messageId: string) => retryConversationMessage(id, messageId),
+    onSuccess: guardarEnCache,
+  });
+}
+
+export function useReturnConversationToAgent(id: string) {
+  const guardarEnCache = useGuardarEnCache(id);
+  return useMutation({
+    mutationFn: () => returnConversationToAgent(id),
     onSuccess: guardarEnCache,
   });
 }

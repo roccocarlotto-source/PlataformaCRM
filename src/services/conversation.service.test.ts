@@ -30,7 +30,8 @@ function conversacionesFalsas(estado: { status: string } | null) {
     },
   });
   mock.property(prisma as unknown as Record<string, unknown>, "conversation", {
-    findFirst: async () => (estado ? { id: "conv-1", organizationId: ORG, ...estado } : null),
+    findFirst: async () =>
+      estado ? { id: "conv-1", organizationId: ORG, messages: [], ...estado } : null,
     updateMany: async (args: { data: { status: string } }) => {
       escrituras.push(args);
       // Mismo efecto que el CAS: solo cambia si no estaba cerrada.

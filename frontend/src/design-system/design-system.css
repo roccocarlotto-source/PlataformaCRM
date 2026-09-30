@@ -4225,6 +4225,21 @@ a.ds-button--secondary:hover {
   border-color: var(--color-accent);
 }
 
+/* Responder desde el CRM (I-03): la respuesta de una persona que no salió,
+   con el motivo y "Reintentar", debajo del texto dentro de la misma burbuja. */
+.ds-chat-failed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.ds-chat-failed .ds-hint {
+  margin: 0;
+  color: var(--color-danger);
+}
+
 /* Pantalla mobile standalone (MobileScreen.tsx): las que viven FUERA de
    .ds-shell para poder usarse desde un teléfono (la sidebar no colapsa) — el
    chat del agente interno (ítem 180) y el escáner de cupones (ítem 178). Una

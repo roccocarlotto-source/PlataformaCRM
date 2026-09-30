@@ -351,39 +351,97 @@ describe("ConversationDetail", () => {
     ).toBeInTheDocument();
   });
 
-  it("NO hay ningún control para escribir o responder en esta pantalla", async () => {
+  it("I-03: debajo del hilo está el cuadro para responder por WhatsApp", async () => {
     server.use(http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))));
 
     renderDetail();
     await screen.findByText("Ana Pérez");
 
-    // La barrera del ítem 66: responder exige poder ENTREGAR el mensaje por el
-    // canal (el widget Web solo contesta a su propio mensaje; WhatsApp no
-    // existe todavía). Si alguien agrega una caja de texto para CONTESTAR sin
-    // resolver eso primero, este test se cae y obliga a pensarlo.
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Enviar|Responder/ })).toBeNull();
-    expect(screen.queryByRole("form")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Mensaje para el cliente" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeInTheDocument();
   });
 
-  it("el editor del brief NO es una caja para responder: la barrera sigue en pie", async () => {
-    // El ítem 73 trajo el único textarea de esta pantalla. Este caso lo abre a
-    // propósito y comprueba que aun ASÍ no hay forma de contestarle al
-    // contacto: lo que se edita es una anotación interna, y no aparece ningún
-    // "Enviar".
+  it("I-03: una respuesta de una persona que no salió muestra el motivo y se reintenta", async () => {
+    const fallido = makeMessage({
+      id: "m9",
+      direction: "OUTBOUND",
+      senderType: "HUMAN",
+      senderUserId: "u1",
+      senderUser: { id: "u1", fullName: "A" },
+      content: "¿Te llegó?",
+      deliveryStatus: "FAILED",
+      deliveryError: "Recipient phone number not in allowed list",
+      createdAt: "2026-03-03T10:05:00.000Z",
+    });
     server.use(
       http.get(detailUrl, () =>
-        HttpResponse.json(makeConversationDetail({ brief: "Ana preguntó el precio." }, HILO)),
+        HttpResponse.json(
+          makeConversationDetail({ status: "TRANSFERRED_TO_HUMAN" }, [...HILO, fallido]),
+        ),
       ),
+    );
+    let reintentado: string | null = null;
+    server.use(
+      http.post(`${detailUrl}/messages/:messageId/retry`, ({ params }) => {
+        reintentado = String(params.messageId);
+        return HttpResponse.json(
+          makeConversationDetail({ status: "TRANSFERRED_TO_HUMAN" }, [
+            ...HILO,
+            { ...fallido, deliveryStatus: "SENT", deliveryError: null },
+          ]),
+        );
+      }),
     );
 
     const user = userEvent.setup();
     renderDetail();
 
-    await user.click(await screen.findByRole("button", { name: "Editar" }));
+    const burbuja = await screen.findByText("¿Te llegó?", { selector: ".ds-chat-bubble" });
+    expect(
+      within(burbuja).getByText(/No se pudo enviar: Recipient phone number not in allowed list/),
+    ).toBeInTheDocument();
 
-    expect(screen.getByRole("textbox")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Enviar|Responder/ })).toBeNull();
+    await user.click(within(burbuja).getByRole("button", { name: "Reintentar" }));
+
+    await waitFor(() => expect(reintentado).toBe("m9"));
+    await waitFor(() =>
+      expect(
+        within(screen.getByText("¿Te llegó?", { selector: ".ds-chat-bubble" })).queryByRole(
+          "button",
+          { name: "Reintentar" },
+        ),
+      ).toBeNull(),
+    );
+  });
+
+  it("I-03: un vendedor que no atiende la conversación ve el fallo pero no el reintento", async () => {
+    const fallido = makeMessage({
+      id: "m9",
+      direction: "OUTBOUND",
+      senderType: "HUMAN",
+      senderUserId: "u9",
+      senderUser: { id: "u9", fullName: "Sofía Rodríguez" },
+      content: "¿Te llegó?",
+      deliveryStatus: "FAILED",
+      deliveryError: "Error",
+      createdAt: "2026-03-03T10:05:00.000Z",
+    });
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(
+          makeConversationDetail({ status: "TRANSFERRED_TO_HUMAN", assignedUserId: "u9" }, [
+            ...HILO,
+            fallido,
+          ]),
+        ),
+      ),
+    );
+
+    renderDetail("USER");
+
+    const burbuja = await screen.findByText("¿Te llegó?", { selector: ".ds-chat-bubble" });
+    expect(within(burbuja).getByText(/No se pudo enviar/)).toBeInTheDocument();
+    expect(within(burbuja).queryByRole("button", { name: "Reintentar" })).toBeNull();
   });
 
   // -------------------------------------------------------------------------
@@ -480,7 +538,7 @@ describe("ConversationDetail", () => {
     renderDetail();
 
     await user.click(await screen.findByRole("button", { name: "Editar" }));
-    const textarea = screen.getByRole("textbox");
+    const textarea = screen.getByRole("textbox", { name: "Resumen de la conversación" });
     // El textarea arranca con el brief que había, no en blanco: editar es
     // corregir, no volver a escribir.
     expect(textarea).toHaveValue("Resumen viejo.");
@@ -495,7 +553,9 @@ describe("ConversationDetail", () => {
     // Vuelve al modo lectura con el texto nuevo y ya marcado como editado.
     expect(await screen.findByText("Resumen corregido.")).toBeInTheDocument();
     expect(screen.getByText(/Editado a mano/)).toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Resumen de la conversación" }),
+    ).not.toBeInTheDocument();
   });
 
   it("guardar el textarea vacío manda null y vuelve a ofrecer generarlo", async () => {
@@ -514,7 +574,7 @@ describe("ConversationDetail", () => {
     renderDetail();
 
     await user.click(await screen.findByRole("button", { name: "Editar" }));
-    await user.clear(screen.getByRole("textbox"));
+    await user.clear(screen.getByRole("textbox", { name: "Resumen de la conversación" }));
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(cuerpos).toHaveLength(1));
@@ -539,13 +599,18 @@ describe("ConversationDetail", () => {
     renderDetail();
 
     await user.click(await screen.findByRole("button", { name: "Editar" }));
-    await user.clear(screen.getByRole("textbox"));
-    await user.type(screen.getByRole("textbox"), "algo que no se guarda");
+    await user.clear(screen.getByRole("textbox", { name: "Resumen de la conversación" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Resumen de la conversación" }),
+      "algo que no se guarda",
+    );
     await user.click(screen.getByRole("button", { name: "Cancelar" }));
 
     expect(patches).toBe(0);
     expect(screen.getByText("Resumen viejo.")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Resumen de la conversación" }),
+    ).not.toBeInTheDocument();
   });
 
   it("'Generar resumen' llama al POST y muestra el resumen que vuelve", async () => {

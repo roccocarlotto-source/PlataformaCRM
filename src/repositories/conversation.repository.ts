@@ -152,6 +152,49 @@ export function transferConversationToHuman(
   });
 }
 
+// Una persona contesta desde el CRM (I-03 de
+// docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): la conversación
+// queda TRANSFERRED_TO_HUMAN —es lo que, junto con su mensaje HUMAN, calla al
+// agente— y, si nadie la tenía asignada, pasa a ser de quien contestó. Una ya
+// asignada conserva su vendedor: que un ADMIN conteste no se la quita.
+//
+// Solo sobre una abierta: una CLOSED no se reabre desde acá (el service ya lo
+// rechaza antes; esto es la garantía si la cerraron en el medio). count 0 =
+// estaba cerrada.
+export async function takeOverConversation(
+  id: string,
+  organizationId: string,
+  userId: string,
+  lastMessageAt: Date,
+  db: Db = prisma,
+) {
+  const abierta = { id, organizationId, status: { not: "CLOSED" as const } };
+  const tomada = await db.conversation.updateMany({
+    where: { ...abierta, assignedUserId: null },
+    data: { status: "TRANSFERRED_TO_HUMAN", assignedUserId: userId, lastMessageAt },
+  });
+  if (tomada.count === 1) {
+    return tomada;
+  }
+  return db.conversation.updateMany({
+    where: abierta,
+    data: { status: "TRANSFERRED_TO_HUMAN", lastMessageAt },
+  });
+}
+
+// "Devolver al agente" (I-03): de TRANSFERRED_TO_HUMAN a ACTIVE, y nada más.
+// Con eso humanoAtiendeLaConversacion da false y el próximo mensaje del
+// contacto lo contesta el agente; si el agente vuelve a derivar, el CAS de
+// transferConversationToHuman vuelve a avisar. assignedUserId se conserva: el
+// contacto sigue teniendo el mismo vendedor. count 0 = no estaba derivada (ya
+// era ACTIVE, o está CLOSED).
+export function returnConversationToAgent(id: string, organizationId: string, db: Db = prisma) {
+  return db.conversation.updateMany({
+    where: { id, organizationId, status: "TRANSFERRED_TO_HUMAN" },
+    data: { status: "ACTIVE" },
+  });
+}
+
 // El cierre manual desde la bandeja (ítem 168), como compare-and-swap, mismo
 // molde que transferConversationToHuman: pasa a CLOSED solo si no lo estaba.
 // count 0 NO es un error — la conversación ya estaba cerrada (o la cerró otra

@@ -64,5 +64,14 @@ export function makeConversationDetail(
   overrides: Partial<ConversationDetail> = {},
   messages: ConversationMessage[] = [makeMessage()],
 ): ConversationDetail {
-  return { ...makeConversation(), messages, briefEditedBy: null, ...overrides };
+  // I-03: por defecto, el agente atiende y la ventana de WhatsApp está
+  // abierta hasta mucho después de "ahora" en cualquier test.
+  return {
+    ...makeConversation(),
+    messages,
+    briefEditedBy: null,
+    agentPaused: false,
+    replyWindowEndsAt: "2999-01-01T00:00:00.000Z",
+    ...overrides,
+  };
 }

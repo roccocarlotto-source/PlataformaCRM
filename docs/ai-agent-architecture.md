@@ -495,8 +495,9 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 >   significar **"hay una notificación pendiente para un vendedor"** y no
 >   "el agente se calló".
 > - El gate del loop (`runAgentTurn`) es ahora **"¿existe algún `Message` con
->   `senderType = HUMAN` en esta conversación?"** (`hasHumanMessage`). Hasta
->   que una persona escriba, el agente sigue atendiendo lo que pueda.
+>   `senderType = HUMAN` en esta conversación?"** (`hasHumanMessage`; desde
+>   I-03, `humanoAtiendeLaConversacion`, ver abajo). Hasta que una persona
+>   escriba, el agente sigue atendiendo lo que pueda.
 >
 > **La garantía de fondo no se aflojó, se corrigió.** Lo que hay que evitar es
 > que el agente y la persona le hablen al contacto al mismo tiempo, y eso
@@ -513,21 +514,48 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 > intervino igual —, y **cualquier** mensaje `HUMAN` alcanza: una vez que una
 > persona entró al hilo, el hilo es suyo.
 >
-> **Limitación conocida, no un pendiente disimulado: hoy ningún flujo de
-> producción escribe un `Message` con `senderType = HUMAN`.** No existe
-> todavía un endpoint para que un vendedor conteste desde el CRM — la bandeja
-> del ítem 66 es de solo lectura a propósito —, así que en la práctica el gate
-> está construido y probado pero nunca se dispara solo, y el agente no se
-> calla nunca. Es el resultado buscado por ahora (el problema era el silencio,
-> no el exceso de respuestas), y el día que exista "responder desde el CRM",
-> persistir ese `Message` es todo lo que hace falta para que el agente se
-> aparte: no hay que tocar el loop.
->
 > **Lo que NO cambió:** los disparadores de derivación (cuándo el modelo llama
 > a la tool) son los mismos; `CLOSED` sigue siendo el único status que da
 > lugar a una conversación nueva; `findOpenConversation` sigue contando
 > `TRANSFERRED_TO_HUMAN` como abierta; y `ejecutarHandoff` sigue siendo
 > idempotente por status — que ahora es solo "no notificar dos veces".
+
+> **Responder desde el CRM (I-03 de la auditoría del 24/09).** El gate de
+> arriba estaba construido pero nunca se disparaba: nada escribía un `Message`
+> `HUMAN`, y el número de la Cloud API no se puede usar desde la app de
+> WhatsApp, así que la derivación no tenía salida. Ahora:
+>
+> - `POST /api/conversations/:id/messages` `{ text }` manda el texto por
+>   WhatsApp desde el número del agente de la conversación y lo guarda
+>   `OUTBOUND` / `HUMAN` con su wamid (los estados de Meta lo encuentran igual
+>   que a las respuestas del agente). Deja la conversación en
+>   `TRANSFERRED_TO_HUMAN` y, si no tenía vendedor, asignada a quien contestó.
+>   Corre bajo el mismo lock de conversación que los turnos: nunca se cruza
+>   con una respuesta del agente en curso.
+> - Un rechazo de Meta no es un error del request: el mensaje queda `FAILED`
+>   con el motivo y `POST .../messages/:messageId/retry` lo reenvía (el mismo
+>   mensaje, no una copia).
+> - `POST /api/conversations/:id/return-to-agent` la devuelve a `ACTIVE`.
+> - **Ventana de 24 h de Meta:** texto libre solo hasta 24 h después del
+>   último mensaje del cliente; pasado eso, 409 y el cuadro deshabilitado con
+>   la explicación. Mandar plantillas desde acá no está.
+> - **Permisos:** el vendedor asignado a la conversación o cualquier `ADMIN`
+>   (responder, reintentar, devolver). Cerrar sigue abierto a cualquier
+>   usuario (ítem 168).
+> - **Solo WhatsApp.** El widget web no tiene cómo recibir un mensaje que no
+>   sea la respuesta al suyo (no hace polling), y Messenger/Instagram quedan
+>   pendientes: los tres devuelven 409 con el motivo.
+>
+> **El gate cambió de "cualquier `HUMAN`" a `humanoAtiendeLaConversacion`:
+> `status = TRANSFERRED_TO_HUMAN` **y** el último mensaje del negocio (entre
+> `HUMAN` y `AGENT`) es de una persona.** "Cualquier `HUMAN`" no tenía vuelta
+> atrás; "devolver al agente" necesitaba un marcador, y el status ya lo es (sin
+> columna nueva). Las dos mitades hacen falta: una derivación del propio
+> agente también deja `TRANSFERRED_TO_HUMAN` y ahí el agente sigue hablando
+> (ítem 83); y si después de devolverla el agente vuelve a derivar, su
+> respuesta queda después del `HUMAN` viejo y no se calla solo. El worker
+> además no reenvía una respuesta del agente que había fallado si mientras
+> tanto una persona tomó el hilo.
 
 **La restricción de cumplimiento de Meta (documento de visión, roadmap 2.2) se aplica estructuralmente, no como un guardrail más que un admin pueda desactivar.** El catálogo de tools de la sección 7 solo incluye acciones de negocio acotadas (calificar, agendar, crear oportunidades, links de pago) — no existe ninguna tool de "responder cualquier cosa", así que un agente no puede convertirse en un asistente de propósito general aunque un admin deshabilite todos los guardrails configurables. Es una propiedad del catálogo de tools, no de la configuración.
 

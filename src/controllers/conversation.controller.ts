@@ -8,6 +8,14 @@ import {
   updateConversationBrief,
 } from "../services/conversation.service";
 import { BRIEF_MAX_LENGTH } from "../services/conversationBrief.service";
+import {
+  LARGO_MAXIMO_DE_RESPUESTA,
+  depsDeRespuestaHumanaReales,
+  devolverAlAgente,
+  reintentarRespuestaDesdeElCrm,
+  responderDesdeElCrm,
+  type DepsDeRespuestaHumana,
+} from "../services/conversationReply.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -123,3 +131,64 @@ export const closeConversationHandler = asyncHandler<AuthenticatedRequest>(
     res.status(200).json(conversation);
   },
 );
+
+// ---------------------------------------------------------------------------
+// Responder desde el CRM (I-03 de
+// docs-privados/auditoria-2026-09-24-punta-a-punta.md, local). Las tres
+// devuelven la conversación ENTERA, igual que el brief y el cierre. Un envío
+// que Meta rechaza NO es un error del request: el mensaje queda en el hilo con
+// "No se pudo enviar" y su reintento (ver conversationReply.service.ts).
+// ---------------------------------------------------------------------------
+
+const replySchema = z.object({
+  text: z
+    .string({ required_error: "text es requerido" })
+    .max(
+      LARGO_MAXIMO_DE_RESPUESTA,
+      `El mensaje no puede superar los ${LARGO_MAXIMO_DE_RESPUESTA} caracteres`,
+    ),
+});
+
+const messageIdParamSchema = z.string().uuid("messageId inválido");
+
+function actorDe(req: AuthenticatedRequest) {
+  return { userId: req.auth.userId, role: req.auth.role };
+}
+
+export function createConversationReplyHandlers(
+  deps: DepsDeRespuestaHumana = depsDeRespuestaHumanaReales,
+) {
+  return {
+    reply: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+      const id = parseOrThrow(idParamSchema, req.params.id);
+      const { text } = parseOrThrow(replySchema, req.body);
+      const conversation = await responderDesdeElCrm(
+        actorDe(req),
+        req.auth.organizationId,
+        id,
+        text,
+        deps,
+      );
+      res.status(201).json(conversation);
+    }),
+
+    retry: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+      const id = parseOrThrow(idParamSchema, req.params.id);
+      const messageId = parseOrThrow(messageIdParamSchema, req.params.messageId);
+      const conversation = await reintentarRespuestaDesdeElCrm(
+        actorDe(req),
+        req.auth.organizationId,
+        id,
+        messageId,
+        deps,
+      );
+      res.status(200).json(conversation);
+    }),
+
+    returnToAgent: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
+      const id = parseOrThrow(idParamSchema, req.params.id);
+      const conversation = await devolverAlAgente(actorDe(req), req.auth.organizationId, id);
+      res.status(200).json(conversation);
+    }),
+  };
+}

@@ -6,15 +6,9 @@ import type { ConversationDetail, ConversationListQuery, ConversationListRespons
 // features/knowledgeBase/api.ts. organizationId nunca viaja acá: se resuelve
 // exclusivamente server-side desde el JWT.
 //
-// LO QUE SIGUE SIN ESTAR, y es lo que el ítem 66 dejó dicho: no hay crear y
-// sobre todo NO HAY RESPONDER (cerrar sí, desde el ítem 168) — no porque falte escribirlo acá,
-// sino porque no existe del lado del backend y no puede existir hasta que haya
-// forma de ENTREGAR un mensaje saliente por el canal (ver el comentario de
-// src/services/conversation.service.ts).
-//
-// LAS DOS ESCRITURAS QUE SÍ ESTÁN son las del brief (ítem 73), y no abren esa
-// puerta: el brief es una anotación interna sobre la conversación, no un
-// mensaje. Nunca sale por ningún canal ni lo ve el contacto.
+// Responder desde el CRM (I-03, abajo) es la única escritura que crea un
+// mensaje: existe solo para WhatsApp, que es el canal que puede ENTREGARLO.
+// Las del brief y el cierre no tocan el hilo.
 function buildListQueryString(query: ConversationListQuery): string {
   const params = new URLSearchParams();
   if (query.page !== undefined) params.set("page", String(query.page));
@@ -84,6 +78,37 @@ export function generateConversationBrief(id: string): Promise<ConversationDetai
 // ---------------------------------------------------------------------------
 export function closeConversation(id: string): Promise<ConversationDetail> {
   return request<ConversationDetail>(`/conversations/${id}/close`, {
+    method: "POST",
+    getAccessToken,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Responder desde el CRM (I-03). Las tres devuelven la conversación ENTERA,
+// igual que el brief y el cierre. Un envío que Meta rechaza NO es un error del
+// request: el mensaje vuelve en el hilo con deliveryStatus FAILED y su motivo,
+// y se reintenta con retryConversationMessage sobre el MISMO mensaje.
+// ---------------------------------------------------------------------------
+export function replyToConversation(id: string, text: string): Promise<ConversationDetail> {
+  return request<ConversationDetail>(`/conversations/${id}/messages`, {
+    method: "POST",
+    body: { text },
+    getAccessToken,
+  });
+}
+
+export function retryConversationMessage(
+  id: string,
+  messageId: string,
+): Promise<ConversationDetail> {
+  return request<ConversationDetail>(`/conversations/${id}/messages/${messageId}/retry`, {
+    method: "POST",
+    getAccessToken,
+  });
+}
+
+export function returnConversationToAgent(id: string): Promise<ConversationDetail> {
+  return request<ConversationDetail>(`/conversations/${id}/return-to-agent`, {
     method: "POST",
     getAccessToken,
   });

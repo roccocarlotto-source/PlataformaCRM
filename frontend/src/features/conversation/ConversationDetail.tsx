@@ -11,8 +11,10 @@ import { formatDateTime } from "../../design-system/detailFormat";
 import { CHANNEL_LABEL } from "../agent/labels";
 import { ToolCallBlock } from "../agent/ToolCallBlock";
 import { ConversationBriefCard } from "./ConversationBriefCard";
+import { ConversationReplyCard } from "./ConversationReplyCard";
 import { DELIVERY_STATUS_LABEL, STATUS_BADGE_VARIANT, STATUS_LABEL } from "./labels";
-import { useCloseConversation } from "./mutations";
+import { useCloseConversation, useRetryConversationMessage } from "./mutations";
+import { puedeAtender } from "./permissions";
 import { useConversation } from "./queries";
 import { parseToolCalls } from "./toolCalls";
 import type { Conversation, ConversationMessage } from "./types";
@@ -22,14 +24,10 @@ import type { Conversation, ConversationMessage } from "./types";
 // docs/frontend-cambios-pendientes.md): quién habló con quién, y todo lo que
 // se dijeron, en orden.
 //
-// NO SE RESPONDE DESDE ACÁ: no hay caja de texto ni "Responder". No es una
-// omisión de esta pantalla sino del sistema entero: guardar un Message OUTBOUND no lo
-// ENTREGA por el canal —el widget web solo puede recibir la respuesta a su
-// propio mensaje, y WhatsApp todavía no existe (paso 6 de
-// docs/ai-agent-architecture.md §9)—, así que un botón "Responder" mostraría
-// como enviado algo que el contacto nunca va a recibir. Hay un test que
-// afirma que acá no hay ningún control para escribir, justamente para que
-// nadie lo agregue sin resolver antes la entrega.
+// RESPONDER (I-03): la tarjeta ConversationReplyCard, debajo del hilo. Existe
+// solo para WhatsApp, que ENTREGA el mensaje; el widget web solo recibe la
+// respuesta a su propio mensaje, así que ahí la tarjeta explica por qué no se
+// puede. Un envío que Meta rechazó queda en su burbuja con "Reintentar".
 //
 // DOS USOS, UN SOLO COMPONENTE (ítem 73). Sin el prop `id` es la pantalla de
 // /conversations/:id, igual que nació; con él es el contenido del pop up que
@@ -38,10 +36,9 @@ import type { Conversation, ConversationMessage } from "./types";
 // una conversación. Lo único que cambia entre los dos usos es el encabezado:
 // adentro del Modal no va, porque el Modal ya tiene el suyo.
 //
-// LO QUE SÍ SE ESCRIBE DESDE ACÁ: el brief (ConversationBriefCard, ítem 73) y
-// el cierre manual ("Cerrar conversación", ítem 168). Ninguno de los dos es un
-// mensaje ni se entrega por ningún canal, así que la barrera de arriba sigue
-// en pie. El botón de cerrar va acá y no en la bandeja: la lista sigue sin
+// LO OTRO QUE SE ESCRIBE DESDE ACÁ: el brief (ConversationBriefCard, ítem 73)
+// y el cierre manual ("Cerrar conversación", ítem 168). Ninguno de los dos es
+// un mensaje. El botón de cerrar va acá y no en la bandeja: la lista sigue sin
 // acciones.
 //
 // FUERA DE AdminRoute, como el listado. El único gate por rol de toda la
@@ -119,6 +116,7 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
   // `id ?? ""`: el hook no se puede llamar condicionalmente, y sin id la
   // pantalla nunca llega a mostrar el botón (la query queda deshabilitada).
   const cerrar = useCloseConversation(id ?? "");
+  const reintentar = useRetryConversationMessage(id ?? "");
   const { me } = useAuth();
   const isAdmin = me?.role === "ADMIN";
   // El pop up ya tiene su propio encabezado (el título del Modal) y su propio
@@ -263,6 +261,28 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
                           ) : null}
                         </span>
                         {message.content}
+                        {/* I-03: una respuesta de una persona que no salió
+                            dice por qué, y se reintenta sobre el MISMO
+                            mensaje. Solo quien atiende la conversación. */}
+                        {message.senderType === "HUMAN" && message.deliveryStatus === "FAILED" ? (
+                          <span className="ds-chat-failed">
+                            <span className="ds-hint">
+                              No se pudo enviar
+                              {message.deliveryError ? `: ${message.deliveryError}` : "."}
+                            </span>
+                            {puedeAtender(me, conversation) && conversation.status !== "CLOSED" ? (
+                              <Button
+                                onClick={() => reintentar.mutate(message.id)}
+                                disabled={reintentar.isPending}
+                                loading={
+                                  reintentar.isPending && reintentar.variables === message.id
+                                }
+                              >
+                                Reintentar
+                              </Button>
+                            ) : null}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </li>
@@ -270,7 +290,15 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
               })}
             </ol>
           )}
+          {reintentar.error ? (
+            <ErrorState>
+              No se pudo reintentar el envío
+              {reintentar.error instanceof Error ? `: ${reintentar.error.message}` : "."}
+            </ErrorState>
+          ) : null}
         </Card>
+
+        <ConversationReplyCard conversation={conversation} />
       </div>
     </div>
   );
