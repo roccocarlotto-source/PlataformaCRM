@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { Writable } from "node:stream";
+import express from "express";
 import pino from "pino";
-import { loggerOptions } from "./logger";
+import pinoHttp from "pino-http";
+import { httpLoggerOptions, loggerOptions, redactarUrl } from "./logger";
 
 const REDACT_CENSOR = "[REDACTED]";
 
@@ -134,4 +138,120 @@ test("redact NO cubre la URL ni el query string — la clave nunca puede viajar 
     "/api/ingest?apiKey=crm_SI-ESTO-PASARA-SERIA-UN-LEAK",
     "queda sin redactar a propósito: por eso la clave va en un header, no en la URL",
   );
+});
+
+// ---------------------------------------------------------------------------
+// E-02 + E-08 de docs-privados/auditoria-2026-09-30-corta.md (local, no está
+// en GitHub): credenciales que llegan en headers o en la query de rutas que no
+// controlamos (callbacks OAuth, webhooks, el Worker de QR).
+//
+// Contra el middleware REAL: pinoHttp con httpLoggerOptions (lo mismo que monta
+// app.ts) sobre el logger en memoria, y requests HTTP de verdad. Así se prueba
+// la línea que escribe pino-http ("request completed") y también la de un
+// error logueado con req.log, que lleva el mismo `req` serializado. Si alguien
+// saca el serializer o un path de REDACT_PATHS, algún valor aparece en `lines`
+// y el test falla.
+// ---------------------------------------------------------------------------
+
+const CREDENCIALES_FALSAS = {
+  oauthCode: "FAKE-OAUTH-CODE-FOR-LOGGER-TEST",
+  oauthState: "FAKE-OAUTH-STATE-FOR-LOGGER-TEST",
+  verifyToken: "FAKE-VERIFY-TOKEN-FOR-LOGGER-TEST",
+  proxySecret: "FAKE-PROXY-SECRET-FOR-LOGGER-TEST",
+  googChannelToken: "FAKE-GOOG-CHANNEL-TOKEN-FOR-LOGGER-TEST",
+};
+
+async function conAppDePrueba(
+  fn: (baseUrl: string, lines: string[]) => Promise<void>,
+): Promise<void> {
+  const { logger, lines } = createCapturingLogger();
+  const app = express();
+  app.use(pinoHttp({ logger, ...httpLoggerOptions }));
+  // Un error logueado con req.log, como hace errorHandler: esa línea también
+  // trae el `req` serializado.
+  app.get("/con-error", (req, res) => {
+    req.log.error({ err: new Error("boom") }, "Error no controlado");
+    res.status(500).end();
+  });
+  app.use((_req, res) => {
+    res.status(404).end();
+  });
+
+  const server = await new Promise<Server>((resolve) => {
+    const s = app.listen(0, () => resolve(s));
+  });
+  try {
+    const { port } = server.address() as AddressInfo;
+    await fn(`http://127.0.0.1:${port}`, lines);
+  } finally {
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+}
+
+function assertSinCredenciales(lines: string[]) {
+  const todo = lines.join("\n");
+  for (const [nombre, valor] of Object.entries(CREDENCIALES_FALSAS)) {
+    assert.ok(!todo.includes(valor), `${nombre} apareció en el log:\n${todo}`);
+  }
+}
+
+test("E-02/E-08 — ninguna credencial de callbacks, webhooks ni del Worker de QR aparece en los logs", async () => {
+  const c = CREDENCIALES_FALSAS;
+  await conAppDePrueba(async (baseUrl, lines) => {
+    // Callbacks OAuth de Meta y de Google.
+    await fetch(
+      `${baseUrl}/api/integrations/meta/callback?code=${c.oauthCode}&state=${c.oauthState}`,
+    );
+    await fetch(
+      `${baseUrl}/api/integrations/google-calendar/callback?state=${c.oauthState}&code=${c.oauthCode}&scope=calendar`,
+    );
+    // Handshake GET de los webhooks de Meta y WhatsApp.
+    await fetch(
+      `${baseUrl}/webhooks/meta?hub.mode=subscribe&hub.verify_token=${c.verifyToken}&hub.challenge=123`,
+    );
+    await fetch(
+      `${baseUrl}/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=${c.verifyToken}&hub.challenge=123`,
+    );
+    // El Worker de QR (QR y cupón) y las notificaciones de Google Calendar.
+    await fetch(`${baseUrl}/qr/resolve/11111111-1111-1111-1111-111111111111`, {
+      headers: { "x-internal-proxy-secret": c.proxySecret },
+    });
+    await fetch(`${baseUrl}/vouchers/resolve/11111111-1111-1111-1111-111111111111`, {
+      headers: { "X-Internal-Proxy-Secret": c.proxySecret },
+    });
+    await fetch(`${baseUrl}/webhooks/google-calendar`, {
+      method: "POST",
+      headers: { "x-goog-channel-token": c.googChannelToken },
+    });
+    // Mismas credenciales en una línea de error.
+    await fetch(`${baseUrl}/con-error?code=${c.oauthCode}&state=${c.oauthState}`, {
+      headers: { "x-internal-proxy-secret": c.proxySecret },
+    });
+
+    assert.ok(lines.length >= 9, "cada request dejó al menos una línea");
+    assertSinCredenciales(lines);
+
+    // Control: el log sigue sirviendo para diagnosticar — la ruta y los
+    // parámetros que no son credenciales se ven, y lo tapado dice que lo está.
+    const meta = JSON.parse(lines.find((l) => l.includes("/api/integrations/meta/callback"))!);
+    assert.equal(meta.req.url, "/api/integrations/meta/callback?code=[REDACTED]&state=[REDACTED]");
+    assert.equal(meta.req.query.code, REDACT_CENSOR);
+    const webhook = JSON.parse(lines.find((l) => l.includes("/webhooks/meta"))!);
+    assert.match(webhook.req.url, /hub\.mode=subscribe/);
+    assert.match(webhook.req.url, /hub\.challenge=123/);
+    assert.equal(webhook.req.query["hub.verify_token"], REDACT_CENSOR);
+    const qr = JSON.parse(lines.find((l) => l.includes("/qr/resolve/"))!);
+    assert.equal(qr.req.headers["x-internal-proxy-secret"], REDACT_CENSOR);
+  });
+});
+
+test("redactarUrl — tapa solo los params sensibles, sin importar mayúsculas, codificación ni corchetes", () => {
+  assert.equal(redactarUrl("/a"), "/a");
+  assert.equal(redactarUrl("/a?page=2&limit=10"), "/a?page=2&limit=10");
+  assert.equal(redactarUrl("/a?CODE=x&page=2"), "/a?CODE=[REDACTED]&page=2");
+  assert.equal(redactarUrl("/a?hub%2Everify_token=x"), "/a?hub%2Everify_token=[REDACTED]");
+  assert.equal(redactarUrl("/a?code[a]=x"), "/a?code[a]=[REDACTED]");
+  assert.equal(redactarUrl("/a?state"), "/a?state=[REDACTED]");
+  // Un %-escape roto no tira: el nombre se compara tal cual.
+  assert.equal(redactarUrl("/a?%E0%A4%A=1&code=x"), "/a?%E0%A4%A=1&code=[REDACTED]");
 });

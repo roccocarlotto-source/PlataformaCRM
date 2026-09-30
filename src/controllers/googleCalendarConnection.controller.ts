@@ -183,7 +183,10 @@ export const callbackHandler = asyncHandler<Request>(async (req, res: Response) 
     // B-24 errorHandler delega en next(err) si los headers ya salieron, pero
     // el finalhandler de Express respondería con SU formato, no con este
     // texto para personas — el motivo de resolverlo acá sigue en pie.
-    logger.error({ err, path: req.originalUrl }, "Falló el callback de Google Calendar");
+    //
+    // req.path y no req.originalUrl: la URL completa lleva el `code` y el
+    // `state` (E-08 de docs-privados/auditoria-2026-09-30-corta.md, local).
+    logger.error({ err, path: req.path }, "Falló el callback de Google Calendar");
 
     const destino = urlDeVueltaAlFrontend(env.CORS_ORIGIN, {
       branchId: await branchIdVerificado(query.state),
