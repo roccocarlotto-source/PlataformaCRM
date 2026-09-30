@@ -8,6 +8,7 @@ import type {
 } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
+import { aplicarEstadosRetenidos } from "./estadosDeEntregaRetenidos.service";
 import { prisma, type Db } from "../lib/prisma";
 import { findAgentById } from "../repositories/agent.repository";
 import { findBranchById } from "../repositories/branch.repository";
@@ -1434,6 +1435,12 @@ export async function registrarSalienteDeAutomatizacion(
       ...(input.externalMessageId !== null ? { externalMessageId: input.externalMessageId } : {}),
     },
   );
+  // D-15 (docs-privados/auditoria-2026-09-30-corta.md, local): entre que Meta
+  // aceptó la plantilla y este insert pasaron varias consultas; un estado que
+  // llegó en ese rato estaba retenido.
+  if (input.externalMessageId !== null) {
+    await aplicarEstadosRetenidos(input.organizationId, input.externalMessageId);
+  }
   return { conversation, saliente: mensaje };
 }
 

@@ -8,6 +8,7 @@ import {
   findMessageByExternalId,
 } from "../repositories/message.repository";
 import { registrarEntrante } from "./agentOrchestration.service";
+import { aplicarEstadosRetenidos, retenerEstado } from "./estadosDeEntregaRetenidos.service";
 import { resolveWhatsappContact } from "./whatsappContact.service";
 import { applyWhatsappTemplateStatusFromMeta } from "./whatsappTemplate.service";
 
@@ -217,7 +218,9 @@ export type ResumenDelLote = Record<ResultadoDelMensaje, number> & {
 // change, como con los mensajes: la firma ya se verificó en el middleware, y
 // el wamid solo se busca dentro de esa organización. Un wamid desconocido
 // (un mensaje que no salió de este CRM, o uno cuyo envío todavía no guardó el
-// wamid) actualiza 0 filas y no es un error. Cualquier otro status (Meta
+// wamid) actualiza 0 filas y no es un error: desde D-15 el estado se RETIENE
+// unos minutos y se aplica cuando se guarde el wamid
+// (estadosDeEntregaRetenidos.service.ts). Cualquier otro status (Meta
 // agrega valores, por ejemplo "deleted") se ignora.
 // ---------------------------------------------------------------------------
 const ESTADO_DE_META = {
@@ -268,12 +271,26 @@ async function procesarEstados(phoneNumberId: string, statuses: unknown[]): Prom
     if (!parsed.success) continue;
     const estado = ESTADO_DE_META[parsed.data.status as keyof typeof ESTADO_DE_META];
     if (!estado) continue;
+    const entrega = {
+      status: estado,
+      ...(estado === "FAILED" ? { error: motivoDeMeta(parsed.data.errors) } : {}),
+    };
     try {
-      const r = await applyDeliveryStatusByExternalId(agent.organizationId, parsed.data.id, {
-        status: estado,
-        ...(estado === "FAILED" ? { error: motivoDeMeta(parsed.data.errors) } : {}),
-      });
+      const r = await applyDeliveryStatusByExternalId(
+        agent.organizationId,
+        parsed.data.id,
+        entrega,
+      );
       aplicados += r.count;
+      if (r.count === 0) {
+        // D-15: el wamid todavía no está guardado (o no es de este CRM). Se
+        // retiene y se reintenta UNA vez enseguida: si quien guarda el wamid
+        // commiteó entre el UPDATE de arriba y el retener, su propio
+        // aplicarEstadosRetenidos ya pasó y no lo vio; este segundo intento
+        // lo encuentra. Si no, lo aplica quien guarde el wamid después.
+        retenerEstado(agent.organizationId, parsed.data.id, entrega);
+        aplicados += await aplicarEstadosRetenidos(agent.organizationId, parsed.data.id);
+      }
     } catch (err) {
       // Mismo criterio que un mensaje: un fallo se loguea y no tumba el lote
       // ni el 200. Meta reintenta y la escritura es idempotente.

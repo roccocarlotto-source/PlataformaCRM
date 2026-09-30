@@ -1,6 +1,7 @@
 import { ConversationChannel, type Message } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
+import { aplicarEstadosRetenidos } from "../services/estadosDeEntregaRetenidos.service";
 import { prisma } from "../lib/prisma";
 import {
   claimNextAgentInboundJob,
@@ -282,6 +283,11 @@ async function enviarRespuesta(
     status: "SENT",
     externalMessageId: wamid,
   });
+  // D-15 (docs-privados/auditoria-2026-09-30-corta.md, local): un estado que
+  // Meta mandó antes de que el wamid quedara guardado estaba retenido.
+  if (wamid) {
+    await aplicarEstadosRetenidos(job.organizationId, wamid);
+  }
 }
 
 // El job guarda el mime y no el tipo de mensaje de WhatsApp: las columnas

@@ -84,6 +84,9 @@ const RESPUESTA_DEL_AGENTE = "¡Hola! ¿En qué te ayudo?";
 // con ese status.
 let enviados: SendWhatsappTextInput[] = [];
 let fallarEnvio: number | null = null;
+// D-15: corre con el wamid ANTES de que el doble lo devuelva, como un status
+// de Meta que llega antes que la respuesta del envío.
+let alEnviar: ((wamid: string) => Promise<void>) | null = null;
 let appSecretConfigurado: string | undefined = APP_SECRET;
 // El token que ve el worker (el del webhook es aparte), para el caso de la
 // variable sin cargar.
@@ -119,7 +122,9 @@ const depsDeEnvio: DepsDeEnvio = {
     }
     enviados.push(input);
     // WA-1: como la Graph API real, un wamid por envío.
-    return { wamid: `wamid.agente.${randomUUID()}` };
+    const wamid = `wamid.agente.${randomUUID()}`;
+    if (alEnviar) await alEnviar(wamid);
+    return { wamid };
   },
   downloadMedia: async ({ mediaId, accessToken }) => {
     assert.equal(accessToken, ACCESS_TOKEN);
@@ -318,6 +323,7 @@ beforeEach(async () => {
   }
   enviados = [];
   fallarEnvio = null;
+  alEnviar = null;
   llamadasAlLlm = 0;
   requestsAlLlm = [];
   fallosDelLlm = 0;
@@ -927,6 +933,67 @@ test("WA-1: la respuesta del agente recibe los statuses por el wamid que guardó
 
   await enviar(cambioDeEstados([{ id: respuesta.externalMessageId, status: "read" }]));
   assert.equal((await estadoDe(respuesta.id)).deliveryStatus, "READ");
+});
+
+// D-15 de docs-privados/auditoria-2026-09-30-corta.md (local): un status que
+// Meta manda antes de que el wamid esté guardado se retiene y se aplica cuando
+// se guarda, en vez de perderse.
+test("D-15: un delivered que llega mientras el agente todavía no guardó el wamid se aplica al guardarlo", async () => {
+  const waId = waIdAlAzar();
+  const statusesAntesDeGuardar: number[] = [];
+  alEnviar = async (wamid) => {
+    const res = await enviar(cambioDeEstados([{ id: wamid, status: "delivered" }]));
+    statusesAntesDeGuardar.push(res.status);
+  };
+
+  await enviar(payloadDeTexto({ waId, body: "Hola" }));
+  await drenar();
+
+  assert.deepEqual(statusesAntesDeGuardar, [200]);
+  const respuesta = await prisma.message.findFirstOrThrow({
+    where: {
+      organizationId: fx.orgId,
+      direction: "OUTBOUND",
+      conversation: { externalThreadId: waId },
+    },
+  });
+  assert.ok(respuesta.externalMessageId);
+  assert.equal((await estadoDe(respuesta.id)).deliveryStatus, "DELIVERED");
+});
+
+test("D-15: el delivered y el read de una plantilla que llegan antes de anotarla en la conversación se aplican al anotarla", async () => {
+  const waId = waIdAlAzar();
+  const wamid = `wamid.automatizacion.${waId}`;
+  const contacto = await prisma.contact.create({
+    data: { organizationId: fx.orgId, firstName: "Ana", lastName: "Temprana", phone: `+${waId}` },
+  });
+
+  assert.equal(
+    (
+      await enviar(
+        cambioDeEstados([
+          { id: wamid, status: "delivered" },
+          { id: wamid, status: "read" },
+        ]),
+      )
+    ).status,
+    200,
+  );
+
+  await registrarPlantillaEnConversacion({
+    organizationId: fx.orgId,
+    contactId: contacto.id,
+    phoneNumberId: fx.phoneNumberId,
+    destino: waId,
+    plantilla: { name: "seguimiento_postventa", bodyText: "Hola {nombre}" },
+    parametros: ["Ana"],
+    wamid,
+  });
+
+  const saliente = await prisma.message.findFirstOrThrow({
+    where: { organizationId: fx.orgId, externalMessageId: wamid },
+  });
+  assert.equal((await estadoDe(saliente.id)).deliveryStatus, "READ");
 });
 
 test("F1: el cliente contesta el WhatsApp de una automatización — el agente recibe ese saliente en el historial", async () => {
