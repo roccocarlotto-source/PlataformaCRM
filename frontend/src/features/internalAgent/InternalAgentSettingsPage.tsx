@@ -8,8 +8,10 @@ import { LoadingState } from "../../design-system/LoadingState";
 import { MultiSelect } from "../../design-system/MultiSelect";
 import { Select } from "../../design-system/Select";
 import { useToast } from "../../design-system/useToast";
+import { useAuth } from "../../auth/AuthContext";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { DEFAULT_MODEL_PROVIDER, MODEL_PROVIDER_OPTIONS } from "../agent/labels";
+import { useAssignInternalAgentModel } from "../platformAdmin/mutations";
 import { usePutInternalAgent } from "./mutations";
 import { useInternalAgentConfig } from "./queries";
 import { internalAgentToolOptions } from "./tools";
@@ -54,14 +56,18 @@ function toFormValues(agente: InternalAgent): InternalAgentFormValues {
 // —las instructions son el prompt, y el backend no deja ni leerlas a un USER—.
 // El chat (/internal-agent) es otra cosa y vive afuera del shell.
 //
-// El PUT es reemplazo completo: se mandan siempre todos los campos, salvo
-// modelName vacío, que se omite para que el backend ponga su modelo por
-// defecto (mismo criterio que al crear un Agent).
+// El PUT es reemplazo completo, SIN el modelo desde B-05
+// (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): lo elige la
+// plataforma. Para un ADMIN común el campo es de solo lectura; un platform
+// admin lo cambia por PUT /api/admin/organizations/:id/internal-agent/model.
 // ---------------------------------------------------------------------------
 export function InternalAgentSettingsPage() {
   const configQuery = useInternalAgentConfig();
   const putMutation = usePutInternalAgent();
+  const assignModelMutation = useAssignInternalAgentModel();
   const toast = useToast();
+  const { me } = useAuth();
+  const puedeElegirModelo = me?.isPlatformAdmin === true;
 
   const agente = configQuery.data ?? null;
   // La clave del borrador es el id del registro: al crearlo por primera vez
@@ -78,13 +84,18 @@ export function InternalAgentSettingsPage() {
     setError(null);
     const modelName = values.modelName.trim();
     try {
-      await putMutation.mutateAsync({
+      const guardado = await putMutation.mutateAsync({
         name: values.name.trim(),
         instructions: values.instructions,
-        modelProvider: values.modelProvider,
-        ...(modelName === "" ? {} : { modelName }),
         enabledTools: values.enabledTools,
       });
+      if (puedeElegirModelo && me && modelName !== "" && modelName !== guardado.modelName) {
+        await assignModelMutation.mutateAsync({
+          organizationId: me.organizationId,
+          modelProvider: values.modelProvider,
+          modelName,
+        });
+      }
       toast.show("Agente interno guardado");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar el agente interno");
@@ -150,6 +161,7 @@ export function InternalAgentSettingsPage() {
               required
               value={values.modelProvider}
               options={MODEL_PROVIDER_OPTIONS}
+              disabled={!puedeElegirModelo}
               onChange={(modelProvider) => {
                 if (modelProvider) setValues({ ...values, modelProvider });
               }}
@@ -159,13 +171,16 @@ export function InternalAgentSettingsPage() {
                 type="text"
                 value={values.modelName}
                 maxLength={100}
-                placeholder="openai/gpt-4o-mini"
+                placeholder={puedeElegirModelo ? "openai/gpt-4o-mini" : "El de la plataforma"}
+                disabled={!puedeElegirModelo}
+                readOnly={!puedeElegirModelo}
                 onChange={(event) => setValues({ ...values, modelName: event.target.value })}
               />
             </FormField>
             <p className="ds-hint ds-field-grid--full">
-              El nombre del modelo tal cual lo publica el proveedor. Si lo dejás vacío, se usa el
-              modelo por defecto.
+              {puedeElegirModelo
+                ? "El nombre del modelo tal cual lo publica el proveedor. Si lo dejás vacío, se usa el modelo por defecto."
+                : "Lo elige el equipo de la plataforma. Si necesitás otro modelo, pedíselo."}
             </p>
           </div>
         </Card>
@@ -193,10 +208,10 @@ export function InternalAgentSettingsPage() {
           <Button
             type="submit"
             variant="primary"
-            disabled={putMutation.isPending}
-            loading={putMutation.isPending}
+            disabled={putMutation.isPending || assignModelMutation.isPending}
+            loading={putMutation.isPending || assignModelMutation.isPending}
           >
-            {putMutation.isPending ? "Guardando…" : "Guardar"}
+            {putMutation.isPending || assignModelMutation.isPending ? "Guardando…" : "Guardar"}
           </Button>
         </div>
       </div>

@@ -575,6 +575,19 @@ Esta es la pieza que hace cumplir, con código, el principio de la sección 1 �
 
 El costo real depende del proveedor de LLM elegido (sección 10, sin decidir) y del volumen/largo de conversación — no tiene sentido inventar un número acá antes de esa decisión. Lo que sí es estable independientemente del proveedor: el costo por conversación va a estar dominado por el tamaño del contexto que se le pasa al modelo en cada turno (system prompt + historial de mensajes + definiciones de tools), que es exactamente la ventana de contexto que la sección 10 deja como decisión abierta.
 
+> **El modelo lo elige la plataforma (B-05 de la auditoría del 24/09).**
+> Todas las organizaciones usan la misma `OPENROUTER_API_KEY`, así que el
+> modelo de cada agente (y del agente interno) es una decisión de costo de la
+> plataforma, no del cliente. Un agente nuevo nace con `OPENROUTER_MODEL`; los
+> existentes conservan el suyo. El ADMIN del cliente lo ve en el formulario,
+> de solo lectura: el CRUD acepta que se reenvíe el vigente y responde 403 a
+> cualquier otro. Lo cambia solo un platform admin, por
+> `PUT /api/admin/agents/:agentId/model` y
+> `PUT /api/admin/organizations/:organizationId/internal-agent/model`
+> (pantalla "Modelo de IA" del menú Plataforma, o el mismo formulario del
+> agente si el platform admin es de esa organización). Mismo esquema que el
+> número de WhatsApp (ítem 127).
+
 ## 9. Plan de implementación sugerido
 
 1. Schema: `Agent`/`Conversation`/`Message` + migración (esta es la base de todo lo demás).

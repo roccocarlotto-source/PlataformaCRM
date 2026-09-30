@@ -9,8 +9,10 @@ import { Modal } from "../../design-system/Modal";
 import { MultiSelect } from "../../design-system/MultiSelect";
 import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
+import { useAuth } from "../../auth/AuthContext";
 import { useFormDraft } from "../../lib/useFormDraft";
 import { BranchSelect } from "../branch/BranchSelect";
+import { useAssignAgentModel } from "../platformAdmin/mutations";
 import { translateGuardrails } from "./api";
 import { formatGuardrails, resumirDescartes, resumirGuardrails } from "./guardrails";
 import { CHANNEL_OPTIONS, DEFAULT_MODEL_PROVIDER, MODEL_PROVIDER_OPTIONS } from "./labels";
@@ -129,7 +131,11 @@ function textoOpcional(value: string): string | null {
 // Solo mira lo que se puede decidir sin preguntarle al servidor, y solo lo que
 // la validación nativa del navegador NO cubre: Nombre e Instrucciones llevan
 // `required` y los frena el propio <form>.
-function validar(values: AgentFormValues, isEditMode: boolean): string | null {
+function validar(
+  values: AgentFormValues,
+  isEditMode: boolean,
+  puedeElegirModelo: boolean,
+): string | null {
   // El `required` de BranchSelect no alcanza: mientras la lista de sucursales
   // carga, el componente no renderiza ningún input (solo el rótulo y el aviso
   // de carga), así que no hay nada que el navegador pueda frenar. Es el hueco
@@ -144,7 +150,7 @@ function validar(values: AgentFormValues, isEditMode: boolean): string | null {
   // parcial simplemente no lo tocaría, y la pantalla habría dicho "guardado"
   // sobre un campo que se dejó en blanco a propósito. Mismo razonamiento que
   // el N° del QR en §54, y por eso el asterisco también depende del modo.
-  if (isEditMode && values.modelName.trim() === "") {
+  if (puedeElegirModelo && isEditMode && values.modelName.trim() === "") {
     return "El modelo no puede quedar vacío. Borrarlo no vuelve al modelo por defecto: escribí el que querés usar.";
   }
   return null;
@@ -207,6 +213,13 @@ export function AgentFormPage() {
   const agentQuery = useAgent(isEditMode ? id : undefined);
   const createAgentMutation = useCreateAgent();
   const updateAgentMutation = useUpdateAgent(id ?? "");
+  // B-05 (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): el
+  // modelo lo elige la plataforma. Para un ADMIN común el campo es de solo
+  // lectura y el POST/PATCH no lo manda; para un platform admin es editable y
+  // se guarda por su propio endpoint (PUT /api/admin/agents/:id/model).
+  const { me } = useAuth();
+  const puedeElegirModelo = me?.isPlatformAdmin === true;
+  const assignModelMutation = useAssignAgentModel();
 
   const [values, setValues] = useFormDraft<AgentFormValues>(
     agentQuery.data?.id,
@@ -234,8 +247,22 @@ export function AgentFormPage() {
       ? { text: agentQuery.data.guardrailsText, guardrails: agentQuery.data.guardrails }
       : null);
 
-  const isSubmitting = createAgentMutation.isPending || updateAgentMutation.isPending;
+  const isSubmitting =
+    createAgentMutation.isPending || updateAgentMutation.isPending || assignModelMutation.isPending;
   const guardarDeshabilitado = isSubmitting || traduciendo;
+
+  // B-05: solo un platform admin, y solo si escribió uno distinto del que el
+  // agente tiene (o del que le puso la plataforma al crearlo).
+  async function guardarModelo(agentId: string, vigente: string, pedido: string) {
+    if (!puedeElegirModelo || pedido === "" || pedido === vigente) {
+      return;
+    }
+    await assignModelMutation.mutateAsync({
+      agentId,
+      modelProvider: values.modelProvider,
+      modelName: pedido,
+    });
+  }
 
   async function guardar(guardrails: Record<string, unknown>) {
     const modelName = values.modelName.trim();
@@ -256,8 +283,6 @@ export function AgentFormPage() {
           goal: textoOpcional(values.goal),
           instructions: values.instructions.trim(),
           tone: textoOpcional(values.tone),
-          modelProvider: values.modelProvider,
-          modelName,
           enabledTools: values.enabledTools,
           channels: values.channels,
           // Los dos SIEMPRE juntos: el backend rechaza un PATCH que traiga uno
@@ -268,6 +293,7 @@ export function AgentFormPage() {
           isActive: values.isActive,
         };
         await updateAgentMutation.mutateAsync(input);
+        await guardarModelo(id ?? "", agentQuery.data?.modelName ?? "", modelName);
       } else {
         const input: CreateAgentInput = {
           // validar() ya garantizó que hay sucursal elegida.
@@ -276,18 +302,15 @@ export function AgentFormPage() {
           goal: textoOpcional(values.goal),
           instructions: values.instructions.trim(),
           tone: textoOpcional(values.tone),
-          modelProvider: values.modelProvider,
-          // Ausente = el backend usa el default de OPENROUTER_MODEL. El campo
-          // es `.default()` y no `.nullable()`, así que "sin modelo" se
-          // expresa OMITIENDO la clave: mandar null o "" sería un 400.
-          ...(modelName === "" ? {} : { modelName }),
+          // Sin modelo: el agente nace con el de la plataforma (B-05).
           enabledTools: values.enabledTools,
           channels: values.channels,
           guardrails,
           guardrailsText,
           isActive: values.isActive,
         };
-        await createAgentMutation.mutateAsync(input);
+        const creado = await createAgentMutation.mutateAsync(input);
+        await guardarModelo(creado.id, creado.modelName, modelName);
       }
       navigate("/agents");
     } catch (err) {
@@ -330,7 +353,7 @@ export function AgentFormPage() {
     setError(null);
     setPuedeReintentar(false);
 
-    const errorDeValidacion = validar(values, isEditMode);
+    const errorDeValidacion = validar(values, isEditMode, puedeElegirModelo);
     if (errorDeValidacion !== null) {
       setError(errorDeValidacion);
       return;
@@ -485,29 +508,41 @@ export function AgentFormPage() {
               required
               value={values.modelProvider}
               options={MODEL_PROVIDER_OPTIONS}
+              disabled={!puedeElegirModelo}
               onChange={(modelProvider) => {
                 if (modelProvider) setValues({ ...values, modelProvider });
               }}
             />
 
             {/* El asterisco depende del modo porque la obligatoriedad también
-                — ver validar(). */}
+                — ver validar(). Solo lectura salvo para un platform admin
+                (B-05), mismo patrón que el número de WhatsApp. */}
             <FormField
-              label={isEditMode ? <span className="ds-required">Modelo</span> : <span>Modelo</span>}
+              label={
+                puedeElegirModelo && isEditMode ? (
+                  <span className="ds-required">Modelo</span>
+                ) : (
+                  <span>Modelo</span>
+                )
+              }
             >
               <input
                 type="text"
                 value={values.modelName}
                 maxLength={100}
-                placeholder="openai/gpt-4o-mini"
+                placeholder={puedeElegirModelo ? "openai/gpt-4o-mini" : "El de la plataforma"}
+                disabled={!puedeElegirModelo}
+                readOnly={!puedeElegirModelo}
                 onChange={(event) => setValues({ ...values, modelName: event.target.value })}
               />
             </FormField>
 
             <p className="ds-hint ds-field-grid--full">
-              {isEditMode
-                ? "El nombre del modelo tal cual lo publica el proveedor. Un modelo inexistente no falla acá: falla al usarlo, con el error del proveedor."
-                : "Si lo dejás vacío, se usa el modelo por defecto."}
+              {!puedeElegirModelo
+                ? "Lo elige el equipo de la plataforma. Si este agente necesita otro modelo, pedíselo."
+                : isEditMode
+                  ? "El nombre del modelo tal cual lo publica el proveedor. Un modelo inexistente no falla acá: falla al usarlo, con el error del proveedor."
+                  : "Si lo dejás vacío, se usa el modelo por defecto."}
             </p>
           </div>
         </Card>

@@ -452,6 +452,9 @@ export function AppLayout() {
               <SidebarLink to="/admin/agents/facebook-page" icon={MessagesSquare}>
                 Página de Facebook
               </SidebarLink>
+              <SidebarLink to="/admin/agents/model" icon={Bot}>
+                Modelo de IA
+              </SidebarLink>
             </div>
           ) : null}
         </nav>

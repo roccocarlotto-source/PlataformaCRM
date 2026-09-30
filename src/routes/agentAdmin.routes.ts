@@ -1,5 +1,7 @@
 import { Router } from "express";
 import {
+  asignarModeloDeAgenteHandler,
+  asignarModeloDeAgenteInternoHandler,
   asignarNumeroDeWhatsappHandler,
   asignarPaginaDeFacebookHandler,
 } from "../controllers/agentAdmin.controller";
@@ -35,4 +37,23 @@ agentAdminRouter.put(
   businessWriteRateLimiter,
   requirePlatformAdmin,
   asignarPaginaDeFacebookHandler,
+);
+
+// El modelo de IA de un agente y el del agente interno de una organización
+// (B-05 de docs-privados/auditoria-2026-09-24-punta-a-punta.md, local), con
+// la misma cadena exacta: son los únicos caminos que escriben el modelo.
+agentAdminRouter.put(
+  "/admin/agents/:agentId/model",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  asignarModeloDeAgenteHandler,
+);
+
+agentAdminRouter.put(
+  "/admin/organizations/:organizationId/internal-agent/model",
+  authenticate,
+  businessWriteRateLimiter,
+  requirePlatformAdmin,
+  asignarModeloDeAgenteInternoHandler,
 );

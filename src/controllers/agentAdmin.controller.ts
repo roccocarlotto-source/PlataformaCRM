@@ -1,6 +1,13 @@
 import type { Response } from "express";
 import { z } from "zod";
-import { asignarNumeroDeWhatsapp, asignarPaginaDeFacebook } from "../services/agent.service";
+import { modelNameSchema, modelProviderSchema } from "../schemas/agentModelConfig.schema";
+import {
+  asignarModeloDeAgente,
+  asignarNumeroDeWhatsapp,
+  asignarPaginaDeFacebook,
+} from "../services/agent.service";
+import { asignarModeloDeAgenteInterno } from "../services/internalAgent.service";
+import { OPENROUTER_PROVIDER_NAME } from "../services/llmProvider.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -70,5 +77,45 @@ export const asignarPaginaDeFacebookHandler = asyncHandler<AuthenticatedRequest>
       platformAdminUserId: req.auth.userId,
     });
     res.status(200).json(agent);
+  },
+);
+
+// ---------------------------------------------------------------------------
+// El modelo de IA (B-05 de docs-privados/auditoria-2026-09-24-punta-a-punta.md,
+// local): lo elige solo la plataforma, que es la que paga el proveedor. Mismo
+// esquema que el número y la página: el CRUD del tenant ya no lo cambia.
+// modelProvider es opcional y vale OpenRouter (el único adaptador que existe);
+// modelName es obligatorio, con las mismas reglas que tenía el CRUD.
+// ---------------------------------------------------------------------------
+export const asignarModeloSchema = z.object({
+  modelProvider: modelProviderSchema.default(OPENROUTER_PROVIDER_NAME),
+  modelName: modelNameSchema,
+});
+
+export const asignarModeloDeAgenteHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const agentId = parseOrThrow(agentIdParamSchema, req.params.agentId);
+    const input = parseOrThrow(asignarModeloSchema, req.body);
+    const agent = await asignarModeloDeAgente({
+      agentId,
+      ...input,
+      platformAdminUserId: req.auth.userId,
+    });
+    res.status(200).json(agent);
+  },
+);
+
+const organizationIdParamSchema = z.string().uuid("organizationId inválido");
+
+export const asignarModeloDeAgenteInternoHandler = asyncHandler<AuthenticatedRequest>(
+  async (req, res: Response) => {
+    const organizationId = parseOrThrow(organizationIdParamSchema, req.params.organizationId);
+    const input = parseOrThrow(asignarModeloSchema, req.body);
+    const agente = await asignarModeloDeAgenteInterno({
+      organizationId,
+      ...input,
+      platformAdminUserId: req.auth.userId,
+    });
+    res.status(200).json(agente);
   },
 );

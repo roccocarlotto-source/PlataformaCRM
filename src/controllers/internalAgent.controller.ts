@@ -1,6 +1,5 @@
 import type { Response } from "express";
 import { z } from "zod";
-import { env } from "../config/env";
 import {
   enabledToolsSchema,
   modelNameSchema,
@@ -12,7 +11,6 @@ import {
   putInternalAgent,
 } from "../services/internalAgent.service";
 import { runInternalAgentTurn } from "../services/internalAgentOrchestration.service";
-import { OPENROUTER_PROVIDER_NAME } from "../services/llmProvider.service";
 import type { AuthenticatedRequest } from "../types/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { parseOrThrow } from "../utils/validation";
@@ -25,9 +23,9 @@ import { parseOrThrow } from "../utils/validation";
 //   - /internal-agent — la configuración. Solo ADMIN.
 // ---------------------------------------------------------------------------
 
-// PUT = reemplazo completo del registro único. Con default los dos del modelo,
-// mismo criterio que createAgentSchema: el único adaptador es OpenRouter y el
-// modelo por defecto ya está decidido en OPENROUTER_MODEL.
+// PUT = reemplazo completo del registro único. El modelo es opcional desde
+// B-05: lo elige la plataforma, y el service rechaza con 403 otro distinto
+// del vigente (ver modeloDeIa.service.ts).
 const putInternalAgentSchema = z.object({
   name: z
     .string()
@@ -35,8 +33,8 @@ const putInternalAgentSchema = z.object({
     .min(1, "name es requerido")
     .max(200, "name no puede superar los 200 caracteres"),
   instructions: z.string().trim().min(1, "instructions es requerido"),
-  modelProvider: modelProviderSchema.default(OPENROUTER_PROVIDER_NAME),
-  modelName: modelNameSchema.default(() => env.OPENROUTER_MODEL),
+  modelProvider: modelProviderSchema.optional(),
+  modelName: modelNameSchema.optional(),
   enabledTools: enabledToolsSchema.default([]),
 });
 

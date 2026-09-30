@@ -12,6 +12,7 @@ import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
 import { agentRouter } from "../routes/agent.routes";
 import { agentAdminRouter } from "../routes/agentAdmin.routes";
+import { MENSAJE_MODELO_LO_ELIGE_LA_PLATAFORMA } from "../services/modeloDeIa.service";
 import {
   MENSAJE_NUMERO_LO_ASIGNA_LA_PLATAFORMA,
   MENSAJE_PAGINA_NO_CONECTADA_EN_LA_ORGANIZACION,
@@ -71,6 +72,9 @@ let adminB: FixtureUser;
 // Un usuario de la organización B que además está en la allowlist global de
 // platform_admins (ítem 127): no es ADMIN de la A, y aun así asigna números.
 let plataforma: FixtureUser;
+// B-05: un ADMIN propio para esos tests, así no le comen el cupo de escrituras
+// (businessWriteRateLimiter, por usuario) al resto del archivo.
+let adminModelo: FixtureUser;
 let baseUrl: string;
 let closeApp: () => Promise<void>;
 
@@ -205,6 +209,7 @@ before(async () => {
   userA = await createFixtureUser("user-a", orgA.id, "USER");
   adminB = await createFixtureUser("admin-b", orgB.id, "ADMIN");
   plataforma = await createFixtureUser("plataforma", orgB.id, "USER");
+  adminModelo = await createFixtureUser("admin-modelo", orgA.id, "ADMIN");
   await prisma.platformAdmin.create({ data: { userId: plataforma.authUserId } });
 });
 
@@ -221,12 +226,13 @@ after(async () => {
     await prisma.agentEmbedToken.deleteMany({ where: { organizationId: org.id } });
     await prisma.metaPageConnection.deleteMany({ where: { organizationId: org.id } });
     await prisma.agent.deleteMany({ where: { organizationId: org.id } });
+    await prisma.internalAgent.deleteMany({ where: { organizationId: org.id } });
     await prisma.contact.deleteMany({ where: { organizationId: org.id } });
     await prisma.branch.deleteMany({ where: { organizationId: org.id } });
     await prisma.user.deleteMany({ where: { organizationId: org.id } });
     await prisma.organization.delete({ where: { id: org.id } });
   }
-  for (const u of [adminA, userA, adminB, plataforma]) {
+  for (const u of [adminA, userA, adminB, plataforma, adminModelo]) {
     if (u) await getSupabaseAdmin().auth.admin.deleteUser(u.authUserId);
   }
 });
@@ -267,8 +273,10 @@ test("POST /api/agents — el cuerpo completo se persiste tal cual, con tools y 
   const agente = await crearAgentePorHttp(adminA.accessToken, orgA.branchId, {
     goal: "Vender cortes de pelo",
     tone: "cercano",
+    // B-05: el modelo de la plataforma se acepta (el formulario puede
+    // reenviarlo); "OpenRouter" es el mismo adaptador (toLowerCase).
     modelProvider: "OpenRouter",
-    modelName: "anthropic/claude-sonnet-4",
+    modelName: env.OPENROUTER_MODEL,
     enabledTools: ["create_opportunity", "get_availability", "create_opportunity"],
     channels: ["WEB", "WHATSAPP", "WEB"],
     guardrails,
@@ -280,7 +288,7 @@ test("POST /api/agents — el cuerpo completo se persiste tal cual, con tools y 
   assert.equal(agente.tone, "cercano");
   // toLowerCase en el schema: "OpenRouter" es el mismo adaptador.
   assert.equal(agente.modelProvider, "openrouter");
-  assert.equal(agente.modelName, "anthropic/claude-sonnet-4");
+  assert.equal(agente.modelName, env.OPENROUTER_MODEL);
   assert.deepEqual(agente.enabledTools, ["create_opportunity", "get_availability"]);
   assert.deepEqual(agente.channels, ["WEB", "WHATSAPP"]);
   assert.deepEqual(agente.guardrails, guardrails);
@@ -886,6 +894,131 @@ test("allowedOrigins — rechaza con path, sin esquema, con query, con credencia
     assert.equal(res.status, 400, `debía ser 400 para ${origen}`);
     assert.match(await mensajeDeError(res), esperado);
   }
+});
+
+// ---------------------------------------------------------------------------
+// B-05 (docs-privados/auditoria-2026-09-24-punta-a-punta.md, local): el modelo
+// de IA lo elige la plataforma. El ADMIN lo ve, no lo cambia (403); lo cambia
+// un platform admin por PUT /api/admin/agents/:agentId/model.
+// ---------------------------------------------------------------------------
+
+function asignarModelo(token: string, agentId: unknown, body: Record<string, unknown>) {
+  return call("PUT", `/api/admin/agents/${String(agentId)}/model`, token, body);
+}
+
+async function modeloEnLaBase(agentId: unknown): Promise<string> {
+  const fila = await prisma.agent.findUniqueOrThrow({ where: { id: String(agentId) } });
+  return fila.modelName;
+}
+
+test("B-05 — un agente nuevo nace con OPENROUTER_MODEL; pedir otro modelo al crear es 403 y no crea nada", async () => {
+  const antes = await prisma.agent.count({ where: { organizationId: orgA.id } });
+  const post = await call(
+    "POST",
+    "/api/agents",
+    adminModelo.accessToken,
+    cuerpoMinimo(orgA.branchId, { modelName: "openai/o1-pro" }),
+  );
+  assert.equal(post.status, 403);
+  assert.equal(await mensajeDeError(post), MENSAJE_MODELO_LO_ELIGE_LA_PLATAFORMA);
+  assert.equal(await prisma.agent.count({ where: { organizationId: orgA.id } }), antes);
+
+  const agente = await crearAgentePorHttp(adminModelo.accessToken, orgA.branchId);
+  assert.equal(agente.modelName, env.OPENROUTER_MODEL);
+});
+
+test("B-05 — el ADMIN ve el modelo pero no lo cambia: PATCH con otro es 403; reenviar el mismo es 200", async () => {
+  const agente = await crearAgentePorHttp(adminModelo.accessToken, orgA.branchId);
+
+  const get = await call("GET", `/api/agents/${agente.id}`, adminModelo.accessToken);
+  assert.equal(((await get.json()) as Record<string, unknown>).modelName, env.OPENROUTER_MODEL);
+
+  const patch = await call("PATCH", `/api/agents/${agente.id}`, adminModelo.accessToken, {
+    modelName: "openai/o1-pro",
+    name: "No debería guardarse",
+  });
+  assert.equal(patch.status, 403);
+  assert.equal(await modeloEnLaBase(agente.id), env.OPENROUTER_MODEL);
+
+  const mismo = await call("PATCH", `/api/agents/${agente.id}`, adminModelo.accessToken, {
+    modelProvider: "openrouter",
+    modelName: env.OPENROUTER_MODEL,
+    name: "Con el mismo modelo",
+  });
+  assert.equal(mismo.status, 200);
+  assert.equal(((await mismo.json()) as Record<string, unknown>).name, "Con el mismo modelo");
+});
+
+test("B-05 — el platform admin cambia el modelo; el agente lo conserva y el tenant sigue sin poder tocarlo", async () => {
+  const agente = await crearAgentePorHttp(adminModelo.accessToken, orgA.branchId);
+
+  const res = await asignarModelo(plataforma.accessToken, agente.id, {
+    modelName: "anthropic/claude-sonnet-4",
+  });
+  assert.equal(res.status, 200);
+  const cuerpo = (await res.json()) as Record<string, unknown>;
+  assert.equal(cuerpo.modelName, "anthropic/claude-sonnet-4");
+  assert.equal(cuerpo.modelProvider, "openrouter");
+
+  // El formulario reenvía el que tiene ahora: pasa.
+  const reenvio = await call("PATCH", `/api/agents/${agente.id}`, adminModelo.accessToken, {
+    modelName: "anthropic/claude-sonnet-4",
+    name: "Sigue igual",
+  });
+  assert.equal(reenvio.status, 200);
+  // Volver al de la plataforma también es un cambio: 403.
+  const volver = await call("PATCH", `/api/agents/${agente.id}`, adminModelo.accessToken, {
+    modelName: env.OPENROUTER_MODEL,
+  });
+  assert.equal(volver.status, 403);
+  assert.equal(await modeloEnLaBase(agente.id), "anthropic/claude-sonnet-4");
+});
+
+test("B-05 — PUT /admin/agents/:id/model: un ADMIN común es 403, sin modelName es 400, un agente que no existe es 404", async () => {
+  const agente = await crearAgentePorHttp(adminModelo.accessToken, orgA.branchId);
+  const admin = await asignarModelo(adminModelo.accessToken, agente.id, { modelName: "x/y" });
+  assert.equal(admin.status, 403);
+  assert.equal(await modeloEnLaBase(agente.id), env.OPENROUTER_MODEL);
+
+  assert.equal((await asignarModelo(plataforma.accessToken, agente.id, {})).status, 400);
+  assert.equal(
+    (
+      await asignarModelo(plataforma.accessToken, agente.id, {
+        modelProvider: "anthropic",
+        modelName: "x",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await asignarModelo(plataforma.accessToken, randomUUID(), { modelName: "x/y" })).status,
+    404,
+  );
+});
+
+test("B-05 — PUT /admin/organizations/:id/internal-agent/model: el platform admin cambia el del agente interno", async () => {
+  const ruta = `/api/admin/organizations/${orgB.id}/internal-agent/model`;
+  // Sin agente interno configurado no hay nada que cambiar.
+  assert.equal((await call("PUT", ruta, plataforma.accessToken, { modelName: "x/y" })).status, 404);
+
+  await prisma.internalAgent.create({
+    data: {
+      organizationId: orgB.id,
+      name: "Asistente",
+      instructions: "Ayudá al equipo.",
+      modelProvider: "openrouter",
+      modelName: env.OPENROUTER_MODEL,
+      enabledTools: [],
+    },
+  });
+  assert.equal((await call("PUT", ruta, adminB.accessToken, { modelName: "x/y" })).status, 403);
+
+  const res = await call("PUT", ruta, plataforma.accessToken, {
+    modelName: "anthropic/claude-sonnet-4",
+  });
+  assert.equal(res.status, 200);
+  const fila = await prisma.internalAgent.findUniqueOrThrow({ where: { organizationId: orgB.id } });
+  assert.equal(fila.modelName, "anthropic/claude-sonnet-4");
 });
 
 // ---------------------------------------------------------------------------

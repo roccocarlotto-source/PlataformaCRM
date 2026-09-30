@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { ToastProvider } from "../../design-system/Toast";
+import type { AuthContextValue } from "../../auth/AuthContext";
 import { InternalAgentSettingsPage } from "./InternalAgentSettingsPage";
 import type { InternalAgent, PutInternalAgentInput } from "./types";
 
@@ -17,6 +18,43 @@ const apiMock = vi.hoisted(() => ({
   sendInternalAgentMessage: vi.fn(),
 }));
 vi.mock("./api", () => apiMock);
+
+// B-05: el modelo lo cambia solo un platform admin, por su endpoint.
+const platformApiMock = vi.hoisted(() => ({
+  assignInternalAgentModel: vi.fn(),
+  assignAgentModel: vi.fn(),
+  assignWhatsappNumber: vi.fn(),
+  assignFacebookPage: vi.fn(),
+  createOrganization: vi.fn(),
+}));
+vi.mock("../platformAdmin/api", () => platformApiMock);
+
+const useAuthMock = vi.hoisted(() => vi.fn<() => AuthContextValue>());
+vi.mock("../../auth/AuthContext", () => ({ useAuth: useAuthMock }));
+
+function mockAuth(isPlatformAdmin: boolean): AuthContextValue {
+  return {
+    status: "authenticated",
+    me: {
+      id: "u1",
+      email: "a@x.com",
+      fullName: "A",
+      organizationId: "org-1",
+      role: "ADMIN",
+      isPlatformAdmin,
+      canUseInternalAgent: true,
+    },
+    accountUnavailableReason: null,
+    profileError: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+    retryProfile: vi.fn(),
+  };
+}
+
+beforeEach(() => {
+  useAuthMock.mockReturnValue(mockAuth(false));
+});
 
 function makeInternalAgent(overrides: Partial<InternalAgent> = {}): InternalAgent {
   return {
@@ -72,7 +110,6 @@ describe("InternalAgentSettingsPage", () => {
     expect(apiMock.putInternalAgent.mock.calls[0][0]).toEqual({
       name: "Asistente del equipo",
       instructions: "Ayudá al equipo.",
-      modelProvider: "openrouter",
       enabledTools: [],
     });
     // Refleja lo que devolvió el backend, incluido el modelo que asignó.
@@ -102,10 +139,45 @@ describe("InternalAgentSettingsPage", () => {
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     await waitFor(() => expect(apiMock.putInternalAgent).toHaveBeenCalledTimes(1));
-    expect(apiMock.putInternalAgent.mock.calls[0][0]).toMatchObject({
+    expect(apiMock.putInternalAgent.mock.calls[0][0]).toEqual({
       name: "Asistente",
-      modelName: "openai/gpt-4o-mini",
+      instructions: "Sos el asistente del equipo.",
       enabledTools: ["create_internal_task", "get_agenda"],
+    });
+  });
+
+  it("B-05: para un ADMIN común el Modelo es de solo lectura y no viaja en el PUT", async () => {
+    apiMock.getInternalAgent.mockResolvedValue(makeInternalAgent());
+    renderPage();
+
+    const modelo = await screen.findByLabelText("Modelo");
+    expect(modelo).toBeDisabled();
+    expect(screen.getByText(/Lo elige el equipo de la plataforma/)).toBeInTheDocument();
+  });
+
+  it("B-05: un platform admin cambia el Modelo y se guarda por el endpoint de admin", async () => {
+    useAuthMock.mockReturnValue(mockAuth(true));
+    const user = userEvent.setup();
+    apiMock.getInternalAgent.mockResolvedValue(makeInternalAgent());
+    apiMock.putInternalAgent.mockImplementation(async (input: PutInternalAgentInput) =>
+      makeInternalAgent(input),
+    );
+    platformApiMock.assignInternalAgentModel.mockResolvedValue(
+      makeInternalAgent({ modelName: "anthropic/claude-sonnet-4" }),
+    );
+    renderPage();
+
+    const modelo = await screen.findByLabelText("Modelo");
+    await user.clear(modelo);
+    await user.type(modelo, "anthropic/claude-sonnet-4");
+    await user.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(platformApiMock.assignInternalAgentModel).toHaveBeenCalledTimes(1));
+    expect("modelName" in apiMock.putInternalAgent.mock.calls[0][0]).toBe(false);
+    expect(platformApiMock.assignInternalAgentModel.mock.calls[0][0]).toEqual({
+      organizationId: "org-1",
+      modelProvider: "openrouter",
+      modelName: "anthropic/claude-sonnet-4",
     });
   });
 
