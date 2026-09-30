@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "test:integration": "cross-env NODE_ENV=test tsx --import ./src/config/env.ts --test \"src/**/*.integration-test.ts\"",
+    "test:integration": "cross-env NODE_ENV=test tsx --import ./src/config/env.ts --test --test-concurrency=1 \"src/**/*.integration-test.ts\"",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

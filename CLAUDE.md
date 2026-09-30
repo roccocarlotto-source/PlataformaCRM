@@ -65,7 +65,7 @@ reescribe `package-lock.json`.
 | `npm run lint` / `npm run lint:fix` | ESLint del backend. |
 | `npm run format:check` / `npm run format` | Prettier de TODO el repo (un solo `.prettierrc`; los `*.md` están excluidos a propósito). |
 | `npm run prisma:validate` | Valida `schema.prisma` sin conectarse a nada. |
-| `npm run test:integration` | Suite `*.integration-test.ts`. Necesita el stack local de Supabase (`npm run supabase:start`, Docker) — en CI es el job `integration`. |
+| `npm run test:integration` | Suite `*.integration-test.ts`, un archivo por vez (`--test-concurrency=1`, H-02). Necesita el stack local de Supabase (`npm run supabase:start`, Docker) — en CI es el job `integration`. |
 
 **Frontend** (`cd frontend`): `npm run typecheck`, `npm run lint`,
 `npm test` (vitest), `npm run build`. Prettier se corre desde la raíz.
