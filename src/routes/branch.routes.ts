@@ -6,6 +6,10 @@ import {
   listBranchesHandler,
   updateBranchHandler,
 } from "../controllers/branch.controller";
+import {
+  getBranchBusinessHoursHandler,
+  replaceBranchBusinessHoursHandler,
+} from "../controllers/branchBusinessHours.controller";
 import { authenticate } from "../middlewares/authenticate";
 import { authorize } from "../middlewares/authorize";
 import { businessWriteRateLimiter } from "../middlewares/rateLimit";
@@ -35,6 +39,22 @@ branchRouter.patch(
   authorize("ADMIN"),
   updateBranchHandler,
 );
+// Horario de atención de la sucursal (G-07). Solo ADMIN, también la lectura:
+// es configuración de la sucursal, como los datos de cobro en su formulario.
+branchRouter.get(
+  "/branches/:id/business-hours",
+  authenticate,
+  authorize("ADMIN"),
+  getBranchBusinessHoursHandler,
+);
+branchRouter.patch(
+  "/branches/:id/business-hours",
+  authenticate,
+  businessWriteRateLimiter,
+  authorize("ADMIN"),
+  replaceBranchBusinessHoursHandler,
+);
+
 branchRouter.delete(
   "/branches/:id",
   authenticate,

@@ -9,6 +9,7 @@ import {
   markDiscountVoucherFollowUpCancelled,
   markDiscountVoucherFollowUpFailed,
   markDiscountVoucherFollowUpSent,
+  posponerDiscountVoucherFollowUpHasta,
   rescheduleDiscountVoucherFollowUp,
   type DiscountVoucherFollowUpParaEnviar,
   type DiscountVoucherFollowUpReclamado,
@@ -185,7 +186,12 @@ export async function procesarCupon(
   config: ConfiguracionDelCupon,
   deps: Pick<
     DepsDelCupon,
-    "plantillaDeLaRegla" | "numeroDeLaSucursal" | "sendTemplate" | "emitirCupon" | "ahora"
+    | "plantillaDeLaRegla"
+    | "numeroDeLaSucursal"
+    | "proximaApertura"
+    | "sendTemplate"
+    | "emitirCupon"
+    | "ahora"
   >,
   leer: (
     id: string,
@@ -201,6 +207,16 @@ export async function procesarCupon(
   const motivo = motivoDeCancelacion(fila);
   if (motivo !== null) {
     return { resultado: "CANCELADO", motivo };
+  }
+
+  // G-07 (docs-privados/auditoria-2026-09-30-corta.md, local): dentro del
+  // horario de atención de la sucursal, igual que el del QR. ANTES de emitir el
+  // cupón: su vigencia se cuenta desde que sale, no desde la madrugada en que
+  // estaba agendado.
+  const ahora = deps.ahora();
+  const apertura = await deps.proximaApertura(fila.organizationId, fila.branchId, ahora);
+  if (apertura.getTime() > ahora.getTime()) {
+    return { resultado: "FUERA_DE_HORARIO", hasta: apertura };
   }
 
   // Todo lo que puede impedir el envío se chequea ANTES de emitir el cupón.
@@ -263,6 +279,9 @@ export interface ResumenDrenado {
   cancelados: number;
   pospuestos: number;
   fallidos: number;
+  // G-07: la sucursal estaba cerrada; se corrieron a su próxima apertura
+  // sin gastar el intento.
+  fueraDeHorario: number;
   sinConfiguracion: boolean;
 }
 
@@ -334,6 +353,15 @@ async function registrarResultado(
       await anotarEnvioEnConversacion(resultado.envio, deps.registrarEnConversacion);
       return;
     }
+    if (resultado.resultado === "FUERA_DE_HORARIO") {
+      await posponerDiscountVoucherFollowUpHasta(reclamo, resultado.hasta);
+      resumen.fueraDeHorario++;
+      logger.info(
+        { discountVoucherFollowUpId: reclamo.id, hasta: resultado.hasta },
+        "Cupón de descuento fuera del horario de la sucursal: se corre a su próxima apertura",
+      );
+      return;
+    }
     await markDiscountVoucherFollowUpCancelled(reclamo, resultado.motivo);
     resumen.cancelados++;
     logger.info(
@@ -358,6 +386,7 @@ export async function drenarCupones(opciones: OpcionesDrenado = {}): Promise<Res
     cancelados: 0,
     pospuestos: 0,
     fallidos: 0,
+    fueraDeHorario: 0,
     sinConfiguracion: false,
   };
 

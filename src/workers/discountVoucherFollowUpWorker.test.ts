@@ -72,6 +72,8 @@ interface Emision {
 function doblar(
   opciones: {
     numero?: string | null;
+    // G-07: si viene, la sucursal está cerrada y abre en ese momento.
+    abreA?: Date;
     falla?: unknown;
     plantilla?: typeof PLANTILLA | null;
   } = {},
@@ -84,6 +86,9 @@ function doblar(
       plantillasPedidas.push(`${organizationId}/${automationId}`);
       return Promise.resolve(opciones.plantilla === undefined ? PLANTILLA : opciones.plantilla);
     },
+    // G-07: siempre abierta, salvo los casos que prueban la ventana.
+    proximaApertura: (_organizationId: string, _branchId: string, ahora: Date) =>
+      Promise.resolve(opciones.abreA ?? ahora),
     numeroDeLaSucursal: () =>
       Promise.resolve(opciones.numero === undefined ? "1234567890" : opciones.numero),
     sendTemplate: (input: SendWhatsappTemplateInput) => {
@@ -196,6 +201,20 @@ test("cada motivo de cancelación CANCELA sin emitir cupón ni mandar nada", asy
 // ---------------------------------------------------------------------------
 // Emisión y envío
 // ---------------------------------------------------------------------------
+
+// G-07 de docs-privados/auditoria-2026-09-30-corta.md (local): fuera del
+// horario de la sucursal no se emite el cupón (su vigencia se cuenta desde que
+// sale) ni se manda nada.
+test("G-07: con la sucursal cerrada no emite el cupón, no manda y devuelve FUERA_DE_HORARIO", async () => {
+  const abre = new Date(AHORA.getTime() + 5 * 60 * 60 * 1000);
+  const { deps, enviados, emisiones } = doblar({ abreA: abre });
+
+  const resultado = await procesarCupon(RECLAMO, CONFIG, deps, () => Promise.resolve(fila()));
+
+  assert.deepEqual(resultado, { resultado: "FUERA_DE_HORARIO", hasta: abre });
+  assert.equal(emisiones.length, 0);
+  assert.equal(enviados.length, 0);
+});
 
 test("emite el cupón con expiresAt = AHORA + expiresInDays (no desde el agendado) y lo manda con {{1}} nombre y {{2}} link", async () => {
   const { deps, enviados, emisiones } = doblar();

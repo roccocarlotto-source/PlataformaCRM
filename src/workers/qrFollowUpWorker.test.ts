@@ -57,6 +57,8 @@ function fila(extra: Partial<QrFollowUpParaEnviar> = {}): QrFollowUpParaEnviar {
 function doblar(
   opciones: {
     numero?: string | null;
+    // G-07: si viene, la sucursal está cerrada y abre en ese momento.
+    abreA?: Date;
     falla?: unknown;
     plantilla?: typeof PLANTILLA | null;
   } = {},
@@ -68,6 +70,9 @@ function doblar(
       plantillasPedidas.push(`${organizationId}/${automationId}`);
       return Promise.resolve(opciones.plantilla === undefined ? PLANTILLA : opciones.plantilla);
     },
+    // G-07: siempre abierta, salvo los casos que prueban la ventana.
+    proximaApertura: (_organizationId: string, _branchId: string, ahora: Date) =>
+      Promise.resolve(opciones.abreA ?? ahora),
     numeroDeLaSucursal: () =>
       Promise.resolve(opciones.numero === undefined ? "1234567890" : opciones.numero),
     sendTemplate: (input: SendWhatsappTemplateInput) => {
@@ -174,6 +179,26 @@ test("nombreParaElSaludo: el nombre recortado, y 'cliente' si está en blanco", 
 // ---------------------------------------------------------------------------
 // procesarSeguimiento
 // ---------------------------------------------------------------------------
+
+// G-07 de docs-privados/auditoria-2026-09-30-corta.md (local): fuera del
+// horario de la sucursal no se manda nada; se pospone hasta la apertura.
+test("G-07: con la sucursal cerrada no manda y devuelve FUERA_DE_HORARIO con la próxima apertura", async () => {
+  const abre = new Date(Date.now() + 5 * 60 * 60 * 1000);
+  const { deps, enviados } = doblar({ abreA: abre });
+
+  const resultado = await procesarSeguimiento(RECLAMO, CONFIG, deps, () => Promise.resolve(fila()));
+
+  assert.deepEqual(resultado, { resultado: "FUERA_DE_HORARIO", hasta: abre });
+  assert.equal(enviados.length, 0);
+});
+
+test("G-07: lo que ya no corresponde se cancela aunque la sucursal esté cerrada", async () => {
+  const { deps } = doblar({ abreA: new Date(Date.now() + 60 * 60 * 1000) });
+  const resultado = await procesarSeguimiento(RECLAMO, CONFIG, deps, () =>
+    Promise.resolve(fila({ qrCode: { ...fila().qrCode, deletedAt: new Date() } })),
+  );
+  assert.equal(resultado.resultado, "CANCELADO");
+});
 
 test("envía la plantilla desde el número de la sucursal del QR, con {{1}} nombre y {{2}} link", async () => {
   const { deps, enviados } = doblar();

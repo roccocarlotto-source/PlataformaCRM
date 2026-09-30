@@ -187,6 +187,21 @@ export function rescheduleDiscountVoucherFollowUp(
   });
 }
 
+// Fuera del horario de atención de la sucursal (G-07): se corre a la próxima
+// apertura y se DEVUELVE el intento que consumió el reclamo — esperar a que
+// abra no es un fallo, y sin esto una sucursal cerrada un fin de semana largo
+// agotaría los intentos sin haber probado nunca mandar. lastError no se toca.
+export function posponerDiscountVoucherFollowUpHasta(
+  reclamo: DiscountVoucherFollowUpReclamado,
+  hasta: Date,
+  db: Db = prisma,
+) {
+  return db.discountVoucherFollowUp.updateMany({
+    where: delReclamo(reclamo),
+    data: { nextAttemptAt: hasta, attempts: { decrement: 1 } },
+  });
+}
+
 export function markDiscountVoucherFollowUpFailed(
   reclamo: DiscountVoucherFollowUpReclamado,
   lastError: string,

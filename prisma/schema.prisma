@@ -660,6 +660,8 @@ model Organization {
   workingHours WorkingHours[]
   bookings     Booking[]
 
+  branchBusinessHours BranchBusinessHours[]
+
   agents                   Agent[]
   conversations            Conversation[]
   messages                 Message[]
@@ -1710,6 +1712,10 @@ model Branch {
   resources    Resource[]
   serviceTypes ServiceType[]
 
+  // El horario de atención propio de la sucursal (G-07). Vacío = no cargado:
+  // se usa el horario por defecto (utils/horarioDeAtencion.ts).
+  businessHours BranchBusinessHours[]
+
   // FK COMPUESTA por organización, el estándar del proyecto desde C-3, y
   // onDelete: NoAction como toda relación OPCIONAL hacia User (misma forma que
   // Conversation.assignedUser y Vehicle.assignedSalesperson): un vendedor que
@@ -2051,6 +2057,54 @@ model WorkingHours {
   // validación de POST /api/bookings. No hay listado por organización.
   @@index([organizationId, resourceId])
   @@map("working_hours")
+}
+
+// ---------------------------------------------------------------------------
+// BranchBusinessHours — el horario de atención PROPIO de la sucursal (G-07 de
+// docs-privados/auditoria-2026-09-30-corta.md, local, no está en GitHub).
+//
+// Es el calco exacto de WorkingHours, y a propósito: mismo enum Weekday, mismos
+// minutos locales 0..1440 con el mismo CHECK, una fila por franja (dos franjas
+// el mismo día = dos filas), mismo reemplazo de la semana entera y mismas
+// validaciones (utils/workingHours.ts). Así hay UNA sola forma de expresar un
+// horario en el sistema. Lo único que cambia es de quién es: de la sucursal y
+// no de un recurso de la agenda. No se reusa WorkingHours porque sus filas
+// cuelgan de un Resource, y "cuándo atiende la sucursal" no es lo mismo que
+// "cuándo trabaja un vendedor o un box".
+//
+// POR AHORA LO USA UNA SOLA COSA: la ventana de envío de los mensajes que
+// INICIA el negocio (seguimiento con QR de reseña y cupón de descuento). Lo que
+// cae fuera se corre a la próxima apertura. Las respuestas del agente a un
+// mensaje entrante NO lo miran: siguen 24/7. Ni la agenda ni la disponibilidad
+// lo usan.
+//
+// OPCIONAL: una sucursal sin filas usa el horario por defecto (lunes a sábado
+// de 9 a 20, utils/horarioDeAtencion.ts). Nadie está obligado a cargarlo.
+//
+// LA HORA ES LOCAL DE LA SUCURSAL (Branch.timezone), igual que WorkingHours.
+// ---------------------------------------------------------------------------
+model BranchBusinessHours {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  branchId       String  @map("branch_id") @db.Uuid
+  weekday        Weekday
+
+  // Minutos desde la medianoche local, 0..1440, mismo criterio y mismo CHECK
+  // que WorkingHours.startMinute/endMinute.
+  startMinute Int @map("start_minute")
+  endMinute   Int @map("end_minute")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branch       Branch       @relation(fields: [organizationId, branchId], references: [organizationId, id])
+
+  // Sin deletedAt, como WorkingHours: es la configuración vigente y se
+  // reemplaza entera. (organization_id, branch_id) sirve la única consulta:
+  // "el horario de esta sucursal".
+  @@index([organizationId, branchId])
+  @@map("branch_business_hours")
 }
 
 // ---------------------------------------------------------------------------

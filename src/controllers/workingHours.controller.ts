@@ -25,7 +25,7 @@ const horaSchema = z.string().refine((valor) => minutosDesdeHoraLocal(valor) !==
   message: 'La hora debe tener formato HH:MM entre 00:00 y 24:00 (por ejemplo "09:00")',
 });
 
-const franjaSchema = z
+export const franjaSchema = z
   .object({
     weekday: weekdaySchema,
     startTime: horaSchema,

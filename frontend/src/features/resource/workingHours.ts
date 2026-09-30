@@ -117,7 +117,8 @@ export function franjaSugerida(delDia: readonly Franja[]): Franja {
 // franjas del mismo día): el 400 del backend nombra el día en inglés
 // ("MONDAY") y no dice qué franjas se pisan; acá sí.
 //
-// Un horario VACÍO es válido: significa "este recurso no atiende".
+// Un horario VACÍO es válido: para un recurso significa "no atiende"; para el
+// horario de atención de una sucursal, "volver al horario por defecto".
 export function validarHorario(horario: HorarioSemanal): string | null {
   let total = 0;
 
@@ -152,7 +153,7 @@ export function validarHorario(horario: HorarioSemanal): string | null {
   }
 
   if (total > MAX_FRANJAS) {
-    return `El horario tiene ${total} franjas y el máximo por recurso es ${MAX_FRANJAS}.`;
+    return `El horario tiene ${total} franjas y el máximo es ${MAX_FRANJAS}.`;
   }
 
   return null;

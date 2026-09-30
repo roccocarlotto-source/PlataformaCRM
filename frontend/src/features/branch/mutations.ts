@@ -3,10 +3,12 @@ import {
   createBranch,
   deleteBranch,
   disconnectGoogleCalendar,
+  replaceBranchBusinessHours,
   startGoogleCalendarConnection,
   updateBranch,
 } from "./api";
 import { branchKeys } from "./queries";
+import type { WorkingHoursSlot } from "../resource/types";
 import type { CreateBranchInput, UpdateBranchInput } from "./types";
 
 // Invalidación mínima y correcta, mismo patrón que Source: cada mutación solo
@@ -61,6 +63,22 @@ export function useDisconnectGoogleCalendar(branchId: string) {
     mutationFn: () => disconnectGoogleCalendar(branchId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: branchKeys.googleCalendar(branchId) });
+    },
+  });
+}
+
+// Guardar el horario de atención y volver al de por defecto son la misma
+// request (PATCH con la semana entera; [] = por defecto). La respuesta trae
+// la forma del GET, así que se escribe directo en la cache en vez de
+// invalidar: la sección se re-siembra con lo que quedó guardado sin otra
+// ida y vuelta.
+export function useReplaceBranchBusinessHours(branchId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (businessHours: WorkingHoursSlot[]) =>
+      replaceBranchBusinessHours(branchId, businessHours),
+    onSuccess: (data) => {
+      queryClient.setQueryData(branchKeys.businessHours(branchId), data);
     },
   });
 }

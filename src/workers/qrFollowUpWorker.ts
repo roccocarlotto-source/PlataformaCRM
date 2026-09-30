@@ -9,6 +9,7 @@ import {
   markQrFollowUpCancelled,
   markQrFollowUpFailed,
   markQrFollowUpSent,
+  posponerQrFollowUpHasta,
   rescheduleQrFollowUp,
   type QrFollowUpParaEnviar,
   type QrFollowUpReclamado,
@@ -17,6 +18,7 @@ import {
   anotarEnvioEnConversacion,
   type EnvioDePlantilla,
 } from "../services/automationWhatsappConversation.service";
+import { proximaAperturaDeLaSucursal } from "../services/branchBusinessHours.service";
 import { esTransitorio } from "../services/llmProvider.service";
 import { soloDigitos } from "../lib/telefono";
 import {
@@ -74,6 +76,10 @@ export interface DepsDelSeguimiento {
     automationId: string,
   ) => Promise<PlantillaDeSeguimiento | null>;
   numeroDeLaSucursal: (organizationId: string, branchId: string) => Promise<string | null>;
+  // G-07: cuándo puede salir un mensaje que inicia el negocio desde esta
+  // sucursal (`ahora` si está abierta, si no su próxima apertura). El real es
+  // proximaAperturaDeLaSucursal (horario propio o el default 9–20 lun–sáb).
+  proximaApertura: (organizationId: string, branchId: string, ahora: Date) => Promise<Date>;
   sendTemplate: SendWhatsappTemplate;
   // F1: anota el envío en la conversación del contacto. Opcional para los
   // dobles de los tests; el real es registrarPlantillaEnConversacion.
@@ -89,6 +95,7 @@ export const depsDelSeguimientoReales: DepsDelSeguimiento = {
       : null;
   },
   numeroDeLaSucursal: findBranchWhatsappPhoneNumberId,
+  proximaApertura: proximaAperturaDeLaSucursal,
   sendTemplate: sendWhatsappTemplateReal,
 };
 
@@ -170,14 +177,20 @@ export function nombreParaElSaludo(firstName: string): string {
 // ENVIADO lleva lo que salió, para anotarlo en la conversación (F1) DESPUÉS de
 // marcar la fila: ver anotarEnvioEnConversacion.
 export type ResultadoDelEnvio =
-  { resultado: "ENVIADO"; envio: EnvioDePlantilla } | { resultado: "CANCELADO"; motivo: string };
+  | { resultado: "ENVIADO"; envio: EnvioDePlantilla }
+  | { resultado: "CANCELADO"; motivo: string }
+  // G-07: la sucursal está cerrada; se corre a `hasta` sin gastar el intento.
+  | { resultado: "FUERA_DE_HORARIO"; hasta: Date };
 
 // Un envío reclamado: relee, decide y manda. Lanza ante cualquier fallo; el
 // que llama lo clasifica. No escribe ninguna marca: eso lo hace el drenado.
 export async function procesarSeguimiento(
   reclamo: QrFollowUpReclamado,
   config: ConfiguracionDeEnvio,
-  deps: Pick<DepsDelSeguimiento, "plantillaDeLaRegla" | "numeroDeLaSucursal" | "sendTemplate">,
+  deps: Pick<
+    DepsDelSeguimiento,
+    "plantillaDeLaRegla" | "numeroDeLaSucursal" | "proximaApertura" | "sendTemplate"
+  >,
   leer: (id: string, organizationId: string) => Promise<QrFollowUpParaEnviar | null> = (
     id,
     organizationId,
@@ -191,6 +204,18 @@ export async function procesarSeguimiento(
   const motivo = motivoDeCancelacion(fila);
   if (motivo !== null) {
     return { resultado: "CANCELADO", motivo };
+  }
+
+  // G-07 de docs-privados/auditoria-2026-09-30-corta.md (local, no está en
+  // GitHub): un mensaje que inicia el negocio sale dentro del horario de
+  // atención de la sucursal. Fuera de él —de madrugada, o en la ráfaga de
+  // cuando Render despierta— se corre a la próxima apertura. Después de la
+  // cancelación (lo que ya no corresponde se cancela ya, a cualquier hora) y
+  // antes de todo lo demás.
+  const ahora = new Date();
+  const apertura = await deps.proximaApertura(fila.organizationId, fila.qrCode.branchId, ahora);
+  if (apertura.getTime() > ahora.getTime()) {
+    return { resultado: "FUERA_DE_HORARIO", hasta: apertura };
   }
 
   // El wa_id de Meta: solo dígitos, con código de país. Contact.phone es texto
@@ -255,6 +280,9 @@ export interface ResumenDrenado {
   // Pasaron a FAILED: error permanente o reintentos agotados.
   fallidos: number;
   // Falta configuración: la pasada no reclamó nada.
+  // G-07: la sucursal estaba cerrada; se corrieron a su próxima apertura
+  // sin gastar el intento.
+  fueraDeHorario: number;
   sinConfiguracion: boolean;
 }
 
@@ -322,6 +350,15 @@ async function registrarResultado(
       await anotarEnvioEnConversacion(resultado.envio, deps.registrarEnConversacion);
       return;
     }
+    if (resultado.resultado === "FUERA_DE_HORARIO") {
+      await posponerQrFollowUpHasta(reclamo, resultado.hasta);
+      resumen.fueraDeHorario++;
+      logger.info(
+        { qrFollowUpId: reclamo.id, hasta: resultado.hasta },
+        "Seguimiento con QR fuera del horario de la sucursal: se corre a su próxima apertura",
+      );
+      return;
+    }
     await markQrFollowUpCancelled(reclamo, resultado.motivo);
     resumen.cancelados++;
     logger.info(
@@ -351,6 +388,7 @@ export async function drenarSeguimientosQr(
     cancelados: 0,
     pospuestos: 0,
     fallidos: 0,
+    fueraDeHorario: 0,
     sinConfiguracion: false,
   };
 
