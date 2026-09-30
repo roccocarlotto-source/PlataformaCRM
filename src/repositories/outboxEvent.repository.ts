@@ -252,3 +252,26 @@ export function countOutboxEventsPurgables(
 export function purgeOutboxEvents(corte: Date, scope: PurgaOutboxScope = {}, db: Db = prisma) {
   return db.outboxEvent.deleteMany({ where: buildPurgaWhere(corte, scope) });
 }
+
+// G-08 (docs-privados/auditoria-2026-09-30-corta.md, local): las oportunidades
+// que YA recibieron un evento de este tipo desde `desde`, en cualquier estado
+// (pendiente, procesado o muerto). Es la memoria del barrido de estancadas: el
+// propio outbox, sin columna nueva. Sirve el índice (organization_id,
+// created_at); el filtro por tipo y el payload se evalúan sobre las pocas
+// filas de la ventana.
+export async function findOpportunityIdsWithEventSince(
+  organizationId: string,
+  eventType: string,
+  desde: Date,
+  db: Db = prisma,
+): Promise<Set<string>> {
+  const filas = await db.$queryRaw<{ opportunityId: string | null }[]>`
+    SELECT DISTINCT payload->>'opportunityId' AS "opportunityId"
+    FROM outbox_events
+    WHERE organization_id = ${organizationId}::uuid
+      AND event_type = ${eventType}
+      AND created_at >= ${desde}`;
+  return new Set(
+    filas.map((f) => f.opportunityId).filter((id): id is string => typeof id === "string"),
+  );
+}

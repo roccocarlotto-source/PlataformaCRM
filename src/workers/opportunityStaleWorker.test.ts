@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { limiteDeEstancamiento, umbralesPorOrganizacion } from "./opportunityStaleWorker";
+import {
+  limiteDeEstancamiento,
+  sinEventoReciente,
+  umbralesPorOrganizacion,
+  VENTANA_SIN_REPETIR_MS,
+} from "./opportunityStaleWorker";
 
 // Unitarios, sin base: las dos decisiones puras del barrido de oportunidades
 // estancadas (ítem 76). El barrido contra Postgres real —qué oportunidades
@@ -43,4 +48,15 @@ test("una regla con triggerConfig inválido se saltea sin tumbar a las demás", 
     { id: "r3", organizationId: "org-c", triggerConfig: { daysWithoutActivity: 2 } },
   ]);
   assert.deepEqual([...umbrales], [["org-c", 2]]);
+});
+
+// G-08: una oportunidad que ya recibió su evento en la ventana no se repite.
+test("sinEventoReciente saca las que ya tuvieron evento, conserva el orden del resto", () => {
+  const estancadas = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  assert.deepEqual(sinEventoReciente(estancadas, new Set(["b"])), [{ id: "a" }, { id: "c" }]);
+  assert.deepEqual(sinEventoReciente(estancadas, new Set()), estancadas);
+  assert.ok(
+    VENTANA_SIN_REPETIR_MS < 24 * 60 * 60 * 1000,
+    "menos de un día: la pasada diaria no se saltea",
+  );
 });
