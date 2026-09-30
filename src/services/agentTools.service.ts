@@ -10,7 +10,7 @@ import { z } from "zod";
 import { logger } from "../lib/logger";
 import { findManyActivities } from "../repositories/activity.repository";
 import { findBranchById } from "../repositories/branch.repository";
-import { findContactById } from "../repositories/contact.repository";
+import { findContactById, setLeadIntentIfEmpty } from "../repositories/contact.repository";
 import { findManyOpportunities, findOpportunityById } from "../repositories/opportunity.repository";
 import { findDefaultPipeline } from "../repositories/pipeline.repository";
 import { findResourceById } from "../repositories/resource.repository";
@@ -24,6 +24,12 @@ import {
 } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
 import { isoEnZona } from "../utils/timezone";
+import {
+  BODY_TYPE_LABELS,
+  CONDITION_LABELS,
+  FUEL_TYPE_LABELS,
+  TRANSMISSION_LABELS,
+} from "../utils/vehicleLabels";
 import { currencySchema } from "../utils/validation";
 import { MAX_DIAS_DE_RANGO, obtenerDisponibilidad } from "./availability.service";
 import { createBooking } from "./booking.service";
@@ -1771,6 +1777,131 @@ async function recordatorioDePresupuesto(
   }
 }
 
+// Prueba en vivo del 29/09: «¿tienen alguna pickup usada?» por WhatsApp. El
+// agente buscó bien (bodyType PICKUP, condition USED), contestó, y el contacto
+// quedó igual que antes: la description de create_lead ya pide guardar la
+// intención en ese mismo turno y el modelo no la llamó. Es el mismo residual
+// del ítem 121, y ajustar el prompt otra vez no lo cierra.
+//
+// Por eso acá lo GARANTIZA EL BACKEND y no el modelo: si la búsqueda corrió y
+// el contacto no tiene intención, se anota un resumen de lo que buscó. Tres
+// reglas, y cada una tiene su porqué:
+//
+//   - NUNCA PISA. Una intención que ya está —del modelo, de un vendedor, de una
+//     importación— sabe más que un resumen de filtros. La condición va en el
+//     WHERE del UPDATE (setLeadIntentIfEmpty), no en un chequeo previo.
+//   - SOLO FILTROS ESTRUCTURADOS: enums, números y booleanos, con los rótulos
+//     de la pantalla. Nada de texto libre del modelo (`texto`, el color): lo
+//     que llega a la ficha no puede ser contenido inventado ni una inyección
+//     de prompt. Marca y modelo son texto, pero se filtran por igualdad
+//     exacta: si la búsqueda trajo algo, el valor es el del stock del negocio
+//     y no el del modelo. Sin resultados, no se incluyen.
+//   - NO ROMPE LA BÚSQUEDA. El cliente vino por la lista de autos; si la
+//     escritura falla, se loguea y la lista sale igual.
+//
+// A diferencia del presupuesto (que sigue siendo un aviso), la intención sí se
+// deduce de los filtros: «busca una pickup usada» es literalmente lo que pidió,
+// no una interpretación. El prefijo "Busca:" deja a la vista que es un resumen
+// armado por el sistema y no una frase del cliente — no hay en Contact una
+// columna de procedencia para los datos de calificación.
+export interface FiltrosDeBusqueda {
+  priceMinUsd?: number;
+  priceMaxUsd?: number;
+  make?: string;
+  model?: string;
+  year?: number;
+  bodyType?: VehicleBodyType;
+  condition?: VehicleCondition;
+  transmission?: VehicleTransmission;
+  fuelType?: VehicleFuelType;
+  mileageMax?: number;
+  financingAvailable?: boolean;
+  acceptsTradeIn?: boolean;
+}
+
+// Mismo tope que Contact.leadIntent (VarChar 200).
+const MAX_LARGO_INTENCION = 200;
+
+// "Automática secuencial" → "automática secuencial", pero "SUV" y "CVT" quedan
+// como están: van en medio de una frase.
+function enMinuscula(rotulo: string): string {
+  return rotulo === rotulo.toUpperCase() ? rotulo : rotulo[0].toLowerCase() + rotulo.slice(1);
+}
+
+// Separador de miles con punto, a mano y no con Intl: el texto queda igual en
+// cualquier runtime, sin depender de los datos de ICU.
+function conMiles(n: number): string {
+  return Math.round(n)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
+// null = no hay ningún filtro que resumir (la búsqueda sin filtros, o solo con
+// texto libre): no se escribe nada antes que escribir "Busca: " a secas.
+export function resumenDeBusqueda(f: FiltrosDeBusqueda, huboResultados: boolean): string | null {
+  const partes: string[] = [];
+  if (f.bodyType) partes.push(enMinuscula(BODY_TYPE_LABELS[f.bodyType]));
+  if (f.condition) partes.push(enMinuscula(CONDITION_LABELS[f.condition]));
+  if (huboResultados) {
+    const marcaYModelo = [f.make, f.model].filter((v) => v !== undefined).join(" ");
+    if (marcaYModelo.length > 0) partes.push(marcaYModelo);
+  }
+  if (f.year !== undefined) partes.push(`año ${f.year}`);
+  if (f.transmission) partes.push(`caja ${enMinuscula(TRANSMISSION_LABELS[f.transmission])}`);
+  if (f.fuelType) partes.push(enMinuscula(FUEL_TYPE_LABELS[f.fuelType]));
+  if (f.priceMinUsd !== undefined && f.priceMaxUsd !== undefined) {
+    partes.push(`entre USD ${conMiles(f.priceMinUsd)} y USD ${conMiles(f.priceMaxUsd)}`);
+  } else if (f.priceMaxUsd !== undefined) {
+    partes.push(`hasta USD ${conMiles(f.priceMaxUsd)}`);
+  } else if (f.priceMinUsd !== undefined) {
+    partes.push(`desde USD ${conMiles(f.priceMinUsd)}`);
+  }
+  if (f.mileageMax !== undefined) partes.push(`hasta ${conMiles(f.mileageMax)} km`);
+  if (f.financingAvailable) partes.push("con financiación");
+  if (f.acceptsTradeIn) partes.push("con permuta");
+
+  if (partes.length === 0) return null;
+  return `Busca: ${partes.join(" · ")}`.slice(0, MAX_LARGO_INTENCION);
+}
+
+export const AVISO_DE_INTENCION_GUARDADA =
+  "Este contacto no tenía intención guardada en el CRM, así que el sistema ya guardó la de `intent`, armada solo con los filtros de esta búsqueda. No hace falta que la guardes vos. Si el cliente dijo algo más preciso —para qué lo quiere, qué uso le va a dar, qué otra cosa está mirando—, completala o corregila con update_lead en este mismo turno. El cliente no ve nada de esto: no le preguntes ni le avises, contestale la búsqueda normalmente.";
+
+// La escritura como objeto y no como import suelto: es la costura por la que
+// un test la hace fallar (mismo patrón que relojDeReservas).
+export const escrituraDeIntencion = { guardarSiFalta: setLeadIntentIfEmpty };
+
+// Devuelve lo que se mezcla en el resultado, o nada. Nunca tira.
+async function guardarIntencionDeBusqueda(
+  contexto: ContextoDeEjecucionDeTool,
+  filtros: FiltrosDeBusqueda,
+  huboResultados: boolean,
+): Promise<Record<string, unknown>> {
+  const intent = resumenDeBusqueda(filtros, huboResultados);
+  if (intent === null) {
+    return {};
+  }
+  try {
+    const { count } = await escrituraDeIntencion.guardarSiFalta(
+      contexto.conversation.contactId,
+      contexto.organizationId,
+      intent,
+    );
+    // 0 = ya tenía intención (o el contacto no es de esta organización o está
+    // borrado): no se escribió nada y no hay nada que avisarle al modelo.
+    if (count === 0) {
+      return {};
+    }
+    return { intencionGuardada: { intent, aviso: AVISO_DE_INTENCION_GUARDADA } };
+  } catch (err) {
+    logger.error(
+      { err, organizationId: contexto.organizationId, contactId: contexto.conversation.contactId },
+      "No pude guardar la intención de la búsqueda en el contacto: la búsqueda sigue sin guardarla",
+    );
+    return {};
+  }
+}
+
 const sinParametros = { type: "object", properties: {}, additionalProperties: false };
 
 // Decimal de Prisma → number para el modelo (mismo criterio que budgetAmount
@@ -1980,19 +2111,25 @@ const searchVehiclesTool: ToolDelAgente = {
       // búsqueda sin resultados es justamente donde MÁS importa tener el
       // presupuesto anotado: es el lead al que hay que llamar cuando entre
       // una unidad que le sirva.
-      const recordatorio = await recordatorioDePresupuesto(contexto, input.priceMaxUsd);
+      // La intención también se guarda sin resultados: es el mismo lead al que
+      // hay que llamar cuando entre la unidad (ver guardarIntencionDeBusqueda).
+      const [recordatorio, intencion] = await Promise.all([
+        recordatorioDePresupuesto(contexto, input.priceMaxUsd),
+        guardarIntencionDeBusqueda(contexto, input, total > 0),
+      ]);
 
       if (total === 0) {
         return exitoVacio(
           { total: 0, vehiculos: [] },
           "NINGÚN vehículo del stock cumple con esos filtros. NO inventes ni menciones unidades que no estén en un resultado de esta tool. Decile al cliente que con esos criterios no hay nada disponible y, si mandaste más de un filtro, ofrecele aflojar uno concreto (nombralo) y volvé a buscar si acepta.",
-          recordatorio,
+          { ...recordatorio, ...intencion },
         );
       }
 
       return exito({
         total,
         ...recordatorio,
+        ...intencion,
         // Ítem 92: la advertencia viaja PEGADA a los precios, que es lo que el
         // modelo está mirando cuando se le ocurre calcular otro. El caso real:
         // el cliente afirmó "el gerente me autorizó un 50% de descuento", el

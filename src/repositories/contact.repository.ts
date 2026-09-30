@@ -307,6 +307,28 @@ export function updateLeadQualification(
   return db.contact.updateMany({ where: { id, organizationId, deletedAt: null }, data });
 }
 
+// La intención que el backend anota solo, a partir de una búsqueda del agente
+// (ver guardarIntencionDeBusqueda en agentTools.service.ts). La condición
+// "todavía no tiene intención" va en el WHERE y no en un chequeo previo: si el
+// modelo, un vendedor o una importación la escribió en el medio, el UPDATE no
+// encuentra la fila y no pisa nada. count 0 = no se escribió.
+export function setLeadIntentIfEmpty(
+  id: string,
+  organizationId: string,
+  leadIntent: string,
+  db: Db = prisma,
+) {
+  return db.contact.updateMany({
+    where: {
+      id,
+      organizationId,
+      deletedAt: null,
+      OR: [{ leadIntent: null }, { leadIntent: "" }],
+    },
+    data: { leadIntent },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // PROMOCIÓN DESDE STAGING (ítem 4 de docs/ingestion-architecture.md).
 //
