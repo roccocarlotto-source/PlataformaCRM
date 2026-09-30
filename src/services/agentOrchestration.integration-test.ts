@@ -2475,6 +2475,11 @@ test("B-08: con el proveedor caído se deriva SIN generar el brief (no se lo vue
 // nunca no deja al contacto esperando: se aborta y se deriva.
 test("B-08: un turno que agota su presupuesto de tiempo deriva con el mensaje fijo", async () => {
   const e = await montar("presupuesto-agotado", { enabledTools: [] });
+  // AbortSignal.timeout usa un timer UNREF: si lo único pendiente es este doble
+  // esperando el abort, el event loop se vacía y el runner cancela el test
+  // (pasaba en Linux, en el CI). En producción el servidor mantiene el loop
+  // vivo; acá lo sostiene un intervalo propio mientras dura el test.
+  const loopVivo = setInterval(() => undefined, 1_000);
   try {
     let senalRecibida: AbortSignal | undefined;
     const colgado: LlmProvider = {
@@ -2508,6 +2513,7 @@ test("B-08: un turno que agota su presupuesto de tiempo deriva con el mensaje fi
     });
     assert.match(aviso.body ?? "", /tardó demasiado/);
   } finally {
+    clearInterval(loopVivo);
     await desmontar(e);
   }
 });
