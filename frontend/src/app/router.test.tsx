@@ -179,20 +179,8 @@ describe("router.tsx — wiring real de Fase 3 (módulo QR)", () => {
     expect(parent?.type).not.toBe(AdminRoute);
   });
 
-  it("/claim/:qrId es EXACTAMENTE ese path (lo arma buildLandingHtml del backend), dentro de ProtectedRoute y fuera de AdminRoute", () => {
-    expect(findRoute(router.routes, "/claim/:qrId")).toBeDefined();
-    const parent = findParentElement(router.routes, "/claim/:qrId") as
-      { type: unknown } | undefined;
-    expect(parent?.type).toBe(AppLayout);
-    expect(parent?.type).not.toBe(AdminRoute);
-
-    const protectedRouteEntry = router.routes.find(
-      (route) => (route.element as { type?: unknown } | undefined)?.type === ProtectedRoute,
-    );
-    const appLayoutEntry = protectedRouteEntry?.children?.find(
-      (route) => (route.element as { type?: unknown } | undefined)?.type === AppLayout,
-    );
-    expect(appLayoutEntry?.children?.some((route) => route.path === "/claim/:qrId")).toBe(true);
+  it("no hay ruta /claim/:qrId: POST /api/qr/claim no existe desde 20260904120000 (F-01)", () => {
+    expect(findRoute(router.routes, "/claim/:qrId")).toBeUndefined();
   });
 
   it("no hay rutas /qr/new ni /qr/:id/edit: crear y editar son diálogos dentro de /qr", () => {

@@ -142,7 +142,7 @@ describe("BranchSelect", () => {
   });
 
   // Ítem 10 de docs/frontend-cambios-pendientes.md: los formularios que exigen
-  // sucursal (QR, Vehículo, Claim) pasan `required`; el filtro del listado no
+  // sucursal (QR, Vehículo) pasan `required`; el filtro del listado no
   // (los tests de arriba, sin el prop, siguen sin ninguna de las dos marcas).
   it("con required: el rótulo lleva la marca .ds-required y el input es required", async () => {
     server.use(twoBranchesHandler());

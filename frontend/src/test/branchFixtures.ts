@@ -1,7 +1,7 @@
 import type { Branch } from "../features/branch/types";
 
 // Fixture compartida entre los tests que consumen features/branch/
-// (BranchSelect, QrListPage, QrFormDialog, ClaimPage).
+// (BranchSelect, QrListPage, QrFormDialog).
 export function makeBranch(overrides: Partial<Branch> = {}): Branch {
   return {
     id: "b1",

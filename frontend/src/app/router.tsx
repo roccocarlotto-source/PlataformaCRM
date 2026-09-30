@@ -31,7 +31,6 @@ import { IngestionEventListPage } from "../features/ingestionEvent/IngestionEven
 import { SourceFormPage } from "../features/source/SourceFormPage";
 import { SourceListPage } from "../features/source/SourceListPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
-import { ClaimPage } from "../features/qr/ClaimPage";
 import { QrListPage } from "../features/qr/QrListPage";
 import { VehicleFormPage } from "../features/vehicle/VehicleFormPage";
 import { VehicleListPage } from "../features/vehicle/VehicleListPage";
@@ -142,13 +141,10 @@ export const router = createBrowserRouter([
           // el backend — no hay rutas /qr/new ni /qr/:id/edit porque no existe
           // GET /api/qr/:id para hidratarlas (ver features/qr/QrFormDialog.tsx).
           { path: "/qr", element: <QrListPage /> },
-          // Ruta FIJA (decisión 3 de Fase 3): la arma buildLandingHtml del backend
-          // con `${QR_CLAIM_APP_URL}/claim/${qrId}`; cualquier otro path rompe los
-          // QR físicos ya impresos. Dentro de ProtectedRoute (el qrId sobrevive el
-          // redirect a login vía state.from, ver LoginPage) pero FUERA de
-          // AdminRoute, que redirigiría a /companies y perdería el qrId — el
-          // chequeo de rol lo hace la propia página (decisiones 7 y 8).
-          { path: "/claim/:qrId", element: <ClaimPage /> },
+          // Sin /claim/:qrId: el QR físico reclamable se retiró en
+          // 20260904120000_remove_qr_claim_and_single_use junto con
+          // POST /api/qr/claim, y la página que quedaba le pegaba a un endpoint
+          // inexistente (F-01 de la auditoría del 24/09).
           // Stock de vehículos (Fase 3a). El LISTADO va acá afuera, como
           // /companies: GET /api/vehicles y GET /api/vehicles/:id son lectura
           // abierta a cualquier autenticado (vehicle.routes.ts: solo
