@@ -216,6 +216,32 @@ es rechazado al arrancar (no se usa `z.coerce.boolean()` a propósito).
   forma idempotente, la primera vez que lo necesita — no hay paso manual, pero
   sí necesita `SUPABASE_SERVICE_ROLE_KEY`.
 
+### 2.5 Keep-alive mientras el backend esté en Render Free
+
+Render Free duerme el proceso tras ~15 min sin tráfico HTTP entrante, y con
+él **todos los workers in-process** (ingesta, outbox, turnos del agente,
+seguimientos con QR y cupones, canales de Google, cotizaciones,
+oportunidades estancadas). Nada se pierde (todo lo pendiente vive en la base
+y se retoma al despertar), pero se atrasa hasta que algo despierte al
+servidor, y entonces sale todo junto.
+
+Por eso existe **`.github/workflows/keep-alive.yml`**:
+
+- Le pega a `https://plataformacrm.onrender.com/health` **cada 5 minutos**
+  (cron de GitHub Actions; el scheduler puede atrasarse unos minutos, por eso
+  5 y no 10).
+- **Falla (rojo) si `/health` no responde 200 con `checks.database = "ok"`**
+  en dos intentos (30 s de timeout cada uno, 20 s entre medio para absorber
+  un cold start). GitHub manda un mail cuando un run programado falla: sirve
+  también de monitor de caídas.
+- No corre en forks (`if: github.repository == …`).
+- Un servicio 24/7 entra justo en las 750 h/mes del plan Free (un solo
+  servicio por workspace).
+- GitHub desactiva los workflows programados de un repo sin actividad durante
+  60 días; si pasa, se reactiva desde la pestaña Actions.
+
+**Se borra al pasar el backend a un plan pago de Render**, que no duerme.
+
 ---
 
 ## 3. Frontend

@@ -1,0 +1,59 @@
+# Keep-alive del backend mientras esté en Render Free (G-01 de
+# docs-privados/auditoria-2026-09-30-corta.md, local, no está en GitHub).
+#
+# Render Free duerme el proceso tras ~15 min sin tráfico HTTP entrante, y con
+# él los workers in-process (colas, seguimientos, canales de Google…). Este
+# workflow le pega a /health cada 5 minutos para que no se duerma, y además
+# sirve de monitor: si /health no responde 200 con la base en "ok", el run
+# falla y GitHub avisa por mail.
+#
+# SE BORRA AL PASAR A UN PLAN PAGO de Render (docs/deployment.md §2.5).
+#
+# - Cada 5 min y no cada 10: el scheduler de GitHub atrasa los crons (a veces
+#   varios minutos), y con 10 podría pasar el umbral de sueño.
+# - Timeout de 30 s por request y UN reintento: un cold start puede tardar más
+#   que eso, y el reintento lo encuentra despierto sin marcarlo como caído.
+# - Solo en este repo: en un fork no corre.
+# - Ojo: GitHub desactiva los workflows programados de un repo sin actividad
+#   durante 60 días; si eso pasa, se reactiva desde la pestaña Actions.
+name: Keep-alive (Render Free)
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  health:
+    if: github.repository == 'roccocarlotto-source/PlataformaCRM'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      HEALTH_URL: https://plataformacrm.onrender.com/health
+    steps:
+      - name: GET /health (un reintento)
+        run: |
+          set -u
+          intento() {
+            codigo=$(curl -sS --max-time 30 -o /tmp/health.json -w '%{http_code}' "$HEALTH_URL") || codigo="000"
+            database=$(jq -r '.checks.database // empty' /tmp/health.json 2>/dev/null || true)
+            echo "HTTP $codigo, database=${database:-<sin dato>}"
+            [ "$codigo" = "200" ] && [ "$database" = "ok" ]
+          }
+
+          if intento; then
+            exit 0
+          fi
+          echo "Primer intento fallido; reintento en 20 s (puede ser un cold start)."
+          sleep 20
+          if intento; then
+            exit 0
+          fi
+          echo "::error::/health no respondió 200 con database=ok en dos intentos"
+          exit 1
