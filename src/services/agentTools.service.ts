@@ -307,6 +307,66 @@ function coincideConTexto(v: VehiculoNombrable, texto: string): boolean {
   return palabrasNormalizadas(texto).every((palabra) => heno.includes(palabra));
 }
 
+// ---------------------------------------------------------------------------
+// B-17 (docs-privados/auditoria-2026-09-30-corta.md, local): el precio de una
+// unidad "a consultar" no puede llegarle al modelo por el monto de la
+// oportunidad.
+//
+// Vincular una unidad (reserve_vehicle, o un vendedor desde el panel) le copia
+// a la oportunidad el precio de lista de la unidad —priceFromVehicle, en
+// opportunity.service.ts—, sin mirar si el negocio decidió no publicarlo. Y
+// create_opportunity/update_opportunity devolvían ese amount tal cual: en el
+// turno siguiente el modelo tenía el precio que el negocio no publica (ítem
+// 123).
+//
+// Regla: si la oportunidad tiene una unidad vinculada cuyo precio en ESA
+// moneda no se publica —priceOnRequest, o publicationCurrency que excluye la
+// moneda del monto—, el resultado va con amount y currency en null y
+// precioAConsultar: true. Si no tiene unidad vinculada, el monto sale tal cual:
+// o lo mandó el propio modelo, o salió de resolverVehiculo, que ya filtra el
+// precio publicado.
+// ---------------------------------------------------------------------------
+
+export const NOTA_PRECIO_A_CONSULTAR =
+  "La unidad de esta oportunidad es a consultar: su precio no se publica y vos no lo sabés. No le digas al cliente un monto; ofrecele que alguien del equipo se lo confirme.";
+
+// Pura y exportada para probarla sin base.
+export function precioOcultoParaElModelo(
+  unidad: { priceOnRequest: boolean; publicationCurrency: string },
+  currency: string | null,
+): boolean {
+  if (unidad.priceOnRequest) {
+    return true;
+  }
+  if (currency === null) {
+    return false;
+  }
+  return currency === "USD"
+    ? unidad.publicationCurrency === "LOCAL_ONLY"
+    : unidad.publicationCurrency === "USD_ONLY";
+}
+
+async function montoParaElModelo(
+  oportunidad: { amount: unknown; currency: string | null; vehicleId: string | null },
+  contexto: ContextoDeEjecucionDeTool,
+): Promise<
+  | { amount: unknown; currency: string | null }
+  | { amount: null; currency: null; precioAConsultar: true; notaDePrecio: string }
+> {
+  if (oportunidad.vehicleId) {
+    const unidad = await findVehicleById(oportunidad.vehicleId, contexto.organizationId);
+    if (unidad && precioOcultoParaElModelo(unidad, oportunidad.currency)) {
+      return {
+        amount: null,
+        currency: null,
+        precioAConsultar: true,
+        notaDePrecio: NOTA_PRECIO_A_CONSULTAR,
+      };
+    }
+  }
+  return { amount: oportunidad.amount, currency: oportunidad.currency };
+}
+
 async function resolverVehiculo(
   texto: string,
   contexto: ContextoDeEjecucionDeTool,
@@ -538,8 +598,7 @@ const createOpportunityTool: ToolDelAgente = {
           return exito({
             opportunityId: existente.id,
             title: existente.title,
-            amount: existente.amount,
-            currency: existente.currency,
+            ...(await montoParaElModelo(existente, contexto)),
             status: existente.status,
             stage: etapa?.name ?? null,
             reused: true,
@@ -585,8 +644,7 @@ const createOpportunityTool: ToolDelAgente = {
         return exito({
           opportunityId: vigente.id,
           title: vigente.title,
-          amount: vigente.amount,
-          currency: vigente.currency,
+          ...(await montoParaElModelo(vigente, contexto)),
           status: vigente.status,
           stage: etapa?.name ?? null,
           reused: true,
@@ -679,8 +737,7 @@ const createOpportunityTool: ToolDelAgente = {
       return exito({
         opportunityId: opportunity.id,
         title: opportunity.title,
-        amount: opportunity.amount,
-        currency: opportunity.currency,
+        ...(await montoParaElModelo(opportunity, contexto)),
         status: opportunity.status,
         ...(unidad === undefined
           ? {}
@@ -922,8 +979,7 @@ const updateOpportunityTool: ToolDelAgente = {
       return exito({
         opportunityId: actualizada.id,
         title: actualizada.title,
-        amount: actualizada.amount,
-        currency: actualizada.currency,
+        ...(await montoParaElModelo(actualizada, contexto)),
         status: actualizada.status,
         lostReason: actualizada.lostReason,
       });
