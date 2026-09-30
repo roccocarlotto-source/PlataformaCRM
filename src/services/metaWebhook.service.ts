@@ -5,7 +5,10 @@ import type { Db } from "../lib/prisma";
 import { findAgentByFacebookPageId } from "../repositories/agent.repository";
 import { createAgentInboundJob } from "../repositories/agentInboundJob.repository";
 import { findMessageByExternalId } from "../repositories/message.repository";
-import { findPageIdByInstagramBusinessAccountId } from "../repositories/metaPageConnection.repository";
+import {
+  findActiveMetaConnectionByPageId,
+  findPageIdByInstagramBusinessAccountId,
+} from "../repositories/metaPageConnection.repository";
 import { registrarEntrante, type RegistrarEntranteInput } from "./agentOrchestration.service";
 import { resolveMetaContact, type CanalMeta } from "./metaContact.service";
 
@@ -128,7 +131,10 @@ export type ResumenDelLote = Record<ResultadoDelMensaje, number>;
 export interface DepsDelWebhookMeta {
   findPageIdByInstagramBusinessAccountId: (
     instagramBusinessAccountId: string,
-  ) => Promise<{ pageId: string } | null>;
+  ) => Promise<{ pageId: string; organizationId: string } | null>;
+  findActiveMetaConnectionByPageId: (
+    pageId: string,
+  ) => Promise<{ pageId: string; organizationId: string } | null>;
   findAgentByFacebookPageId: (pageId: string) => Promise<{
     id: string;
     organizationId: string;
@@ -157,6 +163,7 @@ export interface DepsDelWebhookMeta {
 
 export const depsDelWebhookMetaReales: DepsDelWebhookMeta = {
   findPageIdByInstagramBusinessAccountId: (id) => findPageIdByInstagramBusinessAccountId(id),
+  findActiveMetaConnectionByPageId: (pageId) => findActiveMetaConnectionByPageId(pageId),
   findAgentByFacebookPageId: (pageId) => findAgentByFacebookPageId(pageId),
   findMessageByExternalId: (organizationId, mid) => findMessageByExternalId(organizationId, mid),
   resolveMetaContact,
@@ -184,24 +191,37 @@ async function procesarMensaje(
     mid: mensaje.mid,
   });
 
-  // 1. La página. Messenger ya la trae; Instagram trae su propia cuenta y la
-  //    página se busca en la conexión de Meta (ítem 170). Sin conexión, el
-  //    Instagram no es de ningún negocio de este CRM.
-  let pageId = mensaje.cuentaId;
-  if (mensaje.channel === ConversationChannel.INSTAGRAM) {
-    const conexion = await deps.findPageIdByInstagramBusinessAccountId(mensaje.cuentaId);
-    if (!conexion) {
-      log.warn("Mensaje de Instagram para una cuenta sin página conectada");
-      return "ignorado";
-    }
-    pageId = conexion.pageId;
+  // 1. La página y su conexión vigente (no REVOKED). Messenger trae la página;
+  //    Instagram trae su propia cuenta y la página sale de la conexión (ítem
+  //    170). Sin conexión, el mensaje no es de ningún negocio de este CRM —
+  //    desde D-11 también para Messenger: una página desconectada que Meta
+  //    sigue mandando no se registra en ninguna organización.
+  const conexion =
+    mensaje.channel === ConversationChannel.INSTAGRAM
+      ? await deps.findPageIdByInstagramBusinessAccountId(mensaje.cuentaId)
+      : await deps.findActiveMetaConnectionByPageId(mensaje.cuentaId);
+  if (!conexion) {
+    log.warn("Mensaje de Meta para una cuenta sin página conectada");
+    return "ignorado";
   }
+  const pageId = conexion.pageId;
 
   // 2. ¿De qué agente es esta página? Mismo criterio que WhatsApp: sin agente,
   //    desactivado o sin el canal, es configuración y no un error del request.
   const agent = await deps.findAgentByFacebookPageId(pageId);
   if (!agent) {
     log.warn({ pageId }, "Mensaje de Meta para una página sin agente asignado");
+    return "ignorado";
+  }
+  // A-08 de docs-privados/auditoria-2026-09-30-corta.md (local): la página
+  //    tiene que estar conectada en la MISMA organización que el agente. Sin
+  //    esto, una página asignada por error al agente de otra organización
+  //    guardaba los mensajes de los clientes de una en la bandeja de la otra.
+  if (conexion.organizationId !== agent.organizationId) {
+    log.warn(
+      { pageId, agentId: agent.id },
+      "Mensaje de Meta para una página conectada en otra organización que la del agente",
+    );
     return "ignorado";
   }
   if (!agent.isActive || !agent.channels.includes(mensaje.channel)) {

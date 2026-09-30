@@ -179,6 +179,8 @@ export interface ClienteMetaOAuth {
   listarPaginasAutorizadas(userAccessToken: string): Promise<PaginaAutorizada[]>;
   // Ítem 171: que la página le mande sus mensajes al webhook de la app.
   suscribirPaginaALaApp(pageId: string, pageAccessToken: string): Promise<void>;
+  // D-11: la inversa, al desconectar. DELETE /{page-id}/subscribed_apps.
+  desuscribirPaginaDeLaApp(pageId: string, pageAccessToken: string): Promise<void>;
 }
 
 // Los campos de la página que se suscriben (ítem 171): los mismos que se
@@ -354,6 +356,26 @@ export function crearClienteMetaOAuth(config: ConfiguracionMeta): ClienteMetaOAu
       const datos = (await res.json().catch(() => null)) as { success?: unknown } | null;
       if (datos?.success !== true) {
         throw new MetaAuthError("Meta no confirmó la suscripción de la página", false);
+      }
+    },
+
+    // D-11 de docs-privados/auditoria-2026-09-30-corta.md (local): sin esto,
+    // una página desconectada seguía mandándole mensajes al webhook. Mismo
+    // formato que la suscripción, con DELETE y sin cuerpo.
+    async desuscribirPaginaDeLaApp(pageId, pageAccessToken) {
+      const res = await pedir(`${URL_GRAPH}/${encodeURIComponent(pageId)}/subscribed_apps`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${pageAccessToken}` },
+      });
+
+      if (!res.ok) {
+        const { mensaje, tokenInvalido } = await describirFallo(res);
+        throw new MetaAuthError(mensaje, tokenInvalido);
+      }
+
+      const datos = (await res.json().catch(() => null)) as { success?: unknown } | null;
+      if (datos?.success !== true) {
+        throw new MetaAuthError("Meta no confirmó la baja de la suscripción de la página", false);
       }
     },
   };

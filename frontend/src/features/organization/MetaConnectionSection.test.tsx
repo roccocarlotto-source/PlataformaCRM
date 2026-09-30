@@ -20,7 +20,10 @@ vi.mock("../../auth/getAccessToken", () => ({
 
 const baseUrl = `${env.apiUrl}/api/integrations/meta`;
 
-function renderSection(resultadoDelCallback?: { conectado: boolean; error: string | null }) {
+function renderSection(resultadoDelCallback?: {
+  error: string | null;
+  pendiente?: { code: string; state: string } | null;
+}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -189,19 +192,74 @@ describe("MetaConnectionSection", () => {
     expect(asignaciones).toEqual([]);
   });
 
-  it("la vuelta del callback con metaConnected=true avisa que quedó conectada", async () => {
-    server.use(http.get(baseUrl, () => HttpResponse.json(conexion())));
-    renderSection({ conectado: true, error: null });
-
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "La página de Facebook quedó conectada.",
+  // A-07 de docs-privados/auditoria-2026-09-30-corta.md (local): el callback
+  // ya no conecta; vuelve con el code y el state y esta sección los manda con
+  // la sesión de quien está logueado.
+  it("la vuelta del callback con code y state los manda UNA vez a /complete y avisa que quedó conectada", async () => {
+    const enviados: unknown[] = [];
+    let conectada = false;
+    server.use(
+      http.get(baseUrl, () =>
+        conectada
+          ? HttpResponse.json(conexion())
+          : HttpResponse.json({ error: { message: "Sin conexión" } }, { status: 404 }),
+      ),
+      http.post(`${baseUrl}/complete`, async ({ request }) => {
+        enviados.push(await request.json());
+        conectada = true;
+        return HttpResponse.json(conexion());
+      }),
     );
+    const { rerender } = renderSection({
+      error: null,
+      pendiente: { code: "el-code", state: "el-state" },
+    });
+
+    expect(await screen.findByText("La página de Facebook quedó conectada.")).toBeInTheDocument();
+    // Tras conectar se vuelve a consultar la conexión.
+    expect(await screen.findByText("104857600000001")).toBeInTheDocument();
+    // Un re-render con las mismas props no vuelve a mandar nada.
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <MetaConnectionSection
+          resultadoDelCallback={{ error: null, pendiente: { code: "el-code", state: "el-state" } }}
+        />
+      </QueryClientProvider>,
+    );
+    expect(enviados).toEqual([{ code: "el-code", state: "el-state" }]);
   });
+
+  it.each([
+    [
+      403,
+      "Esta conexión con Facebook la empezó otro usuario o se abrió en otra sesión. Volvé a tocar «Conectar con Facebook» desde tu cuenta.",
+    ],
+    [
+      400,
+      "Facebook no aceptó la autorización porque venció o ya se había usado. Volvé a tocar «Conectar con Facebook».",
+    ],
+  ])(
+    "si completar falla (%i: sesión que no coincide o code vencido) muestra el mensaje para reintentar y deja Conectar",
+    async (status, mensaje) => {
+      server.use(
+        sinConectar(),
+        http.post(`${baseUrl}/complete`, () =>
+          HttpResponse.json({ error: { message: mensaje } }, { status }),
+        ),
+      );
+      renderSection({ error: null, pendiente: { code: "c", state: "s" } });
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        `No se pudo conectar Facebook: ${mensaje}`,
+      );
+      expect(screen.queryByText("La página de Facebook quedó conectada.")).not.toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "Conectar con Facebook" })).toBeEnabled();
+    },
+  );
 
   it("la vuelta del callback con metaError se muestra aunque no haya conexión guardada", async () => {
     server.use(sinConectar());
     renderSection({
-      conectado: false,
       error: "Autorizaste más de una página. Este negocio conecta una sola página de Facebook.",
     });
 

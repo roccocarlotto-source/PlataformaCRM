@@ -11,7 +11,16 @@ import { errorHandler } from "../middlewares/errorHandler";
 import { notFound } from "../middlewares/notFound";
 import { findRoleByName } from "../repositories/role.repository";
 import { createMetaPageConnectionRouter } from "../routes/metaPageConnection.routes";
-import type { ClienteMetaOAuth, PaginaAutorizada } from "../services/metaOAuth.service";
+import {
+  MetaAuthError,
+  type ClienteMetaOAuth,
+  type PaginaAutorizada,
+} from "../services/metaOAuth.service";
+import {
+  MENSAJE_CODE_VENCIDO,
+  MENSAJE_OTRA_SESION,
+  MENSAJE_STATE_YA_USADO,
+} from "../services/metaPageConnection.service";
 import { getCifrador } from "../utils/encryption";
 import { firmarMetaState } from "../utils/metaOauthState";
 
@@ -26,17 +35,18 @@ import { firmarMetaState } from "../utils/metaOauthState";
 //      pero recibe 403 en conectar y desconectar.
 //   2. Conectar devuelve la URL de Meta con un state firmado para la
 //      organización del JWT.
-//   3. El callback, SIN JWT, con un state real: deja la fila de
-//      MetaPageConnection ACTIVE, con el token CIFRADO, en la organización
-//      que salió del state; reconectar actualiza, no duplica. Desde el ítem
-//      173 responde un 302 a /organization con ?metaConnected=true o
-//      ?metaError=<mensaje> (CORS_ORIGIN se fija acá para no depender del
-//      entorno).
+//   3. El callback, SIN JWT, solo rebota a /organization con el code y el
+//      state en el fragmento (A-07), o con ?metaError=<mensaje> (CORS_ORIGIN
+//      se fija acá para no depender del entorno). Completar (POST /complete,
+//      con la sesión de quien empezó) deja la fila ACTIVE, con el token
+//      CIFRADO; reconectar actualiza, no duplica. Otra sesión, un state ya
+//      usado o un code vencido → error claro y nada escrito.
 //   4. El token nunca sale por el GET.
 //   5. Una página ya conectada a OTRA organización → error, y la fila de la
 //      otra no cambia.
 //   6. Cero y varias páginas → error legible sin fila.
-//   7. Desconectar deja REVOKED sin token; otra vez es 409.
+//   7. Desconectar da de baja la suscripción en Meta (D-11) y deja REVOKED
+//      sin token; otra vez es 409.
 // ---------------------------------------------------------------------------
 
 const PASSWORD = "Meta-oauth-test-password-123!";
@@ -50,6 +60,8 @@ let orgA: string;
 let orgB: string;
 let adminA: FixtureUser;
 let userA: FixtureUser;
+// Otro ADMIN de A: para A-07, una sesión distinta de la misma organización.
+let adminA2: FixtureUser;
 let adminB: FixtureUser;
 let baseUrl: string;
 let closeApp: () => Promise<void>;
@@ -60,11 +72,17 @@ const corsOriginOriginal = env.CORS_ORIGIN;
 let paginasEnMeta: PaginaAutorizada[] = [];
 let codesCanjeados: string[] = [];
 let paginasSuscriptas: string[] = [];
+let paginasDesuscriptas: string[] = [];
+// El code que el doble de Meta rechaza como vencido (A-07).
+const CODE_VENCIDO = "code-vencido";
 
 const cliente: ClienteMetaOAuth = {
   construirUrlDeAutorizacion: (state) =>
     `https://www.facebook.com/v25.0/dialog/oauth?state=${encodeURIComponent(state)}`,
   intercambiarCodigo: async (code) => {
+    if (code === CODE_VENCIDO) {
+      throw new MetaAuthError("Meta rechazó la solicitud: code vencido", true);
+    }
     codesCanjeados.push(code);
     return { accessToken: "user-corto", expiraEnSegundos: 3600 };
   },
@@ -76,6 +94,10 @@ const cliente: ClienteMetaOAuth = {
   // Ítem 171: la suscripción de la página. Registra a quién se suscribió.
   suscribirPaginaALaApp: async (pageId) => {
     paginasSuscriptas.push(pageId);
+  },
+  // D-11: la baja al desconectar. Registra página y token (ya descifrado).
+  desuscribirPaginaDeLaApp: async (pageId, pageAccessToken) => {
+    paginasDesuscriptas.push(`${pageId}:${pageAccessToken}`);
   },
 };
 
@@ -159,38 +181,55 @@ async function createFixtureUser(
   return { accessToken: signInData.session.access_token, authUserId: data.user.id };
 }
 
-function call(method: string, path: string, token?: string): Promise<Response> {
+function call(method: string, path: string, token?: string, body?: unknown): Promise<Response> {
+  const headers: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
+  if (body !== undefined) headers["content-type"] = "application/json";
   return fetch(`${baseUrl}${path}`, {
     method,
-    headers: token ? { authorization: `Bearer ${token}` } : {},
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 }
 
-// El callback lo golpea el NAVEGADOR, sin JWT. Siempre sin header.
+// El callback lo golpea el NAVEGADOR, sin JWT. Desde A-07 solo rebota al CRM.
 // redirect: "manual": el 302 apunta al frontend, que en el test no existe.
-async function callback(organizationId: string, extra = "&code=el-code"): Promise<Response> {
-  const state = await firmarMetaState({ organizationId });
-  return fetch(
-    `${baseUrl}/api/integrations/meta/callback?state=${encodeURIComponent(state)}${extra}`,
-    { redirect: "manual" },
-  );
+function golpearCallback(query: string): Promise<Response> {
+  return fetch(`${baseUrl}/api/integrations/meta/callback${query}`, { redirect: "manual" });
 }
 
-// La vuelta al frontend (ítem 173): siempre un 302 a /organization.
-function vuelta(res: Response): URL {
-  assert.equal(res.status, 302);
-  const destino = new URL(res.headers.get("location") ?? "");
-  assert.equal(destino.origin, CORS_ORIGIN_DE_TEST);
-  assert.equal(destino.pathname, "/organization");
-  return destino;
+// El segundo tramo (A-07): el CRM, con la sesión de `quien`, manda el code y
+// el state. `firmante` es quien tocó "Conectar" (por defecto, el mismo).
+async function completar(
+  organizationId: string,
+  quien: FixtureUser,
+  opciones: { code?: string; firmante?: FixtureUser; state?: string } = {},
+): Promise<Response> {
+  const state =
+    opciones.state ??
+    (await firmarMetaState({
+      organizationId,
+      userId: (opciones.firmante ?? quien).authUserId,
+    }));
+  return call("POST", "/api/integrations/meta/complete", quien.accessToken, {
+    state,
+    code: opciones.code ?? "el-code",
+  });
 }
 
-function exito(res: Response): void {
-  assert.equal(vuelta(res).searchParams.get("metaConnected"), "true");
+// El admin de cada organización, para no repetirlo en cada caso.
+function conectar(organizationId: string, extra: { code?: string } = {}): Promise<Response> {
+  return completar(organizationId, organizationId === orgA ? adminA : adminB, extra);
 }
 
-function mensajeDeError(res: Response): string {
-  return vuelta(res).searchParams.get("metaError") ?? "";
+async function exito(res: Response): Promise<void> {
+  const crudo = await res.text();
+  assert.equal(res.status, 200, crudo);
+}
+
+async function mensajeDeError(res: Response): Promise<string> {
+  assert.notEqual(res.status, 200);
+  const cuerpo = (await res.json()) as { error: { message: string } };
+  return cuerpo.error.message;
 }
 
 function conexionDe(organizationId: string) {
@@ -201,6 +240,7 @@ beforeEach(async () => {
   paginasEnMeta = [pagina()];
   codesCanjeados = [];
   paginasSuscriptas = [];
+  paginasDesuscriptas = [];
   if (orgA && orgB) {
     await prisma.metaPageConnection.deleteMany({ where: { organizationId: { in: [orgA, orgB] } } });
   }
@@ -217,6 +257,7 @@ before(async () => {
   orgB = await crearOrganizacion("b");
   adminA = await createFixtureUser("admin-a", orgA, "ADMIN");
   userA = await createFixtureUser("user-a", orgA, "USER");
+  adminA2 = await createFixtureUser("admin-a2", orgA, "ADMIN");
   adminB = await createFixtureUser("admin-b", orgB, "ADMIN");
 });
 
@@ -229,7 +270,7 @@ after(async () => {
     await prisma.user.deleteMany({ where: { organizationId: org } });
     await prisma.organization.delete({ where: { id: org } });
   }
-  for (const u of [adminA, userA, adminB]) {
+  for (const u of [adminA, userA, adminA2, adminB]) {
     if (u) await getSupabaseAdmin().auth.admin.deleteUser(u.authUserId);
   }
 });
@@ -238,10 +279,11 @@ after(async () => {
 // Permisos
 // ---------------------------------------------------------------------------
 
-test("sin token: 401 en los tres endpoints administrativos", async () => {
+test("sin token: 401 en los cuatro endpoints administrativos", async () => {
   for (const [method, path] of [
     ["GET", "/api/integrations/meta"],
     ["POST", "/api/integrations/meta/connect"],
+    ["POST", "/api/integrations/meta/complete"],
     ["DELETE", "/api/integrations/meta"],
   ]) {
     const res = await call(method, path);
@@ -249,18 +291,22 @@ test("sin token: 401 en los tres endpoints administrativos", async () => {
   }
 });
 
-test("un USER lee el estado (404 si no hay conexión) pero recibe 403 al conectar y al desconectar", async () => {
+test("un USER lee el estado (404 si no hay conexión) pero recibe 403 al conectar, completar y desconectar", async () => {
   const get = await call("GET", "/api/integrations/meta", userA.accessToken);
   assert.equal(get.status, 404);
 
-  const conectar = await call("POST", "/api/integrations/meta/connect", userA.accessToken);
-  assert.equal(conectar.status, 403);
+  const conectarRes = await call("POST", "/api/integrations/meta/connect", userA.accessToken);
+  assert.equal(conectarRes.status, 403);
+
+  const completarRes = await completar(orgA, userA);
+  assert.equal(completarRes.status, 403);
+  assert.equal(codesCanjeados.length, 0);
 
   const desconectar = await call("DELETE", "/api/integrations/meta", userA.accessToken);
   assert.equal(desconectar.status, 403);
 });
 
-test("un ADMIN conecta: 200 con la URL de Meta y un state firmado para SU organización", async () => {
+test("un ADMIN conecta: 200 con la URL de Meta y un state firmado para SU organización y SU usuario", async () => {
   const res = await call("POST", "/api/integrations/meta/connect", adminA.accessToken);
   assert.equal(res.status, 200);
 
@@ -268,18 +314,52 @@ test("un ADMIN conecta: 200 con la URL de Meta y un state firmado para SU organi
   const state = new URL(authorizationUrl).searchParams.get("state") ?? "";
   const payload = JSON.parse(Buffer.from(state.split(".")[1], "base64url").toString("utf8"));
   assert.equal(payload.organizationId, orgA);
+  assert.equal(payload.userId, adminA.authUserId);
+  assert.equal(typeof payload.jti, "string");
   assert.equal(payload.aud, "meta-oauth");
 });
 
 // ---------------------------------------------------------------------------
-// El callback
+// El callback (A-07: solo rebota)
 // ---------------------------------------------------------------------------
 
-test("el callback, sin JWT y con un state real, deja la fila ACTIVE con el token cifrado en la organización del state", async () => {
+test("A-07: el callback, sin JWT, rebota a /organization con el code y el state en el fragmento, sin canjear ni escribir", async () => {
+  const state = await firmarMetaState({ organizationId: orgA, userId: adminA.authUserId });
+
+  const res = await golpearCallback(`?state=${encodeURIComponent(state)}&code=el-code`);
+
+  assert.equal(res.status, 302);
+  const destino = new URL(res.headers.get("location") ?? "");
+  assert.equal(destino.origin, CORS_ORIGIN_DE_TEST);
+  assert.equal(destino.pathname, "/organization");
+  assert.equal(destino.search, "");
+  const fragmento = new URLSearchParams(destino.hash.slice(1));
+  assert.equal(fragmento.get("metaCode"), "el-code");
+  assert.equal(fragmento.get("metaState"), state);
+
+  assert.equal(codesCanjeados.length, 0);
+  assert.equal(await conexionDe(orgA), null);
+});
+
+test("la persona cancela en Meta (error=access_denied) → vuelve con el error, sin canjear nada ni escribir", async () => {
+  const res = await golpearCallback("?state=x&error=access_denied&error_reason=user_denied");
+  assert.equal(res.status, 302);
+  const destino = new URL(res.headers.get("location") ?? "");
+  assert.equal(destino.pathname, "/organization");
+  assert.match(destino.searchParams.get("metaError") ?? "", /Se canceló la autorización/);
+  assert.equal(codesCanjeados.length, 0);
+  assert.equal(await conexionDe(orgA), null);
+});
+
+// ---------------------------------------------------------------------------
+// Completar
+// ---------------------------------------------------------------------------
+
+test("completar, con la sesión de quien empezó, deja la fila ACTIVE con el token cifrado en su organización", async () => {
   const unaPagina = pagina(pageIdAlAzar(), "17841400000000001");
   paginasEnMeta = [unaPagina];
 
-  exito(await callback(orgA));
+  await exito(await conectar(orgA));
   assert.deepEqual(codesCanjeados, ["el-code"]);
   // Ítem 171: la página quedó suscripta al webhook de la app.
   assert.deepEqual(paginasSuscriptas, [unaPagina.id]);
@@ -297,8 +377,57 @@ test("el callback, sin JWT y con un state real, deja la fila ACTIVE con el token
   assert.equal(await conexionDe(orgB), null);
 });
 
+// A-07 de docs-privados/auditoria-2026-09-30-corta.md (local): el ADMIN de B
+// le manda su URL de autorización al dueño de la página de A. El que termina
+// el flujo no es el que lo empezó: 403 con un mensaje que dice qué hacer.
+test("A-07: completar con OTRA sesión (ADMIN de otra organización, u otro ADMIN de la misma) → 403 claro y nada escrito; el dueño del state lo termina", async () => {
+  for (const intruso of [adminB, adminA2]) {
+    const res = await completar(orgA, intruso, { firmante: adminA });
+    assert.equal(res.status, 403);
+    assert.equal(await mensajeDeError(res), MENSAJE_OTRA_SESION);
+  }
+  assert.equal(codesCanjeados.length, 0);
+  assert.equal(await conexionDe(orgA), null);
+  assert.equal(await conexionDe(orgB), null);
+});
+
+test("A-07: el mismo state sirve una sola vez → el segundo intento es 400 claro, sin volver a canjear", async () => {
+  const state = await firmarMetaState({ organizationId: orgA, userId: adminA.authUserId });
+
+  await exito(await completar(orgA, adminA, { state }));
+  const otra = await completar(orgA, adminA, { state });
+
+  assert.equal(otra.status, 400);
+  assert.equal(await mensajeDeError(otra), MENSAJE_STATE_YA_USADO);
+  assert.deepEqual(codesCanjeados, ["el-code"]);
+});
+
+test("A-07: Meta rechaza el code (vencido o ya canjeado) → 400 con el mensaje para reintentar, y sin fila", async () => {
+  const res = await conectar(orgA, { code: CODE_VENCIDO });
+  assert.equal(res.status, 400);
+  assert.equal(await mensajeDeError(res), MENSAJE_CODE_VENCIDO);
+  assert.equal(await conexionDe(orgA), null);
+});
+
+test("un state manipulado no escribe en ninguna organización", async () => {
+  const state = await firmarMetaState({ organizationId: orgA, userId: adminA.authUserId });
+  const [header, payload, firma] = state.split(".");
+  const alterado = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  alterado.organizationId = orgB;
+  alterado.userId = adminB.authUserId;
+  const falso = [header, Buffer.from(JSON.stringify(alterado)).toString("base64url"), firma].join(
+    ".",
+  );
+
+  const res = await completar(orgB, adminB, { state: falso });
+  assert.equal(res.status, 400);
+  assert.equal(codesCanjeados.length, 0);
+  assert.equal(await conexionDe(orgA), null);
+  assert.equal(await conexionDe(orgB), null);
+});
+
 test("el GET devuelve la conexión sin el token", async () => {
-  await callback(orgA);
+  await exito(await conectar(orgA));
 
   const res = await call("GET", "/api/integrations/meta", userA.accessToken);
   assert.equal(res.status, 200);
@@ -309,12 +438,12 @@ test("el GET devuelve la conexión sin el token", async () => {
 });
 
 test("reconectar ACTUALIZA la fila (otra página), no crea una segunda", async () => {
-  await callback(orgA);
+  await exito(await conectar(orgA));
   const primera = await conexionDe(orgA);
 
   const nueva = pagina();
   paginasEnMeta = [nueva];
-  exito(await callback(orgA));
+  await exito(await conectar(orgA));
 
   const filas = await prisma.metaPageConnection.findMany({ where: { organizationId: orgA } });
   assert.equal(filas.length, 1);
@@ -322,12 +451,12 @@ test("reconectar ACTUALIZA la fila (otra página), no crea una segunda", async (
   assert.equal(filas[0].pageId, nueva.id);
 });
 
-test("una página ya conectada a OTRA organización → vuelve con el error, y la conexión de la otra no cambia", async () => {
+test("una página ya conectada a OTRA organización → error, y la conexión de la otra no cambia", async () => {
   const compartida = pagina();
   paginasEnMeta = [compartida];
-  exito(await callback(orgB));
+  await exito(await conectar(orgB));
 
-  assert.match(mensajeDeError(await callback(orgA)), /ya está conectada a otra cuenta/);
+  assert.match(await mensajeDeError(await conectar(orgA)), /ya está conectada a otra cuenta/);
 
   assert.equal(await conexionDe(orgA), null);
   assert.equal((await conexionDe(orgB))?.pageId, compartida.id);
@@ -335,51 +464,28 @@ test("una página ya conectada a OTRA organización → vuelve con el error, y l
 
 test("cero páginas autorizadas → error legible y sin fila", async () => {
   paginasEnMeta = [];
-  assert.match(mensajeDeError(await callback(orgA)), /No autorizaste ninguna página/);
+  assert.match(await mensajeDeError(await conectar(orgA)), /No autorizaste ninguna página/);
   assert.equal(await conexionDe(orgA), null);
 });
 
 test("más de una página autorizada → error legible y sin fila", async () => {
   paginasEnMeta = [pagina(), pagina()];
-  assert.match(mensajeDeError(await callback(orgA)), /más de una página/);
+  assert.match(await mensajeDeError(await conectar(orgA)), /más de una página/);
   assert.equal(await conexionDe(orgA), null);
-});
-
-test("la persona cancela en Meta (error=access_denied) → vuelve con el error, sin canjear nada ni escribir", async () => {
-  const res = await callback(orgA, "&error=access_denied&error_reason=user_denied");
-  assert.match(mensajeDeError(res), /Se canceló la autorización en Facebook/);
-  assert.equal(codesCanjeados.length, 0);
-  assert.equal(await conexionDe(orgA), null);
-});
-
-test("un state manipulado no escribe en ninguna organización", async () => {
-  const state = await firmarMetaState({ organizationId: orgA });
-  const [header, payload, firma] = state.split(".");
-  const alterado = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-  alterado.organizationId = orgB;
-  const falso = [header, Buffer.from(JSON.stringify(alterado)).toString("base64url"), firma].join(
-    ".",
-  );
-
-  const res = await fetch(
-    `${baseUrl}/api/integrations/meta/callback?state=${encodeURIComponent(falso)}&code=x`,
-    { redirect: "manual" },
-  );
-  assert.notEqual(mensajeDeError(res), "");
-  assert.equal(codesCanjeados.length, 0);
-  assert.equal(await conexionDe(orgA), null);
-  assert.equal(await conexionDe(orgB), null);
 });
 
 // ---------------------------------------------------------------------------
 // Desconectar
 // ---------------------------------------------------------------------------
 
-test("un ADMIN desconecta: 204, la fila queda REVOKED sin token; otra vez es 409", async () => {
-  await callback(orgA);
+test("D-11: un ADMIN desconecta: se da de baja la suscripción en Meta, 204, la fila queda REVOKED sin token; otra vez es 409", async () => {
+  const unaPagina = pagina();
+  paginasEnMeta = [unaPagina];
+  await exito(await conectar(orgA));
 
   const res = await call("DELETE", "/api/integrations/meta", adminA.accessToken);
   assert.equal(res.status, 204);
+  assert.deepEqual(paginasDesuscriptas, [`${unaPagina.id}:${unaPagina.accessToken}`]);
 
   const fila = await conexionDe(orgA);
   assert.equal(fila?.status, "REVOKED");
@@ -395,17 +501,17 @@ test("un ADMIN desconecta: 204, la fila queda REVOKED sin token; otra vez es 409
 test("D-10: la página que otra organización desconectó se puede conectar; mientras esté conectada, vuelve a ser 409", async () => {
   const compartida = pagina();
   paginasEnMeta = [compartida];
-  exito(await callback(orgB));
+  await exito(await conectar(orgB));
   assert.equal((await call("DELETE", "/api/integrations/meta", adminB.accessToken)).status, 204);
 
-  exito(await callback(orgA));
+  await exito(await conectar(orgA));
   const deA = await conexionDe(orgA);
   assert.equal(deA?.pageId, compartida.id);
   assert.equal(deA?.status, "ACTIVE");
 
   // B reconecta la misma página mientras A la tiene: la fila revocada de B
   // pasaría a ACTIVE con la página de A, y eso sigue siendo imposible.
-  assert.match(mensajeDeError(await callback(orgB)), /ya está conectada a otra cuenta/);
+  assert.match(await mensajeDeError(await conectar(orgB)), /ya está conectada a otra cuenta/);
   assert.equal((await conexionDe(orgB))?.status, "REVOKED");
   assert.equal((await conexionDe(orgA))?.status, "ACTIVE");
 });
@@ -413,7 +519,7 @@ test("D-10: la página que otra organización desconectó se puede conectar; mie
 test("desconectar sin conexión → 404; el ADMIN de otra organización no toca la de A", async () => {
   assert.equal((await call("DELETE", "/api/integrations/meta", adminA.accessToken)).status, 404);
 
-  await callback(orgA);
+  await exito(await conectar(orgA));
   assert.equal((await call("DELETE", "/api/integrations/meta", adminB.accessToken)).status, 404);
   assert.equal((await conexionDe(orgA))?.status, "ACTIVE");
 });

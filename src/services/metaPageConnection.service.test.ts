@@ -12,14 +12,21 @@ import {
   parseMasterKey,
   resetCifradorParaTests,
 } from "../utils/encryption";
-import { firmarMetaState, resetClaveDeFirmaMetaParaTests } from "../utils/metaOauthState";
+import {
+  firmarMetaState,
+  resetClaveDeFirmaMetaParaTests,
+  resetStatesUsadosParaTests,
+} from "../utils/metaOauthState";
 import { MetaAuthError, type ClienteMetaOAuth, type PaginaAutorizada } from "./metaOAuth.service";
 import {
+  MENSAJE_CODE_VENCIDO,
   MENSAJE_CONEXION_INACTIVA,
+  MENSAJE_OTRA_SESION,
   MENSAJE_PAGINA_DE_OTRA_CUENTA,
   MENSAJE_PAGINA_RECONECTADA,
   MENSAJE_SIN_CONEXION_PARA_ENVIAR,
   MENSAJE_SIN_PAGINAS,
+  MENSAJE_STATE_YA_USADO,
   MENSAJE_VARIAS_PAGINAS,
   completarConexion,
   desconectar,
@@ -36,12 +43,14 @@ import {
 // (mismo patrón que branch.service.test.ts) y Meta por un cliente falso
 // inyectado. Lo real es el cifrado y la firma del state, con una clave de
 // prueba. Lo que se verifica es la DECISIÓN del service: el orden de
-// seguridad del callback, qué casos de páginas se rechazan, qué se guarda y
+// seguridad de completarConexion (A-07: mismo usuario, un solo uso), qué casos de páginas se rechazan, qué se guarda y
 // cómo se traduce el UNIQUE de page_id. Que Postgres lo guarde de verdad lo
 // cubre metaPageConnection.controller.integration-test.ts.
 // ---------------------------------------------------------------------------
 
 const ORG = randomUUID();
+const USUARIO = randomUUID();
+const AUTH = { organizationId: ORG, userId: USUARIO };
 
 const claveOriginal = env.SECRET_ENCRYPTION_KEY;
 
@@ -57,7 +66,10 @@ after(() => {
   resetClaveDeFirmaMetaParaTests();
 });
 
-afterEach(() => mock.restoreAll());
+afterEach(() => {
+  mock.restoreAll();
+  resetStatesUsadosParaTests();
+});
 
 interface BaseFalsa {
   upserts: Prisma.MetaPageConnectionUpsertArgs[];
@@ -110,7 +122,12 @@ interface DobleDeMeta {
 }
 
 function doblarMeta(
-  opciones: { paginas?: PaginaAutorizada[]; falloAlCanjear?: Error; falloAlSuscribir?: Error } = {},
+  opciones: {
+    paginas?: PaginaAutorizada[];
+    falloAlCanjear?: Error;
+    falloAlSuscribir?: Error;
+    falloAlDesuscribir?: Error;
+  } = {},
 ): DobleDeMeta {
   const llamadas: string[] = [];
   const cliente: ClienteMetaOAuth = {
@@ -131,6 +148,10 @@ function doblarMeta(
     suscribirPaginaALaApp: async (pageId, pageAccessToken) => {
       llamadas.push(`suscribir:${pageId}:${pageAccessToken}`);
       if (opciones.falloAlSuscribir) throw opciones.falloAlSuscribir;
+    },
+    desuscribirPaginaDeLaApp: async (pageId, pageAccessToken) => {
+      llamadas.push(`desuscribir:${pageId}:${pageAccessToken}`);
+      if (opciones.falloAlDesuscribir) throw opciones.falloAlDesuscribir;
     },
   };
   return { cliente, llamadas };
@@ -160,19 +181,26 @@ function assertAppError(err: unknown, statusCode: number, mensaje?: string) {
   if (mensaje !== undefined) assert.equal(err.message, mensaje);
 }
 
+// Un state firmado para AUTH, que es la sesión que después lo completa.
+function stateDeAuth(): Promise<string> {
+  return firmarMetaState(AUTH);
+}
+
 // ---------------------------------------------------------------------------
 // iniciarConexion
 // ---------------------------------------------------------------------------
 
-test("iniciarConexion devuelve la URL de Meta con un state firmado para ESTA organización", async () => {
+test("iniciarConexion devuelve la URL de Meta con un state firmado para ESTA organización y ESTE usuario, con jti", async () => {
   baseFalsa();
   const { cliente } = doblarMeta();
 
-  const { authorizationUrl } = await iniciarConexion(ORG, cliente);
+  const { authorizationUrl } = await iniciarConexion(AUTH, cliente);
 
   const state = new URL(authorizationUrl).searchParams.get("state") ?? "";
   const payload = JSON.parse(Buffer.from(state.split(".")[1], "base64url").toString("utf8"));
   assert.equal(payload.organizationId, ORG);
+  assert.equal(payload.userId, USUARIO);
+  assert.equal(typeof payload.jti, "string");
   assert.equal(payload.aud, "meta-oauth");
 });
 
@@ -180,33 +208,24 @@ test("iniciarConexion: organización inexistente o dada de baja → 404", async 
   const { cliente } = doblarMeta();
 
   baseFalsa({ organizacion: null });
-  assertAppError(await capturar(() => iniciarConexion(ORG, cliente)), 404);
+  assertAppError(await capturar(() => iniciarConexion(AUTH, cliente)), 404);
 
   mock.restoreAll();
   baseFalsa({ organizacion: { id: ORG, deletedAt: new Date() } });
-  assertAppError(await capturar(() => iniciarConexion(ORG, cliente)), 404);
+  assertAppError(await capturar(() => iniciarConexion(AUTH, cliente)), 404);
 });
 
 // ---------------------------------------------------------------------------
 // completarConexion — el orden de seguridad
 // ---------------------------------------------------------------------------
 
-test("sin state → 400, sin leer la base ni hablar con Meta", async () => {
-  const base = baseFalsa();
-  const meta = doblarMeta();
-
-  assertAppError(await capturar(() => completarConexion({ code: "c" }, meta.cliente)), 400);
-  assert.equal(base.lecturasDeOrganizacion, 0);
-  assert.equal(meta.llamadas.length, 0);
-});
-
 test("state inválido → 400, sin leer la base ni hablar con Meta", async () => {
   const base = baseFalsa();
   const meta = doblarMeta();
-  const ajeno = await firmarMetaState({ organizationId: ORG }, new Uint8Array(randomBytes(32)));
+  const ajeno = await firmarMetaState(AUTH, new Uint8Array(randomBytes(32)));
 
   assertAppError(
-    await capturar(() => completarConexion({ state: ajeno, code: "c" }, meta.cliente)),
+    await capturar(() => completarConexion({ state: ajeno, code: "c" }, AUTH, meta.cliente)),
     400,
     "El parámetro state es inválido",
   );
@@ -221,53 +240,110 @@ test("state vencido → 400 con el mensaje de 'expiró'", async () => {
     parseMasterKey(env.SECRET_ENCRYPTION_KEY as string),
     "plataforma-crm:oauth-state:meta:v1",
   );
-  const vencido = await new SignJWT({ organizationId: ORG })
+  const vencido = await new SignJWT({ ...AUTH })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer("plataforma-crm")
     .setAudience("meta-oauth")
+    .setJti(randomUUID())
     .setIssuedAt(Math.floor(Date.now() / 1000) - 3600)
     .setExpirationTime(Math.floor(Date.now() / 1000) - 60)
     .sign(clave);
 
-  const err = await capturar(() => completarConexion({ state: vencido, code: "c" }, meta.cliente));
+  const err = await capturar(() =>
+    completarConexion({ state: vencido, code: "c" }, AUTH, meta.cliente),
+  );
   assertAppError(err, 400);
   assert.match((err as Error).message, /expiró/);
   assert.equal(meta.llamadas.length, 0);
 });
 
-test("error=access_denied con state válido → 400 legible, sin hablar con Meta ni escribir", async () => {
+// A-07 de docs-privados/auditoria-2026-09-30-corta.md (local): el ADMIN de B le
+// manda su URL de autorización al dueño de la página de A. Quien termina el
+// flujo no es quien lo empezó → 403 con un mensaje que dice qué hacer.
+test("A-07: el state lo firmó OTRO usuario de la misma organización → 403 claro, sin Meta ni base, y el state sigue sirviéndole a su dueño", async () => {
   const base = baseFalsa();
   const meta = doblarMeta();
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
   assertAppError(
-    await capturar(() => completarConexion({ state, error: "access_denied" }, meta.cliente)),
-    400,
-    "Se canceló la autorización en Facebook. La página quedó sin conectar.",
+    await capturar(() =>
+      completarConexion(
+        { state, code: "c" },
+        { organizationId: ORG, userId: randomUUID() },
+        meta.cliente,
+      ),
+    ),
+    403,
+    MENSAJE_OTRA_SESION,
   );
   assert.equal(meta.llamadas.length, 0);
-  assert.equal(base.upserts.length, 0);
+  assert.equal(base.lecturasDeOrganizacion, 0);
+
+  // No se consumió: quien lo empezó lo termina.
+  await completarConexion({ state, code: "c" }, AUTH, meta.cliente);
+  assert.equal(base.upserts.length, 1);
 });
 
-test("state válido sin code → 400", async () => {
+test("A-07: el state es de OTRA organización (aunque el userId coincida) → 403 claro", async () => {
   baseFalsa();
   const meta = doblarMeta();
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
   assertAppError(
-    await capturar(() => completarConexion({ state }, meta.cliente)),
-    400,
-    "Falta el parámetro code",
+    await capturar(() =>
+      completarConexion(
+        { state, code: "c" },
+        { organizationId: randomUUID(), userId: USUARIO },
+        meta.cliente,
+      ),
+    ),
+    403,
+    MENSAJE_OTRA_SESION,
   );
   assert.equal(meta.llamadas.length, 0);
+});
+
+test("A-07: el mismo state sirve UNA vez — el segundo intento es 400 claro, sin volver a hablar con Meta", async () => {
+  const base = baseFalsa();
+  const meta = doblarMeta();
+  const state = await stateDeAuth();
+
+  await completarConexion({ state, code: "c" }, AUTH, meta.cliente);
+  const llamadasDelPrimero = meta.llamadas.length;
+
+  assertAppError(
+    await capturar(() => completarConexion({ state, code: "c" }, AUTH, meta.cliente)),
+    400,
+    MENSAJE_STATE_YA_USADO,
+  );
+  assert.equal(meta.llamadas.length, llamadasDelPrimero);
+  assert.equal(base.upserts.length, 1);
+});
+
+test("A-07: Meta rechaza el code (vencido o ya canjeado) → 400 con el mensaje para reintentar, sin escribir", async () => {
+  const base = baseFalsa();
+  const meta = doblarMeta({
+    falloAlCanjear: new MetaAuthError("Meta rechazó la solicitud: code vencido", true),
+  });
+  const state = await stateDeAuth();
+
+  assertAppError(
+    await capturar(() => completarConexion({ state, code: "c" }, AUTH, meta.cliente)),
+    400,
+    MENSAJE_CODE_VENCIDO,
+  );
+  assert.equal(base.upserts.length, 0);
 });
 
 test("la organización se borró mientras la persona estaba en Meta → 404, sin canjear el code", async () => {
   baseFalsa({ organizacion: null });
   const meta = doblarMeta();
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
-  assertAppError(await capturar(() => completarConexion({ state, code: "c" }, meta.cliente)), 404);
+  assertAppError(
+    await capturar(() => completarConexion({ state, code: "c" }, AUTH, meta.cliente)),
+    404,
+  );
   assert.equal(meta.llamadas.length, 0);
 });
 
@@ -278,9 +354,9 @@ test("la organización se borró mientras la persona estaba en Meta → 404, sin
 test("camino feliz: code → token corto → token LARGO → páginas, y se guarda la única página con el token CIFRADO", async () => {
   const base = baseFalsa();
   const meta = doblarMeta({ paginas: [pagina("111", "17841400000000000")] });
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
-  const conexion = await completarConexion({ state, code: "el-code" }, meta.cliente);
+  const conexion = await completarConexion({ state, code: "el-code" }, AUTH, meta.cliente);
 
   // El orden importa: las páginas se piden con el token LARGO, que es lo que
   // hace que el Page token no venza.
@@ -312,9 +388,9 @@ test("camino feliz: code → token corto → token LARGO → páginas, y se guar
 test("una página sin Instagram vinculado se guarda con instagramBusinessAccountId null", async () => {
   const base = baseFalsa();
   const meta = doblarMeta({ paginas: [pagina("222", null)] });
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
-  await completarConexion({ state, code: "c" }, meta.cliente);
+  await completarConexion({ state, code: "c" }, AUTH, meta.cliente);
 
   const creado = base.upserts[0].create as Prisma.MetaPageConnectionUncheckedCreateInput;
   assert.equal(creado.instagramBusinessAccountId, null);
@@ -323,10 +399,10 @@ test("una página sin Instagram vinculado se guarda con instagramBusinessAccount
 test("CERO páginas autorizadas → 400 con el mensaje para la persona, sin escribir", async () => {
   const base = baseFalsa();
   const meta = doblarMeta({ paginas: [] });
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
   assertAppError(
-    await capturar(() => completarConexion({ state, code: "c" }, meta.cliente)),
+    await capturar(() => completarConexion({ state, code: "c" }, AUTH, meta.cliente)),
     400,
     MENSAJE_SIN_PAGINAS,
   );
@@ -336,10 +412,10 @@ test("CERO páginas autorizadas → 400 con el mensaje para la persona, sin escr
 test("MÁS DE UNA página autorizada → 400 explícito (no se elige 'la primera'), sin escribir", async () => {
   const base = baseFalsa();
   const meta = doblarMeta({ paginas: [pagina("1"), pagina("2")] });
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
   assertAppError(
-    await capturar(() => completarConexion({ state, code: "c" }, meta.cliente)),
+    await capturar(() => completarConexion({ state, code: "c" }, AUTH, meta.cliente)),
     400,
     MENSAJE_VARIAS_PAGINAS,
   );
@@ -355,10 +431,10 @@ test("la página ya está conectada a OTRA organización (P2002 sobre page_id) �
     }),
   });
   const meta = doblarMeta();
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
   assertAppError(
-    await capturar(() => completarConexion({ state, code: "c" }, meta.cliente)),
+    await capturar(() => completarConexion({ state, code: "c" }, AUTH, meta.cliente)),
     409,
     MENSAJE_PAGINA_DE_OTRA_CUENTA,
   );
@@ -372,18 +448,24 @@ test("un P2002 que NO es sobre page_id se relanza tal cual", async () => {
   });
   baseFalsa({ falloDelUpsert: otro });
   const meta = doblarMeta();
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
-  assert.equal(await capturar(() => completarConexion({ state, code: "c" }, meta.cliente)), otro);
+  assert.equal(
+    await capturar(() => completarConexion({ state, code: "c" }, AUTH, meta.cliente)),
+    otro,
+  );
 });
 
-test("si Meta falla al canjear, el MetaAuthError sube y no se escribe nada", async () => {
+test("si Meta no responde al canjear (falla de red), el MetaAuthError sube tal cual y no se escribe nada", async () => {
   const base = baseFalsa();
-  const fallo = new MetaAuthError("Meta rechazó la solicitud: code usado", true);
+  const fallo = new MetaAuthError("No se pudo contactar a Meta: timeout", false);
   const meta = doblarMeta({ falloAlCanjear: fallo });
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
-  assert.equal(await capturar(() => completarConexion({ state, code: "c" }, meta.cliente)), fallo);
+  assert.equal(
+    await capturar(() => completarConexion({ state, code: "c" }, AUTH, meta.cliente)),
+    fallo,
+  );
   assert.equal(base.upserts.length, 0);
 });
 
@@ -391,9 +473,12 @@ test("si Meta rechaza la suscripción de la página (ítem 171), el error sube y
   const base = baseFalsa();
   const fallo = new MetaAuthError("Meta rechazó la solicitud: permisos", true);
   const meta = doblarMeta({ falloAlSuscribir: fallo });
-  const state = await firmarMetaState({ organizationId: ORG });
+  const state = await stateDeAuth();
 
-  assert.equal(await capturar(() => completarConexion({ state, code: "c" }, meta.cliente)), fallo);
+  assert.equal(
+    await capturar(() => completarConexion({ state, code: "c" }, AUTH, meta.cliente)),
+    fallo,
+  );
   assert.equal(base.upserts.length, 0);
 });
 
@@ -403,22 +488,31 @@ test("si Meta rechaza la suscripción de la página (ítem 171), el error sube y
 
 test("desconectar sin conexión → 404", async () => {
   baseFalsa({ conexion: null });
-  assertAppError(await capturar(() => desconectar(ORG)), 404);
+  assertAppError(await capturar(() => desconectar(ORG, doblarMeta().cliente)), 404);
 });
 
-test("desconectar una conexión ya REVOKED → 409, sin escribir", async () => {
+test("desconectar una conexión ya REVOKED → 409, sin escribir ni hablar con Meta", async () => {
   const base = baseFalsa({ conexion: { organizationId: ORG, status: "REVOKED" } });
-  assertAppError(await capturar(() => desconectar(ORG)), 409);
+  const meta = doblarMeta();
+  assertAppError(await capturar(() => desconectar(ORG, meta.cliente)), 409);
   assert.equal(base.revocaciones.length, 0);
+  assert.equal(meta.llamadas.length, 0);
 });
 
-test("desconectar una ACTIVE la marca REVOKED y borra el token", async () => {
+test("D-11: desconectar una ACTIVE da de baja la suscripción en Meta con el token descifrado, y después la marca REVOKED sin token", async () => {
   const base = baseFalsa({
-    conexion: { organizationId: ORG, status: "ACTIVE", pageAccessToken: "cifrado" },
+    conexion: {
+      organizationId: ORG,
+      pageId: "111",
+      status: "ACTIVE",
+      pageAccessToken: getCifrador().encrypt("page-token-111"),
+    },
   });
+  const meta = doblarMeta();
 
-  await desconectar(ORG);
+  await desconectar(ORG, meta.cliente);
 
+  assert.deepEqual(meta.llamadas, ["desuscribir:111:page-token-111"]);
   assert.equal(base.revocaciones.length, 1);
   const { where, data } = base.revocaciones[0] as {
     where: unknown;
@@ -427,6 +521,25 @@ test("desconectar una ACTIVE la marca REVOKED y borra el token", async () => {
   assert.deepEqual(where, { organizationId: ORG });
   assert.equal(data.status, "REVOKED");
   assert.equal(data.pageAccessToken, null);
+});
+
+test("D-11: si Meta rechaza la baja (token ya inválido), se desconecta igual", async () => {
+  const base = baseFalsa({
+    conexion: {
+      organizationId: ORG,
+      pageId: "111",
+      status: "ERROR",
+      pageAccessToken: getCifrador().encrypt("token-viejo"),
+    },
+  });
+  const meta = doblarMeta({
+    falloAlDesuscribir: new MetaAuthError("Meta rechazó la solicitud: token", true),
+  });
+
+  await desconectar(ORG, meta.cliente);
+
+  assert.equal(meta.llamadas.length, 1);
+  assert.equal(base.revocaciones.length, 1);
 });
 
 test("obtenerConexion sin conexión → 404; con conexión, la devuelve", async () => {

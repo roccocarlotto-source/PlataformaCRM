@@ -2,6 +2,7 @@ import { ApiError, request } from "../../lib/api";
 import { getAccessToken } from "../../auth/getAccessToken";
 import type {
   MetaAuthorization,
+  MetaConnectionPendiente,
   MetaPageConnection,
   OrganizationSettings,
   UpdateOrganizationSettingsInput,
@@ -51,6 +52,20 @@ export async function getMetaConnection(signal?: AbortSignal): Promise<MetaPageC
 export function startMetaConnection(): Promise<MetaAuthorization> {
   return request<MetaAuthorization>("/integrations/meta/connect", {
     method: "POST",
+    getAccessToken,
+  });
+}
+
+// El segundo tramo del flujo: manda el code y el state que el callback le
+// rebotó a esta pantalla. El backend exige que la sesión sea la del usuario
+// que tocó "Conectar"; si no, o si el code venció, responde un error con el
+// mensaje que hay que mostrar.
+export function completeMetaConnection(
+  pendiente: MetaConnectionPendiente,
+): Promise<MetaPageConnection> {
+  return request<MetaPageConnection>("/integrations/meta/complete", {
+    method: "POST",
+    body: pendiente,
     getAccessToken,
   });
 }

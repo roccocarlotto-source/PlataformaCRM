@@ -4,6 +4,7 @@ import type { Db } from "../lib/prisma";
 import {
   CAMPOS_PUBLICOS,
   findMetaConnectionByOrganization,
+  findActiveMetaConnectionByPageId,
   findPageIdByInstagramBusinessAccountId,
   markMetaConnectionError,
   markMetaConnectionRevoked,
@@ -114,13 +115,23 @@ test("markMetaConnectionError con pageId (ítem 172): solo si la conexión sigue
   });
 });
 
-test("findPageIdByInstagramBusinessAccountId (ítem 171): sin organizationId, sin las REVOKED, solo el pageId y con orden estable", async () => {
+test("findPageIdByInstagramBusinessAccountId (ítem 171): sin organizationId en el filtro, sin las REVOKED, pageId y organización (A-08) y con orden estable", async () => {
   const { db, llamadas } = dbQueCaptura();
   await findPageIdByInstagramBusinessAccountId("1784", db);
   assert.equal(llamadas[0].metodo, "findFirst");
   assert.deepEqual(llamadas[0].args, {
     where: { instagramBusinessAccountId: "1784", status: { not: "REVOKED" } },
-    select: { pageId: true },
+    select: { pageId: true, organizationId: true },
     orderBy: [{ connectedAt: "desc" }, { id: "asc" }],
+  });
+});
+
+test("findActiveMetaConnectionByPageId (A-08): por página, de cualquier organización, sin las REVOKED", async () => {
+  const { db, llamadas } = dbQueCaptura();
+  await findActiveMetaConnectionByPageId("111", db);
+  assert.equal(llamadas[0].metodo, "findFirst");
+  assert.deepEqual(llamadas[0].args, {
+    where: { pageId: "111", status: { not: "REVOKED" } },
+    select: { pageId: true, organizationId: true },
   });
 });

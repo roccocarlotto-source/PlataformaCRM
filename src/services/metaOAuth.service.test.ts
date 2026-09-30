@@ -362,3 +362,38 @@ test("suscribirPaginaALaApp: un 200 sin success: true no cuenta como suscripta",
   const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
   await assert.rejects(cliente.suscribirPaginaALaApp("111", "t"), esMetaAuthError(false));
 });
+
+// ---------------------------------------------------------------------------
+// Baja de la suscripción al desconectar (D-11)
+// ---------------------------------------------------------------------------
+
+test("desuscribirPaginaDeLaApp: DELETE /{page-id}/subscribed_apps con el PAGE token en el header", async () => {
+  const { fetch, llamadas } = mockearFetch({ json: { success: true } });
+  const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
+
+  await cliente.desuscribirPaginaDeLaApp("111", "page-token-111");
+
+  assert.equal(llamadas.length, 1);
+  assert.equal(llamadas[0].url, "https://graph.facebook.com/v25.0/111/subscribed_apps");
+  assert.equal(llamadas[0].init.method, "DELETE");
+  assert.equal(
+    (llamadas[0].init.headers as Record<string, string>).Authorization,
+    "Bearer page-token-111",
+  );
+});
+
+test("desuscribirPaginaDeLaApp: Meta rechaza el token → MetaAuthError con tokenInvalido", async () => {
+  const { fetch } = mockearFetch({
+    ok: false,
+    status: 400,
+    json: { error: { message: "Invalid token", type: "OAuthException", code: 190 } },
+  });
+  const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
+  await assert.rejects(cliente.desuscribirPaginaDeLaApp("111", "t"), esMetaAuthError(true));
+});
+
+test("desuscribirPaginaDeLaApp: un 200 sin success: true no cuenta como dada de baja", async () => {
+  const { fetch } = mockearFetch({ json: { success: false } });
+  const cliente = crearClienteMetaOAuth({ ...CONFIG, fetch });
+  await assert.rejects(cliente.desuscribirPaginaDeLaApp("111", "t"), esMetaAuthError(false));
+});

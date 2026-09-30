@@ -462,6 +462,8 @@ test("la conexión de la página de Facebook (ítem 170) está montada bajo /api
   const casos: [string, string][] = [
     ["GET", "/api/integrations/meta"],
     ["POST", "/api/integrations/meta/connect"],
+    // A-07: el segundo tramo del flujo, autenticado.
+    ["POST", "/api/integrations/meta/complete"],
     ["DELETE", "/api/integrations/meta"],
   ];
   for (const [method, path] of casos) {

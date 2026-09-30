@@ -79,11 +79,28 @@ export function findMetaConnectionWithSecretByOrganization(
 export function findPageIdByInstagramBusinessAccountId(
   instagramBusinessAccountId: string,
   db: Db = prisma,
-): Promise<{ pageId: string } | null> {
+): Promise<{ pageId: string; organizationId: string } | null> {
   return db.metaPageConnection.findFirst({
     where: { instagramBusinessAccountId, status: { not: "REVOKED" } },
-    select: { pageId: true },
+    select: { pageId: true, organizationId: true },
     orderBy: [{ connectedAt: "desc" }, { id: "asc" }],
+  });
+}
+
+// La conexión vigente (no REVOKED) de una página, de CUALQUIER organización —
+// A-08 de docs-privados/auditoria-2026-09-30-corta.md (local). Hay a lo sumo
+// una: el UNIQUE parcial de page_id (D-10) lo garantiza. La usan:
+//   - el webhook de Messenger, para exigir que la página esté conectada en la
+//     MISMA organización que el agente que la tiene asignada;
+//   - la asignación de página del platform admin, para lo mismo al asignar.
+// ERROR cuenta como vigente, mismo criterio que la de Instagram de arriba.
+export function findActiveMetaConnectionByPageId(
+  pageId: string,
+  db: Db = prisma,
+): Promise<{ pageId: string; organizationId: string } | null> {
+  return db.metaPageConnection.findFirst({
+    where: { pageId, status: { not: "REVOKED" } },
+    select: { pageId: true, organizationId: true },
   });
 }
 

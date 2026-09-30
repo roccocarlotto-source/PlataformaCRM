@@ -70,3 +70,10 @@ export interface MetaPageConnection {
 export interface MetaAuthorization {
   authorizationUrl: string;
 }
+
+// Lo que el callback de Meta le rebota al CRM en el fragmento de la URL
+// (#metaCode=…&metaState=…) para que lo complete la sesión de quien empezó.
+export interface MetaConnectionPendiente {
+  code: string;
+  state: string;
+}

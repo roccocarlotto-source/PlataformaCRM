@@ -3,14 +3,20 @@ import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
-import { useDisconnectMetaConnection, useStartMetaConnection } from "./mutations";
+import { useEffect, useRef } from "react";
+import {
+  useCompleteMetaConnection,
+  useDisconnectMetaConnection,
+  useStartMetaConnection,
+} from "./mutations";
 import { useMetaConnection } from "./queries";
+import type { MetaConnectionPendiente } from "./types";
 
 interface MetaConnectionSectionProps {
-  // Lo que trajo el callback del backend al volver a esta pantalla
-  // (?metaConnected=true / ?metaError=...). Lo lee OrganizationSettingsPage de
-  // la URL y lo pasa tal cual.
-  resultadoDelCallback?: { conectado: boolean; error: string | null };
+  // Lo que trajo el callback del backend al volver a esta pantalla: un
+  // ?metaError=... o el code y el state por completar (#metaCode/#metaState).
+  // Lo lee OrganizationSettingsPage de la URL y lo pasa tal cual.
+  resultadoDelCallback?: { error: string | null; pendiente?: MetaConnectionPendiente | null };
 }
 
 // ---------------------------------------------------------------------------
@@ -21,8 +27,14 @@ interface MetaConnectionSectionProps {
 // MÁS SIMPLE QUE GoogleCalendarSection A PROPÓSITO: al conectar se navega ESTA
 // pestaña entera a Meta (window.location.href, no window.open), y cuando Meta
 // termina el callback del backend redirige de vuelta a /organization con el
-// resultado en la query string. No hay un estado "conectando" con "volver a
+// resultado en la URL. No hay un estado "conectando" con "volver a
 // consultar": al volver, la pantalla carga de cero.
+//
+// DESDE A-07 (docs-privados/auditoria-2026-09-30-corta.md, local) la conexión
+// se completa ACÁ y no en el callback: el callback vuelve con el code y el
+// state, y esta sección los manda con la sesión de quien está logueado. Si no
+// es quien tocó "Conectar", o el code venció, el backend responde un mensaje
+// que dice qué hacer, y se muestra tal cual.
 //
 // Tres estados: sin conectar (nunca, o desconectada), conectada (ACTIVE), y
 // error (status ERROR, o el ?metaError= de una conexión que nunca llegó a
@@ -32,6 +44,21 @@ export function MetaConnectionSection({ resultadoDelCallback }: MetaConnectionSe
   const connectionQuery = useMetaConnection();
   const startMutation = useStartMetaConnection();
   const disconnectMutation = useDisconnectMetaConnection();
+  const completeMutation = useCompleteMetaConnection();
+
+  // UNA sola vez por montaje, aunque React corra el efecto dos veces (modo
+  // estricto): el state es de un solo uso, y un segundo envío respondería
+  // "ya se usó" encima de la conexión que acaba de quedar bien.
+  // `mutate` de TanStack Query es estable entre renders: tenerlo en las deps
+  // no hace que el efecto vuelva a correr.
+  const pendiente = resultadoDelCallback?.pendiente ?? null;
+  const { mutate: completar } = completeMutation;
+  const yaEnviado = useRef(false);
+  useEffect(() => {
+    if (!pendiente || yaEnviado.current) return;
+    yaEnviado.current = true;
+    completar(pendiente);
+  }, [pendiente, completar]);
 
   async function handleConectar() {
     try {
@@ -57,7 +84,11 @@ export function MetaConnectionSection({ resultadoDelCallback }: MetaConnectionSe
   const activa = conexion?.status === "ACTIVE";
   // isSuccess de iniciar = la pestaña ya está navegando a Meta: el botón queda
   // deshabilitado para no firmar un segundo state con un doble click.
-  const isBusy = startMutation.isPending || startMutation.isSuccess || disconnectMutation.isPending;
+  const isBusy =
+    startMutation.isPending ||
+    startMutation.isSuccess ||
+    disconnectMutation.isPending ||
+    completeMutation.isPending;
 
   return (
     <Card heading="Facebook e Instagram">
@@ -67,10 +98,21 @@ export function MetaConnectionSection({ resultadoDelCallback }: MetaConnectionSe
         te lleva a Facebook y vuelve a esta pantalla. Se aplica al momento, sin tocar Guardar.
       </p>
 
-      {resultadoDelCallback?.conectado ? (
+      {completeMutation.isPending ? (
+        <p className="ds-hint" role="status">
+          Conectando la página de Facebook…
+        </p>
+      ) : null}
+      {completeMutation.isSuccess ? (
         <p className="ds-hint" role="status">
           La página de Facebook quedó conectada.
         </p>
+      ) : null}
+      {completeMutation.isError ? (
+        <ErrorState>
+          No se pudo conectar Facebook
+          {completeMutation.error instanceof Error ? `: ${completeMutation.error.message}` : "."}
+        </ErrorState>
       ) : null}
       {resultadoDelCallback?.error ? (
         <ErrorState>No se pudo conectar Facebook: {resultadoDelCallback.error}</ErrorState>
