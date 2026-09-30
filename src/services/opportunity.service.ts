@@ -465,6 +465,9 @@ export interface UpdateOpportunityInput {
   financingInstallmentAmount?: number | null;
 }
 
+export const UNIDAD_CAMBIO_MIENTRAS_GUARDABAS =
+  "La unidad vinculada a esta oportunidad cambió mientras se guardaba este cambio: no se aplicó nada. Volvé a abrirla para ver la unidad vigente.";
+
 export async function updateOpportunity(
   organizationId: string,
   actorUserId: string,
@@ -634,6 +637,22 @@ export async function updateOpportunity(
       if (needsVehicleSync) {
         // Después del lock de stage, en el mismo orden que createOpportunity.
         await lockOrganizationForUpdate(organizationId, tx);
+
+        // C-13 (docs-privados/auditoria-2026-09-30-corta.md, local): la unidad
+        // vinculada se leyó ANTES de la transacción. Un vendedor que vincula X
+        // desde el panel mientras reserve_vehicle vincula Y leían los dos "sin
+        // unidad": X quedaba RESERVED y huérfana, o el segundo liberaba la del
+        // primero. Todo cambio de vínculo pasa por este lock de organización,
+        // así que releída acá (con la fila bloqueada) es la vigente; si
+        // cambió, 409 y no se toca nada. El agente recibe el 409 como un
+        // resultado de la tool, no como un throw.
+        const bajoLock = await lockOpportunityForUpdate(id, organizationId, tx);
+        if (!bajoLock) {
+          throw new AppError("Oportunidad no encontrada", 404);
+        }
+        if (bajoLock.vehicleId !== oldVehicleId) {
+          throw new AppError(UNIDAD_CAMBIO_MIENTRAS_GUARDABAS, 409);
+        }
 
         // Ítem 151: una unidad ENTREGADA es historia. Con la entrega
         // confirmada, la oportunidad no puede dejar de estar ganada ni

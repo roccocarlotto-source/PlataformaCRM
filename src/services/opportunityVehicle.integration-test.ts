@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import { esperarBloqueadoPor, sostenerTransaccion } from "../lib/carreras.test-helper";
 import { prisma } from "../lib/prisma";
+import { lockOrganizationForUpdate } from "../repositories/organization.repository";
 import { findVehicleById } from "../repositories/vehicle.repository";
 import {
   createOpportunity,
   deleteOpportunity,
+  UNIDAD_CAMBIO_MIENTRAS_GUARDABAS,
   UNIDAD_NO_DISPONIBLE,
   updateOpportunity,
 } from "./opportunity.service";
@@ -13,6 +16,7 @@ import { createStage } from "./stage.service";
 import {
   deleteVehicle,
   getVehicleChangeLog,
+  setVehicleStatusForOpportunityLink,
   UNIDAD_RETENIDA_POR_OPORTUNIDAD,
   updateVehicle,
 } from "./vehicle.service";
@@ -379,4 +383,45 @@ test("ítem 153: dar de baja una unidad retenida por una oportunidad es 409; sin
   });
   await deleteVehicle(e.organizationId, entregada.id);
   assert.equal(await findVehicleById(entregada.id, e.organizationId), null);
+});
+
+// ---------------------------------------------------------------------------
+// C-13 (docs-privados/auditoria-2026-09-30-corta.md, local): el vínculo que
+// cambia mientras otro lo está cambiando. A (el panel) vincula X bajo el lock
+// de organización y no commitea; B (reserve_vehicle, o otro vendedor) ya leyó
+// "sin unidad" y pide vincular Y. B espera el lock; cuando A commitea, B tiene
+// que ver X y rendirse (409), no dejar X huérfana ni pisarla.
+// ---------------------------------------------------------------------------
+test("C-13: dos vínculos a la vez sobre la misma oportunidad — el segundo es 409 y no toca nada", async () => {
+  const x = await borrador(e, { priceListUsd: 30_000 });
+  const y = await borrador(e, { priceListUsd: 31_000 });
+  const opp = await oportunidad();
+
+  const rival = await sostenerTransaccion(async (tx) => {
+    await lockOrganizationForUpdate(e.organizationId, tx);
+    await tx.opportunity.update({ where: { id: opp.id }, data: { vehicleId: x.id } });
+    await setVehicleStatusForOpportunityLink(e.organizationId, e.userId, x.id, "RESERVED", tx);
+  });
+
+  const b = updateOpportunity(e.organizationId, e.userId, opp.id, { vehicleId: y.id });
+  await esperarBloqueadoPor(rival, b, "vincular vs vincular");
+  rival.liberar();
+  await rival.terminada;
+
+  const err = await capturar(() => b);
+  assertAppError(err, 409, UNIDAD_CAMBIO_MIENTRAS_GUARDABAS);
+
+  const fila = await prisma.opportunity.findUniqueOrThrow({ where: { id: opp.id } });
+  assert.equal(fila.vehicleId, x.id, "queda la que vinculó el primero");
+  assert.equal(await estadoDe(x.id), "RESERVED", "X no quedó huérfana ni liberada");
+  assert.equal(await estadoDe(y.id), "AVAILABLE", "Y no se reservó");
+});
+
+test("C-13: sin carrera, reemplazar la unidad sigue funcionando (la relectura coincide)", async () => {
+  const x = await borrador(e, { priceListUsd: 30_000 });
+  const y = await borrador(e, { priceListUsd: 31_000 });
+  const opp = await oportunidad({ vehicleId: x.id });
+  await updateOpportunity(e.organizationId, e.userId, opp.id, { vehicleId: y.id });
+  assert.equal(await estadoDe(x.id), "AVAILABLE");
+  assert.equal(await estadoDe(y.id), "RESERVED");
 });
