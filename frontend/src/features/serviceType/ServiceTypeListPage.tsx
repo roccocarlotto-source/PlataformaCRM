@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Clock, Plus } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -27,6 +28,7 @@ const SIN_RESOLVER = "—";
 // contra qué recurso. Sin gate `isAdmin`, mismo criterio que ResourceListPage:
 // la pantalla vive entera dentro de AdminRoute.
 export function ServiceTypeListPage() {
+  const confirm = useConfirm();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
@@ -62,10 +64,16 @@ export function ServiceTypeListPage() {
     setPage(1);
   }
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     // El RESTRICT (reservas activas de este servicio) llega como error del
     // backend y se muestra tal cual.
-    if (!window.confirm("¿Eliminar este tipo de servicio?")) return;
+    if (
+      !(await confirm("¿Eliminar este tipo de servicio?", {
+        confirmLabel: "Eliminar",
+        danger: true,
+      }))
+    )
+      return;
     deleteServiceTypeMutation.mutate(id);
   }
 

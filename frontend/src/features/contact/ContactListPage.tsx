@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Users } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
@@ -40,6 +41,7 @@ const LIFECYCLE_BADGE_VARIANT: Record<LifecycleStage, BadgeVariant> = {
 };
 
 export function ContactListPage() {
+  const confirm = useConfirm();
   const { me } = useAuth();
   // Ocultar acciones de escritura para no-ADMIN es cortesía de UX: la
   // autorización real la sigue aplicando authorize("ADMIN") en el backend.
@@ -113,8 +115,9 @@ export function ContactListPage() {
 
   const deleteContactMutation = useDeleteContact();
 
-  function handleDelete(id: string) {
-    if (!window.confirm("¿Eliminar este contacto?")) return;
+  async function handleDelete(id: string) {
+    if (!(await confirm("¿Eliminar este contacto?", { confirmLabel: "Eliminar", danger: true })))
+      return;
     deleteContactMutation.mutate(id);
   }
 

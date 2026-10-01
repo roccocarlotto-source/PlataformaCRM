@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -39,6 +40,7 @@ export interface ConversationBriefCardProps {
 }
 
 export function ConversationBriefCard({ conversation }: ConversationBriefCardProps) {
+  const confirm = useConfirm();
   const [editando, setEditando] = useState(false);
   const [borrador, setBorrador] = useState("");
 
@@ -72,12 +74,13 @@ export function ConversationBriefCard({ conversation }: ConversationBriefCardPro
     guardar.mutate(texto.length > 0 ? texto : null, { onSuccess: () => cancelarEdicion() });
   }
 
-  function regenerar() {
+  async function regenerar() {
     if (
       editadoAMano &&
-      !window.confirm(
+      !(await confirm(
         "Este resumen lo editó una persona. Volver a generarlo con IA reemplaza ese texto y no se puede deshacer. ¿Seguir?",
-      )
+        { confirmLabel: "Regenerar" },
+      ))
     ) {
       return;
     }

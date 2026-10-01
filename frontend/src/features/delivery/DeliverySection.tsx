@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { EmptyState } from "../../design-system/EmptyState";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -74,6 +75,7 @@ interface DeliveryCardProps {
 }
 
 function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
+  const confirm = useConfirm();
   const updateMutation = useUpdateDelivery(opportunityId);
   const confirmMutation = useConfirmDelivery(opportunityId);
 
@@ -124,7 +126,10 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
   }
 
   async function handleConfirm() {
-    if (!window.confirm(confirmQuestion(delivery.checklist))) return;
+    if (
+      !(await confirm(confirmQuestion(delivery.checklist), { confirmLabel: "Confirmar entrega" }))
+    )
+      return;
     setActionError(null);
     try {
       await confirmMutation.mutateAsync(delivery.id);

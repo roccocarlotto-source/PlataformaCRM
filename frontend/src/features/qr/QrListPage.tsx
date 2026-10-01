@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Button } from "../../design-system/Button";
@@ -76,6 +77,7 @@ type Dialogo =
   | { kind: "detalle"; qr: QrCode };
 
 export function QrListPage() {
+  const confirm = useConfirm();
   const { me } = useAuth();
   // Ocultar acciones de escritura para no-ADMIN es cortesía de UX: la
   // autorización real la sigue aplicando authorize("ADMIN") en el backend
@@ -111,11 +113,12 @@ export function QrListPage() {
 
   const deleteMutation = useDeleteQrCode();
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     if (
-      !window.confirm(
+      !(await confirm(
         "¿Eliminar este QR? Deja de funcionar de inmediato; no se puede deshacer desde acá.",
-      )
+        { confirmLabel: "Eliminar", danger: true },
+      ))
     ) {
       return;
     }

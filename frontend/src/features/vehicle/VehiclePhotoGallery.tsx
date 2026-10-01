@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { Badge } from "../../design-system/Badge";
 import { BulkSelectionBar } from "../../design-system/BulkSelectionBar";
 import { Button } from "../../design-system/Button";
@@ -37,6 +38,7 @@ export interface VehiclePhotoGalleryProps {
 // sigue intacto: el lote es una capacidad de más, no un reemplazo del borrado
 // de a una.
 export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryProps) {
+  const confirm = useConfirm();
   const uploadMutation = useUploadVehiclePhoto(vehicleId);
   const updateMutation = useUpdateVehiclePhoto(vehicleId);
   const deleteMutation = useDeleteVehiclePhoto(vehicleId);
@@ -64,8 +66,9 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
     uploadMutation.mutate({ file });
   }
 
-  function handleDelete(photoId: string) {
-    if (!window.confirm("¿Eliminar esta foto?")) return;
+  async function handleDelete(photoId: string) {
+    if (!(await confirm("¿Eliminar esta foto?", { confirmLabel: "Eliminar", danger: true })))
+      return;
     deleteMutation.mutate(photoId);
   }
 
@@ -86,7 +89,7 @@ export function VehiclePhotoGallery({ vehicleId, photos }: VehiclePhotoGalleryPr
       ids.length === 1
         ? "¿Eliminar la foto seleccionada?"
         : `¿Eliminar las ${ids.length} fotos seleccionadas?`;
-    if (!window.confirm(pregunta)) return;
+    if (!(await confirm(pregunta, { confirmLabel: "Eliminar", danger: true }))) return;
 
     setBulkError(null);
     setIsBulkDeleting(true);

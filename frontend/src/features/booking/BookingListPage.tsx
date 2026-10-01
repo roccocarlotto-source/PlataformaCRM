@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CalendarDays } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -54,6 +55,7 @@ const SIN_RESOLVER = "—";
 // control aceptable. Queda para cuando exista ese selector.
 // ---------------------------------------------------------------------------
 export function BookingListPage() {
+  const confirm = useConfirm();
   const [page, setPage] = useState(1);
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
   const [resourceId, setResourceId] = useState<string | undefined>(undefined);
@@ -101,12 +103,18 @@ export function BookingListPage() {
     setPage(1);
   }
 
-  function handleCancel(id: string) {
+  async function handleCancel(id: string) {
     // window.confirm, calcado de "Revocar" en InvitationListPage: es la otra
     // transición de estado sin vuelta atrás del proyecto que no borra nada. Una
     // reserva cancelada no se puede reconfirmar (no existe esa operación), y
     // el turno queda libre para otra persona.
-    if (!window.confirm("¿Cancelar esta reserva? El turno queda libre y no se puede deshacer."))
+    if (
+      !(await confirm("¿Cancelar esta reserva? El turno queda libre y no se puede deshacer.", {
+        confirmLabel: "Cancelar reserva",
+        cancelLabel: "Volver",
+        danger: true,
+      }))
+    )
       return;
     cancelBookingMutation.mutate(id);
   }

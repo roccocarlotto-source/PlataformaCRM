@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Shapes } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -30,6 +31,7 @@ const SIN_RESOLVER = "—";
 // a false. GET /api/resources sí es de lectura abierta, y un USER lo consume
 // donde lo necesita: el filtro del listado de Reservas.
 export function ResourceListPage() {
+  const confirm = useConfirm();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [branchId, setBranchId] = useState<string | undefined>(undefined);
@@ -61,11 +63,12 @@ export function ResourceListPage() {
     setPage(1);
   }
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     // window.confirm, igual que Branch/Knowledge Base. El RESTRICT (tipos de
     // servicio activos que usan el recurso) llega como error del backend y se
     // muestra tal cual.
-    if (!window.confirm("¿Eliminar este recurso?")) return;
+    if (!(await confirm("¿Eliminar este recurso?", { confirmLabel: "Eliminar", danger: true })))
+      return;
     deleteResourceMutation.mutate(id);
   }
 

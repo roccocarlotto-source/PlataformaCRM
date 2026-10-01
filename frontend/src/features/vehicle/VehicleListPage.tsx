@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Car, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
@@ -46,6 +47,7 @@ const STATUS_OPTIONS = (Object.keys(STATUS_LABELS) as VehicleStatus[]).map((stat
 //     desde la ficha (sección Comercial).
 //   - "Exportar" y selección múltiple: sin contraparte en el backend.
 export function VehicleListPage() {
+  const confirm = useConfirm();
   const { me } = useAuth();
   // Cortesía de UX: la autorización real es authorize("ADMIN") en el backend.
   // Igual que en CompanyListPage, el mismo booleano gatea la columna del
@@ -106,8 +108,11 @@ export function VehicleListPage() {
   // cierra solo.
   const detalle = vehiclesQuery.data?.data.find((vehicle) => vehicle.id === detalleAbierto);
 
-  function handleDelete(id: string) {
-    if (!window.confirm("¿Dar de baja esta unidad?")) return;
+  async function handleDelete(id: string) {
+    if (
+      !(await confirm("¿Dar de baja esta unidad?", { confirmLabel: "Dar de baja", danger: true }))
+    )
+      return;
     deleteVehicleMutation.mutate(id);
   }
 

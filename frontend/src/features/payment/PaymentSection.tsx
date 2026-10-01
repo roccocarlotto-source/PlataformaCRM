@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { EmptyState } from "../../design-system/EmptyState";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -51,6 +52,7 @@ type Editing = null | { mode: "create" } | { mode: "edit"; paymentId: string };
 // las escrituras son authorize("ADMIN") en el backend.
 // ---------------------------------------------------------------------------
 export function PaymentSection({ opportunity }: PaymentSectionProps) {
+  const confirm = useConfirm();
   const paymentsQuery = useOpportunityPayments(opportunity.id);
   const createMutation = useCreatePayment(opportunity.id);
   const updateMutation = useUpdatePayment(opportunity.id);
@@ -85,7 +87,12 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
   }
 
   async function handleDelete(payment: Payment) {
-    if (!window.confirm(`¿Borrar este pago de ${formatMoney(payment.amount, payment.currency)}?`)) {
+    if (
+      !(await confirm(`¿Borrar este pago de ${formatMoney(payment.amount, payment.currency)}?`, {
+        confirmLabel: "Borrar",
+        danger: true,
+      }))
+    ) {
       return;
     }
     setActionError(null);

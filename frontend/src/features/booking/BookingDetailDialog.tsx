@@ -1,3 +1,4 @@
+import { useConfirm } from "../../design-system/useConfirm";
 import { Button } from "../../design-system/Button";
 import { DetailList } from "../../design-system/DetailList";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -33,10 +34,17 @@ export function BookingDetailDialog({
   zona,
   onClose,
 }: BookingDetailDialogProps) {
+  const confirm = useConfirm();
   const cancelBookingMutation = useCancelBooking();
 
-  function handleCancel() {
-    if (!window.confirm("¿Cancelar esta reserva? El turno queda libre y no se puede deshacer."))
+  async function handleCancel() {
+    if (
+      !(await confirm("¿Cancelar esta reserva? El turno queda libre y no se puede deshacer.", {
+        confirmLabel: "Cancelar reserva",
+        cancelLabel: "Volver",
+        danger: true,
+      }))
+    )
       return;
     cancelBookingMutation.mutate(booking.id, { onSuccess: onClose });
   }

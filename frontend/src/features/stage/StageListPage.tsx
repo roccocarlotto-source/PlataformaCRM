@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { Columns3, Plus } from "lucide-react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -37,6 +38,7 @@ const PAGE_SIZE = 20;
 // diseño NO se implementa: drag-and-drop es funcionalidad nueva, no un
 // restyle; "Subir"/"Bajar" siguen tal cual.
 export function StageListPage() {
+  const confirm = useConfirm();
   const { pipelineId } = useParams<{ pipelineId: string }>();
   const { me } = useAuth();
   const isAdmin = me?.role === "ADMIN";
@@ -74,8 +76,9 @@ export function StageListPage() {
   const deleteStageMutation = useDeleteStage(pipelineId ?? "");
   const updateStageMutation = useUpdateStage(pipelineId ?? "");
 
-  function handleDelete(id: string) {
-    if (!window.confirm("¿Eliminar esta etapa?")) return;
+  async function handleDelete(id: string) {
+    if (!(await confirm("¿Eliminar esta etapa?", { confirmLabel: "Eliminar", danger: true })))
+      return;
     deleteStageMutation.mutate(id);
   }
 

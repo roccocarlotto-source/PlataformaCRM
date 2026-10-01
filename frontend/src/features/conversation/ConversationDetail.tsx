@@ -1,5 +1,6 @@
 import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -158,6 +159,7 @@ export interface ConversationDetailProps {
 }
 
 export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = {}) {
+  const confirm = useConfirm();
   const { id: idDeLaRuta } = useParams<{ id: string }>();
   const id = idDelProp ?? idDeLaRuta;
   const conversationQuery = useConversation(id);
@@ -192,9 +194,10 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
   // Confirma antes, mismo patrón que el resto del repo: cerrar no se deshace
   // desde la pantalla, y el próximo mensaje del contacto abre una conversación
   // NUEVA en vez de seguir en esta.
-  function handleCerrar() {
-    const confirmado = window.confirm(
+  async function handleCerrar() {
+    const confirmado = await confirm(
       "¿Cerrar esta conversación? Si el contacto vuelve a escribir, se abre una nueva.",
+      { confirmLabel: "Cerrar conversación" },
     );
     if (!confirmado) return;
     cerrar.mutate();

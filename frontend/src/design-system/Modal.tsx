@@ -57,6 +57,9 @@ export interface ModalPrimaryAction {
   // La acción está corriendo: el botón muestra un spinner y queda
   // deshabilitado mientras dure (ver Button.tsx).
   loading?: boolean;
+  // "danger" para una acción destructiva (ConfirmDialog: "Eliminar"). Por
+  // defecto, primaria.
+  variant?: "primary" | "danger";
 }
 
 interface ModalBaseProps {
@@ -70,27 +73,23 @@ interface ModalBaseProps {
   closeLabel?: string;
 }
 
-// Unión discriminada por `variant` para que `primaryAction` solo exista en el
-// panel: pasarla con variant="dialog" no compila, en vez de ignorarse en
-// silencio en runtime.
-export type ModalProps =
-  | (ModalBaseProps & {
-      variant?: "panel";
-      // Acción principal del pie, a la derecha del cierre. Sin ella el pie
-      // tiene un solo botón y el diálogo es puramente informativo.
-      primaryAction?: ModalPrimaryAction;
-    })
-  | (ModalBaseProps & {
-      variant: "dialog";
-      primaryAction?: never;
-    });
+// `primaryAction` existe en las dos variantes. Hasta ConfirmDialog el diálogo
+// era solo informativo (un detalle de solo lectura, cerrar y listo) y la
+// acción estaba prohibida por tipo; una confirmación es justamente un diálogo
+// con una acción.
+export interface ModalProps extends ModalBaseProps {
+  variant?: "panel" | "dialog";
+  // Acción principal del pie, a la derecha del cierre. Sin ella el pie tiene
+  // un solo botón y el modal es puramente informativo.
+  primaryAction?: ModalPrimaryAction;
+}
 
 export function Modal(props: ModalProps) {
   const { title, children, onClose } = props;
   const variant = props.variant ?? "panel";
   const isDialog = variant === "dialog";
   const closeLabel = props.closeLabel ?? (isDialog ? "Cerrar" : "Listo");
-  const primaryAction = isDialog ? undefined : props.primaryAction;
+  const primaryAction = props.primaryAction;
 
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -154,7 +153,10 @@ export function Modal(props: ModalProps) {
             ×
           </button>
         </div>
-        <div className="ds-modal-body">{children}</div>
+        {/* Sin contenido (una confirmación que es solo la pregunta del título)
+            no se dibuja el cuerpo: quedaría una franja vacía entre el título y
+            los botones. */}
+        {children ? <div className="ds-modal-body">{children}</div> : null}
         <div className="ds-modal-actions">
           <Button onClick={onClose}>{closeLabel}</Button>
           {primaryAction ? (
@@ -162,7 +164,7 @@ export function Modal(props: ModalProps) {
             // form= al <form> que vive en el cuerpo: dispara su onSubmit (y
             // respeta su noValidate) aunque esté afuera del <form> en el DOM.
             <Button
-              variant="primary"
+              variant={primaryAction.variant ?? "primary"}
               type={primaryAction.formId ? "submit" : "button"}
               form={primaryAction.formId}
               onClick={primaryAction.onClick}
