@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Target } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -281,7 +281,7 @@ function OpportunityTableView() {
         ) : null}
 
         {opportunitiesQuery.isSuccess && rows.length === 0 ? (
-          <EmptyState>No hay oportunidades para mostrar.</EmptyState>
+          <EmptyState title="No hay oportunidades para mostrar" icon={Target} />
         ) : null}
 
         {/* Columnas en el orden de la pantalla "Oportunidades CRM" del diseño. */}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MessagesSquare } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -155,7 +156,7 @@ export function ConversationListPage() {
         ) : null}
 
         {conversationsQuery.data && conversations.length === 0 ? (
-          <EmptyState>No hay conversaciones para mostrar.</EmptyState>
+          <EmptyState title="No hay conversaciones para mostrar" icon={MessagesSquare} />
         ) : null}
 
         {conversationsQuery.data && conversations.length > 0 ? (

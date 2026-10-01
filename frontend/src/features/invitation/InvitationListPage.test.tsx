@@ -83,7 +83,7 @@ describe("InvitationListPage", () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay invitaciones para mostrar.")).toBeInTheDocument(),
+      expect(screen.getByText("No hay invitaciones para mostrar")).toBeInTheDocument(),
     );
   });
 

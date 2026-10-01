@@ -107,7 +107,7 @@ describe("PipelineListPage", () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay procesos de venta para mostrar.")).toBeInTheDocument(),
+      expect(screen.getByText("No hay procesos de venta para mostrar")).toBeInTheDocument(),
     );
   });
 

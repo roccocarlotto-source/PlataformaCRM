@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { EmptyState } from "../../design-system/EmptyState";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
 import type { Opportunity } from "../opportunity/types";
@@ -54,7 +55,7 @@ export function TradeInSection({ opportunity }: TradeInSectionProps) {
           ) : vehiclesQuery.isLoading ? (
             <LoadingState variant="lines" count={2} />
           ) : vehicles.length === 0 ? (
-            <p className="ds-hint">El cliente no entregó ningún auto en esta venta.</p>
+            <EmptyState>El cliente no entregó ningún auto en esta venta.</EmptyState>
           ) : (
             <ul className="ds-trade-in-list" aria-label="Autos recibidos en permuta">
               {vehicles.map((vehicle) => (

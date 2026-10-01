@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Zap } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -143,7 +143,7 @@ export function AutomationListPage() {
         ) : null}
 
         {automationsQuery.isSuccess && automationsQuery.data.data.length === 0 ? (
-          <EmptyState>No hay automatizaciones para mostrar.</EmptyState>
+          <EmptyState title="No hay automatizaciones para mostrar" icon={Zap} />
         ) : null}
 
         {automationsQuery.isSuccess && automationsQuery.data.data.length > 0 ? (

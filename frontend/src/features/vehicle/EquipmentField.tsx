@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { X } from "lucide-react";
+import { ErrorState } from "../../design-system/ErrorState";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import {
@@ -125,11 +126,7 @@ export function EquipmentField({ label, value, onChange }: EquipmentFieldProps) 
           + Agregar equipamiento
         </Button>
       </div>
-      {addError !== null ? (
-        <p className="ds-error" role="alert">
-          {addError}
-        </p>
-      ) : null}
+      {addError !== null ? <ErrorState>{addError}</ErrorState> : null}
       {isFull ? (
         <p className="ds-hint">Llegaste al máximo de {EQUIPMENT_MAX_ITEMS} ítems.</p>
       ) : null}

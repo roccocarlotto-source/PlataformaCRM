@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Clock, Plus } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -155,7 +155,7 @@ export function ServiceTypeListPage() {
         ) : null}
 
         {serviceTypesQuery.isSuccess && serviceTypes.length === 0 ? (
-          <EmptyState>No hay tipos de servicio para mostrar.</EmptyState>
+          <EmptyState title="No hay tipos de servicio para mostrar" icon={Clock} />
         ) : null}
 
         {serviceTypesQuery.isSuccess && serviceTypes.length > 0 ? (

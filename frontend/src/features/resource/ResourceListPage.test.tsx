@@ -68,7 +68,7 @@ describe("ResourceListPage", () => {
   it("sin recursos muestra el estado vacío", async () => {
     server.use(mockBranches(), listHandler([]));
     renderPage();
-    expect(await screen.findByText("No hay recursos para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay recursos para mostrar")).toBeInTheDocument();
   });
 
   it("filtrar por sucursal y por tipo viaja en la query y vuelve a la página 1", async () => {

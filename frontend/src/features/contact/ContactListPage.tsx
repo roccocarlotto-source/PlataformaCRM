@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -225,7 +225,7 @@ export function ContactListPage() {
         ) : null}
 
         {contactsQuery.isSuccess && contactsQuery.data.data.length === 0 ? (
-          <EmptyState>No hay contactos para mostrar.</EmptyState>
+          <EmptyState title="No hay contactos para mostrar" icon={Users} />
         ) : null}
 
         {/* Columnas en el orden de la pantalla "Contactos" del diseño. Teléfono

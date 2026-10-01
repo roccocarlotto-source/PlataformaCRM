@@ -163,7 +163,7 @@ describe("OpportunityListPage", () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay oportunidades para mostrar.")).toBeInTheDocument(),
+      expect(screen.getByText("No hay oportunidades para mostrar")).toBeInTheDocument(),
     );
   });
 

@@ -89,7 +89,7 @@ describe("ServiceTypeListPage", () => {
   it("sin tipos de servicio muestra el estado vacío", async () => {
     server.use(...catalogHandlers(), listHandler([]));
     renderPage();
-    expect(await screen.findByText("No hay tipos de servicio para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay tipos de servicio para mostrar")).toBeInTheDocument();
   });
 
   it("el filtro de Recurso solo ofrece los de la sucursal elegida, y cambiar de sucursal lo limpia", async () => {

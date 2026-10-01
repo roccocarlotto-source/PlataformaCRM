@@ -103,9 +103,7 @@ describe("StageListPage", () => {
 
     renderPage();
 
-    await waitFor(() =>
-      expect(screen.getByText("No hay etapas para mostrar.")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("No hay etapas para mostrar")).toBeInTheDocument());
   });
 
   it("S12 pide el listado ordenado por order asc por default", async () => {

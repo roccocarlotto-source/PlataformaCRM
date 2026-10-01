@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { MailPlus } from "lucide-react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
@@ -132,7 +133,7 @@ export function InvitationListPage() {
       ) : null}
 
       {invitationsQuery.isSuccess && rows.length === 0 ? (
-        <EmptyState>No hay invitaciones para mostrar.</EmptyState>
+        <EmptyState title="No hay invitaciones para mostrar" icon={MailPlus} />
       ) : null}
 
       {invitationsQuery.isSuccess && rows.length > 0 ? (

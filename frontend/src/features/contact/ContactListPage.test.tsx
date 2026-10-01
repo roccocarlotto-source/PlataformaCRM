@@ -122,7 +122,7 @@ describe("ContactListPage", () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay contactos para mostrar.")).toBeInTheDocument(),
+      expect(screen.getByText("No hay contactos para mostrar")).toBeInTheDocument(),
     );
   });
 

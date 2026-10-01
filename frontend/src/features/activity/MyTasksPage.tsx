@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
-import { Plus } from "lucide-react";
+import { CheckSquare, Plus } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -263,11 +263,11 @@ export function MyTasksPage() {
       ) : null}
 
       {tasksQuery.isSuccess && open.length === 0 ? (
-        <EmptyState>No tenés tareas pendientes.</EmptyState>
+        <EmptyState title="No tenés tareas pendientes" icon={CheckSquare} />
       ) : null}
 
       {tasksQuery.isSuccess && open.length > 0 && visible.length === 0 ? (
-        <EmptyState>Ninguna tarea pendiente coincide con el filtro.</EmptyState>
+        <EmptyState title="Ninguna tarea pendiente coincide con el filtro" icon={CheckSquare} />
       ) : null}
 
       {groups.map(({ bucket, tasks }) => (

@@ -363,7 +363,7 @@ describe("KnowledgeBaseListPage", () => {
       ),
     );
     renderPage();
-    expect(await screen.findByText("No hay entradas para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay entradas para mostrar")).toBeInTheDocument();
   });
 });
 

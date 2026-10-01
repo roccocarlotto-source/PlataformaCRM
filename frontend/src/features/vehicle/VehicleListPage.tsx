@@ -271,7 +271,7 @@ export function VehicleListPage() {
         ) : null}
 
         {vehiclesQuery.isSuccess && vehiclesQuery.data.data.length === 0 ? (
-          <EmptyState>No hay unidades para mostrar.</EmptyState>
+          <EmptyState title="No hay unidades para mostrar" icon={Car} />
         ) : null}
 
         {vehiclesQuery.isSuccess && vehiclesQuery.data.data.length > 0 ? (

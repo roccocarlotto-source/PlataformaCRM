@@ -312,7 +312,7 @@ describe("VehicleListPage", () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay unidades para mostrar.")).toBeInTheDocument(),
+      expect(screen.getByText("No hay unidades para mostrar")).toBeInTheDocument(),
     );
   });
 

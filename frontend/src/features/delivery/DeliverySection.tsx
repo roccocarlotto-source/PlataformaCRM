@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { EmptyState } from "../../design-system/EmptyState";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -163,7 +164,7 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
 
           <h3 className="ds-delivery-subtitle">Qué se entrega</h3>
           {delivery.checklist.length === 0 ? (
-            <p className="ds-hint">El checklist de esta entrega está vacío.</p>
+            <EmptyState>El checklist de esta entrega está vacío.</EmptyState>
           ) : (
             <ul className="ds-delivery-checklist">
               {delivery.checklist.map((item, index) => (

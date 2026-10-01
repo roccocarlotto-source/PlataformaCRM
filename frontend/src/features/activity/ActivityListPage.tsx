@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Activity as ActivityIcon, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -279,7 +279,7 @@ export function ActivityListPage() {
         ) : null}
 
         {activitiesQuery.isSuccess && rows.length === 0 ? (
-          <EmptyState>No hay actividades para mostrar.</EmptyState>
+          <EmptyState title="No hay actividades para mostrar" icon={ActivityIcon} />
         ) : null}
 
         {/* Mismas columnas y mismo orden que antes del restyle. */}

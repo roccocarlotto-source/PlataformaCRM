@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { History } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
@@ -200,7 +201,7 @@ export function IngestionEventListPage() {
         ) : null}
 
         {eventsQuery.isSuccess && eventsQuery.data.data.length === 0 ? (
-          <EmptyState>No hay eventos para mostrar.</EmptyState>
+          <EmptyState title="No hay eventos para mostrar" icon={History} />
         ) : null}
 
         {eventsQuery.isSuccess && eventsQuery.data.data.length > 0 ? (

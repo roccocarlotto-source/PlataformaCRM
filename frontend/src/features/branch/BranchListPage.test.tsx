@@ -286,7 +286,7 @@ describe("BranchListPage", () => {
       ),
     );
     renderPage();
-    expect(await screen.findByText("No hay sucursales para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay sucursales para mostrar")).toBeInTheDocument();
   });
 });
 
