@@ -1,4 +1,5 @@
 import { useAuth } from "../../auth/AuthContext";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { Badge } from "../../design-system/Badge";
 import { Card } from "../../design-system/Card";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -87,7 +88,7 @@ export function ActivityFeed() {
                   </span>
                 </span>
                 <span className="ds-list-trailing ds-list-secondary">
-                  {new Date(activity.createdAt).toLocaleString()}
+                  {formatDateTime(activity.createdAt)}
                 </span>
               </li>
             );

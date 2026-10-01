@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Database, Plus } from "lucide-react";
+import { Badge } from "../../design-system/Badge";
+import { formatDateOnly } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -201,11 +203,15 @@ export function SourceListPage() {
                 <tr key={source.id}>
                   <td>{source.name}</td>
                   <td>{ETIQUETA_DE_TIPO[source.type]}</td>
-                  <td>{source.isActive ? "Activa" : "Pausada"}</td>
+                  <td>
+                    <Badge variant={source.isActive ? "success" : "neutral"}>
+                      {source.isActive ? "Activa" : "Pausada"}
+                    </Badge>
+                  </td>
                   {/* toLocaleDateString sin locale explícito: usa el del navegador,
                     mismo criterio que el resto del proyecto para no fijar un
                     formato que no es una decisión de este módulo. */}
-                  <td>{new Date(source.createdAt).toLocaleDateString()}</td>
+                  <td>{formatDateOnly(source.createdAt)}</td>
                   <td>
                     <ActionsMenu
                       actions={[
@@ -273,11 +279,18 @@ export function SourceListPage() {
                 items: [
                   { label: "Nombre", value: detalle.name },
                   { label: "Tipo", value: ETIQUETA_DE_TIPO[detalle.type] },
-                  { label: "Estado", value: detalle.isActive ? "Activa" : "Pausada" },
+                  {
+                    label: "Estado",
+                    value: (
+                      <Badge variant={detalle.isActive ? "success" : "neutral"}>
+                        {detalle.isActive ? "Activa" : "Pausada"}
+                      </Badge>
+                    ),
+                  },
                   ...(detalle.type === "FILE_IMPORT"
                     ? [{ label: "Mapeo de columnas", value: describirMapeo(detalle.fieldMapping) }]
                     : []),
-                  { label: "Creada", value: new Date(detalle.createdAt).toLocaleDateString() },
+                  { label: "Creada", value: formatDateOnly(detalle.createdAt) },
                 ],
               },
             ]}

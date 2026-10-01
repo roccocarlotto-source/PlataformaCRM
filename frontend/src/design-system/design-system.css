@@ -2617,6 +2617,14 @@ fieldset.ds-field {
   gap: var(--space-4);
 }
 
+/* Un botón suelto dentro del stack conserva su ancho: el grid estira a sus
+   hijos a todo el ancho por defecto, y un "Guardar dominios" de 870px se lee
+   como una barra, no como un botón. */
+.ds-stack > .ds-button,
+.ds-stack > .ds-link-button {
+  justify-self: start;
+}
+
 /* Botones de navegación dentro de una tarjeta (Quick Actions). Un <Link>
    con las clases de .ds-button conserva la semántica de link (href, abrir
    en otra pestaña, rol para lectores de pantalla) — mismo criterio que

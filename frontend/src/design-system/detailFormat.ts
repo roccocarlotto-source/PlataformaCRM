@@ -27,6 +27,15 @@ export function formatDateTime(iso: string | null): string {
   return new Date(iso).toLocaleString();
 }
 
+// Fecha sola, sin hora, en el formato local del navegador: el mismo
+// `toLocaleDateString()` que usaban Fuentes y Claves. Junto a formatDateTime
+// para que las fechas de toda la app salgan de un solo lugar.
+// null → "" para que DetailList lo muestre como dato vacío.
+export function formatDateOnly(iso: string | null): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString();
+}
+
 // Fecha con hora en su forma corta, para una columna de tabla que no puede
 // pagar el ancho de formatDateTime ("29/9/2026, 14:05:33"): "hoy 14:05",
 // "ayer 14:05", "29/9 14:05" en el año en curso y "29/9/2025 14:05" fuera de

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -45,7 +46,7 @@ export function VehicleChangeLogDialog({ vehicleId, onClose }: VehicleChangeLogD
                   {fieldLabel(entry.fieldName)}: {entry.oldValue ?? "—"} → {entry.newValue ?? "—"}
                 </span>
                 <span className="ds-list-secondary">
-                  {new Date(entry.changedAt).toLocaleString()} · {entry.changedBy.fullName}
+                  {formatDateTime(entry.changedAt)} · {entry.changedBy.fullName}
                 </span>
               </span>
             </li>

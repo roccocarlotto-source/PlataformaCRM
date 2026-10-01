@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { MailPlus } from "lucide-react";
 import { Link } from "react-router-dom";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Badge, type BadgeVariant } from "../../design-system/Badge";
@@ -30,10 +31,6 @@ const STATUS_BADGE: Record<InvitationStatus, BadgeVariant> = {
   REVOKED: "danger",
   EXPIRED: "neutral",
 };
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString();
-}
 
 // Esta página es siempre ADMIN (AdminRoute la envuelve, ver router.tsx) —
 // GET /invitations es ADMIN-only en el propio contrato, a diferencia de
@@ -86,123 +83,129 @@ export function InvitationListPage() {
         }
       />
 
-      <h2 className="ds-filters-title">Filtros</h2>
-      <div className="ds-filters">
-        <Select
-          label="Estado"
-          value={status}
-          options={INVITATION_STATUSES.map((s) => ({
-            value: s,
-            label: INVITATION_STATUS_LABELS[s],
-          }))}
-          emptyOption={{ label: "Todos" }}
-          onChange={(value) => {
-            setStatus(value);
-            setPage(1);
-          }}
-        />
-        <Select
-          label="Ordenar por"
-          value={sortBy}
-          options={[
-            { value: "createdAt", label: "Fecha de creación" },
-            { value: "expiresAt", label: "Vencimiento" },
-          ]}
-          onChange={(value) => {
-            if (value) setSortBy(value);
-          }}
-        />
-        {/* Antes era un desplegable suelto sin rótulo; ahora lleva "Orden" como
+      {/* Filtros, estados, tabla y paginación en la misma tarjeta que el
+          resto de los listados (.ds-list-card). */}
+      <div className="ds-list-card">
+        <h2 className="ds-filters-title">Filtros</h2>
+        <div className="ds-filters">
+          <Select
+            label="Estado"
+            value={status}
+            options={INVITATION_STATUSES.map((s) => ({
+              value: s,
+              label: INVITATION_STATUS_LABELS[s],
+            }))}
+            emptyOption={{ label: "Todos" }}
+            onChange={(value) => {
+              setStatus(value);
+              setPage(1);
+            }}
+          />
+          <Select
+            label="Ordenar por"
+            value={sortBy}
+            options={[
+              { value: "createdAt", label: "Fecha de creación" },
+              { value: "expiresAt", label: "Vencimiento" },
+            ]}
+            onChange={(value) => {
+              if (value) setSortBy(value);
+            }}
+          />
+          {/* Antes era un desplegable suelto sin rótulo; ahora lleva "Orden" como
             en el resto de los listados. */}
-        <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
-      </div>
+          <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
+        </div>
 
-      {invitationsQuery.isLoading ? <LoadingState variant="rows" /> : null}
+        {invitationsQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
-      {invitationsQuery.isError ? (
-        <ErrorState>
-          No pudimos cargar las invitaciones
-          {invitationsQuery.error instanceof Error ? `: ${invitationsQuery.error.message}` : "."}
-        </ErrorState>
-      ) : null}
+        {invitationsQuery.isError ? (
+          <ErrorState>
+            No pudimos cargar las invitaciones
+            {invitationsQuery.error instanceof Error ? `: ${invitationsQuery.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
-      {revokeInvitationMutation.isError ? (
-        <ErrorState>
-          No pudimos revocar la invitación
-          {revokeInvitationMutation.error instanceof Error
-            ? `: ${revokeInvitationMutation.error.message}`
-            : "."}
-        </ErrorState>
-      ) : null}
+        {revokeInvitationMutation.isError ? (
+          <ErrorState>
+            No pudimos revocar la invitación
+            {revokeInvitationMutation.error instanceof Error
+              ? `: ${revokeInvitationMutation.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
 
-      {invitationsQuery.isSuccess && rows.length === 0 ? (
-        <EmptyState title="No hay invitaciones para mostrar" icon={MailPlus} />
-      ) : null}
+        {invitationsQuery.isSuccess && rows.length === 0 ? (
+          <EmptyState title="No hay invitaciones para mostrar" icon={MailPlus} />
+        ) : null}
 
-      {invitationsQuery.isSuccess && rows.length > 0 ? (
-        <Table>
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Rol</th>
-              <th>Estado</th>
-              <th>Invitado por</th>
-              <th>Creada</th>
-              <th>Vence</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((invitation) => (
-              <tr key={invitation.id}>
-                <td className="ds-cell-primary">{invitation.email}</td>
-                {/* roleId nunca se resuelve a nombre: no existe GET
+        {invitationsQuery.isSuccess && rows.length > 0 ? (
+          <Table>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Rol</th>
+                <th>Estado</th>
+                <th>Invitado por</th>
+                <th>Creada</th>
+                <th>Vence</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((invitation) => (
+                <tr key={invitation.id}>
+                  <td className="ds-cell-primary">{invitation.email}</td>
+                  {/* roleId nunca se resuelve a nombre: no existe GET
                     /api/roles ni include en el contrato real (ver
                     types.ts) — "—" en vez de inventar un mapeo o mostrar
                     el UUID crudo. */}
-                <td className="ds-cell-muted">—</td>
-                <td>
-                  <Badge variant={STATUS_BADGE[invitation.status]}>
-                    {INVITATION_STATUS_LABELS[invitation.status]}
-                  </Badge>
-                </td>
-                <td>{inviterNames.byId.get(invitation.invitedById) ?? "—"}</td>
-                <td className="ds-cell-muted">{formatDate(invitation.createdAt)}</td>
-                <td className="ds-cell-muted">{formatDate(invitation.expiresAt)}</td>
-                <td>
-                  {invitation.status === "PENDING" ? (
-                    <Button
-                      variant="danger"
-                      onClick={() => handleRevoke(invitation.id)}
-                      disabled={revokeInvitationMutation.isPending}
-                      loading={
-                        revokeInvitationMutation.isPending &&
-                        revokeInvitationMutation.variables === invitation.id
-                      }
-                    >
-                      Revocar
-                    </Button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      ) : null}
+                  <td className="ds-cell-muted">—</td>
+                  <td>
+                    <Badge variant={STATUS_BADGE[invitation.status]}>
+                      {INVITATION_STATUS_LABELS[invitation.status]}
+                    </Badge>
+                  </td>
+                  <td>{inviterNames.byId.get(invitation.invitedById) ?? "—"}</td>
+                  <td className="ds-cell-muted">{formatDateTime(invitation.createdAt)}</td>
+                  <td className="ds-cell-muted">{formatDateTime(invitation.expiresAt)}</td>
+                  <td>
+                    <div className="ds-row-actions">
+                      {invitation.status === "PENDING" ? (
+                        <Button
+                          variant="danger"
+                          onClick={() => handleRevoke(invitation.id)}
+                          disabled={revokeInvitationMutation.isPending}
+                          loading={
+                            revokeInvitationMutation.isPending &&
+                            revokeInvitationMutation.variables === invitation.id
+                          }
+                        >
+                          Revocar
+                        </Button>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        ) : null}
 
-      {/* Pagination renderiza los mismos textos ("Anterior", "Página X de
+        {/* Pagination renderiza los mismos textos ("Anterior", "Página X de
           Y" con el mismo `|| 1`, "Siguiente") y el mismo disabled en los
           extremos que la paginación a mano que había acá; el número de
           página sale del estado local en vez de la respuesta, que es el
           mismo valor porque la query se pide con ese `page`. */}
-      {invitationsQuery.isSuccess ? (
-        <Pagination
-          page={page}
-          totalPages={invitationsQuery.data.pagination.totalPages}
-          onPrevious={() => setPage((current) => current - 1)}
-          onNext={() => setPage((current) => current + 1)}
-        />
-      ) : null}
+        {invitationsQuery.isSuccess ? (
+          <Pagination
+            page={page}
+            totalPages={invitationsQuery.data.pagination.totalPages}
+            onPrevious={() => setPage((current) => current - 1)}
+            onNext={() => setPage((current) => current + 1)}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

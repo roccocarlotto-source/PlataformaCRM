@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
@@ -1232,11 +1233,11 @@ export function VehicleFormPage() {
                 </div>
                 <div>
                   <dt className="ds-kpi-label">Alta</dt>
-                  <dd>{new Date(vehicle.createdAt).toLocaleString()}</dd>
+                  <dd>{formatDateTime(vehicle.createdAt)}</dd>
                 </div>
                 <div>
                   <dt className="ds-kpi-label">Última modificación</dt>
-                  <dd>{new Date(vehicle.updatedAt).toLocaleString()}</dd>
+                  <dd>{formatDateTime(vehicle.updatedAt)}</dd>
                 </div>
               </dl>
               <div className="ds-card-actions">

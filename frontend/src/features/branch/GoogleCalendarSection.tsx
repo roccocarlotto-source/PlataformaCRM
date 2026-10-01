@@ -84,112 +84,114 @@ export function GoogleCalendarSection({
 
   return (
     <Card heading="Google Calendar">
-      <p className="ds-hint">
-        Con Google Calendar conectado, las reservas de esta sucursal se reflejan en ese calendario y
-        los eventos que ya tenga ocupan esos horarios. Se aplica al momento, sin tocar Guardar.
-      </p>
-
-      {resultadoDelCallback?.conectado ? (
-        <p className="ds-hint" role="status">
-          Google Calendar quedó conectado.
+      <div className="ds-stack">
+        <p className="ds-hint">
+          Con Google Calendar conectado, las reservas de esta sucursal se reflejan en ese calendario
+          y los eventos que ya tenga ocupan esos horarios. Se aplica al momento, sin tocar Guardar.
         </p>
-      ) : null}
-      {resultadoDelCallback?.error ? (
-        <ErrorState>No se pudo conectar Google Calendar: {resultadoDelCallback.error}</ErrorState>
-      ) : null}
 
-      {connectionQuery.isLoading ? <LoadingState /> : null}
-
-      {connectionQuery.isError ? (
-        <ErrorState>
-          No pudimos consultar la conexión con Google Calendar
-          {connectionQuery.error instanceof Error ? `: ${connectionQuery.error.message}` : "."}
-        </ErrorState>
-      ) : null}
-
-      {connectionQuery.isSuccess && activa && conexion ? (
-        <>
-          <p>
-            <Badge variant="success">Conectado</Badge> Calendario:{" "}
-            <strong>{conexion.calendarId}</strong>
+        {resultadoDelCallback?.conectado ? (
+          <p className="ds-hint" role="status">
+            Google Calendar quedó conectado.
           </p>
-          <div className="ds-card-actions">
-            <Button
-              variant="danger"
-              onClick={handleDesconectar}
-              disabled={isBusy}
-              loading={disconnectMutation.isPending}
-            >
-              {disconnectMutation.isPending ? "Desconectando…" : "Desconectar"}
-            </Button>
-          </div>
-        </>
-      ) : null}
+        ) : null}
+        {resultadoDelCallback?.error ? (
+          <ErrorState>No se pudo conectar Google Calendar: {resultadoDelCallback.error}</ErrorState>
+        ) : null}
 
-      {connectionQuery.isSuccess && !activa ? (
-        <>
-          {conexion?.status === "ERROR" ? (
-            <ErrorState>
-              La conexión dejó de funcionar
-              {conexion.lastErrorMessage ? `: ${conexion.lastErrorMessage}` : "."} Volvé a
-              conectarla.
-            </ErrorState>
-          ) : null}
+        {connectionQuery.isLoading ? <LoadingState /> : null}
 
-          {conectando ? (
-            <>
-              <p className="ds-hint" role="status">
-                Terminá la autorización en la pestaña de Google que se abrió. Cuando vuelvas,
-                consultá el estado.{" "}
-                <a href={urlAbierta} target="_blank" rel="noopener noreferrer">
-                  Si no se abrió, abrila acá.
-                </a>
-              </p>
-              <div className="ds-card-actions">
-                <Button
-                  onClick={() => void connectionQuery.refetch()}
-                  disabled={connectionQuery.isFetching}
-                  loading={connectionQuery.isFetching}
-                >
-                  {connectionQuery.isFetching ? "Consultando…" : "Volver a consultar"}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <p>
-                <Badge variant="neutral">Sin conectar</Badge>
-              </p>
-              <div className="ds-card-actions">
-                <Button
-                  variant="primary"
-                  onClick={() => void handleConectar()}
-                  disabled={isBusy}
-                  loading={startMutation.isPending}
-                >
-                  {startMutation.isPending ? "Abriendo Google…" : "Conectar con Google Calendar"}
-                </Button>
-              </div>
-            </>
-          )}
-        </>
-      ) : null}
+        {connectionQuery.isError ? (
+          <ErrorState>
+            No pudimos consultar la conexión con Google Calendar
+            {connectionQuery.error instanceof Error ? `: ${connectionQuery.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
-      {startMutation.isError ? (
-        <ErrorState>
-          No pudimos iniciar la conexión
-          {startMutation.error instanceof Error ? `: ${startMutation.error.message}` : "."}
-        </ErrorState>
-      ) : null}
+        {connectionQuery.isSuccess && activa && conexion ? (
+          <>
+            <p>
+              <Badge variant="success">Conectado</Badge> Calendario:{" "}
+              <strong>{conexion.calendarId}</strong>
+            </p>
+            <div className="ds-card-actions">
+              <Button
+                variant="danger"
+                onClick={handleDesconectar}
+                disabled={isBusy}
+                loading={disconnectMutation.isPending}
+              >
+                {disconnectMutation.isPending ? "Desconectando…" : "Desconectar"}
+              </Button>
+            </div>
+          </>
+        ) : null}
 
-      {disconnectMutation.isError ? (
-        <ErrorState>
-          No pudimos desconectar Google Calendar
-          {disconnectMutation.error instanceof Error
-            ? `: ${disconnectMutation.error.message}`
-            : "."}
-        </ErrorState>
-      ) : null}
+        {connectionQuery.isSuccess && !activa ? (
+          <>
+            {conexion?.status === "ERROR" ? (
+              <ErrorState>
+                La conexión dejó de funcionar
+                {conexion.lastErrorMessage ? `: ${conexion.lastErrorMessage}` : "."} Volvé a
+                conectarla.
+              </ErrorState>
+            ) : null}
+
+            {conectando ? (
+              <>
+                <p className="ds-hint" role="status">
+                  Terminá la autorización en la pestaña de Google que se abrió. Cuando vuelvas,
+                  consultá el estado.{" "}
+                  <a href={urlAbierta} target="_blank" rel="noopener noreferrer">
+                    Si no se abrió, abrila acá.
+                  </a>
+                </p>
+                <div className="ds-card-actions">
+                  <Button
+                    onClick={() => void connectionQuery.refetch()}
+                    disabled={connectionQuery.isFetching}
+                    loading={connectionQuery.isFetching}
+                  >
+                    {connectionQuery.isFetching ? "Consultando…" : "Volver a consultar"}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p>
+                  <Badge variant="neutral">Sin conectar</Badge>
+                </p>
+                <div className="ds-card-actions">
+                  <Button
+                    variant="primary"
+                    onClick={() => void handleConectar()}
+                    disabled={isBusy}
+                    loading={startMutation.isPending}
+                  >
+                    {startMutation.isPending ? "Abriendo Google…" : "Conectar con Google Calendar"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </>
+        ) : null}
+
+        {startMutation.isError ? (
+          <ErrorState>
+            No pudimos iniciar la conexión
+            {startMutation.error instanceof Error ? `: ${startMutation.error.message}` : "."}
+          </ErrorState>
+        ) : null}
+
+        {disconnectMutation.isError ? (
+          <ErrorState>
+            No pudimos desconectar Google Calendar
+            {disconnectMutation.error instanceof Error
+              ? `: ${disconnectMutation.error.message}`
+              : "."}
+          </ErrorState>
+        ) : null}
+      </div>
     </Card>
   );
 }

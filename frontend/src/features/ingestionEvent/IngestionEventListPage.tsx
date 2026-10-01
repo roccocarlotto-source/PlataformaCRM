@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { History } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Badge } from "../../design-system/Badge";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -16,6 +18,7 @@ import { useSourcesByIds } from "./sourceResolution";
 import {
   ESTADOS,
   ETIQUETA_DE_ESTADO,
+  VARIANTE_DE_ESTADO,
   type IngestionEvent,
   type IngestionStatus,
   type SortOrder,
@@ -220,7 +223,11 @@ export function IngestionEventListPage() {
               {eventsQuery.data.data.map((evento) => (
                 <tr key={evento.id}>
                   <td>{nombreDeFuente(evento.sourceId)}</td>
-                  <td>{ETIQUETA_DE_ESTADO[evento.status]}</td>
+                  <td>
+                    <Badge variant={VARIANTE_DE_ESTADO[evento.status]}>
+                      {ETIQUETA_DE_ESTADO[evento.status]}
+                    </Badge>
+                  </td>
                   {/* errorMessage solo tiene contenido en FAILED. En un PROCESSED
                     la columna muestra, si lo hay, el teléfono que la ingesta
                     descartó por no poder normalizarlo (F5-a): el contacto entró
@@ -228,16 +235,25 @@ export function IngestionEventListPage() {
                   <td className="ds-cell-truncate" title={motivoDe(evento) ?? undefined}>
                     {motivoDe(evento) ?? SIN_RESOLVER}
                   </td>
-                  <td>{new Date(evento.createdAt).toLocaleString()}</td>
-                  <td>{new Date(evento.updatedAt).toLocaleString()}</td>
+                  <td>{formatDateTime(evento.createdAt)}</td>
+                  <td>{formatDateTime(evento.updatedAt)}</td>
                   <td>
-                    {/* Cierra el círculo: esta fila se convirtió en este contacto.
+                    {/* Una sola acción por fila, nunca las dos: "Ver contacto"
+                      solo en PROCESSED y "Reintentar" solo en FAILED. Por eso
+                      .ds-row-actions y no ActionsMenu (que es para 2+). */}
+                    <div className="ds-row-actions">
+                      {/* Cierra el círculo: esta fila se convirtió en este contacto.
                       Solo cuando hay uno — promotedContactId es null salvo en
                       PROCESSED. La ruta de edición ya existe. */}
-                    {evento.promotedContactId ? (
-                      <Link to={`/contacts/${evento.promotedContactId}/edit`}>Ver contacto</Link>
-                    ) : null}{" "}
-                    {/* Reintentar SOLO en FAILED, mismo criterio que "Revocar" en
+                      {evento.promotedContactId ? (
+                        <Link
+                          to={`/contacts/${evento.promotedContactId}/edit`}
+                          className="ds-button ds-button--secondary"
+                        >
+                          Ver contacto
+                        </Link>
+                      ) : null}
+                      {/* Reintentar SOLO en FAILED, mismo criterio que "Revocar" en
                       ApiKeyListPage: el backend rechaza con 409 cualquier otro
                       estado, y ofrecer una acción que solo puede fallar es peor
                       que no ofrecerla.
@@ -246,21 +262,24 @@ export function IngestionEventListPage() {
                       reintentar no es destructivo. Como mucho vuelve a fallar, y
                       el motivo anterior no se pierde para siempre — se reescribe
                       con el del intento nuevo. */}
-                    {evento.status === "FAILED" ? (
-                      /* SOLO LA FILA EN VUELO — hallazgo E2-4 de
+                      {evento.status === "FAILED" ? (
+                        /* SOLO LA FILA EN VUELO — hallazgo E2-4 de
                        docs-privados/review-fase2-2026-08-28.md (local, no está en GitHub). `isPending` es un solo
                        booleano para toda la mutación, así que reintentar una
                        fila deshabilitaba el botón de las otras diecinueve.
                        `variables` es el argumento del mutate() en curso, o sea
                        el id del evento que realmente se está reintentando. */
-                      <Button
-                        disabled={retryMutation.isPending && retryMutation.variables === evento.id}
-                        loading={retryMutation.isPending && retryMutation.variables === evento.id}
-                        onClick={() => retryMutation.mutate(evento.id)}
-                      >
-                        Reintentar
-                      </Button>
-                    ) : null}
+                        <Button
+                          disabled={
+                            retryMutation.isPending && retryMutation.variables === evento.id
+                          }
+                          loading={retryMutation.isPending && retryMutation.variables === evento.id}
+                          onClick={() => retryMutation.mutate(evento.id)}
+                        >
+                          Reintentar
+                        </Button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}

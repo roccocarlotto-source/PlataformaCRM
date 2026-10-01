@@ -218,104 +218,108 @@ export function UserListPage() {
           por invitación). */}
       <PageHeader title="Usuarios" />
 
-      <h2 className="ds-filters-title">Filtros</h2>
-      <div className="ds-filters">
-        <Select
-          label="Rol"
-          value={role}
-          options={[
-            { value: "ADMIN", label: "ADMIN" },
-            { value: "USER", label: "USER" },
-          ]}
-          emptyOption={{ label: "Todos" }}
-          onChange={(value) => {
-            setRole(value);
-            setPage(1);
-          }}
-        />
-        <Select
-          label="Estado"
-          value={isActive}
-          options={[
-            { value: "true", label: "Activo" },
-            { value: "false", label: "Inactivo" },
-          ]}
-          emptyOption={{ label: "Todos" }}
-          onChange={(value) => {
-            setIsActive(value);
-            setPage(1);
-          }}
-        />
-        <Select
-          label="Ordenar por"
-          value={sortBy}
-          options={[
-            { value: "fullName", label: "Nombre" },
-            { value: "createdAt", label: "Fecha de alta" },
-          ]}
-          onChange={(value) => {
-            if (value) setSortBy(value);
-          }}
-        />
-        {/* Antes era un <select> suelto sin rótulo; ahora lleva "Orden" como
+      {/* Filtros, estados, tabla y paginación en la misma tarjeta que el
+          resto de los listados (.ds-list-card). */}
+      <div className="ds-list-card">
+        <h2 className="ds-filters-title">Filtros</h2>
+        <div className="ds-filters">
+          <Select
+            label="Rol"
+            value={role}
+            options={[
+              { value: "ADMIN", label: "ADMIN" },
+              { value: "USER", label: "USER" },
+            ]}
+            emptyOption={{ label: "Todos" }}
+            onChange={(value) => {
+              setRole(value);
+              setPage(1);
+            }}
+          />
+          <Select
+            label="Estado"
+            value={isActive}
+            options={[
+              { value: "true", label: "Activo" },
+              { value: "false", label: "Inactivo" },
+            ]}
+            emptyOption={{ label: "Todos" }}
+            onChange={(value) => {
+              setIsActive(value);
+              setPage(1);
+            }}
+          />
+          <Select
+            label="Ordenar por"
+            value={sortBy}
+            options={[
+              { value: "fullName", label: "Nombre" },
+              { value: "createdAt", label: "Fecha de alta" },
+            ]}
+            onChange={(value) => {
+              if (value) setSortBy(value);
+            }}
+          />
+          {/* Antes era un <select> suelto sin rótulo; ahora lleva "Orden" como
             en el resto de los listados. Desde §46 sale del componente
             compartido, que lista Descendente primero como los otros once
             listados (acá estaba al revés). */}
-        <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
-      </div>
+          <SortOrderSelect value={sortOrder} onChange={setSortOrder} />
+        </div>
 
-      {usersQuery.isLoading ? <LoadingState variant="rows" /> : null}
+        {usersQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
-      {usersQuery.isError ? (
-        <ErrorState>
-          No pudimos cargar los usuarios
-          {usersQuery.error instanceof Error ? `: ${usersQuery.error.message}` : "."}
-        </ErrorState>
-      ) : null}
+        {usersQuery.isError ? (
+          <ErrorState>
+            No pudimos cargar los usuarios
+            {usersQuery.error instanceof Error ? `: ${usersQuery.error.message}` : "."}
+          </ErrorState>
+        ) : null}
 
-      {usersQuery.isSuccess && rows.length === 0 ? (
-        <EmptyState title="No hay usuarios para mostrar" icon={UserCog} />
-      ) : null}
+        {usersQuery.isSuccess && rows.length === 0 ? (
+          <EmptyState title="No hay usuarios para mostrar" icon={UserCog} />
+        ) : null}
 
-      {usersQuery.isSuccess && rows.length > 0 ? (
-        <Table>
-          <thead>
-            <tr>
-              <th>Nombre</th>
-              <th>Email</th>
-              <th>Rol</th>
-              <th>Estado</th>
-              <th>Acceso al agente interno</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((user) => (
-              <UserRow
-                key={user.id}
-                user={user}
-                isSelf={user.id === me?.id}
-                onVerDetalle={() => setDetalleAbierto(user.id)}
-              />
-            ))}
-          </tbody>
-        </Table>
-      ) : null}
+        {usersQuery.isSuccess && rows.length > 0 ? (
+          <Table>
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Email</th>
+                <th>Rol</th>
+                <th>Estado</th>
+                <th>Acceso al agente interno</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((user) => (
+                <UserRow
+                  key={user.id}
+                  user={user}
+                  isSelf={user.id === me?.id}
+                  onVerDetalle={() => setDetalleAbierto(user.id)}
+                />
+              ))}
+            </tbody>
+          </Table>
+        ) : null}
 
-      {/* Pagination renderiza exactamente los mismos textos ("Anterior",
+        {/* Pagination renderiza exactamente los mismos textos ("Anterior",
           "Página X de Y", "Siguiente") y el mismo disabled en los extremos
           que la paginación armada a mano que había acá. La única diferencia
           es que el número de página sale del estado local en vez de la
           respuesta; son el mismo valor porque la query se pide con ese
           `page`. */}
-      {usersQuery.isSuccess ? (
-        <Pagination
-          page={page}
-          totalPages={usersQuery.data.pagination.totalPages}
-          onPrevious={() => setPage((current) => current - 1)}
-          onNext={() => setPage((current) => current + 1)}
-        />
-      ) : null}
+        {usersQuery.isSuccess ? (
+          <Pagination
+            page={page}
+            totalPages={usersQuery.data.pagination.totalPages}
+            onPrevious={() => setPage((current) => current - 1)}
+            onNext={() => setPage((current) => current + 1)}
+          />
+        ) : null}
+      </div>
 
       {/* Usuarios no tiene formulario de edición (se edita en línea): el
           detalle muestra lo que la fila ya muestra —nombre, email, rol y
