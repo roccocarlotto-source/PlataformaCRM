@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { companyKeys, useCompanies, useCompany } from "./queries";
 import { InlineLoading } from "../../design-system/LoadingState";
+import { SearchSelect } from "../../design-system/SearchSelect";
 
 interface CompanySelectProps {
   id?: string;
@@ -65,55 +66,36 @@ export function CompanySelect({ id, label, value, onChange }: CompanySelectProps
   const selectedCompanyQuery = useCompany(value);
 
   return (
-    <div>
-      <label htmlFor={id}>{label}</label>
-      {value ? (
-        <p>
-          Seleccionada:{" "}
-          {selectedCompanyQuery.data ? (
-            selectedCompanyQuery.data.name
-          ) : selectedCompanyQuery.isLoading ? (
-            <InlineLoading />
-          ) : (
-            "No pudimos cargar la empresa seleccionada."
-          )}
-        </p>
-      ) : null}
-      <input
-        id={id}
-        type="text"
-        value={term}
-        onChange={(event) => setTerm(event.target.value)}
-        placeholder="Buscar por nombre…"
-      />
-      {debouncedTerm ? (
-        <ul>
-          {searchQuery.isLoading ? (
-            <li>
-              <InlineLoading>Buscando…</InlineLoading>
-            </li>
-          ) : null}
-          {searchQuery.isError ? <li role="alert">No pudimos buscar empresas.</li> : null}
-          {searchQuery.isSuccess && searchQuery.data.data.length === 0 ? (
-            <li>Sin resultados.</li>
-          ) : null}
-          {searchQuery.isSuccess
-            ? searchQuery.data.data.map((company) => (
-                <li key={company.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onChange(company.id);
-                      setTerm("");
-                    }}
-                  >
-                    {company.name}
-                  </button>
-                </li>
-              ))
-            : null}
-        </ul>
-      ) : null}
-    </div>
+    <SearchSelect
+      id={id}
+      label={label}
+      placeholder="Buscar por nombre…"
+      term={term}
+      onTermChange={setTerm}
+      open={debouncedTerm.length > 0}
+      selected={
+        value
+          ? {
+              prefix: "Seleccionada",
+              content: selectedCompanyQuery.data ? (
+                selectedCompanyQuery.data.name
+              ) : selectedCompanyQuery.isLoading ? (
+                <InlineLoading />
+              ) : (
+                "No pudimos cargar la empresa seleccionada."
+              ),
+            }
+          : null
+      }
+      loading={searchQuery.isLoading}
+      error={searchQuery.isError ? "No pudimos buscar empresas." : null}
+      results={searchQuery.isSuccess ? searchQuery.data.data : undefined}
+      getKey={(company) => company.id}
+      renderItem={(company) => company.name}
+      onSelect={(company) => {
+        onChange(company.id);
+        setTerm("");
+      }}
+    />
   );
 }
