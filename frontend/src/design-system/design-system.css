@@ -1040,24 +1040,14 @@ fieldset.ds-field {
   flex-wrap: wrap;
 }
 
-/* Lo que un selector de búsqueda muestra además del control (el párrafo
-   "Seleccionada: …" y la lista de resultados) baja a su propia línea dentro
-   de la píldora, que crece para contenerlo. */
-.ds-filters div:has(> label[for]) > p,
-.ds-filters div:has(> label[for]) > ul,
-.ds-board-toolbar div:has(> label[for]) > p,
-.ds-board-toolbar div:has(> label[for]) > ul {
+/* SearchSelect dentro de la píldora: el "Seleccionada: …" baja a su propia
+   línea dentro de la píldora, que crece para contenerlo. Los resultados no:
+   flotan debajo, igual que en un formulario (ver .ds-search-select-results). */
+.ds-filters .ds-search-select > .ds-search-select-selected,
+.ds-board-toolbar .ds-search-select > .ds-search-select-selected {
   flex: 1 1 100%;
   order: 1;
   margin: 0 0 var(--space-2);
-  color: var(--color-text);
-  font-size: var(--font-size-base);
-}
-
-.ds-filters div:has(> label[for]) > ul,
-.ds-board-toolbar div:has(> label[for]) > ul {
-  list-style: none;
-  padding: 0;
   white-space: normal;
 }
 
@@ -1275,6 +1265,65 @@ fieldset.ds-field {
 .ds-field-grid .ds-multiselect-trigger > span {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ---------------------------------------------------------------------------
+   SearchSelect (design-system/SearchSelect.tsx) — selector con búsqueda del
+   lado del servidor (empresa, contacto, oportunidad, unidad). El panel de
+   resultados flota debajo del campo con el mismo tratamiento que
+   .ds-select-menu, en un formulario y en la píldora de filtros; cada
+   resultado es un botón con el aspecto de .ds-select-option.
+   --------------------------------------------------------------------------- */
+.ds-search-select {
+  position: relative;
+}
+
+.ds-search-select-selected {
+  margin: var(--space-1) 0 var(--space-2);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+}
+
+.ds-search-select-results {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 10;
+  width: 100%;
+  min-width: 12rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--space-1) 0;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  white-space: normal;
+  cursor: default;
+}
+
+/* El botón de cada resultado, con la forma de una opción del Select: sin
+   borde ni fondo propios, a todo el ancho, alineado a la izquierda. */
+.ds-search-select-option {
+  width: 100%;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  font-weight: 400;
+}
+
+.ds-search-select-option:hover,
+.ds-search-select-option:focus-visible {
+  background: var(--color-surface-muted);
+  outline: none;
+}
+
+.ds-search-select-error {
+  color: var(--color-danger);
 }
 
 /* ---------------------------------------------------------------------------

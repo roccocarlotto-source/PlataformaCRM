@@ -4,6 +4,7 @@ import { listOpportunities } from "../opportunity/api";
 import { opportunityKeys, useOpportunity } from "../opportunity/queries";
 import type { Opportunity } from "../opportunity/types";
 import { InlineLoading } from "../../design-system/LoadingState";
+import { SearchSelect } from "../../design-system/SearchSelect";
 
 interface OpportunitySelectProps {
   id?: string;
@@ -78,55 +79,36 @@ export function OpportunitySelect({ id, label, value, onChange }: OpportunitySel
   const selectedOpportunityQuery = useOpportunity(value);
 
   return (
-    <div>
-      <label htmlFor={id}>{label}</label>
-      {value ? (
-        <p>
-          Seleccionada:{" "}
-          {selectedOpportunityQuery.data ? (
-            formatOpportunityLabel(selectedOpportunityQuery.data)
-          ) : selectedOpportunityQuery.isLoading ? (
-            <InlineLoading />
-          ) : (
-            "No pudimos cargar la oportunidad seleccionada."
-          )}
-        </p>
-      ) : null}
-      <input
-        id={id}
-        type="text"
-        value={term}
-        onChange={(event) => setTerm(event.target.value)}
-        placeholder="Buscar por título…"
-      />
-      {debouncedTerm ? (
-        <ul>
-          {searchQuery.isLoading ? (
-            <li>
-              <InlineLoading>Buscando…</InlineLoading>
-            </li>
-          ) : null}
-          {searchQuery.isError ? <li role="alert">No pudimos buscar oportunidades.</li> : null}
-          {searchQuery.isSuccess && searchQuery.data.data.length === 0 ? (
-            <li>Sin resultados.</li>
-          ) : null}
-          {searchQuery.isSuccess
-            ? searchQuery.data.data.map((opportunity) => (
-                <li key={opportunity.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onChange(opportunity.id);
-                      setTerm("");
-                    }}
-                  >
-                    {formatOpportunityLabel(opportunity)}
-                  </button>
-                </li>
-              ))
-            : null}
-        </ul>
-      ) : null}
-    </div>
+    <SearchSelect
+      id={id}
+      label={label}
+      placeholder="Buscar por título…"
+      term={term}
+      onTermChange={setTerm}
+      open={debouncedTerm.length > 0}
+      selected={
+        value
+          ? {
+              prefix: "Seleccionada",
+              content: selectedOpportunityQuery.data ? (
+                formatOpportunityLabel(selectedOpportunityQuery.data)
+              ) : selectedOpportunityQuery.isLoading ? (
+                <InlineLoading />
+              ) : (
+                "No pudimos cargar la oportunidad seleccionada."
+              ),
+            }
+          : null
+      }
+      loading={searchQuery.isLoading}
+      error={searchQuery.isError ? "No pudimos buscar oportunidades." : null}
+      results={searchQuery.isSuccess ? searchQuery.data.data : undefined}
+      getKey={(opportunity) => opportunity.id}
+      renderItem={(opportunity) => formatOpportunityLabel(opportunity)}
+      onSelect={(opportunity) => {
+        onChange(opportunity.id);
+        setTerm("");
+      }}
+    />
   );
 }

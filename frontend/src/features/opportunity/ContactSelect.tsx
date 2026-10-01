@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { contactKeys, useContact, useContacts } from "../contact/queries";
 import { InlineLoading } from "../../design-system/LoadingState";
+import { SearchSelect } from "../../design-system/SearchSelect";
 
 interface ContactSelectProps {
   id?: string;
@@ -61,55 +62,36 @@ export function ContactSelect({ id, label, value, onChange }: ContactSelectProps
   const selectedContactQuery = useContact(value);
 
   return (
-    <div>
-      <label htmlFor={id}>{label}</label>
-      {value ? (
-        <p>
-          Seleccionado:{" "}
-          {selectedContactQuery.data ? (
-            `${selectedContactQuery.data.firstName} ${selectedContactQuery.data.lastName}`
-          ) : selectedContactQuery.isLoading ? (
-            <InlineLoading />
-          ) : (
-            "No pudimos cargar el contacto seleccionado."
-          )}
-        </p>
-      ) : null}
-      <input
-        id={id}
-        type="text"
-        value={term}
-        onChange={(event) => setTerm(event.target.value)}
-        placeholder="Buscar por nombre o email…"
-      />
-      {debouncedTerm ? (
-        <ul>
-          {searchQuery.isLoading ? (
-            <li>
-              <InlineLoading>Buscando…</InlineLoading>
-            </li>
-          ) : null}
-          {searchQuery.isError ? <li role="alert">No pudimos buscar contactos.</li> : null}
-          {searchQuery.isSuccess && searchQuery.data.data.length === 0 ? (
-            <li>Sin resultados.</li>
-          ) : null}
-          {searchQuery.isSuccess
-            ? searchQuery.data.data.map((contact) => (
-                <li key={contact.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onChange(contact.id);
-                      setTerm("");
-                    }}
-                  >
-                    {contact.firstName} {contact.lastName}
-                  </button>
-                </li>
-              ))
-            : null}
-        </ul>
-      ) : null}
-    </div>
+    <SearchSelect
+      id={id}
+      label={label}
+      placeholder="Buscar por nombre o email…"
+      term={term}
+      onTermChange={setTerm}
+      open={debouncedTerm.length > 0}
+      selected={
+        value
+          ? {
+              prefix: "Seleccionado",
+              content: selectedContactQuery.data ? (
+                `${selectedContactQuery.data.firstName} ${selectedContactQuery.data.lastName}`
+              ) : selectedContactQuery.isLoading ? (
+                <InlineLoading />
+              ) : (
+                "No pudimos cargar el contacto seleccionado."
+              ),
+            }
+          : null
+      }
+      loading={searchQuery.isLoading}
+      error={searchQuery.isError ? "No pudimos buscar contactos." : null}
+      results={searchQuery.isSuccess ? searchQuery.data.data : undefined}
+      getKey={(contact) => contact.id}
+      renderItem={(contact) => `${contact.firstName} ${contact.lastName}`}
+      onSelect={(contact) => {
+        onChange(contact.id);
+        setTerm("");
+      }}
+    />
   );
 }

@@ -5,6 +5,7 @@ import { priceCell, unitTitle } from "./format";
 import { STATUS_BADGE_VARIANT, STATUS_LABELS } from "./labels";
 import { useVehicle, useVehicles } from "./queries";
 import { InlineLoading } from "../../design-system/LoadingState";
+import { SearchSelect } from "../../design-system/SearchSelect";
 
 interface VehicleSelectProps {
   id?: string;
@@ -57,61 +58,47 @@ export function VehicleSelect({ id, label, value, onChange }: VehicleSelectProps
   const selectedVehicleQuery = useVehicle(value);
 
   return (
-    <div>
-      <label htmlFor={id}>{label}</label>
-      {value ? (
-        <p>
-          Seleccionada:{" "}
-          {selectedVehicleQuery.data ? (
-            <>
-              {unitTitle(selectedVehicleQuery.data)} · {priceCell(selectedVehicleQuery.data)}{" "}
-              <Badge variant={STATUS_BADGE_VARIANT[selectedVehicleQuery.data.status]}>
-                {STATUS_LABELS[selectedVehicleQuery.data.status]}
-              </Badge>
-            </>
-          ) : selectedVehicleQuery.isLoading ? (
-            <InlineLoading />
-          ) : (
-            "No pudimos cargar la unidad seleccionada."
-          )}{" "}
-          <Button onClick={() => onChange(null)}>Quitar vínculo</Button>
-        </p>
-      ) : null}
-      <input
-        id={id}
-        type="text"
-        value={term}
-        onChange={(event) => setTerm(event.target.value)}
-        placeholder="Buscar disponible por marca, modelo, patente, VIN o código…"
-      />
-      {debouncedTerm ? (
-        <ul>
-          {searchQuery.isLoading ? (
-            <li>
-              <InlineLoading>Buscando…</InlineLoading>
-            </li>
-          ) : null}
-          {searchQuery.isError ? <li role="alert">No pudimos buscar unidades.</li> : null}
-          {searchQuery.isSuccess && searchQuery.data.data.length === 0 ? (
-            <li>Sin unidades disponibles para esa búsqueda.</li>
-          ) : null}
-          {searchQuery.isSuccess
-            ? searchQuery.data.data.map((vehicle) => (
-                <li key={vehicle.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onChange(vehicle.id);
-                      setTerm("");
-                    }}
-                  >
-                    {unitTitle(vehicle)} · {priceCell(vehicle)}
-                  </button>
-                </li>
-              ))
-            : null}
-        </ul>
-      ) : null}
-    </div>
+    <SearchSelect
+      id={id}
+      label={label}
+      placeholder="Buscar disponible por marca, modelo, patente, VIN o código…"
+      term={term}
+      onTermChange={setTerm}
+      open={debouncedTerm.length > 0}
+      selected={
+        value
+          ? {
+              prefix: "Seleccionada",
+              content: selectedVehicleQuery.data ? (
+                <>
+                  {unitTitle(selectedVehicleQuery.data)} · {priceCell(selectedVehicleQuery.data)}{" "}
+                  <Badge variant={STATUS_BADGE_VARIANT[selectedVehicleQuery.data.status]}>
+                    {STATUS_LABELS[selectedVehicleQuery.data.status]}
+                  </Badge>
+                </>
+              ) : selectedVehicleQuery.isLoading ? (
+                <InlineLoading />
+              ) : (
+                "No pudimos cargar la unidad seleccionada."
+              ),
+              action: <Button onClick={() => onChange(null)}>Quitar vínculo</Button>,
+            }
+          : null
+      }
+      loading={searchQuery.isLoading}
+      error={searchQuery.isError ? "No pudimos buscar unidades." : null}
+      results={searchQuery.isSuccess ? searchQuery.data.data : undefined}
+      emptyText="Sin unidades disponibles para esa búsqueda."
+      getKey={(vehicle) => vehicle.id}
+      renderItem={(vehicle) => (
+        <>
+          {unitTitle(vehicle)} · {priceCell(vehicle)}
+        </>
+      )}
+      onSelect={(vehicle) => {
+        onChange(vehicle.id);
+        setTerm("");
+      }}
+    />
   );
 }
