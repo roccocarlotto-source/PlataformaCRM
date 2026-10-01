@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Activity as ActivityIcon, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -77,6 +78,7 @@ function isOverdue(activity: Activity, now: number): boolean {
 // propia. Esta página sigue listando TODAS las actividades, para ambos
 // roles, con los mismos filtros, orden y paginación de siempre.
 export function ActivityListPage() {
+  const confirm = useConfirm();
   const { me } = useAuth();
   // Lectura abierta a cualquier rol (activity.routes.ts: GET sin
   // authorize) — a diferencia de OpportunityListPage, esta página entera
@@ -153,8 +155,9 @@ export function ActivityListPage() {
   // (se eliminó, cambió la página) el pop up se cierra solo.
   const detalle = rows.find((activity) => activity.id === detalleAbierto);
 
-  function handleDelete(id: string) {
-    if (!window.confirm("¿Eliminar esta actividad?")) return;
+  async function handleDelete(id: string) {
+    if (!(await confirm("¿Eliminar esta actividad?", { confirmLabel: "Eliminar", danger: true })))
+      return;
     deleteActivityMutation.mutate(id);
   }
 

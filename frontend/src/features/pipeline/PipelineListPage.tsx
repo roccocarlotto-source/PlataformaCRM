@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Columns3, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -25,6 +26,7 @@ const PAGE_SIZE = 20;
 // ("Pipeline CRM" es un Kanban de oportunidades, otra cosa): restyle genérico
 // con el sistema de diseño, mismas columnas y mismo orden que antes.
 export function PipelineListPage() {
+  const confirm = useConfirm();
   const { me } = useAuth();
   // Ocultar acciones de escritura para no-ADMIN es cortesía de UX: la
   // autorización real la sigue aplicando authorize("ADMIN") en el backend.
@@ -53,8 +55,14 @@ export function PipelineListPage() {
 
   const deletePipelineMutation = useDeletePipeline();
 
-  function handleDelete(id: string) {
-    if (!window.confirm("¿Eliminar este proceso de venta?")) return;
+  async function handleDelete(id: string) {
+    if (
+      !(await confirm("¿Eliminar este proceso de venta?", {
+        confirmLabel: "Eliminar",
+        danger: true,
+      }))
+    )
+      return;
     deletePipelineMutation.mutate(id);
   }
 

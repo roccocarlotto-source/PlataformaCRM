@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus, Target } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
@@ -96,6 +97,7 @@ export function OpportunityListPage() {
 // OpportunityListPage, junto al toggle) y que el botón "Nueva oportunidad"
 // vive acá arriba de los filtros.
 function OpportunityTableView() {
+  const confirm = useConfirm();
   const { me } = useAuth();
   // Ocultar acciones de escritura y la columna Asignado para no-ADMIN es
   // cortesía de UX / respeto al contrato de autorización real: GET
@@ -164,8 +166,9 @@ function OpportunityTableView() {
   // (useVehicle(undefined) queda deshabilitada): no es un fetch por fila.
   const vehiculoDelDetalle = useVehicle(detalle?.vehicleId ?? undefined);
 
-  function handleDelete(id: string) {
-    if (!window.confirm("¿Eliminar esta oportunidad?")) return;
+  async function handleDelete(id: string) {
+    if (!(await confirm("¿Eliminar esta oportunidad?", { confirmLabel: "Eliminar", danger: true })))
+      return;
     deleteOpportunityMutation.mutate(id);
   }
 

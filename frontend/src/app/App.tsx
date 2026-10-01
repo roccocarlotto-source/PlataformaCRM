@@ -1,6 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router-dom";
 import { AuthProvider } from "../auth/AuthContext";
+import { ConfirmProvider } from "../design-system/ConfirmDialog";
 import { ToastProvider } from "../design-system/Toast";
 import { queryClient } from "../lib/queryClient";
 import { ThemeProvider } from "../theme/ThemeContext";
@@ -23,7 +24,9 @@ export function App() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <ToastProvider>
-            <RouterProvider router={router} />
+            <ConfirmProvider>
+              <RouterProvider router={router} />
+            </ConfirmProvider>
           </ToastProvider>
         </AuthProvider>
       </QueryClientProvider>

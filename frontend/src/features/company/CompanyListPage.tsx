@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Building2, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
@@ -22,6 +23,7 @@ import type { CompanySortBy, SortOrder } from "./types";
 const PAGE_SIZE = 20;
 
 export function CompanyListPage() {
+  const confirm = useConfirm();
   const { me } = useAuth();
   // Ocultar acciones de escritura para no-ADMIN es cortesía de UX: la
   // autorización real la sigue aplicando authorize("ADMIN") en el backend
@@ -76,8 +78,9 @@ export function CompanyListPage() {
 
   const deleteCompanyMutation = useDeleteCompany();
 
-  function handleDelete(id: string) {
-    if (!window.confirm("¿Eliminar esta empresa?")) return;
+  async function handleDelete(id: string) {
+    if (!(await confirm("¿Eliminar esta empresa?", { confirmLabel: "Eliminar", danger: true })))
+      return;
     deleteCompanyMutation.mutate(id);
   }
 

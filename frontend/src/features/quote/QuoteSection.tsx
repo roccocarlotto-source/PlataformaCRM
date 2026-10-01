@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useConfirm } from "../../design-system/useConfirm";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -50,6 +51,7 @@ const CONFIRM: Partial<Record<QuoteTransition, string>> = {
 // hay gating por rol acá: las escrituras son authorize("ADMIN") en el backend.
 // ---------------------------------------------------------------------------
 export function QuoteSection({ opportunity }: QuoteSectionProps) {
+  const confirm = useConfirm();
   const quotesQuery = useOpportunityQuotes(opportunity.id);
   const createMutation = useCreateQuote(opportunity.id);
   const editMutation = useUpdateQuoteContent(opportunity.id);
@@ -60,7 +62,7 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
 
   async function handleTransition(quote: Quote, status: QuoteTransition) {
     const question = CONFIRM[status];
-    if (question && !window.confirm(question)) return;
+    if (question && !(await confirm(question, { confirmLabel: "Confirmar" }))) return;
     setActionError(null);
     try {
       await transitionMutation.mutateAsync({ id: quote.id, status });

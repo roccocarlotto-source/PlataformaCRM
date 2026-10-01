@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
+import { useConfirm } from "../../design-system/useConfirm";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -238,6 +239,7 @@ export interface StageEditorProps {
 }
 
 export function StageEditor({ pipelineId }: StageEditorProps) {
+  const confirm = useConfirm();
   const toast = useToast();
   const newHeadingId = useId();
 
@@ -273,8 +275,9 @@ export function StageEditor({ pipelineId }: StageEditorProps) {
     toast.show("Etapa guardada");
   }
 
-  function handleDelete(id: string) {
-    if (!window.confirm("¿Eliminar esta etapa?")) return;
+  async function handleDelete(id: string) {
+    if (!(await confirm("¿Eliminar esta etapa?", { confirmLabel: "Eliminar", danger: true })))
+      return;
     deleteStageMutation.mutate(id, { onSuccess: () => toast.show("Etapa eliminada") });
   }
 
