@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -174,7 +175,7 @@ export function ContactFormPage() {
   // en Contact. Guardar sigue al pie, como en el resto de los módulos.
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <h1>{isEditMode ? "Editar contacto" : "Nuevo contacto"}</h1>
+      <PageHeader title={isEditMode ? "Editar contacto" : "Nuevo contacto"} />
       <div className="ds-stack">
         <Card heading="Datos del contacto">
           <div className="ds-field-grid">

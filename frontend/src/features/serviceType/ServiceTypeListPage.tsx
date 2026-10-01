@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -72,13 +73,17 @@ export function ServiceTypeListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Tipos de servicio</h1>
-        <Link to="/service-types/new" className="ds-link-button">
-          <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-          Nuevo tipo de servicio
-        </Link>
-      </div>
+      <PageHeader
+        title="Tipos de servicio"
+        actions={
+          <>
+            <Link to="/service-types/new" className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nuevo tipo de servicio
+            </Link>
+          </>
+        }
+      />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

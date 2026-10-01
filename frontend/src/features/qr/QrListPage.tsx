@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, Eye, Info, Link2, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Button } from "../../design-system/Button";
 import { DetailList } from "../../design-system/DetailList";
@@ -136,15 +137,17 @@ export function QrListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Códigos QR</h1>
-        {isAdmin ? (
-          <Button variant="primary" onClick={() => setDialogo({ kind: "crear" })}>
-            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-            Generar QR digital
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Códigos QR"
+        actions={
+          isAdmin ? (
+            <Button variant="primary" onClick={() => setDialogo({ kind: "crear" })}>
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Generar QR digital
+            </Button>
+          ) : null
+        }
+      />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

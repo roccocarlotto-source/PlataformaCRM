@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { CurrencyInput } from "../../design-system/CurrencyInput";
@@ -490,7 +491,7 @@ export function OpportunityFormPage() {
   return (
     <>
       <form onSubmit={handleSubmit} className="ds-form">
-        <h1>{isEditMode ? "Editar oportunidad" : "Nueva oportunidad"}</h1>
+        <PageHeader title={isEditMode ? "Editar oportunidad" : "Nueva oportunidad"} />
         {isEditMode || isClosed(values.status) ? null : (
           <p className="ds-hint">Se crea abierta en la etapa elegida del embudo.</p>
         )}

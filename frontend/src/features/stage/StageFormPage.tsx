@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -125,7 +126,7 @@ export function StageFormPage() {
   // casillas al final. Rótulos, condiciones y handlers no cambian.
   return (
     <form onSubmit={handleSubmit} className="ds-form">
-      <h1>{isEditMode ? "Editar etapa" : "Nueva etapa"}</h1>
+      <PageHeader title={isEditMode ? "Editar etapa" : "Nueva etapa"} />
       <div className="ds-stack">
         <Card heading="Datos de la etapa">
           <div className="ds-field-grid">

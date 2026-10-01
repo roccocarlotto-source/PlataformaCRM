@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
 import { DetailList } from "../../design-system/DetailList";
@@ -59,15 +60,17 @@ export function PipelineListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Procesos de venta</h1>
-        {isAdmin ? (
-          <Link to="/pipelines/new" className="ds-link-button">
-            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-            Nuevo proceso de venta
-          </Link>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Procesos de venta"
+        actions={
+          isAdmin ? (
+            <Link to="/pipelines/new" className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nuevo proceso de venta
+            </Link>
+          ) : null
+        }
+      />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

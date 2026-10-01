@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../auth/AuthContext";
+import { Plus } from "lucide-react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -204,22 +206,23 @@ export function MyTasksPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <div>
-          <h1>Mis tareas</h1>
-          <p className="ds-page-subtitle">Actividades asignadas a vos, con o sin vencimiento.</p>
-        </div>
-        {meId ? (
-          // Nace asignada a quien la pide (ActivityFormPage lee assigneeId
-          // solo en creación; para un USER lo fija igual, B-18).
-          <Link
-            to={`/activities/new?assigneeId=${encodeURIComponent(meId)}`}
-            className="ds-link-button"
-          >
-            + Nueva tarea
-          </Link>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Mis tareas"
+        subtitle="Actividades asignadas a vos, con o sin vencimiento."
+        actions={
+          meId ? (
+            // Nace asignada a quien la pide (ActivityFormPage lee assigneeId
+            // solo en creación; para un USER lo fija igual, B-18).
+            <Link
+              to={`/activities/new?assigneeId=${encodeURIComponent(meId)}`}
+              className="ds-link-button"
+            >
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nueva tarea
+            </Link>
+          ) : null
+        }
+      />
 
       <h2 className="ds-filters-title">Filtros</h2>
       <div className="ds-filters">

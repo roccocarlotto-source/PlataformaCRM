@@ -332,7 +332,7 @@ describe("MyTasksPage", () => {
   });
 
   it.each(["ADMIN", "USER"] as const)(
-    "(e) B-18 '+ Nueva tarea' aparece para %s y navega con ?assigneeId=<yo>",
+    "(e) B-18 'Nueva tarea' aparece para %s y navega con ?assigneeId=<yo>",
     async (role) => {
       useAuthMock.mockReturnValue(mockAuth(role));
       const { handlers } = tasksHandlers(SAMPLE);
@@ -340,7 +340,7 @@ describe("MyTasksPage", () => {
 
       renderPage();
       await waitFor(() => expect(screen.getByText("Llamar a Andrés")).toBeInTheDocument());
-      expect(screen.getByText("+ Nueva tarea")).toHaveAttribute(
+      expect(screen.getByRole("link", { name: "Nueva tarea" })).toHaveAttribute(
         "href",
         "/activities/new?assigneeId=u1",
       );

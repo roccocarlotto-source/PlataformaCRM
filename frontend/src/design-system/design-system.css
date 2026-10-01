@@ -1609,6 +1609,36 @@ fieldset.ds-field {
   margin-bottom: 0;
 }
 
+/* PageHeader.tsx: título (con "volver" y subtítulo) a la izquierda, acciones a
+   la derecha. min-width: 0 para que un título largo se parta en vez de
+   empujar las acciones fuera de la pantalla. */
+.ds-page-header-main {
+  min-width: 0;
+}
+
+.ds-page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* "Volver" de una subpantalla: chico, apagado, arriba del título — se lee
+   como migas de pan y no compite con la acción principal. */
+.ds-page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.ds-page-back:hover {
+  color: var(--color-text);
+}
+
 /* ---------------------------------------------------------------------------
    AppLayout — el shell que envuelve toda pantalla autenticada. Sidebar fija
    a la izquierda + contenido a la derecha, en vez del header horizontal
@@ -4572,11 +4602,8 @@ a.ds-button--secondary:hover {
   margin: 0 auto;
 }
 
-.ds-internal-chat-title {
+.ds-page-fill > .ds-page-header {
   flex-shrink: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .ds-internal-chat .ds-chat {

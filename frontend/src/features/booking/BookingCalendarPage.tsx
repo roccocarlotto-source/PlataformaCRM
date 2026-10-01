@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -124,9 +125,7 @@ export function BookingCalendarPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Calendario</h1>
-      </div>
+      <PageHeader title="Calendario" />
 
       <div className="ds-list-card">
         <h2 className="ds-filters-title">Filtros</h2>

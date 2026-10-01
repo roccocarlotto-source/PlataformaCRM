@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -149,7 +150,7 @@ export function PipelineFormPage() {
   // regla .ds-field:has(input[type="checkbox"]) solo lo pone en fila.
   return (
     <div className="ds-form">
-      <h1>{isEditMode ? "Editar proceso de venta" : "Nuevo proceso de venta"}</h1>
+      <PageHeader title={isEditMode ? "Editar proceso de venta" : "Nuevo proceso de venta"} />
       <div className="ds-stack">
         <form onSubmit={handleSubmit} className="ds-stack">
           <Card heading="Datos del proceso de venta">

@@ -10,6 +10,7 @@ import {
 import { Bot } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -70,7 +71,7 @@ function enOrdenCronologico(paginas: { data: InternalAgentMessage[] }[]): Intern
 function ChatPage({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="ds-page-fill ds-internal-chat">
-      <h1 className="ds-internal-chat-title">{title}</h1>
+      <PageHeader title={title} />
       {children}
     </div>
   );

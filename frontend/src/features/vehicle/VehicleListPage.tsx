@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Car, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Avatar } from "../../design-system/Avatar";
 import { Badge } from "../../design-system/Badge";
@@ -112,15 +113,17 @@ export function VehicleListPage() {
 
   return (
     <div>
-      <div className="ds-page-header">
-        <h1>Stock de vehículos</h1>
-        {isAdmin ? (
-          <Link to="/vehicles/new" className="ds-link-button">
-            <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
-            Nueva unidad
-          </Link>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Stock de vehículos"
+        actions={
+          isAdmin ? (
+            <Link to="/vehicles/new" className="ds-link-button">
+              <Plus size={16} strokeWidth={1.5} aria-hidden="true" />
+              Nueva unidad
+            </Link>
+          ) : null
+        }
+      />
 
       <VehicleSummaryCards />
 

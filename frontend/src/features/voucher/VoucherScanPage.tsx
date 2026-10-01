@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
+import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
@@ -99,7 +100,7 @@ export function VoucherScanPage() {
 
   return (
     <div className="ds-voucher-scan">
-      <h1>Canjear cupón</h1>
+      <PageHeader title="Canjear cupón" />
       <div className="ds-voucher-scan-body">
         {sinCamara === null ? (
           <>
