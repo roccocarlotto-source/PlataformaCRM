@@ -73,6 +73,12 @@
   --color-success: #1f7a45;
   --color-success-soft: #e9f3ec;
 
+  /* Advertencia (Notice tone="warning"): ámbar oscuro sobre crema, para los
+     avisos que no son un error pero conviene leer antes de seguir. Texto
+     sobre su -soft por encima de 4.5:1. */
+  --color-warning: #8a5a00;
+  --color-warning-soft: #fbf3e2;
+
   --color-focus-ring: #3d47ad;
 
   /* Chevron de los <select> nativos: ChevronDown de lucide-react (el mismo de
@@ -155,6 +161,9 @@
 
   --color-success: #59c78a;
   --color-success-soft: #1c3327;
+
+  --color-warning: #e0b25c;
+  --color-warning-soft: #3a2f1a;
 
   --color-focus-ring: #a7aff0;
 

@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Notice } from "../../design-system/Notice";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -233,11 +234,11 @@ export function AgentPlaygroundPage() {
           advertencia del sistema que describe efectos irreversibles sobre
           datos reales, y que un lector de pantalla la anuncie antes que el
           resto es exactamente lo que se busca. */}
-      <p role="alert" className="ds-error">
+      <Notice tone="warning">
         Esto no es un entorno de prueba aislado: los mensajes generan una conversación real con el
         contacto que elijas, y si el agente tiene herramientas habilitadas puede crear
         oportunidades, calificar al lead o derivar la conversación a un vendedor de verdad.
-      </p>
+      </Notice>
 
       {sinCanales ? (
         // Sin canales no hay NADA con qué probar: el backend rechaza cualquier
@@ -278,11 +279,11 @@ export function AgentPlaygroundPage() {
             )}
 
             {!agent.isActive ? (
-              <p role="alert" className="ds-error">
+              <Notice tone="warning">
                 Este agente está desactivado y no responde mensajes.{" "}
                 <Link to={`/agents/${agent.id}/edit`}>Activalo en su configuración</Link> para poder
                 probarlo.
-              </p>
+              </Notice>
             ) : null}
           </Card>
 
