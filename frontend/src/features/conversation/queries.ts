@@ -9,7 +9,16 @@ import type { ConversationListQuery } from "./types";
 // Las mutaciones de esta feature (brief, cierre, responder) escriben su
 // respuesta en la cache del detalle (ver mutations.ts). Lo que cambia por
 // fuera —un turno del agente, un mensaje nuevo del cliente— ocurre del lado
-// del servidor y se ve al volver a abrir la conversación.
+// del servidor, y se trae con polling: cada 5 s el detalle abierto y cada
+// 10 s la lista. Sin refetchIntervalInBackground: con la pestaña oculta no
+// corre, y al volver a ella refetchOnWindowFocus ya la pone al día.
+//
+// El polling no pisa lo que el vendedor está escribiendo: el borrador de
+// "Responder" es estado local de ConversationReplyCard, que sigue montada
+// durante un refetch (ver la cabecera de ConversationDetail).
+export const DETAIL_REFETCH_MS = 5_000;
+export const LIST_REFETCH_MS = 10_000;
+
 export const conversationKeys = {
   all: ["conversations"] as const,
   lists: () => [...conversationKeys.all, "list"] as const,
@@ -23,6 +32,7 @@ export function useConversations(query: ConversationListQuery, options?: { enabl
     queryKey: conversationKeys.list(query),
     queryFn: ({ signal }) => listConversations(query, signal),
     enabled: options?.enabled,
+    refetchInterval: LIST_REFETCH_MS,
   });
 }
 
@@ -33,5 +43,6 @@ export function useConversation(id: string | undefined) {
     queryKey: conversationKeys.detail(id ?? ""),
     queryFn: ({ signal }) => getConversation(id ?? "", signal),
     enabled: id !== undefined,
+    refetchInterval: DETAIL_REFETCH_MS,
   });
 }

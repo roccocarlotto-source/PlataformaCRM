@@ -144,7 +144,9 @@ export function ConversationListPage() {
 
         {conversationsQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
-        {conversationsQuery.isError ? (
+        {/* Con la lista ya cargada, un refetch del polling que falla no la
+            tapa: se sigue viendo lo último que llegó (ver queries.ts). */}
+        {conversationsQuery.isError && !conversationsQuery.data ? (
           <ErrorState>
             No pudimos cargar las conversaciones
             {conversationsQuery.error instanceof Error
@@ -153,11 +155,11 @@ export function ConversationListPage() {
           </ErrorState>
         ) : null}
 
-        {conversationsQuery.isSuccess && conversations.length === 0 ? (
+        {conversationsQuery.data && conversations.length === 0 ? (
           <EmptyState>No hay conversaciones para mostrar.</EmptyState>
         ) : null}
 
-        {conversationsQuery.isSuccess && conversations.length > 0 ? (
+        {conversationsQuery.data && conversations.length > 0 ? (
           <Table>
             <thead>
               <tr>

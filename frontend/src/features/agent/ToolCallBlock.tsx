@@ -13,10 +13,10 @@ import type { TestMessageToolCall } from "./types";
 // escondería justo lo que se vino a mirar.
 //
 // EN ARCHIVO PROPIO desde el ítem 66: nació dentro de AgentPlaygroundPage
-// (ítem 65) y ahora lo usan dos pantallas —el probador, con las tool calls
-// que devuelve el turno, y el detalle de una conversación, con las que
-// quedaron guardadas en Message.toolCalls—. Es el MISMO dato: runAgentTurn
-// persiste exactamente lo que devuelve. El marcado no cambió al mudarse.
+// (ítem 65) y lo usaba también el detalle de una conversación, con las tool
+// calls guardadas en Message.toolCalls. Ya no: ese hilo lo lee el equipo
+// comercial y mostraba resultados crudos (códigos internos, precios de
+// lista). Hoy lo usa solo el probador, que es donde sirve para depurar.
 // ---------------------------------------------------------------------------
 export function ToolCallBlock({ llamada }: { llamada: TestMessageToolCall }) {
   return (
