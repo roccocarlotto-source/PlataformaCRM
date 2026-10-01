@@ -31,6 +31,7 @@ export function makeConversation(overrides: Partial<Conversation> = {}): Convers
     contact: { id: "contact-1", firstName: "Ana", lastName: "Pérez" },
     agent: { id: "agent-1", name: "Vera" },
     branch: { id: "branch-1", name: "Centro" },
+    humanRequestUnanswered: false,
     ...overrides,
   };
 }

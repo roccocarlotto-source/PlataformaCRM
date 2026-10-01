@@ -187,7 +187,7 @@ export function createConversationReplyHandlers(
 
     returnToAgent: asyncHandler<AuthenticatedRequest>(async (req, res: Response) => {
       const id = parseOrThrow(idParamSchema, req.params.id);
-      const conversation = await devolverAlAgente(actorDe(req), req.auth.organizationId, id);
+      const conversation = await devolverAlAgente(actorDe(req), req.auth.organizationId, id, deps);
       res.status(200).json(conversation);
     }),
   };

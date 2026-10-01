@@ -1,17 +1,21 @@
 import type { Conversation, Message } from "@prisma/client";
 import { env } from "../config/env";
 import { logger } from "../lib/logger";
-import { prisma } from "../lib/prisma";
+import { prisma, type Db } from "../lib/prisma";
+import { createActivity } from "../repositories/activity.repository";
 import { findAgentById } from "../repositories/agent.repository";
+import { findContactById } from "../repositories/contact.repository";
 import {
   findConversationById,
   returnConversationToAgent,
   takeOverConversation,
+  updateConversation,
 } from "../repositories/conversation.repository";
 import {
   createMessage,
   findLastInboundAt,
   findMessageById,
+  humanSpokeLast,
   markMessageDelivery,
 } from "../repositories/message.repository";
 import type { RoleName } from "../types/auth";
@@ -20,6 +24,14 @@ import { describirError } from "../utils/backoff";
 import { finDeLaVentanaDeWhatsapp, ventanaDeWhatsappAbierta } from "../utils/ventanaDeWhatsapp";
 import { conLockDeConversacion } from "./agentOrchestration.service";
 import { getConversationById } from "./conversation.service";
+import {
+  AVISO_SIN_RESPUESTA,
+  asuntoDeTareaSinRespuesta,
+  debeAvisarAlDevolver,
+  entregaDelAviso,
+  findAdminParaLaTarea,
+  findTareaAbiertaDelPedido,
+} from "./avisoSinRespuesta.service";
 import { aplicarEstadosRetenidos } from "./estadosDeEntregaRetenidos.service";
 import {
   WhatsappGraphError,
@@ -144,21 +156,35 @@ async function validarQueSePuedeResponder(conversation: Conversation, actor: Act
   if (motivo !== null) {
     throw new AppError(motivo, 409);
   }
+  const destino = await destinoDeWhatsapp(conversation);
+  if ("motivo" in destino) {
+    throw new AppError(destino.motivo, 409);
+  }
+  return destino;
+}
+
+// Desde qué número y a qué número sale un WhatsApp de esta conversación, o por
+// qué no se puede. Sin lanzar: responder lo convierte en 409, y el aviso de
+// devolver (que no puede fallar por esto) en un FAILED con el motivo.
+async function destinoDeWhatsapp(
+  conversation: Conversation,
+): Promise<{ phoneNumberId: string; to: string } | { motivo: string }> {
   const agente = await findAgentById(conversation.agentId, conversation.organizationId);
   if (!agente?.whatsappPhoneNumberId) {
-    throw new AppError("El agente de esta conversación ya no tiene un número de WhatsApp", 409);
+    return { motivo: "El agente de esta conversación ya no tiene un número de WhatsApp" };
   }
   if (!conversation.externalThreadId) {
-    throw new AppError("La conversación no tiene el número del cliente", 409);
+    return { motivo: "La conversación no tiene el número del cliente" };
   }
   return { phoneNumberId: agente.whatsappPhoneNumberId, to: conversation.externalThreadId };
 }
 
-// Manda un Message HUMAN ya persistido y deja el resultado en la fila: SENT con
+// Manda un Message saliente ya persistido (la respuesta de una persona, o el
+// aviso de devolver al agente) y deja el resultado en la fila: SENT con
 // el wamid, o FAILED con el motivo. NUNCA lanza por un fallo de Meta: el
 // mensaje queda a la vista con "No se pudo enviar" y su botón de reintento, y
 // el request responde la conversación como quedó.
-async function enviarMensajeHumano(
+async function enviarPorWhatsapp(
   mensaje: Pick<Message, "id" | "organizationId" | "content">,
   destino: { phoneNumberId: string; to: string },
   deps: DepsDeRespuestaHumana,
@@ -185,7 +211,7 @@ async function enviarMensajeHumano(
   } catch (err) {
     logger.warn(
       { err, organizationId: mensaje.organizationId, messageId: mensaje.id },
-      "No se pudo enviar por WhatsApp la respuesta de una persona desde el CRM",
+      "No se pudo enviar por WhatsApp un mensaje desde el CRM",
     );
     await markMessageDelivery(mensaje.id, mensaje.organizationId, {
       status: "FAILED",
@@ -247,7 +273,7 @@ export async function responderDesdeElCrm(
       return creado;
     });
 
-    await enviarMensajeHumano(mensaje, destino, deps);
+    await enviarPorWhatsapp(mensaje, destino, deps);
   });
 
   return getConversationById(organizationId, conversationId);
@@ -277,18 +303,122 @@ export async function reintentarRespuestaDesdeElCrm(
     const destino = await validarQueSePuedeResponder(vigente, actor);
 
     await markMessageDelivery(mensaje.id, organizationId, { status: "PENDING" });
-    await enviarMensajeHumano(mensaje, destino, deps);
+    await enviarPorWhatsapp(mensaje, destino, deps);
   });
 
   return getConversationById(organizationId, conversationId);
 }
 
 // "Devolver al agente": la conversación vuelve a ACTIVE y el agente contesta
-// el próximo mensaje del cliente. No le manda nada al cliente ni contesta lo
-// que haya quedado sin respuesta: retoma cuando el cliente vuelva a escribir.
-// Idempotente: devolver una que no está derivada deja todo igual (200).
-export async function devolverAlAgente(actor: Actor, organizationId: string, id: string) {
-  await conversacionQueAtiende(actor, organizationId, id);
-  await returnConversationToAgent(id, organizationId);
+// el próximo mensaje del cliente. Idempotente: devolver una que no está
+// derivada deja todo igual (200).
+//
+// SI NINGUNA PERSONA LE RESPONDIÓ desde la derivación, además (ver
+// avisoSinRespuesta.service.ts): el cliente recibe el aviso fijo por el mismo
+// canal, y la tarea queda pendiente —la de la derivación, o una nueva para un
+// ADMIN si no había—. Si una persona sí le escribió, todo queda como antes.
+//
+// Bajo el MISMO lock que responder y que los turnos del agente: "¿respondió
+// alguien?" se lee sin que una respuesta o un turno se cuelen en el medio. La
+// devolución, el aviso y la tarea van en una transacción, con el CAS de
+// returnConversationToAgent: devolver dos veces seguidas manda un solo aviso.
+// El envío sale después, como en responder.
+export async function devolverAlAgente(
+  actor: Actor,
+  organizationId: string,
+  id: string,
+  deps: DepsDeRespuestaHumana = depsDeRespuestaHumanaReales,
+) {
+  const inicial = await conversacionQueAtiende(actor, organizationId, id);
+
+  await conLockDeConversacion(claveDe(inicial), async () => {
+    const vigente = (await findConversationById(id, organizationId)) ?? inicial;
+    const avisar = debeAvisarAlDevolver({
+      status: vigente.status,
+      humanoRespondio:
+        vigente.status === "TRANSFERRED_TO_HUMAN" && (await humanSpokeLast(id, organizationId)),
+    });
+    const entrega = entregaDelAviso(
+      vigente.channel,
+      finDeLaVentanaDeWhatsapp(await findLastInboundAt(id, organizationId)),
+    );
+    const destino = entrega.tipo === "whatsapp" ? await destinoDeWhatsapp(vigente) : null;
+
+    const aviso = await prisma.$transaction(async (tx) => {
+      const devuelta = await returnConversationToAgent(id, organizationId, tx);
+      if (devuelta.count !== 1 || !avisar) {
+        return null;
+      }
+
+      if (!(await findTareaAbiertaDelPedido(organizationId, vigente.contactId, tx))) {
+        await crearTareaSinRespuesta(actor, vigente, tx);
+      }
+
+      const motivoSinEnvio =
+        entrega.tipo === "no-se-envia"
+          ? entrega.motivo
+          : destino && "motivo" in destino
+            ? destino.motivo
+            : null;
+      const creado = await createMessage(
+        {
+          organizationId,
+          conversationId: id,
+          direction: "OUTBOUND",
+          senderType: "AUTOMATION",
+          content: AVISO_SIN_RESPUESTA,
+          ...(motivoSinEnvio !== null
+            ? { deliveryStatus: "FAILED" as const, deliveryError: motivoSinEnvio }
+            : entrega.tipo === "whatsapp"
+              ? { deliveryStatus: "PENDING" as const }
+              : {}),
+        },
+        tx,
+      );
+      await updateConversation(id, organizationId, { lastMessageAt: creado.createdAt }, tx);
+      if (motivoSinEnvio !== null) {
+        logger.warn(
+          { organizationId, conversationId: id, motivo: motivoSinEnvio },
+          "Devuelta al agente sin respuesta de una persona: el aviso al cliente no se envió",
+        );
+      }
+      return { mensaje: creado, enviar: motivoSinEnvio === null && entrega.tipo === "whatsapp" };
+    });
+
+    if (aviso?.enviar && destino && !("motivo" in destino)) {
+      await enviarPorWhatsapp(aviso.mensaje, destino, deps);
+    }
+  });
+
   return getConversationById(organizationId, id);
+}
+
+// La tarea cuando la derivación no dejó ninguna abierta (no había vendedor, o
+// ya la completaron sin escribirle al cliente): para un ADMIN activo, con el
+// contacto, para que alguien lo llame.
+async function crearTareaSinRespuesta(actor: Actor, conversation: Conversation, tx: Db) {
+  const { organizationId, contactId } = conversation;
+  const adminId = await findAdminParaLaTarea(organizationId, actor, tx);
+  if (!adminId) {
+    logger.warn(
+      { organizationId, conversationId: conversation.id, contactId },
+      "Devuelta al agente sin respuesta y sin un ADMIN activo: no se crea la tarea",
+    );
+    return;
+  }
+  const contacto = await findContactById(contactId, organizationId, tx);
+  const nombre = contacto ? `${contacto.firstName} ${contacto.lastName}`.trim() : "el contacto";
+  await createActivity(
+    {
+      organizationId,
+      authorId: actor.userId,
+      type: "TASK",
+      assigneeId: adminId,
+      companyId: null,
+      contactId,
+      opportunityId: null,
+      subject: asuntoDeTareaSinRespuesta(nombre),
+    },
+    tx,
+  );
 }

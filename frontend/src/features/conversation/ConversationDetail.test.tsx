@@ -942,4 +942,24 @@ describe("ConversationDetail", () => {
       "Conversación no encontrada",
     );
   });
+
+  it("la marca de pedido sin responder aparece al lado del estado, y sin ella no", async () => {
+    server.use(
+      http.get(detailUrl, () =>
+        HttpResponse.json(makeConversationDetail({ humanRequestUnanswered: true }, HILO)),
+      ),
+    );
+
+    const { unmount } = renderDetail();
+
+    expect(await screen.findByText("Pidió hablar con una persona · sin responder")).toHaveClass(
+      "ds-badge",
+    );
+    unmount();
+
+    server.use(http.get(detailUrl, () => HttpResponse.json(makeConversationDetail({}, HILO))));
+    renderDetail();
+    await screen.findByText("Activa");
+    expect(screen.queryByText("Pidió hablar con una persona · sin responder")).toBeNull();
+  });
 });

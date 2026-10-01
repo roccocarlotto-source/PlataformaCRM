@@ -3,6 +3,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { ErrorState } from "../../design-system/ErrorState";
+import { Modal } from "../../design-system/Modal";
 import { formatDateTime } from "../../design-system/detailFormat";
 import { useReplyToConversation, useReturnConversationToAgent } from "./mutations";
 import { puedeAtender } from "./permissions";
@@ -32,6 +33,15 @@ import type { ConversationDetail } from "./types";
 export const AVISO_VENTANA_VENCIDA =
   "Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp solo permite plantillas aprobadas.";
 
+// "Devolver al agente" sin haberle respondido al cliente: el backend le manda
+// el aviso fijo y deja la tarea pendiente (avisoSinRespuesta.service.ts), así
+// que antes se confirma. En un Modal del design system con acción principal
+// —el mismo patrón que la confirmación de AgentFormPage—, no un confirm()
+// nativo: el panel no se cierra con un click afuera ni con Escape, así que
+// devolver o no es siempre un click explícito.
+export const CONFIRMAR_DEVOLVER_SIN_RESPONDER =
+  "No le respondiste al cliente. Se le va a avisar que lo contactan más tarde y la tarea queda pendiente. ¿Devolver igual?";
+
 export interface ConversationReplyCardProps {
   conversation: ConversationDetail;
   // Inyectable para los tests; en la pantalla, la hora real.
@@ -43,6 +53,7 @@ export function ConversationReplyCard({
   ahora = () => Date.now(),
 }: ConversationReplyCardProps) {
   const [texto, setTexto] = useState("");
+  const [confirmandoDevolver, setConfirmandoDevolver] = useState(false);
   const { me } = useAuth();
   const responder = useReplyToConversation(conversation.id);
   const devolver = useReturnConversationToAgent(conversation.id);
@@ -67,6 +78,24 @@ export function ConversationReplyCard({
     // lo escrito sigue ahí para no perderlo. Un rechazo de Meta NO es un fallo
     // del request: el mensaje ya está en el hilo con su reintento.
     responder.mutate(limpio, { onSuccess: () => setTexto("") });
+  }
+
+  // Derivada y con el agente sin pausar = ninguna persona le escribió desde la
+  // derivación (agentPaused es humanoAtiendeLaConversacion, la misma regla que
+  // usa el backend para decidir si avisa).
+  const sinResponder = conversation.status === "TRANSFERRED_TO_HUMAN" && !conversation.agentPaused;
+
+  function handleDevolver() {
+    if (sinResponder) {
+      setConfirmandoDevolver(true);
+      return;
+    }
+    devolver.mutate();
+  }
+
+  function confirmarDevolver() {
+    setConfirmandoDevolver(false);
+    devolver.mutate();
   }
 
   function aviso(): string | null {
@@ -121,11 +150,7 @@ export function ConversationReplyCard({
         {atiende ? (
           <div className="ds-card-actions">
             {conversation.status === "TRANSFERRED_TO_HUMAN" ? (
-              <Button
-                onClick={() => devolver.mutate()}
-                disabled={enCurso}
-                loading={devolver.isPending}
-              >
+              <Button onClick={handleDevolver} disabled={enCurso} loading={devolver.isPending}>
                 {devolver.isPending ? "Devolviendo…" : "Devolver al agente"}
               </Button>
             ) : null}
@@ -147,6 +172,16 @@ export function ConversationReplyCard({
             No se pudo enviar
             {responder.error instanceof Error ? `: ${responder.error.message}` : "."}
           </ErrorState>
+        ) : null}
+        {confirmandoDevolver ? (
+          <Modal
+            title="Devolver al agente"
+            closeLabel="Cancelar"
+            onClose={() => setConfirmandoDevolver(false)}
+            primaryAction={{ label: "Devolver igual", onClick: confirmarDevolver }}
+          >
+            <p>{CONFIRMAR_DEVOLVER_SIN_RESPONDER}</p>
+          </Modal>
         ) : null}
         {devolver.error ? (
           <ErrorState>

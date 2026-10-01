@@ -12,7 +12,8 @@ import { notFound } from "../middlewares/notFound";
 import { applyDeliveryStatusByExternalId } from "../repositories/message.repository";
 import { findRoleByName } from "../repositories/role.repository";
 import { createConversationRouter } from "../routes/conversation.routes";
-import { runAgentTurn } from "../services/agentOrchestration.service";
+import { PREFIJO_TAREA_DE_DERIVACION, runAgentTurn } from "../services/agentOrchestration.service";
+import { AVISO_SIN_RESPUESTA, MOTIVO_VENTANA_CERRADA } from "../services/avisoSinRespuesta.service";
 import {
   MENSAJE_CANAL_NO_SOPORTADO,
   MENSAJE_CERRADA,
@@ -40,6 +41,8 @@ import { WhatsappGraphError, type SendWhatsappTextInput } from "../services/what
 //      sobre el MISMO mensaje.
 //   5. El agente se calla mientras una persona atiende, y "Devolver al agente"
 //      lo reactiva.
+//   6. Devolver sin haberle respondido al cliente: el aviso, la tarea y la
+//      marca (avisoSinRespuesta.service.ts).
 //
 // Cada organización de este archivo es propia (los archivos de integración
 // corren en paralelo contra una base compartida).
@@ -645,4 +648,174 @@ test("devolver una cerrada no la reabre", async () => {
   );
   assert.equal(res.status, 200);
   assert.equal(((await res.json()) as Detalle).status, "CLOSED");
+});
+
+// ---------------------------------------------------------------------------
+// 6. "Devolver al agente" sin haberle respondido al cliente
+// ---------------------------------------------------------------------------
+
+interface DetalleConMarca extends Detalle {
+  humanRequestUnanswered: boolean;
+}
+
+function avisos(detalle: Detalle) {
+  return detalle.messages.filter(
+    (m) => m.senderType === "AUTOMATION" && m.content === AVISO_SIN_RESPUESTA,
+  );
+}
+
+async function devolver(token: string, conversationId: string) {
+  const res = await call("POST", `/api/conversations/${conversationId}/return-to-agent`, token);
+  assert.equal(res.status, 200, await res.clone().text());
+  return (await res.json()) as DetalleConMarca;
+}
+
+async function detalleDe(conversationId: string) {
+  const res = await call("GET", `/api/conversations/${conversationId}`, admin.accessToken);
+  return (await res.json()) as DetalleConMarca;
+}
+
+async function marcaEnElListado(contactId: string): Promise<boolean> {
+  const res = await call("GET", `/api/conversations?contactId=${contactId}`, admin.accessToken);
+  const body = (await res.json()) as { data: { humanRequestUnanswered: boolean }[] };
+  assert.equal(body.data.length, 1);
+  return body.data[0].humanRequestUnanswered;
+}
+
+// La tarea que deja una derivación con vendedor (crearActivityDeAviso).
+function tareaDeDerivacion(contactId: string, assigneeId: string) {
+  return prisma.activity.create({
+    data: {
+      organizationId: orgId,
+      authorId: assigneeId,
+      assigneeId,
+      contactId,
+      type: "TASK",
+      subject: `${PREFIJO_TAREA_DE_DERIVACION}Vera: Cliente`,
+    },
+  });
+}
+
+function tareasDelContacto(contactId: string) {
+  return prisma.activity.findMany({ where: { organizationId: orgId, contactId } });
+}
+
+test("devolver sin responder: el cliente recibe el aviso, la tarea sigue abierta y aparece la marca", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  const tarea = await tareaDeDerivacion(conv.contactId, vendedor.userId);
+  const antes = envios.length;
+
+  const detalle = await devolver(vendedor.accessToken, conv.id);
+
+  assert.equal(detalle.status, "ACTIVE", "el agente sigue atendiendo");
+  assert.equal(envios.length, antes + 1);
+  const envio = envios.at(-1)!;
+  assert.equal(envio.body, AVISO_SIN_RESPUESTA, "texto fijo, no del modelo");
+  assert.equal(envio.phoneNumberId, phoneNumberId);
+  assert.equal(envio.to, conv.waId);
+  const [aviso] = avisos(detalle);
+  assert.equal(aviso.direction, "OUTBOUND");
+  assert.equal(aviso.deliveryStatus, "SENT");
+  assert.match(aviso.externalMessageId ?? "", /^wamid\./);
+  assert.equal(detalle.humanRequestUnanswered, true);
+  assert.equal(await marcaEnElListado(conv.contactId), true);
+
+  const tareas = await tareasDelContacto(conv.contactId);
+  assert.equal(tareas.length, 1, "la tarea de la derivación no se duplica");
+  assert.equal(tareas[0].id, tarea.id);
+  assert.equal(tareas[0].completedAt, null, "y no se toca");
+
+  // Completar la tarea apaga la marca.
+  await prisma.activity.update({ where: { id: tarea.id }, data: { completedAt: new Date() } });
+  assert.equal((await detalleDe(conv.id)).humanRequestUnanswered, false);
+  assert.equal(await marcaEnElListado(conv.contactId), false);
+});
+
+test("devolver dos veces seguidas manda un solo aviso", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  await tareaDeDerivacion(conv.contactId, vendedor.userId);
+  const antes = envios.length;
+
+  await devolver(vendedor.accessToken, conv.id);
+  const segunda = await devolver(vendedor.accessToken, conv.id);
+
+  assert.equal(envios.length, antes + 1);
+  assert.equal(avisos(segunda).length, 1);
+  assert.equal((await tareasDelContacto(conv.contactId)).length, 1);
+});
+
+test("si una persona ya le había respondido, devolver queda como antes: sin aviso ni marca", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+  await responder(vendedor.accessToken, conv.id, "Hola, te atiendo yo");
+  const antes = envios.length;
+
+  const detalle = await devolver(vendedor.accessToken, conv.id);
+
+  assert.equal(detalle.status, "ACTIVE");
+  assert.equal(envios.length, antes);
+  assert.equal(avisos(detalle).length, 0);
+  assert.equal(detalle.humanRequestUnanswered, false);
+  assert.equal((await tareasDelContacto(conv.contactId)).length, 0);
+});
+
+test("con la ventana de 24 h cerrada el aviso no sale: queda FAILED con el motivo, y la marca igual", async () => {
+  const conv = await crearConversacion({
+    assignedUserId: vendedor.userId,
+    ultimoEntranteHace: 25 * HORA,
+  });
+  await tareaDeDerivacion(conv.contactId, vendedor.userId);
+  const antes = envios.length;
+
+  const detalle = await devolver(vendedor.accessToken, conv.id);
+
+  assert.equal(envios.length, antes, "no se le pide nada a Meta");
+  const [aviso] = avisos(detalle);
+  assert.equal(aviso.deliveryStatus, "FAILED");
+  assert.equal(aviso.deliveryError, MOTIVO_VENTANA_CERRADA);
+  assert.equal(detalle.status, "ACTIVE");
+  assert.equal(detalle.humanRequestUnanswered, true);
+});
+
+test("sin vendedor (derivación sin tarea): se crea una para el ADMIN, y la marca se va cuando una persona escribe", async () => {
+  const conv = await crearConversacion({ assignedUserId: null });
+
+  const detalle = await devolver(admin.accessToken, conv.id);
+  assert.equal(avisos(detalle).length, 1);
+  assert.equal(detalle.humanRequestUnanswered, true);
+
+  const [tarea] = await tareasDelContacto(conv.contactId);
+  assert.equal(tarea.type, "TASK");
+  assert.equal(tarea.assigneeId, admin.userId);
+  assert.equal(tarea.completedAt, null);
+  assert.match(
+    tarea.subject,
+    /^Contactar a Cliente .+: pidió hablar con una persona y nadie respondió$/,
+  );
+
+  assert.equal((await responder(admin.accessToken, conv.id, "Hola, ya te llamo")).status, 201);
+  assert.equal((await detalleDe(conv.id)).humanRequestUnanswered, false);
+  assert.equal(await marcaEnElListado(conv.contactId), false);
+});
+
+test("un vendedor que devuelve sin tarea abierta: la nueva tarea va a un ADMIN activo", async () => {
+  const conv = await crearConversacion({ assignedUserId: vendedor.userId });
+
+  await devolver(vendedor.accessToken, conv.id);
+
+  const [tarea] = await tareasDelContacto(conv.contactId);
+  assert.equal(tarea.assigneeId, admin.userId);
+  assert.equal(tarea.authorId, vendedor.userId);
+});
+
+test("Web: el aviso se guarda en el hilo, sin envío ni estado de entrega", async () => {
+  const conv = await crearConversacion({ channel: "WEB", assignedUserId: vendedor.userId });
+  await tareaDeDerivacion(conv.contactId, vendedor.userId);
+  const antes = envios.length;
+
+  const detalle = await devolver(vendedor.accessToken, conv.id);
+
+  assert.equal(envios.length, antes);
+  const [aviso] = avisos(detalle);
+  assert.equal(aviso.deliveryStatus, null);
+  assert.equal(detalle.humanRequestUnanswered, true);
 });

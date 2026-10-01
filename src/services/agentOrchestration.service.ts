@@ -1174,6 +1174,12 @@ export async function ejecutarHandoff(input: HandoffInput): Promise<{ activityId
   return { activityId };
 }
 
+// El comienzo del asunto de la Activity de aviso. Exportado porque la marca
+// "pidió hablar con una persona · sin responder" (avisoSinRespuesta.service.ts)
+// encuentra esta tarea por el asunto: Activity no guarda a qué conversación
+// pertenece, solo contactId.
+export const PREFIJO_TAREA_DE_DERIVACION = "Conversación derivada por el agente ";
+
 // La Activity de aviso, extraída de ejecutarHandoff con el ítem 73 y sin un
 // solo cambio de comportamiento: los dos caminos que antes hacían `return`
 // temprano —sin vendedor, o con la creación fallando— ahora devuelven null
@@ -1197,7 +1203,7 @@ async function crearActivityDeAviso(
     const nombre = `${contact.firstName} ${contact.lastName}`.trim();
     const activity = await createActivity(organizationId, ownerId, {
       type: "TASK",
-      subject: `Conversación derivada por el agente ${input.agentName}: ${nombre}`.slice(0, 255),
+      subject: `${PREFIJO_TAREA_DE_DERIVACION}${input.agentName}: ${nombre}`.slice(0, 255),
       body: motivo,
       assigneeId: ownerId,
       contactId: contact.id,

@@ -83,6 +83,11 @@ export interface Conversation {
   contact: ConversationContactRef;
   agent: ConversationAgentRef;
   branch: ConversationBranchRef;
+  // Se la devolvieron al agente sin que nadie le escribiera al cliente, que
+  // había pedido hablar con una persona, y sigue sin respuesta: hasta que una
+  // persona le escriba o se complete la tarea. Lo calcula el backend (ver
+  // avisoSinRespuesta.service.ts), en el listado y en el detalle.
+  humanRequestUnanswered: boolean;
 }
 
 // `toolCalls` es Json? en la base y NADIE le impone una forma: lo escribe
