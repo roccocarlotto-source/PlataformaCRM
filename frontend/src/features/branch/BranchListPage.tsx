@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { MapPin, Plus } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -128,7 +128,7 @@ export function BranchListPage() {
         ) : null}
 
         {branchesQuery.isSuccess && branchesQuery.data.data.length === 0 ? (
-          <EmptyState>No hay sucursales para mostrar.</EmptyState>
+          <EmptyState title="No hay sucursales para mostrar" icon={MapPin} />
         ) : null}
 
         {branchesQuery.isSuccess && branchesQuery.data.data.length > 0 ? (

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus, RefreshCw } from "lucide-react";
+import { BookOpen, Plus, RefreshCw } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -339,7 +339,7 @@ export function KnowledgeBaseListPage() {
         ) : null}
 
         {entriesQuery.isSuccess && entries.length === 0 ? (
-          <EmptyState>No hay entradas para mostrar.</EmptyState>
+          <EmptyState title="No hay entradas para mostrar" icon={BookOpen} />
         ) : null}
 
         {entriesQuery.isSuccess && entries.length > 0 ? (

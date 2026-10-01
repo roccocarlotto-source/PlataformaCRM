@@ -115,7 +115,7 @@ describe("BookingListPage", () => {
     );
     renderPage();
 
-    expect(await screen.findByText("No hay reservas para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay reservas para mostrar")).toBeInTheDocument();
     const url = urls.at(-1);
     expect(url?.searchParams.get("from")).toBe(fechaAInstante(hoyComoFecha(), false));
     expect(url?.searchParams.has("to")).toBe(false);
@@ -132,7 +132,7 @@ describe("BookingListPage", () => {
     );
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText("No hay reservas para mostrar.");
+    await screen.findByText("No hay reservas para mostrar");
 
     await chooseSelectOption(user, await screen.findByLabelText("Sucursal"), "Sucursal Santiago");
     await chooseSelectOption(user, await screen.findByLabelText("Recurso"), "Sala de yoga");
@@ -164,7 +164,7 @@ describe("BookingListPage", () => {
     );
     const user = userEvent.setup();
     renderPage();
-    await screen.findByText("No hay reservas para mostrar.");
+    await screen.findByText("No hay reservas para mostrar");
 
     await user.clear(screen.getByLabelText("Desde"));
     await waitFor(() => expect(urls.at(-1)?.searchParams.has("from")).toBe(false));

@@ -138,7 +138,7 @@ describe("ActivityListPage", () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay actividades para mostrar.")).toBeInTheDocument(),
+      expect(screen.getByText("No hay actividades para mostrar")).toBeInTheDocument(),
     );
   });
 

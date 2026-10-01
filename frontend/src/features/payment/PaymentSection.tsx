@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { EmptyState } from "../../design-system/EmptyState";
 import { Button } from "../../design-system/Button";
 import { Card } from "../../design-system/Card";
 import { CurrencyInput } from "../../design-system/CurrencyInput";
@@ -117,7 +118,7 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
           ) : (
             <>
               {payments.length === 0 ? (
-                <p className="ds-hint">Todavía no se registraron pagos.</p>
+                <EmptyState>Todavía no se registraron pagos.</EmptyState>
               ) : (
                 <ul className="ds-payment-list" aria-label="Pagos registrados">
                   {payments.map((payment) =>

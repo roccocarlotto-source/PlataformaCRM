@@ -192,7 +192,7 @@ describe("IngestionEventListPage — listado", () => {
       ),
     );
     renderPage();
-    expect(await screen.findByText("No hay eventos para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay eventos para mostrar")).toBeInTheDocument();
   });
 });
 

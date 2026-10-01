@@ -132,7 +132,7 @@ describe("CompanyListPage", () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay empresas para mostrar.")).toBeInTheDocument(),
+      expect(screen.getByText("No hay empresas para mostrar")).toBeInTheDocument(),
     );
   });
 

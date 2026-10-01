@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CalendarDays } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { Button } from "../../design-system/Button";
@@ -213,7 +214,7 @@ export function BookingListPage() {
         ) : null}
 
         {bookingsQuery.isSuccess && bookings.length === 0 ? (
-          <EmptyState>No hay reservas para mostrar.</EmptyState>
+          <EmptyState title="No hay reservas para mostrar" icon={CalendarDays} />
         ) : null}
 
         {bookingsQuery.isSuccess && bookings.length > 0 ? (

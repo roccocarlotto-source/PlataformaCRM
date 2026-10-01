@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Key } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
@@ -237,7 +238,7 @@ export function ApiKeyListPage() {
         ) : null}
 
         {apiKeysQuery.isSuccess && apiKeysQuery.data.data.length === 0 ? (
-          <EmptyState>No hay claves para mostrar.</EmptyState>
+          <EmptyState title="No hay claves para mostrar" icon={Key} />
         ) : null}
 
         {apiKeysQuery.isSuccess && apiKeysQuery.data.data.length > 0 ? (

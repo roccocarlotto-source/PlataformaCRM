@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { UserCog } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -265,7 +266,7 @@ export function UserListPage() {
       ) : null}
 
       {usersQuery.isSuccess && rows.length === 0 ? (
-        <EmptyState>No hay usuarios para mostrar.</EmptyState>
+        <EmptyState title="No hay usuarios para mostrar" icon={UserCog} />
       ) : null}
 
       {usersQuery.isSuccess && rows.length > 0 ? (

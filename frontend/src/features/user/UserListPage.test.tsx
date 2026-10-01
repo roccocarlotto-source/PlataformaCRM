@@ -93,7 +93,7 @@ describe("UserListPage", () => {
     renderPage();
 
     await waitFor(() =>
-      expect(screen.getByText("No hay usuarios para mostrar.")).toBeInTheDocument(),
+      expect(screen.getByText("No hay usuarios para mostrar")).toBeInTheDocument(),
     );
   });
 

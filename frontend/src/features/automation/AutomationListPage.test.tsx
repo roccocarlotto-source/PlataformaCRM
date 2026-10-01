@@ -327,7 +327,7 @@ describe("AutomationListPage", () => {
       ),
     );
     renderPage();
-    expect(await screen.findByText("No hay automatizaciones para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay automatizaciones para mostrar")).toBeInTheDocument();
   });
 });
 

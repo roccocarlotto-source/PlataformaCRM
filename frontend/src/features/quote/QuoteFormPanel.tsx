@@ -1,4 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
+import { EmptyState } from "../../design-system/EmptyState";
 import { Button } from "../../design-system/Button";
 import { CurrencyInput } from "../../design-system/CurrencyInput";
 import { ErrorState } from "../../design-system/ErrorState";
@@ -131,7 +132,7 @@ export function QuoteFormPanel({
         <fieldset className="ds-field">
           <legend className="ds-field-label">Accesorios y descuentos</legend>
           {values.lines.length === 0 ? (
-            <p className="ds-empty">Sin líneas adicionales.</p>
+            <EmptyState>Sin líneas adicionales.</EmptyState>
           ) : (
             <ol className="ds-mapping-rows">
               {values.lines.map((line, index) => (

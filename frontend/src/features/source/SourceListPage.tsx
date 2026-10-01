@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Database, Plus } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { DetailList } from "../../design-system/DetailList";
@@ -179,7 +179,7 @@ export function SourceListPage() {
         ) : null}
 
         {sourcesQuery.isSuccess && sourcesQuery.data.data.length === 0 ? (
-          <EmptyState>No hay fuentes para mostrar.</EmptyState>
+          <EmptyState title="No hay fuentes para mostrar" icon={Database} />
         ) : null}
 
         {sourcesQuery.isSuccess && sourcesQuery.data.data.length > 0 ? (

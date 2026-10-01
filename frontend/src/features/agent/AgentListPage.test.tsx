@@ -424,7 +424,7 @@ describe("AgentListPage", () => {
       ),
     );
     renderPage();
-    expect(await screen.findByText("No hay agentes para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay agentes para mostrar")).toBeInTheDocument();
   });
 });
 

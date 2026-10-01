@@ -326,7 +326,7 @@ describe("MyTasksPage", () => {
     expect(screen.getByText("1 tarea pendiente")).toBeInTheDocument();
 
     await user.type(screen.getByPlaceholderText("Buscar tarea…"), "zzz");
-    expect(screen.getByText("Ninguna tarea pendiente coincide con el filtro.")).toBeInTheDocument();
+    expect(screen.getByText("Ninguna tarea pendiente coincide con el filtro")).toBeInTheDocument();
 
     expect(captured.listRequests).toHaveLength(requestsBefore);
   });
@@ -424,9 +424,7 @@ describe("MyTasksPage", () => {
     server.use(...handlers);
 
     renderPage();
-    await waitFor(() =>
-      expect(screen.getByText("No tenés tareas pendientes.")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("No tenés tareas pendientes")).toBeInTheDocument());
   });
 
   // -------------------------------------------------------------------------

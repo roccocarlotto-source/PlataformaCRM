@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
-import { Plus } from "lucide-react";
+import { Columns3, Plus } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -164,7 +164,7 @@ export function StageListPage() {
         ) : null}
 
         {stagesQuery.isSuccess && stagesQuery.data.data.length === 0 ? (
-          <EmptyState>No hay etapas para mostrar.</EmptyState>
+          <EmptyState title="No hay etapas para mostrar" icon={Columns3} />
         ) : null}
 
         {stagesQuery.isSuccess && stagesQuery.data.data.length > 0 ? (

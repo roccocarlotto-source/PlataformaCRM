@@ -398,7 +398,7 @@ describe("ConversationListPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText("No hay conversaciones para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay conversaciones para mostrar")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 

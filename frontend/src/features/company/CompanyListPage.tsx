@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Building2, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -165,7 +165,7 @@ export function CompanyListPage() {
         ) : null}
 
         {companiesQuery.isSuccess && companiesQuery.data.data.length === 0 ? (
-          <EmptyState>No hay empresas para mostrar.</EmptyState>
+          <EmptyState title="No hay empresas para mostrar" icon={Building2} />
         ) : null}
 
         {/* Mismas columnas y mismo orden de siempre (Nombre | Industria |

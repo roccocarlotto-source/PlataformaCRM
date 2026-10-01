@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { Check, Eye, Info, Link2, Pencil, Plus, Send, Trash2 } from "lucide-react";
+import {
+  Check,
+  Eye,
+  Info,
+  Link2,
+  Pencil,
+  Plus,
+  QrCode as QrCodeIcon,
+  Send,
+  Trash2,
+} from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -200,7 +210,7 @@ export function QrListPage() {
         ) : null}
 
         {qrCodesQuery.isSuccess && qrCodesQuery.data.data.length === 0 ? (
-          <EmptyState>Todavía no hay códigos QR para mostrar.</EmptyState>
+          <EmptyState title="Todavía no hay códigos QR para mostrar" icon={QrCodeIcon} />
         ) : null}
 
         {qrCodesQuery.isSuccess && qrCodesQuery.data.data.length > 0 ? (

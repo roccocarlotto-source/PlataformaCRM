@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { InlineLoading } from "../../design-system/LoadingState";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Badge } from "../../design-system/Badge";
 import { EmptyState } from "../../design-system/EmptyState";
@@ -21,10 +22,10 @@ function PlantillaDeLaRegla({
   query: ReturnType<typeof useWhatsappTemplatesOf>[number] | undefined;
 }) {
   if (!query || query.isLoading) {
-    return <span className="ds-hint">Cargando…</span>;
+    return <InlineLoading />;
   }
   if (query.isError) {
-    return <span className="ds-hint">No se pudo cargar</span>;
+    return <Badge variant="danger">No se pudo cargar</Badge>;
   }
   if (!query.data) {
     return <Badge variant="neutral">Sin plantilla</Badge>;

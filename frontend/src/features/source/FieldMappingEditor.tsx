@@ -1,3 +1,5 @@
+import { ErrorState } from "../../design-system/ErrorState";
+import { EmptyState } from "../../design-system/EmptyState";
 import { Button } from "../../design-system/Button";
 import { Select } from "../../design-system/Select";
 import { FILA_VACIA, type FieldMappingRow } from "./fieldMapping";
@@ -50,7 +52,7 @@ export function FieldMappingEditor({ rows, onChange, disabled }: FieldMappingEdi
       </p>
 
       {rows.length === 0 ? (
-        <p className="ds-empty">No hay columnas mapeadas.</p>
+        <EmptyState>No hay columnas mapeadas.</EmptyState>
       ) : (
         <ol className="ds-mapping-rows">
           {rows.map((fila, index) => (
@@ -102,9 +104,7 @@ export function FieldMappingEditor({ rows, onChange, disabled }: FieldMappingEdi
       </Button>
 
       {alcanzoElTope ? (
-        <p role="alert" className="ds-error">
-          Llegaste al máximo de {MAX_COLUMNAS_MAPEADAS} columnas mapeadas.
-        </p>
+        <ErrorState>Llegaste al máximo de {MAX_COLUMNAS_MAPEADAS} columnas mapeadas.</ErrorState>
       ) : null}
     </fieldset>
   );

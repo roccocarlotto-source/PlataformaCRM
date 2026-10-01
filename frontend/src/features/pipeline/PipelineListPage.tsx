@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Columns3, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -122,7 +122,7 @@ export function PipelineListPage() {
         ) : null}
 
         {pipelinesQuery.isSuccess && pipelinesQuery.data.data.length === 0 ? (
-          <EmptyState>No hay procesos de venta para mostrar.</EmptyState>
+          <EmptyState title="No hay procesos de venta para mostrar" icon={Columns3} />
         ) : null}
 
         {pipelinesQuery.isSuccess && pipelinesQuery.data.data.length > 0 ? (

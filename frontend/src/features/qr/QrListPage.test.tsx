@@ -127,7 +127,7 @@ describe("QrListPage — listado", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Todavía no hay códigos QR para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("Todavía no hay códigos QR para mostrar")).toBeInTheDocument();
   });
 
   it("error del listado", async () => {

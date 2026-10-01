@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Bot, Plus } from "lucide-react";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
 import { Badge } from "../../design-system/Badge";
@@ -161,7 +161,7 @@ export function AgentListPage() {
         ) : null}
 
         {agentsQuery.isSuccess && agentsQuery.data.data.length === 0 ? (
-          <EmptyState>No hay agentes para mostrar.</EmptyState>
+          <EmptyState title="No hay agentes para mostrar" icon={Bot} />
         ) : null}
 
         {agentsQuery.isSuccess && agentsQuery.data.data.length > 0 ? (

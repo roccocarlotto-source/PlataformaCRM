@@ -238,7 +238,7 @@ describe("SourceListPage", () => {
       ),
     );
     renderPage();
-    expect(await screen.findByText("No hay fuentes para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay fuentes para mostrar")).toBeInTheDocument();
   });
 });
 

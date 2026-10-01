@@ -207,7 +207,7 @@ describe("ApiKeyListPage — listado", () => {
       ),
     );
     renderPage();
-    expect(await screen.findByText("No hay claves para mostrar.")).toBeInTheDocument();
+    expect(await screen.findByText("No hay claves para mostrar")).toBeInTheDocument();
   });
 });
 
