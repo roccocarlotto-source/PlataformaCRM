@@ -10,5 +10,5 @@ export function confirmQuestion(checklist: readonly DeliveryChecklistItem[]): st
   const base =
     "¿Confirmar la entrega? La unidad pasa a Entregado y la entrega ya no se va a poder modificar.";
   if (pending === 0) return base;
-  return `${base} Quedan ${pending} ${pending === 1 ? "ítem" : "ítems"} del checklist sin marcar.`;
+  return `${base} Quedan ${pending} ${pending === 1 ? "ítem" : "ítems"} de la lista sin marcar.`;
 }

@@ -72,7 +72,7 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
       await createMutation.mutateAsync(toPaymentInput(values));
       setEditing(null);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "No se pudo guardar el pago");
+      setActionError(err instanceof Error ? err.message : "No pudimos guardar el pago");
     }
   }
 
@@ -82,14 +82,14 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
       await updateMutation.mutateAsync({ id: payment.id, input: toPaymentInput(values) });
       setEditing(null);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "No se pudo guardar el pago");
+      setActionError(err instanceof Error ? err.message : "No pudimos guardar el pago");
     }
   }
 
   async function handleDelete(payment: Payment) {
     if (
-      !(await confirm(`¿Borrar este pago de ${formatMoney(payment.amount, payment.currency)}?`, {
-        confirmLabel: "Borrar",
+      !(await confirm(`¿Eliminar este pago de ${formatMoney(payment.amount, payment.currency)}?`, {
+        confirmLabel: "Eliminar",
         danger: true,
       }))
     ) {
@@ -100,7 +100,7 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
       await deleteMutation.mutateAsync(payment.id);
       if (editing?.mode === "edit" && editing.paymentId === payment.id) setEditing(null);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "No se pudo borrar el pago");
+      setActionError(err instanceof Error ? err.message : "No pudimos borrar el pago");
     }
   }
 
@@ -160,10 +160,10 @@ export function PaymentSection({ opportunity }: PaymentSectionProps) {
                             loading={
                               deleteMutation.isPending && deleteMutation.variables === payment.id
                             }
-                            aria-label={`Borrar el pago de ${formatMoney(payment.amount, payment.currency)} del ${formatDate(payment.paidAt)}`}
+                            aria-label={`Eliminar el pago de ${formatMoney(payment.amount, payment.currency)} del ${formatDate(payment.paidAt)}`}
                             onClick={() => handleDelete(payment)}
                           >
-                            Borrar
+                            Eliminar
                           </Button>
                         </span>
                       </li>

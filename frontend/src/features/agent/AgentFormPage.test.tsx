@@ -301,7 +301,7 @@ describe("AgentFormPage — creación", () => {
         if (intentos === 1) {
           return HttpResponse.json(
             {
-              error: { message: "No se pudo interpretar la traducción del modelo, probá de nuevo" },
+              error: { message: "No pudimos interpretar la traducción del modelo, probá de nuevo" },
             },
             { status: 502 },
           );
@@ -326,7 +326,7 @@ describe("AgentFormPage — creación", () => {
     // Fail closed: el error se ve y NO se guardó un agente con guardrails
     // vacíos por una falla de red.
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      /No se pudo interpretar la traducción del modelo/,
+      /No pudimos interpretar la traducción del modelo/,
     );
     expect(posts).toBe(0);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

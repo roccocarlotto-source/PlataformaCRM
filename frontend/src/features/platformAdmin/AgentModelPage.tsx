@@ -42,7 +42,7 @@ function ModeloDeAgenteCard() {
       });
       setResultado({ texto: `${agente.name} ahora usa ${agente.modelName}.` });
     } catch (err) {
-      setError(mensajeDeError(err, "No se pudo cambiar el modelo"));
+      setError(mensajeDeError(err, "No pudimos cambiar el modelo"));
     }
   }
 
@@ -108,7 +108,7 @@ function ModeloDeAgenteInternoCard() {
       });
       setResultado({ texto: `${agente.name} ahora usa ${agente.modelName}.` });
     } catch (err) {
-      setError(mensajeDeError(err, "No se pudo cambiar el modelo"));
+      setError(mensajeDeError(err, "No pudimos cambiar el modelo"));
     }
   }
 

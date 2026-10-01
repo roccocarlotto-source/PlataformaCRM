@@ -42,7 +42,7 @@ describe("ForgotPasswordPage — R1.3", () => {
     renderPage();
 
     await user.type(screen.getByLabelText("Email"), "a@example.com");
-    await user.click(screen.getByRole("button", { name: /enviar link/i }));
+    await user.click(screen.getByRole("button", { name: /enviar enlace/i }));
 
     await waitFor(() => expect(resetPasswordForEmail).toHaveBeenCalledTimes(1));
     const [email, options] = resetPasswordForEmail.mock.calls[0] as [
@@ -58,7 +58,7 @@ describe("ForgotPasswordPage — R1.3", () => {
     renderPage();
 
     await user.type(screen.getByLabelText("Email"), "cualquiera@example.com");
-    await user.click(screen.getByRole("button", { name: /enviar link/i }));
+    await user.click(screen.getByRole("button", { name: /enviar enlace/i }));
 
     await waitFor(() =>
       expect(screen.getByText(/si existe una cuenta con ese email/i)).toBeInTheDocument(),
@@ -73,7 +73,7 @@ describe("ForgotPasswordPage — R1.3", () => {
     renderPage();
 
     await user.type(screen.getByLabelText("Email"), "a@example.com");
-    await user.click(screen.getByRole("button", { name: /enviar link/i }));
+    await user.click(screen.getByRole("button", { name: /enviar enlace/i }));
 
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(

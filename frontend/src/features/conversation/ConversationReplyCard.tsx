@@ -169,7 +169,7 @@ export function ConversationReplyCard({
 
         {responder.error ? (
           <ErrorState>
-            No se pudo enviar
+            No pudimos enviar
             {responder.error instanceof Error ? `: ${responder.error.message}` : "."}
           </ErrorState>
         ) : null}

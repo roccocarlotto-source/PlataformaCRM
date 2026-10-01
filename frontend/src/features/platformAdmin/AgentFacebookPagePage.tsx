@@ -41,7 +41,7 @@ export function AgentFacebookPagePage() {
       });
       setAssigned(agent);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo asignar la página");
+      setError(err instanceof Error ? err.message : "No pudimos asignar la página");
     }
   }
 

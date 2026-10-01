@@ -9,6 +9,7 @@ import { RequiredFieldsHint } from "../../design-system/RequiredFieldsHint";
 import { Select } from "../../design-system/Select";
 import { useCreateInvitation } from "./mutations";
 import type { CreateInvitationInput } from "./types";
+import { roleLabel } from "../user/roles";
 
 interface InvitationFormValues {
   email: string;
@@ -40,7 +41,7 @@ export function InvitationFormPage() {
       await createInvitationMutation.mutateAsync(input);
       navigate("/invitations");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo crear la invitación");
+      setError(err instanceof Error ? err.message : "No pudimos crear la invitación");
     }
   }
 
@@ -67,8 +68,8 @@ export function InvitationFormPage() {
                 label="Rol"
                 value={values.role}
                 options={[
-                  { value: "USER", label: "USER" },
-                  { value: "ADMIN", label: "ADMIN" },
+                  { value: "USER", label: roleLabel("USER") },
+                  { value: "ADMIN", label: roleLabel("ADMIN") },
                 ]}
                 onChange={(role) => {
                   if (role) setValues({ ...values, role });

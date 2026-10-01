@@ -121,7 +121,7 @@ export function ResourceFormPage() {
         });
         navigate("/resources");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "No se pudo guardar el recurso");
+        setError(err instanceof Error ? err.message : "No pudimos guardar el recurso");
       }
       return;
     }
@@ -137,7 +137,7 @@ export function ResourceFormPage() {
     try {
       await updateResourceMutation.mutateAsync({ name: values.name, type: values.type });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar el recurso");
+      setError(err instanceof Error ? err.message : "No pudimos guardar el recurso");
       return;
     }
 

@@ -131,7 +131,7 @@ export function CompanyFormPage() {
       }
       navigate("/companies");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la empresa");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la empresa");
     }
   }
 

@@ -36,7 +36,7 @@ export function ForgotPasswordPage() {
       // independientemente de si la cuenta existe.
       setSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo procesar la solicitud");
+      setError(err instanceof Error ? err.message : "No pudimos procesar la solicitud");
     } finally {
       setIsSubmitting(false);
     }
@@ -48,7 +48,8 @@ export function ForgotPasswordPage() {
         <div>
           <h1>Revisá tu email</h1>
           <p className="ds-auth-text">
-            Si existe una cuenta con ese email, te enviamos un link para restablecer tu contraseña.
+            Si existe una cuenta con ese email, te enviamos un enlace para restablecer tu
+            contraseña.
           </p>
           <p className="ds-auth-links">
             <Link to="/login">Volver a iniciar sesión</Link>
@@ -63,7 +64,7 @@ export function ForgotPasswordPage() {
       <form onSubmit={handleSubmit}>
         <h1>Recuperar contraseña</h1>
         <p className="ds-auth-text">
-          Ingresá tu email y te enviamos un link para elegir una nueva contraseña.
+          Ingresá tu email y te enviamos un enlace para elegir una nueva contraseña.
         </p>
         <FormField label="Email">
           <input
@@ -76,7 +77,7 @@ export function ForgotPasswordPage() {
         </FormField>
         {error ? <ErrorState>{error}</ErrorState> : null}
         <Button type="submit" variant="primary" disabled={isSubmitting} loading={isSubmitting}>
-          {isSubmitting ? "Enviando…" : "Enviar link"}
+          {isSubmitting ? "Enviando…" : "Enviar enlace"}
         </Button>
         <p className="ds-auth-links">
           <Link to="/login">Volver a iniciar sesión</Link>

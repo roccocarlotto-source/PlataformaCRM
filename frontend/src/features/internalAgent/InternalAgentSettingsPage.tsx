@@ -99,7 +99,7 @@ export function InternalAgentSettingsPage() {
       }
       toast.show("Agente interno guardado");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar el agente interno");
+      setError(err instanceof Error ? err.message : "No pudimos guardar el agente interno");
     }
   }
 

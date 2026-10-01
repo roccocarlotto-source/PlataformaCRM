@@ -44,7 +44,7 @@ export function QrImageDialog({ qr, onClose }: QrImageDialogProps) {
   try {
     publicUrl = buildPublicResolutionUrl(qr.id);
   } catch (err) {
-    urlError = err instanceof Error ? err.message : "No se pudo construir el link.";
+    urlError = err instanceof Error ? err.message : "No pudimos construir el link.";
   }
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export function QrImageDialog({ qr, onClose }: QrImageDialogProps) {
         if (active) {
           setImagen({
             svg: null,
-            error: err instanceof Error ? err.message : "No se pudo generar la imagen del QR.",
+            error: err instanceof Error ? err.message : "No pudimos generar la imagen del QR.",
           });
         }
       });

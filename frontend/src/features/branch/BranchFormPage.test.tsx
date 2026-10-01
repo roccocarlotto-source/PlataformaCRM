@@ -926,7 +926,7 @@ describe("BranchFormPage — Google Calendar", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "No se pudo conectar Google Calendar: Se canceló la autorización en Google. La sucursal quedó sin conectar.",
+      "No pudimos conectar Google Calendar: Se canceló la autorización en Google. La sucursal quedó sin conectar.",
     );
   });
 });
@@ -1129,7 +1129,7 @@ describe("BranchFormPage — Horario de atención", () => {
     await user.click(screen.getByRole("button", { name: "Guardar horario" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "No se pudo guardar el horario de atención: Hay franjas superpuestas el día MONDAY",
+      "No pudimos guardar el horario de atención: Hay franjas superpuestas el día MONDAY",
     );
     expect(screen.getByLabelText("Lunes, franja 1: hasta")).toHaveValue("18:00");
   });

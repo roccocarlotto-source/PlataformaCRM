@@ -176,14 +176,14 @@ describe("AppLayout — nav de configuración de la organización (ítem 19)", (
   });
 });
 
-describe("AppLayout — nav de Plantilla de WhatsApp (ítem 160)", () => {
-  it("ADMIN ve 'Plantilla de WhatsApp' en el grupo Administración, apuntando a /whatsapp-template", async () => {
+describe("AppLayout — nav de Plantillas de WhatsApp (ítem 160)", () => {
+  it("ADMIN ve 'Plantillas de WhatsApp' en el grupo Administración, apuntando a /whatsapp-template", async () => {
     const user = userEvent.setup();
     useAuthMock.mockReturnValue(mockAuth("ADMIN"));
     renderLayout();
     await openSection(user, "Administración");
 
-    expect(screen.getByRole("link", { name: "Plantilla de WhatsApp" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Plantillas de WhatsApp" })).toHaveAttribute(
       "href",
       "/whatsapp-template",
     );
@@ -195,7 +195,7 @@ describe("AppLayout — nav de Plantilla de WhatsApp (ítem 160)", () => {
     renderLayout();
     await openSection(user, "Administración");
 
-    expect(screen.queryByText("Plantilla de WhatsApp")).not.toBeInTheDocument();
+    expect(screen.queryByText("Plantillas de WhatsApp")).not.toBeInTheDocument();
   });
 });
 
@@ -491,11 +491,11 @@ describe("AppLayout — secciones colapsables (ítem 79)", () => {
       "QR",
       "Usuarios",
       "Invitaciones",
-      "Fuentes",
-      "Claves",
-      "Eventos",
+      "Fuentes de ingesta",
+      "Claves de ingesta",
+      "Eventos de ingesta",
       "Organización",
-      "Plantilla de WhatsApp",
+      "Plantillas de WhatsApp",
       "Sucursales",
     ]);
   });

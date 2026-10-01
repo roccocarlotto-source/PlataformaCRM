@@ -172,7 +172,7 @@ describe("ConversationReplyCard", () => {
     await user.type(cuadro, "Hola");
     await user.click(screen.getByRole("button", { name: "Enviar" }));
 
-    expect(await screen.findByText(/No se pudo enviar: Pasaron más de 24 h/)).toBeInTheDocument();
+    expect(await screen.findByText(/No pudimos enviar: Pasaron más de 24 h/)).toBeInTheDocument();
     expect(cuadro).toHaveValue("Hola");
   });
 

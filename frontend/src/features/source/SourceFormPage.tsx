@@ -134,7 +134,7 @@ export function SourceFormPage() {
       }
       navigate("/sources");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la fuente");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la fuente");
     }
   }
 

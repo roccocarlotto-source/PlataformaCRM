@@ -94,7 +94,7 @@ export function BusinessHoursSection({ branchId }: BusinessHoursSectionProps) {
       setGuardado(aviso);
     } catch (err) {
       setError(
-        `No se pudo guardar el horario de atención${err instanceof Error ? `: ${err.message}` : "."}`,
+        `No pudimos guardar el horario de atención${err instanceof Error ? `: ${err.message}` : "."}`,
       );
     }
   }

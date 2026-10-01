@@ -41,7 +41,7 @@ export function AgentWhatsappNumberPage() {
       });
       setAssigned(agent);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo asignar el número");
+      setError(err instanceof Error ? err.message : "No pudimos asignar el número");
     }
   }
 

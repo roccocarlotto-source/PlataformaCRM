@@ -103,7 +103,7 @@ export function StageFormPage() {
       }
       navigate(`/pipelines/${pipelineId}/stages`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la etapa");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la etapa");
     }
   }
 

@@ -51,7 +51,7 @@ export function readWidgetConfig(
 ): WidgetConfig | null {
   if (!script) {
     console.error(
-      `${WIDGET_LOG_PREFIX} No se pudo leer el <script> que carga el widget ` +
+      `${WIDGET_LOG_PREFIX} No pudimos leer el <script> que carga el widget ` +
         "(document.currentScript es null). Cargalo con una etiqueta " +
         '<script src="..."> con sus atributos data-*, no insertándolo dinámicamente.',
     );

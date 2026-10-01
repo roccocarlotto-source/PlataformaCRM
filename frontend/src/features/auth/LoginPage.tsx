@@ -38,7 +38,7 @@ export function LoginPage() {
       // status pase a "authenticated". isSubmitting queda en true a
       // propósito hasta que este componente deje de montarse.
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo iniciar sesión");
+      setError(err instanceof Error ? err.message : "No pudimos iniciar sesión");
       setIsSubmitting(false);
     }
   }

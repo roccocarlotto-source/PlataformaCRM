@@ -250,7 +250,7 @@ describe("MetaConnectionSection", () => {
       renderSection({ error: null, pendiente: { code: "c", state: "s" } });
 
       expect(await screen.findByRole("alert")).toHaveTextContent(
-        `No se pudo conectar Facebook: ${mensaje}`,
+        `No pudimos conectar Facebook: ${mensaje}`,
       );
       expect(screen.queryByText("La página de Facebook quedó conectada.")).not.toBeInTheDocument();
       expect(await screen.findByRole("button", { name: "Conectar con Facebook" })).toBeEnabled();
@@ -264,7 +264,7 @@ describe("MetaConnectionSection", () => {
     });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "No se pudo conectar Facebook: Autorizaste más de una página.",
+      "No pudimos conectar Facebook: Autorizaste más de una página.",
     );
     expect(
       await screen.findByRole("button", { name: "Conectar con Facebook" }),

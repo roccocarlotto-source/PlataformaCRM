@@ -46,7 +46,7 @@ export function QrSendDialog({ qr, onClose }: QrSendDialogProps) {
     try {
       return buildPublicResolutionUrl(qr.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo construir el link.");
+      setError(err instanceof Error ? err.message : "No pudimos construir el link.");
       return null;
     }
   }
@@ -87,7 +87,7 @@ export function QrSendDialog({ qr, onClose }: QrSendDialogProps) {
       await navigator.clipboard.writeText(buildEmailMessageForCopy(url, qr.message));
       setCopiado(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo copiar el mensaje.");
+      setError(err instanceof Error ? err.message : "No pudimos copiar el mensaje.");
     }
   }
 

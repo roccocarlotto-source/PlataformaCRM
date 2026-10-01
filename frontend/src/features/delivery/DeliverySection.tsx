@@ -94,7 +94,7 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
       await updateMutation.mutateAsync({ id: delivery.id, input });
       return true;
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "No se pudo guardar la entrega");
+      setActionError(err instanceof Error ? err.message : "No pudimos guardar la entrega");
       return false;
     }
   }
@@ -134,7 +134,7 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
     try {
       await confirmMutation.mutateAsync(delivery.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "No se pudo confirmar la entrega");
+      setActionError(err instanceof Error ? err.message : "No pudimos confirmar la entrega");
     }
   }
 
@@ -169,7 +169,7 @@ function DeliveryCard({ opportunityId, delivery }: DeliveryCardProps) {
 
           <h3 className="ds-delivery-subtitle">Qué se entrega</h3>
           {delivery.checklist.length === 0 ? (
-            <EmptyState>El checklist de esta entrega está vacío.</EmptyState>
+            <EmptyState>La lista de lo que se entrega está vacía.</EmptyState>
           ) : (
             <ul className="ds-delivery-checklist">
               {delivery.checklist.map((item, index) => (

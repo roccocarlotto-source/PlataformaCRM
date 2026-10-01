@@ -168,7 +168,7 @@ function StageRowForm({
         nameRef.current?.focus();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la etapa");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la etapa");
     } finally {
       setIsSubmitting(false);
     }
@@ -383,8 +383,8 @@ export function StageEditor({ pipelineId }: StageEditorProps) {
                       </span>
                     </td>
                     <td>
-                      {stage.isWon ? <Badge variant="success">Etapa de Ganada</Badge> : null}
-                      {stage.isLost ? <Badge variant="danger">Etapa de Perdida</Badge> : null}
+                      {stage.isWon ? <Badge variant="success">Cierre ganado</Badge> : null}
+                      {stage.isLost ? <Badge variant="danger">Cierre perdido</Badge> : null}
                     </td>
                     <td>
                       {/* Subir/Bajar afuera del menú y Editar/Eliminar adentro:

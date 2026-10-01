@@ -155,8 +155,8 @@ describe("PipelineListPage", () => {
     await waitFor(() => expect(screen.getByText("Ventas A")).toBeInTheDocument());
     const rowA = screen.getByText("Ventas A").closest("tr");
     const rowB = screen.getByText("Ventas B").closest("tr");
-    expect(rowA).toHaveTextContent("Default");
-    expect(rowB).not.toHaveTextContent("Default");
+    expect(rowA).toHaveTextContent("Predeterminado");
+    expect(rowB).not.toHaveTextContent("Predeterminado");
   });
 
   it("P13 USER no ve Nuevo proceso de venta / Editar / Eliminar", async () => {
@@ -317,7 +317,7 @@ describe("PipelineListPage", () => {
     renderPage(queryClient);
 
     await waitFor(() => expect(screen.getByText("Ventas A")).toBeInTheDocument());
-    expect(screen.getByText("Ventas A").closest("tr")).toHaveTextContent("Default");
+    expect(screen.getByText("Ventas A").closest("tr")).toHaveTextContent("Predeterminado");
 
     const { result } = renderHook(() => useUpdatePipeline("pl-b"), {
       wrapper: wrapperFor(queryClient),
@@ -326,9 +326,9 @@ describe("PipelineListPage", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     await waitFor(() =>
-      expect(screen.getByText("Ventas B").closest("tr")).toHaveTextContent("Default"),
+      expect(screen.getByText("Ventas B").closest("tr")).toHaveTextContent("Predeterminado"),
     );
-    expect(screen.getByText("Ventas A").closest("tr")).not.toHaveTextContent("Default");
+    expect(screen.getByText("Ventas A").closest("tr")).not.toHaveTextContent("Predeterminado");
   });
 
   it("P18b desmarcar el único default actual deja la organización en cero defaults, reflejado tras refetch", async () => {
@@ -355,7 +355,7 @@ describe("PipelineListPage", () => {
     renderPage(queryClient);
 
     await waitFor(() =>
-      expect(screen.getByText("Ventas A").closest("tr")).toHaveTextContent("Default"),
+      expect(screen.getByText("Ventas A").closest("tr")).toHaveTextContent("Predeterminado"),
     );
 
     const { result } = renderHook(() => useUpdatePipeline("pl-a"), {
@@ -365,15 +365,15 @@ describe("PipelineListPage", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     await waitFor(() =>
-      expect(screen.getByText("Ventas A").closest("tr")).not.toHaveTextContent("Default"),
+      expect(screen.getByText("Ventas A").closest("tr")).not.toHaveTextContent("Predeterminado"),
     );
     // Sin badge inventado en ninguna FILA de la tabla — cero defaults es un
     // estado real y válido, no un error a ocultar. (El header de columna
-    // "Default" sigue presente; lo que no debe aparecer es el valor en
+    // "Predeterminado" sigue presente; lo que no debe aparecer es el valor en
     // ninguna celda de datos.)
     const dataRows = screen.getAllByRole("row").slice(1);
     for (const row of dataRows) {
-      expect(row).not.toHaveTextContent("Default");
+      expect(row).not.toHaveTextContent("Predeterminado");
     }
   });
 
@@ -402,7 +402,7 @@ describe("PipelineListPage", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "Detalle del proceso de venta" });
     expect(dialog).toHaveTextContent("Ventas mayoristas");
-    // El checkbox "Default" del formulario se lee como Sí/No, no como casilla.
+    // El checkbox "Predeterminado" del formulario se lee como Sí/No, no como casilla.
     expect(dialog).toHaveTextContent("Sí");
     expect(dialog.querySelectorAll("input, select, textarea")).toHaveLength(0);
 

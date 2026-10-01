@@ -25,7 +25,7 @@ function PlantillaDeLaRegla({
     return <InlineLoading />;
   }
   if (query.isError) {
-    return <Badge variant="danger">No se pudo cargar</Badge>;
+    return <Badge variant="danger">No pudimos cargar</Badge>;
   }
   if (!query.data) {
     return <Badge variant="neutral">Sin plantilla</Badge>;

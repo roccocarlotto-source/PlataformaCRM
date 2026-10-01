@@ -72,7 +72,7 @@ export function QuoteFormPanel({
     try {
       await onSubmit(toQuoteInput(values));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la cotización");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la cotización");
     }
   }
 

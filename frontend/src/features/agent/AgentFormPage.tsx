@@ -315,7 +315,7 @@ export function AgentFormPage() {
       }
       navigate("/agents");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar el agente");
+      setError(err instanceof Error ? err.message : "No pudimos guardar el agente");
     }
   }
 

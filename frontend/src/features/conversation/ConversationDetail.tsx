@@ -306,7 +306,7 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
                         {message.senderType === "HUMAN" && message.deliveryStatus === "FAILED" ? (
                           <span className="ds-chat-failed">
                             <span className="ds-hint">
-                              No se pudo enviar
+                              No pudimos enviar
                               {message.deliveryError ? `: ${message.deliveryError}` : "."}
                             </span>
                             {puedeAtender(me, conversation) && conversation.status !== "CLOSED" ? (
@@ -331,7 +331,7 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
           )}
           {reintentar.error ? (
             <ErrorState>
-              No se pudo reintentar el envío
+              No pudimos reintentar el envío
               {reintentar.error instanceof Error ? `: ${reintentar.error.message}` : "."}
             </ErrorState>
           ) : null}

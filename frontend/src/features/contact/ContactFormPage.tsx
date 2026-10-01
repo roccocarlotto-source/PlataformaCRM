@@ -145,7 +145,7 @@ export function ContactFormPage() {
       }
       navigate("/contacts");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar el contacto");
+      setError(err instanceof Error ? err.message : "No pudimos guardar el contacto");
     }
   }
 

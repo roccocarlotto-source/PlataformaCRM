@@ -73,7 +73,7 @@ export function BranchListPage() {
       />
 
       {calendarError ? (
-        <ErrorState>No se pudo conectar Google Calendar: {calendarError}</ErrorState>
+        <ErrorState>No pudimos conectar Google Calendar: {calendarError}</ErrorState>
       ) : null}
 
       <div className="ds-list-card">

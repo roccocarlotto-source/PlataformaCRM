@@ -138,7 +138,7 @@ export function PipelineListPage() {
             <thead>
               <tr>
                 <th>Nombre</th>
-                <th>Default</th>
+                <th>Predeterminado</th>
                 <th>Etapas</th>
                 {isAdmin ? <th>Acciones</th> : null}
               </tr>
@@ -149,7 +149,9 @@ export function PipelineListPage() {
                   <td>{pipeline.name}</td>
                   {/* Sin badge inventado cuando no es default: reflejar
                     fielmente que puede haber cero defaults (ver types.ts). */}
-                  <td>{pipeline.isDefault ? <Badge variant="neutral">Default</Badge> : null}</td>
+                  <td>
+                    {pipeline.isDefault ? <Badge variant="neutral">Predeterminado</Badge> : null}
+                  </td>
                   <td>
                     <Link to={`/pipelines/${pipeline.id}/stages`}>Ver etapas</Link>
                   </td>
@@ -204,7 +206,7 @@ export function PipelineListPage() {
               {
                 items: [
                   { label: "Nombre", value: detalle.name },
-                  { label: "Default", value: yesNo(detalle.isDefault) },
+                  { label: "Predeterminado", value: yesNo(detalle.isDefault) },
                 ],
               },
             ]}

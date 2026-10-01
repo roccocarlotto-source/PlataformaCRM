@@ -218,8 +218,8 @@ export function StageListPage() {
                       </span>
                     </td>
                     <td>
-                      {stage.isWon ? <Badge variant="success">Etapa de Ganada</Badge> : null}
-                      {stage.isLost ? <Badge variant="danger">Etapa de Perdida</Badge> : null}
+                      {stage.isWon ? <Badge variant="success">Cierre ganado</Badge> : null}
+                      {stage.isLost ? <Badge variant="danger">Cierre perdido</Badge> : null}
                     </td>
                     {isAdmin ? (
                       <td>

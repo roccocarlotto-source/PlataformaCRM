@@ -376,7 +376,7 @@ export function AutomationFormPage() {
       // del backend ya nombran el campo ("daysUntilDue debe ser un número
       // entero"), y los rangos se adelantan en validar() con el nombre de la
       // pantalla.
-      setError(err instanceof Error ? err.message : "No se pudo guardar la automatización");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la automatización");
     }
   }
 

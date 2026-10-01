@@ -119,7 +119,7 @@ export function BranchFormPage() {
       }
       navigate("/branches");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la sucursal");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la sucursal");
     }
   }
 
