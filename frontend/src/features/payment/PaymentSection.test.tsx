@@ -259,10 +259,10 @@ describe("PaymentSection", () => {
     const card = await paymentsCard();
 
     const borrar = await within(card).findByRole("button", {
-      name: /^Borrar el pago de 5\.000 USD/,
+      name: /^Eliminar el pago de 5\.000 USD/,
     });
     await user.click(borrar);
-    expect(confirm).toHaveBeenCalledWith("¿Borrar este pago de 5.000 USD?");
+    expect(confirm).toHaveBeenCalledWith("¿Eliminar este pago de 5.000 USD?");
     expect(received).toHaveLength(0);
 
     confirm.mockReturnValueOnce(true);

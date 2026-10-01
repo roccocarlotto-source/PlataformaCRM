@@ -18,6 +18,7 @@ import { Table } from "../../design-system/Table";
 import { useDeleteUser, useUpdateUser } from "./mutations";
 import { useUsers } from "./queries";
 import type { User, UserSortBy, SortOrder } from "./types";
+import { roleLabel } from "./roles";
 
 const PAGE_SIZE = 20;
 
@@ -79,7 +80,7 @@ function UserRow({
       <td className="ds-cell-muted">{user.email}</td>
       <td>
         {isSelf ? (
-          user.role.name
+          roleLabel(user.role.name)
         ) : (
           // El rótulo queda oculto (labelHidden): la columna ya dice "Rol" y
           // el nombre accesible sigue siendo el de antes, "Rol de <nombre>".
@@ -93,8 +94,8 @@ function UserRow({
             labelHidden
             value={user.role.name === "ADMIN" || user.role.name === "USER" ? user.role.name : ""}
             options={[
-              { value: "ADMIN", label: "ADMIN" },
-              { value: "USER", label: "USER" },
+              { value: "ADMIN", label: roleLabel("ADMIN") },
+              { value: "USER", label: roleLabel("USER") },
             ]}
             onChange={(value) => {
               if (value) handleRoleChange(value);
@@ -169,14 +170,14 @@ function UserRow({
           <ErrorState>
             {updateUserMutation.error instanceof Error
               ? updateUserMutation.error.message
-              : "No se pudo actualizar el usuario."}
+              : "No pudimos actualizar el usuario."}
           </ErrorState>
         ) : null}
         {deleteUserMutation.isError && deleteUserMutation.variables === user.id ? (
           <ErrorState>
             {deleteUserMutation.error instanceof Error
               ? deleteUserMutation.error.message
-              : "No se pudo eliminar el usuario."}
+              : "No pudimos eliminar el usuario."}
           </ErrorState>
         ) : null}
       </td>
@@ -227,8 +228,8 @@ export function UserListPage() {
             label="Rol"
             value={role}
             options={[
-              { value: "ADMIN", label: "ADMIN" },
-              { value: "USER", label: "USER" },
+              { value: "ADMIN", label: roleLabel("ADMIN") },
+              { value: "USER", label: roleLabel("USER") },
             ]}
             emptyOption={{ label: "Todos" }}
             onChange={(value) => {
@@ -333,7 +334,7 @@ export function UserListPage() {
                 items: [
                   { label: "Nombre", value: detalle.fullName },
                   { label: "Email", value: detalle.email },
-                  { label: "Rol", value: detalle.role.name },
+                  { label: "Rol", value: roleLabel(detalle.role.name) },
                   {
                     label: "Estado",
                     value: detalle.isActive ? (

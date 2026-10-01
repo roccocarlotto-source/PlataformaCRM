@@ -262,7 +262,7 @@ describe("OrganizationSettingsPage — Facebook e Instagram (ítem 173)", () => 
 
     expect(
       await screen.findByText(
-        "No se pudo conectar Facebook: Este intento de conexión con Facebook ya se usó.",
+        "No pudimos conectar Facebook: Este intento de conexión con Facebook ya se usó.",
       ),
     ).toBeInTheDocument();
     await waitFor(() => expect(enviados).toEqual([{ code: "el-code", state: "el-state" }]));
@@ -276,7 +276,7 @@ describe("OrganizationSettingsPage — Facebook e Instagram (ítem 173)", () => 
       await screen.findByRole("heading", { name: "Facebook e Instagram" }),
     ).toBeInTheDocument();
     expect(
-      await screen.findByText("No se pudo conectar Facebook: Se canceló la autorización"),
+      await screen.findByText("No pudimos conectar Facebook: Se canceló la autorización"),
     ).toBeInTheDocument();
     expect(
       await screen.findByRole("button", { name: "Conectar con Facebook" }),

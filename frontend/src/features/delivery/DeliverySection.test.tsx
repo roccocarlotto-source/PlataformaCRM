@@ -213,7 +213,7 @@ describe("DeliverySection", () => {
     const confirmButton = within(card).getByRole("button", { name: "Confirmar entrega" });
     await user.click(confirmButton);
     expect(confirmSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Quedan 1 ítem del checklist sin marcar."),
+      expect.stringContaining("Quedan 1 ítem de la lista sin marcar."),
     );
     expect(received).toHaveLength(0);
 

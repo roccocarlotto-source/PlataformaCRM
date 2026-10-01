@@ -432,7 +432,7 @@ export function OpportunityFormPage() {
       }
       navigate("/opportunities");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la oportunidad");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la oportunidad");
     }
   }
 

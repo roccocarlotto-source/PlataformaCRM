@@ -137,7 +137,7 @@ export function OrganizationSettingsPage() {
       });
       toast.show("Configuración guardada");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la configuración");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la configuración");
     }
   }
 

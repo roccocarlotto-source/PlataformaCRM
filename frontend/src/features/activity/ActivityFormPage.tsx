@@ -214,7 +214,7 @@ export function ActivityFormPage() {
       }
       navigate(isAdmin ? "/activities" : "/tasks");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la actividad");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la actividad");
     }
   }
 
@@ -333,7 +333,7 @@ export function ActivityFormPage() {
               ) : null}
             </div>
             <p className="ds-hint ds-field-grid--full">
-              Debe indicar Empresa, Contacto, Oportunidad, o una combinación de estos.
+              Indicá una empresa, un contacto o una oportunidad (o más de uno).
             </p>
             {/* assigneeId nunca se autoasigna al omitirse (a diferencia de
                 ownerId en Opportunity) — emptyOptionLabel refleja eso. Un

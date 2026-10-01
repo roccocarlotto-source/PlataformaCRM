@@ -116,7 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     registerUnauthorizedHandler(() => {
       supabase.auth.signOut({ scope: "local" }).catch((error: unknown) => {
-        console.error("No se pudo cerrar la sesión tras un 401", error);
+        console.error("No pudimos cerrar la sesión tras un 401", error);
       });
     });
   }, []);

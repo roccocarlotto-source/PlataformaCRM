@@ -77,15 +77,15 @@ function PlantillaActual({
       await refreshMutation.mutateAsync(plantilla.id);
       toast.show("Estado actualizado");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo actualizar el estado");
+      setError(err instanceof Error ? err.message : "No pudimos actualizar el estado");
     }
   }
 
   async function borrar() {
     if (
       !(await confirm(
-        "¿Borrar esta plantilla? Se borra también en WhatsApp y, hasta que cargues otra y Meta la apruebe, esta automatización no manda ningún mensaje.",
-        { confirmLabel: "Borrar", danger: true },
+        "¿Eliminar esta plantilla? Se elimina también en WhatsApp y, hasta que cargues otra y Meta la apruebe, esta automatización no manda ningún mensaje.",
+        { confirmLabel: "Eliminar", danger: true },
       ))
     ) {
       return;
@@ -95,7 +95,7 @@ function PlantillaActual({
       await deleteMutation.mutateAsync(plantilla);
       onBorrada(plantilla);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo borrar la plantilla");
+      setError(err instanceof Error ? err.message : "No pudimos borrar la plantilla");
     }
   }
 
@@ -107,7 +107,9 @@ function PlantillaActual({
         <p>
           <Badge variant={estado.variant}>{estado.label}</Badge>{" "}
           <span className="ds-hint">
-            {plantilla.name} · {plantilla.language}
+            {plantilla.name} ·{" "}
+            {IDIOMAS.find((idioma) => idioma.value === plantilla.language)?.label ??
+              plantilla.language}
           </span>
         </p>
         {plantilla.status === "PENDING" ? (
@@ -140,7 +142,7 @@ function PlantillaActual({
             disabled={ocupado}
             loading={deleteMutation.isPending}
           >
-            {deleteMutation.isPending ? "Borrando…" : "Borrar y volver a intentar"}
+            {deleteMutation.isPending ? "Eliminando…" : "Eliminar y volver a intentar"}
           </Button>
         </div>
       </div>
@@ -189,7 +191,7 @@ function NuevaPlantilla({
       });
       toast.show("Plantilla enviada a Meta para su aprobación");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo crear la plantilla");
+      setError(err instanceof Error ? err.message : "No pudimos crear la plantilla");
     }
   }
 

@@ -485,7 +485,7 @@ describe("ConversationDetail", () => {
 
     const burbuja = await screen.findByText("¿Te llegó?", { selector: ".ds-chat-bubble" });
     expect(
-      within(burbuja).getByText(/No se pudo enviar: Recipient phone number not in allowed list/),
+      within(burbuja).getByText(/No pudimos enviar: Recipient phone number not in allowed list/),
     ).toBeInTheDocument();
 
     await user.click(within(burbuja).getByRole("button", { name: "Reintentar" }));
@@ -527,7 +527,7 @@ describe("ConversationDetail", () => {
     renderDetail("USER");
 
     const burbuja = await screen.findByText("¿Te llegó?", { selector: ".ds-chat-bubble" });
-    expect(within(burbuja).getByText(/No se pudo enviar/)).toBeInTheDocument();
+    expect(within(burbuja).getByText(/No pudimos enviar/)).toBeInTheDocument();
     expect(within(burbuja).queryByRole("button", { name: "Reintentar" })).toBeNull();
   });
 
@@ -785,7 +785,7 @@ describe("ConversationDetail", () => {
       ),
       http.post(`${detailUrl}/generate-brief`, () =>
         HttpResponse.json(
-          { error: { message: "No se pudo contactar a OpenRouter" } },
+          { error: { message: "No pudimos contactar a OpenRouter" } },
           { status: 502 },
         ),
       ),
@@ -797,7 +797,7 @@ describe("ConversationDetail", () => {
     await user.click(await screen.findByRole("button", { name: "Regenerar resumen" }));
 
     expect(await screen.findByText(/No pudimos generar el resumen/)).toHaveTextContent(
-      "No se pudo contactar a OpenRouter",
+      "No pudimos contactar a OpenRouter",
     );
     // Lo importante: no se perdió lo que había.
     expect(screen.getByText("Resumen viejo.")).toBeInTheDocument();

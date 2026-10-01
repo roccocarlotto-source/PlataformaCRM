@@ -206,7 +206,7 @@ export function QrFormDialog({ qr, onClose, onSaved }: QrFormDialogProps) {
         : await createMutation.mutateAsync(toCreateInput(values));
       onSaved(saved);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar el QR");
+      setError(err instanceof Error ? err.message : "No pudimos guardar el QR");
     }
   }
 

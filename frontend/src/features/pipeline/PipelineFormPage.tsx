@@ -125,7 +125,7 @@ export function PipelineFormPage() {
         navigate(`/pipelines/${created.id}/edit`, { replace: true });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar el proceso de venta");
+      setError(err instanceof Error ? err.message : "No pudimos guardar el proceso de venta");
     }
   }
 
@@ -166,7 +166,7 @@ export function PipelineFormPage() {
                 </FormField>
               </div>
               <div className="ds-field-grid--full">
-                <FormField label="Default">
+                <FormField label="Predeterminado">
                   <input
                     type="checkbox"
                     checked={values.isDefault}

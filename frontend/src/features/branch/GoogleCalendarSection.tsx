@@ -96,7 +96,7 @@ export function GoogleCalendarSection({
           </p>
         ) : null}
         {resultadoDelCallback?.error ? (
-          <ErrorState>No se pudo conectar Google Calendar: {resultadoDelCallback.error}</ErrorState>
+          <ErrorState>No pudimos conectar Google Calendar: {resultadoDelCallback.error}</ErrorState>
         ) : null}
 
         {connectionQuery.isLoading ? <LoadingState /> : null}

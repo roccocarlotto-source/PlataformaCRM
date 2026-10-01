@@ -43,7 +43,7 @@ describe("InvitationFormPage", () => {
     renderForm();
 
     await user.type(screen.getByLabelText("Email"), "nuevo@example.com");
-    await chooseSelectOption(user, screen.getByLabelText("Rol"), "ADMIN");
+    await chooseSelectOption(user, screen.getByLabelText("Rol"), "Administrador");
     await user.click(screen.getByRole("button", { name: /enviar invitación/i }));
 
     await waitFor(() => expect(screen.getByText("lista de invitaciones")).toBeInTheDocument());

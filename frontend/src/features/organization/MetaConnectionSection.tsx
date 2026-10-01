@@ -113,12 +113,12 @@ export function MetaConnectionSection({ resultadoDelCallback }: MetaConnectionSe
       ) : null}
       {completeMutation.isError ? (
         <ErrorState>
-          No se pudo conectar Facebook
+          No pudimos conectar Facebook
           {completeMutation.error instanceof Error ? `: ${completeMutation.error.message}` : "."}
         </ErrorState>
       ) : null}
       {resultadoDelCallback?.error ? (
-        <ErrorState>No se pudo conectar Facebook: {resultadoDelCallback.error}</ErrorState>
+        <ErrorState>No pudimos conectar Facebook: {resultadoDelCallback.error}</ErrorState>
       ) : null}
 
       {connectionQuery.isLoading ? <LoadingState /> : null}

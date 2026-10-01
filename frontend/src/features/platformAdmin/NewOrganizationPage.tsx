@@ -45,7 +45,7 @@ export function NewOrganizationPage() {
       const result = await createOrganizationMutation.mutateAsync(values);
       setCreated(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo crear la organización");
+      setError(err instanceof Error ? err.message : "No pudimos crear la organización");
     }
   }
 

@@ -251,7 +251,7 @@ export function AppLayout() {
       // redirige a /login reactivamente. isLoggingOut queda en true a
       // propósito — este componente está a punto de desmontarse.
     } catch (err) {
-      setLogoutError(err instanceof Error ? err.message : "No se pudo cerrar sesión");
+      setLogoutError(err instanceof Error ? err.message : "No pudimos cerrar sesión");
       setIsLoggingOut(false);
     }
   }
@@ -413,13 +413,13 @@ export function AppLayout() {
                   Invitaciones
                 </SidebarLink>
                 <SidebarLink to="/sources" icon={Database}>
-                  Fuentes
+                  Fuentes de ingesta
                 </SidebarLink>
                 <SidebarLink to="/api-keys" icon={Key}>
-                  Claves
+                  Claves de ingesta
                 </SidebarLink>
                 <SidebarLink to="/ingestion-events" icon={History}>
-                  Eventos
+                  Eventos de ingesta
                 </SidebarLink>
                 <SidebarLink to="/organization" icon={Coins}>
                   Organización
@@ -428,7 +428,7 @@ export function AppLayout() {
                     post-venta. Configuración de la organización, ADMIN-only
                     incluida la lectura, al lado de Organización. */}
                 <SidebarLink to="/whatsapp-template" icon={MessageCircle}>
-                  Plantilla de WhatsApp
+                  Plantillas de WhatsApp
                 </SidebarLink>
                 {/* Sucursales (ítem 20): la lectura de /api/branches es abierta, pero
                     la pantalla es toda escritura ADMIN-only — un USER ya ve las

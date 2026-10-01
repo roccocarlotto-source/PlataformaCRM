@@ -192,10 +192,10 @@ describe("StageListPage", () => {
     const lostCell = cellByHeader(screen.getByText("Cerrado perdido").closest("tr"), "Estado");
     const openCell = cellByHeader(screen.getByText("Negociación").closest("tr"), "Estado");
 
-    expect(wonCell).toHaveTextContent("Etapa de Ganada");
-    expect(wonCell).not.toHaveTextContent("Etapa de Perdida");
-    expect(lostCell).toHaveTextContent("Etapa de Perdida");
-    expect(lostCell).not.toHaveTextContent("Etapa de Ganada");
+    expect(wonCell).toHaveTextContent("Cierre ganado");
+    expect(wonCell).not.toHaveTextContent("Cierre perdido");
+    expect(lostCell).toHaveTextContent("Cierre perdido");
+    expect(lostCell).not.toHaveTextContent("Cierre ganado");
     // Ni ganada ni perdida: sin badge, la celda queda vacía.
     expect(openCell).toBeEmptyDOMElement();
   });

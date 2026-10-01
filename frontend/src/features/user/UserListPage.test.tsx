@@ -114,7 +114,7 @@ describe("UserListPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("Ana Pérez")).toBeInTheDocument());
 
-    await chooseSelectOption(user, screen.getByLabelText("Rol"), "ADMIN");
+    await chooseSelectOption(user, screen.getByLabelText("Rol"), "Administrador");
     await chooseSelectOption(user, screen.getByLabelText("Estado"), "Activo");
     await user.click(screen.getByText("Siguiente"));
 
@@ -150,7 +150,7 @@ describe("UserListPage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getByText("Beto Gómez")).toBeInTheDocument());
-    await chooseSelectOption(user, screen.getByLabelText("Rol de Beto Gómez"), "USER");
+    await chooseSelectOption(user, screen.getByLabelText("Rol de Beto Gómez"), "Usuario");
 
     await waitFor(() => expect(patchedBody).toEqual({ role: "USER" }));
   });
@@ -313,7 +313,7 @@ describe("UserListPage", () => {
     expect(within(row).queryByText("Eliminar")).not.toBeInTheDocument();
     // Ni siquiera el menú de 3 puntos: no hay acciones que agrupar.
     expect(within(row).queryByRole("button", { name: /Más acciones/ })).not.toBeInTheDocument();
-    expect(within(row).getByText("ADMIN")).toBeInTheDocument();
+    expect(within(row).getByText("Administrador")).toBeInTheDocument();
   });
 
   it("nunca muestra el UUID crudo del usuario en ninguna celda", async () => {
@@ -368,7 +368,7 @@ describe("UserListPage", () => {
     const dialog = await screen.findByRole("dialog", { name: "Detalle del usuario" });
     expect(dialog).toHaveTextContent("Beto Gómez");
     expect(dialog).toHaveTextContent("beto@example.com");
-    expect(dialog).toHaveTextContent("ADMIN");
+    expect(dialog).toHaveTextContent("Administrador");
     expect(within(dialog).getByText("Inactivo")).toHaveClass("ds-badge");
     expect(dialog).toHaveTextContent(new Date(lastLoginAt).toLocaleString());
     expect(dialog).not.toHaveTextContent("u2");

@@ -581,7 +581,7 @@ describe("KnowledgeBaseFormPage — completar desde un archivo (ítem 60)", () =
     [413, "El archivo supera el máximo de 5 MB"],
     [
       422,
-      "No se pudo extraer texto de este archivo. Puede ser un PDF escaneado (imagen, sin texto seleccionable) — probá copiarlo y pegarlo a mano.",
+      "No pudimos extraer texto de este archivo. Puede ser un PDF escaneado (imagen, sin texto seleccionable) — probá copiarlo y pegarlo a mano.",
     ],
   ] as const)(
     "un %i del endpoint se muestra sin perder lo que ya estaba cargado",
@@ -675,7 +675,7 @@ describe("KnowledgeBaseFormPage — completar desde un archivo (ítem 60)", () =
 
     // Un archivo que el backend no pudo leer NO deja su nombre a la vista: el
     // Contenido no salió de ahí.
-    server.use(extractError(422, "No se pudo extraer texto de este archivo."));
+    server.use(extractError(422, "No pudimos extraer texto de este archivo."));
     await user.upload(inputDeArchivo(), archivo(PDF[1], PDF[2]));
 
     await screen.findByRole("alert");

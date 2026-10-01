@@ -67,7 +67,7 @@ export function QuoteSection({ opportunity }: QuoteSectionProps) {
     try {
       await transitionMutation.mutateAsync({ id: quote.id, status });
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "No se pudo cambiar el estado");
+      setActionError(err instanceof Error ? err.message : "No pudimos cambiar el estado");
     }
   }
 

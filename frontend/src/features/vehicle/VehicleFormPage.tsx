@@ -632,7 +632,7 @@ export function VehicleFormPage() {
       }
       navigate("/vehicles");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la unidad");
+      setError(err instanceof Error ? err.message : "No pudimos guardar la unidad");
       setServerMissingFields(readServerMissingFields(err));
     }
   }

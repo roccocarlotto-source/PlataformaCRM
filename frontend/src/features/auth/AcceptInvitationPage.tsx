@@ -180,7 +180,7 @@ export function AcceptInvitationPage() {
       }
       await runSetPassword();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo aceptar la invitación");
+      setError(err instanceof Error ? err.message : "No pudimos aceptar la invitación");
       setStep("accept-failed");
     }
   }
@@ -198,7 +198,7 @@ export function AcceptInvitationPage() {
       setStep("resolving-profile");
       retryProfile();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo configurar la contraseña");
+      setError(err instanceof Error ? err.message : "No pudimos configurar la contraseña");
       setStep("password-failed");
     }
   }

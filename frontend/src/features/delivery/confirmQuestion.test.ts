@@ -10,7 +10,7 @@ describe("confirmQuestion", () => {
 
   it("cuenta los ítems sin marcar, en singular y en plural", () => {
     expect(confirmQuestion([{ label: "Manual", checked: false }])).toContain(
-      "Quedan 1 ítem del checklist sin marcar.",
+      "Quedan 1 ítem de la lista sin marcar.",
     );
     expect(
       confirmQuestion([
@@ -18,6 +18,6 @@ describe("confirmQuestion", () => {
         { label: "Llave", checked: false },
         { label: "Gato", checked: true },
       ]),
-    ).toContain("Quedan 2 ítems del checklist sin marcar.");
+    ).toContain("Quedan 2 ítems de la lista sin marcar.");
   });
 });

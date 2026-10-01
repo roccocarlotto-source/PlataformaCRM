@@ -77,7 +77,7 @@ export function ResetPasswordPage() {
       }
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo actualizar la contraseña");
+      setError(err instanceof Error ? err.message : "No pudimos actualizar la contraseña");
     } finally {
       setIsSubmitting(false);
     }
@@ -106,7 +106,7 @@ export function ResetPasswordPage() {
           <h1>Elegí una nueva contraseña</h1>
           <ErrorState>Este enlace no es válido o expiró.</ErrorState>
           <p className="ds-auth-links">
-            <Link to="/forgot-password">Solicitar un nuevo link</Link>
+            <Link to="/forgot-password">Solicitar un nuevo enlace</Link>
           </p>
         </div>
       </AuthShell>

@@ -159,7 +159,7 @@ describe("PipelineFormPage", () => {
     expect(screen.queryByText("Nueva etapa")).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Nombre"), "Ventas Nueva");
-    await user.click(screen.getByLabelText("Default"));
+    await user.click(screen.getByLabelText("Predeterminado"));
     await user.click(screen.getByRole("button", { name: "Guardar" }));
 
     // Misma página, ahora en modo edición, con el editor habilitado.
@@ -199,12 +199,12 @@ describe("PipelineFormPage", () => {
     renderForm("/pipelines/pl1/edit");
 
     await waitFor(() => expect(screen.getByLabelText("Nombre")).toHaveValue("Ventas Original"));
-    expect(screen.getByLabelText("Default")).toBeChecked();
+    expect(screen.getByLabelText("Predeterminado")).toBeChecked();
 
     // Decisión A: el checkbox del default actual se puede desmarcar
     // libremente, sin restricción de UX.
-    await user.click(screen.getByLabelText("Default"));
-    expect(screen.getByLabelText("Default")).not.toBeChecked();
+    await user.click(screen.getByLabelText("Predeterminado"));
+    expect(screen.getByLabelText("Predeterminado")).not.toBeChecked();
 
     await user.clear(screen.getByLabelText("Nombre"));
     await user.type(screen.getByLabelText("Nombre"), "Ventas Editada");
@@ -293,7 +293,7 @@ describe("PipelineFormPage — editor de etapas integrado", () => {
       "Ganada",
     ]);
     expect(cellByHeader(rows[0], "Probabilidad")).toHaveTextContent("37.5%");
-    expect(cellByHeader(rows[1], "Estado")).toHaveTextContent("Etapa de Ganada");
+    expect(cellByHeader(rows[1], "Estado")).toHaveTextContent("Cierre ganado");
     expect(cellByHeader(rows[0], "Estado")?.textContent).toBe("");
 
     expect(screen.getByText("Nueva etapa")).toBeInTheDocument();
@@ -462,8 +462,8 @@ describe("PipelineFormPage — editor de etapas integrado", () => {
 
     const rows = screen.getAllByRole("row").slice(1);
     expect(rows.map((row) => cellByHeader(row, "Estado")?.textContent)).toEqual([
-      "Etapa de Ganada",
-      "Etapa de Ganada",
+      "Cierre ganado",
+      "Cierre ganado",
     ]);
   });
 

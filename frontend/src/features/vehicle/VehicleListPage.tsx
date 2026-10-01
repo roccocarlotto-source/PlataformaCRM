@@ -109,9 +109,7 @@ export function VehicleListPage() {
   const detalle = vehiclesQuery.data?.data.find((vehicle) => vehicle.id === detalleAbierto);
 
   async function handleDelete(id: string) {
-    if (
-      !(await confirm("¿Dar de baja esta unidad?", { confirmLabel: "Dar de baja", danger: true }))
-    )
+    if (!(await confirm("¿Eliminar esta unidad?", { confirmLabel: "Eliminar", danger: true })))
       return;
     deleteVehicleMutation.mutate(id);
   }
@@ -268,7 +266,7 @@ export function VehicleListPage() {
 
         {deleteVehicleMutation.isError ? (
           <ErrorState>
-            No pudimos dar de baja la unidad
+            No pudimos eliminar la unidad
             {deleteVehicleMutation.error instanceof Error
               ? `: ${deleteVehicleMutation.error.message}`
               : "."}

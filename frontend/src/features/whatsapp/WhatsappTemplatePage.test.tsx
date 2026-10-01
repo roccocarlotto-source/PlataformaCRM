@@ -188,7 +188,7 @@ describe("WhatsappTemplatePage — con plantilla", () => {
     expect(await screen.findByText("Aprobada")).toBeInTheDocument();
   });
 
-  it("'Borrar y volver a intentar' confirma, borra y deja el formulario precargado con lo que se borró", async () => {
+  it("'Eliminar y volver a intentar' confirma, borra y deja el formulario precargado con lo que se borró", async () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     let borrado = false;
@@ -208,7 +208,7 @@ describe("WhatsappTemplatePage — con plantilla", () => {
     );
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "Borrar y volver a intentar" }));
+    await user.click(await screen.findByRole("button", { name: "Eliminar y volver a intentar" }));
 
     expect(await screen.findByRole("heading", { name: "Nueva plantilla" })).toBeInTheDocument();
     expect(borrado).toBe(true);
@@ -230,7 +230,7 @@ describe("WhatsappTemplatePage — con plantilla", () => {
     );
     renderPage();
 
-    await user.click(await screen.findByRole("button", { name: "Borrar y volver a intentar" }));
+    await user.click(await screen.findByRole("button", { name: "Eliminar y volver a intentar" }));
 
     expect(borrado).toBe(false);
     expect(screen.getByRole("heading", { name: "Plantilla actual" })).toBeInTheDocument();

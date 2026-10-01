@@ -123,7 +123,7 @@ export function ServiceTypeFormPage() {
       }
       navigate("/service-types");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar el tipo de servicio");
+      setError(err instanceof Error ? err.message : "No pudimos guardar el tipo de servicio");
     }
   }
 
