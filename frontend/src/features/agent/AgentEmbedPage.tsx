@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent } from "react";
 import { useParams } from "react-router-dom";
 import { X } from "lucide-react";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Notice } from "../../design-system/Notice";
@@ -31,10 +32,6 @@ const PLACEHOLDER_TOKEN = "PEGÁ_ACÁ_TU_TOKEN";
 // propósito: el snippet que un negocio pega en su sitio es texto estático que
 // no se regenera solo).
 const WIDGET_FILENAME = "/widget.js";
-
-function formatFechaHora(iso: string): string {
-  return new Date(iso).toLocaleString();
-}
 
 // ---------------------------------------------------------------------------
 // "Instalar en un sitio": la pantalla que arma el <script> del widget del
@@ -216,257 +213,266 @@ export function AgentEmbedPage() {
 
       <div className="ds-stack">
         <Card heading="1. Dominios permitidos">
-          <p className="ds-hint">
-            El widget solo se puede usar desde estos dominios. Es a propósito: un token filtrado no
-            sirve de nada si el sitio donde se pega no está en la lista.
-          </p>
+          <div className="ds-stack">
+            <p className="ds-hint">
+              El widget solo se puede usar desde estos dominios. Es a propósito: un token filtrado
+              no sirve de nada si el sitio donde se pega no está en la lista.
+            </p>
 
-          {origenes.length > 0 ? (
-            <ul className="ds-chip-list" aria-label="Dominios permitidos">
-              {origenes.map((origen) => (
-                <li key={origen}>
-                  <Badge variant="neutral">
-                    {origen}
-                    <button
-                      type="button"
-                      className="ds-chip-remove"
-                      aria-label={`Quitar ${origen}`}
-                      onClick={() => quitar(origen)}
-                    >
-                      <X size={12} aria-hidden="true" />
-                    </button>
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            // NO es un vacío neutro: es el estado en el que el widget está
-            // apagado, y la pantalla lo dice para que nadie lo lea como un
-            // dato que falta cargar por olvido.
-            <EmptyState>
-              El widget no va a funcionar en ningún sitio hasta que agregues al menos un dominio.
-            </EmptyState>
-          )}
+            {origenes.length > 0 ? (
+              <ul className="ds-chip-list" aria-label="Dominios permitidos">
+                {origenes.map((origen) => (
+                  <li key={origen}>
+                    <Badge variant="neutral">
+                      {origen}
+                      <button
+                        type="button"
+                        className="ds-chip-remove"
+                        aria-label={`Quitar ${origen}`}
+                        onClick={() => quitar(origen)}
+                      >
+                        <X size={12} aria-hidden="true" />
+                      </button>
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              // NO es un vacío neutro: es el estado en el que el widget está
+              // apagado, y la pantalla lo dice para que nadie lo lea como un
+              // dato que falta cargar por olvido.
+              <EmptyState>
+                El widget no va a funcionar en ningún sitio hasta que agregues al menos un dominio.
+              </EmptyState>
+            )}
 
-          <div className="ds-chip-add">
-            <label className="ds-sr-only" htmlFor="agent-embed-origin">
-              Dominio nuevo
-            </label>
-            <input
-              id="agent-embed-origin"
-              ref={inputRef}
-              type="text"
-              value={draft}
-              maxLength={ORIGEN_MAX_LENGTH}
-              placeholder="https://ejemplo.com"
-              disabled={origenes.length >= ORIGENES_MAX_ITEMS}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                if (addError !== null) setAddError(null);
-              }}
-              onKeyDown={handleKeyDown}
-            />
-            <Button onClick={agregar} disabled={origenes.length >= ORIGENES_MAX_ITEMS}>
-              Agregar
+            <div className="ds-chip-add">
+              <label className="ds-sr-only" htmlFor="agent-embed-origin">
+                Dominio nuevo
+              </label>
+              <input
+                id="agent-embed-origin"
+                ref={inputRef}
+                type="text"
+                value={draft}
+                maxLength={ORIGEN_MAX_LENGTH}
+                placeholder="https://ejemplo.com"
+                disabled={origenes.length >= ORIGENES_MAX_ITEMS}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  if (addError !== null) setAddError(null);
+                }}
+                onKeyDown={handleKeyDown}
+              />
+              <Button onClick={agregar} disabled={origenes.length >= ORIGENES_MAX_ITEMS}>
+                Agregar
+              </Button>
+            </div>
+
+            {addError !== null ? <ErrorState>{addError}</ErrorState> : null}
+
+            <p className="ds-hint">
+              Solo el dominio, sin ninguna ruta después: <code>https://tusitio.com</code>, no{" "}
+              <code>https://tusitio.com/contacto</code>. Si el sitio usa un subdominio (
+              <code>https://www.tusitio.com</code>), agregalo también: para el navegador son dos
+              orígenes distintos.
+            </p>
+
+            <Button
+              variant="primary"
+              onClick={handleGuardarDominios}
+              disabled={updateAgentMutation.isPending}
+              loading={updateAgentMutation.isPending}
+            >
+              {updateAgentMutation.isPending ? "Guardando…" : "Guardar dominios"}
             </Button>
+
+            {updateAgentMutation.isSuccess ? <p role="status">Dominios guardados.</p> : null}
+
+            {updateAgentMutation.isError ? (
+              <ErrorState>
+                No pudimos guardar los dominios
+                {updateAgentMutation.error instanceof Error
+                  ? `: ${updateAgentMutation.error.message}`
+                  : "."}
+              </ErrorState>
+            ) : null}
           </div>
-
-          {addError !== null ? <ErrorState>{addError}</ErrorState> : null}
-
-          <p className="ds-hint">
-            Solo el dominio, sin ninguna ruta después: <code>https://tusitio.com</code>, no{" "}
-            <code>https://tusitio.com/contacto</code>. Si el sitio usa un subdominio (
-            <code>https://www.tusitio.com</code>), agregalo también: para el navegador son dos
-            orígenes distintos.
-          </p>
-
-          <Button
-            variant="primary"
-            onClick={handleGuardarDominios}
-            disabled={updateAgentMutation.isPending}
-            loading={updateAgentMutation.isPending}
-          >
-            {updateAgentMutation.isPending ? "Guardando…" : "Guardar dominios"}
-          </Button>
-
-          {updateAgentMutation.isSuccess ? <p role="status">Dominios guardados.</p> : null}
-
-          {updateAgentMutation.isError ? (
-            <ErrorState>
-              No pudimos guardar los dominios
-              {updateAgentMutation.error instanceof Error
-                ? `: ${updateAgentMutation.error.message}`
-                : "."}
-            </ErrorState>
-          ) : null}
         </Card>
 
         <Card heading="2. Tokens de embed">
-          <p className="ds-hint">
-            El token identifica a este agente en el código que se pega en el sitio. Se muestra una
-            sola vez, al generarlo: después solo queda su prefijo, para saber cuál es cuál.
-          </p>
+          <div className="ds-stack">
+            <p className="ds-hint">
+              El token identifica a este agente en el código que se pega en el sitio. Se muestra una
+              sola vez, al generarlo: después solo queda su prefijo, para saber cuál es cuál.
+            </p>
 
-          <Button
-            variant="primary"
-            onClick={() => void handleGenerarToken()}
-            disabled={createTokenMutation.isPending}
-            loading={createTokenMutation.isPending}
-          >
-            {createTokenMutation.isPending ? "Generando…" : "Generar token nuevo"}
-          </Button>
+            <Button
+              variant="primary"
+              onClick={() => void handleGenerarToken()}
+              disabled={createTokenMutation.isPending}
+              loading={createTokenMutation.isPending}
+            >
+              {createTokenMutation.isPending ? "Generando…" : "Generar token nuevo"}
+            </Button>
 
-          {createTokenMutation.isError ? (
-            <ErrorState>
-              No pudimos generar el token
-              {createTokenMutation.error instanceof Error
-                ? `: ${createTokenMutation.error.message}`
-                : "."}
-            </ErrorState>
-          ) : null}
+            {createTokenMutation.isError ? (
+              <ErrorState>
+                No pudimos generar el token
+                {createTokenMutation.error instanceof Error
+                  ? `: ${createTokenMutation.error.message}`
+                  : "."}
+              </ErrorState>
+            ) : null}
 
-          {tokenEnClaro !== null ? (
-            <div>
-              <Notice tone="warning">
-                Esta es la única vez que vas a poder ver este token. No se guarda en ningún lado: si
-                lo perdés, hay que revocarlo y generar otro. El código del paso 3 ya lo tiene
-                puesto.
-              </Notice>
-              <label className="ds-field">
-                <span className="ds-field-label">Token</span>
-                {/* readOnly y no disabled: un input deshabilitado no se puede
+            {tokenEnClaro !== null ? (
+              <div>
+                <Notice tone="warning">
+                  Esta es la única vez que vas a poder ver este token. No se guarda en ningún lado:
+                  si lo perdés, hay que revocarlo y generar otro. El código del paso 3 ya lo tiene
+                  puesto.
+                </Notice>
+                <label className="ds-field">
+                  <span className="ds-field-label">Token</span>
+                  {/* readOnly y no disabled: un input deshabilitado no se puede
                     seleccionar, y seleccionar a mano es el respaldo cuando el
                     portapapeles no está disponible. */}
-                <input
-                  type="text"
-                  className="ds-secret"
-                  value={tokenEnClaro}
-                  readOnly
-                  onFocus={(event) => event.currentTarget.select()}
-                />
-              </label>
-              <CopyButton text={tokenEnClaro} />
-            </div>
-          ) : null}
+                  <input
+                    type="text"
+                    className="ds-secret"
+                    value={tokenEnClaro}
+                    readOnly
+                    onFocus={(event) => event.currentTarget.select()}
+                  />
+                </label>
+                <CopyButton text={tokenEnClaro} />
+              </div>
+            ) : null}
 
-          {tokensQuery.isLoading ? <LoadingState variant="rows" /> : null}
+            {tokensQuery.isLoading ? <LoadingState variant="rows" /> : null}
 
-          {tokensQuery.isError ? (
-            <ErrorState>
-              No pudimos cargar los tokens
-              {tokensQuery.error instanceof Error ? `: ${tokensQuery.error.message}` : "."}
-            </ErrorState>
-          ) : null}
+            {tokensQuery.isError ? (
+              <ErrorState>
+                No pudimos cargar los tokens
+                {tokensQuery.error instanceof Error ? `: ${tokensQuery.error.message}` : "."}
+              </ErrorState>
+            ) : null}
 
-          {/* El 409 de "ya fue revocado" es una carrera real (otra pestaña,
+            {/* El 409 de "ya fue revocado" es una carrera real (otra pestaña,
               otro ADMIN, o el borrado del agente que revoca en cascada), no un
               fallo del sistema: se muestra con el mensaje del backend tal cual
               —"Este token ya fue revocado"— y la lista se refresca sola
               (onSettled en useRevokeEmbedToken), así que la tabla de abajo
               termina coincidiendo con lo que dice el cartel. */}
-          {revokeTokenMutation.isError ? (
-            <ErrorState>
-              No pudimos revocar el token
-              {revokeTokenMutation.error instanceof Error
-                ? `: ${revokeTokenMutation.error.message}`
-                : "."}
-            </ErrorState>
-          ) : null}
+            {revokeTokenMutation.isError ? (
+              <ErrorState>
+                No pudimos revocar el token
+                {revokeTokenMutation.error instanceof Error
+                  ? `: ${revokeTokenMutation.error.message}`
+                  : "."}
+              </ErrorState>
+            ) : null}
 
-          {tokensQuery.isSuccess && tokens.length === 0 ? (
-            <EmptyState>Este agente todavía no tiene ningún token.</EmptyState>
-          ) : null}
+            {tokensQuery.isSuccess && tokens.length === 0 ? (
+              <EmptyState>Este agente todavía no tiene ningún token.</EmptyState>
+            ) : null}
 
-          {tokens.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <th>Prefijo</th>
-                  <th>Estado</th>
-                  <th>Último uso</th>
-                  <th>Creado</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tokens.map((token) => {
-                  const activo = estadoDeToken(token) === "ACTIVE";
-                  return (
-                    <tr key={token.id}>
-                      <td className="ds-cell-primary">
-                        {/* El PREFIJO, no el token: los primeros caracteres
+            {tokens.length > 0 ? (
+              <Table>
+                <thead>
+                  <tr>
+                    <th>Prefijo</th>
+                    <th>Estado</th>
+                    <th>Último uso</th>
+                    <th>Creado</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tokens.map((token) => {
+                    const activo = estadoDeToken(token) === "ACTIVE";
+                    return (
+                      <tr key={token.id}>
+                        <td className="ds-cell-primary">
+                          {/* El PREFIJO, no el token: los primeros caracteres
                             alcanzan para saber cuál se está por revocar y no
                             sirven para autenticar. */}
-                        <code className="ds-secret">{token.tokenPrefix}…</code>
-                      </td>
-                      <td>
-                        <Badge variant={activo ? "success" : "neutral"}>
-                          {activo ? "Activo" : "Revocado"}
-                        </Badge>
-                        {token.revokedAt !== null ? (
-                          <div className="ds-cell-muted">{formatFechaHora(token.revokedAt)}</div>
-                        ) : null}
-                      </td>
-                      <td className="ds-cell-muted">
-                        {token.lastUsedAt !== null ? formatFechaHora(token.lastUsedAt) : "Nunca"}
-                      </td>
-                      <td className="ds-cell-muted">{formatFechaHora(token.createdAt)}</td>
-                      <td>
-                        {/* Un token revocado no ofrece revocar de nuevo: el
+                          <code className="ds-secret">{token.tokenPrefix}…</code>
+                        </td>
+                        <td>
+                          <Badge variant={activo ? "success" : "neutral"}>
+                            {activo ? "Activo" : "Revocado"}
+                          </Badge>
+                          {token.revokedAt !== null ? (
+                            <div className="ds-cell-muted">{formatDateTime(token.revokedAt)}</div>
+                          ) : null}
+                        </td>
+                        <td className="ds-cell-muted">
+                          {token.lastUsedAt !== null ? formatDateTime(token.lastUsedAt) : "Nunca"}
+                        </td>
+                        <td className="ds-cell-muted">{formatDateTime(token.createdAt)}</td>
+                        <td>
+                          {/* Un token revocado no ofrece revocar de nuevo: el
                             backend responde 409 y ofrecer una acción que solo
                             puede fallar es peor que no ofrecerla. Mismo
                             criterio que ApiKeyListPage. */}
-                        {activo ? (
-                          <Button
-                            variant="danger"
-                            onClick={() => handleRevocar(token.id)}
-                            disabled={revokeTokenMutation.isPending}
-                            loading={
-                              revokeTokenMutation.isPending &&
-                              revokeTokenMutation.variables === token.id
-                            }
-                          >
-                            Revocar
-                          </Button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-          ) : null}
+                          {activo ? (
+                            <div className="ds-row-actions">
+                              <Button
+                                variant="danger"
+                                onClick={() => handleRevocar(token.id)}
+                                disabled={revokeTokenMutation.isPending}
+                                loading={
+                                  revokeTokenMutation.isPending &&
+                                  revokeTokenMutation.variables === token.id
+                                }
+                              >
+                                Revocar
+                              </Button>
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            ) : null}
+          </div>
         </Card>
 
         <Card heading="3. Código para instalar en el sitio">
-          {sinDominiosGuardados ? (
-            // Sin role="alert": está desde que la pantalla carga y se va
-            // cuando se guarda el primer dominio, así que nunca IRRUMPE — un
-            // lector de pantalla lo lee al llegar, en su orden. El alert
-            // queda para lo que sí aparece de golpe (el token recién
-            // generado, los errores).
-            <Notice tone="warning" alert={false}>
-              Este código todavía no va a funcionar: falta agregar al menos un dominio en el paso 1
-              y guardarlo.
-            </Notice>
-          ) : null}
+          <div className="ds-stack">
+            {sinDominiosGuardados ? (
+              // Sin role="alert": está desde que la pantalla carga y se va
+              // cuando se guarda el primer dominio, así que nunca IRRUMPE — un
+              // lector de pantalla lo lee al llegar, en su orden. El alert
+              // queda para lo que sí aparece de golpe (el token recién
+              // generado, los errores).
+              <Notice tone="warning" alert={false}>
+                Este código todavía no va a funcionar: falta agregar al menos un dominio en el paso
+                1 y guardarlo.
+              </Notice>
+            ) : null}
 
-          {tokenEnClaro === null ? (
+            {tokenEnClaro === null ? (
+              <p className="ds-hint">
+                El código lleva un marcador en lugar del token porque un token solo se puede ver en
+                el momento de generarlo. Generá uno nuevo en el paso 2 y el código de abajo se
+                completa solo, o reemplazá <code>{PLACEHOLDER_TOKEN}</code> a mano por el que tengas
+                guardado.
+              </p>
+            ) : null}
+
+            <pre className="ds-code-field ds-json-preview">{snippet}</pre>
+
+            <CopyButton text={snippet} label="Copiar código" />
+
             <p className="ds-hint">
-              El código lleva un marcador en lugar del token porque un token solo se puede ver en el
-              momento de generarlo. Generá uno nuevo en el paso 2 y el código de abajo se completa
-              solo, o reemplazá <code>{PLACEHOLDER_TOKEN}</code> a mano por el que tengas guardado.
+              Va pegado antes de <code>&lt;/body&gt;</code> en todas las páginas donde tenga que
+              aparecer el chat.
             </p>
-          ) : null}
-
-          <pre className="ds-code-field ds-json-preview">{snippet}</pre>
-
-          <CopyButton text={snippet} label="Copiar código" />
-
-          <p className="ds-hint">
-            Va pegado antes de <code>&lt;/body&gt;</code> en todas las páginas donde tenga que
-            aparecer el chat.
-          </p>
+          </div>
         </Card>
       </div>
     </div>

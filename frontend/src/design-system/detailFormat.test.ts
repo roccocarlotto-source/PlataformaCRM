@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatShortDateTime } from "./detailFormat";
+import { formatDateOnly, formatShortDateTime } from "./detailFormat";
 
 // Fechas armadas con el constructor local (año, mes, día, hora, minuto) y no
 // con ISO en UTC: formatShortDateTime trabaja en la hora local del navegador,
@@ -36,5 +36,16 @@ describe("formatShortDateTime", () => {
 
   it("null → vacío, igual que formatDateTime", () => {
     expect(formatShortDateTime(null, ahora)).toBe("");
+  });
+});
+
+describe("formatDateOnly", () => {
+  it("es la fecha local del navegador, sin hora", () => {
+    const iso = "2026-08-15T12:00:00.000Z";
+    expect(formatDateOnly(iso)).toBe(new Date(iso).toLocaleDateString());
+  });
+
+  it("null → vacío, para que DetailList lo muestre como dato vacío", () => {
+    expect(formatDateOnly(null)).toBe("");
   });
 });

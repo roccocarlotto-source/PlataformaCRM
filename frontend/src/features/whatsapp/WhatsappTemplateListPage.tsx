@@ -106,12 +106,15 @@ export function WhatsappTemplateListPage() {
                     <PlantillaDeLaRegla query={plantillas[indice]} />
                   </td>
                   <td>
-                    <Link
-                      to={`/whatsapp-template/${regla.id}`}
-                      aria-label={`Plantilla de ${regla.name}`}
-                    >
-                      {plantillas[indice]?.data ? "Ver plantilla" : "Cargar plantilla"}
-                    </Link>
+                    <div className="ds-row-actions">
+                      <Link
+                        to={`/whatsapp-template/${regla.id}`}
+                        aria-label={`Plantilla de ${regla.name}`}
+                        className="ds-button ds-button--secondary"
+                      >
+                        {plantillas[indice]?.data ? "Ver plantilla" : "Cargar plantilla"}
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

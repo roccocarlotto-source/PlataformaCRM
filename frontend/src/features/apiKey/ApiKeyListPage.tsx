@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Key } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
+import { Badge } from "../../design-system/Badge";
+import { formatDateOnly, formatDateTime } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { Button } from "../../design-system/Button";
@@ -265,19 +267,23 @@ export function ApiKeyListPage() {
                     <td>
                       <code>{apiKey.keyPrefix}…</code>
                     </td>
-                    <td>{estado === "ACTIVE" ? "Activa" : "Revocada"}</td>
                     <td>
-                      {apiKey.lastUsedAt ? new Date(apiKey.lastUsedAt).toLocaleString() : "Nunca"}
+                      <Badge variant={estado === "ACTIVE" ? "success" : "neutral"}>
+                        {estado === "ACTIVE" ? "Activa" : "Revocada"}
+                      </Badge>
                     </td>
-                    <td>{new Date(apiKey.createdAt).toLocaleDateString()}</td>
+                    <td>{apiKey.lastUsedAt ? formatDateTime(apiKey.lastUsedAt) : "Nunca"}</td>
+                    <td>{formatDateOnly(apiKey.createdAt)}</td>
                     <td>
                       {/* Una clave revocada no ofrece revocar de nuevo. El backend
                         lo maneja con un 409, pero ofrecer una acción que solo
                         puede fallar es peor que no ofrecerla. */}
                       {estado === "ACTIVE" ? (
-                        <Button variant="danger" onClick={() => handleRevoke(apiKey.id)}>
-                          Revocar
-                        </Button>
+                        <div className="ds-row-actions">
+                          <Button variant="danger" onClick={() => handleRevoke(apiKey.id)}>
+                            Revocar
+                          </Button>
+                        </div>
                       ) : null}
                     </td>
                   </tr>

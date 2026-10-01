@@ -123,36 +123,38 @@ export function BusinessHoursSection({ branchId }: BusinessHoursSectionProps) {
 
   return (
     <Card heading="Horario de atención">
-      <p className="ds-hint">
-        Los mensajes automáticos (reseñas, cupones) solo se envían dentro de este horario. El agente
-        responde a los clientes a cualquier hora.
-      </p>
-
-      {datos.configured ? null : (
+      <div className="ds-stack">
         <p className="ds-hint">
-          Esta sucursal usa el horario por defecto: lunes a sábado de 9:00 a 20:00. Cargar uno
-          propio es opcional.
+          Los mensajes automáticos (reseñas, cupones) solo se envían dentro de este horario. El
+          agente responde a los clientes a cualquier hora.
         </p>
-      )}
 
-      <WorkingHoursEditor value={horario} onChange={cambiar} disabled={isSaving} />
+        {datos.configured ? null : (
+          <p className="ds-hint">
+            Esta sucursal usa el horario por defecto: lunes a sábado de 9:00 a 20:00. Cargar uno
+            propio es opcional.
+          </p>
+        )}
 
-      {error ? <ErrorState>{error}</ErrorState> : null}
-      {guardado ? (
-        <p className="ds-hint" role="status">
-          {guardado}
-        </p>
-      ) : null}
+        <WorkingHoursEditor value={horario} onChange={cambiar} disabled={isSaving} />
 
-      <div className="ds-card-actions">
-        <Button variant="primary" onClick={handleGuardar} disabled={isSaving} loading={isSaving}>
-          {isSaving ? "Guardando…" : "Guardar horario"}
-        </Button>
-        {datos.configured ? (
-          <Button onClick={handleVolverAlDefault} disabled={isSaving}>
-            Volver al horario por defecto
-          </Button>
+        {error ? <ErrorState>{error}</ErrorState> : null}
+        {guardado ? (
+          <p className="ds-hint" role="status">
+            {guardado}
+          </p>
         ) : null}
+
+        <div className="ds-card-actions">
+          <Button variant="primary" onClick={handleGuardar} disabled={isSaving} loading={isSaving}>
+            {isSaving ? "Guardando…" : "Guardar horario"}
+          </Button>
+          {datos.configured ? (
+            <Button onClick={handleVolverAlDefault} disabled={isSaving}>
+              Volver al horario por defecto
+            </Button>
+          ) : null}
+        </div>
       </div>
     </Card>
   );

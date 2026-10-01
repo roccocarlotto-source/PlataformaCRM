@@ -260,17 +260,19 @@ export function BookingListPage() {
                           las demás (409 la ya cancelada), y ofrecer el botón
                           sería prometer una acción que no puede terminar bien. */}
                       {booking.status === "CONFIRMED" ? (
-                        <Button
-                          variant="danger"
-                          onClick={() => handleCancel(booking.id)}
-                          disabled={cancelBookingMutation.isPending}
-                          loading={
-                            cancelBookingMutation.isPending &&
-                            cancelBookingMutation.variables === booking.id
-                          }
-                        >
-                          Cancelar
-                        </Button>
+                        <div className="ds-row-actions">
+                          <Button
+                            variant="danger"
+                            onClick={() => handleCancel(booking.id)}
+                            disabled={cancelBookingMutation.isPending}
+                            loading={
+                              cancelBookingMutation.isPending &&
+                              cancelBookingMutation.variables === booking.id
+                            }
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
                       ) : null}
                     </td>
                   </tr>

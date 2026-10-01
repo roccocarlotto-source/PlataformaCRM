@@ -4,11 +4,16 @@
 // IngestionEvent). No se agrega ningún campo que el backend no devuelva o no
 // acepte.
 
-// Las cuatro variantes del enum de Prisma. DUPLICATE está declarado pero ningún
+// Las cinco variantes del enum de Prisma. DUPLICATE está declarado pero ningún
 // código lo escribe nunca —los duplicados no crean fila— así que filtrar por él
 // devuelve una página vacía. Se acepta igual: restringir el tipo a los tres
 // "reales" haría divergir el contrato HTTP del enum de la base.
-export type IngestionStatus = "PENDING" | "PROCESSED" | "FAILED" | "DUPLICATE";
+//
+// DEAD_LETTER (B-30: agotó los reintentos de promoción) faltaba acá y la celda
+// de estado de esas filas salía vacía; se agregó con su etiqueta. No está en
+// ESTADOS (las opciones del filtro): sumarlo es una opción nueva del filtro, no
+// un arreglo visual, y queda para cuando se decida.
+export type IngestionStatus = "PENDING" | "PROCESSED" | "FAILED" | "DUPLICATE" | "DEAD_LETTER";
 
 export const ESTADOS: readonly IngestionStatus[] = [
   "PENDING",
@@ -22,6 +27,20 @@ export const ETIQUETA_DE_ESTADO: Record<IngestionStatus, string> = {
   PROCESSED: "Procesado",
   FAILED: "Fallido",
   DUPLICATE: "Duplicado",
+  DEAD_LETTER: "Agotó los reintentos",
+};
+
+// Color del Badge de cada estado en el listado: lo que falló se tiene que ver
+// de un vistazo entre cien filas procesadas.
+export const VARIANTE_DE_ESTADO: Record<
+  IngestionStatus,
+  "neutral" | "info" | "success" | "danger"
+> = {
+  PENDING: "info",
+  PROCESSED: "success",
+  FAILED: "danger",
+  DUPLICATE: "neutral",
+  DEAD_LETTER: "danger",
 };
 
 // Exactamente la proyección pública del repositorio: los diez campos de

@@ -260,116 +260,120 @@ export function AgentPlaygroundPage() {
       ) : (
         <div className="ds-stack">
           <Card heading="Con quién hablás">
-            <ContactSelect
-              id="agent-playground-contact"
-              label="Contacto"
-              value={contactId}
-              onChange={handleContacto}
-            />
-
-            {opcionesDeCanal.length > 1 ? (
-              <Select
-                id="agent-playground-channel"
-                label="Canal"
-                value={canal}
-                options={opcionesDeCanal}
-                onChange={(valor) => setCanal(valor)}
+            <div className="ds-stack">
+              <ContactSelect
+                id="agent-playground-contact"
+                label="Contacto"
+                value={contactId}
+                onChange={handleContacto}
               />
-            ) : (
-              // Un solo canal habilitado no es una elección: mostrarlo como
-              // un selector de una opción sería pedir una decisión que no
-              // existe.
-              <p className="ds-field-value">
-                Canal: <strong>{CHANNEL_LABEL[opcionesDeCanal[0].value]}</strong>
-              </p>
-            )}
 
-            {!agent.isActive ? (
-              <Notice tone="warning">
-                Este agente está desactivado y no responde mensajes.{" "}
-                <Link to={`/agents/${agent.id}/edit`}>Activalo en su configuración</Link> para poder
-                probarlo.
-              </Notice>
-            ) : null}
+              {opcionesDeCanal.length > 1 ? (
+                <Select
+                  id="agent-playground-channel"
+                  label="Canal"
+                  value={canal}
+                  options={opcionesDeCanal}
+                  onChange={(valor) => setCanal(valor)}
+                />
+              ) : (
+                // Un solo canal habilitado no es una elección: mostrarlo como
+                // un selector de una opción sería pedir una decisión que no
+                // existe.
+                <p className="ds-field-value">
+                  Canal: <strong>{CHANNEL_LABEL[opcionesDeCanal[0].value]}</strong>
+                </p>
+              )}
+
+              {!agent.isActive ? (
+                <Notice tone="warning">
+                  Este agente está desactivado y no responde mensajes.{" "}
+                  <Link to={`/agents/${agent.id}/edit`}>Activalo en su configuración</Link> para
+                  poder probarlo.
+                </Notice>
+              ) : null}
+            </div>
           </Card>
 
           <Card heading="Conversación">
-            <p className="ds-hint">
-              Escribís <strong>como el contacto</strong>, no como vos. Lo que se ve acá es solo lo
-              que pasó desde que abriste esta pantalla; el hilo completo, con lo de sesiones
-              anteriores, está en <Link to="/conversations">Conversaciones</Link>.
-            </p>
+            <div className="ds-stack">
+              <p className="ds-hint">
+                Escribís <strong>como el contacto</strong>, no como vos. Lo que se ve acá es solo lo
+                que pasó desde que abriste esta pantalla; el hilo completo, con lo de sesiones
+                anteriores, está en <Link to="/conversations">Conversaciones</Link>.
+              </p>
 
-            {entradas.length === 0 ? (
-              <EmptyState>
-                {contactId === undefined
-                  ? "Elegí un contacto para empezar."
-                  : "Escribí un mensaje para empezar."}
-              </EmptyState>
-            ) : (
-              <ol className="ds-chat" aria-label="Transcripción">
-                {entradas.map((entrada) => (
-                  <li key={entrada.id} className={`ds-chat-row ds-chat-row--${entrada.tipo}`}>
-                    {entrada.tipo === "tool" ? (
-                      <ToolCallBlock llamada={entrada.llamada} />
-                    ) : entrada.tipo === "sistema" || entrada.tipo === "error" ? (
-                      <p className={`ds-chat-note ds-chat-note--${entrada.tipo}`}>
-                        {entrada.texto}
-                      </p>
-                    ) : (
-                      <div className="ds-chat-bubble">
-                        <span className="ds-chat-author">
-                          {entrada.tipo === "contacto" ? "Contacto (vos)" : agent.name}
-                        </span>
-                        {entrada.texto}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
+              {entradas.length === 0 ? (
+                <EmptyState>
+                  {contactId === undefined
+                    ? "Elegí un contacto para empezar."
+                    : "Escribí un mensaje para empezar."}
+                </EmptyState>
+              ) : (
+                <ol className="ds-chat" aria-label="Transcripción">
+                  {entradas.map((entrada) => (
+                    <li key={entrada.id} className={`ds-chat-row ds-chat-row--${entrada.tipo}`}>
+                      {entrada.tipo === "tool" ? (
+                        <ToolCallBlock llamada={entrada.llamada} />
+                      ) : entrada.tipo === "sistema" || entrada.tipo === "error" ? (
+                        <p className={`ds-chat-note ds-chat-note--${entrada.tipo}`}>
+                          {entrada.texto}
+                        </p>
+                      ) : (
+                        <div className="ds-chat-bubble">
+                          <span className="ds-chat-author">
+                            {entrada.tipo === "contacto" ? "Contacto (vos)" : agent.name}
+                          </span>
+                          {entrada.texto}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
 
-            {/* La derivación se muestra aparte de la nota de sistema cuando
+              {/* La derivación se muestra aparte de la nota de sistema cuando
                 dejó una Activity: el id solo no le sirve a nadie, y la
                 pantalla que la muestra existe (/activities/:id/edit, también
                 ADMIN-only). Sin Activity no se inventa un link: el contacto
                 no tenía vendedor asignado, así que no hay nada que abrir. */}
-            {testMessageMutation.data?.handoff && testMessageMutation.data.handoffActivityId ? (
-              <p className="ds-hint">
-                Actividad de la derivación:{" "}
-                <Link to={`/activities/${testMessageMutation.data.handoffActivityId}/edit`}>
-                  abrirla
-                </Link>
-              </p>
-            ) : null}
+              {testMessageMutation.data?.handoff && testMessageMutation.data.handoffActivityId ? (
+                <p className="ds-hint">
+                  Actividad de la derivación:{" "}
+                  <Link to={`/activities/${testMessageMutation.data.handoffActivityId}/edit`}>
+                    abrirla
+                  </Link>
+                </p>
+              ) : null}
 
-            <form className="ds-chat-form" onSubmit={handleSubmit}>
-              <label className="ds-sr-only" htmlFor="agent-playground-message">
-                Mensaje del contacto
-              </label>
-              <textarea
-                id="agent-playground-message"
-                rows={3}
-                value={texto}
-                maxLength={MENSAJE_MAX_LENGTH}
-                disabled={!puedeEscribir || enviando}
-                placeholder={
-                  contactId === undefined
-                    ? "Elegí un contacto para poder escribir…"
-                    : "Escribí como si fueras el contacto…"
-                }
-                onChange={(event) => setTexto(event.target.value)}
-                onKeyDown={handleKeyDown}
-              />
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={!puedeEscribir || enviando || texto.trim().length === 0}
-                loading={enviando}
-              >
-                {enviando ? "Enviando…" : "Enviar"}
-              </Button>
-            </form>
+              <form className="ds-chat-form" onSubmit={handleSubmit}>
+                <label className="ds-sr-only" htmlFor="agent-playground-message">
+                  Mensaje del contacto
+                </label>
+                <textarea
+                  id="agent-playground-message"
+                  rows={3}
+                  value={texto}
+                  maxLength={MENSAJE_MAX_LENGTH}
+                  disabled={!puedeEscribir || enviando}
+                  placeholder={
+                    contactId === undefined
+                      ? "Elegí un contacto para poder escribir…"
+                      : "Escribí como si fueras el contacto…"
+                  }
+                  onChange={(event) => setTexto(event.target.value)}
+                  onKeyDown={handleKeyDown}
+                />
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={!puedeEscribir || enviando || texto.trim().length === 0}
+                  loading={enviando}
+                >
+                  {enviando ? "Enviando…" : "Enviar"}
+                </Button>
+              </form>
+            </div>
           </Card>
         </div>
       )}

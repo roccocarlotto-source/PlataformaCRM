@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Activity as ActivityIcon, Plus } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { formatDateTime } from "../../design-system/detailFormat";
 import { useConfirm } from "../../design-system/useConfirm";
 import { PageHeader } from "../../design-system/PageHeader";
 import { ActionsMenu } from "../../design-system/ActionsMenu";
@@ -35,11 +36,6 @@ import type {
 } from "./types";
 
 const PAGE_SIZE = 20;
-
-function formatDateTime(iso: string | null): string {
-  if (!iso) return "";
-  return new Date(iso).toLocaleString();
-}
 
 // Columna "Confirmación" (§29): el mismo Badge en la tabla y en el detalle.
 // "—" neutral para lo que no está completado (no hay nada que confirmar),
