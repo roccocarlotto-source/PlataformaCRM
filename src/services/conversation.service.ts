@@ -13,6 +13,10 @@ import {
 } from "../repositories/conversation.repository";
 import { AppError } from "../utils/AppError";
 import { humanoAtiendeLaConversacion } from "./agentOrchestration.service";
+import {
+  conversacionesConPedidoSinResponder,
+  pedidoSinResponderDelHilo,
+} from "./avisoSinRespuesta.service";
 import { finDeLaVentanaDeWhatsapp } from "../utils/ventanaDeWhatsapp";
 import { generarBriefDeConversacion } from "./conversationBrief.service";
 
@@ -71,9 +75,15 @@ export async function listConversations(organizationId: string, params: ListConv
     ),
     countConversations(organizationId, filters as ConversationFilters),
   ]);
+  // La marca "pidió hablar con una persona · sin responder" (ver
+  // avisoSinRespuesta.service.ts), para toda la página de una vez.
+  const conMarca = await conversacionesConPedidoSinResponder(organizationId, data);
 
   return {
-    data,
+    data: data.map((conversation) => ({
+      ...conversation,
+      humanRequestUnanswered: conMarca.has(conversation.id),
+    })),
     pagination: {
       page,
       pageSize,
@@ -102,11 +112,13 @@ export async function getConversationById(organizationId: string, id: string) {
 //     función que usa el gate del loop, humanoAtiendeLaConversacion).
 //   - replyWindowEndsAt: hasta cuándo WhatsApp acepta texto libre (24 h desde
 //     el último mensaje del cliente). null si el cliente nunca escribió.
+//   - humanRequestUnanswered: se la devolvió al agente sin que nadie le
+//     escribiera al cliente, y sigue sin respuesta (avisoSinRespuesta.service.ts).
 // El hilo ya viene entero en la conversación, así que salen de ahí sin otra
 // ida a la base.
 export async function estadoDeAtencion(
-  conversation: Pick<Conversation, "id" | "organizationId" | "status"> & {
-    messages: Pick<Message, "direction" | "senderType" | "createdAt">[];
+  conversation: Pick<Conversation, "id" | "organizationId" | "status" | "contactId"> & {
+    messages: Pick<Message, "direction" | "senderType" | "content" | "createdAt">[];
   },
 ) {
   const ultimoEntrante = conversation.messages
@@ -115,6 +127,7 @@ export async function estadoDeAtencion(
   return {
     agentPaused: await humanoAtiendeLaConversacion(conversation),
     replyWindowEndsAt: finDeLaVentanaDeWhatsapp(ultimoEntrante?.createdAt ?? null),
+    humanRequestUnanswered: await pedidoSinResponderDelHilo(conversation),
   };
 }
 

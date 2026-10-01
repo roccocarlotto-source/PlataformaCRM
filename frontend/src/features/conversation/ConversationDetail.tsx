@@ -11,7 +11,12 @@ import { formatDateTime } from "../../design-system/detailFormat";
 import { CHANNEL_LABEL } from "../agent/labels";
 import { ConversationBriefCard } from "./ConversationBriefCard";
 import { ConversationReplyCard } from "./ConversationReplyCard";
-import { DELIVERY_STATUS_LABEL, STATUS_BADGE_VARIANT, STATUS_LABEL } from "./labels";
+import {
+  DELIVERY_STATUS_LABEL,
+  MARCA_SIN_RESPUESTA,
+  STATUS_BADGE_VARIANT,
+  STATUS_LABEL,
+} from "./labels";
 import { useCloseConversation, useRetryConversationMessage } from "./mutations";
 import { puedeAtender } from "./permissions";
 import { useConversation } from "./queries";
@@ -214,9 +219,17 @@ export function ConversationDetail({ id: idDelProp }: ConversationDetailProps = 
         {
           label: "Estado",
           value: (
-            <Badge variant={STATUS_BADGE_VARIANT[conversation.status]}>
-              {STATUS_LABEL[conversation.status]}
-            </Badge>
+            <>
+              <Badge variant={STATUS_BADGE_VARIANT[conversation.status]}>
+                {STATUS_LABEL[conversation.status]}
+              </Badge>
+              {conversation.humanRequestUnanswered ? (
+                <>
+                  {" "}
+                  <Badge variant="danger">{MARCA_SIN_RESPUESTA}</Badge>
+                </>
+              ) : null}
+            </>
           ),
         },
         { label: "Sucursal", value: conversation.branch.name },

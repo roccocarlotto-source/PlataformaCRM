@@ -23,6 +23,9 @@ export interface CreateMessageData {
   externalMessageId?: string;
   // F1: el WhatsApp de una automatización se registra ya enviado (SENT).
   deliveryStatus?: MessageDeliveryStatus;
+  // El aviso de "Devolver al agente" que no se pudo mandar nace FAILED con su
+  // motivo (avisoSinRespuesta.service.ts).
+  deliveryError?: string;
 }
 
 export function createMessage(data: CreateMessageData, db: Db = prisma) {

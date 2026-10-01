@@ -416,4 +416,32 @@ describe("ConversationListPage", () => {
       "Falló la consulta",
     );
   });
+
+  it("una conversación devuelta sin respuesta lleva la marca en la columna de estado", async () => {
+    server.use(
+      ...mockFiltros(),
+      http.get(baseUrl, () =>
+        HttpResponse.json(
+          listResponse({
+            data: [
+              makeConversation({ id: "c1", humanRequestUnanswered: true }),
+              makeConversation({
+                id: "c2",
+                contact: { id: "ct2", firstName: "Bruno", lastName: "Gómez" },
+              }),
+            ],
+          }),
+        ),
+      ),
+    );
+
+    renderPage();
+
+    const conMarca = (await screen.findByText("Ana Pérez")).closest("tr");
+    expect(cellByHeader(conMarca, "Estado")).toHaveTextContent(
+      "Pidió hablar con una persona · sin responder",
+    );
+    const sinMarca = screen.getByText("Bruno Gómez").closest("tr");
+    expect(cellByHeader(sinMarca, "Estado")).not.toHaveTextContent("Pidió hablar");
+  });
 });

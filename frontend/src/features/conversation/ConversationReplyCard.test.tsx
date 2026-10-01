@@ -7,7 +7,11 @@ import { server } from "../../test/msw/server";
 import { env } from "../../config/env";
 import { makeConversationDetail } from "../../test/conversationFixtures";
 import type { AuthContextValue } from "../../auth/AuthContext";
-import { AVISO_VENTANA_VENCIDA, ConversationReplyCard } from "./ConversationReplyCard";
+import {
+  AVISO_VENTANA_VENCIDA,
+  CONFIRMAR_DEVOLVER_SIN_RESPONDER,
+  ConversationReplyCard,
+} from "./ConversationReplyCard";
 import type { ConversationDetail } from "./types";
 
 // Responder desde el CRM (I-03 de
@@ -170,5 +174,54 @@ describe("ConversationReplyCard", () => {
 
     expect(await screen.findByText(/No se pudo enviar: Pasaron más de 24 h/)).toBeInTheDocument();
     expect(cuadro).toHaveValue("Hola");
+  });
+
+  it("devolver sin haberle respondido pide confirmación en un modal, y cancelar no llama al backend", async () => {
+    let devoluciones = 0;
+    server.use(
+      http.post(`${baseUrl}/return-to-agent`, () => {
+        devoluciones++;
+        return HttpResponse.json(makeConversationDetail({ ...ABIERTA, status: "ACTIVE" }));
+      }),
+    );
+    const confirmNativo = vi.spyOn(window, "confirm");
+    const user = userEvent.setup();
+    // Derivada y con el agente sin pausar: nadie le escribió desde la derivación.
+    renderCard(
+      makeConversationDetail({ ...ABIERTA, status: "TRANSFERRED_TO_HUMAN", agentPaused: false }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Devolver al agente" }));
+    const modal = screen.getByRole("dialog", { name: "Devolver al agente" });
+    expect(modal).toHaveTextContent(CONFIRMAR_DEVOLVER_SIN_RESPONDER);
+    expect(confirmNativo).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(devoluciones).toBe(0);
+
+    await user.click(screen.getByRole("button", { name: "Devolver al agente" }));
+    await user.click(screen.getByRole("button", { name: "Devolver igual" }));
+    await waitFor(() => expect(devoluciones).toBe(1));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    confirmNativo.mockRestore();
+  });
+
+  it("si una persona ya le respondió, devolver no pregunta nada", async () => {
+    let devuelta = false;
+    server.use(
+      http.post(`${baseUrl}/return-to-agent`, () => {
+        devuelta = true;
+        return HttpResponse.json(makeConversationDetail({ ...ABIERTA, status: "ACTIVE" }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderCard(
+      makeConversationDetail({ ...ABIERTA, status: "TRANSFERRED_TO_HUMAN", agentPaused: true }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Devolver al agente" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(devuelta).toBe(true));
   });
 });

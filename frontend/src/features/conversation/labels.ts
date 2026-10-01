@@ -53,3 +53,9 @@ export const DELIVERY_STATUS_LABEL: Record<MessageDeliveryStatus, string> = {
   READ: "Leído",
   FAILED: "No entregado",
 };
+
+// La marca de una conversación que se le devolvió al agente sin que nadie le
+// respondiera al cliente (humanRequestUnanswered). En danger y no en info: a
+// diferencia de "Derivada", esto sí es algo pendiente que alguien tiene que
+// resolver. La misma en la bandeja y en el detalle.
+export const MARCA_SIN_RESPUESTA = "Pidió hablar con una persona · sin responder";

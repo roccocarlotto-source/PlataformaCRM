@@ -12,7 +12,7 @@ import { AGENTS_PARA_SELECT, useAgents } from "../agent/queries";
 import { CHANNEL_LABEL, CHANNEL_OPTIONS } from "../agent/labels";
 import { BranchSelect } from "../branch/BranchSelect";
 import { ConversationDetail } from "./ConversationDetail";
-import { STATUS_BADGE_VARIANT, STATUS_LABEL, STATUS_OPTIONS } from "./labels";
+import { MARCA_SIN_RESPUESTA, STATUS_BADGE_VARIANT, STATUS_LABEL, STATUS_OPTIONS } from "./labels";
 import { useConversations } from "./queries";
 import type { ConversationChannel, ConversationStatus } from "./types";
 
@@ -210,6 +210,12 @@ export function ConversationListPage() {
                     <Badge variant={STATUS_BADGE_VARIANT[conversation.status]}>
                       {STATUS_LABEL[conversation.status]}
                     </Badge>
+                    {conversation.humanRequestUnanswered ? (
+                      <>
+                        {" "}
+                        <Badge variant="danger">{MARCA_SIN_RESPUESTA}</Badge>
+                      </>
+                    ) : null}
                   </td>
                   <td
                     className="ds-cell-truncate ds-cell-truncate-sm"
