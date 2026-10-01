@@ -36,8 +36,7 @@ import {
 import { findVehicleById } from "../repositories/vehicle.repository";
 import { AppError } from "../utils/AppError";
 import { enParalelo } from "../utils/enParalelo";
-import { lastMonthsUTC, monthWindowUTC } from "../utils/utcMonth";
-import { dayWindowUTC, lastDaysUTC, lastWeeksUTC, weekWindowUTC } from "../utils/utcWindow";
+import { lastPeriodsInZone, periodWindowInZone, type ZonedWindow } from "../utils/zonedWindow";
 import { TRIGGER_OPPORTUNITY_WON } from "./automationTriggers";
 import {
   createDeliveryForSoldVehicle,
@@ -844,8 +843,9 @@ export async function deleteOpportunity(organizationId: string, actorUserId: str
 // ventana que pide `granularity`, una por cada una de las tres cards que
 // quedaron. El par siempre-mensual se fue con su único consumidor.
 //
-// Los límites de las ventanas son UTC (ver utils/utcMonth.ts por qué). `now`
-// y `db` son inyectables para probar los bordes sin depender del reloj ni de
+// Los límites de las ventanas se cortan en la zona de la organización
+// (Organization.timezone), la misma con la que se graba la fecha de cierre
+// (ver utils/zonedWindow.ts y T-01). `now` y `db` son inyectables para probar los bordes sin depender del reloj ni de
 // una base (opportunity.service.test.ts); el default es el camino real.
 // `granularity` NO tiene default a propósito: quien llama siempre sabe cuál
 // quiere, y un default acá escondería un bug — el mismo criterio que el
@@ -898,30 +898,32 @@ function serializeAmount(sum: Prisma.Decimal | null): string {
   return sum === null ? "0.00" : sum.toFixed(2);
 }
 
-function inWindow(window: { start: Date; end: Date }) {
+// createdAt es un timestamp: se compara contra los instantes de la ventana.
+function createdInWindow(window: ZonedWindow) {
   return { gte: window.start, lt: window.end };
 }
 
-// La ventana "en curso" (offset 0) o "anterior" (offset -1) de la granularidad
-// pedida. Es el único lugar donde el resumen elige entre mes, semana y día:
-// las tres funciones ya existían desde el §33 y devuelven el mismo
-// {start, end}, así que acá no se calcula ninguna fecha nueva.
-function periodWindow(
-  granularity: RevenueGranularity,
-  now: Date,
-  offset: number,
-): { start: Date; end: Date } {
-  if (granularity === "month") return monthWindowUTC(now, offset);
-  return granularity === "week" ? weekWindowUTC(now, offset) : dayWindowUTC(now, offset);
+// actualCloseDate es @db.Date: se compara contra las fechas calendario de la
+// misma ventana (medianoche UTC de cada día, como la guarda Prisma). Con los
+// instantes, una venta cerrada el día 1 en Buenos Aires (guardada 00:00Z)
+// quedaría antes del borde (03:00Z) y caería en el período anterior.
+function closedInWindow(window: ZonedWindow) {
+  return { gte: window.startDate, lt: window.endDate };
 }
 
-// La moneda en la que se reportan TODOS los agregados de la organización.
-// Compartida por el resumen y por la serie de ingresos (§33) para que las dos
-// respondan lo mismo: la preferida de la organización, o USD si no configuró
-// ninguna.
-async function resolveReportingCurrency(organizationId: string, db: Db): Promise<string> {
+// Lo que la organización define para reportar: la moneda de TODOS los
+// agregados (la preferida, o USD si no configuró ninguna) y la zona en la que
+// se cortan las ventanas. Compartido por el resumen y por la serie de ingresos
+// (§33) para que las dos respondan lo mismo, con una sola lectura.
+async function resolveReportingContext(
+  organizationId: string,
+  db: Db,
+): Promise<{ currency: string; timezone: string }> {
   const organization = await findOrganizationById(organizationId, db);
-  return organization?.preferredCurrency ?? DASHBOARD_DEFAULT_CURRENCY;
+  return {
+    currency: organization?.preferredCurrency ?? DASHBOARD_DEFAULT_CURRENCY,
+    timezone: organization?.timezone ?? "UTC",
+  };
 }
 
 export async function getDashboardSummary(
@@ -932,10 +934,10 @@ export async function getDashboardSummary(
     db = prisma,
   }: { granularity: RevenueGranularity; now?: Date; db?: Db },
 ): Promise<DashboardSummary> {
-  const currency = await resolveReportingCurrency(organizationId, db);
+  const { currency, timezone } = await resolveReportingContext(organizationId, db);
 
-  const thisPeriod = periodWindow(granularity, now, 0);
-  const lastPeriod = periodWindow(granularity, now, -1);
+  const thisPeriod = periodWindowInZone(granularity, now, timezone, 0);
+  const lastPeriod = periodWindowInZone(granularity, now, timezone, -1);
 
   const count = (where: OpportunityAggregateWhere) =>
     countOpportunitiesWhere(organizationId, where, db);
@@ -963,16 +965,16 @@ export async function getDashboardSummary(
   ] = await Promise.all([
     count({ status: "OPEN" }),
     sum({ status: "OPEN" }),
-    count({ createdAt: inWindow(thisPeriod) }),
-    sum({ createdAt: inWindow(thisPeriod) }),
-    count({ createdAt: inWindow(lastPeriod) }),
-    sum({ createdAt: inWindow(lastPeriod) }),
-    count({ status: "WON", actualCloseDate: inWindow(thisPeriod) }),
-    sum({ status: "WON", actualCloseDate: inWindow(thisPeriod) }),
-    count({ status: "WON", actualCloseDate: inWindow(lastPeriod) }),
-    sum({ status: "WON", actualCloseDate: inWindow(lastPeriod) }),
-    count({ status: "LOST", actualCloseDate: inWindow(thisPeriod) }),
-    count({ status: "LOST", actualCloseDate: inWindow(lastPeriod) }),
+    count({ createdAt: createdInWindow(thisPeriod) }),
+    sum({ createdAt: createdInWindow(thisPeriod) }),
+    count({ createdAt: createdInWindow(lastPeriod) }),
+    sum({ createdAt: createdInWindow(lastPeriod) }),
+    count({ status: "WON", actualCloseDate: closedInWindow(thisPeriod) }),
+    sum({ status: "WON", actualCloseDate: closedInWindow(thisPeriod) }),
+    count({ status: "WON", actualCloseDate: closedInWindow(lastPeriod) }),
+    sum({ status: "WON", actualCloseDate: closedInWindow(lastPeriod) }),
+    count({ status: "LOST", actualCloseDate: closedInWindow(thisPeriod) }),
+    count({ status: "LOST", actualCloseDate: closedInWindow(lastPeriod) }),
   ]);
 
   return {
@@ -1002,12 +1004,13 @@ export async function getDashboardSummary(
 // los dos reciben la MISMA granularidad, una serie de N buckets y un puñado de
 // agregados de dos ventanas son dos respuestas de tamaño y de ritmo distintos,
 // y el frontend las cachea por separado. Los dos comparten el patrón (una
-// ventana por bucket, un SUM por ventana en paralelo) y la moneda de reporte
-// (resolveReportingCurrency), no el request.
+// ventana por bucket, un SUM por ventana en paralelo), la moneda de reporte y
+// la zona de las ventanas (resolveReportingContext), no el request.
 //
-// El último bucket de cualquier granularidad es SIEMPRE el período en curso,
-// sin cerrar — lastMonthsUTC/lastWeeksUTC/lastDaysUTC comparten ese contrato,
-// y es lo que habilita al frontend a dibujar el último tramo punteado.
+// El último bucket de cualquier granularidad es SIEMPRE el período en curso
+// en la zona de la organización, sin cerrar — es el contrato de
+// lastPeriodsInZone, y lo que habilita al frontend a dibujar el último tramo
+// punteado.
 // ---------------------------------------------------------------------------
 
 // Cuántos buckets trae cada granularidad: 6 meses (los del §30, cuando el
@@ -1028,29 +1031,18 @@ export interface RevenueSeries {
   points: Array<{ label: string; value: string }>;
 }
 
-function revenueWindows(
-  granularity: RevenueGranularity,
-  now: Date,
-): Array<{ label: string; start: Date; end: Date }> {
-  const count = REVENUE_SERIES_BUCKET_COUNT[granularity];
-  if (granularity === "month") {
-    // lastMonthsUTC rotula con `month`; el resto ya rotula con `label`.
-    return lastMonthsUTC(now, count).map((window) => ({
-      label: window.month,
-      start: window.start,
-      end: window.end,
-    }));
-  }
-  return granularity === "week" ? lastWeeksUTC(now, count) : lastDaysUTC(now, count);
-}
-
 export async function getRevenueSeries(
   organizationId: string,
   granularity: RevenueGranularity,
   { now = new Date(), db = prisma }: { now?: Date; db?: Db } = {},
 ): Promise<RevenueSeries> {
-  const currency = await resolveReportingCurrency(organizationId, db);
-  const windows = revenueWindows(granularity, now);
+  const { currency, timezone } = await resolveReportingContext(organizationId, db);
+  const windows = lastPeriodsInZone(
+    granularity,
+    now,
+    timezone,
+    REVENUE_SERIES_BUCKET_COUNT[granularity],
+  );
 
   // El mismo patrón que el resumen: N consultas independientes, una por
   // ventana, todas en paralelo.
@@ -1058,7 +1050,7 @@ export async function getRevenueSeries(
     windows.map((window) =>
       sumOpportunityAmount(
         organizationId,
-        { status: "WON", actualCloseDate: inWindow(window), currency },
+        { status: "WON", actualCloseDate: closedInWindow(window), currency },
         db,
       ),
     ),

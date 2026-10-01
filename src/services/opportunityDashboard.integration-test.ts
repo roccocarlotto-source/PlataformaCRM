@@ -195,8 +195,8 @@ test("resumen end to end: conteos, montos en la moneda de la organización y ven
 
 // §35: el mismo escenario visto en semanal. AHORA (15/3/2026) es DOMINGO, así
 // que la semana en curso va del lunes 9 al lunes 16 y la anterior del 2 al 9.
-// Lo que se verifica contra Postgres real es que las ventanas de utcWindow.ts
-// recorten igual que en la base en memoria de opportunity.service.test.ts.
+// Lo que se verifica contra Postgres real es que las ventanas (acá en UTC,
+// la zona por defecto de la organización) recorten igual que en la base en memoria de opportunity.service.test.ts.
 test("resumen end to end: en semanal las ventanas son lunes-a-domingo", async () => {
   const resumen = await getDashboardSummary(a.organizationId, { granularity: "week", now: AHORA });
 
@@ -237,5 +237,93 @@ test("aislamiento: la organización B no ve nada de A, y sin preferredCurrency s
     const otra = await getDashboardSummary(b.organizationId, { granularity, now: AHORA });
     assert.deepEqual(otra.wonThisPeriod, { count: 0, value: "0.00" }, `ganado en ${granularity}`);
     assert.deepEqual(otra.wonLastPeriod, { count: 0, value: "0.00" }, `anterior en ${granularity}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// T-01: las ventanas se cortan en la zona de la organización, contra Postgres
+// real. Lo que solo se puede probar acá es la mezcla de columnas: created_at es
+// timestamp (borde en instantes, 03:00Z en Buenos Aires) y actual_close_date es
+// date (borde en fechas calendario). El reloj queda fijo en cada borde: nada
+// depende de la hora en que corra el CI.
+// ---------------------------------------------------------------------------
+
+test("T-01: en Buenos Aires las ventanas de mes, semana y día se cortan a las 03:00Z, sobre timestamp y sobre date", async () => {
+  const c = await montar("dash-tz");
+  try {
+    await prisma.organization.update({
+      where: { id: c.organizationId },
+      data: { preferredCurrency: "UYU", timezone: "America/Argentina/Buenos_Aires" },
+    });
+    const contextoC = await contextoDe(c);
+    await Promise.all([
+      // Ganada el 30/9 (lo que graba el cierre el 1/10 a las 02:01Z).
+      insertar(c, contextoC, {
+        status: "WON",
+        amount: 500,
+        createdAt: "2026-08-10T15:00:00.000Z",
+        actualCloseDate: "2026-09-30T00:00:00.000Z",
+      }),
+      // Ganada el 1/10: guardada a las 00:00Z, antes del borde en instantes.
+      insertar(c, contextoC, {
+        status: "WON",
+        amount: 40,
+        createdAt: "2026-08-10T15:00:00.000Z",
+        actualCloseDate: "2026-10-01T00:00:00.000Z",
+      }),
+      // Creada el 30/9 a las 22:00 en Buenos Aires.
+      insertar(c, contextoC, { amount: 7, createdAt: "2026-10-01T01:00:00.000Z" }),
+      // Creada el 1/10 a las 00:30 en Buenos Aires.
+      insertar(c, contextoC, { amount: 9, createdAt: "2026-10-01T03:30:00.000Z" }),
+    ]);
+
+    // 1/10 a las 02:01Z: en Buenos Aires todavía es septiembre.
+    const borde = new Date("2026-10-01T02:01:00.000Z");
+    const septiembre = await getDashboardSummary(c.organizationId, {
+      granularity: "month",
+      now: borde,
+    });
+    assert.deepEqual(septiembre.wonThisPeriod, { count: 1, value: "500.00" }, "la del 30/9");
+    assert.deepEqual(septiembre.createdThisPeriod, { count: 1, value: "7.00" }, "la de las 22:00");
+
+    // 1/10 a las 03:00Z: ya es octubre; la del 30/9 pasa al mes anterior y la
+    // del 1/10 (00:00Z en la columna date) entra en octubre.
+    const octubre = await getDashboardSummary(c.organizationId, {
+      granularity: "month",
+      now: new Date("2026-10-01T03:00:00.000Z"),
+    });
+    assert.deepEqual(octubre.wonThisPeriod, { count: 1, value: "40.00" });
+    assert.deepEqual(octubre.wonLastPeriod, { count: 1, value: "500.00" });
+    // Octubre local arranca a las 03:00Z: la creada a las 03:30Z es de octubre
+    // (la ventana es el período entero, no "hasta ahora") y la de las 01:00Z
+    // es de septiembre.
+    assert.deepEqual(octubre.createdThisPeriod, { count: 1, value: "9.00" });
+    assert.deepEqual(octubre.createdLastPeriod, { count: 1, value: "7.00" });
+
+    // Día: a las 02:01Z "hoy" es el 30/9 y "ayer" el 29/9.
+    const dia = await getDashboardSummary(c.organizationId, { granularity: "day", now: borde });
+    assert.deepEqual(dia.wonThisPeriod, { count: 1, value: "500.00" });
+    assert.deepEqual(dia.createdThisPeriod, { count: 1, value: "7.00" });
+
+    // Semana: el lunes 5/10 a las 02:00Z sigue siendo la semana del 28/9, que
+    // contiene al 30/9 y al 1/10.
+    const semana = await getDashboardSummary(c.organizationId, {
+      granularity: "week",
+      now: new Date("2026-10-05T02:00:00.000Z"),
+    });
+    assert.deepEqual(semana.wonThisPeriod, { count: 2, value: "540.00" });
+    // Y a las 03:00Z ya es la semana del 5/10: las dos pasan a la anterior.
+    const semanaNueva = await getDashboardSummary(c.organizationId, {
+      granularity: "week",
+      now: new Date("2026-10-05T03:00:00.000Z"),
+    });
+    assert.deepEqual(semanaNueva.wonThisPeriod, { count: 0, value: "0.00" });
+    assert.deepEqual(semanaNueva.wonLastPeriod, { count: 2, value: "540.00" });
+  } finally {
+    await prisma.opportunity.deleteMany({ where: { organizationId: c.organizationId } });
+    await prisma.stage.deleteMany({ where: { organizationId: c.organizationId } });
+    await prisma.pipeline.deleteMany({ where: { organizationId: c.organizationId } });
+    await prisma.company.deleteMany({ where: { organizationId: c.organizationId } });
+    await desmontar(c);
   }
 });

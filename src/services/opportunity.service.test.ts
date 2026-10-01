@@ -121,7 +121,13 @@ function enVentana(valor: Date | null, ventana: Ventana | undefined): boolean {
   return true;
 }
 
-function baseEnMemoria(filas: FilaEnMemoria[], preferredCurrency: string | null) {
+// `timezone` sin pasar = la organización no trae zona y el service cae a UTC:
+// es lo que mantiene válidos, tal cual, los tests de bordes en UTC de abajo.
+function baseEnMemoria(
+  filas: FilaEnMemoria[],
+  preferredCurrency: string | null,
+  timezone?: string,
+) {
   const filtrar = (where: WhereEnMemoria) =>
     filas.filter(
       (fila) =>
@@ -134,7 +140,7 @@ function baseEnMemoria(filas: FilaEnMemoria[], preferredCurrency: string | null)
     );
   return {
     organization: {
-      findUnique: async () => ({ preferredCurrency }),
+      findUnique: async () => ({ preferredCurrency, timezone }),
     },
     opportunity: {
       count: async ({ where }: { where: WhereEnMemoria }) => filtrar(where).length,
@@ -508,4 +514,171 @@ test("getRevenueSeries: solo suma WON en la moneda de reporte, y sin preferredCu
 
   assert.equal(serie.currency, "USD");
   assert.deepEqual(serie.points[29], { label: "2026-03-15", value: "60.00" });
+});
+
+// ---------------------------------------------------------------------------
+// T-01: las ventanas se cortan en la zona de la organización, la misma con la
+// que hoyEnLaZona graba la fecha de cierre. El reloj queda fijo justo en cada
+// borde (00:00–03:00 UTC, cuando en Buenos Aires todavía es el día anterior),
+// así que estos tests no dependen de la hora a la que corra el CI — el rojo
+// del test de integración O2 el 1/10/2026 a las 02:01Z era exactamente esto.
+// ---------------------------------------------------------------------------
+
+const BA = "America/Argentina/Buenos_Aires";
+
+test("T-01 mes: el 1/10 a las 02:01Z una venta cerrada 'hoy' en Buenos Aires (30/9) cuenta en este mes", async () => {
+  const ahora = new Date("2026-10-01T02:01:00.000Z");
+  const db = baseEnMemoria(
+    [
+      // Lo que graba el cierre a esta hora: hoyEnLaZona(BA) = 2026-09-30.
+      fila({
+        status: "WON",
+        createdAt: dia("2026-08-10T15:00:00.000Z"),
+        actualCloseDate: dia("2026-09-30T00:00:00.000Z"),
+        amount: new Prisma.Decimal(500),
+      }),
+      // Creada hace un rato: 30/9 a las 22:00 en Buenos Aires.
+      fila({ createdAt: dia("2026-10-01T01:00:00.000Z"), amount: new Prisma.Decimal(7) }),
+      // Creada el 1/9 a las 02:00Z = 31/8 23:00 en Buenos Aires: mes anterior.
+      fila({ createdAt: dia("2026-09-01T02:00:00.000Z"), amount: new Prisma.Decimal(11) }),
+      // Cerrada el 31/8: mes anterior.
+      fila({
+        status: "LOST",
+        createdAt: dia("2026-08-10T15:00:00.000Z"),
+        actualCloseDate: dia("2026-08-31T00:00:00.000Z"),
+      }),
+    ],
+    "UYU",
+    BA,
+  );
+  const resumen = await getDashboardSummary(ORG, { granularity: "month", now: ahora, db });
+
+  assert.deepEqual(resumen.wonThisPeriod, { count: 1, value: "500.00" });
+  assert.deepEqual(resumen.createdThisPeriod, { count: 1, value: "7.00" });
+  // Agosto local: la del 31/8 23:00 (11) más la ganada y la perdida, que se
+  // crearon el 10/8 (500 + 100).
+  assert.deepEqual(resumen.createdLastPeriod, { count: 3, value: "611.00" });
+  assert.equal(resumen.lostCountLastPeriod, 1);
+  assert.equal(resumen.lostCountThisPeriod, 0);
+});
+
+test("T-01 mes: a las 03:00Z ya es octubre en Buenos Aires, y la venta del 30/9 pasa al mes anterior", async () => {
+  const db = baseEnMemoria(
+    [
+      fila({
+        status: "WON",
+        createdAt: dia("2026-08-10T15:00:00.000Z"),
+        actualCloseDate: dia("2026-09-30T00:00:00.000Z"),
+        amount: new Prisma.Decimal(500),
+      }),
+      // Cerrada el 1/10 (el día 1 se guarda a las 00:00Z, ANTES del borde en
+      // instantes de las 03:00Z): tiene que contar en octubre igual.
+      fila({
+        status: "WON",
+        createdAt: dia("2026-08-10T15:00:00.000Z"),
+        actualCloseDate: dia("2026-10-01T00:00:00.000Z"),
+        amount: new Prisma.Decimal(40),
+      }),
+    ],
+    "UYU",
+    BA,
+  );
+  const resumen = await getDashboardSummary(ORG, {
+    granularity: "month",
+    now: new Date("2026-10-01T03:00:00.000Z"),
+    db,
+  });
+
+  assert.deepEqual(resumen.wonThisPeriod, { count: 1, value: "40.00" });
+  assert.deepEqual(resumen.wonLastPeriod, { count: 1, value: "500.00" });
+});
+
+test("T-01 semana: el lunes 5/10 a las 02:00Z sigue siendo la semana del 28/9 en Buenos Aires", async () => {
+  const ahora = new Date("2026-10-05T02:00:00.000Z");
+  const db = baseEnMemoria(
+    [
+      // Cerrada el domingo 4/10 (hoy, en Buenos Aires): semana en curso.
+      fila({
+        status: "WON",
+        createdAt: dia("2026-08-10T15:00:00.000Z"),
+        actualCloseDate: dia("2026-10-04T00:00:00.000Z"),
+        amount: new Prisma.Decimal(300),
+      }),
+      // Cerrada el domingo 27/9: semana anterior.
+      fila({
+        status: "LOST",
+        createdAt: dia("2026-08-10T15:00:00.000Z"),
+        actualCloseDate: dia("2026-09-27T00:00:00.000Z"),
+      }),
+      // Creada el 28/9 a las 02:00Z = domingo 27/9 23:00 local: semana anterior.
+      fila({ createdAt: dia("2026-09-28T02:00:00.000Z"), amount: new Prisma.Decimal(5) }),
+      // Creada el 28/9 a las 03:00Z = lunes 28/9 00:00 local: semana en curso.
+      fila({ createdAt: dia("2026-09-28T03:00:00.000Z"), amount: new Prisma.Decimal(9) }),
+    ],
+    "UYU",
+    BA,
+  );
+  const resumen = await getDashboardSummary(ORG, { granularity: "week", now: ahora, db });
+
+  assert.deepEqual(resumen.wonThisPeriod, { count: 1, value: "300.00" });
+  assert.equal(resumen.lostCountLastPeriod, 1);
+  assert.equal(resumen.lostCountThisPeriod, 0);
+  assert.deepEqual(resumen.createdThisPeriod, { count: 1, value: "9.00" });
+  assert.deepEqual(resumen.createdLastPeriod, { count: 1, value: "5.00" });
+});
+
+test("T-01 día: el 1/10 a las 02:00Z 'hoy' es el 30/9 y 'ayer' el 29/9 en Buenos Aires", async () => {
+  const ahora = new Date("2026-10-01T02:00:00.000Z");
+  const db = baseEnMemoria(
+    [
+      fila({
+        status: "WON",
+        createdAt: dia("2026-08-10T15:00:00.000Z"),
+        actualCloseDate: dia("2026-09-30T00:00:00.000Z"),
+        amount: new Prisma.Decimal(100),
+      }),
+      fila({
+        status: "LOST",
+        createdAt: dia("2026-08-10T15:00:00.000Z"),
+        actualCloseDate: dia("2026-09-29T00:00:00.000Z"),
+      }),
+      // 30/9 a las 21:00 local: hoy.
+      fila({ createdAt: dia("2026-10-01T00:00:00.000Z"), amount: new Prisma.Decimal(3) }),
+      // 30/9 a las 02:00Z = 29/9 23:00 local: ayer.
+      fila({ createdAt: dia("2026-09-30T02:00:00.000Z"), amount: new Prisma.Decimal(5) }),
+    ],
+    "UYU",
+    BA,
+  );
+  const resumen = await getDashboardSummary(ORG, { granularity: "day", now: ahora, db });
+
+  assert.deepEqual(resumen.wonThisPeriod, { count: 1, value: "100.00" });
+  assert.equal(resumen.lostCountLastPeriod, 1);
+  assert.deepEqual(resumen.createdThisPeriod, { count: 1, value: "3.00" });
+  assert.deepEqual(resumen.createdLastPeriod, { count: 1, value: "5.00" });
+});
+
+test("T-01 serie: en el borde el último bucket es el período en curso EN LA ZONA, con la venta de hoy adentro", async () => {
+  const ahora = new Date("2026-10-01T02:01:00.000Z");
+  const db = baseEnMemoria(
+    [
+      fila({
+        status: "WON",
+        createdAt: dia("2026-08-10T15:00:00.000Z"),
+        actualCloseDate: dia("2026-09-30T00:00:00.000Z"),
+        amount: new Prisma.Decimal(500),
+      }),
+    ],
+    "UYU",
+    BA,
+  );
+
+  const meses = await getRevenueSeries(ORG, "month", { now: ahora, db });
+  assert.deepEqual(meses.points.at(-1), { label: "2026-09", value: "500.00" });
+
+  const semanas = await getRevenueSeries(ORG, "week", { now: ahora, db });
+  assert.deepEqual(semanas.points.at(-1), { label: "2026-09-28", value: "500.00" });
+
+  const dias = await getRevenueSeries(ORG, "day", { now: ahora, db });
+  assert.deepEqual(dias.points.at(-1), { label: "2026-09-30", value: "500.00" });
 });

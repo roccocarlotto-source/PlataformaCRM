@@ -128,11 +128,30 @@ test("solo el estado (el camino del agente): la oportunidad se mueve a la etapa 
   assert.equal(reabierta.lostReason, null);
 });
 
+// El reloj del dashboard queda FIJO en el día que el cierre grabó (al mediodía
+// de ese día en la zona), no en la hora real: así el test no depende de cuándo
+// corra el CI. Con `now` real se rompía entre las 00:00 y las 03:00 UTC del día
+// 1 (T-01), cuando el cierre ya fechaba el último día del mes en Montevideo y
+// el dashboard, en UTC, miraba el mes siguiente. Los bordes exactos los fijan
+// opportunity.service.test.ts y opportunityDashboard.integration-test.ts.
 test("O2: una venta ganada sin fecha ya cuenta en el dashboard", async () => {
-  const antes = await getDashboardSummary(e.organizationId, { granularity: "month" });
-  await oportunidad({ stageId: ganado, status: "WON", amount: 500, currency: "USD" });
-  const despues = await getDashboardSummary(e.organizationId, { granularity: "month" });
-  assert.equal(despues.wonThisPeriod.count, antes.wonThisPeriod.count + 1);
+  const ganada = await oportunidad({
+    stageId: ganado,
+    status: "WON",
+    amount: 500,
+    currency: "USD",
+  });
+  assert.ok(ganada.actualCloseDate, "el cierre completa la fecha");
+  // actualCloseDate es la medianoche UTC del día local; +15 h es el mediodía
+  // de ese mismo día en Montevideo (UTC-3).
+  const now = new Date(ganada.actualCloseDate.getTime() + 15 * 60 * 60 * 1000);
+
+  const conLaNueva = await getDashboardSummary(e.organizationId, { granularity: "month", now });
+  // Mismo reloj, sin la nueva (borrada): la diferencia es exactamente ella,
+  // sin importar cuántas ganadas dejaron los otros tests de este archivo.
+  await prisma.opportunity.update({ where: { id: ganada.id }, data: { deletedAt: new Date() } });
+  const sinLaNueva = await getDashboardSummary(e.organizationId, { granularity: "month", now });
+  assert.equal(conLaNueva.wonThisPeriod.count, sinLaNueva.wonThisPeriod.count + 1);
 });
 
 test("una fila en drift de antes de la regla se guarda igual si no se toca estado ni etapa (§50)", async () => {
