@@ -1825,6 +1825,140 @@ fieldset.ds-field {
   flex: 1 1 auto;
   min-width: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* En columna para que una página de alto completo (.ds-page-fill) pueda
+   ocupar justo el alto disponible debajo de la barra superior. El ancho
+   explícito porque el margin auto de `main` (global.css) en un flex en
+   columna lo encogería al ancho de su contenido. */
+.ds-shell-body > main {
+  flex: 1 0 auto;
+  width: 100%;
+}
+
+/* Página de alto completo — el chat del agente interno: el hilo tiene su
+   propio scroll y el formulario queda siempre abajo, en vez de scrollear la
+   página entera. `main` deja de crecer con el contenido y se queda con el
+   alto que le da el shell. */
+.ds-shell-body > main:has(> .ds-page-fill) {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ds-page-fill {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Barra superior y fondo del menú: solo existen en el celular (bloque de
+   abajo). */
+.ds-topbar,
+.ds-sidebar-backdrop {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   AppLayout en el celular. Breakpoint único del shell: 768px — por debajo, la
+   sidebar de 248px no entra al lado del contenido (en 390px le dejaba ~140px).
+   Las custom properties no se pueden usar dentro de un @media, así que el
+   número vive acá y en ningún otro lado.
+
+   La sidebar pasa a ser un panel fijo que entra desde la izquierda, abierto
+   desde la hamburguesa de .ds-topbar. Cerrada queda con visibility: hidden,
+   que la saca del orden de tabulación y del árbol de accesibilidad sin
+   desmontarla (y sin JS que mida el ancho): en escritorio el estado de
+   AppLayout no cambia nada.
+   --------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .ds-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 90;
+    width: min(85vw, 300px);
+    box-shadow: var(--shadow-overlay);
+    transform: translateX(-100%);
+    visibility: hidden;
+  }
+
+  .ds-shell.is-nav-open .ds-sidebar {
+    transform: none;
+    visibility: visible;
+  }
+
+  /* Mismo tono que el overlay de .ds-modal-overlay. */
+  .ds-shell.is-nav-open .ds-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 89;
+    background: rgba(27, 27, 24, 0.32);
+  }
+
+  .ds-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 56px;
+    padding: 0 var(--space-3);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .ds-topbar-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-height);
+    height: var(--control-height);
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-text);
+    cursor: pointer;
+  }
+
+  .ds-topbar-menu:hover {
+    background: var(--color-surface-muted);
+  }
+
+  .ds-topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-text) !important;
+    text-decoration: none;
+  }
+
+  .ds-shell-body > main {
+    padding: var(--space-4) var(--space-4) var(--space-5);
+  }
+}
+
+@media (max-width: 767px) and (prefers-reduced-motion: no-preference) {
+  /* visibility con retardo al cerrar, para que el panel termine de salir
+     antes de esconderse. */
+  .ds-sidebar {
+    transition:
+      transform 200ms ease,
+      visibility 0s linear 200ms;
+  }
+
+  .ds-shell.is-nav-open .ds-sidebar {
+    transition:
+      transform 200ms ease,
+      visibility 0s;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -4322,70 +4456,29 @@ a.ds-button--secondary:hover {
   color: var(--color-danger);
 }
 
-/* Pantalla mobile standalone (MobileScreen.tsx): las que viven FUERA de
-   .ds-shell para poder usarse desde un teléfono (la sidebar no colapsa) — el
-   chat del agente interno (ítem 180) y el escáner de cupones (ítem 178). Una
-   columna a pantalla completa con un encabezado chico ("‹ Volver", título,
-   tema). 100dvh y no 100vh: en el celular el vh no descuenta la barra del
-   navegador y lo de abajo quedaría tapado. Nacieron como .ds-internal-chat-*
-   en el 180 y se generalizaron en el 178. */
-.ds-mobile-screen {
-  display: flex;
-  flex-direction: column;
-  height: 100dvh;
-  background: var(--color-bg);
+/* Chat del agente interno (ítem 180): página de alto completo
+   (.ds-page-fill) dentro del shell. El hilo es .ds-chat* tal cual, con su
+   caja; acá solo se le saca el alto máximo para que ocupe el alto disponible,
+   y el formulario queda debajo. Ancho acotado como un formulario: en una
+   compu un chat a todo el ancho se lee mal. */
+.ds-internal-chat {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
 }
 
-.ds-mobile-screen-header {
+.ds-internal-chat-title {
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
-}
-
-.ds-mobile-screen-back {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.ds-mobile-screen-title {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-size: var(--font-size-lg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* El ThemeToggle reparte sus botones a lo ancho de su contenedor (pensado
-   para el pie de la sidebar); en el encabezado va con un ancho fijo. */
-.ds-mobile-screen-header .ds-theme-toggle {
-  flex: 0 0 auto;
-  width: 6.5rem;
-}
-
-/* El cuerpo cuando no hay contenido propio que mostrar (cargando, vacío,
-   error). */
-.ds-mobile-screen-notice {
-  flex: 1;
-  padding: var(--space-4);
-}
-
-/* Chat del agente interno (ítem 180), adentro de .ds-mobile-screen: el hilo
-   con scroll propio y el formulario abajo de todo. Todo lo de adentro del
-   hilo es .ds-chat* tal cual; acá solo se le saca el alto máximo y la caja
-   para que ocupe el alto disponible. */
 .ds-internal-chat .ds-chat {
   flex: 1;
   min-height: 0;
   max-height: none;
   margin: 0;
-  border: 0;
-  border-radius: 0;
 }
 
 .ds-internal-chat .ds-chat-bubble {
@@ -4399,10 +4492,8 @@ a.ds-button--secondary:hover {
 
 .ds-internal-chat-form {
   flex-shrink: 0;
-  padding: var(--space-3) var(--space-4);
-  padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface);
+  margin-top: var(--space-3);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* 16px como mínimo: con menos, Safari de iPhone hace zoom al enfocar. */
@@ -4413,20 +4504,15 @@ a.ds-button--secondary:hover {
   resize: none;
 }
 
-/* Escáner de cupones (ítem 178), adentro de .ds-mobile-screen: una columna
-   con scroll propio y ancho acotado — en una compu no se estira a toda la
-   pantalla. La cámara va cuadrada (el QR es cuadrado) y en negro mientras
-   arranca. */
+/* Escáner de cupones (ítem 178): una columna de ancho acotado — en una compu
+   no se estira a toda la pantalla. La cámara va cuadrada (el QR es cuadrado)
+   y en negro mientras arranca. */
 .ds-voucher-scan {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  width: 100%;
   max-width: 32rem;
   margin: 0 auto;
-  box-sizing: border-box;
-  padding: var(--space-4);
-  padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+}
+
+.ds-voucher-scan-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);

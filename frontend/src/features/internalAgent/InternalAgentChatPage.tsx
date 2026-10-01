@@ -14,7 +14,6 @@ import { Button } from "../../design-system/Button";
 import { EmptyState } from "../../design-system/EmptyState";
 import { ErrorState } from "../../design-system/ErrorState";
 import { LoadingState } from "../../design-system/LoadingState";
-import { MobileScreen, MobileScreenNotice } from "../../design-system/MobileScreen";
 import { ApiError } from "../../lib/api";
 import { useSendInternalAgentMessage } from "./mutations";
 import { useInternalAgentMessages } from "./queries";
@@ -34,13 +33,10 @@ const TITULO_POR_DEFECTO = "Agente interno";
 // Chat con el agente de IA interno (ítem 180; backend en el 179), pensado para
 // usarse desde el celular.
 //
-// VIVE FUERA DE AppLayout, a propósito: el shell es una sidebar fija sin
-// ningún @media de layout, y en un teléfono no colapsa. Adaptar AppLayout a
-// mobile es una decisión aparte que no se toma acá; esta pantalla tiene su
-// propio layout de una columna a pantalla completa (MobileScreen, compartido
-// con el escáner de cupones del ítem 178) y "‹ Volver" para quien la abre
-// desde una compu. Sigue dentro de
-// ProtectedRoute (ver app/router.tsx).
+// Vive dentro de AppLayout (ver app/router.tsx), que en el celular pliega la
+// sidebar en un menú. Es una página de alto completo (.ds-page-fill): el hilo
+// scrollea adentro y el formulario queda siempre abajo, que es lo que importa
+// cuando se escribe desde el teléfono.
 //
 // Reusa .ds-chat* tal cual (probador y bandeja): el usuario a la derecha
 // (--contacto, que en CSS es "el lado de quien escribe"), el agente a la
@@ -69,6 +65,15 @@ function enOrdenCronologico(paginas: { data: InternalAgentMessage[] }[]): Intern
     }
   }
   return nuevosPrimero.reverse();
+}
+
+function ChatPage({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="ds-page-fill ds-internal-chat">
+      <h1 className="ds-internal-chat-title">{title}</h1>
+      {children}
+    </div>
+  );
 }
 
 export function InternalAgentChatPage() {
@@ -147,11 +152,9 @@ export function InternalAgentChatPage() {
 
   if (mensajesQuery.isLoading) {
     return (
-      <MobileScreen className="ds-internal-chat" title={TITULO_POR_DEFECTO}>
-        <MobileScreenNotice>
-          <LoadingState variant="lines" />
-        </MobileScreenNotice>
-      </MobileScreen>
+      <ChatPage title={TITULO_POR_DEFECTO}>
+        <LoadingState variant="lines" />
+      </ChatPage>
     );
   }
 
@@ -190,18 +193,14 @@ export function InternalAgentChatPage() {
         </ErrorState>
       );
     }
-    return (
-      <MobileScreen className="ds-internal-chat" title={TITULO_POR_DEFECTO}>
-        <MobileScreenNotice>{cuerpo}</MobileScreenNotice>
-      </MobileScreen>
-    );
+    return <ChatPage title={TITULO_POR_DEFECTO}>{cuerpo}</ChatPage>;
   }
 
   const agentName = mensajesQuery.data?.pages[0]?.agentName ?? TITULO_POR_DEFECTO;
   const vacio = mensajes.length === 0 && pendiente === null && errorDeEnvio === null;
 
   return (
-    <MobileScreen className="ds-internal-chat" title={agentName}>
+    <ChatPage title={agentName}>
       <ol ref={listaRef} className="ds-chat" aria-label="Conversación">
         {mensajesQuery.hasNextPage ? (
           <li className="ds-internal-chat-older">
@@ -280,6 +279,6 @@ export function InternalAgentChatPage() {
           {enviando ? "Enviando…" : "Enviar"}
         </Button>
       </form>
-    </MobileScreen>
+    </ChatPage>
   );
 }

@@ -554,6 +554,56 @@ describe("AppLayout — nav de platform admin (Fase 4a del módulo SaaS)", () =>
   });
 });
 
+describe("AppLayout — menú del celular", () => {
+  // jsdom no aplica el CSS: lo que se prueba es el estado (aria-expanded y la
+  // clase del shell que el @media usa para mostrar el panel), no el panel.
+  function menu() {
+    return screen.getByRole("button", { name: /menú$/ });
+  }
+
+  it("la hamburguesa abre el menú, pasa el foco al primer link y lo vuelve a cerrar", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    const { container } = renderLayout("/");
+
+    expect(menu()).toHaveAttribute("aria-expanded", "false");
+    await user.click(menu());
+
+    expect(menu()).toHaveAttribute("aria-expanded", "true");
+    expect(menu()).toHaveAccessibleName("Cerrar menú");
+    expect(container.querySelector(".ds-shell")).toHaveClass("is-nav-open");
+    expect(document.getElementById(menu().getAttribute("aria-controls") ?? "")).toContainElement(
+      document.activeElement as HTMLElement,
+    );
+
+    await user.click(menu());
+    expect(menu()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("navegar desde el menú lo cierra", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout("/");
+
+    await user.click(menu());
+    await user.click(screen.getByRole("link", { name: "Canjear cupón" }));
+
+    expect(menu()).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("Escape lo cierra y devuelve el foco a la hamburguesa", async () => {
+    const user = userEvent.setup();
+    useAuthMock.mockReturnValue(mockAuth("ADMIN"));
+    renderLayout("/");
+
+    await user.click(menu());
+    await user.keyboard("{Escape}");
+
+    expect(menu()).toHaveAttribute("aria-expanded", "false");
+    expect(menu()).toHaveFocus();
+  });
+});
+
 describe("AppLayout — link al escáner de cupones (ítem 178)", () => {
   it.each(["ADMIN", "USER"] as const)("un %s lo ve: el canje no restringe por rol", (role) => {
     useAuthMock.mockReturnValue(mockAuth(role));
